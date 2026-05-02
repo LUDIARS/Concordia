@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { applyMigrations } from "../src/db/schema.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
+import { TasksRepo } from "../src/db/tasks-repo.js";
+import { ChatRepo } from "../src/db/chat-repo.js";
+import { Dispatcher } from "../src/dispatcher.js";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/shared/config.js";
 
@@ -9,9 +12,13 @@ function buildTestApp() {
   const db = new Database(":memory:");
   applyMigrations(db);
   const repo = new SessionsRepo(db);
-  const cfg = loadConfig({}); // empty env
+  const tasks = new TasksRepo(db);
+  const chat = new ChatRepo(db);
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 }); // 確率発火しない
+  const cfg = loadConfig({});
   return buildApp({
-    repo, config: cfg, startedAt: new Date().toISOString(),
+    repo, tasks, chat, dispatcher, config: cfg,
+    startedAt: new Date().toISOString(),
     sweeperRunOnce: () => {},
   });
 }

@@ -3,9 +3,15 @@
  */
 
 import { Hono } from "hono";
+import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { generateReport } from "../report/generator.js";
+
+const AppendSchema = z.object({
+  role: z.string().min(1).max(64).optional(),
+  monologue: z.string().min(1).max(8000),
+});
 
 export interface ReportsApiDeps {
   repo: SessionsRepo;
@@ -45,6 +51,21 @@ export function reportsRouter(deps: ReportsApiDeps): Hono {
       summary_md: report.summary_md,
       bullets: safeParse(report.bullets),
     });
+  });
+
+  app.post("/:session_id/append", async (c) => {
+    const id = c.req.param("session_id");
+    const r = deps.repo.findReport(id);
+    if (!r) return c.json({ error: "report_not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = AppendSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+
+    const heading = parsed.data.role ? `## 今日の${parsed.data.role}より` : `## 感想`;
+    const sep = r.summary_md.endsWith("\n") ? "\n" : "\n\n";
+    const updated = `${r.summary_md}${sep}${heading}\n\n${parsed.data.monologue}\n`;
+    deps.repo.upsertReport({ ...r, summary_md: updated });
+    return c.json({ ok: true });
   });
 
   return app;

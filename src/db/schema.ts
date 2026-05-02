@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -51,6 +51,32 @@ const STATEMENTS = [
     duration_sec INTEGER NOT NULL,
     metadata     TEXT
   )`,
+
+  // ─── chat / tasks layer (v0.1) ──────────────────────
+  `CREATE TABLE IF NOT EXISTS chat_messages (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    channel       TEXT NOT NULL,
+    session_id    TEXT,
+    author_label  TEXT NOT NULL,
+    ts            INTEGER NOT NULL,
+    text          TEXT NOT NULL,
+    in_reply_to   INTEGER,
+    is_actionable INTEGER NOT NULL DEFAULT 0,
+    metadata      TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_channel_ts ON chat_messages(channel, ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_session    ON chat_messages(session_id, ts DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS pending_tasks (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    payload      TEXT NOT NULL,
+    created_at   INTEGER NOT NULL,
+    delivered_at INTEGER,
+    expires_at   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_tasks(session_id, delivered_at, expires_at)`,
 ];
 
 export function applyMigrations(db: Database.Database): void {

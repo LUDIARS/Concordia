@@ -111,6 +111,17 @@ export class SessionsRepo {
     this.db.prepare(`UPDATE sessions SET ${sets.join(", ")} WHERE id = ?`).run(...args);
   }
 
+  setMetadata(id: string, metadata: string | null): void {
+    this.db.prepare(`UPDATE sessions SET metadata = ? WHERE id = ?`).run(metadata, id);
+  }
+
+  countEvents(sessionId: string): number {
+    const r = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM session_events WHERE session_id = ?`)
+      .get(sessionId) as { n: number };
+    return r.n;
+  }
+
   setStatus(id: string, status: SessionStatus, ts: number, endedAt?: number): void {
     this.db
       .prepare(

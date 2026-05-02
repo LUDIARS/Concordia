@@ -8,6 +8,8 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import type { SessionsRepo } from "./db/sessions-repo.js";
+import type { TasksRepo } from "./db/tasks-repo.js";
+import type { Dispatcher } from "./dispatcher.js";
 import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 
@@ -15,6 +17,8 @@ const log = createChildLogger("sweeper");
 
 export interface SweeperOptions {
   repo: SessionsRepo;
+  tasks: TasksRepo;
+  dispatcher: Dispatcher;
   intervalMs: number;
   lostAfterSec: number;
   abandonedAfterSec: number;
@@ -54,6 +58,9 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
           payload: recovered,
         });
       }
+      // 他 active session に「離脱しました」通知
+      const lostNow = opts.repo.findSession(s.id)!;
+      opts.dispatcher.onSessionLost(lostNow);
       log.info(
         { session_id: s.id, last_seen_at: s.last_seen_at, recovered: !!recovered },
         "session marked lost",
@@ -72,6 +79,12 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     const purged = opts.repo.purgeEventsOlderThan(purgeCutoff);
     if (purged > 0) {
       log.info({ purged }, "old events purged");
+    }
+
+    // 4. expired pending_tasks を purge
+    const expired = opts.tasks.purgeExpired(now);
+    if (expired > 0) {
+      log.info({ expired }, "expired tasks purged");
     }
   }
 

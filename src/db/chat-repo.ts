@@ -1,0 +1,72 @@
+import type Database from "better-sqlite3";
+
+export type ChatChannel = "chitchat" | "consultation" | "system";
+
+export interface ChatMessageRow {
+  id: number;
+  channel: ChatChannel;
+  session_id: string | null;
+  author_label: string;
+  ts: number;
+  text: string;
+  in_reply_to: number | null;
+  is_actionable: number;
+  metadata: string | null;
+}
+
+export class ChatRepo {
+  constructor(private readonly db: Database.Database) {}
+
+  insert(input: {
+    channel: ChatChannel;
+    session_id: string | null;
+    author_label: string;
+    text: string;
+    in_reply_to: number | null;
+    is_actionable: boolean;
+    metadata?: string | null;
+  }): ChatMessageRow {
+    const ts = Math.floor(Date.now() / 1000);
+    const r = this.db
+      .prepare(
+        `INSERT INTO chat_messages(channel, session_id, author_label, ts, text, in_reply_to, is_actionable, metadata)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        input.channel,
+        input.session_id,
+        input.author_label,
+        ts,
+        input.text,
+        input.in_reply_to,
+        input.is_actionable ? 1 : 0,
+        input.metadata ?? null,
+      );
+    return this.findById(Number(r.lastInsertRowid))!;
+  }
+
+  findById(id: number): ChatMessageRow | null {
+    return (
+      (this.db
+        .prepare(`SELECT * FROM chat_messages WHERE id = ?`)
+        .get(id) as ChatMessageRow | undefined) ?? null
+    );
+  }
+
+  list(filter: {
+    channel?: ChatChannel;
+    since?: number;
+    limit?: number;
+  }): ChatMessageRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (filter.channel) { where.push("channel = ?"); args.push(filter.channel); }
+    if (filter.since !== undefined) { where.push("ts >= ?"); args.push(filter.since); }
+    const sql =
+      `SELECT * FROM chat_messages ` +
+      `${where.length ? "WHERE " + where.join(" AND ") : ""} ` +
+      `ORDER BY ts DESC LIMIT ?`;
+    args.push(filter.limit ?? 50);
+    return this.db.prepare(sql).all(...args) as ChatMessageRow[];
+  }
+}

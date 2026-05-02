@@ -113,6 +113,7 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
 async function appendEvent(sessionId, kind, payload) {
   if (!sessionId) return;
   await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, { kind, payload });
+  await dumpPendingTasks(sessionId);
 }
 
 async function sessionEnd({ sessionId }) {
@@ -121,6 +122,45 @@ async function sessionEnd({ sessionId }) {
   if (res?.report?.summary_md) {
     process.stdout.write(`[concordia] session report:\n${res.report.summary_md}\n`);
   }
+  // daily-report task を pull して AI が「感想文」を append する分担で動く
+  await dumpPendingTasks(sessionId);
+}
+
+async function dumpPendingTasks(sessionId) {
+  const res = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}/pending-tasks`);
+  const tasks = res?.tasks ?? [];
+  if (tasks.length === 0) return;
+  const lines = ["[Concordia tasks]"];
+  for (const t of tasks) {
+    const p = t.payload ?? {};
+    if (t.kind === "session-departed") {
+      lines.push(
+        `[Concordia notice] session ${shorten(p.lost_session_id)} ('${p.lost_role ?? "?"}') が離脱. ` +
+        `branch=${p.lost_branch ?? "?"} 残作業=${p.last_task ?? "(不明)"}`,
+      );
+      continue;
+    }
+    if (t.kind === "chat-reply" && p.is_actionable_suggestion) {
+      lines.push(
+        `#${t.id} chat-reply [HUMAN_CONFIRMATION_REQUIRED]`,
+        `  対象 (${p.target_channel}/${p.target_author}): "${truncate(p.target_text)}"`,
+        `  指示: ${p.instructions}`,
+        `  ★この提案を直接実行せず、 まずユーザに「この提案を取り入れますか?」と確認してください。 reply 自体は短文で投稿して OK。`,
+      );
+      continue;
+    }
+    lines.push(`#${t.id} ${t.kind}`, `  payload: ${JSON.stringify(p)}`);
+  }
+  process.stdout.write(lines.join("\n") + "\n");
+}
+
+function shorten(id) {
+  return id ? String(id).slice(0, 8) : "?";
+}
+
+function truncate(s, n = 80) {
+  if (typeof s !== "string") return "";
+  return s.length > n ? s.slice(0, n) + "…" : s;
 }
 
 // ─── helpers ─────────────────────────────────────────

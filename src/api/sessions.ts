@@ -4,11 +4,12 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
-import { randomUUID } from "node:crypto";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js";
-import { generateReport } from "../report/generator.js";
+import type { Dispatcher } from "../dispatcher.js";
+import { aggregateBullets, generateReport } from "../report/generator.js";
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -34,7 +35,9 @@ const EventSchema = z.object({
 
 export interface SessionsApiDeps {
   repo: SessionsRepo;
+  tasks: TasksRepo;
   config: ConcordiaConfig;
+  dispatcher: Dispatcher;
 }
 
 export function sessionsRouter(deps: SessionsApiDeps): Hono {
@@ -146,6 +149,22 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // GET /v1/sessions/:id/pending-tasks  — hook が pull
+  app.get("/:id/pending-tasks", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const list = deps.tasks.pull(id, 20);
+    return c.json({
+      tasks: list.map((t) => ({
+        id: t.id,
+        kind: t.kind,
+        payload: safeParse(t.payload),
+        created_at: t.created_at,
+        delivered_at: t.delivered_at,
+      })),
+    });
+  });
+
   // POST /v1/sessions/:id/event
   app.post("/:id/event", async (c) => {
     const id = c.req.param("id");
@@ -161,6 +180,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       payload: parsed.data.payload ?? {},
     });
     deps.repo.updateHeartbeat(id, ts);
+    const session = deps.repo.findSession(id)!;
+    const eventCount = deps.repo.countEvents(id);
+    deps.dispatcher.onEventAppended(session, eventCount);
     return c.json({ ok: true });
   });
 
@@ -217,6 +239,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       model: deps.config.reportModel,
     });
     deps.repo.upsertReport(report);
+    const bullets = aggregateBullets(ended, events);
+    deps.dispatcher.onSessionEnd(ended, bullets);
     return c.json({ ok: true, session: serializeSession(ended), report });
   });
 

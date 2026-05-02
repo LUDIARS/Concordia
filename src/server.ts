@@ -9,6 +9,9 @@ import { loadConfig } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
+import { TasksRepo } from "./db/tasks-repo.js";
+import { ChatRepo } from "./db/chat-repo.js";
+import { Dispatcher } from "./dispatcher.js";
 import { startSweeper } from "./sweeper.js";
 import { buildApp } from "./app.js";
 
@@ -42,9 +45,14 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const db = openDb(dbPath);
   const repo = new SessionsRepo(db);
+  const tasks = new TasksRepo(db);
+  const chat = new ChatRepo(db);
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat });
 
   const sweeper = startSweeper({
     repo,
+    tasks,
+    dispatcher,
     intervalMs: cfg.sweeperIntervalMs,
     lostAfterSec: cfg.lostAfterSec,
     abandonedAfterSec: cfg.abandonedAfterSec,
@@ -53,6 +61,9 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const app = buildApp({
     repo,
+    tasks,
+    chat,
+    dispatcher,
     config: cfg,
     startedAt: new Date().toISOString(),
     sweeperRunOnce: sweeper.runOnce,
@@ -69,7 +80,7 @@ export async function startBackend(): Promise<BackendHandle> {
       host: cfg.host,
       port: cfg.port,
       dbPath,
-      llm: cfg.anthropicApiKey ? "enabled" : "disabled",
+      llm: cfg.anthropicApiKey ? "available (unused in v0.1)" : "disabled",
     },
     "Concordia listening",
   );

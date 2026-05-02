@@ -1,0 +1,40 @@
+# dependencies
+node_modules/
+
+# build artifacts
+dist/
+out/
+build/
+web/dist/
+
+# logs
+*.log
+npm-debug.log*
+
+# env / secrets
+.env
+.env.*
+!.env.example
+.env.secrets
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# tests / coverage
+coverage/
+.nyc_output/
+
+# local data
+*.sqlite
+*.sqlite-journal
+*.db
+*.db-shm
+*.db-wal
+concordia.db*

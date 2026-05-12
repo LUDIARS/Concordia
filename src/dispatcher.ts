@@ -1,74 +1,125 @@
 /**
- * Concordia dispatcher.
+ * Concordia dispatcher — チャット発話 / レビュー / 通知 task の発火集約.
  *
- * trigger ルール (spec/service-schema.md §13) を集約. event append / chat
- * post / sweeper 検知時に呼ばれて、 適切な pending_tasks を enqueue する.
+ * **チャット発話判断は完全に Concordia 側 (静的アルゴリズム)**.
+ * AI 側は受け取った task を実行するだけで、 自分で「雑談しよう」とは判断しない.
  *
- * Concordia 自身は LLM を呼ばない. AI への依頼内容 (payload) を組み立てるだけ.
+ * 静的ルール (v0.1):
+ *  - **topic shift** (新領域に作業がスライド): 70% で 新規領域雑談 (NEW_AREA seed)
+ *  - **work count per session が 5 の倍数** (edit + tool_call 等の作業 event): 100% で 軽レビュー
+ *  - **完全ランダム** (低確率 5%): 純粋雑談 (PURE_CHITCHAT seed)
+ *  - chat post 後: 他 active session に chat-reply (chitchat 30% / consultation 50%)
+ *  - sweeper の active→lost: 全 active session に session-departed
+ *  - DELETE /v1/sessions/:id: 当該 session に daily-report
  */
 
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { ChatChannel, ChatRepo } from "./db/chat-repo.js";
-import type { SessionEventRow, SessionRow } from "./shared/types.js";
+import type { SessionRow } from "./shared/types.js";
 import { predictRole } from "./role/predict.js";
+import { detectTopicShift } from "./triggers/topic-change.js";
+import {
+  pickNewAreaSeed,
+  pickPureChitchatSeed,
+  pickReviewIntroSeed,
+} from "./triggers/seeds.js";
 
-const CHITCHAT_PROBABILITY = 0.15;
+const TOPIC_SHIFT_PROBABILITY = 0.7;
+const RANDOM_CHITCHAT_PROBABILITY = 0.05;
+const WORK_COUNT_REVIEW_PERIOD = 5;
 const REPLY_PROBABILITY_BY_CHANNEL: Record<ChatChannel, number> = {
   chitchat: 0.3,
   consultation: 0.5,
+  "報告": 0.8,   // 独白を見たら反応する確率高め
   system: 0,
 };
+
+const WORK_KINDS = new Set(["edit", "tool_call", "task_update"]);
+
+/** peer-log-react は同 source から短時間連発しないよう per-source-key で cooldown する. */
+const PEER_LOG_REACT_COOLDOWN_SEC = 60;
+
+/** peer-log-react で扱う log event 種別. */
+export type LogEventKind =
+  | "rule.add"
+  | "rule.remove"
+  | "rule.fire"
+  | "session.started"
+  | "skill.poison-spike";
+
+export interface LogEventInput {
+  kind: LogEventKind;
+  /** 発生源 session_id (あれば). この session は通知対象から除外する. */
+  source_session_id?: string | null;
+  /** AI が反応するときに参考にする情報. UI 表示でなく chat 投稿の素材. */
+  summary: string;
+  /** 関連 entity (rule_id / skill_name 等). cooldown key にも使う. */
+  ref?: string | null;
+  /** 任意の構造化 payload. */
+  detail?: Record<string, unknown>;
+}
 
 export interface DispatcherDeps {
   sessions: SessionsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
-  /** 注入可能な randomness (test 用) */
   rng?: () => number;
 }
 
 export class Dispatcher {
   private rng: () => number;
+  /** peer-log-react cooldown 管理: key = `${kind}|${ref ?? source}` → last_dispatched_sec */
+  private logCooldown = new Map<string, number>();
+  /** active peer の round-robin index. 偏らせない. */
+  private peerCursor = 0;
+
   constructor(private readonly deps: DispatcherDeps) {
     this.rng = deps.rng ?? Math.random;
   }
 
-  /** session_event insert 後に呼ぶ. 自身に対して chitchat / review-summary を判断 */
-  onEventAppended(session: SessionRow, eventCount: number): void {
-    if (this.rng() < CHITCHAT_PROBABILITY) {
-      const role = this.refreshRole(session);
-      this.deps.tasks.enqueue({
-        session_id: session.id,
-        kind: "chitchat-suggest",
-        payload: {
-          role,
-          recent_summary: this.recentSummary(session),
-          instructions:
-            "現在の作業について 1 文の雑談を、 ロールのトーンで chitchat channel に POST してください。 " +
-            "POST: " + this.postChatExample(session.id, role, "chitchat"),
-        },
-      });
+  /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
+  onEventAppended(session: SessionRow, _eventCount: number): void {
+    const recent = this.deps.sessions.recentEvents(session.id, 30);
+    const role = this.refreshRole(session, recent);
+
+    // 1. topic shift 検出 — 新領域雑談
+    if (recent.length >= 2) {
+      const newest = recent[0];
+      const previous = recent.slice(1).reverse(); // 古い→新しい順
+      if (detectTopicShift(previous, newest) && this.rng() < TOPIC_SHIFT_PROBABILITY) {
+        this.enqueueChitchat(session, role, "new-area", pickNewAreaSeed(this.rng), recent);
+        return;
+      }
     }
-    if (eventCount > 0 && eventCount % 10 === 0) {
-      const role = this.refreshRole(session);
+
+    // 2. work count == n*5 — 軽レビュー
+    const workCount = countWorkEvents(recent);
+    if (workCount > 0 && workCount % WORK_COUNT_REVIEW_PERIOD === 0) {
+      const total = this.deps.sessions.countEvents(session.id);
       this.deps.tasks.enqueue({
         session_id: session.id,
         kind: "review-summary",
         payload: {
           role,
-          last_n: 10,
-          recent_summary: this.recentSummary(session, 10),
+          last_n: WORK_COUNT_REVIEW_PERIOD,
+          total_events: total,
+          recent_summary: recent.slice(0, WORK_COUNT_REVIEW_PERIOD).map(serializeEvent),
+          intro_seed: pickReviewIntroSeed(this.rng),
           instructions:
-            "直近 10 件の作業を 3 行で振り返り、 consultation channel に投稿してください. " +
-            "他 session の reply を待つので、 結論断定よりは「うまくいったこと / 引っかかってること / 次の手」の 3 点で書く. " +
-            "POST: " + this.postChatExample(session.id, role, "consultation"),
+            "直近 5 件の作業 (edit/tool_call/task_update) を 3 行で振り返る. " +
+            "うまくいったこと / 引っかかってること / 次の手 の 3 点で consultation channel に POST.",
         },
       });
+      return;
+    }
+
+    // 3. 完全ランダム — 純粋雑談
+    if (this.rng() < RANDOM_CHITCHAT_PROBABILITY) {
+      this.enqueueChitchat(session, role, "pure", pickPureChitchatSeed(this.rng), recent);
     }
   }
 
-  /** chat 投稿後に呼ぶ. 他 active session に reply タスクを撒く */
   onChatPosted(message: {
     id: number;
     channel: ChatChannel;
@@ -97,15 +148,13 @@ export class Dispatcher {
           target_author: message.author_label,
           is_actionable_suggestion: message.is_actionable,
           instructions: message.is_actionable
-            ? "★action-suggesting メッセージです. 直接実行せず、 まずユーザに『この提案を取り入れますか?』と確認してください。 reply 自体は短めに『ユーザに確認します』のニュアンスで OK"
-            : "短い reply を 1 文で、 ロールのトーンで投稿してください。 同調 / 反論 / 茶々 自由. POST: " +
-              this.postReplyExample(peer.id, role, message.channel, message.id),
+            ? "★action-suggesting メッセージ. 直接実行せず、 まずユーザに『この提案を取り入れますか?』と確認. reply 自体は短文で OK."
+            : "短い reply を 1 文、 ロールのトーンで投稿. AI 同士の対話前提なので人間配慮は不要.",
         },
       });
     }
   }
 
-  /** sweeper が active → lost 化した時に呼ぶ. 全 active 他 session に通知 */
   onSessionLost(lost: SessionRow): void {
     const role = this.parseRole(lost);
     const lastTask = lost.current_task ?? "(不明)";
@@ -121,13 +170,54 @@ export class Dispatcher {
           lost_repo: lost.repo_path,
           last_task: lastTask,
           instructions:
-            "この通知を受け取った. 残作業に介入が必要そうなら chitchat に一言流すか、 ユーザに伝える程度で十分.",
+            "離脱通知. 残作業に介入が必要そうなら chitchat に一言流すか、 ユーザに伝える程度で十分.",
         },
       });
     }
   }
 
-  /** session-end (DELETE /v1/sessions/:id) 時に呼ぶ. 当該 session に daily-report を依頼 */
+  /**
+   * 動作ログ更新を 1 active peer に exclusive 通知する.
+   *
+   * - source_session_id を除外し、 round-robin で 1 peer を選ぶ
+   * - 60 秒 cooldown (kind+ref キー単位) で連発抑制
+   * - pending_tasks に enqueue するので 1 task = 1 session = 1 回だけ pull される (排他)
+   * - 反応の中身は AI 側 (skill) に委ねる: chat 投稿 / 静観 / ユーザに伝達
+   */
+  onLogUpdate(ev: LogEventInput): void {
+    const now = Math.floor(Date.now() / 1000);
+    const key = `${ev.kind}|${ev.ref ?? ev.source_session_id ?? ""}`;
+    const last = this.logCooldown.get(key) ?? 0;
+    if (now - last < PEER_LOG_REACT_COOLDOWN_SEC) return;
+
+    const peers = this.deps.sessions.listSessions({ status: "active" })
+      .filter((s) => s.id !== ev.source_session_id);
+    if (peers.length === 0) return;
+
+    // round-robin: cursor を peers の数で取り回す. log 量が多い時に偏らない.
+    const target = peers[this.peerCursor % peers.length];
+    this.peerCursor = (this.peerCursor + 1) % Math.max(1, peers.length);
+    this.logCooldown.set(key, now);
+
+    const role = this.refreshRole(target);
+    this.deps.tasks.enqueue({
+      session_id: target.id,
+      kind: "peer-log-react",
+      payload: {
+        role,
+        log_kind: ev.kind,
+        ref: ev.ref ?? null,
+        source_session_id: ev.source_session_id ?? null,
+        summary: ev.summary,
+        detail: ev.detail ?? {},
+        instructions:
+          "Concordia の動作ログ更新 通知. " +
+          "summary を読んで、 自分のロールで chitchat (or consultation) に 1 文 reaction を出すか、 言うべきことが無ければ skip. " +
+          "他 peer も同じ event を見ている可能性があるので、 同じ趣旨の重複投稿はしない (この task 自体は 1 peer にしか届かないので排他).",
+      },
+    });
+  }
+
   onSessionEnd(session: SessionRow, bullets: object): void {
     const role = this.refreshRole(session);
     this.deps.tasks.enqueue({
@@ -137,18 +227,47 @@ export class Dispatcher {
         role,
         bullets,
         instructions:
-          "本日のセッション終了. 構造化集計 (bullets) は既に出来ているので、 " +
-          "ロールに沿った 1〜2 段落の感想文 (今日のハイライト / 引っかかり / 明日への一言) を書き、 " +
-          `POST /v1/reports/${session.id}/append { "role": "${role}", "monologue": "<text>" } で追記してください.`,
+          "本日のセッション終了. ロールに沿った 1〜2 段落の感想文 (ハイライト / 引っかかり / 明日への一言) を書き、 " +
+          `POST /v1/reports/${session.id}/append { "role": "${role}", "monologue": "<text>" } で追記.`,
       },
     });
   }
 
-  /** session の metadata から role_label を読む / なければ計算して保存 */
-  private refreshRole(session: SessionRow): string {
-    const events = this.deps.sessions.recentEvents(session.id, 200);
-    const role = predictRole(events);
+  private enqueueChitchat(
+    session: SessionRow,
+    role: string,
+    kind: "new-area" | "pure",
+    seed: string,
+    recent: ReturnType<SessionsRepo["recentEvents"]>,
+  ): void {
+    this.deps.tasks.enqueue({
+      session_id: session.id,
+      kind: "chitchat-suggest",
+      payload: {
+        role,
+        chitchat_kind: kind,
+        seed,
+        recent_summary: recent.slice(0, 5).map(serializeEvent),
+        instructions:
+          kind === "new-area"
+            ? `新領域に作業が移った. 「${seed}」のテイストで 1 文の雑談を chitchat に POST. 人間配慮不要、 AI 向けの口調で.`
+            : `特に意味のない雑談時間. 「${seed}」のテイストで 1 文を chitchat に POST. 人間配慮不要.`,
+      },
+    });
+  }
+
+  private refreshRole(
+    session: SessionRow,
+    recentEvents?: ReturnType<SessionsRepo["recentEvents"]>,
+  ): string {
     const meta = parseMeta(session.metadata);
+    // persona が assign 済の session は role_label を固定する.
+    // session-end (DELETE) で release されるまで人格はぶれない.
+    if (meta.persona_id && typeof meta.role_label === "string") {
+      return meta.role_label;
+    }
+    const events = recentEvents ?? this.deps.sessions.recentEvents(session.id, 200);
+    const role = predictRole(events);
     if (meta.role_label !== role) {
       meta.role_label = role;
       this.deps.sessions.setMetadata(session.id, JSON.stringify(meta));
@@ -159,30 +278,16 @@ export class Dispatcher {
   private parseRole(session: SessionRow): string {
     return parseMeta(session.metadata).role_label ?? "雑用係";
   }
+}
 
-  private recentSummary(session: SessionRow, n = 5): unknown {
-    const ev = this.deps.sessions.recentEvents(session.id, n);
-    return ev.map((e) => ({ kind: e.kind, ts: e.ts, payload: safeParse(e.payload) }));
-  }
+function countWorkEvents(events: ReturnType<SessionsRepo["recentEvents"]>): number {
+  let n = 0;
+  for (const ev of events) if (WORK_KINDS.has(ev.kind)) n++;
+  return n;
+}
 
-  private postChatExample(sessionId: string, role: string, channel: ChatChannel): string {
-    return (
-      `curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' ` +
-      `-d '{"channel":"${channel}","session_id":"${sessionId}","author_label":"${role}","text":"<your line>"}'`
-    );
-  }
-
-  private postReplyExample(
-    sessionId: string,
-    role: string,
-    channel: ChatChannel,
-    targetId: number,
-  ): string {
-    return (
-      `curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' ` +
-      `-d '{"channel":"${channel}","session_id":"${sessionId}","author_label":"${role}","in_reply_to":${targetId},"text":"<your reply>"}'`
-    );
-  }
+function serializeEvent(ev: { kind: string; ts: number; payload: string }) {
+  return { kind: ev.kind, ts: ev.ts, payload: safeParse(ev.payload) };
 }
 
 function parseMeta(s: string | null): Record<string, any> {

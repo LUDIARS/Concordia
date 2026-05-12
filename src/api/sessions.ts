@@ -6,10 +6,15 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
+import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js";
 import type { Dispatcher } from "../dispatcher.js";
+import type { PersonasRepo, PersonaRow } from "../db/personas-repo.js";
+import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
+import { eventBus } from "../events.js";
+import type { ProcessManager } from "../processes/manager.js";
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -25,6 +30,8 @@ const StartSchema = z.object({
 const PatchSchema = z.object({
   current_task: z.string().optional(),
   branch: z.string().optional(),
+  repo_path: z.string().min(1).optional(),
+  repo_origin: z.string().nullable().optional(),
 });
 
 const EventSchema = z.object({
@@ -36,8 +43,27 @@ const EventSchema = z.object({
 export interface SessionsApiDeps {
   repo: SessionsRepo;
   tasks: TasksRepo;
+  chat: ChatRepo;
   config: ConcordiaConfig;
   dispatcher: Dispatcher;
+  personas: PersonasRepo;
+  processManager: ProcessManager;
+}
+
+function serializePersonaForResponse(p: PersonaRow) {
+  let traits: unknown = [];
+  let learned: unknown = [];
+  try { traits = JSON.parse(p.traits); } catch { traits = []; }
+  try { learned = JSON.parse(p.learned_notes); } catch { learned = []; }
+  return {
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    traits,
+    speech_style: p.speech_style,
+    skill_template: p.skill_template,
+    learned_notes: learned,
+  };
 }
 
 export function sessionsRouter(deps: SessionsApiDeps): Hono {
@@ -53,12 +79,18 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
 
     const existing = deps.repo.findSession(input.id);
     if (existing) {
-      // 既存セッションが lost / ended なら "再開" として last_seen_at と status のみ active 化
+      // 既存セッションが lost / ended なら "再開" として active 化.
+      // repo_path / repo_origin / branch は cwd 移動や checkout で変わり得るので毎回上書きする.
       if (existing.status !== "active") {
         deps.repo.setStatus(input.id, "active", now);
       } else {
         deps.repo.updateHeartbeat(input.id, now);
       }
+      deps.repo.patchSession(input.id, {
+        repo_path: input.repo_path,
+        repo_origin: input.repo_origin ?? null,
+        branch: input.branch ?? undefined,
+      });
     } else {
       deps.repo.insertSession({
         id: input.id,
@@ -78,18 +110,63 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         kind: "start",
         payload: { provider: input.provider, host: input.host, cwd: input.repo_path, branch: input.branch ?? null },
       });
+      eventBus.emit({
+        type: "session.started",
+        session_id: input.id,
+        provider: input.provider,
+        repo_path: input.repo_path,
+        branch: input.branch ?? null,
+        ts: now,
+      });
     }
 
     const session = deps.repo.findSession(input.id)!;
-    const peers = deps.repo.findActivePeers(input.repo_origin ?? null, input.id);
-    const lostCandidates = deps.repo.findLostCandidates(input.repo_origin ?? null, input.host);
+    const peers = deps.repo.findActivePeers(input.repo_path, input.id);
+    const lostCandidates = deps.repo.findLostCandidates(input.repo_path, input.host);
     const advisory = buildAdvisory(session, peers);
 
+    // dev-process.md 由来のプロセスを auto-start (既に running なら skip).
+    // FS / spawn を伴うので失敗は飲み込んで session 登録は完了させる.
+    let processStartup: ReturnType<ProcessManager["startFromRepo"]> | null = null;
+    try {
+      processStartup = deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
+    } catch (err) {
+      processStartup = {
+        started: [],
+        skipped: [],
+        failed: [{ name: "*", reason: (err as Error).message }],
+        warnings: [`startFromRepo error: ${(err as Error).message}`],
+        marker_only: false,
+        devProcessMdPath: null,
+      };
+    }
+
+    // persona を排他 assign (Concordia 経由で起動された session のみ. ここを叩いた時点で確定).
+    const assignment = deps.personas.assign(input.id);
+    if (assignment && !assignment.reused) {
+      // 新規 assign なら role_label を session metadata に反映 (UI / dispatcher 共有用).
+      const meta = parseMeta(session.metadata);
+      meta.role_label = assignment.persona.name;
+      meta.persona_id = assignment.persona.id;
+      deps.repo.setMetadata(input.id, JSON.stringify(meta));
+      eventBus.emit({
+        type: "persona.assigned",
+        session_id: input.id,
+        persona_id: assignment.persona.id,
+        persona_name: assignment.persona.name,
+        ts: nowSec(),
+      });
+    }
+
     return c.json({
-      session: serializeSession(session),
+      session: serializeSession(deps.repo.findSession(input.id)!),
       peers: peers.map(serializeSession),
       lost_candidates: lostCandidates.map(serializeSession),
       advisory,
+      persona: assignment ? serializePersonaForResponse(assignment.persona) : null,
+      persona_reused: assignment ? assignment.reused : false,
+      processes: processStartup,
+      process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
     });
   });
 
@@ -180,9 +257,17 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       payload: parsed.data.payload ?? {},
     });
     deps.repo.updateHeartbeat(id, ts);
+    // prompt event は「いま何してるか」の最有力 signal なので current_task に反映
+    if (parsed.data.kind === "prompt") {
+      const summary = (parsed.data.payload as { summary?: unknown } | undefined)?.summary;
+      if (typeof summary === "string" && summary.trim().length > 0) {
+        deps.repo.patchSession(id, { current_task: summary.trim().slice(0, 200) });
+      }
+    }
     const session = deps.repo.findSession(id)!;
     const eventCount = deps.repo.countEvents(id);
     deps.dispatcher.onEventAppended(session, eventCount);
+    eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
     return c.json({ ok: true });
   });
 
@@ -219,7 +304,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json({ ok: true });
   });
 
-  // DELETE /v1/sessions/:id  — end + report
+  // DELETE /v1/sessions/:id  — end + 独立した per-session report 生成 (claude CLI narrative)
   app.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const s = deps.repo.findSession(id);
@@ -234,13 +319,69 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     });
     const events = deps.repo.allEvents(id);
     const ended = deps.repo.findSession(id)!;
+    const bullets = aggregateBullets(ended, events);
+    deps.dispatcher.onSessionEnd(ended, bullets);
+
+    // 独立した per-session report を生成 (claude CLI で narrative)
     const report = await generateReport(ended, events, {
       apiKey: deps.config.anthropicApiKey,
       model: deps.config.reportModel,
     });
     deps.repo.upsertReport(report);
-    const bullets = aggregateBullets(ended, events);
-    deps.dispatcher.onSessionEnd(ended, bullets);
+
+    // report の冒頭ポエム (独白) を #報告 channel に投稿し、 他 AI セッションの reply を促す.
+    const monologue = extractMonologue(report.summary_md);
+    if (monologue) {
+      const role = parseSessionRole(ended);
+      const msg = deps.chat.insert({
+        channel: "報告",
+        session_id: id,
+        author_label: role,
+        text: monologue,
+        in_reply_to: null,
+        is_actionable: false,
+        metadata: JSON.stringify({ from_report: true, session_id: id }),
+      });
+      // dispatcher 経由で他 active session に chat-reply task をばらまく
+      deps.dispatcher.onChatPosted({
+        id: msg.id,
+        channel: msg.channel,
+        session_id: msg.session_id,
+        text: msg.text,
+        author_label: msg.author_label,
+        is_actionable: false,
+      });
+      eventBus.emit({
+        type: "chat.posted",
+        message_id: msg.id,
+        channel: msg.channel,
+        author_label: msg.author_label,
+        ts: msg.ts,
+        is_actionable: false,
+      });
+    }
+
+    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+    eventBus.emit({ type: "report.generated", session_id: id, ts: now });
+
+    // persona feedback + release. assignment が無ければ no-op.
+    const assignment = deps.personas.findActiveBySession(id);
+    if (assignment) {
+      const persona = deps.personas.find(assignment.persona_id);
+      if (persona) {
+        // feedback 生成は claude CLI を呼ぶので非同期、 結果を待たず先に release する
+        // (release を待ってる間に他 session に同 persona が assign されないよう、 await する).
+        await applySessionEndFeedback({ personas: deps.personas, chat: deps.chat }, ended, persona);
+      }
+      deps.personas.release(id);
+      eventBus.emit({
+        type: "persona.released",
+        session_id: id,
+        persona_id: assignment.persona_id,
+        ts: now,
+      });
+    }
+
     return c.json({ ok: true, session: serializeSession(ended), report });
   });
 
@@ -287,4 +428,30 @@ function nowSec(): number {
 
 function safeParse(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }
+}
+
+/**
+ * report の summary_md から「独白」 (冒頭の poem 部分) を抽出.
+ * 3 セクション構造 (poem / "---" / 業務報告 / "---" / サマリ) を前提に、
+ * 最初の "---" より前を返す. 失敗したら null.
+ */
+function extractMonologue(summaryMd: string): string | null {
+  const sep = summaryMd.indexOf("\n---");
+  if (sep <= 0) return null;
+  const head = summaryMd.slice(0, sep).trim();
+  if (head.length < 10 || head.length > 1500) return null;
+  return head;
+}
+
+function parseMeta(s: string | null): Record<string, any> {
+  if (!s) return {};
+  try { return JSON.parse(s); } catch { return {}; }
+}
+
+function parseSessionRole(s: SessionRow): string {
+  if (!s.metadata) return "雑用係";
+  try {
+    const m = JSON.parse(s.metadata) as { role_label?: string };
+    return m.role_label ?? "雑用係";
+  } catch { return "雑用係"; }
 }

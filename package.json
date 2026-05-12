@@ -8,25 +8,30 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx watch src/server.ts",
+    "build": "npm run sync:skill && tsc -p tsconfig.json && cd web && npm run build",
+    "dev": "npm run sync:skill && concurrently -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
     "dev:backend": "tsx watch src/server.ts",
+    "dev:web": "cd web && npm run dev",
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit -p tsconfig.json"
+    "lint": "tsc --noEmit -p tsconfig.json",
+    "sync:skill": "node tools/sync-skill.mjs"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
+    "@types/ws": "^8.18.1",
     "better-sqlite3": "^11.7.0",
     "hono": "^4.6.0",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
+    "ws": "^8.20.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
+    "concurrently": "^9.2.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
     "vitest": "^3.2.4"

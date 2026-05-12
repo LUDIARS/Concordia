@@ -7,14 +7,17 @@ import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
 import type { Dispatcher } from "../dispatcher.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
+import { eventBus } from "../events.js";
 
 const PostSchema = z.object({
-  channel: z.enum(["chitchat", "consultation", "system"]),
+  channel: z.enum(["chitchat", "consultation", "報告", "system"]),
   text: z.string().min(1).max(2000),
   session_id: z.string().nullable().optional(),
   author_label: z.string().min(1).max(64),
   in_reply_to: z.number().int().positive().nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  /** spatial UI 用: "world"=全員に届く / "local"=自分の周囲だけ. 既定 "world". */
+  scope: z.enum(["world", "local"]).optional(),
 });
 
 export interface ChatApiDeps {
@@ -31,6 +34,8 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
 
     const actionable = isActionableSuggestion(parsed.data.text);
+    const scope = parsed.data.scope ?? "world";
+    const mergedMeta = { ...(parsed.data.metadata ?? {}), scope };
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,
@@ -38,7 +43,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: parsed.data.text,
       in_reply_to: parsed.data.in_reply_to ?? null,
       is_actionable: actionable,
-      metadata: parsed.data.metadata ? JSON.stringify(parsed.data.metadata) : null,
+      metadata: JSON.stringify(mergedMeta),
     });
 
     deps.dispatcher.onChatPosted({
@@ -48,6 +53,16 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: msg.text,
       author_label: msg.author_label,
       is_actionable: actionable,
+    });
+    eventBus.emit({
+      type: "chat.posted",
+      message_id: msg.id,
+      channel: msg.channel,
+      author_label: msg.author_label,
+      session_id: msg.session_id,
+      ts: msg.ts,
+      is_actionable: actionable,
+      scope,
     });
 
     return c.json({ message: serialize(msg) });
@@ -73,6 +88,8 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     });
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const actionable = isActionableSuggestion(parsed.data.text);
+    const scope = parsed.data.scope ?? "world";
+    const mergedMeta = { ...(parsed.data.metadata ?? {}), scope };
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,
@@ -80,7 +97,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: parsed.data.text,
       in_reply_to: target.id,
       is_actionable: actionable,
-      metadata: parsed.data.metadata ? JSON.stringify(parsed.data.metadata) : null,
+      metadata: JSON.stringify(mergedMeta),
     });
     deps.dispatcher.onChatPosted({
       id: msg.id,
@@ -89,6 +106,16 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: msg.text,
       author_label: msg.author_label,
       is_actionable: actionable,
+    });
+    eventBus.emit({
+      type: "chat.posted",
+      message_id: msg.id,
+      channel: msg.channel,
+      author_label: msg.author_label,
+      session_id: msg.session_id,
+      ts: msg.ts,
+      is_actionable: actionable,
+      scope,
     });
     return c.json({ message: serialize(msg) });
   });

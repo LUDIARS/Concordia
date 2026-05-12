@@ -1,0 +1,47 @@
+/*
+ * Foundation UI tokens — LUDIARS 共通デザインシステム.
+ * dark theme default. CSS variables で他サービスと整合.
+ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --c-bg:      #0b0d12;
+  --c-surface: #14171f;
+  --c-muted:   #1c2030;
+  --c-border:  #2a2f43;
+  --c-text:    #e7eaf3;
+  --c-subtle:  #9aa0b3;
+  --c-accent:  #a78bfa;
+  --c-warn:    #fbbf24;
+  --c-danger:  #f87171;
+  --c-ok:      #34d399;
+
+  --f-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN",
+            "Yu Gothic Medium", Meiryo, system-ui, sans-serif;
+  --f-mono: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--c-bg);
+  color: var(--c-text);
+  font-family: var(--f-sans);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+h1 { font-size: 1.6rem; line-height: 1.3; }
+h2 { font-size: 1.25rem; line-height: 1.35; }
+h3 { font-size: 1.05rem; line-height: 1.4; }
+
+a { color: var(--c-accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+code, pre {
+  font-family: var(--f-mono);
+}

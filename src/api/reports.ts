@@ -68,6 +68,29 @@ export function reportsRouter(deps: ReportsApiDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // DELETE /v1/reports/:session_id — 単発削除 (human 操作)
+  app.delete("/:session_id", (c) => {
+    const id = c.req.param("session_id");
+    const ok = deps.repo.deleteReport(id);
+    if (!ok) return c.json({ error: "not_found" }, 404);
+    return c.json({ ok: true });
+  });
+
+  // GET /v1/reports — list 全レポート (Web UI 用)
+  app.get("/", (c) => {
+    const limit = Number(c.req.query("limit") ?? "30");
+    const list = deps.repo.listReports(limit);
+    return c.json({
+      reports: list.map((r) => ({
+        session_id: r.session_id,
+        generated_at: r.generated_at,
+        duration_sec: r.duration_sec,
+        bullets: safeParse(r.bullets),
+        summary_preview: r.summary_md.length > 240 ? r.summary_md.slice(0, 240) + "…" : r.summary_md,
+      })),
+    });
+  });
+
   return app;
 }
 

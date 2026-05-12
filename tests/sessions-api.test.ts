@@ -1,9 +1,19 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { applyMigrations } from "../src/db/schema.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
+import { SkillsRepo } from "../src/db/skills-repo.js";
+import { RulesRepo } from "../src/db/rules-repo.js";
+import { DayReportsRepo } from "../src/db/day-reports-repo.js";
+import { PersonasRepo } from "../src/db/personas-repo.js";
+import { ProcessesRepo } from "../src/db/processes-repo.js";
+import { ProcessManager } from "../src/processes/manager.js";
+import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
 import { buildApp } from "../src/app.js";
 import { loadConfig } from "../src/shared/config.js";
@@ -14,12 +24,23 @@ function buildTestApp() {
   const repo = new SessionsRepo(db);
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 }); // 確率発火しない
-  const cfg = loadConfig({});
+  const skills = new SkillsRepo(db);
+  const rules = new RulesRepo(db);
+  const dayReports = new DayReportsRepo(db);
+  const personas = new PersonasRepo(db);
+  seedPersonas(personas);
+  const processes = new ProcessesRepo(db);
+  const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
+  const processManager = new ProcessManager({ repo: processes, logsDir });
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
   return buildApp({
-    repo, tasks, chat, dispatcher, config: cfg,
+    repo, tasks, chat, skills, rules, dayReports, personas, processes, processManager, dispatcher,
+    dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
+    config: { ...loadConfig({}), anthropicApiKey: "" },
     startedAt: new Date().toISOString(),
     sweeperRunOnce: () => {},
+    toolPath: "/abs/tools/concordia-hook.mjs",
+    publicUrl: "http://127.0.0.1:17330",
   });
 }
 
@@ -73,7 +94,45 @@ describe("sessions API", () => {
     expect(j.events[0].kind).toBe("prompt");
   });
 
-  it("DELETE /v1/sessions/:id ends + generates report", async () => {
+  it("prompt event auto-updates current_task from summary", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "ct", provider: "claude-code", repo_path: "/x", host: "h",
+      }),
+    });
+    await app.request("/v1/sessions/ct/event", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "prompt", payload: { summary: "current task summary text" } }),
+    });
+    const detail = await app.request("/v1/sessions/ct");
+    const j = await detail.json() as any;
+    expect(j.session.current_task).toBe("current task summary text");
+
+    // 後続 prompt で上書きされる
+    await app.request("/v1/sessions/ct/event", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "prompt", payload: { summary: "second task" } }),
+    });
+    const d2 = await app.request("/v1/sessions/ct");
+    const j2 = await d2.json() as any;
+    expect(j2.session.current_task).toBe("second task");
+
+    // edit event は current_task を変えない
+    await app.request("/v1/sessions/ct/event", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "edit", payload: { file: "x.ts" } }),
+    });
+    const d3 = await app.request("/v1/sessions/ct");
+    const j3 = await d3.json() as any;
+    expect(j3.session.current_task).toBe("second task");
+  });
+
+  it("DELETE /v1/sessions/:id ends session + 独立した per-session report 生成", async () => {
     await app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },

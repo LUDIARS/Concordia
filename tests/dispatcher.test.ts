@@ -23,43 +23,73 @@ function startSession(repo: SessionsRepo, id: string, branch = "main") {
   });
 }
 
-describe("Dispatcher", () => {
+describe("Dispatcher (smarter triggers)", () => {
   let env: ReturnType<typeof fresh>;
   beforeEach(() => { env = fresh(); });
 
-  it("review-summary fires every 10 events", () => {
+  it("review-summary fires when work-event count is multiple of 5", () => {
     startSession(env.sessions, "a");
-    const d = new Dispatcher({ ...env, rng: () => 0.99 }); // chitchat は確率 fail
-    for (let i = 0; i < 10; i++) {
-      env.sessions.appendEvent({ session_id: "a", ts: i, kind: "prompt", payload: { x: i } });
+    const d = new Dispatcher({ ...env, rng: () => 0.99 });
+    for (let i = 0; i < 5; i++) {
+      env.sessions.appendEvent({
+        session_id: "a", ts: i, kind: "edit",
+        payload: { file: "src/foo.ts" },
+      });
     }
     const session = env.sessions.findSession("a")!;
-    d.onEventAppended(session, 10);
+    d.onEventAppended(session, 5);
     const pulled = env.tasks.pull("a");
     expect(pulled.find((t) => t.kind === "review-summary")).toBeTruthy();
   });
 
-  it("chitchat-suggest fires under probability threshold", () => {
+  it("topic-shift triggers chitchat-suggest with new-area kind", () => {
     startSession(env.sessions, "b");
-    const d = new Dispatcher({ ...env, rng: () => 0.05 }); // 確率 hit
+    for (let i = 0; i < 4; i++) {
+      env.sessions.appendEvent({
+        session_id: "b", ts: i, kind: "edit",
+        payload: { file: "src/api/foo.ts" },
+      });
+    }
+    env.sessions.appendEvent({
+      session_id: "b", ts: 100, kind: "edit",
+      payload: { file: "tests/foo.test.ts" },
+    });
+    const d = new Dispatcher({ ...env, rng: () => 0.5 });
     const session = env.sessions.findSession("b")!;
-    d.onEventAppended(session, 1);
+    d.onEventAppended(session, 5);
     const pulled = env.tasks.pull("b");
-    expect(pulled.find((t) => t.kind === "chitchat-suggest")).toBeTruthy();
+    const t = pulled.find((x) => x.kind === "chitchat-suggest");
+    expect(t).toBeTruthy();
+    const payload = JSON.parse(t!.payload);
+    expect(payload.chitchat_kind).toBe("new-area");
+    expect(typeof payload.seed).toBe("string");
+  });
+
+  it("random pure chitchat fires below probability threshold", () => {
+    startSession(env.sessions, "c");
+    env.sessions.appendEvent({ session_id: "c", ts: 1, kind: "prompt", payload: { summary: "hi" } });
+    const d = new Dispatcher({ ...env, rng: () => 0.01 });
+    const session = env.sessions.findSession("c")!;
+    d.onEventAppended(session, 1);
+    const pulled = env.tasks.pull("c");
+    const t = pulled.find((x) => x.kind === "chitchat-suggest");
+    expect(t).toBeTruthy();
+    const payload = JSON.parse(t!.payload);
+    expect(payload.chitchat_kind).toBe("pure");
   });
 
   it("onChatPosted enqueues chat-reply for other active sessions", () => {
     startSession(env.sessions, "a");
     startSession(env.sessions, "b");
     startSession(env.sessions, "c");
-    const d = new Dispatcher({ ...env, rng: () => 0.05 }); // 全 reply 発火
+    const d = new Dispatcher({ ...env, rng: () => 0.05 });
     d.onChatPosted({
       id: 1, channel: "chitchat", session_id: "a",
       text: "今日は調子よい", author_label: "テスト魂", is_actionable: false,
     });
     expect(env.tasks.pull("b").find((t) => t.kind === "chat-reply")).toBeTruthy();
     expect(env.tasks.pull("c").find((t) => t.kind === "chat-reply")).toBeTruthy();
-    expect(env.tasks.pull("a").length).toBe(0); // 自分には送らない
+    expect(env.tasks.pull("a").length).toBe(0);
   });
 
   it("actionable suggestion sets is_actionable_suggestion in payload", () => {
@@ -74,7 +104,7 @@ describe("Dispatcher", () => {
     const t = env.tasks.pull("b").find((x) => x.kind === "chat-reply");
     const payload = JSON.parse(t!.payload);
     expect(payload.is_actionable_suggestion).toBe(true);
-    expect(payload.instructions).toMatch(/ユーザに確認/);
+    expect(payload.instructions).toMatch(/ユーザに/);
   });
 
   it("onSessionLost notifies all other active sessions", () => {
@@ -96,5 +126,49 @@ describe("Dispatcher", () => {
     d.onSessionEnd(session, { duration_sec: 100 });
     const pulled = env.tasks.pull("a");
     expect(pulled.find((t) => t.kind === "daily-report")).toBeTruthy();
+  });
+
+  it("onLogUpdate enqueues peer-log-react to exactly one peer (round-robin, excludes source)", () => {
+    startSession(env.sessions, "src");
+    startSession(env.sessions, "p1");
+    startSession(env.sessions, "p2");
+    startSession(env.sessions, "p3");
+    const d = new Dispatcher({ ...env, rng: () => 0.5 });
+
+    // 1 回目: ref="r1" → p1 (cursor 0)
+    d.onLogUpdate({ kind: "rule.add", ref: "r1", source_session_id: "src", summary: "added r1" });
+    // 2 回目 (別 ref で cooldown 回避): → p2
+    d.onLogUpdate({ kind: "rule.add", ref: "r2", source_session_id: "src", summary: "added r2" });
+    // 3 回目 (別 ref): → p3
+    d.onLogUpdate({ kind: "rule.add", ref: "r3", source_session_id: "src", summary: "added r3" });
+
+    const collect = (id: string) => env.tasks.pull(id).filter((t) => t.kind === "peer-log-react").length;
+    const total = collect("p1") + collect("p2") + collect("p3");
+    // src は除外されてるので 0
+    expect(env.tasks.pull("src").filter((t) => t.kind === "peer-log-react").length).toBe(0);
+    // 3 件の event がそれぞれ 1 peer に届く (= 排他)
+    expect(total).toBe(3);
+  });
+
+  it("onLogUpdate is rate-limited within cooldown for same key", () => {
+    startSession(env.sessions, "p1");
+    startSession(env.sessions, "p2");
+    const d = new Dispatcher({ ...env, rng: () => 0.5 });
+
+    d.onLogUpdate({ kind: "rule.fire", ref: "same-rule", summary: "fired" });
+    // 同 key で即連発 → cooldown でスキップされる
+    d.onLogUpdate({ kind: "rule.fire", ref: "same-rule", summary: "fired again" });
+
+    const total =
+      env.tasks.pull("p1").filter((t) => t.kind === "peer-log-react").length +
+      env.tasks.pull("p2").filter((t) => t.kind === "peer-log-react").length;
+    expect(total).toBe(1);
+  });
+
+  it("onLogUpdate does nothing when no peers are active", () => {
+    startSession(env.sessions, "src");
+    const d = new Dispatcher({ ...env, rng: () => 0.5 });
+    d.onLogUpdate({ kind: "session.started", source_session_id: "src", ref: "src", summary: "alone" });
+    expect(env.tasks.pull("src").length).toBe(0);
   });
 });

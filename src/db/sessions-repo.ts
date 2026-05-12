@@ -57,26 +57,24 @@ export class SessionsRepo {
     );
   }
 
-  /** 同 repo_origin の active session 一覧 (引数 id を除外) */
-  findActivePeers(repoOrigin: string | null, excludeId: string): SessionRow[] {
-    if (!repoOrigin) return [];
+  /** 同 repo_path (作業ディレクトリ) の active session 一覧 (引数 id を除外) */
+  findActivePeers(repoPath: string, excludeId: string): SessionRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM sessions WHERE repo_origin = ? AND status = 'active' AND id != ?
+        `SELECT * FROM sessions WHERE repo_path = ? AND status = 'active' AND id != ?
          ORDER BY started_at DESC`,
       )
-      .all(repoOrigin, excludeId) as SessionRow[];
+      .all(repoPath, excludeId) as SessionRow[];
   }
 
-  /** 同 (repo_origin, host) の lost session 一覧 (resume 候補) */
-  findLostCandidates(repoOrigin: string | null, host: string): SessionRow[] {
-    if (!repoOrigin) return [];
+  /** 同 (repo_path, host) の lost session 一覧 (resume 候補) */
+  findLostCandidates(repoPath: string, host: string): SessionRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM sessions WHERE repo_origin = ? AND host = ? AND status = 'lost'
+        `SELECT * FROM sessions WHERE repo_path = ? AND host = ? AND status = 'lost'
          ORDER BY last_seen_at DESC`,
       )
-      .all(repoOrigin, host) as SessionRow[];
+      .all(repoPath, host) as SessionRow[];
   }
 
   listSessions(filter: {
@@ -101,11 +99,21 @@ export class SessionsRepo {
     this.db.prepare(`UPDATE sessions SET last_seen_at = ? WHERE id = ?`).run(ts, id);
   }
 
-  patchSession(id: string, patch: { current_task?: string; branch?: string }): void {
+  patchSession(
+    id: string,
+    patch: {
+      current_task?: string;
+      branch?: string;
+      repo_path?: string;
+      repo_origin?: string | null;
+    },
+  ): void {
     const sets: string[] = [];
     const args: unknown[] = [];
     if (patch.current_task !== undefined) { sets.push("current_task = ?"); args.push(patch.current_task); }
     if (patch.branch !== undefined)       { sets.push("branch = ?");       args.push(patch.branch); }
+    if (patch.repo_path !== undefined)    { sets.push("repo_path = ?");    args.push(patch.repo_path); }
+    if (patch.repo_origin !== undefined)  { sets.push("repo_origin = ?");  args.push(patch.repo_origin); }
     if (sets.length === 0) return;
     args.push(id);
     this.db.prepare(`UPDATE sessions SET ${sets.join(", ")} WHERE id = ?`).run(...args);
@@ -120,6 +128,15 @@ export class SessionsRepo {
       .prepare(`SELECT COUNT(*) AS n FROM session_events WHERE session_id = ?`)
       .get(sessionId) as { n: number };
     return r.n;
+  }
+
+  /** started_at が [startTs, endTs) の session 集合. day_report 集計用. */
+  listSessionsInRange(startTs: number, endTs: number): SessionRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM sessions WHERE started_at >= ? AND started_at < ? ORDER BY started_at ASC`,
+      )
+      .all(startTs, endTs) as SessionRow[];
   }
 
   setStatus(id: string, status: SessionStatus, ts: number, endedAt?: number): void {
@@ -147,6 +164,26 @@ export class SessionsRepo {
       )
       .run(cutoff);
     return Number(r.changes ?? 0);
+  }
+
+  /** lost / abandoned で last_seen_at が cutoff より古いセッションを完全削除 (events / reports / pending_tasks も) */
+  purgeStale(cutoff: number): number {
+    const ids = this.db
+      .prepare(
+        `SELECT id FROM sessions WHERE status IN ('lost', 'abandoned') AND last_seen_at < ?`,
+      )
+      .all(cutoff) as Array<{ id: string }>;
+    if (ids.length === 0) return 0;
+    const idList = ids.map((r) => r.id);
+    const placeholder = idList.map(() => "?").join(",");
+    const tx = this.db.transaction((args: string[]) => {
+      this.db.prepare(`DELETE FROM session_events  WHERE session_id IN (${placeholder})`).run(...args);
+      this.db.prepare(`DELETE FROM session_reports WHERE session_id IN (${placeholder})`).run(...args);
+      this.db.prepare(`DELETE FROM pending_tasks   WHERE session_id IN (${placeholder})`).run(...args);
+      this.db.prepare(`DELETE FROM sessions        WHERE id         IN (${placeholder})`).run(...args);
+    });
+    tx(idList);
+    return idList.length;
   }
 
   // ─── session_events ─────────────────────────────────
@@ -210,5 +247,35 @@ export class SessionsRepo {
         .prepare(`SELECT * FROM session_reports WHERE session_id = ?`)
         .get(sessionId) as SessionReportRow | undefined) ?? null
     );
+  }
+
+  listReports(limit = 30): SessionReportRow[] {
+    return this.db
+      .prepare(`SELECT * FROM session_reports ORDER BY generated_at DESC LIMIT ?`)
+      .all(limit) as SessionReportRow[];
+  }
+
+  /** 旧 per-session report は無意味なので truncate. day-report に統合された. */
+  truncateReports(): number {
+    const r = this.db.prepare(`DELETE FROM session_reports`).run();
+    return Number(r.changes ?? 0);
+  }
+
+  /** 単発レポート削除. human 操作用. */
+  deleteReport(sessionId: string): boolean {
+    const r = this.db.prepare(`DELETE FROM session_reports WHERE session_id = ?`).run(sessionId);
+    return Number(r.changes ?? 0) > 0;
+  }
+
+  /** session 全件を削除 (truncate). user 指示で手動 reset 用. events / reports / pending_tasks も連動. */
+  truncateAllSessions(): number {
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM session_events`).run();
+      this.db.prepare(`DELETE FROM session_reports`).run();
+      this.db.prepare(`DELETE FROM pending_tasks`).run();
+      const r = this.db.prepare(`DELETE FROM sessions`).run();
+      return Number(r.changes ?? 0);
+    });
+    return tx();
   }
 }

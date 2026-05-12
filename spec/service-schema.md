@@ -280,5 +280,127 @@ v0.1 は Claude Code のみ。 Gemini / Codex は stub interface のみで NotIm
 | version | 対応 provider | 主機能 |
 |---------|--------------|--------|
 | 0.1 | claude-code | F1-F5 + F7 (Web monitor)、 LLM report は env で切り替え可 |
-| 0.2 | + gemini-cli, codex-cli | F6 worktree 自動化 / LLM report 強化 |
+| 0.2 | + gemini-cli, codex-cli | F6 worktree 自動化 / LLM report 強化 / **F8 managed processes** |
 | 0.3 | (multi-host)| Tailscale 越え、 multi-host 集約 |
+
+---
+
+## 12. F8 — managed processes (v0.2)
+
+### 12.1 目的
+
+dev-server / 監視ツール等の常駐プロセスを Concordia が直接 spawn して、
+shell 監視 + 行ログのストリーミングまで肩代わりする. これにより:
+
+- Claude Code は `Bash run_in_background` で個別管理しなくて済む
+- 複数 session 間で同じプロセスを共有できる (重複起動を回避)
+- ログは Concordia の eventBus / WS / SSE に乗るので統一購読できる
+
+### 12.2 dev-process.md (定義の正本)
+
+repo の cwd 直下に置く `dev-process.md` をプロセス定義の正本とする.
+従来の人間向け自由記述 dev-process.md は **マーカーのみ** として温存され
+(YAML/JSON フェンスが無ければ何も起動しない), 構造化フェンスがある場合のみ
+auto-start の対象になる. フェンス言語は `concordia.processes`、 中身は JSON:
+
+````markdown
+```concordia.processes
+{
+  "processes": [
+    { "name": "backend", "command": "npm run dev:backend" },
+    { "name": "web",     "command": "npm run dev", "cwd": "web" }
+  ]
+}
+```
+````
+
+各 process フィールド:
+
+| キー | 型 | 既定 | 意味 |
+|------|----|------|------|
+| `name` | string | — | UNIQUE 識別子. `[a-zA-Z0-9_.-]{1,64}` |
+| `command` | string | — | shell 行 (`shell: true` で spawn) |
+| `cwd` | string | `"."` | dev-process.md からの相対 / 絶対 |
+| `env` | object | `{}` | 追加 env (PATH 等は継承) |
+| `auto_start` | bool | `true` | SessionStart 時に自動起動するか |
+| `error_patterns` | string[] | `["error","panic","fatal","exception","uncaught"]` | level=error 判定の case-insensitive regex |
+
+### 12.3 データモデル
+
+```sql
+CREATE TABLE processes (
+  name         TEXT PRIMARY KEY,
+  cwd          TEXT NOT NULL,
+  command      TEXT NOT NULL,
+  repo_path    TEXT,                              -- 紐付く repo
+  repo_origin  TEXT,
+  pid          INTEGER,                           -- 走行中のみ非 NULL
+  status       TEXT NOT NULL,                     -- starting / running / exited / failed
+  started_at   INTEGER,
+  exited_at    INTEGER,
+  exit_code    INTEGER,
+  exit_signal  TEXT,
+  log_path     TEXT NOT NULL,                     -- logs/<name>.log
+  metadata     TEXT                               -- JSON (env / error_patterns)
+);
+
+CREATE TABLE process_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  process_name  TEXT NOT NULL,
+  ts            INTEGER NOT NULL,
+  stream        TEXT NOT NULL,                    -- stdout / stderr / event
+  level         TEXT,                             -- error / warn / info / NULL
+  line          TEXT NOT NULL
+);
+```
+
+### 12.4 API
+
+| Method | Path | 用途 |
+|--------|------|------|
+| `GET`  | `/v1/processes` | 一覧 (`?status=` `?repo_path=`) |
+| `POST` | `/v1/processes` | ad-hoc 起動 (dev-process.md に無い command も可) |
+| `POST` | `/v1/processes/start-from-repo` | `{repo_path}` の dev-process.md 由来をまとめて起動 |
+| `GET`  | `/v1/processes/:name` | 詳細 + 直近 50 行 |
+| `POST` | `/v1/processes/:name/stop` | SIGTERM → 5s 後 SIGKILL fallback |
+| `POST` | `/v1/processes/stop-all` | 走行中の全 (or `repo_path` 指定で絞った) managed processes を一括停止. PC リソース解放 / セッション終了時のクリーンアップ用 |
+| `GET`  | `/v1/processes/:name/logs` | 過去ログ pull (`?since_ts=&level=&limit=`) |
+| `GET`  | `/v1/processes/:name/stream` | SSE: そのプロセスの新規行のみ (backfill 100 行付き) |
+| `DELETE` | `/v1/processes/:name` | 停止 + DB / log 行削除 |
+
+### 12.5 eventBus (process.* 拡張)
+
+`/ws` と `/v1/stream` には既存 wiring のまま流れる:
+
+```ts
+| { type: "process.started"; process_name: string; pid: number; cwd: string; command: string; ts }
+| { type: "process.log";     process_name: string; stream: "stdout"|"stderr"|"event"; line: string; level?: "error"|"warn"|"info"; ts }
+| { type: "process.exited";  process_name: string; exit_code: number|null; signal: string|null; ts }
+```
+
+### 12.6 Claude Code 連携 (パイプ二段)
+
+1. **SessionStart additionalContext (一時的注入)**
+   - `POST /v1/sessions` の response に `processes: { started, skipped, failed, warnings }` と
+     `process_stream_url: ws://127.0.0.1:17330/ws` を含める.
+   - `concordia-hook.mjs` が start 時に `[concordia/processes] auto-started: ...` を stdout に出す.
+2. **UserPromptSubmit (差分注入)**
+   - 各 prompt のたびに自分の repo に紐づくプロセスの「前回 cursor 以降の error 行」を
+     `[Concordia process logs]` ブロックで stdout に追加. cursor は
+     `~/.cache/concordia/proc-cursor-<sessionId>.json` に永続化, 二重貼りを防ぐ.
+
+ログ全行が欲しい場合は AI が `/v1/processes/:name/stream` を Bash の Monitor で long-tail する.
+
+### 12.7 ライフサイクル方針
+
+- SessionStart 時、 同 repo に他 active session があり同じ name のプロセスが既に running
+  なら **再起動しない** (= 共有). `skipped` に積んで AI に通知.
+- session-end (DELETE) では止めない. 次 session が attach できる方が現実的なので、
+  停止は明示 API or shutdown 時の `processManager.stopAll()` でのみ.
+- `processes.failed` は `dev-process.md` 解析失敗 / spawn 直前のエラー / cwd 不在
+  などのみ. spawn 後の異常終了は `process.exited` event + `status=failed` で表現.
+
+### 12.8 既存 skill との関係
+
+`error-watch` / `ewatch` skill は廃止せず温存. AI が `tail -F + grep` の手動ループを
+回す古典経路と、 Concordia 経由の管理経路は併存する (用途が違うので潰さない).

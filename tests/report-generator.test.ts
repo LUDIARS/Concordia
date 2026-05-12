@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { aggregateBullets, templateSummary } from "../src/report/generator.js";
+import { aggregateBullets, generateReport, templateSummary } from "../src/report/generator.js";
 import type { SessionEventRow, SessionRow } from "../src/shared/types.js";
 
 const session: SessionRow = {
@@ -50,5 +50,27 @@ describe("aggregateBullets", () => {
     const lost: SessionRow = { ...session, status: "lost", ended_at: null };
     const b = aggregateBullets(lost, [ev("prompt", 110)]);
     expect(b.outcome).toBe("lost");
+  });
+
+  it("fallback summary preserves 3 セクション (poem / template / summary) when AI fails", async () => {
+    process.env.CONCORDIA_DISABLE_CLAUDE = "1";
+    try {
+      const events: SessionEventRow[] = [
+        ev("prompt", 110),
+        ev("edit", 120, { file: "src/foo.ts" }),
+      ];
+      // apiKey 空で Anthropic API も skip → templateSummary fallback 経路に必ず入る
+      const r = await generateReport(session, events, { apiKey: "", model: "x" });
+      const md = r.summary_md;
+      const sepCount = (md.match(/\n---\n/g) ?? []).length;
+      expect(sepCount).toBeGreaterThanOrEqual(2); // poem | middle | summary
+      expect(md).toMatch(/雑用係|narrative 生成|ポエム|placeholder/);
+      expect(md).toContain("## サマリ");
+      // 冒頭 (extractMonologue 対象) は --- 前に置かれていて非空
+      const head = md.split(/\n---/)[0].trim();
+      expect(head.length).toBeGreaterThan(0);
+    } finally {
+      delete process.env.CONCORDIA_DISABLE_CLAUDE;
+    }
   });
 });

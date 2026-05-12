@@ -1,6 +1,13 @@
 import type Database from "better-sqlite3";
 
-export type ChatChannel = "chitchat" | "consultation" | "system";
+/**
+ * チャット channel:
+ *  - chitchat:     雑談
+ *  - consultation: 仕事の相談
+ *  - 報告:         セッション終了時のレポート独白 (他 AI からの reply 期待)
+ *  - system:       Concordia 自身の通知 (replies 不要)
+ */
+export type ChatChannel = "chitchat" | "consultation" | "報告" | "system";
 
 export interface ChatMessageRow {
   id: number;

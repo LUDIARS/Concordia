@@ -5,7 +5,8 @@ export type PendingTaskKind =
   | "chat-reply"
   | "review-summary"
   | "daily-report"
-  | "session-departed";
+  | "session-departed"
+  | "peer-log-react";
 
 export interface PendingTaskRow {
   id: number;

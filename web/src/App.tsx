@@ -1,0 +1,76 @@
+import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { Monitor } from "./pages/Monitor.js";
+import { SessionDetail } from "./pages/SessionDetail.js";
+import { Chat } from "./pages/Chat.js";
+import { WorldChat } from "./pages/WorldChat.js";
+import { ReportView } from "./pages/ReportView.js";
+import { Reports } from "./pages/Reports.js";
+import { Setup } from "./pages/Setup.js";
+import { Skills } from "./pages/Skills.js";
+import { Rules } from "./pages/Rules.js";
+import { Personas } from "./pages/Personas.js";
+
+const NAV = [
+  { to: "/", label: "Monitor" },
+  { to: "/world", label: "World" },
+  { to: "/chat", label: "Chat" },
+  { to: "/personas", label: "Personas" },
+  { to: "/reports", label: "Reports" },
+  { to: "/skills", label: "Skills" },
+  { to: "/rules", label: "Rules" },
+  { to: "/setup", label: "Setup" },
+] as const;
+
+export function App() {
+  const loc = useLocation();
+  return (
+    <div className="min-h-full flex flex-col">
+      <header className="border-b border-border bg-surface px-6 py-3 flex items-center gap-4">
+        <span className="text-lg font-semibold">
+          <span className="text-accent">●</span> Concordia
+        </span>
+        <span className="text-subtle text-xs">multi-agent session coordinator</span>
+        <nav className="ml-auto flex gap-4 text-sm">
+          {NAV.map((n) => {
+            const active = loc.pathname === n.to;
+            return (
+              <Link
+                key={n.to}
+                to={n.to}
+                className={
+                  active
+                    ? "text-accent"
+                    : "text-subtle hover:text-text"
+                }
+              >
+                {n.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </header>
+
+      <main className="flex-1 px-6 py-4">
+        <Routes>
+          <Route path="/" element={<Monitor />} />
+          <Route path="/sessions/:id" element={<SessionDetail />} />
+          <Route path="/world" element={<WorldChat />} />
+          <Route path="/chat" element={<Chat />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/reports/:id" element={<ReportView />} />
+          <Route path="/skills" element={<Skills />} />
+          <Route path="/rules" element={<Rules />} />
+          <Route path="/personas" element={<Personas />} />
+          <Route path="/setup" element={<Setup />} />
+        </Routes>
+      </main>
+
+      <footer className="border-t border-border bg-surface px-6 py-2 text-xs text-subtle">
+        <a href="https://github.com/LUDIARS/Concordia" target="_blank" rel="noreferrer">
+          LUDIARS/Concordia
+        </a>
+        {" · "}loopback 17330
+      </footer>
+    </div>
+  );
+}

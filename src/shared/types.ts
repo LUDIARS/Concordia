@@ -54,3 +54,34 @@ export type EventKind =
   | "recovered"
   | "end"
   | "note";
+
+export type ProcessStatus = "starting" | "running" | "exited" | "failed";
+
+export type LogStream = "stdout" | "stderr" | "event";
+
+export type LogLevel = "error" | "warn" | "info";
+
+export interface ProcessRow {
+  name: string;
+  cwd: string;
+  command: string;
+  repo_path: string | null;
+  repo_origin: string | null;
+  pid: number | null;
+  status: ProcessStatus;
+  started_at: number | null;
+  exited_at: number | null;
+  exit_code: number | null;
+  exit_signal: string | null;
+  log_path: string;
+  metadata: string | null; // JSON
+}
+
+export interface ProcessLogRow {
+  id: number;
+  process_name: string;
+  ts: number;
+  stream: LogStream;
+  level: LogLevel | null;
+  line: string;
+}

@@ -12,15 +12,40 @@ import { sessionsRouter } from "./api/sessions.js";
 import { reportsRouter } from "./api/reports.js";
 import { monitorRouter } from "./api/monitor.js";
 import { chatRouter } from "./api/chat.js";
+import { setupRouter } from "./api/setup.js";
+import { skillsRouter } from "./api/skills.js";
+import { streamRouter } from "./api/stream.js";
+import { rulesRouter } from "./api/rules.js";
+import { dailyRouter } from "./api/daily.js";
+import { processesRouter } from "./api/processes.js";
+import type { ProcessManager } from "./processes/manager.js";
+import type { ProcessesRepo } from "./db/processes-repo.js";
+import type { SkillsRepo } from "./db/skills-repo.js";
+import type { RulesRepo } from "./db/rules-repo.js";
+import type { DayReportsRepo } from "./db/day-reports-repo.js";
+import type { PersonasRepo } from "./db/personas-repo.js";
+import type { SchedulerHandle } from "./daily/scheduler.js";
+import { personasRouter } from "./api/personas.js";
 
 export interface AppDeps {
   repo: SessionsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
+  skills: SkillsRepo;
+  rules: RulesRepo;
+  dayReports: DayReportsRepo;
+  personas: PersonasRepo;
+  processes: ProcessesRepo;
+  processManager: ProcessManager;
+  dailyScheduler: SchedulerHandle;
   dispatcher: Dispatcher;
   config: ConcordiaConfig;
   startedAt: string;
   sweeperRunOnce: () => void;
+  /** tools/concordia-hook.mjs の絶対パス (setup endpoint で配信) */
+  toolPath: string;
+  /** 公開 URL (setup endpoint で配信) */
+  publicUrl: string;
 }
 
 export function buildApp(deps: AppDeps): Hono {
@@ -35,17 +60,39 @@ export function buildApp(deps: AppDeps): Hono {
     sessionsRouter({
       repo: deps.repo,
       tasks: deps.tasks,
+      chat: deps.chat,
       config: deps.config,
       dispatcher: deps.dispatcher,
+      personas: deps.personas,
+      processManager: deps.processManager,
     }),
+  );
+  app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
+  app.route(
+    "/v1/personas",
+    personasRouter({ personas: deps.personas, sessions: deps.repo, chat: deps.chat, config: deps.config }),
   );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
   app.route("/v1/monitor", monitorRouter({ repo: deps.repo }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat, dispatcher: deps.dispatcher }));
+  app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
+  app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
+  app.route("/v1/stream", streamRouter());
+  app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
+  app.route(
+    "/v1/daily-reports",
+    dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
+  );
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();
     return c.json({ ok: true });
+  });
+
+  // 管理 API: noise sessions の手動 truncate
+  app.post("/v1/admin/truncate-sessions", (c) => {
+    const n = deps.repo.truncateAllSessions();
+    return c.json({ ok: true, deleted: n });
   });
 
   return app;

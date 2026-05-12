@@ -21,10 +21,18 @@
  *   CONCORDIA_TIMEOUT_MS   — default 1500
  */
 
-import { readFileSync } from "node:fs";
-import { hostname } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { hostname, homedir } from "node:os";
 import { execSync } from "node:child_process";
 
+// ホワイトリスト方式: 既定は無効, CONCORDIA_HOOK=1 が console から渡された
+// セッションでのみ動く. これにより claude CLI 由来の one-shot や Agent ツール
+// 経由のサブセッションは Concordia と無関係にできる.
+// 例外: 対話で手動登録された session (POST /v1/sessions 済) は env 無くても hook を通す.
+//       session-start だけは env 必須 (sub-agent の自動登録を防ぐ).
+const HOOK_ENV_OPT_IN = process.env.CONCORDIA_HOOK === "1";
+// レガシー対応: CONCORDIA_DISABLE=1 が明示的にセットされてれば従来どおり no-op
 if (process.env.CONCORDIA_DISABLE === "1") process.exit(0);
 
 const URL_BASE = (process.env.CONCORDIA_URL ?? "http://127.0.0.1:17330").replace(/\/+$/, "");
@@ -45,6 +53,15 @@ async function main() {
   const cwd = ctx?.cwd ?? process.cwd();
   const sessionId = ctx?.session_id ?? process.env.CLAUDE_SESSION_ID ?? process.env.CONCORDIA_SESSION_ID ?? null;
   const transcriptPath = ctx?.transcript_path ?? null;
+
+  // Gate: env opt-in OR session が Concordia に active 登録済み (対話 enable flow).
+  // session-start は env 必須 — sub-agent / one-shot CLI の自動登録を防ぐため.
+  if (!HOOK_ENV_OPT_IN) {
+    if (event === "session-start") return;
+    if (!sessionId) return;
+    const active = await isSessionActive(sessionId);
+    if (!active) return;
+  }
 
   switch (event) {
     case "session-start":
@@ -108,21 +125,52 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     }
     if (lines.length) process.stdout.write(lines.join("\n") + "\n");
   }
+  // dev-process.md 由来の auto-start 結果を additionalContext に流す.
+  if (res?.processes) {
+    const ps = res.processes;
+    const procLines = [];
+    if (ps.started?.length)  procLines.push(`[concordia/processes] auto-started: ${ps.started.join(", ")}`);
+    if (ps.skipped?.length)  procLines.push(`[concordia/processes] skipped (already running): ${ps.skipped.join(", ")}`);
+    if (ps.failed?.length)   procLines.push(`[concordia/processes] failed: ${ps.failed.map((f) => `${f.name} (${f.reason})`).join(", ")}`);
+    if (ps.warnings?.length) procLines.push(`[concordia/processes] warnings: ${ps.warnings.join(" / ")}`);
+    if (procLines.length) {
+      procLines.push(`[concordia/processes] ログ stream: ${res.process_stream_url ?? "ws://127.0.0.1:17330/ws"} (process.log / process.exited を購読)`);
+      process.stdout.write(procLines.join("\n") + "\n");
+    }
+  }
+  // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
+  if (res?.persona && res.persona.skill_template) {
+    const reused = res.persona_reused ? " (再開: 既存 assign)" : "";
+    process.stdout.write(
+      `\n[concordia/persona] あなたに付与された人格: **${res.persona.name}**${reused}\n` +
+      `------- persona skill (session 限定 / FS 書込みなし) -------\n` +
+      String(res.persona.skill_template) + "\n" +
+      `------- end persona skill -------\n`,
+    );
+  }
 }
 
 async function appendEvent(sessionId, kind, payload) {
   if (!sessionId) return;
   await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, { kind, payload });
   await dumpPendingTasks(sessionId);
+  if (kind === "prompt") {
+    // 自分の repo に紐づくプロセスの新しい error 行だけを 1 ブロックで注入.
+    await dumpProcessLogs(sessionId);
+  }
 }
 
 async function sessionEnd({ sessionId }) {
   if (!sessionId) return;
-  const res = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
-  if (res?.report?.summary_md) {
-    process.stdout.write(`[concordia] session report:\n${res.report.summary_md}\n`);
-  }
-  // daily-report task を pull して AI が「感想文」を append する分担で動く
+  // Claude Code の Stop hook は「ターン終了」(AI が応答を返した直後) で発火し、
+  // 真の "session 終了" は別 event として存在しない。 ここで DELETE すると
+  // 各 turn で session が ended 化して Member 表示が消える → 不便。
+  // よって Stop では heartbeat だけ打って active を維持。
+  // 真の終了 (per-session report 生成) は:
+  //   (a) 手動 DELETE /v1/sessions/:id
+  //   (b) long-idle で sweeper が lost → abandoned へ自然遷移
+  // のどちらかで起こす。
+  await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {});
   await dumpPendingTasks(sessionId);
 }
 
@@ -149,10 +197,85 @@ async function dumpPendingTasks(sessionId) {
       );
       continue;
     }
+    if (t.kind === "peer-log-react") {
+      lines.push(
+        `#${t.id} peer-log-react [${p.log_kind}]`,
+        `  summary: ${truncate(p.summary, 200)}`,
+        `  ref: ${p.ref ?? "-"} / role: ${p.role ?? "?"}`,
+        `  ★この通知は active peer の中で **あなた 1 人だけ** に届いている (排他処理)。 chitchat か consultation に 1 文 reaction を出すか、 言うべきことが無ければ skip。`,
+      );
+      continue;
+    }
     lines.push(`#${t.id} ${t.kind}`, `  payload: ${JSON.stringify(p)}`);
   }
   process.stdout.write(lines.join("\n") + "\n");
 }
+
+async function isSessionActive(sessionId) {
+  const res = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+  return res?.session?.status === "active";
+}
+
+// process.log 注入用に、 自分のセッションが見ている repo_path を保持して
+// hook 起動間で「直近 error 行を二重に貼らない」ようにする (file-based cursor).
+function cursorPath(sessionId) {
+  const dir = join(homedir(), ".cache", "concordia");
+  return join(dir, `proc-cursor-${sessionId.slice(0, 32)}.json`);
+}
+
+function readCursor(sessionId) {
+  const p = cursorPath(sessionId);
+  if (!existsSync(p)) return {};
+  try { return JSON.parse(readFileSync(p, "utf8")) ?? {}; } catch { return {}; }
+}
+
+function writeCursor(sessionId, map) {
+  const p = cursorPath(sessionId);
+  try {
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, JSON.stringify(map));
+  } catch { /* swallow */ }
+}
+
+async function dumpProcessLogs(sessionId) {
+  // 1. このセッションの repo_path を取得
+  const sess = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}`);
+  const repoPath = sess?.session?.repo_path;
+  if (!repoPath) return;
+  // 2. その repo に紐づく processes 一覧
+  const res = await fetchJson(`/v1/processes?repo_path=${encodeURIComponent(repoPath)}`);
+  const procs = res?.processes ?? [];
+  if (procs.length === 0) return;
+  const cursor = readCursor(sessionId);
+  const lines = [];
+  for (const p of procs) {
+    const since = Number(cursor[p.name] ?? 0);
+    const lr = await fetchJson(
+      `/v1/processes/${encodeURIComponent(p.name)}/logs?level=error&limit=20${since ? `&since_ts=${since}` : ""}`,
+    );
+    const logs = lr?.logs ?? [];
+    if (logs.length === 0) {
+      // クールド: 行が無くても running か exited か exit_code を出す (重複防止のため最初の 1 回のみ).
+      if (cursor[p.name] === undefined) {
+        const tag = p.live ? "running" : `exited(code=${p.exit_code ?? "?"})`;
+        lines.push(`  ${p.name}: ${tag} cwd=${p.cwd}`);
+        cursor[p.name] = nowSec();
+      }
+      continue;
+    }
+    lines.push(`  ${p.name} [${p.live ? "running" : "exited"}]: ${logs.length} 行の error`);
+    for (const l of logs.slice(-5)) {
+      lines.push(`    [${l.stream}] ${truncate(l.line, 300)}`);
+    }
+    const last = logs[logs.length - 1];
+    cursor[p.name] = last?.ts ?? nowSec();
+  }
+  writeCursor(sessionId, cursor);
+  if (lines.length === 0) return;
+  process.stdout.write("[Concordia process logs]\n" + lines.join("\n") + "\n");
+}
+
+function nowSec() { return Math.floor(Date.now() / 1000); }
 
 function shorten(id) {
   return id ? String(id).slice(0, 8) : "?";

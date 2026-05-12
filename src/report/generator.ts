@@ -2,12 +2,16 @@
  * セッション終了レポート生成.
  *
  * - bullets: 構造化集計 (events count / files / todos / outcome)
- * - summary_md: LLM サマライズ (ANTHROPIC_API_KEY 設定時) or template fallback
+ * - summary_md: claude CLI で narrative 生成 → fallback で Anthropic API → fallback で template
  *
  * spec/service-schema.md §7 準拠.
  */
 
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
+import { runClaude } from "../rules/claude-runner.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("report");
 
 export interface ReportBullets {
   duration_sec: number;
@@ -153,8 +157,20 @@ export async function generateReport(
   llm: { apiKey: string; model: string },
 ): Promise<SessionReportRow> {
   const bullets = aggregateBullets(session, events);
-  const llmText = await llmSummary(session, events, llm);
-  const summary_md = llmText ?? templateSummary(session, bullets);
+
+  // 優先 1: claude CLI で narrative
+  let summary_md: string | null = await narrativeViaCli(session, events, bullets);
+
+  // 優先 2: Anthropic API (legacy path)
+  if (!summary_md) {
+    summary_md = await llmSummary(session, events, llm);
+  }
+
+  // 最終 fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
+  if (!summary_md) {
+    summary_md = fallbackThreeSection(session, bullets);
+  }
+
   return {
     session_id: session.id,
     generated_at: nowSec(),
@@ -163,6 +179,150 @@ export async function generateReport(
     duration_sec: bullets.duration_sec,
     metadata: null,
   };
+}
+
+/**
+ * AI narrative が両方失敗したときの fallback. poem / summary は出せないので
+ * 「生成できなかった」 と明記した placeholder を入れて 3 セクション構造だけ保つ.
+ * extractMonologue が `\n---` 前で切るので poem セクションは独白として #報告 channel に流れる.
+ */
+function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): string {
+  const role = parseMetadata(session.metadata).role_label ?? "雑用係";
+  const dur = formatDuration(bullets.duration_sec);
+  const poemPlaceholder = [
+    `(${role} は今回ポエムを綴れなかった — AI narrative 生成失敗)`,
+    `${dur} の作業ログ. ${bullets.outcome}.`,
+  ].join("\n");
+  const summaryPlaceholder =
+    "narrative 生成が両系統 (claude CLI / Anthropic API) とも失敗したため、 構造化集計のみ.";
+  const middle = templateSummary(session, bullets);
+  return [
+    poemPlaceholder,
+    "",
+    "---",
+    "",
+    middle.trim(),
+    "",
+    "---",
+    "",
+    "## サマリ",
+    "",
+    summaryPlaceholder,
+  ].join("\n");
+}
+
+async function narrativeViaCli(
+  session: SessionRow,
+  events: SessionEventRow[],
+  bullets: ReportBullets,
+): Promise<string | null> {
+  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return null;
+
+  const meta = parseMetadata(session.metadata);
+  const role = meta.role_label ?? "雑用係";
+
+  const compactEvents = events
+    .filter((e) => ["prompt", "edit", "tool_call", "task_update", "compact", "lost", "recovered"].includes(e.kind))
+    .slice(-40)
+    .map((e) => ({
+      kind: e.kind,
+      ts: e.ts,
+      ago_sec: nowSec() - e.ts,
+      payload: safeParse(e.payload),
+    }));
+
+  // 真ん中の業務報告は server で deterministic に組み立てる (templateSummary).
+  // AI には (1) ポエムと (3) 200 字サマリだけ JSON で生成させる.
+  const prompt = [
+    `あなたはこのセッションの「${role}」として、 日報の 「冒頭ポエム」 と 「末尾サマリ」 だけを書きます.`,
+    "出力は **JSON のみ**. 余計な前置きや code fence なし.",
+    "",
+    "## 出力スキーマ",
+    `{"poem": "<4-8 行の詩>", "summary": "<200字程度の総括>"}`,
+    "",
+    "## poem (冒頭) について",
+    "- 4〜8 行の散文詩 / つぶやき.",
+    "- 業務内容 (repo / branch / event 傾向 / lost) を **比喩 / 情景 / 心情** で書く.",
+    "- 直接的な数字 / file パスは出さず、 「触れた糸」「降り積もる commit」 のような象徴で.",
+    "- 字下げや絵文字はつけない. 改行は \\n で表現.",
+    "",
+    "## summary (末尾) について",
+    "- 200 字程度 (180〜240 字).",
+    `- ${role} 一人称で、 ハイライト + 引っかかり + 明日への一言 を圧縮した総括.`,
+    "- 装飾少なめ、 具体的に. 過剰な敬語不要.",
+    "",
+    "## 入力データ",
+    JSON.stringify(
+      {
+        session: {
+          id: session.id,
+          provider: session.provider,
+          repo_path: session.repo_path,
+          repo_origin: session.repo_origin,
+          branch: session.branch,
+          host: session.host,
+          duration_sec: bullets.duration_sec,
+          outcome: bullets.outcome,
+          status: session.status,
+        },
+        bullets,
+        events_tail: compactEvents,
+      },
+      null,
+      2,
+    ).slice(0, 12_000),
+  ].join("\n");
+
+  const r = await runClaude(prompt);
+  if (!r.ok) {
+    log.warn({ stderr: r.stderr.slice(0, 200) }, "claude CLI narrative failed");
+    return null;
+  }
+
+  const json = parsePoemAndSummary(r.stdout);
+  if (!json) {
+    log.warn({ stdout: r.stdout.slice(0, 200) }, "claude CLI returned unparseable JSON");
+    return null;
+  }
+
+  // 3 セクションを deterministic に結合: poem + 既存テンプレート + summary
+  const middle = templateSummary(session, bullets);
+  return [
+    json.poem.trim(),
+    "",
+    "---",
+    "",
+    middle.trim(),
+    "",
+    "---",
+    "",
+    "## サマリ",
+    "",
+    json.summary.trim(),
+  ].join("\n");
+}
+
+function parsePoemAndSummary(text: string): { poem: string; summary: string } | null {
+  let parsed: any;
+  try { parsed = JSON.parse(text.trim()); } catch { /* fall through */ }
+  if (!parsed) {
+    const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
+    if (fence) { try { parsed = JSON.parse(fence[1].trim()); } catch { /* fall through */ } }
+  }
+  if (!parsed) {
+    const m = /\{[\s\S]*\}/.exec(text);
+    if (m) { try { parsed = JSON.parse(m[0]); } catch { return null; } }
+  }
+  if (!parsed || typeof parsed !== "object") return null;
+  const poem = typeof parsed.poem === "string" ? parsed.poem : null;
+  const summary = typeof parsed.summary === "string" ? parsed.summary : null;
+  if (!poem || !summary) return null;
+  return { poem, summary };
+}
+
+function parseMetadata(s: string | null): Record<string, any> {
+  if (!s) return {};
+  try { return JSON.parse(s); } catch { return {}; }
 }
 
 // ─── helpers ──────────────────────────────────────────

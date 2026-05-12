@@ -24,30 +24,45 @@ describe("SessionsRepo", () => {
     expect(s?.host).toBe("h1");
   });
 
-  it("findActivePeers excludes self and inactive", () => {
+  it("findActivePeers matches by repo_path, excludes self and inactive", () => {
     const base = {
       provider: "claude-code" as const, repo_path: "/x",
-      repo_origin: "origin", host: "h", started_at: 1, last_seen_at: 1,
+      repo_origin: null, host: "h", started_at: 1, last_seen_at: 1,
       branch: "main", transcript_path: null, metadata: null,
     };
     repo.insertSession({ ...base, id: "a" });
     repo.insertSession({ ...base, id: "b" });
     repo.insertSession({ ...base, id: "c" });
     repo.setStatus("c", "ended", 2, 2);
-    const peers = repo.findActivePeers("origin", "a");
+    // 別 repo_path のセッションは peer に含まれない
+    repo.insertSession({ ...base, id: "d", repo_path: "/y" });
+    const peers = repo.findActivePeers("/x", "a");
     expect(peers.map((p) => p.id).sort()).toEqual(["b"]);
   });
 
-  it("finds lost candidates by repo+host", () => {
+  it("finds lost candidates by repo_path+host", () => {
     repo.insertSession({
-      id: "a", provider: "claude-code", repo_path: "/x", repo_origin: "origin",
+      id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,
       branch: null, host: "h1", started_at: 1, last_seen_at: 1,
       transcript_path: null, metadata: null,
     });
     repo.setStatus("a", "lost", 100);
-    const cands = repo.findLostCandidates("origin", "h1");
+    const cands = repo.findLostCandidates("/x", "h1");
     expect(cands.map((s) => s.id)).toEqual(["a"]);
-    expect(repo.findLostCandidates("origin", "different-host")).toEqual([]);
+    expect(repo.findLostCandidates("/x", "different-host")).toEqual([]);
+    expect(repo.findLostCandidates("/other-path", "h1")).toEqual([]);
+  });
+
+  it("patchSession can update repo_path and repo_origin", () => {
+    repo.insertSession({
+      id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,
+      branch: null, host: "h", started_at: 1, last_seen_at: 1,
+      transcript_path: null, metadata: null,
+    });
+    repo.patchSession("a", { repo_path: "/x/sub", repo_origin: "https://example/r.git" });
+    const s = repo.findSession("a");
+    expect(s?.repo_path).toBe("/x/sub");
+    expect(s?.repo_origin).toBe("https://example/r.git");
   });
 
   it("appendEvent + recentEvents", () => {

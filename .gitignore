@@ -6,6 +6,11 @@ dist/
 out/
 build/
 web/dist/
+web/tsconfig.tsbuildinfo
+
+# tools/sync-skill.mjs が ~/.claude/skills/concordia へ skill 内容を反映する
+# 際の loopback. リポ root の .claude/skills/ 配下は repo に含めない.
+.claude/
 
 # logs
 *.log

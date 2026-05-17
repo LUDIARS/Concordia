@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { services as servicesTable } from '../db/schema.js';
@@ -15,12 +16,18 @@ export async function syncCatalog(catalog: Catalog): Promise<{
 }> {
   const codes = catalog.services.map((s) => s.code);
 
+  // 過去 (id 生成漏れバグ) で NULL id のまま残った行をまず除去.
+  // service_instances は FK で繋がっているので先に消す.
+  db().run(sql`DELETE FROM service_instances WHERE service_id IS NULL OR service_id IN (SELECT id FROM services WHERE id IS NULL)`);
+  db().run(sql`DELETE FROM services WHERE id IS NULL`);
+
   let upserted = 0;
   for (const svc of catalog.services) {
     const snapshot = svcToSnapshot(svc);
+    const newId = randomUUID();
     db().run(sql`
-      INSERT INTO services (code, name, catalog_snapshot, is_active, updated_at)
-      VALUES (${svc.code}, ${svc.name}, ${JSON.stringify(snapshot)}, 1, unixepoch() * 1000)
+      INSERT INTO services (id, code, name, catalog_snapshot, is_active, updated_at)
+      VALUES (${newId}, ${svc.code}, ${svc.name}, ${JSON.stringify(snapshot)}, 1, unixepoch() * 1000)
       ON CONFLICT (code) DO UPDATE SET
         name = EXCLUDED.name,
         catalog_snapshot = EXCLUDED.catalog_snapshot,

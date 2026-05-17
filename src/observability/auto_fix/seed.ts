@@ -3,6 +3,7 @@
  *
  * 既に同名の rule があれば DO NOTHING (ON CONFLICT (name))。
  */
+import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import pino from 'pino';
 import { db } from '../db/client.js';
@@ -27,11 +28,13 @@ const DEFAULTS: DefaultRule[] = [
 ];
 
 export async function seedDefaultRules(): Promise<void> {
+  // id 生成漏れバグで NULL id のまま残った行を除去
+  db().run(sql`DELETE FROM error_rules WHERE id IS NULL`);
   // error_rules.name に unique 制約は無いが、 重複避けるため name で先に絞る
   for (const r of DEFAULTS) {
     db().run(sql`
-      INSERT INTO error_rules (name, pattern, pattern_type, severity)
-      SELECT ${r.name}, ${r.pattern}, ${r.pattern_type}, ${r.severity}
+      INSERT INTO error_rules (id, name, pattern, pattern_type, severity)
+      SELECT ${randomUUID()}, ${r.name}, ${r.pattern}, ${r.pattern_type}, ${r.severity}
       WHERE NOT EXISTS (SELECT 1 FROM error_rules WHERE name = ${r.name})
     `);
   }

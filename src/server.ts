@@ -27,6 +27,7 @@ import { startDailyScheduler } from "./daily/scheduler.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
+import { bootObservability } from "./observability/index.js";
 
 const log = createChildLogger("server");
 
@@ -93,7 +94,17 @@ export async function startBackend(): Promise<BackendHandle> {
     dayReports,
   });
 
+  // Observability layer (Excubitor 由来). 失敗しても Concordia 本体は止めない.
+  let observabilityHandle: Awaited<ReturnType<typeof bootObservability>> | null = null;
+  try {
+    observabilityHandle = await bootObservability();
+    log.info("observability layer booted");
+  } catch (err) {
+    log.warn({ err: (err as Error).message }, "observability layer boot failed; continuing without it");
+  }
+
   const app = buildApp({
+    observabilityRouter: observabilityHandle?.router,
     repo,
     tasks,
     chat,
@@ -188,6 +199,9 @@ export async function startBackend(): Promise<BackendHandle> {
       ruleEngine.stop();
       sweeper.stop();
       unsubLog();
+      if (observabilityHandle) {
+        try { await observabilityHandle.shutdown(); } catch { /* noop */ }
+      }
       await processManager.stopAll();
       ws.close();
       server.close();

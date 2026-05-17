@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -219,6 +219,157 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_process_logs_name_ts ON process_logs(process_name, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_process_logs_level ON process_logs(process_name, level, ts DESC)`,
+
+  // ─── observability (Excubitor 由来、 v0.3 で集約) ─────────
+  // ホスト・サービスカタログ・インスタンス監視・エラー検知・自動修正の一式.
+  // Postgres + UUID/JSONB/TIMESTAMPTZ から SQLite 用に dialect 変換.
+  //   - UUID         → text PK (app 側で crypto.randomUUID)
+  //   - JSONB        → text (JSON string)
+  //   - BOOLEAN      → integer 0/1
+  //   - TIMESTAMPTZ  → integer (epoch ms), default unixepoch() * 1000
+  //   - TEXT[]       → text (JSON array string)
+  //   - BIGSERIAL    → integer PK AUTOINCREMENT
+  // Excubitor 側の table 名衝突 (process_logs) は service_instance_logs に rename.
+  `CREATE TABLE IF NOT EXISTS hosts (
+    id                TEXT    PRIMARY KEY,
+    name              TEXT    NOT NULL,
+    hostname          TEXT    NOT NULL,
+    agent_version     TEXT,
+    last_heartbeat_at INTEGER,
+    is_active         INTEGER NOT NULL DEFAULT 1,
+    created_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_hosts_active ON hosts(is_active) WHERE is_active = 1`,
+
+  `CREATE TABLE IF NOT EXISTS services (
+    id               TEXT    PRIMARY KEY,
+    code             TEXT    NOT NULL UNIQUE,
+    name             TEXT    NOT NULL,
+    catalog_snapshot TEXT    NOT NULL,
+    is_active        INTEGER NOT NULL DEFAULT 1,
+    created_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_services_active ON services(is_active) WHERE is_active = 1`,
+
+  `CREATE TABLE IF NOT EXISTS service_instances (
+    id              TEXT    PRIMARY KEY,
+    service_id      TEXT    NOT NULL REFERENCES services(id),
+    host_id         TEXT    REFERENCES hosts(id),
+    pid             INTEGER,
+    docker_id       TEXT,
+    state           TEXT    NOT NULL DEFAULT 'unknown',
+    last_seen_at    INTEGER,
+    started_at      INTEGER,
+    exit_code       INTEGER,
+    git_branch      TEXT,
+    git_hash        TEXT,
+    git_dirty       INTEGER,
+    package_version TEXT,
+    port            INTEGER,
+    extra           TEXT,
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_si_service ON service_instances(service_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_si_host    ON service_instances(host_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_si_state   ON service_instances(state)`,
+
+  `CREATE TABLE IF NOT EXISTS liveness_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_instance_id TEXT    NOT NULL REFERENCES service_instances(id),
+    probed_at           INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    ok                  INTEGER NOT NULL,
+    latency_ms          INTEGER,
+    detail              TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_lh_si_probed ON liveness_history(service_instance_id, probed_at DESC)`,
+
+  // Excubitor の process_logs → service_instance_logs に rename. Concordia 既存の
+  // process_logs (managed processes 由来) と区別.
+  `CREATE TABLE IF NOT EXISTS service_instance_logs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    service_instance_id TEXT    NOT NULL REFERENCES service_instances(id),
+    ts                  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    level               TEXT,
+    line                TEXT    NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_sil_si_ts ON service_instance_logs(service_instance_id, ts DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS error_rules (
+    id            TEXT    PRIMARY KEY,
+    name          TEXT    NOT NULL,
+    pattern       TEXT    NOT NULL,
+    pattern_type  TEXT    NOT NULL DEFAULT 'regex',
+    severity      TEXT    NOT NULL DEFAULT 'error',
+    service_codes TEXT,                                 -- JSON array (was TEXT[])
+    is_active     INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_er_active ON error_rules(is_active) WHERE is_active = 1`,
+
+  `CREATE TABLE IF NOT EXISTS error_tasks (
+    id                  TEXT    PRIMARY KEY,
+    rule_id             TEXT    REFERENCES error_rules(id),
+    service_instance_id TEXT    REFERENCES service_instances(id),
+    severity            TEXT    NOT NULL DEFAULT 'error',
+    summary             TEXT    NOT NULL,
+    log_excerpt         TEXT,
+    occurrence_count    INTEGER NOT NULL DEFAULT 1,
+    first_seen_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    last_seen_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    state               TEXT    NOT NULL DEFAULT 'open',
+    snooze_until        INTEGER,
+    triaged_by          TEXT,
+    triaged_at          INTEGER,
+    note                TEXT,
+    auto_fix_state      TEXT,
+    auto_fix_attempts   INTEGER NOT NULL DEFAULT 0,
+    auto_fix_run_id     TEXT,
+    created_at          INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    updated_at          INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_et_state ON error_tasks(state) WHERE state IN ('open', 'ack', 'snoozed')`,
+  `CREATE INDEX IF NOT EXISTS idx_et_si    ON error_tasks(service_instance_id, last_seen_at DESC)`,
+
+  `CREATE TABLE IF NOT EXISTS auto_fix_runs (
+    id              TEXT    PRIMARY KEY,
+    error_task_id   TEXT    NOT NULL REFERENCES error_tasks(id),
+    service_code    TEXT    NOT NULL,
+    agent           TEXT    NOT NULL DEFAULT 'claude-code',
+    state           TEXT    NOT NULL DEFAULT 'pending',
+    triggered_by    TEXT,
+    prompt          TEXT,
+    started_at      INTEGER,
+    finished_at     INTEGER,
+    exit_code       INTEGER,
+    stdout_tail     TEXT,
+    stderr_tail     TEXT,
+    branch          TEXT,
+    commit_hash     TEXT,
+    pr_url          TEXT,
+    verify_result   TEXT,
+    error_message   TEXT,
+    action_type     TEXT    NOT NULL DEFAULT 'fix',
+    created_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_afr_task        ON auto_fix_runs(error_task_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_afr_state       ON auto_fix_runs(state)`,
+  `CREATE INDEX IF NOT EXISTS idx_afr_action_type ON auto_fix_runs(action_type)`,
+
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts          INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+    actor       TEXT,
+    action      TEXT    NOT NULL,
+    target_type TEXT,
+    target_id   TEXT,
+    payload     TEXT
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_ts       ON audit_log(ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_audit_actor_ts ON audit_log(actor, ts DESC)`,
 ];
 
 export function applyMigrations(db: Database.Database): void {

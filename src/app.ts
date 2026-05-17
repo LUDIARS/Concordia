@@ -28,6 +28,8 @@ import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 
 export interface AppDeps {
+  /** observability layer (Excubitor 由来) の Hono router. 内部で /api/v1/... の絶対 path を持つ. */
+  observabilityRouter?: Hono;
   repo: SessionsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
@@ -94,6 +96,11 @@ export function buildApp(deps: AppDeps): Hono {
     const n = deps.repo.truncateAllSessions();
     return c.json({ ok: true, deleted: n });
   });
+
+  // observability (Excubitor 由来) は内部で /api/v1/... の絶対 path を持つので root mount.
+  if (deps.observabilityRouter) {
+    app.route("/", deps.observabilityRouter);
+  }
 
   return app;
 }

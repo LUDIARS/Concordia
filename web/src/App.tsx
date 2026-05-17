@@ -9,9 +9,15 @@ import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
 import { Personas } from "./pages/Personas.js";
+import { Catalog } from "./pages/Catalog.js";
+import { Errors } from "./pages/Errors.js";
+import { Reviews } from "./pages/Reviews.js";
 
 const NAV = [
   { to: "/", label: "Monitor" },
+  { to: "/catalog", label: "Catalog" },
+  { to: "/errors", label: "Errors" },
+  { to: "/reviews", label: "Reviews" },
   { to: "/world", label: "World" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
@@ -61,6 +67,9 @@ export function App() {
           <Route path="/skills" element={<Skills />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/personas" element={<Personas />} />
+          <Route path="/catalog" element={<Catalog />} />
+          <Route path="/errors" element={<Errors />} />
+          <Route path="/reviews" element={<Reviews />} />
           <Route path="/setup" element={<Setup />} />
         </Routes>
       </main>

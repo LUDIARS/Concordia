@@ -22,7 +22,9 @@
     "@hono/node-server": "^1.13.0",
     "@types/ws": "^8.18.1",
     "better-sqlite3": "^11.7.0",
+    "drizzle-orm": "^0.36.4",
     "hono": "^4.6.0",
+    "js-yaml": "^4.1.1",
     "pino": "^9.5.0",
     "pino-pretty": "^13.0.0",
     "ws": "^8.20.0",
@@ -30,6 +32,7 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "concurrently": "^9.2.1",
     "tsx": "^4.19.0",

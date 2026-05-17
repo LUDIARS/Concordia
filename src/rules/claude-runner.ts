@@ -3,7 +3,7 @@
  *
  * - prompt は stdin で渡す (LUDIARS memo 準拠: 長 prompt の Windows ENAMETOOLONG 回避)
  * - Windows では CLAUDE_CODE_GIT_BASH_PATH が必要 (memo 準拠)
- * - timeout 30 秒、 over したら kill
+ * - timeout は CONCORDIA_CLAUDE_TIMEOUT_MS env で上書き可、 default 120 秒
  * - 失敗は warn ログ + null 返し (engine 側で skip 扱い)
  */
 
@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("claude-runner");
-const TIMEOUT_MS = 30_000;
+const TIMEOUT_MS = Number(process.env.CONCORDIA_CLAUDE_TIMEOUT_MS ?? "120000");
 
 export interface ClaudeRunResult {
   ok: boolean;

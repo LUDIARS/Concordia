@@ -18,12 +18,14 @@ import { streamRouter } from "./api/stream.js";
 import { rulesRouter } from "./api/rules.js";
 import { dailyRouter } from "./api/daily.js";
 import { processesRouter } from "./api/processes.js";
+import { statRouter } from "./api/stat.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
 import type { RulesRepo } from "./db/rules-repo.js";
 import type { DayReportsRepo } from "./db/day-reports-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
+import type { StatsRepo } from "./db/stats-repo.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 
@@ -38,6 +40,7 @@ export interface AppDeps {
   dayReports: DayReportsRepo;
   personas: PersonasRepo;
   processes: ProcessesRepo;
+  stats: StatsRepo;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
   dispatcher: Dispatcher;
@@ -81,6 +84,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
   app.route("/v1/stream", streamRouter());
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
+  app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route(
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),

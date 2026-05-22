@@ -153,6 +153,32 @@ export const api = {
     ),
   personasFeedbackRecent: (limit = 50) =>
     get<{ feedback: PersonaFeedback[] }>(`/v1/personas/feedback/recent?limit=${limit}`),
+  statList: () =>
+    get<{
+      items: Array<{
+        session_id: string;
+        latest_ts: number;
+        payload: Record<string, unknown>;
+        session: SessionRow | null;
+      }>;
+    }>("/v1/stat"),
+  statBySession: (id: string) =>
+    get<{
+      session: SessionRow;
+      latest: { id: number; ts: number; payload: Record<string, unknown> } | null;
+      history: Array<{ id: number; ts: number; payload: Record<string, unknown> }>;
+    }>(`/v1/stat/${encodeURIComponent(id)}`),
+  conflicts: (params: { repo: string; branch?: string; exclude_session?: string }) => {
+    const q = new URLSearchParams({ repo: params.repo });
+    if (params.branch) q.set("branch", params.branch);
+    if (params.exclude_session) q.set("exclude_session", params.exclude_session);
+    return get<{
+      repo: string;
+      branch: string | null;
+      conflicts: SessionRow[];
+      branches: Array<{ branch: string; count: number }>;
+    }>(`/v1/monitor/conflicts?${q.toString()}`);
+  },
 };
 
 export function fmtTs(ts: number): string {

@@ -17,6 +17,7 @@ import { RulesRepo, seedDefaultRules } from "./db/rules-repo.js";
 import { DayReportsRepo } from "./db/day-reports-repo.js";
 import { PersonasRepo } from "./db/personas-repo.js";
 import { ProcessesRepo } from "./db/processes-repo.js";
+import { StatsRepo } from "./db/stats-repo.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
 import { Dispatcher } from "./dispatcher.js";
@@ -24,6 +25,7 @@ import { startSweeper } from "./sweeper.js";
 import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
+import { startStatScheduler } from "./stat/scheduler.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
@@ -66,6 +68,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const dayReports = new DayReportsRepo(db);
   const personas = new PersonasRepo(db);
   const processes = new ProcessesRepo(db);
+  const stats = new StatsRepo(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat });
@@ -113,6 +116,7 @@ export async function startBackend(): Promise<BackendHandle> {
     dayReports,
     personas,
     processes,
+    stats,
     processManager,
     dailyScheduler,
     dispatcher,
@@ -137,6 +141,14 @@ export async function startBackend(): Promise<BackendHandle> {
     chat,
     disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
     maxAiRules: cfg.maxAiRules,
+  });
+
+  // 10 分毎に active session に stat-collect を enqueue する scheduler.
+  // フラットエージェントチームでの相互状況共有用 (各 session の現況を JSON で蓄積).
+  const statScheduler = startStatScheduler({
+    sessions: repo,
+    stats,
+    tasks,
   });
 
   const server = serve({
@@ -197,6 +209,7 @@ export async function startBackend(): Promise<BackendHandle> {
       dailyScheduler.stop();
       ruleProposer.stop();
       ruleEngine.stop();
+      statScheduler.stop();
       sweeper.stop();
       unsubLog();
       if (observabilityHandle) {

@@ -25,6 +25,7 @@ export type ConcordiaEvent =
   | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
   | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
   | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }
+  | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

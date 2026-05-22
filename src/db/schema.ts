@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 8;
+export const SCHEMA_VERSION = 9;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -370,6 +370,19 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_audit_ts       ON audit_log(ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_actor_ts ON audit_log(actor, ts DESC)`,
+
+  // ─── session stats (v0.4 — 10 分 poll 集計) ───────────
+  // 各 active session が自身の現況 (repos / branches / 未マージ / Todo 等) を JSON で
+  // 報告したものを蓄積する. Concordia 内では他 session も GET で参照できる
+  // (フラットなエージェントチームとして互いの状況を共有するため).
+  `CREATE TABLE IF NOT EXISTS session_stats (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    ts          INTEGER NOT NULL,
+    payload     TEXT NOT NULL  -- JSON
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_session_stats_session_ts ON session_stats(session_id, ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_session_stats_ts ON session_stats(ts DESC)`,
 ];
 
 export function applyMigrations(db: Database.Database): void {

@@ -12,6 +12,7 @@ import { RulesRepo } from "../src/db/rules-repo.js";
 import { DayReportsRepo } from "../src/db/day-reports-repo.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
 import { ProcessesRepo } from "../src/db/processes-repo.js";
+import { StatsRepo } from "../src/db/stats-repo.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
@@ -30,11 +31,12 @@ function makeApp() {
   const personas = new PersonasRepo(db);
   seedPersonas(personas);
   const processes = new ProcessesRepo(db);
+  const stats = new StatsRepo(db);
   const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
   const processManager = new ProcessManager({ repo: processes, logsDir });
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 0.99 });
   return buildApp({
-    repo, tasks, chat, skills, rules, dayReports, personas, processes, processManager, dispatcher,
+    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
     config: loadConfig({}),
     startedAt: new Date().toISOString(), sweeperRunOnce: () => {},

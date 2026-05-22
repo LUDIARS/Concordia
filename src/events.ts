@@ -20,6 +20,7 @@ export type ConcordiaEvent =
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }
   | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }
   | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }
+  | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

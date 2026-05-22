@@ -206,6 +206,14 @@ async function dumpPendingTasks(sessionId) {
       );
       continue;
     }
+    if (t.kind === "stat-collect") {
+      lines.push(
+        `#${t.id} stat-collect`,
+        `  ${p.instructions ?? "現況を JSON で /v1/stat/<self_id> に POST"}`,
+        `  ★ 10 分毎 poll. 簡潔な現況スナップショット (active_repos / open_prs / unmerged_branches / todos_summary / recent_work) を JSON で POST する。 投稿後はチャット投稿は不要。`,
+      );
+      continue;
+    }
     lines.push(`#${t.id} ${t.kind}`, `  payload: ${JSON.stringify(p)}`);
   }
   process.stdout.write(lines.join("\n") + "\n");

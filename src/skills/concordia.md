@@ -112,6 +112,33 @@ session 終了時に発火。 構造化集計 (bullets) は既に出来ている
 通知のみ。 残作業に介入が必要そうなら chitchat に一言流すか、 ユーザに
 伝える程度で十分。 自動で引き継いだりはしない。
 
+### `stat-collect`
+
+10 分毎に Concordia が active session に投げる現況集計タスク. 自分のセッションの
+作業状況を JSON で `POST /v1/stat/<self_id>` する.
+
+```bash
+curl -s -X POST http://127.0.0.1:17330/v1/stat/<self_id> \
+  -H 'content-type: application/json' \
+  -d '{"payload":{ ... }}'
+```
+
+payload の代表キー (どれも任意、 把握できる範囲で埋める):
+
+- `active_repos`: `[{ repo, branch, uncommitted: number, unpushed: number }]`
+- `open_prs`:     `[{ repo, number, title, branch }]`
+- `unmerged_branches`: `[{ repo, branch }]`
+- `todos_summary`: 現在の Todo を 1〜2 行で
+- `recent_work`:   直近の作業を 1〜2 行で
+- `note`:          特記事項 (詰まり / 待ち / 中断中 等)
+
+集計には `/stat --json` スキル指示 (`E:/Document/Ars/.claude/commands/stat.md`)
+が JSON モードを持つので、 同等のロジックで集める. このタスクは chat 投稿不要、
+POST 1 回で完了して良い.
+
+他 session は `GET /v1/stat` (全 session の最新) や `GET /v1/stat/<id>`
+で互いの現況を読める. フラットエージェントチームでの相互可視性のための仕組み.
+
 ### `peer-log-react`
 
 Concordia の **動作ログ更新** (rule の add/remove / 別 session の参加 / skill の poison 上昇 等)

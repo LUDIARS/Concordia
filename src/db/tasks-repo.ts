@@ -6,7 +6,8 @@ export type PendingTaskKind =
   | "review-summary"
   | "daily-report"
   | "session-departed"
-  | "peer-log-react";
+  | "peer-log-react"
+  | "stat-collect";
 
 export interface PendingTaskRow {
   id: number;
@@ -60,6 +61,22 @@ export class TasksRepo {
       .prepare(`UPDATE pending_tasks SET delivered_at = ? WHERE id IN (${placeholder})`)
       .run(now, ...ids);
     return rows.map((r) => ({ ...r, delivered_at: now }));
+  }
+
+  /**
+   * 指定 session の指定 kind で「未配信 (delivered_at IS NULL) かつ未失効」 の
+   * pending task が存在するか. stat-collect の二重 enqueue 抑止などに使う.
+   */
+  hasUndelivered(sessionId: string, kind: PendingTaskKind, now = Math.floor(Date.now() / 1000)): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM pending_tasks
+         WHERE session_id = ? AND kind = ?
+           AND delivered_at IS NULL AND expires_at > ?
+         LIMIT 1`,
+      )
+      .get(sessionId, kind, now);
+    return row !== undefined;
   }
 
   find(id: number): PendingTaskRow | null {

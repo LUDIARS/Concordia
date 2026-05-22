@@ -11,6 +11,11 @@
  *  - chat post 後: 他 active session に chat-reply (chitchat 30% / consultation 50%)
  *  - sweeper の active→lost: 全 active session に session-departed
  *  - DELETE /v1/sessions/:id: 当該 session に daily-report
+ *
+ * 強制ルール:
+ *  - **深夜帯 (23:00–翌05:00)**: 上記の能動的な雑談 / 軽レビュー / chat-reply の
+ *    発火頻度を一律 1/10 に抑制する (shared/quiet-hours.ts). session 離脱通知 /
+ *    daily-report などのライフサイクル通知は対象外 (取りこぼすと困るため).
  */
 
 import type { SessionsRepo } from "./db/sessions-repo.js";
@@ -24,6 +29,7 @@ import {
   pickPureChitchatSeed,
   pickReviewIntroSeed,
 } from "./triggers/seeds.js";
+import { actionFrequencyMultiplier } from "./shared/quiet-hours.js";
 
 const TOPIC_SHIFT_PROBABILITY = 0.7;
 const RANDOM_CHITCHAT_PROBABILITY = 0.05;
@@ -65,10 +71,13 @@ export interface DispatcherDeps {
   tasks: TasksRepo;
   chat: ChatRepo;
   rng?: () => number;
+  /** 深夜帯判定に使う現在時刻プロバイダ. 既定はシステム時計 (テスト用に注入可). */
+  now?: () => Date;
 }
 
 export class Dispatcher {
   private rng: () => number;
+  private now: () => Date;
   /** peer-log-react cooldown 管理: key = `${kind}|${ref ?? source}` → last_dispatched_sec */
   private logCooldown = new Map<string, number>();
   /** active peer の round-robin index. 偏らせない. */
@@ -76,26 +85,29 @@ export class Dispatcher {
 
   constructor(private readonly deps: DispatcherDeps) {
     this.rng = deps.rng ?? Math.random;
+    this.now = deps.now ?? (() => new Date());
   }
 
   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
   onEventAppended(session: SessionRow, _eventCount: number): void {
     const recent = this.deps.sessions.recentEvents(session.id, 30);
     const role = this.refreshRole(session, recent);
+    // 強制ルール: 深夜帯 (23:00–翌05:00) は能動的な発火頻度を 1/10 に抑制する.
+    const freq = actionFrequencyMultiplier(this.now());
 
     // 1. topic shift 検出 — 新領域雑談
     if (recent.length >= 2) {
       const newest = recent[0];
       const previous = recent.slice(1).reverse(); // 古い→新しい順
-      if (detectTopicShift(previous, newest) && this.rng() < TOPIC_SHIFT_PROBABILITY) {
+      if (detectTopicShift(previous, newest) && this.rng() < TOPIC_SHIFT_PROBABILITY * freq) {
         this.enqueueChitchat(session, role, "new-area", pickNewAreaSeed(this.rng), recent);
         return;
       }
     }
 
-    // 2. work count == n*5 — 軽レビュー
+    // 2. work count == n*5 — 軽レビュー (深夜帯は freq で確率的に間引く)
     const workCount = countWorkEvents(recent);
-    if (workCount > 0 && workCount % WORK_COUNT_REVIEW_PERIOD === 0) {
+    if (workCount > 0 && workCount % WORK_COUNT_REVIEW_PERIOD === 0 && this.rng() < freq) {
       const total = this.deps.sessions.countEvents(session.id);
       this.deps.tasks.enqueue({
         session_id: session.id,
@@ -115,7 +127,7 @@ export class Dispatcher {
     }
 
     // 3. 完全ランダム — 純粋雑談
-    if (this.rng() < RANDOM_CHITCHAT_PROBABILITY) {
+    if (this.rng() < RANDOM_CHITCHAT_PROBABILITY * freq) {
       this.enqueueChitchat(session, role, "pure", pickPureChitchatSeed(this.rng), recent);
     }
   }
@@ -129,7 +141,9 @@ export class Dispatcher {
     is_actionable: boolean;
   }): void {
     if (message.channel === "system") return;
-    const replyProb = REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0;
+    // 強制ルール: 深夜帯 (23:00–翌05:00) は chat-reply の確率も 1/10 に抑制する.
+    const replyProb =
+      (REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0) * actionFrequencyMultiplier(this.now());
 
     const peers = this.deps.sessions.listSessions({ status: "active" });
     for (const peer of peers) {

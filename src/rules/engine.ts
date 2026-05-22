@@ -15,6 +15,7 @@ import { runClaude, extractJson } from "./claude-runner.js";
 import { buildPrompt } from "./prompt-builder.js";
 import { handleAction } from "./handler.js";
 import { createChildLogger } from "../shared/logger.js";
+import { actionFrequencyMultiplier } from "../shared/quiet-hours.js";
 
 const log = createChildLogger("rule-engine");
 const ENGINE_TICK_MS = 1000;
@@ -45,6 +46,15 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
     const eventKind = ev.type;
     const candidates = deps.rules.list({ enabled: true, trigger_type: "event" })
       .filter((r) => !r.event_kind || r.event_kind === eventKind || matchesEvent(r.event_kind, eventKind));
+    if (candidates.length === 0) return;
+    // 強制ルール: 深夜帯 (23:00–翌05:00) は event rule の発火も 1/10 に間引く.
+    const freq = actionFrequencyMultiplier();
+    if (freq < 1 && Math.random() >= freq) {
+      for (const r of candidates) {
+        deps.rules.log({ rule_id: r.id, action: "skip", actor: "engine", detail: "quiet hours throttle" });
+      }
+      return;
+    }
     for (const r of candidates) {
       await tryFire(r, `event:${eventKind}`);
     }
@@ -54,11 +64,14 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   timer = setInterval(async () => {
     if (stopped) return;
     const now = Math.floor(Date.now() / 1000);
+    // 強制ルール: 深夜帯 (23:00–翌05:00) は tick の発火間隔を 1/freq 倍に伸ばす
+    // (= 行動頻度 1/10). 昼帯は freq=1 で間隔は据え置き.
+    const freq = actionFrequencyMultiplier();
     const ticks = deps.rules.list({ enabled: true, trigger_type: "tick" });
     for (const r of ticks) {
       if (!r.tick_sec) continue;
       const elapsed = r.last_fired_at ? now - r.last_fired_at : Infinity;
-      if (elapsed >= r.tick_sec) {
+      if (elapsed >= r.tick_sec / freq) {
         await tryFire(r, "tick");
       }
     }

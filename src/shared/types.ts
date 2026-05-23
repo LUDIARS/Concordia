@@ -24,6 +24,8 @@ export interface SessionRow {
   current_task: string | null;
   transcript_path: string | null;
   metadata: string | null; // JSON
+  /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
+  ws_clients: number;
 }
 
 export interface SessionEventRow {

@@ -61,6 +61,12 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const db = openDb(dbPath);
   const repo = new SessionsRepo(db);
+  // プロセス再起動時は in-memory の WS 接続が全部消えているので、
+  // sessions.ws_clients を 0 にリセットして整合性を保つ.
+  const resetCount = repo.resetAllWsClients();
+  if (resetCount > 0) {
+    log.info({ count: resetCount }, "ws_clients reset on boot");
+  }
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
@@ -158,8 +164,10 @@ export async function startBackend(): Promise<BackendHandle> {
   });
 
   // WebSocket broadcast (/ws). eventBus を全 connected client に流す.
+  // `?session=<id>` で接続された WS は sessions.ws_clients をインクリメント →
+  // 切断でデクリメント. sweeper の lost 判定からは ws_clients > 0 の session が除外される.
   // serve() は Http2Server | http.Server union を返すが Concordia は HTTP/1.1 で起動するので http.Server.
-  const ws = attachWsServer(server as unknown as HttpServer, "/ws");
+  const ws = attachWsServer(server as unknown as HttpServer, "/ws", repo);
 
   // 動作ログ的な event を 1 active peer に exclusive 通知 (peer-log-react task).
   // dispatcher 側で 60s cooldown + round-robin で 1 peer 選択 → pending_tasks の delivered_at で排他成立.

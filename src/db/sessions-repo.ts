@@ -148,12 +148,65 @@ export class SessionsRepo {
   }
 
   /** active で last_seen_at が cutoff より古いものを返す */
+  /**
+   * active かつ last_seen_at が古い session のうち **WS 永続クライアントが繋がっていない** ものだけ返す.
+   * ws_clients > 0 の session は「作業中」 と見なして lost 化対象から除外する
+   * (考え事 / build / 入力待ちで hook が静止しても誤 lost を防ぐ).
+   */
   findStaleActive(cutoff: number): SessionRow[] {
     return this.db
       .prepare(
-        `SELECT * FROM sessions WHERE status = 'active' AND last_seen_at < ?`,
+        `SELECT * FROM sessions
+         WHERE status = 'active' AND last_seen_at < ? AND ws_clients = 0`,
       )
       .all(cutoff) as SessionRow[];
+  }
+
+  // ─── WS persistent client (active 判定の主軸) ─────────
+  //
+  // 接続時に incrementWsClients、 切断時に decrementWsClients を呼ぶ.
+  // ws_clients > 0 の session は sweeper の lost 判定から除外される.
+
+  incrementWsClients(sessionId: string): number {
+    const now = Math.floor(Date.now() / 1000);
+    const r = this.db
+      .prepare(
+        `UPDATE sessions
+           SET ws_clients = ws_clients + 1, last_seen_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, sessionId);
+    if (Number(r.changes ?? 0) === 0) return 0;
+    const row = this.db
+      .prepare(`SELECT ws_clients FROM sessions WHERE id = ?`)
+      .get(sessionId) as { ws_clients: number } | undefined;
+    return row?.ws_clients ?? 0;
+  }
+
+  decrementWsClients(sessionId: string): number {
+    const now = Math.floor(Date.now() / 1000);
+    // 二重減算で負数にならないよう CASE で 0 床を保証.
+    const r = this.db
+      .prepare(
+        `UPDATE sessions
+           SET ws_clients = CASE WHEN ws_clients > 0 THEN ws_clients - 1 ELSE 0 END,
+               last_seen_at = ?
+         WHERE id = ?`,
+      )
+      .run(now, sessionId);
+    if (Number(r.changes ?? 0) === 0) return 0;
+    const row = this.db
+      .prepare(`SELECT ws_clients FROM sessions WHERE id = ?`)
+      .get(sessionId) as { ws_clients: number } | undefined;
+    return row?.ws_clients ?? 0;
+  }
+
+  /** プロセス再起動時に in-memory の WS 接続が消えた状態を反映するため、 全 session の ws_clients を 0 にリセット. */
+  resetAllWsClients(): number {
+    const r = this.db
+      .prepare(`UPDATE sessions SET ws_clients = 0 WHERE ws_clients > 0`)
+      .run();
+    return Number(r.changes ?? 0);
   }
 
   /** lost で last_seen_at が cutoff より古いものを abandoned 化 */

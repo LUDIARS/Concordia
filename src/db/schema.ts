@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -25,7 +25,8 @@ const STATEMENTS = [
     last_seen_at    INTEGER NOT NULL,
     current_task    TEXT,
     transcript_path TEXT,
-    metadata        TEXT
+    metadata        TEXT,
+    ws_clients      INTEGER NOT NULL DEFAULT 0
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_sessions_repo_path_active ON sessions(repo_path, status)`,
@@ -69,13 +70,15 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_chat_session    ON chat_messages(session_id, ts DESC)`,
 
   `CREATE TABLE IF NOT EXISTS pending_tasks (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id   TEXT NOT NULL,
-    kind         TEXT NOT NULL,
-    payload      TEXT NOT NULL,
-    created_at   INTEGER NOT NULL,
-    delivered_at INTEGER,
-    expires_at   INTEGER NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    payload         TEXT NOT NULL,
+    created_at      INTEGER NOT NULL,
+    delivered_at    INTEGER,
+    expires_at      INTEGER NOT NULL,
+    retries         INTEGER NOT NULL DEFAULT 0,
+    last_attempt_at INTEGER
   )`,
   `CREATE INDEX IF NOT EXISTS idx_pending_session ON pending_tasks(session_id, delivered_at, expires_at)`,
 
@@ -394,6 +397,25 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "personas",
     column: "display_name",
     ddl: `ALTER TABLE personas ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+  },
+  // 永続 WS クライアント方式: 接続生存で active を維持するためのカウンタ.
+  // sweeper は ws_clients > 0 の session を「作業中」 と見なして lost 化しない.
+  {
+    table: "sessions",
+    column: "ws_clients",
+    ddl: `ALTER TABLE sessions ADD COLUMN ws_clients INTEGER NOT NULL DEFAULT 0`,
+  },
+  // stat-collect 等の pending_tasks に対する retry 機構.
+  // 一定時間応答が無ければ delivered_at=NULL に戻して再配信、 上限到達で諦める.
+  {
+    table: "pending_tasks",
+    column: "retries",
+    ddl: `ALTER TABLE pending_tasks ADD COLUMN retries INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: "pending_tasks",
+    column: "last_attempt_at",
+    ddl: `ALTER TABLE pending_tasks ADD COLUMN last_attempt_at INTEGER`,
   },
 ];
 

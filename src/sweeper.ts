@@ -109,6 +109,14 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     if (expired > 0) {
       log.info({ expired }, "expired tasks purged");
     }
+
+    // 5. 配信済だが応答が無い pending_tasks を retry 対象として delivered_at=NULL に戻す.
+    //    既定: 5 分応答なしで再送、 最大 3 回まで.
+    //    対象 kind は stat-collect だけに絞る (chat 系は応答性 ambiguous なので touch しない).
+    const requeued = opts.tasks.requeueForRetry({ kinds: ["stat-collect"], now });
+    if (requeued.length > 0) {
+      log.info({ count: requeued.length, kind: "stat-collect" }, "tasks requeued for retry");
+    }
   }
 
   timer = setInterval(tick, opts.intervalMs);

@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 9;
+export const SCHEMA_VERSION = 10;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -157,6 +157,7 @@ const STATEMENTS = [
     speech_style  TEXT NOT NULL DEFAULT '',
     skill_template TEXT NOT NULL DEFAULT '',
     learned_notes TEXT NOT NULL DEFAULT '[]',
+    display_name  TEXT NOT NULL DEFAULT '',
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL
   )`,
@@ -385,6 +386,26 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_session_stats_ts ON session_stats(ts DESC)`,
 ];
 
+// 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.
+// CREATE TABLE IF NOT EXISTS は新規スキーマには効くが、 既存 DB の column 追加には効かない.
+// 各エントリは PRAGMA table_info で存在チェックしてから ALTER する.
+const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = [
+  {
+    table: "personas",
+    column: "display_name",
+    ddl: `ALTER TABLE personas ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+  },
+];
+
+function applyColumnAdditions(db: Database.Database): void {
+  for (const a of COLUMN_ADDITIONS) {
+    const cols = db.prepare(`PRAGMA table_info(${a.table})`).all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === a.column)) {
+      db.exec(a.ddl);
+    }
+  }
+}
+
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -392,6 +413,7 @@ export function applyMigrations(db: Database.Database): void {
     for (const stmt of stmts) db.exec(stmt);
   });
   tx(STATEMENTS);
+  applyColumnAdditions(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));

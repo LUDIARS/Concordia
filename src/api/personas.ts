@@ -27,6 +27,7 @@ function serializePersona(p: PersonaRow) {
   return {
     id: p.id,
     name: p.name,
+    display_name: p.display_name ?? "",
     description: p.description,
     traits: safeParseJson(p.traits),
     speech_style: p.speech_style,
@@ -80,9 +81,10 @@ export function personasRouter(deps: PersonasApiDeps): Hono {
     });
   });
 
-  // PATCH /v1/personas/:id — 手動編集 (description / speech_style / traits / skill_template)
+  // PATCH /v1/personas/:id — 手動編集 (description / speech_style / traits / skill_template / display_name)
   const PatchSchema = z.object({
     name: z.string().min(1).max(64).optional(),
+    display_name: z.string().max(64).optional(),
     description: z.string().max(500).optional(),
     traits: z.array(z.string().max(80)).max(20).optional(),
     speech_style: z.string().max(2000).optional(),
@@ -98,6 +100,7 @@ export function personasRouter(deps: PersonasApiDeps): Hono {
     const p = parsed.data;
     deps.personas.update(id, {
       name: p.name,
+      display_name: p.display_name,
       description: p.description,
       traits: p.traits ? JSON.stringify(p.traits) : undefined,
       speech_style: p.speech_style,

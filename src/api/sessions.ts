@@ -58,6 +58,7 @@ function serializePersonaForResponse(p: PersonaRow) {
   return {
     id: p.id,
     name: p.name,
+    display_name: p.display_name ?? "",
     description: p.description,
     traits,
     speech_style: p.speech_style,
@@ -187,8 +188,13 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const s = deps.repo.findSession(c.req.param("id"));
     if (!s) return c.json({ error: "not_found" }, 404);
     const events = deps.repo.recentEvents(s.id, 200);
+    // persona (active assignment があれば) を同梱. statusline / UI が 1 リクエストで
+    // ロール名 + 人物名を取れるように.
+    const assignment = deps.personas.findActiveBySession(s.id);
+    const persona = assignment ? deps.personas.find(assignment.persona_id) : null;
     return c.json({
       session: serializeSession(s),
+      persona: persona ? serializePersonaForResponse(persona) : null,
       events: events.map((e) => ({
         id: e.id,
         ts: e.ts,

@@ -8,6 +8,7 @@ export interface PersonaRow {
   speech_style: string;
   skill_template: string;
   learned_notes: string;   // JSON
+  display_name: string;    // 人物名 (chat author_label / statusline で利用). 空文字なら未設定
   created_at: number;
   updated_at: number;
 }
@@ -46,15 +47,20 @@ export class PersonasRepo {
     traits: string;
     speech_style: string;
     skill_template: string;
+    display_name?: string;
   }): void {
     const now = nowSec();
     this.db
       .prepare(
         `INSERT OR IGNORE INTO personas
-          (id, name, description, traits, speech_style, skill_template, learned_notes, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?)`,
+          (id, name, description, traits, speech_style, skill_template, learned_notes, display_name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, '[]', ?, ?, ?)`,
       )
-      .run(input.id, input.name, input.description, input.traits, input.speech_style, input.skill_template, now, now);
+      .run(
+        input.id, input.name, input.description, input.traits,
+        input.speech_style, input.skill_template, input.display_name ?? "",
+        now, now,
+      );
   }
 
   find(id: string): PersonaRow | null {
@@ -91,6 +97,7 @@ export class PersonasRepo {
     speech_style?: string;
     skill_template?: string;
     learned_notes?: string;
+    display_name?: string;
   }): boolean {
     const sets: string[] = [];
     const args: unknown[] = [];
@@ -100,6 +107,7 @@ export class PersonasRepo {
     if (patch.speech_style !== undefined)   { sets.push("speech_style = ?");   args.push(patch.speech_style); }
     if (patch.skill_template !== undefined) { sets.push("skill_template = ?"); args.push(patch.skill_template); }
     if (patch.learned_notes !== undefined)  { sets.push("learned_notes = ?");  args.push(patch.learned_notes); }
+    if (patch.display_name !== undefined)   { sets.push("display_name = ?");   args.push(patch.display_name); }
     if (sets.length === 0) return false;
     sets.push("updated_at = ?");
     args.push(nowSec());
@@ -138,7 +146,8 @@ export class PersonasRepo {
     const rows = this.db
       .prepare(
         `SELECT pa.*, p.id AS p_id, p.name, p.description, p.traits, p.speech_style,
-                p.skill_template, p.learned_notes, p.created_at AS p_created_at, p.updated_at AS p_updated_at
+                p.skill_template, p.learned_notes, p.display_name,
+                p.created_at AS p_created_at, p.updated_at AS p_updated_at
          FROM persona_assignments pa
          JOIN personas p ON p.id = pa.persona_id
          WHERE pa.released_at IS NULL
@@ -152,6 +161,7 @@ export class PersonasRepo {
         id: r.p_id, name: r.name, description: r.description,
         traits: r.traits, speech_style: r.speech_style,
         skill_template: r.skill_template, learned_notes: r.learned_notes,
+        display_name: r.display_name ?? "",
         created_at: r.p_created_at, updated_at: r.p_updated_at,
       },
     }));

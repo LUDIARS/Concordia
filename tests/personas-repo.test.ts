@@ -122,4 +122,38 @@ describe("PersonasRepo", () => {
     repo.update("speed-freak", { description: "now faster" });
     expect(repo.find("speed-freak")?.description).toBe("now faster");
   });
+
+  it("seedPersonas seeds display_name for each persona", () => {
+    expect(repo.find("test-soul")?.display_name).toBe("境野 詰");
+    expect(repo.find("handyman")?.display_name).toBe("谷垣 段");
+    // 10 seed すべてに非空 display_name が入っている
+    for (const p of repo.list()) {
+      expect(p.display_name).not.toBe("");
+    }
+  });
+
+  it("update can patch display_name", () => {
+    const ok = repo.update("test-soul", { display_name: "別名 太郎" });
+    expect(ok).toBe(true);
+    expect(repo.find("test-soul")?.display_name).toBe("別名 太郎");
+  });
+
+  it("seedPersonas backfills display_name on existing rows with empty display_name", () => {
+    // 旧 DB を模擬: insertOrIgnore で display_name 空を入れた後、 seedPersonas で seed を上書き反映させる
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const r2 = new PersonasRepo(db);
+    r2.insertOrIgnore({
+      id: "test-soul",
+      name: "テスト魂",
+      description: "x",
+      traits: "[]",
+      speech_style: "x",
+      skill_template: "x",
+      // display_name は付けず空のまま
+    });
+    expect(r2.find("test-soul")?.display_name).toBe("");
+    seedPersonas(r2);
+    expect(r2.find("test-soul")?.display_name).toBe("境野 詰");
+  });
 });

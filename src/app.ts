@@ -3,6 +3,7 @@
  */
 
 import { Hono } from "hono";
+import { spawn } from "node:child_process";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { ChatRepo } from "./db/chat-repo.js";
@@ -99,6 +100,28 @@ export function buildApp(deps: AppDeps): Hono {
   app.post("/v1/admin/truncate-sessions", (c) => {
     const n = deps.repo.truncateAllSessions();
     return c.json({ ok: true, deleted: n });
+  });
+
+  // 管理 API: 新コード反映用の self-restart.
+  // 子プロセスとして `npm run dev:backend` を detach spawn → 自分は 300ms 後に process.exit(0).
+  // listen socket は exit で OS が回収. 数 100ms の downtime あり (in-flight request は drop).
+  // loopback (127.0.0.1) でしか上がってない前提で、 追加認証は付けない.
+  // test 時は CONCORDIA_RESTART_DRY_RUN=1 で spawn/exit を skip.
+  app.post("/v1/admin/restart", (c) => {
+    if (process.env.CONCORDIA_RESTART_DRY_RUN === "1") {
+      return c.json({ ok: true, dry_run: true });
+    }
+    setTimeout(() => {
+      const child = spawn("npm", ["run", "dev:backend"], {
+        cwd: process.cwd(),
+        detached: true,
+        stdio: "ignore",
+        shell: true, // Windows: npm.cmd を OS shell に解決させる
+      });
+      child.unref();
+      setTimeout(() => process.exit(0), 200);
+    }, 100);
+    return c.json({ ok: true, message: "restarting (child spawning, parent will exit in ~300ms)" });
   });
 
   // observability (Excubitor 由来) は内部で /api/v1/... の絶対 path を持つので root mount.

@@ -197,11 +197,23 @@ const DEFAULT_TICK_RULE = {
     "**この rule はチャットの発言フック用です. rule 自体の生成 / 削除を主目的としません.**\n" +
     "現在の Concordia 全体の状況 (active sessions / 直近 chat / 直近 events) を見て、 " +
     "次のいずれか 1 つを判断してください:\n" +
-    "  (a) chitchat channel に短い雑談を投稿\n" +
+    "  (a) chitchat channel に短い雑談を投稿 — 内容は assign された persona の役割 / 関心領域に紐づくこと (汎用雑談 NG)\n" +
     "  (b) consultation channel に軽いレビュー / 相談を投稿\n" +
     "  (c) 投稿不要 (skip) — 直近 chat と被ったり、 言うべきことがなければ skip\n" +
     "rule の add / remove は **どうしても rule の不整合・冗長を見つけた時のみ** で、 通常は使わないでください.\n" +
-    "同じ内容を複数 channel に投稿しないこと。 短く、 AI 同士の対話前提で人間配慮不要。",
+    "同じ内容を複数 channel に投稿しないこと。 短く、 AI 同士の対話前提で人間配慮不要。\n" +
+    "\n" +
+    "## 禁則 (これらの内容は post しないこと)\n" +
+    "- 無音 / 沈黙確認: 「最近静かですね」 「無音ですね」 — Concordia の event log を見れば分かるので冗長\n" +
+    "- 進捗 ping: 「進捗どう?」 「どこまで終わった?」 — session 間進捗は /v1/stat poll で完結する\n" +
+    "- ロール無関係な汎用雑談 (天気・一般時事・抽象的感想) — persona の役割 / 口癖 / 関心領域に必ず紐づける\n" +
+    "\n" +
+    "## stat 取りこぼし対応\n" +
+    "10 分毎の stat poll で自分の現況に「明確な取りこぼし」 (未マージ PR / ユーザ待ちアクション / 1 サイクル進んでない todo / 失敗 test 放置 等) があれば、 " +
+    "stat 投稿に加えて consultation に短く 1 文流し、 ユーザに反応を促す。\n" +
+    "\n" +
+    "## 衝突回避が会話より先\n" +
+    "新規 substantive 作業 (リポ編集 / branch 切替 / 削除) に入る前は、 まず GET /v1/monitor/conflicts?repo=... で他 session の有無を確認すること。 chat 会話はその後。",
   target: null as string | null,
   cooldown_sec: 300,
 };

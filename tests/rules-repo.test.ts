@@ -116,4 +116,15 @@ describe("RulesRepo + seedDefaultRules", () => {
     const actions = logs.map((l) => l.action).sort();
     expect(actions).toEqual(["fire", "skip"]);
   });
+
+  it("default-tick instructions include the five rule guards", () => {
+    seedDefaultRules(r);
+    const inst = r.find("default-tick")?.instructions ?? "";
+    // 禁則 (無音 / 進捗 ping / 汎用雑談 / 衝突回避先行 / stat 取りこぼし) が織り込まれている
+    expect(inst).toMatch(/無音/);
+    expect(inst).toMatch(/進捗 ping|進捗\?|進捗どう/);
+    expect(inst).toMatch(/汎用雑談|persona の役割/);
+    expect(inst).toMatch(/conflicts\?repo=|衝突回避が会話より先/);
+    expect(inst).toMatch(/取りこぼし|stat (poll|取りこぼし)/);
+  });
 });

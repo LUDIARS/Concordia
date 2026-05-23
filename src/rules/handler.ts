@@ -49,6 +49,31 @@ const RemoveRuleSchema = z.object({
 
 const ActionSchema = z.union([PostSchema, SkipSchema, AddRuleSchema, RemoveRuleSchema]);
 
+/**
+ * AI が `add_rule` で持ち込もうとする rule の id / description / instructions に
+ * これらのパターンが含まれていたら reject する.
+ *
+ * memory feedback と同期 (no-silent-check / no-progress-check / chitchat-role-grounded /
+ * conflict-first-chat-after). 「今後の登録を避ける」 ためのコードレベル最終 guard.
+ */
+const FORBIDDEN_RULE_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /無音|沈黙|silence|quiet/i,                 reason: "無音 / 沈黙確認系 rule は禁止 (event log で見える、 冗長)" },
+  { pattern: /進捗(どう|確認|聞|を聞|ping)|progress[-_ ]?(check|ping)/i, reason: "進捗確認系 rule は禁止 (/v1/stat poll で完結)" },
+  { pattern: /汎用雑談|general[-_ ]?chitchat|small[-_ ]?talk[-_ ]?random/i, reason: "ロール無関係な汎用雑談 rule は禁止 (persona の役割に紐づけること)" },
+];
+
+function checkForbiddenRule(rule: { id: string; description?: string; instructions: string }): { ok: true } | { ok: false; reason: string } {
+  const blob = `${rule.id}\n${rule.description ?? ""}\n${rule.instructions}`;
+  for (const { pattern, reason } of FORBIDDEN_RULE_PATTERNS) {
+    if (pattern.test(blob)) return { ok: false, reason };
+  }
+  return { ok: true };
+}
+
+/** test / 他モジュールから参照. */
+export const _FORBIDDEN_RULE_PATTERNS = FORBIDDEN_RULE_PATTERNS;
+export const _checkForbiddenRule = checkForbiddenRule;
+
 export interface HandlerDeps {
   chat: ChatRepo;
   rules: RulesRepo;
@@ -103,6 +128,12 @@ export function handleAction(deps: HandlerDeps, ruleId: string, raw: unknown): {
     if (existing) {
       deps.rules.log({ rule_id: ruleId, action: "error", actor: "ai", detail: `add_rule: id collision ${r.id}` });
       return { applied: false, detail: "id collision" };
+    }
+    // forbidden pattern guard: 無音 / 進捗確認 / 汎用雑談 系の rule は AI 提案でも reject.
+    const guard = checkForbiddenRule({ id: r.id, description: r.description, instructions: r.instructions });
+    if (!guard.ok) {
+      deps.rules.log({ rule_id: ruleId, action: "error", actor: "ai", detail: `add_rule rejected (forbidden): ${guard.reason} :: id=${r.id}` });
+      return { applied: false, detail: `forbidden: ${guard.reason}` };
     }
     deps.rules.insert({
       id: r.id,

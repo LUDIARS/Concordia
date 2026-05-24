@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname, homedir } from "node:os";
 import { execSync } from "node:child_process";
+import { resolveSessionId } from "./concordia-hook-resolver.mjs";
 
 // ホワイトリスト方式: 既定は無効, CONCORDIA_HOOK=1 が console から渡された
 // セッションでのみ動く. これにより claude CLI 由来の one-shot や Agent ツール
@@ -51,7 +52,7 @@ async function main() {
   const stdin = readStdin();
   const ctx = stdin ? safeJson(stdin) : null;
   const cwd = ctx?.cwd ?? process.cwd();
-  const sessionId = ctx?.session_id ?? process.env.CLAUDE_SESSION_ID ?? process.env.CONCORDIA_SESSION_ID ?? null;
+  const sessionId = resolveSessionId(ctx, process.env);
   const transcriptPath = ctx?.transcript_path ?? null;
 
   // Gate: env opt-in OR session が Concordia に active 登録済み (対話 enable flow).

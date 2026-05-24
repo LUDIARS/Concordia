@@ -30,6 +30,10 @@ import type { StatsRepo } from "./db/stats-repo.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
+import { machinesRouter } from "./api/machines.js";
+import { spawnSession, type SpawnProvider, type SpawnMode } from "./control/spawner.js";
+import { stopSessionByLictorPid } from "./control/stop-session.js";
+import { eventBus } from "./events.js";
 
 export interface AppDeps {
   /** observability layer (Excubitor 由来) の Hono router. 内部で /api/v1/... の絶対 path を持つ. */
@@ -92,6 +96,7 @@ export function buildApp(deps: AppDeps): Hono {
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
   );
   app.route("/v1/spawn", spawnRouter());
+  app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();
@@ -102,6 +107,65 @@ export function buildApp(deps: AppDeps): Hono {
   app.post("/v1/admin/truncate-sessions", (c) => {
     const n = deps.repo.truncateAllSessions();
     return c.json({ ok: true, deleted: n });
+  });
+
+  // 管理 API: lictor-wrapped セッションを新規 spawn する (Web UI / dashboard 用).
+  // /v1/spawn と違って bearer token 不要 — Concordia の loopback 信頼境界に
+  // 乗っかる (他の /v1/admin/* と同じ扱い). 同一プラットフォーム / 同一マシン
+  // 用 — 他マシンへの spawn は将来 daemon-relay で扱う.
+  app.post("/v1/admin/spawn-session", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: "invalid JSON" }, 400);
+    }
+    const provider = (body.provider as string) ?? "claude";
+    if (provider !== "claude" && provider !== "codex") {
+      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    }
+    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    const result = spawnSession({
+      provider: provider as SpawnProvider,
+      mode,
+      args: Array.isArray(body.args)
+        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
+        : undefined,
+      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      title: typeof body.title === "string" ? body.title : undefined,
+      env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
+    });
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json({ ok: true, pid: result.pid, command: result.command });
+  });
+
+  // 管理 API: 既存 lictor-wrapped セッションを kill.
+  // 1. session row から metadata.lictor_pid を取得
+  // 2. プラットフォーム別に process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
+  // 3. session を ended に遷移 + session.ended event emit
+  app.post("/v1/admin/stop-session/:id", async (c) => {
+    const id = c.req.param("id");
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    if (!session.metadata) {
+      return c.json({ error: "session has no metadata — was it lictor-wrapped?" }, 400);
+    }
+    let meta: { lictor_pid?: number };
+    try {
+      meta = JSON.parse(session.metadata) as { lictor_pid?: number };
+    } catch {
+      return c.json({ error: "session.metadata is not JSON" }, 400);
+    }
+    if (typeof meta.lictor_pid !== "number") {
+      return c.json({ error: "session.metadata.lictor_pid missing" }, 400);
+    }
+    const killResult = stopSessionByLictorPid(meta.lictor_pid);
+    if (!killResult.ok) return c.json({ error: killResult.error }, 500);
+    const now = Math.floor(Date.now() / 1000);
+    deps.repo.setStatus(id, "ended", now, now);
+    deps.repo.appendEvent({ session_id: id, ts: now, kind: "end", payload: { stopped_by: "admin" } });
+    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+    return c.json({ ok: true, pid: meta.lictor_pid });
   });
 
   // 管理 API: 新コード反映用の self-restart.
@@ -132,4 +196,12 @@ export function buildApp(deps: AppDeps): Hono {
   }
 
   return app;
+}
+
+function isStringMap(x: unknown): x is Record<string, string> {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  for (const v of Object.values(x as Record<string, unknown>)) {
+    if (typeof v !== "string") return false;
+  }
+  return true;
 }

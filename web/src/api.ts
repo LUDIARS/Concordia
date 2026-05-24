@@ -127,6 +127,21 @@ export const api = {
       text,
       ...(source ? { source } : {}),
     }),
+  machinesList: () =>
+    get<{
+      machines: Array<{
+        host: string;
+        active: number;
+        lost: number;
+        ended: number;
+        abandoned: number;
+        last_seen_at: number;
+      }>;
+    }>("/v1/machines"),
+  adminSpawn: (body: { provider: "claude" | "codex"; cwd?: string; title?: string; mode?: "tab" | "window" }) =>
+    post<{ ok: boolean; pid: number | null; command: string[] }>("/v1/admin/spawn-session", body),
+  adminStop: (id: string) =>
+    post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
       `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,

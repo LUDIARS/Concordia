@@ -55,6 +55,7 @@ export function SessionDetail() {
       </header>
 
       {s.status === "active" && <InjectForm sessionId={s.id} />}
+      {s.status === "active" && <StopSessionButton sessionId={s.id} onStopped={refetch} />}
 
       <section>
         <h2 className="text-base font-semibold mb-2">
@@ -140,6 +141,48 @@ function InjectForm({ sessionId }: { sessionId: string }) {
         </div>
       )}
     </form>
+  );
+}
+
+/**
+ * Kill the lictor process for this session. The button confirms before
+ * firing because the kill is OS-level (taskkill /F /T on Windows, SIGTERM
+ * to the process group on POSIX) — claude has no chance to flush pending
+ * edits. Active sessions only.
+ */
+function StopSessionButton({ sessionId, onStopped }: { sessionId: string; onStopped: () => void }) {
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const stop = async () => {
+    if (!confirm("このセッションを強制終了しますか? (lictor + claude が即 kill されます)")) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.adminStop(sessionId);
+      onStopped();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="bg-surface border border-border rounded p-4 flex items-center gap-3">
+      <button
+        type="button"
+        onClick={stop}
+        disabled={sending}
+        className="px-3 py-1.5 bg-danger text-white rounded text-sm disabled:opacity-50"
+      >
+        {sending ? "停止中…" : "セッション停止"}
+      </button>
+      <span className="text-xs text-subtle">
+        lictor を kill して claude を強制終了 (タブは閉じない)
+      </span>
+      {err && <span className="text-xs text-danger ml-auto">{err}</span>}
+    </div>
   );
 }
 

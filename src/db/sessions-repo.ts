@@ -123,6 +123,40 @@ export class SessionsRepo {
     this.db.prepare(`UPDATE sessions SET metadata = ? WHERE id = ?`).run(metadata, id);
   }
 
+  /**
+   * Aggregate distinct hosts with session counts per status. Used by the
+   * machines API to present a "what's running where" overview.
+   */
+  listMachines(): Array<{
+    host: string;
+    active: number;
+    lost: number;
+    ended: number;
+    abandoned: number;
+    last_seen_at: number;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT host,
+                SUM(CASE WHEN status = 'active'    THEN 1 ELSE 0 END) AS active,
+                SUM(CASE WHEN status = 'lost'      THEN 1 ELSE 0 END) AS lost,
+                SUM(CASE WHEN status = 'ended'     THEN 1 ELSE 0 END) AS ended,
+                SUM(CASE WHEN status = 'abandoned' THEN 1 ELSE 0 END) AS abandoned,
+                MAX(last_seen_at) AS last_seen_at
+           FROM sessions
+          GROUP BY host
+          ORDER BY MAX(last_seen_at) DESC`,
+      )
+      .all() as Array<{
+        host: string;
+        active: number;
+        lost: number;
+        ended: number;
+        abandoned: number;
+        last_seen_at: number;
+      }>;
+  }
+
   countEvents(sessionId: string): number {
     const r = this.db
       .prepare(`SELECT COUNT(*) AS n FROM session_events WHERE session_id = ?`)

@@ -87,6 +87,15 @@ describe("machines API + admin spawn/stop", () => {
     expect(r.status).toBe(400);
   });
 
+  it("GET /v1/admin/spawn-defaults reports the configured default_cwd", async () => {
+    const r = await env.app.request("/v1/admin/spawn-defaults");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { default_cwd: string; platform_supported: boolean };
+    // loadConfig({}) → CONCORDIA_SPAWN_DEFAULT_CWD unset → empty
+    expect(body.default_cwd).toBe("");
+    expect(typeof body.platform_supported).toBe("boolean");
+  });
+
   it("POST /v1/admin/stop-session/:id 404 for unknown id", async () => {
     const r = await env.app.request("/v1/admin/stop-session/nope", { method: "POST" });
     expect(r.status).toBe(404);

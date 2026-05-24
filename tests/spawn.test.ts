@@ -9,7 +9,7 @@ import {
   spawnTokenPath,
   tokenMatches,
 } from "../src/control/token.js";
-import { buildWtArgs, validateCwd } from "../src/control/spawner.js";
+import { buildWtArgs, resolveSpawnCwd, validateCwd } from "../src/control/spawner.js";
 import { spawnRouter } from "../src/api/spawn.js";
 
 describe("spawn token", () => {
@@ -129,6 +129,48 @@ describe("spawn arg builder", () => {
     const missing = join(tmpdir(), "concordia-nope-" + Date.now());
     expect(validateCwd(missing)).toMatch(/does not exist/);
   });
+
+  describe("resolveSpawnCwd", () => {
+    it("prefers requested cwd when it's a non-empty string", () => {
+      const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
+      expect(resolveSpawnCwd(tmp, "/some/default")).toBe(tmp);
+      rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it("trims whitespace from requested cwd", () => {
+      const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
+      expect(resolveSpawnCwd(`  ${tmp}  `, "")).toBe(tmp);
+      rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it("falls back to default when requested is empty/undefined and default exists", () => {
+      const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
+      expect(resolveSpawnCwd(undefined, tmp)).toBe(tmp);
+      expect(resolveSpawnCwd("", tmp)).toBe(tmp);
+      expect(resolveSpawnCwd("   ", tmp)).toBe(tmp);
+      expect(resolveSpawnCwd(null, tmp)).toBe(tmp);
+      rmSync(tmp, { recursive: true, force: true });
+    });
+
+    it("returns undefined when default points at a missing dir", () => {
+      const missing = join(tmpdir(), "concordia-resolve-missing-" + Date.now());
+      expect(resolveSpawnCwd(undefined, missing)).toBeUndefined();
+    });
+
+    it("returns undefined when default is empty/whitespace", () => {
+      expect(resolveSpawnCwd(undefined, "")).toBeUndefined();
+      expect(resolveSpawnCwd(undefined, "   ")).toBeUndefined();
+      expect(resolveSpawnCwd(undefined, undefined)).toBeUndefined();
+    });
+
+    it("requested non-string types are treated as missing", () => {
+      const tmp = mkdtempSync(join(tmpdir(), "concordia-resolve-"));
+      expect(resolveSpawnCwd(42, tmp)).toBe(tmp);
+      expect(resolveSpawnCwd({}, tmp)).toBe(tmp);
+      expect(resolveSpawnCwd([], tmp)).toBe(tmp);
+      rmSync(tmp, { recursive: true, force: true });
+    });
+  });
 });
 
 describe("spawn router (Hono)", () => {
@@ -144,13 +186,25 @@ describe("spawn router (Hono)", () => {
     rmSync(cwd, { recursive: true, force: true });
   });
 
-  it("GET /info is open and exposes token path", async () => {
+  it("GET /info is open and exposes token path + default_cwd", async () => {
     const app = spawnRouter({ cwd });
     const res = await app.request("/info");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { token_path: string; platform_supported: boolean };
+    const body = (await res.json()) as {
+      token_path: string;
+      platform_supported: boolean;
+      default_cwd: string;
+    };
     expect(body.token_path).toBe(join(cwd, ".spawn.token"));
     expect(typeof body.platform_supported).toBe("boolean");
+    expect(body.default_cwd).toBe("");
+  });
+
+  it("GET /info echoes deps.defaultSpawnCwd", async () => {
+    const app = spawnRouter({ cwd, defaultSpawnCwd: "E:\\Document\\Ars" });
+    const res = await app.request("/info");
+    const body = (await res.json()) as { default_cwd: string };
+    expect(body.default_cwd).toBe("E:\\Document\\Ars");
   });
 
   it("POST / without token returns 401 with WWW-Authenticate", async () => {

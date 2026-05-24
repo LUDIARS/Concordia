@@ -15,6 +15,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
   buildWtArgs,
+  resolveSpawnCwd,
   spawnSession,
   type SpawnMode,
   type SpawnProvider,
@@ -33,6 +34,12 @@ const log = createChildLogger("api/spawn");
 export interface SpawnApiDeps {
   /** cwd Concordia was started in — used for token storage. */
   cwd?: string;
+  /**
+   * Default working directory the spawn endpoint applies when the caller
+   * omits `cwd` (e.g. CONCORDIA_SPAWN_DEFAULT_CWD=E:\Document\Ars). Empty
+   * or non-existent path = no fallback (Concordia's own cwd is used).
+   */
+  defaultSpawnCwd?: string;
 }
 
 export interface SpawnRecord {
@@ -53,11 +60,13 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
 
   log.info({ tokenPath: spawnTokenPath(cwd) }, "spawn endpoint enabled");
 
-  // No-auth: where to find the token. (We don't return the token value.)
+  // No-auth: where to find the token + the default cwd UI will pre-fill.
+  // (We don't return the token VALUE — only the path so callers can find it.)
   app.get("/info", (c) => {
     return c.json({
       token_path: spawnTokenPath(cwd),
       platform_supported: process.platform === "win32",
+      default_cwd: deps.defaultSpawnCwd ?? "",
     });
   });
 
@@ -90,7 +99,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      cwd: resolveSpawnCwd(body.cwd, deps.defaultSpawnCwd),
       title: typeof body.title === "string" ? body.title : undefined,
       env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
     };
@@ -135,7 +144,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      cwd: resolveSpawnCwd(body.cwd, deps.defaultSpawnCwd),
       title: typeof body.title === "string" ? body.title : undefined,
     });
     return c.json({ command: ["wt.exe", ...args] });

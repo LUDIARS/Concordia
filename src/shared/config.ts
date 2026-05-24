@@ -21,6 +21,14 @@ export interface ConcordiaConfig {
   /** AI proposer が新 rule を提案するときの上限. enabled な ai 由来 rule 数が
    *  これ以上なら proposer は claude を呼ばずに skip する (rule 雪だるま防止). */
   maxAiRules: number;
+  /**
+   * /v1/spawn (および /v1/admin/spawn-session) で body.cwd が省略された時に
+   * 使う既定の working directory. 空文字列なら fallback 無し (= 既存挙動、
+   * Concordia 自身の cwd になる). LUDIARS の運用では `E:\Document\Ars` を
+   * 入れて 「新セッションはまず Ars 配下に開く」 という建付けに揃える.
+   * path が存在するかは使う側でチェックしてから適用する.
+   */
+  spawnDefaultCwd: string;
 }
 
 export function loadConfig(env = process.env): ConcordiaConfig {
@@ -38,6 +46,7 @@ export function loadConfig(env = process.env): ConcordiaConfig {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
+    spawnDefaultCwd: (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim(),
   };
 }
 

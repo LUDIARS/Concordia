@@ -50,6 +50,34 @@ export function buildWtArgs(req: SpawnRequest): string[] {
   return out;
 }
 
+/**
+ * Pick the effective cwd for a spawn request:
+ *
+ *   1. body.cwd if the caller provided a non-empty string
+ *   2. fallback to `defaultCwd` if it exists on disk
+ *   3. undefined → spawner uses Concordia's own process.cwd()
+ *
+ * The "exists on disk" check on the fallback guards against env-var
+ * typos that would otherwise propagate into wt.exe and fail there.
+ */
+export function resolveSpawnCwd(
+  requested: unknown,
+  defaultCwd: string | undefined | null,
+): string | undefined {
+  if (typeof requested === "string" && requested.trim()) {
+    return requested.trim();
+  }
+  const fallback = (defaultCwd ?? "").trim();
+  if (!fallback) return undefined;
+  if (!existsSync(fallback)) return undefined;
+  try {
+    if (!statSync(fallback).isDirectory()) return undefined;
+  } catch {
+    return undefined;
+  }
+  return fallback;
+}
+
 export function validateCwd(cwd: string | undefined): string | null {
   if (!cwd) return null;
   try {

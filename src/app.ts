@@ -31,7 +31,7 @@ import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
-import { spawnSession, type SpawnProvider, type SpawnMode } from "./control/spawner.js";
+import { resolveSpawnCwd, spawnSession, type SpawnProvider, type SpawnMode } from "./control/spawner.js";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { eventBus } from "./events.js";
 
@@ -95,7 +95,7 @@ export function buildApp(deps: AppDeps): Hono {
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
   );
-  app.route("/v1/spawn", spawnRouter());
+  app.route("/v1/spawn", spawnRouter({ defaultSpawnCwd: deps.config.spawnDefaultCwd }));
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
 
   app.post("/v1/sweeper/run", (c) => {
@@ -131,12 +131,21 @@ export function buildApp(deps: AppDeps): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      cwd: resolveSpawnCwd(body.cwd, deps.config.spawnDefaultCwd),
       title: typeof body.title === "string" ? body.title : undefined,
       env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
     });
     if (!result.ok) return c.json({ error: result.error }, 400);
     return c.json({ ok: true, pid: result.pid, command: result.command });
+  });
+
+  // 管理 API: spawn の既定値を UI に晒す.
+  // body.cwd を省略したときに実際に使われる path と、 platform_supported を返す.
+  app.get("/v1/admin/spawn-defaults", (c) => {
+    return c.json({
+      default_cwd: deps.config.spawnDefaultCwd,
+      platform_supported: process.platform === "win32",
+    });
   });
 
   // 管理 API: 既存 lictor-wrapped セッションを kill.

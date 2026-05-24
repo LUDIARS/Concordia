@@ -140,6 +140,8 @@ export const api = {
     }>("/v1/machines"),
   adminSpawn: (body: { provider: "claude" | "codex"; cwd?: string; title?: string; mode?: "tab" | "window" }) =>
     post<{ ok: boolean; pid: number | null; command: string[] }>("/v1/admin/spawn-session", body),
+  adminSpawnDefaults: () =>
+    get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>
     post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
   chatList: (channel?: string, limit = 50) =>

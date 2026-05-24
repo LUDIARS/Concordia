@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionRow } from "../api.js";
@@ -154,6 +154,19 @@ function SpawnSessionForm() {
   const [mode, setMode] = useState<"tab" | "window">("tab");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  // The default cwd configured server-side (CONCORDIA_SPAWN_DEFAULT_CWD). We
+  // show it as the input placeholder so the user can see what the spawn will
+  // resolve to when they leave the field blank.
+  const [defaultCwd, setDefaultCwd] = useState<string>("");
+
+  useEffect(() => {
+    void api
+      .adminSpawnDefaults()
+      .then((d) => setDefaultCwd(d.default_cwd))
+      .catch(() => {
+        /* no defaults endpoint or fetch failure — leave blank */
+      });
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,9 +201,18 @@ function SpawnSessionForm() {
           type="text"
           value={cwd}
           onChange={(e) => setCwd(e.target.value)}
-          placeholder="cwd (例: E:\\Document\\Ars\\Lictor) 空なら起動側 cwd"
+          placeholder={
+            defaultCwd
+              ? `cwd 空欄 → ${defaultCwd}`
+              : "cwd (例: E:\\Document\\Ars\\Lictor) 空なら起動側 cwd"
+          }
           disabled={sending}
           className="flex-1 min-w-[200px] foundation-form font-mono text-sm"
+          title={
+            defaultCwd
+              ? `空欄なら CONCORDIA_SPAWN_DEFAULT_CWD = ${defaultCwd} が使われます`
+              : undefined
+          }
         />
         <input
           type="text"

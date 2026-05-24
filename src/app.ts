@@ -28,6 +28,8 @@ import type { DayReportsRepo } from "./db/day-reports-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
+import type { AdminState } from "./admin/state.js";
+import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
@@ -50,6 +52,7 @@ export interface AppDeps {
   processes: ProcessesRepo;
   stats: StatsRepo;
   sessionTaskRecords: SessionTaskRecordsRepo;
+  adminState: AdminState;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
   dispatcher: Dispatcher;
@@ -180,6 +183,63 @@ export function buildApp(deps: AppDeps): Hono {
     deps.repo.appendEvent({ session_id: id, ts: now, kind: "end", payload: { stopped_by: "admin" } });
     eventBus.emit({ type: "session.ended", session_id: id, ts: now });
     return c.json({ ok: true, pid: meta.lictor_pid });
+  });
+
+  // ── 管理 API: 3 つの runtime toggle ─────────────────────────────────
+  // schema_meta 永続化 + AdminState 経由で dispatcher / rule engine / proposer
+  // が次の tick から反映する. 再起動不要. Web UI (/rules ページ) からも操作可.
+
+  app.get("/v1/admin/chat-mute", (c) => {
+    return c.json({ muted: deps.adminState.getChatMuted() });
+  });
+  app.put("/v1/admin/chat-mute", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.muted !== "boolean") {
+      return c.json({ error: "body.muted (boolean) required" }, 400);
+    }
+    deps.adminState.setChatMuted(body.muted);
+    return c.json({ muted: deps.adminState.getChatMuted() });
+  });
+
+  app.get("/v1/admin/rules-enabled", (c) => {
+    return c.json({ enabled: deps.adminState.getRulesEnabled() });
+  });
+  app.put("/v1/admin/rules-enabled", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setRulesEnabled(body.enabled);
+    return c.json({ enabled: deps.adminState.getRulesEnabled() });
+  });
+
+  app.get("/v1/admin/rule-proposer-interval", (c) => {
+    return c.json({
+      interval_sec: deps.adminState.getRuleProposerIntervalSec(),
+      min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
+      max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
+    });
+  });
+  app.put("/v1/admin/rule-proposer-interval", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const n = Number(body?.interval_sec);
+    if (!Number.isFinite(n)) {
+      return c.json({ error: "body.interval_sec (number) required" }, 400);
+    }
+    try {
+      deps.adminState.setRuleProposerIntervalSec(n);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+    return c.json({ interval_sec: deps.adminState.getRuleProposerIntervalSec() });
+  });
+
+  app.get("/v1/admin/state", (c) => {
+    return c.json({
+      ...deps.adminState.snapshot(),
+      proposer_interval_min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
+      proposer_interval_max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
+    });
   });
 
   // 管理 API: 新コード反映用の self-restart.

@@ -14,6 +14,7 @@ import { PersonasRepo } from "../src/db/personas-repo.js";
 import { ProcessesRepo } from "../src/db/processes-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "../src/db/session-task-records-repo.js";
+import { AdminState } from "../src/admin/state.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
@@ -34,12 +35,13 @@ function buildTestApp() {
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
+  const adminState = new AdminState(db);
   const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
   const processManager = new ProcessManager({ repo: processes, logsDir });
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
   return {
     app: buildApp({
-      repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, processManager, dispatcher,
+      repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, adminState, processManager, dispatcher,
       dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
       config: { ...loadConfig({}), anthropicApiKey: "" },
       startedAt: new Date().toISOString(),
@@ -85,6 +87,71 @@ describe("machines API + admin spawn/stop", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "ghost" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("GET /v1/admin/state exposes snapshot triple with defaults", async () => {
+    const r = await env.app.request("/v1/admin/state");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      chat_muted: boolean;
+      rules_enabled: boolean;
+      rule_proposer_interval_sec: number;
+    };
+    expect(body.chat_muted).toBe(true);
+    expect(body.rules_enabled).toBe(false);
+    expect(body.rule_proposer_interval_sec).toBe(3600);
+  });
+
+  it("PUT /v1/admin/chat-mute toggles + GET reflects new value", async () => {
+    const put = await env.app.request("/v1/admin/chat-mute", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ muted: false }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { muted: boolean }).muted).toBe(false);
+
+    const get = await env.app.request("/v1/admin/chat-mute");
+    expect((await get.json() as { muted: boolean }).muted).toBe(false);
+  });
+
+  it("PUT /v1/admin/chat-mute rejects non-boolean", async () => {
+    const r = await env.app.request("/v1/admin/chat-mute", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ muted: "yes" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("PUT /v1/admin/rules-enabled toggles + persists", async () => {
+    const put = await env.app.request("/v1/admin/rules-enabled", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
+  });
+
+  it("PUT /v1/admin/rule-proposer-interval clamps + GET echoes", async () => {
+    const tooSmall = await env.app.request("/v1/admin/rule-proposer-interval", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_sec: 10 }),
+    });
+    expect(tooSmall.status).toBe(200);
+    const body = await tooSmall.json() as { interval_sec: number };
+    expect(body.interval_sec).toBe(60); // clamped to MIN
+  });
+
+  it("PUT /v1/admin/rule-proposer-interval rejects non-number", async () => {
+    const r = await env.app.request("/v1/admin/rule-proposer-interval", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_sec: "abc" }),
     });
     expect(r.status).toBe(400);
   });

@@ -17,7 +17,7 @@ import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("rule-proposer");
 
-const TICK_MS = 5 * 60 * 1000;       // 5 分
+const DEFAULT_TICK_MS = 5 * 60 * 1000;       // 5 分 (admin で上書き可)
 const STARTUP_DELAY_MS = 30 * 1000;  // 起動 30 秒後に初回
 
 export interface ProposerDeps {
@@ -28,6 +28,16 @@ export interface ProposerDeps {
   disable_claude?: boolean;
   /** enabled な ai 由来 rule 数がこれ以上なら新規提案を skip (rule 雪だるま防止). */
   maxAiRules?: number;
+  /**
+   * Runtime kill-switch (AdminState.getRulesEnabled() の否定を期待).
+   * true で runOnce が claude を呼ばず skip する.
+   */
+  rulesDisabled?: () => boolean;
+  /**
+   * Tick interval in seconds. Default 300 (5 minutes). Read on each tick
+   * via this getter so the Web UI can change cadence without restart.
+   */
+  intervalSec?: () => number;
 }
 
 export interface ProposerHandle {
@@ -44,6 +54,10 @@ export function startRuleProposer(deps: ProposerDeps): ProposerHandle {
   async function runOnce(): Promise<void> {
     if (stopped || running) return;
     if (deps.disable_claude || process.env.CONCORDIA_DISABLE_CLAUDE === "1") {
+      return;
+    }
+    if (deps.rulesDisabled?.()) {
+      // admin が rules-enabled=false にしている. tick は走らせるが claude を呼ばない.
       return;
     }
 
@@ -152,17 +166,40 @@ export function startRuleProposer(deps: ProposerDeps): ProposerHandle {
     }
   }
 
-  // 初回 30 秒後 + 以降 5 分ごと
-  firstTimer = setTimeout(() => { void runOnce(); }, STARTUP_DELAY_MS);
-  timer = setInterval(() => { void runOnce(); }, TICK_MS);
+  // 初回 30 秒後 + 以降は admin 設定の間隔 (default 5 分). 再スケジュール式に
+  // することで、 admin が runtime 中に PUT した interval を次の tick から反映できる.
+  const getIntervalMs = (): number => {
+    const sec = deps.intervalSec?.();
+    return Number.isFinite(sec) && sec! > 0 ? Math.max(60_000, sec! * 1000) : DEFAULT_TICK_MS;
+  };
+  let currentInterval = getIntervalMs();
+  function scheduleNext(): void {
+    if (stopped) return;
+    const next = getIntervalMs();
+    if (next !== currentInterval) {
+      log.info({ from_ms: currentInterval, to_ms: next }, "proposer interval changed");
+      currentInterval = next;
+    }
+    timer = setTimeout(async () => {
+      try {
+        await runOnce();
+      } finally {
+        scheduleNext();
+      }
+    }, currentInterval);
+  }
+  firstTimer = setTimeout(() => {
+    void runOnce().finally(scheduleNext);
+  }, STARTUP_DELAY_MS);
 
-  log.info({ tickMs: TICK_MS, startupDelayMs: STARTUP_DELAY_MS }, "rule proposer started");
+  log.info({ tickMs: currentInterval, startupDelayMs: STARTUP_DELAY_MS }, "rule proposer started");
 
   return {
     stop: () => {
       stopped = true;
       if (firstTimer) clearTimeout(firstTimer);
-      if (timer) clearInterval(timer);
+      // timer は now setTimeout (re-scheduling pattern). clearTimeout で十分.
+      if (timer) clearTimeout(timer);
     },
     runOnce,
   };

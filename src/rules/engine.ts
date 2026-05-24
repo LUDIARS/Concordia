@@ -26,6 +26,12 @@ export interface EngineDeps {
   chat: ChatRepo;
   /** dry-run 用. true で claude CLI を呼ばずスキップ (テスト・デバッグ) */
   disable_claude?: boolean;
+  /**
+   * Runtime kill-switch. When the function returns true, every fire skips
+   * (logged as 'skip / rules disabled at runtime'). Wired from
+   * AdminState.getRulesEnabled() so the Web UI can toggle without restart.
+   */
+  rulesDisabled?: () => boolean;
 }
 
 export interface EngineHandle {
@@ -114,6 +120,10 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   async function fireOnce(rule: RuleRow, triggeredBy: string): Promise<void> {
     if (deps.disable_claude) {
       deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "claude disabled" });
+      return;
+    }
+    if (deps.rulesDisabled?.()) {
+      deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "rules disabled at runtime (admin)" });
       return;
     }
 

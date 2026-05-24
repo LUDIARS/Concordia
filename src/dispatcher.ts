@@ -73,6 +73,13 @@ export interface DispatcherDeps {
   rng?: () => number;
   /** 深夜帯判定に使う現在時刻プロバイダ. 既定はシステム時計 (テスト用に注入可). */
   now?: () => Date;
+  /**
+   * Runtime kill-switch for chat-related enqueues (chitchat-suggest,
+   * chat-reply, peer-log-react, daily-report). When the returned value
+   * is true, enqueue methods early-return and emit nothing. Wired from
+   * AdminState.getChatMuted in production; tests can pass () => false.
+   */
+  isChatMuted?: () => boolean;
 }
 
 export class Dispatcher {
@@ -82,14 +89,22 @@ export class Dispatcher {
   private logCooldown = new Map<string, number>();
   /** active peer の round-robin index. 偏らせない. */
   private peerCursor = 0;
+  private isChatMuted: () => boolean;
 
   constructor(private readonly deps: DispatcherDeps) {
     this.rng = deps.rng ?? Math.random;
     this.now = deps.now ?? (() => new Date());
+    this.isChatMuted = deps.isChatMuted ?? (() => false);
   }
 
   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
   onEventAppended(session: SessionRow, _eventCount: number): void {
+    // chat 全停止スイッチが入っているなら chitchat / chat-reply / 雑談関連を
+    // 一切 enqueue しない. role 推定だけ走らせて metadata 保持し、 task 列は触らない.
+    if (this.isChatMuted()) {
+      this.refreshRole(session);
+      return;
+    }
     const recent = this.deps.sessions.recentEvents(session.id, 30);
     const role = this.refreshRole(session, recent);
     // 強制ルール: 深夜帯 (23:00–翌05:00) は能動的な発火頻度を 1/10 に抑制する.
@@ -199,6 +214,7 @@ export class Dispatcher {
    * - 反応の中身は AI 側 (skill) に委ねる: chat 投稿 / 静観 / ユーザに伝達
    */
   onLogUpdate(ev: LogEventInput): void {
+    if (this.isChatMuted()) return;
     const now = Math.floor(Date.now() / 1000);
     const key = `${ev.kind}|${ev.ref ?? ev.source_session_id ?? ""}`;
     const last = this.logCooldown.get(key) ?? 0;
@@ -233,6 +249,7 @@ export class Dispatcher {
   }
 
   onSessionEnd(session: SessionRow, bullets: object): void {
+    if (this.isChatMuted()) return;
     const role = this.refreshRole(session);
     this.deps.tasks.enqueue({
       session_id: session.id,

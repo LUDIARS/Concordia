@@ -19,6 +19,7 @@ import { PersonasRepo } from "./db/personas-repo.js";
 import { ProcessesRepo } from "./db/processes-repo.js";
 import { StatsRepo } from "./db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
+import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
 import { Dispatcher } from "./dispatcher.js";
@@ -77,9 +78,15 @@ export async function startBackend(): Promise<BackendHandle> {
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
+  const adminState = new AdminState(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat });
+  const dispatcher = new Dispatcher({
+    sessions: repo,
+    tasks,
+    chat,
+    isChatMuted: () => adminState.getChatMuted(),
+  });
   const processManager = new ProcessManager({
     repo: processes,
     logsDir: join(process.cwd(), "logs"),
@@ -126,6 +133,7 @@ export async function startBackend(): Promise<BackendHandle> {
     processes,
     stats,
     sessionTaskRecords,
+    adminState,
     processManager,
     dailyScheduler,
     dispatcher,
@@ -141,15 +149,18 @@ export async function startBackend(): Promise<BackendHandle> {
     sessions: repo,
     chat,
     disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
+    rulesDisabled: () => !adminState.getRulesEnabled(),
   });
 
-  // 5 分おきに新しいチャット発言フック rule を AI に提案させる固定機能
+  // 既定 5 分間隔で chat post 用 rule を AI に提案させる. interval は admin で変更可.
   const ruleProposer = startRuleProposer({
     rules,
     sessions: repo,
     chat,
     disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
     maxAiRules: cfg.maxAiRules,
+    rulesDisabled: () => !adminState.getRulesEnabled(),
+    intervalSec: () => adminState.getRuleProposerIntervalSec(),
   });
 
   // 10 分毎に active session に stat-collect を enqueue する scheduler.

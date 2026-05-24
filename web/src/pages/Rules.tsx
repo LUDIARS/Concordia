@@ -256,6 +256,8 @@ export function Rules() {
           )}
         </header>
 
+        <AdminTogglesPanel />
+
         {mode && (
           <RuleForm
             mode={mode}
@@ -534,6 +536,183 @@ function Input({
         disabled={disabled}
       />
     </label>
+  );
+}
+
+/**
+ * Runtime toggles for the dispatcher + rule engine + proposer.
+ * Lives under /v1/admin/{chat-mute,rules-enabled,rule-proposer-interval}
+ * and persists in schema_meta so survives restarts.
+ */
+function AdminTogglesPanel() {
+  const [chatMuted, setChatMuted] = useState<boolean | null>(null);
+  const [rulesEnabled, setRulesEnabled] = useState<boolean | null>(null);
+  const [intervalSec, setIntervalSec] = useState<number | null>(null);
+  const [minSec, setMinSec] = useState<number>(60);
+  const [maxSec, setMaxSec] = useState<number>(86400);
+  const [intervalDraft, setIntervalDraft] = useState<string>("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void refreshAll();
+  }, []);
+
+  async function refreshAll() {
+    try {
+      const r = await fetch("/v1/admin/state");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const s = (await r.json()) as {
+        chat_muted: boolean;
+        rules_enabled: boolean;
+        rule_proposer_interval_sec: number;
+        proposer_interval_min_sec: number;
+        proposer_interval_max_sec: number;
+      };
+      setChatMuted(s.chat_muted);
+      setRulesEnabled(s.rules_enabled);
+      setIntervalSec(s.rule_proposer_interval_sec);
+      setIntervalDraft(String(s.rule_proposer_interval_sec));
+      setMinSec(s.proposer_interval_min_sec);
+      setMaxSec(s.proposer_interval_max_sec);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function put(path: string, body: unknown, key: string) {
+    setBusy(key);
+    setError(null);
+    try {
+      const r = await fetch(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        throw new Error(`HTTP ${r.status}: ${txt}`);
+      }
+      await refreshAll();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="bg-surface border border-border rounded p-4 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <h2 className="font-semibold text-sm">runtime kill switches</h2>
+          <p className="text-subtle text-xs mt-0.5">
+            dispatcher / rule engine / proposer の停止スイッチ. 即時反映 + 再起動後も維持.
+          </p>
+        </div>
+        <button
+          onClick={() => void refreshAll()}
+          className="text-xs px-2 py-0.5 bg-muted border border-border rounded"
+        >
+          refresh
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <ToggleRow
+          label="チャット禁止 (chat-mute)"
+          hint="ON にすると chitchat / chat-reply / session-end report などを enqueue しない. デフォルト ON."
+          value={chatMuted}
+          onToggle={(v) => put("/v1/admin/chat-mute", { muted: v }, "chat-mute")}
+          busy={busy === "chat-mute"}
+          activeLabel="muted"
+          inactiveLabel="active"
+        />
+        <ToggleRow
+          label="チャットルール改善禁止 (rules-enabled)"
+          hint="OFF にすると rule engine + proposer の claude 呼び出しを skip. デフォルト OFF (=禁止)."
+          value={rulesEnabled === null ? null : !rulesEnabled}
+          onToggle={(v) => put("/v1/admin/rules-enabled", { enabled: !v }, "rules-enabled")}
+          busy={busy === "rules-enabled"}
+          activeLabel="muted"
+          inactiveLabel="active"
+        />
+      </div>
+
+      <div className="bg-muted/40 border border-border rounded p-3">
+        <div className="flex items-baseline gap-2 mb-1">
+          <span className="text-sm font-medium">proposer interval</span>
+          <span className="text-subtle text-xs">tick 間隔 [{minSec}, {maxSec}] sec</span>
+        </div>
+        <div className="flex gap-2 items-center">
+          <input
+            type="number"
+            min={minSec}
+            max={maxSec}
+            value={intervalDraft}
+            onChange={(e) => setIntervalDraft(e.target.value)}
+            disabled={busy === "interval"}
+            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-28"
+          />
+          <button
+            disabled={busy === "interval" || intervalDraft === String(intervalSec ?? "")}
+            onClick={() =>
+              put(
+                "/v1/admin/rule-proposer-interval",
+                { interval_sec: Number(intervalDraft) },
+                "interval",
+              )
+            }
+            className="px-3 py-1 bg-accent/20 border border-accent text-accent rounded text-xs disabled:opacity-40"
+          >
+            apply
+          </button>
+          {intervalSec !== null && (
+            <span className="text-subtle text-xs">
+              current: {intervalSec}s ({Math.round(intervalSec / 60)} min)
+            </span>
+          )}
+        </div>
+      </div>
+
+      {error && <div className="text-danger text-xs">{error}</div>}
+    </section>
+  );
+}
+
+function ToggleRow(props: {
+  label: string;
+  hint: string;
+  value: boolean | null;
+  onToggle: (next: boolean) => void;
+  busy: boolean;
+  activeLabel: string;
+  inactiveLabel: string;
+}) {
+  const on = props.value === true;
+  return (
+    <div className="bg-muted/40 border border-border rounded p-3">
+      <div className="flex items-start gap-2">
+        <div className="flex-1">
+          <div className="text-sm font-medium">{props.label}</div>
+          <div className="text-xs text-subtle mt-0.5">{props.hint}</div>
+        </div>
+        <button
+          disabled={props.busy || props.value === null}
+          onClick={() => props.onToggle(!on)}
+          className={
+            "shrink-0 px-2 py-1 rounded text-xs border " +
+            (on
+              ? "bg-warn/20 border-warn text-warn"
+              : "bg-ok/20 border-ok text-ok") +
+            " disabled:opacity-40"
+          }
+        >
+          {props.value === null ? "..." : on ? props.activeLabel : props.inactiveLabel}
+        </button>
+      </div>
+    </div>
   );
 }
 

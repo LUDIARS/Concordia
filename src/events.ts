@@ -30,6 +30,18 @@ export type ConcordiaEvent =
    * name) for telemetry; not a security boundary.
    */
   | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
+  /**
+   * One frame from a session's transcript stream. Lictor tails Claude's
+   * JSONL session file and POSTs each line (after simplification) as a
+   * frame. Forwarded via WS so the Web UI's transcript pane can render
+   * live. `kind` is the envelope type (`text` / `tool-use` / `tool-result`
+   * / `thinking` / `system` / `meta`); `payload` is opaque (depends on
+   * kind). `seq` is per-session monotonic so clients can detect gaps.
+   *
+   * Session-targeted: only clients with matching `?session=<id>` receive
+   * the frame (same WS filter as session.inject).
+   */
+  | { type: "transcript.frame"; target_session_id: string; seq: number; kind: string; payload: unknown; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

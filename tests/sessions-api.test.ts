@@ -243,6 +243,48 @@ describe("sessions API", () => {
     expect(r.status).toBe(404);
   });
 
+  it("POST /v1/sessions/:id/transcript-frame emits a session-targeted transcript.frame event", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => { if (ev.type === "transcript.frame") captured.push(ev); });
+    try {
+      const r = await app.request("/v1/sessions/tf/transcript-frame", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seq: 0, kind: "text", payload: { role: "assistant", text: "hi" } }),
+      });
+      expect(r.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toMatchObject({
+        type: "transcript.frame",
+        target_session_id: "tf",
+        seq: 0,
+        kind: "text",
+      });
+    } finally {
+      unsub();
+    }
+  });
+
+  it("POST /v1/sessions/:id/transcript-frame returns 400 on bad payload", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf2", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const r = await app.request("/v1/sessions/tf2/transcript-frame", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ seq: -1, kind: "text", payload: {} }),
+    });
+    expect(r.status).toBe(400);
+  });
+
   it("POST /v1/sessions/:id/inject returns 400 for empty text", async () => {
     await app.request("/v1/sessions", {
       method: "POST",

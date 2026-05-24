@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import { useLiveQuery, useWsEvent } from "../hooks/useWsEvent.js";
@@ -56,6 +56,7 @@ export function SessionDetail() {
 
       {s.status === "active" && <InjectForm sessionId={s.id} />}
       {s.status === "active" && <StopSessionButton sessionId={s.id} onStopped={refetch} />}
+      {s.status === "active" && <TranscriptPanel sessionId={s.id} />}
 
       <section>
         <h2 className="text-base font-semibold mb-2">
@@ -80,6 +81,83 @@ export function SessionDetail() {
       </section>
     </div>
   );
+}
+
+interface TranscriptFrame {
+  seq: number;
+  kind: string;
+  payload: unknown;
+  ts: number;
+}
+
+/**
+ * Live transcript pane — subscribes to `transcript.frame` events from
+ * Lictor (relayed by Concordia) for this session. Renders the last N
+ * frames; no persistence (a page reload starts empty until new frames
+ * arrive). v1 rendering is intentionally minimal: kind badge + JSON dump.
+ * PR-H may add subagent grouping / diff rendering.
+ */
+function TranscriptPanel({ sessionId }: { sessionId: string }) {
+  const [frames, setFrames] = useState<TranscriptFrame[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useWsEvent(["transcript.frame"], (ev) => {
+    if (ev.type !== "transcript.frame") return;
+    if (ev.target_session_id !== sessionId) return;
+    setFrames((prev) => [...prev.slice(-199), { seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts }]);
+  });
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [frames.length]);
+
+  return (
+    <section className="bg-surface border border-border rounded p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-base font-semibold">transcript</h2>
+        <span className="text-xs text-subtle">
+          live frames from Claude JSONL via Lictor ({frames.length}/200)
+        </span>
+      </div>
+      {frames.length === 0 ? (
+        <div className="text-xs text-subtle">
+          まだフレームを受信していません。 Lictor v0.5 以降がラップしているセッションでのみ流れます。
+        </div>
+      ) : (
+        <div
+          ref={scrollRef}
+          className="max-h-96 overflow-y-auto space-y-1 font-mono text-[11px]"
+        >
+          {frames.map((f) => (
+            <div key={f.seq} className="border-l-2 border-border pl-2 py-1">
+              <div className="flex items-center gap-2 text-subtle">
+                <span className="text-accent">{f.kind}</span>
+                <span>#{f.seq}</span>
+                <span className="ml-auto">{fmtTs(f.ts)}</span>
+              </div>
+              <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
+                {renderFramePayload(f.kind, f.payload)}
+              </pre>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Best-effort payload rendering. For `text` kind we show the text field
+ * directly (the common case); everything else is JSON-stringified. Caps
+ * at 800 chars to keep the pane navigable.
+ */
+function renderFramePayload(kind: string, payload: unknown): string {
+  if (kind === "text" && payload && typeof payload === "object" && "text" in (payload as any)) {
+    return String((payload as { text: unknown }).text).slice(0, 800);
+  }
+  const s = JSON.stringify(payload, null, 2) ?? "";
+  return s.length > 800 ? s.slice(0, 800) + "…" : s;
 }
 
 /**

@@ -26,6 +26,7 @@ const PING_INTERVAL_MS = 25_000;
  */
 function targetSessionId(ev: ConcordiaEvent): string | null {
   if (ev.type === "session.inject") return ev.target_session_id;
+  if (ev.type === "transcript.frame") return ev.target_session_id;
   return null;
 }
 

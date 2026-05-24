@@ -51,6 +51,12 @@ const InjectSchema = z.object({
   source: z.string().min(1).max(120).optional(),
 });
 
+const TranscriptFrameSchema = z.object({
+  seq: z.number().int().nonnegative(),
+  kind: z.string().min(1).max(64),
+  payload: z.unknown(),
+});
+
 export interface SessionsApiDeps {
   repo: SessionsRepo;
   tasks: TasksRepo;
@@ -288,6 +294,28 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const eventCount = deps.repo.countEvents(id);
     deps.dispatcher.onEventAppended(session, eventCount);
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
+    return c.json({ ok: true });
+  });
+
+  // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed
+  // line from Claude's session JSONL. Fire-and-forget for the caller:
+  // we emit `transcript.frame` event (session-targeted), do NOT persist.
+  // Web UI subscribes via WS. If we ever want catch-up after a page reload
+  // we can add an in-memory ring buffer per session.
+  app.post("/:id/transcript-frame", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = TranscriptFrameSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    eventBus.emit({
+      type: "transcript.frame",
+      target_session_id: id,
+      seq: parsed.data.seq,
+      kind: parsed.data.kind,
+      payload: parsed.data.payload,
+      ts: nowSec(),
+    });
     return c.json({ ok: true });
   });
 

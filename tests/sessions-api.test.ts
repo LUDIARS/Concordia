@@ -178,6 +178,30 @@ describe("sessions API", () => {
     expect(r.status).toBe(404);
   });
 
+  it("PATCH /v1/sessions/:id metadata merges shallowly", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "meta-merge",
+        provider: "claude-code",
+        repo_path: "/x",
+        host: "h",
+        metadata: { existing_key: "kept", lictor_pid: 1234 },
+      }),
+    });
+    const r = await app.request("/v1/sessions/meta-merge", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ metadata: { lictor_port: 51234, lictor_pid: null } }),
+    });
+    expect(r.status).toBe(200);
+    const detail = (await (await app.request("/v1/sessions/meta-merge")).json()) as any;
+    expect(detail.session.metadata.existing_key).toBe("kept");
+    expect(detail.session.metadata.lictor_port).toBe(51234);
+    expect(detail.session.metadata.lictor_pid).toBeUndefined(); // null deleted it
+  });
+
   it("POST /v1/sessions/:id/inject emits session.inject event + records inject kind", async () => {
     await app.request("/v1/sessions", {
       method: "POST",

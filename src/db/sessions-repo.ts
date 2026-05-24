@@ -157,6 +157,36 @@ export class SessionsRepo {
       }>;
   }
 
+  /**
+   * Shallow-merge `partial` into the session's existing metadata blob.
+   * Keys present in `partial` overwrite; missing keys are preserved.
+   * `null` value for a key DELETES that key. No-op when session is missing.
+   *
+   * Used by Lictor to publish its sidecar port after the pty/sidecar start
+   * (the initial register happens BEFORE the sidecar is bound, so port is
+   * not known yet).
+   */
+  mergeMetadata(id: string, partial: Record<string, unknown>): void {
+    const row = this.findSession(id);
+    if (!row) return;
+    let current: Record<string, unknown> = {};
+    if (row.metadata) {
+      try {
+        const parsed = JSON.parse(row.metadata) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          current = parsed as Record<string, unknown>;
+        }
+      } catch {
+        // existing metadata is garbage — treat as empty rather than crash.
+      }
+    }
+    for (const [k, v] of Object.entries(partial)) {
+      if (v === null) delete current[k];
+      else current[k] = v;
+    }
+    this.setMetadata(id, JSON.stringify(current));
+  }
+
   countEvents(sessionId: string): number {
     const r = this.db
       .prepare(`SELECT COUNT(*) AS n FROM session_events WHERE session_id = ?`)

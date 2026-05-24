@@ -32,6 +32,12 @@ const PatchSchema = z.object({
   branch: z.string().optional(),
   repo_path: z.string().min(1).optional(),
   repo_origin: z.string().nullable().optional(),
+  /**
+   * Shallow merge into session.metadata. Use `null` value to delete a key.
+   * Lictor uses this post-spawn to publish `lictor_port` once the sidecar
+   * is bound (the initial register happens BEFORE the port is known).
+   */
+  metadata: z.record(z.unknown()).optional(),
 });
 
 const EventSchema = z.object({
@@ -216,7 +222,10 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    deps.repo.patchSession(id, parsed.data);
+    // Split off `metadata` — patchSession() only handles the column fields.
+    const { metadata, ...columnPatch } = parsed.data;
+    deps.repo.patchSession(id, columnPatch);
+    if (metadata) deps.repo.mergeMetadata(id, metadata);
     deps.repo.updateHeartbeat(id, nowSec());
     if (parsed.data.current_task !== undefined) {
       deps.repo.appendEvent({

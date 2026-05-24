@@ -626,8 +626,10 @@ function AdminTogglesPanel() {
           value={chatMuted}
           onToggle={(v) => put("/v1/admin/chat-mute", { muted: v }, "chat-mute")}
           busy={busy === "chat-mute"}
-          activeLabel="muted"
-          inactiveLabel="active"
+          onLabel="禁止中"
+          offLabel="稼働中"
+          onAction="稼働させる"
+          offAction="禁止する"
         />
         <ToggleRow
           label="チャットルール改善禁止 (rules-enabled)"
@@ -635,17 +637,27 @@ function AdminTogglesPanel() {
           value={rulesEnabled === null ? null : !rulesEnabled}
           onToggle={(v) => put("/v1/admin/rules-enabled", { enabled: !v }, "rules-enabled")}
           busy={busy === "rules-enabled"}
-          activeLabel="muted"
-          inactiveLabel="active"
+          onLabel="禁止中"
+          offLabel="稼働中"
+          onAction="稼働させる"
+          offAction="禁止する"
         />
       </div>
 
-      <div className="bg-muted/40 border border-border rounded p-3">
-        <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-sm font-medium">proposer interval</span>
-          <span className="text-subtle text-xs">tick 間隔 [{minSec}, {maxSec}] sec</span>
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+        <div>
+          <div className="text-sm font-medium">proposer interval</div>
+          <div className="text-xs text-subtle mt-0.5">
+            rule proposer の tick 間隔. 範囲 [{minSec}, {maxSec}] sec.
+          </div>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-subtle shrink-0">現在:</span>
+          <span className="shrink-0 px-2 py-0.5 rounded text-xs border bg-ok/20 border-ok text-ok">
+            {intervalSec !== null
+              ? `${intervalSec}s (${Math.round(intervalSec / 60)} 分)`
+              : "..."}
+          </span>
           <input
             type="number"
             min={minSec}
@@ -653,7 +665,7 @@ function AdminTogglesPanel() {
             value={intervalDraft}
             onChange={(e) => setIntervalDraft(e.target.value)}
             disabled={busy === "interval"}
-            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-28"
+            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-24 ml-auto"
           />
           <button
             disabled={busy === "interval" || intervalDraft === String(intervalSec ?? "")}
@@ -664,15 +676,10 @@ function AdminTogglesPanel() {
                 "interval",
               )
             }
-            className="px-3 py-1 bg-accent/20 border border-accent text-accent rounded text-xs disabled:opacity-40"
+            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
           >
             apply
           </button>
-          {intervalSec !== null && (
-            <span className="text-subtle text-xs">
-              current: {intervalSec}s ({Math.round(intervalSec / 60)} min)
-            </span>
-          )}
         </div>
       </div>
 
@@ -684,32 +691,45 @@ function AdminTogglesPanel() {
 function ToggleRow(props: {
   label: string;
   hint: string;
+  /** true = "禁止中" 側 (warn), false = "稼働中" 側 (ok), null = loading */
   value: boolean | null;
   onToggle: (next: boolean) => void;
   busy: boolean;
-  activeLabel: string;
-  inactiveLabel: string;
+  /** value=true のとき表示する現在状態 (例: "禁止中") */
+  onLabel: string;
+  /** value=false のとき表示する現在状態 (例: "稼働中") */
+  offLabel: string;
+  /** value=true のときボタンに表示する action (例: "稼働させる") */
+  onAction: string;
+  /** value=false のときボタンに表示する action (例: "禁止する") */
+  offAction: string;
 }) {
   const on = props.value === true;
+  const stateLabel = props.value === null ? "..." : on ? props.onLabel : props.offLabel;
+  const actionLabel = props.value === null ? "..." : on ? props.onAction : props.offAction;
+  const stateClasses = props.value === null
+    ? "bg-muted text-subtle border-border"
+    : on
+      ? "bg-warn/20 border-warn text-warn"
+      : "bg-ok/20 border-ok text-ok";
   return (
-    <div className="bg-muted/40 border border-border rounded p-3">
-      <div className="flex items-start gap-2">
-        <div className="flex-1">
-          <div className="text-sm font-medium">{props.label}</div>
-          <div className="text-xs text-subtle mt-0.5">{props.hint}</div>
-        </div>
+    <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+      <div>
+        <div className="text-sm font-medium">{props.label}</div>
+        <div className="text-xs text-subtle mt-0.5">{props.hint}</div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-subtle shrink-0">現在:</span>
+        <span className={`shrink-0 px-2 py-0.5 rounded text-xs border ${stateClasses}`}>
+          {stateLabel}
+        </span>
         <button
           disabled={props.busy || props.value === null}
           onClick={() => props.onToggle(!on)}
-          className={
-            "shrink-0 px-2 py-1 rounded text-xs border " +
-            (on
-              ? "bg-warn/20 border-warn text-warn"
-              : "bg-ok/20 border-ok text-ok") +
-            " disabled:opacity-40"
-          }
+          className="ml-auto shrink-0 px-2 py-1 rounded text-xs border bg-accent/15 border-accent text-accent disabled:opacity-40"
+          title={`${stateLabel} → ${actionLabel}`}
         >
-          {props.value === null ? "..." : on ? props.activeLabel : props.inactiveLabel}
+          {actionLabel}
         </button>
       </div>
     </div>

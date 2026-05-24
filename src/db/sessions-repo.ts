@@ -321,6 +321,21 @@ export class SessionsRepo {
       .all(sessionId, limit) as SessionEventRow[];
   }
 
+  /**
+   * 指定 session の指定 kind の最新 ts を返す. 該当無しは null.
+   * idle 判定 (kind="prompt" の最終 ts と now の差) に使う.
+   */
+  lastEventTsByKind(sessionId: string, kind: string): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT ts FROM session_events
+         WHERE session_id = ? AND kind = ?
+         ORDER BY ts DESC LIMIT 1`,
+      )
+      .get(sessionId, kind) as { ts: number } | undefined;
+    return row?.ts ?? null;
+  }
+
   allEvents(sessionId: string): SessionEventRow[] {
     return this.db
       .prepare(`SELECT * FROM session_events WHERE session_id = ? ORDER BY ts ASC`)

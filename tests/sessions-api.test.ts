@@ -302,4 +302,75 @@ describe("sessions API", () => {
     });
     expect(r.status).toBe(400);
   });
+
+  it("POST /v1/sessions/:id/title-suggestion: Lictor へ /v1/rename を転送する", async () => {
+    // session を作って lictor_port を metadata に書き込む
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "t1", provider: "claude-code", repo_path: "/x", host: "h",
+        metadata: { lictor_port: 12345 },
+      }),
+    });
+
+    // Lictor 側を fetch でモック
+    const originalFetch = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    globalThis.fetch = (async (url: any, init?: RequestInit) => {
+      calls.push({ url: String(url), init });
+      return new Response(JSON.stringify({ ok: true, sent: "サンプル" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }) as any;
+    try {
+      const r = await app.request("/v1/sessions/t1/title-suggestion", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "サンプル" }),
+      });
+      expect(r.status).toBe(200);
+      const j = await r.json() as any;
+      expect(j.ok).toBe(true);
+      expect(j.lictor.ok).toBe(true);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].url).toBe("http://127.0.0.1:12345/v1/rename");
+      const sent = JSON.parse(calls[0].init?.body as string);
+      expect(sent.text).toBe("サンプル");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("POST /v1/sessions/:id/title-suggestion: lictor_port 未設定なら 404", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "t2", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const r = await app.request("/v1/sessions/t2/title-suggestion", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "x" }),
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it("POST /v1/sessions/:id/title-suggestion: 空テキストは 400", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "t3", provider: "claude-code", repo_path: "/x", host: "h",
+        metadata: { lictor_port: 12345 },
+      }),
+    });
+    const r = await app.request("/v1/sessions/t3/title-suggestion", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "" }),
+    });
+    expect(r.status).toBe(400);
+  });
 });

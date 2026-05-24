@@ -18,6 +18,16 @@ import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("sessions-api");
+
+/**
+ * transcript-frame に乗ってくる user input 1 件分のログ出力上限.
+ * 長文プロンプトの 1 回貼り付けが ~数 KB に達することがあるので、
+ * 個人情報やシークレットを大量に流さないよう冒頭だけ残す.
+ */
+const PROMPT_LOG_PREVIEW_CHARS = 200;
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -70,6 +80,15 @@ const PermissionResponseSchema = z.object({
   request_id: z.string().min(1).max(128),
   decision: z.enum(["allow", "deny", "ask"]),
   reason: z.string().max(2000).optional(),
+});
+
+/**
+ * Body for POST /v1/sessions/:id/title-suggestion.
+ * 上限 200 char は OSC タイトルの実用幅 + 多バイト混在を考慮して広めに取る.
+ * 実際の rename は Lictor 側の sanitizer (32 char cap) が決める.
+ */
+const TitleSuggestionSchema = z.object({
+  text: z.string().min(1).max(200),
 });
 
 const ForkSchema = z.object({
@@ -397,6 +416,39 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json(json as Record<string, unknown>, upstream.status as 200);
   });
 
+    // POST /v1/sessions/:id/title-suggestion — session AI が repo_change_watcher
+    // 由来 title-suggest task に対して 30 文字以内のサマリを投稿する.
+    // 受信した text をそのまま Lictor /v1/rename に転送 → OSC タイトル更新.
+    // pending task は (delivered/undelivered 問わず) markResponded で retry 対象から外す.
+  app.post("/:id/title-suggestion", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = TitleSuggestionSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const target = resolveLictorTarget(deps.repo, id);
+    if ("error" in target) return c.json({ error: target.error }, 404);
+    let upstream: Response;
+    try {
+      upstream = await fetchFromLictor(target.port, "/v1/rename", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: parsed.data.text }),
+      });
+    } catch (err) {
+      return c.json({ error: `lictor unreachable: ${(err as Error).message}` }, 502);
+    }
+    // 応答済 title-suggest を retry 対象から外す.
+    deps.tasks.markResponded(id, ["title-suggest"]);
+    const text = await upstream.text();
+    let json: unknown;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return c.json(
+      { ok: upstream.ok, lictor: json as Record<string, unknown> },
+      upstream.status as 200,
+    );
+  });
+
   // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed
   // line from Claude's session JSONL. Fire-and-forget for the caller:
   // we emit `transcript.frame` event (session-targeted), do NOT persist.
@@ -408,6 +460,21 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    // ユーザ指示テキスト (kind="text" + payload.role="user") を構造化ログに残す.
+    // Lictor → Concordia 転送経路の「いま何を頼まれて動いているか」 を後追いできるようにする目的.
+    if (parsed.data.kind === "text") {
+      const p = parsed.data.payload as { role?: unknown; text?: unknown } | null;
+      if (p && p.role === "user" && typeof p.text === "string") {
+        const fullLen = p.text.length;
+        const preview = p.text.length > PROMPT_LOG_PREVIEW_CHARS
+          ? p.text.slice(0, PROMPT_LOG_PREVIEW_CHARS) + "…"
+          : p.text;
+        log.info(
+          { session_id: id, seq: parsed.data.seq, length: fullLen, text: preview },
+          "user prompt forwarded via transcript",
+        );
+      }
+    }
     eventBus.emit({
       type: "transcript.frame",
       target_session_id: id,

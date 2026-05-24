@@ -7,7 +7,8 @@ export type PendingTaskKind =
   | "daily-report"
   | "session-departed"
   | "peer-log-react"
-  | "stat-collect";
+  | "stat-collect"
+  | "title-suggest";
 
 export interface PendingTaskRow {
   id: number;
@@ -139,6 +140,22 @@ export class TasksRepo {
       )
       .run(...args);
     return Number(r.changes ?? 0);
+  }
+
+  /**
+   * 指定 session で、 指定 kind の pending task が created_at >= sinceTs の範囲で
+   * 既に存在するか (delivered/undelivered/expired 問わず).
+   * idle stat-collect の「最後の指示以降に 1 回だけ」 抑止に使う.
+   */
+  hasTaskSince(sessionId: string, kind: PendingTaskKind, sinceTs: number): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM pending_tasks
+         WHERE session_id = ? AND kind = ? AND created_at >= ?
+         LIMIT 1`,
+      )
+      .get(sessionId, kind, sinceTs);
+    return row !== undefined;
   }
 
   /**

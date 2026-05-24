@@ -4,7 +4,11 @@ import { applyMigrations } from "../src/db/schema.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
-import { startStatScheduler, STAT_POLL_INTERVAL_SEC } from "../src/stat/scheduler.js";
+import {
+  startStatScheduler,
+  STAT_POLL_INTERVAL_SEC,
+  IDLE_STAT_THRESHOLD_SEC,
+} from "../src/stat/scheduler.js";
 
 function fresh() {
   const db = new Database(":memory:");
@@ -61,20 +65,25 @@ describe("startStatScheduler", () => {
     } finally { sched.stop(); }
   });
 
-  it("skips sessions that have not moved within 10 minutes (idle)", () => {
+  it("interval は last_seen が 10 分以上前なら飛ばさない (idle トリガで拾うので enq 自体は 1 になる)", () => {
     const NOW = 100_000;
-    startSession(env.sessions, "idle", { lastSeenAt: NOW - (STAT_POLL_INTERVAL_SEC + 5) });
+    // last_seen が古い session. 直近 stat 無し、 prompt event 無し (started_at=1).
+    // interval poll は last_seen ゲートで skip するが、 idle トリガが拾う.
+    startSession(env.sessions, "stale", { lastSeenAt: NOW - (STAT_POLL_INTERVAL_SEC + 5) });
     const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
     try {
-      expect(sched.runOnce()).toBe(0);
-      expect(env.tasks.pull("idle")).toHaveLength(0);
+      expect(sched.runOnce()).toBe(1);
+      const pulled = env.tasks.pull("stale");
+      expect(pulled).toHaveLength(1);
+      expect(JSON.parse(pulled[0].payload).trigger).toBe("idle");
     } finally { sched.stop(); }
   });
 
-  it("skips sessions that already have a stat within last 10 minutes", () => {
+  it("interval も idle も飛ばさない: 直近に stat + 直近に prompt がある場合", () => {
     const NOW = 100_000;
-    startSession(env.sessions, "recent-stat", { lastSeenAt: NOW - 10 });
-    env.stats.insert({ session_id: "recent-stat", ts: NOW - 60, payload: { recent_work: "x" } });
+    startSession(env.sessions, "active-fresh", { lastSeenAt: NOW - 10 });
+    env.stats.insert({ session_id: "active-fresh", ts: NOW - 60, payload: { recent_work: "x" } });
+    env.sessions.appendEvent({ session_id: "active-fresh", ts: NOW - 30, kind: "prompt", payload: {} });
     const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
     try {
       expect(sched.runOnce()).toBe(0);
@@ -104,14 +113,111 @@ describe("startStatScheduler", () => {
   it("handles multiple sessions: some enqueued, some skipped", () => {
     const NOW = 100_000;
     startSession(env.sessions, "ok", { lastSeenAt: NOW - 10 });
+    // idle session: last_seen は古い (interval は飛ばない) かつ prompt が無い & started_at も古い
+    // → idle トリガで 1 本 enqueue される. enq=2 になる.
     startSession(env.sessions, "idle", { lastSeenAt: NOW - (STAT_POLL_INTERVAL_SEC + 100) });
     startSession(env.sessions, "lost-one", { lastSeenAt: NOW - 10, status: "lost" });
     const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
     try {
-      expect(sched.runOnce()).toBe(1);
+      expect(sched.runOnce()).toBe(2);
       expect(env.tasks.pull("ok").find((t) => t.kind === "stat-collect")).toBeTruthy();
-      expect(env.tasks.pull("idle")).toHaveLength(0);
+      const idlePulled = env.tasks.pull("idle");
+      expect(idlePulled).toHaveLength(1);
+      expect(idlePulled[0].kind).toBe("stat-collect");
       expect(env.tasks.pull("lost-one")).toHaveLength(0);
+    } finally { sched.stop(); }
+  });
+
+  // ─── idle トリガ (5 分指示なし) ─────────────────────────────────
+
+  function startSessionAt(repo: SessionsRepo, id: string, startedAt: number, lastSeenAt: number) {
+    repo.insertSession({
+      id, provider: "claude-code",
+      repo_path: "/x", repo_origin: null, branch: "main",
+      host: "h",
+      started_at: startedAt, last_seen_at: lastSeenAt,
+      transcript_path: null, metadata: null,
+    });
+  }
+
+  it("idle: prompt が 5 分以上前ならアイドルとして stat-collect を 1 本 enqueue する", () => {
+    const NOW = 1_000_000;
+    // last_seen は新しい (自律 AI 活動中) けれど 指示は 5 分以上来てない
+    startSessionAt(env.sessions, "autonomous", NOW - 60 * 60, NOW - 5);
+    env.sessions.appendEvent({
+      session_id: "autonomous",
+      ts: NOW - IDLE_STAT_THRESHOLD_SEC - 30,
+      kind: "prompt",
+      payload: { summary: "古い指示" },
+    });
+    // 直近 stat は数秒前 → interval poll は引っかからない
+    env.stats.insert({ session_id: "autonomous", ts: NOW - 10, payload: {} });
+
+    const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
+    try {
+      expect(sched.runOnce()).toBe(1);
+      const pulled = env.tasks.pull("autonomous");
+      expect(pulled).toHaveLength(1);
+      expect(pulled[0].kind).toBe("stat-collect");
+      const payload = JSON.parse(pulled[0].payload);
+      expect(payload.trigger).toBe("idle");
+    } finally { sched.stop(); }
+  });
+
+  it("idle: 一度 enqueue した後は同じ idle stretch では再発火しない", () => {
+    const NOW = 1_000_000;
+    startSessionAt(env.sessions, "s", NOW - 60 * 60, NOW - 5);
+    env.sessions.appendEvent({
+      session_id: "s",
+      ts: NOW - IDLE_STAT_THRESHOLD_SEC - 30,
+      kind: "prompt",
+      payload: {},
+    });
+    env.stats.insert({ session_id: "s", ts: NOW - 10, payload: {} });
+
+    const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
+    try {
+      expect(sched.runOnce()).toBe(1); // 初回 idle 発火 (task created_at=NOW)
+      env.tasks.pull("s"); // 受け取り消費 — created_at は残るので再発火されない
+      expect(sched.runOnce()).toBe(0);
+    } finally { sched.stop(); }
+  });
+
+  // NOTE: 「新 prompt 後に再発火」 シナリオは tasks-repo.enqueue が wall-clock
+  // (Math.floor(Date.now()/1000)) で created_at を打つため、 模擬 NOW (1_000_000) を
+  // 使うとどうしても created_at が遥かに大きくなり hasTaskSince が常に true になって
+  // しまう. dedup ロジック自体は production の wall-clock 整合下で問題ない
+  // (NOW≒wall-clock のため). 該シナリオは server-side smoke 側で carry することにする.
+
+  it("idle: prompt event が一度も無い session も started_at 起点で 5 分過ぎたら発火する", () => {
+    const NOW = 1_000_000;
+    // started_at が 10 分前、 last_seen は 5 秒前 (= 直近 stat あり想定)
+    startSessionAt(env.sessions, "fresh-no-prompt", NOW - 10 * 60, NOW - 5);
+    env.stats.insert({ session_id: "fresh-no-prompt", ts: NOW - 5, payload: {} });
+
+    const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
+    try {
+      expect(sched.runOnce()).toBe(1);
+      const pulled = env.tasks.pull("fresh-no-prompt");
+      expect(pulled).toHaveLength(1);
+      expect(JSON.parse(pulled[0].payload).trigger).toBe("idle");
+    } finally { sched.stop(); }
+  });
+
+  it("idle: 5 分以内に prompt が来ているなら発火しない", () => {
+    const NOW = 1_000_000;
+    startSessionAt(env.sessions, "active-user", NOW - 60 * 60, NOW - 5);
+    env.sessions.appendEvent({
+      session_id: "active-user",
+      ts: NOW - 60, // 1 分前
+      kind: "prompt",
+      payload: {},
+    });
+    env.stats.insert({ session_id: "active-user", ts: NOW - 5, payload: {} });
+
+    const sched = startStatScheduler({ ...env, now: () => NOW, tickMs: 60_000 });
+    try {
+      expect(sched.runOnce()).toBe(0);
     } finally { sched.stop(); }
   });
 });

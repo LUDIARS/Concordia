@@ -207,10 +207,21 @@ async function dumpPendingTasks(sessionId) {
       continue;
     }
     if (t.kind === "stat-collect") {
+      const triggerLabel = p.trigger === "idle" ? " [idle/5min指示なし]" : "";
       lines.push(
-        `#${t.id} stat-collect`,
+        `#${t.id} stat-collect${triggerLabel}`,
         `  ${p.instructions ?? "現況を JSON で /v1/stat/<self_id> に POST"}`,
-        `  ★ 10 分毎 poll. 簡潔な現況スナップショット (active_repos / open_prs / unmerged_branches / todos_summary / recent_work) を JSON で POST する。 投稿後はチャット投稿は不要。`,
+        `  ★ 簡潔な現況スナップショット (active_repos / open_prs / unmerged_branches / todos_summary / recent_work) を JSON で POST する。 投稿後はチャット投稿は不要。`,
+      );
+      continue;
+    }
+    if (t.kind === "title-suggest") {
+      lines.push(
+        `#${t.id} title-suggest`,
+        `  ${p.instructions ?? "現在の作業のサマリを 30 文字以内にまとめて投稿"}`,
+        `  ★作業内容を 30 文字以内 (日本語可、 OSC タイトル向け) にまとめ、 ` +
+          `POST http://127.0.0.1:17330/v1/sessions/${encodeURIComponent(sessionId)}/title-suggestion ` +
+          `{ "text": "<タイトル文字列>" } で投稿する。 Concordia がそれを Lictor の /v1/rename に転送して反映する。`,
       );
       continue;
     }

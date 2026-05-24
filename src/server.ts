@@ -28,6 +28,7 @@ import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
 import { startStatScheduler } from "./stat/scheduler.js";
+import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
@@ -165,9 +166,17 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // 10 分毎に active session に stat-collect を enqueue する scheduler.
   // フラットエージェントチームでの相互状況共有用 (各 session の現況を JSON で蓄積).
+  // 同 scheduler が「5 分指示なし」 の idle トリガも兼任 (lastPrompt 起点で 1 stretch 1 回).
   const statScheduler = startStatScheduler({
     sessions: repo,
     stats,
+    tasks,
+  });
+
+  // stat 受信時に repo_path 変化を検出して title-suggest を enqueue する watcher.
+  // AI が 30 文字以内のサマリを投稿 → endpoint 側で Lictor /v1/rename に転送.
+  const repoChangeWatcher = startRepoChangeWatcher({
+    sessions: repo,
     tasks,
   });
 
@@ -232,6 +241,7 @@ export async function startBackend(): Promise<BackendHandle> {
       ruleProposer.stop();
       ruleEngine.stop();
       statScheduler.stop();
+      repoChangeWatcher.stop();
       sweeper.stop();
       unsubLog();
       if (observabilityHandle) {

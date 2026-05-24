@@ -8,7 +8,20 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 
 export type SpawnMode = "tab" | "window";
-export type SpawnProvider = "claude" | "codex";
+/**
+ * 起動可能な provider. Lictor の PROVIDERS に対応する名前と 1:1 で揃える.
+ * 新 provider 追加時はここと Lictor の `src/provider.ts`、 API 側の validation
+ * (このファイル中の SPAWN_PROVIDERS、 spawn / admin/spawn-session ハンドラ) を
+ * 同時に更新する.
+ */
+export type SpawnProvider = "claude" | "codex" | "gemini";
+
+/** Runtime 用 provider allow-list. API 側の validation で参照する. */
+export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "gemini"];
+
+export function isSpawnProvider(v: unknown): v is SpawnProvider {
+  return typeof v === "string" && (SPAWN_PROVIDERS as readonly string[]).includes(v);
+}
 
 export interface SpawnRequest {
   provider: SpawnProvider;

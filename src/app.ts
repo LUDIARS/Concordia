@@ -35,7 +35,13 @@ import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
 import { tasksRouter } from "./api/tasks.js";
-import { resolveSpawnCwd, spawnSession, type SpawnProvider, type SpawnMode } from "./control/spawner.js";
+import {
+  isSpawnProvider,
+  resolveSpawnCwd,
+  spawnSession,
+  SPAWN_PROVIDERS,
+  type SpawnMode,
+} from "./control/spawner.js";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { eventBus } from "./events.js";
 
@@ -129,12 +135,15 @@ export function buildApp(deps: AppDeps): Hono {
       return c.json({ error: "invalid JSON" }, 400);
     }
     const provider = (body.provider as string) ?? "claude";
-    if (provider !== "claude" && provider !== "codex") {
-      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    if (!isSpawnProvider(provider)) {
+      return c.json(
+        { error: `unknown provider: ${provider} (valid: ${SPAWN_PROVIDERS.join(", ")})` },
+        400,
+      );
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const result = spawnSession({
-      provider: provider as SpawnProvider,
+      provider,
       mode,
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")

@@ -15,10 +15,11 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
   buildWtArgs,
+  isSpawnProvider,
   resolveSpawnCwd,
   spawnSession,
+  SPAWN_PROVIDERS,
   type SpawnMode,
-  type SpawnProvider,
   type SpawnRequest,
 } from "../control/spawner.js";
 import {
@@ -89,12 +90,15 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       return c.json({ error: "invalid JSON" }, 400);
     }
     const provider = (body.provider as string) ?? "claude";
-    if (provider !== "claude" && provider !== "codex") {
-      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    if (!isSpawnProvider(provider)) {
+      return c.json(
+        { error: `unknown provider: ${provider} (valid: ${SPAWN_PROVIDERS.join(", ")})` },
+        400,
+      );
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const request: SpawnRequest = {
-      provider: provider as SpawnProvider,
+      provider,
       mode,
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
@@ -134,12 +138,15 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       return c.json({ error: "invalid JSON" }, 400);
     }
     const provider = (body.provider as string) ?? "claude";
-    if (provider !== "claude" && provider !== "codex") {
-      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    if (!isSpawnProvider(provider)) {
+      return c.json(
+        { error: `unknown provider: ${provider} (valid: ${SPAWN_PROVIDERS.join(", ")})` },
+        400,
+      );
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const args = buildWtArgs({
-      provider: provider as SpawnProvider,
+      provider,
       mode,
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")

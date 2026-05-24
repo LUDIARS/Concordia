@@ -121,6 +121,20 @@ describe("spawn arg builder", () => {
     ]);
   });
 
+  it("gemini provider produces `lictor gemini` argv", () => {
+    expect(buildWtArgs({ provider: "gemini", mode: "tab" })).toEqual([
+      "--window",
+      "0",
+      "new-tab",
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      "lictor",
+      "gemini",
+    ]);
+  });
+
   it("validateCwd accepts undefined + existing dir, rejects missing", () => {
     expect(validateCwd(undefined)).toBeNull();
     const tmp = mkdtempSync(join(tmpdir(), "concordia-spawn-cwd-"));
@@ -242,6 +256,24 @@ describe("spawn router (Hono)", () => {
       body: JSON.stringify({ provider: "gpt-cli" }),
     });
     expect(res.status).toBe(400);
+    const body = await res.json() as { error: string };
+    expect(body.error).toMatch(/valid: claude, codex, gemini/);
+  });
+
+  it("POST /preview accepts gemini provider and emits matching wt argv", async () => {
+    const app = spawnRouter({ cwd });
+    const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
+    const res = await app.request("/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ provider: "gemini", mode: "window" }),
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { command: string[] };
+    expect(body.command).toContain("gemini");
+    // window mode → --window new
+    expect(body.command.indexOf("--window")).toBeGreaterThanOrEqual(0);
+    expect(body.command[body.command.indexOf("--window") + 1]).toBe("new");
   });
 
   it("GET /recent is empty initially, populates after preview is skipped (only real /post adds)", async () => {

@@ -4,6 +4,13 @@
 
 const BASE = "";
 
+/**
+ * 起動可能な AI provider 一覧. backend `src/control/spawner.ts` の
+ * SpawnProvider と 1:1 で合わせる. 新 provider を足すときは backend と
+ * Lictor の `src/provider.ts` を同時更新する.
+ */
+export type SpawnProvider = "claude" | "codex" | "gemini";
+
 export interface SessionRow {
   id: string;
   provider: string;
@@ -143,7 +150,7 @@ export const api = {
         last_seen_at: number;
       }>;
     }>("/v1/machines"),
-  adminSpawn: (body: { provider: "claude" | "codex"; cwd?: string; title?: string; mode?: "tab" | "window" }) =>
+  adminSpawn: (body: { provider: SpawnProvider; cwd?: string; title?: string; mode?: "tab" | "window" }) =>
     post<{ ok: boolean; pid: number | null; command: string[] }>("/v1/admin/spawn-session", body),
   adminSpawnDefaults: () =>
     get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),

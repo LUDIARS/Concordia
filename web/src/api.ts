@@ -122,6 +122,11 @@ export const api = {
   monitor: () => get<MonitorPayload>("/v1/monitor"),
   session: (id: string) =>
     get<{ session: SessionRow; events: SessionEvent[] }>(`/v1/sessions/${encodeURIComponent(id)}`),
+  sessionInject: (id: string, text: string, source?: string) =>
+    post<{ ok: boolean; ts: number }>(`/v1/sessions/${encodeURIComponent(id)}/inject`, {
+      text,
+      ...(source ? { source } : {}),
+    }),
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
       `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,

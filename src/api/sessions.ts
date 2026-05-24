@@ -40,6 +40,11 @@ const EventSchema = z.object({
   ts: z.number().int().positive().optional(),
 });
 
+const InjectSchema = z.object({
+  text: z.string().min(1).max(4000),
+  source: z.string().min(1).max(120).optional(),
+});
+
 export interface SessionsApiDeps {
   repo: SessionsRepo;
   tasks: TasksRepo;
@@ -275,6 +280,40 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     deps.dispatcher.onEventAppended(session, eventCount);
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
     return c.json({ ok: true });
+  });
+
+  // POST /v1/sessions/:id/inject  — push an instruction to the wrapped TUI.
+  //
+  // Emits a `session.inject` event over the WS bus, scoped (via WS broadcast
+  // filtering) to the WS client whose ?session=<id> matches. Lictor's WS
+  // handler receives it and writes the sanitized text + \r to its pty, so it
+  // arrives in the wrapped claude as if the user typed it.
+  //
+  // The session must be active and have an open WS (otherwise the message
+  // hits no recipient and is silently dropped). We return 200 either way —
+  // delivery confirmation is the caller's problem; the contract is "enqueue
+  // for delivery to the session's WS bus".
+  app.post("/:id/inject", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = InjectSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const ts = nowSec();
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: id,
+      text: parsed.data.text,
+      source: parsed.data.source ?? null,
+      ts,
+    });
+    deps.repo.appendEvent({
+      session_id: id,
+      ts,
+      kind: "inject",
+      payload: { text: parsed.data.text, source: parsed.data.source ?? null },
+    });
+    return c.json({ ok: true, ts });
   });
 
   // POST /v1/sessions/:id/resume

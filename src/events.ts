@@ -21,6 +21,15 @@ export type ConcordiaEvent =
   | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }
   | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }
   | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
+  /**
+   * Instruction pushed at a specific session over its WS. Lictor (or any other
+   * WS subscriber with the matching session_id) injects the text into the
+   * wrapped TUI as user-typed input. Filtered by WS broadcaster — only
+   * clients whose ?session=<id> matches `target_session_id` receive it.
+   * `source` is an optional human-readable label (e.g. another role / a script
+   * name) for telemetry; not a security boundary.
+   */
+  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

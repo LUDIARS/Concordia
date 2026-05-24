@@ -177,4 +177,59 @@ describe("sessions API", () => {
     const r = await app.request("/v1/sessions/nope");
     expect(r.status).toBe(404);
   });
+
+  it("POST /v1/sessions/:id/inject emits session.inject event + records inject kind", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "inj", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => { if (ev.type === "session.inject") captured.push(ev); });
+    try {
+      const r = await app.request("/v1/sessions/inj/inject", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "do the thing", source: "test" }),
+      });
+      expect(r.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toMatchObject({
+        type: "session.inject",
+        target_session_id: "inj",
+        text: "do the thing",
+        source: "test",
+      });
+    } finally {
+      unsub();
+    }
+
+    const detail = await (await app.request("/v1/sessions/inj")).json() as any;
+    const kinds = detail.events.map((e: any) => e.kind);
+    expect(kinds).toContain("inject");
+  });
+
+  it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {
+    const r = await app.request("/v1/sessions/nope/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+    });
+    expect(r.status).toBe(404);
+  });
+
+  it("POST /v1/sessions/:id/inject returns 400 for empty text", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "inj2", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const r = await app.request("/v1/sessions/inj2/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "" }),
+    });
+    expect(r.status).toBe(400);
+  });
 });

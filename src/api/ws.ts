@@ -12,12 +12,22 @@
 
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import { WebSocketServer, WebSocket } from "ws";
-import { eventBus } from "../events.js";
+import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
+
+/**
+ * Events with a `target_session_id` are session-scoped — only the WS clients
+ * whose `?session=<id>` matches receive them. Used by `session.inject` to
+ * push instructions at exactly one session without leaking to peer clients.
+ */
+function targetSessionId(ev: ConcordiaEvent): string | null {
+  if (ev.type === "session.inject") return ev.target_session_id;
+  return null;
+}
 
 export interface WsHandle {
   close: () => void;
@@ -40,17 +50,27 @@ export function attachWsServer(
 ): WsHandle {
   const wss = new WebSocketServer({ server: httpServer, path: pathName });
 
+  // Track per-client session id so session-scoped events (e.g. session.inject)
+  // can be delivered only to the intended client. WeakMap so disconnected
+  // sockets GC normally.
+  const clientSession = new WeakMap<WebSocket, string | null>();
+
   const unsub = eventBus.subscribe((ev) => {
     const data = JSON.stringify(ev);
+    const target = targetSessionId(ev);
     for (const client of wss.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        try { client.send(data); } catch { /* swallow */ }
+      if (client.readyState !== WebSocket.OPEN) continue;
+      if (target !== null) {
+        const sid = clientSession.get(client) ?? null;
+        if (sid !== target) continue;
       }
+      try { client.send(data); } catch { /* swallow */ }
     }
   });
 
   wss.on("connection", (ws, req) => {
     const sessionId = readSessionId(req);
+    clientSession.set(ws, sessionId);
     log.debug({ clients: wss.clients.size, sessionId }, "ws connected");
     let registered = false;
     if (sessionId && sessionsRepo) {
@@ -85,6 +105,7 @@ export function attachWsServer(
 
     ws.on("close", () => {
       clearInterval(ping);
+      clientSession.delete(ws);
       if (registered && sessionId && sessionsRepo) {
         try {
           const after = sessionsRepo.decrementWsClients(sessionId);

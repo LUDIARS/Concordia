@@ -1,0 +1,153 @@
+/**
+ * /v1/spawn — orchestrator endpoint. Spawns a new lictor-wrapped Claude
+ * Code / Codex session in a Windows Terminal tab or window.
+ *
+ * Auth: Bearer token from `<cwd>/.spawn.token` (`Authorization: Bearer ...`
+ * or `X-Concordia-Token: ...`). `GET /v1/spawn/info` (no auth) returns the
+ * absolute path of the token file so callers can locate it without knowing
+ * Concordia's cwd in advance.
+ *
+ * Concurrency is bounded by Windows Terminal itself; Concordia keeps the
+ * last 50 spawn records in memory for debugging via `GET /v1/spawn/recent`.
+ */
+
+import { Hono } from "hono";
+import { randomUUID } from "node:crypto";
+import {
+  buildWtArgs,
+  spawnSession,
+  type SpawnMode,
+  type SpawnProvider,
+  type SpawnRequest,
+} from "../control/spawner.js";
+import {
+  ensureSpawnToken,
+  extractBearer,
+  spawnTokenPath,
+  tokenMatches,
+} from "../control/token.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("api/spawn");
+
+export interface SpawnApiDeps {
+  /** cwd Concordia was started in — used for token storage. */
+  cwd?: string;
+}
+
+export interface SpawnRecord {
+  id: string;
+  ts: string;
+  request: SpawnRequest;
+  command: string[];
+  pid: number | null;
+}
+
+const RECENT_CAP = 50;
+
+export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
+  const app = new Hono();
+  const cwd = deps.cwd ?? process.cwd();
+  const expectedToken = ensureSpawnToken(cwd);
+  const records: SpawnRecord[] = [];
+
+  log.info({ tokenPath: spawnTokenPath(cwd) }, "spawn endpoint enabled");
+
+  // No-auth: where to find the token. (We don't return the token value.)
+  app.get("/info", (c) => {
+    return c.json({
+      token_path: spawnTokenPath(cwd),
+      platform_supported: process.platform === "win32",
+    });
+  });
+
+  app.use("*", async (c, next) => {
+    // /info is the only no-auth route; it's matched above before this hits.
+    const provided = extractBearer((name) => c.req.header(name) ?? undefined);
+    if (!provided || !tokenMatches(expectedToken, provided)) {
+      return c.json({ error: "missing or invalid token" }, 401, {
+        "www-authenticate": 'Bearer realm="concordia-spawn"',
+      });
+    }
+    await next();
+  });
+
+  app.post("/", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: "invalid JSON" }, 400);
+    }
+    const provider = (body.provider as string) ?? "claude";
+    if (provider !== "claude" && provider !== "codex") {
+      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    }
+    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    const request: SpawnRequest = {
+      provider: provider as SpawnProvider,
+      mode,
+      args: Array.isArray(body.args)
+        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
+        : undefined,
+      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      title: typeof body.title === "string" ? body.title : undefined,
+      env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
+    };
+
+    const result = spawnSession(request);
+    if (!result.ok) {
+      return c.json({ error: result.error }, 400);
+    }
+    const record: SpawnRecord = {
+      id: randomUUID(),
+      ts: new Date().toISOString(),
+      request,
+      command: result.command,
+      pid: result.pid,
+    };
+    records.push(record);
+    if (records.length > RECENT_CAP) records.splice(0, records.length - RECENT_CAP);
+    log.info({ id: record.id, provider, mode, pid: record.pid }, "spawn launched");
+    return c.json({ ok: true, id: record.id, pid: record.pid, command: result.command });
+  });
+
+  app.get("/recent", (c) => {
+    return c.json({ spawns: records.slice() });
+  });
+
+  // Dry-run for the same payload shape — useful for UI previews.
+  app.post("/preview", async (c) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await c.req.json<Record<string, unknown>>();
+    } catch {
+      return c.json({ error: "invalid JSON" }, 400);
+    }
+    const provider = (body.provider as string) ?? "claude";
+    if (provider !== "claude" && provider !== "codex") {
+      return c.json({ error: `unknown provider: ${provider}` }, 400);
+    }
+    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    const args = buildWtArgs({
+      provider: provider as SpawnProvider,
+      mode,
+      args: Array.isArray(body.args)
+        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
+        : undefined,
+      cwd: typeof body.cwd === "string" ? body.cwd : undefined,
+      title: typeof body.title === "string" ? body.title : undefined,
+    });
+    return c.json({ command: ["wt.exe", ...args] });
+  });
+
+  return app;
+}
+
+function isStringMap(x: unknown): x is Record<string, string> {
+  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
+  for (const v of Object.values(x as Record<string, unknown>)) {
+    if (typeof v !== "string") return false;
+  }
+  return true;
+}

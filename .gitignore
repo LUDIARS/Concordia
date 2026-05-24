@@ -43,3 +43,6 @@ coverage/
 *.db-shm
 *.db-wal
 concordia.db*
+
+# spawn endpoint bearer token (generated on first /v1/spawn use; never committed)
+.spawn.token

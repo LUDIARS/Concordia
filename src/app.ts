@@ -29,6 +29,7 @@ import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
+import { spawnRouter } from "./api/spawn.js";
 
 export interface AppDeps {
   /** observability layer (Excubitor 由来) の Hono router. 内部で /api/v1/... の絶対 path を持つ. */
@@ -90,6 +91,7 @@ export function buildApp(deps: AppDeps): Hono {
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
   );
+  app.route("/v1/spawn", spawnRouter());
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();

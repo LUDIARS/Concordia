@@ -15,6 +15,7 @@ import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
 import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
+import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 
@@ -88,6 +89,7 @@ export interface SessionsApiDeps {
   dispatcher: Dispatcher;
   personas: PersonasRepo;
   processManager: ProcessManager;
+  sessionTaskRecords: SessionTaskRecordsRepo;
 }
 
 function serializePersonaForResponse(p: PersonaRow) {
@@ -275,6 +277,20 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // GET /v1/sessions/:id/tasks  — このセッションの TodoWrite 記録一覧.
+  // task_update event がくるたびに upsert された session_task_records を返す.
+  // - remaining: status !== "completed" の行 (= 残作業)
+  // - completed: completed_at セット済みの行 (= 処理済み + 担当者)
+  app.get("/:id/tasks", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const items = deps.sessionTaskRecords.listBySession(id);
+    const remaining = items.filter((t) => t.status !== "completed");
+    const completed = items.filter((t) => t.completed_at !== null);
+    const counts = deps.sessionTaskRecords.countBySessionStatus(id);
+    return c.json({ items, remaining, completed, counts });
+  });
+
   // GET /v1/sessions/:id/pending-tasks  — hook が pull
   app.get("/:id/pending-tasks", (c) => {
     const id = c.req.param("id");
@@ -311,6 +327,18 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       const summary = (parsed.data.payload as { summary?: unknown } | undefined)?.summary;
       if (typeof summary === "string" && summary.trim().length > 0) {
         deps.repo.patchSession(id, { current_task: summary.trim().slice(0, 200) });
+      }
+    }
+    // task_update event は TodoWrite の状態遷移. session_task_records へ
+    // upsert して残作業 / 完了 / 担当者 を per-task で記録.
+    if (parsed.data.kind === "task_update") {
+      const todos = (parsed.data.payload as { todos?: unknown } | undefined)?.todos;
+      if (Array.isArray(todos)) {
+        deps.sessionTaskRecords.applyTaskUpdate({
+          session_id: id,
+          todos: todos as Array<{ content?: unknown; activeForm?: unknown; status?: unknown }>,
+          nowSec: ts,
+        });
       }
     }
     const session = deps.repo.findSession(id)!;

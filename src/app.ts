@@ -27,10 +27,12 @@ import type { RulesRepo } from "./db/rules-repo.js";
 import type { DayReportsRepo } from "./db/day-reports-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
+import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
+import { tasksRouter } from "./api/tasks.js";
 import { resolveSpawnCwd, spawnSession, type SpawnProvider, type SpawnMode } from "./control/spawner.js";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { eventBus } from "./events.js";
@@ -47,6 +49,7 @@ export interface AppDeps {
   personas: PersonasRepo;
   processes: ProcessesRepo;
   stats: StatsRepo;
+  sessionTaskRecords: SessionTaskRecordsRepo;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
   dispatcher: Dispatcher;
@@ -76,8 +79,10 @@ export function buildApp(deps: AppDeps): Hono {
       dispatcher: deps.dispatcher,
       personas: deps.personas,
       processManager: deps.processManager,
+      sessionTaskRecords: deps.sessionTaskRecords,
     }),
   );
+  app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
   app.route(
     "/v1/personas",

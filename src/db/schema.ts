@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -53,6 +53,30 @@ const STATEMENTS = [
     duration_sec INTEGER NOT NULL,
     metadata     TEXT
   )`,
+
+  // ─── session task records (v0.2.1 — TodoWrite 永続化) ──────────────
+  // 各セッションが TodoWrite で扱った task の永続スナップショット.
+  // task_update event を受信するたびに per-todo で UPSERT.
+  // 同一 (session_id, task_text) は 1 行だけ、 status が completed に遷移した
+  // 瞬間に completed_at + handled_by_session を確定し、 以降は touch されない
+  // (= 同じテキストの task が後で pending に戻っても上書きしない、 履歴を保護).
+  // session 終了時、 status != 'completed' な行 = 残作業.
+  `CREATE TABLE IF NOT EXISTS session_task_records (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT NOT NULL,
+    task_text           TEXT NOT NULL,
+    active_form         TEXT,
+    status              TEXT NOT NULL,
+    first_seen_at       INTEGER NOT NULL,
+    last_updated_at     INTEGER NOT NULL,
+    completed_at        INTEGER,
+    handled_by_session  TEXT,
+    UNIQUE(session_id, task_text)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_session_task_records_session
+     ON session_task_records(session_id, last_updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_session_task_records_status
+     ON session_task_records(status, last_updated_at DESC)`,
 
   // ─── chat / tasks layer (v0.1) ──────────────────────
   `CREATE TABLE IF NOT EXISTS chat_messages (

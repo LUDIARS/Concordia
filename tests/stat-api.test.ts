@@ -47,12 +47,12 @@ function makeApp() {
   return { app, repo, stats };
 }
 
-function startSession(repo: SessionsRepo, id: string, opts: { branch?: string; repo_path?: string } = {}) {
+function startSession(repo: SessionsRepo, id: string, opts: { branch?: string | null; repo_path?: string } = {}) {
   repo.insertSession({
     id, provider: "claude-code",
     repo_path: opts.repo_path ?? "/abs/Concordia",
     repo_origin: "github:LUDIARS/Concordia",
-    branch: opts.branch ?? "main",
+    branch: opts.branch === null ? null : (opts.branch ?? "main"),
     host: "h",
     started_at: 1, last_seen_at: Math.floor(Date.now() / 1000),
     transcript_path: null, metadata: null,
@@ -111,28 +111,37 @@ describe("/v1/stat", () => {
   });
 });
 
-describe("/v1/monitor/conflicts (新規ブランチ前の競合チェック)", () => {
+describe("/v1/monitor/conflicts (同一ブランチでない限り衝突しない)", () => {
   let env: ReturnType<typeof makeApp>;
   beforeEach(() => { env = makeApp(); });
 
-  it("returns active sessions touching same repo", async () => {
+  it("returns repo overview but conflicts only for matching branch (caller branch=null)", async () => {
+    // caller 側 (= 呼び出し session) は branch 未指定 (null). repo 内の 3 session のうち
+    // branch=null は 1 件のみ → conflicts に出るのは 1 件。 他は branches[] で見せるだけ.
     startSession(env.repo, "a", { branch: "feat/x", repo_path: "/abs/Concordia" });
     startSession(env.repo, "b", { branch: "main",   repo_path: "/abs/Concordia" });
+    startSession(env.repo, "n", { branch: null as any, repo_path: "/abs/Concordia" });
     startSession(env.repo, "c", { branch: "main",   repo_path: "/abs/Other" });
 
     const r = await env.app.request("/v1/monitor/conflicts?repo=/abs/Concordia");
     expect(r.status).toBe(200);
     const body = await r.json() as any;
-    expect(body.conflicts).toHaveLength(2);
-    expect(body.branches.map((b: any) => b.branch).sort()).toEqual(["feat/x", "main"]);
+    expect(body.conflicts.map((s: any) => s.id)).toEqual(["n"]);
+    // branches[] は repo 全体 (caller branch に依らず) を集計
+    expect(body.branches.map((b: any) => b.branch).sort()).toEqual(["(detached)", "feat/x", "main"]);
   });
 
-  it("matches by repo_origin too", async () => {
+  it("matches by repo_origin too — caller branch 一致時のみ", async () => {
     startSession(env.repo, "a", { branch: "feat/x", repo_path: "/abs/Concordia" });
-    const r = await env.app.request("/v1/monitor/conflicts?repo=github:LUDIARS/Concordia");
-    expect(r.status).toBe(200);
-    const body = await r.json() as any;
-    expect(body.conflicts).toHaveLength(1);
+    const r1 = await env.app.request("/v1/monitor/conflicts?repo=github:LUDIARS/Concordia&branch=feat/x");
+    const body1 = await r1.json() as any;
+    expect(body1.conflicts).toHaveLength(1);
+
+    // branch 違いなら conflicts は空、 ただし branches[] には載る
+    const r2 = await env.app.request("/v1/monitor/conflicts?repo=github:LUDIARS/Concordia&branch=main");
+    const body2 = await r2.json() as any;
+    expect(body2.conflicts).toHaveLength(0);
+    expect(body2.branches.map((b: any) => b.branch)).toEqual(["feat/x"]);
   });
 
   it("filters by branch when given", async () => {
@@ -144,10 +153,24 @@ describe("/v1/monitor/conflicts (新規ブランチ前の競合チェック)", (
     expect(body.conflicts[0].id).toBe("a");
   });
 
+  it("異ブランチは衝突しない: branch=main + 相手 branch=feat/x は conflicts[] に出ない", async () => {
+    startSession(env.repo, "self", { branch: "main", repo_path: "/abs/Concordia" });
+    startSession(env.repo, "other", { branch: "feat/x", repo_path: "/abs/Concordia" });
+    const r = await env.app.request(
+      "/v1/monitor/conflicts?repo=/abs/Concordia&branch=main&exclude_session=self",
+    );
+    const body = await r.json() as any;
+    expect(body.conflicts).toHaveLength(0);
+    // branches[] は exclude_session 除外後の repo 集計
+    expect(body.branches.map((b: any) => b.branch)).toEqual(["feat/x"]);
+  });
+
   it("excludes session via exclude_session param", async () => {
     startSession(env.repo, "self", { branch: "feat/x", repo_path: "/abs/Concordia" });
-    startSession(env.repo, "other", { branch: "main", repo_path: "/abs/Concordia" });
-    const r = await env.app.request("/v1/monitor/conflicts?repo=/abs/Concordia&exclude_session=self");
+    startSession(env.repo, "other", { branch: "feat/x", repo_path: "/abs/Concordia" });
+    const r = await env.app.request(
+      "/v1/monitor/conflicts?repo=/abs/Concordia&branch=feat/x&exclude_session=self",
+    );
     const body = await r.json() as any;
     expect(body.conflicts).toHaveLength(1);
     expect(body.conflicts[0].id).toBe("other");

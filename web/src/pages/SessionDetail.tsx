@@ -58,6 +58,7 @@ export function SessionDetail() {
       {s.status === "active" && <StopSessionButton sessionId={s.id} onStopped={refetch} />}
       {s.status === "active" && <TranscriptPanel sessionId={s.id} />}
       {s.status === "active" && <PermissionModal sessionId={s.id} />}
+      {s.status === "active" && <FileBrowser sessionId={s.id} />}
 
       <section>
         <h2 className="text-base font-semibold mb-2">
@@ -181,6 +182,95 @@ function previewToolInput(input: unknown): string {
   } catch {
     return "[unserializable]";
   }
+}
+
+interface FileEntry { name: string; is_dir: boolean; size: number | null }
+
+/**
+ * Minimal cwd-confined file browser. Click a dir to descend, click a file
+ * to read (capped at 256 KiB on the Lictor side). Path bar shows the
+ * relative path from session cwd. No write, no upload — this pane is for
+ * inspection only.
+ */
+function FileBrowser({ sessionId }: { sessionId: string }) {
+  const [path, setPath] = useState(".");
+  const [entries, setEntries] = useState<FileEntry[] | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [reading, setReading] = useState<{ path: string; content: string; truncated: boolean; bytes: number } | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    setErr(null);
+    api.fsList(sessionId, path)
+      .then((r) => { if (!cancel) { setEntries(r.entries); setTruncated(r.truncated); } })
+      .catch((e) => { if (!cancel) setErr((e as Error).message); });
+    return () => { cancel = true; };
+  }, [sessionId, path]);
+
+  const enter = (entry: FileEntry) => {
+    const next = path === "." ? entry.name : `${path}/${entry.name}`;
+    if (entry.is_dir) {
+      setPath(next);
+      setReading(null);
+    } else {
+      api.fsRead(sessionId, next)
+        .then((r) => setReading({ path: r.path, content: r.content, truncated: r.truncated, bytes: r.bytes }))
+        .catch((e) => setErr((e as Error).message));
+    }
+  };
+
+  const up = () => {
+    if (path === ".") return;
+    const parts = path.split("/");
+    parts.pop();
+    setPath(parts.length === 0 ? "." : parts.join("/"));
+    setReading(null);
+  };
+
+  return (
+    <section className="bg-surface border border-border rounded p-4 space-y-2">
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-semibold">files</h2>
+        <span className="text-xs text-subtle font-mono">cwd / {path}</span>
+        <button type="button" onClick={up} disabled={path === "."} className="ml-auto text-xs px-2 py-1 bg-muted rounded disabled:opacity-30">
+          ..
+        </button>
+      </div>
+      {err && <div className="text-xs text-danger">{err}</div>}
+      {entries === null ? (
+        <div className="text-xs text-subtle">loading…</div>
+      ) : (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 font-mono text-[12px]">
+          {entries.map((e) => (
+            <button
+              key={e.name}
+              type="button"
+              onClick={() => enter(e)}
+              className={`text-left hover:text-accent truncate ${e.is_dir ? "text-accent" : ""}`}
+            >
+              {e.is_dir ? "📁" : "📄"} {e.name}
+              {!e.is_dir && e.size !== null && <span className="ml-2 text-subtle text-[10px]">({e.size}B)</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {truncated && <div className="text-xs text-warn">listing truncated (&gt;1000 entries)</div>}
+      {reading && (
+        <div className="mt-3 border-t border-border pt-2">
+          <div className="flex items-center gap-2 text-xs text-subtle">
+            <span className="font-mono">{reading.path}</span>
+            <span>{reading.bytes}B</span>
+            {reading.truncated && <span className="text-warn">truncated</span>}
+            <button type="button" onClick={() => setReading(null)} className="ml-auto text-accent">close</button>
+          </div>
+          <pre className="mt-1 max-h-96 overflow-y-auto bg-muted px-3 py-2 rounded text-[11px] font-mono whitespace-pre-wrap break-words">
+            {reading.content}
+          </pre>
+        </div>
+      )}
+    </section>
+  );
 }
 
 interface TranscriptFrame {

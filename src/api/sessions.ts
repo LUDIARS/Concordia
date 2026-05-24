@@ -383,6 +383,26 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
 
   // POST /v1/sessions/:id/inject  — push an instruction to the wrapped TUI.
   //
+  // GET /v1/sessions/:id/fs/{read|list|grep}
+  // Proxies to Lictor's /v1/fs/* with the same query string. Lictor enforces
+  // cwd-confinement; Concordia just forwards. 404 when the session has no
+  // Lictor sidecar (not running, never wrapped, or pre-lictor v0.4.2).
+  app.get("/:id/fs/read", async (c) => {
+    const target = resolveLictorTarget(deps.repo, c.req.param("id"));
+    if ("error" in target) return c.json({ error: target.error }, 404);
+    return proxyGet(c, target.port, `/v1/fs/read?${c.req.url.split("?")[1] ?? ""}`);
+  });
+  app.get("/:id/fs/list", async (c) => {
+    const target = resolveLictorTarget(deps.repo, c.req.param("id"));
+    if ("error" in target) return c.json({ error: target.error }, 404);
+    return proxyGet(c, target.port, `/v1/fs/list?${c.req.url.split("?")[1] ?? ""}`);
+  });
+  app.get("/:id/fs/grep", async (c) => {
+    const target = resolveLictorTarget(deps.repo, c.req.param("id"));
+    if ("error" in target) return c.json({ error: target.error }, 404);
+    return proxyGet(c, target.port, `/v1/fs/grep?${c.req.url.split("?")[1] ?? ""}`);
+  });
+
   // Emits a `session.inject` event over the WS bus, scoped (via WS broadcast
   // filtering) to the WS client whose ?session=<id> matches. Lictor's WS
   // handler receives it and writes the sanitized text + \r to its pty, so it
@@ -564,6 +584,19 @@ export function serializeSession(s: SessionRow) {
     current_task: s.current_task,
     metadata: s.metadata ? safeParse(s.metadata) : null,
   };
+}
+
+async function proxyGet(c: { json: (body: any, status: any) => Response }, port: number, path: string): Promise<Response> {
+  let upstream: Response;
+  try {
+    upstream = await fetchFromLictor(port, path, { method: "GET" });
+  } catch (err) {
+    return c.json({ error: `lictor unreachable: ${(err as Error).message}` }, 502 as 502);
+  }
+  const text = await upstream.text();
+  let body: unknown;
+  try { body = JSON.parse(text); } catch { body = { raw: text }; }
+  return c.json(body, upstream.status as 200);
 }
 
 function nowSec(): number {

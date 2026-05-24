@@ -146,6 +146,18 @@ export const api = {
     post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
   permissionRespond: (id: string, body: { request_id: string; decision: "allow" | "deny" | "ask"; reason?: string }) =>
     post<{ ok: boolean }>(`/v1/sessions/${encodeURIComponent(id)}/permission-response`, body),
+  fsList: (id: string, path: string) => {
+    const qs = new URLSearchParams({ path }).toString();
+    return get<{ path: string; entries: Array<{ name: string; is_dir: boolean; size: number | null }>; truncated: boolean }>(
+      `/v1/sessions/${encodeURIComponent(id)}/fs/list?${qs}`,
+    );
+  },
+  fsRead: (id: string, path: string) => {
+    const qs = new URLSearchParams({ path }).toString();
+    return get<{ path: string; bytes: number; truncated: boolean; content: string }>(
+      `/v1/sessions/${encodeURIComponent(id)}/fs/read?${qs}`,
+    );
+  },
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
       `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,

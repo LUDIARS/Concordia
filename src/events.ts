@@ -42,6 +42,13 @@ export type ConcordiaEvent =
    * the frame (same WS filter as session.inject).
    */
   | { type: "transcript.frame"; target_session_id: string; seq: number; kind: string; payload: unknown; ts: number }
+  /**
+   * Tool permission request — Lictor's PreToolUse hook fired and is blocking
+   * the wrapped Claude session until the user approves/denies via Web UI.
+   * Session-targeted so only clients viewing this session receive it.
+   * `tool_input` is a slim preview (kept compact for wire / UI).
+   */
+  | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

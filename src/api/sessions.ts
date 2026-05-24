@@ -15,6 +15,7 @@ import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
 import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
+import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -55,6 +56,18 @@ const TranscriptFrameSchema = z.object({
   seq: z.number().int().nonnegative(),
   kind: z.string().min(1).max(64),
   payload: z.unknown(),
+});
+
+const PermissionRequestSchema = z.object({
+  request_id: z.string().min(1).max(128),
+  tool_name: z.string().min(1).max(128),
+  tool_input: z.unknown(),
+});
+
+const PermissionResponseSchema = z.object({
+  request_id: z.string().min(1).max(128),
+  decision: z.enum(["allow", "deny", "ask"]),
+  reason: z.string().max(2000).optional(),
 });
 
 export interface SessionsApiDeps {
@@ -295,6 +308,55 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     deps.dispatcher.onEventAppended(session, eventCount);
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
     return c.json({ ok: true });
+  });
+
+  // POST /v1/sessions/:id/permission-request — Lictor's PreToolUse hook
+  // is blocked waiting for a user decision. Emit a session-targeted event
+  // so the Web UI modal shows up. We do NOT persist or block here — the
+  // pending state lives in Lictor's sidecar (it has the resolver).
+  app.post("/:id/permission-request", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = PermissionRequestSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    eventBus.emit({
+      type: "session.permission_request",
+      target_session_id: id,
+      request_id: parsed.data.request_id,
+      tool_name: parsed.data.tool_name,
+      tool_input: parsed.data.tool_input,
+      ts: nowSec(),
+    });
+    return c.json({ ok: true });
+  });
+
+  // POST /v1/sessions/:id/permission-response — Web UI's modal answer.
+  // Proxied to Lictor's sidecar /v1/internal/permission-response, which
+  // resolves the pending PreToolUse hook. Returns Lictor's status verbatim
+  // so the Web UI can surface "session not running" / "already resolved" /
+  // etc. when the response arrives too late.
+  app.post("/:id/permission-response", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json().catch(() => null);
+    const parsed = PermissionResponseSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const target = resolveLictorTarget(deps.repo, id);
+    if ("error" in target) return c.json({ error: target.error }, 404);
+    let upstream: Response;
+    try {
+      upstream = await fetchFromLictor(target.port, "/v1/internal/permission-response", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(parsed.data),
+      });
+    } catch (err) {
+      return c.json({ error: `lictor unreachable: ${(err as Error).message}` }, 502);
+    }
+    const text = await upstream.text();
+    let json: unknown;
+    try { json = JSON.parse(text); } catch { json = { raw: text }; }
+    return c.json(json as Record<string, unknown>, upstream.status as 200);
   });
 
   // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed

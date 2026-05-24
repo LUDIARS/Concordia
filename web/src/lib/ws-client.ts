@@ -28,6 +28,7 @@ export type ConcordiaEvent =
   | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
   | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
   | { type: "transcript.frame"; target_session_id: string; seq: number; kind: string; payload: unknown; ts: number }
+  | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

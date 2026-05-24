@@ -57,6 +57,7 @@ export function SessionDetail() {
       {s.status === "active" && <InjectForm sessionId={s.id} />}
       {s.status === "active" && <StopSessionButton sessionId={s.id} onStopped={refetch} />}
       {s.status === "active" && <TranscriptPanel sessionId={s.id} />}
+      {s.status === "active" && <PermissionModal sessionId={s.id} />}
 
       <section>
         <h2 className="text-base font-semibold mb-2">
@@ -81,6 +82,105 @@ export function SessionDetail() {
       </section>
     </div>
   );
+}
+
+interface PendingPermission {
+  request_id: string;
+  tool_name: string;
+  tool_input: unknown;
+}
+
+/**
+ * Tool permission gateway. Lictor's PreToolUse hook fires and blocks the
+ * wrapped claude until the user decides. We listen for session-targeted
+ * permission_request events and surface a modal until the user picks
+ * allow / deny. The decision goes back through Concordia → Lictor sidecar
+ * (proxied) → the pending hook resolver.
+ *
+ * If multiple requests stack up (Claude tries to run several tools in one
+ * turn), the modal queues them — oldest first.
+ */
+function PermissionModal({ sessionId }: { sessionId: string }) {
+  const [queue, setQueue] = useState<PendingPermission[]>([]);
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useWsEvent(["session.permission_request"], (ev) => {
+    if (ev.type !== "session.permission_request") return;
+    if (ev.target_session_id !== sessionId) return;
+    setQueue((prev) => {
+      // Dedupe by request_id in case the same event arrives twice (WS reconnect, retry).
+      if (prev.some((p) => p.request_id === ev.request_id)) return prev;
+      return [...prev, { request_id: ev.request_id, tool_name: ev.tool_name, tool_input: ev.tool_input }];
+    });
+  });
+
+  const head = queue[0];
+  if (!head) return null;
+
+  const respond = async (decision: "allow" | "deny", reason?: string) => {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.permissionRespond(sessionId, { request_id: head.request_id, decision, reason });
+      setQueue((prev) => prev.filter((p) => p.request_id !== head.request_id));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const preview = previewToolInput(head.tool_input);
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-surface border border-accent rounded p-5 max-w-2xl w-full shadow-lg">
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-base font-semibold">ツール実行の許可</h2>
+          <span className="text-xs text-subtle ml-auto">
+            queue {queue.length} / id {head.request_id.slice(0, 8)}…
+          </span>
+        </div>
+        <div className="text-sm mb-2">
+          <span className="font-mono text-accent">{head.tool_name}</span>
+          <span className="text-subtle"> を実行しようとしています</span>
+        </div>
+        <pre className="bg-muted px-3 py-2 rounded text-[11px] font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+          {preview}
+        </pre>
+        {err && <div className="mt-2 text-xs text-danger">{err}</div>}
+        <div className="mt-4 flex gap-2 justify-end">
+          <button
+            type="button"
+            onClick={() => respond("deny", "ユーザが拒否")}
+            disabled={sending}
+            className="px-3 py-1.5 bg-danger/80 text-white rounded text-sm disabled:opacity-50"
+          >
+            拒否
+          </button>
+          <button
+            type="button"
+            onClick={() => respond("allow")}
+            disabled={sending}
+            className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
+          >
+            {sending ? "送信中…" : "許可"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function previewToolInput(input: unknown): string {
+  if (typeof input === "string") return input.slice(0, 1000);
+  try {
+    const s = JSON.stringify(input, null, 2) ?? "";
+    return s.length > 1500 ? s.slice(0, 1500) + "…" : s;
+  } catch {
+    return "[unserializable]";
+  }
 }
 
 interface TranscriptFrame {

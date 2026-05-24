@@ -127,6 +127,11 @@ export const api = {
       text,
       ...(source ? { source } : {}),
     }),
+  sessionFork: (id: string, body: { claude_uuid: string; cwd?: string; mode?: "tab" | "window" }) =>
+    post<{ ok: boolean; pid: number | null; command: string[] }>(
+      `/v1/sessions/${encodeURIComponent(id)}/fork`,
+      body,
+    ),
   machinesList: () =>
     get<{
       machines: Array<{

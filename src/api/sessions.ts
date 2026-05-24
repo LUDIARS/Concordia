@@ -16,6 +16,7 @@ import { aggregateBullets, generateReport } from "../report/generator.js";
 import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
+import { spawnSession } from "../control/spawner.js";
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -68,6 +69,15 @@ const PermissionResponseSchema = z.object({
   request_id: z.string().min(1).max(128),
   decision: z.enum(["allow", "deny", "ask"]),
   reason: z.string().max(2000).optional(),
+});
+
+const ForkSchema = z.object({
+  /** Claude per-message uuid to resume from. Comes from the transcript frame's payload.claude_uuid. */
+  claude_uuid: z.string().min(1).max(128),
+  /** Working directory for the new session. Defaults to parent's repo_path. */
+  cwd: z.string().min(1).optional(),
+  /** Window vs tab — passed through to wt.exe spawner. */
+  mode: z.enum(["tab", "window"]).optional(),
 });
 
 export interface SessionsApiDeps {
@@ -379,6 +389,48 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       ts: nowSec(),
     });
     return c.json({ ok: true });
+  });
+
+  // POST /v1/sessions/:id/fork — spawn a new lictor session that resumes
+  // claude from a specific message uuid (the fork anchor). Used by the
+  // Web UI's per-transcript-frame "fork from here" button.
+  //
+  // The new session registers with Concordia via its own POST /v1/sessions
+  // call (lictor does this at startup). We don't try to pre-link the
+  // parent here — the spawn → register handshake is async and the new
+  // session's id isn't known yet. After register, the fork.requested event
+  // (recorded in this session's events) provides the audit trail.
+  app.post("/:id/fork", async (c) => {
+    const id = c.req.param("id");
+    const parent = deps.repo.findSession(id);
+    if (!parent) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = ForkSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const cwd = parsed.data.cwd ?? parent.repo_path;
+    const mode = parsed.data.mode ?? "tab";
+    const result = spawnSession({
+      provider: "claude",
+      mode,
+      cwd,
+      args: ["--resume", parsed.data.claude_uuid],
+      title: `fork:${parent.id.slice(0, 8)}@${parsed.data.claude_uuid.slice(0, 8)}`,
+    });
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    // Audit trail on the parent — same kind as inject so the timeline
+    // shows what spun out of this conversation.
+    deps.repo.appendEvent({
+      session_id: id,
+      ts: nowSec(),
+      kind: "fork_requested",
+      payload: {
+        claude_uuid: parsed.data.claude_uuid,
+        cwd,
+        mode,
+        pid: result.pid,
+      },
+    });
+    return c.json({ ok: true, pid: result.pid, command: result.command });
   });
 
   // POST /v1/sessions/:id/inject  — push an instruction to the wrapped TUI.

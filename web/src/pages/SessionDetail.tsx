@@ -319,21 +319,66 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
           ref={scrollRef}
           className="max-h-96 overflow-y-auto space-y-1 font-mono text-[11px]"
         >
-          {frames.map((f) => (
-            <div key={f.seq} className="border-l-2 border-border pl-2 py-1">
-              <div className="flex items-center gap-2 text-subtle">
-                <span className="text-accent">{f.kind}</span>
-                <span>#{f.seq}</span>
-                <span className="ml-auto">{fmtTs(f.ts)}</span>
+          {frames.map((f) => {
+            const claudeUuid = extractClaudeUuid(f.payload);
+            return (
+              <div key={f.seq} className="border-l-2 border-border pl-2 py-1">
+                <div className="flex items-center gap-2 text-subtle">
+                  <span className="text-accent">{f.kind}</span>
+                  <span>#{f.seq}</span>
+                  {claudeUuid && (
+                    <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />
+                  )}
+                  <span className="ml-auto">{fmtTs(f.ts)}</span>
+                </div>
+                <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
+                  {renderFramePayload(f.kind, f.payload)}
+                </pre>
               </div>
-              <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
-                {renderFramePayload(f.kind, f.payload)}
-              </pre>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>
+  );
+}
+
+function extractClaudeUuid(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const v = (payload as { claude_uuid?: unknown }).claude_uuid;
+  return typeof v === "string" && v.length > 0 ? v : null;
+}
+
+/**
+ * Per-frame "fork from here" trigger. Spawns a new lictor wrapped claude
+ * with --resume <uuid>, running in the same cwd as the parent session
+ * (server fills in parent.repo_path). Confirms before firing because the
+ * action opens a new Windows Terminal tab.
+ */
+function ForkFromButton({ sessionId, claudeUuid }: { sessionId: string; claudeUuid: string }) {
+  const [busy, setBusy] = useState(false);
+  const click = async () => {
+    if (busy) return;
+    if (!confirm(`このメッセージから fork します (${claudeUuid.slice(0, 8)}…) — 新タブで lictor wrapped claude が起動します`)) return;
+    setBusy(true);
+    try {
+      await api.sessionFork(sessionId, { claude_uuid: claudeUuid });
+    } catch (e) {
+      alert(`fork failed: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={busy}
+      title={`fork from ${claudeUuid}`}
+      className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/40 disabled:opacity-50"
+    >
+      {busy ? "…" : "🔱 fork"}
+    </button>
   );
 }
 

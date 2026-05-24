@@ -65,6 +65,21 @@ function connect() {
     let parsed;
     try { parsed = JSON.parse(String(data)); } catch { parsed = { raw: String(data) }; }
     write({ _client: 'agent', _ts: Date.now(), event: 'message', body: parsed });
+
+    // 自セッションが終了状態に遷移したら self-shutdown.
+    // Concordia の eventBus が emit する type:
+    //   - session.ended    (DELETE /v1/sessions/:id)
+    //   - session.lost     (sweeper が lost 化)
+    //   - session.abandoned (sweeper が abandoned 化)
+    // session_id が自分と一致したときだけ反応 (他 session の event は無視).
+    if (parsed && typeof parsed === 'object'
+        && parsed.session_id === session
+        && (parsed.type === 'session.ended'
+          || parsed.type === 'session.lost'
+          || parsed.type === 'session.abandoned')) {
+      write({ _client: 'agent', _ts: Date.now(), event: 'self-shutdown', reason: parsed.type });
+      shutdown(parsed.type);
+    }
   });
   ws.on('error', (err) => {
     write({ _client: 'agent', _ts: Date.now(), event: 'error', message: String(err?.message ?? err) });

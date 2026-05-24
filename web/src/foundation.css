@@ -45,3 +45,39 @@ a:hover { text-decoration: underline; }
 code, pre {
   font-family: var(--f-mono);
 }
+
+/*
+ * Text-input "window" — chat composer / inject / similar.
+ * Terminal-style: black background + green text so the cursor is always
+ * visible regardless of the user's OS theme. The browser default
+ * (system Field colors) caused white-on-white in light system mode
+ * because the surrounding body color is near-white.
+ */
+.foundation-form,
+input.foundation-form,
+textarea.foundation-form,
+select.foundation-form {
+  background: #000;
+  color: var(--c-ok);
+  caret-color: var(--c-ok);
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-family: var(--f-mono);
+}
+
+.foundation-form:focus,
+input.foundation-form:focus,
+textarea.foundation-form:focus,
+select.foundation-form:focus {
+  outline: none;
+  border-color: var(--c-ok);
+}
+
+.foundation-form::placeholder {
+  color: rgba(52, 211, 153, 0.45);
+}
+
+.foundation-form:disabled {
+  opacity: 0.5;
+}

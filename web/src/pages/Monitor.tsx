@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionRow } from "../api.js";
@@ -100,7 +99,6 @@ export function Monitor() {
       )}
 
       <MachinesSection />
-      <SpawnSessionForm />
 
       <SessionList title="active" rows={data.active} statByIdx={statByIdx} />
       <SessionList title="lost" rows={data.lost} statByIdx={statByIdx} />
@@ -140,118 +138,6 @@ function MachinesSection() {
         ))}
       </div>
     </section>
-  );
-}
-
-/**
- * Spawn a new lictor-wrapped session via /v1/admin/spawn-session.
- * Windows-only today (the underlying spawner requires wt.exe).
- */
-function SpawnSessionForm() {
-  const [cwd, setCwd] = useState("");
-  const [title, setTitle] = useState("");
-  const [provider, setProvider] = useState<"claude" | "codex">("claude");
-  const [mode, setMode] = useState<"tab" | "window">("tab");
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  // The default cwd configured server-side (CONCORDIA_SPAWN_DEFAULT_CWD). We
-  // show it as the input placeholder so the user can see what the spawn will
-  // resolve to when they leave the field blank.
-  const [defaultCwd, setDefaultCwd] = useState<string>("");
-
-  useEffect(() => {
-    void api
-      .adminSpawnDefaults()
-      .then((d) => setDefaultCwd(d.default_cwd))
-      .catch(() => {
-        /* no defaults endpoint or fetch failure — leave blank */
-      });
-  }, []);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (sending) return;
-    setSending(true);
-    setResult(null);
-    try {
-      const r = await api.adminSpawn({
-        provider,
-        mode,
-        cwd: cwd.trim() || undefined,
-        title: title.trim() || undefined,
-      });
-      setResult({ ok: true, msg: `spawned (pid=${r.pid ?? "?"})` });
-    } catch (err) {
-      setResult({ ok: false, msg: (err as Error).message });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="bg-surface border border-border rounded p-4 space-y-2">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold">新規セッション</h2>
-        <span className="text-xs text-subtle">
-          Windows Terminal の新タブ/ウインドウで lictor wrapped claude を起動
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
-          value={cwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder={
-            defaultCwd
-              ? `cwd 空欄 → ${defaultCwd}`
-              : "cwd (例: E:\\Document\\Ars\\Lictor) 空なら起動側 cwd"
-          }
-          disabled={sending}
-          className="flex-1 min-w-[200px] foundation-form font-mono text-sm"
-          title={
-            defaultCwd
-              ? `空欄なら CONCORDIA_SPAWN_DEFAULT_CWD = ${defaultCwd} が使われます`
-              : undefined
-          }
-        />
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="title (省略可)"
-          disabled={sending}
-          className="w-40 foundation-form text-sm"
-        />
-        <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as "claude" | "codex")}
-          disabled={sending}
-          className="foundation-form text-sm"
-        >
-          <option value="claude">claude</option>
-          <option value="codex">codex</option>
-        </select>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value as "tab" | "window")}
-          disabled={sending}
-          className="foundation-form text-sm"
-        >
-          <option value="tab">tab</option>
-          <option value="window">window</option>
-        </select>
-        <button
-          type="submit"
-          disabled={sending}
-          className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
-        >
-          {sending ? "起動中…" : "起動"}
-        </button>
-      </div>
-      {result && (
-        <div className={`text-xs ${result.ok ? "text-ok" : "text-danger"}`}>{result.msg}</div>
-      )}
-    </form>
   );
 }
 

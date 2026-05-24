@@ -508,7 +508,7 @@ function Composer({
             if (e.key === "Escape") onCancel();
           }}
           placeholder="返信を書く… (Enter で送信、 Shift+Enter で改行)"
-          className="w-full bg-muted border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent min-h-[80px] resize-none"
+          className="w-full foundation-form text-sm min-h-[80px] resize-none"
         />
         <div className="mt-3 flex items-center gap-3">
           <div className="flex gap-1 text-xs">

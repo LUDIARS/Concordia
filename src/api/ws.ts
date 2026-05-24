@@ -23,11 +23,16 @@ const PING_INTERVAL_MS = 25_000;
  * Events with a `target_session_id` are session-scoped — only the WS clients
  * whose `?session=<id>` matches receive them. Used by `session.inject` to
  * push instructions at exactly one session without leaking to peer clients.
+ *
+ * Only `session.inject` (a command directed AT a lictor) needs this filter.
+ * Outbound data events (`transcript.frame`, `session.permission_request`)
+ * are emitted BY the lictor for the dashboard to display — the dashboard's
+ * WS client doesn't claim a session, so filtering by ?session= would drop
+ * every frame on the floor. The dashboard filters per-session in the React
+ * component (`if (ev.target_session_id !== sessionId) return;`).
  */
 function targetSessionId(ev: ConcordiaEvent): string | null {
   if (ev.type === "session.inject") return ev.target_session_id;
-  if (ev.type === "transcript.frame") return ev.target_session_id;
-  if (ev.type === "session.permission_request") return ev.target_session_id;
   return null;
 }
 

@@ -69,7 +69,7 @@ export function Chat() {
 
       <div className="flex gap-2">
         <input
-          className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm focus:outline-none focus:border-accent"
+          className="flex-1 foundation-form text-sm"
           placeholder={`#${channel} に投稿…`}
           value={input}
           onChange={(e) => setInput(e.target.value)}

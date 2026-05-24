@@ -302,10 +302,13 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [frames.length]);
 
+  const thinking = derivesThinking(frames);
+
   return (
     <section className="bg-surface border border-border rounded p-4">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-base font-semibold">transcript</h2>
+        <ThinkingDot active={thinking} />
         <span className="text-xs text-subtle">
           live frames from Claude JSONL via Lictor ({frames.length}/200)
         </span>
@@ -379,6 +382,42 @@ function ForkFromButton({ sessionId, claudeUuid }: { sessionId: string; claudeUu
     >
       {busy ? "…" : "🔱 fork"}
     </button>
+  );
+}
+
+/**
+ * Derive "claude is thinking" from the transcript frame history. We use
+ * the role of the most recent text/tool-result frame:
+ *  - last frame role=user OR kind=tool-result  → claude is responding
+ *    (it sees new input and hasn't written its assistant message yet)
+ *  - last frame role=assistant text             → idle
+ *
+ * Latency is bounded by how often Claude flushes the JSONL — typically
+ * each turn at message-end. So the indicator is "responded recently" not
+ * sub-second, but it's still useful for the dashboard. HAPPY's
+ * fetch-interception approach gives sub-second precision; we trade that
+ * for zero new IPC.
+ */
+function derivesThinking(frames: TranscriptFrame[]): boolean {
+  for (let i = frames.length - 1; i >= 0; i--) {
+    const f = frames[i];
+    if (f.kind === "tool-result") return true;
+    if (f.kind === "text") {
+      const role = (f.payload as { role?: string } | null)?.role;
+      if (role === "assistant") return false;
+      if (role === "user") return true;
+    }
+    if (f.kind === "thinking") return true;
+  }
+  return false;
+}
+
+function ThinkingDot({ active }: { active: boolean }) {
+  return (
+    <span
+      title={active ? "claude が応答中" : "idle"}
+      className={`inline-block w-2 h-2 rounded-full ${active ? "bg-accent animate-pulse" : "bg-subtle/40"}`}
+    />
   );
 }
 

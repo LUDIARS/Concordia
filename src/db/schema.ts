@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -411,6 +411,28 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_session_stats_session_ts ON session_stats(session_id, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_session_stats_ts ON session_stats(ts DESC)`,
+
+  // ─── transcript logs (v0.5 — session log 永続化) ──────
+  // Lictor の transcript-tail が POST する transcript frame (Claude/Codex 内部 JSONL
+  // から抽出した user/assistant/tool_use/tool_result/thinking) を per-session で
+  // 全件保存する. discrete event (start/prompt/edit/end) を扱う session_events
+  // とは別ストレージ — frame は 1 session あたり数百〜数千件になり events feed の
+  // S/N 比を壊すため.
+  //
+  // (session_id, seq) で UNIQUE: tail の再送 / 重複 POST に対して冪等性を確保.
+  // seq は Lictor 側のシーケンス番号 (transcript-tail.ts の seq++ カウンタ) で
+  // 0 から始まる単調増加. session 内で一意.
+  `CREATE TABLE IF NOT EXISTS transcript_logs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    ts          INTEGER NOT NULL,
+    kind        TEXT NOT NULL,
+    payload     TEXT NOT NULL,
+    UNIQUE(session_id, seq)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_transcript_logs_session_ts
+     ON transcript_logs(session_id, ts)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

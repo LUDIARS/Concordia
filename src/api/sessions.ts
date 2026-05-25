@@ -16,6 +16,7 @@ import { aggregateBullets, generateReport } from "../report/generator.js";
 import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
+import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -109,6 +110,7 @@ export interface SessionsApiDeps {
   personas: PersonasRepo;
   processManager: ProcessManager;
   sessionTaskRecords: SessionTaskRecordsRepo;
+  transcriptLogs: TranscriptLogsRepo;
 }
 
 function serializePersonaForResponse(p: PersonaRow) {
@@ -450,16 +452,39 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   });
 
   // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed
-  // line from Claude's session JSONL. Fire-and-forget for the caller:
-  // we emit `transcript.frame` event (session-targeted), do NOT persist.
-  // Web UI subscribes via WS. If we ever want catch-up after a page reload
-  // we can add an in-memory ring buffer per session.
+  // line from Claude/Codex session JSONL.
+  //
+  // v0.5: per-session transcript_logs テーブルに永続化する. これで session 終了後も
+  // 会話・tool 履歴を後追いできる (本来 session_events feed の S/N を壊さないために
+  // 別 table に分離). UNIQUE(session_id, seq) で重複 POST は安全に no-op.
+  // 加えて従来通り `transcript.frame` event を eventBus に流し、 Web UI が WS で
+  // 受け取れるようにする.
   app.post("/:id/transcript-frame", async (c) => {
     const id = c.req.param("id");
     if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const ts = nowSec();
+
+    // 永続化: 失敗してもログ流通は止めず、 続けて WS broadcast に進む
+    // (永続化失敗は dispatcher / 監視への副作用が無いため安全)
+    let persisted = false;
+    try {
+      persisted = deps.transcriptLogs.insert({
+        session_id: id,
+        seq: parsed.data.seq,
+        ts,
+        kind: parsed.data.kind,
+        payload: parsed.data.payload,
+      });
+    } catch (err) {
+      log.warn(
+        { session_id: id, seq: parsed.data.seq, err: (err as Error).message },
+        "transcript_logs insert failed; falling back to WS-only broadcast",
+      );
+    }
+
     // ユーザ指示テキスト (kind="text" + payload.role="user") を構造化ログに残す.
     // Lictor → Concordia 転送経路の「いま何を頼まれて動いているか」 を後追いできるようにする目的.
     if (parsed.data.kind === "text") {
@@ -481,9 +506,34 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       seq: parsed.data.seq,
       kind: parsed.data.kind,
       payload: parsed.data.payload,
-      ts: nowSec(),
+      ts,
     });
-    return c.json({ ok: true });
+    return c.json({ ok: true, persisted });
+  });
+
+  // GET /v1/sessions/:id/transcript — 永続化された transcript_logs を読む.
+  // クエリ:
+  //   - since_id  : 指定 id より新しい行だけ返す (incremental tail)
+  //   - limit     : 1..1000 (default 200)
+  // 並び順は ts ASC + seq ASC (chronological).
+  app.get("/:id/transcript", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const q = c.req.query();
+    const sinceId = q.since_id ? Number(q.since_id) : undefined;
+    const limit = q.limit ? Number(q.limit) : undefined;
+    const entries = deps.transcriptLogs.listBySession(id, {
+      since_id: Number.isFinite(sinceId) ? sinceId : undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+    });
+    const total = deps.transcriptLogs.countBySession(id);
+    return c.json({
+      session_id: id,
+      total,
+      entries,
+      // 連続 pull したい client 向けに、 次回 since_id に使える highest id を返す.
+      next_since_id: entries.length > 0 ? entries[entries.length - 1].id : sinceId ?? 0,
+    });
   });
 
   // POST /v1/sessions/:id/fork — spawn a new lictor session that resumes

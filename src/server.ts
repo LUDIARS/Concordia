@@ -19,6 +19,7 @@ import { PersonasRepo } from "./db/personas-repo.js";
 import { ProcessesRepo } from "./db/processes-repo.js";
 import { StatsRepo } from "./db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
+import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
@@ -79,6 +80,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
+  const transcriptLogs = new TranscriptLogsRepo(db);
   const adminState = new AdminState(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
@@ -134,6 +136,7 @@ export async function startBackend(): Promise<BackendHandle> {
     processes,
     stats,
     sessionTaskRecords,
+    transcriptLogs,
     adminState,
     processManager,
     dailyScheduler,

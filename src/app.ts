@@ -28,6 +28,7 @@ import type { DayReportsRepo } from "./db/day-reports-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
+import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
@@ -58,6 +59,7 @@ export interface AppDeps {
   processes: ProcessesRepo;
   stats: StatsRepo;
   sessionTaskRecords: SessionTaskRecordsRepo;
+  transcriptLogs: TranscriptLogsRepo;
   adminState: AdminState;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
@@ -89,6 +91,7 @@ export function buildApp(deps: AppDeps): Hono {
       personas: deps.personas,
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
+      transcriptLogs: deps.transcriptLogs,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));

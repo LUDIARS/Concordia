@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionRow, SpawnProvider } from "../api.js";
@@ -149,26 +149,19 @@ function MachinesSection() {
  *   - claude:  Claude Code  (skill 注入 + auto title + Concordia 統合フル)
  *   - codex:   OpenAI Codex (skill 注入 + Concordia 統合 / TUI 経路)
  *   - gemini:  Gemini CLI   (skill 注入なし、 Concordia 統合は最低限)
- * 同じパラメータは POST /v1/admin/spawn-session で API 経由でも叩ける
- * (Claude Code SDK 的にスクリプトから起動する想定).
+ *
+ * cwd と title は UI には載せない:
+ *   - cwd:   起動 cwd は backend の CONCORDIA_SPAWN_DEFAULT_CWD が支配する.
+ *           本当に異なる cwd で起動したいケースは API (/v1/admin/spawn-session)
+ *           から直接叩く方が筋がよい.
+ *   - title: Lictor の auto-title が起動直後に上書きするので入力する意味がない.
+ * 同じパラメータは API でも叩ける (Claude Code SDK 的にスクリプトから起動する想定).
  */
 function SpawnSessionForm() {
-  const [cwd, setCwd] = useState("");
-  const [title, setTitle] = useState("");
   const [provider, setProvider] = useState<SpawnProvider>("claude");
   const [mode, setMode] = useState<"tab" | "window">("tab");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
-  const [defaultCwd, setDefaultCwd] = useState<string>("");
-
-  useEffect(() => {
-    void api
-      .adminSpawnDefaults()
-      .then((d) => setDefaultCwd(d.default_cwd))
-      .catch(() => {
-        /* defaults endpoint 未配備 / fetch 失敗 — placeholder を空のまま */
-      });
-  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -176,12 +169,7 @@ function SpawnSessionForm() {
     setSending(true);
     setResult(null);
     try {
-      const r = await api.adminSpawn({
-        provider,
-        mode,
-        cwd: cwd.trim() || undefined,
-        title: title.trim() || undefined,
-      });
+      const r = await api.adminSpawn({ provider, mode });
       setResult({ ok: true, msg: `spawned (pid=${r.pid ?? "?"})` });
     } catch (err) {
       setResult({ ok: false, msg: (err as Error).message });
@@ -198,32 +186,7 @@ function SpawnSessionForm() {
           Windows Terminal の新タブ/ウインドウで lictor wrapped agent を起動
         </span>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <input
-          type="text"
-          value={cwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder={
-            defaultCwd
-              ? `cwd 空欄 → ${defaultCwd}`
-              : "cwd (例: E:\\Document\\Ars\\Lictor) 空なら起動側 cwd"
-          }
-          disabled={sending}
-          className="flex-1 min-w-[200px] foundation-form font-mono text-sm"
-          title={
-            defaultCwd
-              ? `空欄なら CONCORDIA_SPAWN_DEFAULT_CWD = ${defaultCwd} が使われます`
-              : undefined
-          }
-        />
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="title (省略可)"
-          disabled={sending}
-          className="w-40 foundation-form text-sm"
-        />
+      <div className="flex flex-wrap items-center gap-2">
         <select
           value={provider}
           onChange={(e) => setProvider(e.target.value as SpawnProvider)}

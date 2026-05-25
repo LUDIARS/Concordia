@@ -208,6 +208,11 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    // sessionId 切替時に前 session の turns を絶対に持ち越さない. mergeBySeq は
+    // seq 単位で dedup するが seq は session ごとにリセットされる (= 別 session の
+    // seq=5 同士が衝突して取りこぼし / 残留が起こる) ため、 state そのものを 0 から
+    // 組み直す必要がある.
+    setTurns([]);
     void api.sessionTranscript(sessionId, { limit: 200 })
       .then((res) => {
         if (cancelled) return;
@@ -218,7 +223,7 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
             return r === "user" || r === "assistant";
           })
           .map((e) => ({ seq: e.seq, kind: e.kind, payload: e.payload, ts: e.ts }));
-        setTurns((prev) => mergeBySeq(prev, seeded).slice(-100));
+        setTurns(seeded.slice(-100));
       })
       .catch(() => {
         /* backend が古い / endpoint 未配備 — WS-only にフォールバック */
@@ -337,6 +342,8 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
 
   useEffect(() => {
     let cancelled = false;
+    // ConversationPanel と同様、 sessionId 切替で前 session の frames を捨てる.
+    setFrames([]);
     void api.sessionTranscript(sessionId, { limit: 200 })
       .then((res) => {
         if (cancelled) return;
@@ -346,7 +353,7 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
           payload: e.payload,
           ts: e.ts,
         }));
-        setFrames((prev) => mergeBySeq(prev, seeded).slice(-200));
+        setFrames(seeded.slice(-200));
       })
       .catch(() => { /* WS-only fallback */ });
     return () => { cancelled = true; };

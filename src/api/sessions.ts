@@ -11,14 +11,13 @@ import type { ConcordiaConfig } from "../shared/config.js";
 import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js";
 import type { Dispatcher } from "../dispatcher.js";
 import type { PersonasRepo, PersonaRow } from "../db/personas-repo.js";
-import { applySessionEndFeedback } from "../personas/feedback.js";
-import { aggregateBullets, generateReport } from "../report/generator.js";
 import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
+import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("sessions-api");
@@ -666,6 +665,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   });
 
   // DELETE /v1/sessions/:id  — end + 独立した per-session report 生成 (claude CLI narrative)
+  // session-end フロー (report 生成 / 独白投稿 / persona release) は control/end-session-flow.ts に
+  // 集約済. ここでは status 遷移と end event の append だけ行い、 残りは helper に委譲する.
   app.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const s = deps.repo.findSession(id);
@@ -678,71 +679,17 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       kind: "end",
       payload: { duration_sec: now - s.started_at },
     });
-    const events = deps.repo.allEvents(id);
     const ended = deps.repo.findSession(id)!;
-    const bullets = aggregateBullets(ended, events);
-    deps.dispatcher.onSessionEnd(ended, bullets);
-
-    // 独立した per-session report を生成 (claude CLI で narrative)
-    const report = await generateReport(ended, events, {
-      apiKey: deps.config.anthropicApiKey,
-      model: deps.config.reportModel,
-    });
-    deps.repo.upsertReport(report);
-
-    // report の冒頭ポエム (独白) を #報告 channel に投稿し、 他 AI セッションの reply を促す.
-    const monologue = extractMonologue(report.summary_md);
-    if (monologue) {
-      const role = parseSessionRole(ended);
-      const msg = deps.chat.insert({
-        channel: "報告",
-        session_id: id,
-        author_label: role,
-        text: monologue,
-        in_reply_to: null,
-        is_actionable: false,
-        metadata: JSON.stringify({ from_report: true, session_id: id }),
-      });
-      // dispatcher 経由で他 active session に chat-reply task をばらまく
-      deps.dispatcher.onChatPosted({
-        id: msg.id,
-        channel: msg.channel,
-        session_id: msg.session_id,
-        text: msg.text,
-        author_label: msg.author_label,
-        is_actionable: false,
-      });
-      eventBus.emit({
-        type: "chat.posted",
-        message_id: msg.id,
-        channel: msg.channel,
-        author_label: msg.author_label,
-        ts: msg.ts,
-        is_actionable: false,
-      });
-    }
-
-    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
-    eventBus.emit({ type: "report.generated", session_id: id, ts: now });
-
-    // persona feedback + release. assignment が無ければ no-op.
-    const assignment = deps.personas.findActiveBySession(id);
-    if (assignment) {
-      const persona = deps.personas.find(assignment.persona_id);
-      if (persona) {
-        // feedback 生成は claude CLI を呼ぶので非同期、 結果を待たず先に release する
-        // (release を待ってる間に他 session に同 persona が assign されないよう、 await する).
-        await applySessionEndFeedback({ personas: deps.personas, chat: deps.chat }, ended, persona);
-      }
-      deps.personas.release(id);
-      eventBus.emit({
-        type: "persona.released",
-        session_id: id,
-        persona_id: assignment.persona_id,
-        ts: now,
-      });
-    }
-
+    const { report } = await runSessionEndFlow(
+      {
+        repo: deps.repo,
+        chat: deps.chat,
+        dispatcher: deps.dispatcher,
+        personas: deps.personas,
+        config: deps.config,
+      },
+      ended,
+    );
     return c.json({ ok: true, session: serializeSession(ended), report });
   });
 
@@ -804,28 +751,7 @@ function safeParse(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }
 }
 
-/**
- * report の summary_md から「独白」 (冒頭の poem 部分) を抽出.
- * 3 セクション構造 (poem / "---" / 業務報告 / "---" / サマリ) を前提に、
- * 最初の "---" より前を返す. 失敗したら null.
- */
-function extractMonologue(summaryMd: string): string | null {
-  const sep = summaryMd.indexOf("\n---");
-  if (sep <= 0) return null;
-  const head = summaryMd.slice(0, sep).trim();
-  if (head.length < 10 || head.length > 1500) return null;
-  return head;
-}
-
 function parseMeta(s: string | null): Record<string, any> {
   if (!s) return {};
   try { return JSON.parse(s); } catch { return {}; }
-}
-
-function parseSessionRole(s: SessionRow): string {
-  if (!s.metadata) return "雑用係";
-  try {
-    const m = JSON.parse(s.metadata) as { role_label?: string };
-    return m.role_label ?? "雑用係";
-  } catch { return "雑用係"; }
 }

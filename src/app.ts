@@ -44,7 +44,7 @@ import {
   type SpawnMode,
 } from "./control/spawner.js";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
-import { eventBus } from "./events.js";
+import { runSessionEndFlow } from "./control/end-session-flow.js";
 
 export interface AppDeps {
   /** observability layer (Excubitor 由来) の Hono router. 内部で /api/v1/... の絶対 path を持つ. */
@@ -171,7 +171,9 @@ export function buildApp(deps: AppDeps): Hono {
   // 管理 API: 既存 lictor-wrapped セッションを kill.
   // 1. session row から metadata.lictor_pid を取得
   // 2. プラットフォーム別に process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
-  // 3. session を ended に遷移 + session.ended event emit
+  // 3. session を ended に遷移 + end event append (stopped_by: admin)
+  // 4. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  //    DELETE /v1/sessions/:id と同じ helper (control/end-session-flow.ts) を経由する.
   app.post("/v1/admin/stop-session/:id", async (c) => {
     const id = c.req.param("id");
     const session = deps.repo.findSession(id);
@@ -192,9 +194,29 @@ export function buildApp(deps: AppDeps): Hono {
     if (!killResult.ok) return c.json({ error: killResult.error }, 500);
     const now = Math.floor(Date.now() / 1000);
     deps.repo.setStatus(id, "ended", now, now);
-    deps.repo.appendEvent({ session_id: id, ts: now, kind: "end", payload: { stopped_by: "admin" } });
-    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
-    return c.json({ ok: true, pid: meta.lictor_pid });
+    deps.repo.appendEvent({
+      session_id: id,
+      ts: now,
+      kind: "end",
+      payload: { stopped_by: "admin", duration_sec: now - session.started_at },
+    });
+    const ended = deps.repo.findSession(id)!;
+    const flow = await runSessionEndFlow(
+      {
+        repo: deps.repo,
+        chat: deps.chat,
+        dispatcher: deps.dispatcher,
+        personas: deps.personas,
+        config: deps.config,
+      },
+      ended,
+    );
+    return c.json({
+      ok: true,
+      pid: meta.lictor_pid,
+      report_generated: flow.report !== null,
+      monologue_posted: flow.postedMessageId !== null,
+    });
   });
 
   // ── 管理 API: 3 つの runtime toggle ─────────────────────────────────

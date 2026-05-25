@@ -160,8 +160,10 @@ describe("machines API + admin spawn/stop", () => {
     const r = await env.app.request("/v1/admin/spawn-defaults");
     expect(r.status).toBe(200);
     const body = (await r.json()) as { default_cwd: string; platform_supported: boolean };
-    // loadConfig({}) → CONCORDIA_SPAWN_DEFAULT_CWD unset → empty
-    expect(body.default_cwd).toBe("");
+    // loadConfig({}) → CONCORDIA_SPAWN_DEFAULT_CWD unset.
+    // win32 + E:\Document\Ars 存在環境では auto-detect で同パスが返る (LUDIARS 運用機).
+    // 他環境では fallback 無しで空文字. どちらも仕様の範囲内.
+    expect(["", "E:\\Document\\Ars"]).toContain(body.default_cwd);
     expect(typeof body.platform_supported).toBe("boolean");
   });
 

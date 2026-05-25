@@ -5,7 +5,27 @@
  * Production は systemd 等で env を渡す前提.
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
+
+/**
+ * spawnDefaultCwd の自動既定値. LUDIARS の運用パス (E:\Document\Ars) が
+ * 存在する Windows 機なら自動で採用する. env override (CONCORDIA_SPAWN_DEFAULT_CWD)
+ * が最優先で、 ここでは env が unset/空 の場合に限り評価する.
+ *
+ * Linux/macOS や該当パスを持たない Windows 機では空のまま (= フォールバック無し、
+ * Concordia 自身の cwd で spawn) を返すので、 open-source 環境を壊さない.
+ */
+const LUDIARS_AUTO_DEFAULT_CWD = "E:\\Document\\Ars";
+
+function autoDetectSpawnDefaultCwd(): string {
+  if (process.platform !== "win32") return "";
+  try {
+    return existsSync(LUDIARS_AUTO_DEFAULT_CWD) ? LUDIARS_AUTO_DEFAULT_CWD : "";
+  } catch {
+    return "";
+  }
+}
 
 export interface ConcordiaConfig {
   host: string;
@@ -23,15 +43,21 @@ export interface ConcordiaConfig {
   maxAiRules: number;
   /**
    * /v1/spawn (および /v1/admin/spawn-session) で body.cwd が省略された時に
-   * 使う既定の working directory. 空文字列なら fallback 無し (= 既存挙動、
-   * Concordia 自身の cwd になる). LUDIARS の運用では `E:\Document\Ars` を
-   * 入れて 「新セッションはまず Ars 配下に開く」 という建付けに揃える.
-   * path が存在するかは使う側でチェックしてから適用する.
+   * 使う既定の working directory.
+   *
+   * 解決順:
+   *  1. env `CONCORDIA_SPAWN_DEFAULT_CWD` (明示指定、 最優先)
+   *  2. `E:\Document\Ars` が存在する Windows 機ならその値 (LUDIARS 運用既定)
+   *  3. 空文字列 (= フォールバック無し、 Concordia 自身の cwd で spawn)
+   *
+   * 空文字列なら spawn endpoint は cwd を指定せず spawnSession 側のロジックで
+   * `process.cwd()` 相当を使う.
    */
   spawnDefaultCwd: string;
 }
 
 export function loadConfig(env = process.env): ConcordiaConfig {
+  const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   return {
     host: env.CONCORDIA_HOST ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? "17330"),
@@ -46,7 +72,7 @@ export function loadConfig(env = process.env): ConcordiaConfig {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
-    spawnDefaultCwd: (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim(),
+    spawnDefaultCwd: explicitSpawnCwd || autoDetectSpawnDefaultCwd(),
   };
 }
 

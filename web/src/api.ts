@@ -170,6 +170,18 @@ export const api = {
       `/v1/sessions/${encodeURIComponent(id)}/fs/read?${qs}`,
     );
   },
+  sessionTranscript: (id: string, opts: { since_id?: number; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.since_id !== undefined) qs.set("since_id", String(opts.since_id));
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    const tail = qs.toString();
+    return get<{
+      session_id: string;
+      total: number;
+      entries: Array<{ id: number; seq: number; ts: number; kind: string; payload: unknown }>;
+      next_since_id: number;
+    }>(`/v1/sessions/${encodeURIComponent(id)}/transcript${tail ? `?${tail}` : ""}`);
+  },
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
       `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,

@@ -196,10 +196,35 @@ interface TranscriptFrame {
  * フレームだけを抽出して、 「ユーザが何を頼んで AI が何を返したか」 だけを
  * 読みやすく並べる主要ビュー. tool-use / tool-result / thinking / system /
  * raw 等のデバッグ系は TranscriptPanel (下) でトグル展開する.
+ *
+ * 永続化: backend (transcript_logs table) に全 frame が保存されているので、
+ * mount 時に GET /v1/sessions/:id/transcript で過去ログを読み出して seed する.
+ * 以降の新 frame は WS で来る. seq で dedup するので fetch と WS の境目で
+ * 重複しても安全.
  */
 function ConversationPanel({ sessionId }: { sessionId: string }) {
   const [turns, setTurns] = useState<TranscriptFrame[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api.sessionTranscript(sessionId, { limit: 200 })
+      .then((res) => {
+        if (cancelled) return;
+        const seeded = res.entries
+          .filter((e) => e.kind === "text")
+          .filter((e) => {
+            const r = extractRole(e.payload);
+            return r === "user" || r === "assistant";
+          })
+          .map((e) => ({ seq: e.seq, kind: e.kind, payload: e.payload, ts: e.ts }));
+        setTurns((prev) => mergeBySeq(prev, seeded).slice(-100));
+      })
+      .catch(() => {
+        /* backend が古い / endpoint 未配備 — WS-only にフォールバック */
+      });
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
   useWsEvent(["transcript.frame"], (ev) => {
     if (ev.type !== "transcript.frame") return;
@@ -207,10 +232,9 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
     if (ev.kind !== "text") return;
     const role = extractRole(ev.payload);
     if (role !== "user" && role !== "assistant") return;
-    setTurns((prev) => [
-      ...prev.slice(-99),
-      { seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts },
-    ]);
+    setTurns((prev) =>
+      mergeBySeq(prev, [{ seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts }]).slice(-100),
+    );
   });
 
   useEffect(() => {
@@ -268,6 +292,22 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   );
 }
 
+/**
+ * 既存 frames に incoming frames を seq dedup でマージ. 同 seq があれば既存を
+ * 優先 (= incoming 側の重複を捨てる). 並びは ts ASC + seq ASC で揃える.
+ * fetch (history) と WS (live) の境目で同じ frame が両経路から来ても 1 件に
+ * 収まる.
+ */
+function mergeBySeq(existing: TranscriptFrame[], incoming: TranscriptFrame[]): TranscriptFrame[] {
+  if (incoming.length === 0) return existing;
+  const seen = new Set(existing.map((f) => f.seq));
+  const added = incoming.filter((f) => !seen.has(f.seq));
+  if (added.length === 0) return existing;
+  const merged = [...existing, ...added];
+  merged.sort((a, b) => (a.ts - b.ts) || (a.seq - b.seq));
+  return merged;
+}
+
 function extractRole(payload: unknown): string | null {
   if (!payload || typeof payload !== "object") return null;
   const v = (payload as { role?: unknown }).role;
@@ -295,10 +335,29 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
   const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    void api.sessionTranscript(sessionId, { limit: 200 })
+      .then((res) => {
+        if (cancelled) return;
+        const seeded = res.entries.map((e) => ({
+          seq: e.seq,
+          kind: e.kind,
+          payload: e.payload,
+          ts: e.ts,
+        }));
+        setFrames((prev) => mergeBySeq(prev, seeded).slice(-200));
+      })
+      .catch(() => { /* WS-only fallback */ });
+    return () => { cancelled = true; };
+  }, [sessionId]);
+
   useWsEvent(["transcript.frame"], (ev) => {
     if (ev.type !== "transcript.frame") return;
     if (ev.target_session_id !== sessionId) return;
-    setFrames((prev) => [...prev.slice(-199), { seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts }]);
+    setFrames((prev) =>
+      mergeBySeq(prev, [{ seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts }]).slice(-200),
+    );
   });
 
   useEffect(() => {

@@ -25,7 +25,11 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hostname, homedir } from "node:os";
 import { execSync } from "node:child_process";
-import { resolveSessionId } from "./concordia-hook-resolver.mjs";
+import {
+  resolveSessionId,
+  resolvePromptText,
+  resolveEditTarget,
+} from "./concordia-hook-resolver.mjs";
 
 // ホワイトリスト方式: 既定は無効, CONCORDIA_HOOK=1 が console から渡された
 // セッションでのみ動く. これにより claude CLI 由来の one-shot や Agent ツール
@@ -68,21 +72,25 @@ async function main() {
     case "session-start":
       await sessionStart({ sessionId, cwd, transcriptPath });
       return;
-    case "prompt":
+    case "prompt": {
+      const text = resolvePromptText(ctx);
       await appendEvent(sessionId, "prompt", {
-        summary: ctx?.user_prompt?.slice(0, 200),
-        length: ctx?.user_prompt?.length,
+        summary: text.slice(0, 200),
+        length: text.length,
       });
       return;
+    }
     case "edit":
       await appendEvent(sessionId, "edit", {
-        file: ctx?.tool_input?.file_path ?? ctx?.tool_input?.path ?? null,
+        file: resolveEditTarget(ctx),
         tool: ctx?.tool_name ?? null,
       });
       return;
     case "compact":
+      // Claude Code は `kept_messages`、 Codex CLI は `trigger` ("manual"|"auto") を渡す.
       await appendEvent(sessionId, "compact", {
         kept_messages: ctx?.kept_messages ?? null,
+        trigger: ctx?.trigger ?? null,
       });
       return;
     case "session-end":

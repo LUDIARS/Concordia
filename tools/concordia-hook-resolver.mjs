@@ -17,3 +17,31 @@
 export function resolveSessionId(ctx, env) {
   return env?.CONCORDIA_SESSION_ID ?? ctx?.session_id ?? env?.CLAUDE_SESSION_ID ?? null;
 }
+
+/**
+ * Extract the user prompt text from a UserPromptSubmit hook payload.
+ *
+ * Provider 差:
+ *  - Claude Code: `ctx.user_prompt`
+ *  - Codex CLI:   `ctx.prompt`
+ *
+ * 両方未設定なら空文字を返す (POST 側で length=0 が記録される).
+ */
+export function resolvePromptText(ctx) {
+  if (typeof ctx?.user_prompt === "string") return ctx.user_prompt;
+  if (typeof ctx?.prompt === "string") return ctx.prompt;
+  return "";
+}
+
+/**
+ * Extract a human-readable "target" from a PostToolUse hook payload's
+ * tool_input. Provider × tool 差:
+ *  - Claude Code Edit/Write/MultiEdit: `tool_input.file_path` / `tool_input.path`
+ *  - Codex CLI Bash:                   `tool_input.command`
+ *  - Codex CLI apply_patch:            内部表現 (file_path や複合のはず、 落ちたら null)
+ */
+export function resolveEditTarget(ctx) {
+  const ti = ctx?.tool_input;
+  if (!ti || typeof ti !== "object") return null;
+  return ti.file_path ?? ti.path ?? ti.command ?? null;
+}

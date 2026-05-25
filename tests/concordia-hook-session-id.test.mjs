@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { resolveSessionId } from "../tools/concordia-hook-resolver.mjs";
+import {
+  resolveSessionId,
+  resolvePromptText,
+  resolveEditTarget,
+} from "../tools/concordia-hook-resolver.mjs";
 
 describe("concordia-hook resolveSessionId", () => {
   it("Lictor 配下: CONCORDIA_SESSION_ID が ctx.session_id / CLAUDE_SESSION_ID より優先される", () => {
@@ -43,5 +47,61 @@ describe("concordia-hook resolveSessionId", () => {
   it("env が undefined でも落ちない", () => {
     const ctx = { session_id: "claude-uuid-1234" };
     expect(resolveSessionId(ctx, undefined)).toBe("claude-uuid-1234");
+  });
+});
+
+describe("concordia-hook resolvePromptText", () => {
+  it("Claude Code は ctx.user_prompt を返す", () => {
+    expect(resolvePromptText({ user_prompt: "hello claude" })).toBe("hello claude");
+  });
+
+  it("Codex CLI は ctx.prompt を返す", () => {
+    expect(resolvePromptText({ prompt: "hello codex" })).toBe("hello codex");
+  });
+
+  it("両方あれば user_prompt 優先 (Claude が先に書く想定)", () => {
+    expect(resolvePromptText({ user_prompt: "claude", prompt: "codex" })).toBe("claude");
+  });
+
+  it("どっちも無ければ空文字", () => {
+    expect(resolvePromptText({})).toBe("");
+    expect(resolvePromptText(null)).toBe("");
+  });
+
+  it("string でなければ空文字 (型ガード)", () => {
+    expect(resolvePromptText({ user_prompt: 123 })).toBe("");
+    expect(resolvePromptText({ prompt: { nested: "x" } })).toBe("");
+  });
+});
+
+describe("concordia-hook resolveEditTarget", () => {
+  it("Claude Edit/Write の file_path", () => {
+    expect(resolveEditTarget({ tool_input: { file_path: "/a/b.ts" } })).toBe("/a/b.ts");
+  });
+
+  it("Claude 旧表記の path", () => {
+    expect(resolveEditTarget({ tool_input: { path: "/a/b.ts" } })).toBe("/a/b.ts");
+  });
+
+  it("Codex Bash の command", () => {
+    expect(resolveEditTarget({ tool_input: { command: "rg foo" } })).toBe("rg foo");
+  });
+
+  it("優先順位 file_path > path > command", () => {
+    expect(
+      resolveEditTarget({
+        tool_input: { file_path: "/a", path: "/b", command: "c" },
+      }),
+    ).toBe("/a");
+    expect(
+      resolveEditTarget({ tool_input: { path: "/b", command: "c" } }),
+    ).toBe("/b");
+  });
+
+  it("tool_input なし / 不正型なら null", () => {
+    expect(resolveEditTarget({})).toBeNull();
+    expect(resolveEditTarget({ tool_input: null })).toBeNull();
+    expect(resolveEditTarget({ tool_input: "not-object" })).toBeNull();
+    expect(resolveEditTarget(null)).toBeNull();
   });
 });

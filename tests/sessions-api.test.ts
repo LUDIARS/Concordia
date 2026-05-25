@@ -458,4 +458,60 @@ describe("sessions API", () => {
       expect(r.status).toBe(400);
     });
   });
+
+  describe("POST /v1/sessions/:id/request-stat / request-title — 手動 enqueue", () => {
+    async function startReqSession(id = "rq1") {
+      const r = await app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, provider: "claude-code", repo_path: "/r", host: "h" }),
+      });
+      expect(r.status).toBe(200);
+    }
+
+    it("request-stat: stat-collect task を enqueue する (trigger=manual)", async () => {
+      await startReqSession("rq1");
+      const r = await app.request("/v1/sessions/rq1/request-stat", { method: "POST" });
+      expect(r.status).toBe(200);
+      const j = (await r.json()) as { ok: boolean; enqueued: boolean };
+      expect(j.enqueued).toBe(true);
+      const pendRes = await app.request("/v1/sessions/rq1/pending-tasks");
+      const p = (await pendRes.json()) as {
+        tasks: Array<{ kind: string; payload: { trigger?: string } }>;
+      };
+      const stat = p.tasks.find((t) => t.kind === "stat-collect");
+      expect(stat).toBeTruthy();
+      expect(stat!.payload.trigger).toBe("manual");
+    });
+
+    it("request-stat: 未配信 stat-collect があれば no-op で 200 を返す", async () => {
+      await startReqSession("rq2");
+      const r1 = await app.request("/v1/sessions/rq2/request-stat", { method: "POST" });
+      expect(((await r1.json()) as { enqueued: boolean }).enqueued).toBe(true);
+      const r2 = await app.request("/v1/sessions/rq2/request-stat", { method: "POST" });
+      const j2 = (await r2.json()) as { ok: boolean; enqueued: boolean; reason?: string };
+      expect(j2.enqueued).toBe(false);
+      expect(j2.reason).toBe("already_pending");
+    });
+
+    it("request-title: title-suggest task を enqueue する (reason=manual)", async () => {
+      await startReqSession("rq3");
+      const r = await app.request("/v1/sessions/rq3/request-title", { method: "POST" });
+      expect(r.status).toBe(200);
+      const pendRes = await app.request("/v1/sessions/rq3/pending-tasks");
+      const p = (await pendRes.json()) as {
+        tasks: Array<{ kind: string; payload: { reason?: string } }>;
+      };
+      const t = p.tasks.find((x) => x.kind === "title-suggest");
+      expect(t).toBeTruthy();
+      expect(t!.payload.reason).toBe("manual");
+    });
+
+    it("request-stat / request-title: 不在 session は 404", async () => {
+      const r1 = await app.request("/v1/sessions/nope/request-stat", { method: "POST" });
+      expect(r1.status).toBe(404);
+      const r2 = await app.request("/v1/sessions/nope/request-title", { method: "POST" });
+      expect(r2.status).toBe(404);
+    });
+  });
 });

@@ -156,6 +156,16 @@ export const api = {
     get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>
     post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
+  sessionRequestStat: (id: string) =>
+    post<{ ok: boolean; enqueued: boolean; reason?: string }>(
+      `/v1/sessions/${encodeURIComponent(id)}/request-stat`,
+      {},
+    ),
+  sessionRequestTitle: (id: string) =>
+    post<{ ok: boolean; enqueued: boolean; reason?: string }>(
+      `/v1/sessions/${encodeURIComponent(id)}/request-title`,
+      {},
+    ),
   permissionRespond: (id: string, body: { request_id: string; decision: "allow" | "deny" | "ask"; reason?: string }) =>
     post<{ ok: boolean }>(`/v1/sessions/${encodeURIComponent(id)}/permission-response`, body),
   fsList: (id: string, path: string) => {

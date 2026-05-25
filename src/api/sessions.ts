@@ -664,6 +664,53 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json({ ok: true });
   });
 
+  // POST /v1/sessions/:id/request-stat — Web UI から「いま stat を投げて」 と
+  // 手動依頼する. AI に stat-collect task を 1 件 enqueue する.
+  // dedup: 未配信 stat-collect が既にあれば 200 で no-op を返す.
+  app.post("/:id/request-stat", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    if (deps.tasks.hasUndelivered(id, "stat-collect")) {
+      return c.json({ ok: true, enqueued: false, reason: "already_pending" });
+    }
+    deps.tasks.enqueue({
+      session_id: id,
+      kind: "stat-collect",
+      payload: {
+        trigger: "manual",
+        instructions:
+          "Web UI から手動依頼です. 現在の作業現況を JSON で集計し " +
+          "POST http://127.0.0.1:17330/v1/stat/<self_id> に投稿してください. " +
+          "本文 body は `{ \"payload\": { ... } }`. " +
+          "payload に含めるキー (どれも任意): active_repos / open_prs / unmerged_branches / todos_summary / recent_work / note.",
+      },
+    });
+    return c.json({ ok: true, enqueued: true });
+  });
+
+  // POST /v1/sessions/:id/request-title — Web UI から「いま rename して」 と
+  // 手動依頼する. AI に title-suggest task を 1 件 enqueue する.
+  app.post("/:id/request-title", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    if (deps.tasks.hasUndelivered(id, "title-suggest")) {
+      return c.json({ ok: true, enqueued: false, reason: "already_pending" });
+    }
+    deps.tasks.enqueue({
+      session_id: id,
+      kind: "title-suggest",
+      payload: {
+        reason: "manual",
+        instructions:
+          "Web UI から手動依頼です. 現在の作業を 30 文字以内 (日本語可、 OSC タイトル向け) " +
+          `で 1 行に要約して POST http://127.0.0.1:17330/v1/sessions/${id}/title-suggestion ` +
+          "に { \"text\": \"<タイトル文字列>\" } で投稿してください. " +
+          "Concordia 側が Lictor の /v1/rename に転送します.",
+      },
+    });
+    return c.json({ ok: true, enqueued: true });
+  });
+
   // DELETE /v1/sessions/:id  — end + 独立した per-session report 生成 (claude CLI narrative)
   // session-end フロー (report 生成 / 独白投稿 / persona release) は control/end-session-flow.ts に
   // 集約済. ここでは status 遷移と end event の append だけ行い、 残りは helper に委譲する.

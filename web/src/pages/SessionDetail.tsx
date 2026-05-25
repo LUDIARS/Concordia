@@ -56,6 +56,7 @@ export function SessionDetail() {
 
       {s.status === "active" && <InjectForm sessionId={s.id} />}
       {s.status === "active" && <StopSessionButton sessionId={s.id} onStopped={refetch} />}
+      {s.status === "active" && <ConversationPanel sessionId={s.id} />}
       {s.status === "active" && <TranscriptPanel sessionId={s.id} />}
       {s.status === "active" && <PermissionModal sessionId={s.id} />}
 
@@ -191,14 +192,107 @@ interface TranscriptFrame {
 }
 
 /**
+ * 会話パネル — transcript.frame のうち user prompt / assistant reply の text
+ * フレームだけを抽出して、 「ユーザが何を頼んで AI が何を返したか」 だけを
+ * 読みやすく並べる主要ビュー. tool-use / tool-result / thinking / system /
+ * raw 等のデバッグ系は TranscriptPanel (下) でトグル展開する.
+ */
+function ConversationPanel({ sessionId }: { sessionId: string }) {
+  const [turns, setTurns] = useState<TranscriptFrame[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useWsEvent(["transcript.frame"], (ev) => {
+    if (ev.type !== "transcript.frame") return;
+    if (ev.target_session_id !== sessionId) return;
+    if (ev.kind !== "text") return;
+    const role = extractRole(ev.payload);
+    if (role !== "user" && role !== "assistant") return;
+    setTurns((prev) => [
+      ...prev.slice(-99),
+      { seq: ev.seq, kind: ev.kind, payload: ev.payload, ts: ev.ts },
+    ]);
+  });
+
+  useEffect(() => {
+    if (!scrollRef.current) return;
+    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+  }, [turns.length]);
+
+  return (
+    <section className="bg-surface border border-border rounded p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-base font-semibold">会話</h2>
+        <span className="text-xs text-subtle">
+          ユーザ指示 + AI 応答のみ ({turns.length}/100)
+        </span>
+      </div>
+      {turns.length === 0 ? (
+        <div className="text-xs text-subtle">
+          まだ会話フレームを受信していません. 指示を送るかセッションを開始してください.
+        </div>
+      ) : (
+        <div ref={scrollRef} className="max-h-[32rem] overflow-y-auto space-y-2">
+          {turns.map((f) => {
+            const role = extractRole(f.payload) ?? "?";
+            const text = extractText(f.payload) ?? "";
+            const claudeUuid = extractClaudeUuid(f.payload);
+            const isUser = role === "user";
+            return (
+              <div
+                key={f.seq}
+                className={`rounded border px-3 py-2 ${
+                  isUser
+                    ? "bg-accent/5 border-accent/30"
+                    : "bg-muted/40 border-border"
+                }`}
+              >
+                <div className="flex items-center gap-2 text-[11px] text-subtle">
+                  <span className={isUser ? "text-accent font-semibold" : "text-ok font-semibold"}>
+                    {isUser ? "user" : "assistant"}
+                  </span>
+                  <span>#{f.seq}</span>
+                  {claudeUuid && (
+                    <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />
+                  )}
+                  <span className="ml-auto">{fmtTs(f.ts)}</span>
+                </div>
+                <pre className="mt-1 whitespace-pre-wrap break-words text-xs font-sans leading-relaxed">
+                  {text}
+                </pre>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function extractRole(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const v = (payload as { role?: unknown }).role;
+  return typeof v === "string" ? v : null;
+}
+
+function extractText(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const v = (payload as { text?: unknown }).text;
+  return typeof v === "string" ? v : null;
+}
+
+/**
  * Live transcript pane — subscribes to `transcript.frame` events from
  * Lictor (relayed by Concordia) for this session. Renders the last N
  * frames; no persistence (a page reload starts empty until new frames
  * arrive). v1 rendering is intentionally minimal: kind badge + JSON dump.
- * PR-H may add subagent grouping / diff rendering.
+ *
+ * 本ビューは tool-use / tool-result / thinking / system / raw 等のデバッグ系
+ * を含む全フレームを raw 表示する補助要素. デフォルトは折り畳み. 会話の流れだけ
+ * を見たいときは上の ConversationPanel を使う.
  */
 function TranscriptPanel({ sessionId }: { sessionId: string }) {
   const [frames, setFrames] = useState<TranscriptFrame[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useWsEvent(["transcript.frame"], (ev) => {
@@ -208,48 +302,61 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
   });
 
   useEffect(() => {
+    if (!expanded) return;
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [frames.length]);
+  }, [frames.length, expanded]);
 
   const thinking = derivesThinking(frames);
 
   return (
     <section className="bg-surface border border-border rounded p-4">
-      <div className="flex items-center gap-2 mb-2">
-        <h2 className="text-base font-semibold">transcript</h2>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-xs px-2 py-0.5 rounded border border-border hover:bg-muted"
+          title={expanded ? "閉じる" : "展開する"}
+        >
+          {expanded ? "▼" : "▶"}
+        </button>
+        <h2 className="text-base font-semibold">transcript (raw)</h2>
         <ThinkingDot active={thinking} />
         <span className="text-xs text-subtle">
-          live frames from Claude JSONL via Lictor ({frames.length}/200)
+          tool-use / tool-result / thinking 含む全フレーム ({frames.length}/200)
         </span>
       </div>
-      {frames.length === 0 ? (
-        <div className="text-xs text-subtle">
-          まだフレームを受信していません。 Lictor v0.5 以降がラップしているセッションでのみ流れます。
-        </div>
-      ) : (
-        <div
-          ref={scrollRef}
-          className="max-h-96 overflow-y-auto space-y-1 font-mono text-[11px]"
-        >
-          {frames.map((f) => {
-            const claudeUuid = extractClaudeUuid(f.payload);
-            return (
-              <div key={f.seq} className="border-l-2 border-border pl-2 py-1">
-                <div className="flex items-center gap-2 text-subtle">
-                  <span className="text-accent">{f.kind}</span>
-                  <span>#{f.seq}</span>
-                  {claudeUuid && (
-                    <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />
-                  )}
-                  <span className="ml-auto">{fmtTs(f.ts)}</span>
-                </div>
-                <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
-                  {renderFramePayload(f.kind, f.payload)}
-                </pre>
-              </div>
-            );
-          })}
+      {expanded && (
+        <div className="mt-2">
+          {frames.length === 0 ? (
+            <div className="text-xs text-subtle">
+              まだフレームを受信していません。 Lictor v0.5 以降がラップしているセッションでのみ流れます。
+            </div>
+          ) : (
+            <div
+              ref={scrollRef}
+              className="max-h-96 overflow-y-auto space-y-1 font-mono text-[11px]"
+            >
+              {frames.map((f) => {
+                const claudeUuid = extractClaudeUuid(f.payload);
+                return (
+                  <div key={f.seq} className="border-l-2 border-border pl-2 py-1">
+                    <div className="flex items-center gap-2 text-subtle">
+                      <span className="text-accent">{f.kind}</span>
+                      <span>#{f.seq}</span>
+                      {claudeUuid && (
+                        <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />
+                      )}
+                      <span className="ml-auto">{fmtTs(f.ts)}</span>
+                    </div>
+                    <pre className="mt-1 whitespace-pre-wrap break-words text-[11px]">
+                      {renderFramePayload(f.kind, f.payload)}
+                    </pre>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </section>

@@ -255,6 +255,9 @@ function SessionCard({
   stat?: { latest_ts: number; payload: Record<string, unknown> };
 }) {
   const role = (s.metadata as any)?.role_label ?? "雑用係";
+  // active で lictor_pid を持つ session のみカードから直接 kill できる.
+  // SessionDetail にも同じボタンがある (こちらはショートカット).
+  const canStop = s.status === "active" && typeof (s.metadata as any)?.lictor_pid === "number";
   return (
     <Link
       to={`/sessions/${encodeURIComponent(s.id)}`}
@@ -264,6 +267,7 @@ function SessionCard({
         <span className={`px-1.5 py-0.5 rounded ${statusBadge(s.status)}`}>{s.status}</span>
         <span className="text-subtle">{s.provider}</span>
         <span className="ml-auto text-subtle">{s.id.slice(0, 8)}…</span>
+        {canStop && <StopButton sessionId={s.id} />}
       </div>
       <div className="mt-2 text-sm font-mono truncate">{s.repo_path}</div>
       <div className="text-xs">
@@ -290,5 +294,38 @@ function SessionCard({
         </div>
       )}
     </Link>
+  );
+}
+
+/**
+ * Inline stop button used inside a Link card. click 時に Link 遷移を止め、
+ * confirm → adminStop を叩く. WS の session.ended event でリストは自動更新される.
+ */
+function StopButton({ sessionId }: { sessionId: string }) {
+  const [sending, setSending] = useState(false);
+  const click = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (sending) return;
+    if (!confirm("このセッションを強制終了しますか? (lictor + claude が即 kill されます)")) return;
+    setSending(true);
+    try {
+      await api.adminStop(sessionId);
+    } catch (err) {
+      alert(`停止に失敗: ${(err as Error).message}`);
+    } finally {
+      setSending(false);
+    }
+  };
+  return (
+    <button
+      type="button"
+      onClick={click}
+      disabled={sending}
+      className="px-1.5 py-0.5 bg-danger/80 hover:bg-danger text-white rounded text-[10px] disabled:opacity-50"
+      title="セッションを強制終了 (lictor + claude を即 kill)"
+    >
+      {sending ? "停止中…" : "停止"}
+    </button>
   );
 }

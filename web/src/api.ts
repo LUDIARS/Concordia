@@ -182,6 +182,29 @@ export const api = {
       next_since_id: number;
     }>(`/v1/sessions/${encodeURIComponent(id)}/transcript${tail ? `?${tail}` : ""}`);
   },
+  workConversations: (opts: {
+    repo_path?: string;
+    repo_origin?: string;
+    status?: "active" | "ended" | "lost" | "abandoned";
+    limit_per_session?: number;
+    max_sessions?: number;
+  } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.repo_path) qs.set("repo_path", opts.repo_path);
+    if (opts.repo_origin) qs.set("repo_origin", opts.repo_origin);
+    if (opts.status) qs.set("status", opts.status);
+    if (opts.limit_per_session !== undefined) qs.set("limit_per_session", String(opts.limit_per_session));
+    if (opts.max_sessions !== undefined) qs.set("max_sessions", String(opts.max_sessions));
+    const tail = qs.toString();
+    return get<{
+      filter: { repo_path: string | null; repo_origin: string | null; status: string | null };
+      available_repos: Array<{ repo_path: string; repo_origin: string | null; session_count: number }>;
+      sessions: Array<{
+        session: SessionRow;
+        conversation: Array<{ id: number; seq: number; ts: number; kind: string; payload: unknown }>;
+      }>;
+    }>(`/v1/work/conversations${tail ? `?${tail}` : ""}`);
+  },
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
       `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,

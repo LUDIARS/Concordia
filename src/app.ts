@@ -20,6 +20,7 @@ import { rulesRouter } from "./api/rules.js";
 import { dailyRouter } from "./api/daily.js";
 import { processesRouter } from "./api/processes.js";
 import { statRouter } from "./api/stat.js";
+import { workRouter } from "./api/work.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
@@ -108,6 +109,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/stream", streamRouter());
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
+  app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs }));
   app.route(
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),

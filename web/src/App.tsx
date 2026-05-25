@@ -1,5 +1,6 @@
 import { Link, Route, Routes, useLocation } from "react-router-dom";
 import { Monitor } from "./pages/Monitor.js";
+import { Work } from "./pages/Work.js";
 import { SessionDetail } from "./pages/SessionDetail.js";
 import { Chat } from "./pages/Chat.js";
 import { WorldChat } from "./pages/WorldChat.js";
@@ -15,6 +16,7 @@ import { Reviews } from "./pages/Reviews.js";
 
 const NAV = [
   { to: "/", label: "Monitor" },
+  { to: "/work", label: "Work" },
   { to: "/catalog", label: "Catalog" },
   { to: "/errors", label: "Errors" },
   { to: "/reviews", label: "Reviews" },
@@ -59,6 +61,7 @@ export function App() {
       <main className="flex-1 px-6 py-4">
         <Routes>
           <Route path="/" element={<Monitor />} />
+          <Route path="/work" element={<Work />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/world" element={<WorldChat />} />
           <Route path="/chat" element={<Chat />} />

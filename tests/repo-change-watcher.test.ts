@@ -108,26 +108,20 @@ describe("startRepoChangeWatcher (title-watcher)", () => {
     } finally { w.stop(); }
   });
 
-  it("prompt event は 30 秒以内に再発火しない (debounce)", () => {
+  it("prompt event は時間 debounce 無し — 連投でも未消化 (hasUndelivered) で抑制", () => {
     startSession(env.sessions, "s1", "/repo/A");
-    let t = 1_000_000;
-    const w = startRepoChangeWatcher({
-      sessions: env.sessions,
-      tasks: env.tasks,
-      now: () => t,
-    });
+    const w = startRepoChangeWatcher({ sessions: env.sessions, tasks: env.tasks });
     try {
-      // 1 回目
+      // 1 件目: 即時 enqueue
       w.handle({ type: "session.event", session_id: "s1", kind: "prompt", ts: 1000 });
-      env.tasks.pull("s1");
-      // 10 秒後 → debounce で skip
-      t += 10;
-      w.handle({ type: "session.event", session_id: "s1", kind: "prompt", ts: 1010 });
-      expect(env.tasks.pull("s1")).toHaveLength(0);
-      // 30 秒以上経過後 → 再 enqueue
-      t += 25;
-      w.handle({ type: "session.event", session_id: "s1", kind: "prompt", ts: 1035 });
-      expect(env.tasks.pull("s1")).toHaveLength(1);
+      // 2 件目: pull 前なので hasUndelivered=true → skip
+      w.handle({ type: "session.event", session_id: "s1", kind: "prompt", ts: 1001 });
+      let pending = env.tasks.pull("s1");
+      expect(pending).toHaveLength(1);
+      // AI が消化した (pull 済 = delivered) ので、 次の prompt は即 enqueue できる
+      w.handle({ type: "session.event", session_id: "s1", kind: "prompt", ts: 1002 });
+      pending = env.tasks.pull("s1");
+      expect(pending).toHaveLength(1);
     } finally { w.stop(); }
   });
 

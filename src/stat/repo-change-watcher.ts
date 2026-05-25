@@ -8,8 +8,8 @@
  *     タイトルが「[Cn] (作業内容未設定)」 のままにならないよう即座に依頼する.
  *  2. **repo_path 変化** — 子リポを跨いだ作業切り替えを検知 (PR #33 由来).
  *  3. **新 `prompt` event** — ユーザが新しい指示を出した = 作業内容が切り替わる
- *     可能性が高い. ただし連投で title-suggest が乱発しないよう per-session で
- *     30 秒 debounce する.
+ *     可能性が高いので毎回 enqueue. 連投での task 過剰積み上げは hasUndelivered
+ *     による dedup で抑える (前 title-suggest を AI が消化していなければ追加しない).
  *
  * AI は instructions に従って 30 文字以内のサマリを
  *   POST /v1/sessions/:id/title-suggestion { text }
@@ -27,14 +27,9 @@ import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("title-watcher");
 
-/** 新 prompt event で title-suggest を再発火する最小間隔. */
-const PROMPT_DEBOUNCE_SEC = 30;
-
 export interface RepoChangeWatcherDeps {
   sessions: SessionsRepo;
   tasks: TasksRepo;
-  /** テスト用. 現在時刻 (秒). 既定はシステム時計. */
-  now?: () => number;
 }
 
 export interface RepoChangeWatcherHandle {
@@ -44,14 +39,11 @@ export interface RepoChangeWatcherHandle {
   /** テスト用. cache を覗く. */
   peekCache: () => {
     lastRepoPath: Map<string, string>;
-    lastPromptFire: Map<string, number>;
   };
 }
 
 export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeWatcherHandle {
   const lastRepoPath = new Map<string, string>();
-  const lastPromptFire = new Map<string, number>();
-  const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
 
   /**
    * title-suggest task を 1 件 enqueue する. dedup (未配信 task が残っていれば
@@ -112,11 +104,10 @@ export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeW
     }
 
     if (ev.type === "session.event" && ev.kind === "prompt") {
-      const t = now();
-      const last = lastPromptFire.get(ev.session_id) ?? 0;
-      if (t - last < PROMPT_DEBOUNCE_SEC) return;
+      // ユーザ指示は来た瞬間が「作業切替の意思表示」 なので時間 debounce はしない.
+      // 連投での過剰 enqueue は hasUndelivered (= 前 title-suggest 未消化なら追加
+      // しない) で十分.
       if (enqueueTitleSuggest(ev.session_id, "prompt", { ts: ev.ts })) {
-        lastPromptFire.set(ev.session_id, t);
         log.info({ session_id: ev.session_id }, "new prompt — enqueued title-suggest");
       }
       return;
@@ -130,7 +121,6 @@ export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeW
     handle,
     peekCache: () => ({
       lastRepoPath: new Map(lastRepoPath),
-      lastPromptFire: new Map(lastPromptFire),
     }),
   };
 }

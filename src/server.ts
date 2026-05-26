@@ -237,6 +237,25 @@ export async function startBackend(): Promise<BackendHandle> {
     "Concordia listening",
   );
 
+  // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
+  // spec/discord-ui.md
+  const discordBot = await (async () => {
+    try {
+      const { startDiscordBot } = await import("./discord/bot.js");
+      return await startDiscordBot({
+        db,
+        chatRepo: chat,
+        sessionsRepo: repo,
+        personasRepo: personas,
+        isChatMuted: () => adminState.getChatMuted(),
+        concordiaUrl: publicUrl,
+      });
+    } catch (e) {
+      log.warn(`Discord bot init failed: ${(e as Error).message}`);
+      return null;
+    }
+  })();
+
   return {
     port: cfg.port,
     shutdown: async () => {
@@ -247,6 +266,9 @@ export async function startBackend(): Promise<BackendHandle> {
       repoChangeWatcher.stop();
       sweeper.stop();
       unsubLog();
+      if (discordBot) {
+        try { await discordBot.stop(); } catch { /* noop */ }
+      }
       if (observabilityHandle) {
         try { await observabilityHandle.shutdown(); } catch { /* noop */ }
       }

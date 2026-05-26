@@ -433,6 +433,52 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_transcript_logs_session_ts
      ON transcript_logs(session_id, ts)`,
+
+  // ─── Discord-UI integration (spec/discord-ui.md) ─────────────────────────
+  // env CONCORDIA_DISCORD_ENABLED=1 が無ければ全部 no-op で touched されない.
+
+  // bot 設定の key/value 永続化 (guild_id / category_id / meta channel_id).
+  `CREATE TABLE IF NOT EXISTS discord_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+
+  // session ↔ Discord channel の対応表 + 状態.
+  //   status: 'active' (🟢) / 'lost' (🟥) / 'ended' (⚪)
+  //   last_rename_ts: Discord の channel rename rate limit (実測 5-10min) を尊重するための guard.
+  //   webhook_id/token: 投稿用 webhook (persona name で per-message 上書き).
+  `CREATE TABLE IF NOT EXISTS discord_session_channels (
+    session_id      TEXT PRIMARY KEY,
+    channel_id      TEXT NOT NULL,
+    webhook_id      TEXT,
+    webhook_token   TEXT,
+    status          TEXT NOT NULL DEFAULT 'active',
+    last_rename_ts  INTEGER NOT NULL DEFAULT 0,
+    ts              INTEGER NOT NULL
+  )`,
+
+  // Discord message id ↔ chat_messages.id の解決表. reaction を Concordia 内部
+  // ID に解決するために必要 (Discord は message_id しか持たない).
+  `CREATE TABLE IF NOT EXISTS discord_message_map (
+    discord_message_id  TEXT PRIMARY KEY,
+    chat_message_id     INTEGER NOT NULL,
+    ts                  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_discord_message_map_chat
+     ON discord_message_map(chat_message_id)`,
+
+  // reaction (fine / bad / raw) 記録. UNIQUE で同一 user × 同一 emoji の重複付け
+  // 直しを防ぐ. message_id は chat_messages.id (Concordia 内部).
+  `CREATE TABLE IF NOT EXISTS chat_message_reactions (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id       INTEGER NOT NULL,
+    discord_user_id  TEXT NOT NULL,
+    kind             TEXT NOT NULL,
+    ts               INTEGER NOT NULL,
+    UNIQUE (message_id, discord_user_id, kind)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_message_reactions_message
+     ON chat_message_reactions(message_id)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

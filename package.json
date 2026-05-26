@@ -10,7 +10,7 @@
   "scripts": {
     "build": "npm run sync:skill && tsc -p tsconfig.json && cd web && npm run build",
     "dev": "npm run sync:skill && concurrently -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
-    "dev:backend": "tsx watch src/server.ts",
+    "dev:backend": "tsx watch --env-file-if-exists=.env src/server.ts",
     "dev:web": "cd web && npm run dev",
     "start": "node dist/server.js",
     "test": "vitest run",
@@ -22,6 +22,7 @@
     "@hono/node-server": "^1.13.0",
     "@types/ws": "^8.18.1",
     "better-sqlite3": "^11.7.0",
+    "discord.js": "^14.26.4",
     "drizzle-orm": "^0.36.4",
     "hono": "^4.6.0",
     "js-yaml": "^4.1.1",

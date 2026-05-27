@@ -80,6 +80,13 @@ const ServiceSchema = z.object({
   max_restart: z.number().default(5),
   health: HealthSchema.optional(),
   log_sources: z.array(LogSourceSchema).optional(),
+  /**
+   * Vestigium が吐く JSONL ログのディレクトリ。
+   * 設定があれば observability は file-tail でこちらを読み、
+   * 旧 process-bridge (spawn → stdout capture) より優先する。
+   * 例: `E:/Document/Ars/logs/cernere`
+   */
+  log_path: z.string().optional(),
   infisical: InfisicalSchema.optional(),
   auto_fix: AutoFixSchema.optional(),
 });

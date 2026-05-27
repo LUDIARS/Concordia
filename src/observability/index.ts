@@ -29,6 +29,7 @@ import { controlService } from './control/manager.js';
 import { runAutostart } from './process/autostart.js';
 import { listRunningProcesses } from './process/manager.js';
 import { attachProcessBridge } from './log/process-bridge.js';
+import { startFileTail, type FileTailHandle } from './log/file-tail.js';
 import { startErrorDetector, setCatalogProvider } from './log/error-detector.js';
 import { seedDefaultRules } from './auto_fix/seed.js';
 import { runAutoFix } from './auto_fix/runner.js';
@@ -63,6 +64,7 @@ export async function bootObservability(): Promise<ObservabilityHandle> {
 
   await seedDefaultRules();
   attachProcessBridge();
+  const fileTailHandle: FileTailHandle = startFileTail(currentCatalog);
   setCatalogProvider(() => currentCatalog!);
   await startErrorDetector();
   const scannerHandle = startScannerLoop(currentCatalog);
@@ -70,6 +72,7 @@ export async function bootObservability(): Promise<ObservabilityHandle> {
     const fresh = loadCatalog();
     const result = await syncCatalog(fresh);
     currentCatalog = fresh;
+    fileTailHandle.refresh(fresh);
     logger.info(
       { upserted: result.upserted, deactivated: result.deactivated, total: fresh.services.length },
       'catalog reloaded from file change',
@@ -346,6 +349,7 @@ export async function bootObservability(): Promise<ObservabilityHandle> {
     shutdown: async () => {
       try { watcherHandle?.stop?.(); } catch { /* noop */ }
       try { scannerHandle?.stop?.(); } catch { /* noop */ }
+      try { fileTailHandle.stop(); } catch { /* noop */ }
       const procs = listRunningProcesses();
       for (const p of procs) {
         try { p.child.kill('SIGTERM'); } catch { /* noop */ }

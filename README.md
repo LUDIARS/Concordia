@@ -128,6 +128,60 @@ npm run build        # production build
 
 ---
 
+## MCP サーバ
+
+Concordia は 3 本の stdio MCP サーバを同梱している。 別 AI session (Claude Code /
+Codex / Gemini) から MCP 経由で Concordia 状態を直接読み書き / 操作できる。
+
+| Server | dist path | Tools | 用途 |
+|--------|-----------|-------|------|
+| `concordia-core` | `dist/mcp/core-server.js` | 8 (sessions / stat / chat / conflicts / pending-tasks) | 横断状態の読み書き |
+| `concordia-delegation` | `dist/mcp/delegation-server.js` | 2 (`delegation_list_templates` / `delegation_invoke`) | 委託テンプレ呼出 (Codex / Claude / Gemini spawn) |
+| `concordia-vestigium` | `dist/mcp/vestigium-server.js` | 4 (`vestigium_list_services` / `_tail` / `_search` / `_recent_errors`) | LUDIARS 各サービスログ参照 |
+
+Claude Code の `.claude/mcp_servers.json` に登録する例 (3 本まとめて):
+
+```jsonc
+{
+  "mcpServers": {
+    "concordia-core": {
+      "command": "node",
+      "args": ["E:/Document/Ars/Concordia/dist/mcp/core-server.js"],
+      "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:17330" }
+    },
+    "concordia-delegation": {
+      "command": "node",
+      "args": ["E:/Document/Ars/Concordia/dist/mcp/delegation-server.js"],
+      "env": {
+        "CONCORDIA_BASE_URL": "http://127.0.0.1:17330",
+        "CONCORDIA_SPAWN_TOKEN_PATH": "E:/Document/Ars/Concordia/.spawn.token"
+      }
+    },
+    "concordia-vestigium": {
+      "command": "node",
+      "args": ["E:/Document/Ars/Concordia/dist/mcp/vestigium-server.js"]
+    }
+  }
+}
+```
+
+`concordia-core` は Concordia HTTP loopback (default `127.0.0.1:17330`) を直接叩く
+だけなので、 Concordia backend が起動している限り読み書き共に動作する。 認証は
+loopback bind に依存する (= 非 localhost からは呼べない)。
+
+`concordia-core` の 8 tools:
+
+- `concordia_list_sessions` — sessions 一覧 (status / provider / repo_origin / host で絞り込み)
+- `concordia_get_session` — 1 session の詳細 (session row + persona + 直近 events)
+- `concordia_get_session_stat` — 指定 session の latest stat + 履歴 50 件
+- `concordia_list_all_stats` — 全 session の latest stat (フラットチーム閲覧)
+- `concordia_get_pending_tasks` — 指定 session の未配信 pending task
+- `concordia_get_conflicts` — (repo, branch) の競合チェック
+- `concordia_post_chat` — chat 投稿 (channel / author_label / scope / in_reply_to 対応)
+- `concordia_recent_chat` — 直近 chat 一覧 (channel / since_ts / limit で絞り込み)
+
+---
+
 ## 開発ステータス
 
 **v0.1 scaffold (2026-05-02)** — 着手中。

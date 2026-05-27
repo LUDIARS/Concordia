@@ -1,4 +1,4 @@
-import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
+import { ChannelType, Client, Events, GatewayIntentBits, Partials } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -19,6 +19,7 @@ import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged } from "./session-channel.js";
 import { upsertSessionStatusCard } from "./session-status-card.js";
+import { upsertCostChannelMessage } from "./cost-channel.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
@@ -79,6 +80,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
   let unsubscribe: (() => void) | null = null;
+  let costTimer: ReturnType<typeof setInterval> | null = null;
+  const relayTranscript = process.env.CONCORDIA_DISCORD_RELAY_TRANSCRIPT === "1";
+  const promptRelayLast = new Map<string, { text: string; at: number }>();
 
   client.once(Events.ClientReady, async (c) => {
     log.info(`logged in as ${c.user.tag}`);
@@ -91,6 +95,25 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
       } else {
         log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
+      }
+      if (!relayTranscript) {
+        log.info("discord transcript relay disabled (set CONCORDIA_DISCORD_RELAY_TRANSCRIPT=1 to enable)");
+      }
+      const costCh = guild.channels.cache.get(layout.costChannelId);
+      if (costCh && costCh.type === ChannelType.GuildText) {
+        const refresh = () =>
+          upsertCostChannelMessage(
+            costCh,
+            deps.sessionsRepo,
+            (k) => configRepo.get(k),
+            (k, v) => configRepo.set(k, v),
+          ).catch((e) => log.warn(`cost channel update failed: ${(e as Error).message}`));
+        void refresh();
+        const mins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_COST_REFRESH_MIN ?? "10") || 10);
+        costTimer = setInterval(() => { void refresh(); }, mins * 60 * 1000);
+        costTimer.unref?.();
+      } else {
+        log.warn(`cost channel unavailable id=${layout.costChannelId}`);
       }
       for (const row of sessionChannelsRepo.listActive()) {
         void upsertSessionStatusCard({
@@ -220,7 +243,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       }, ev.session_id);
       return;
     }
-    if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
+    if (ev.type === "chat.posted" || (relayTranscript && ev.type === "transcript.frame")) {
       handleEgressEvent({
         guild,
         layout,
@@ -246,6 +269,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         if (typeof payload.summary === "string") text = payload.summary.trim();
       } catch {}
       if (!text) return;
+      const now = Date.now();
+      const prev = promptRelayLast.get(ev.session_id);
+      if (prev && prev.text === text && now - prev.at < 60_000) {
+        log.info(`prompt relay: dedup skipped session=${ev.session_id}`);
+        return;
+      }
       void (async () => {
         const client = await webhooks.getForSession(ev.session_id);
         if (!client) {
@@ -258,6 +287,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           log.warn(`prompt relay: send failed session=${ev.session_id}`);
           return;
         }
+        promptRelayLast.set(ev.session_id, { text, at: now });
         log.info(`prompt relay: sent session=${ev.session_id} event_ts=${ev.ts}`);
       })();
       return;
@@ -308,6 +338,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   return {
     async stop() {
       unsubscribe?.();
+      if (costTimer) clearInterval(costTimer);
       try { await client.destroy(); } catch {}
     },
   };

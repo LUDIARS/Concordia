@@ -38,6 +38,9 @@ import { personasRouter } from "./api/personas.js";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
 import { tasksRouter } from "./api/tasks.js";
+import { delegationRouter } from "./api/delegation.js";
+import type { DelegationRepo } from "./db/delegation-repo.js";
+import type { DelegationService } from "./delegation/service.js";
 import {
   isSpawnProvider,
   resolveSpawnCwd,
@@ -63,6 +66,8 @@ export interface AppDeps {
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
   pendingQuestions: DiscordPendingQuestionsRepo;
+  delegation: DelegationRepo;
+  delegationService: DelegationService;
   adminState: AdminState;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
@@ -124,6 +129,7 @@ export function buildApp(deps: AppDeps): Hono {
   );
   app.route("/v1/spawn", spawnRouter({ defaultSpawnCwd: deps.config.spawnDefaultCwd }));
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
+  app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();

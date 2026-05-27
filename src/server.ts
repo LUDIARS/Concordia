@@ -21,6 +21,9 @@ import { StatsRepo } from "./db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { makeDiscordPendingQuestionsRepo } from "./db/discord-repo.js";
+import { DelegationRepo } from "./db/delegation-repo.js";
+import { DelegationService } from "./delegation/service.js";
+import { seedDelegationTemplates } from "./delegation/seed.js";
 import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
@@ -120,9 +123,12 @@ export async function startBackend(): Promise<BackendHandle> {
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
+  const delegationRepo = new DelegationRepo(db);
+  const delegationService = new DelegationService({ repo: delegationRepo });
   const adminState = new AdminState(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
+  seedDelegationTemplates(delegationRepo);
   const dispatcher = new Dispatcher({
     sessions: repo,
     tasks,
@@ -185,6 +191,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecords,
     transcriptLogs,
     pendingQuestions,
+    delegation: delegationRepo,
+    delegationService,
     adminState,
     processManager,
     dailyScheduler,

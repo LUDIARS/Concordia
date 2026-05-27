@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -493,6 +493,45 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_discord_pending_questions_session
      ON discord_pending_questions(session_id, answered_at)`,
+
+  // ─── Delegation templates (v0.3) ──────────────────────────
+  // AI エージェント間のタスク委託テンプレート + 実行履歴.
+  // spec/delegation.md §2 が schema の正本.
+  `CREATE TABLE IF NOT EXISTS delegation_templates (
+    id                TEXT    PRIMARY KEY,
+    call_name         TEXT    NOT NULL UNIQUE,
+    title             TEXT    NOT NULL,
+    description       TEXT    NOT NULL DEFAULT '',
+    target_provider   TEXT    NOT NULL,
+    prompt_template   TEXT    NOT NULL,
+    input_schema      TEXT    NOT NULL DEFAULT '[]',
+    default_cwd       TEXT,
+    is_active         INTEGER NOT NULL DEFAULT 1,
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_templates_active
+     ON delegation_templates(is_active, call_name)`,
+
+  `CREATE TABLE IF NOT EXISTS delegation_runs (
+    id                  TEXT    PRIMARY KEY,
+    template_id         TEXT,
+    call_name           TEXT    NOT NULL,
+    target_provider     TEXT    NOT NULL,
+    args_json           TEXT    NOT NULL DEFAULT '{}',
+    rendered_prompt     TEXT    NOT NULL,
+    prompt_file_path    TEXT    NOT NULL,
+    spawn_pid           INTEGER,
+    spawn_command       TEXT,
+    triggered_by        TEXT,
+    status              TEXT    NOT NULL,
+    error               TEXT,
+    created_at          INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_created
+     ON delegation_runs(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
+     ON delegation_runs(call_name, created_at DESC)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

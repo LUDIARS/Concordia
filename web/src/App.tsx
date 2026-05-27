@@ -13,6 +13,7 @@ import { Personas } from "./pages/Personas.js";
 import { Catalog } from "./pages/Catalog.js";
 import { Errors } from "./pages/Errors.js";
 import { Reviews } from "./pages/Reviews.js";
+import { Delegation } from "./pages/Delegation.js";
 
 const NAV = [
   { to: "/", label: "Monitor" },
@@ -26,6 +27,7 @@ const NAV = [
   { to: "/reports", label: "Reports" },
   { to: "/skills", label: "Skills" },
   { to: "/rules", label: "Rules" },
+  { to: "/delegation", label: "Delegation" },
   { to: "/setup", label: "Setup" },
 ] as const;
 
@@ -73,6 +75,7 @@ export function App() {
           <Route path="/catalog" element={<Catalog />} />
           <Route path="/errors" element={<Errors />} />
           <Route path="/reviews" element={<Reviews />} />
+          <Route path="/delegation" element={<Delegation />} />
           <Route path="/setup" element={<Setup />} />
         </Routes>
       </main>

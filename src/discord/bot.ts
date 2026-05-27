@@ -81,7 +81,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let webhooks: WebhookPool | null = null;
   let unsubscribe: (() => void) | null = null;
   let costTimer: ReturnType<typeof setInterval> | null = null;
-  const relayTranscript = process.env.CONCORDIA_DISCORD_RELAY_TRANSCRIPT === "1";
   const promptRelayLast = new Map<string, { text: string; at: number }>();
 
   client.once(Events.ClientReady, async (c) => {
@@ -95,9 +94,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
       } else {
         log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
-      }
-      if (!relayTranscript) {
-        log.info("discord transcript relay disabled (set CONCORDIA_DISCORD_RELAY_TRANSCRIPT=1 to enable)");
       }
       const costCh = guild.channels.cache.get(layout.costChannelId);
       if (costCh && costCh.type === ChannelType.GuildText) {
@@ -243,7 +239,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       }, ev.session_id);
       return;
     }
-    if (ev.type === "chat.posted" || (relayTranscript && ev.type === "transcript.frame")) {
+    if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
       handleEgressEvent({
         guild,
         layout,

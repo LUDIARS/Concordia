@@ -94,27 +94,48 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
 }
 
 async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
-  if (ev.kind !== "text") {
+  // Per 2026-05-27 ユーザ指示: only relay "人間向けの最終回答" — concretely:
+  //   1) kind=text && role=assistant : AI が user に返す本文
+  //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
+  // Everything else (tool-use / tool-result / thinking / raw / user prompts)
+  // is dropped here. User prompts are NOT relayed via transcript.frame because
+  // a separate `session.event(kind=prompt)` handler in bot.ts already posts
+  // them as "CLI User" — keeping both would duplicate every prompt.
+  let role: string | null = null;
+  let text: string | null = null;
+  if (ev.kind === "text") {
+    const p = ev.payload as { role?: string; text?: string } | null | undefined;
+    if (!p || typeof p.text !== "string" || !p.text) {
+      deps.log.info(`egress: transcript.frame skipped empty payload session=${ev.target_session_id} seq=${ev.seq}`);
+      return;
+    }
+    if (p.role !== "assistant") {
+      deps.log.info(`egress: transcript.frame skipped role=${String(p.role)} session=${ev.target_session_id} seq=${ev.seq}`);
+      return;
+    }
+    role = "assistant";
+    text = p.text;
+  } else if (ev.kind === "summary") {
+    const p = ev.payload as { text?: string; summary?: string } | null | undefined;
+    const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
+    if (!candidate) {
+      deps.log.info(`egress: transcript.frame skipped empty summary session=${ev.target_session_id} seq=${ev.seq}`);
+      return;
+    }
+    role = "summary";
+    text = candidate;
+  } else {
     deps.log.info(
       `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +
       `kind=${ev.kind} payload=${previewPayload(ev.payload)}`,
     );
     return;
   }
-  const p = ev.payload as { role?: string; text?: string } | null | undefined;
-  if (!p || !p.text) {
-    deps.log.info(`egress: transcript.frame skipped empty payload session=${ev.target_session_id} seq=${ev.seq}`);
-    return;
-  }
-  if (p.role !== "assistant" && p.role !== "user") {
-    deps.log.info(`egress: transcript.frame skipped role=${String(p.role)} session=${ev.target_session_id} seq=${ev.seq}`);
-    return;
-  }
 
   const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   deps.log.info(
     `[verbose-cs-bug] egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +
-    `role=${p.role} session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
+    `role=${role} session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
     `webhook_id=${sessionRow?.webhook_id ?? "null"}`,
   );
   if (!sessionRow) {
@@ -133,18 +154,17 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
 
   const session = deps.sessionsRepo.findSession(ev.target_session_id);
   const meta = readMeta(session?.metadata);
-  const roleLabel = p.role === "user" ? "User" : (meta.role_label ?? null);
-  const persona = p.role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
-  const author = p.role === "user"
-    ? "CLI User"
-    : formatAuthorName(persona?.display_name ?? null, roleLabel);
-  const text = p.text.length > 1900 ? `${p.text.slice(0, 1900)}...` : p.text;
-  const res = await deps.webhooks.send(client, { content: text, username: author });
+  const persona = role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
+  const author = role === "summary"
+    ? "Conversation summary"
+    : formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
+  const body = text.length > 1900 ? `${text.slice(0, 1900)}...` : text;
+  const res = await deps.webhooks.send(client, { content: body, username: author });
   if (res) {
-    deps.log.info(`egress: transcript.frame relayed ok session=${ev.target_session_id} seq=${ev.seq} role=${p.role}`);
+    deps.log.info(`egress: transcript.frame relayed ok session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;
   }
-  deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${p.role}`);
+  deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
 }
 
 function previewPayload(payload: unknown): string {

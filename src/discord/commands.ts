@@ -6,14 +6,9 @@ import {
   Routes,
 } from "discord.js";
 import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import injectCommand, { dispatchModalSubmit } from "./commands/inject.js";
 import spawnCommand from "./commands/spawn.js";
 import skillCommand from "./commands/skill.js";
-import keysCommand from "./commands/keys.js";
-import answerCommand from "./commands/answer.js";
 import statCommand from "./commands/stat.js";
-import chitchatCommand from "./commands/chitchat.js";
-import consultationCommand from "./commands/consultation.js";
 import endSessionCommand from "./commands/end-session.js";
 import { dispatchQuestionInteraction } from "./question.js";
 
@@ -29,15 +24,14 @@ export interface DiscordCommandSpec {
   autocomplete?: (interaction: AutocompleteInteraction, deps: DiscordCommandDeps) => Promise<void>;
 }
 
+// User-facing slash commands. Pruned 2026-05-27 to: end-session / stat / spawn / skill.
+// Earlier set (inject / keys / chitchat / consultation / answer) was redundant with
+// either the button-driven question UI (answer) or out-of-band paths (chitchat /
+// consultation post via REST; keys / inject was rarely useful in practice).
 const COMMANDS: DiscordCommandSpec[] = [
-  injectCommand,
   spawnCommand,
   skillCommand,
-  keysCommand,
-  answerCommand,
   statCommand,
-  chitchatCommand,
-  consultationCommand,
   endSessionCommand,
 ];
 
@@ -61,9 +55,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     await dispatchQuestionInteraction(interaction, deps);
-    return;
   }
-  if (interaction.isModalSubmit()) {
-    await dispatchModalSubmit(interaction, deps);
-  }
+  // Modal submits used to feed the now-removed `/inject` command. No other
+  // surface produces modal submissions, so we silently ignore them.
 }

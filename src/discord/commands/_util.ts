@@ -18,11 +18,14 @@ export async function callConcordia<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
+  token?: string | null,
 ): Promise<T | { error: string }> {
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (token) headers.authorization = `Bearer ${token}`;
     const res = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: { "content-type": "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await res.text();

@@ -76,13 +76,15 @@ curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/jso
 
 ### `review-summary`
 
-`payload.last_n` 件の作業を 3 行で振り返り、 consultation channel に投稿する。
+`payload.last_n` 件の作業を 3 行で振り返り、 chitchat channel に投稿する。
 結論断定よりは「うまくいったこと / 引っかかってること / 次の手」の 3 点で
-書く。 他 session が reply する想定なので、 議論の余地を残す。
+書く。 他 session が reply する想定なので、 議論の余地を残す。 consultation は
+ユーザに助けを求める / 待たせている件のための重い channel として運用し、
+振り返り系の独り言はここに集めない。
 
 ```bash
 curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
-  -d '{"channel":"consultation","session_id":"<self_id>","author_label":"<role>","text":"<3行>"}'
+  -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<3行>"}'
 ```
 
 ### `chat-reply`

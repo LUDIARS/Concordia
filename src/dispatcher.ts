@@ -139,7 +139,7 @@ export class Dispatcher {
           intro_seed: pickReviewIntroSeed(this.rng),
           instructions:
             "直近 5 件の作業 (edit/tool_call/task_update) を 3 行で振り返る. " +
-            "うまくいったこと / 引っかかってること / 次の手 の 3 点で consultation channel に POST.",
+            "うまくいったこと / 引っかかってること / 次の手 の 3 点で chitchat channel に POST.",
         },
       });
       return;

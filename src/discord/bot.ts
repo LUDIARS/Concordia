@@ -3,6 +3,7 @@ import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import {
@@ -17,6 +18,7 @@ import { handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged } from "./session-channel.js";
+import { upsertSessionStatusCard } from "./session-status-card.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
@@ -37,6 +39,7 @@ export interface DiscordBotDeps {
   db: Database;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
+  sessionTaskRecordsRepo: SessionTaskRecordsRepo;
   personasRepo: PersonasRepo;
   concordiaUrl: string;
 }
@@ -88,6 +91,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
       } else {
         log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
+      }
+      for (const row of sessionChannelsRepo.listActive()) {
+        void upsertSessionStatusCard({
+          guild,
+          layout,
+          configRepo,
+          sessionChannelsRepo,
+          sessionsRepo: deps.sessionsRepo,
+          sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+          personasRepo: deps.personasRepo,
+          log,
+        }, row.session_id);
       }
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
     } catch (e) {
@@ -152,14 +167,57 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           personaDisplayName: persona?.display_name ?? null,
         },
       );
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        personasRepo: deps.personasRepo,
+        log,
+      }, ev.session_id);
       return;
     }
     if (ev.type === "session.lost") {
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        personasRepo: deps.personasRepo,
+        log,
+      }, ev.session_id);
       return;
     }
     if (ev.type === "session.ended") {
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "ended" });
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        personasRepo: deps.personasRepo,
+        log,
+      }, ev.session_id);
+      return;
+    }
+    if (ev.type === "stat.collected") {
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        personasRepo: deps.personasRepo,
+        log,
+      }, ev.session_id);
       return;
     }
     if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
@@ -214,7 +272,30 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       } catch {}
       if (s && title) {
         void onSessionTitleChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, title });
+        void upsertSessionStatusCard({
+          guild,
+          layout,
+          configRepo,
+          sessionChannelsRepo,
+          sessionsRepo: deps.sessionsRepo,
+          sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+          personasRepo: deps.personasRepo,
+          log,
+        }, ev.session_id);
       }
+      return;
+    }
+    if (ev.type === "session.event" && ev.kind === "task_update") {
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        personasRepo: deps.personasRepo,
+        log,
+      }, ev.session_id);
       return;
     }
     if (ev.type === "question.posted") {

@@ -19,6 +19,11 @@ import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
+import {
+  emitAutoSessionEndInject,
+  pickSessionEndInjectText,
+  AUTO_SESSION_END_INJECT_SOURCE,
+} from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("sessions-api");
@@ -797,11 +802,33 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   // DELETE /v1/sessions/:id  — end + 独立した per-session report 生成 (claude CLI narrative)
   // session-end フロー (report 生成 / 独白投稿 / persona release) は control/end-session-flow.ts に
   // 集約済. ここでは status 遷移と end event の append だけ行い、 残りは helper に委譲する.
+  //
+  // status を ended にする前に、 wrapped AI セッションに `/session-end` 実行を促す
+  // inject を emit する (Discord `/end-session` 経由でも自動で発火するように).
+  // status=active のうちに event を投げる必要がある (Lictor の onInject は WS
+  // broadcast 経由で provider-別 submit を行うため、 status 確認は Lictor 側
+  // で行わないが、 概念上 active なセッションへの inject であることが重要).
   app.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
     const now = nowSec();
+    // fire-and-forget: Lictor WS が無い / failure でも report 生成は続行
+    try {
+      const injected = emitAutoSessionEndInject(s);
+      if (injected) {
+        deps.repo.appendEvent({
+          session_id: id,
+          ts: now,
+          kind: "inject",
+          payload: {
+            text: pickSessionEndInjectText(s.provider),
+            source: AUTO_SESSION_END_INJECT_SOURCE,
+            reason: "auto on DELETE /v1/sessions/:id",
+          },
+        });
+      }
+    } catch { /* swallow — best effort */ }
     deps.repo.setStatus(id, "ended", now, now);
     deps.repo.appendEvent({
       session_id: id,

@@ -20,6 +20,7 @@ import { ProcessesRepo } from "./db/processes-repo.js";
 import { StatsRepo } from "./db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
+import { makeDiscordPendingQuestionsRepo } from "./db/discord-repo.js";
 import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
@@ -34,8 +35,45 @@ import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
 import { bootObservability } from "./observability/index.js";
+import type { DiscordBotDeps, DiscordBotHandle } from "./discord/bot.js";
+import { startDiscordBot } from "./discord/bot.js";
 
 const log = createChildLogger("server");
+let discordBotHandle: DiscordBotHandle | null = null;
+let discordBotDeps: DiscordBotDeps | null = null;
+
+async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
+  if (discordBotHandle) return { ok: true, status: "already_running" };
+  if (!discordBotDeps) return { ok: false, status: "error", error: "discord deps not initialized" };
+  try {
+    const h = await startDiscordBot(discordBotDeps);
+    if (!h) return { ok: true, status: "disabled" };
+    discordBotHandle = h;
+    return { ok: true, status: "started" };
+  } catch (e) {
+    return { ok: false, status: "error", error: (e as Error).message };
+  }
+}
+
+async function stopDiscordBotManaged(): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
+  if (!discordBotHandle) return { ok: true, status: "already_stopped" };
+  try {
+    await discordBotHandle.stop();
+    discordBotHandle = null;
+    return { ok: true, status: "stopped" };
+  } catch (e) {
+    return { ok: false, status: "error", error: (e as Error).message };
+  }
+}
+
+async function restartDiscordBotManaged(): Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }> {
+  const stop = await stopDiscordBotManaged();
+  if (!stop.ok) return { ok: false, status: "error", error: stop.error };
+  const start = await startDiscordBotManaged();
+  if (!start.ok) return { ok: false, status: "error", error: start.error };
+  if (start.status === "disabled") return { ok: true, status: "disabled" };
+  return { ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" };
+}
 
 function loadDotEnv(file: string): void {
   if (!existsSync(file)) return;
@@ -81,6 +119,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const stats = new StatsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
+  const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const adminState = new AdminState(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
@@ -124,6 +163,14 @@ export async function startBackend(): Promise<BackendHandle> {
     log.warn({ err: (err as Error).message }, "observability layer boot failed; continuing without it");
   }
 
+  discordBotDeps = {
+    db,
+    chatRepo: chat,
+    sessionsRepo: repo,
+    personasRepo: personas,
+    concordiaUrl: publicUrl,
+  };
+
   const app = buildApp({
     observabilityRouter: observabilityHandle?.router,
     repo,
@@ -137,6 +184,7 @@ export async function startBackend(): Promise<BackendHandle> {
     stats,
     sessionTaskRecords,
     transcriptLogs,
+    pendingQuestions,
     adminState,
     processManager,
     dailyScheduler,
@@ -146,6 +194,11 @@ export async function startBackend(): Promise<BackendHandle> {
     sweeperRunOnce: sweeper.runOnce,
     toolPath,
     publicUrl,
+    discordAdmin: {
+      start: startDiscordBotManaged,
+      stop: stopDiscordBotManaged,
+      restart: restartDiscordBotManaged,
+    },
   });
 
   const ruleEngine = startRuleEngine({
@@ -239,22 +292,10 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
   // spec/discord-ui.md
-  const discordBot = await (async () => {
-    try {
-      const { startDiscordBot } = await import("./discord/bot.js");
-      return await startDiscordBot({
-        db,
-        chatRepo: chat,
-        sessionsRepo: repo,
-        personasRepo: personas,
-        isChatMuted: () => adminState.getChatMuted(),
-        concordiaUrl: publicUrl,
-      });
-    } catch (e) {
-      log.warn(`Discord bot init failed: ${(e as Error).message}`);
-      return null;
-    }
-  })();
+  {
+    const started = await startDiscordBotManaged();
+    if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+  }
 
   return {
     port: cfg.port,
@@ -266,9 +307,7 @@ export async function startBackend(): Promise<BackendHandle> {
       repoChangeWatcher.stop();
       sweeper.stop();
       unsubLog();
-      if (discordBot) {
-        try { await discordBot.stop(); } catch { /* noop */ }
-      }
+      await stopDiscordBotManaged();
       if (observabilityHandle) {
         try { await observabilityHandle.shutdown(); } catch { /* noop */ }
       }

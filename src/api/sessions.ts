@@ -15,6 +15,7 @@ import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
+import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
@@ -90,6 +91,14 @@ const PermissionResponseSchema = z.object({
 const TitleSuggestionSchema = z.object({
   text: z.string().min(1).max(200),
 });
+const PendingQuestionSchema = z.object({
+  question: z.string().min(1).max(2000),
+  options: z.array(z.string().min(1).max(80)).min(1).max(25),
+});
+const AnswerQuestionSchema = z.object({
+  question_id: z.number().int().positive(),
+  answer_index: z.number().int().min(0).max(24),
+});
 
 const ForkSchema = z.object({
   /** Claude per-message uuid to resume from. Comes from the transcript frame's payload.claude_uuid. */
@@ -110,6 +119,7 @@ export interface SessionsApiDeps {
   processManager: ProcessManager;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
+  pendingQuestions: DiscordPendingQuestionsRepo;
 }
 
 function serializePersonaForResponse(p: PersonaRow) {
@@ -441,6 +451,14 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     }
     // 応答済 title-suggest を retry 対象から外す.
     deps.tasks.markResponded(id, ["title-suggest"]);
+    const now = nowSec();
+    deps.repo.appendEvent({
+      session_id: id,
+      ts: now,
+      kind: "title_renamed",
+      payload: { text: parsed.data.text },
+    });
+    eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts: now });
     const text = await upstream.text();
     let json: unknown;
     try { json = JSON.parse(text); } catch { json = { raw: text }; }
@@ -448,6 +466,71 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       { ok: upstream.ok, lictor: json as Record<string, unknown> },
       upstream.status as 200,
     );
+  });
+
+  app.post("/:id/pending-question", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = PendingQuestionSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const ts = nowSec();
+    const row = deps.pendingQuestions.insert({
+      session_id: id,
+      question: parsed.data.question,
+      options: parsed.data.options,
+    });
+    deps.repo.appendEvent({
+      session_id: id,
+      ts,
+      kind: "pending_question",
+      payload: { question_id: row.id, question: row.question, options: parsed.data.options },
+    });
+    eventBus.emit({
+      type: "question.posted",
+      target_session_id: id,
+      question_id: row.id,
+      question: row.question,
+      options: parsed.data.options,
+      ts,
+    });
+    return c.json({ ok: true, question_id: row.id, ts });
+  });
+
+  app.post("/:id/answer-question", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = AnswerQuestionSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const row = deps.pendingQuestions.findById(parsed.data.question_id);
+    if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
+    if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
+    let options: string[] = [];
+    try { options = JSON.parse(row.options_json) as string[]; } catch { options = []; }
+    const answerText = options[parsed.data.answer_index];
+    if (!answerText) return c.json({ error: "answer_index_out_of_range" }, 400);
+    deps.pendingQuestions.markAnswered(row.id, parsed.data.answer_index, answerText);
+    const ts = nowSec();
+    eventBus.emit({
+      type: "question.answered",
+      target_session_id: id,
+      question_id: row.id,
+      answer_index: parsed.data.answer_index,
+      answer_text: answerText,
+      ts,
+    });
+    deps.repo.appendEvent({
+      session_id: id,
+      ts,
+      kind: "question_answered",
+      payload: {
+        question_id: row.id,
+        answer_index: parsed.data.answer_index,
+        answer_text: answerText,
+      },
+    });
+    return c.json({ ok: true, answer_text: answerText });
   });
 
   // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed

@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
   applyStatusEmoji,
+  chatEmbed,
   chunkForDiscord,
   DISCORD_MAX_CONTENT,
   formatAuthorName,
+  questionEmbed,
   roleSlug,
   sessionChannelSlug,
 } from "./formatter.js";
@@ -25,12 +27,15 @@ describe("roleSlug", () => {
 });
 
 describe("sessionChannelSlug", () => {
-  it("lictor- prefix を剥がして先頭 4 文字 + role slug", () => {
-    expect(sessionChannelSlug("lictor-bdea61ec-8f36-4e9f", "テスト魂")).toBe("s-bdea-テスト魂");
-    expect(sessionChannelSlug("anon", "Lint Cop")).toBe("s-anon-lint-cop");
+  it("agent type + role slug", () => {
+    expect(sessionChannelSlug("claude-code", "テスト魂")).toBe("claude-テスト魂");
+    expect(sessionChannelSlug("codex-cli", "Lint Cop")).toBe("codex-lint-cop");
   });
   it("role が null なら anon", () => {
-    expect(sessionChannelSlug("lictor-12345678", null)).toBe("s-1234-anon");
+    expect(sessionChannelSlug("gemini-cli", null)).toBe("gemini-anon");
+  });
+  it("agent type が空なら agent fallback", () => {
+    expect(sessionChannelSlug(null, "Test Cop")).toBe("agent-test-cop");
   });
 });
 
@@ -80,5 +85,21 @@ describe("formatAuthorName", () => {
   });
   it("両方無し → Concordia", () => {
     expect(formatAuthorName(null, null)).toBe("Concordia");
+  });
+});
+
+describe("embed builders", () => {
+  it("chatEmbed sets author + description", () => {
+    const e = chatEmbed({ channel: "chitchat", text: "hello", authorName: "alice", ts: 1 });
+    const j = e.toJSON();
+    expect(j.author?.name).toBe("alice");
+    expect(j.description).toBe("hello");
+  });
+
+  it("questionEmbed includes options fields", () => {
+    const e = questionEmbed({ question: "q?", options: ["a", "b"], questionId: 12 });
+    const j = e.toJSON();
+    expect(j.fields?.length).toBe(2);
+    expect(j.footer?.text).toContain("12");
   });
 });

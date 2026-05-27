@@ -49,6 +49,8 @@ export type ConcordiaEvent =
    * `tool_input` is a slim preview (kept compact for wire / UI).
    */
   | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
+  | { type: "question.posted"; target_session_id: string; question_id: number; question: string; options: string[]; ts: number }
+  | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

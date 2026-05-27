@@ -1,9 +1,3 @@
-// Discord bot のメインライフサイクル. spec/discord-ui.md
-//
-// 起動: `await startDiscordBot(deps)` で client を立ち上げ、 ready 後に
-// layout (category + meta channel) を ensure、 eventBus subscribe を張る.
-// 停止: 返り値の `stop()` で client を destroy + subscribe 解除.
-
 import { Client, Events, GatewayIntentBits, Partials } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
@@ -15,23 +9,28 @@ import {
   makeChatMessageReactionsRepo,
   makeDiscordConfigRepo,
   makeDiscordMessageMapRepo,
+  makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
 import { handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import {
-  onSessionRegistered,
-  onSessionStatusChanged,
-} from "./session-channel.js";
+import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged } from "./session-channel.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
+import { dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { postQuestion } from "./question.js";
+import { createChildLogger } from "../shared/logger.js";
 
+// pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
+// deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
+// 一律にファイルに記録される.
+const discordLog = createChildLogger("discord");
 const log = {
-  info: (m: string) => console.log(`[discord] ${m}`),
-  warn: (m: string) => console.warn(`[discord] ${m}`),
-  error: (m: string) => console.error(`[discord] ${m}`),
+  info: (m: string) => discordLog.info(m),
+  warn: (m: string) => discordLog.warn(m),
+  error: (m: string) => discordLog.error(m),
 };
 
 export interface DiscordBotDeps {
@@ -39,8 +38,6 @@ export interface DiscordBotDeps {
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
   personasRepo: PersonasRepo;
-  isChatMuted: () => boolean;
-  /** Concordia の loopback URL (POST /v1/chat を ingress が叩く). */
   concordiaUrl: string;
 }
 
@@ -51,11 +48,11 @@ export interface DiscordBotHandle {
 export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotHandle | null> {
   const env = readDiscordEnv();
   if (!env.enabled) {
-    log.info("CONCORDIA_DISCORD_ENABLED != 1 — skip");
+    log.info("CONCORDIA_DISCORD_ENABLED != 1; skip");
     return null;
   }
   if (!env.token || !env.guildId) {
-    log.warn("CONCORDIA_DISCORD_TOKEN / CONCORDIA_DISCORD_GUILD_ID missing — skip");
+    log.warn("CONCORDIA_DISCORD_TOKEN / CONCORDIA_DISCORD_GUILD_ID missing; skip");
     return null;
   }
 
@@ -74,6 +71,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db);
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
+  const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
 
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
@@ -83,31 +81,57 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     log.info(`logged in as ${c.user.tag}`);
     try {
       const guild = await c.guilds.fetch(env.guildId!);
-      await guild.channels.fetch();   // populate cache
+      await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo);
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
-      log.info(`layout ready: meta=${layout.metaCategoryId} sessions=${layout.sessionsCategoryId} archive=${layout.archiveCategoryId}`);
-
-      // eventBus subscribe — egress + session-channel ハンドラを束ねる
+      if (env.applicationId) {
+        await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
+      } else {
+        log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
+      }
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
-      log.info("eventBus subscribed");
     } catch (e) {
       log.error(`ready handler failed: ${(e as Error).message}`);
     }
   });
 
   client.on(Events.MessageCreate, (msg) => {
-    void handleIngressMessage(
-      { configRepo, sessionChannelsRepo, concordiaUrl: deps.concordiaUrl, log },
-      msg,
+    const raw = msg.content ?? "";
+    const compact = raw.replace(/\s+/g, " ").trim();
+    const preview = compact.length > 200 ? `${compact.slice(0, 200)}...` : compact;
+    log.info(
+      `message observed guild=${msg.guildId ?? "-"} channel=${msg.channelId} author=${msg.author?.id ?? "-"} ` +
+      `bot=${msg.author?.bot ? 1 : 0} len=${raw.length} text="${preview}"`,
     );
+    void handleIngressMessage({
+      configRepo,
+      sessionChannelsRepo,
+      sessionsRepo: deps.sessionsRepo,
+      concordiaUrl: deps.concordiaUrl,
+      log,
+    }, msg).catch((e) => {
+      log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
+    });
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
-    void handleReactionAdd({ reactionsRepo, messageMap, log }, reaction, user);
+    void handleReactionAdd({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
+      log.warn(`reaction add handler failed: ${(e as Error).message}`);
+    });
   });
   client.on(Events.MessageReactionRemove, (reaction, user) => {
-    void handleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user);
+    void handleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
+      log.warn(`reaction remove handler failed: ${(e as Error).message}`);
+    });
+  });
+  client.on(Events.InteractionCreate, (interaction) => {
+    void dispatchInteraction(interaction, {
+      concordiaUrl: deps.concordiaUrl,
+      sessionChannelsRepo,
+      pendingQuestionsRepo,
+    }).catch((e) => {
+      log.warn(`interaction handler failed id=${interaction.id}: ${(e as Error).message}`);
+    });
   });
 
   client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
@@ -116,7 +140,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (!layout || !webhooks) return;
 
-    // session lifecycle
     if (ev.type === "session.started") {
       const meta = readMeta(deps.sessionsRepo.findSession(ev.session_id)?.metadata);
       const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
@@ -124,6 +147,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         { guild, layout, repo: sessionChannelsRepo, log },
         {
           sessionId: ev.session_id,
+          agentType: ev.provider ?? null,
           roleLabel: meta.role_label ?? null,
           personaDisplayName: persona?.display_name ?? null,
         },
@@ -131,37 +155,70 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (ev.type === "session.lost") {
-      void onSessionStatusChanged(
-        { guild, layout, repo: sessionChannelsRepo, log },
-        { sessionId: ev.session_id, status: "lost" },
-      );
+      void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       return;
     }
     if (ev.type === "session.ended") {
-      void onSessionStatusChanged(
-        { guild, layout, repo: sessionChannelsRepo, log },
-        { sessionId: ev.session_id, status: "ended" },
-      );
+      void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "ended" });
       return;
     }
-
-    // chat / transcript egress
     if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
-      handleEgressEvent(
-        {
-          guild,
-          layout,
-          webhooks,
-          chatRepo: deps.chatRepo,
-          sessionsRepo: deps.sessionsRepo,
-          personasRepo: deps.personasRepo,
-          sessionChannelsRepo,
-          messageMap,
-          isChatMuted: deps.isChatMuted,
-          log,
-        },
-        ev,
-      );
+      handleEgressEvent({
+        guild,
+        layout,
+        webhooks,
+        chatRepo: deps.chatRepo,
+        sessionsRepo: deps.sessionsRepo,
+        personasRepo: deps.personasRepo,
+        sessionChannelsRepo,
+        messageMap,
+        log,
+      }, ev);
+      return;
+    }
+    if (ev.type === "session.event" && ev.kind === "prompt") {
+      const s = deps.sessionsRepo.findSession(ev.session_id);
+      if (!s || s.provider !== "codex-cli") return;
+      const row = sessionChannelsRepo.findBySessionId(ev.session_id);
+      if (!row || row.status !== "active") return;
+      const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
+      let text = "";
+      try {
+        const payload = latest ? JSON.parse(latest.payload) as { summary?: unknown } : {};
+        if (typeof payload.summary === "string") text = payload.summary.trim();
+      } catch {}
+      if (!text) return;
+      void (async () => {
+        const client = await webhooks.getForSession(ev.session_id);
+        if (!client) {
+          log.warn(`prompt relay: webhook missing session=${ev.session_id}`);
+          return;
+        }
+        const msg = text.length > 1900 ? `${text.slice(0, 1900)}...` : text;
+        const sent = await webhooks.send(client, { content: msg, username: "CLI User" });
+        if (!sent) {
+          log.warn(`prompt relay: send failed session=${ev.session_id}`);
+          return;
+        }
+        log.info(`prompt relay: sent session=${ev.session_id} event_ts=${ev.ts}`);
+      })();
+      return;
+    }
+    if (ev.type === "session.event" && ev.kind === "title_renamed") {
+      const s = deps.sessionsRepo.findSession(ev.session_id);
+      const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
+      let title = "";
+      try {
+        const payload = latest ? JSON.parse(latest.payload) as { text?: unknown } : {};
+        if (typeof payload.text === "string") title = payload.text;
+      } catch {}
+      if (s && title) {
+        void onSessionTitleChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, title });
+      }
+      return;
+    }
+    if (ev.type === "question.posted") {
+      void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
     }
   }
 
@@ -170,7 +227,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   return {
     async stop() {
       unsubscribe?.();
-      try { await client.destroy(); } catch { /* ignore */ }
+      try { await client.destroy(); } catch {}
     },
   };
 }

@@ -156,6 +156,12 @@ export const api = {
     get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>
     post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
+  discordBotStart: () =>
+    post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/start", {}),
+  discordBotStop: () =>
+    post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/stop", {}),
+  discordBotRestart: () =>
+    post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/restart", {}),
   sessionRequestStat: (id: string) =>
     post<{ ok: boolean; enqueued: boolean; reason?: string }>(
       `/v1/sessions/${encodeURIComponent(id)}/request-stat`,

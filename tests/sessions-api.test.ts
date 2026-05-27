@@ -15,6 +15,7 @@ import { ProcessesRepo } from "../src/db/processes-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "../src/db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
+import { makeDiscordPendingQuestionsRepo } from "../src/db/discord-repo.js";
 import { AdminState } from "../src/admin/state.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { seedPersonas } from "../src/personas/seeds.js";
@@ -37,12 +38,13 @@ function buildTestApp() {
   const stats = new StatsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
+  const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const adminState = new AdminState(db);
   const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
   const processManager = new ProcessManager({ repo: processes, logsDir });
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
   return buildApp({
-    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, transcriptLogs, adminState, processManager, dispatcher,
+    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, transcriptLogs, pendingQuestions, adminState, processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
     config: { ...loadConfig({}), anthropicApiKey: "" },
     startedAt: new Date().toISOString(),
@@ -512,6 +514,62 @@ describe("sessions API", () => {
       expect(r1.status).toBe(404);
       const r2 = await app.request("/v1/sessions/nope/request-title", { method: "POST" });
       expect(r2.status).toBe(404);
+    });
+  });
+
+  describe("pending-question / answer-question", () => {
+    it("POST pending-question stores row + emits question.posted", async () => {
+      await app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "pq", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      const { eventBus } = await import("../src/events.js");
+      const hits: any[] = [];
+      const unsub = eventBus.subscribe((ev) => { if (ev.type === "question.posted") hits.push(ev); });
+      try {
+        const r = await app.request("/v1/sessions/pq/pending-question", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ question: "Pick one", options: ["A", "B"] }),
+        });
+        expect(r.status).toBe(200);
+        const j = await r.json() as any;
+        expect(j.ok).toBe(true);
+        expect(j.question_id).toBeGreaterThan(0);
+        expect(hits).toHaveLength(1);
+      } finally {
+        unsub();
+      }
+    });
+
+    it("POST answer-question answers once and second try is 409", async () => {
+      await app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "aq", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      const qRes = await app.request("/v1/sessions/aq/pending-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question: "Pick one", options: ["A", "B"] }),
+      });
+      const q = await qRes.json() as any;
+      const r1 = await app.request("/v1/sessions/aq/answer-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question_id: q.question_id, answer_index: 1 }),
+      });
+      expect(r1.status).toBe(200);
+      const j1 = await r1.json() as any;
+      expect(j1.answer_text).toBe("B");
+
+      const r2 = await app.request("/v1/sessions/aq/answer-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question_id: q.question_id, answer_index: 0 }),
+      });
+      expect(r2.status).toBe(409);
     });
   });
 });

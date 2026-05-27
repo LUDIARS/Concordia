@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -479,6 +479,20 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_message_reactions_message
      ON chat_message_reactions(message_id)`,
+
+  `CREATE TABLE IF NOT EXISTS discord_pending_questions (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT NOT NULL,
+    question            TEXT NOT NULL,
+    options_json        TEXT NOT NULL,
+    discord_message_id  TEXT,
+    answered_at         INTEGER,
+    answer_index        INTEGER,
+    answer_text         TEXT,
+    ts                  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_discord_pending_questions_session
+     ON discord_pending_questions(session_id, answered_at)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

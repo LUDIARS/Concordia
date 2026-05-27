@@ -223,3 +223,66 @@ export function makeChatMessageReactionsRepo(db: Database): ChatMessageReactions
     },
   };
 }
+
+export interface DiscordPendingQuestionRow {
+  id: number;
+  session_id: string;
+  question: string;
+  options_json: string;
+  discord_message_id: string | null;
+  answered_at: number | null;
+  answer_index: number | null;
+  answer_text: string | null;
+  ts: number;
+}
+
+export interface DiscordPendingQuestionsRepo {
+  insert(input: { session_id: string; question: string; options: string[] }): DiscordPendingQuestionRow;
+  setDiscordMessageId(id: number, discordMessageId: string): void;
+  markAnswered(id: number, answerIndex: number, answerText: string): void;
+  findById(id: number): DiscordPendingQuestionRow | null;
+  findLatestUnanswered(sessionId: string): DiscordPendingQuestionRow | null;
+}
+
+export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQuestionsRepo {
+  return {
+    insert(input) {
+      const ts = nowSec();
+      const info = db.prepare(
+        `INSERT INTO discord_pending_questions (session_id, question, options_json, ts)
+         VALUES (?, ?, ?, ?)`,
+      ).run(input.session_id, input.question, JSON.stringify(input.options), ts);
+      return this.findById(Number(info.lastInsertRowid))!;
+    },
+    setDiscordMessageId(id, discordMessageId) {
+      db.prepare(
+        `UPDATE discord_pending_questions SET discord_message_id = ? WHERE id = ?`,
+      ).run(discordMessageId, id);
+    },
+    markAnswered(id, answerIndex, answerText) {
+      db.prepare(
+        `UPDATE discord_pending_questions
+         SET answered_at = ?, answer_index = ?, answer_text = ?
+         WHERE id = ?`,
+      ).run(nowSec(), answerIndex, answerText, id);
+    },
+    findById(id) {
+      return (
+        (db
+          .prepare("SELECT * FROM discord_pending_questions WHERE id = ?")
+          .get(id) as DiscordPendingQuestionRow | undefined) ?? null
+      );
+    },
+    findLatestUnanswered(sessionId) {
+      return (
+        (db
+          .prepare(
+            `SELECT * FROM discord_pending_questions
+             WHERE session_id = ? AND answered_at IS NULL
+             ORDER BY id DESC LIMIT 1`,
+          )
+          .get(sessionId) as DiscordPendingQuestionRow | undefined) ?? null
+      );
+    },
+  };
+}

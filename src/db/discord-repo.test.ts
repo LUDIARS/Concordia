@@ -6,6 +6,7 @@ import {
   makeChatMessageReactionsRepo,
   makeDiscordConfigRepo,
   makeDiscordMessageMapRepo,
+  makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "./discord-repo.js";
 
@@ -97,5 +98,27 @@ describe("chat_message_reactions repo", () => {
 
     repo.remove({ message_id: 1, discord_user_id: "u1", kind: "fine" });
     expect(repo.countByMessage(1)).toEqual({ fine: 1, bad: 1, other: 1 });
+  });
+});
+
+describe("discord_pending_questions repo", () => {
+  it("insert / find / markAnswered / findLatestUnanswered", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q1 = repo.insert({
+      session_id: "s1",
+      question: "Which option?",
+      options: ["A", "B"],
+    });
+    expect(q1.id).toBeGreaterThan(0);
+    expect(repo.findLatestUnanswered("s1")?.id).toBe(q1.id);
+    repo.setDiscordMessageId(q1.id, "m-1");
+    expect(repo.findById(q1.id)?.discord_message_id).toBe("m-1");
+    repo.markAnswered(q1.id, 1, "B");
+    const after = repo.findById(q1.id);
+    expect(after?.answer_index).toBe(1);
+    expect(after?.answer_text).toBe("B");
+    expect(after?.answered_at).not.toBeNull();
+    expect(repo.findLatestUnanswered("s1")).toBeNull();
   });
 });

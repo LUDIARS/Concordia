@@ -27,6 +27,7 @@ export interface DiscordEnv {
   enabled: boolean;
   token: string | null;
   guildId: string | null;
+  applicationId: string | null;
 }
 
 export function readDiscordEnv(env: NodeJS.ProcessEnv = process.env): DiscordEnv {
@@ -34,5 +35,6 @@ export function readDiscordEnv(env: NodeJS.ProcessEnv = process.env): DiscordEnv
     enabled: String(env.CONCORDIA_DISCORD_ENABLED ?? "").trim() === "1",
     token: env.CONCORDIA_DISCORD_TOKEN?.trim() || null,
     guildId: env.CONCORDIA_DISCORD_GUILD_ID?.trim() || null,
+    applicationId: env.CONCORDIA_DISCORD_APPLICATION_ID?.trim() || null,
   };
 }

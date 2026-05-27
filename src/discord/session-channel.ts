@@ -25,12 +25,12 @@ export interface SessionChannelDeps {
 /** session.registered → channel 作成 + 🟢 prefix + active マーク. */
 export async function onSessionRegistered(
   deps: SessionChannelDeps,
-  input: { sessionId: string; roleLabel: string | null; personaDisplayName: string | null },
+  input: { sessionId: string; agentType: string | null; roleLabel: string | null; personaDisplayName: string | null },
 ): Promise<void> {
   const existing = deps.repo.findBySessionId(input.sessionId);
   if (existing) return; // 既知 (再 register など)
 
-  const base = sessionChannelSlug(input.sessionId, input.roleLabel);
+  const base = sessionChannelSlug(input.agentType, input.roleLabel);
   const name = applyStatusEmoji(base, "active");
   try {
     const created = await deps.guild.channels.create({
@@ -92,4 +92,46 @@ export async function onSessionStatusChanged(
   } catch (e) {
     deps.log.warn(`session-channel: rename failed for ${input.sessionId}: ${(e as Error).message}`);
   }
+}
+
+/** /rename で決まったタイトルを Discord 側にも反映する (topic 更新)。 */
+export async function onSessionTitleChanged(
+  deps: SessionChannelDeps,
+  input: { sessionId: string; title: string },
+): Promise<void> {
+  const row = deps.repo.findBySessionId(input.sessionId);
+  if (!row) return;
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return;
+  try {
+    const baseName = titleToChannelBase(input.title);
+    const nextName = applyStatusEmoji(baseName, row.status);
+    const patch: { topic: string; reason: string; name?: string } = {
+      topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
+      reason: `session title updated: ${input.sessionId}`,
+    };
+    if (deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
+      patch.name = nextName;
+    } else {
+      deps.log.info(
+        `session-channel: title rename deferred for ${input.sessionId} (cooldown < ${RENAME_COOLDOWN_SEC}s)`,
+      );
+    }
+    await ch.edit(patch);
+    deps.log.info(
+      `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name ?? "(unchanged)"}`,
+    );
+  } catch (e) {
+    deps.log.warn(`session-channel: title update failed for ${input.sessionId}: ${(e as Error).message}`);
+  }
+}
+
+function titleToChannelBase(title: string): string {
+  const s = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 88);
+  return s || "session";
 }

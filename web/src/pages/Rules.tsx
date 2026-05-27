@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fmtTs } from "../api.js";
+import { api, fmtTs } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 
 interface RuleForm {
@@ -553,6 +553,7 @@ function AdminTogglesPanel() {
   const [intervalDraft, setIntervalDraft] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [discordMsg, setDiscordMsg] = useState<string | null>(null);
 
   useEffect(() => {
     void refreshAll();
@@ -681,6 +682,68 @@ function AdminTogglesPanel() {
             apply
           </button>
         </div>
+      </div>
+
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+        <div className="text-sm font-medium">Discord Bot</div>
+        <div className="text-xs text-subtle">Discord bot のみ再起動/起動/停止します（Concordia本体は再起動しません）。</div>
+        <div className="flex items-center gap-2">
+          <button
+            disabled={busy === "discord-start"}
+            onClick={async () => {
+              setBusy("discord-start");
+              setDiscordMsg(null);
+              try {
+                const r = await api.discordBotStart();
+                setDiscordMsg(`start: ${r.status}`);
+              } catch (e) {
+                setDiscordMsg(`start failed: ${(e as Error).message}`);
+              } finally {
+                setBusy(null);
+              }
+            }}
+            className="px-2 py-1 rounded text-xs border bg-accent/15 border-accent text-accent disabled:opacity-40"
+          >
+            start
+          </button>
+          <button
+            disabled={busy === "discord-stop"}
+            onClick={async () => {
+              setBusy("discord-stop");
+              setDiscordMsg(null);
+              try {
+                const r = await api.discordBotStop();
+                setDiscordMsg(`stop: ${r.status}`);
+              } catch (e) {
+                setDiscordMsg(`stop failed: ${(e as Error).message}`);
+              } finally {
+                setBusy(null);
+              }
+            }}
+            className="px-2 py-1 rounded text-xs border bg-muted border-border text-subtle disabled:opacity-40"
+          >
+            stop
+          </button>
+          <button
+            disabled={busy === "discord-restart"}
+            onClick={async () => {
+              setBusy("discord-restart");
+              setDiscordMsg(null);
+              try {
+                const r = await api.discordBotRestart();
+                setDiscordMsg(`restart: ${r.status}`);
+              } catch (e) {
+                setDiscordMsg(`restart failed: ${(e as Error).message}`);
+              } finally {
+                setBusy(null);
+              }
+            }}
+            className="px-2 py-1 rounded text-xs border bg-warn/20 border-warn text-warn disabled:opacity-40"
+          >
+            restart
+          </button>
+        </div>
+        {discordMsg && <div className="text-xs text-subtle">{discordMsg}</div>}
       </div>
 
       {error && <div className="text-danger text-xs">{error}</div>}

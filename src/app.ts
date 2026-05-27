@@ -30,6 +30,7 @@ import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
+import type { DiscordPendingQuestionsRepo } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
@@ -61,6 +62,7 @@ export interface AppDeps {
   stats: StatsRepo;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
+  pendingQuestions: DiscordPendingQuestionsRepo;
   adminState: AdminState;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
@@ -72,6 +74,11 @@ export interface AppDeps {
   toolPath: string;
   /** 公開 URL (setup endpoint で配信) */
   publicUrl: string;
+  discordAdmin?: {
+    start: () => Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }>;
+    stop: () => Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }>;
+    restart: () => Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }>;
+  };
 }
 
 export function buildApp(deps: AppDeps): Hono {
@@ -93,6 +100,7 @@ export function buildApp(deps: AppDeps): Hono {
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
       transcriptLogs: deps.transcriptLogs,
+      pendingQuestions: deps.pendingQuestions,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
@@ -298,6 +306,24 @@ export function buildApp(deps: AppDeps): Hono {
       setTimeout(() => process.exit(0), 200);
     }, 100);
     return c.json({ ok: true, message: "restarting (child spawning, parent will exit in ~300ms)" });
+  });
+
+  app.post("/v1/admin/discord/start", async (c) => {
+    if (!deps.discordAdmin) return c.json({ ok: false, error: "discord_admin_not_ready" }, 503);
+    const r = await deps.discordAdmin.start();
+    return c.json(r, r.ok ? 200 : 500);
+  });
+
+  app.post("/v1/admin/discord/stop", async (c) => {
+    if (!deps.discordAdmin) return c.json({ ok: false, error: "discord_admin_not_ready" }, 503);
+    const r = await deps.discordAdmin.stop();
+    return c.json(r, r.ok ? 200 : 500);
+  });
+
+  app.post("/v1/admin/discord/restart", async (c) => {
+    if (!deps.discordAdmin) return c.json({ ok: false, error: "discord_admin_not_ready" }, 503);
+    const r = await deps.discordAdmin.restart();
+    return c.json(r, r.ok ? 200 : 500);
   });
 
   // observability (Excubitor 由来) は内部で /api/v1/... の絶対 path を持つので root mount.

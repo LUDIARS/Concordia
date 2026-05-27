@@ -30,6 +30,10 @@ import {
   pickReviewIntroSeed,
 } from "./triggers/seeds.js";
 import { actionFrequencyMultiplier } from "./shared/quiet-hours.js";
+import { createChildLogger } from "./shared/logger.js";
+
+const dispatcherLog = createChildLogger("dispatcher");
+const VERBOSE = "[verbose-cs-bug]";
 
 const TOPIC_SHIFT_PROBABILITY = 0.7;
 const RANDOM_CHITCHAT_PROBABILITY = 0.05;
@@ -157,13 +161,30 @@ export class Dispatcher {
   }): void {
     if (message.channel === "system") return;
     // 強制ルール: 深夜帯 (23:00–翌05:00) は chat-reply の確率も 1/10 に抑制する.
+    const freq = actionFrequencyMultiplier(this.now());
     const replyProb =
-      (REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0) * actionFrequencyMultiplier(this.now());
+      (REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0) * freq;
 
     const peers = this.deps.sessions.listSessions({ status: "active" });
+    dispatcherLog.info(
+      {
+        message_id: message.id,
+        source_session_id: message.session_id,
+        channel: message.channel,
+        author_label: message.author_label,
+        reply_prob: replyProb,
+        freq_multiplier: freq,
+        active_peer_count: peers.length,
+        active_peer_ids: peers.map((p) => p.id),
+      },
+      `${VERBOSE} dispatcher.onChatPosted entry`,
+    );
+    const enqueued: string[] = [];
+    const skippedSelf: string[] = [];
+    const skippedProb: string[] = [];
     for (const peer of peers) {
-      if (peer.id === message.session_id) continue;
-      if (this.rng() >= replyProb) continue;
+      if (peer.id === message.session_id) { skippedSelf.push(peer.id); continue; }
+      if (this.rng() >= replyProb) { skippedProb.push(peer.id); continue; }
 
       const role = this.refreshRole(peer);
       this.deps.tasks.enqueue({
@@ -181,7 +202,18 @@ export class Dispatcher {
             : "短い reply を 1 文、 ロールのトーンで投稿. AI 同士の対話前提なので人間配慮は不要.",
         },
       });
+      enqueued.push(peer.id);
     }
+    dispatcherLog.info(
+      {
+        message_id: message.id,
+        source_session_id: message.session_id,
+        enqueued_peer_ids: enqueued,
+        skipped_self: skippedSelf,
+        skipped_by_probability: skippedProb,
+      },
+      `${VERBOSE} dispatcher.onChatPosted result`,
+    );
   }
 
   onSessionLost(lost: SessionRow): void {

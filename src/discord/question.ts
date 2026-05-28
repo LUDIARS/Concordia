@@ -10,7 +10,11 @@ import {
   type TextChannel,
 } from "discord.js";
 import type { DiscordCommandDeps } from "./commands.js";
-import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type {
+  DiscordPendingQuestionsRepo,
+  DiscordSessionChannelsRepo,
+  PendingQuestionOption,
+} from "../db/discord-repo.js";
 
 function parseCustomId(customId: string): { questionId: number; answerIndex: number } | null {
   const m = /^q:(\d+):(\d+)$/.exec(customId);
@@ -18,11 +22,34 @@ function parseCustomId(customId: string): { questionId: number; answerIndex: num
   return { questionId: Number(m[1]), answerIndex: Number(m[2]) };
 }
 
-function buildQuestionEmbed(questionId: number, question: string, options: string[]): EmbedBuilder {
+function normalizeOptions(
+  raw: Array<string | { label: string; description?: string }>,
+): PendingQuestionOption[] {
+  return raw
+    .map((o) =>
+      typeof o === "string" ? ({ label: o } as PendingQuestionOption) : ({
+        label: o.label,
+        description: o.description?.trim() ? o.description.trim() : undefined,
+      } as PendingQuestionOption),
+    )
+    .filter((o) => typeof o.label === "string" && o.label.length > 0);
+}
+
+function buildQuestionEmbed(
+  questionId: number,
+  question: string,
+  options: PendingQuestionOption[],
+): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle("AskUserQuestion")
     .setDescription(question)
-    .addFields(options.map((o, i) => ({ name: `${i}`, value: o })))
+    .addFields(
+      options.map((o, i) => ({
+        name: `${i}. ${o.label}`,
+        // description があれば本文に出す。 無ければ label を再掲してフィールド空回避.
+        value: (o.description ?? "—").slice(0, 1024),
+      })),
+    )
     .setFooter({ text: `question_id=${questionId}` })
     .setColor(0xf1c40f);
 }
@@ -34,26 +61,46 @@ export async function postQuestion(
     pendingQuestionsRepo: DiscordPendingQuestionsRepo;
     log: { warn: (m: string) => void };
   },
-  ev: { target_session_id: string; question_id: number; question: string; options: string[] },
+  ev: {
+    target_session_id: string;
+    question_id: number;
+    question: string;
+    options: Array<string | { label: string; description?: string }>;
+  },
 ): Promise<void> {
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   if (!row) return;
   const channel = await input.guild.channels.fetch(row.channel_id);
   if (!channel || channel.type !== ChannelType.GuildText) return;
   const tc = channel as TextChannel;
-  const embed = buildQuestionEmbed(ev.question_id, ev.question, ev.options);
+  const options = normalizeOptions(ev.options);
+  const embed = buildQuestionEmbed(ev.question_id, ev.question, options);
   const components: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];
-  if (ev.options.length <= 5) {
+  if (options.length <= 5) {
     const rowComp = new ActionRowBuilder<ButtonBuilder>();
-    ev.options.forEach((opt, idx) => {
-      rowComp.addComponents(new ButtonBuilder().setCustomId(`q:${ev.question_id}:${idx}`).setLabel(opt.slice(0, 80)).setStyle(ButtonStyle.Secondary));
+    options.forEach((opt, idx) => {
+      rowComp.addComponents(
+        new ButtonBuilder()
+          .setCustomId(`q:${ev.question_id}:${idx}`)
+          .setLabel(opt.label.slice(0, 80))
+          .setStyle(ButtonStyle.Secondary),
+      );
     });
     components.push(rowComp);
   } else {
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`qsel:${ev.question_id}`)
       .setPlaceholder("Select an answer")
-      .addOptions(ev.options.slice(0, 25).map((o, i) => ({ label: o.slice(0, 100), value: String(i) })));
+      .addOptions(
+        options.slice(0, 25).map((o, i) => {
+          const opt: { label: string; value: string; description?: string } = {
+            label: o.label.slice(0, 100),
+            value: String(i),
+          };
+          if (o.description) opt.description = o.description.slice(0, 100);
+          return opt;
+        }),
+      );
     components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
   }
   const msg = await tc.send({ embeds: [embed], components });

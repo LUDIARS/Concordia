@@ -49,7 +49,18 @@ export type ConcordiaEvent =
    * `tool_input` is a slim preview (kept compact for wire / UI).
    */
   | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
-  | { type: "question.posted"; target_session_id: string; question_id: number; question: string; options: string[]; ts: number }
+  | {
+      type: "question.posted";
+      target_session_id: string;
+      question_id: number;
+      question: string;
+      /**
+       * 旧形式 `string[]` も新形式 `{label, description?}[]` も来うる. consumer は両方扱える前提.
+       * (Lictor 経由で来た option は API レイヤで {label, description?} に正規化済み)
+       */
+      options: Array<string | { label: string; description?: string }>;
+      ts: number;
+    }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
   | { type: "ping";             ts: number };
 

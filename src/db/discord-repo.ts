@@ -246,22 +246,71 @@ export interface DiscordPendingQuestionRow {
   ts: number;
 }
 
+/**
+ * Pending question の option entry.
+ *   - 旧形式: `string` (label のみ)
+ *   - 新形式: `{ label, description? }` (Claude AskUserQuestion の option schema)
+ * 内部では常に `{ label, description? }` に正規化して保存する.
+ */
+export interface PendingQuestionOption {
+  label: string;
+  description?: string;
+}
+
 export interface DiscordPendingQuestionsRepo {
-  insert(input: { session_id: string; question: string; options: string[] }): DiscordPendingQuestionRow;
+  insert(input: {
+    session_id: string;
+    question: string;
+    options: Array<PendingQuestionOption | string>;
+  }): DiscordPendingQuestionRow;
   setDiscordMessageId(id: number, discordMessageId: string): void;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
   findById(id: number): DiscordPendingQuestionRow | null;
   findLatestUnanswered(sessionId: string): DiscordPendingQuestionRow | null;
 }
 
+/** options_json を `PendingQuestionOption[]` にパースする (旧形式 string[] も対応). */
+export function parsePendingQuestionOptions(optionsJson: string): PendingQuestionOption[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(optionsJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  const out: PendingQuestionOption[] = [];
+  for (const opt of raw) {
+    if (typeof opt === "string") {
+      if (opt.trim()) out.push({ label: opt.trim() });
+      continue;
+    }
+    if (opt && typeof opt === "object") {
+      const label = (opt as { label?: unknown }).label;
+      const description = (opt as { description?: unknown }).description;
+      if (typeof label === "string" && label.trim()) {
+        const normalized: PendingQuestionOption = { label: label.trim() };
+        if (typeof description === "string" && description.trim()) {
+          normalized.description = description.trim();
+        }
+        out.push(normalized);
+      }
+    }
+  }
+  return out;
+}
+
 export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQuestionsRepo {
   return {
     insert(input) {
       const ts = nowSec();
+      // 旧形式 string も新形式 {label, description?} も受け入れ、 保存時に正規化する.
+      const normalized: PendingQuestionOption[] = input.options
+        .map((o) => (typeof o === "string" ? ({ label: o } as PendingQuestionOption) : o))
+        .filter((o) => typeof o.label === "string" && o.label.trim().length > 0);
       const info = db.prepare(
         `INSERT INTO discord_pending_questions (session_id, question, options_json, ts)
          VALUES (?, ?, ?, ?)`,
-      ).run(input.session_id, input.question, JSON.stringify(input.options), ts);
+      ).run(input.session_id, input.question, JSON.stringify(normalized), ts);
       return this.findById(Number(info.lastInsertRowid))!;
     },
     setDiscordMessageId(id, discordMessageId) {

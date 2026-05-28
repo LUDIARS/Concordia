@@ -15,7 +15,7 @@ import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
-import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
+import { parsePendingQuestionOptions, type DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
@@ -96,9 +96,18 @@ const PermissionResponseSchema = z.object({
 const TitleSuggestionSchema = z.object({
   text: z.string().min(1).max(200),
 });
+// AskUserQuestion option は旧形式 string と新形式 {label, description?} の
+// 両方を受け入れる. 内部 (DB / Discord embed) では正規化された {label, description?} で扱う.
+const PendingQuestionOptionSchema = z.union([
+  z.string().min(1).max(80),
+  z.object({
+    label: z.string().min(1).max(80),
+    description: z.string().min(1).max(200).optional(),
+  }),
+]);
 const PendingQuestionSchema = z.object({
   question: z.string().min(1).max(2000),
-  options: z.array(z.string().min(1).max(80)).min(1).max(25),
+  options: z.array(PendingQuestionOptionSchema).min(1).max(25),
 });
 const AnswerQuestionSchema = z.object({
   question_id: z.number().int().positive(),
@@ -511,9 +520,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const row = deps.pendingQuestions.findById(parsed.data.question_id);
     if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
     if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
-    let options: string[] = [];
-    try { options = JSON.parse(row.options_json) as string[]; } catch { options = []; }
-    const answerText = options[parsed.data.answer_index];
+    const options = parsePendingQuestionOptions(row.options_json);
+    const answerOption = options[parsed.data.answer_index];
+    const answerText = answerOption?.label;
     if (!answerText) return c.json({ error: "answer_index_out_of_range" }, 400);
     deps.pendingQuestions.markAnswered(row.id, parsed.data.answer_index, answerText);
     const ts = nowSec();

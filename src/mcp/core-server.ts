@@ -41,6 +41,17 @@ interface CallResult {
   body: unknown;
 }
 
+// Concordia backend が hang したとき MCP tool call も無限 block しないよう
+// 10s で打ち切る. env CONCORDIA_MCP_FETCH_TIMEOUT_MS で上書き可.
+const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
+
+function fetchTimeoutMs(): number {
+  const raw = process.env.CONCORDIA_MCP_FETCH_TIMEOUT_MS;
+  if (!raw) return DEFAULT_FETCH_TIMEOUT_MS;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_FETCH_TIMEOUT_MS;
+}
+
 export async function callConcordia(
   method: "GET" | "POST",
   path: string,
@@ -53,16 +64,21 @@ export async function callConcordia(
       method,
       headers: { "content-type": "application/json" },
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(fetchTimeoutMs()),
     });
     const text = await res.text();
     let parsed: unknown = text;
     try { parsed = JSON.parse(text); } catch { /* keep as text */ }
     return { ok: res.ok, status: res.status, body: parsed };
   } catch (err) {
+    const e = err as Error;
+    const reason = e.name === "TimeoutError" || e.name === "AbortError"
+      ? `fetch timeout after ${fetchTimeoutMs()}ms`
+      : `fetch failed: ${e.message}`;
     return {
       ok: false,
       status: 0,
-      body: { error: `fetch failed: ${(err as Error).message}` },
+      body: { error: reason },
     };
   }
 }

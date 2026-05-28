@@ -44,7 +44,11 @@ export async function upsertCostChannelMessage(
   lines.push("");
   lines.push("### Claude Code");
   lines.push(`- Tokens: ${fmt(claudeTotals.total)} (in=${fmt(claudeTotals.input)}, cached=${fmt(claudeTotals.cached)}, out=${fmt(claudeTotals.output)})`);
-  lines.push("- 5H リミット残: -");
+  // Claude Code は rate limit を JSONL に書き出さない (Codex の event_msg
+  // type=token_count / rate_limit_snapshot に相当するレコードが無い)。
+  // `claude /cost` 等の CLI 経由でしか取れないので、 ここではプレースホルダ
+  // のままにする。 取得経路ができたら 2 行を差し替える。
+  lines.push("- 5H リミット残: - (Claude API は JSONL に rate limit を含めない)");
   lines.push("- 週間リミット残: -");
   lines.push("");
   lines.push("_セッション単位の表示は省略。プロバイダ別集計のみ表示。_");
@@ -176,16 +180,35 @@ function readCodexUsage(path: string): Totals | null {
 }
 
 function readClaudeUsage(path: string): Totals | null {
+  // Claude Code JSONL の assistant 行サンプル:
+  //   {"parentUuid":"...","isSidechain":false,"message":{"id":"msg_xxx",
+  //    "model":"claude-opus-4-7","role":"assistant","content":[...],
+  //    "usage":{"input_tokens":N,"cache_read_input_tokens":N,
+  //             "cache_creation_input_tokens":N,"output_tokens":N}}, ...}
+  //
+  // 旧実装は `o.requestId` を dedup key にしていたが、 そのフィールドは
+  // 存在しない (確認: 2026-05-27 実機 JSONL)。 全 line が seen check で
+  // 弾かれて usage が 1 件も加算されない → Tokens=0 になっていた。
+  //
+  // 真の per-message 識別子は `o.message.id` (msg_xxx) で、 同じ API call
+  // が複数行に複製された場合の重複加算もこれで防げる。 fallback として
+  // 上位の `o.uuid` (per-line uuid) を使うことで、 message.id が無い行
+  // (旧 schema / 部分行) も同一行を二重に数えない。
   const seen = new Set<string>();
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
   for (const line of readLines(path)) {
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
-    const reqId = typeof o?.requestId === "string" ? o.requestId : null;
-    if (!reqId || seen.has(reqId)) continue;
     const u = o?.message?.usage;
     if (!u) continue;
-    seen.add(reqId);
+    const dedupId =
+      (typeof o?.message?.id === "string" && o.message.id) ||
+      (typeof o?.uuid === "string" && o.uuid) ||
+      null;
+    if (dedupId) {
+      if (seen.has(dedupId)) continue;
+      seen.add(dedupId);
+    }
     out.input += nn(u.input_tokens);
     out.cached += nn(u.cache_read_input_tokens) + nn(u.cache_creation_input_tokens);
     out.output += nn(u.output_tokens);

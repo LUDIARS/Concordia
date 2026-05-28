@@ -8,6 +8,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
+import { shouldDropForRelay } from "./egress-filters.js";
 
 export interface EgressDeps {
   guild: Guild;
@@ -129,6 +130,13 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +
       `kind=${ev.kind} payload=${previewPayload(ev.payload)}`,
     );
+    return;
+  }
+
+  // text/summary 本文ベースの drop ルール (egress-filters.ts). Codex の
+  // guardian JSON 等、 人間向けでないペイロードを除外する。
+  if (shouldDropForRelay(text)) {
+    deps.log.info(`egress: transcript.frame dropped by content filter session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;
   }
 

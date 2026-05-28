@@ -16,6 +16,20 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("delegation/service");
+
+/// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
+/// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
+function substituteVars(s: string, args: Record<string, unknown>): string {
+  return s.replace(/\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]*))?\}/g,
+    (_m, name: string, fb?: string) => {
+      const v = args[name];
+      if (v !== undefined && v !== null && v !== "") return String(v);
+      return fb ?? "";
+    });
+}
 
 export interface RenderResult {
   rendered: string;
@@ -131,7 +145,24 @@ export class DelegationService {
       return { ok: false, error: "missing required args", details: render.missing };
     }
     const provider = tpl.target_provider as DelegationProvider;
-    const cwd = input.cwd ?? tpl.default_cwd ?? undefined;
+    // cwd 解決: 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
+    // → 3) どちらも無ければ undefined (= wt が user-home で開く)。 旧実装は
+    // template default が `null` 固定だったため (3) ばかりが当たり、 Codex タブが
+    // C:\Users\<user> で起動してプロジェクト外になっていた。
+    let cwd: string | undefined = input.cwd ?? undefined;
+    if (!cwd && tpl.default_cwd) {
+      const expanded = substituteVars(tpl.default_cwd, input.args ?? {}).trim();
+      cwd = expanded === "" ? undefined : expanded;
+    }
+    log.info({
+      call_name: input.call_name,
+      template_id: tpl.id,
+      provider,
+      cwd,
+      caller_cwd: input.cwd ?? null,
+      template_default_cwd: tpl.default_cwd ?? null,
+      triggered_by: input.triggered_by ?? null,
+    }, "delegation invoke received");
 
     // 1) write prompt to file (pre-allocate run id so file name == row id)
     mkdirSync(this.promptsDir, { recursive: true });
@@ -168,10 +199,20 @@ export class DelegationService {
         spawnPid = result.pid;
         spawnCommand = result.command;
         status = "spawned";
+        log.info({
+          run_id: runId, call_name: input.call_name, provider, cwd,
+          spawn_pid: spawnPid, prompt_file: promptPath,
+        }, "delegation spawn ok");
       } else {
         status = "spawn_failed";
         spawnError = result.error;
+        log.warn({
+          run_id: runId, call_name: input.call_name, provider, cwd,
+          error: spawnError,
+        }, "delegation spawn failed");
       }
+    } else {
+      log.info({ run_id: runId, call_name: input.call_name }, "delegation render-only (spawn=false)");
     }
 
     // 3) record run (pass pre-allocated runId so prompt_file_path matches run.id)

@@ -32,7 +32,9 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       { name: "target_repo", type: "string", required: true, description: "Absolute path of the target repository" },
       { name: "context_extra", type: "string", required: false, description: "Optional extra context to prepend" },
     ],
-    default_cwd: null,
+    // ${target_repo} は service.ts:substituteVars が invoke 時に args から展開する。
+    // 旧 null だと wt -d が抜けて Codex が user-home で起動していた (cwd bug)。
+    default_cwd: "${target_repo}",
     is_active: true,
   },
   {
@@ -59,7 +61,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       { name: "target_repo", type: "string", required: true, description: "Absolute path of the target repository" },
       { name: "reproduce_steps", type: "string", required: false, description: "How to reproduce (optional)" },
     ],
-    default_cwd: null,
+    default_cwd: "${target_repo}",
     is_active: true,
   },
   {

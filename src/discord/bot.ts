@@ -128,8 +128,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           log,
         }, row.session_id);
       }
-      // 起動時に状態カテゴリの orphan channel を一括掃除 (cost + 既知 session 以外)
-      void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, log })
+      // 起動時に状態カテゴリの orphan channel を一括掃除 (cost + session channel
+      // + status-card channel 以外). configRepo を渡すのは status-card channel の
+      // ID 一覧を読むため (これ無しだと稼働中 card を消して落ちる)。
+      void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
         .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
         .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));

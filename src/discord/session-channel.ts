@@ -14,10 +14,14 @@ import type { Guild } from "discord.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type {
+  DiscordConfigRepo,
   DiscordSessionChannelsRepo,
   DiscordSessionStatus,
 } from "../db/discord-repo.js";
 import { applyStatusEmoji, sessionChannelSlug } from "./formatter.js";
+
+/** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
+const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
 
 const RENAME_COOLDOWN_SEC = 5 * 60;
 
@@ -125,21 +129,36 @@ export async function onSessionStatusChanged(
 }
 
 /**
- * 状態カテゴリの整理: cost + active/lost session channel 以外を削除する.
+ * 状態カテゴリの整理: cost + active/lost session channel + status-card channel
+ * 以外を削除する.
+ *
+ * status-card channel (\`session-status-card.ts\` が `session_status_channel_id:*`
+ * key で configRepo に持つ \`<base>-status\` channel) は、 session_channels テーブル
+ * には載っていないので、 configRepo を見て known set に追加する。
+ * これを忘れると起動時 boot sweep が **稼働中** の status-card channel を消し、
+ * 直後の \`upsertSessionStatusCard\` が Unknown Channel で死ぬ (2026-05-28 実害)。
+ *
  * sweeper から定期実行する想定. 過去レイアウトの sessions / archive カテゴリの
  * channel は触らない (新規は state にしか生成しない).
  */
-export async function pruneStatusCategoryChannels(deps: SessionChannelDeps): Promise<{
+export async function pruneStatusCategoryChannels(
+  deps: SessionChannelDeps & { configRepo: DiscordConfigRepo },
+): Promise<{
   scanned: number;
   deleted: number;
 }> {
   const allChannels = deps.guild.channels.cache.filter(
     (c) => c.parentId === deps.layout.statusCategoryId,
   );
-  const knownChannelIds = new Set(
+  const knownChannelIds = new Set<string>(
     deps.repo.listAll().map((r) => r.channel_id),
   );
   knownChannelIds.add(deps.layout.costChannelId);
+  // status-card channel は configRepo に保存されている (session_status_channel_id:*).
+  for (const [key, value] of Object.entries(deps.configRepo.all())) {
+    if (!key.startsWith(STATUS_CARD_CHANNEL_KEY_PREFIX)) continue;
+    if (value) knownChannelIds.add(value);
+  }
   let deleted = 0;
   for (const ch of allChannels.values()) {
     if (knownChannelIds.has(ch.id)) continue;

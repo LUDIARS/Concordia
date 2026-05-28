@@ -10,6 +10,7 @@ import spawnCommand from "./commands/spawn.js";
 import skillCommand from "./commands/skill.js";
 import statCommand from "./commands/stat.js";
 import endSessionCommand from "./commands/end-session.js";
+import enterCommand from "./commands/enter.js";
 import { dispatchQuestionInteraction } from "./question.js";
 
 export interface DiscordCommandDeps {
@@ -24,15 +25,13 @@ export interface DiscordCommandSpec {
   autocomplete?: (interaction: AutocompleteInteraction, deps: DiscordCommandDeps) => Promise<void>;
 }
 
-// User-facing slash commands. Pruned 2026-05-27 to: end-session / stat / spawn / skill.
-// Earlier set (inject / keys / chitchat / consultation / answer) was redundant with
-// either the button-driven question UI (answer) or out-of-band paths (chitchat /
-// consultation post via REST; keys / inject was rarely useful in practice).
+// User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
   skillCommand,
   statCommand,
   endSessionCommand,
+  enterCommand,
 ];
 
 export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {

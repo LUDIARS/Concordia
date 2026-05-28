@@ -4,6 +4,10 @@ import { join } from "node:path";
 import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
+import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const oauthUsageLog = createChildLogger("cost-channel.oauth-usage");
 
 const COST_MESSAGE_KEY = "cost_status_message_id";
 
@@ -17,6 +21,8 @@ type Totals = {
 type Rate = {
   used5h: number | null;
   usedWeekly: number | null;
+  reset5hAt: number | null;
+  resetWeeklyAt: number | null;
 };
 
 export async function upsertCostChannelMessage(
@@ -32,6 +38,9 @@ export async function upsertCostChannelMessage(
   const codexTotals = aggregate(codex);
   const claudeTotals = aggregate(claude);
   const codexRate = aggregateCodexRate(codex);
+  // Claude Code は JSONL に rate-limit を書かないので、 claude.ai OAuth の
+  // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.
+  const claudeUsage = await fetchClaudeOAuthUsage({ log: oauthUsageLog });
 
   const lines: string[] = [];
   lines.push("## コスト / 使用量");
@@ -41,15 +50,35 @@ export async function upsertCostChannelMessage(
   lines.push(`- Tokens: ${fmt(codexTotals.total)} (in=${fmt(codexTotals.input)}, cached=${fmt(codexTotals.cached)}, out=${fmt(codexTotals.output)})`);
   lines.push(`- 5H リミット残: ${pct(remain(codexRate.used5h))}`);
   lines.push(`- 週間リミット残: ${pct(remain(codexRate.usedWeekly))}`);
+  lines.push(`- 5H リセット: ${ts(codexRate.reset5hAt)}`);
+  lines.push(`- 週間リセット: ${ts(codexRate.resetWeeklyAt)}`);
   lines.push("");
   lines.push("### Claude Code");
   lines.push(`- Tokens: ${fmt(claudeTotals.total)} (in=${fmt(claudeTotals.input)}, cached=${fmt(claudeTotals.cached)}, out=${fmt(claudeTotals.output)})`);
-  // Claude Code は rate limit を JSONL に書き出さない (Codex の event_msg
-  // type=token_count / rate_limit_snapshot に相当するレコードが無い)。
-  // `claude /cost` 等の CLI 経由でしか取れないので、 ここではプレースホルダ
-  // のままにする。 取得経路ができたら 2 行を差し替える。
-  lines.push("- 5H リミット残: - (Claude API は JSONL に rate limit を含めない)");
-  lines.push("- 週間リミット残: -");
+  // 残量は claude.ai OAuth `/api/oauth/usage` 由来. accessToken は
+  // ~/.claude/.credentials.json から都度読む (DB に保存しない)。
+  // 取得失敗時は "-" にフォールバック.
+  if (claudeUsage) {
+    lines.push(`- 5H リミット残: ${pct(remain(claudeUsage.fiveHour?.utilization ?? null))}`);
+    lines.push(`- 週間リミット残: ${pct(remain(claudeUsage.sevenDay?.utilization ?? null))}`);
+    lines.push(`- 5H リセット: ${ts(claudeUsage.fiveHour?.resetsAtSec ?? null)}`);
+    lines.push(`- 週間リセット: ${ts(claudeUsage.sevenDay?.resetsAtSec ?? null)}`);
+    // モデル別 7日: Sonnet / Opus は Max 20x など上位プランで個別 quota あり
+    if (claudeUsage.sevenDaySonnet) {
+      lines.push(`- 週間 Sonnet 残: ${pct(remain(claudeUsage.sevenDaySonnet.utilization))} (リセット ${ts(claudeUsage.sevenDaySonnet.resetsAtSec)})`);
+    }
+    if (claudeUsage.sevenDayOpus) {
+      lines.push(`- 週間 Opus 残: ${pct(remain(claudeUsage.sevenDayOpus.utilization))} (リセット ${ts(claudeUsage.sevenDayOpus.resetsAtSec)})`);
+    }
+    if (claudeUsage.extraCredit.isEnabled && claudeUsage.extraCredit.utilization !== null) {
+      lines.push(`- 追加クレジット使用率: ${pct(claudeUsage.extraCredit.utilization)}`);
+    }
+  } else {
+    lines.push("- 5H リミット残: - (OAuth usage 取得失敗)");
+    lines.push("- 週間リミット残: -");
+    lines.push("- 5H リセット: -");
+    lines.push("- 週間リセット: -");
+  }
   lines.push("");
   lines.push("_セッション単位の表示は省略。プロバイダ別集計のみ表示。_");
   const body = lines.join("\n").slice(0, 3900);
@@ -82,6 +111,8 @@ function aggregate(sessions: SessionRow[]): Totals {
 function aggregateCodexRate(sessions: SessionRow[]): Rate {
   let minRemain5h: number | null = null;
   let minRemainWeekly: number | null = null;
+  let minReset5h: number | null = null;
+  let minResetWeekly: number | null = null;
   for (const s of sessions) {
     const r = readCodexRate(s);
     if (!r) continue;
@@ -89,10 +120,14 @@ function aggregateCodexRate(sessions: SessionRow[]): Rate {
     const rw = remain(r.usedWeekly);
     if (r5 !== null) minRemain5h = minRemain5h === null ? r5 : Math.min(minRemain5h, r5);
     if (rw !== null) minRemainWeekly = minRemainWeekly === null ? rw : Math.min(minRemainWeekly, rw);
+    if (r.reset5hAt !== null) minReset5h = minReset5h === null ? r.reset5hAt : Math.min(minReset5h, r.reset5hAt);
+    if (r.resetWeeklyAt !== null) minResetWeekly = minResetWeekly === null ? r.resetWeeklyAt : Math.min(minResetWeekly, r.resetWeeklyAt);
   }
   return {
     used5h: minRemain5h === null ? null : 100 - minRemain5h,
     usedWeekly: minRemainWeekly === null ? null : 100 - minRemainWeekly,
+    reset5hAt: minReset5h,
+    resetWeeklyAt: minResetWeekly,
   };
 }
 
@@ -121,6 +156,8 @@ function readCodexRate(s: SessionRow): Rate | null {
     latest = {
       used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),
       usedWeekly: nnull(o?.payload?.rate_limits?.secondary?.used_percent),
+      reset5hAt: nnEpoch(o?.payload?.rate_limits?.primary?.resets_at),
+      resetWeeklyAt: nnEpoch(o?.payload?.rate_limits?.secondary?.resets_at),
     };
   }
   return latest;
@@ -135,6 +172,12 @@ function findCodexLog(s: SessionRow): string | null {
     if (!p.endsWith(".jsonl")) return;
     const head = readCodexHead(p);
     if (!head) return;
+    if (head.id === s.id) {
+      bestScore = Number.POSITIVE_INFINITY;
+      bestPath = p;
+      return;
+    }
+    if (bestScore === Number.POSITIVE_INFINITY) return;
     if (head.cwd && head.cwd !== s.repo_path) return;
     const score = head.started ? -Math.abs(head.started - s.started_at) : -1e9;
     if (score > bestScore) {
@@ -149,6 +192,8 @@ function findClaudeLog(s: SessionRow): string | null {
   const encoded = s.repo_path.replace(/[\\/:.]+/g, "-").replace(/^-+|-+$/g, "");
   const dir = join(homedir(), ".claude", "projects", encoded);
   if (!existsSync(dir)) return null;
+  const exact = join(dir, `${s.id}.jsonl`);
+  if (existsSync(exact)) return exact;
   const files = readdirSync(dir).filter((n) => n.endsWith(".jsonl")).map((n) => join(dir, n));
   if (files.length === 0) return null;
   let best: { p: string; score: number } | null = null;
@@ -217,14 +262,15 @@ function readClaudeUsage(path: string): Totals | null {
   return out.total > 0 || out.cached > 0 ? out : null;
 }
 
-function readCodexHead(path: string): { cwd: string | null; started: number | null } | null {
+function readCodexHead(path: string): { id: string | null; cwd: string | null; started: number | null } | null {
   for (const line of readLines(path, 20)) {
     let o: any;
     try { o = JSON.parse(line); } catch { continue; }
     if (o?.type !== "session_meta") continue;
+    const id = typeof o?.payload?.id === "string" ? o.payload.id : null;
     const cwd = typeof o?.payload?.cwd === "string" ? o.payload.cwd : null;
     const tsRaw = typeof o?.payload?.timestamp === "string" ? o.payload.timestamp : null;
-    return { cwd, started: tsRaw ? Math.floor(new Date(tsRaw).getTime() / 1000) : null };
+    return { id, cwd, started: tsRaw ? Math.floor(new Date(tsRaw).getTime() / 1000) : null };
   }
   return null;
 }
@@ -265,6 +311,10 @@ function nnull(v: unknown): number | null {
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
+function nnEpoch(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
+}
+
 function remain(used: number | null): number | null {
   if (used === null) return null;
   return Math.max(0, Math.min(100, 100 - used));
@@ -276,4 +326,8 @@ function pct(v: number | null): string {
 
 function fmt(n: number): string {
   return new Intl.NumberFormat("en-US").format(n);
+}
+
+function ts(epochSec: number | null): string {
+  return epochSec === null ? "-" : `<t:${epochSec}:f> (<t:${epochSec}:R>)`;
 }

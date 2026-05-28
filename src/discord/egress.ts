@@ -38,11 +38,11 @@ export function handleEvent(deps: EgressDeps, ev: ConcordiaEvent): void {
 
 async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "chat.posted" }>): Promise<void> {
   deps.log.info(
-    `[verbose-cs-bug] egress.handleChatPosted entry message_id=${ev.message_id} ev_session_id=${ev.session_id ?? "null"} ev_channel=${ev.channel} ev_author=${ev.author_label}`,
+    `egress.handleChatPosted entry message_id=${ev.message_id} ev_session_id=${ev.session_id ?? "null"} ev_channel=${ev.channel} ev_author=${ev.author_label}`,
   );
   const row = deps.chatRepo.findById(ev.message_id);
   if (!row) {
-    deps.log.warn(`[verbose-cs-bug] egress.handleChatPosted row missing message_id=${ev.message_id}`);
+    deps.log.warn(`egress.handleChatPosted row missing message_id=${ev.message_id}`);
     return;
   }
   // Discord ingress 経由で入った chat は既に元投稿として Discord 側に表示
@@ -66,20 +66,20 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     ? metaChannelId
     : (sessionRow ? sessionRow.channel_id : metaChannelId);
   deps.log.info(
-    `[verbose-cs-bug] egress.handleChatPosted routing message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
+    `egress.handleChatPosted routing message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
     `session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
     `meta_kind=${metaKind} meta_channel=${metaChannelId ?? "null"} chosen=${channelId ?? "null"} ` +
     `policy=${forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
   );
   if (!channelId) {
-    deps.log.warn(`[verbose-cs-bug] egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
+    deps.log.warn(`egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
     return;
   }
   const client = sessionRow && sessionId
     ? await deps.webhooks.getForSession(sessionId)
     : await deps.webhooks.getForChannel(channelId);
   if (!client) {
-    deps.log.warn(`[verbose-cs-bug] egress.handleChatPosted no webhook client message_id=${row.id} channel=${channelId} sessionRow=${sessionRow ? "yes" : "no"}`);
+    deps.log.warn(`egress.handleChatPosted no webhook client message_id=${row.id} channel=${channelId} sessionRow=${sessionRow ? "yes" : "no"}`);
     return;
   }
 
@@ -142,7 +142,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
 
   const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   deps.log.info(
-    `[verbose-cs-bug] egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +
+    `egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +
     `role=${role} session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
     `webhook_id=${sessionRow?.webhook_id ?? "null"}`,
   );

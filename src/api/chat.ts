@@ -11,7 +11,6 @@ import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("chat-api");
-const VERBOSE = "[verbose-cs-bug]";
 
 const PostSchema = z.object({
   channel: z.enum(["chitchat", "consultation", "報告", "system"]),
@@ -38,7 +37,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     if (!parsed.success) {
       log.info(
         { body_keys: body && typeof body === "object" ? Object.keys(body) : null, err: parsed.error.message },
-        `${VERBOSE} chat POST reject (invalid body)`,
+        "chat POST reject (invalid body)",
       );
       return c.json({ error: parsed.error.message }, 400);
     }
@@ -57,7 +56,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
         actionable,
         scope,
       },
-      `${VERBOSE} chat POST received`,
+      "chat POST received",
     );
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
@@ -70,7 +69,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     });
     log.info(
       { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label },
-      `${VERBOSE} chat POST inserted`,
+      "chat POST inserted",
     );
 
     deps.dispatcher.onChatPosted({
@@ -129,7 +128,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
         actionable,
         scope,
       },
-      `${VERBOSE} chat reply POST received`,
+      "chat reply POST received",
     );
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
@@ -142,7 +141,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     });
     log.info(
       { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label, in_reply_to: msg.in_reply_to },
-      `${VERBOSE} chat reply POST inserted`,
+      "chat reply POST inserted",
     );
     deps.dispatcher.onChatPosted({
       id: msg.id,

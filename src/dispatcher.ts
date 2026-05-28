@@ -33,7 +33,6 @@ import { actionFrequencyMultiplier } from "./shared/quiet-hours.js";
 import { createChildLogger } from "./shared/logger.js";
 
 const dispatcherLog = createChildLogger("dispatcher");
-const VERBOSE = "[verbose-cs-bug]";
 
 const TOPIC_SHIFT_PROBABILITY = 0.7;
 const RANDOM_CHITCHAT_PROBABILITY = 0.05;
@@ -177,7 +176,7 @@ export class Dispatcher {
         active_peer_count: peers.length,
         active_peer_ids: peers.map((p) => p.id),
       },
-      `${VERBOSE} dispatcher.onChatPosted entry`,
+      "dispatcher.onChatPosted entry",
     );
     const enqueued: string[] = [];
     const skippedSelf: string[] = [];
@@ -212,7 +211,7 @@ export class Dispatcher {
         skipped_self: skippedSelf,
         skipped_by_probability: skippedProb,
       },
-      `${VERBOSE} dispatcher.onChatPosted result`,
+      "dispatcher.onChatPosted result",
     );
   }
 

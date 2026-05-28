@@ -72,6 +72,8 @@ export interface DiscordSessionChannelsRepo {
    */
   tryClaimRename(sessionId: string, cooldownSec: number, now?: number): boolean;
   listActive(): DiscordSessionChannelRow[];
+  listAll(): DiscordSessionChannelRow[];
+  deleteBySessionId(sessionId: string): void;
 }
 
 export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChannelsRepo {
@@ -135,6 +137,14 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       return db
         .prepare("SELECT * FROM discord_session_channels WHERE status = 'active'")
         .all() as DiscordSessionChannelRow[];
+    },
+    listAll() {
+      return db
+        .prepare("SELECT * FROM discord_session_channels")
+        .all() as DiscordSessionChannelRow[];
+    },
+    deleteBySessionId(sessionId) {
+      db.prepare("DELETE FROM discord_session_channels WHERE session_id = ?").run(sessionId);
     },
   };
 }

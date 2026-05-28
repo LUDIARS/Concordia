@@ -17,7 +17,12 @@ import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
 import { handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged } from "./session-channel.js";
+import {
+  onSessionRegistered,
+  onSessionStatusChanged,
+  onSessionTitleChanged,
+  pruneStatusCategoryChannels,
+} from "./session-channel.js";
 import { upsertSessionStatusCard } from "./session-status-card.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { WebhookPool } from "./webhook-pool.js";
@@ -123,6 +128,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           log,
         }, row.session_id);
       }
+      // 起動時に状態カテゴリの orphan channel を一括掃除 (cost + 既知 session 以外)
+      void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, log })
+        .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
+        .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
     } catch (e) {
       log.error(`ready handler failed: ${(e as Error).message}`);

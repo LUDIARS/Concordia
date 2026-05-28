@@ -1,5 +1,11 @@
 // session.registered / lost / ended に応じて Discord channel を CRUD する.
 //
+// レイアウト方針 (2026-05-28 〜):
+//   - 「状態」 カテゴリ = cost + active/lost セッション channel のみ
+//   - 「閉じた」 (ended) セッションは channel ごと **削除** (archive 移動はしない)
+//   - sessions / archive カテゴリは過去互換のために残置するが、 新規 channel は
+//     state カテゴリにのみ作る
+//
 // 5min cooldown (実測値は 5-10 分。 Discord API は 2 rename / 10min と公称) を
 // DB の last_rename_ts で守る. cooldown 内の rename は skip され、 次回 event
 // で再試行される. 短期 idle↔active 振動は emoji 変更しない (= rename しない).
@@ -36,7 +42,7 @@ export async function onSessionRegistered(
     const created = await deps.guild.channels.create({
       name,
       type: ChannelType.GuildText,
-      parent: deps.layout.sessionsCategoryId,
+      parent: deps.layout.statusCategoryId,
       topic: input.personaDisplayName
         ? `${input.personaDisplayName} — session ${input.sessionId}`
         : `session ${input.sessionId}`,
@@ -52,7 +58,12 @@ export async function onSessionRegistered(
   }
 }
 
-/** session.lost / session.ended → emoji 変更 + 必要なら archive 移動. */
+/**
+ * session.lost / session.ended に応じた channel 操作.
+ *  - ended → channel ごと削除 + DB row 削除
+ *  - lost  → emoji だけ更新 (状態カテゴリに留める)
+ *  - active への復帰 → emoji 更新 (状態カテゴリにいる前提)
+ */
 export async function onSessionStatusChanged(
   deps: SessionChannelDeps,
   input: { sessionId: string; status: DiscordSessionStatus },
@@ -61,7 +72,24 @@ export async function onSessionStatusChanged(
   if (!row) return;
   if (row.status === input.status) return;
 
-  // DB の status は先に更新 (後続の cooldown で rename が成功しなくても status は正しい)
+  // ended は削除フロー (rename cooldown を経由しない)
+  if (input.status === "ended") {
+    const ch = deps.guild.channels.cache.get(row.channel_id);
+    try {
+      if (ch) {
+        await ch.delete(`session ${input.sessionId} ended`);
+        deps.log.info(`session-channel: deleted #${row.channel_id} for ended ${input.sessionId}`);
+      }
+    } catch (e) {
+      deps.log.warn(
+        `session-channel: delete failed for ${input.sessionId}: ${(e as Error).message}`,
+      );
+    }
+    deps.repo.deleteBySessionId(input.sessionId);
+    return;
+  }
+
+  // それ以外 (active <-> lost) は emoji rename のみ. 状態カテゴリに留める.
   deps.repo.setStatus(input.sessionId, input.status);
 
   // rename rate limit guard
@@ -79,19 +107,53 @@ export async function onSessionStatusChanged(
   }
 
   const newName = applyStatusEmoji(ch.name, input.status);
-  const parentId =
-    input.status === "ended" ? deps.layout.archiveCategoryId : deps.layout.sessionsCategoryId;
 
   try {
-    await ch.edit({
+    // 状態カテゴリに無い channel (古いレイアウトの遺物) はついでに移動する
+    const patch: { name: string; parent?: string; reason: string } = {
       name: newName,
-      parent: parentId,
       reason: `session ${input.sessionId} → ${input.status}`,
-    });
-    deps.log.info(`session-channel: ${input.sessionId} renamed to #${newName} (parent=${parentId})`);
+    };
+    if (ch.parentId !== deps.layout.statusCategoryId) {
+      patch.parent = deps.layout.statusCategoryId;
+    }
+    await ch.edit(patch);
+    deps.log.info(`session-channel: ${input.sessionId} renamed to #${newName}`);
   } catch (e) {
     deps.log.warn(`session-channel: rename failed for ${input.sessionId}: ${(e as Error).message}`);
   }
+}
+
+/**
+ * 状態カテゴリの整理: cost + active/lost session channel 以外を削除する.
+ * sweeper から定期実行する想定. 過去レイアウトの sessions / archive カテゴリの
+ * channel は触らない (新規は state にしか生成しない).
+ */
+export async function pruneStatusCategoryChannels(deps: SessionChannelDeps): Promise<{
+  scanned: number;
+  deleted: number;
+}> {
+  const allChannels = deps.guild.channels.cache.filter(
+    (c) => c.parentId === deps.layout.statusCategoryId,
+  );
+  const knownChannelIds = new Set(
+    deps.repo.listAll().map((r) => r.channel_id),
+  );
+  knownChannelIds.add(deps.layout.costChannelId);
+  let deleted = 0;
+  for (const ch of allChannels.values()) {
+    if (knownChannelIds.has(ch.id)) continue;
+    try {
+      await ch.delete("status-category sweep (orphan)");
+      deleted += 1;
+      deps.log.info(`session-channel: pruned orphan #${ch.name} (${ch.id}) from status category`);
+    } catch (e) {
+      deps.log.warn(
+        `session-channel: prune failed for ${ch.id}: ${(e as Error).message}`,
+      );
+    }
+  }
+  return { scanned: allChannels.size, deleted };
 }
 
 /** /rename で決まったタイトルを Discord 側にも反映する (topic 更新)。 */

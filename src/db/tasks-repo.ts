@@ -159,6 +159,22 @@ export class TasksRepo {
   }
 
   /**
+   * 指定 session の **未配信** (delivered_at IS NULL) かつ **未期限切れ** な
+   * pending task の数. session-status-card で「Concordia から待たせている
+   * 依頼の件数」 を表示する用途.
+   */
+  countUndeliveredForSession(sessionId: string, now?: number): number {
+    const t = now ?? Math.floor(Date.now() / 1000);
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM pending_tasks
+         WHERE session_id = ? AND delivered_at IS NULL AND expires_at > ?`,
+      )
+      .get(sessionId, t) as { n: number };
+    return row.n;
+  }
+
+  /**
    * 指定 session の指定 kind で「未配信 (delivered_at IS NULL) かつ未失効」 の
    * pending task が存在するか. stat-collect の二重 enqueue 抑止などに使う.
    */

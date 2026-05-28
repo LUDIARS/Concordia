@@ -174,6 +174,7 @@ export async function startBackend(): Promise<BackendHandle> {
     chatRepo: chat,
     sessionsRepo: repo,
     sessionTaskRecordsRepo: sessionTaskRecords,
+    tasksRepo: tasks,
     personasRepo: personas,
     concordiaUrl: publicUrl,
   };

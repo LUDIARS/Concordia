@@ -4,6 +4,7 @@ import type { ChatRepo } from "../db/chat-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
+import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import {
@@ -46,6 +47,8 @@ export interface DiscordBotDeps {
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
   sessionTaskRecordsRepo: SessionTaskRecordsRepo;
+  /** Concordia の依頼 (chat-reply / title-suggest 等の pending tasks) の集計に使う. */
+  tasksRepo: TasksRepo;
   personasRepo: PersonasRepo;
   concordiaUrl: string;
 }
@@ -124,6 +127,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           sessionChannelsRepo,
           sessionsRepo: deps.sessionsRepo,
           sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+          tasksRepo: deps.tasksRepo,
           personasRepo: deps.personasRepo,
           log,
         }, row.session_id);
@@ -204,6 +208,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         sessionChannelsRepo,
         sessionsRepo: deps.sessionsRepo,
         sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
       }, ev.session_id);
@@ -218,6 +223,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         sessionChannelsRepo,
         sessionsRepo: deps.sessionsRepo,
         sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
       }, ev.session_id);
@@ -232,6 +238,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         sessionChannelsRepo,
         sessionsRepo: deps.sessionsRepo,
         sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
       }, ev.session_id);
@@ -245,6 +252,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         sessionChannelsRepo,
         sessionsRepo: deps.sessionsRepo,
         sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
       }, ev.session_id);
@@ -316,6 +324,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           sessionChannelsRepo,
           sessionsRepo: deps.sessionsRepo,
           sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+          tasksRepo: deps.tasksRepo,
           personasRepo: deps.personasRepo,
           log,
         }, ev.session_id);
@@ -330,6 +339,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         sessionChannelsRepo,
         sessionsRepo: deps.sessionsRepo,
         sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+        tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
       }, ev.session_id);

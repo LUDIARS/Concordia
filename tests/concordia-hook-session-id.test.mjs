@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   resolveSessionId,
+  pickActiveSessionId,
   resolvePromptText,
   resolveEditTarget,
 } from "../tools/concordia-hook-resolver.mjs";
@@ -47,6 +48,46 @@ describe("concordia-hook resolveSessionId", () => {
   it("env が undefined でも落ちない", () => {
     const ctx = { session_id: "claude-uuid-1234" };
     expect(resolveSessionId(ctx, undefined)).toBe("claude-uuid-1234");
+  });
+});
+
+describe("concordia-hook pickActiveSessionId (混線対策)", () => {
+  it("非 Lictor + 共有 env: 自分の ctx.session_id が active なら共有 env を無視して採用", async () => {
+    // 再現: CONCORDIA_SESSION_ID を全タブで共有してしまっている状況。
+    // このタブの実セッションは ctx.session_id (登録済 active)。 共有 env の方を
+    // 拾うと別タブの通知を混線して受け取ってしまうので ctx.session_id を採る。
+    const ctx = { session_id: "my-own-session" };
+    const env = { CONCORDIA_SESSION_ID: "other-tab-shared-session" };
+    const active = new Set(["my-own-session", "other-tab-shared-session"]);
+    const isActive = async (id) => active.has(id);
+    expect(await pickActiveSessionId(ctx, env, isActive)).toBe("my-own-session");
+  });
+
+  it("Lictor 配下: ctx.session_id (未登録) は非 active → CONCORDIA_SESSION_ID に落ちる", async () => {
+    const ctx = { session_id: "claude-internal-uuid" };
+    const env = { CONCORDIA_SESSION_ID: "lictor-xxxx", CLAUDE_SESSION_ID: "claude-internal-uuid" };
+    const active = new Set(["lictor-xxxx"]); // claude UUID は未登録
+    const isActive = async (id) => active.has(id);
+    expect(await pickActiveSessionId(ctx, env, isActive)).toBe("lictor-xxxx");
+  });
+
+  it("どの候補も active でなければ null (呼び出し側が純粋 resolver にフォールバック)", async () => {
+    const ctx = { session_id: "a" };
+    const env = { CONCORDIA_SESSION_ID: "b", CLAUDE_SESSION_ID: "c" };
+    const isActive = async () => false;
+    expect(await pickActiveSessionId(ctx, env, isActive)).toBeNull();
+  });
+
+  it("候補は重複排除され、 空文字/欠落は無視される", async () => {
+    const calls = [];
+    const ctx = { session_id: "" };
+    const env = { CONCORDIA_SESSION_ID: "dup", CLAUDE_SESSION_ID: "dup" };
+    const isActive = async (id) => {
+      calls.push(id);
+      return false;
+    };
+    await pickActiveSessionId(ctx, env, isActive);
+    expect(calls).toEqual(["dup"]); // 空文字は除外、 dup は 1 回だけ
   });
 });
 

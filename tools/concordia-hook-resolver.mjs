@@ -19,6 +19,40 @@ export function resolveSessionId(ctx, env) {
 }
 
 /**
+ * Active 判定で候補から正しい session ID を選ぶ (混線対策).
+ *
+ * 問題: CONCORDIA_SESSION_ID を shell profile 等でグローバルに export していると、
+ * 同ウインドウ内の全タブが同じ env を継承し、 全タブが同一 session の
+ * pending-tasks を pull → 「別セッション宛の通知が全タブに飛ぶ」 混線が起きる。
+ *
+ * 対策: 候補を **ctx.session_id (hook 1 回ごとに固有) を最優先** に並べ、
+ * Concordia が active と確認できた最初の候補を採用する。
+ *   - 非 Lictor (plain claude/codex): ctx.session_id が登録済 active → 共有 env を
+ *     無視して自分の session を正しく引く。
+ *   - Lictor 配下: ctx.session_id は未登録の Claude 内部 UUID なので active 判定が
+ *     false → CONCORDIA_SESSION_ID (lictor-xxx, active) にフォールバック。
+ *     これにより PR #35 の「Lictor で hook が全 no-op」 regression を再発させない。
+ *
+ * `isActiveFn(id) -> Promise<boolean>` は呼び出し側が注入する (テスト容易性のため)。
+ * どの候補も active でなければ null を返す → 呼び出し側で resolveSessionId の
+ * 純粋フォールバックに委ねる。
+ */
+export async function pickActiveSessionId(ctx, env, isActiveFn) {
+  const seen = new Set();
+  const candidates = [];
+  for (const c of [ctx?.session_id, env?.CONCORDIA_SESSION_ID, env?.CLAUDE_SESSION_ID]) {
+    if (typeof c === "string" && c.length > 0 && !seen.has(c)) {
+      seen.add(c);
+      candidates.push(c);
+    }
+  }
+  for (const id of candidates) {
+    if (await isActiveFn(id)) return id;
+  }
+  return null;
+}
+
+/**
  * Extract the user prompt text from a UserPromptSubmit hook payload.
  *
  * Provider 差:

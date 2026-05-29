@@ -27,6 +27,7 @@ import { hostname, homedir } from "node:os";
 import { execSync } from "node:child_process";
 import {
   resolveSessionId,
+  pickActiveSessionId,
   resolvePromptText,
   resolveEditTarget,
 } from "./concordia-hook-resolver.mjs";
@@ -46,6 +47,7 @@ const TIMEOUT_MS = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
 
 const event = process.argv[2] ?? "noop";
 const flags = parseFlags(process.argv.slice(3));
+const QUIET_STDOUT = event === "prompt";
 
 main().catch((err) => {
   process.stderr.write(`[concordia-hook] ${(err && err.message) || err}\n`);
@@ -56,16 +58,32 @@ async function main() {
   const stdin = readStdin();
   const ctx = stdin ? safeJson(stdin) : null;
   const cwd = ctx?.cwd ?? process.cwd();
-  const sessionId = resolveSessionId(ctx, process.env);
   const transcriptPath = ctx?.transcript_path ?? null;
+
+  // ── Session 解決 (混線対策) ───────────────────────────────────────────
+  // 純粋フォールバックは resolveSessionId (env CONCORDIA_SESSION_ID 優先).
+  // ただし CONCORDIA_SESSION_ID をグローバル export していると同ウインドウの
+  // 全タブが同じ session の pending-tasks を pull してしまう。 そこで
+  // session-start 以外は「ctx.session_id を最優先に並べ、 Concordia が active と
+  // 確認できた最初の候補」 を採用する (pickActiveSessionId)。 Lictor 配下では
+  // ctx.session_id (未登録の Claude UUID) が非 active なので CONCORDIA_SESSION_ID
+  // に落ちる ⇒ PR #35 の挙動を維持しつつタブ間漏れだけを断つ。
+  let sessionId = resolveSessionId(ctx, process.env);
+  let sessionActive = false;
+  if (event !== "session-start") {
+    const picked = await pickActiveSessionId(ctx, process.env, isSessionActive);
+    if (picked) {
+      sessionId = picked;
+      sessionActive = true;
+    }
+  }
 
   // Gate: env opt-in OR session が Concordia に active 登録済み (対話 enable flow).
   // session-start は env 必須 — sub-agent / one-shot CLI の自動登録を防ぐため.
   if (!HOOK_ENV_OPT_IN) {
     if (event === "session-start") return;
     if (!sessionId) return;
-    const active = await isSessionActive(sessionId);
-    if (!active) return;
+    if (!sessionActive) return; // どの候補も active な Concordia session ではない
   }
 
   switch (event) {
@@ -132,7 +150,7 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     if (Array.isArray(res.lost_candidates) && res.lost_candidates.length > 0) {
       lines.push(`[concordia] 同 host で lost 状態のセッションが ${res.lost_candidates.length} 件あります (引継ぎ可).`);
     }
-    if (lines.length) process.stdout.write(lines.join("\n") + "\n");
+    if (lines.length && !QUIET_STDOUT) process.stdout.write(lines.join("\n") + "\n");
   }
   // dev-process.md 由来の auto-start 結果を additionalContext に流す.
   if (res?.processes) {
@@ -142,13 +160,13 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     if (ps.skipped?.length)  procLines.push(`[concordia/processes] skipped (already running): ${ps.skipped.join(", ")}`);
     if (ps.failed?.length)   procLines.push(`[concordia/processes] failed: ${ps.failed.map((f) => `${f.name} (${f.reason})`).join(", ")}`);
     if (ps.warnings?.length) procLines.push(`[concordia/processes] warnings: ${ps.warnings.join(" / ")}`);
-    if (procLines.length) {
+    if (procLines.length && !QUIET_STDOUT) {
       procLines.push(`[concordia/processes] ログ stream: ${res.process_stream_url ?? "ws://127.0.0.1:17330/ws"} (process.log / process.exited を購読)`);
       process.stdout.write(procLines.join("\n") + "\n");
     }
   }
   // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
-  if (res?.persona && res.persona.skill_template) {
+  if (res?.persona && res.persona.skill_template && !QUIET_STDOUT) {
     const reused = res.persona_reused ? " (再開: 既存 assign)" : "";
     process.stdout.write(
       `\n[concordia/persona] あなたに付与された人格: **${res.persona.name}**${reused}\n` +
@@ -186,7 +204,7 @@ async function sessionEnd({ sessionId }) {
 async function dumpPendingTasks(sessionId) {
   const res = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}/pending-tasks`);
   const tasks = res?.tasks ?? [];
-  if (tasks.length === 0) return;
+  if (tasks.length === 0 || QUIET_STDOUT) return;
   const lines = ["[Concordia tasks]"];
   for (const t of tasks) {
     const p = t.payload ?? {};
@@ -299,7 +317,7 @@ async function dumpProcessLogs(sessionId) {
     cursor[p.name] = last?.ts ?? nowSec();
   }
   writeCursor(sessionId, cursor);
-  if (lines.length === 0) return;
+  if (lines.length === 0 || QUIET_STDOUT) return;
   process.stdout.write("[Concordia process logs]\n" + lines.join("\n") + "\n");
 }
 

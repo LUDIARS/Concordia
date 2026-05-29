@@ -1,10 +1,14 @@
 // session.registered / lost / ended に応じて Discord channel を CRUD する.
 //
-// レイアウト方針 (2026-05-28 〜):
-//   - 「状態」 カテゴリ = cost + active/lost セッション channel のみ
+// レイアウト方針 (2026-05-29 〜):
+//   - 「sessions」 カテゴリ = active/lost セッションの会話 channel
+//   - 「状態」 カテゴリ = cost + status-card (状態ボード) のみ。 セッション会話
+//     channel は置かない (= 状態ボードがセッション channel で溢れるのを防ぐ)
 //   - 「閉じた」 (ended) セッションは channel ごと **削除** (archive 移動はしない)
-//   - sessions / archive カテゴリは過去互換のために残置するが、 新規 channel は
-//     state カテゴリにのみ作る
+//   - archive カテゴリは過去互換のために残置.
+//
+// 旧方針 (2026-05-28) は session channel も状態カテゴリに作っていたが、 状態ボード
+// にセッション channel が混ざる問題があったため sessions カテゴリへ戻した.
 //
 // 5min cooldown (実測値は 5-10 分。 Discord API は 2 rename / 10min と公称) を
 // DB の last_rename_ts で守る. cooldown 内の rename は skip され、 次回 event
@@ -46,7 +50,7 @@ export async function onSessionRegistered(
     const created = await deps.guild.channels.create({
       name,
       type: ChannelType.GuildText,
-      parent: deps.layout.statusCategoryId,
+      parent: deps.layout.sessionsCategoryId,
       topic: input.personaDisplayName
         ? `${input.personaDisplayName} — session ${input.sessionId}`
         : `session ${input.sessionId}`,
@@ -93,7 +97,7 @@ export async function onSessionStatusChanged(
     return;
   }
 
-  // それ以外 (active <-> lost) は emoji rename のみ. 状態カテゴリに留める.
+  // それ以外 (active <-> lost) は emoji rename のみ. sessions カテゴリに留める.
   deps.repo.setStatus(input.sessionId, input.status);
 
   // rename rate limit guard
@@ -113,13 +117,14 @@ export async function onSessionStatusChanged(
   const newName = applyStatusEmoji(ch.name, input.status);
 
   try {
-    // 状態カテゴリに無い channel (古いレイアウトの遺物) はついでに移動する
+    // sessions カテゴリに無い channel (旧レイアウトで状態カテゴリに作られた遺物
+    // 含む) はついでに sessions カテゴリへ移動する
     const patch: { name: string; parent?: string; reason: string } = {
       name: newName,
       reason: `session ${input.sessionId} → ${input.status}`,
     };
-    if (ch.parentId !== deps.layout.statusCategoryId) {
-      patch.parent = deps.layout.statusCategoryId;
+    if (ch.parentId !== deps.layout.sessionsCategoryId) {
+      patch.parent = deps.layout.sessionsCategoryId;
     }
     await ch.edit(patch);
     deps.log.info(`session-channel: ${input.sessionId} renamed to #${newName}`);
@@ -129,8 +134,12 @@ export async function onSessionStatusChanged(
 }
 
 /**
- * 状態カテゴリの整理: cost + active/lost session channel + status-card channel
- * 以外を削除する.
+ * 状態カテゴリの整理: cost + status-card channel 以外を削除する.
+ * (2026-05-29 〜 session 会話 channel は sessions カテゴリに移したため、 状態
+ *  カテゴリに正規に残るのは cost と status-card のみ。 旧レイアウトで状態カテゴリ
+ *  に作られた session channel は session_channels テーブルに載っているので
+ *  knownChannelIds 経由で削除対象から除外され、 次の status 変化時に
+ *  onSessionStatusChanged が sessions カテゴリへ移動する。)
  *
  * status-card channel (\`session-status-card.ts\` が `session_status_channel_id:*`
  * key で configRepo に持つ \`<base>-status\` channel) は、 session_channels テーブル

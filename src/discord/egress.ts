@@ -62,22 +62,32 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const metaKind = mapChannelKind(row, ev.channel);
   const metaChannelId = deps.layout.metaChannels[metaKind] ?? null;
   const forceMeta = row.channel === "chitchat" || row.channel === "consultation" || row.channel === "報告";
-  const channelId = forceMeta
-    ? metaChannelId
-    : (sessionRow ? sessionRow.channel_id : metaChannelId);
+  // Lictor が握る送信先を明示してきた場合は最優先 (spec/discord-lictor-relay.md §4.3)。
+  // session→channel の DB ルックアップを routing の権威から外し、 返信混線を断つ。
+  const explicitChannelId = chatMeta.discord_channel_id ?? null;
+  const channelId = explicitChannelId
+    ? explicitChannelId
+    : forceMeta
+      ? metaChannelId
+      : (sessionRow ? sessionRow.channel_id : metaChannelId);
   deps.log.info(
     `egress.handleChatPosted routing message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
     `session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
     `meta_kind=${metaKind} meta_channel=${metaChannelId ?? "null"} chosen=${channelId ?? "null"} ` +
-    `policy=${forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
+    `explicit=${explicitChannelId ?? "null"} ` +
+    `policy=${explicitChannelId ? "explicit" : forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
   );
   if (!channelId) {
     deps.log.warn(`egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
     return;
   }
-  const client = sessionRow && sessionId
-    ? await deps.webhooks.getForSession(sessionId)
-    : await deps.webhooks.getForChannel(channelId);
+  // 明示 channel 指定時は session webhook ではなく channel webhook を使う
+  // (明示先が session channel と異なりうるため)。
+  const client = explicitChannelId
+    ? await deps.webhooks.getForChannel(channelId)
+    : sessionRow && sessionId
+      ? await deps.webhooks.getForSession(sessionId)
+      : await deps.webhooks.getForChannel(channelId);
   if (!client) {
     deps.log.warn(`egress.handleChatPosted no webhook client message_id=${row.id} channel=${channelId} sessionRow=${sessionRow ? "yes" : "no"}`);
     return;
@@ -213,6 +223,8 @@ export function readChatMeta(s: string | null | undefined): {
   discord_user_id?: string;
   discord_message_id?: string;
   scope?: string;
+  /** Lictor が握る送信先 channel ID (spec/discord-lictor-relay.md §4.3)。 */
+  discord_channel_id?: string;
 } {
   if (!s) return {};
   try {
@@ -221,6 +233,7 @@ export function readChatMeta(s: string | null | undefined): {
       discord_user_id?: string;
       discord_message_id?: string;
       scope?: string;
+      discord_channel_id?: string;
     };
   } catch {
     return {};

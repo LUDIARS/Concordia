@@ -15,7 +15,11 @@ import { ProcessesRepo } from "../src/db/processes-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "../src/db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
-import { makeDiscordPendingQuestionsRepo } from "../src/db/discord-repo.js";
+import {
+  makeDiscordPendingQuestionsRepo,
+  makeDiscordSessionChannelsRepo,
+  makeDiscordConfigRepo,
+} from "../src/db/discord-repo.js";
 import { AdminState } from "../src/admin/state.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { seedPersonas } from "../src/personas/seeds.js";
@@ -39,12 +43,14 @@ function buildTestApp() {
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
+  const discordChannels = makeDiscordSessionChannelsRepo(db);
+  const discordConfig = makeDiscordConfigRepo(db);
   const adminState = new AdminState(db);
   const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
   const processManager = new ProcessManager({ repo: processes, logsDir });
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
   return buildApp({
-    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, transcriptLogs, pendingQuestions, adminState, processManager, dispatcher,
+    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, adminState, processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
     config: { ...loadConfig({}), anthropicApiKey: "" },
     startedAt: new Date().toISOString(),
@@ -572,4 +578,87 @@ describe("sessions API", () => {
       expect(r2.status).toBe(409);
     });
   });
+
+  describe("GET /v1/sessions/:id/discord-channels", () => {
+    it("returns null session channel when none created, meta channels from config", async () => {
+      const db = new Database(":memory:");
+      applyMigrations(db);
+      // discord_config に meta channel を仕込む
+      const cfg = makeDiscordConfigRepo(db);
+      cfg.set("chitchat_channel_id", "111");
+      cfg.set("consultation_channel_id", "222");
+      // session を 1 件登録
+      const repo = new SessionsRepo(db);
+      // buildApp 経由ではなく直接 router を組むのは重いので、 同 db を使う
+      // 軽量 app を別途構築する。
+      const localApp = buildLocalApp(db, repo, cfg);
+      await localApp.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "ds", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      const res = await localApp.request("/v1/sessions/ds/discord-channels");
+      expect(res.status).toBe(200);
+      const j = await res.json() as any;
+      expect(j.ok).toBe(true);
+      expect(j.session_channel_id).toBe(null); // channel 未作成
+      expect(j.meta_channels.chitchat).toBe("111");
+      expect(j.meta_channels.consultation).toBe("222");
+      expect(j.meta_channels.system).toBe(null);
+    });
+
+    it("returns the session channel id once a row exists", async () => {
+      const db = new Database(":memory:");
+      applyMigrations(db);
+      const cfg = makeDiscordConfigRepo(db);
+      const channels = makeDiscordSessionChannelsRepo(db);
+      const repo = new SessionsRepo(db);
+      const localApp = buildLocalApp(db, repo, cfg);
+      await localApp.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "ds2", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      channels.upsert({ session_id: "ds2", channel_id: "999", status: "active" });
+      const res = await localApp.request("/v1/sessions/ds2/discord-channels");
+      const j = await res.json() as any;
+      expect(j.session_channel_id).toBe("999");
+      expect(j.session_channel_status).toBe("active");
+    });
+
+    it("404 for unknown session", async () => {
+      const res = await app.request("/v1/sessions/nope/discord-channels");
+      expect(res.status).toBe(404);
+    });
+  });
 });
+
+/** discord-channels 用の最小 app (同一 db を共有して repos を揃える). */
+function buildLocalApp(db: Database.Database, repo: SessionsRepo, cfg: ReturnType<typeof makeDiscordConfigRepo>) {
+  const tasks = new TasksRepo(db);
+  const chat = new ChatRepo(db);
+  const skills = new SkillsRepo(db);
+  const rules = new RulesRepo(db);
+  const dayReports = new DayReportsRepo(db);
+  const personas = new PersonasRepo(db);
+  seedPersonas(personas);
+  const processes = new ProcessesRepo(db);
+  const stats = new StatsRepo(db);
+  const sessionTaskRecords = new SessionTaskRecordsRepo(db);
+  const transcriptLogs = new TranscriptLogsRepo(db);
+  const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
+  const discordChannels = makeDiscordSessionChannelsRepo(db);
+  const adminState = new AdminState(db);
+  const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
+  const processManager = new ProcessManager({ repo: processes, logsDir });
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
+  return buildApp({
+    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig: cfg, adminState, processManager, dispatcher,
+    dailyScheduler: { stop: () => {}, runOnce: async () => {} } as any,
+    config: { ...loadConfig({}), anthropicApiKey: "" } as any,
+    startedAt: new Date().toISOString(),
+    sweeperRunOnce: () => {},
+    toolPath: "/abs/tools/concordia-hook.mjs",
+    publicUrl: "http://127.0.0.1:17330",
+  } as any);
+}

@@ -21,7 +21,20 @@ const PostSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   /** spatial UI 用: "world"=全員に届く / "local"=自分の周囲だけ. 既定 "world". */
   scope: z.enum(["world", "local"]).optional(),
+  /**
+   * Lictor が握る送信先 Discord channel ID (spec/discord-lictor-relay.md)。
+   * 指定されると egress は session→channel の DB ルックアップを経ず、 この
+   * channel に直接 webhook 送信する (返信混線の根治)。
+   */
+  discord_channel_id: z.string().min(1).optional(),
 });
+
+/** discord_channel_id を metadata に畳み込む (egress が読む). */
+function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
+  const merged: Record<string, unknown> = { ...(parsed.metadata ?? {}), scope };
+  if (parsed.discord_channel_id) merged.discord_channel_id = parsed.discord_channel_id;
+  return JSON.stringify(merged);
+}
 
 export interface ChatApiDeps {
   chat: ChatRepo;
@@ -44,7 +57,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
 
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
-    const mergedMeta = { ...(parsed.data.metadata ?? {}), scope };
+    const metadataJson = buildMeta(parsed.data, scope);
     log.info(
       {
         channel: parsed.data.channel,
@@ -65,7 +78,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: parsed.data.text,
       in_reply_to: parsed.data.in_reply_to ?? null,
       is_actionable: actionable,
-      metadata: JSON.stringify(mergedMeta),
+      metadata: metadataJson,
     });
     log.info(
       { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label },
@@ -115,7 +128,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
-    const mergedMeta = { ...(parsed.data.metadata ?? {}), scope };
+    const metadataJson = buildMeta(parsed.data, scope);
     log.info(
       {
         reply_target_id: target.id,
@@ -137,7 +150,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       text: parsed.data.text,
       in_reply_to: target.id,
       is_actionable: actionable,
-      metadata: JSON.stringify(mergedMeta),
+      metadata: metadataJson,
     });
     log.info(
       { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label, in_reply_to: msg.in_reply_to },

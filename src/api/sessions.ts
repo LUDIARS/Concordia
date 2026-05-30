@@ -15,7 +15,12 @@ import { eventBus } from "../events.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
-import { parsePendingQuestionOptions, type DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
+import {
+  parsePendingQuestionOptions,
+  type DiscordPendingQuestionsRepo,
+  type DiscordSessionChannelsRepo,
+  type DiscordConfigRepo,
+} from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
@@ -134,7 +139,12 @@ export interface SessionsApiDeps {
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
   pendingQuestions: DiscordPendingQuestionsRepo;
+  discordChannels: DiscordSessionChannelsRepo;
+  discordConfig: DiscordConfigRepo;
 }
+
+/** discord_config に保存される meta channel の key (resolveMetaKind と揃える). */
+const META_CHANNEL_KINDS = ["chitchat", "consultation", "houkoku", "system"] as const;
 
 function serializePersonaForResponse(p: PersonaRow) {
   let traits: unknown = [];
@@ -605,6 +615,29 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       ts,
     });
     return c.json({ ok: true, persisted });
+  });
+
+  // GET /v1/sessions/:id/discord-channels — Lictor が自分の session channel ID +
+  // meta channel ID 群を取得する (spec/discord-lictor-relay.md §4.1)。
+  // Lictor はこれを保持して以後の relay に discord_channel_id をタグ付けし、
+  // egress の session→channel DB ルックアップ依存 (混線の温床) を外す。
+  // channel 作成は session.started event 経由で非同期なので、 未作成時は
+  // session_channel_id=null を返す (Lictor 側がリトライで埋める)。
+  app.get("/:id/discord-channels", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const row = deps.discordChannels.findBySessionId(id);
+    const cfg = deps.discordConfig.all();
+    const meta: Record<string, string | null> = {};
+    for (const k of META_CHANNEL_KINDS) {
+      meta[k] = cfg[`${k}_channel_id`] ?? null;
+    }
+    return c.json({
+      ok: true,
+      session_channel_id: row?.channel_id ?? null,
+      session_channel_status: row?.status ?? null,
+      meta_channels: meta,
+    });
   });
 
   // GET /v1/sessions/:id/transcript — 永続化された transcript_logs を読む.

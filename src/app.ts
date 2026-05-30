@@ -30,7 +30,11 @@ import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
-import type { DiscordPendingQuestionsRepo } from "./db/discord-repo.js";
+import type {
+  DiscordPendingQuestionsRepo,
+  DiscordSessionChannelsRepo,
+  DiscordConfigRepo,
+} from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
@@ -66,6 +70,8 @@ export interface AppDeps {
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
   pendingQuestions: DiscordPendingQuestionsRepo;
+  discordChannels: DiscordSessionChannelsRepo;
+  discordConfig: DiscordConfigRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
   adminState: AdminState;
@@ -106,6 +112,8 @@ export function buildApp(deps: AppDeps): Hono {
       sessionTaskRecords: deps.sessionTaskRecords,
       transcriptLogs: deps.transcriptLogs,
       pendingQuestions: deps.pendingQuestions,
+      discordChannels: deps.discordChannels,
+      discordConfig: deps.discordConfig,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));

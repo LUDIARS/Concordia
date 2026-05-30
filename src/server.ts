@@ -20,7 +20,11 @@ import { ProcessesRepo } from "./db/processes-repo.js";
 import { StatsRepo } from "./db/stats-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
-import { makeDiscordPendingQuestionsRepo } from "./db/discord-repo.js";
+import {
+  makeDiscordPendingQuestionsRepo,
+  makeDiscordSessionChannelsRepo,
+  makeDiscordConfigRepo,
+} from "./db/discord-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { seedDelegationTemplates } from "./delegation/seed.js";
@@ -123,6 +127,10 @@ export async function startBackend(): Promise<BackendHandle> {
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
+  // Discord channel/config repos は bot 起動とは独立に (bot OFF でも) Lictor の
+  // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
+  const discordChannels = makeDiscordSessionChannelsRepo(db);
+  const discordConfig = makeDiscordConfigRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const delegationService = new DelegationService({ repo: delegationRepo });
   const adminState = new AdminState(db);
@@ -193,6 +201,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecords,
     transcriptLogs,
     pendingQuestions,
+    discordChannels,
+    discordConfig,
     delegation: delegationRepo,
     delegationService,
     adminState,

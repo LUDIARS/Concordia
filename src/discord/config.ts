@@ -10,6 +10,7 @@ export interface DiscordConfigSnapshot {
   statusCategoryId: string;
   archiveCategoryId: string;
   costChannelId: string;
+  monitorChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
 }
 
@@ -18,6 +19,7 @@ const SESSIONS_CATEGORY_KEY = "sessions_category_id";
 const STATUS_CATEGORY_KEY = "status_category_id";
 const ARCHIVE_CATEGORY_KEY = "archive_category_id";
 const COST_CHANNEL_KEY = "cost_channel_id";
+const MONITOR_CHANNEL_KEY = "monitor_channel_id";
 
 const CATEGORY_NAMES = {
   meta: "meta",
@@ -42,6 +44,7 @@ export async function ensureDiscordLayout(
   const statusCategoryId = await ensureCategory(guild, repo, STATUS_CATEGORY_KEY, CATEGORY_NAMES.status);
   const archiveCategoryId = await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
+  const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
   for (const k of META_CHANNEL_KIND) {
@@ -56,6 +59,7 @@ export async function ensureDiscordLayout(
     statusCategoryId,
     archiveCategoryId,
     costChannelId,
+    monitorChannelId,
     metaChannels,
   };
 }

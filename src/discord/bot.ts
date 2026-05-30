@@ -24,8 +24,9 @@ import {
   onSessionTitleChanged,
   pruneStatusCategoryChannels,
 } from "./session-channel.js";
-import { upsertSessionStatusCard } from "./session-status-card.js";
+import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
+import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
@@ -89,6 +90,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let webhooks: WebhookPool | null = null;
   let unsubscribe: (() => void) | null = null;
   let costTimer: ReturnType<typeof setInterval> | null = null;
+  let monitorTimer: ReturnType<typeof setInterval> | null = null;
+  let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   const promptRelayLast = new Map<string, { text: string; at: number }>();
 
   client.once(Events.ClientReady, async (c) => {
@@ -119,6 +122,32 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       } else {
         log.warn(`cost channel unavailable id=${layout.costChannelId}`);
       }
+      // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
+      const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
+      if (monitorCh && monitorCh.type === ChannelType.GuildText) {
+        const refreshMonitor = () =>
+          upsertMonitorChannelMessage(
+            monitorCh,
+            deps.sessionsRepo,
+            (k) => configRepo.get(k),
+            (k, v) => configRepo.set(k, v),
+          ).catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
+        void refreshMonitor();
+        monitorTimer = setInterval(() => { void refreshMonitor(); }, 60 * 1000);
+        monitorTimer.unref?.();
+      } else {
+        log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
+      }
+      // lost / ended の状態カードを 1 時間ごとに整理 (起動時 sweep に加えて稼働中も回収).
+      const lay = layout;
+      reconcileTimer = setInterval(() => {
+        void reconcileLostStatusCards({ guild, configRepo, sessionsRepo: deps.sessionsRepo, log })
+          .then((r) => log.info(`status-card reconcile: scanned=${r.scanned} removed=${r.removed}`))
+          .catch((e) => log.warn(`status-card reconcile failed: ${(e as Error).message}`));
+        void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
+          .catch((e) => log.warn(`hourly prune failed: ${(e as Error).message}`));
+      }, 60 * 60 * 1000);
+      reconcileTimer.unref?.();
       for (const row of sessionChannelsRepo.listActive()) {
         void upsertSessionStatusCard({
           guild,
@@ -231,17 +260,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.ended") {
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "ended" });
-      void upsertSessionStatusCard({
-        guild,
-        layout,
-        configRepo,
-        sessionChannelsRepo,
-        sessionsRepo: deps.sessionsRepo,
-        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-        tasksRepo: deps.tasksRepo,
-        personasRepo: deps.personasRepo,
-        log,
-      }, ev.session_id);
+      // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
+      void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
+        .catch((e) => log.warn(`status-card delete on ended failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "stat.collected") {
@@ -356,6 +377,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     async stop() {
       unsubscribe?.();
       if (costTimer) clearInterval(costTimer);
+      if (monitorTimer) clearInterval(monitorTimer);
+      if (reconcileTimer) clearInterval(reconcileTimer);
       try { await client.destroy(); } catch {}
     },
   };

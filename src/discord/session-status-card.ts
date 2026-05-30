@@ -177,3 +177,51 @@ function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 3)}...`;
 }
 
+type StatusCardCleanupDeps = {
+  guild: Guild;
+  configRepo: DiscordConfigRepo;
+  log: { info: (m: string) => void; warn: (m: string) => void };
+};
+
+// End-Session 等で、対応する状態カード (<base>-status チャンネル + config id) を削除する。
+export async function deleteSessionStatusCard(
+  deps: StatusCardCleanupDeps,
+  sessionId: string,
+): Promise<void> {
+  const chKey = `${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`;
+  const channelId = deps.configRepo.get(chKey);
+  if (channelId) {
+    const ch = deps.guild.channels.cache.get(channelId);
+    if (ch) {
+      try {
+        await ch.delete(`session ${sessionId} status card removed`);
+        deps.log.info(`status-card: deleted channel=${channelId} for ${sessionId}`);
+      } catch (e) {
+        deps.log.warn(`status-card: delete failed session=${sessionId}: ${(e as Error).message}`);
+      }
+    }
+    deps.configRepo.set(chKey, "");
+  }
+  deps.configRepo.set(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`, "");
+}
+
+// lost / ended / abandoned / 消滅した session の状態カードを一掃する (1 時間ごとの整理)。
+// active な session のカードは残す。configRepo の session_status_channel_id:* を走査する。
+export async function reconcileLostStatusCards(
+  deps: StatusCardCleanupDeps & { sessionsRepo: SessionsRepo },
+): Promise<{ scanned: number; removed: number }> {
+  let scanned = 0;
+  let removed = 0;
+  for (const [key, value] of Object.entries(deps.configRepo.all())) {
+    if (!key.startsWith(STATUS_CHANNEL_KEY_PREFIX)) continue;
+    if (!value) continue;
+    scanned += 1;
+    const sessionId = key.slice(STATUS_CHANNEL_KEY_PREFIX.length);
+    const session = deps.sessionsRepo.findSession(sessionId);
+    if (session && session.status === "active") continue; // active は残す
+    await deleteSessionStatusCard(deps, sessionId);
+    removed += 1;
+  }
+  return { scanned, removed };
+}
+

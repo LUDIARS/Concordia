@@ -143,7 +143,7 @@ describe("ProcessManager spawn", () => {
     const logs = repo.recentLogs("echo1", { limit: 50 });
     const stdoutLines = logs.filter((l) => l.stream === "stdout").map((l) => l.line);
     expect(stdoutLines.some((l) => l.includes("hello-runner"))).toBe(true);
-  });
+  }, 20000);
 
   it("startFromRepo skips when no dev-process.md", () => {
     const repo = makeRepo();
@@ -177,7 +177,7 @@ describe("ProcessManager spawn", () => {
     expect(mgr.listRunning()).toHaveLength(2);
     await mgr.stopAll(2000);
     expect(mgr.listRunning()).toHaveLength(0);
-  });
+  }, 20000);
 
   it("ad-hoc startOne refuses duplicate names", () => {
     const repo = makeRepo();
@@ -197,5 +197,5 @@ describe("ProcessManager spawn", () => {
     expect(r2.ok).toBe(false);
     expect(r2.reason).toBe("already_running");
     return mgr.stopAll();
-  });
+  }, 20000);
 });

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # テスト中は実 LLM を絶対に叩かない (vitest.config.ts でも設定済だが二重で固定)
+  CONCORDIA_DISABLE_CLAUDE: "1"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Install deps (backend)
+        run: npm ci
+
+      - name: Install deps (web)
+        run: npm ci --prefix web
+
+      # 型チェック (backend)
+      - name: Lint / typecheck
+        run: npm run lint
+
+      # 動作テスト: vitest (in-memory SQLite, LLM 無効)
+      - name: Tests (vitest)
+        run: npm test
+
+      # ビルドチェック: skill 同期 + tsc + web (vite) ビルド
+      - name: Build (tsc + web)
+        run: npm run build

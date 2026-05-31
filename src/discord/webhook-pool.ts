@@ -11,6 +11,8 @@ import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const WEBHOOK_NAME = "Concordia";
+const DISCORD_MESSAGE_MAX = 2000;
+const SPLIT_MODEL = "claude-haiku-4-5";
 const whLog = createChildLogger("webhook-pool");
 
 export class WebhookPool {
@@ -102,10 +104,98 @@ export class WebhookPool {
     options: WebhookMessageCreateOptions,
   ): Promise<{ id: string } | null> {
     try {
-      const msg = await client.send(options);
-      return { id: msg.id };
+      const content = typeof options.content === "string" ? options.content : null;
+      if (!content || content.length <= DISCORD_MESSAGE_MAX) {
+        const msg = await client.send(options);
+        return { id: msg.id };
+      }
+
+      const chunks = await splitForDiscord(content, DISCORD_MESSAGE_MAX);
+      let firstId: string | null = null;
+      for (const chunk of chunks) {
+        const msg = await client.send({ ...options, content: chunk });
+        if (!firstId) firstId = msg.id;
+      }
+      return firstId ? { id: firstId } : null;
     } catch {
       return null;
     }
   }
+}
+
+async function splitForDiscord(text: string, maxLen: number): Promise<string[]> {
+  const key = process.env.ANTHROPIC_API_KEY ?? "";
+  if (!key) return fallbackSplit(text, maxLen);
+  try {
+    const prompt =
+      "Split the following text into natural chunks for Discord posting.\n" +
+      `Rules:\n` +
+      `- Each chunk must be <= ${maxLen} characters.\n` +
+      "- Preserve the original text exactly. Do not rewrite or summarize.\n" +
+      "- Split on semantic boundaries when possible (paragraph/sentence).\n" +
+      "- Return JSON only: {\"chunks\":[\"...\", ...]}\n\n" +
+      `Text:\n${text}`;
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: SPLIT_MODEL,
+        max_tokens: 4000,
+        messages: [{ role: "user", content: prompt }],
+      }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) return fallbackSplit(text, maxLen);
+    const data = (await res.json()) as { content?: Array<{ text?: string }> };
+    const raw = data.content?.[0]?.text ?? "";
+    const parsed = extractChunks(raw);
+    if (!parsed.length || parsed.some((c) => c.length > maxLen)) return fallbackSplit(text, maxLen);
+    return parsed;
+  } catch (err) {
+    whLog.warn({ err: (err as Error).message }, "webhook-pool split with haiku failed; fallback");
+    return fallbackSplit(text, maxLen);
+  }
+}
+
+function extractChunks(raw: string): string[] {
+  const obj = parseJsonObject(raw);
+  if (!obj || !Array.isArray((obj as any).chunks)) return [];
+  const chunks = (obj as any).chunks.filter((v: unknown): v is string => typeof v === "string");
+  return chunks.map((s: string) => s.trim()).filter(Boolean);
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  try { return JSON.parse(raw.trim()) as Record<string, unknown>; } catch { /* continue */ }
+  const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
+  if (fence) {
+    try { return JSON.parse(fence[1].trim()) as Record<string, unknown>; } catch { /* continue */ }
+  }
+  const obj = /\{[\s\S]*\}/.exec(raw);
+  if (obj) {
+    try { return JSON.parse(obj[0]) as Record<string, unknown>; } catch { return null; }
+  }
+  return null;
+}
+
+function fallbackSplit(text: string, maxLen: number): string[] {
+  const out: string[] = [];
+  let rest = text;
+  while (rest.length > maxLen) {
+    let cut = Math.max(
+      rest.lastIndexOf("\n\n", maxLen),
+      rest.lastIndexOf("\n", maxLen),
+      rest.lastIndexOf("。", maxLen),
+      rest.lastIndexOf(". ", maxLen),
+      rest.lastIndexOf(" ", maxLen),
+    );
+    if (cut <= 0) cut = maxLen;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trimStart();
+  }
+  if (rest.length) out.push(rest);
+  return out.length ? out : [text.slice(0, maxLen)];
 }

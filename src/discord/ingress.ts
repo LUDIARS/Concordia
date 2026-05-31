@@ -98,6 +98,20 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
         try { await msg.reply({ content: `inject failed (${res.status})`, allowedMentions: { repliedUser: false } }); } catch {}
         return;
       }
+      // Codex は環境によって文字列 inject 後に Enter だけ追送しないと確定しない場合がある。
+      // Discord session channel 経由の通常投稿では best-effort で改行 inject を追加する。
+      const session = deps.sessionsRepo.findSession(sessionRow.session_id);
+      if (session?.provider === "codex-cli") {
+        try {
+          await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ text: "\n", source: "discord-enter-fallback" }),
+          });
+        } catch {
+          // Enter fallback failure is non-fatal for main inject path.
+        }
+      }
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
       try { await msg.react("?"); } catch {}
     } catch (e) {

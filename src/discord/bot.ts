@@ -15,7 +15,7 @@ import {
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
-import { handleEvent as handleEgressEvent } from "./egress.js";
+import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import {
@@ -129,11 +129,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           upsertMonitorChannelMessage(
             monitorCh,
             deps.sessionsRepo,
+            deps.sessionTaskRecordsRepo,
             (k) => configRepo.get(k),
             (k, v) => configRepo.set(k, v),
+            getEgressDedupStats(),
           ).catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
         void refreshMonitor();
-        monitorTimer = setInterval(() => { void refreshMonitor(); }, 60 * 1000);
+        const monitorMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_MONITOR_REFRESH_MIN ?? "10") || 10);
+        monitorTimer = setInterval(() => { void refreshMonitor(); }, monitorMins * 60 * 1000);
         monitorTimer.unref?.();
       } else {
         log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
@@ -300,11 +303,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       if (!row || row.status !== "active") return;
       const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
       let text = "";
+      let source = "";
       try {
-        const payload = latest ? JSON.parse(latest.payload) as { summary?: unknown } : {};
+        const payload = latest ? JSON.parse(latest.payload) as { summary?: unknown; source?: unknown } : {};
         if (typeof payload.summary === "string") text = payload.summary.trim();
+        if (typeof payload.source === "string") source = payload.source;
       } catch {}
       if (!text) return;
+      // Discord session channel からの inject は元メッセージがすでに表示済み。
+      // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
+      if (source.startsWith("discord:") || source === "discord-enter" || source === "discord-enter-fallback") {
+        return;
+      }
       const now = Date.now();
       const prev = promptRelayLast.get(ev.session_id);
       if (prev && prev.text === text && now - prev.at < 60_000) {

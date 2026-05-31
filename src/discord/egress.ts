@@ -10,6 +10,21 @@ import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { shouldDropForRelay } from "./egress-filters.js";
 
+const CODEX_DUP_WINDOW_MS = 90_000;
+const codexRelayDedup = new Map<string, number>();
+const dedupStats = {
+  skipped_chat_posted: 0,
+  skipped_transcript_frame: 0,
+};
+
+export function getEgressDedupStats(): { skipped_chat_posted: number; skipped_transcript_frame: number; total: number } {
+  return {
+    skipped_chat_posted: dedupStats.skipped_chat_posted,
+    skipped_transcript_frame: dedupStats.skipped_transcript_frame,
+    total: dedupStats.skipped_chat_posted + dedupStats.skipped_transcript_frame,
+  };
+}
+
 export interface EgressDeps {
   guild: Guild;
   layout: DiscordConfigSnapshot;
@@ -94,8 +109,13 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
 
   const author = resolveAuthor(deps, row);
-  const text = row.text.length > 1900 ? `${row.text.slice(0, 1900)}...` : row.text;
-  const res = await deps.webhooks.send(client, { content: text, username: author });
+  const provider = sessionId ? deps.sessionsRepo.findSession(sessionId)?.provider ?? null : null;
+  if (provider === "codex-cli" && shouldSkipCodexDuplicate(channelId, author, row.text)) {
+    dedupStats.skipped_chat_posted += 1;
+    deps.log.info(`egress: chat.posted dedup skipped message_id=${row.id} channel=${channelId}`);
+    return;
+  }
+  const res = await deps.webhooks.send(client, { content: row.text, username: author });
   if (res) {
     deps.messageMap.put(res.id, row.id);
     deps.log.info(`egress: chat.posted relayed ok message_id=${row.id} discord_message_id=${res.id} channel=${channelId}`);
@@ -176,8 +196,12 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   const author = role === "summary"
     ? "Conversation summary"
     : formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
-  const body = text.length > 1900 ? `${text.slice(0, 1900)}...` : text;
-  const res = await deps.webhooks.send(client, { content: body, username: author });
+  if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, text)) {
+    dedupStats.skipped_transcript_frame += 1;
+    deps.log.info(`egress: transcript.frame dedup skipped session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+    return;
+  }
+  const res = await deps.webhooks.send(client, { content: text, username: author });
   if (res) {
     deps.log.info(`egress: transcript.frame relayed ok session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;
@@ -206,6 +230,23 @@ function mapChannelKind(row: ChatMessageRow, evChannel: string): MetaChannelKind
 
 function resolveAuthor(_: EgressDeps, row: ChatMessageRow): string {
   return row.author_label?.trim() || "Concordia";
+}
+
+function shouldSkipCodexDuplicate(channelId: string, author: string, text: string): boolean {
+  const now = Date.now();
+  const key = `${channelId}|${author}|${normalizeDedupText(text)}`;
+  const last = codexRelayDedup.get(key);
+  codexRelayDedup.set(key, now);
+  if (codexRelayDedup.size > 5000) {
+    for (const [k, at] of codexRelayDedup) {
+      if (now - at > CODEX_DUP_WINDOW_MS) codexRelayDedup.delete(k);
+    }
+  }
+  return !!last && now - last <= CODEX_DUP_WINDOW_MS;
+}
+
+function normalizeDedupText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
 }
 
 function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {

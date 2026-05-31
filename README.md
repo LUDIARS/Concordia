@@ -7,6 +7,15 @@ LUDIARS の **複数 AI コーディングエージェントセッション間�
 
 ---
 
+## セットアップ
+
+設定・起動手順は用途別に [`spec/setup/`](spec/setup/) にまとめてある:
+
+- [本体を起動する](spec/setup/core.md) / [Windows で起動する](spec/setup/windows.md) / [Discord bot](spec/setup/discord.md) / [observability](spec/setup/observability.md) / [セッション管制 spawn](spec/setup/spawn.md)
+- 全設定キー: [spec/setup/config-reference.md](spec/setup/config-reference.md)
+
+---
+
 ## 解決する課題
 
 複数の AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI など)

@@ -33,7 +33,7 @@ import {
   search,
   lastSeenAt,
   type VestigiumRecord,
-} from '../observability/log/vestigium-reader.js';
+} from './vestigium-reader.js';
 
 interface ServiceEntry {
   code: string;

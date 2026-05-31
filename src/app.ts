@@ -56,8 +56,6 @@ import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
 export interface AppDeps {
-  /** observability layer (Excubitor 由来) の Hono router. 内部で /api/v1/... の絶対 path を持つ. */
-  observabilityRouter?: Hono;
   repo: SessionsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
@@ -339,11 +337,6 @@ export function buildApp(deps: AppDeps): Hono {
     const r = await deps.discordAdmin.restart();
     return c.json(r, r.ok ? 200 : 500);
   });
-
-  // observability (Excubitor 由来) は内部で /api/v1/... の絶対 path を持つので root mount.
-  if (deps.observabilityRouter) {
-    app.route("/", deps.observabilityRouter);
-  }
 
   return app;
 }

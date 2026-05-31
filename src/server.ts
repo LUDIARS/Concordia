@@ -41,7 +41,6 @@ import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
-import { bootObservability } from "./observability/index.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "./discord/bot.js";
 import { startDiscordBot } from "./discord/bot.js";
 
@@ -168,14 +167,9 @@ export async function startBackend(): Promise<BackendHandle> {
     dayReports,
   });
 
-  // Observability layer (Excubitor 由来). 失敗しても Concordia 本体は止めない.
-  let observabilityHandle: Awaited<ReturnType<typeof bootObservability>> | null = null;
-  try {
-    observabilityHandle = await bootObservability();
-    log.info("observability layer booted");
-  } catch (err) {
-    log.warn({ err: (err as Error).message }, "observability layer boot failed; continuing without it");
-  }
+  // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に
+  // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
+  // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
 
   discordBotDeps = {
     db,
@@ -188,7 +182,6 @@ export async function startBackend(): Promise<BackendHandle> {
   };
 
   const app = buildApp({
-    observabilityRouter: observabilityHandle?.router,
     repo,
     tasks,
     chat,
@@ -328,9 +321,6 @@ export async function startBackend(): Promise<BackendHandle> {
       sweeper.stop();
       unsubLog();
       await stopDiscordBotManaged();
-      if (observabilityHandle) {
-        try { await observabilityHandle.shutdown(); } catch { /* noop */ }
-      }
       await processManager.stopAll();
       ws.close();
       server.close();

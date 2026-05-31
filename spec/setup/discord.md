@@ -2,7 +2,7 @@
 
 ## 目的
 
-Concordia の状態 (active session / cost / monitor) を Discord に出し、 slash command で session を操作する。 bot は Concordia backend と **同一プロセス内**で動く (`startBackend()` → `startDiscordBot()`)。 設計詳細は [`spec/discord-ui.md`](../discord-ui.md) / [`spec/discord-control-ui.md`](../discord-control-ui.md)。
+Concordia の状態 (active session / cost / monitor) を Discord に出し、 slash command で session を操作する。 bot は Concordia backend と **同一プロセス内**で動く (`startBackend()` → `startDiscordBot()`)。 設計詳細は [`spec/discord-ui.md`](../feature/discord-ui.md) / [`spec/discord-control-ui.md`](../feature/discord-control-ui.md)。
 
 bot は **opt-in**。 `CONCORDIA_DISCORD_ENABLED=1` でない限り完全 no-op で、 本体 (Web UI / hook 連携) には一切影響しない (`src/discord/bot.ts:63`)。
 
@@ -62,7 +62,7 @@ bot が要求する Gateway intents (`src/discord/bot.ts:73`):
 | `/stat` | 現在の Concordia stat を表示。 |
 | `/end-session` | 対象 session を終了。 |
 
-session 対応 channel ↔ session の双方向は [`spec/discord-lictor-relay.md`](../discord-lictor-relay.md) / [`spec/discord-session-direct-inject.md`](../discord-session-direct-inject.md) を参照。
+session 対応 channel ↔ session の双方向は [`spec/discord-lictor-relay.md`](../feature/discord-lictor-relay.md) / [`spec/discord-session-direct-inject.md`](../feature/discord-session-direct-inject.md) を参照。
 
 ## 認証モデルに関する注意
 
@@ -83,6 +83,6 @@ Concordia 本体は loopback bind + 認証なしが信頼境界 (`spec/service-s
 
 ## 関連
 
-- [`spec/discord-ui.md`](../discord-ui.md) / [`spec/discord-control-ui.md`](../discord-control-ui.md) — UI 設計
+- [`spec/discord-ui.md`](../feature/discord-ui.md) / [`spec/discord-control-ui.md`](../feature/discord-control-ui.md) — UI 設計
 - [spawn.md](spawn.md) — `/spawn` が使う token / cwd
 - [config-reference.md](config-reference.md) — 全キー正本

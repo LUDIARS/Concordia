@@ -78,7 +78,7 @@ Claude Code は SessionStart hook の引数で `session_id` を渡す
 ### 2.4 hook 設定
 
 `~/.claude/settings.json` の `hooks` に以下を追加 (詳細は
-[`docs/hooks-claude-code.md`](../docs/hooks-claude-code.md)):
+[`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md)):
 
 ```jsonc
 {

@@ -139,5 +139,5 @@ MCP サーバ (別プロセス) が読む env:
 ## 関連
 
 - [README.md](README.md) — 用途別インデックス + 最短起動
-- [`spec/service-schema.md`](../service-schema.md) — DB スキーマ / API 正本
+- [`spec/service-schema.md`](../interface/service-schema.md) — DB スキーマ / API 正本
 - [`.env.example`](../../.env.example) — コメント付きサンプル (本表が最新値の正本)

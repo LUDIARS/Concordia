@@ -70,5 +70,5 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 ## 関連
 
 - [config-reference.md](config-reference.md) — 全キー正本
-- [`spec/service-schema.md`](../service-schema.md) — DB スキーマ / API / 用語
+- [`spec/service-schema.md`](../interface/service-schema.md) — DB スキーマ / API / 用語
 - [windows.md](windows.md) — Windows 固有の起動設定

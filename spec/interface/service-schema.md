@@ -257,7 +257,7 @@ worktree は AI に注入される **提案** であり、 ユーザ / AI の判
 
 ## 9. provider 抽象 (multi-provider)
 
-詳細: [`multi-provider.md`](multi-provider.md)。
+詳細: [`multi-provider.md`](../feature/multi-provider.md)。
 
 `sessions.provider` 列で識別、 各 provider 個別実装は `src/providers/<name>.ts`。
 v0.1 は Claude Code のみ。 Gemini / Codex は stub interface のみで NotImplemented を返す。

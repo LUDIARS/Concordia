@@ -44,7 +44,7 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 | `CONCORDIA_BASE_URL` | `http://127.0.0.1:17330` | 叩く先。 |
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | `/v1/spawn` 用 token の場所。 |
 
-MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](../delegation.md)。
+MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](../feature/delegation.md)。
 
 ## 手順
 
@@ -74,6 +74,6 @@ MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節�
 
 ## 関連
 
-- [`spec/delegation.md`](../delegation.md) — 委託テンプレ設計
+- [`spec/delegation.md`](../feature/delegation.md) — 委託テンプレ設計
 - [discord.md](discord.md) — `/spawn` slash command
 - [config-reference.md](config-reference.md) — 全キー正本

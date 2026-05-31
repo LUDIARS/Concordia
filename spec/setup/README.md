@@ -46,9 +46,9 @@ npm run dev          # backend (17330) + Vite frontend を同時起動
 
 ## 関連設計ドキュメント
 
-- [`spec/service-schema.md`](../service-schema.md) — DB スキーマ / API / 用語 (session/provider/lost/transcript) の正本
-- [`spec/discord-ui.md`](../discord-ui.md) / [`spec/discord-control-ui.md`](../discord-control-ui.md) — Discord UI 設計
-- [`spec/discord-lictor-relay.md`](../discord-lictor-relay.md) / [`spec/discord-session-direct-inject.md`](../discord-session-direct-inject.md) — Discord ↔ session 双方向
-- [`spec/delegation.md`](../delegation.md) — 委託テンプレ (Codex / Claude / Gemini spawn)
-- [`spec/multi-provider.md`](../multi-provider.md) — provider 抽象
+- [`spec/service-schema.md`](../interface/service-schema.md) — DB スキーマ / API / 用語 (session/provider/lost/transcript) の正本
+- [`spec/discord-ui.md`](../feature/discord-ui.md) / [`spec/discord-control-ui.md`](../feature/discord-control-ui.md) — Discord UI 設計
+- [`spec/discord-lictor-relay.md`](../feature/discord-lictor-relay.md) / [`spec/discord-session-direct-inject.md`](../feature/discord-session-direct-inject.md) — Discord ↔ session 双方向
+- [`spec/delegation.md`](../feature/delegation.md) — 委託テンプレ (Codex / Claude / Gemini spawn)
+- [`spec/multi-provider.md`](../feature/multi-provider.md) — provider 抽象
 - [`README.md`](../../README.md) (リポ root) — サービス概要 / MCP サーバ / アーキテクチャ

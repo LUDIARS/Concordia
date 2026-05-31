@@ -1,6 +1,6 @@
 # Discord ↔ Lictor 仲介リレー設計 (返信混線の根治)
 
-2026-05-30 起草。 関連: [discord-ui.md](./discord-ui.md) / [service-schema.md](./service-schema.md) /
+2026-05-30 起草。 関連: [discord-ui.md](./discord-ui.md) / [service-schema.md](../interface/service-schema.md) /
 Lictor `DESIGN.md`。
 
 ## 1. 問題: 返信の混線 (crosstalk)

@@ -21,6 +21,7 @@ import { dailyRouter } from "./api/daily.js";
 import { processesRouter } from "./api/processes.js";
 import { statRouter } from "./api/stat.js";
 import { workRouter } from "./api/work.js";
+import { prsRouter } from "./api/prs.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
@@ -28,6 +29,7 @@ import type { RulesRepo } from "./db/rules-repo.js";
 import type { DayReportsRepo } from "./db/day-reports-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
+import type { PrRecordsRepo } from "./db/pr-records-repo.js";
 import type { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import type {
@@ -65,6 +67,7 @@ export interface AppDeps {
   personas: PersonasRepo;
   processes: ProcessesRepo;
   stats: StatsRepo;
+  prs: PrRecordsRepo;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
   pendingQuestions: DiscordPendingQuestionsRepo;
@@ -128,6 +131,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/stream", streamRouter());
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
+  app.route("/v1/prs", prsRouter({ prs: deps.prs }));
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs }));
   app.route(
     "/v1/daily-reports",

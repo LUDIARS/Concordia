@@ -1,0 +1,181 @@
+/**
+ * PR reconcile tick (取り込み方式 C — GitHub 状態同期).
+ *
+ * pr_records に open/draft 行を持つ repo_origin について `gh pr list --state all` を
+ * 引き、 merged/closed/ci/review/サイズを既存行に反映する (新規 insert はしない).
+ * stat 派生 (ingest.ts) が拾えない「マージ後の状態遷移」 を確定するのが役割.
+ *
+ * - 無効化: env CONCORDIA_PR_RECONCILE_ENABLED=0
+ * - 間隔:   env CONCORDIA_PR_RECONCILE_MIN (分, 既定 10, 下限 2)
+ * - gh が無い / 認証切れ等は best-effort (warn ログのみ、 サービスは落とさない).
+ */
+
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import type {
+  PrCiStatus,
+  PrRecordsRepo,
+  PrReviewState,
+  PrState,
+} from "../db/pr-records-repo.js";
+import { isOwnerRepo } from "./normalize.js";
+import { eventBus } from "../events.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const execFileAsync = promisify(execFile);
+const log = createChildLogger("pr-reconcile");
+
+const GH_BIN = process.platform === "win32" ? "gh.exe" : "gh";
+const GH_FIELDS =
+  "number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergedAt,closedAt,isDraft";
+
+interface GhPr {
+  number: number;
+  title?: string;
+  url?: string;
+  state?: string; // OPEN | CLOSED | MERGED
+  headRefName?: string;
+  baseRefName?: string;
+  additions?: number;
+  deletions?: number;
+  changedFiles?: number;
+  reviewDecision?: string | null; // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
+  statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>;
+  mergedAt?: string | null;
+  closedAt?: string | null;
+  isDraft?: boolean;
+}
+
+export interface PrReconcileDeps {
+  prs: PrRecordsRepo;
+}
+
+export interface PrReconcileHandle {
+  stop: () => void;
+  /** テスト/手動用: 1 回だけ走らせる. */
+  runOnce: () => Promise<{ scanned: number; updated: number }>;
+}
+
+function isoToSec(s: string | null | undefined): number | null {
+  if (!s) return null;
+  const t = Date.parse(s);
+  return Number.isNaN(t) ? null : Math.floor(t / 1000);
+}
+
+function mapState(gh: GhPr): PrState {
+  const s = (gh.state ?? "").toUpperCase();
+  if (s === "MERGED") return "merged";
+  if (s === "CLOSED") return "closed";
+  if (gh.isDraft) return "draft";
+  return "open";
+}
+
+function mapCi(gh: GhPr): PrCiStatus {
+  const checks = gh.statusCheckRollup;
+  if (!Array.isArray(checks) || checks.length === 0) return "unknown";
+  let pending = false;
+  for (const c of checks) {
+    const concl = (c.conclusion ?? "").toUpperCase();
+    const status = (c.status ?? "").toUpperCase();
+    const state = (c.state ?? "").toUpperCase();
+    if (concl === "FAILURE" || concl === "TIMED_OUT" || concl === "CANCELLED" || state === "FAILURE" || state === "ERROR") {
+      return "failure";
+    }
+    if (status !== "COMPLETED" && state !== "SUCCESS" && concl === "") pending = true;
+  }
+  return pending ? "pending" : "success";
+}
+
+function mapReview(gh: GhPr): PrReviewState | undefined {
+  switch ((gh.reviewDecision ?? "").toUpperCase()) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes_requested";
+    case "REVIEW_REQUIRED":
+      return "needs_review";
+    default:
+      return undefined; // 不明: 既存値を上書きしない
+  }
+}
+
+async function fetchPrsForOrigin(origin: string): Promise<GhPr[]> {
+  const { stdout } = await execFileAsync(
+    GH_BIN,
+    ["pr", "list", "--repo", origin, "--state", "all", "--limit", "100", "--json", GH_FIELDS],
+    { timeout: 15_000, maxBuffer: 8 * 1024 * 1024, windowsHide: true },
+  );
+  const parsed = JSON.parse(stdout) as unknown;
+  return Array.isArray(parsed) ? (parsed as GhPr[]) : [];
+}
+
+export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
+  const enabled = process.env.CONCORDIA_PR_RECONCILE_ENABLED !== "0";
+  const minutes = Math.max(2, Number(process.env.CONCORDIA_PR_RECONCILE_MIN ?? "10") || 10);
+
+  async function runOnce(): Promise<{ scanned: number; updated: number }> {
+    if (!enabled) return { scanned: 0, updated: 0 };
+    const origins = deps.prs.distinctActiveOrigins().filter(isOwnerRepo);
+    let scanned = 0;
+    let updated = 0;
+    for (const origin of origins) {
+      let list: GhPr[];
+      try {
+        list = await fetchPrsForOrigin(origin);
+      } catch (e) {
+        log.warn(`gh pr list failed for ${origin}: ${(e as Error).message}`);
+        continue;
+      }
+      for (const gh of list) {
+        scanned += 1;
+        const changed = deps.prs.reconcile({
+          repo_origin: origin,
+          number: gh.number,
+          title: gh.title,
+          url: gh.url,
+          head_branch: gh.headRefName ?? null,
+          base_branch: gh.baseRefName ?? null,
+          state: mapState(gh),
+          ci_status: mapCi(gh),
+          review_state: mapReview(gh),
+          additions: gh.additions ?? null,
+          deletions: gh.deletions ?? null,
+          changed_files: gh.changedFiles ?? null,
+          merged_at: isoToSec(gh.mergedAt),
+          closed_at: isoToSec(gh.closedAt),
+        });
+        if (changed) updated += 1;
+      }
+    }
+    if (updated > 0) {
+      eventBus.emit({ type: "pr.changed", reason: "reconcile", ts: Math.floor(Date.now() / 1000) });
+    }
+    return { scanned, updated };
+  }
+
+  let timer: ReturnType<typeof setInterval> | null = null;
+  if (enabled) {
+    // 起動直後に 1 回 + 以降 interval. backend boot を遅らせないため初回は遅延実行.
+    const kick = setTimeout(() => {
+      void runOnce()
+        .then((r) => log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`))
+        .catch((e) => log.warn(`reconcile run failed: ${(e as Error).message}`));
+    }, 15_000);
+    kick.unref?.();
+    timer = setInterval(() => {
+      void runOnce()
+        .then((r) => log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`))
+        .catch((e) => log.warn(`reconcile run failed: ${(e as Error).message}`));
+    }, minutes * 60 * 1000);
+    timer.unref?.();
+  } else {
+    log.info("CONCORDIA_PR_RECONCILE_ENABLED=0; reconcile disabled");
+  }
+
+  return {
+    stop: () => {
+      if (timer) clearInterval(timer);
+    },
+    runOnce,
+  };
+}

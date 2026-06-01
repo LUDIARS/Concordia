@@ -22,6 +22,12 @@ export type ConcordiaEvent =
   | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }
   | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
   /**
+   * PR キューが変化した (新規 PR 取り込み or reconcile での状態遷移). Discord の
+   * pr-queue チャンネル / WS subscriber が再描画するトリガ. 個別 PR の id は持たず、
+   * 受け手は GET /v1/prs を引き直す (キューは小さいので全更新で十分).
+   */
+  | { type: "pr.changed";       reason: "ingest" | "reconcile"; ts: number }
+  /**
    * Instruction pushed at a specific session over its WS. Lictor (or any other
    * WS subscriber with the matching session_id) injects the text into the
    * wrapped TUI as user-typed input. Filtered by WS broadcaster — only

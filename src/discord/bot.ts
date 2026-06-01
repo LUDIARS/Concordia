@@ -4,6 +4,7 @@ import type { ChatRepo } from "../db/chat-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
+import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
@@ -27,6 +28,7 @@ import {
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
+import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
@@ -51,6 +53,8 @@ export interface DiscordBotDeps {
   /** Concordia の依頼 (chat-reply / title-suggest 等の pending tasks) の集計に使う. */
   tasksRepo: TasksRepo;
   personasRepo: PersonasRepo;
+  /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
+  prRecordsRepo: PrRecordsRepo;
   concordiaUrl: string;
 }
 
@@ -91,7 +95,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let unsubscribe: (() => void) | null = null;
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
+  let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  // pr.changed event で即時再描画するための closure (ClientReady でセット).
+  let prQueueRefresh: (() => void) | null = null;
   const promptRelayLast = new Map<string, { text: string; at: number }>();
 
   client.once(Events.ClientReady, async (c) => {
@@ -140,6 +147,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         monitorTimer.unref?.();
       } else {
         log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
+      }
+      // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
+      const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
+      if (prQueueCh && prQueueCh.type === ChannelType.GuildText) {
+        const refreshPrQueue = () =>
+          upsertPrQueueChannelMessage(
+            prQueueCh,
+            deps.prRecordsRepo,
+            (k) => configRepo.get(k),
+            (k, v) => configRepo.set(k, v),
+          ).catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
+        prQueueRefresh = () => { void refreshPrQueue(); };
+        void refreshPrQueue();
+        const prMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN ?? "15") || 15);
+        prQueueTimer = setInterval(() => { void refreshPrQueue(); }, prMins * 60 * 1000);
+        prQueueTimer.unref?.();
+      } else {
+        log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);
       }
       // lost / ended の状態カードを 1 時間ごとに整理 (起動時 sweep に加えて稼働中も回収).
       const lay = layout;
@@ -282,6 +307,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       }, ev.session_id);
       return;
     }
+    if (ev.type === "pr.changed") {
+      // ingest / reconcile で PR キューが動いたら pr-queue チャンネルを即時更新.
+      prQueueRefresh?.();
+      return;
+    }
     if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
       handleEgressEvent({
         guild,
@@ -404,6 +434,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       unsubscribe?.();
       if (costTimer) clearInterval(costTimer);
       if (monitorTimer) clearInterval(monitorTimer);
+      if (prQueueTimer) clearInterval(prQueueTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
       try { await client.destroy(); } catch {}
     },

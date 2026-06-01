@@ -13,12 +13,13 @@
  *     }
  *   }
  *
- * 8 tools — Concordia の横断状態 (sessions / stat / chat / conflicts / pending-tasks)
+ * 9 tools — Concordia の横断状態 (sessions / stat / prs / chat / conflicts / pending-tasks)
  * を読み書きできる:
  *   - concordia_list_sessions
  *   - concordia_get_session
  *   - concordia_get_session_stat
  *   - concordia_list_all_stats
+ *   - concordia_pr_queue
  *   - concordia_get_pending_tasks
  *   - concordia_get_conflicts
  *   - concordia_post_chat
@@ -164,6 +165,25 @@ export function buildCoreServer(): McpServer {
     },
     async () => {
       return toToolResult(await callConcordia("GET", "/v1/stat"));
+    },
+  );
+
+  server.registerTool(
+    "concordia_pr_queue",
+    {
+      description:
+        "Cross-team PR queue: the PRs each session created, ordered by what needs attention (✅ ready-to-merge → 🛠 in-progress → 🔍 needs-review), plus recently merged. Use this to see 'what PRs are waiting' across all sessions. Filter by repo (repo_origin like 'LUDIARS/Concordia') or author (session_id). Returns { generated_at, counts, grouped, queue }.",
+      inputSchema: {
+        repo: z.string().optional().describe("repo_origin filter, e.g. 'LUDIARS/Concordia'"),
+        author: z.string().optional().describe("author session_id filter"),
+      },
+    },
+    async ({ repo, author }) => {
+      const params = new URLSearchParams();
+      if (repo) params.set("repo", repo);
+      if (author) params.set("author", author);
+      const qs = params.toString();
+      return toToolResult(await callConcordia("GET", `/v1/prs${qs ? `?${qs}` : ""}`));
     },
   );
 

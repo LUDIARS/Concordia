@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -532,6 +532,40 @@ const STATEMENTS = [
      ON delegation_runs(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
      ON delegation_runs(call_name, created_at DESC)`,
+
+  // ─── PR queue (v0.6 — おのおののセッションが作った PR を 1 本のキューに) ──────
+  // 各 active session が /v1/stat に報告する open_prs[] から派生 UPSERT (第一情報源)
+  // + GitHub reconcile tick (merged/closed/ci/review を確定) で状態を維持する.
+  // 「キュー」 = review_state / state で優先度順に並べ、 レビュー/マージ待ちを上に出す.
+  // 1 PR = 1 行. UNIQUE(repo_origin, number) で同一 PR の重複登録を防ぐ.
+  `CREATE TABLE IF NOT EXISTS pr_records (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    repo_origin        TEXT NOT NULL,                 -- 正規化した owner/repo (例 LUDIARS/Concordia)
+    repo_path          TEXT,                          -- ローカル判別補助 (任意)
+    number             INTEGER NOT NULL,              -- PR 番号
+    title              TEXT NOT NULL DEFAULT '',
+    url                TEXT,
+    head_branch        TEXT,
+    base_branch        TEXT,
+    state              TEXT NOT NULL DEFAULT 'open',  -- draft | open | merged | closed
+    ci_status          TEXT NOT NULL DEFAULT 'unknown', -- unknown | pending | success | failure
+    review_state       TEXT NOT NULL DEFAULT 'none',  -- none | needs_review | reviewing | approved | changes_requested
+    author_session_id  TEXT,                          -- 誰 (どの session) が作ったか
+    persona_id         TEXT,
+    persona_name       TEXT,                          -- author_label 慣習に合わせた表示名 snapshot
+    additions          INTEGER,
+    deletions          INTEGER,
+    changed_files      INTEGER,
+    note               TEXT,
+    created_at         INTEGER NOT NULL,              -- Concordia が最初に観測した時刻 (秒)
+    updated_at         INTEGER NOT NULL,
+    merged_at          INTEGER,
+    closed_at          INTEGER,
+    UNIQUE(repo_origin, number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_pr_records_state ON pr_records(state, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_pr_records_author ON pr_records(author_session_id, updated_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_pr_records_repo ON pr_records(repo_origin, state)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

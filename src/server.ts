@@ -18,6 +18,7 @@ import { DayReportsRepo } from "./db/day-reports-repo.js";
 import { PersonasRepo } from "./db/personas-repo.js";
 import { ProcessesRepo } from "./db/processes-repo.js";
 import { StatsRepo } from "./db/stats-repo.js";
+import { PrRecordsRepo } from "./db/pr-records-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import {
@@ -38,6 +39,8 @@ import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
 import { startStatScheduler } from "./stat/scheduler.js";
 import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
+import { startPrIngestWatcher } from "./pr/ingest.js";
+import { startPrReconciler } from "./pr/reconcile.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
@@ -123,6 +126,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const personas = new PersonasRepo(db);
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
+  const prs = new PrRecordsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
@@ -178,6 +182,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     personasRepo: personas,
+    prRecordsRepo: prs,
     concordiaUrl: publicUrl,
   };
 
@@ -191,6 +196,7 @@ export async function startBackend(): Promise<BackendHandle> {
     personas,
     processes,
     stats,
+    prs,
     sessionTaskRecords,
     transcriptLogs,
     pendingQuestions,
@@ -248,6 +254,11 @@ export async function startBackend(): Promise<BackendHandle> {
     sessions: repo,
     tasks,
   });
+
+  // PR キュー: stat.collected を購読して open_prs[] を pr_records に派生 UPSERT (方式 A).
+  const prIngestWatcher = startPrIngestWatcher({ sessions: repo, stats, personas, prs });
+  // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
+  const prReconciler = startPrReconciler({ prs });
 
   const server = serve({
     fetch: app.fetch,
@@ -318,6 +329,8 @@ export async function startBackend(): Promise<BackendHandle> {
       ruleEngine.stop();
       statScheduler.stop();
       repoChangeWatcher.stop();
+      prIngestWatcher.stop();
+      prReconciler.stop();
       sweeper.stop();
       unsubLog();
       await stopDiscordBotManaged();

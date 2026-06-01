@@ -11,6 +11,7 @@ export interface DiscordConfigSnapshot {
   archiveCategoryId: string;
   costChannelId: string;
   monitorChannelId: string;
+  prQueueChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
 }
 
@@ -20,6 +21,7 @@ const STATUS_CATEGORY_KEY = "status_category_id";
 const ARCHIVE_CATEGORY_KEY = "archive_category_id";
 const COST_CHANNEL_KEY = "cost_channel_id";
 const MONITOR_CHANNEL_KEY = "monitor_channel_id";
+const PR_QUEUE_CHANNEL_KEY = "pr_queue_channel_id";
 
 const CATEGORY_NAMES = {
   meta: "meta",
@@ -45,6 +47,7 @@ export async function ensureDiscordLayout(
   const archiveCategoryId = await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
+  const prQueueChannelId = await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId);
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
   for (const k of META_CHANNEL_KIND) {
@@ -60,6 +63,7 @@ export async function ensureDiscordLayout(
     archiveCategoryId,
     costChannelId,
     monitorChannelId,
+    prQueueChannelId,
     metaChannels,
   };
 }

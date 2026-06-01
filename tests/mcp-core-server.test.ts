@@ -26,6 +26,7 @@ describe("concordia-core MCP server", () => {
       "concordia_list_all_stats",
       "concordia_list_sessions",
       "concordia_post_chat",
+      "concordia_pr_queue",
       "concordia_recent_chat",
     ]);
   });

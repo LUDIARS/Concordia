@@ -9,6 +9,7 @@ import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "..
 import spawnCommand from "./commands/spawn.js";
 import skillCommand from "./commands/skill.js";
 import statCommand from "./commands/stat.js";
+import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
 import { dispatchQuestionInteraction } from "./question.js";
@@ -30,6 +31,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
   skillCommand,
   statCommand,
+  prsCommand,
   endSessionCommand,
   enterCommand,
 ];

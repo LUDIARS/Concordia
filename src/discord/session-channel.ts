@@ -4,8 +4,8 @@
 //   - 「sessions」 カテゴリ = active/lost セッションの会話 channel
 //   - 「状態」 カテゴリ = cost + status-card (状態ボード) のみ。 セッション会話
 //     channel は置かない (= 状態ボードがセッション channel で溢れるのを防ぐ)
-//   - 「閉じた」 (ended) セッションは channel ごと **削除** (archive 移動はしない)
-//   - archive カテゴリは過去互換のために残置.
+//   - 「閉じた」 (ended) セッションは channel を **archive カテゴリへ移動** + ⚪ prefix
+//     (削除しない。 会話ログを残す。 2026-06-01 にユーザ指示で「削除→アーカイブ」 へ変更)
 //
 // 旧方針 (2026-05-28) は session channel も状態カテゴリに作っていたが、 状態ボード
 // にセッション channel が混ざる問題があったため sessions カテゴリへ戻した.
@@ -68,7 +68,7 @@ export async function onSessionRegistered(
 
 /**
  * session.lost / session.ended に応じた channel 操作.
- *  - ended → channel ごと削除 + DB row 削除
+ *  - ended → channel を archive カテゴリへ移動 + ⚪ prefix (削除しない、 会話ログ保全)
  *  - lost  → emoji だけ更新 (状態カテゴリに留める)
  *  - active への復帰 → emoji 更新 (状態カテゴリにいる前提)
  */
@@ -80,20 +80,29 @@ export async function onSessionStatusChanged(
   if (!row) return;
   if (row.status === input.status) return;
 
-  // ended は削除フロー (rename cooldown を経由しない)
+  // ended は archive カテゴリへ移動 (削除しない / rename cooldown を経由しない).
+  // DB row は status=ended で残す — 会話チャンネルと対応を保持し続ける.
   if (input.status === "ended") {
+    deps.repo.setStatus(input.sessionId, "ended");
     const ch = deps.guild.channels.cache.get(row.channel_id);
-    try {
-      if (ch) {
-        await ch.delete(`session ${input.sessionId} ended`);
-        deps.log.info(`session-channel: deleted #${row.channel_id} for ended ${input.sessionId}`);
+    if (ch && ch.type === ChannelType.GuildText) {
+      try {
+        const endedName = applyStatusEmoji(ch.name, "ended");
+        await ch.edit({
+          name: endedName,
+          parent: deps.layout.archiveCategoryId,
+          reason: `session ${input.sessionId} ended → archive`,
+        });
+        deps.log.info(
+          `session-channel: archived #${endedName} (${row.channel_id}) for ended ${input.sessionId}`,
+        );
+      } catch (e) {
+        // 失敗しても channel は消えない (sessions カテゴリに残るだけ). best-effort.
+        deps.log.warn(
+          `session-channel: archive move failed for ${input.sessionId}: ${(e as Error).message}`,
+        );
       }
-    } catch (e) {
-      deps.log.warn(
-        `session-channel: delete failed for ${input.sessionId}: ${(e as Error).message}`,
-      );
     }
-    deps.repo.deleteBySessionId(input.sessionId);
     return;
   }
 

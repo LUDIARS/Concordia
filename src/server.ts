@@ -41,6 +41,7 @@ import { startStatScheduler } from "./stat/scheduler.js";
 import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "./pr/ingest.js";
 import { startPrReconciler } from "./pr/reconcile.js";
+import { startErrorFixDispatcher } from "./control/error-fix.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
@@ -260,6 +261,10 @@ export async function startBackend(): Promise<BackendHandle> {
   // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
   const prReconciler = startPrReconciler({ prs });
 
+  // エラー自動修正: error.reported を購読し、 常駐 error-fixer Codex に修正依頼を inject.
+  // env CONCORDIA_ERROR_AUTOFIX=1 の時だけ稼働 (既定 OFF).
+  const errorFixDispatcher = startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd });
+
   const server = serve({
     fetch: app.fetch,
     hostname: cfg.host,
@@ -331,6 +336,7 @@ export async function startBackend(): Promise<BackendHandle> {
       repoChangeWatcher.stop();
       prIngestWatcher.stop();
       prReconciler.stop();
+      errorFixDispatcher.stop();
       sweeper.stop();
       unsubLog();
       await stopDiscordBotManaged();

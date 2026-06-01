@@ -91,7 +91,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 4000), source: `discord:${msg.author.id}` }),
+        body: JSON.stringify({ text: text.slice(0, 4000), source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}` }),
       });
       if (!res.ok) {
         deps.log.warn(`ingress: inject failed status=${res.status} session=${sessionRow.session_id} channel=${msg.channelId}`);
@@ -113,7 +113,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
         }
       }
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
-      try { await msg.react("?"); } catch {}
     } catch (e) {
       deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
       try { await msg.reply({ content: `network error: ${(e as Error).message}`, allowedMentions: { repliedUser: false } }); } catch {}

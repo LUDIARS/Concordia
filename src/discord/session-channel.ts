@@ -196,20 +196,15 @@ export async function onSessionTitleChanged(
   try {
     const baseName = titleToChannelBase(input.title);
     const nextName = applyStatusEmoji(baseName, row.status);
-    const patch: { topic: string; reason: string; name?: string } = {
+    const patch: { topic: string; reason: string; name: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
+      // title rename は常に反映する。status 変化時の cooldown とは分離する。
+      name: nextName,
     };
-    if (deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
-      patch.name = nextName;
-    } else {
-      deps.log.info(
-        `session-channel: title rename deferred for ${input.sessionId} (cooldown < ${RENAME_COOLDOWN_SEC}s)`,
-      );
-    }
     await ch.edit(patch);
     deps.log.info(
-      `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name ?? "(unchanged)"}`,
+      `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name}`,
     );
   } catch (e) {
     deps.log.warn(`session-channel: title update failed for ${input.sessionId}: ${(e as Error).message}`);
@@ -219,6 +214,7 @@ export async function onSessionTitleChanged(
 function titleToChannelBase(title: string): string {
   const s = title
     .toLowerCase()
+    .replace(/[\[\]]+/g, "-")
     .replace(/[^a-z0-9\u3040-\u30ff\u3400-\u9fff-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "")

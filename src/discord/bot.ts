@@ -313,6 +313,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // Discord session channel からの inject は元メッセージがすでに表示済み。
       // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
       if (source.startsWith("discord:") || source === "discord-enter" || source === "discord-enter-fallback") {
+        const ack = parseDiscordSource(source);
+        if (ack?.messageId) {
+          const messageId = ack.messageId;
+          void (async () => {
+            try {
+              const channel = ack.channelId
+                ? guild.channels.cache.get(ack.channelId)
+                : guild.channels.cache.get(row.channel_id);
+              if (!channel || channel.type !== ChannelType.GuildText) return;
+              const m = await channel.messages.fetch(messageId);
+              await m.react("✅");
+            } catch (e) {
+              log.warn(`prompt relay: ack reaction failed session=${ev.session_id}: ${(e as Error).message}`);
+            }
+          })();
+        }
         return;
       }
       const now = Date.now();
@@ -397,4 +413,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
 function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
   if (!s) return {};
   try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
+}
+
+function parseDiscordSource(source: string): { userId: string; channelId: string | null; messageId: string | null } | null {
+  // format: discord:<userId>:<channelId>:<messageId>
+  // legacy: discord:<userId>:<messageId>
+  const parts = source.split(":");
+  if (parts.length < 3 || parts[0] !== "discord") return null;
+  if (parts.length >= 4) {
+    return { userId: parts[1], channelId: parts[2], messageId: parts[3] };
+  }
+  return { userId: parts[1], channelId: null, messageId: parts[2] };
 }

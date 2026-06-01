@@ -46,3 +46,6 @@ concordia.db*
 
 # spawn endpoint bearer token (generated on first /v1/spawn use; never committed)
 .spawn.token
+
+# 委託 prompt の実行時生成物
+delegation-prompts/

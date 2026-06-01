@@ -29,6 +29,9 @@ import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCa
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
+import { ErrorChannelPoster } from "./error-channel.js";
+import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monitor.js";
+import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
@@ -39,10 +42,18 @@ import { createChildLogger } from "../shared/logger.js";
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
 // 一律にファイルに記録される.
 const discordLog = createChildLogger("discord");
+// warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
+// (cost channel unavailable 等の非失敗 warn はノイズになるので looksLikeFailure で除外)
 const log = {
   info: (m: string) => discordLog.info(m),
-  warn: (m: string) => discordLog.warn(m),
-  error: (m: string) => discordLog.error(m),
+  warn: (m: string) => {
+    discordLog.warn(m);
+    if (looksLikeFailure(m)) reportError("discord", m);
+  },
+  error: (m: string) => {
+    discordLog.error(m);
+    reportError("discord", m);
+  },
 };
 
 export interface DiscordBotDeps {
@@ -99,6 +110,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
+  // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
+  let errorPoster: ErrorChannelPoster | null = null;
+  let errorMonitor: ErrorMonitorHandle | null = null;
   const promptRelayLast = new Map<string, { text: string; at: number }>();
 
   client.once(Events.ClientReady, async (c) => {
@@ -166,6 +180,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         prQueueTimer.unref?.();
       } else {
         log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);
+      }
+      // errors チャンネル: error.reported を転記する poster + Vestigium 監視を起動.
+      const errorCh = guild.channels.cache.get(layout.errorChannelId);
+      if (errorCh && errorCh.type === ChannelType.GuildText) {
+        errorPoster = new ErrorChannelPoster(errorCh);
+        errorPoster.start();
+        errorMonitor = startVestigiumErrorWatch();
+      } else {
+        log.warn(`errors channel unavailable id=${layout.errorChannelId}`);
       }
       // lost / ended の状態カードを 1 時間ごとに整理 (起動時 sweep に加えて稼働中も回収).
       const lay = layout;
@@ -245,6 +268,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
+    // error.reported は errors チャンネルへ (webhooks/layout 完備前でも poster があれば処理).
+    if (ev.type === "error.reported") {
+      errorPoster?.enqueue({ source: ev.source, message: ev.message, detail: ev.detail, ts: ev.ts });
+      return;
+    }
     if (!layout || !webhooks) return;
 
     if (ev.type === "session.started") {
@@ -437,6 +465,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       if (monitorTimer) clearInterval(monitorTimer);
       if (prQueueTimer) clearInterval(prQueueTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
+      errorMonitor?.stop();
+      if (errorPoster) { try { await errorPoster.stop(); } catch {} }
       try { await client.destroy(); } catch {}
     },
   };

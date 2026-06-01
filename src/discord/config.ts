@@ -12,6 +12,8 @@ export interface DiscordConfigSnapshot {
   costChannelId: string;
   monitorChannelId: string;
   prQueueChannelId: string;
+  errorCategoryId: string;
+  errorChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
 }
 
@@ -22,12 +24,15 @@ const ARCHIVE_CATEGORY_KEY = "archive_category_id";
 const COST_CHANNEL_KEY = "cost_channel_id";
 const MONITOR_CHANNEL_KEY = "monitor_channel_id";
 const PR_QUEUE_CHANNEL_KEY = "pr_queue_channel_id";
+const ERROR_CATEGORY_KEY = "error_category_id";
+const ERROR_CHANNEL_KEY = "error_channel_id";
 
 const CATEGORY_NAMES = {
   meta: "meta",
   sessions: "sessions",
   status: "状態",
   archive: "archive",
+  error: "エラー",
 } as const;
 
 const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
@@ -48,6 +53,9 @@ export async function ensureDiscordLayout(
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
   const prQueueChannelId = await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId);
+  // 「エラー」 カテゴリ + errors チャンネル: 監視ロガー検知 / Discord 操作失敗の転記先.
+  const errorCategoryId = await ensureCategory(guild, repo, ERROR_CATEGORY_KEY, CATEGORY_NAMES.error);
+  const errorChannelId = await ensureTextChannel(guild, repo, ERROR_CHANNEL_KEY, "errors", errorCategoryId);
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
   for (const k of META_CHANNEL_KIND) {
@@ -64,6 +72,8 @@ export async function ensureDiscordLayout(
     costChannelId,
     monitorChannelId,
     prQueueChannelId,
+    errorCategoryId,
+    errorChannelId,
     metaChannels,
   };
 }

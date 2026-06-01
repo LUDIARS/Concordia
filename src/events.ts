@@ -28,6 +28,12 @@ export type ConcordiaEvent =
    */
   | { type: "pr.changed";       reason: "ingest" | "reconcile"; ts: number }
   /**
+   * 監視ロガーが検知したエラー or Concordia 内部 (Discord 操作等) の失敗.
+   * Discord bot が「エラー」 カテゴリの errors チャンネルへ転記する.
+   * `source` は発生源ラベル (例 "discord", "vestigium:<service>").
+   */
+  | { type: "error.reported";   source: string; message: string; detail?: Record<string, unknown>; ts: number }
+  /**
    * Instruction pushed at a specific session over its WS. Lictor (or any other
    * WS subscriber with the matching session_id) injects the text into the
    * wrapped TUI as user-typed input. Filtered by WS broadcaster — only

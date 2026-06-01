@@ -3,6 +3,7 @@ import Database from "better-sqlite3";
 import { applyMigrations } from "../db/schema.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { buildPrQueue, bucketOf } from "./queue.js";
+import { renderPrQueueMarkdown } from "./render.js";
 import { parseOpenPrsFromStat, normalizeRepoOrigin, prUrlFor } from "./normalize.js";
 
 describe("pr/normalize", () => {
@@ -70,5 +71,20 @@ describe("pr/queue", () => {
 
     const q = buildPrQueue(repo);
     expect(q.queue.map((r) => bucketOf(r))).toEqual(["ready", "in_progress", "needs_review"]);
+  });
+
+  it("render injects 担当 channel mention for active PRs but not merged history", () => {
+    repo.upsertFromStat({ repo_origin: "R/x", number: 1, author_session_id: "sess-a" });
+    repo.upsertFromStat({ repo_origin: "R/x", number: 2, author_session_id: "sess-b" });
+    repo.reconcile({ repo_origin: "R/x", number: 2, state: "merged", merged_at: 100 });
+    const q = buildPrQueue(repo);
+    const md = renderPrQueueMarkdown(q, {
+      mentionFor: (row) => (row.author_session_id === "sess-a" ? "<#chan-a>" : null),
+    });
+    expect(md).toContain("担当 <#chan-a>"); // active PR #1
+    // merged section never carries a mention even if a resolver matched
+    const mergedLine = md.split("\n").find((l) => l.includes("R/x#2"));
+    expect(mergedLine).toBeDefined();
+    expect(mergedLine).not.toContain("担当");
   });
 });

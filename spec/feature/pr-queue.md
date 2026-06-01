@@ -76,6 +76,12 @@ Concordia の API / MCP と Discord の自動更新メッセージ / slash comma
   **自動更新の単一メッセージ**（`pr-queue-channel.ts`、 monitor-channel と同じ upsert
   方式）。 既定 15 分 tick + `pr.changed` で即時再描画。
   `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` で間隔変更。
+  各 active PR には **担当セッションの Discord チャンネルへのリンク**を付ける:
+  `author_session_id` → `discord_session_channels` で `channel_id` を引き、 行に
+  `担当 <#channelId>`（クリック可能なチャンネル mention）を出す。 終了済セッション
+  （`status=ended`、 会話チャンネル削除済）と 🟣最近マージ には付けない。
+  この解決は `renderPrQueueMarkdown` の任意 `mentionFor` リゾルバ経由で、 Discord
+  でのみ注入する（API / MCP の出力には `<#id>` を混ぜない）。
 - `/prs` slash command — その場でキュー Markdown を ephemeral 表示。
 
 ### イベント (`src/events.ts`)

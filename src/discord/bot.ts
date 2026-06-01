@@ -155,6 +155,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           upsertPrQueueChannelMessage(
             prQueueCh,
             deps.prRecordsRepo,
+            sessionChannelsRepo,
             (k) => configRepo.get(k),
             (k, v) => configRepo.set(k, v),
           ).catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));

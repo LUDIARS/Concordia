@@ -36,6 +36,7 @@ export function formatHelp(): string {
     "• `/concordia prs` — PR キュー",
     "• `/concordia spawn <claude|codex> [cwd]` — 新規セッション起動",
     "• `/concordia end <session_id 先頭8桁>` — セッション終了",
+    "• `/concordia rename <session_id 先頭8桁> <新タイトル>` — やる事を変更",
     "• `/concordia help` — このヘルプ",
     "_(セッションへの入力はスレッド返信、質問回答はボタンで)_",
   ].join("\n");
@@ -77,6 +78,28 @@ async function doEnd(deps: SlashDeps, args: string): Promise<string> {
   return `✅ セッション終了: \`${id.slice(0, 8)}\``;
 }
 
+/** `/concordia rename <sid8> <text>` — セッションのタイトル(やる事)を変更。Lictor 非注入の /title。 */
+async function doRename(deps: SlashDeps, args: string): Promise<string> {
+  const parts = args.trim().split(/\s+/);
+  const prefix = parts[0] ?? "";
+  const text = parts.slice(1).join(" ").trim();
+  if (prefix.length < 4 || !text) return "使い方: `/concordia rename <session_id 先頭8桁> <新タイトル>`";
+  const listRes = await fetch(`${deps.concordiaUrl}/v1/sessions?status=active`);
+  if (!listRes.ok) return `セッション一覧取得失敗 (${listRes.status})`;
+  const listJson = (await listRes.json()) as { sessions?: Array<{ id?: string }> };
+  const matches = (listJson.sessions ?? []).filter((s) => typeof s.id === "string" && s.id.startsWith(prefix));
+  if (matches.length === 0) return `\`${prefix}\` に一致する active セッションがありません。`;
+  if (matches.length > 1) return `\`${prefix}\` が複数一致。より長い prefix を。`;
+  const id = matches[0].id!;
+  const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(id)}/title`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text: text.slice(0, 200) }),
+  });
+  if (!res.ok) return `rename 失敗 (${res.status})`;
+  return `✅ \`${id.slice(0, 8)}\` のタイトルを「${text}」に変更`;
+}
+
 /** slash command 本文を処理して返信テキストを返す。失敗は人間向けメッセージに丸める。 */
 export async function runSlackSlash(deps: SlashDeps, text: string): Promise<string> {
   const { sub, args } = parseSlashCommand(text);
@@ -96,6 +119,7 @@ export async function runSlackSlash(deps: SlashDeps, text: string): Promise<stri
     }
     if (sub === "spawn") return await doSpawn(deps, args);
     if (sub === "end") return await doEnd(deps, args);
+    if (sub === "rename") return await doRename(deps, args);
     if (sub === "help" || !sub) return formatHelp();
     return `未知のサブコマンド: \`${sub}\`${args ? ` ${args}` : ""}\n${formatHelp()}`;
   } catch (e) {

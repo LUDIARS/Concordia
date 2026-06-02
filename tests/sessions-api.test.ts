@@ -248,6 +248,49 @@ describe("sessions API", () => {
     expect(kinds).toContain("inject");
   });
 
+  it("POST /v1/sessions/:id/title emits title_renamed (Lictor へは転送しない)", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "ti", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.event" && (ev as any).kind === "title_renamed") captured.push(ev);
+    });
+    try {
+      const r = await app.request("/v1/sessions/ti/title", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "[Co] やる事" }),
+      });
+      expect(r.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toMatchObject({ type: "session.event", session_id: "ti", kind: "title_renamed" });
+    } finally {
+      unsub();
+    }
+    const detail = await (await app.request("/v1/sessions/ti")).json() as any;
+    const titleEv = detail.events.find((e: any) => e.kind === "title_renamed");
+    const payload = typeof titleEv.payload === "string" ? JSON.parse(titleEv.payload) : titleEv.payload;
+    expect(payload.text).toBe("[Co] やる事");
+  });
+
+  it("POST /v1/sessions/:id/title 空テキストは 400", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "ti2", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const r = await app.request("/v1/sessions/ti2/title", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
   it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {
     const r = await app.request("/v1/sessions/nope/inject", {
       method: "POST",

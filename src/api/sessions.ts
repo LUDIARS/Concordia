@@ -104,6 +104,10 @@ const PermissionResponseSchema = z.object({
 const TitleSuggestionSchema = z.object({
   text: z.string().min(1).max(200),
 });
+// /:id/title 用 (window-title hook / rename コマンドから。Lictor へは転送しない)。
+const TitleSetSchema = z.object({
+  text: z.string().min(1).max(200),
+});
 // AskUserQuestion option は旧形式 string と新形式 {label, description?} の
 // 両方を受け入れる. 内部 (DB / Discord embed) では正規化された {label, description?} で扱う.
 const PendingQuestionOptionSchema = z.union([
@@ -453,6 +457,22 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     let json: unknown;
     try { json = JSON.parse(text); } catch { json = { raw: text }; }
     return c.json(json as Record<string, unknown>, upstream.status as 200);
+  });
+
+  // POST /v1/sessions/:id/title — セッションのタイトル(やる事)を設定し title_renamed を
+  // emit するだけ。Lictor /v1/rename には転送しない(= claude TUI に /rename を打ち込まない)
+  // ので、window-title hook から毎回叩いても自セッションに slash 注入しない。
+  // Discord は title_renamed で channel rename + status card 更新、Slack は thread root 反映。
+  app.post("/:id/title", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = TitleSetSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const now = nowSec();
+    deps.repo.appendEvent({ session_id: id, ts: now, kind: "title_renamed", payload: { text: parsed.data.text } });
+    eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts: now });
+    return c.json({ ok: true, ts: now });
   });
 
     // POST /v1/sessions/:id/title-suggestion — session AI が repo_change_watcher

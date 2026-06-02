@@ -249,6 +249,28 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     });
   }
 
+  // title_renamed: セッションの thread root メッセージを新タイトルに更新して Slack 側にも反映。
+  async function reflectTitle(sessionId: string): Promise<void> {
+    const row = threads.findBySessionId(sessionId);
+    if (!row) return;
+    const latest = deps.sessionsRepo.recentEvents(sessionId, 1)[0];
+    let title = "";
+    try {
+      const p = latest ? (JSON.parse(latest.payload) as { text?: unknown }) : {};
+      if (typeof p.text === "string") title = p.text.trim();
+    } catch { /* ignore */ }
+    if (!title) return;
+    try {
+      await web.chat.update({
+        channel: channelId,
+        ts: row.thread_ts,
+        text: `▶ *${truncateForSlack(title, 150)}* — \`${sessionId.slice(0, 8)}\``,
+      });
+    } catch (e) {
+      log.warn(`thread root rename failed session=${sessionId}: ${(e as Error).message}`);
+    }
+  }
+
   const unsubscribe = eventBus.subscribe((ev) => {
     if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
@@ -267,6 +289,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
+    } else if (ev.type === "session.event" && ev.kind === "title_renamed") {
+      void reflectTitle(ev.session_id).catch((e) => log.warn(`title reflect: ${(e as Error).message}`));
     } else if (ev.type === "session.ended") {
       working.clear(ev.session_id);
       threads.setStatus(ev.session_id, "ended");

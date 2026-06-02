@@ -54,13 +54,23 @@ Slack 由来 chat を Slack に再投稿しない（Discord egress の `source="
   `/concordia` を 1 個登録（Socket Mode なので request URL 不要、`commands` scope）。応答は
   ephemeral。宛先は Discord コマンドと同じ Concordia HTTP（`/v1/stat`・`/v1/prs/digest`）。
 
-## まだ非対象（フォローアップ）
-- slash の副作用系（spawn / end / skill）: spawn は `/v1/admin/spawn-session` の payload 確定後、
-  end は単一チャンネル方式だと session 特定設計が要るため次段。
-- per-session チャンネル自動作成 / cost・monitor・pr-queue・status-card 等のダッシュボード。
-- 回答済みボタンの「ローカル回答時」自動失効（Discord と共通の既知エッジ）。
+## v0.3 追加（2026-06-02）
+- **slash 副作用系**: `/concordia spawn <claude|codex> [cwd]`（→ `/v1/admin/spawn-session`）/
+  `/concordia end <session_id 先頭8桁>`（`GET /v1/sessions?status=active` で先頭一致 1 件に解決 →
+  `DELETE /v1/sessions/:id`、複数一致はより長い prefix を要求）。`skill` は Lictor sidecar の
+  port proxy が要るため対象外（Discord 同様）。
+- **質問ボタンのローカル失効**: `question_id → 投稿 ts` を in-memory 保持し、`question.answered` /
+  `question.resolved`（ローカル回答 → Lictor 通知）受信時に `chat.update` でボタン除去。
+  再起動で map が消えても Concordia 側 `markResolvedLocally` で再クリックは弾かれる。
+
+## 非対象（設計上やらない / 必要時に別途）
+- **per-session チャンネル自動作成**: thread-per-session で routing 要件は充足済。Slack に
+  channel を乱立させると workspace を汚し `conversations.create`/招待スコープも要るため見送り。
+- **cost / monitor / pr-queue / status-card ダッシュボード全移植**: Discord 固有の作り込み。
+  Slack では `/concordia stat`・`/concordia prs`（slash）+ thread root で実用上代替できるため、
+  Block Kit 定期更新の全移植はコスト大・価値中につき見送り（必要になれば monitor 1 枚から検討）。
 
 ## テスト
 純粋ロジック（`render` / `types` / `slash` / `session-threads-repo` / `working-indicator`）を
-単体テスト（29 ケース）。Socket Mode の live 接続は薄い shell に隔離し、best-effort
+単体テスト。Socket Mode の live 接続・Web API 呼び出しは薄い shell に隔離し、best-effort
 （接続失敗で本体運用に影響しない）。

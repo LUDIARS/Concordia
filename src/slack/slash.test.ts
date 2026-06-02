@@ -1,6 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { parseSlashCommand } from "./render.js";
-import { formatStat, formatHelp } from "./slash.js";
+import { formatStat, formatHelp, runSlackSlash } from "./slash.js";
+
+describe("runSlackSlash 早期バリデーション (ネットワーク前)", () => {
+  const deps = { concordiaUrl: "http://127.0.0.1:1" };
+  it("spawn の不正 provider は fetch せずエラーメッセージ", async () => {
+    const out = await runSlackSlash(deps, "spawn nope");
+    expect(out).toContain("provider は");
+  });
+  it("end の短すぎる prefix は fetch せず案内", async () => {
+    const out = await runSlackSlash(deps, "end ab");
+    expect(out).toContain("先頭 4 桁以上");
+  });
+  it("help はヘルプを返す", async () => {
+    expect(await runSlackSlash(deps, "")).toContain("/concordia stat");
+    expect(await runSlackSlash(deps, "help")).toContain("/concordia spawn");
+  });
+});
 
 describe("parseSlashCommand", () => {
   it("空は help", () => {

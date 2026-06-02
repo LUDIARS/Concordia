@@ -160,14 +160,36 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     await postToSessionThread(ev.target_session_id, frame.text, author);
   }
 
+  // question_id → 投稿した質問メッセージの ts。回答/ローカル解決時にボタンを外すため保持。
+  // 再起動で消えるが、その場合でも Concordia 側 markAnswered で再クリックは弾かれる。
+  const questionMsgTs = new Map<number, string>();
+
   async function handleQuestionPosted(ev: Extract<ConcordiaEvent, { type: "question.posted" }>): Promise<void> {
     const threadTs = await ensureSessionThread(ev.target_session_id);
     if (!threadTs) return;
     const { text, blocks } = buildQuestionBlocks(ev.question_id, ev.question, ev.options);
     try {
-      await web.chat.postMessage({ channel: channelId, thread_ts: threadTs, text, blocks: blocks as never });
+      const r = await web.chat.postMessage({ channel: channelId, thread_ts: threadTs, text, blocks: blocks as never });
+      if (typeof r.ts === "string") questionMsgTs.set(ev.question_id, r.ts);
     } catch (e) {
       log.warn(`question post failed session=${ev.target_session_id} qid=${ev.question_id}: ${(e as Error).message}`);
+    }
+  }
+
+  // 回答済み / ローカル解決時に質問メッセージのボタンを外す（再クリック防止）。
+  async function clearQuestionButtons(questionId: number, label: string): Promise<void> {
+    const ts = questionMsgTs.get(questionId);
+    if (!ts) return;
+    questionMsgTs.delete(questionId);
+    try {
+      await web.chat.update({
+        channel: channelId,
+        ts,
+        text: label,
+        blocks: [{ type: "section", text: { type: "mrkdwn", text: label } }] as never,
+      });
+    } catch (e) {
+      log.warn(`clearQuestionButtons failed qid=${questionId}: ${(e as Error).message}`);
     }
   }
 
@@ -203,6 +225,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       working.noteProgress(ev.target_session_id);
     } else if (ev.type === "question.posted") {
       void handleQuestionPosted(ev).catch((e) => log.warn(`question.posted dispatch: ${(e as Error).message}`));
+    } else if (ev.type === "question.answered") {
+      void clearQuestionButtons(ev.question_id, `✅ *回答済み* — 選択肢 ${ev.answer_index + 1}`);
+    } else if (ev.type === "question.resolved") {
+      void clearQuestionButtons(ev.question_id, "✅ *回答済み（ローカル）*");
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
     } else if (ev.type === "session.ended") {

@@ -34,9 +34,47 @@ export function formatHelp(): string {
     "*Concordia slash*",
     "• `/concordia stat` — 全セッションの現況",
     "• `/concordia prs` — PR キュー",
+    "• `/concordia spawn <claude|codex> [cwd]` — 新規セッション起動",
+    "• `/concordia end <session_id 先頭8桁>` — セッション終了",
     "• `/concordia help` — このヘルプ",
     "_(セッションへの入力はスレッド返信、質問回答はボタンで)_",
   ].join("\n");
+}
+
+const SPAWN_PROVIDERS = ["claude", "codex"] as const;
+
+/** `/concordia spawn <provider> [cwd]` を /v1/admin/spawn-session に流す。 */
+async function doSpawn(deps: SlashDeps, args: string): Promise<string> {
+  const parts = args.split(/\s+/).filter(Boolean);
+  const provider = (parts[0] ?? "claude").toLowerCase();
+  if (!SPAWN_PROVIDERS.includes(provider as (typeof SPAWN_PROVIDERS)[number])) {
+    return `provider は ${SPAWN_PROVIDERS.join(" / ")} のいずれか。例: \`/concordia spawn claude\``;
+  }
+  const cwd = parts.slice(1).join(" ").trim() || undefined;
+  const res = await fetch(`${deps.concordiaUrl}/v1/admin/spawn-session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ provider, ...(cwd ? { cwd } : {}) }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { error?: string; pid?: number };
+  if (!res.ok) return `spawn 失敗: ${json.error ?? `HTTP ${res.status}`}`;
+  return `✅ spawn 起動 (${provider}${cwd ? `, ${cwd}` : ""}) pid=${json.pid ?? "?"}`;
+}
+
+/** `/concordia end <sid8>` — session_id 先頭一致で 1 件に解決して DELETE。 */
+async function doEnd(deps: SlashDeps, args: string): Promise<string> {
+  const prefix = args.trim().split(/\s+/)[0] ?? "";
+  if (prefix.length < 4) return "session_id の先頭 4 桁以上を指定してください。例: `/concordia end ab12cd34`";
+  const listRes = await fetch(`${deps.concordiaUrl}/v1/sessions?status=active`);
+  if (!listRes.ok) return `セッション一覧取得失敗 (${listRes.status})`;
+  const listJson = (await listRes.json()) as { sessions?: Array<{ id?: string }> };
+  const matches = (listJson.sessions ?? []).filter((s) => typeof s.id === "string" && s.id.startsWith(prefix));
+  if (matches.length === 0) return `\`${prefix}\` に一致する active セッションがありません。`;
+  if (matches.length > 1) return `\`${prefix}\` が複数一致 (${matches.length})。より長い prefix を指定してください。`;
+  const id = matches[0].id!;
+  const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!res.ok) return `end 失敗 (${res.status}) session=${id.slice(0, 8)}`;
+  return `✅ セッション終了: \`${id.slice(0, 8)}\``;
 }
 
 /** slash command 本文を処理して返信テキストを返す。失敗は人間向けメッセージに丸める。 */
@@ -56,6 +94,8 @@ export async function runSlackSlash(deps: SlashDeps, text: string): Promise<stri
       const md = (json.markdown ?? "").trim();
       return md || "PR はありません。";
     }
+    if (sub === "spawn") return await doSpawn(deps, args);
+    if (sub === "end") return await doEnd(deps, args);
     if (sub === "help" || !sub) return formatHelp();
     return `未知のサブコマンド: \`${sub}\`${args ? ` ${args}` : ""}\n${formatHelp()}`;
   } catch (e) {

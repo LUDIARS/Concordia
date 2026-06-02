@@ -13,6 +13,7 @@ Concordia は多機能サービス (loopback でのセッション協調 + Disco
 | まず Concordia 本体を起動して session 協調を使う | [core.md](core.md) | `CONCORDIA_HOST` / `PORT` / `DB_PATH` / sweeper タイムアウト |
 | **Windows** で正しく起動する (git-bash 問題等) | [windows.md](windows.md) | `CLAUDE_CODE_GIT_BASH_PATH` / port 17330 事情 |
 | Discord で session を見る / 操作する | [discord.md](discord.md) | `CONCORDIA_DISCORD_*` + privileged intent |
+| Slack で session を見る / 操作する | [slack.md](slack.md) | `CONCORDIA_SLACK_*` + Socket Mode + `/concordia` slash |
 | サービス監視 / auto-fix (旧 Excubitor) を有効化 | [observability.md](observability.md) | `catalog/services.yaml` / `LUDIARS_ROOT` / bash path |
 | 別 session を spawn する管制 / MCP 委託 | [spawn.md](spawn.md) | `.spawn.token` / `CONCORDIA_SPAWN_DEFAULT_CWD` |
 | 全 env キーの正本を引く | [config-reference.md](config-reference.md) | (一覧) |

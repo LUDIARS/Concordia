@@ -73,6 +73,19 @@ export function buildQuestionBlocks(
 }
 
 /**
+ * `/concordia <sub> <args...>` の text 部を解析する。`text` は Slack slash command
+ * の本文（コマンド名 `/concordia` を除いた残り）。先頭トークンを小文字化して sub に、
+ * 残りを args に。空なら sub="help"。
+ */
+export function parseSlashCommand(text: string): { sub: string; args: string } {
+  const t = (text ?? "").trim();
+  if (!t) return { sub: "help", args: "" };
+  const sp = t.indexOf(" ");
+  if (sp < 0) return { sub: t.toLowerCase(), args: "" };
+  return { sub: t.slice(0, sp).toLowerCase(), args: t.slice(sp + 1).trim() };
+}
+
+/**
  * ボタン action_id (`cc_answer:<questionId>:<index>`) を解析する。
  * 形式不一致なら null（他の interaction を無視するため）。
  */

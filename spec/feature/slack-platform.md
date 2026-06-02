@@ -44,14 +44,23 @@ schema.ts が table の正本）。
 Slack ingress 由来の chat は `metadata.source="slack"` を刻む。egress はこれを見て
 Slack 由来 chat を Slack に再投稿しない（Discord egress の `source="discord"` と同型）。
 
-## v0.1 の非対象（フォローアップ）
-- slash コマンド（spawn/stat/end/skill/prs）: Slack の slash は app 設定 + request
-  URL or Socket Mode commands が要るため次段。当面 spawn/stat 等は Discord / Web から。
-- per-session チャンネル自動作成 / cost・monitor・pr-queue・status-card 等の
-  ダッシュボード: Discord 固有の付加価値として Slack 未実装。
+## v0.2 追加（2026-06-02）
+- **作業中インジケータ**: session thread の最下部に「🔄 作業中…」を出し、進捗で消して
+  落ち着いたら出し直し、idle で除去。Discord と同じ platform 非依存コントローラ
+  ([`../../src/platform/working-indicator.ts`](../../src/platform/working-indicator.ts)) を
+  流用し post/remove を Slack thread 用に差すだけ。idle は `CONCORDIA_SLACK_WORKING_IDLE_SEC`（既定60s）。
+- **slash コマンド（読み取り系）**: Socket Mode の `slash_commands` で `/concordia stat|prs|help`
+  ([`../../src/slack/slash.ts`](../../src/slack/slash.ts))。Slack app の Slash Commands に
+  `/concordia` を 1 個登録（Socket Mode なので request URL 不要、`commands` scope）。応答は
+  ephemeral。宛先は Discord コマンドと同じ Concordia HTTP（`/v1/stat`・`/v1/prs/digest`）。
+
+## まだ非対象（フォローアップ）
+- slash の副作用系（spawn / end / skill）: spawn は `/v1/admin/spawn-session` の payload 確定後、
+  end は単一チャンネル方式だと session 特定設計が要るため次段。
+- per-session チャンネル自動作成 / cost・monitor・pr-queue・status-card 等のダッシュボード。
 - 回答済みボタンの「ローカル回答時」自動失効（Discord と共通の既知エッジ）。
 
 ## テスト
-純粋ロジック（`render` / `types` / `session-threads-repo`）を単体テスト（17 ケース）。
-Socket Mode の live 接続は薄い shell に隔離し、best-effort（接続失敗で本体運用に
-影響しない）。
+純粋ロジック（`render` / `types` / `slash` / `session-threads-repo` / `working-indicator`）を
+単体テスト（29 ケース）。Socket Mode の live 接続は薄い shell に隔離し、best-effort
+（接続失敗で本体運用に影響しない）。

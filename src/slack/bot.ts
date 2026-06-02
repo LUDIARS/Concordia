@@ -16,6 +16,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { formatAuthorName } from "../discord/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
+import { WorkingIndicator } from "../platform/working-indicator.js";
 import { makeSlackSessionThreadsRepo, type SlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
 import {
@@ -24,6 +25,7 @@ import {
   parseAnswerActionId,
   truncateForSlack,
 } from "./render.js";
+import { runSlackSlash } from "./slash.js";
 
 const slackLog = createChildLogger("slack");
 const log = {
@@ -169,15 +171,45 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
   }
 
+  // 「作業中」インジケータ: session thread の最下部に「🔄 作業中…」を出し、進捗で
+  // 消して落ち着いたら出し直す。Discord と同じ platform 非依存コントローラを流用し、
+  // post/remove だけ Slack thread 用に差す。spec/feature/working-indicator.md
+  const idleSec = Math.max(15, Number(process.env.CONCORDIA_SLACK_WORKING_IDLE_SEC ?? "60") || 60);
+  const working = new WorkingIndicator({
+    idleMs: idleSec * 1000,
+    log: (m) => log.info(`working-indicator: ${m}`),
+    post: async (sessionId) => {
+      const tt = await ensureSessionThread(sessionId);
+      if (!tt) return null;
+      try {
+        const r = await web.chat.postMessage({ channel: channelId, thread_ts: tt, text: "🔄 *作業中…*" });
+        return (r.ts as string) ?? null;
+      } catch (e) {
+        log.warn(`working post failed session=${sessionId}: ${(e as Error).message}`);
+        return null;
+      }
+    },
+    remove: async (_sessionId, ts) => {
+      try { await web.chat.delete({ channel: channelId, ts }); } catch { /* best-effort */ }
+    },
+  });
+
   const unsubscribe = eventBus.subscribe((ev) => {
     if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
+      if (ev.session_id) working.noteProgress(ev.session_id);
     } else if (ev.type === "transcript.frame") {
       void handleTranscriptFrame(ev).catch((e) => log.warn(`transcript.frame dispatch: ${(e as Error).message}`));
+      working.noteProgress(ev.target_session_id);
     } else if (ev.type === "question.posted") {
       void handleQuestionPosted(ev).catch((e) => log.warn(`question.posted dispatch: ${(e as Error).message}`));
+    } else if (ev.type === "session.event" && ev.kind === "prompt") {
+      working.noteProgress(ev.session_id);
     } else if (ev.type === "session.ended") {
+      working.clear(ev.session_id);
       threads.setStatus(ev.session_id, "ended");
+    } else if (ev.type === "session.lost") {
+      working.clear(ev.session_id);
     }
   });
 
@@ -245,6 +277,21 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       log.warn(`interaction handler: ${(e as Error).message}`);
     }
   });
+
+  // ─── slash commands: /concordia <sub> （読み取り系 stat/prs/help、v0.2）──────
+  // Slack app の Slash Commands に `/concordia` を 1 個登録しておく（Socket Mode
+  // 経由なので request URL は不要）。spec/feature/slack-platform.md 参照。
+  socket.on(
+    "slash_commands",
+    async ({ body, ack }: { body: { command?: string; text?: string }; ack: (res?: unknown) => Promise<void> }) => {
+      try {
+        const text = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, body?.text ?? "");
+        await ack({ response_type: "ephemeral", text });
+      } catch (e) {
+        try { await ack({ response_type: "ephemeral", text: `エラー: ${(e as Error).message}` }); } catch {}
+      }
+    },
+  );
 
   socket.on("error", (e: Error) => log.warn(`socket error: ${e?.message ?? String(e)}`));
 

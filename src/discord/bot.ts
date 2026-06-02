@@ -37,6 +37,7 @@ import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { postQuestion } from "./question.js";
 import { createChildLogger } from "../shared/logger.js";
+import { WorkingIndicator } from "../platform/working-indicator.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -114,6 +115,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let errorPoster: ErrorChannelPoster | null = null;
   let errorMonitor: ErrorMonitorHandle | null = null;
   const promptRelayLast = new Map<string, { text: string; at: number }>();
+  // 「作業中」インジケータ。ClientReady で guild を捕捉して生成する。
+  let workingIndicator: WorkingIndicator | null = null;
 
   client.once(Events.ClientReady, async (c) => {
     log.info(`logged in as ${c.user.tag}`);
@@ -219,6 +222,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
         .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
         .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
+      // 「作業中」インジケータ: session channel に通常 bot メッセージとして出す
+      // （webhook ではなく channel.send なので message.delete で確実に消せる）。
+      const idleSec = Math.max(15, Number(process.env.CONCORDIA_DISCORD_WORKING_IDLE_SEC ?? "60") || 60);
+      workingIndicator = new WorkingIndicator({
+        idleMs: idleSec * 1000,
+        log: (m) => log.info(`working-indicator: ${m}`),
+        post: async (sessionId) => {
+          const row = sessionChannelsRepo.findBySessionId(sessionId);
+          if (!row || row.status !== "active") return null;
+          const ch = guild.channels.cache.get(row.channel_id);
+          if (!ch || ch.type !== ChannelType.GuildText) return null;
+          const m = await ch.send("🔄 **作業中…**");
+          return m.id;
+        },
+        remove: async (sessionId, messageId) => {
+          const row = sessionChannelsRepo.findBySessionId(sessionId);
+          if (!row) return;
+          const ch = guild.channels.cache.get(row.channel_id);
+          if (!ch || ch.type !== ChannelType.GuildText) return;
+          try {
+            const m = await ch.messages.fetch(messageId);
+            await m.delete();
+          } catch {
+            // 既に消えている / 取得失敗は無視（best-effort）。
+          }
+        },
+      });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
     } catch (e) {
       log.error(`ready handler failed: ${(e as Error).message}`);
@@ -301,6 +331,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (ev.type === "session.lost") {
+      workingIndicator?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       void upsertSessionStatusCard({
         guild,
@@ -316,6 +347,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (ev.type === "session.ended") {
+      workingIndicator?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
@@ -353,9 +385,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         messageMap,
         log,
       }, ev);
+      // transcript が動いている = セッションは作業中。進捗ごとに「作業中」を消して
+      // 落ち着いたら最下部へ出し直す（idle で除去）。session に紐づくものだけ。
+      const progressSession =
+        ev.type === "transcript.frame" ? ev.target_session_id : ev.session_id ?? null;
+      if (progressSession) workingIndicator?.noteProgress(progressSession);
       return;
     }
     if (ev.type === "session.event" && ev.kind === "prompt") {
+      // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
+      workingIndicator?.noteProgress(ev.session_id);
       const s = deps.sessionsRepo.findSession(ev.session_id);
       if (!s || s.provider !== "codex-cli") return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);

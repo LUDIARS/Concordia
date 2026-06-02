@@ -497,6 +497,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "question.resolved") {
       // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
       void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
+      return;
+    }
+    if (ev.type === "session.inject") {
+      // 環境同期: 相手プラットフォーム(Slack)由来の inject を Discord の session channel
+      // にも発言者付きで転記する。Discord 由来は元発言が既に表示済なので転記しない。
+      // 制御 inject (/enter 等、source 例 "discord-enter") は ^slack: に一致せず除外。
+      const src = ev.source ?? "";
+      if (!src.startsWith("slack:")) return;
+      const sessionRow = sessionChannelsRepo.findBySessionId(ev.target_session_id);
+      if (!sessionRow || sessionRow.status !== "active") return;
+      const who = ev.author_label?.trim() || "Slack user";
+      void (async () => {
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        await webhooks.send(client, { content: ev.text.slice(0, 1900), username: `🔁 Slack / ${who}` });
+      })();
     }
   }
 

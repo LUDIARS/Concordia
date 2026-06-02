@@ -88,10 +88,16 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     }
     try {
       // Session channel の通常発言は /inject と等価に扱う。
+      // author_label を付けて Concordia に participants 登録 + 相手PFミラーの発言者明示に使う。
+      const injectAuthor = msg.member?.nickname?.trim() || msg.author.username;
       const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: text.slice(0, 4000), source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}` }),
+        body: JSON.stringify({
+          text: text.slice(0, 4000),
+          source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}`,
+          author_label: injectAuthor,
+        }),
       });
       if (!res.ok) {
         deps.log.warn(`ingress: inject failed status=${res.status} session=${sessionRow.session_id} channel=${msg.channelId}`);

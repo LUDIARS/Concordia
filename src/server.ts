@@ -10,6 +10,7 @@ import { loadConfig } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
+import { makeParticipantsRepo } from "./db/participants-repo.js";
 import { TasksRepo } from "./db/tasks-repo.js";
 import { ChatRepo } from "./db/chat-repo.js";
 import { SkillsRepo } from "./db/skills-repo.js";
@@ -159,6 +160,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const delegationService = new DelegationService({ repo: delegationRepo });
   const adminState = new AdminState(db);
@@ -234,6 +236,7 @@ export async function startBackend(): Promise<BackendHandle> {
     pendingQuestions,
     discordChannels,
     discordConfig,
+    participants,
     delegation: delegationRepo,
     delegationService,
     adminState,

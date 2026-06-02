@@ -41,7 +41,9 @@ export type ConcordiaEvent =
    * `source` is an optional human-readable label (e.g. another role / a script
    * name) for telemetry; not a security boundary.
    */
-  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
+  // author_label: 人間入力者の表示名 (発言者明示のクロスプラットフォーム・ミラー用)。
+  // source が "discord:<uid>:…" / "slack:<uid>:…" の人間メッセージのときに付く。
+  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; ts: number }
   /**
    * One frame from a session's transcript stream. Lictor tails Claude's
    * JSONL session file and POSTs each line (after simplification) as a

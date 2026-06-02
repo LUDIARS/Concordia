@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { spawn } from "node:child_process";
 import type { SessionsRepo } from "./db/sessions-repo.js";
+import type { ParticipantsRepo } from "./db/participants-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { ChatRepo } from "./db/chat-repo.js";
 import type { Dispatcher } from "./dispatcher.js";
@@ -73,6 +74,7 @@ export interface AppDeps {
   pendingQuestions: DiscordPendingQuestionsRepo;
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
+  participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
   adminState: AdminState;
@@ -115,6 +117,7 @@ export function buildApp(deps: AppDeps): Hono {
       pendingQuestions: deps.pendingQuestions,
       discordChannels: deps.discordChannels,
       discordConfig: deps.discordConfig,
+      participants: deps.participants,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));

@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 18;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -581,6 +581,23 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_slack_session_threads_thread
      ON slack_session_threads(channel_id, thread_ts)`,
+
+  // ─── participants (人間入力者の identity レジストリ) ──────────────────────
+  // platform handle ↔ 表示名 ↔ canonical 人物 の最小マッピング。発言者明示の
+  // クロスプラットフォーム名前解決に使う (同名なら別PFでも同一人物とみなす)。
+  // ★個人データ規約 (AIFormat §5): 本名/メール等の PII は持たず、platform handle と
+  //   表示名のみ。loopback ローカル限定。spec/feature/participants.md が正本。
+  `CREATE TABLE IF NOT EXISTS participants (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform          TEXT NOT NULL,            -- discord | slack
+    platform_user_id  TEXT NOT NULL,
+    display_name      TEXT NOT NULL,
+    canonical_name    TEXT NOT NULL,            -- 別PF名前解決キー (= 正規化した表示名)
+    first_seen_at     INTEGER NOT NULL,
+    last_seen_at      INTEGER NOT NULL,
+    UNIQUE(platform, platform_user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_participants_canonical ON participants(canonical_name)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

@@ -216,6 +216,39 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     },
   });
 
+  // Slack user id → 表示名 のキャッシュ (users.info の呼び出し回数を抑える)。
+  const slackNameCache = new Map<string, string>();
+  async function resolveSlackName(userId: string): Promise<string> {
+    if (!userId) return "Slack user";
+    const cached = slackNameCache.get(userId);
+    if (cached) return cached;
+    try {
+      const r = await web.users.info({ user: userId });
+      const p = (r.user as { profile?: { display_name?: string; real_name?: string }; name?: string } | undefined);
+      const name = p?.profile?.display_name?.trim() || p?.profile?.real_name?.trim() || p?.name || userId;
+      slackNameCache.set(userId, name);
+      return name;
+    } catch {
+      return userId;
+    }
+  }
+
+  // 相手PF(Discord)由来の inject を Slack の該当 session thread に発言者付きで転記。
+  // Slack 由来は元発言が thread に既出のため転記しない。制御 inject は ^discord: に
+  // 一致せず除外。
+  async function mirrorForeignInject(ev: Extract<ConcordiaEvent, { type: "session.inject" }>): Promise<void> {
+    const src = ev.source ?? "";
+    if (!src.startsWith("discord:")) return;
+    const threadTs = await ensureSessionThread(ev.target_session_id);
+    if (!threadTs) return;
+    const who = ev.author_label?.trim() || "Discord user";
+    await web.chat.postMessage({
+      channel: channelId,
+      thread_ts: threadTs,
+      text: `🔁 *Discord / ${who}*\n${truncateForSlack(ev.text, 12000)}`,
+    });
+  }
+
   const unsubscribe = eventBus.subscribe((ev) => {
     if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
@@ -229,6 +262,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       void clearQuestionButtons(ev.question_id, `✅ *回答済み* — 選択肢 ${ev.answer_index + 1}`);
     } else if (ev.type === "question.resolved") {
       void clearQuestionButtons(ev.question_id, "✅ *回答済み（ローカル）*");
+    } else if (ev.type === "session.inject") {
+      // 環境同期: 相手PF(Discord)由来の inject を Slack thread にも発言者付きで転記。
+      void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
     } else if (ev.type === "session.ended") {
@@ -255,7 +291,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (event.thread_ts && event.thread_ts !== event.ts) {
         const row = threads.findByThreadTs(channelId, event.thread_ts);
         if (!row || row.status !== "active") return;
-        await injectToSession(deps, row.session_id, text, `slack:${event.user}:${event.ts}`);
+        const authorName = await resolveSlackName(event.user ?? "");
+        await injectToSession(deps, row.session_id, text, `slack:${event.user}:${event.ts}`, authorName);
         return;
       }
       // チャンネル直下の発言 = consultation メタチャットへ。
@@ -338,12 +375,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
 // ─── ingress helpers（Concordia HTTP — Discord ingress と同じ宛先）────────────
 
-async function injectToSession(deps: SlackBotDeps, sessionId: string, text: string, source: string): Promise<void> {
+async function injectToSession(deps: SlackBotDeps, sessionId: string, text: string, source: string, authorLabel?: string): Promise<void> {
   try {
     const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: text.slice(0, 4000), source }),
+      body: JSON.stringify({ text: text.slice(0, 4000), source, ...(authorLabel ? { author_label: authorLabel } : {}) }),
     });
     if (!res.ok) {
       log.warn(`ingress inject failed status=${res.status} session=${sessionId}`);

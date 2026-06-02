@@ -5,6 +5,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { ParticipantsRepo } from "../db/participants-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
@@ -73,6 +74,8 @@ const EventSchema = z.object({
 const InjectSchema = z.object({
   text: z.string().min(1).max(4000),
   source: z.string().min(1).max(120).optional(),
+  // 人間入力者の表示名 (ingress が付与)。参加者レジストリ登録 + ミラー発言者明示に使う。
+  author_label: z.string().min(1).max(120).optional(),
 });
 
 const TranscriptFrameSchema = z.object({
@@ -141,6 +144,7 @@ export interface SessionsApiDeps {
   pendingQuestions: DiscordPendingQuestionsRepo;
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
+  participants: ParticipantsRepo;
 }
 
 /** discord_config に保存される meta channel の key (resolveMetaKind と揃える). */
@@ -763,18 +767,36 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const parsed = InjectSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
+    const src = parsed.data.source ?? null;
+    // 人間メッセージ (source="discord:<uid>:…" / "slack:<uid>:…") なら入力者を
+    // participants レジストリに登録し、発言者名を session.inject に載せて
+    // 相手プラットフォームのミラーで「誰の発言か」を出せるようにする。
+    // /enter 等の制御 inject (source 例 "discord-enter") はコロン区切りでないため除外。
+    let authorLabel: string | null = null;
+    if (src && parsed.data.author_label) {
+      const m = /^(discord|slack):([^:]+)/.exec(src);
+      if (m) {
+        const row = deps.participants.upsert({
+          platform: m[1] as "discord" | "slack",
+          platform_user_id: m[2],
+          display_name: parsed.data.author_label,
+        });
+        authorLabel = row.display_name;
+      }
+    }
     eventBus.emit({
       type: "session.inject",
       target_session_id: id,
       text: parsed.data.text,
-      source: parsed.data.source ?? null,
+      source: src,
+      author_label: authorLabel,
       ts,
     });
     deps.repo.appendEvent({
       session_id: id,
       ts,
       kind: "inject",
-      payload: { text: parsed.data.text, source: parsed.data.source ?? null },
+      payload: { text: parsed.data.text, source: src },
     });
     return c.json({ ok: true, ts });
   });

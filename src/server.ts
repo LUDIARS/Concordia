@@ -47,10 +47,34 @@ import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "./discord/bot.js";
 import { startDiscordBot } from "./discord/bot.js";
+import type { SlackBotDeps } from "./slack/bot.js";
+import { startSlackBot } from "./slack/bot.js";
+import type { ChatPlatform } from "./platform/chat-platform.js";
 
 const log = createChildLogger("server");
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
+let slackBotHandle: ChatPlatform | null = null;
+let slackBotDeps: SlackBotDeps | null = null;
+
+async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
+  if (slackBotHandle) return { ok: true, status: "already_running" };
+  if (!slackBotDeps) return { ok: false, status: "error", error: "slack deps not initialized" };
+  try {
+    const h = await startSlackBot(slackBotDeps);
+    if (!h) return { ok: true, status: "disabled" };
+    slackBotHandle = h;
+    return { ok: true, status: "started" };
+  } catch (e) {
+    return { ok: false, status: "error", error: (e as Error).message };
+  }
+}
+
+async function stopSlackBotManaged(): Promise<void> {
+  if (!slackBotHandle) return;
+  try { await slackBotHandle.stop(); } catch {}
+  slackBotHandle = null;
+}
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (discordBotHandle) return { ok: true, status: "already_running" };
@@ -184,6 +208,13 @@ export async function startBackend(): Promise<BackendHandle> {
     tasksRepo: tasks,
     personasRepo: personas,
     prRecordsRepo: prs,
+    concordiaUrl: publicUrl,
+  };
+  slackBotDeps = {
+    db,
+    chatRepo: chat,
+    sessionsRepo: repo,
+    personasRepo: personas,
     concordiaUrl: publicUrl,
   };
 
@@ -326,6 +357,13 @@ export async function startBackend(): Promise<BackendHandle> {
     if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
   }
 
+  // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
+  // 無ければ完全 no-op。spec/feature/slack-platform.md
+  {
+    const started = await startSlackBotManaged();
+    if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
+  }
+
   return {
     port: cfg.port,
     shutdown: async () => {
@@ -340,6 +378,7 @@ export async function startBackend(): Promise<BackendHandle> {
       sweeper.stop();
       unsubLog();
       await stopDiscordBotManaged();
+      await stopSlackBotManaged();
       await processManager.stopAll();
       ws.close();
       server.close();

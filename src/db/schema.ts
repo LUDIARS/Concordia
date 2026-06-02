@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -566,6 +566,21 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_pr_records_state ON pr_records(state, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_pr_records_author ON pr_records(author_session_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_pr_records_repo ON pr_records(repo_origin, state)`,
+
+  // ─── Slack platform (v0.1 — Discord と並ぶ ChatPlatform) ──────────────────
+  // per-session チャンネルを作らず、設定した 1 チャンネル内で thread-per-session
+  // で多重化する。session_id ↔ (channel_id, thread_ts) の対応を保持し、egress は
+  // この thread に投稿、ingress は thread 返信を session inject に逆引きする。
+  // spec/feature/slack-platform.md が正本。
+  `CREATE TABLE IF NOT EXISTS slack_session_threads (
+    session_id   TEXT PRIMARY KEY,
+    channel_id   TEXT NOT NULL,
+    thread_ts    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'active',  -- active | ended
+    ts           INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_slack_session_threads_thread
+     ON slack_session_threads(channel_id, thread_ts)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

@@ -121,4 +121,27 @@ describe("discord_pending_questions repo", () => {
     expect(after?.answered_at).not.toBeNull();
     expect(repo.findLatestUnanswered("s1")).toBeNull();
   });
+
+  it("markResolvedLocally は answered_at を立て answer_index は null、再回答を弾く準備", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "s1", question: "Q", options: ["A", "B"] });
+    repo.markResolvedLocally(q.id);
+    const after = repo.findById(q.id);
+    expect(after?.answered_at).not.toBeNull();
+    expect(after?.answer_index).toBeNull();
+    expect(after?.answer_text).toBe("(resolved locally)");
+    expect(repo.findLatestUnanswered("s1")).toBeNull();
+  });
+
+  it("markResolvedLocally は既回答を上書きしない (idempotent)", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "s1", question: "Q", options: ["A", "B"] });
+    repo.markAnswered(q.id, 0, "A");
+    repo.markResolvedLocally(q.id); // WHERE answered_at IS NULL なので no-op
+    const after = repo.findById(q.id);
+    expect(after?.answer_index).toBe(0);
+    expect(after?.answer_text).toBe("A");
+  });
 });

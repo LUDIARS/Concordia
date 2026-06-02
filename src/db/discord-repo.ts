@@ -265,6 +265,12 @@ export interface DiscordPendingQuestionsRepo {
   }): DiscordPendingQuestionRow;
   setDiscordMessageId(id: number, discordMessageId: string): void;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
+  /**
+   * picker がローカル（端末キーボード）で回答され、リモート回答なしに解決した場合に
+   * 呼ぶ。answered_at を立てて以後の answer-question / ボタン押下を弾く（stray 注入防止）。
+   * answer_index は null（リモート選択ではないため）。
+   */
+  markResolvedLocally(id: number): void;
   findById(id: number): DiscordPendingQuestionRow | null;
   findLatestUnanswered(sessionId: string): DiscordPendingQuestionRow | null;
 }
@@ -324,6 +330,13 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
          SET answered_at = ?, answer_index = ?, answer_text = ?
          WHERE id = ?`,
       ).run(nowSec(), answerIndex, answerText, id);
+    },
+    markResolvedLocally(id) {
+      db.prepare(
+        `UPDATE discord_pending_questions
+         SET answered_at = ?, answer_index = NULL, answer_text = '(resolved locally)'
+         WHERE id = ? AND answered_at IS NULL`,
+      ).run(nowSec(), id);
     },
     findById(id) {
       return (

@@ -107,6 +107,34 @@ export async function postQuestion(
   input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id);
 }
 
+/**
+ * picker がローカル回答で解決したとき（question.resolved）、投稿済みの質問メッセージ
+ * から components（ボタン/セレクト）を外して再クリックを防ぐ。message id は
+ * discord_pending_questions に保持済み。best-effort。
+ */
+export async function resolveQuestionMessage(
+  input: {
+    guild: Guild;
+    sessionChannelsRepo: DiscordSessionChannelsRepo;
+    pendingQuestionsRepo: DiscordPendingQuestionsRepo;
+    log: { warn: (m: string) => void };
+  },
+  ev: { target_session_id: string; question_id: number },
+): Promise<void> {
+  const row = input.pendingQuestionsRepo.findById(ev.question_id);
+  if (!row || !row.discord_message_id) return;
+  const ch = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+  if (!ch) return;
+  try {
+    const channel = await input.guild.channels.fetch(ch.channel_id);
+    if (!channel || channel.type !== ChannelType.GuildText) return;
+    const msg = await (channel as TextChannel).messages.fetch(row.discord_message_id);
+    await msg.edit({ components: [] });
+  } catch (e) {
+    input.log.warn(`resolveQuestionMessage failed qid=${ev.question_id}: ${(e as Error).message}`);
+  }
+}
+
 export async function dispatchQuestionInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
   let questionId: number | null = null;
   let answerIndex: number | null = null;

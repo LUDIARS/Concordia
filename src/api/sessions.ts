@@ -557,6 +557,24 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     return c.json({ ok: true, answer_text: answerText });
   });
 
+  // picker がローカル（端末キーボード）で回答され解決したことを Lictor が通知する。
+  // answered_at を立てて以後の answer-question / ボタン押下を弾き（stray 注入防止）、
+  // question.resolved を emit して Discord/Slack 側のボタンを除去させる。idempotent。
+  app.post("/:id/pending-question/:qid/resolve", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const qid = Number(c.req.param("qid"));
+    if (!Number.isInteger(qid)) return c.json({ error: "invalid_qid" }, 400);
+    const row = deps.pendingQuestions.findById(qid);
+    if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
+    if (row.answered_at !== null) return c.json({ ok: true, already: true });
+    deps.pendingQuestions.markResolvedLocally(row.id);
+    const ts = nowSec();
+    eventBus.emit({ type: "question.resolved", target_session_id: id, question_id: row.id, ts });
+    deps.repo.appendEvent({ session_id: id, ts, kind: "question_resolved", payload: { question_id: row.id } });
+    return c.json({ ok: true });
+  });
+
   // POST /v1/sessions/:id/transcript-frame — Lictor relays one parsed
   // line from Claude/Codex session JSONL.
   //

@@ -74,6 +74,9 @@ export type ConcordiaEvent =
       ts: number;
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
+  // picker がローカル回答で解決し、リモート回答なしに失効した（Lictor 通知）。
+  // Discord/Slack 側はボタン除去に使い、古いボタンの再クリックを防ぐ。
+  | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

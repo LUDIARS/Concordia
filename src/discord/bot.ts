@@ -35,7 +35,7 @@ import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
-import { postQuestion } from "./question.js";
+import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { createChildLogger } from "../shared/logger.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 
@@ -492,6 +492,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "question.posted") {
       void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
+      return;
+    }
+    if (ev.type === "question.resolved") {
+      // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
+      void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
     }
   }
 

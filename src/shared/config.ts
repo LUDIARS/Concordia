@@ -54,10 +54,17 @@ export interface ConcordiaConfig {
    * `process.cwd()` 相当を使う.
    */
   spawnDefaultCwd: string;
+  /**
+   * ローカルクローンを並べた作業ルート (Work ページの repo 一覧の走査先)。
+   * env `CONCORDIA_WORKSPACE_ROOT` 優先、 無ければ spawnDefaultCwd を流用
+   * (LUDIARS では E:\Document\Ars)。 空なら Work の repo 一覧は空になる。
+   */
+  workspaceRoot: string;
 }
 
 export function loadConfig(env = process.env): ConcordiaConfig {
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
+  const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd();
   return {
     host: env.CONCORDIA_HOST ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? "17330"),
@@ -72,7 +79,8 @@ export function loadConfig(env = process.env): ConcordiaConfig {
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
-    spawnDefaultCwd: explicitSpawnCwd || autoDetectSpawnDefaultCwd(),
+    spawnDefaultCwd,
+    workspaceRoot: (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd,
   };
 }
 

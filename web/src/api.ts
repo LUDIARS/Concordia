@@ -159,6 +159,28 @@ export interface PrQueueResult {
   queue: PrItem[];
 }
 
+export interface RepoWorktree {
+  path: string;
+  branch: string | null;
+  is_main: boolean;
+}
+export interface RepoSessionRef {
+  id: string;
+  branch: string | null;
+  status: string;
+  current_task: string | null;
+}
+export interface RepoStatus {
+  name: string;
+  path: string;
+  branch: string | null;
+  detached: boolean;
+  worktrees: RepoWorktree[];
+  extra_worktree_count: number;
+  sessions: RepoSessionRef[];
+  error: string | null;
+}
+
 export interface Persona {
   id: string;
   name: string;
@@ -313,6 +335,7 @@ export const api = {
     scope?: "world" | "local";
   }) =>
     post<{ message: ChatMessage }>("/v1/chat", { session_id: null, ...body }),
+  workRepos: () => get<{ root: string; repos: RepoStatus[] }>("/v1/work/repos"),
   prsQueue: (repo?: string, author?: string) => {
     const q = new URLSearchParams();
     if (repo) q.set("repo", repo);

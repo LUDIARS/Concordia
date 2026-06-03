@@ -1,84 +1,86 @@
 /**
- * Work — 横断作業ログビュー.
+ * Work — ローカルクローン (Ars 直下) の作業状況一覧.
  *
- * - 1 リクエスト (GET /v1/work/conversations) で 全 / repo-filter された session
- *   群の conversation (text + user/assistant) を引っぱってきて並べる.
- * - 上部に repo chip を出し、 クリックで filter on/off.
- * - WS の transcript.frame / session.ended / session.started で自動 refetch.
- *
- * SessionDetail の ConversationPanel は「1 session 限定 + 詳細」、 こちらは
- * 「全体俯瞰 + repo フィルタ」 という棲み分け.
+ * 各リポについて「現在ブランチ / worktree / 触っている session」を表示する。
+ * GET /v1/work/repos (backend が git で走査) をそのまま並べる。
  */
 
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { useState } from "react";
-import { api, fmtTs, statusBadge } from "../api.js";
-import { useLiveQuery } from "../hooks/useWsEvent.js";
+import { api, type RepoStatus, type RepoSessionRef } from "../api.js";
 
-export function Work() {
-  const [repoPath, setRepoPath] = useState<string | null>(null);
-  const { data, error, refetch } = useLiveQuery(
-    () =>
-      api.workConversations({
-        repo_path: repoPath ?? undefined,
-        limit_per_session: 50,
-        max_sessions: 30,
-      }),
-    ["transcript.frame", "session.started", "session.ended", "session.lost"],
-    repoPath ?? "__all__",
-  );
+const STATUS_DOT: Record<string, string> = {
+  active: "text-ok",
+  lost: "text-warn",
+  abandoned: "text-danger",
+  ended: "text-subtle",
+};
 
-  if (error) return <div className="text-danger">load error: {error.message}</div>;
-  if (!data) return <div className="text-subtle">loading…</div>;
-
-  const totalTurns = data.sessions.reduce((acc, s) => acc + s.conversation.length, 0);
-
+function SessionChip({ s }: { s: RepoSessionRef }) {
   return (
-    <div className="space-y-4">
-      <header className="bg-surface border border-border rounded p-3">
-        <div className="flex items-center gap-2">
-          <h1 className="text-base font-semibold">Work</h1>
-          <span className="text-xs text-subtle">
-            全セッションのユーザ指示 + AI 応答 ({data.sessions.length} session / {totalTurns} turns)
-          </span>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            className="ml-auto px-2 py-0.5 border border-border rounded text-xs hover:bg-muted"
-            title="再取得"
-          >
-            ↻
-          </button>
-        </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-subtle">repo:</span>
-          <RepoChip
-            label="(全て)"
-            active={repoPath === null}
-            count={data.available_repos.reduce((acc, r) => acc + r.session_count, 0)}
-            onClick={() => setRepoPath(null)}
-          />
-          {data.available_repos.map((r) => (
-            <RepoChip
-              key={r.repo_path}
-              label={shortRepo(r.repo_path)}
-              active={repoPath === r.repo_path}
-              count={r.session_count}
-              onClick={() => setRepoPath(r.repo_path)}
-              title={r.repo_path}
-            />
-          ))}
-        </div>
-      </header>
+    <Link
+      to={`/sessions/${encodeURIComponent(s.id)}`}
+      className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-muted hover:text-accent"
+      title={s.current_task ?? s.id}
+    >
+      <span className={STATUS_DOT[s.status] ?? "text-subtle"}>●</span>
+      <span className="font-mono">{s.id.replace(/^lictor-/, "").slice(0, 8)}</span>
+      {s.branch && <span className="text-subtle">@{s.branch}</span>}
+    </Link>
+  );
+}
 
-      {data.sessions.length === 0 ? (
-        <div className="text-subtle text-sm">
-          該当する session の会話ログが見つかりません。 repo filter を緩めるか、 別 session で発話してください。
+function RepoCard({ repo }: { repo: RepoStatus }) {
+  const activeCount = repo.sessions.filter((s) => s.status === "active").length;
+  return (
+    <div className="bg-surface border border-border rounded p-3 space-y-2">
+      <div className="flex items-center gap-2">
+        <span className="font-semibold">{repo.name}</span>
+        {repo.branch ? (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-accent/15 text-accent font-mono">
+            {repo.branch}
+          </span>
+        ) : (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-warn/20 text-warn">
+            {repo.detached ? "detached" : "branch?"}
+          </span>
+        )}
+        {repo.extra_worktree_count > 0 && (
+          <span
+            className="text-xs px-1.5 py-0.5 rounded bg-muted text-subtle"
+            title={repo.worktrees.filter((w) => !w.is_main).map((w) => `${w.branch ?? "?"} (${w.path})`).join("\n")}
+          >
+            +{repo.extra_worktree_count} worktree
+          </span>
+        )}
+        {activeCount > 0 && (
+          <span className="text-xs px-1.5 py-0.5 rounded bg-ok/20 text-ok">
+            🟢 {activeCount} active
+          </span>
+        )}
+        {repo.error && (
+          <span className="text-xs text-danger" title={repo.error}>
+            ⚠ git error
+          </span>
+        )}
+      </div>
+
+      {repo.extra_worktree_count > 0 && (
+        <div className="text-[11px] text-subtle space-y-0.5">
+          {repo.worktrees
+            .filter((w) => !w.is_main)
+            .map((w) => (
+              <div key={w.path} className="font-mono truncate" title={w.path}>
+                ⌥ {w.branch ?? "(detached)"} — {w.path}
+              </div>
+            ))}
         </div>
-      ) : (
-        <div className="space-y-3">
-          {data.sessions.map((entry) => (
-            <SessionConversationCard key={entry.session.id} entry={entry} />
+      )}
+
+      {repo.sessions.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {repo.sessions.map((s) => (
+            <SessionChip key={s.id} s={s} />
           ))}
         </div>
       )}
@@ -86,134 +88,64 @@ export function Work() {
   );
 }
 
-function RepoChip({
-  label,
-  active,
-  count,
-  onClick,
-  title,
-}: {
-  label: string;
-  active: boolean;
-  count: number;
-  onClick: () => void;
-  title?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={title}
-      className={`px-2 py-0.5 border rounded text-xs ${
-        active
-          ? "bg-accent/20 border-accent text-accent"
-          : "bg-muted border-border text-subtle hover:text-text"
-      }`}
-    >
-      {label} <span className={active ? "ml-1 text-accent" : "ml-1 text-subtle"}>×{count}</span>
-    </button>
-  );
-}
+export function Work() {
+  const [repos, setRepos] = useState<RepoStatus[] | null>(null);
+  const [root, setRoot] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-function SessionConversationCard({
-  entry,
-}: {
-  entry: {
-    session: import("../api.js").SessionRow;
-    conversation: Array<{ id: number; seq: number; ts: number; kind: string; payload: unknown }>;
-  };
-}) {
-  const [expanded, setExpanded] = useState(true);
-  const { session, conversation } = entry;
-  const role = (session.metadata as any)?.role_label ?? "雑用係";
+  async function load() {
+    setLoading(true);
+    try {
+      const r = await api.workRepos();
+      setRepos(r.repos);
+      setRoot(r.root);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
-    <section className="bg-surface border border-border rounded p-3">
-      <div className="flex items-center gap-2 text-xs">
+    <div className="max-w-4xl space-y-4">
+      <header className="flex items-center gap-3">
+        <h1 className="text-xl font-semibold">Work</h1>
+        <span className="text-subtle text-xs font-mono">{root}</span>
         <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="px-1.5 py-0.5 rounded border border-border hover:bg-muted"
-          title={expanded ? "閉じる" : "展開"}
+          onClick={() => void load()}
+          disabled={loading}
+          className="ml-auto px-2 py-1 rounded border border-border text-subtle hover:text-text text-xs disabled:opacity-50"
         >
-          {expanded ? "▼" : "▶"}
+          {loading ? "…" : "更新"}
         </button>
-        <span className={`px-1.5 py-0.5 rounded ${statusBadge(session.status)}`}>{session.status}</span>
-        <Link
-          to={`/sessions/${encodeURIComponent(session.id)}`}
-          className="text-accent hover:underline font-mono"
-          title={session.id}
-        >
-          {session.id.slice(0, 12)}…
-        </Link>
-        <span className="text-subtle">{role}</span>
-        <span className="text-subtle font-mono">{shortRepo(session.repo_path)}</span>
-        {session.branch && (
-          <span className="px-1 py-0.5 bg-muted rounded font-mono text-[10px]">{session.branch}</span>
-        )}
-        <span className="ml-auto text-subtle">
-          {conversation.length} turn / {fmtTs(session.last_seen_at)}
-        </span>
-      </div>
-      {expanded && (
-        <div className="mt-2 space-y-2">
-          {conversation.length === 0 ? (
-            <div className="text-xs text-subtle">会話なし</div>
-          ) : (
-            conversation.map((e) => {
-              const role = extractRole(e.payload);
-              const text = extractText(e.payload) ?? "";
-              const isUser = role === "user";
-              return (
-                <div
-                  key={e.id}
-                  className={`rounded border px-3 py-2 ${
-                    isUser
-                      ? "bg-accent/5 border-accent/30"
-                      : "bg-muted/40 border-border"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 text-[11px] text-subtle">
-                    <span
-                      className={
-                        isUser
-                          ? "text-accent font-semibold"
-                          : "text-ok font-semibold"
-                      }
-                    >
-                      {isUser ? "user" : "assistant"}
-                    </span>
-                    <span>#{e.seq}</span>
-                    <span className="ml-auto">{fmtTs(e.ts)}</span>
-                  </div>
-                  <pre className="mt-1 whitespace-pre-wrap break-words text-xs font-sans leading-relaxed">
-                    {text}
-                  </pre>
-                </div>
-              );
-            })
-          )}
+      </header>
+      <p className="text-subtle text-xs">
+        ローカルクローンの現在ブランチ・worktree・作業中セッションの一覧 (30s 自動更新)。
+      </p>
+
+      {error && <div className="text-danger text-sm">load error: {error}</div>}
+
+      {repos && repos.length === 0 && (
+        <div className="text-subtle text-sm">
+          リポジトリが見つかりません (workspace root: <code>{root || "未設定"}</code>)。
         </div>
       )}
-    </section>
+
+      {repos && repos.length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {repos.map((r) => (
+            <RepoCard key={r.path} repo={r} />
+          ))}
+        </div>
+      )}
+    </div>
   );
-}
-
-function shortRepo(p: string): string {
-  // 末尾 1〜2 階層だけ. E:\Document\Ars\Lictor → "Ars/Lictor"
-  const parts = p.split(/[\\/]/).filter(Boolean);
-  if (parts.length <= 2) return parts.join("/");
-  return parts.slice(-2).join("/");
-}
-
-function extractRole(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const v = (payload as { role?: unknown }).role;
-  return typeof v === "string" ? v : null;
-}
-
-function extractText(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object") return null;
-  const v = (payload as { text?: unknown }).text;
-  return typeof v === "string" ? v : null;
 }

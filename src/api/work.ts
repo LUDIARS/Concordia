@@ -24,14 +24,23 @@ import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TranscriptLogsRepo, TranscriptLogEntry } from "../db/transcript-logs-repo.js";
 import { serializeSession } from "./sessions.js";
+import { scanRepos } from "../work/repo-scan.js";
 
 export interface WorkApiDeps {
   sessions: SessionsRepo;
   transcriptLogs: TranscriptLogsRepo;
+  /** ローカルクローンを走査する作業ルート (config.workspaceRoot)。 */
+  workspaceRoot: string;
 }
 
 export function workRouter(deps: WorkApiDeps): Hono {
   const app = new Hono();
+
+  // GET /v1/work/repos — 作業ルート直下の各リポの branch / worktree / session 一覧。
+  app.get("/repos", async (c) => {
+    const repos = await scanRepos(deps.workspaceRoot, deps.sessions);
+    return c.json({ root: deps.workspaceRoot, repos });
+  });
 
   app.get("/conversations", (c) => {
     const q = c.req.query();

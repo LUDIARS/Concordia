@@ -18,7 +18,8 @@ import type {
   PrReviewState,
   PrState,
 } from "../db/pr-records-repo.js";
-import { isOwnerRepo } from "./normalize.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
+import { isOwnerRepo, normalizeRepoOrigin, prUrlFor } from "./normalize.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -48,6 +49,7 @@ interface GhPr {
 
 export interface PrReconcileDeps {
   prs: PrRecordsRepo;
+  sessions: SessionsRepo;
 }
 
 export interface PrReconcileHandle {
@@ -109,16 +111,40 @@ async function fetchPrsForOrigin(origin: string): Promise<GhPr[]> {
   return Array.isArray(parsed) ? (parsed as GhPr[]) : [];
 }
 
+async function resolveOriginFromRepoPath(repoPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      process.platform === "win32" ? "git.exe" : "git",
+      ["-C", repoPath, "remote", "get-url", "origin"],
+      { timeout: 8_000, windowsHide: true },
+    );
+    const origin = normalizeRepoOrigin(stdout.trim());
+    return isOwnerRepo(origin) ? origin : null;
+  } catch {
+    return null;
+  }
+}
+
 export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
   const enabled = process.env.CONCORDIA_PR_RECONCILE_ENABLED !== "0";
   const minutes = Math.max(2, Number(process.env.CONCORDIA_PR_RECONCILE_MIN ?? "10") || 10);
 
   async function runOnce(): Promise<{ scanned: number; updated: number }> {
     if (!enabled) return { scanned: 0, updated: 0 };
-    const origins = deps.prs.distinctActiveOrigins().filter(isOwnerRepo);
+    const origins = new Set<string>(deps.prs.distinctActiveOrigins().filter(isOwnerRepo));
+    const activeSessions = deps.sessions.listSessions({ status: "active" });
+    for (const s of activeSessions) {
+      const byMeta = normalizeRepoOrigin(s.repo_origin ?? "");
+      if (isOwnerRepo(byMeta)) {
+        origins.add(byMeta);
+        continue;
+      }
+      const byPath = await resolveOriginFromRepoPath(s.repo_path);
+      if (byPath) origins.add(byPath);
+    }
     let scanned = 0;
     let updated = 0;
-    for (const origin of origins) {
+    for (const origin of origins.values()) {
       let list: GhPr[];
       try {
         list = await fetchPrsForOrigin(origin);
@@ -128,6 +154,21 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
       }
       for (const gh of list) {
         scanned += 1;
+        const existing = deps.prs.findByKey(origin, gh.number);
+        if (!existing) {
+          deps.prs.upsertFromStat({
+            repo_origin: origin,
+            number: gh.number,
+            title: gh.title ?? "",
+            url: gh.url ?? prUrlFor(origin, gh.number),
+            head_branch: gh.headRefName ?? null,
+            base_branch: gh.baseRefName ?? null,
+            repo_path: null,
+            author_session_id: null,
+            persona_id: null,
+            persona_name: null,
+          });
+        }
         const changed = deps.prs.reconcile({
           repo_origin: origin,
           number: gh.number,

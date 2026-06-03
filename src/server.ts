@@ -294,7 +294,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // PR キュー: stat.collected を購読して open_prs[] を pr_records に派生 UPSERT (方式 A).
   const prIngestWatcher = startPrIngestWatcher({ sessions: repo, stats, personas, prs });
   // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
-  const prReconciler = startPrReconciler({ prs });
+  const prReconciler = startPrReconciler({ prs, sessions: repo });
 
   // エラー自動修正: error.reported を購読し、 常駐 error-fixer Codex に修正依頼を inject.
   // env CONCORDIA_ERROR_AUTOFIX=1 の時だけ稼働 (既定 OFF).

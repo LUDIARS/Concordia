@@ -147,42 +147,54 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         log.warn(`cost channel unavailable id=${layout.costChannelId}`);
       }
       // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
-      const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
-      if (monitorCh && monitorCh.type === ChannelType.GuildText) {
-        const refreshMonitor = () =>
-          upsertMonitorChannelMessage(
-            monitorCh,
-            deps.sessionsRepo,
-            deps.sessionTaskRecordsRepo,
-            (k) => configRepo.get(k),
-            (k, v) => configRepo.set(k, v),
-            getEgressDedupStats(),
-          ).catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
-        void refreshMonitor();
-        const monitorMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_MONITOR_REFRESH_MIN ?? "10") || 10);
-        monitorTimer = setInterval(() => { void refreshMonitor(); }, monitorMins * 60 * 1000);
-        monitorTimer.unref?.();
-      } else {
-        log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
-      }
+      const refreshMonitor = async () => {
+        await guild.channels.fetch();
+        layout = await ensureDiscordLayout(guild, configRepo);
+        const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
+        if (!monitorCh || monitorCh.type !== ChannelType.GuildText) {
+          log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
+          return;
+        }
+        await upsertMonitorChannelMessage(
+          monitorCh,
+          deps.sessionsRepo,
+          deps.sessionTaskRecordsRepo,
+          (k) => configRepo.get(k),
+          (k, v) => configRepo.set(k, v),
+          getEgressDedupStats(),
+        );
+      };
+      void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
+      const monitorMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_MONITOR_REFRESH_MIN ?? "10") || 10);
+      monitorTimer = setInterval(() => {
+        void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
+      }, monitorMins * 60 * 1000);
+      monitorTimer.unref?.();
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
-      const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
-      if (prQueueCh && prQueueCh.type === ChannelType.GuildText) {
-        const refreshPrQueue = () =>
-          upsertPrQueueChannelMessage(
-            prQueueCh,
-            deps.prRecordsRepo,
-            sessionChannelsRepo,
-            (k) => configRepo.get(k),
-            (k, v) => configRepo.set(k, v),
-          ).catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
+      const refreshPrQueue = async () => {
+        await guild.channels.fetch();
+        layout = await ensureDiscordLayout(guild, configRepo);
+        const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
+        if (!prQueueCh || prQueueCh.type !== ChannelType.GuildText) {
+          log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);
+          return;
+        }
+        await upsertPrQueueChannelMessage(
+          prQueueCh,
+          deps.prRecordsRepo,
+          sessionChannelsRepo,
+          (k) => configRepo.get(k),
+          (k, v) => configRepo.set(k, v),
+        );
+      };
+      {
         prQueueRefresh = () => { void refreshPrQueue(); };
-        void refreshPrQueue();
+        void refreshPrQueue().catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
         const prMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN ?? "15") || 15);
-        prQueueTimer = setInterval(() => { void refreshPrQueue(); }, prMins * 60 * 1000);
+        prQueueTimer = setInterval(() => {
+          void refreshPrQueue().catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
+        }, prMins * 60 * 1000);
         prQueueTimer.unref?.();
-      } else {
-        log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);
       }
       // errors チャンネル: error.reported を転記する poster + Vestigium 監視を起動.
       const errorCh = guild.channels.cache.get(layout.errorChannelId);

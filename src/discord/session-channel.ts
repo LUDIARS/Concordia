@@ -172,6 +172,9 @@ export async function pruneStatusCategoryChannels(
     deps.repo.listAll().map((r) => r.channel_id),
   );
   knownChannelIds.add(deps.layout.costChannelId);
+  // 運用チャンネルは sweep 削除対象から除外する。
+  knownChannelIds.add(deps.layout.monitorChannelId);
+  knownChannelIds.add(deps.layout.prQueueChannelId);
   // status-card channel は configRepo に保存されている (session_status_channel_id:*).
   for (const [key, value] of Object.entries(deps.configRepo.all())) {
     if (!key.startsWith(STATUS_CARD_CHANNEL_KEY_PREFIX)) continue;

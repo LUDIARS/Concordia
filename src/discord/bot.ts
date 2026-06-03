@@ -360,7 +360,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.ended") {
       workingIndicator?.clear(ev.session_id);
-      void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "ended" });
+      void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
         .catch((e) => log.warn(`status-card delete on ended failed session=${ev.session_id}: ${(e as Error).message}`));

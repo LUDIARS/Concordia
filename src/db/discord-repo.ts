@@ -65,6 +65,8 @@ export interface DiscordSessionChannelsRepo {
     status?: DiscordSessionStatus;
   }): void;
   setWebhook(sessionId: string, webhookId: string, webhookToken: string): void;
+  /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
+  clearWebhook(sessionId: string): void;
   setStatus(sessionId: string, status: DiscordSessionStatus): void;
   /**
    * channel rename 直前に呼び、 5 分以内に rename 済なら false を返す
@@ -116,6 +118,11 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       db.prepare(
         `UPDATE discord_session_channels SET webhook_id = ?, webhook_token = ? WHERE session_id = ?`,
       ).run(webhookId, webhookToken, sessionId);
+    },
+    clearWebhook(sessionId) {
+      db.prepare(
+        `UPDATE discord_session_channels SET webhook_id = NULL, webhook_token = NULL WHERE session_id = ?`,
+      ).run(sessionId);
     },
     setStatus(sessionId, status) {
       db.prepare(

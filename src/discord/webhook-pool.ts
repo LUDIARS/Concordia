@@ -73,6 +73,36 @@ export class WebhookPool {
   }
 
   /**
+   * channel 上の bot 所有 webhook (`Concordia`) を全削除し cache/inflight からも除く.
+   * session 終了 → archive 時に呼ぶ。 archived channel が Discord の webhook budget
+   * (1 channel 15 個) を握り続けて新規 channel を枯渇させるのを防ぐ。 best-effort
+   * (失敗は warn のみ)。 削除した webhook 数を返す。
+   */
+  async purgeChannel(channelId: string): Promise<number> {
+    this.cache.delete(channelId);
+    this.inflight.delete(channelId);
+    const ch = this.guild.channels.cache.get(channelId) ?? null;
+    if (!ch || ch.type !== ChannelType.GuildText) return 0;
+    let deleted = 0;
+    try {
+      const hooks = await (ch as TextChannel).fetchWebhooks();
+      for (const w of hooks.values()) {
+        if (w.name !== WEBHOOK_NAME || w.owner?.id !== this.guild.client.user?.id) continue;
+        try {
+          await w.delete("session ended → archive: free webhook budget");
+          deleted += 1;
+        } catch (err) {
+          whLog.warn({ channel_id: channelId, webhook_id: w.id, err: (err as Error).message }, "webhook-pool.purgeChannel delete failed");
+        }
+      }
+    } catch (err) {
+      whLog.warn({ channel_id: channelId, err: (err as Error).message }, "webhook-pool.purgeChannel fetch failed");
+    }
+    if (deleted > 0) whLog.info({ channel_id: channelId, deleted }, "webhook-pool.purgeChannel done");
+    return deleted;
+  }
+
+  /**
    * channel に webhook を **1 つだけ** 用意する共通経路.
    *  - cache hit ならそれを返す
    *  - 同一 channel への並行呼び出しは in-flight promise を共有 (雷鳴的 create 防止)

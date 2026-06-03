@@ -23,6 +23,7 @@ import type {
   DiscordSessionStatus,
 } from "../db/discord-repo.js";
 import { applyStatusEmoji, sessionChannelSlug } from "./formatter.js";
+import type { WebhookPool } from "./webhook-pool.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
 const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
@@ -34,6 +35,8 @@ export interface SessionChannelDeps {
   layout: DiscordConfigSnapshot;
   repo: DiscordSessionChannelsRepo;
   log: { info: (m: string) => void; warn: (m: string) => void };
+  /** ended → archive 時に当該 channel の webhook を解放するため (任意)。 */
+  webhooks?: WebhookPool;
 }
 
 /** session.registered → channel 作成 + 🟢 prefix + active マーク. */
@@ -101,6 +104,19 @@ export async function onSessionStatusChanged(
         deps.log.warn(
           `session-channel: archive move failed for ${input.sessionId}: ${(e as Error).message}`,
         );
+      }
+    }
+    // archived channel が webhook budget (1 channel 15 個) を握り続けないよう、
+    // ended 時に当該 channel の bot webhook を解放し DB の token も消す。best-effort.
+    if (deps.webhooks) {
+      try {
+        const purged = await deps.webhooks.purgeChannel(row.channel_id);
+        deps.repo.clearWebhook(input.sessionId);
+        if (purged > 0) {
+          deps.log.info(`session-channel: purged ${purged} webhook(s) on archived channel ${row.channel_id}`);
+        }
+      } catch (e) {
+        deps.log.warn(`session-channel: webhook purge failed for ${input.sessionId}: ${(e as Error).message}`);
       }
     }
     return;

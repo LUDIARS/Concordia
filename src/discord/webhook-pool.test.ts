@@ -91,3 +91,55 @@ describe("WebhookPool — webhook 上限への雷鳴的到達の防止", () => {
     expect(ch._create).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("WebhookPool.purgeChannel — archived channel の webhook budget 解放", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeChannelWithHooks(hooks: any[]) {
+    return {
+      type: ChannelType.GuildText,
+      fetchWebhooks: vi.fn(async () => hooks),
+      createWebhook: vi.fn(),
+    };
+  }
+  function hook(id: string, ownerId: string, name = "Concordia", token?: string) {
+    return { id, name, token, owner: { id: ownerId }, delete: vi.fn(async () => {}) };
+  }
+
+  it("bot 所有 (Concordia) webhook だけを全削除し、他人/別名は残す", async () => {
+    const mine1 = hook("w1", "bot");
+    const mine2 = hook("w2", "bot");
+    const other = hook("w3", "someone-else");
+    const named = hook("w4", "bot", "OtherHook");
+    const ch = makeChannelWithHooks([mine1, mine2, other, named]);
+    const { pool } = makePool(ch, null);
+
+    const deleted = await pool.purgeChannel(CHANNEL_ID);
+
+    expect(deleted).toBe(2);
+    expect(mine1.delete).toHaveBeenCalledTimes(1);
+    expect(mine2.delete).toHaveBeenCalledTimes(1);
+    expect(other.delete).not.toHaveBeenCalled();
+    expect(named.delete).not.toHaveBeenCalled();
+  });
+
+  it("purge 後は cache をクリアするので次回 getForChannel が作り直す", async () => {
+    const existing = hook("w1", "bot", "Concordia", "tok-existing");
+    const ch: any = makeChannelWithHooks([existing]);
+    const { pool } = makePool(ch, null);
+
+    await pool.getForChannel(CHANNEL_ID); // cache に載る
+    await pool.purgeChannel(CHANNEL_ID);  // 削除 + cache クリア
+    expect(existing.delete).toHaveBeenCalledTimes(1);
+    // cache がクリアされているので再度 fetchWebhooks が走る
+    await pool.getForChannel(CHANNEL_ID);
+    // getForChannel#1 + purge + getForChannel#2 = 3 回
+    expect(ch.fetchWebhooks).toHaveBeenCalledTimes(3);
+  });
+
+  it("text channel でなければ 0 を返す (no-op)", async () => {
+    const guild = { channels: { cache: new Map() }, client: { user: { id: "bot" } } };
+    const pool = new WebhookPool(guild as any, { findBySessionId: () => null } as any);
+    expect(await pool.purgeChannel("missing")).toBe(0);
+  });
+});

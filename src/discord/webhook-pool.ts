@@ -17,6 +17,12 @@ const whLog = createChildLogger("webhook-pool");
 
 export class WebhookPool {
   private cache = new Map<string, WebhookClient>(); // channel_id → WebhookClient
+  // channel_id → 進行中の webhook 取得 promise.
+  // セッション開始直後は transcript.frame / chat.posted が並行して到着し、
+  // 全部が cache miss (token 未永続) → createWebhook を雷鳴的に連打して
+  // 1 channel あたり Discord 上限 15 webhook に到達 → egress が死ぬ. これを
+  // channel 単位で 1 本に集約して防ぐ.
+  private inflight = new Map<string, Promise<WebhookClient | null>>();
 
   constructor(
     private readonly guild: Guild,
@@ -54,48 +60,68 @@ export class WebhookPool {
       whLog.info({ sessionId, channel_id: row.channel_id, webhook_id: row.webhook_id }, "webhook-pool.getForSession new client from DB token");
       return client;
     }
-    // webhook が未作成 → channel に作る
-    const ch = this.guild.channels.cache.get(row.channel_id) ?? null;
-    if (!ch || ch.type !== ChannelType.GuildText) {
-      whLog.warn({ sessionId, channel_id: row.channel_id, ch_type: ch?.type ?? null }, "webhook-pool.getForSession channel not text");
-      return null;
-    }
-    try {
-      const wh = await (ch as TextChannel).createWebhook({ name: WEBHOOK_NAME });
-      if (!wh.token) {
-        whLog.warn({ sessionId, channel_id: row.channel_id, webhook_id: wh.id }, "webhook-pool.getForSession createWebhook no token");
-        return null;
-      }
-      this.repo.setWebhook(sessionId, wh.id, wh.token);
-      const client = new WebhookClient({ id: wh.id, token: wh.token });
-      this.cache.set(row.channel_id, client);
-      whLog.info({ sessionId, channel_id: row.channel_id, webhook_id: wh.id }, "webhook-pool.getForSession new webhook created");
-      return client;
-    } catch (err) {
-      whLog.warn({ sessionId, channel_id: row.channel_id, err: (err as Error).message }, "webhook-pool.getForSession createWebhook threw");
-      return null;
-    }
+    // webhook が未作成 → channel に作る (in-flight 集約 + 既存再利用).
+    // 作成できたら session 行にも token を永続化する.
+    return this.ensureWebhookForChannel(row.channel_id, (id, token) => {
+      this.repo.setWebhook(sessionId, id, token);
+    }, sessionId);
   }
 
-  /** session に紐づかない meta channel 用. token は DB の `discord_config` に持つ. */
-  async getForChannel(channelId: string, opts: { storeTokenAs?: string } = {}): Promise<WebhookClient | null> {
+  /** session に紐づかない meta channel 用. */
+  async getForChannel(channelId: string, _opts: { storeTokenAs?: string } = {}): Promise<WebhookClient | null> {
+    return this.ensureWebhookForChannel(channelId);
+  }
+
+  /**
+   * channel に webhook を **1 つだけ** 用意する共通経路.
+   *  - cache hit ならそれを返す
+   *  - 同一 channel への並行呼び出しは in-flight promise を共有 (雷鳴的 create 防止)
+   *  - 既存の bot 所有 webhook (`Concordia`) を再利用してから create にフォールバック
+   *    → Discord の 1 channel あたり 15 webhook 上限への到達を防ぐ
+   * @param persist token 永続化コールバック (session 行 / config 等). 省略時は永続化しない.
+   */
+  private ensureWebhookForChannel(
+    channelId: string,
+    persist?: (webhookId: string, token: string) => void,
+    sessionId?: string,
+  ): Promise<WebhookClient | null> {
     const cached = this.cache.get(channelId);
-    if (cached) return cached;
-    const ch = this.guild.channels.cache.get(channelId);
-    if (!ch || ch.type !== ChannelType.GuildText) return null;
-    try {
-      const existing = (await (ch as TextChannel).fetchWebhooks()).find(
-        (w) => w.name === WEBHOOK_NAME && w.owner?.id === this.guild.client.user?.id,
-      );
-      const wh =
-        existing ?? (await (ch as TextChannel).createWebhook({ name: WEBHOOK_NAME }));
-      if (!wh.token) return null;
-      const client = new WebhookClient({ id: wh.id, token: wh.token });
-      this.cache.set(channelId, client);
-      return client;
-    } catch {
-      return null;
-    }
+    if (cached) return Promise.resolve(cached);
+    const existing = this.inflight.get(channelId);
+    if (existing) return existing;
+
+    const p = (async (): Promise<WebhookClient | null> => {
+      const ch = this.guild.channels.cache.get(channelId) ?? null;
+      if (!ch || ch.type !== ChannelType.GuildText) {
+        whLog.warn({ sessionId, channel_id: channelId, ch_type: ch?.type ?? null }, "webhook-pool.ensure channel not text");
+        return null;
+      }
+      try {
+        const found = (await (ch as TextChannel).fetchWebhooks()).find(
+          (w) => w.name === WEBHOOK_NAME && w.owner?.id === this.guild.client.user?.id,
+        );
+        const wh = found ?? (await (ch as TextChannel).createWebhook({ name: WEBHOOK_NAME }));
+        if (!wh.token) {
+          whLog.warn({ sessionId, channel_id: channelId, webhook_id: wh.id }, "webhook-pool.ensure webhook has no token");
+          return null;
+        }
+        persist?.(wh.id, wh.token);
+        const client = new WebhookClient({ id: wh.id, token: wh.token });
+        this.cache.set(channelId, client);
+        whLog.info(
+          { sessionId, channel_id: channelId, webhook_id: wh.id, reused: !!found },
+          "webhook-pool.ensure webhook ready",
+        );
+        return client;
+      } catch (err) {
+        whLog.warn({ sessionId, channel_id: channelId, err: (err as Error).message }, "webhook-pool.ensure createWebhook threw");
+        return null;
+      } finally {
+        this.inflight.delete(channelId);
+      }
+    })();
+    this.inflight.set(channelId, p);
+    return p;
   }
 
   /** 安全な send. 失敗時は null を返す. 成功時に Discord message id を返す. */

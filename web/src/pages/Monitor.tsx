@@ -126,7 +126,10 @@ function MachinesSection() {
       <h2 className="text-base font-semibold mb-2">
         machines <span className="text-subtle text-xs ml-2">{data.machines.length}</span>
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+      >
         {data.machines.map((m) => (
           <div key={m.host} className="bg-surface border border-border rounded p-3">
             <div className="font-mono text-sm">{m.host}</div>
@@ -233,13 +236,21 @@ function SessionList({
   statByIdx: Map<string, { latest_ts: number; payload: Record<string, unknown> }>;
 }) {
   if (rows.length === 0) return null;
+  // 更新が新しい順 (last_seen_at 降順) に並べる. 同値は id で安定ソート.
+  const sorted = [...rows].sort(
+    (a, b) => b.last_seen_at - a.last_seen_at || a.id.localeCompare(b.id),
+  );
   return (
     <section>
       <h2 className="text-base font-semibold mb-2 capitalize">
         {title} <span className="text-subtle text-xs ml-2">{rows.length}</span>
       </h2>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {rows.map((s) => (
+      {/* 画面幅いっぱいに入るだけカードを敷き詰める (auto-fill). */}
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+      >
+        {sorted.map((s) => (
           <SessionCard key={s.id} s={s} stat={statByIdx.get(s.id)} />
         ))}
       </div>

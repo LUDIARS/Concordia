@@ -12,10 +12,12 @@ import { Rules } from "./pages/Rules.js";
 import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
 import { Settings } from "./pages/Settings.js";
+import { PrQueue } from "./pages/PrQueue.js";
 
 const NAV = [
   { to: "/", label: "Monitor" },
   { to: "/work", label: "Work" },
+  { to: "/prs", label: "PRs" },
   { to: "/world", label: "World" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
@@ -60,6 +62,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Monitor />} />
           <Route path="/work" element={<Work />} />
+          <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/world" element={<WorldChat />} />
           <Route path="/chat" element={<Chat />} />

@@ -125,6 +125,40 @@ export interface ReportSummary {
   summary_preview: string;
 }
 
+export interface PrItem {
+  id: number;
+  repo_origin: string;
+  number: number;
+  title: string;
+  url: string | null;
+  state: "draft" | "open" | "merged" | "closed";
+  ci_status: "unknown" | "pending" | "success" | "failure";
+  review_state: "none" | "needs_review" | "reviewing" | "approved" | "changes_requested";
+  author_session_id: string | null;
+  persona_name: string | null;
+  additions: number | null;
+  deletions: number | null;
+  updated_at: number;
+}
+
+export interface PrQueueResult {
+  generated_at: number;
+  counts: {
+    ready: number;
+    needs_review: number;
+    in_progress: number;
+    merged_recent: number;
+    total_active: number;
+  };
+  grouped: {
+    ready: PrItem[];
+    needs_review: PrItem[];
+    in_progress: PrItem[];
+    merged_recent: PrItem[];
+  };
+  queue: PrItem[];
+}
+
 export interface Persona {
   id: string;
   name: string;
@@ -279,6 +313,13 @@ export const api = {
     scope?: "world" | "local";
   }) =>
     post<{ message: ChatMessage }>("/v1/chat", { session_id: null, ...body }),
+  prsQueue: (repo?: string, author?: string) => {
+    const q = new URLSearchParams();
+    if (repo) q.set("repo", repo);
+    if (author) q.set("author", author);
+    const tail = q.toString();
+    return get<PrQueueResult>(`/v1/prs${tail ? `?${tail}` : ""}`);
+  },
   reportsList: (limit = 30) => get<{ reports: ReportSummary[] }>(`/v1/reports?limit=${limit}`),
   skillsList: () => get<{ skills: SkillSnapshot[] }>("/v1/skills"),
   skillsHistory: (repo_path: string, skill_name = "concordia") =>

@@ -43,6 +43,7 @@ import { startStatScheduler } from "./stat/scheduler.js";
 import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "./pr/ingest.js";
 import { startPrReconciler } from "./pr/reconcile.js";
+import { startPrFullSync } from "./pr/full-sync.js";
 import { startErrorFixDispatcher } from "./control/error-fix.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
@@ -328,6 +329,9 @@ export async function startBackend(): Promise<BackendHandle> {
   const prIngestWatcher = startPrIngestWatcher({ sessions: repo, stats, personas, prs });
   // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
   const prReconciler = startPrReconciler({ prs, sessions: repo });
+  // PR キュー: gh search で org の open PR を全件発見し未登録分を取り込む (方式 D)。
+  // これで「誰も報告していない open PR」も Queue に出る。state/ci/review は reconcile が確定。
+  const prFullSync = startPrFullSync({ prs });
 
   // エラー自動修正: error.reported を購読し、 常駐 error-fixer Codex に修正依頼を inject.
   // env CONCORDIA_ERROR_AUTOFIX=1 の時だけ稼働 (既定 OFF).
@@ -421,6 +425,7 @@ export async function startBackend(): Promise<BackendHandle> {
       repoChangeWatcher.stop();
       prIngestWatcher.stop();
       prReconciler.stop();
+      prFullSync.stop();
       errorFixDispatcher.stop();
       sweeper.stop();
       unsubLog();

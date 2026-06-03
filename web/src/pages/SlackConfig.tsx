@@ -3,8 +3,9 @@ import { api, type SlackConfigStatus, type SlackBotActionResult } from "../api.j
 
 // Slack 連携をサービス内 (この画面) から設定する。token は送信後 DB に暗号化保存され、
 // 値そのものは二度と返らない (set 済みかだけ表示)。保存すると bot を hot 再接続する。
+// 設定ページ (Settings) の 1 セクションとして埋め込む。
 
-export function SlackConfig() {
+export function SlackSettingsSection() {
   const [status, setStatus] = useState<SlackConfigStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -76,9 +77,9 @@ export function SlackConfig() {
     );
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-semibold">Slack 連携設定</h1>
+        <h2 className="text-lg font-semibold">Slack 連携</h2>
         <p className="text-subtle text-sm mt-1">
           token / channel をこの画面から設定します. 保存すると即 bot を再接続するので
           サービス再起動は不要です. token は暗号化して保存され、 値は二度と表示されません

@@ -11,7 +11,7 @@ import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
 import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
-import { SlackConfig } from "./pages/SlackConfig.js";
+import { Settings } from "./pages/Settings.js";
 
 const NAV = [
   { to: "/", label: "Monitor" },
@@ -23,8 +23,8 @@ const NAV = [
   { to: "/skills", label: "Skills" },
   { to: "/rules", label: "Rules" },
   { to: "/delegation", label: "Delegation" },
-  { to: "/slack", label: "Slack" },
   { to: "/setup", label: "Setup" },
+  { to: "/settings", label: "設定" },
 ] as const;
 
 export function App() {
@@ -69,8 +69,8 @@ export function App() {
           <Route path="/rules" element={<Rules />} />
           <Route path="/personas" element={<Personas />} />
           <Route path="/delegation" element={<Delegation />} />
-          <Route path="/slack" element={<SlackConfig />} />
           <Route path="/setup" element={<Setup />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
 

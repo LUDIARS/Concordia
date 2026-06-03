@@ -114,14 +114,22 @@ async function ensureStatusChannel(
   input: { sessionId: string; provider: string; roleLabel: string | null; personaDisplayName: string | null },
 ): Promise<TextChannel | null> {
   const key = `${STATUS_CHANNEL_KEY_PREFIX}${input.sessionId}`;
+  const base = sessionChannelSlug(input.provider, input.roleLabel).slice(0, 80);
+  // 状態カード channel はセッションごとにユニークにする。 base 名 (例 "claude-anon")
+  // は匿名セッション間で衝突するため、 必ず session id 断片を混ぜる。 これを怠ると
+  // 複数セッションが同名 `<base>-status` を名前一致で共有し、 互いのカードを上書き
+  // し合う (= 投稿が隣にずれて見える混線。 2026-06-03 実害: 3 セッションが 1 channel)。
+  const shortId = input.sessionId.replace(/^lictor-/, "").slice(0, 6);
+  const name = `${base}-${shortId}-status`.slice(0, 95);
   const cached = deps.configRepo.get(key);
   if (cached) {
     const ch = deps.guild.channels.cache.get(cached);
-    if (ch && ch.type === ChannelType.GuildText) return ch;
+    // 名前が現行の期待ユニーク名と一致する時だけ再利用。 旧来の共有 channel
+    // (例 "claude-anon-status") を指している場合は不一致 → 下で自分専用を作り直す
+    // (self-heal)。 取り残された共有 channel は status sweep が orphan として掃除する。
+    if (ch && ch.type === ChannelType.GuildText && ch.name === name) return ch;
   }
 
-  const base = sessionChannelSlug(input.provider, input.roleLabel).slice(0, 80);
-  const name = `${base}-status`.slice(0, 95);
   const existing = deps.guild.channels.cache.find(
     (c) => c.type === ChannelType.GuildText && c.parentId === deps.layout.statusCategoryId && c.name === name,
   );

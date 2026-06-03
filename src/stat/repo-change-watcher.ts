@@ -44,6 +44,27 @@ export interface RepoChangeWatcherHandle {
 
 export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeWatcherHandle {
   const lastRepoPath = new Map<string, string>();
+  /** session_id → 直近に channel 名へ反映した current_task. 変化時のみ rename する. */
+  const lastTitle = new Map<string, string>();
+
+  /**
+   * current_task が変わったら、 既存の title_renamed 経路を使って Discord channel 名/
+   * topic を直接更新する (案C)。 title-suggest task に対する AI の応答 (POST
+   * /title-suggestion) を待たず、 stat に乗ってくる current_task を即反映するので、
+   * Lictor の task 注入や AI の協力に依存せず channel が「いま何してるか」を表示する。
+   * title_renamed は Lictor /v1/rename には転送されない (Discord/Slack のみ) ので、
+   * OSC ターミナルタイトルや claude session 名には触れない。
+   */
+  function maybeRenameFromTask(sessionId: string, task: string | null | undefined): void {
+    const t = (task ?? "").trim();
+    if (!t) return;
+    if (lastTitle.get(sessionId) === t) return;
+    lastTitle.set(sessionId, t);
+    const ts = Math.floor(Date.now() / 1000);
+    deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "title_renamed", payload: { text: t } });
+    eventBus.emit({ type: "session.event", session_id: sessionId, kind: "title_renamed", ts });
+    log.info({ session_id: sessionId, task: t.slice(0, 40) }, "current_task changed — channel rename emitted");
+  }
 
   /**
    * title-suggest task を 1 件 enqueue する. dedup (未配信 task が残っていれば
@@ -76,6 +97,9 @@ export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeW
     if (ev.type === "stat.collected") {
       const session = deps.sessions.findSession(ev.session_id);
       if (!session) return;
+      // current_task が変わっていれば Discord channel 名/topic を即更新 (案C)。
+      // repo_path 変化や初回判定とは独立に毎回評価する。
+      maybeRenameFromTask(session.id, session.current_task);
       const current = session.repo_path;
       const previous = lastRepoPath.get(session.id);
       lastRepoPath.set(session.id, current);

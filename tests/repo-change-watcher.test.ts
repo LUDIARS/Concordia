@@ -4,6 +4,7 @@ import { applyMigrations } from "../src/db/schema.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { startRepoChangeWatcher } from "../src/stat/repo-change-watcher.js";
+import { eventBus, type ConcordiaEvent } from "../src/events.js";
 
 function fresh() {
   const db = new Database(":memory:");
@@ -140,5 +141,37 @@ describe("startRepoChangeWatcher (title-watcher)", () => {
       w.handle({ type: "ping", ts: 1000 });
       expect(w.peekCache().lastRepoPath.size).toBe(0);
     } finally { w.stop(); }
+  });
+
+  it("current_task が変わると title_renamed を emit して channel rename する (案C / AI 非依存)", () => {
+    startSession(env.sessions, "s1", "/repo/A");
+    env.sessions.patchSession("s1", { current_task: "Quaestor のレシート検知" });
+    const seen: ConcordiaEvent[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.event" && ev.kind === "title_renamed" && ev.session_id === "s1") seen.push(ev);
+    });
+    const w = startRepoChangeWatcher({ sessions: env.sessions, tasks: env.tasks });
+    try {
+      w.handle({ type: "stat.collected", session_id: "s1", stat_id: 1, ts: 1000 });
+      expect(seen).toHaveLength(1);
+      const latest = env.sessions.recentEvents("s1", 1)[0];
+      expect(latest.kind).toBe("title_renamed");
+      expect(JSON.parse(latest.payload).text).toBe("Quaestor のレシート検知");
+    } finally { w.stop(); unsub(); }
+  });
+
+  it("current_task が同じなら 2 回目以降は rename しない (dedup)", () => {
+    startSession(env.sessions, "s1", "/repo/A");
+    env.sessions.patchSession("s1", { current_task: "同じ作業" });
+    const seen: ConcordiaEvent[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.event" && ev.kind === "title_renamed" && ev.session_id === "s1") seen.push(ev);
+    });
+    const w = startRepoChangeWatcher({ sessions: env.sessions, tasks: env.tasks });
+    try {
+      w.handle({ type: "stat.collected", session_id: "s1", stat_id: 1, ts: 1000 });
+      w.handle({ type: "stat.collected", session_id: "s1", stat_id: 2, ts: 1100 });
+      expect(seen).toHaveLength(1);
+    } finally { w.stop(); unsub(); }
   });
 });

@@ -33,7 +33,7 @@ import { ErrorChannelPoster } from "./error-channel.js";
 import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monitor.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
-import { readDiscordEnv } from "./types.js";
+import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -68,6 +68,11 @@ export interface DiscordBotDeps {
   /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
   prRecordsRepo: PrRecordsRepo;
   concordiaUrl: string;
+  /**
+   * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
+   * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
+   */
+  resolveConfig?: () => DiscordEnv;
 }
 
 export interface DiscordBotHandle {
@@ -75,13 +80,13 @@ export interface DiscordBotHandle {
 }
 
 export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotHandle | null> {
-  const env = readDiscordEnv();
+  const env = deps.resolveConfig ? deps.resolveConfig() : readDiscordEnv();
   if (!env.enabled) {
-    log.info("CONCORDIA_DISCORD_ENABLED != 1; skip");
+    log.info("discord disabled (enabled != 1); skip");
     return null;
   }
   if (!env.token || !env.guildId) {
-    log.warn("CONCORDIA_DISCORD_TOKEN / CONCORDIA_DISCORD_GUILD_ID missing; skip");
+    log.warn("discord token / guild_id missing (設定ページ or CONCORDIA_DISCORD_*); skip");
     return null;
   }
 

@@ -99,6 +99,19 @@ export interface SlackBotActionResult {
   error?: string;
 }
 
+export interface DiscordConfigStatus {
+  enabled: boolean;
+  guild_id: string | null;
+  application_id: string | null;
+  token_set: boolean;
+  source: {
+    enabled: FieldSource;
+    guild_id: FieldSource;
+    application_id: FieldSource;
+    token: FieldSource;
+  };
+}
+
 export interface SkillSnapshot {
   id: number;
   repo_origin: string | null;
@@ -249,6 +262,17 @@ export const api = {
     post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/stop", {}),
   discordBotRestart: () =>
     post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/restart", {}),
+  discordConfigGet: () => get<DiscordConfigStatus>("/v1/admin/discord/config"),
+  discordConfigSet: (body: {
+    enabled?: boolean;
+    guild_id?: string | null;
+    application_id?: string | null;
+    token?: string | null;
+  }) =>
+    put<{ ok: boolean; status: DiscordConfigStatus; restart: SlackBotActionResult }>(
+      "/v1/admin/discord/config",
+      body,
+    ),
   slackConfigGet: () => get<SlackConfigStatus>("/v1/admin/slack/config"),
   slackConfigSet: (body: {
     enabled?: boolean;

@@ -11,6 +11,7 @@ const nowSec = (): number => Math.floor(Date.now() / 1000);
 export interface DiscordConfigRepo {
   get(key: string): string | null;
   set(key: string, value: string): void;
+  delete(key: string): void;
   all(): Record<string, string>;
 }
 
@@ -27,6 +28,9 @@ export function makeDiscordConfigRepo(db: Database): DiscordConfigRepo {
         `INSERT INTO discord_config (key, value) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
       ).run(key, value);
+    },
+    delete(key) {
+      db.prepare("DELETE FROM discord_config WHERE key = ?").run(key);
     },
     all() {
       const rows = db.prepare("SELECT key, value FROM discord_config").all() as {

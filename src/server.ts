@@ -54,6 +54,7 @@ import type { SlackBotDeps } from "./slack/bot.js";
 import { startSlackBot } from "./slack/bot.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
+import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import type { ChatPlatform } from "./platform/chat-platform.js";
 
@@ -237,6 +238,8 @@ export async function startBackend(): Promise<BackendHandle> {
     personasRepo: personas,
     prRecordsRepo: prs,
     concordiaUrl: publicUrl,
+    // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
+    resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
   };
   slackBotDeps = {
     db,

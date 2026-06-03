@@ -45,6 +45,8 @@ import { personasRouter } from "./api/personas.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
 import type { SlackConfigRepo } from "./db/slack-config-repo.js";
 import type { SecretBox } from "./shared/secret-box.js";
+import { setDiscordConfig, discordConfigStatus } from "./discord/conn-config.js";
+import { z } from "zod";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
 import { tasksRouter } from "./api/tasks.js";
@@ -351,6 +353,44 @@ export function buildApp(deps: AppDeps): Hono {
     const r = await deps.discordAdmin.restart();
     return c.json(r, r.ok ? 200 : 500);
   });
+
+  // Discord 接続設定をサービス内 (Web UI / API) から設定する (Slack /config と対の構成)。
+  //  - GET  /config : redact 済み設定状態 (token 値は返さない)
+  //  - PUT  /config : 設定更新 (token は暗号化保存) → bot を hot 再接続
+  if (deps.discordConfig && deps.secretBox && deps.discordAdmin) {
+    const discordConfig = deps.discordConfig;
+    const secretBox = deps.secretBox;
+    const discordAdmin = deps.discordAdmin;
+    const DiscordPutSchema = z.object({
+      enabled: z.boolean().optional(),
+      // null / 空文字 = クリア (env フォールバックに戻す)、 文字列 = 設定
+      guild_id: z.string().max(64).nullable().optional(),
+      application_id: z.string().max(64).nullable().optional(),
+      token: z.string().max(256).nullable().optional(),
+    });
+
+    app.get("/v1/admin/discord/config", (c) =>
+      c.json(discordConfigStatus(discordConfig, secretBox)),
+    );
+
+    app.put("/v1/admin/discord/config", async (c) => {
+      const body = await c.req.json().catch(() => null);
+      const parsed = DiscordPutSchema.safeParse(body);
+      if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+      setDiscordConfig(discordConfig, secretBox, {
+        enabled: parsed.data.enabled,
+        guildId: parsed.data.guild_id,
+        applicationId: parsed.data.application_id,
+        token: parsed.data.token,
+      });
+      const restart = await discordAdmin.restart();
+      return c.json({
+        ok: restart.ok,
+        status: discordConfigStatus(discordConfig, secretBox),
+        restart,
+      });
+    });
+  }
 
   // Slack をサービス内から設定 (config GET/PUT + start/stop/restart)。3 点セットが揃った時のみ有効。
   if (deps.slackConfig && deps.secretBox && deps.slackAdmin) {

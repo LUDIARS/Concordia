@@ -21,6 +21,39 @@ bot は **opt-in**。 `CONCORDIA_DISCORD_ENABLED=1` でない限り完全 no-op 
 
 `token` / `guildId` は `readDiscordEnv()` で trim される (`src/discord/types.ts`)。
 
+> env は **初期 bootstrap / フォールバック** として使えるが、 **推奨はサービス内設定**(下記)。
+> DB に設定された値が env より優先される。
+
+## サービス内設定 (Web UI / API) — env を編集せず設定する
+
+Web UI の **設定 (Settings)** ページ、 または `/v1/admin/discord` API から
+token / guild / application / enabled を設定できる。**保存した時点で bot を hot 再接続**
+するのでサービス再起動は不要 (Slack 連携と対の構成)。
+
+- token は **secret-box で暗号化して DB に保存**(`discord_config` テーブル、 接続設定キーは
+  `conn_` prefix で channel/category id と分離)。 平文では持たず、 GET でも値は返さない
+  (set 済みかだけ)。暗号鍵は DB の外に置く: env `CONCORDIA_SECRET_KEY`(任意の passphrase)
+  → 無ければ起動時に `concordia.secret.key`(cwd、 gitignore 済)を自動生成。
+- DB 値が env より優先。 DB 側を空文字でクリアすると env にフォールバックする。
+
+API:
+
+| Method | Path | 用途 |
+|--------|------|------|
+| GET | `/v1/admin/discord/config` | redact 済み状態(`token_set` 等、 値は返さない) |
+| PUT | `/v1/admin/discord/config` | 設定更新 + hot 再接続。body: `{ enabled?, guild_id?, application_id?, token? }`(空文字=クリア) |
+| POST | `/v1/admin/discord/start` `/stop` `/restart` | bot ライフサイクル制御 |
+
+```bash
+# 例: token と guild を一括設定して即接続
+curl -s -X PUT http://127.0.0.1:17330/v1/admin/discord/config \
+  -H "content-type: application/json" \
+  -d '{"enabled":true,"guild_id":"123456789012345678","application_id":"123456789012345678","token":"..."}'
+```
+
+実装: `src/discord/conn-config.ts` / `src/shared/secret-box.ts`、 ルートは `src/app.ts` の
+`/v1/admin/discord/config`。
+
 ## 必要な Discord 設定 (Developer Portal)
 
 bot が要求する Gateway intents (`src/discord/bot.ts:73`):

@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -586,6 +586,15 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_slack_session_threads_thread
      ON slack_session_threads(channel_id, thread_ts)`,
+
+  // Slack 連携設定をサービス内 (DB) で持つための key/value。discord_config と対の構成。
+  // env (CONCORDIA_SLACK_*) は初期 bootstrap / フォールバックに残し、DB 値が優先。
+  // ★ token (bot/app) は secret-box で暗号化した値を bot_token_enc / app_token_enc に保存し、
+  //   平文では持たない (AIFormat §7 / coding-conventions §14)。channel_id / enabled は平文。
+  `CREATE TABLE IF NOT EXISTS slack_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
 
   // ─── participants (人間入力者の identity レジストリ) ──────────────────────
   // platform handle ↔ 表示名 ↔ canonical 人物 の最小マッピング。発言者明示の

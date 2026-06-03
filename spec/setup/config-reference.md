@@ -58,6 +58,23 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 
 ---
 
+## 3.5 Slack bot
+
+`src/slack/types.ts:readSlackEnv()` が読む env は **初期 bootstrap / フォールバック**。
+推奨はサービス内設定 (`slack_config` テーブル, Web UI「Slack」/ `/v1/admin/slack`)。
+**DB 値が env より優先**。詳細は [slack.md](slack.md)。
+
+| キー | 既定値 | 読み出し元 | 意味 |
+|------|--------|-----------|------|
+| `CONCORDIA_SLACK_ENABLED` | 空 (`1` で有効) | `slack/types.ts:19` | `1` のときだけ bot 起動 (DB 設定でも上書き可)。 |
+| `CONCORDIA_SLACK_BOT_TOKEN` | 空 | `slack/types.ts:21` | Bot User OAuth Token (`xoxb-…`)。DB 設定が優先。 |
+| `CONCORDIA_SLACK_APP_TOKEN` | 空 | `slack/types.ts:22` | App-Level Token (`xapp-…`, Socket Mode)。DB 設定が優先。 |
+| `CONCORDIA_SLACK_CHANNEL_ID` | 空 | `slack/types.ts:23` | 運用チャンネル ID (`C…`)。DB 設定が優先。 |
+| `CONCORDIA_SLACK_WORKING_IDLE_SEC` | `60` (最小 15) | `slack/bot.ts` | 「作業中」表示を消す無進捗秒数。 |
+| `CONCORDIA_SECRET_KEY` | 空 → 鍵ファイル自動生成 | `shared/secret-box.ts` | DB 内 token を暗号化する secret-box のマスター鍵 (passphrase)。 空なら cwd の `concordia.secret.key` を自動生成して使用。 |
+
+---
+
 ## 4. セッション管制 (spawn) / MCP delegation
 
 詳細は [spawn.md](spawn.md)。

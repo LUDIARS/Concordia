@@ -26,6 +26,37 @@ URL を持てないため、Events API(Request URL 方式)ではなく Socket Mo
 
 4 つの必須キーが揃わないと起動 skip (warn)(`slackEnvReady()` / `src/slack/types.ts`)。
 
+> env は **初期 bootstrap / フォールバック** として使えるが、 **推奨はサービス内設定**(下記)。
+> DB に設定された値が env より優先される。
+
+## サービス内設定 (Web UI / API) — env を編集せず設定する
+
+Web UI の **Slack** タブ、 または `/v1/admin/slack` API から token / channel / enabled を
+設定できる。**保存した時点で bot を hot 再接続**するのでサービス再起動は不要。
+
+- token (bot/app) は **secret-box で暗号化して DB に保存**(`slack_config` テーブル)。
+  平文では持たず、 GET でも値は返さない (set 済みかだけ)。暗号鍵は DB の外に置く:
+  env `CONCORDIA_SECRET_KEY`(任意の passphrase)→ 無ければ起動時に
+  `concordia.secret.key`(cwd、 gitignore 済)を自動生成。
+- DB 値が env より優先。 DB 側を空文字でクリアすると env にフォールバックする。
+
+API:
+
+| Method | Path | 用途 |
+|--------|------|------|
+| GET | `/v1/admin/slack/config` | redact 済み状態(`bot_token_set` 等、 値は返さない) |
+| PUT | `/v1/admin/slack/config` | 設定更新 + hot 再接続。body: `{ enabled?, channel_id?, bot_token?, app_token? }`(空文字=クリア) |
+| POST | `/v1/admin/slack/start` `/stop` `/restart` | bot ライフサイクル制御 |
+
+```bash
+# 例: token と channel を一括設定して即接続
+curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
+  -H "content-type: application/json" \
+  -d '{"enabled":true,"channel_id":"C0XXXXXXX","bot_token":"xoxb-...","app_token":"xapp-..."}'
+```
+
+実装: `src/api/slack-admin.ts` / `src/slack/config.ts` / `src/shared/secret-box.ts`。
+
 ## Slack App 側の設定 (api.slack.com/apps)
 
 1. **Create New App → From scratch**(名前 + ワークスペース選択)。
@@ -43,6 +74,48 @@ URL を持てないため、Events API(Request URL 方式)ではなく Socket Mo
    これ 1 個で `stat / prs / spawn / end / help` のサブコマンドを捌く。
 7. **Install App** → ワークスペースにインストール → **Bot User OAuth Token `xoxb-…`**
    (= `CONCORDIA_SLACK_BOT_TOKEN`)。
+
+### App manifest で一括作成 (上記 2/4/5/6 を一発で)
+
+**Create New App → From an app manifest** に以下を貼ると、 scopes / slash command /
+event subscription / interactivity / Socket Mode をまとめて構成できる(YAML)。
+
+```yaml
+display_information:
+  name: Concordia
+  description: Multi-agent session coordinator bridge
+features:
+  bot_user:
+    display_name: Concordia
+    always_online: true
+  slash_commands:
+    - command: /concordia
+      description: Concordia session control
+      usage_hint: stat | prs | spawn | end | help
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+      - channels:history
+      - channels:read
+      - commands
+      # プライベートチャンネル運用なら channels:history を groups:history に置換
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels      # プライベートなら message.groups
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
+```
+
+manifest で**作れないもの**は手動で残す:
+- **App-Level Token** (`xapp-…`, scope `connections:write`) を Basic Information → App-Level Tokens で発行(手順 3)。
+- **Install App** で `xoxb-…` を取得(手順 7)。
+- bot を運用チャンネルに `/invite`。
 
 ## チャンネルの用意
 

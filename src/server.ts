@@ -51,6 +51,9 @@ import type { DiscordBotDeps, DiscordBotHandle } from "./discord/bot.js";
 import { startDiscordBot } from "./discord/bot.js";
 import type { SlackBotDeps } from "./slack/bot.js";
 import { startSlackBot } from "./slack/bot.js";
+import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
+import { resolveSlackConfig } from "./slack/config.js";
+import { loadSecretBox } from "./shared/secret-box.js";
 import type { ChatPlatform } from "./platform/chat-platform.js";
 
 const log = createChildLogger("server");
@@ -72,10 +75,24 @@ async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" 
   }
 }
 
-async function stopSlackBotManaged(): Promise<void> {
-  if (!slackBotHandle) return;
-  try { await slackBotHandle.stop(); } catch {}
-  slackBotHandle = null;
+async function stopSlackBotManaged(): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
+  if (!slackBotHandle) return { ok: true, status: "already_stopped" };
+  try {
+    await slackBotHandle.stop();
+    slackBotHandle = null;
+    return { ok: true, status: "stopped" };
+  } catch (e) {
+    return { ok: false, status: "error", error: (e as Error).message };
+  }
+}
+
+async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }> {
+  const stop = await stopSlackBotManaged();
+  if (!stop.ok) return { ok: false, status: "error", error: stop.error };
+  const start = await startSlackBotManaged();
+  if (!start.ok) return { ok: false, status: "error", error: start.error };
+  if (start.status === "disabled") return { ok: true, status: "disabled" };
+  return { ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" };
 }
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
@@ -161,6 +178,13 @@ export async function startBackend(): Promise<BackendHandle> {
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  // Slack 連携をサービス内 (DB) で設定するための repo + token 暗号化用 secret-box。
+  // 鍵は DB の外 (env CONCORDIA_SECRET_KEY、 無ければ cwd の concordia.secret.key) に置く。
+  const slackConfig = makeSlackConfigRepo(db);
+  const secretBox = loadSecretBox({
+    envValue: process.env.CONCORDIA_SECRET_KEY,
+    keyFile: join(process.cwd(), "concordia.secret.key"),
+  });
   const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const delegationService = new DelegationService({ repo: delegationRepo });
@@ -219,6 +243,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionsRepo: repo,
     personasRepo: personas,
     concordiaUrl: publicUrl,
+    // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
+    resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };
 
   const app = buildApp({
@@ -253,6 +279,13 @@ export async function startBackend(): Promise<BackendHandle> {
       start: startDiscordBotManaged,
       stop: stopDiscordBotManaged,
       restart: restartDiscordBotManaged,
+    },
+    slackConfig,
+    secretBox,
+    slackAdmin: {
+      start: startSlackBotManaged,
+      stop: stopSlackBotManaged,
+      restart: restartSlackBotManaged,
     },
   });
 

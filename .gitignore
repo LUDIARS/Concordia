@@ -47,5 +47,8 @@ concordia.db*
 # spawn endpoint bearer token (generated on first /v1/spawn use; never committed)
 .spawn.token
 
+# secret-box master key (生成は初回利用時; Slack token 等を暗号化する鍵; never committed)
+concordia.secret.key
+
 # 委託 prompt の実行時生成物
 delegation-prompts/

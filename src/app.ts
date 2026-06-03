@@ -42,6 +42,9 @@ import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
+import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
+import type { SlackConfigRepo } from "./db/slack-config-repo.js";
+import type { SecretBox } from "./shared/secret-box.js";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
 import { tasksRouter } from "./api/tasks.js";
@@ -93,6 +96,10 @@ export interface AppDeps {
     stop: () => Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }>;
     restart: () => Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }>;
   };
+  // Slack をサービス内 (Web UI / API) から設定するための 3 点セット (揃った時のみ /v1/admin/slack を有効化)。
+  slackConfig?: SlackConfigRepo;
+  secretBox?: SecretBox;
+  slackAdmin?: SlackBotAdmin;
 }
 
 export function buildApp(deps: AppDeps): Hono {
@@ -344,6 +351,14 @@ export function buildApp(deps: AppDeps): Hono {
     const r = await deps.discordAdmin.restart();
     return c.json(r, r.ok ? 200 : 500);
   });
+
+  // Slack をサービス内から設定 (config GET/PUT + start/stop/restart)。3 点セットが揃った時のみ有効。
+  if (deps.slackConfig && deps.secretBox && deps.slackAdmin) {
+    app.route(
+      "/v1/admin/slack",
+      slackAdminRouter({ config: deps.slackConfig, secretBox: deps.secretBox, admin: deps.slackAdmin }),
+    );
+  }
 
   return app;
 }

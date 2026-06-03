@@ -46,12 +46,18 @@ export interface SlackBotDeps {
   sessionsRepo: SessionsRepo;
   personasRepo: PersonasRepo;
   concordiaUrl: string;
-  /** test 用に env を差し替えるための injection（既定は process.env）。 */
+  /** test 用に env を直接差し替えるための injection（最優先）。 */
   env?: SlackEnv;
+  /**
+   * サービス内設定 (DB + env フォールバック) からの実効設定リゾルバ。
+   * start のたびに呼ぶので、 設定変更後に restart すれば新しい値で再接続される。
+   * 未指定なら env のみ (readSlackEnv)。
+   */
+  resolveConfig?: () => SlackEnv;
 }
 
 export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | null> {
-  const env = deps.env ?? readSlackEnv();
+  const env = deps.env ?? deps.resolveConfig?.() ?? readSlackEnv();
   if (!env.enabled) {
     log.info("CONCORDIA_SLACK_ENABLED != 1; skip");
     return null;

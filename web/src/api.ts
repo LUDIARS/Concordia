@@ -68,6 +68,37 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return (await r.json()) as T;
 }
 
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${path}`);
+  return (await r.json()) as T;
+}
+
+type FieldSource = "db" | "env" | "none" | "default";
+
+export interface SlackConfigStatus {
+  enabled: boolean;
+  channel_id: string | null;
+  bot_token_set: boolean;
+  app_token_set: boolean;
+  source: {
+    enabled: FieldSource;
+    channel_id: FieldSource;
+    bot_token: FieldSource;
+    app_token: FieldSource;
+  };
+}
+
+export interface SlackBotActionResult {
+  ok: boolean;
+  status: string;
+  error?: string;
+}
+
 export interface SkillSnapshot {
   id: number;
   repo_origin: string | null;
@@ -162,6 +193,20 @@ export const api = {
     post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/stop", {}),
   discordBotRestart: () =>
     post<{ ok: boolean; status: string; error?: string }>("/v1/admin/discord/restart", {}),
+  slackConfigGet: () => get<SlackConfigStatus>("/v1/admin/slack/config"),
+  slackConfigSet: (body: {
+    enabled?: boolean;
+    channel_id?: string | null;
+    bot_token?: string | null;
+    app_token?: string | null;
+  }) =>
+    put<{ ok: boolean; status: SlackConfigStatus; restart: SlackBotActionResult }>(
+      "/v1/admin/slack/config",
+      body,
+    ),
+  slackBotStart: () => post<SlackBotActionResult>("/v1/admin/slack/start", {}),
+  slackBotStop: () => post<SlackBotActionResult>("/v1/admin/slack/stop", {}),
+  slackBotRestart: () => post<SlackBotActionResult>("/v1/admin/slack/restart", {}),
   sessionRequestStat: (id: string) =>
     post<{ ok: boolean; enqueued: boolean; reason?: string }>(
       `/v1/sessions/${encodeURIComponent(id)}/request-stat`,

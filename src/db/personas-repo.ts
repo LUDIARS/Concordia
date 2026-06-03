@@ -26,7 +26,7 @@ export interface PersonaFeedbackRow {
   persona_id: string;
   session_id: string | null;
   ts: number;
-  kind: "session-end" | "chat-update" | "manual" | "system";
+  kind: "session-end" | "chat-update" | "manual" | "system" | "boyaki";
   delta: string;
   detail: string | null;
 }

@@ -5,9 +5,10 @@ import type Database from "better-sqlite3";
  *  - chitchat:     雑談
  *  - consultation: 仕事の相談
  *  - 報告:         セッション終了時のレポート独白 (他 AI からの reply 期待)
+ *  - ぼやき:       独り言 / つぶやき。投稿者の persona 情報に収集され、低確率で AI が反応する
  *  - system:       Concordia 自身の通知 (replies 不要)
  */
-export type ChatChannel = "chitchat" | "consultation" | "報告" | "system";
+export type ChatChannel = "chitchat" | "consultation" | "報告" | "ぼやき" | "system";
 
 export interface ChatMessageRow {
   id: number;

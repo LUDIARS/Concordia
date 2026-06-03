@@ -6,20 +6,23 @@ export const META_CHANNEL_KIND = [
   "chitchat",
   "consultation",
   "houkoku",
+  "boyaki",
   "system",
 ] as const;
 export type MetaChannelKind = (typeof META_CHANNEL_KIND)[number];
 
-/** ChatChannel ('報告' を含む) ↔ Discord channel kind の往復. */
+/** ChatChannel ('報告' / 'ぼやき' を含む) ↔ Discord channel kind の往復. */
 export function chatChannelToMetaKind(c: ChatChannel): MetaChannelKind | null {
   if (c === "chitchat") return "chitchat";
   if (c === "consultation") return "consultation";
   if (c === "報告") return "houkoku";
+  if (c === "ぼやき") return "boyaki";
   if (c === "system") return "system";
   return null;
 }
 export function metaKindToChatChannel(k: MetaChannelKind): ChatChannel {
   if (k === "houkoku") return "報告";
+  if (k === "boyaki") return "ぼやき";
   return k;
 }
 

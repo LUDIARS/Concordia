@@ -13,7 +13,7 @@ import { createChildLogger } from "../shared/logger.js";
 const log = createChildLogger("chat-api");
 
 const PostSchema = z.object({
-  channel: z.enum(["chitchat", "consultation", "報告", "system"]),
+  channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
   text: z.string().min(1).max(2000),
   session_id: z.string().nullable().optional(),
   author_label: z.string().min(1).max(64),

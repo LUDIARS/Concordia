@@ -36,9 +36,10 @@ const CATEGORY_NAMES = {
 } as const;
 
 const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
-  chitchat: "chitchat",
-  consultation: "consultation",
+  chitchat: "雑談",
+  consultation: "相談",
   houkoku: "houkoku",
+  boyaki: "ぼやき",
   system: "system",
 };
 
@@ -59,7 +60,19 @@ export async function ensureDiscordLayout(
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
   for (const k of META_CHANNEL_KIND) {
-    metaChannels[k] = await ensureTextChannel(guild, repo, `${k}_channel_id`, META_CHANNEL_NAMES[k], metaCategoryId);
+    const desired = META_CHANNEL_NAMES[k];
+    const id = await ensureTextChannel(guild, repo, `${k}_channel_id`, desired, metaCategoryId);
+    metaChannels[k] = id;
+    // 既存 channel の表示ラベルを desired に揃える (旧 romaji 名 → 日本語ラベルへ rename).
+    // id 解決済みなので routing には影響しない (表示名のみ). best-effort.
+    const ch = guild.channels.cache.get(id);
+    if (ch && ch.type === ChannelType.GuildText && ch.name !== desired) {
+      try {
+        await ch.edit({ name: desired, reason: "meta channel label sync" });
+      } catch {
+        /* rename rate limit 等は無視。 次回 ensureDiscordLayout で再試行される。 */
+      }
+    }
   }
 
   repo.set("guild_id", guild.id);

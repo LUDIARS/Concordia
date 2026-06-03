@@ -3,7 +3,7 @@ import { api, fmtTs } from "../api.js";
 import type { ChatMessage } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 
-const CHANNELS = ["chitchat", "consultation", "報告"] as const;
+const CHANNELS = ["chitchat", "consultation", "報告", "ぼやき"] as const;
 type Channel = (typeof CHANNELS)[number];
 
 export function Chat() {

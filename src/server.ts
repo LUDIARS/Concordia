@@ -33,6 +33,7 @@ import { seedDelegationTemplates } from "./delegation/seed.js";
 import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
+import { collectBoyakiToPersona } from "./personas/boyaki.js";
 import { Dispatcher } from "./dispatcher.js";
 import { startSweeper } from "./sweeper.js";
 import { startRuleEngine } from "./rules/engine.js";
@@ -314,6 +315,16 @@ export async function startBackend(): Promise<BackendHandle> {
   // 動作ログ的な event を 1 active peer に exclusive 通知 (peer-log-react task).
   // dispatcher 側で 60s cooldown + round-robin で 1 peer 選択 → pending_tasks の delivered_at で排他成立.
   const unsubLog = eventBus.subscribe((ev) => {
+    // ぼやき投稿は投稿者セッションの persona 情報 (feedback log) に収集する.
+    if (ev.type === "chat.posted") {
+      if (ev.channel === "ぼやき") {
+        collectBoyakiToPersona(
+          { personas, chat },
+          { message_id: ev.message_id, session_id: ev.session_id ?? null },
+        );
+      }
+      return;
+    }
     if (ev.type === "rule.changed" && (ev.action === "add" || ev.action === "remove")) {
       dispatcher.onLogUpdate({
         kind: ev.action === "add" ? "rule.add" : "rule.remove",

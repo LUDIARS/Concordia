@@ -41,6 +41,7 @@ const REPLY_PROBABILITY_BY_CHANNEL: Record<ChatChannel, number> = {
   chitchat: 0.3,
   consultation: 0.5,
   "報告": 0.8,   // 独白を見たら反応する確率高め
+  "ぼやき": 0.2,  // 独り言。たまに誰かが拾って反応する程度の低確率
   system: 0,
 };
 

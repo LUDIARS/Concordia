@@ -9,6 +9,11 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { eventBus } from "../events.js";
+import { collectSignals } from "../personas/signals.js";
+import { generatePersonaDraft } from "../personas/generate.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("personas-api");
 
 export interface PersonasApiDeps {
   personas: PersonasRepo;
@@ -33,6 +38,8 @@ function serializePersona(p: PersonaRow) {
     speech_style: p.speech_style,
     skill_template: p.skill_template,
     learned_notes: safeParseJson(p.learned_notes),
+    generated: Boolean(p.generated),
+    origin_session_id: p.origin_session_id ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -157,6 +164,48 @@ export function personasRouter(deps: PersonasApiDeps): Hono {
       detail: f.detail ? safeParseJson(f.detail) : null,
     }));
     return c.json({ feedback: rows });
+  });
+
+  // POST /v1/personas/generate — 投稿者 (セッション) の活動シグナルから人格を動的生成し、
+  // そのセッションに排他 assign する. 既存 (seed / 別生成) assignment があれば切替える.
+  // 「後から API で」 人格を作り直す導線 (同一セッションの再呼び出しは生成人格行を更新するだけ).
+  const GenerateSchema = z.object({
+    session_id: z.string().min(1).max(128),
+  });
+  app.post("/generate", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = GenerateSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const session = deps.sessions.findSession(parsed.data.session_id);
+    if (!session) return c.json({ error: "session_not_found" }, 404);
+
+    const events = deps.sessions.recentEvents(session.id, 200);
+    const signals = collectSignals({ chat: deps.chat }, session, events);
+    const draft = await generatePersonaDraft(signals);
+    const { persona, reused } = deps.personas.createGenerated(draft, session.id);
+
+    // UI / statusline の一貫性のため session metadata にも反映 (sessions.ts の assign と同形).
+    deps.sessions.mergeMetadata(session.id, {
+      role_label: persona.name,
+      persona_id: persona.id,
+    });
+    eventBus.emit({
+      type: "persona.assigned",
+      session_id: session.id,
+      persona_id: persona.id,
+      persona_name: persona.name,
+      ts: nowSec(),
+    });
+    deps.personas.appendFeedback({
+      persona_id: persona.id,
+      session_id: session.id,
+      kind: "system",
+      delta: `投稿者シグナルから人格を${reused ? "再" : ""}生成 (role=${signals.role_label}, repo=${signals.repo_base})`,
+      detail: { reused, signals_role: signals.role_label, repo: signals.repo_base },
+    });
+    log.info({ session_id: session.id, persona_id: persona.id, reused }, "generated persona assigned");
+
+    return c.json({ persona: serializePersona(persona), reused, signals });
   });
 
   return app;

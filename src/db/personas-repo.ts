@@ -9,6 +9,8 @@ export interface PersonaRow {
   skill_template: string;
   learned_notes: string;   // JSON
   display_name: string;    // 人物名 (chat author_label / statusline で利用). 空文字なら未設定
+  generated: number;       // 1 = 投稿者(セッション)のシグナルから動的生成された人格. 0 = seed
+  origin_session_id: string | null; // generated=1 のとき出自セッション. seed は null
   created_at: number;
   updated_at: number;
 }
@@ -118,6 +120,79 @@ export class PersonasRepo {
     return Number(r.changes ?? 0) > 0;
   }
 
+  /**
+   * 投稿者 (セッション) の活動シグナルから動的生成された人格を upsert し、
+   * そのセッションに排他 assign する.
+   *
+   * - id は session に対して安定 (`gen-<session_id>`). 再生成は同じ行を更新するので
+   *   生成人格が際限なく増えない (膨張防止). seed と違い generated=1 を立て、
+   *   assign() のランダム自由枠からは除外される (= 他セッションに配られない).
+   * - 既に別 (seed 等) assignment が active なら release してから生成人格へ切替.
+   *   既に同じ生成人格が active なら fields 更新のみで reuse=true.
+   * - persona upsert と assignment 切替を 1 transaction で原子的に行う.
+   */
+  createGenerated(
+    draft: {
+      name: string;
+      display_name: string;
+      description: string;
+      traits: string[];
+      speech_style: string;
+      skill_template: string;
+    },
+    session_id: string,
+  ): { persona: PersonaRow; reused: boolean } {
+    const id = `gen-${session_id}`;
+    const now = nowSec();
+    const tx = this.db.transaction((): { reused: boolean } => {
+      const existing = this.find(id);
+      if (existing) {
+        this.db
+          .prepare(
+            `UPDATE personas
+               SET name = ?, display_name = ?, description = ?, traits = ?,
+                   speech_style = ?, skill_template = ?, generated = 1,
+                   origin_session_id = ?, updated_at = ?
+             WHERE id = ?`,
+          )
+          .run(
+            draft.name, draft.display_name, draft.description, JSON.stringify(draft.traits),
+            draft.speech_style, draft.skill_template, session_id, now, id,
+          );
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO personas
+               (id, name, description, traits, speech_style, skill_template,
+                learned_notes, display_name, generated, origin_session_id, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, '[]', ?, 1, ?, ?, ?)`,
+          )
+          .run(
+            id, draft.name, draft.description, JSON.stringify(draft.traits),
+            draft.speech_style, draft.skill_template, draft.display_name,
+            session_id, now, now,
+          );
+      }
+
+      const active = this.findActiveBySession(session_id);
+      if (active && active.persona_id === id) return { reused: true };
+      if (active) {
+        this.db
+          .prepare(`UPDATE persona_assignments SET released_at = ? WHERE id = ?`)
+          .run(now, active.id);
+      }
+      this.db
+        .prepare(
+          `INSERT INTO persona_assignments(persona_id, session_id, assigned_at, released_at)
+           VALUES (?, ?, ?, NULL)`,
+        )
+        .run(id, session_id, now);
+      return { reused: false };
+    });
+    const res = tx();
+    return { persona: this.find(id)!, reused: res.reused };
+  }
+
   // ─── assignment ─────────────────────────────────────
 
   /** session に既に active assignment があれば返す, 無ければ null. */
@@ -147,6 +222,7 @@ export class PersonasRepo {
       .prepare(
         `SELECT pa.*, p.id AS p_id, p.name, p.description, p.traits, p.speech_style,
                 p.skill_template, p.learned_notes, p.display_name,
+                p.generated, p.origin_session_id,
                 p.created_at AS p_created_at, p.updated_at AS p_updated_at
          FROM persona_assignments pa
          JOIN personas p ON p.id = pa.persona_id
@@ -162,6 +238,7 @@ export class PersonasRepo {
         traits: r.traits, speech_style: r.speech_style,
         skill_template: r.skill_template, learned_notes: r.learned_notes,
         display_name: r.display_name ?? "",
+        generated: r.generated ?? 0, origin_session_id: r.origin_session_id ?? null,
         created_at: r.p_created_at, updated_at: r.p_updated_at,
       },
     }));
@@ -207,7 +284,9 @@ export class PersonasRepo {
       }
     }
 
-    const free = all.filter((p) => !taken.has(p.id));
+    // 自由枠は seed 人格のみ. 生成人格 (generated=1) は origin セッション専用なので
+    // ランダム配布の対象にしない (過去履歴での再利用は上の history ループが担う).
+    const free = all.filter((p) => !taken.has(p.id) && !p.generated);
     if (free.length === 0) return null;
     const pick = free[Math.floor(rng() * free.length)];
     try {

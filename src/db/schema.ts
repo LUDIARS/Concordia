@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 18;
+export const SCHEMA_VERSION = 19;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -176,17 +176,22 @@ const STATEMENTS = [
   // ─── persona system (v0.1.5) ─────────────────────────
   // Concordia 経由で起動された AI セッションに人格を排他的に割当てる.
   // ユーザの skill / memory / FS には書かない. すべてここで完結.
+  // generated=1 は「投稿者(セッション)の活動シグナルから動的生成された人格」.
+  // seed (固定10体, generated=0) と区別し、 assign() のランダム自由枠から除外する
+  // (生成人格は origin_session_id のセッション専用で、 他セッションに配られない).
   `CREATE TABLE IF NOT EXISTS personas (
-    id            TEXT PRIMARY KEY,
-    name          TEXT NOT NULL,
-    description   TEXT NOT NULL DEFAULT '',
-    traits        TEXT NOT NULL DEFAULT '[]',
-    speech_style  TEXT NOT NULL DEFAULT '',
-    skill_template TEXT NOT NULL DEFAULT '',
-    learned_notes TEXT NOT NULL DEFAULT '[]',
-    display_name  TEXT NOT NULL DEFAULT '',
-    created_at    INTEGER NOT NULL,
-    updated_at    INTEGER NOT NULL
+    id                TEXT PRIMARY KEY,
+    name              TEXT NOT NULL,
+    description       TEXT NOT NULL DEFAULT '',
+    traits            TEXT NOT NULL DEFAULT '[]',
+    speech_style      TEXT NOT NULL DEFAULT '',
+    skill_template    TEXT NOT NULL DEFAULT '',
+    learned_notes     TEXT NOT NULL DEFAULT '[]',
+    display_name      TEXT NOT NULL DEFAULT '',
+    generated         INTEGER NOT NULL DEFAULT 0,
+    origin_session_id TEXT,
+    created_at        INTEGER NOT NULL,
+    updated_at        INTEGER NOT NULL
   )`,
 
   `CREATE TABLE IF NOT EXISTS persona_assignments (
@@ -608,6 +613,17 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "personas",
     column: "display_name",
     ddl: `ALTER TABLE personas ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
+  },
+  // 動的生成人格フラグ + 出自セッション (v0.x — persona dynamic generation).
+  {
+    table: "personas",
+    column: "generated",
+    ddl: `ALTER TABLE personas ADD COLUMN generated INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: "personas",
+    column: "origin_session_id",
+    ddl: `ALTER TABLE personas ADD COLUMN origin_session_id TEXT`,
   },
   // 永続 WS クライアント方式: 接続生存で active を維持するためのカウンタ.
   // sweeper は ws_clients > 0 の session を「作業中」 と見なして lost 化しない.

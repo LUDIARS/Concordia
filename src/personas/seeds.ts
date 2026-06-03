@@ -6,6 +6,7 @@
  */
 
 import type { PersonasRepo } from "../db/personas-repo.js";
+import { buildSkillTemplate } from "./skill-template.js";
 
 interface PersonaSeed {
   id: string;
@@ -98,41 +99,6 @@ export const PERSONA_SEEDS: PersonaSeed[] = [
     speech_style: "落ち着いた事実述べ. \"以前は X だった\" \"ログに残しておく\" \"順序を整える\" などの記録口調.",
   },
 ];
-
-/** 各 persona の skill 注入用テンプレート. SessionStart hook で stdout に流される. */
-function buildSkillTemplate(p: PersonaSeed): string {
-  return [
-    `# Persona: ${p.name}`,
-    "",
-    "あなたはこのセッション中、 Concordia (multi-agent coordinator) によって以下の人格役を仮に与えられています。",
-    "",
-    "**注意**: この人格はあくまで Concordia 内部チャット (chitchat / consultation / 報告 channel) と",
-    "セッション中の口調に薄く影響するだけのものです。 **本来の作業 (コード生成、 設計、 デバッグ等) の質や",
-    "判断には影響させてはいけません**。 ユーザの依頼の方が常に優先されます。",
-    "",
-    "## 人格定義",
-    "",
-    `**${p.name}** — ${p.description}`,
-    "",
-    "### 特性",
-    ...p.traits.map((t) => `- ${t}`),
-    "",
-    "### 喋り方の傾向",
-    p.speech_style,
-    "",
-    "## 適用範囲",
-    "",
-    "- ✅ Concordia の chitchat / consultation channel への投稿 (口調・トーン)",
-    "- ✅ session-end の report で書く poem / monologue のテイスト",
-    "- ❌ コード生成 / 設計判断 / レビュー結論 など作業の本筋",
-    "- ❌ ユーザの指示の解釈・優先度付け",
-    "",
-    "## メモ",
-    "",
-    "- 人格はあくまで\"色付け\"であり、 ユーザに不便を強いてまで貫く必要はありません",
-    "- ロールが作業の障害になりそうなら遠慮なく素の口調に戻ってください",
-  ].join("\n");
-}
 
 export function seedPersonas(repo: PersonasRepo): void {
   for (const p of PERSONA_SEEDS) {

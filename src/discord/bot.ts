@@ -351,17 +351,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "session.lost") {
       workingIndicator?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
-      void upsertSessionStatusCard({
-        guild,
-        layout,
-        configRepo,
-        sessionChannelsRepo,
-        sessionsRepo: deps.sessionsRepo,
-        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-        tasksRepo: deps.tasksRepo,
-        personasRepo: deps.personasRepo,
-        log,
-      }, ev.session_id);
+      // lost = wrapper の heartbeat が止まった (端末を閉じた等で実質終了)。 状態カードは
+      // グレーで残さず即削除する。 旧実装は upsert でグレー化して残し、 削除は 1 時間ごとの
+      // reconcileLostStatusCards 任せだったため「終わったセッションのカードが最大 1h 居座る」
+      // 状態だった。 もし lost から復帰 (resume) すれば session.started で新規カードが立つ。
+      void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
+        .catch((e) => log.warn(`status-card delete on lost failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.ended") {

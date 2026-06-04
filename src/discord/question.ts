@@ -68,14 +68,6 @@ export async function postQuestion(
     options: Array<string | { label: string; description?: string }>;
   },
 ): Promise<void> {
-  // 既にローカル(ターミナルの picker)で回答済みなら Discord へは出さない。
-  // AskUserQuestion 提示直後にユーザが即答すると question.posted と question.resolved が
-  // 競合し、 webhook プール遅延で「回答後に質問が投稿される」事象になっていた。
-  const pending = input.pendingQuestionsRepo.findById(ev.question_id);
-  if (pending && pending.answered_at !== null) {
-    input.log.warn(`postQuestion: skip already-answered qid=${ev.question_id}`);
-    return;
-  }
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   if (!row) return;
   const channel = await input.guild.channels.fetch(row.channel_id);

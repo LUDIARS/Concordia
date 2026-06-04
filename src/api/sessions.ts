@@ -523,6 +523,14 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const parsed = PendingQuestionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
+    // 冪等化: 同一 session で同じ question 文の未回答行が既にあれば、 重複投稿せず
+    // その question_id をそのまま返す。 AskUserQuestion は picker-open 時 (Lictor の
+    // PreToolUse hook) と transcript-tail (回答後) の 2 経路から POST され得るため、
+    // 2 度目は Discord カードを増やさず既存に収束させる (resolve は同一 qid で成立)。
+    const existing = deps.pendingQuestions.findUnansweredByQuestion(id, parsed.data.question);
+    if (existing) {
+      return c.json({ ok: true, question_id: existing.id, ts: existing.ts, deduped: true });
+    }
     const row = deps.pendingQuestions.insert({
       session_id: id,
       question: parsed.data.question,

@@ -284,6 +284,12 @@ export interface DiscordPendingQuestionsRepo {
   markResolvedLocally(id: number): void;
   findById(id: number): DiscordPendingQuestionRow | null;
   findLatestUnanswered(sessionId: string): DiscordPendingQuestionRow | null;
+  /**
+   * 同一 session で同じ question 文の **未回答** 行があれば返す (冪等化用)。
+   * AskUserQuestion は picker-open 時 (PreToolUse hook) と transcript-tail
+   * (回答後) の 2 経路から POST され得るので、 2 度目を重複投稿させないために使う。
+   */
+  findUnansweredByQuestion(sessionId: string, question: string): DiscordPendingQuestionRow | null;
 }
 
 /** options_json を `PendingQuestionOption[]` にパースする (旧形式 string[] も対応). */
@@ -365,6 +371,17 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
              ORDER BY id DESC LIMIT 1`,
           )
           .get(sessionId) as DiscordPendingQuestionRow | undefined) ?? null
+      );
+    },
+    findUnansweredByQuestion(sessionId, question) {
+      return (
+        (db
+          .prepare(
+            `SELECT * FROM discord_pending_questions
+             WHERE session_id = ? AND question = ? AND answered_at IS NULL
+             ORDER BY id DESC LIMIT 1`,
+          )
+          .get(sessionId, question) as DiscordPendingQuestionRow | undefined) ?? null
       );
     },
   };

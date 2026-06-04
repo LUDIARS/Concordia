@@ -144,4 +144,18 @@ describe("discord_pending_questions repo", () => {
     expect(after?.answer_index).toBe(0);
     expect(after?.answer_text).toBe("A");
   });
+
+  it("findUnansweredByQuestion は同一文の未回答だけ返す (冪等化用)", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "s1", question: "進めますか?", options: ["はい", "いいえ"] });
+    // 同じ文 → 既存 id を返す (重複投稿防止)
+    expect(repo.findUnansweredByQuestion("s1", "進めますか?")?.id).toBe(q.id);
+    // 別 session / 別文 → null
+    expect(repo.findUnansweredByQuestion("s2", "進めますか?")).toBeNull();
+    expect(repo.findUnansweredByQuestion("s1", "別の質問")).toBeNull();
+    // 回答済みになったら dedup 対象外 (= 次の同一質問は新規作成される)
+    repo.markAnswered(q.id, 0, "はい");
+    expect(repo.findUnansweredByQuestion("s1", "進めますか?")).toBeNull();
+  });
 });

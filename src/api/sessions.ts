@@ -523,11 +523,17 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const parsed = PendingQuestionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
-    // 冪等化: 同一 session で同じ question 文の未回答行が既にあれば、 重複投稿せず
+    // 冪等化: 同一 session で同じ question 文の行が既にあれば、 重複投稿せず
     // その question_id をそのまま返す。 AskUserQuestion は picker-open 時 (Lictor の
     // PreToolUse hook) と transcript-tail (回答後) の 2 経路から POST され得るため、
     // 2 度目は Discord カードを増やさず既存に収束させる (resolve は同一 qid で成立)。
-    const existing = deps.pendingQuestions.findUnansweredByQuestion(id, parsed.data.question);
+    //   - 未回答行: picker が開いている間の再 POST を弾く。
+    //   - 最近回答済行: 早期投稿→回答後に transcript-tail が遅れて再 POST してくる
+    //     ケースを弾く。 これが無いと「回答したのに未回答カードが新規に生える」事故になる
+    //     (回答は既に確定しているのに重複カードのせいで未送信に見える)。
+    const existing =
+      deps.pendingQuestions.findUnansweredByQuestion(id, parsed.data.question) ??
+      deps.pendingQuestions.findRecentlyAnsweredByQuestion(id, parsed.data.question, ts - 600);
     if (existing) {
       return c.json({ ok: true, question_id: existing.id, ts: existing.ts, deduped: true });
     }

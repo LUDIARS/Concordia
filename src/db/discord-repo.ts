@@ -290,6 +290,18 @@ export interface DiscordPendingQuestionsRepo {
    * (回答後) の 2 経路から POST され得るので、 2 度目を重複投稿させないために使う。
    */
   findUnansweredByQuestion(sessionId: string, question: string): DiscordPendingQuestionRow | null;
+  /**
+   * 同一 session で同じ question 文の **最近回答済** 行があれば返す (冪等化用)。
+   * picker-open での早期投稿 → 回答 → その後に transcript-tail が遅れて同じ
+   * question を再 POST してくるケースで、 未回答行が無いため
+   * findUnansweredByQuestion では弾けない。 回答済でも sinceTs 以降の行を拾えば
+   * 「回答後に重複カードが生える」事故を防げる。
+   */
+  findRecentlyAnsweredByQuestion(
+    sessionId: string,
+    question: string,
+    sinceTs: number,
+  ): DiscordPendingQuestionRow | null;
 }
 
 /** options_json を `PendingQuestionOption[]` にパースする (旧形式 string[] も対応). */
@@ -382,6 +394,18 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
              ORDER BY id DESC LIMIT 1`,
           )
           .get(sessionId, question) as DiscordPendingQuestionRow | undefined) ?? null
+      );
+    },
+    findRecentlyAnsweredByQuestion(sessionId, question, sinceTs) {
+      return (
+        (db
+          .prepare(
+            `SELECT * FROM discord_pending_questions
+             WHERE session_id = ? AND question = ?
+               AND answered_at IS NOT NULL AND answered_at >= ?
+             ORDER BY id DESC LIMIT 1`,
+          )
+          .get(sessionId, question, sinceTs) as DiscordPendingQuestionRow | undefined) ?? null
       );
     },
   };

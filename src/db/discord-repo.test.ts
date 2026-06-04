@@ -158,4 +158,22 @@ describe("discord_pending_questions repo", () => {
     repo.markAnswered(q.id, 0, "はい");
     expect(repo.findUnansweredByQuestion("s1", "進めますか?")).toBeNull();
   });
+
+  it("findRecentlyAnsweredByQuestion は回答後の遅延再 POST を窓内で拾う", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "s1", question: "進めますか?", options: ["はい", "いいえ"] });
+    // 未回答のうちは null (= こちらは findUnansweredByQuestion が担当)
+    expect(repo.findRecentlyAnsweredByQuestion("s1", "進めますか?", 0)).toBeNull();
+    repo.markAnswered(q.id, 0, "はい");
+    const answeredAt = repo.findById(q.id)!.answered_at!;
+    // 窓内 (sinceTs <= answered_at) なら既存 id を返す → transcript-tail の遅延再 POST を弾く
+    expect(repo.findRecentlyAnsweredByQuestion("s1", "進めますか?", answeredAt)?.id).toBe(q.id);
+    expect(repo.findRecentlyAnsweredByQuestion("s1", "進めますか?", answeredAt - 600)?.id).toBe(q.id);
+    // 窓外 (sinceTs > answered_at) なら拾わない
+    expect(repo.findRecentlyAnsweredByQuestion("s1", "進めますか?", answeredAt + 1)).toBeNull();
+    // 別 session / 別文 → null
+    expect(repo.findRecentlyAnsweredByQuestion("s2", "進めますか?", 0)).toBeNull();
+    expect(repo.findRecentlyAnsweredByQuestion("s1", "別の質問", 0)).toBeNull();
+  });
 });

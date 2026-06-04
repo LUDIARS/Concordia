@@ -52,3 +52,8 @@ concordia.secret.key
 
 # 委託 prompt の実行時生成物
 delegation-prompts/
+
+# runtime logs (Vestigium / Lictor)
+logs/
+web/logs/
+bash.exe.stackdump

@@ -494,6 +494,8 @@ const STATEMENTS = [
     answered_at         INTEGER,
     answer_index        INTEGER,
     answer_text         TEXT,
+    multi_select        INTEGER NOT NULL DEFAULT 0,
+    answer_indices_json TEXT,
     ts                  INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_discord_pending_questions_session
@@ -679,6 +681,17 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "model",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN model TEXT`,
+  },
+  // ask マーカー / AskUserQuestion の複数選択フラグ + 複数選択回答の記録。
+  {
+    table: "discord_pending_questions",
+    column: "multi_select",
+    ddl: `ALTER TABLE discord_pending_questions ADD COLUMN multi_select INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: "discord_pending_questions",
+    column: "answer_indices_json",
+    ddl: `ALTER TABLE discord_pending_questions ADD COLUMN answer_indices_json TEXT`,
   },
 ];
 

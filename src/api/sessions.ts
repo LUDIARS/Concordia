@@ -120,11 +120,20 @@ const PendingQuestionOptionSchema = z.union([
 const PendingQuestionSchema = z.object({
   question: z.string().min(1).max(2000),
   options: z.array(PendingQuestionOptionSchema).min(1).max(25),
+  multi_select: z.boolean().optional(),
 });
-const AnswerQuestionSchema = z.object({
-  question_id: z.number().int().positive(),
-  answer_index: z.number().int().min(0).max(24),
-});
+// 回答は 3 形態のいずれか: 単一 (answer_index) / 複数 (answer_indices) / 自由文 (other_text)。
+const AnswerQuestionSchema = z
+  .object({
+    question_id: z.number().int().positive(),
+    answer_index: z.number().int().min(0).max(24).optional(),
+    answer_indices: z.array(z.number().int().min(0).max(24)).min(1).max(25).optional(),
+    other_text: z.string().min(1).max(2000).optional(),
+  })
+  .refine(
+    (d) => d.answer_index !== undefined || d.answer_indices !== undefined || d.other_text !== undefined,
+    { message: "one of answer_index / answer_indices / other_text required" },
+  );
 
 const ForkSchema = z.object({
   /** Claude per-message uuid to resume from. Comes from the transcript frame's payload.claude_uuid. */
@@ -541,12 +550,18 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       question: parsed.data.question,
       options: parsed.data.options,
+      multiSelect: parsed.data.multi_select === true,
     });
     deps.repo.appendEvent({
       session_id: id,
       ts,
       kind: "pending_question",
-      payload: { question_id: row.id, question: row.question, options: parsed.data.options },
+      payload: {
+        question_id: row.id,
+        question: row.question,
+        options: parsed.data.options,
+        multi_select: parsed.data.multi_select === true,
+      },
     });
     eventBus.emit({
       type: "question.posted",
@@ -554,6 +569,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       question_id: row.id,
       question: row.question,
       options: parsed.data.options,
+      multi_select: parsed.data.multi_select === true,
       ts,
     });
     return c.json({ ok: true, question_id: row.id, ts });
@@ -569,16 +585,38 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
     if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
     const options = parsePendingQuestionOptions(row.options_json);
-    const answerOption = options[parsed.data.answer_index];
-    const answerText = answerOption?.label;
-    if (!answerText) return c.json({ error: "answer_index_out_of_range" }, 400);
-    deps.pendingQuestions.markAnswered(row.id, parsed.data.answer_index, answerText);
+
+    // 回答 3 形態を answer_text に正規化する (Lictor はこの text をそのまま pty へ注入):
+    //   - other_text : 自由文をそのまま
+    //   - answer_indices : 各 label を ", " 結合 (複数選択)
+    //   - answer_index : 単一 label
+    let answerText: string;
+    let answerIndex = -1; // picker fallback 用 (Other は -1)
+    if (parsed.data.other_text !== undefined) {
+      answerText = parsed.data.other_text;
+      deps.pendingQuestions.markAnsweredOther(row.id, answerText);
+    } else if (parsed.data.answer_indices !== undefined) {
+      const idxs = parsed.data.answer_indices;
+      const labels = idxs.map((i) => options[i]?.label);
+      if (labels.some((l) => !l)) return c.json({ error: "answer_index_out_of_range" }, 400);
+      answerText = labels.join(", ");
+      answerIndex = idxs[0];
+      deps.pendingQuestions.markAnsweredMulti(row.id, idxs, answerText);
+    } else {
+      const single = parsed.data.answer_index!;
+      const label = options[single]?.label;
+      if (!label) return c.json({ error: "answer_index_out_of_range" }, 400);
+      answerText = label;
+      answerIndex = single;
+      deps.pendingQuestions.markAnswered(row.id, single, answerText);
+    }
+
     const ts = nowSec();
     eventBus.emit({
       type: "question.answered",
       target_session_id: id,
       question_id: row.id,
-      answer_index: parsed.data.answer_index,
+      answer_index: answerIndex,
       answer_text: answerText,
       ts,
     });
@@ -586,11 +624,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       ts,
       kind: "question_answered",
-      payload: {
-        question_id: row.id,
-        answer_index: parsed.data.answer_index,
-        answer_text: answerText,
-      },
+      payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
     });
     return c.json({ ok: true, answer_text: answerText });
   });

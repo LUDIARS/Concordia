@@ -73,6 +73,8 @@ export type ConcordiaEvent =
        * (Lictor 経由で来た option は API レイヤで {label, description?} に正規化済み)
        */
       options: Array<string | { label: string; description?: string }>;
+      /** 複数選択可か (Discord UI を menu(min1/maxN) に切替)。未指定は単一選択。 */
+      multi_select?: boolean;
       ts: number;
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }

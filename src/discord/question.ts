@@ -4,7 +4,10 @@ import {
   ButtonStyle,
   ChannelType,
   EmbedBuilder,
+  ModalBuilder,
   StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
   type Guild,
   type Interaction,
   type TextChannel,
@@ -66,6 +69,7 @@ export async function postQuestion(
     question_id: number;
     question: string;
     options: Array<string | { label: string; description?: string }>;
+    multi_select?: boolean;
   },
 ): Promise<void> {
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
@@ -76,7 +80,26 @@ export async function postQuestion(
   const options = normalizeOptions(ev.options);
   const embed = buildQuestionEmbed(ev.question_id, ev.question, options);
   const components: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];
-  if (options.length <= 5) {
+
+  const selectOptions = options.slice(0, 25).map((o, i) => {
+    const opt: { label: string; value: string; description?: string } = {
+      label: o.label.slice(0, 100),
+      value: String(i),
+    };
+    if (o.description) opt.description = o.description.slice(0, 100);
+    return opt;
+  });
+
+  if (ev.multi_select) {
+    // 複数選択: min1 / maxN のメニュー。確定はメニュー送信 (1 操作)。
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`qmul:${ev.question_id}`)
+      .setPlaceholder("複数選択して送信")
+      .setMinValues(1)
+      .setMaxValues(Math.max(1, selectOptions.length))
+      .addOptions(selectOptions);
+    components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
+  } else if (options.length <= 5) {
     const rowComp = new ActionRowBuilder<ButtonBuilder>();
     options.forEach((opt, idx) => {
       rowComp.addComponents(
@@ -91,18 +114,20 @@ export async function postQuestion(
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`qsel:${ev.question_id}`)
       .setPlaceholder("Select an answer")
-      .addOptions(
-        options.slice(0, 25).map((o, i) => {
-          const opt: { label: string; value: string; description?: string } = {
-            label: o.label.slice(0, 100),
-            value: String(i),
-          };
-          if (o.description) opt.description = o.description.slice(0, 100);
-          return opt;
-        }),
-      );
+      .addOptions(selectOptions);
     components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
   }
+
+  // 「その他 (自由入力)」は常に別行のボタンで提供。押すと Modal が開く。
+  components.push(
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`qoth:${ev.question_id}`)
+        .setLabel("✏️ その他 (自由入力)")
+        .setStyle(ButtonStyle.Primary),
+    ),
+  );
+
   const msg = await tc.send({ embeds: [embed], components });
   input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id);
 }
@@ -135,21 +160,67 @@ export async function resolveQuestionMessage(
   }
 }
 
+/** answer-question POST 用の body 形。単一 / 複数 / 自由文 のいずれか。 */
+type AnswerBody =
+  | { question_id: number; answer_index: number }
+  | { question_id: number; answer_indices: number[] }
+  | { question_id: number; other_text: string };
+
 export async function dispatchQuestionInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
-  let questionId: number | null = null;
-  let answerIndex: number | null = null;
-  if (interaction.isButton()) {
+  // 「その他」ボタン → Modal を開く (回答送信はしない)。
+  if (interaction.isButton() && interaction.customId.startsWith("qoth:")) {
+    const qid = Number(interaction.customId.slice("qoth:".length));
+    const row = deps.pendingQuestionsRepo.findById(qid);
+    if (!row || row.answered_at !== null) {
+      await interaction.reply({ content: "Already answered or not found.", ephemeral: true });
+      return;
+    }
+    const modal = new ModalBuilder().setCustomId(`qothm:${qid}`).setTitle("その他 (自由入力)");
+    modal.addComponents(
+      new ActionRowBuilder<TextInputBuilder>().addComponents(
+        new TextInputBuilder()
+          .setCustomId("other_text")
+          .setLabel("回答")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true)
+          .setMaxLength(2000),
+      ),
+    );
+    await interaction.showModal(modal);
+    return;
+  }
+
+  // どの operation か判定して answer-question body を組む。
+  let questionId: number;
+  let body: AnswerBody;
+  if (interaction.isModalSubmit()) {
+    if (!interaction.customId.startsWith("qothm:")) return;
+    questionId = Number(interaction.customId.slice("qothm:".length));
+    const text = interaction.fields.getTextInputValue("other_text").trim();
+    if (!text) {
+      await interaction.reply({ content: "空の回答は送れません。", ephemeral: true });
+      return;
+    }
+    body = { question_id: questionId, other_text: text };
+  } else if (interaction.isButton()) {
     const parsed = parseCustomId(interaction.customId);
     if (!parsed) return;
     questionId = parsed.questionId;
-    answerIndex = parsed.answerIndex;
+    body = { question_id: questionId, answer_index: parsed.answerIndex };
   } else if (interaction.isStringSelectMenu()) {
-    if (!interaction.customId.startsWith("qsel:")) return;
-    questionId = Number(interaction.customId.slice("qsel:".length));
-    answerIndex = Number(interaction.values[0] ?? "-1");
+    if (interaction.customId.startsWith("qmul:")) {
+      questionId = Number(interaction.customId.slice("qmul:".length));
+      body = { question_id: questionId, answer_indices: interaction.values.map(Number) };
+    } else if (interaction.customId.startsWith("qsel:")) {
+      questionId = Number(interaction.customId.slice("qsel:".length));
+      body = { question_id: questionId, answer_index: Number(interaction.values[0] ?? "-1") };
+    } else {
+      return;
+    }
   } else {
     return;
   }
+
   const row = deps.pendingQuestionsRepo.findById(questionId);
   if (!row) {
     await interaction.reply({ content: "Question not found.", ephemeral: true });
@@ -162,7 +233,7 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
   const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${row.session_id}/answer-question`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ question_id: questionId, answer_index: answerIndex }),
+    body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({} as { error?: unknown }));
   if (!res.ok) {
@@ -172,7 +243,16 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     await interaction.reply({ content: `Answer failed: ${err}`, ephemeral: true });
     return;
   }
+  // ボタン/メニューはその場で components を外す。Modal submit は元メッセージを別途編集。
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     await interaction.update({ components: [] });
+  } else if (interaction.isModalSubmit()) {
+    const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
+      ? (json as { answer_text: string }).answer_text
+      : "";
+    if (interaction.message) {
+      await interaction.message.edit({ components: [] }).catch(() => {});
+    }
+    await interaction.reply({ content: `回答を送信しました: ${answerText}`.slice(0, 1900), ephemeral: true });
   }
 }

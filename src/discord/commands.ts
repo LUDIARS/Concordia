@@ -56,7 +56,11 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     await dispatchQuestionInteraction(interaction, deps);
+    return;
   }
-  // Modal submits used to feed the now-removed `/inject` command. No other
-  // surface produces modal submissions, so we silently ignore them.
+  // Modal submits: AskUserQuestion の「その他 (自由入力)」(customId `qothm:`)。
+  // 他の modal surface は無いので、それ以外は無視。
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("qothm:")) {
+    await dispatchQuestionInteraction(interaction, deps);
+  }
 }

@@ -159,6 +159,35 @@ describe("discord_pending_questions repo", () => {
     expect(repo.findUnansweredByQuestion("s1", "進めますか?")).toBeNull();
   });
 
+  it("insert multiSelect + markAnsweredMulti / markAnsweredOther", () => {
+    const db = makeDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({
+      session_id: "s1",
+      question: "どれ?",
+      options: ["A", "B", "C"],
+      multiSelect: true,
+    });
+    expect(repo.findById(q.id)?.multi_select).toBe(1);
+
+    // 複数選択回答: answer_index は先頭、answer_indices_json に全 index、answer_text は結合。
+    repo.markAnsweredMulti(q.id, [0, 2], "A, C");
+    const m = repo.findById(q.id)!;
+    expect(m.answered_at).not.toBeNull();
+    expect(m.answer_index).toBe(0);
+    expect(JSON.parse(m.answer_indices_json!)).toEqual([0, 2]);
+    expect(m.answer_text).toBe("A, C");
+
+    // 自由文 (Other) 回答: answer_index は null、answer_text は本文。
+    const q2 = repo.insert({ session_id: "s1", question: "自由?", options: ["X"] });
+    repo.markAnsweredOther(q2.id, "勝手な文章");
+    const o = repo.findById(q2.id)!;
+    expect(o.answered_at).not.toBeNull();
+    expect(o.answer_index).toBeNull();
+    expect(o.answer_text).toBe("勝手な文章");
+    expect(o.multi_select).toBe(0);
+  });
+
   it("findRecentlyAnsweredByQuestion は回答後の遅延再 POST を窓内で拾う", () => {
     const db = makeDb();
     const repo = makeDiscordPendingQuestionsRepo(db);

@@ -254,6 +254,8 @@ export interface DiscordPendingQuestionRow {
   answered_at: number | null;
   answer_index: number | null;
   answer_text: string | null;
+  multi_select: number;
+  answer_indices_json: string | null;
   ts: number;
 }
 
@@ -273,9 +275,14 @@ export interface DiscordPendingQuestionsRepo {
     session_id: string;
     question: string;
     options: Array<PendingQuestionOption | string>;
+    multiSelect?: boolean;
   }): DiscordPendingQuestionRow;
   setDiscordMessageId(id: number, discordMessageId: string): void;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
+  /** 複数選択回答。answer_index には先頭 index、answer_indices_json に全 index を記録。 */
+  markAnsweredMulti(id: number, answerIndices: number[], answerText: string): void;
+  /** 自由文 (Other) 回答。answer_index は null、answer_text に本文。 */
+  markAnsweredOther(id: number, answerText: string): void;
   /**
    * picker がローカル（端末キーボード）で回答され、リモート回答なしに解決した場合に
    * 呼ぶ。answered_at を立てて以後の answer-question / ボタン押下を弾く（stray 注入防止）。
@@ -343,9 +350,9 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         .map((o) => (typeof o === "string" ? ({ label: o } as PendingQuestionOption) : o))
         .filter((o) => typeof o.label === "string" && o.label.trim().length > 0);
       const info = db.prepare(
-        `INSERT INTO discord_pending_questions (session_id, question, options_json, ts)
-         VALUES (?, ?, ?, ?)`,
-      ).run(input.session_id, input.question, JSON.stringify(normalized), ts);
+        `INSERT INTO discord_pending_questions (session_id, question, options_json, multi_select, ts)
+         VALUES (?, ?, ?, ?, ?)`,
+      ).run(input.session_id, input.question, JSON.stringify(normalized), input.multiSelect ? 1 : 0, ts);
       return this.findById(Number(info.lastInsertRowid))!;
     },
     setDiscordMessageId(id, discordMessageId) {
@@ -359,6 +366,20 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
          SET answered_at = ?, answer_index = ?, answer_text = ?
          WHERE id = ?`,
       ).run(nowSec(), answerIndex, answerText, id);
+    },
+    markAnsweredMulti(id, answerIndices, answerText) {
+      db.prepare(
+        `UPDATE discord_pending_questions
+         SET answered_at = ?, answer_index = ?, answer_indices_json = ?, answer_text = ?
+         WHERE id = ?`,
+      ).run(nowSec(), answerIndices[0] ?? null, JSON.stringify(answerIndices), answerText, id);
+    },
+    markAnsweredOther(id, answerText) {
+      db.prepare(
+        `UPDATE discord_pending_questions
+         SET answered_at = ?, answer_index = NULL, answer_text = ?
+         WHERE id = ?`,
+      ).run(nowSec(), answerText, id);
     },
     markResolvedLocally(id) {
       db.prepare(

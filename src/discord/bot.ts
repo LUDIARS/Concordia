@@ -326,7 +326,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       const meta = readMeta(deps.sessionsRepo.findSession(ev.session_id)?.metadata);
       const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
       void onSessionRegistered(
-        { guild, layout, repo: sessionChannelsRepo, log },
+        { guild, layout, repo: sessionChannelsRepo, log, webhooks },
         {
           sessionId: ev.session_id,
           agentType: ev.provider ?? null,

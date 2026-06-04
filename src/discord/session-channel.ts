@@ -64,6 +64,20 @@ export async function onSessionRegistered(
       status: "active",
     });
     deps.log.info(`session-channel: created #${created.name} for ${input.sessionId}`);
+
+    // セッション spawn (= channel 作成) と同時に webhook も eager 作成し token を
+    // 永続化する。 これで以降の egress は getForSession の DB-token パスに直行し、
+    // 初回 egress 時の遅延作成 (= cache miss 並行到来による thundering-herd 対策の
+    // in-flight / 既存再利用ロジック。 バグの温床) を実質踏まなくなる。 ここで
+    // 失敗しても getForSession 側の遅延作成が fallback として残るので best-effort。
+    if (deps.webhooks) {
+      const wh = await deps.webhooks.getForSession(input.sessionId);
+      deps.log.info(
+        wh
+          ? `session-channel: webhook ready (eager) for ${input.sessionId}`
+          : `session-channel: eager webhook create failed for ${input.sessionId} (will retry lazily)`,
+      );
+    }
   } catch (e) {
     deps.log.warn(`session-channel: create failed for ${input.sessionId}: ${(e as Error).message}`);
   }

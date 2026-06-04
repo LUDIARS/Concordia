@@ -1,0 +1,100 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { ChannelType } from "discord.js";
+import { WebhookPool } from "./webhook-pool.js";
+import { onSessionRegistered } from "./session-channel.js";
+
+// onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
+// eager 作成し token を永続化する」ことを検証する。 これで以降の egress は
+// getForSession の DB-token パスに直行し、 遅延作成 (thundering-herd 対策の
+// in-flight / 既存再利用) を踏まない。 discord.js / repo は最小モック。
+
+const SESSION_ID = "sess-eager-1";
+const CHANNEL_ID = "chan-eager-1";
+const WEBHOOK_ID = "123456789012345679"; // WebhookClient は snowflake を要求するので数値 id
+
+function makeMocks() {
+  // in-memory な session-channels repo (upsert ↔ setWebhook ↔ findBySessionId を共有)
+  const rows = new Map<string, any>();
+  const repo = {
+    findBySessionId: vi.fn((id: string) => rows.get(id) ?? null),
+    upsert: vi.fn((r: any) => {
+      rows.set(r.session_id, { ...r, webhook_id: null, webhook_token: null });
+    }),
+    setWebhook: vi.fn((id: string, whId: string, tok: string) => {
+      const r = rows.get(id);
+      if (r) {
+        r.webhook_id = whId;
+        r.webhook_token = tok;
+      }
+    }),
+  };
+
+  const createWebhook = vi.fn(async () => ({ id: WEBHOOK_ID, token: "tok-eager" }));
+  const fetchWebhooks = vi.fn(async () => []);
+  const channelObj = {
+    id: CHANNEL_ID,
+    name: "🟢 sess",
+    type: ChannelType.GuildText,
+    createWebhook,
+    fetchWebhooks,
+  };
+
+  const cache = new Map<string, any>();
+  const guild = {
+    channels: {
+      cache,
+      // discord.js の create() と同様に作成した channel を cache にも載せる
+      // (ensureWebhookForChannel は cache.get(channelId) で引くため)。
+      create: vi.fn(async () => {
+        cache.set(CHANNEL_ID, channelObj);
+        return channelObj;
+      }),
+    },
+    client: { user: { id: "bot" } },
+  };
+
+  const webhooks = new WebhookPool(guild as any, repo as any);
+  const log = { info: vi.fn(), warn: vi.fn() };
+  const layout = { sessionsCategoryId: "cat" } as any;
+  return { guild, repo, webhooks, log, layout, channelObj, createWebhook };
+}
+
+function register(m: ReturnType<typeof makeMocks>) {
+  return onSessionRegistered(
+    { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log, webhooks: m.webhooks },
+    { sessionId: SESSION_ID, agentType: "claude", roleLabel: null, personaDisplayName: null },
+  );
+}
+
+describe("onSessionRegistered — spawn と同時に webhook を eager 作成", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("channel 作成 + upsert + webhook を 1 回作って token を永続化する", async () => {
+    const m = makeMocks();
+    await register(m);
+    expect(m.guild.channels.create).toHaveBeenCalledTimes(1);
+    expect(m.repo.upsert).toHaveBeenCalledTimes(1);
+    expect(m.createWebhook).toHaveBeenCalledTimes(1);
+    expect(m.repo.setWebhook).toHaveBeenCalledWith(SESSION_ID, WEBHOOK_ID, "tok-eager");
+    expect(m.repo.findBySessionId(SESSION_ID)?.webhook_token).toBe("tok-eager");
+  });
+
+  it("eager 作成済みなら以降の getForSession は createWebhook を呼ばない (遅延パス no-op)", async () => {
+    const m = makeMocks();
+    await register(m);
+    m.createWebhook.mockClear();
+    const client = await m.webhooks.getForSession(SESSION_ID);
+    expect(client).not.toBeNull();
+    expect(m.createWebhook).not.toHaveBeenCalled();
+  });
+
+  it("webhooks 未指定でも従来どおり channel 作成 + upsert はできる (eager はスキップ)", async () => {
+    const m = makeMocks();
+    await onSessionRegistered(
+      { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
+      { sessionId: SESSION_ID, agentType: "claude", roleLabel: null, personaDisplayName: null },
+    );
+    expect(m.repo.upsert).toHaveBeenCalledTimes(1);
+    expect(m.createWebhook).not.toHaveBeenCalled();
+  });
+});

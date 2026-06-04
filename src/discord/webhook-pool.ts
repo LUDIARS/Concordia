@@ -18,8 +18,11 @@ const whLog = createChildLogger("webhook-pool");
 export class WebhookPool {
   private cache = new Map<string, WebhookClient>(); // channel_id → WebhookClient
   // channel_id → 進行中の webhook 取得 promise.
-  // セッション開始直後は transcript.frame / chat.posted が並行して到着し、
-  // 全部が cache miss (token 未永続) → createWebhook を雷鳴的に連打して
+  // 主経路はセッション登録時 (onSessionRegistered) の eager 作成なので、 通常は
+  // egress 到来時には DB に token があり ensureWebhookForChannel を踏まない。
+  // この inflight 集約は fallback パス (eager 失敗 / meta channel / 旧 session)
+  // で並行 cache miss が来たときの保険: セッション開始直後は transcript.frame /
+  // chat.posted が並行到来し、 全部が cache miss → createWebhook を雷鳴的に連打して
   // 1 channel あたり Discord 上限 15 webhook に到達 → egress が死ぬ. これを
   // channel 単位で 1 本に集約して防ぐ.
   private inflight = new Map<string, Promise<WebhookClient | null>>();

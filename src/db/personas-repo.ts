@@ -193,6 +193,19 @@ export class PersonasRepo {
     return { persona: this.find(id)!, reused: res.reused };
   }
 
+  /**
+   * delegation prompt 注入用に persona を 1 つ選ぶ (assignment はしない)。
+   *
+   * spawn される新セッションは登録時に別途 assign() で persona を貰うので、 ここでは
+   * DB を変更せず「初期プロンプトに載せる人格テキスト」用の候補を返すだけ。 seed 人格
+   * (generated=0) のみを対象にする (生成人格は origin セッション専用)。 候補ゼロなら null。
+   */
+  pickForDelegation(rng: () => number = Math.random): PersonaRow | null {
+    const seeds = this.list().filter((p) => !p.generated);
+    if (seeds.length === 0) return null;
+    return seeds[Math.floor(rng() * seeds.length)];
+  }
+
   // ─── assignment ─────────────────────────────────────
 
   /** session に既に active assignment があれば返す, 無ければ null. */

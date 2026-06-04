@@ -53,6 +53,8 @@ import { tasksRouter } from "./api/tasks.js";
 import { delegationRouter } from "./api/delegation.js";
 import type { DelegationRepo } from "./db/delegation-repo.js";
 import type { DelegationService } from "./delegation/service.js";
+import { modelCatalogRouter } from "./api/model-catalog.js";
+import type { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import {
   isSpawnProvider,
   resolveSpawnCwd,
@@ -82,6 +84,7 @@ export interface AppDeps {
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
+  modelCatalog: ModelCatalogRepo;
   adminState: AdminState;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
@@ -152,6 +155,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/spawn", spawnRouter({ defaultSpawnCwd: deps.config.spawnDefaultCwd }));
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
+  app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();

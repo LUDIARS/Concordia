@@ -170,3 +170,50 @@ prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、 1 PR 
 - service: render (default / required / missing var エラー)
 - API: 各 endpoint の happy path + 401 (POST 系)
 - invoke: spawn を mock した上で delegation_run が記録されること
+
+## 12. v0.2 追加 (persona 注入 / model catalog / spawn 連携 / 報告ファースト)
+
+2026-06-04 に以下を追加。
+
+### 12.1 初期プロンプトへの Concordia 文脈 + persona 注入
+
+`DelegationService.invoke` は prompt file を書く際、 render 済みプロンプトの前に
+**Concordia 協調コンテキスト + 暫定 persona 全文** を差し込む
+(`src/delegation/persona-context.ts: buildDelegationContext`)。
+
+- persona は `PersonasRepo.pickForDelegation()` が seed 人格から 1 つ選ぶ
+  (assignment はしない — DB は変更しない)。 spawn された新セッションは登録時に
+  別途 `assign()` で persona を貰うので、 ここで載せるのは「起動直後から人格と
+  協調作法が効く」ための暫定値。
+- context ブロックには「起動後の振る舞い (報告ファースト)」指示を含む
+  → §12.4。
+- prompt file の metadata に `- persona: <name>` 行が増える。
+
+### 12.2 model catalog (選択可能モデルの手動管理)
+
+delegation テンプレ / spawn の `--model` 候補を DB で持ち、 Web UI から CRUD する。
+
+- table: `model_catalog(id, model_id, label, provider, sort_order, is_active, …)`
+  — `UNIQUE(provider, model_id)`。 `provider='any'` は全 provider 共通候補。
+- repo: `src/db/model-catalog-repo.ts` (create/upsert/update/remove/find/list)。
+- API: `/v1/model-catalog` GET(`?all=1` で inactive 含む) / POST / PATCH / DELETE
+  (loopback 信頼境界、 token 不要)。
+- seed: boot 時に空表のときだけ初期モデルを投入 (`src/model-catalog/seed.ts`)。
+- Web: Delegation テンプレ編集の model 欄を**プルダウン化** (provider 一致 + any
+  を sort_order 順に表示、 既存の未登録モデルは「(未登録)」として末尾保持)。
+  追加/編集/削除は **Settings ページのモデルカタログ section**。
+
+### 12.3 spawn からのテンプレ起動
+
+`/v1/admin/spawn-session` は `template` (call_name) でテンプレ起動でき、
+`inject_prompt=true` で delegation invoke 本体に委譲する (既存)。 v0.2 で
+**Discord `/spawn`** にも `template` (autocomplete) + `inject` option を追加。
+template 指定時は token 不要の `/v1/admin/spawn-session` を叩く。
+
+### 12.4 報告ファースト + 受領リアクション
+
+- Discord session channel への通常発言 (= inject) が成功したら、 bot が**その
+  メッセージに 👀 リアクション**を付けて受領を可視化する (`discord/ingress.ts`)。
+- セッション AI 側は、 起動直後や挨拶/指示受領の直後に「これから何をするか」を
+  1〜3 行で宣言してから着手する (報告ファースト)。 指示は `concordia` skill と
+  delegation context ブロックの両方に入れる。

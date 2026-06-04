@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { SlackSettingsSection } from "./SlackConfig.js";
 import { DiscordSettingsSection } from "./DiscordConfig.js";
+import { ModelCatalogSection } from "./ModelCatalog.js";
 
 // Concordia の「設定」ページ。サービス内で変更できる連携設定をここに集約する。
 // 現状: Slack 連携 / Discord 連携 (どちらも DB+暗号化、 token は hot 再接続)。
@@ -22,6 +23,10 @@ export function Settings() {
 
       <section className="border border-border rounded p-4">
         <DiscordSettingsSection />
+      </section>
+
+      <section className="border border-border rounded p-4">
+        <ModelCatalogSection />
       </section>
 
       <section className="bg-surface border border-border rounded p-4 text-xs text-subtle">

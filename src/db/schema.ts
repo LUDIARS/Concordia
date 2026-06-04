@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -613,6 +613,25 @@ const STATEMENTS = [
     UNIQUE(platform, platform_user_id)
   )`,
   `CREATE INDEX IF NOT EXISTS idx_participants_canonical ON participants(canonical_name)`,
+
+  // ─── model catalog (v0.x — delegation テンプレ/ spawn が選べるモデル一覧) ──────
+  // delegation_templates.model / spawn の `--model` 値を「手動更新できる選択肢」として
+  // 管理する。 値が頻繁に変わる (新モデル登場 / 旧モデル廃止) ので、 コードに直書きせず
+  // DB で持ち Web UI (Settings) から CRUD する。 provider='any' は全 provider 共通候補。
+  // spec/delegation.md §6 が正本。
+  `CREATE TABLE IF NOT EXISTS model_catalog (
+    id          TEXT    PRIMARY KEY,
+    model_id    TEXT    NOT NULL,                  -- CLI --model に渡す実値 (例 claude-opus-4-8 / gpt-5.5)
+    label       TEXT    NOT NULL DEFAULT '',       -- UI 表示名 (空なら model_id を表示)
+    provider    TEXT    NOT NULL DEFAULT 'any',    -- any | claude | codex | gemini
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_active   INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    UNIQUE(provider, model_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_model_catalog_active
+     ON model_catalog(is_active, sort_order, model_id)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

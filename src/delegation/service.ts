@@ -16,6 +16,8 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
+import type { PersonasRepo } from "../db/personas-repo.js";
+import { buildDelegationContext } from "./persona-context.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("delegation/service");
@@ -122,6 +124,12 @@ export interface DelegationServiceDeps {
   spawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   /** prompt file の出力先 dir (default = process.cwd()/delegation-prompts) */
   promptsDir?: string;
+  /** persona 注入用 (省略時は persona ブロックを付けない)。 */
+  personas?: PersonasRepo;
+  /** delegation context に載せる協調 API URL。 */
+  concordiaUrl?: string;
+  /** persona 選択の rng 上書き (テスト用)。 */
+  rng?: () => number;
 }
 
 export class DelegationService {
@@ -165,10 +173,14 @@ export class DelegationService {
     }, "delegation invoke received");
 
     // 1) write prompt to file (pre-allocate run id so file name == row id)
+    // 起動セッションは Concordia 協調セッションなので、 文脈説明 + 暫定 persona 全文を
+    // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
+    const persona = this.deps.personas?.pickForDelegation(this.deps.rng) ?? null;
+    const contextBlock = buildDelegationContext(persona, this.deps.concordiaUrl);
     mkdirSync(this.promptsDir, { recursive: true });
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(tpl, render.rendered, input.args ?? {}, runId);
+    const promptBody = renderPromptFile(tpl, render.rendered, input.args ?? {}, runId, contextBlock, persona?.name ?? null);
     try {
       writeFileSync(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -250,6 +262,8 @@ function renderPromptFile(
   rendered: string,
   args: Record<string, unknown>,
   runId: string,
+  contextBlock: string,
+  personaName: string | null,
 ): string {
   const argsBlock = Object.keys(args).length === 0
     ? "(none)"
@@ -260,8 +274,11 @@ function renderPromptFile(
     `- run_id: ${runId}`,
     `- target_provider: ${tpl.target_provider}`,
     `- model: ${tpl.model ?? "(provider default)"}`,
+    `- persona: ${personaName ?? "(none)"}`,
     `- template_title: ${tpl.title}`,
     "",
+    // Concordia 文脈 + 暫定 persona 全文 (起動後の振る舞い指示を含む)。
+    contextBlock,
     "## Args",
     "",
     argsBlock,

@@ -118,6 +118,13 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           // Enter fallback failure is non-fatal for main inject path.
         }
       }
+      // 受領した指示そのものに 👀 リアクションを付けて「Concordia が受け取った」ことを可視化する。
+      // best-effort — リアクション権限が無くても inject は成立しているので失敗は飲み込む。
+      try {
+        await msg.react("👀");
+      } catch (e) {
+        deps.log.warn(`ingress: react failed session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
+      }
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
     } catch (e) {
       deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);

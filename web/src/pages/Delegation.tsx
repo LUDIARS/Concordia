@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { fmtTs } from "../api.js";
+import { fmtTs, api, type ModelCatalogItem } from "../api.js";
 
 type Provider = "claude" | "codex" | "gemini";
 
@@ -82,6 +82,7 @@ async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: 
 
 export function Delegation() {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [models, setModels] = useState<ModelCatalogItem[]>([]);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [includeInactive, setIncludeInactive] = useState(false);
   const [mode, setMode] = useState<FormMode | null>(null);
@@ -100,6 +101,8 @@ export function Delegation() {
       setTemplates(t.templates);
       const r = await getJson<{ runs: RunRow[] }>("/v1/delegation/runs?limit=50");
       setRuns(r.runs);
+      const m = await api.modelCatalogList();
+      setModels(m.models);
     } catch (err) {
       setFormError((err as Error).message);
     }
@@ -328,12 +331,41 @@ export function Delegation() {
             </label>
             <label className="text-sm space-y-1">
               <span className="text-subtle">model (optional)</span>
-              <input
-                className="foundation-form w-full"
-                placeholder="例: gpt-5.5 / claude-opus-4-8 (空 = provider CLI 既定)"
-                value={form.model}
-                onChange={(e) => setForm({ ...form, model: e.target.value })}
-              />
+              {(() => {
+                // provider に紐づく候補 (provider 一致 + 'any') を sort_order 順で。
+                const opts = models.filter(
+                  (m) => m.provider === "any" || m.provider === form.target_provider,
+                );
+                // 既存テンプレが catalog に無いモデルを持つ場合、 値を失わないよう
+                // 末尾に現値を補う (編集時の互換)。
+                const known = new Set(opts.map((m) => m.model_id));
+                const hasCurrent = form.model.trim() !== "";
+                return (
+                  <>
+                    <select
+                      className="foundation-form w-full"
+                      value={form.model}
+                      onChange={(e) => setForm({ ...form, model: e.target.value })}
+                    >
+                      <option value="">(provider CLI 既定)</option>
+                      {opts.map((m) => (
+                        <option key={m.id} value={m.model_id}>
+                          {m.label ? `${m.label} — ${m.model_id}` : m.model_id}
+                          {m.provider !== "any" ? "" : " (any)"}
+                        </option>
+                      ))}
+                      {hasCurrent && !known.has(form.model) && (
+                        <option value={form.model}>{form.model} (未登録)</option>
+                      )}
+                    </select>
+                    {models.length === 0 && (
+                      <span className="text-xs text-subtle">
+                        モデル候補が未登録です。 設定 → モデルカタログ で追加できます。
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
             </label>
             <label className="text-sm space-y-1">
               <span className="text-subtle">default_cwd (optional)</span>

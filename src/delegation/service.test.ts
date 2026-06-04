@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyMigrations } from "../db/schema.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
+import { PersonasRepo } from "../db/personas-repo.js";
+import { seedPersonas } from "../personas/seeds.js";
 import { DelegationService, renderTemplate, validateArgs } from "./service.js";
 
 describe("renderTemplate", () => {
@@ -158,6 +160,40 @@ describe("DelegationService.invoke", () => {
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[] };
     expect(req.args).toBeUndefined();
+  });
+
+  it("injects Concordia context block even without personas", () => {
+    const r = svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r.ok) throw new Error("expected ok");
+    const file = readFileSync(r.prompt_file_path, "utf8");
+    expect(file).toContain("Concordia コンテキスト");
+    // 起動後の報告ファースト指示が含まれる
+    expect(file).toContain("これから何をするか");
+    // persona 無しなので「割り当て人格」セクションは出ない
+    expect(file).not.toContain("割り当て人格");
+  });
+
+  it("injects a persona block + persona name in metadata when personas provided", () => {
+    const personas = new PersonasRepo(db);
+    seedPersonas(personas);
+    const withPersona = new DelegationService({
+      repo,
+      promptsDir,
+      personas,
+      rng: () => 0, // 先頭 seed (アーキテクト先生) を決定的に選ぶ
+      spawn: (req) => {
+        spawnCalls.push(req);
+        return { ok: true, pid: 1, command: ["wt.exe", req.provider] };
+      },
+    });
+    const r = withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r.ok) throw new Error("expected ok");
+    const file = readFileSync(r.prompt_file_path, "utf8");
+    expect(file).toContain("割り当て人格");
+    expect(file).toContain("Persona:");
+    // metadata 行に (none) ではなく実 persona 名が出る
+    expect(file).toMatch(/- persona: .+/);
+    expect(file).not.toContain("- persona: (none)");
   });
 
   it("records spawn_failed when spawner returns error", () => {

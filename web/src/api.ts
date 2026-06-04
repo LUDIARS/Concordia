@@ -32,6 +32,19 @@ export interface DelegationTemplateLite {
   is_active: boolean;
 }
 
+/** delegation テンプレ / spawn が選べるモデル候補 (GET /v1/model-catalog)。 */
+export type ModelCatalogProvider = "any" | "claude" | "codex" | "gemini";
+export interface ModelCatalogItem {
+  id: string;
+  model_id: string;
+  label: string;
+  provider: ModelCatalogProvider;
+  sort_order: number;
+  is_active: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface SessionRow {
   id: string;
   provider: string;
@@ -95,6 +108,22 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (!r.ok) throw new Error(`${r.status} ${path}`);
+  return (await r.json()) as T;
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw new Error(`${r.status} ${path}`);
+  return (await r.json()) as T;
+}
+
+async function del<T>(path: string): Promise<T> {
+  const r = await fetch(`${BASE}${path}`, { method: "DELETE" });
   if (!r.ok) throw new Error(`${r.status} ${path}`);
   return (await r.json()) as T;
 }
@@ -289,6 +318,25 @@ export const api = {
     ),
   delegationTemplates: () =>
     get<{ templates: DelegationTemplateLite[] }>("/v1/delegation/templates"),
+  // ── model catalog (delegation テンプレ / spawn が選べるモデル候補) ──
+  modelCatalogList: (includeInactive = false) =>
+    get<{ models: ModelCatalogItem[] }>(`/v1/model-catalog${includeInactive ? "?all=1" : ""}`),
+  modelCatalogCreate: (body: {
+    model_id: string;
+    label?: string;
+    provider?: ModelCatalogProvider;
+    sort_order?: number;
+    is_active?: boolean;
+  }) => post<{ model: ModelCatalogItem }>("/v1/model-catalog", body),
+  modelCatalogUpdate: (id: string, body: {
+    model_id?: string;
+    label?: string;
+    provider?: ModelCatalogProvider;
+    sort_order?: number;
+    is_active?: boolean;
+  }) => patch<{ model: ModelCatalogItem }>(`/v1/model-catalog/${encodeURIComponent(id)}`, body),
+  modelCatalogDelete: (id: string) =>
+    del<{ ok: boolean }>(`/v1/model-catalog/${encodeURIComponent(id)}`),
   adminSpawnDefaults: () =>
     get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>

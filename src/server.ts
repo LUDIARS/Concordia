@@ -30,6 +30,8 @@ import {
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { seedDelegationTemplates } from "./delegation/seed.js";
+import { ModelCatalogRepo } from "./db/model-catalog-repo.js";
+import { seedModelCatalog } from "./model-catalog/seed.js";
 import { AdminState } from "./admin/state.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
@@ -189,11 +191,18 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);
-  const delegationService = new DelegationService({ repo: delegationRepo });
+  const modelCatalog = new ModelCatalogRepo(db);
+  const publicUrlForDelegation = `http://${cfg.host}:${cfg.port}`;
+  const delegationService = new DelegationService({
+    repo: delegationRepo,
+    personas,
+    concordiaUrl: publicUrlForDelegation,
+  });
   const adminState = new AdminState(db);
   seedDefaultRules(rules);
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
+  seedModelCatalog(modelCatalog);
   const dispatcher = new Dispatcher({
     sessions: repo,
     tasks,
@@ -270,6 +279,7 @@ export async function startBackend(): Promise<BackendHandle> {
     participants,
     delegation: delegationRepo,
     delegationService,
+    modelCatalog,
     adminState,
     processManager,
     dailyScheduler,

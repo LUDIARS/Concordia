@@ -213,7 +213,18 @@ template 指定時は token 不要の `/v1/admin/spawn-session` を叩く。
 ### 12.4 報告ファースト + 受領リアクション
 
 - Discord session channel への通常発言 (= inject) が成功したら、 bot が**その
-  メッセージに 👀 リアクション**を付けて受領を可視化する (`discord/ingress.ts`)。
+  メッセージに ✅ リアクション**を付けて受領を可視化する (`discord/ingress.ts`)。
 - セッション AI 側は、 起動直後や挨拶/指示受領の直後に「これから何をするか」を
   1〜3 行で宣言してから着手する (報告ファースト)。 指示は `concordia` skill と
   delegation context ブロックの両方に入れる。
+
+### 12.5 テンプレ作成の空欄許容
+
+`POST /v1/delegation/templates` は `call_name` / `title` / `prompt_template` を
+空欄でも 201 で受け付ける (下書き保存)。
+
+- `call_name` 空/不正 → `title` をスラッグ化、 無理なら `tpl-<random>` を自動採番。
+  既存と衝突したら `-2`, `-3`, … で一意化する。
+- `title` 空 → `call_name` で代替。
+- `prompt_template` 空 → 空文字のまま保存 (invoke 時は Concordia 文脈 + persona
+  ブロックだけが載る)。

@@ -5,6 +5,7 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
   type DelegationRepo,
@@ -22,28 +23,52 @@ const InputSchemaItemSchema = z.object({
   default: z.union([z.string(), z.number(), z.boolean()]).optional(),
 });
 
+// 作成時は call_name / title / prompt_template を空欄でも受け付ける (下書き許容)。
+//   - call_name 空/不正 → title からスラッグ化、 無理なら `tpl-<random>` を自動採番。
+//   - title 空 → call_name で埋める。
+//   - prompt_template 空 → 空文字のまま保存可 (invoke 時に context だけ載る)。
 const CreateTemplateSchema = z.object({
-  call_name: z.string().regex(CALL_NAME_RE),
-  title: z.string().min(1).max(200),
+  call_name: z.string().max(64).optional(),
+  title: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]),
   model: z.string().max(120).nullable().optional(),
-  prompt_template: z.string().min(1).max(20000),
+  prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
 });
 
 const PatchTemplateSchema = z.object({
-  title: z.string().min(1).max(200).optional(),
+  title: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]).optional(),
   model: z.string().max(120).nullable().optional(),
-  prompt_template: z.string().min(1).max(20000).optional(),
+  prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
 });
+
+/** title 等を call_name スラッグへ。 [a-z][a-z0-9_-]{0,63} に収まらなければ空文字を返す。 */
+function slugifyCallName(raw: string): string {
+  const s = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+  return CALL_NAME_RE.test(s) ? s : "";
+}
+
+/** 空/不正な call_name を、 title スラッグ → ランダムの順で一意に解決する。 */
+function resolveCallName(repo: DelegationRepo, raw: string | undefined, title: string | undefined): string {
+  const trimmed = (raw ?? "").trim();
+  let base = CALL_NAME_RE.test(trimmed) ? trimmed : slugifyCallName(title ?? "");
+  if (!base) base = `tpl-${randomUUID().slice(0, 8)}`;
+  if (!repo.findTemplateByCallName(base)) return base;
+  // 衝突時は -2, -3, … を足す (それでも埋まればランダム)。
+  for (let i = 2; i <= 50; i++) {
+    const cand = `${base}-${i}`.slice(0, 64);
+    if (!repo.findTemplateByCallName(cand)) return cand;
+  }
+  return `tpl-${randomUUID().slice(0, 8)}`;
+}
 
 const InvokeSchema = z.object({
   call_name: z.string().regex(CALL_NAME_RE),
@@ -115,10 +140,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = CreateTemplateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    if (deps.repo.findTemplateByCallName(parsed.data.call_name)) {
-      return c.json({ error: "call_name_taken" }, 409);
-    }
-    const row = deps.repo.createTemplate(parsed.data);
+    // 空欄許容: call_name は自動採番 (title スラッグ → ランダム)、 title 空は call_name で代替、
+    // prompt_template 空はそのまま空文字で保存 (invoke 時に context だけ載る)。
+    const call_name = resolveCallName(deps.repo, parsed.data.call_name, parsed.data.title);
+    const title = (parsed.data.title ?? "").trim() || call_name;
+    const row = deps.repo.createTemplate({
+      ...parsed.data,
+      call_name,
+      title,
+      prompt_template: parsed.data.prompt_template ?? "",
+    });
     return c.json({ template: serializeTemplate(row) }, 201);
   });
 

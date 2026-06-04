@@ -11,11 +11,6 @@ import {
   type DelegationProvider,
 } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
-import {
-  ensureSpawnToken,
-  extractBearer,
-  tokenMatches,
-} from "../control/token.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -32,6 +27,7 @@ const CreateTemplateSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]),
+  model: z.string().max(120).nullable().optional(),
   prompt_template: z.string().min(1).max(20000),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
@@ -42,6 +38,7 @@ const PatchTemplateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]).optional(),
+  model: z.string().max(120).nullable().optional(),
   prompt_template: z.string().min(1).max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
@@ -59,24 +56,16 @@ const InvokeSchema = z.object({
 export interface DelegationApiDeps {
   repo: DelegationRepo;
   service: DelegationService;
-  /** cwd used to locate / generate the spawn token (matches spawnRouter). */
-  cwd?: string;
 }
 
 export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
-  const tokenCwd = deps.cwd ?? process.cwd();
-  const expectedToken = ensureSpawnToken(tokenCwd);
 
-  function requireBearer(c: import("hono").Context) {
-    const provided = extractBearer((name) => c.req.header(name) ?? undefined);
-    if (!provided || !tokenMatches(expectedToken, provided)) {
-      return c.json({ error: "missing or invalid token" }, 401, {
-        "www-authenticate": 'Bearer realm="concordia-delegation"',
-      });
-    }
-    return null;
-  }
+  // mutating endpoint は bearer token を要求しない。 Concordia は loopback
+  // (既定 127.0.0.1:17330) 限定で動き、 /v1/admin/* と同じ信頼境界に乗る。
+  // 以前は spawn token を要求していたが、 同じ loopback サービス内で Monitor の
+  // spawn は token-free・Delegation CRUD だけ token 必須という非対称が混乱の元
+  // (token 未貼付で Save できない) だったため撤廃。
 
   function serializeTemplate(row: Awaited<ReturnType<DelegationRepo["findTemplate"]>>) {
     if (!row) return row;
@@ -123,8 +112,6 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
 
   // ── Mutating endpoints (bearer auth) ─────────────────────
   app.post("/templates", async (c) => {
-    const denied = requireBearer(c);
-    if (denied) return denied;
     const body = await c.req.json().catch(() => null);
     const parsed = CreateTemplateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
@@ -136,8 +123,6 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   });
 
   app.patch("/templates/:id", async (c) => {
-    const denied = requireBearer(c);
-    if (denied) return denied;
     const id = c.req.param("id");
     if (!deps.repo.findTemplate(id)) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
@@ -148,8 +133,6 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   });
 
   app.delete("/templates/:id", (c) => {
-    const denied = requireBearer(c);
-    if (denied) return denied;
     const id = c.req.param("id");
     const ok = deps.repo.deactivateTemplate(id);
     if (!ok) return c.json({ error: "not_found" }, 404);
@@ -157,8 +140,6 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   });
 
   app.post("/invoke", async (c) => {
-    const denied = requireBearer(c);
-    if (denied) return denied;
     const body = await c.req.json().catch(() => null);
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);

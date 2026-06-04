@@ -175,6 +175,57 @@ export function buildApp(deps: AppDeps): Hono {
     } catch {
       return c.json({ error: "invalid JSON" }, 400);
     }
+    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+
+    // ── template 起動経路 ─────────────────────────────────────
+    // body.template (call_name) があれば delegation テンプレから起動する。
+    //   - provider / model / 既定 cwd はテンプレから採用。
+    //   - body.inject_prompt=true なら prompt を render して自動注入 (= delegation
+    //     invoke と同じ実体)。 false (既定) なら provider+model だけの素のセッション。
+    // loopback 信頼境界に乗るため bearer token は不要 (他 /v1/admin/* と同様)。
+    const templateName = typeof body.template === "string" ? body.template.trim() : "";
+    if (templateName) {
+      const tpl = deps.delegation.findTemplateByCallName(templateName);
+      if (!tpl) return c.json({ error: `unknown template: ${templateName}` }, 404);
+      if (!tpl.is_active) return c.json({ error: `template inactive: ${templateName}` }, 400);
+      const injectPrompt = body.inject_prompt === true;
+      const tplArgs = isPlainObject(body.args) ? (body.args as Record<string, unknown>) : {};
+      const cwdOverride = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined;
+
+      if (injectPrompt) {
+        // prompt 注入あり = delegation invoke 本体に委譲 (render + prompt file + env + run 記録 + --model)。
+        const result = deps.delegationService.invoke({
+          call_name: tpl.call_name,
+          args: tplArgs,
+          cwd: cwdOverride,
+          triggered_by: "web-spawn",
+          spawn: true,
+        });
+        if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
+        return c.json({
+          ok: true,
+          pid: result.spawn_pid,
+          command: result.spawn_command,
+          run_id: result.run.id,
+          injected_prompt: true,
+        });
+      }
+
+      // prompt 注入なし = provider + model だけ採用した素のセッション。
+      const tplProvider = isSpawnProvider(tpl.target_provider) ? tpl.target_provider : "claude";
+      const result = spawnSession({
+        provider: tplProvider,
+        mode,
+        args: tpl.model ? ["--model", tpl.model] : undefined,
+        // cwd: caller override → テンプレ default_cwd (${var} 未展開なら existsSync で弾かれ default へ) → 既定。
+        cwd: resolveSpawnCwd(cwdOverride ?? tpl.default_cwd ?? undefined, deps.config.spawnDefaultCwd),
+        title: `tpl:${tpl.call_name}`,
+      });
+      if (!result.ok) return c.json({ error: result.error }, 400);
+      return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });
+    }
+
+    // ── 従来経路: provider 直接指定 ───────────────────────────
     const provider = (body.provider as string) ?? "claude";
     if (!isSpawnProvider(provider)) {
       return c.json(
@@ -182,7 +233,6 @@ export function buildApp(deps: AppDeps): Hono {
         400,
       );
     }
-    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const result = spawnSession({
       provider,
       mode,
@@ -409,4 +459,8 @@ function isStringMap(x: unknown): x is Record<string, string> {
     if (typeof v !== "string") return false;
   }
   return true;
+}
+
+function isPlainObject(x: unknown): x is Record<string, unknown> {
+  return !!x && typeof x === "object" && !Array.isArray(x);
 }

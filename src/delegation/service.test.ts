@@ -137,6 +137,29 @@ describe("DelegationService.invoke", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("passes template.model to spawn as --model args", () => {
+    repo.createTemplate({
+      call_name: "with-model",
+      title: "With model",
+      target_provider: "codex",
+      model: "gpt-5.5",
+      prompt_template: "do ${x}",
+      input_schema: [{ name: "x", type: "string", required: true }],
+    });
+    const r = svc.invoke({ call_name: "with-model", args: { x: "y" } });
+    expect(r.ok).toBe(true);
+    const req = spawnCalls[0] as { args?: string[]; provider: string };
+    expect(req.provider).toBe("codex");
+    expect(req.args).toEqual(["--model", "gpt-5.5"]);
+  });
+
+  it("omits --model args when template has no model", () => {
+    const r = svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+    expect(r.ok).toBe(true);
+    const req = spawnCalls[0] as { args?: string[] };
+    expect(req.args).toBeUndefined();
+  });
+
   it("records spawn_failed when spawner returns error", () => {
     const failing = new DelegationService({
       repo,

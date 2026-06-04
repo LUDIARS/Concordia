@@ -25,6 +25,7 @@ delegation_templates
   title (人間向け 1 行)
   description (いつ使うか)
   target_provider ("claude" | "codex" | "gemini")
+  model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
   default_cwd (NULLABLE TEXT)
@@ -61,7 +62,7 @@ delegation_runs
 2. テンプレ resolve → input_schema validate → render
 3. rendered_prompt を `<concordia-data>/delegation/<run_id>.md` に保存
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
-   - `lictor <provider> --` 以降の args は付けない (今は対話的に始める)
+   - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
    - (Lictor 側の自動 inject は v0.2 — 今は呼び出し元が出力された path を見て手動 paste)
 5. delegation_runs に upsert
@@ -77,13 +78,17 @@ delegation_runs
 | GET    | /v1/delegation/templates | none | 一覧 (is_active=1) |
 | GET    | /v1/delegation/templates/all | none | 一覧 (含む inactive) |
 | GET    | /v1/delegation/templates/:call_name | none | 1 件取得 |
-| POST   | /v1/delegation/templates | bearer | 新規作成 |
-| PATCH  | /v1/delegation/templates/:id | bearer | 更新 |
-| DELETE | /v1/delegation/templates/:id | bearer | soft delete (is_active=0) |
-| POST   | /v1/delegation/invoke | bearer | テンプレ resolve + spawn |
+| POST   | /v1/delegation/templates | none | 新規作成 |
+| PATCH  | /v1/delegation/templates/:id | none | 更新 |
+| DELETE | /v1/delegation/templates/:id | none | soft delete (is_active=0) |
+| POST   | /v1/delegation/invoke | none | テンプレ resolve + spawn |
 | GET    | /v1/delegation/runs | none | 直近 100 件 |
 
-`bearer` は既存 `.spawn.token` を再利用 (spawn と同等の権限)。
+mutating endpoint も bearer token を要求しない。 Concordia は loopback
+(既定 127.0.0.1:17330) 限定で動き、 `/v1/admin/*` と同じ信頼境界に乗る。
+以前は `.spawn.token` を要求していたが、 同じ loopback サービスで Monitor の
+spawn は token-free・Delegation CRUD だけ token 必須という非対称が混乱の元
+(token 未貼付で Save できない) だったため撤廃。
 
 ## 6. MCP server
 
@@ -121,11 +126,24 @@ Bearer token は `process.env.CONCORDIA_SPAWN_TOKEN` から取得。
 
 `web/src/pages/Delegation.tsx` を追加。 NAV に `/delegation` を加える:
 
-- Templates list (active toggle, edit, delete)
-- Create/Edit form (call_name / title / description / target_provider /
+- Templates list (active toggle, edit, delete) — provider / model 列を表示
+- Create/Edit form (call_name / title / description / target_provider / model /
   prompt_template (textarea) / input_schema (JSON editor) / default_cwd)
 - Recent runs (call_name / status / triggered_by / spawn_pid / created_at)
 - Input は `.foundation-form` スタイルを使う
+
+### 8.1 Monitor からの spawn (テンプレ起動)
+
+`web/src/pages/Monitor.tsx` の「新規セッション」フォームは provider 直接選択を廃し、
+delegation テンプレ選択ベースで起動する:
+
+- テンプレを選ぶと provider / model / 既定 cwd をそのテンプレから採用。
+- 「プロンプトを注入」 ON で、 テンプレを render したプロンプトを起動直後に自動注入
+  (= delegation invoke 相当)。 注入時のみ input_schema の引数欄を表示。 OFF なら
+  provider + model だけの素のセッション。
+- backend は `POST /v1/admin/spawn-session` に `template` (call_name) / `inject_prompt` /
+  `args` / `cwd?` を受ける。 loopback 信頼境界に乗るため bearer token 不要
+  (他 `/v1/admin/*` と同様)。 `inject_prompt=true` の実体は delegation invoke に委譲。
 
 ## 9. 初期 seed (3 テンプレ)
 

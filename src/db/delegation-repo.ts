@@ -16,6 +16,8 @@ export interface DelegationTemplateRow {
   title: string;
   description: string;
   target_provider: DelegationProvider;
+  /** spawn する CLI に `--model` で渡す値。 null = provider CLI の config 既定に委ねる */
+  model: string | null;
   prompt_template: string;
   input_schema: string;          // JSON string
   default_cwd: string | null;
@@ -53,6 +55,7 @@ export interface CreateTemplateInput {
   title: string;
   description?: string;
   target_provider: DelegationProvider;
+  model?: string | null;
   prompt_template: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
@@ -63,6 +66,7 @@ export interface UpdateTemplateInput {
   title?: string;
   description?: string;
   target_provider?: DelegationProvider;
+  model?: string | null;
   prompt_template?: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
@@ -97,6 +101,7 @@ export class DelegationRepo {
         title: input.title,
         description: input.description,
         target_provider: input.target_provider,
+        model: input.model,
         prompt_template: input.prompt_template,
         input_schema: input.input_schema,
         default_cwd: input.default_cwd,
@@ -111,16 +116,17 @@ export class DelegationRepo {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO delegation_templates(
-        id, call_name, title, description, target_provider,
+        id, call_name, title, description, target_provider, model,
         prompt_template, input_schema, default_cwd, is_active,
         created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
       input.title,
       input.description ?? "",
       input.target_provider,
+      input.model ?? null,
       input.prompt_template,
       JSON.stringify(input.input_schema ?? []),
       input.default_cwd ?? null,
@@ -140,6 +146,7 @@ export class DelegationRepo {
         title = ?,
         description = ?,
         target_provider = ?,
+        model = ?,
         prompt_template = ?,
         input_schema = ?,
         default_cwd = ?,
@@ -150,6 +157,7 @@ export class DelegationRepo {
       patch.title ?? cur.title,
       patch.description ?? cur.description,
       patch.target_provider ?? cur.target_provider,
+      patch.model !== undefined ? patch.model : cur.model,
       patch.prompt_template ?? cur.prompt_template,
       patch.input_schema !== undefined ? JSON.stringify(patch.input_schema) : cur.input_schema,
       patch.default_cwd !== undefined ? patch.default_cwd : cur.default_cwd,

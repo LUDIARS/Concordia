@@ -80,6 +80,35 @@ describe("DelegationRepo / templates", () => {
     expect(updated?.target_provider).toBe("claude");
   });
 
+  it("persists model and allows clearing it to null", () => {
+    const t = repo.createTemplate({
+      call_name: "m",
+      title: "M",
+      target_provider: "codex",
+      model: "gpt-5.5",
+      prompt_template: "x",
+    });
+    expect(t.model).toBe("gpt-5.5");
+    expect(repo.findTemplateByCallName("m")?.model).toBe("gpt-5.5");
+    // 更新で別モデルに
+    expect(repo.updateTemplate(t.id, { model: "claude-opus-4-8" })?.model).toBe("claude-opus-4-8");
+    // null クリアできる (?? でなく !== undefined 分岐のため)
+    expect(repo.updateTemplate(t.id, { model: null })?.model).toBeNull();
+    // model 未指定の patch は既存値を保持
+    repo.updateTemplate(t.id, { model: "gpt-5.5" });
+    expect(repo.updateTemplate(t.id, { title: "M2" })?.model).toBe("gpt-5.5");
+  });
+
+  it("defaults model to null when not provided", () => {
+    const t = repo.createTemplate({
+      call_name: "nomodel",
+      title: "N",
+      target_provider: "codex",
+      prompt_template: "x",
+    });
+    expect(t.model).toBeNull();
+  });
+
   it("parseInputSchema rejects bad shape", () => {
     expect(parseInputSchema("not-json")).toEqual([]);
     expect(parseInputSchema("[{\"name\":\"x\",\"type\":\"string\",\"required\":true}]"))

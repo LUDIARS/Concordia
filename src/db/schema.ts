@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -508,6 +508,7 @@ const STATEMENTS = [
     title             TEXT    NOT NULL,
     description       TEXT    NOT NULL DEFAULT '',
     target_provider   TEXT    NOT NULL,
+    model             TEXT,
     prompt_template   TEXT    NOT NULL,
     input_schema      TEXT    NOT NULL DEFAULT '[]',
     default_cwd       TEXT,
@@ -652,6 +653,13 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "pending_tasks",
     column: "last_attempt_at",
     ddl: `ALTER TABLE pending_tasks ADD COLUMN last_attempt_at INTEGER`,
+  },
+  // delegation テンプレが spawn する CLI に渡すモデル (例 gpt-5.5 / claude-opus-4-8).
+  // null = 各 provider CLI の config 既定モデルに委ねる (--model を付けない).
+  {
+    table: "delegation_templates",
+    column: "model",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN model TEXT`,
   },
 ];
 

@@ -187,6 +187,9 @@ export class DelegationService {
         provider,
         mode: "tab",
         cwd: cwd ?? undefined,
+        // template.model を CLI に `--model` で渡す (Lictor は args を下層 CLI へ透過する)。
+        // null/空 なら付けず、 各 provider CLI の config 既定モデルに委ねる。
+        args: tpl.model ? ["--model", tpl.model] : undefined,
         title: `delegation:${input.call_name}`,
         env: {
           CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
@@ -256,6 +259,7 @@ function renderPromptFile(
     "",
     `- run_id: ${runId}`,
     `- target_provider: ${tpl.target_provider}`,
+    `- model: ${tpl.model ?? "(provider default)"}`,
     `- template_title: ${tpl.title}`,
     "",
     "## Args",

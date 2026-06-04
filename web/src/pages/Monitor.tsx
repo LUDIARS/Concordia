@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
-import type { SessionRow, SpawnProvider } from "../api.js";
+import type { SessionRow, DelegationTemplateLite } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 
 export function Monitor() {
@@ -148,32 +148,78 @@ function MachinesSection() {
 
 /**
  * Spawn a new lictor-wrapped agent via /v1/admin/spawn-session.
- * Windows-only today (the spawner requires wt.exe). 3 providers supported:
- *   - claude:  Claude Code  (skill 注入 + auto title + Concordia 統合フル)
- *   - codex:   OpenAI Codex (skill 注入 + Concordia 統合 / TUI 経路)
- *   - gemini:  Gemini CLI   (skill 注入なし、 Concordia 統合は最低限)
+ * Windows-only today (the spawner requires wt.exe).
  *
- * cwd と title は UI には載せない:
- *   - cwd:   起動 cwd は backend の CONCORDIA_SPAWN_DEFAULT_CWD が支配する.
- *           本当に異なる cwd で起動したいケースは API (/v1/admin/spawn-session)
- *           から直接叩く方が筋がよい.
- *   - title: Lictor の auto-title が起動直後に上書きするので入力する意味がない.
- * 同じパラメータは API でも叩ける (Claude Code SDK 的にスクリプトから起動する想定).
+ * 起動は delegation テンプレ選択ベース (provider 直接選択は廃止):
+ *   - provider / model / 既定 cwd はテンプレから採用する。
+ *     model はテンプレの `--model` 値 (空なら provider CLI の config 既定)。
+ *   - 「プロンプトを注入」 ON で、 テンプレを render したプロンプトを起動直後に
+ *     自動注入する (= delegation invoke 相当)。 OFF なら provider+model だけの
+ *     素のセッション。 注入時のみ input_schema の引数欄を出す。
+ *   - title: Lictor の auto-title が起動直後に上書きするので入力しない。
+ * 同じパラメータは API (/v1/admin/spawn-session) でも叩ける。
  */
 function SpawnSessionForm() {
-  const [provider, setProvider] = useState<SpawnProvider>("claude");
+  const [templates, setTemplates] = useState<DelegationTemplateLite[]>([]);
+  const [callName, setCallName] = useState<string>("");
   const [mode, setMode] = useState<"tab" | "window">("tab");
+  const [injectPrompt, setInjectPrompt] = useState(false);
+  const [args, setArgs] = useState<Record<string, string>>({});
+  const [cwd, setCwd] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
+  useEffect(() => {
+    api.delegationTemplates()
+      .then((r) => {
+        setTemplates(r.templates);
+        if (r.templates.length > 0) setCallName((cur) => cur || r.templates[0].call_name);
+      })
+      .catch(() => { /* テンプレ未取得でもフォーム自体は出す */ });
+  }, []);
+
+  const selected = templates.find((t) => t.call_name === callName) ?? null;
+
+  // テンプレ切替時に arg 入力欄を default で初期化、 cwd override はクリア
+  // (空なら backend がテンプレの default_cwd を使う)。
+  useEffect(() => {
+    if (!selected) { setArgs({}); setCwd(""); return; }
+    const init: Record<string, string> = {};
+    for (const s of selected.input_schema) {
+      init[s.name] = s.default !== undefined ? String(s.default) : "";
+    }
+    setArgs(init);
+    setCwd("");
+  }, [callName]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (sending) return;
+    if (sending || !selected) return;
     setSending(true);
     setResult(null);
     try {
-      const r = await api.adminSpawn({ provider, mode });
-      setResult({ ok: true, msg: `spawned (pid=${r.pid ?? "?"})` });
+      const body: Parameters<typeof api.adminSpawn>[0] = {
+        template: selected.call_name,
+        inject_prompt: injectPrompt,
+        mode,
+      };
+      if (injectPrompt) {
+        const a: Record<string, unknown> = {};
+        for (const s of selected.input_schema) {
+          const v = args[s.name];
+          if (v === undefined || v === "") continue;
+          if (s.type === "number") a[s.name] = Number(v);
+          else if (s.type === "boolean") a[s.name] = v === "true";
+          else a[s.name] = v;
+        }
+        body.args = a;
+      }
+      if (cwd.trim()) body.cwd = cwd.trim();
+      const r = await api.adminSpawn(body);
+      setResult({
+        ok: true,
+        msg: `spawned (pid=${r.pid ?? "?"}${r.injected_prompt ? ", prompt 注入" : ""})`,
+      });
     } catch (err) {
       setResult({ ok: false, msg: (err as Error).message });
     } finally {
@@ -186,39 +232,93 @@ function SpawnSessionForm() {
       <div className="flex items-center gap-2">
         <h2 className="text-base font-semibold">新規セッション</h2>
         <span className="text-xs text-subtle">
-          Windows Terminal の新タブ/ウインドウで lictor wrapped agent を起動
+          delegation テンプレを選んで lictor wrapped agent を起動 (provider/model はテンプレ由来)
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as SpawnProvider)}
-          disabled={sending}
-          className="foundation-form text-sm"
-          title="AI provider — Lictor の対応 CLI を選ぶ"
-        >
-          <option value="claude">Claude</option>
-          <option value="codex">Codex</option>
-          <option value="gemini">Gemini</option>
-        </select>
-        <select
-          value={mode}
-          onChange={(e) => setMode(e.target.value as "tab" | "window")}
-          disabled={sending}
-          className="foundation-form text-sm"
-          title="tab = 同じ Windows Terminal 内、 window = 新規ウインドウ"
-        >
-          <option value="tab">tab</option>
-          <option value="window">window</option>
-        </select>
-        <button
-          type="submit"
-          disabled={sending}
-          className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
-        >
-          {sending ? "起動中…" : "起動"}
-        </button>
-      </div>
+      {templates.length === 0 ? (
+        <div className="text-xs text-subtle">
+          有効な delegation テンプレがありません。{" "}
+          <Link to="/delegation" className="text-accent">Delegation</Link> で作成してください。
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={callName}
+              onChange={(e) => setCallName(e.target.value)}
+              disabled={sending}
+              className="foundation-form text-sm"
+              title="delegation テンプレ — provider / model / 既定 cwd を継承"
+            >
+              {templates.map((t) => (
+                <option key={t.id} value={t.call_name}>{t.title} ({t.call_name})</option>
+              ))}
+            </select>
+            <select
+              value={mode}
+              onChange={(e) => setMode(e.target.value as "tab" | "window")}
+              disabled={sending}
+              className="foundation-form text-sm"
+              title="tab = 同じ Windows Terminal 内、 window = 新規ウインドウ"
+            >
+              <option value="tab">tab</option>
+              <option value="window">window</option>
+            </select>
+            <label className="text-xs text-subtle flex items-center gap-1" title="テンプレの prompt を render して起動直後に注入する">
+              <input
+                type="checkbox"
+                checked={injectPrompt}
+                onChange={(e) => setInjectPrompt(e.target.checked)}
+                disabled={sending}
+              />
+              プロンプトを注入
+            </label>
+            <button
+              type="submit"
+              disabled={sending || !selected}
+              className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
+            >
+              {sending ? "起動中…" : "起動"}
+            </button>
+          </div>
+          {selected && (
+            <div className="text-xs text-subtle">
+              provider: <code>{selected.target_provider}</code>
+              {" / "}model: <code>{selected.model ?? "(provider 既定)"}</code>
+            </div>
+          )}
+          {injectPrompt && selected && selected.input_schema.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {selected.input_schema.map((s) => (
+                <label key={s.name} className="text-xs space-y-1">
+                  <span className="text-subtle">
+                    {s.name} <span className="font-mono">{s.type}</span>
+                    {s.required && <span className="text-danger"> *</span>}
+                  </span>
+                  <input
+                    className="foundation-form w-full text-sm"
+                    value={args[s.name] ?? ""}
+                    onChange={(e) => setArgs({ ...args, [s.name]: e.target.value })}
+                    disabled={sending}
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+          {injectPrompt && (
+            <label className="text-xs space-y-1 block">
+              <span className="text-subtle">cwd (任意 override — 空ならテンプレ既定)</span>
+              <input
+                className="foundation-form w-full text-sm"
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                disabled={sending}
+                placeholder={selected?.default_cwd ?? ""}
+              />
+            </label>
+          )}
+        </>
+      )}
       {result && (
         <div className={`text-xs ${result.ok ? "text-ok" : "text-danger"}`}>{result.msg}</div>
       )}

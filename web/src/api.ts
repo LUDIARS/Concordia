@@ -11,6 +11,27 @@ const BASE = "";
  */
 export type SpawnProvider = "claude" | "codex" | "gemini";
 
+export interface DelegationInputSchemaItem {
+  name: string;
+  type: "string" | "number" | "boolean";
+  required: boolean;
+  description?: string;
+  default?: string | number | boolean;
+}
+
+/** Monitor の spawn フォームが使う delegation テンプレ (GET /v1/delegation/templates)。 */
+export interface DelegationTemplateLite {
+  id: string;
+  call_name: string;
+  title: string;
+  description: string;
+  target_provider: SpawnProvider;
+  model: string | null;
+  default_cwd: string | null;
+  input_schema: DelegationInputSchemaItem[];
+  is_active: boolean;
+}
+
 export interface SessionRow {
   id: string;
   provider: string;
@@ -250,8 +271,24 @@ export const api = {
         last_seen_at: number;
       }>;
     }>("/v1/machines"),
-  adminSpawn: (body: { provider: SpawnProvider; cwd?: string; title?: string; mode?: "tab" | "window" }) =>
-    post<{ ok: boolean; pid: number | null; command: string[] }>("/v1/admin/spawn-session", body),
+  adminSpawn: (body: {
+    provider?: SpawnProvider;
+    /** delegation テンプレ call_name 起動。 指定時は provider/model/既定 cwd をテンプレから採用 */
+    template?: string;
+    /** template 起動時、 render したプロンプトを自動注入するか (既定 false = provider+model のみ) */
+    inject_prompt?: boolean;
+    /** inject_prompt 時の render 引数 */
+    args?: Record<string, unknown>;
+    cwd?: string;
+    title?: string;
+    mode?: "tab" | "window";
+  }) =>
+    post<{ ok: boolean; pid: number | null; command: string[]; injected_prompt?: boolean; run_id?: string }>(
+      "/v1/admin/spawn-session",
+      body,
+    ),
+  delegationTemplates: () =>
+    get<{ templates: DelegationTemplateLite[] }>("/v1/delegation/templates"),
   adminSpawnDefaults: () =>
     get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>

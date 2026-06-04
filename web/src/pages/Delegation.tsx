@@ -17,6 +17,7 @@ interface Template {
   title: string;
   description: string;
   target_provider: Provider;
+  model: string | null;
   prompt_template: string;
   input_schema: InputSchemaItem[];
   default_cwd: string | null;
@@ -46,6 +47,7 @@ interface FormState {
   title: string;
   description: string;
   target_provider: Provider;
+  model: string;
   prompt_template: string;
   input_schema_json: string;
   default_cwd: string;
@@ -57,6 +59,7 @@ const EMPTY_FORM: FormState = {
   title: "",
   description: "",
   target_provider: "codex",
+  model: "",
   prompt_template: "",
   input_schema_json: "[]",
   default_cwd: "",
@@ -71,9 +74,9 @@ async function getJson<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown, token?: string): Promise<Response> {
+async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response> {
+  // Concordia は loopback (既定 127.0.0.1:17330) 限定なので bearer token は不要。
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (token) headers.authorization = `Bearer ${token}`;
   return fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
 }
 
@@ -81,8 +84,6 @@ export function Delegation() {
   const [templates, setTemplates] = useState<Template[]>([]);
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [includeInactive, setIncludeInactive] = useState(false);
-  const [token, setToken] = useState("");
-  const [tokenPath, setTokenPath] = useState<string>("");
   const [mode, setMode] = useState<FormMode | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
@@ -104,15 +105,7 @@ export function Delegation() {
     }
   }
 
-  async function loadTokenPath() {
-    try {
-      const r = await getJson<{ token_path: string }>("/v1/spawn/info");
-      setTokenPath(r.token_path);
-    } catch { /* noop */ }
-  }
-
   useEffect(() => { refresh(); }, [includeInactive]);
-  useEffect(() => { loadTokenPath(); }, []);
 
   function startCreate() {
     setMode({ kind: "create" });
@@ -127,6 +120,7 @@ export function Delegation() {
       title: t.title,
       description: t.description,
       target_provider: t.target_provider,
+      model: t.model ?? "",
       prompt_template: t.prompt_template,
       input_schema_json: JSON.stringify(t.input_schema, null, 2),
       default_cwd: t.default_cwd ?? "",
@@ -152,6 +146,7 @@ export function Delegation() {
         title: form.title,
         description: form.description,
         target_provider: form.target_provider,
+        model: form.model.trim() ? form.model.trim() : null,
         prompt_template: form.prompt_template,
         input_schema: schema,
         default_cwd: form.default_cwd.trim() ? form.default_cwd.trim() : null,
@@ -161,7 +156,7 @@ export function Delegation() {
         ? `/v1/delegation/templates/${mode.templateId}`
         : "/v1/delegation/templates";
       const method = mode?.kind === "edit" ? "PATCH" : "POST";
-      const r = await mutate(method, path, body, token);
+      const r = await mutate(method, path, body);
       if (!r.ok) {
         const txt = await r.text();
         throw new Error(`${r.status} ${txt}`);
@@ -180,7 +175,7 @@ export function Delegation() {
     if (!confirm("Deactivate this template?")) return;
     setBusy(true);
     try {
-      const r = await mutate("DELETE", `/v1/delegation/templates/${id}`, undefined, token);
+      const r = await mutate("DELETE", `/v1/delegation/templates/${id}`, undefined);
       if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
       await refresh();
     } catch (err) {
@@ -219,7 +214,7 @@ export function Delegation() {
         args,
         cwd: invokeCwd.trim() || undefined,
         triggered_by: "web-ui",
-      }, token);
+      });
       const data = await r.json();
       setInvokeResult(data);
       await refresh();
@@ -239,23 +234,6 @@ export function Delegation() {
           Concordia がプロンプトを render して新しい Codex / Claude / Gemini セッションを spawn する。
         </p>
       </header>
-
-      <section className="rounded border border-border bg-surface p-4 space-y-2">
-        <div className="text-sm font-semibold">Spawn token</div>
-        <div className="text-xs text-subtle">
-          書き込み系 API (Create / Edit / Delete / Invoke) には Bearer トークンが要る。
-          {tokenPath && (<>
-            {" "}token file: <code className="text-accent">{tokenPath}</code>
-          </>)}
-        </div>
-        <input
-          type="password"
-          className="foundation-form w-full"
-          placeholder="paste .spawn.token contents here"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-      </section>
 
       <section className="space-y-3">
         <div className="flex items-center gap-3">
@@ -278,6 +256,7 @@ export function Delegation() {
           <thead className="text-xs text-subtle">
             <tr><th className="text-left p-2">call_name</th><th className="text-left p-2">title</th>
               <th className="text-left p-2">provider</th>
+              <th className="text-left p-2">model</th>
               <th className="text-left p-2">active</th>
               <th className="text-left p-2">updated</th>
               <th className="text-right p-2">actions</th>
@@ -289,6 +268,7 @@ export function Delegation() {
                 <td className="p-2 font-mono">{t.call_name}</td>
                 <td className="p-2">{t.title}</td>
                 <td className="p-2"><code>{t.target_provider}</code></td>
+                <td className="p-2 text-xs">{t.model ? <code>{t.model}</code> : <span className="text-subtle">—</span>}</td>
                 <td className="p-2">{t.is_active ? "✓" : "—"}</td>
                 <td className="p-2 text-xs text-subtle">{fmtTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
@@ -347,6 +327,15 @@ export function Delegation() {
               </select>
             </label>
             <label className="text-sm space-y-1">
+              <span className="text-subtle">model (optional)</span>
+              <input
+                className="foundation-form w-full"
+                placeholder="例: gpt-5.5 / claude-opus-4-8 (空 = provider CLI 既定)"
+                value={form.model}
+                onChange={(e) => setForm({ ...form, model: e.target.value })}
+              />
+            </label>
+            <label className="text-sm space-y-1">
               <span className="text-subtle">default_cwd (optional)</span>
               <input
                 className="foundation-form w-full"
@@ -386,7 +375,7 @@ export function Delegation() {
           <div className="flex gap-2">
             <button
               onClick={submit}
-              disabled={busy || !token}
+              disabled={busy}
               className="bg-accent text-bg px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
             >Save</button>
             <button
@@ -429,7 +418,7 @@ export function Delegation() {
           <div className="flex gap-2">
             <button
               onClick={runInvoke}
-              disabled={busy || !token}
+              disabled={busy}
               className="bg-accent text-bg px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
             >Spawn</button>
             <button

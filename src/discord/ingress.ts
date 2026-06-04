@@ -4,6 +4,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
+import { recordInjectAck } from "./inject-ack.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -118,13 +119,12 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           // Enter fallback failure is non-fatal for main inject path.
         }
       }
-      // 受領した指示そのものに ✅ リアクションを付けて「Concordia が受け取った」ことを可視化する。
-      // best-effort — リアクション権限が無くても inject は成立しているので失敗は飲み込む。
-      try {
-        await msg.react("✅");
-      } catch (e) {
-        deps.log.warn(`ingress: react failed session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
-      }
+      // ✅ リアクションは「届いた」時点では付けない。 transcript が動いた
+      // (= セッションが実際に読み込んで処理を始めた) タイミングで付けるため、
+      // ここでは対象メッセージを保留登録するだけにする (bot の transcript.frame /
+      // prompt ハンドラが takeInjectAck で取り出して付ける)。 Enter が送られず
+      // 宙に浮いたケースでは transcript が動かないので ✅ が付かない = 見分けられる。
+      recordInjectAck(sessionRow.session_id, msg.channelId, msg.id);
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
     } catch (e) {
       deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);

@@ -26,6 +26,7 @@ import {
   pruneStatusCategoryChannels,
 } from "./session-channel.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
+import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
@@ -407,6 +408,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       const progressSession =
         ev.type === "transcript.frame" ? ev.target_session_id : ev.session_id ?? null;
       if (progressSession) workingIndicator?.noteProgress(progressSession);
+      // 指示 (Discord inject) → transcript が動いた最初のタイミングで ✅ を付ける。
+      // takeInjectAck は delete-on-read なので、 後続フレームや codex prompt 経路と
+      // 二重に付かない。 Enter 未送信で transcript が動かなければ ✅ は付かない。
+      if (ev.type === "transcript.frame") {
+        const ack = takeInjectAck(ev.target_session_id);
+        if (ack) {
+          void (async () => {
+            try {
+              const channel = guild.channels.cache.get(ack.channelId);
+              if (!channel || channel.type !== ChannelType.GuildText) return;
+              const m = await channel.messages.fetch(ack.messageId);
+              await m.react("✅");
+            } catch (e) {
+              log.warn(`inject-ack: react failed session=${ev.target_session_id}: ${(e as Error).message}`);
+            }
+          })();
+        }
+      }
       return;
     }
     if (ev.type === "session.event" && ev.kind === "prompt") {
@@ -428,19 +447,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // Discord session channel からの inject は元メッセージがすでに表示済み。
       // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
       if (source.startsWith("discord:") || source === "discord-enter" || source === "discord-enter-fallback") {
-        const ack = parseDiscordSource(source);
-        if (ack?.messageId) {
-          const messageId = ack.messageId;
+        // codex: prompt が受理された = transcript が動いた。 保留中の ✅ を 1 回だけ付ける
+        // (takeInjectAck は delete-on-read なので transcript.frame 経路と二重にならない)。
+        const ack = takeInjectAck(ev.session_id);
+        if (ack) {
           void (async () => {
             try {
-              const channel = ack.channelId
-                ? guild.channels.cache.get(ack.channelId)
-                : guild.channels.cache.get(row.channel_id);
+              const channel = guild.channels.cache.get(ack.channelId);
               if (!channel || channel.type !== ChannelType.GuildText) return;
-              const m = await channel.messages.fetch(messageId);
+              const m = await channel.messages.fetch(ack.messageId);
               await m.react("✅");
             } catch (e) {
-              log.warn(`prompt relay: ack reaction failed session=${ev.session_id}: ${(e as Error).message}`);
+              log.warn(`inject-ack: codex react failed session=${ev.session_id}: ${(e as Error).message}`);
             }
           })();
         }
@@ -552,15 +570,4 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
 function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
   if (!s) return {};
   try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
-}
-
-function parseDiscordSource(source: string): { userId: string; channelId: string | null; messageId: string | null } | null {
-  // format: discord:<userId>:<channelId>:<messageId>
-  // legacy: discord:<userId>:<messageId>
-  const parts = source.split(":");
-  if (parts.length < 3 || parts[0] !== "discord") return null;
-  if (parts.length >= 4) {
-    return { userId: parts[1], channelId: parts[2], messageId: parts[3] };
-  }
-  return { userId: parts[1], channelId: null, messageId: parts[2] };
 }

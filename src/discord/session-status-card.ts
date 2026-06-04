@@ -1,4 +1,4 @@
-import { ChannelType, type Guild, type TextChannel } from "discord.js";
+import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -57,56 +57,126 @@ export async function upsertSessionStatusCard(
   const recent = deps.sessionsRepo.recentEvents(sessionId, 1);
   const lastEventTsSec = recent.length > 0 ? recent[0].ts : null;
   const ageSec = lastEventTsSec === null ? null : Math.floor(Date.now() / 1000) - lastEventTsSec;
-  const activityLabel = buildActivityLabel(sessionRow.status, ageSec);
 
   // Concordia から会話 / 指示 系の未配信 pending task が何件待たされているか.
   // タスクを送ったのに session が拾ってくれていない、 を見える化する.
   const concordiaPending = deps.tasksRepo.countUndeliveredForSession(sessionId);
 
-  const lines: string[] = [];
-  lines.push("## Session Status");
-  lines.push(`- Session: \`${sessionId}\``);
-  lines.push(`- Persona: ${personaLabel(meta.role_label ?? null, persona?.display_name ?? null, persona?.name ?? null)}`);
-  lines.push(`- Agent: \`${sessionRow.provider}\``);
-  lines.push(`- Branch: \`${sessionRow.branch ?? "-"}\``);
-  lines.push(`- Repo: \`${sessionRow.repo_path}\``);
-  lines.push(`- Current Task: ${sessionRow.current_task ?? "-"}`);
-  lines.push(`- Status: \`${sessionRow.status}\` ${activityLabel}`);
-  lines.push(`- Session Channel: <#${sessionChannelRow.channel_id}>`);
-  lines.push(`- Updated: <t:${Math.floor(Date.now() / 1000)}:R>`);
-  lines.push("");
-  // タスクサマリ: in_progress / pending / completed のカウントを一行で.
-  // Concordia 依頼 (未配信 pending_tasks) も同じ行に置いて、 「session が拾ってない依頼が
-  // 残ってるか」 を一目で見えるようにする.
-  lines.push(
-    `### Tasks (` +
-      `${inProgress.length} in_progress / ${pending.length} pending / ${doneCount} done` +
-      (concordiaPending > 0 ? ` ・ Concordia 依頼残: ${concordiaPending}` : "") +
-      `)`,
-  );
-  if (openTasks.length === 0) {
-    lines.push("- (no open tasks)");
-  } else {
-    for (const t of inProgress.slice(0, 5)) lines.push(`- [in_progress] ${truncate(t.active_form || t.task_text, 160)}`);
-    for (const t of pending.slice(0, 10)) lines.push(`- [pending] ${truncate(t.task_text, 160)}`);
-  }
-  const body = lines.join("\n").slice(0, 3900);
+  const embed = buildSessionStatusEmbed({
+    sessionId,
+    provider: sessionRow.provider,
+    branch: sessionRow.branch,
+    repoPath: sessionRow.repo_path,
+    currentTask: sessionRow.current_task,
+    status: sessionRow.status,
+    ageSec,
+    personaText: personaLabel(meta.role_label ?? null, persona?.display_name ?? null, persona?.name ?? null),
+    sessionChannelId: sessionChannelRow.channel_id,
+    inProgress,
+    pending,
+    doneCount,
+    concordiaPending,
+  });
 
   const key = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
   const messageId = deps.configRepo.get(key);
   try {
     if (messageId) {
       const msg = await statusChannel.messages.fetch(messageId);
-      await msg.edit({ content: body });
+      // 旧実装は content 本文だった。 embeds へ移行するため content を空に上書きする。
+      await msg.edit({ content: "", embeds: [embed] });
       return;
     }
   } catch {
     // fall through and recreate
   }
 
-  const sent = await statusChannel.send({ content: body });
+  // message id を失った再作成パス: チャンネルに残った古い bot カードを掃除してから
+  // 1 枚だけ送り直す (1 チャンネルにカードが複数並ぶ重複を防ぐ)。
+  await purgeBotMessages(deps, statusChannel);
+  const sent = await statusChannel.send({ embeds: [embed] });
   deps.configRepo.set(key, sent.id);
   deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
+}
+
+export interface StatusEmbedInput {
+  sessionId: string;
+  provider: string;
+  branch: string | null;
+  repoPath: string;
+  currentTask: string | null;
+  status: string;
+  ageSec: number | null;
+  personaText: string;
+  sessionChannelId: string;
+  inProgress: Array<{ active_form: string | null; task_text: string }>;
+  pending: Array<{ task_text: string }>;
+  doneCount: number;
+  concordiaPending: number;
+}
+
+/**
+ * 状態カードの Embed を組み立てる純粋関数 (送信副作用なし → 単体テスト可能)。
+ *
+ * 整理方針:
+ *  - 色で状態を即時把握 (🟢作業中=緑 / 🟡待機=黄 / それ以外=グレー)。
+ *  - persona をタイトル、 current task を強調行に。 冗長な「Updated」行は footer の
+ *    timestamp に集約し、 Repo はフルパスではなくリポ名を field に出す (フルパスは footer)。
+ *  - タスクは「N ▶ / N ⏳ / N ✓ ・依頼残 N」の見出し + 開いているものだけ列挙。
+ */
+export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
+  const activity = buildActivityLabel(i.status, i.ageSec);
+  const statusValue = activity ? `\`${i.status}\` ${activity}` : `\`${i.status}\``;
+  const repoName = i.repoPath.split(/[\\/]/).filter(Boolean).pop() ?? i.repoPath;
+  const shortId = i.sessionId.replace(/^lictor-/, "").slice(0, 8);
+
+  const taskLines: string[] = [];
+  for (const t of i.inProgress.slice(0, 5)) taskLines.push(`▶ ${truncate(t.active_form || t.task_text, 120)}`);
+  for (const t of i.pending.slice(0, 8)) taskLines.push(`⏳ ${truncate(t.task_text, 120)}`);
+  const taskValue = taskLines.length > 0 ? taskLines.join("\n").slice(0, 1000) : "_(no open tasks)_";
+  const taskHeader =
+    `${i.inProgress.length} ▶ / ${i.pending.length} ⏳ / ${i.doneCount} ✓` +
+    (i.concordiaPending > 0 ? ` ・ 依頼残 ${i.concordiaPending}` : "");
+
+  const descParts: string[] = [];
+  if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
+  descParts.push(`<#${i.sessionChannelId}>`);
+
+  return new EmbedBuilder()
+    .setColor(statusColor(i.status, i.ageSec))
+    .setTitle((i.personaText && i.personaText !== "-" ? i.personaText : i.provider).slice(0, 250))
+    .setDescription(descParts.join("\n"))
+    .addFields(
+      { name: "状態", value: statusValue, inline: true },
+      { name: "Agent", value: `\`${i.provider}\``, inline: true },
+      { name: "Branch", value: `\`${i.branch ?? "-"}\``, inline: true },
+      { name: "Repo", value: `\`${repoName}\``, inline: true },
+      { name: `タスク (${taskHeader})`, value: taskValue, inline: false },
+    )
+    .setFooter({ text: `session ${shortId} · ${truncate(i.repoPath, 80)}` })
+    .setTimestamp(new Date());
+}
+
+/** 状態 + 直近活動から Embed のアクセントカラーを決める。 */
+function statusColor(status: string, ageSec: number | null): number {
+  if (status !== "active") return 0x747f8d; // ended / lost → グレー
+  if (ageSec !== null && ageSec <= ACTIVE_WINDOW_SEC) return 0x3ba55d; // 作業中 → 緑
+  if (ageSec !== null && ageSec <= WAITING_WINDOW_SEC) return 0xfaa61a; // 待機 → 黄
+  return 0x747f8d; // アイドル → グレー
+}
+
+/** 状態カード channel に残った自分(bot)の過去メッセージを一掃する (重複カード防止)。 */
+async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChannel): Promise<void> {
+  try {
+    const msgs = await channel.messages.fetch({ limit: 10 });
+    const selfId = deps.guild.client.user?.id;
+    for (const m of msgs.values()) {
+      if (selfId && m.author.id !== selfId) continue;
+      try { await m.delete(); } catch { /* best-effort */ }
+    }
+  } catch (e) {
+    deps.log.warn(`status-card: purge failed channel=${channel.id}: ${(e as Error).message}`);
+  }
 }
 
 async function ensureStatusChannel(

@@ -1,4 +1,5 @@
-import { Link, Route, Routes, useLocation } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
+import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
 import { SessionDetail } from "./pages/SessionDetail.js";
@@ -14,7 +15,7 @@ import { Delegation } from "./pages/Delegation.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
 
-const NAV = [
+const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
   { to: "/work", label: "Work" },
   { to: "/prs", label: "PRs" },
@@ -27,38 +28,20 @@ const NAV = [
   { to: "/delegation", label: "Delegation" },
   { to: "/setup", label: "Setup" },
   { to: "/settings", label: "設定" },
-] as const;
+];
 
 export function App() {
-  const loc = useLocation();
   return (
     <div className="min-h-full flex flex-col">
-      <header className="border-b border-border bg-surface px-6 py-3 flex items-center gap-4">
-        <span className="text-lg font-semibold">
+      <header className="border-b border-border bg-surface px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="text-lg font-semibold whitespace-nowrap">
           <span className="text-accent">●</span> Concordia
         </span>
-        <span className="text-subtle text-xs">multi-agent session coordinator</span>
-        <nav className="ml-auto flex gap-4 text-sm">
-          {NAV.map((n) => {
-            const active = loc.pathname === n.to;
-            return (
-              <Link
-                key={n.to}
-                to={n.to}
-                className={
-                  active
-                    ? "text-accent"
-                    : "text-subtle hover:text-text"
-                }
-              >
-                {n.label}
-              </Link>
-            );
-          })}
-        </nav>
+        <span className="text-subtle text-xs hidden md:inline">multi-agent session coordinator</span>
+        <Nav items={NAV} />
       </header>
 
-      <main className="flex-1 px-6 py-4">
+      <main className="flex-1 px-3 sm:px-6 py-4">
         <Routes>
           <Route path="/" element={<Monitor />} />
           <Route path="/work" element={<Work />} />
@@ -77,7 +60,7 @@ export function App() {
         </Routes>
       </main>
 
-      <footer className="border-t border-border bg-surface px-6 py-2 text-xs text-subtle">
+      <footer className="border-t border-border bg-surface px-3 sm:px-6 py-2 text-xs text-subtle">
         <a href="https://github.com/LUDIARS/Concordia" target="_blank" rel="noreferrer">
           LUDIARS/Concordia
         </a>

@@ -27,9 +27,19 @@ export interface SessionStatusCardDeps {
   log: { info: (m: string) => void; warn: (m: string) => void };
 }
 
+export interface UpsertStatusCardOptions {
+  /**
+   * 状態チャンネルが無いとき新規作成してよいか。
+   * 作成は spawn (session.started) 時のみ true。 10 分毎の更新や起動時リフレッシュは
+   * false で、 既存があれば更新・無ければ skip する (削除済みチャンネルを作り直さない)。
+   */
+  allowCreate?: boolean;
+}
+
 export async function upsertSessionStatusCard(
   deps: SessionStatusCardDeps,
   sessionId: string,
+  opts: UpsertStatusCardOptions = {},
 ): Promise<void> {
   const sessionRow = deps.sessionsRepo.findSession(sessionId);
   if (!sessionRow) return;
@@ -43,6 +53,7 @@ export async function upsertSessionStatusCard(
     provider: sessionRow.provider,
     roleLabel: meta.role_label ?? null,
     personaDisplayName: persona?.display_name ?? null,
+    allowCreate: opts.allowCreate ?? false,
   });
   if (!statusChannel) return;
 
@@ -94,9 +105,27 @@ export async function upsertSessionStatusCard(
   // message id を失った再作成パス: チャンネルに残った古い bot カードを掃除してから
   // 1 枚だけ送り直す (1 チャンネルにカードが複数並ぶ重複を防ぐ)。
   await purgeBotMessages(deps, statusChannel);
-  const sent = await statusChannel.send({ embeds: [embed] });
-  deps.configRepo.set(key, sent.id);
-  deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
+  try {
+    const sent = await statusChannel.send({ embeds: [embed] });
+    deps.configRepo.set(key, sent.id);
+    deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
+  } catch (e) {
+    // 送信先チャンネルが Discord 側で削除されている (Unknown Channel=10003) 等で
+    // 送れないケース。 ここで throw すると `void upsertSessionStatusCard(...)` の
+    // 未ハンドル rejection で bot プロセスごと落ち、 session.ended のアーカイブ等
+    // 後続処理まで巻き添えで止まる。 クラッシュさせず stale キャッシュを破棄して終える。
+    // 状態チャンネルは「無い前提」なので作り直さない (次回は ensureStatusChannel が
+    // 既存なし → null を返して skip するだけ)。
+    const code = (e as { code?: number }).code;
+    deps.configRepo.set(key, ""); // message id は無効
+    if (code === 10003 /* Unknown Channel */) {
+      deps.configRepo.set(`${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`, "");
+      deps.guild.channels.cache.delete(statusChannel.id);
+    }
+    deps.log.warn(
+      `status-card: send failed session=${sessionId} channel=${statusChannel.id}: ${(e as Error).message}`,
+    );
+  }
 }
 
 export interface StatusEmbedInput {
@@ -181,7 +210,7 @@ async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChanne
 
 async function ensureStatusChannel(
   deps: SessionStatusCardDeps,
-  input: { sessionId: string; provider: string; roleLabel: string | null; personaDisplayName: string | null },
+  input: { sessionId: string; provider: string; roleLabel: string | null; personaDisplayName: string | null; allowCreate: boolean },
 ): Promise<TextChannel | null> {
   const key = `${STATUS_CHANNEL_KEY_PREFIX}${input.sessionId}`;
   const base = sessionChannelSlug(input.provider, input.roleLabel).slice(0, 80);
@@ -207,6 +236,10 @@ async function ensureStatusChannel(
     deps.configRepo.set(key, existing.id);
     return existing;
   }
+
+  // 作成は spawn 時 (allowCreate) のみ。 それ以外 (10分毎更新 / 起動時リフレッシュ) は
+  // 既存が無ければ作り直さず skip する (削除済みチャンネルの再生成・量産を防ぐ)。
+  if (!input.allowCreate) return null;
 
   try {
     const created = await deps.guild.channels.create({

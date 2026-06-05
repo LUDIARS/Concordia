@@ -217,15 +217,25 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       } else {
         log.warn(`errors channel unavailable id=${layout.errorChannelId}`);
       }
-      // lost / ended の状態カードを 1 時間ごとに整理 (起動時 sweep に加えて稼働中も回収).
+      // 状態カードは 3 タイミングのみ更新: spawn=作成 / 10分毎=更新 / Session-End=削除。
+      // 10分毎: アクティブな session のカードは更新 (作成はしない)、 非アクティブは削除。
       const lay = layout;
       reconcileTimer = setInterval(() => {
+        // 非アクティブ (lost/ended/消滅) の状態カードを削除。
         void reconcileLostStatusCards({ guild, configRepo, sessionsRepo: deps.sessionsRepo, log })
           .then((r) => log.info(`status-card reconcile: scanned=${r.scanned} removed=${r.removed}`))
           .catch((e) => log.warn(`status-card reconcile failed: ${(e as Error).message}`));
+        // アクティブな session のカードのみ更新 (allowCreate=false なので作り直しはしない)。
+        for (const row of sessionChannelsRepo.listActive()) {
+          void upsertSessionStatusCard({
+            guild, layout: lay, configRepo, sessionChannelsRepo,
+            sessionsRepo: deps.sessionsRepo, sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+            tasksRepo: deps.tasksRepo, personasRepo: deps.personasRepo, log,
+          }, row.session_id).catch((e) => log.warn(`status-card 10min update failed session=${row.session_id}: ${(e as Error).message}`));
+        }
         void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
-          .catch((e) => log.warn(`hourly prune failed: ${(e as Error).message}`));
-      }, 60 * 60 * 1000);
+          .catch((e) => log.warn(`prune failed: ${(e as Error).message}`));
+      }, 10 * 60 * 1000);
       reconcileTimer.unref?.();
       for (const row of sessionChannelsRepo.listActive()) {
         void upsertSessionStatusCard({
@@ -364,7 +374,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         tasksRepo: deps.tasksRepo,
         personasRepo: deps.personasRepo,
         log,
-      }, ev.session_id);
+      }, ev.session_id, { allowCreate: true }); // spawn 時のみ状態チャンネルを作成
       return;
     }
     if (ev.type === "session.lost") {
@@ -388,20 +398,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         .catch((e) => log.warn(`status-card delete on ended failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
-    if (ev.type === "stat.collected") {
-      void upsertSessionStatusCard({
-        guild,
-        layout,
-        configRepo,
-        sessionChannelsRepo,
-        sessionsRepo: deps.sessionsRepo,
-        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-        tasksRepo: deps.tasksRepo,
-        personasRepo: deps.personasRepo,
-        log,
-      }, ev.session_id);
-      return;
-    }
+    // stat.collected での状態カード更新は撤去 (更新は 10 分毎の定期 tick のみ)。
     if (ev.type === "pr.changed") {
       // ingest / reconcile で PR キューが動いたら pr-queue チャンネルを即時更新.
       prQueueRefresh?.();
@@ -516,38 +513,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         if (typeof payload.text === "string") title = payload.text;
       } catch {}
       if (s && title) {
+        // 会話チャンネル名のリネームのみ。 状態カードの更新は 10 分毎 tick に集約。
         void onSessionTitleChanged(
           { guild, layout, repo: sessionChannelsRepo, log },
           { sessionId: ev.session_id, title, agentType: s.provider },
         );
-        void upsertSessionStatusCard({
-          guild,
-          layout,
-          configRepo,
-          sessionChannelsRepo,
-          sessionsRepo: deps.sessionsRepo,
-          sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-          tasksRepo: deps.tasksRepo,
-          personasRepo: deps.personasRepo,
-          log,
-        }, ev.session_id);
       }
       return;
     }
-    if (ev.type === "session.event" && ev.kind === "task_update") {
-      void upsertSessionStatusCard({
-        guild,
-        layout,
-        configRepo,
-        sessionChannelsRepo,
-        sessionsRepo: deps.sessionsRepo,
-        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-        tasksRepo: deps.tasksRepo,
-        personasRepo: deps.personasRepo,
-        log,
-      }, ev.session_id);
-      return;
-    }
+    // task_update での状態カード即時更新は撤去 (更新は 10 分毎の定期 tick のみ)。
     if (ev.type === "question.posted") {
       void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
       return;

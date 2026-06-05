@@ -30,6 +30,7 @@ export async function upsertCostChannelMessage(
   sessionsRepo: SessionsRepo,
   configGet: (k: string) => string | null,
   configSet: (k: string, v: string) => void,
+  activityChannel?: TextChannel | null,
 ): Promise<void> {
   const active = sessionsRepo.listSessions({ status: "active" });
   const codex = active.filter((s) => s.provider === "codex-cli");
@@ -88,11 +89,79 @@ export async function upsertCostChannelMessage(
     if (msgId) {
       const msg = await channel.messages.fetch(msgId);
       await msg.edit({ content: body });
+      await notifyCostActivity({
+        activityChannel,
+        configGet,
+        configSet,
+        codexRate,
+        claudeUsage,
+      });
       return;
     }
   } catch {}
   const sent = await channel.send({ content: body });
   configSet(COST_MESSAGE_KEY, sent.id);
+
+  await notifyCostActivity({
+    activityChannel,
+    configGet,
+    configSet,
+    codexRate,
+    claudeUsage,
+  });
+}
+
+async function notifyCostActivity(input: {
+  activityChannel?: TextChannel | null;
+  configGet: (k: string) => string | null;
+  configSet: (k: string, v: string) => void;
+  codexRate: Rate;
+  claudeUsage: OAuthUsage | null;
+}): Promise<void> {
+  const { activityChannel, configGet, configSet, codexRate, claudeUsage } = input;
+  if (!activityChannel) return;
+
+  const codex5h = codexRate.used5h;
+  const claude5h = claudeUsage?.fiveHour?.utilization ?? null;
+  const available = codex5h !== null || claude5h !== null;
+  const prevAvailability = configGet("cost_activity:available");
+  if (prevAvailability === "0" && available) {
+    await activityChannel.send("✅ cost usage is available again.");
+  }
+  configSet("cost_activity:available", available ? "1" : "0");
+
+  await notifyHigh5hUsage(activityChannel, configGet, configSet, {
+    provider: "Codex",
+    used5h: codex5h,
+    reset5hAt: codexRate.reset5hAt,
+  });
+  await notifyHigh5hUsage(activityChannel, configGet, configSet, {
+    provider: "Claude",
+    used5h: claude5h,
+    reset5hAt: claudeUsage?.fiveHour?.resetsAtSec ?? null,
+  });
+}
+
+async function notifyHigh5hUsage(
+  activityChannel: TextChannel,
+  configGet: (k: string) => string | null,
+  configSet: (k: string, v: string) => void,
+  input: { provider: string; used5h: number | null; reset5hAt: number | null },
+): Promise<void> {
+  if (input.used5h === null || input.used5h < 80) return;
+  const resetBucket = input.reset5hAt ? String(input.reset5hAt) : localDayBucket();
+  const key = `cost_activity:5h80:${input.provider.toLowerCase()}`;
+  if (configGet(key) === resetBucket) return;
+  configSet(key, resetBucket);
+  await activityChannel.send(
+    `⚠️ ${input.provider} 5H cost usage is ${input.used5h.toFixed(1)}%` +
+    (input.reset5hAt ? ` (resets ${ts(input.reset5hAt)})` : ""),
+  );
+}
+
+function localDayBucket(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function aggregate(sessions: SessionRow[]): Totals {

@@ -269,7 +269,8 @@ export async function deleteSessionStatusCard(
   const chKey = `${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`;
   const channelId = deps.configRepo.get(chKey);
   if (channelId) {
-    const ch = deps.guild.channels.cache.get(channelId);
+    const ch = deps.guild.channels.cache.get(channelId)
+      ?? await deps.guild.channels.fetch(channelId).catch(() => null);
     if (ch) {
       try {
         await ch.delete(`session ${sessionId} status card removed`);

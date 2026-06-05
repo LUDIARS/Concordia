@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  agentEmoji,
   applyStatusEmoji,
+  buildSessionChannelName,
   chatEmbed,
   chunkForDiscord,
+  extractDisplayState,
   DISCORD_MAX_CONTENT,
   formatAuthorName,
   questionEmbed,
@@ -47,6 +50,32 @@ describe("applyStatusEmoji", () => {
   });
   it("emoji 無しなら付ける", () => {
     expect(applyStatusEmoji("s-bdea-foo", "active")).toBe("🟢-s-bdea-foo");
+  });
+  it("エージェント絵文字を保持して状態絵文字だけ差し替える", () => {
+    // 新形式 <状態><エージェント>-body。先頭の状態絵文字だけ swap し agent 絵文字は残す。
+    expect(applyStatusEmoji("🟢🧙-ks-残作業", "working")).toBe("⚙️🧙-ks-残作業");
+    expect(applyStatusEmoji("⚙️🧙-ks-残作業", "active")).toBe("🟢🧙-ks-残作業");
+    expect(applyStatusEmoji("🟢🤖-di-クローラ", "lost")).toBe("🟥🤖-di-クローラ");
+  });
+});
+
+describe("agentEmoji / buildSessionChannelName / extractDisplayState", () => {
+  it("agentEmoji: provider 別", () => {
+    expect(agentEmoji("claude-code")).toBe("🧙");
+    expect(agentEmoji("codex-cli")).toBe("🤖");
+    expect(agentEmoji("gemini-cli")).toBe("♊");
+    expect(agentEmoji(null)).toBe("🔹");
+  });
+  it("buildSessionChannelName: <状態><エージェント>-body", () => {
+    expect(buildSessionChannelName("active", "claude-code", "architect")).toBe("🟢🧙-architect");
+    expect(buildSessionChannelName("working", "codex-cli", "di-クローラ機能作成")).toBe("⚙️🤖-di-クローラ機能作成");
+  });
+  it("extractDisplayState: 先頭の状態絵文字を読む", () => {
+    expect(extractDisplayState("⚙️🧙-x")).toBe("working");
+    expect(extractDisplayState("🟢🧙-x")).toBe("active");
+    expect(extractDisplayState("🟥🤖-x")).toBe("lost");
+    expect(extractDisplayState("⚪🧙-x")).toBe("ended");
+    expect(extractDisplayState("emoji無し")).toBe("active");
   });
 });
 

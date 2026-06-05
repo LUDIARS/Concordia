@@ -23,8 +23,10 @@ import {
   onSessionRegistered,
   onSessionStatusChanged,
   onSessionTitleChanged,
+  onSessionWorkState,
   pruneStatusCategoryChannels,
 } from "./session-channel.js";
+import { ChannelWorkState } from "./channel-work-state.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
 import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
@@ -123,6 +125,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const promptRelayLast = new Map<string, { text: string; at: number }>();
   // 「作業中」インジケータ。ClientReady で guild を捕捉して生成する。
   let workingIndicator: WorkingIndicator | null = null;
+  let channelWorkState: ChannelWorkState | null = null;
 
   client.once(Events.ClientReady, async (c) => {
     log.info(`logged in as ${c.user.tag}`);
@@ -138,13 +141,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       }
       const costCh = guild.channels.cache.get(layout.costChannelId);
       if (costCh && costCh.type === ChannelType.GuildText) {
-        const refresh = () =>
-          upsertCostChannelMessage(
+        const refresh = () => {
+          const activityCh = guild.channels.cache.get(layout!.activityChannelId);
+          return upsertCostChannelMessage(
             costCh,
             deps.sessionsRepo,
             (k) => configRepo.get(k),
             (k, v) => configRepo.set(k, v),
+            activityCh?.type === ChannelType.GuildText ? activityCh : null,
           ).catch((e) => log.warn(`cost channel update failed: ${(e as Error).message}`));
+        };
         void refresh();
         const mins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_COST_REFRESH_MIN ?? "10") || 10);
         costTimer = setInterval(() => { void refresh(); }, mins * 60 * 1000);
@@ -267,6 +273,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           }
         },
       });
+      // 作業状態をチャンネル名の状態絵文字 (作業中⚙️ ⟷ 緑🟢) に反映するトラッカー。
+      // idle 復帰は Discord の rename レート制限 (2回/10分) に合わせ 600 秒。
+      const workIdleSec = Math.max(60, Number(process.env.CONCORDIA_DISCORD_WORK_IDLE_SEC ?? "600") || 600);
+      channelWorkState = new ChannelWorkState({
+        idleMs: workIdleSec * 1000,
+        log: (m) => log.info(`channel-work-state: ${m}`),
+        setWorking: (sessionId, working) => {
+          void onSessionWorkState(
+            { guild, layout: layout!, repo: sessionChannelsRepo, log },
+            { sessionId, working },
+          ).catch((e) => log.warn(`work-state rename failed session=${sessionId}: ${(e as Error).message}`));
+        },
+      });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
     } catch (e) {
       log.error(`ready handler failed: ${(e as Error).message}`);
@@ -350,6 +369,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.lost") {
       workingIndicator?.clear(ev.session_id);
+      channelWorkState?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       // lost = wrapper の heartbeat が止まった (端末を閉じた等で実質終了)。 状態カードは
       // グレーで残さず即削除する。 旧実装は upsert でグレー化して残し、 削除は 1 時間ごとの
@@ -361,6 +381,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.ended") {
       workingIndicator?.clear(ev.session_id);
+      channelWorkState?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
@@ -402,7 +423,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // 落ち着いたら最下部へ出し直す（idle で除去）。session に紐づくものだけ。
       const progressSession =
         ev.type === "transcript.frame" ? ev.target_session_id : ev.session_id ?? null;
-      if (progressSession) workingIndicator?.noteProgress(progressSession);
+      if (progressSession) {
+        workingIndicator?.noteProgress(progressSession);
+        channelWorkState?.noteProgress(progressSession);
+      }
       // 指示 (Discord inject) → transcript が動いた最初のタイミングで ✅ を付ける。
       // takeInjectAck は delete-on-read なので、 後続フレームや codex prompt 経路と
       // 二重に付かない。 Enter 未送信で transcript が動かなければ ✅ は付かない。
@@ -426,6 +450,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "session.event" && ev.kind === "prompt") {
       // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
       workingIndicator?.noteProgress(ev.session_id);
+      channelWorkState?.noteProgress(ev.session_id);
       const s = deps.sessionsRepo.findSession(ev.session_id);
       if (!s || s.provider !== "codex-cli") return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
@@ -491,7 +516,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         if (typeof payload.text === "string") title = payload.text;
       } catch {}
       if (s && title) {
-        void onSessionTitleChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, title });
+        void onSessionTitleChanged(
+          { guild, layout, repo: sessionChannelsRepo, log },
+          { sessionId: ev.session_id, title, agentType: s.provider },
+        );
         void upsertSessionStatusCard({
           guild,
           layout,

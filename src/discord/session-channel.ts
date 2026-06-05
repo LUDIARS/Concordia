@@ -22,7 +22,12 @@ import type {
   DiscordSessionChannelsRepo,
   DiscordSessionStatus,
 } from "../db/discord-repo.js";
-import { applyStatusEmoji, sessionChannelSlug } from "./formatter.js";
+import {
+  applyStatusEmoji,
+  buildSessionChannelName,
+  extractDisplayState,
+  roleSlug,
+} from "./formatter.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
@@ -47,8 +52,8 @@ export async function onSessionRegistered(
   const existing = deps.repo.findBySessionId(input.sessionId);
   if (existing) return; // 既知 (再 register など)
 
-  const base = sessionChannelSlug(input.agentType, input.roleLabel);
-  const name = applyStatusEmoji(base, "active");
+  // 名前 = 🟢<エージェント絵文字>-<role>。作業内容は title_renamed で後から body に載る。
+  const name = buildSessionChannelName("active", input.agentType, roleSlug(input.roleLabel ?? "anon"));
   try {
     const created = await deps.guild.channels.create({
       name,
@@ -195,6 +200,7 @@ export async function pruneStatusCategoryChannels(
   scanned: number;
   deleted: number;
 }> {
+  await deps.guild.channels.fetch().catch(() => null);
   const allChannels = deps.guild.channels.cache.filter(
     (c) => c.parentId === deps.layout.statusCategoryId,
   );
@@ -203,6 +209,7 @@ export async function pruneStatusCategoryChannels(
   );
   knownChannelIds.add(deps.layout.costChannelId);
   // 運用チャンネルは sweep 削除対象から除外する。
+  knownChannelIds.add(deps.layout.activityChannelId);
   knownChannelIds.add(deps.layout.monitorChannelId);
   knownChannelIds.add(deps.layout.prQueueChannelId);
   // status-card channel は configRepo に保存されている (session_status_channel_id:*).
@@ -226,18 +233,23 @@ export async function pruneStatusCategoryChannels(
   return { scanned: allChannels.size, deleted };
 }
 
-/** /rename で決まったタイトルを Discord 側にも反映する (topic 更新)。 */
+/**
+ * /rename や current_task で決まったタイトル (= 作業内容) を Discord channel 名 + topic に反映。
+ * 名前 = `<現在の状態絵文字><エージェント絵文字>-<作業内容>`。状態絵文字 (作業中⚙️ / 緑🟢 等) は
+ * 既存名から引き継ぎ、エージェント絵文字 + body だけ更新する。`[]` は body から除去される。
+ */
 export async function onSessionTitleChanged(
   deps: SessionChannelDeps,
-  input: { sessionId: string; title: string },
+  input: { sessionId: string; title: string; agentType: string | null },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
   try {
-    const baseName = titleToChannelBase(input.title);
-    const nextName = applyStatusEmoji(baseName, row.status);
+    // status が ended/lost ならその状態を優先、active なら現在の表示状態 (作業中含む) を維持。
+    const state = row.status === "active" ? extractDisplayState(ch.name) : row.status;
+    const nextName = buildSessionChannelName(state, input.agentType, titleToChannelBase(input.title));
     const patch: { topic: string; reason: string; name: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
@@ -250,6 +262,38 @@ export async function onSessionTitleChanged(
     );
   } catch (e) {
     deps.log.warn(`session-channel: title update failed for ${input.sessionId}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * 作業状態 (作業中⚙️ ⟷ 緑🟢) をチャンネル名の状態絵文字で切り替える。
+ * Discord の rename レート制限 (2回/10分) に合わせ tryClaimRename の cooldown で best-effort。
+ * session status が active のときだけ作用 (lost/ended は上書きしない)。エージェント絵文字 +
+ * body は保持し、先頭の状態絵文字だけ差し替える。
+ */
+export async function onSessionWorkState(
+  deps: SessionChannelDeps,
+  input: { sessionId: string; working: boolean },
+): Promise<void> {
+  const row = deps.repo.findBySessionId(input.sessionId);
+  if (!row || row.status !== "active") return;
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return;
+  const desired = input.working ? "working" : "active";
+  if (extractDisplayState(ch.name) === desired) return; // 既にその状態
+  // rename rate limit guard — cooldown 内は skip (= 次の状態変化/title で収束)。
+  if (!deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
+    deps.log.info(
+      `session-channel: work-state rename deferred for ${input.sessionId} (cooldown)`,
+    );
+    return;
+  }
+  try {
+    const newName = applyStatusEmoji(ch.name, desired);
+    await ch.edit({ name: newName, reason: `session ${input.sessionId} work-state=${desired}` });
+    deps.log.info(`session-channel: ${input.sessionId} work-state → #${newName}`);
+  } catch (e) {
+    deps.log.warn(`session-channel: work-state rename failed for ${input.sessionId}: ${(e as Error).message}`);
   }
 }
 

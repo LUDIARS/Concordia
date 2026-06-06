@@ -25,6 +25,7 @@ import {
   onSessionTitleChanged,
   onSessionWorkState,
   pruneStatusCategoryChannels,
+  archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
@@ -117,6 +118,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
   // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
@@ -256,6 +258,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
         .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
         .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
+      // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
+      // ログ保存してから削除する (sessions/archive カテゴリ、 稼働中は保護)。
+      // 起動時に 1 回 + 以降 1 時間ごと。
+      const runStaleSweep = () =>
+        void archiveStaleChannels({ guild, layout: layout!, repo: sessionChannelsRepo, log })
+          .then((r) => log.info(`stale-channel sweep: scanned=${r.scanned} archived=${r.archived}`))
+          .catch((e) => log.warn(`stale-channel sweep failed: ${(e as Error).message}`));
+      runStaleSweep();
+      staleChannelTimer = setInterval(runStaleSweep, 60 * 60 * 1000);
+      staleChannelTimer.unref?.();
       // 「作業中」インジケータ: session channel に通常 bot メッセージとして出す
       // （webhook ではなく channel.send なので message.delete で確実に消せる）。
       const idleSec = Math.max(15, Number(process.env.CONCORDIA_DISCORD_WORKING_IDLE_SEC ?? "60") || 60);
@@ -557,6 +569,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       if (monitorTimer) clearInterval(monitorTimer);
       if (prQueueTimer) clearInterval(prQueueTimer);
       if (reconcileTimer) clearInterval(reconcileTimer);
+      if (staleChannelTimer) clearInterval(staleChannelTimer);
       errorMonitor?.stop();
       if (errorPoster) { try { await errorPoster.stop(); } catch {} }
       try { await client.destroy(); } catch {}

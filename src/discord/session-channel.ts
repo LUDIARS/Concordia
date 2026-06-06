@@ -14,7 +14,9 @@
 // DB の last_rename_ts で守る. cooldown 内の rename は skip され、 次回 event
 // で再試行される. 短期 idle↔active 振動は emoji 変更しない (= rename しない).
 
-import type { Guild } from "discord.js";
+import fs from "node:fs";
+import path from "node:path";
+import type { Guild, TextChannel } from "discord.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type {
@@ -231,6 +233,98 @@ export async function pruneStatusCategoryChannels(
     }
   }
   return { scanned: allChannels.size, deleted };
+}
+
+/** 1 カテゴリのチャンネル上限 (Discord 仕様)。 これ以上は作れないため stale を間引く。 */
+export const DISCORD_CATEGORY_CHANNEL_LIMIT = 50;
+const STALE_CHANNEL_MS = 48 * 60 * 60 * 1000; // 最終更新がこれより前なら退避対象
+
+/**
+ * sessions / archive カテゴリで「最終更新が 48h より前」のチャンネルを、
+ * 会話ログをファイルへ保存してから削除する (カテゴリの 50 チャンネル上限対策)。
+ *
+ * - 稼働中 (status=active) の session チャンネルは保護 (削除しない)。
+ * - 保存に失敗したチャンネルは削除しない (ログ消失を防ぐ best-effort 保全)。
+ * - 起動時 + 1 時間ごとに呼ぶ想定。
+ */
+export async function archiveStaleChannels(
+  deps: SessionChannelDeps & { logsDir?: string },
+): Promise<{ scanned: number; archived: number }> {
+  await deps.guild.channels.fetch().catch(() => null);
+  const targetCategories = new Set([deps.layout.sessionsCategoryId, deps.layout.archiveCategoryId]);
+  const activeChannelIds = new Set(
+    deps.repo.listActive().map((r) => r.channel_id),
+  );
+  const baseDir = path.join(deps.logsDir ?? path.join(process.cwd(), "logs"), "channel-archives");
+  const now = Date.now();
+
+  const channels = deps.guild.channels.cache.filter(
+    (c) => c.type === ChannelType.GuildText && c.parentId !== null && targetCategories.has(c.parentId),
+  );
+  let archived = 0;
+  let scanned = 0;
+  for (const ch of channels.values()) {
+    if (ch.type !== ChannelType.GuildText) continue;
+    scanned += 1;
+    if (activeChannelIds.has(ch.id)) continue; // 稼働中は残す
+    const lastTs = await lastActivityTs(ch as TextChannel);
+    if (now - lastTs < STALE_CHANNEL_MS) continue; // まだ新しい
+    let saved = false;
+    try {
+      saved = await exportChannelLog(ch as TextChannel, baseDir, lastTs);
+    } catch (e) {
+      deps.log.warn(`channel-archive: export failed #${ch.name} (${ch.id}): ${(e as Error).message}`);
+    }
+    if (!saved) continue; // 保存できなければ消さない
+    try {
+      await ch.delete("stale >48h: archived to file");
+      archived += 1;
+      deps.log.info(`channel-archive: saved+deleted #${ch.name} (${ch.id})`);
+    } catch (e) {
+      deps.log.warn(`channel-archive: delete failed #${ch.name} (${ch.id}): ${(e as Error).message}`);
+    }
+  }
+  return { scanned, archived };
+}
+
+/** チャンネルの最終アクティビティ時刻 (最新メッセージ ts、 無ければ作成時刻)。 */
+async function lastActivityTs(ch: TextChannel): Promise<number> {
+  try {
+    const msgs = await ch.messages.fetch({ limit: 1 });
+    const latest = msgs.first();
+    if (latest) return latest.createdTimestamp;
+  } catch {
+    /* fetch 失敗 → 作成時刻にフォールバック */
+  }
+  return ch.createdTimestamp ?? Date.now();
+}
+
+/** チャンネルの全メッセージを古い順に Markdown ファイルへ保存する。 成功で true。 */
+async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number): Promise<boolean> {
+  const collected: string[] = [];
+  let before: string | undefined;
+  const MAX = 5000; // 安全上限
+  for (let i = 0; i < MAX / 100; i++) {
+    const batch = await ch.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
+    if (batch.size === 0) break;
+    for (const m of batch.values()) {
+      const ts = new Date(m.createdTimestamp).toISOString();
+      const author = m.author?.username ?? m.author?.id ?? "unknown";
+      const body = m.content?.trim() ?? "";
+      const extra = m.embeds.length > 0 ? ` [embeds:${m.embeds.length}]` : "";
+      collected.push(`[${ts}] ${author}: ${body}${extra}`);
+    }
+    before = batch.last()?.id;
+    if (batch.size < 100) break;
+  }
+  collected.reverse(); // 古い順
+  fs.mkdirSync(baseDir, { recursive: true });
+  const safe = ch.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_").slice(0, 60);
+  const day = new Date(lastTs).toISOString().slice(0, 10);
+  const file = path.join(baseDir, `${safe}-${ch.id}-${day}.md`);
+  const header = `# ${ch.name} (${ch.id})\n# archived ${new Date().toISOString()} / messages ${collected.length}\n\n`;
+  fs.writeFileSync(file, header + collected.join("\n") + "\n", "utf8");
+  return true;
 }
 
 /**

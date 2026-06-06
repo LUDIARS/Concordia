@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shouldDropForRelay } from "./egress-filters.js";
+import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
 
 describe("egress-filters: shouldDropForRelay", () => {
   it("drops Codex guardian JSON ({risk_level, user_authorization, outcome})", () => {
@@ -37,5 +37,31 @@ describe("egress-filters: shouldDropForRelay", () => {
   it("keeps JSON that isn't the guardian shape", () => {
     expect(shouldDropForRelay('{"foo":"bar","baz":42}')).toBe(false);
     expect(shouldDropForRelay('{"risk_level":"low"}')).toBe(false); // partial match — missing other 2 keys
+  });
+});
+
+describe("egress-filters: stripAskMarkerBlocks", () => {
+  it("removes an ask-marker-only message (Question JSON) entirely", () => {
+    const text =
+      '```ask\n{"question":"どっち?","multiSelect":false,"options":[{"label":"A"},{"label":"B"}]}\n```';
+    expect(stripAskMarkerBlocks(text)).toBe("");
+  });
+
+  it("keeps prose around the ask block but drops the JSON block", () => {
+    const text =
+      '進め方を確認します。\n\n```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
+    expect(stripAskMarkerBlocks(text)).toBe("進め方を確認します。");
+  });
+
+  it("removes multiple ask blocks in one message", () => {
+    const text =
+      '```ask\n{"question":"q1","options":[{"label":"A"}]}\n```\nつなぎ\n```ask\n{"question":"q2","options":[{"label":"B"}]}\n```';
+    expect(stripAskMarkerBlocks(text)).toBe("つなぎ");
+  });
+
+  it("leaves normal text and non-ask code fences untouched", () => {
+    expect(stripAskMarkerBlocks("ふつうの本文です")).toBe("ふつうの本文です");
+    const code = "```ts\nconst x = 1;\n```";
+    expect(stripAskMarkerBlocks(code)).toBe(code);
   });
 });

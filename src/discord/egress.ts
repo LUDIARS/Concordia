@@ -8,7 +8,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
-import { shouldDropForRelay } from "./egress-filters.js";
+import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
 
 const CODEX_DUP_WINDOW_MS = 90_000;
 const codexRelayDedup = new Map<string, number>();
@@ -161,6 +161,19 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       `kind=${ev.kind} payload=${previewPayload(ev.payload)}`,
     );
     return;
+  }
+
+  // Lictor の ask マーカー (```ask + JSON) は質問カードとして別途投稿される。
+  // 生 JSON ブロックを本文から除去し、 残りが空なら frame ごと relay しない。
+  if (role === "assistant") {
+    const stripped = stripAskMarkerBlocks(text);
+    if (stripped !== text) {
+      if (!stripped) {
+        deps.log.info(`egress: transcript.frame dropped ask-marker-only session=${ev.target_session_id} seq=${ev.seq}`);
+        return;
+      }
+      text = stripped;
+    }
   }
 
   // text/summary 本文ベースの drop ルール (egress-filters.ts). Codex の

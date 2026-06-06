@@ -23,6 +23,23 @@
 export type RelayDropPredicate = (text: string) => boolean;
 
 /**
+ * Lictor の "ask マーカー" — assistant が選択肢付き質問を出すときの
+ * ```` ```ask ```` フェンスドブロック (中身は JSON)。 Lictor がこれを構造化
+ * パースして Discord の質問カード (embed + ボタン) を別途投稿するため、 生の
+ * JSON ブロックを relay 本文として二重表示する必要はない。 ここで本文から
+ * 除去する。 info 文字列は `ask`、 閉じフェンスは ``` (3 backtick)。
+ */
+const ASK_MARKER_BLOCK_RE = /```ask\b[\s\S]*?```/g;
+
+/**
+ * relay 本文から ask マーカーブロックを取り除いて trim する。 ブロックが無ければ
+ * 入力をそのまま (trim だけ) 返す。 質問に添えられた散文があればそれは残る。
+ */
+export function stripAskMarkerBlocks(text: string): string {
+  return text.replace(ASK_MARKER_BLOCK_RE, "").trim();
+}
+
+/**
  * Codex `guardian` subagent の認可判定 JSON 一致。 keys 順は不定なので
  * 全 4 キー存在を見るゆるめの判定にしている。
  */

@@ -238,8 +238,13 @@ export interface RepoStatus {
   path: string;
   branch: string | null;
   detached: boolean;
+  is_worktree: boolean;
+  default_branch: string | null;
+  on_default_branch: boolean;
   worktrees: RepoWorktree[];
   extra_worktree_count: number;
+  /** HEAD 最終コミット時刻 (epoch 秒、 取れなければ null)。 */
+  updated_at: number | null;
   sessions: RepoSessionRef[];
   error: string | null;
 }

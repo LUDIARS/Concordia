@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api, type RepoStatus, type RepoSessionRef } from "../api.js";
+import { api, fmtTs, type RepoStatus, type RepoSessionRef } from "../api.js";
 
 const STATUS_DOT: Record<string, string> = {
   active: "text-ok",
@@ -32,16 +32,42 @@ function SessionChip({ s }: { s: RepoSessionRef }) {
 
 function RepoCard({ repo }: { repo: RepoStatus }) {
   const activeCount = repo.sessions.filter((s) => s.status === "active").length;
+  // active 2+ = 競合の疑い → 最上位ハイライト (ring)。
+  const multiActive = activeCount >= 2;
+  // worktree は別ブランチに居るのが正常 → 緑枠。 worktree でない main clone が
+  // 既定ブランチ (main/master) に居なければ赤枠で警告 (= 戻し忘れ検知)。
+  const isWorktree = repo.is_worktree;
+  const needsAttention = !isWorktree && !repo.on_default_branch;
+  const borderClass = needsAttention
+    ? "border-danger"
+    : isWorktree
+      ? "border-ok"
+      : "border-border";
+  const branchBadgeClass = needsAttention
+    ? "bg-danger/15 text-danger"
+    : isWorktree
+      ? "bg-ok/15 text-ok"
+      : "bg-accent/15 text-accent";
+  const ringClass = multiActive ? "ring-2 ring-warn shadow-lg shadow-warn/20" : "";
   return (
-    <div className="bg-surface border border-border rounded p-3 space-y-2">
+    <div className={`bg-surface border ${borderClass} ${ringClass} rounded p-3 space-y-2`}>
       <div className="flex items-center gap-2">
         <span className="font-semibold">{repo.name}</span>
+        {isWorktree && (
+          <span className="text-[11px] px-1.5 py-0.5 rounded bg-ok/15 text-ok" title="linked worktree">
+            ⌥ worktree
+          </span>
+        )}
         {repo.branch ? (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-accent/15 text-accent font-mono">
+          <span className={`text-xs px-1.5 py-0.5 rounded font-mono ${branchBadgeClass}`}>
             {repo.branch}
           </span>
         ) : (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-warn/20 text-warn">
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded ${
+              isWorktree ? "bg-ok/15 text-ok" : "bg-danger/20 text-danger"
+            }`}
+          >
             {repo.detached ? "detached" : "branch?"}
           </span>
         )}
@@ -54,8 +80,18 @@ function RepoCard({ repo }: { repo: RepoStatus }) {
           </span>
         )}
         {activeCount > 0 && (
-          <span className="text-xs px-1.5 py-0.5 rounded bg-ok/20 text-ok">
-            🟢 {activeCount} active
+          <span
+            className={`text-xs px-1.5 py-0.5 rounded ${
+              multiActive ? "bg-warn/25 text-warn font-semibold" : "bg-ok/20 text-ok"
+            }`}
+            title={multiActive ? "active session が複数 — 競合の疑い" : undefined}
+          >
+            {multiActive ? "⚠" : "🟢"} {activeCount} active
+          </span>
+        )}
+        {repo.updated_at !== null && (
+          <span className="text-[11px] text-subtle ml-auto" title="HEAD 最終コミット時刻">
+            {fmtTs(repo.updated_at)}
           </span>
         )}
         {repo.error && (
@@ -66,11 +102,15 @@ function RepoCard({ repo }: { repo: RepoStatus }) {
       </div>
 
       {repo.extra_worktree_count > 0 && (
-        <div className="text-[11px] text-subtle space-y-0.5">
+        <div className="text-[11px] space-y-0.5">
           {repo.worktrees
             .filter((w) => !w.is_main)
             .map((w) => (
-              <div key={w.path} className="font-mono truncate" title={w.path}>
+              <div
+                key={w.path}
+                className="font-mono truncate rounded border border-ok/60 bg-ok/5 text-ok px-1.5 py-0.5"
+                title={w.path}
+              >
                 ⌥ {w.branch ?? "(detached)"} — {w.path}
               </div>
             ))}

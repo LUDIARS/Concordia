@@ -38,8 +38,18 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 |------|--------|-----------|------|
 | `ANTHROPIC_API_KEY` | 空 | `config.ts:72`, `discord/webhook-pool.ts:127` | report 生成等で使う Anthropic API key。 空なら LLM 機能は無効。 |
 | `CONCORDIA_REPORT_MODEL` | `claude-haiku-4-5` | `config.ts:73` | 終了レポート等の LLM モデル名。 |
-| `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で無効化) | `server.ts:228,237` / `rules/proposer.ts` / `report/generator.ts` / `daily/generator.ts` / `personas/feedback.ts` | `1` で rule engine / proposer / report 等の claude CLI 呼び出しを全て止める。 |
+| `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で緊急 OFF) | `admin/state.ts` / `rules/proposer.ts` / `report/generator.ts` / `daily/generator.ts` / `personas/feedback.ts` | **緊急 hard-OFF**。 `1` で rule engine / proposer / report 等の claude CLI 呼び出しを全経路で止める。 通常の ON/OFF は下記の runtime スイッチで行い、 この env は `rules_enabled=true` でも勝つ。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | `rules/claude-runner.ts:15` | rule 用 claude CLI subprocess の timeout (ms)。 |
+
+> **runtime スイッチ (env ではない)**: chat 投稿 / rule engine の通常 ON/OFF は env ではなく
+> `schema_meta` 永続のスイッチで制御する (再起動不要、 Web UI Rules ページ / admin API)。 **既定は OFF 寄り**。
+> 詳細は [core.md の「runtime 切替 (kill switch)」](core.md#runtime-切替-kill-switch)。
+>
+> | スイッチ | 既定 | admin API |
+> |---------|------|-----------|
+> | `chat_muted` | `true` | `GET`/`PUT /v1/admin/chat-mute` |
+> | `rules_enabled` | `false` | `GET`/`PUT /v1/admin/rules-enabled` |
+> | `rule_proposer_interval` | `3600`s (60..86400) | `GET`/`PUT /v1/admin/rule-proposer-interval` |
 
 ---
 
@@ -53,7 +63,11 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_DISCORD_TOKEN` | 空 | `discord/types.ts:36` | Bot token。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_GUILD_ID` | 空 | `discord/types.ts:37` | 招待先 guild (server) ID。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_APPLICATION_ID` | 空 | `discord/types.ts:38` | slash command 登録に使う Application ID。 未設定だと bot は起動するが slash command が未登録 (warn ログ)。 |
-| `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:119` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
+| `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
+| `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
+| `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |
+| `CONCORDIA_DISCORD_WORKING_IDLE_SEC` | `60` (最小 15) | `discord/bot.ts:273` | 「作業中」インジケータを消す無進捗秒数。 |
+| `CONCORDIA_DISCORD_WORK_IDLE_SEC` | `600` (最小 60) | `discord/bot.ts:300` | channel work-state を idle に戻す無進捗秒数。 |
 | `CONCORDIA_DISCORD_TRANSCRIPT_LOG_MAX` | `1200` | `discord/egress.ts:216` | transcript ログ転送の最大件数。 |
 
 ---
@@ -150,6 +164,33 @@ MCP サーバ (別プロセス) が読む env:
 | `CONCORDIA_URL` | `http://127.0.0.1:17330` | 送信先。 |
 | `CODEX_BIN` | `codex` | codex CLI のバイナリ。 |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | HTTP timeout。 |
+
+---
+
+## 8. PR キュー / GitHub 同期
+
+`src/pr/full-sync.ts` / `src/pr/reconcile.ts` が読む。 GitHub の PR キューを周期同期する。
+
+| キー | 既定値 | 読み出し元 | 意味 |
+|------|--------|-----------|------|
+| `CONCORDIA_PR_FULL_SYNC_ENABLED` | 有効 (`0` で無効) | `pr/full-sync.ts:73` | 全 PR の周期フル同期。 |
+| `CONCORDIA_PR_SYNC_OWNER` | `LUDIARS` | `pr/full-sync.ts:74` | 同期対象の GitHub org/owner。 |
+| `CONCORDIA_PR_FULL_SYNC_MIN` | `15` (最小 2) | `pr/full-sync.ts:75` | フル同期の間隔 (分)。 |
+| `CONCORDIA_PR_FULL_SYNC_LIMIT` | `300` (1..1000) | `pr/full-sync.ts:76` | 1 回で取得する PR 上限。 |
+| `CONCORDIA_PR_RECONCILE_ENABLED` | 有効 (`0` で無効) | `pr/reconcile.ts:129` | open PR の差分 reconcile。 |
+| `CONCORDIA_PR_RECONCILE_MIN` | `10` (最小 2) | `pr/reconcile.ts:130` | reconcile の間隔 (分)。 |
+
+---
+
+## 9. error 自動対応 / その他 runtime
+
+| キー | 既定値 | 読み出し元 | 意味 |
+|------|--------|-----------|------|
+| `CONCORDIA_ERROR_AUTOFIX` | 未設定 (`1` で有効) | `control/error-fix.ts:80` | 検知した error task の自動 fix を有効化。 |
+| `CONCORDIA_ERROR_AUTOFIX_CWD` | spawn default cwd | `control/error-fix.ts:81` | auto-fix を回す working directory。 |
+| `CONCORDIA_ERROR_WATCH_LOGS_ROOT` | 未設定 | `discord/error-monitor.ts:25` | Discord エラー監視が tail するログのルート。 未設定なら監視 off。 |
+| `CONCORDIA_ERROR_WATCH_INTERVAL_SEC` | `30` (最小 10) | `discord/error-monitor.ts:26` | エラー監視の tail 間隔 (秒)。 |
+| `CONCORDIA_WORKSPACE_ROOT` | spawn default cwd を流用 | `shared/config.ts:83` | 各種機能が参照する workspace ルート。 未設定時は `CONCORDIA_SPAWN_DEFAULT_CWD` の解決値。 |
 
 ---
 

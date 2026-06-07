@@ -47,9 +47,25 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 `startBackend()` (`src/server.ts`) は backend を上げると同時に以下を起動する。 これらは本体の一部で個別の有効化フラグは無い (observability と Discord だけ別 — 各ガイド参照):
 
 - **sweeper** — `CONCORDIA_SWEEPER_INTERVAL_MS` 周期で lost / abandoned / purge を判定。
-- **rule engine / proposer** — chat 投稿ルール。 `CONCORDIA_DISABLE_CLAUDE=1` で LLM 呼び出しを止められる。
+- **rule engine / proposer** — chat 投稿ルール。 **既定では止まっている** (`rules_enabled=false`)。 有効化は下記の runtime 切替で行う。
+- **chitchat / chat-reply / report** — **既定では mute** (`chat_muted=true`)。 同じく runtime 切替で解除する。
 - **daily / stat スケジューラ** — 日次レポート + 10 分毎の stat 収集。
 - **WebSocket `/ws`** — eventBus を connected client に broadcast。 `?session=<id>` 接続は `ws_clients` をインクリメントし、 sweeper の lost 判定から除外される。
+
+## runtime 切替 (kill switch)
+
+chat 投稿 / rule engine は **env ではなく runtime のスイッチ**で制御する (再起動不要)。 値は
+`schema_meta` テーブルに永続化され、 Web UI の **Rules ページ** または admin API から切り替える
+(`src/admin/state.ts`)。 **どちらも既定は OFF 寄り**なので、 入れたてのサービスは静かに立つ。
+
+| スイッチ | 既定 | 効果 | admin API |
+|---------|------|------|-----------|
+| `chat_muted` | `true` | chitchat / chat-reply / report タスクの enqueue を skip | `GET`/`PUT /v1/admin/chat-mute` (`{ muted }`) |
+| `rules_enabled` | `false` | rule engine + proposer を両方停止 (claude 呼び出しなし) | `GET`/`PUT /v1/admin/rules-enabled` (`{ enabled }`) |
+| `rule_proposer_interval` | `3600` 秒 (60..86400) | proposer tick の間隔 | `GET`/`PUT /v1/admin/rule-proposer-interval` (`{ sec }`) |
+
+> `CONCORDIA_DISABLE_CLAUDE=1` (env) は別物で、 `rules_enabled=true` でも **緊急 hard-OFF** として
+> 勝つ (claude CLI 呼び出しを全経路で止める)。 通常運用は上記スイッチ、 env はテスト / 緊急用。
 
 ## 注意点
 

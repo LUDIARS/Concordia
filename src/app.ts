@@ -234,6 +234,8 @@ export function buildApp(deps: AppDeps): Hono {
         args: spawn.args.length > 0 ? spawn.args : undefined,
         cwd: resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd),
         title: `tpl:${tpl.call_name}`,
+        // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
+        env: spawn.env,
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });

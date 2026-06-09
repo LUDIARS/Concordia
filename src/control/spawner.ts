@@ -14,10 +14,10 @@ export type SpawnMode = "tab" | "window";
  * (このファイル中の SPAWN_PROVIDERS、 spawn / admin/spawn-session ハンドラ) を
  * 同時に更新する.
  */
-export type SpawnProvider = "claude" | "codex" | "gemini";
+export type SpawnProvider = "claude" | "codex" | "gemini" | "gemma4-12";
 
 /** Runtime 用 provider allow-list. API 側の validation で参照する. */
-export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "gemini"];
+export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "gemini", "gemma4-12"];
 
 export function isSpawnProvider(v: unknown): v is SpawnProvider {
   return typeof v === "string" && (SPAWN_PROVIDERS as readonly string[]).includes(v);

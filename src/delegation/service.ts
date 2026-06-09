@@ -202,15 +202,17 @@ export class DelegationService {
     if (shouldSpawn) {
       const spawner = this.deps.spawn ?? ((req) => spawnSession(req));
       const req: SpawnRequest = {
-        // 実 spawn は解決後の CLI (gemma4-12 → codex)。 記録上の論理 provider とは別。
+        // 実 spawn は解決後の CLI。 gemma4-12 は Lictor ネイティブ local-agent
+        // (`lictor gemma4-12`)、 それ以外は同名 CLI。 記録上の論理 provider とは別。
         provider: spawn.provider,
         mode: "tab",
         cwd: cwd ?? undefined,
-        // 解決済み args (`--model` / gemma4-12 の `--oss --local-provider ollama` 等)。
-        // 空配列なら付けず、 各 provider CLI の config 既定に委ねる。
+        // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
         args: spawn.args.length > 0 ? spawn.args : undefined,
         title: `delegation:${input.call_name}`,
         env: {
+          // spawn 解決由来の env (gemma4-12 の LICTOR_LOCAL_MODEL 等) を先に展開。
+          ...(spawn.env ?? {}),
           CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
           CONCORDIA_DELEGATION_RUN_ID: runId,
           CONCORDIA_DELEGATION_CALL_NAME: input.call_name,

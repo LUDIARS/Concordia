@@ -2,19 +2,20 @@ import { describe, it, expect } from "vitest";
 import { resolveDelegationSpawn, GEMMA4_12_DEFAULT_MODEL } from "./provider-preset.js";
 
 describe("resolveDelegationSpawn", () => {
-  it("gemma4-12 → codex CLI + OSS/Ollama flags + 既定モデル", () => {
+  it("gemma4-12 → Lictor ネイティブ local-agent (codex 経由しない) + LICTOR_LOCAL_MODEL env", () => {
     const r = resolveDelegationSpawn("gemma4-12", null);
-    expect(r.provider).toBe("codex");
-    expect(r.args).toEqual(["--oss", "--local-provider", "ollama", "--model", GEMMA4_12_DEFAULT_MODEL]);
+    expect(r.provider).toBe("gemma4-12");
+    expect(r.args).toEqual([]); // codex の --oss フラグは付けない
     expect(r.effectiveModel).toBe(GEMMA4_12_DEFAULT_MODEL);
+    expect(r.env).toEqual({ LICTOR_LOCAL_MODEL: GEMMA4_12_DEFAULT_MODEL });
   });
 
-  it("gemma4-12 + 明示モデルは override される", () => {
+  it("gemma4-12 + 明示モデルは env で override される", () => {
     const r = resolveDelegationSpawn("gemma4-12", "qwen2.5-coder:14b");
-    expect(r.provider).toBe("codex");
-    expect(r.args).toContain("qwen2.5-coder:14b");
-    expect(r.args).not.toContain(GEMMA4_12_DEFAULT_MODEL);
+    expect(r.provider).toBe("gemma4-12");
+    expect(r.args).toEqual([]);
     expect(r.effectiveModel).toBe("qwen2.5-coder:14b");
+    expect(r.env).toEqual({ LICTOR_LOCAL_MODEL: "qwen2.5-coder:14b" });
   });
 
   it("旧名 gamma も後方互換で gemma4-12 と同じ解決 (DB 永続値の互換)", () => {

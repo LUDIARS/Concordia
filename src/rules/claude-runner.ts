@@ -22,8 +22,34 @@ export interface ClaudeRunResult {
   duration_ms: number;
 }
 
-export async function runClaude(prompt: string): Promise<ClaudeRunResult> {
+export interface RunClaudeOptions {
+  /** `--model` に渡す値 (例 "haiku" / "sonnet" / "claude-opus-4-8")。 未指定で provider 既定。 */
+  model?: string;
+  /** subprocess の working directory。 未指定で Concordia の cwd。 */
+  cwd?: string;
+  /**
+   * agentic に file 書き込み / tool 実行をさせたい時に立てる。 `-p` は非対話なので
+   * 権限プロンプトを出せず、 これが無いと write 系は実行されず stdout 出力だけになる。
+   * `--dangerously-skip-permissions` を付与する (ローカル信頼自動化前提)。
+   */
+  dangerouslySkipPermissions?: boolean;
+  /** timeout 上書き (ms)。 未指定で CONCORDIA_CLAUDE_TIMEOUT_MS / 120s。 */
+  timeoutMs?: number;
+}
+
+/**
+ * `claude -p` を 1 ショット起動して stdout を返す。
+ *
+ * - 引数 1 つ (prompt のみ) の旧シグネチャは互換維持 (rules / report / persona 等)。
+ * - opts で `--model` / cwd / 権限スキップ / timeout を上書きできる
+ *   (reaction-workflow が agentic 記録に使う)。
+ */
+export async function runClaude(
+  prompt: string,
+  opts: RunClaudeOptions = {},
+): Promise<ClaudeRunResult> {
   const startedAt = Date.now();
+  const timeoutMs = opts.timeoutMs ?? TIMEOUT_MS;
   const env: NodeJS.ProcessEnv = { ...process.env };
   // ホワイトリスト方式 (CONCORDIA_HOOK=1) を採用したので、 spawn 先には
   // CONCORDIA_HOOK を伝播させない. 親 process が CONCORDIA_HOOK=1 でも
@@ -50,10 +76,15 @@ export async function runClaude(prompt: string): Promise<ClaudeRunResult> {
     let timer: NodeJS.Timeout | null = null;
     let resolved = false;
 
+    const args = ["-p"];
+    if (opts.model) args.push("--model", opts.model);
+    if (opts.dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
+
     let child;
     try {
-      child = spawn("claude", ["-p"], {
+      child = spawn("claude", args, {
         env,
+        cwd: opts.cwd,
         shell: process.platform === "win32",
         windowsHide: true,
       });
@@ -111,7 +142,7 @@ export async function runClaude(prompt: string): Promise<ClaudeRunResult> {
         exit_code: -1,
         duration_ms: Date.now() - startedAt,
       });
-    }, TIMEOUT_MS);
+    }, timeoutMs);
 
     try {
       child.stdin.end(prompt);

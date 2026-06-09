@@ -19,6 +19,8 @@ import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
+import { ReactionWorkflowRunner } from "./reaction-workflow.js";
+import { runClaude } from "../rules/claude-runner.js";
 import {
   onSessionRegistered,
   onSessionStatusChanged,
@@ -72,6 +74,10 @@ export interface DiscordBotDeps {
   /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
   prRecordsRepo: PrRecordsRepo;
   concordiaUrl: string;
+  /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
+  workspaceRoot?: string;
+  /** リアクションワークフローの安全弁 (既定 OFF)。 true で実処理を起動する。 */
+  reactionWorkflowEnabled?: boolean;
   /**
    * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
@@ -110,6 +116,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
+
+  // リアクションワークフロー: 安全弁 ON のときだけ runner を構築して reactions に注入。
+  const reactionWorkflow = deps.reactionWorkflowEnabled
+    ? new ReactionWorkflowRunner({
+        chatRepo: deps.chatRepo,
+        sessionsRepo: deps.sessionsRepo,
+        runHeadless: runClaude,
+        workspaceRoot: deps.workspaceRoot ?? process.cwd(),
+        enabled: true,
+        log,
+      })
+    : undefined;
 
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
@@ -334,7 +352,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
-    void handleReactionAdd({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
+    void handleReactionAdd({ reactionsRepo, messageMap, log, workflow: reactionWorkflow }, reaction, user).catch((e) => {
       log.warn(`reaction add handler failed: ${(e as Error).message}`);
     });
   });

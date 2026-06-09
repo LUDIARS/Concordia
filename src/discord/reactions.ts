@@ -22,6 +22,11 @@ export interface ReactionsDeps {
   reactionsRepo: ChatMessageReactionsRepo;
   messageMap: DiscordMessageMapRepo;
   log: { info: (m: string) => void };
+  /**
+   * リアクションを「指示」として処理に変換するワークフロー (任意)。 記録後に
+   * fire-and-forget で呼ぶ。 未注入 (= deps に無い) なら従来通り記録のみ。
+   */
+  workflow?: { handle(input: { chatId: number; emoji: string; userId: string }): Promise<void> };
 }
 
 export async function handleReactionAdd(
@@ -50,6 +55,13 @@ export async function handleReactionAdd(
     kind,
   });
   deps.log.info(`reactions: ${user.id} reacted ${kind} on chat_messages.id=${chatId}`);
+
+  // 記録とは独立に、 リアクションを「指示」としてワークフローに流す (fire-and-forget)。
+  if (deps.workflow) {
+    void deps.workflow
+      .handle({ chatId, emoji, userId: user.id })
+      .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));
+  }
 }
 
 export async function handleReactionRemove(

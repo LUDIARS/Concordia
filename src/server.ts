@@ -247,6 +247,9 @@ export async function startBackend(): Promise<BackendHandle> {
     personasRepo: personas,
     prRecordsRepo: prs,
     concordiaUrl: publicUrl,
+    // リアクションワークフロー: ローカルクローン親 (Memoria 解決用) + 安全弁。
+    workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
   };

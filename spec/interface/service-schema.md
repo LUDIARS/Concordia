@@ -9,7 +9,7 @@
 | 用語 | 意味 |
 |------|------|
 | **session** | 1 回の AI コーディングエージェント起動 (Claude Code の起動 1 回 = 1 session) |
-| **provider** | AI agent の種別。 `claude-code` / `gemini-cli` / `codex-cli` / `unknown` |
+| **provider** | AI agent の種別。 `claude-code` / `gemini-cli` / `codex-cli` / `local-llm` (Lictor ネイティブ local-agent) / `unknown` |
 | **repo_origin** | git remote origin URL (例: `https://github.com/LUDIARS/Foo`)。 識別キー |
 | **host** | ユーザの PC hostname (multi-PC 想定) |
 | **lost** | heartbeat 5 分以上途絶 = lost にマーク。 24h で `abandoned` |
@@ -23,7 +23,7 @@
 -- セッション (1 行 = 1 起動)
 CREATE TABLE sessions (
   id              TEXT PRIMARY KEY,             -- agent が払い出す session_id
-  provider        TEXT NOT NULL,                -- claude-code / gemini-cli / codex-cli / unknown
+  provider        TEXT NOT NULL,                -- claude-code / gemini-cli / codex-cli / local-llm / unknown
   repo_path       TEXT NOT NULL,                -- 絶対パス (cwd)
   repo_origin     TEXT,                         -- git remote origin (NULL も可)
   branch          TEXT,                         -- git branch (start 時 + 任意 update)

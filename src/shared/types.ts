@@ -8,6 +8,7 @@ export type ProviderName =
   | "claude-code"
   | "gemini-cli"
   | "codex-cli"
+  | "local-llm"
   | "unknown";
 
 export interface SessionRow {

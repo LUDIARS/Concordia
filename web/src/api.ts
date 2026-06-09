@@ -7,10 +7,10 @@ const BASE = "";
 /**
  * delegation の target_provider (論理プリセット) 一覧. backend
  * `src/db/delegation-repo.ts` の DelegationProvider と合わせる.
- * gamma = ローカル LLM レーン (内部は codex CLI を Ollama 経由で起動。 実 spawn CLI への
- * 解決は backend `src/control/provider-preset.ts`)。 新規追加時は backend を同時更新する.
+ * gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由で起動。
+ * 実 spawn CLI への解決は backend `src/control/provider-preset.ts`)。 新規追加時は backend を同時更新する.
  */
-export type SpawnProvider = "claude" | "codex" | "gemini" | "gamma";
+export type SpawnProvider = "claude" | "codex" | "gemini" | "gemma4-12";
 
 export interface DelegationInputSchemaItem {
   name: string;
@@ -34,7 +34,7 @@ export interface DelegationTemplateLite {
 }
 
 /** delegation テンプレ / spawn が選べるモデル候補 (GET /v1/model-catalog)。 */
-export type ModelCatalogProvider = "any" | "claude" | "codex" | "gemini" | "gamma";
+export type ModelCatalogProvider = "any" | "claude" | "codex" | "gemini" | "gemma4-12";
 export interface ModelCatalogItem {
   id: string;
   model_id: string;

@@ -218,7 +218,7 @@ export function buildApp(deps: AppDeps): Hono {
       }
 
       // prompt 注入なし = provider + model だけ採用した素のセッション。
-      // 論理 provider (gamma 等) → 実 spawn CLI + args に解決 (delegation invoke と同じ写像)。
+      // 論理 provider (gemma4-12 等) → 実 spawn CLI + args に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, tpl.model);
       // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (delegation invoke
       // と同じ処理)。展開しないと "${target_repo}" がリテラルのまま wt -d に渡り spawn が落ちる。

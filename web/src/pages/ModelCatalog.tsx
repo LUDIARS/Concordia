@@ -5,7 +5,7 @@ import { api, type ModelCatalogItem, type ModelCatalogProvider } from "../api.js
 // 設定ページ (Settings) の 1 セクションとして埋め込む。 ここで足したモデルが
 // Delegation テンプレ編集の model プルダウンに出る。
 
-const PROVIDERS: ModelCatalogProvider[] = ["any", "claude", "codex", "gemini", "gamma"];
+const PROVIDERS: ModelCatalogProvider[] = ["any", "claude", "codex", "gemini", "gemma4-12"];
 
 interface DraftState {
   model_id: string;

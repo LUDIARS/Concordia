@@ -90,10 +90,10 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     is_active: true,
   },
   {
-    call_name: "gamma-impl",
-    title: "ローカル LLM 実装委託 (Gamma)",
-    description: "ローカル LLM (Gamma = Ollama 上の Gemma 4 12B、内部は codex CLI を OSS 経由で起動) に実装を委託する。API 課金ゼロ・ローカル完結。長いエージェントループは精度・速度が落ちるので、小さく区切ったタスク向き。",
-    target_provider: "gamma",
+    call_name: "gemma4-12-impl",
+    title: "ローカル LLM 実装委託 (gemma4-12)",
+    description: "ローカル LLM (gemma4-12 = Ollama 上の Gemma 4 12B、内部は codex CLI を OSS 経由で起動) に実装を委託する。API 課金ゼロ・ローカル完結。長いエージェントループは精度・速度が落ちるので、小さく区切ったタスク向き。",
+    target_provider: "gemma4-12",
     // model は未指定 → resolveDelegationSpawn が既定 gemma4:12b を解決。
     // 別の Ollama タグ (例 qwen2.5-coder:14b) を使うなら model に設定。
     model: null,
@@ -125,4 +125,9 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   for (const tpl of SEED_TEMPLATES) {
     repo.upsertTemplate(tpl);
   }
+  // 旧 seed `gamma-impl` (target_provider=gamma) の置換。 新 seed は別 call_name
+  // (gemma4-12-impl) で upsert されるため、 既存 DB には旧行が残る。 重複を避けるため
+  // 旧行があれば deactivate する (削除はせず is_active=0 で残す)。 fresh DB では no-op。
+  const legacy = repo.findTemplateByCallName("gamma-impl");
+  if (legacy) repo.deactivateTemplate(legacy.id);
 }

@@ -155,9 +155,9 @@ export class DelegationService {
       return { ok: false, error: "missing required args", details: render.missing };
     }
     const provider = tpl.target_provider as DelegationProvider;
-    // 論理 provider (gamma 等) → 実 spawn CLI + args に解決 (単一情報源)。
-    // gamma は内部で codex CLI を `--oss --local-provider ollama --model <既定 gemma4:12b>`
-    // で起動するが、 記録・ログ・プロンプトヘッダ上は論理名 (gamma) のまま残す。
+    // 論理 provider (gemma4-12 等) → 実 spawn CLI + args に解決 (単一情報源)。
+    // gemma4-12 は内部で codex CLI を `--oss --local-provider ollama --model <既定 gemma4:12b>`
+    // で起動するが、 記録・ログ・プロンプトヘッダ上は論理名 (gemma4-12) のまま残す。
     const spawn = resolveDelegationSpawn(provider, tpl.model);
     // cwd 解決: 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。 旧実装は
@@ -202,11 +202,11 @@ export class DelegationService {
     if (shouldSpawn) {
       const spawner = this.deps.spawn ?? ((req) => spawnSession(req));
       const req: SpawnRequest = {
-        // 実 spawn は解決後の CLI (gamma → codex)。 記録上の論理 provider とは別。
+        // 実 spawn は解決後の CLI (gemma4-12 → codex)。 記録上の論理 provider とは別。
         provider: spawn.provider,
         mode: "tab",
         cwd: cwd ?? undefined,
-        // 解決済み args (`--model` / gamma の `--oss --local-provider ollama` 等)。
+        // 解決済み args (`--model` / gemma4-12 の `--oss --local-provider ollama` 等)。
         // 空配列なら付けず、 各 provider CLI の config 既定に委ねる。
         args: spawn.args.length > 0 ? spawn.args : undefined,
         title: `delegation:${input.call_name}`,

@@ -24,8 +24,8 @@ delegation_templates
   call_name (unique, ^[a-z][a-z0-9_-]{0,63}$)
   title (人間向け 1 行)
   description (いつ使うか)
-  target_provider ("claude" | "codex" | "gemini" | "gamma")  -- gamma=ローカル LLM レーン (§13)
-  model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gamma は gemma4:12b)
+  target_provider ("claude" | "codex" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma)
+  model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gemma4-12 は gemma4:12b)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
   default_cwd (NULLABLE TEXT)
@@ -229,9 +229,14 @@ template 指定時は token 不要の `/v1/admin/spawn-session` を叩く。
 - `prompt_template` 空 → 空文字のまま保存 (invoke 時は Concordia 文脈 + persona
   ブロックだけが載る)。
 
-## 13. v0.3 追加: `gamma` プリセット (ローカル LLM 委託レーン)
+## 13. v0.3 追加: `gemma4-12` プリセット (ローカル LLM 委託レーン)
 
 API 課金ゼロでローカル LLM に委託するための **論理 provider プリセット**。
+
+> **改名 (旧名 `gamma`)**: Lictor のローカル LLM 起動コマンドを `lictor gemma4-12`
+> に揃えたのに合わせ、 本プリセットも `gamma` → `gemma4-12` にリネームした。
+> `resolveDelegationSpawn` は DB に永続化済みの旧値 `gamma` も後方互換で受理する。
+> 旧 seed テンプレ `gamma-impl` は seed 時に deactivate される。
 
 ### 13.1 なぜ「論理プリセット」か
 
@@ -247,15 +252,15 @@ Lictor が wrap できる CLI は claude / codex / gemini の 3 つだけで、 
 | claude | claude | `--model <model?>` | Claude |
 | codex | codex | `--model <model?>` | OpenAI Codex |
 | gemini | gemini | `--model <model?>` | Gemini |
-| **gamma** | **codex** | `--oss --local-provider ollama --model <model\|gemma4:12b>` | **ローカル (Gemma 等)** |
+| **gemma4-12** | **codex** | `--oss --local-provider ollama --model <model\|gemma4:12b>` | **ローカル (Gemma 等)** |
 
 - 解決の単一情報源は `src/control/provider-preset.ts` の `resolveDelegationSpawn(target, model)`。
   delegation invoke (`delegation/service.ts`) と admin spawn-from-template (`app.ts`) の
-  両経路が同じ写像を使う (gamma を `isSpawnProvider` で素通しさせると claude に誤フォール
-  バックするため、 両方をこの解決に通すのが必須)。
+  両経路が同じ写像を使う (gemma4-12 を `isSpawnProvider` で素通しさせると claude に誤フォール
+  バックするため、 両方をこの解決に通すのが必須)。 旧値 `gamma` も後方互換で受理する。
 - `model` 未指定なら既定 `gemma4:12b`。 別の Ollama タグ (例 `qwen2.5-coder:14b`) を
   使うなら template.model に設定。
-- 記録・ログ・プロンプトヘッダ・GUI ドロップダウンは**論理名 `gamma` のまま**表示し、
+- 記録・ログ・プロンプトヘッダ・GUI ドロップダウンは**論理名 `gemma4-12` のまま**表示し、
   「codex」を出さない (実体は codex CLI を OSS で起動するだけ)。
 
 ### 13.2 前提と既知の制約
@@ -267,14 +272,15 @@ Lictor が wrap できる CLI は claude / codex / gemini の 3 つだけで、 
   小さいタスクに区切ること。 長い多段エージェントループは精度・速度ともに落ちる。
 - **session 表示は codex-cli**: Lictor は `lictor codex` を起動するため、 起動後の
   **ライブ session は Concordia 上 `codex-cli` として登録**される (delegation run 記録上は
-  `gamma`)。 session レベルまで gamma 表示にするには Lictor 側のラベル override が必要
+  `gemma4-12`)。 session レベルまで gemma4-12 表示にするには Lictor 側のラベル override が必要
   (follow-up)。
 - Codex は OSS 起動時に「`failed to refresh available models`」 を 1 行警告するが無害
   (Ollama の `/models` 応答形が OpenAI と異なるため)。 処理は続行する。
 
 ### 13.3 seed テンプレ
 
-`gamma-impl`「ローカル LLM 実装委託 (Gamma)」 を seed に追加 (`delegation/seed.ts`)。
-target_provider=`gamma` / model=null (既定 gemma4:12b 解決) / default_cwd=`${target_repo}`。
-小さく区切る前提の実装委託プロンプト。 model_catalog にも `gamma / gemma4:12b` を seed
-(既存 DB は table 非空なら skip なので Settings→Models で追加)。
+`gemma4-12-impl`「ローカル LLM 実装委託 (gemma4-12)」 を seed に追加 (`delegation/seed.ts`)。
+target_provider=`gemma4-12` / model=null (既定 gemma4:12b 解決) / default_cwd=`${target_repo}`。
+小さく区切る前提の実装委託プロンプト。 model_catalog にも `gemma4-12 / gemma4:12b` を seed
+(既存 DB は table 非空なら skip なので Settings→Models で追加)。 旧 seed `gamma-impl`
+(target_provider=gamma) は seed 時に deactivate される。

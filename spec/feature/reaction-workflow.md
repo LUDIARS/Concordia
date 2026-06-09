@@ -35,7 +35,7 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 
 起動された claude が「メッセージの解析 + 記録/タスク登録/着手」を 1 ショットで完結する。
 Concordia 自身は LLM を呼ばず、 Memoria への到達も起動先 claude (cwd=Memoria) に委ねる
-(= `gamma -p` 的な投げ方)。
+(= `gemma4-12 -p` 的な投げ方)。
 
 ### session.inject
 `start-impl` で authoring session が active なら、 その session の AI に `session.inject` イベントで

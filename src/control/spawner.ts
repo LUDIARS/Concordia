@@ -77,7 +77,10 @@ export function resolveSpawnCwd(
   requested: unknown,
   defaultCwd: string | undefined | null,
 ): string | undefined {
-  if (typeof requested === "string" && requested.trim()) {
+  // 未展開の `${var}` を含む値は無効扱い (defaultCwd へフォールバック)。 テンプレの
+  // default_cwd を展開し忘れた場合に "${target_repo}" がそのまま wt -d に渡って
+  // spawn が落ちるのを防ぐ防御 (本来の展開は呼び出し側 substituteVars が行う)。
+  if (typeof requested === "string" && requested.trim() && !requested.includes("${")) {
     return requested.trim();
   }
   const fallback = (defaultCwd ?? "").trim();

@@ -25,7 +25,8 @@ const log = createChildLogger("delegation/service");
 
 /// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
 /// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
-function substituteVars(s: string, args: Record<string, unknown>): string {
+/// app.ts の spawn-from-template (素のセッション) 経路も同じ展開を使うため export。
+export function substituteVars(s: string, args: Record<string, unknown>): string {
   return s.replace(/\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]*))?\}/g,
     (_m, name: string, fb?: string) => {
       const v = args[name];

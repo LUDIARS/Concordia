@@ -53,6 +53,7 @@ import { tasksRouter } from "./api/tasks.js";
 import { delegationRouter } from "./api/delegation.js";
 import type { DelegationRepo } from "./db/delegation-repo.js";
 import type { DelegationService } from "./delegation/service.js";
+import { substituteVars } from "./delegation/service.js";
 import { modelCatalogRouter } from "./api/model-catalog.js";
 import type { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import {
@@ -219,12 +220,19 @@ export function buildApp(deps: AppDeps): Hono {
       // prompt 注入なし = provider + model だけ採用した素のセッション。
       // 論理 provider (gamma 等) → 実 spawn CLI + args に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, tpl.model);
+      // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (delegation invoke
+      // と同じ処理)。展開しないと "${target_repo}" がリテラルのまま wt -d に渡り spawn が落ちる。
+      // 展開後が空 / 未解決 (`${` 残存) なら undefined にして spawnDefaultCwd に委ねる。
+      let tplCwd: string | undefined = cwdOverride;
+      if (!tplCwd && tpl.default_cwd) {
+        const expanded = substituteVars(tpl.default_cwd, tplArgs).trim();
+        tplCwd = (expanded && !expanded.includes("${")) ? expanded : undefined;
+      }
       const result = spawnSession({
         provider: spawn.provider,
         mode,
         args: spawn.args.length > 0 ? spawn.args : undefined,
-        // cwd: caller override → テンプレ default_cwd (${var} 未展開なら existsSync で弾かれ default へ) → 既定。
-        cwd: resolveSpawnCwd(cwdOverride ?? tpl.default_cwd ?? undefined, deps.config.spawnDefaultCwd),
+        cwd: resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd),
         title: `tpl:${tpl.call_name}`,
       });
       if (!result.ok) return c.json({ error: result.error }, 400);

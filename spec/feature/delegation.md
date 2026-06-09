@@ -24,8 +24,8 @@ delegation_templates
   call_name (unique, ^[a-z][a-z0-9_-]{0,63}$)
   title (人間向け 1 行)
   description (いつ使うか)
-  target_provider ("claude" | "codex" | "gemini")
-  model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定)
+  target_provider ("claude" | "codex" | "gemini" | "gamma")  -- gamma=ローカル LLM レーン (§13)
+  model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gamma は gemma4:12b)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
   default_cwd (NULLABLE TEXT)
@@ -228,3 +228,53 @@ template 指定時は token 不要の `/v1/admin/spawn-session` を叩く。
 - `title` 空 → `call_name` で代替。
 - `prompt_template` 空 → 空文字のまま保存 (invoke 時は Concordia 文脈 + persona
   ブロックだけが載る)。
+
+## 13. v0.3 追加: `gamma` プリセット (ローカル LLM 委託レーン)
+
+API 課金ゼロでローカル LLM に委託するための **論理 provider プリセット**。
+
+### 13.1 なぜ「論理プリセット」か
+
+Lictor が wrap できる CLI は claude / codex / gemini の 3 つだけで、 **OpenAI 互換
+(OSS) エンドポイントを喋れるのは codex CLI のみ**。 一方で codex を OSS モードで起動した
+ときに**推論するのは OpenAI の Codex モデルではなく、 Ollama 上のローカルモデル**
+(既定 Gemma 4 12B)。 そのため「codex」と表示するのは誤解を招く。
+
+そこで `target_provider` を **論理プリセット**とし、 実 spawn CLI への解決を分離する:
+
+| 論理 provider | 実 spawn CLI | 付与 args | 推論 |
+|---|---|---|---|
+| claude | claude | `--model <model?>` | Claude |
+| codex | codex | `--model <model?>` | OpenAI Codex |
+| gemini | gemini | `--model <model?>` | Gemini |
+| **gamma** | **codex** | `--oss --local-provider ollama --model <model\|gemma4:12b>` | **ローカル (Gemma 等)** |
+
+- 解決の単一情報源は `src/control/provider-preset.ts` の `resolveDelegationSpawn(target, model)`。
+  delegation invoke (`delegation/service.ts`) と admin spawn-from-template (`app.ts`) の
+  両経路が同じ写像を使う (gamma を `isSpawnProvider` で素通しさせると claude に誤フォール
+  バックするため、 両方をこの解決に通すのが必須)。
+- `model` 未指定なら既定 `gemma4:12b`。 別の Ollama タグ (例 `qwen2.5-coder:14b`) を
+  使うなら template.model に設定。
+- 記録・ログ・プロンプトヘッダ・GUI ドロップダウンは**論理名 `gamma` のまま**表示し、
+  「codex」を出さない (実体は codex CLI を OSS で起動するだけ)。
+
+### 13.2 前提と既知の制約
+
+- **ホスト要件**: Ollama が `http://localhost:11434` で稼働し、 指定モデルを pull 済み。
+  Codex CLI が OSS プロバイダ (`--oss --local-provider ollama`) をサポートするバージョン
+  (実機確認 v0.136.0)。 Windows セットアップ手引きは `Discutere/spec/setup/local-llm-windows.md`。
+- **reasoning モデルはトークン大食い**: Gemma 4 等は思考 (reasoning) でトークンを使う。
+  小さいタスクに区切ること。 長い多段エージェントループは精度・速度ともに落ちる。
+- **session 表示は codex-cli**: Lictor は `lictor codex` を起動するため、 起動後の
+  **ライブ session は Concordia 上 `codex-cli` として登録**される (delegation run 記録上は
+  `gamma`)。 session レベルまで gamma 表示にするには Lictor 側のラベル override が必要
+  (follow-up)。
+- Codex は OSS 起動時に「`failed to refresh available models`」 を 1 行警告するが無害
+  (Ollama の `/models` 応答形が OpenAI と異なるため)。 処理は続行する。
+
+### 13.3 seed テンプレ
+
+`gamma-impl`「ローカル LLM 実装委託 (Gamma)」 を seed に追加 (`delegation/seed.ts`)。
+target_provider=`gamma` / model=null (既定 gemma4:12b 解決) / default_cwd=`${target_repo}`。
+小さく区切る前提の実装委託プロンプト。 model_catalog にも `gamma / gemma4:12b` を seed
+(既存 DB は table 非空なら skip なので Settings→Models で追加)。

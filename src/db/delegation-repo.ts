@@ -7,8 +7,12 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 
-export type DelegationProvider = "claude" | "codex" | "gemini";
-export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "gemini"];
+// 論理 provider プリセット。 claude/codex/gemini は同名 CLI に 1:1。
+// gamma は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
+// 起動するが、 推論は OpenAI ではなくローカルモデル (既定 Gemma 4 12B)。
+// 解決は src/control/provider-preset.ts:resolveDelegationSpawn が単一情報源。
+export type DelegationProvider = "claude" | "codex" | "gemini" | "gamma";
+export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "gemini", "gamma"];
 
 export interface DelegationTemplateRow {
   id: string;

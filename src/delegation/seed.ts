@@ -89,6 +89,36 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: null,
     is_active: true,
   },
+  {
+    call_name: "gamma-impl",
+    title: "ローカル LLM 実装委託 (Gamma)",
+    description: "ローカル LLM (Gamma = Ollama 上の Gemma 4 12B、内部は codex CLI を OSS 経由で起動) に実装を委託する。API 課金ゼロ・ローカル完結。長いエージェントループは精度・速度が落ちるので、小さく区切ったタスク向き。",
+    target_provider: "gamma",
+    // model は未指定 → resolveDelegationSpawn が既定 gemma4:12b を解決。
+    // 別の Ollama タグ (例 qwen2.5-coder:14b) を使うなら model に設定。
+    model: null,
+    prompt_template: [
+      "Implement the following in ${target_repo}:",
+      "",
+      "${task}",
+      "",
+      "${context_extra:}", "",
+      "Requirements:",
+      "- Keep the change small and self-contained (local model — avoid sprawling multi-file edits).",
+      "- Create a feature branch (feat/<short-slug>) off origin/main.",
+      "- Add or update tests; make them pass before reporting done.",
+      "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+      "",
+      "Report the PR URL when done.",
+    ].join("\n"),
+    input_schema: [
+      { name: "task", type: "string", required: true, description: "What to implement (keep it scoped)" },
+      { name: "target_repo", type: "string", required: true, description: "Absolute path of the target repository" },
+      { name: "context_extra", type: "string", required: false, description: "Optional extra context to prepend" },
+    ],
+    default_cwd: "${target_repo}",
+    is_active: true,
+  },
 ];
 
 export function seedDelegationTemplates(repo: DelegationRepo): void {

@@ -19,6 +19,9 @@ const SEED_MODELS: CreateModelInput[] = [
   // ── Gemini ───────────────────────────────────────────────
   { provider: "gemini", model_id: "gemini-2.5-pro", label: "Gemini 2.5 Pro", sort_order: 10 },
   { provider: "gemini", model_id: "gemini-2.5-flash", label: "Gemini 2.5 Flash", sort_order: 20 },
+  // ── Gamma (ローカル LLM / Ollama 経由、 codex CLI を OSS で起動) ──────────────
+  // 既存 DB には seed が走らない (table 非空なら skip) ので、 運用側は Settings→Models で追加。
+  { provider: "gamma", model_id: "gemma4:12b", label: "Gemma 4 12B (Ollama)", sort_order: 10 },
 ];
 
 export function seedModelCatalog(repo: ModelCatalogRepo): void {

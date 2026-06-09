@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { fmtTs, api, type ModelCatalogItem } from "../api.js";
 
-type Provider = "claude" | "codex" | "gemini";
+// gamma = ローカル LLM レーン (内部は codex CLI を Ollama 経由、 推論は Gemma 等)。
+type Provider = "claude" | "codex" | "gemini" | "gamma";
 
 interface InputSchemaItem {
   name: string;
@@ -327,6 +328,7 @@ export function Delegation() {
                 <option value="codex">codex</option>
                 <option value="claude">claude</option>
                 <option value="gemini">gemini</option>
+                <option value="gamma">gamma (ローカル LLM / Ollama)</option>
               </select>
             </label>
             <label className="text-sm space-y-1">

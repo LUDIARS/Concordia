@@ -16,6 +16,7 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
+import { resolveDelegationSpawn } from "../control/provider-preset.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -153,6 +154,10 @@ export class DelegationService {
       return { ok: false, error: "missing required args", details: render.missing };
     }
     const provider = tpl.target_provider as DelegationProvider;
+    // 論理 provider (gamma 等) → 実 spawn CLI + args に解決 (単一情報源)。
+    // gamma は内部で codex CLI を `--oss --local-provider ollama --model <既定 gemma4:12b>`
+    // で起動するが、 記録・ログ・プロンプトヘッダ上は論理名 (gamma) のまま残す。
+    const spawn = resolveDelegationSpawn(provider, tpl.model);
     // cwd 解決: 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。 旧実装は
     // template default が `null` 固定だったため (3) ばかりが当たり、 Codex タブが
@@ -180,7 +185,7 @@ export class DelegationService {
     mkdirSync(this.promptsDir, { recursive: true });
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(tpl, render.rendered, input.args ?? {}, runId, contextBlock, persona?.name ?? null);
+    const promptBody = renderPromptFile(tpl, render.rendered, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
     try {
       writeFileSync(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -196,12 +201,13 @@ export class DelegationService {
     if (shouldSpawn) {
       const spawner = this.deps.spawn ?? ((req) => spawnSession(req));
       const req: SpawnRequest = {
-        provider,
+        // 実 spawn は解決後の CLI (gamma → codex)。 記録上の論理 provider とは別。
+        provider: spawn.provider,
         mode: "tab",
         cwd: cwd ?? undefined,
-        // template.model を CLI に `--model` で渡す (Lictor は args を下層 CLI へ透過する)。
-        // null/空 なら付けず、 各 provider CLI の config 既定モデルに委ねる。
-        args: tpl.model ? ["--model", tpl.model] : undefined,
+        // 解決済み args (`--model` / gamma の `--oss --local-provider ollama` 等)。
+        // 空配列なら付けず、 各 provider CLI の config 既定に委ねる。
+        args: spawn.args.length > 0 ? spawn.args : undefined,
         title: `delegation:${input.call_name}`,
         env: {
           CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
@@ -264,6 +270,7 @@ function renderPromptFile(
   runId: string,
   contextBlock: string,
   personaName: string | null,
+  effectiveModel: string | null,
 ): string {
   const argsBlock = Object.keys(args).length === 0
     ? "(none)"
@@ -273,7 +280,7 @@ function renderPromptFile(
     "",
     `- run_id: ${runId}`,
     `- target_provider: ${tpl.target_provider}`,
-    `- model: ${tpl.model ?? "(provider default)"}`,
+    `- model: ${effectiveModel ?? tpl.model ?? "(provider default)"}`,
     `- persona: ${personaName ?? "(none)"}`,
     `- template_title: ${tpl.title}`,
     "",

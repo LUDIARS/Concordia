@@ -62,6 +62,7 @@ import {
   SPAWN_PROVIDERS,
   type SpawnMode,
 } from "./control/spawner.js";
+import { resolveDelegationSpawn } from "./control/provider-preset.js";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
@@ -216,11 +217,12 @@ export function buildApp(deps: AppDeps): Hono {
       }
 
       // prompt 注入なし = provider + model だけ採用した素のセッション。
-      const tplProvider = isSpawnProvider(tpl.target_provider) ? tpl.target_provider : "claude";
+      // 論理 provider (gamma 等) → 実 spawn CLI + args に解決 (delegation invoke と同じ写像)。
+      const spawn = resolveDelegationSpawn(tpl.target_provider, tpl.model);
       const result = spawnSession({
-        provider: tplProvider,
+        provider: spawn.provider,
         mode,
-        args: tpl.model ? ["--model", tpl.model] : undefined,
+        args: spawn.args.length > 0 ? spawn.args : undefined,
         // cwd: caller override → テンプレ default_cwd (${var} 未展開なら existsSync で弾かれ default へ) → 既定。
         cwd: resolveSpawnCwd(cwdOverride ?? tpl.default_cwd ?? undefined, deps.config.spawnDefaultCwd),
         title: `tpl:${tpl.call_name}`,

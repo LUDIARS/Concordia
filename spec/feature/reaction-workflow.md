@@ -1,14 +1,18 @@
 # Reaction Workflow — リアクション駆動の処理ディスパッチ
 
-Concordia の chat メッセージ (Discord にミラーされた bot 投稿) に付けられた**リアクション**を
+Concordia の chat メッセージ (Discord / Slack にミラーされた bot 投稿) に付けられた**リアクション**を
 「指示」として解釈し、 種類に応じた処理を **LLM (headless `claude -p`) / session.inject** で実行する。
 
 リアクションの**記録**は従来通り `chat_message_reactions` に残る (discord-repo.classifyEmoji →
 fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処理トリガに変換する層を足す。
 
+ランナー本体 `src/platform/reaction-workflow.ts` は **platform 非依存**（`{chatId, emoji, userId}`
+だけ受ける）。Discord / Slack の各 bot が「reaction イベント → chat_messages.id 逆引き →
+絵文字を unicode に正規化」してこのランナーに渡す（§4）。
+
 ## 1. 絵文字 → アクション写像
 
-`src/discord/reaction-workflow.ts` の `classifyReactionWorkflow(emoji)`。
+`src/platform/reaction-workflow.ts` の `classifyReactionWorkflow(emoji)`（unicode 文字で照合）。
 
 | 絵文字 | 意味 | WorkflowAction | 実行手段 | model |
 |---|---|---|---|---|
@@ -67,14 +71,29 @@ MessageReactionAdd (discord.js)
 
 error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路を壊さない。
 
+## 4-b. platform 別 ingress（chat 逆引き + 絵文字正規化）
+
+ランナーは `{chatId, emoji, userId}` だけ受ける。各 platform が以下を担う。
+
+| | Discord | Slack |
+|---|---|---|
+| reaction イベント | `messageReactionAdd` (discord.js) | `reaction_added` (Socket Mode) |
+| msg → chat 逆引き | `discord_message_map` (egress で put) | `slack_message_map` (egress で put、`(channel_id, ts)` → `chat_messages.id`) |
+| 絵文字 → unicode | discord.js は unicode 文字をそのまま渡す | Slack は**絵文字名**(`+1` / `thumbsup` / `white_check_mark` 等)。`slackReactionToUnicode()` で写像してからランナーへ。skin-tone 接尾 (`::skin-tone-N`) は除去 |
+| bot 自身の除外 | `user.bot` | `event.user === botUserId` |
+
+逆引きできない (= Concordia 投稿でない) リアクション、写像外の絵文字は無処理。
+
 ## 5. 実装ファイル
 
-- `src/discord/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`。
+- `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
-- `src/discord/reactions.ts` — 記録後に `workflow.handle()` を呼ぶ (任意注入)。
-- `src/discord/bot.ts` — `reactionWorkflowEnabled` のとき runner を構築して注入。
-- `src/server.ts` — `workspaceRoot` / `reactionWorkflowEnabled` を deps に渡す。
-- `src/discord/reaction-workflow.test.ts` — 写像 / plan の単体テスト。
+- `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
+- `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
+- `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
+- `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。
+- `src/server.ts` — `workspaceRoot` / `reactionWorkflowEnabled` を Discord/Slack 双方の deps に渡す。
+- `src/platform/reaction-workflow.test.ts` — 写像 / plan の単体テスト。
 
 ## 6. 既知の制約 / TODO
 

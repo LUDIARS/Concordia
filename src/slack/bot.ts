@@ -17,15 +17,22 @@ import { formatAuthorName } from "../discord/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
-import { makeSlackSessionThreadsRepo, type SlackSessionThreadsRepo } from "./session-threads-repo.js";
+import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
+import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
 import {
   buildQuestionBlocks,
   extractRelayableFrame,
   parseAnswerActionId,
   truncateForSlack,
+  renderSessionCard,
+  extractMonologue,
+  slackReactionToUnicode,
+  type SessionCardState,
 } from "./render.js";
 import { runSlackSlash } from "./slash.js";
+import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
+import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
 const log = {
@@ -54,6 +61,10 @@ export interface SlackBotDeps {
    * 未指定なら env のみ (readSlackEnv)。
    */
   resolveConfig?: () => SlackEnv;
+  /** リアクションワークフロー (👍 → 実装着手 等) の Memoria 解決用ワークスペースルート。 */
+  workspaceRoot?: string;
+  /** リアクションワークフローの安全弁。true の時だけ reaction_added を処理に流す。 */
+  reactionWorkflowEnabled?: boolean;
 }
 
 export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | null> {
@@ -70,6 +81,20 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   const web = new WebClient(env.botToken!);
   const socket = new SocketModeClient({ appToken: env.appToken! });
   const threads = makeSlackSessionThreadsRepo(deps.db);
+  const messageMap = makeSlackMessageMapRepo(deps.db);
+
+  // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
+  // platform 非依存ランナーを流用。安全弁 OFF の間は構築しない (= reaction 無処理)。
+  const reactionWorkflow = deps.reactionWorkflowEnabled
+    ? new ReactionWorkflowRunner({
+        chatRepo: deps.chatRepo,
+        sessionsRepo: deps.sessionsRepo,
+        runHeadless: runClaude,
+        workspaceRoot: deps.workspaceRoot ?? process.cwd(),
+        enabled: true,
+        log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
+      })
+    : null;
 
   // 自分の bot user id（自分の投稿を ingress で拾わないため）。
   let botUserId: string | null = null;
@@ -90,15 +115,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     const inFlight = threadInFlight.get(sessionId);
     if (inFlight) return inFlight;
     const p = (async (): Promise<string | null> => {
-      const session = deps.sessionsRepo.findSession(sessionId);
-      const meta = readMeta(session?.metadata);
-      const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
-      const who = formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
-      const title = session?.current_task?.trim() || sessionId.slice(0, 8);
       try {
         const res = await web.chat.postMessage({
           channel: channelId,
-          text: `▶ *${who}* セッション開始 — ${truncateForSlack(title, 120)}\n_(このスレッドに返信すると ${who} に inject されます)_`,
+          text: renderSessionCard(buildCardState(sessionId, "active")),
         });
         const ts = (res.ts as string) ?? null;
         if (!ts) {
@@ -119,17 +139,63 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     return p;
   }
 
-  async function postToSessionThread(sessionId: string, text: string, author: string): Promise<void> {
-    const threadTs = await ensureSessionThread(sessionId);
-    if (!threadTs) return;
+  // ライブカードの状態を session 行 + persona から組む（同期・純粋寄り）。
+  // ended の poem は呼び出し側 (renderEndedCard) が埋める。
+  function buildCardState(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState {
+    const session = deps.sessionsRepo.findSession(sessionId);
+    const meta = readMeta(session?.metadata);
+    const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
+    const who = formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
+    return {
+      who,
+      provider: session?.provider ?? null,
+      model: meta.model ?? null,
+      currentTask: session?.current_task ?? null,
+      shortId: sessionId.slice(0, 8),
+      status,
+      poem: poem ?? null,
+    };
+  }
+
+  // thread root（ライブカード）を現在の session 状態で再描画する。persona 割当 /
+  // current_task 更新 / title 変更のたびに呼ぶ。root 未作成なら何もしない。
+  async function renderRootCard(sessionId: string, status: "active" | "ended" = "active", poem?: string | null): Promise<void> {
+    const row = threads.findBySessionId(sessionId);
+    if (!row) return;
     try {
-      await web.chat.postMessage({
+      await web.chat.update({
+        channel: channelId,
+        ts: row.thread_ts,
+        text: renderSessionCard(buildCardState(sessionId, status, poem)),
+      });
+    } catch (e) {
+      log.warn(`root card update failed session=${sessionId}: ${(e as Error).message}`);
+    }
+  }
+
+  // session.ended: report の独白ポエムを抜いて root カードを「✅ Done + ポエム」に差し替える。
+  function renderEndedCard(sessionId: string): void {
+    const report = deps.sessionsRepo.findReport(sessionId);
+    const poem = extractMonologue(report?.summary_md);
+    void renderRootCard(sessionId, "ended", poem).catch((e) =>
+      log.warn(`ended card update failed session=${sessionId}: ${(e as Error).message}`),
+    );
+  }
+
+  // thread に1件投稿し、posted ts を返す（messageMap 登録に使う）。失敗時 null。
+  async function postToSessionThread(sessionId: string, text: string, author: string): Promise<string | null> {
+    const threadTs = await ensureSessionThread(sessionId);
+    if (!threadTs) return null;
+    try {
+      const r = await web.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
         text: `*${author}*\n${truncateForSlack(text, 12000)}`,
       });
+      return (r.ts as string) ?? null;
     } catch (e) {
       log.warn(`postMessage(thread) failed session=${sessionId}: ${(e as Error).message}`);
+      return null;
     }
   }
 
@@ -143,12 +209,15 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
     const author = row.author_label?.trim() || "Concordia";
     if (row.session_id) {
-      await postToSessionThread(row.session_id, row.text, author);
+      const ts = await postToSessionThread(row.session_id, row.text, author);
+      // リアクション逆引き用に ts → chat_messages.id を登録（👍 ワークフローの入口）。
+      if (ts) messageMap.put(channelId, ts, row.id);
       return;
     }
     // セッション非紐付け（chitchat / consultation / 報告 等）はチャンネル直下へ。
     try {
-      await web.chat.postMessage({ channel: channelId, text: `*${author}* [${row.channel}]\n${truncateForSlack(row.text, 12000)}` });
+      const r = await web.chat.postMessage({ channel: channelId, text: `*${author}* [${row.channel}]\n${truncateForSlack(row.text, 12000)}` });
+      if (typeof r.ts === "string") messageMap.put(channelId, r.ts, row.id);
     } catch (e) {
       log.warn(`postMessage(meta) failed message_id=${row.id}: ${(e as Error).message}`);
     }
@@ -255,28 +324,6 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     });
   }
 
-  // title_renamed: セッションの thread root メッセージを新タイトルに更新して Slack 側にも反映。
-  async function reflectTitle(sessionId: string): Promise<void> {
-    const row = threads.findBySessionId(sessionId);
-    if (!row) return;
-    const latest = deps.sessionsRepo.recentEvents(sessionId, 1)[0];
-    let title = "";
-    try {
-      const p = latest ? (JSON.parse(latest.payload) as { text?: unknown }) : {};
-      if (typeof p.text === "string") title = p.text.trim();
-    } catch { /* ignore */ }
-    if (!title) return;
-    try {
-      await web.chat.update({
-        channel: channelId,
-        ts: row.thread_ts,
-        text: `▶ *${truncateForSlack(title, 150)}* — \`${sessionId.slice(0, 8)}\``,
-      });
-    } catch (e) {
-      log.warn(`thread root rename failed session=${sessionId}: ${(e as Error).message}`);
-    }
-  }
-
   const unsubscribe = eventBus.subscribe((ev) => {
     if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
@@ -295,11 +342,20 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));
     } else if (ev.type === "session.event" && ev.kind === "prompt") {
       working.noteProgress(ev.session_id);
-    } else if (ev.type === "session.event" && ev.kind === "title_renamed") {
-      void reflectTitle(ev.session_id).catch((e) => log.warn(`title reflect: ${(e as Error).message}`));
+    } else if (ev.type === "session.event" && (ev.kind === "title_renamed" || ev.kind === "task_update")) {
+      // current_task / title が変わったら親カード（使用AI + 現在の作業内容）を再描画。
+      void renderRootCard(ev.session_id).catch((e) => log.warn(`root card reflect: ${(e as Error).message}`));
+    } else if (ev.type === "persona.assigned") {
+      // persona 割当でカードの「使用AI/担当」表示を更新。
+      void renderRootCard(ev.session_id).catch((e) => log.warn(`root card persona: ${(e as Error).message}`));
+    } else if (ev.type === "report.generated") {
+      // report 確定後にポエムが入るので、終了カードを最終形へ再描画。
+      renderEndedCard(ev.session_id);
     } else if (ev.type === "session.ended") {
       working.clear(ev.session_id);
       threads.setStatus(ev.session_id, "ended");
+      // 終了の瞬間に Done 化（ポエムは report.generated で後追い差し替え）。
+      renderEndedCard(ev.session_id);
     } else if (ev.type === "session.lost") {
       working.clear(ev.session_id);
     }
@@ -386,6 +442,29 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     },
   );
 
+  // ─── reaction_added: リアクションを「指示」として処理に流す（👍=実装着手 等）──
+  // discord/reactions.ts と同じ意味論を Slack に移植。Slack は ts → chat の逆引きが
+  // 無いので slack_message_map で解決し、絵文字名を unicode に正規化してから
+  // platform/reaction-workflow.ts の共通ランナーへ渡す。安全弁 OFF なら無処理。
+  socket.on("reaction_added", async ({ event, ack }: { event: SlackReactionEvent; ack: () => Promise<void> }) => {
+    try { await ack(); } catch {}
+    try {
+      if (!reactionWorkflow) return;
+      if (!event || event.item?.type !== "message") return;
+      if (botUserId && event.user === botUserId) return; // bot 自身のリアクションは無視
+      const ch = event.item.channel;
+      const ts = event.item.ts;
+      if (ch !== channelId || !ts) return;
+      const chatId = messageMap.findChatId(channelId, ts);
+      if (chatId == null) return; // Concordia 投稿でない（= 内部 chat に無い）
+      const emoji = slackReactionToUnicode(event.reaction ?? "");
+      if (!emoji) return; // ワークフロー対象外の絵文字
+      await reactionWorkflow.handle({ chatId, emoji, userId: event.user ?? "" });
+    } catch (e) {
+      log.warn(`reaction_added handler: ${(e as Error).message}`);
+    }
+  });
+
   socket.on("error", (e: Error) => log.warn(`socket error: ${e?.message ?? String(e)}`));
 
   await socket.start();
@@ -451,9 +530,9 @@ async function postChat(deps: SlackBotDeps, text: string, userId: string): Promi
   }
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
+function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; model?: string } {
   if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
+  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; model?: string }; } catch { return {}; }
 }
 
 // ─── Slack イベントの最小型（@slack/* の型に依存しすぎないための薄い shape）──
@@ -472,4 +551,11 @@ interface SlackInteractionBody {
   channel?: { id?: string };
   message?: { ts?: string; thread_ts?: string };
   user?: { id?: string };
+}
+interface SlackReactionEvent {
+  type?: string;
+  user?: string;
+  reaction?: string;
+  item?: { type?: string; channel?: string; ts?: string };
+  item_user?: string;
 }

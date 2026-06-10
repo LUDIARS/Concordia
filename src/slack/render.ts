@@ -11,6 +11,111 @@ export function truncateForSlack(text: string, max = MAX_TEXT): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
+// ─── ライブセッションカード（thread root の本文を状態で書き換える）──────────
+// 親メッセージ自体を「使用 AI / 現在の作業内容 / 状態」の生きたカードにする。
+// active 中は current_task の更新ごとに、終了時は独白ポエム + ✅Done に差し替える。
+// spec/feature/slack-platform.md §ライブセッションカード。
+
+export interface SessionCardState {
+  /** 表示名（persona / role を解決済みの文字列）。 */
+  who: string;
+  /** セッションが使う AI provider（claude-code / codex-cli 等）。 */
+  provider?: string | null;
+  /** metadata 由来の model 名（あれば併記）。 */
+  model?: string | null;
+  /** 現在の作業内容（current_task）。空なら短縮 id を見出しに使う。 */
+  currentTask?: string | null;
+  /** セッション短縮 id（8 桁）。 */
+  shortId: string;
+  /** 'active' = 作業中カード / 'ended' = 終了カード。 */
+  status: "active" | "ended";
+  /** ended 時の独白ポエム（無ければ既定文）。 */
+  poem?: string | null;
+}
+
+/** provider + model を `claude-code (opus)` のような 1 行に整える。 */
+function formatEngine(provider?: string | null, model?: string | null): string {
+  const p = (provider ?? "").trim();
+  const m = (model ?? "").trim();
+  if (p && m) return `${p} · ${m}`;
+  return p || m || "?";
+}
+
+/**
+ * thread root メッセージの本文を組む（純粋）。
+ *  - active: `▶ *<who>* · \`<engine>\`` + 📌 current_task + 返信ヒント
+ *  - ended : `✅ *Done* — *<who>*` + 独白ポエム + 短縮 id
+ */
+export function renderSessionCard(state: SessionCardState): string {
+  const engine = formatEngine(state.provider, state.model);
+  if (state.status === "ended") {
+    const poem = (state.poem ?? "").trim() || "（記録は残った。次のセッションへ。）";
+    return (
+      `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n\n` +
+      `${truncateForSlack(poem, 1500)}`
+    );
+  }
+  const task = (state.currentTask ?? "").trim();
+  const headline = task ? truncateForSlack(task, 200) : state.shortId;
+  return (
+    `▶ *${state.who}* · \`${engine}\`\n` +
+    `📌 ${headline}\n` +
+    `_(このスレッドに返信すると ${state.who} に inject されます)_`
+  );
+}
+
+/**
+ * report の summary_md から「独白」（冒頭 poem 部分）を抽出する。
+ * 3 セクション構造（poem / "---" / 業務報告 / "---" / サマリ）前提で、最初の
+ * "---" より前を返す。失敗したら null。control/end-session-flow.ts の同名 helper と
+ * 同じ意味論（循環 import を避けるため slack 側に純粋関数として持つ）。
+ */
+export function extractMonologue(summaryMd: string | null | undefined): string | null {
+  if (!summaryMd) return null;
+  const sep = summaryMd.indexOf("\n---");
+  if (sep <= 0) return null;
+  const head = summaryMd.slice(0, sep).trim();
+  if (head.length < 10 || head.length > 1500) return null;
+  return head;
+}
+
+// ─── reaction_added 受信用の絵文字正規化 ─────────────────────────────────
+// Slack は reaction を unicode ではなく **絵文字名**（`+1` / `thumbsup` /
+// `white_check_mark` 等、コロン無し、skin-tone は `::skin-tone-2` 接尾）で渡す。
+// platform/reaction-workflow.ts の classifyReactionWorkflow は unicode 文字で照合する
+// ため、ワークフロー対象の名前だけ unicode に写像してから渡す。対象外は null。
+const SLACK_REACTION_UNICODE: Record<string, string> = {
+  // start-impl（👍 系）
+  "+1": "👍",
+  thumbsup: "👍",
+  ok: "🆗",
+  // repo-memory-good（😄 系）
+  smile: "😄",
+  smiley: "😄",
+  grinning: "😀",
+  smiley_cat: "😺",
+  // memoria-note（👀）
+  eyes: "👀",
+  // memoria-task（📝 / ✅ 系）
+  memo: "📝",
+  pencil: "📝",
+  pencil2: "✏️",
+  white_check_mark: "✅",
+  heavy_check_mark: "✔️",
+  ballot_box_with_check: "☑️",
+  // repo-memory-bad（😡 / 👎 系）
+  rage: "😡",
+  angry: "😠",
+  "-1": "👎",
+  thumbsdown: "👎",
+};
+
+/** Slack 絵文字名 → unicode（ワークフロー対象のみ）。skin-tone 接尾は除去。対象外は null。 */
+export function slackReactionToUnicode(name: string): string | null {
+  const base = (name ?? "").trim().split("::")[0];
+  return SLACK_REACTION_UNICODE[base] ?? null;
+}
+
 /**
  * transcript.frame を Slack に中継すべきか判定し、本文を抽出する。
  * discord/egress.ts と同じ意味論:

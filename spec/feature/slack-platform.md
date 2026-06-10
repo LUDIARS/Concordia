@@ -63,6 +63,30 @@ Slack 由来 chat を Slack に再投稿しない（Discord egress の `source="
   `question.resolved`（ローカル回答 → Lictor 通知）受信時に `chat.update` でボタン除去。
   再起動で map が消えても Concordia 側 `markResolvedLocally` で再クリックは弾かれる。
 
+## v0.4 追加（2026-06-10）— ライブセッションカード + 👍 リアクション制御
+
+### ライブセッションカード（thread root を生きた状態カードにする）
+thread root メッセージ（= セッション = 投稿）の本文を、セッション状態で**書き換える**。
+- **active**: `▶ *<persona/role>* · \`<provider · model>\`` + `📌 <current_task>` + 返信ヒント。
+- 再描画トリガ: `persona.assigned`（担当確定）/ `session.event` kind `task_update`・`title_renamed`
+  （現在の作業内容が変わった）。`chat.update(thread_ts)` で同一メッセージを更新。
+- **ended**: `session.ended` で即 `✅ *Done* — <who>` 化、`report.generated` で report 冒頭の
+  **独白ポエム**（`extractMonologue`）を後追いで差し替え。report が無くても既定文で Done 化。
+- 進捗の細粒度表示は従来通り thread 最下部の「🔄 作業中…」(working-indicator) が担い、
+  root カードは「使用 AI / 現在の作業 / 完了」の俯瞰に専念（更新頻度を抑え rate-limit 回避）。
+- レンダリングは純粋関数 `renderSessionCard(state)` / `extractMonologue()`（`src/slack/render.ts`）。
+  state は `buildCardState(sessionId, status)` が session 行 + persona から組む。
+
+### 👍 リアクション制御（reaction-workflow の Slack 移植）
+運用チャンネルの Concordia 投稿に付いた**リアクションを「指示」**として処理に流す。
+意味論は Discord と共通（[`reaction-workflow.md`](./reaction-workflow.md)）。👍/🆗=実装着手、
+📝/✅=タスク登録、👀=メモ、😄/😡=作業メモリ記録。
+- `reaction_added`（Socket Mode）→ `slack_message_map` で `(channel_id, ts)` → `chat_messages.id`
+  逆引き → `slackReactionToUnicode()` で絵文字名を unicode 化 → 共通ランナー `ReactionWorkflowRunner`。
+- `slack_message_map` は egress（`chat.posted` 投稿成功時）に `ts → chat_messages.id` を記録。
+- 安全弁 `CONCORDIA_REACTION_WORKFLOW=1` の時だけ処理（Discord と共有の env）。OFF なら無処理。
+- スコープ追加: `reactions:read` + bot event `reaction_added`（[`../setup/slack.md`](../setup/slack.md) の manifest 参照）。
+
 ## 非対象（設計上やらない / 必要時に別途）
 - **per-session チャンネル自動作成**: thread-per-session で routing 要件は充足済。Slack に
   channel を乱立させると workspace を汚し `conversations.create`/招待スコープも要るため見送り。

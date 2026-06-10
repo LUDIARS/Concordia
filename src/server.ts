@@ -259,6 +259,9 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionsRepo: repo,
     personasRepo: personas,
     concordiaUrl: publicUrl,
+    // リアクションワークフロー (👍 → 実装着手 等): Discord と同じ安全弁 + ワークスペースルート。
+    workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };

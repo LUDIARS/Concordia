@@ -19,7 +19,7 @@ import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import { ReactionWorkflowRunner } from "./reaction-workflow.js";
+import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 import {
   onSessionRegistered,

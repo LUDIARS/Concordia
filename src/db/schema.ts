@@ -590,6 +590,17 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_slack_session_threads_thread
      ON slack_session_threads(channel_id, thread_ts)`,
 
+  // Slack message ts → chat_messages.id の解決表 (discord_message_map と対の構成)。
+  // egress で Concordia 投稿の ts を記録し、reaction_added 受信時に元 chat を逆引きして
+  // リアクションワークフロー (👍 → 実装着手 等) に流す。spec/feature/reaction-workflow.md。
+  `CREATE TABLE IF NOT EXISTS slack_message_map (
+    channel_id      TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    chat_message_id INTEGER NOT NULL,
+    recorded_at     INTEGER NOT NULL,
+    PRIMARY KEY (channel_id, ts)
+  )`,
+
   // Slack 連携設定をサービス内 (DB) で持つための key/value。discord_config と対の構成。
   // env (CONCORDIA_SLACK_*) は初期 bootstrap / フォールバックに残し、DB 値が優先。
   // ★ token (bot/app) は secret-box で暗号化した値を bot_token_enc / app_token_enc に保存し、

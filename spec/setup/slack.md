@@ -61,14 +61,15 @@ curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
 
 1. **Create New App → From scratch**(名前 + ワークスペース選択)。
 2. **OAuth & Permissions → Bot Token Scopes** に付与:
-   - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 (`chat.postMessage/update/delete`)
+   - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 / ライブカード更新 (`chat.postMessage/update/delete`)
    - `channels:history` — 公開チャンネルの発言受信(ingress = thread 返信 → inject)
+   - `reactions:read` — リアクション受信(👍=実装着手 等のリアクション制御)
    - `commands` — `/concordia` slash コマンド
    - ※プライベートチャンネル運用なら `channels:history` の代わりに `groups:history`
 3. **Socket Mode → Enable**。**Basic Information → App-Level Tokens** で
    `connections:write` スコープのトークンを発行 → `xapp-…`(= `CONCORDIA_SLACK_APP_TOKEN`)。
 4. **Event Subscriptions → Enable** → **Subscribe to bot events** に `message.channels`
-   を追加(プライベートなら `message.groups`)。Socket Mode なので Request URL は不要。
+   と `reaction_added` を追加(プライベートなら `message.groups`)。Socket Mode なので Request URL は不要。
 5. **Interactivity & Shortcuts → Enable**(質問ボタン用)。Request URL は不要。
 6. **Slash Commands → Create New Command** で `/concordia` を 1 個登録(Request URL 不要)。
    これ 1 個で `stat / prs / spawn / end / help` のサブコマンドを捌く。
@@ -99,12 +100,14 @@ oauth_config:
       - chat:write
       - channels:history
       - channels:read
+      - reactions:read        # 👍=実装着手 等のリアクション制御
       - commands
       # プライベートチャンネル運用なら channels:history を groups:history に置換
 settings:
   event_subscriptions:
     bot_events:
       - message.channels      # プライベートなら message.groups
+      - reaction_added        # リアクション制御の入口
   interactivity:
     is_enabled: true
   socket_mode_enabled: true
@@ -150,7 +153,12 @@ Slack platform connected (channel=C…, bot=U…)
 
 - **セッション出力**: 運用チャンネル内に session ごとの thread が立ち、AI 応答が流れる。
   作業中は thread 最下部に「🔄 作業中…」(進捗で消えて落ち着くと再掲、idle で除去)。
+- **スレッド親 = ライブカード**: thread root は「使用 AI / 現在の作業内容」を表示し続け、
+  作業が進むと更新される。セッション終了で `✅ Done` + サマリーポエムに差し替わる。
 - **指示を送る**: そのセッションの **thread に返信** → inject。
+- **👍 リアクションで指示**(`CONCORDIA_REACTION_WORKFLOW=1` の時): Concordia の投稿に
+  リアクションを付けると処理が走る。👍/🆗=提案をそのまま実装着手、📝/✅=タスク登録、
+  👀=メモ、😄/😡=作業メモリ記録。詳細は [`spec/feature/reaction-workflow.md`](../feature/reaction-workflow.md)。
 - **チャンネル直下の発言** → `consultation` メタチャットへ。
 - **質問 (AskUserQuestion)**: thread にボタンが出る → 押して回答。ローカル(端末)で
   答えた場合はボタンが自動失効(再クリックは弾かれる)。

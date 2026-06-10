@@ -130,7 +130,7 @@ function RepoCard({ repo }: { repo: RepoStatus }) {
 
 export function Work() {
   const [repos, setRepos] = useState<RepoStatus[] | null>(null);
-  const [root, setRoot] = useState<string>("");
+  const [roots, setRoots] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -139,7 +139,7 @@ export function Work() {
     try {
       const r = await api.workRepos();
       setRepos(r.repos);
-      setRoot(r.root);
+      setRoots(r.roots ?? (r.root ? [r.root] : []));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -158,7 +158,9 @@ export function Work() {
     <div className="max-w-4xl space-y-4">
       <header className="flex items-center gap-3">
         <h1 className="text-xl font-semibold">Work</h1>
-        <span className="text-subtle text-xs font-mono">{root}</span>
+        <span className="text-subtle text-xs font-mono" title={roots.join("\n")}>
+          {roots.length <= 1 ? (roots[0] ?? "") : `${roots[0]} +${roots.length - 1}`}
+        </span>
         <button
           onClick={() => void load()}
           disabled={loading}
@@ -175,7 +177,7 @@ export function Work() {
 
       {repos && repos.length === 0 && (
         <div className="text-subtle text-sm">
-          リポジトリが見つかりません (workspace root: <code>{root || "未設定"}</code>)。
+          リポジトリが見つかりません (workspace roots: <code>{roots.join(", ") || "未設定"}</code>)。
         </div>
       )}
 

@@ -65,12 +65,40 @@ describe("AdminState", () => {
       rules_enabled: true,
       rule_proposer_interval_sec: 120,
       workspace_root: "",
+      workspace_roots: [],
       github_org: "",
       reaction_workflow_enabled: false,
       lictor_mode: "auto",
       lictor_dev_path: "",
       lictor_prod_exe: "",
     });
+  });
+
+  it("workspace roots: multi set / get + primary + dedupe + legacy fallback", () => {
+    // 既定 (config) フォールバック。
+    const withDefaults = new AdminState(env.db, { workspaceRoots: ["E:\\Document\\Ars", "D:\\Other"] });
+    expect(withDefaults.getWorkspaceRoots()).toEqual(["E:\\Document\\Ars", "D:\\Other"]);
+    expect(withDefaults.getWorkspaceRoot()).toBe("E:\\Document\\Ars");
+
+    // 複数設定 + 重複/空除去 (正規化パスで dedup)。
+    env.state.setWorkspaceRoots(["E:\\A", "  ", "E:/A/", "F:\\B"]);
+    expect(env.state.getWorkspaceRoots()).toEqual(["E:\\A", "F:\\B"]);
+    expect(env.state.getWorkspaceRoot()).toBe("E:\\A");
+    // 別インスタンスでも永続値が読める。
+    expect(new AdminState(env.db).getWorkspaceRoots()).toEqual(["E:\\A", "F:\\B"]);
+
+    // 単一 setter は配列キーを [value] に上書き。
+    env.state.setWorkspaceRoot("G:\\Solo");
+    expect(env.state.getWorkspaceRoots()).toEqual(["G:\\Solo"]);
+  });
+
+  it("workspace roots: legacy single key migrates to list", () => {
+    // 旧 UI が書いた single key だけがある DB をシミュレート。
+    env.db.prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`).run(
+      "admin.workspace_root",
+      "E:\\Legacy",
+    );
+    expect(new AdminState(env.db).getWorkspaceRoots()).toEqual(["E:\\Legacy"]);
   });
 
   it("reaction_workflow_enabled defaults from constructor + round-trips", () => {

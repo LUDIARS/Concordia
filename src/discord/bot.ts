@@ -78,6 +78,8 @@ export interface DiscordBotDeps {
   workspaceRoot?: string;
   /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
   resolveWorkspaceRoot?: () => string;
+  /** 複数ワークスペースルートを bot start 時に live 解決する (Memoria は実在ルートを採用)。 */
+  resolveWorkspaceRoots?: () => string[];
   /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
   /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
@@ -128,6 +130,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const reactionWorkflow = new ReactionWorkflowRunner({
     runHeadless: runClaude,
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
+    workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
     customMappings: deps.resolveReactionMappings,
     log,

@@ -59,9 +59,25 @@ export interface ConcordiaConfig {
    * env `CONCORDIA_WORKSPACE_ROOT` 優先、 無ければ spawnDefaultCwd を流用
    * (LUDIARS では E:\Document\Ars)。 空なら Work の repo 一覧は空になる。
    *
+   * 複数ルート (`workspaceRoots`) のうち先頭 (= プライマリ)。 Memoria / Lictor
+   * 等「単一ルートを前提とする」消費者はこの値を流用する。
+   *
    * 実行時は AdminState (schema_meta 永続化 + 設定 GUI) が上書き可能。 ここは既定値。
    */
   workspaceRoot: string;
+  /**
+   * 走査対象のワークスペースルート群 (= ローカルクローン親の集合)。 先頭が
+   * `workspaceRoot` (プライマリ)。 Work ページの repo 走査と Memoria 解決は
+   * このリスト全体を対象にする。
+   *
+   * 解決順:
+   *  1. `workspaceRoot` (= CONCORDIA_WORKSPACE_ROOT / 自動既定) を先頭に置く
+   *  2. env `CONCORDIA_WORKSPACE_ROOTS` (`;` 区切り) を追加ルートとして連結
+   * 正規化パスで重複除去し、 空要素は捨てる。
+   *
+   * 実行時は AdminState (schema_meta 永続化 + 設定 GUI) が上書き可能。 ここは既定値。
+   */
+  workspaceRoots: string[];
   /**
    * リポジトリが属する GitHub Organization (例 "LUDIARS")。 PR / repo 操作の
    * owner 解決や delegation 文脈に使う既定値。 env `CONCORDIA_GITHUB_ORG` 優先、
@@ -72,12 +88,40 @@ export interface ConcordiaConfig {
   githubOrg: string;
 }
 
+/** `;` 区切りの追加ワークスペースルート列を trim + 空除去で配列化 (pure)。 */
+function parseExtraWorkspaceRoots(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(";")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** 正規化パスで重複除去しつつ元の表記を保つ (先頭優先、 空は捨てる) (pure)。 */
+export function dedupeWorkspaceRoots(roots: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of roots) {
+    const t = r.trim();
+    if (!t) continue;
+    const key = t.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 export function loadConfig(env = process.env): ConcordiaConfig {
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd();
   const githubOrg =
     (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
     (autoDetectSpawnDefaultCwd() ? "LUDIARS" : "");
+  const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd;
+  const workspaceRoots = dedupeWorkspaceRoots([
+    workspaceRoot,
+    ...parseExtraWorkspaceRoots(env.CONCORDIA_WORKSPACE_ROOTS),
+  ]);
   return {
     host: env.CONCORDIA_HOST ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? "17330"),
@@ -93,7 +137,8 @@ export function loadConfig(env = process.env): ConcordiaConfig {
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
     spawnDefaultCwd,
-    workspaceRoot: (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd,
+    workspaceRoot,
+    workspaceRoots,
     githubOrg,
   };
 }

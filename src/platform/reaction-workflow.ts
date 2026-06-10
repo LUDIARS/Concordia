@@ -27,6 +27,7 @@
  */
 
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
 import { eventBus } from "../events.js";
 
@@ -375,9 +376,14 @@ export function planWorkflow(
 export interface ReactionWorkflowDeps {
   /** headless 実行関数 (既定 runClaude)。 テストで差し替え可能。 */
   runHeadless: (prompt: string, opts?: RunClaudeOptions) => Promise<ClaudeRunResult>;
-  /** ワークスペースルート (= Memoria 等のローカルクローン親)。 */
+  /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
   workspaceRoot: string;
-  /** Memoria リポの cwd override。 未指定で join(workspaceRoot, "Memoria")。 */
+  /**
+   * 複数ワークスペースルート (走査対象の全ルート)。 Memoria はこのうち実在する
+   * `<root>/Memoria` を採用する。 未指定なら [workspaceRoot] 相当。
+   */
+  workspaceRoots?: string[];
+  /** Memoria リポの cwd override。 未指定なら各ルートから探索 (無ければ先頭ルート/Memoria)。 */
   memoriaPath?: string;
   /**
    * 安全弁。 false の間は handle() が即 return。 関数を渡すと毎回評価するので、
@@ -437,7 +443,17 @@ export class ReactionWorkflowRunner {
   }
 
   private memoriaPath(): string {
-    return this.deps.memoriaPath ?? join(this.deps.workspaceRoot, "Memoria");
+    if (this.deps.memoriaPath) return this.deps.memoriaPath;
+    const roots = this.deps.workspaceRoots?.length
+      ? this.deps.workspaceRoots
+      : [this.deps.workspaceRoot];
+    // 各ルートから実在する <root>/Memoria を採用。 無ければ先頭ルート/Memoria。
+    for (const root of roots) {
+      if (!root) continue;
+      const candidate = join(root, "Memoria");
+      if (existsSync(candidate)) return candidate;
+    }
+    return join(roots[0] || this.deps.workspaceRoot, "Memoria");
   }
 
   /** reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。 */

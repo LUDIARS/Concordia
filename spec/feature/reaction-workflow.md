@@ -110,9 +110,10 @@ error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路�
   `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で
   既定より優先される。
 
-`workspaceRoot` (Memoria 解決の基点) と `github_org` は設定 GUI (Rules ページ / `/v1/admin/*`)
+`workspaceRoots` (Memoria 解決の基点、 複数可) と `github_org` は設定 GUI (Rules ページ / `/v1/admin/*`)
 からも編集できる。 AdminState (`schema_meta` 永続化) が source of truth で、 未設定なら config
-(`CONCORDIA_WORKSPACE_ROOT` / `CONCORDIA_GITHUB_ORG`) 既定にフォールバック。 変更は次の
+(`CONCORDIA_WORKSPACE_ROOT` / `CONCORDIA_WORKSPACE_ROOTS` / `CONCORDIA_GITHUB_ORG`) 既定にフォールバック。
+複数ルートを設定した場合、 Memoria は実在する `<root>/Memoria` を採用する (先頭ルートを優先)。 変更は次の
 Discord/Slack bot start (= restart) で実効値に反映される。 詳細は `spec/setup/config-reference.md`。
 
 ## 4-b. platform 別 ingress（chat 逆引き + 絵文字正規化）

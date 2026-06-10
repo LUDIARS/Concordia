@@ -450,7 +450,7 @@ export const api = {
     scope?: "world" | "local";
   }) =>
     post<{ message: ChatMessage }>("/v1/chat", { session_id: null, ...body }),
-  workRepos: () => get<{ root: string; repos: RepoStatus[] }>("/v1/work/repos"),
+  workRepos: () => get<{ root: string; roots: string[]; repos: RepoStatus[] }>("/v1/work/repos"),
   prsQueue: (repo?: string, author?: string) => {
     const q = new URLSearchParams();
     if (repo) q.set("repo", repo);

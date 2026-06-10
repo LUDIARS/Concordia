@@ -89,6 +89,64 @@ function TextSettingRow(props: {
   );
 }
 
+/** 複数ワークスペースルートを 1 行 1 パスの textarea で編集する行。 先頭行 = プライマリ。 */
+function MultiRootSettingRow(props: {
+  current: string[] | null;
+  busy: boolean;
+  onApply: (roots: string[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  useEffect(() => {
+    if (props.current !== null) setDraft(props.current.join("\n"));
+  }, [props.current]);
+  const parsed = draft.split("\n").map((s) => s.trim()).filter((s) => s.length > 0);
+  const currentJoined = (props.current ?? []).join("\n");
+  return (
+    <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+      <div>
+        <div className="text-sm font-medium">ワークスペースルート (複数可)</div>
+        <div className="text-xs text-subtle mt-0.5">
+          1 行 1 パス。 先頭行がプライマリ (Memoria / Lictor の基点)。 例 <code>E:\Document\Ars</code>。
+          空にすると config (env) 既定に戻る。
+        </div>
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className="text-xs text-subtle shrink-0 pt-1">現在:</span>
+          <div className="flex flex-col gap-0.5">
+            {props.current === null ? (
+              <span className="text-xs text-subtle">...</span>
+            ) : props.current.length === 0 ? (
+              <span className="text-xs text-subtle">(未設定)</span>
+            ) : (
+              props.current.map((r, i) => (
+                <span key={r} className="px-2 py-0.5 rounded text-xs border bg-ok/20 border-ok text-ok font-mono">
+                  {i === 0 ? "★ " : ""}{r}
+                </span>
+              ))
+            )}
+          </div>
+        </div>
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          disabled={props.busy}
+          rows={3}
+          placeholder={"E:\\Document\\Ars\nD:\\Other\\Workspace"}
+          className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-full"
+        />
+        <button
+          disabled={props.busy || parsed.join("\n") === currentJoined}
+          onClick={() => props.onApply(parsed)}
+          className="self-start px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
+        >
+          apply
+        </button>
+      </div>
+    </div>
+  );
+}
+
 async function putJson(path: string, body: unknown): Promise<void> {
   const r = await fetch(path, {
     method: "PUT",
@@ -412,7 +470,7 @@ export function ReactionWorkflowSection() {
 // ─── ワークスペース ( workspace root + GitHub Org) ────────────────────────
 
 export function WorkspaceSection() {
-  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [workspaceRoots, setWorkspaceRoots] = useState<string[] | null>(null);
   const [githubOrg, setGithubOrg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -421,8 +479,10 @@ export function WorkspaceSection() {
 
   async function refresh() {
     try {
-      const s = (await fetch("/v1/admin/state").then((r) => r.json())) as { workspace_root: string; github_org: string };
-      setWorkspaceRoot(s.workspace_root);
+      const s = (await fetch("/v1/admin/state").then((r) => r.json())) as {
+        workspace_roots: string[]; github_org: string;
+      };
+      setWorkspaceRoots(s.workspace_roots ?? []);
       setGithubOrg(s.github_org);
       setError(null);
     } catch (err) { setError((err as Error).message); }
@@ -443,11 +503,9 @@ export function WorkspaceSection() {
           保存は schema_meta 永続化。 リアクションWF の cwd 反映は次の bot 再起動後。
         </p>
       </div>
-      <TextSettingRow
-        label="ワークスペースルート"
-        hint={<>例 <code>E:\Document\Ars</code>。 空で config (env) 既定に戻る。</>}
-        current={workspaceRoot} placeholder="E:\\Document\\Ars" busy={busy === "ws"}
-        onApply={(v) => apply("/v1/admin/workspace-root", { workspace_root: v }, "ws")}
+      <MultiRootSettingRow
+        current={workspaceRoots} busy={busy === "ws"}
+        onApply={(roots) => apply("/v1/admin/workspace-roots", { workspace_roots: roots }, "ws")}
       />
       <TextSettingRow
         label="GitHub Organization"

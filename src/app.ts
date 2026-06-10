@@ -152,7 +152,7 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
-  app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, workspaceRoot: deps.config.workspaceRoot }));
+  app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
   app.route(
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
@@ -393,6 +393,19 @@ export function buildApp(deps: AppDeps): Hono {
     }
     deps.adminState.setWorkspaceRoot(body.workspace_root);
     return c.json({ workspace_root: deps.adminState.getWorkspaceRoot() });
+  });
+
+  // 複数ワークスペースルート (走査対象の全ルート)。 先頭がプライマリ。
+  app.get("/v1/admin/workspace-roots", (c) => {
+    return c.json({ workspace_roots: deps.adminState.getWorkspaceRoots() });
+  });
+  app.put("/v1/admin/workspace-roots", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || !Array.isArray(body.workspace_roots) || body.workspace_roots.some((v: unknown) => typeof v !== "string")) {
+      return c.json({ error: "body.workspace_roots (string[]) required" }, 400);
+    }
+    deps.adminState.setWorkspaceRoots(body.workspace_roots as string[]);
+    return c.json({ workspace_roots: deps.adminState.getWorkspaceRoots() });
   });
 
   app.get("/v1/admin/github-org", (c) => {

@@ -204,6 +204,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
+    workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRootDefault ? [workspaceRootDefault] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
@@ -263,6 +264,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // workspaceRoot は設定 GUI (AdminState) で上書き可能。 bot start のたびに live 値を読む。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
@@ -279,6 +281,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // リアクションワークフロー (👍 → 実装着手 等): Discord と同じ安全弁 + ワークスペースルート。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。

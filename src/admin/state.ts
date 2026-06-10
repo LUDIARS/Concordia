@@ -31,6 +31,7 @@ const KEY_CHAT_MUTED = "admin.chat_muted";
 const KEY_RULES_ENABLED = "admin.rules_enabled";
 const KEY_PROPOSER_INTERVAL = "admin.rule_proposer_interval_sec";
 const KEY_WORKSPACE_ROOT = "admin.workspace_root";
+const KEY_WORKSPACE_ROOTS = "admin.workspace_roots";
 const KEY_GITHUB_ORG = "admin.github_org";
 const KEY_REACTION_WORKFLOW = "admin.reaction_workflow_enabled";
 const KEY_REACTION_MAPPINGS = "admin.reaction_emoji_overrides";
@@ -52,6 +53,8 @@ const PROPOSER_INTERVAL_MAX = 86400;
 /** workspace_root / github_org / reaction_workflow の未設定時フォールバック (config / env 由来)。 */
 export interface AdminStateDefaults {
   workspaceRoot?: string;
+  /** 複数ワークスペースルート既定 (config.workspaceRoots 由来)。 先頭がプライマリ。 */
+  workspaceRoots?: string[];
   githubOrg?: string;
   /** 既定の reaction-workflow ON/OFF (env CONCORDIA_REACTION_WORKFLOW 由来)。 */
   reactionWorkflowEnabled?: boolean;
@@ -97,15 +100,37 @@ export class AdminState {
     this.setRaw(KEY_PROPOSER_INTERVAL, String(clamped));
   }
 
-  /** ローカルクローン親 (reaction-workflow / Work 走査の基点)。 未設定なら config 既定。 */
-  getWorkspaceRoot(): string {
-    const raw = this.getRaw(KEY_WORKSPACE_ROOT);
-    if (raw !== null && raw.trim() !== "") return raw;
-    return this.defaults.workspaceRoot ?? "";
+  /**
+   * 走査対象のワークスペースルート群 (reaction-workflow / Work 走査の基点)。
+   * 解決順: array key (新) → 旧 single key (移行用) → config 既定。
+   * 返り値は trim + 空除去 + 正規化重複除去済。
+   */
+  getWorkspaceRoots(): string[] {
+    const rawArray = this.getRaw(KEY_WORKSPACE_ROOTS);
+    if (rawArray !== null) {
+      const parsed = parseRootsJson(rawArray);
+      const cleaned = cleanRoots(parsed);
+      if (cleaned.length > 0) return cleaned;
+    }
+    // 旧 single key (新 UI で保存する前の DB) からの移行フォールバック。
+    const single = this.getRaw(KEY_WORKSPACE_ROOT);
+    if (single !== null && single.trim() !== "") return [single.trim()];
+    return cleanRoots(this.defaults.workspaceRoots ?? (this.defaults.workspaceRoot ? [this.defaults.workspaceRoot] : []));
   }
 
+  /** プライマリ (先頭) ルート。 単一ルート前提の消費者 (Lictor 等) 用。 未設定なら ""。 */
+  getWorkspaceRoot(): string {
+    return this.getWorkspaceRoots()[0] ?? "";
+  }
+
+  /** 複数ルートを一括設定 (JSON 配列で永続化)。 trim + 空除去 + 重複除去して保存。 */
+  setWorkspaceRoots(values: string[]): void {
+    this.setRaw(KEY_WORKSPACE_ROOTS, JSON.stringify(cleanRoots(values)));
+  }
+
+  /** 単一ルート設定 (後方互換)。 array key を [value] で上書きする。 */
   setWorkspaceRoot(value: string): void {
-    this.setRaw(KEY_WORKSPACE_ROOT, value.trim());
+    this.setWorkspaceRoots(value.trim() ? [value.trim()] : []);
   }
 
   /** リポが属する GitHub Organization (例 "LUDIARS")。 未設定なら config 既定。 */
@@ -203,6 +228,7 @@ export class AdminState {
     rules_enabled: boolean;
     rule_proposer_interval_sec: number;
     workspace_root: string;
+    workspace_roots: string[];
     github_org: string;
     reaction_workflow_enabled: boolean;
     lictor_mode: LictorMode;
@@ -214,6 +240,7 @@ export class AdminState {
       rules_enabled: this.getRulesEnabled(),
       rule_proposer_interval_sec: this.getRuleProposerIntervalSec(),
       workspace_root: this.getWorkspaceRoot(),
+      workspace_roots: this.getWorkspaceRoots(),
       github_org: this.getGithubOrg(),
       reaction_workflow_enabled: this.getReactionWorkflowEnabled(),
       lictor_mode: this.getLictorMode(),
@@ -250,6 +277,32 @@ export class AdminState {
 
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+/** schema_meta に入った JSON 配列文字列を string[] に復元 (壊れた値は [])。 */
+function parseRootsJson(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) return parsed.filter((v): v is string => typeof v === "string");
+  } catch {
+    // 壊れた値は無視。
+  }
+  return [];
+}
+
+/** trim + 空除去 + 正規化パスで重複除去 (先頭優先) (pure)。 */
+function cleanRoots(roots: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of roots) {
+    const t = r.trim();
+    if (!t) continue;
+    const key = t.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
 }
 
 export const ADMIN_PROPOSER_INTERVAL_MIN = PROPOSER_INTERVAL_MIN;

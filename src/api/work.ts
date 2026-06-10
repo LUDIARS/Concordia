@@ -24,22 +24,27 @@ import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TranscriptLogsRepo, TranscriptLogEntry } from "../db/transcript-logs-repo.js";
 import { serializeSession } from "./sessions.js";
-import { scanRepos } from "../work/repo-scan.js";
+import { scanReposMulti } from "../work/repo-scan.js";
 
 export interface WorkApiDeps {
   sessions: SessionsRepo;
   transcriptLogs: TranscriptLogsRepo;
-  /** ローカルクローンを走査する作業ルート (config.workspaceRoot)。 */
-  workspaceRoot: string;
+  /**
+   * ローカルクローンを走査する作業ルート群 (AdminState 由来)。 設定 GUI から
+   * 複数ルートを編集できるよう、 呼び出し毎に live 解決する。
+   */
+  resolveWorkspaceRoots: () => string[];
 }
 
 export function workRouter(deps: WorkApiDeps): Hono {
   const app = new Hono();
 
-  // GET /v1/work/repos — 作業ルート直下の各リポの branch / worktree / session 一覧。
+  // GET /v1/work/repos — 各作業ルート直下の各リポの branch / worktree / session 一覧。
   app.get("/repos", async (c) => {
-    const repos = await scanRepos(deps.workspaceRoot, deps.sessions);
-    return c.json({ root: deps.workspaceRoot, repos });
+    const roots = deps.resolveWorkspaceRoots();
+    const repos = await scanReposMulti(roots, deps.sessions);
+    // root は後方互換のためプライマリ (先頭) を返す。 roots に全ルートを載せる。
+    return c.json({ root: roots[0] ?? "", roots, repos });
   });
 
   app.get("/conversations", (c) => {

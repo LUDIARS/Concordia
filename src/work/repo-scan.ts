@@ -219,3 +219,26 @@ export async function scanRepos(rootDir: string, sessionsRepo: SessionsRepo): Pr
   results.sort(compareByActivity);
   return results;
 }
+
+/**
+ * 複数のワークスペースルートを順に走査してマージした RepoStatus[] を返す。
+ * 正規化パスで重複リポを除去 (先頭ルート優先)、 最後に compareByActivity でソート。
+ */
+export async function scanReposMulti(
+  roots: readonly string[],
+  sessionsRepo: SessionsRepo,
+): Promise<RepoStatus[]> {
+  const seen = new Set<string>();
+  const merged: RepoStatus[] = [];
+  for (const root of roots) {
+    const repos = await scanRepos(root, sessionsRepo);
+    for (const r of repos) {
+      const key = normPath(r.path);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(r);
+    }
+  }
+  merged.sort(compareByActivity);
+  return merged;
+}

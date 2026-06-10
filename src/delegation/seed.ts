@@ -91,12 +91,12 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   },
   {
     call_name: "gemma4-12-impl",
-    title: "ローカル LLM 実装委託 (gemma4-12)",
-    description: "ローカル LLM (gemma4-12 = Ollama 上の Gemma 4 12B、内部は codex CLI を OSS 経由で起動) に実装を委託する。API 課金ゼロ・ローカル完結。長いエージェントループは精度・速度が落ちるので、小さく区切ったタスク向き。",
+    title: "ローカル LLM 実装委託 (gemma4-12 / auto)",
+    description: "ローカル LLM (Famulus 経由、Ollama 上の Gemma 4 等) に実装を委託する。API 課金ゼロ・ローカル完結。model='auto' で対象プロジェクトに合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) が自動選択する。長いエージェントループは精度・速度が落ちるので小さく区切ったタスク向き。",
     target_provider: "gemma4-12",
-    // model は未指定 → resolveDelegationSpawn が既定 gemma4:12b を解決。
-    // 別の Ollama タグ (例 qwen2.5-coder:14b) を使うなら model に設定。
-    model: null,
+    // model="auto" → invoke 時に `famulus select --project <repo basename>` で自動選択
+    // (service.ts / app.ts が resolveLocalModel で解決)。固定したいなら Ollama タグを直書き。
+    model: "auto",
     prompt_template: [
       "Implement the following in ${target_repo}:",
       "",

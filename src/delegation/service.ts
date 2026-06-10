@@ -6,7 +6,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import {
   type DelegationRepo,
   type DelegationProvider,
@@ -17,6 +17,7 @@ import {
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
 import { resolveDelegationSpawn } from "../control/provider-preset.js";
+import { resolveLocalModel } from "../control/famulus-select.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -141,7 +142,7 @@ export class DelegationService {
     return this.deps.promptsDir ?? join(process.cwd(), "delegation-prompts");
   }
 
-  invoke(input: InvokeInput): InvokeResult {
+  async invoke(input: InvokeInput): Promise<InvokeResult> {
     const tpl = this.deps.repo.findTemplateByCallName(input.call_name);
     if (!tpl) return { ok: false, error: `unknown call_name: ${input.call_name}` };
     if (!tpl.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
@@ -155,19 +156,25 @@ export class DelegationService {
       return { ok: false, error: "missing required args", details: render.missing };
     }
     const provider = tpl.target_provider as DelegationProvider;
-    // 論理 provider (gemma4-12 等) → 実 spawn CLI + args に解決 (単一情報源)。
-    // gemma4-12 は内部で codex CLI を `--oss --local-provider ollama --model <既定 gemma4:12b>`
-    // で起動するが、 記録・ログ・プロンプトヘッダ上は論理名 (gemma4-12) のまま残す。
-    const spawn = resolveDelegationSpawn(provider, tpl.model);
-    // cwd 解決: 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
-    // → 3) どちらも無ければ undefined (= wt が user-home で開く)。 旧実装は
-    // template default が `null` 固定だったため (3) ばかりが当たり、 Codex タブが
-    // C:\Users\<user> で起動してプロジェクト外になっていた。
+    // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
+    // 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
+    // → 3) どちらも無ければ undefined (= wt が user-home で開く)。
     let cwd: string | undefined = input.cwd ?? undefined;
     if (!cwd && tpl.default_cwd) {
       const expanded = substituteVars(tpl.default_cwd, input.args ?? {}).trim();
       cwd = expanded === "" ? undefined : expanded;
     }
+    // local-LLM レーン (gemma4-12、旧 gamma) で model="auto" のとき、Famulus の黒箱
+    // 切り替え機にモデルを選ばせる。選択の Sonnet ワンショットは Famulus 内部なので
+    // Concordia は LLM-free を維持 (`famulus select` を shell するだけ)。それ以外は素通し。
+    let modelInput = tpl.model;
+    if (provider === "gemma4-12" && (tpl.model ?? "").trim().toLowerCase() === "auto") {
+      const projectHint = cwd ? basename(cwd) : undefined;
+      modelInput = await resolveLocalModel(tpl.model, { project: projectHint, repo: cwd ?? null });
+      log.info({ call_name: input.call_name, project: projectHint, resolved_model: modelInput }, "famulus auto-model resolved");
+    }
+    // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
+    const spawn = resolveDelegationSpawn(provider, modelInput);
     log.info({
       call_name: input.call_name,
       template_id: tpl.id,

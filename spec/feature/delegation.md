@@ -277,8 +277,26 @@ REPL) を起動する。 **codex CLI は経由しない** (旧 v0.3 は codex �
 
 ### 13.3 seed テンプレ
 
-`gemma4-12-impl`「ローカル LLM 実装委託 (gemma4-12)」 を seed に追加 (`delegation/seed.ts`)。
-target_provider=`gemma4-12` / model=null (既定 gemma4:12b 解決) / default_cwd=`${target_repo}`。
-小さく区切る前提の実装委託プロンプト。 model_catalog にも `gemma4-12 / gemma4:12b` を seed
-(既存 DB は table 非空なら skip なので Settings→Models で追加)。 旧 seed `gamma-impl`
-(target_provider=gamma) は seed 時に deactivate される。
+`gemma4-12-impl`「ローカル LLM 実装委託 (gemma4-12 / auto)」 を seed に追加 (`delegation/seed.ts`)。
+target_provider=`gemma4-12` / **model="auto"** / default_cwd=`${target_repo}`。
+旧 seed `gamma-impl` (target_provider=gamma) は seed 時に deactivate される。
+
+### 13.4 Famulus 連携 + model="auto" (黒箱選択)
+
+実 spawn は `lictor gemma4-12` → Lictor が別リポ **Famulus** (`@ludiars/famulus`) の
+`famulus run` を pty 起動する (ローカル LLM スポナーを切り出した。Lictor 側の repoint 済)。
+
+`model="auto"` のとき、 delegation invoke (`delegation/service.ts`) と admin
+spawn-from-template (`app.ts`) は `resolveLocalModel` (`control/famulus-select.ts`) で
+**`famulus select --project <target_repo の basename>` を shell** し、対象プロジェクトに
+合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) に選ばせる。
+
+- 選択の Sonnet 呼び出しは **Famulus 内部**なので Concordia は LLM-free を維持
+  (Famulus CLI を叩くだけ)。
+- 黒箱は常に model_id を返す (Sonnet 不可でも決定論フォールバック)。失敗時は既定
+  `gemma4:12b`。
+- 「全パターンの delegation テンプレを作らない」 → `model="auto"` の 1 本に集約する設計。
+- 解決済みモデルは `resolveDelegationSpawn` 経由で `LICTOR_LOCAL_MODEL` env として Famulus
+  に渡る。
+
+> 前提: Concordia と同ホストに `famulus` CLI が PATH 解決可能であること (現状 npm link)。

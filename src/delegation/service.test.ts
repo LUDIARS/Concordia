@@ -10,7 +10,7 @@ import { seedPersonas } from "../personas/seeds.js";
 import { DelegationService, renderTemplate, validateArgs } from "./service.js";
 
 describe("renderTemplate", () => {
-  it("substitutes ${var}", () => {
+  it("substitutes ${var}", async () => {
     const r = renderTemplate("Hello ${name}!", { name: "World" }, [
       { name: "name", type: "string", required: true },
     ]);
@@ -18,7 +18,7 @@ describe("renderTemplate", () => {
     expect(r.missing).toEqual([]);
   });
 
-  it("uses ${var:default}", () => {
+  it("uses ${var:default}", async () => {
     const r = renderTemplate("${greet:hi} ${who}", { who: "Ada" }, [
       { name: "greet", type: "string", required: false },
       { name: "who", type: "string", required: true },
@@ -26,7 +26,7 @@ describe("renderTemplate", () => {
     expect(r.rendered).toBe("hi Ada");
   });
 
-  it("reports missing required", () => {
+  it("reports missing required", async () => {
     const r = renderTemplate("${a} ${b}", {}, [
       { name: "a", type: "string", required: true },
       { name: "b", type: "string", required: true },
@@ -34,14 +34,14 @@ describe("renderTemplate", () => {
     expect(r.missing.sort()).toEqual(["a", "b"]);
   });
 
-  it("uses schema default when arg missing", () => {
+  it("uses schema default when arg missing", async () => {
     const r = renderTemplate("${x}", {}, [
       { name: "x", type: "string", required: false, default: "fallback" },
     ]);
     expect(r.rendered).toBe("fallback");
   });
 
-  it("flags unknown vars referenced in template", () => {
+  it("flags unknown vars referenced in template", async () => {
     const r = renderTemplate("${known} ${unknown}", { known: "ok" }, [
       { name: "known", type: "string", required: true },
     ]);
@@ -50,7 +50,7 @@ describe("renderTemplate", () => {
 });
 
 describe("validateArgs", () => {
-  it("accepts well-typed args", () => {
+  it("accepts well-typed args", async () => {
     expect(validateArgs({ s: "x", n: 1, b: true }, [
       { name: "s", type: "string", required: true },
       { name: "n", type: "number", required: true },
@@ -58,7 +58,7 @@ describe("validateArgs", () => {
     ])).toEqual({ ok: true });
   });
 
-  it("flags wrong types", () => {
+  it("flags wrong types", async () => {
     const r = validateArgs({ n: "string-not-number" }, [
       { name: "n", type: "number", required: true },
     ]);
@@ -101,8 +101,8 @@ describe("DelegationService.invoke", () => {
     rmSync(promptsDir, { recursive: true, force: true });
   });
 
-  it("invokes a template, writes prompt file, spawns by default", () => {
-    const r = svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+  it("invokes a template, writes prompt file, spawns by default", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rendered_prompt).toBe("echo hi");
@@ -114,14 +114,14 @@ describe("DelegationService.invoke", () => {
     expect(spawnCalls.length).toBe(1);
   });
 
-  it("file name matches run.id", () => {
-    const r = svc.invoke({ call_name: "echo", args: { msg: "x" } });
+  it("file name matches run.id", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "x" } });
     if (!r.ok) throw new Error("expected ok");
     expect(r.prompt_file_path).toContain(r.run.id);
   });
 
-  it("spawn=false: writes file, records run, does not spawn", () => {
-    const r = svc.invoke({ call_name: "echo", args: { msg: "x" }, spawn: false });
+  it("spawn=false: writes file, records run, does not spawn", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "x" }, spawn: false });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.spawn_pid).toBeNull();
@@ -129,17 +129,17 @@ describe("DelegationService.invoke", () => {
     expect(r.run.status).toBe("pending");
   });
 
-  it("returns error for unknown call_name", () => {
-    const r = svc.invoke({ call_name: "nope", args: {} });
+  it("returns error for unknown call_name", async () => {
+    const r = await svc.invoke({ call_name: "nope", args: {} });
     expect(r.ok).toBe(false);
   });
 
-  it("returns error for missing required args", () => {
-    const r = svc.invoke({ call_name: "echo", args: {} });
+  it("returns error for missing required args", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: {} });
     expect(r.ok).toBe(false);
   });
 
-  it("passes template.model to spawn as --model args", () => {
+  it("passes template.model to spawn as --model args", async () => {
     repo.createTemplate({
       call_name: "with-model",
       title: "With model",
@@ -148,22 +148,22 @@ describe("DelegationService.invoke", () => {
       prompt_template: "do ${x}",
       input_schema: [{ name: "x", type: "string", required: true }],
     });
-    const r = svc.invoke({ call_name: "with-model", args: { x: "y" } });
+    const r = await svc.invoke({ call_name: "with-model", args: { x: "y" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[]; provider: string };
     expect(req.provider).toBe("codex");
     expect(req.args).toEqual(["--model", "gpt-5.5"]);
   });
 
-  it("omits --model args when template has no model", () => {
-    const r = svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+  it("omits --model args when template has no model", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[] };
     expect(req.args).toBeUndefined();
   });
 
-  it("injects Concordia context block even without personas", () => {
-    const r = svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+  it("injects Concordia context block even without personas", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     if (!r.ok) throw new Error("expected ok");
     const file = readFileSync(r.prompt_file_path, "utf8");
     expect(file).toContain("Concordia コンテキスト");
@@ -173,7 +173,7 @@ describe("DelegationService.invoke", () => {
     expect(file).not.toContain("割り当て人格");
   });
 
-  it("injects a persona block + persona name in metadata when personas provided", () => {
+  it("injects a persona block + persona name in metadata when personas provided", async () => {
     const personas = new PersonasRepo(db);
     seedPersonas(personas);
     const withPersona = new DelegationService({
@@ -186,7 +186,7 @@ describe("DelegationService.invoke", () => {
         return { ok: true, pid: 1, command: ["wt.exe", req.provider] };
       },
     });
-    const r = withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
+    const r = await withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
     if (!r.ok) throw new Error("expected ok");
     const file = readFileSync(r.prompt_file_path, "utf8");
     expect(file).toContain("割り当て人格");
@@ -196,13 +196,13 @@ describe("DelegationService.invoke", () => {
     expect(file).not.toContain("- persona: (none)");
   });
 
-  it("records spawn_failed when spawner returns error", () => {
+  it("records spawn_failed when spawner returns error", async () => {
     const failing = new DelegationService({
       repo,
       promptsDir,
       spawn: () => ({ ok: false, error: "wt.exe not found" }),
     });
-    const r = failing.invoke({ call_name: "echo", args: { msg: "x" } });
+    const r = await failing.invoke({ call_name: "echo", args: { msg: "x" } });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.run.status).toBe("spawn_failed");

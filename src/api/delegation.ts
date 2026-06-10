@@ -174,7 +174,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    const result = deps.service.invoke({
+    const result = await deps.service.invoke({
       call_name: parsed.data.call_name,
       args: parsed.data.args,
       cwd: parsed.data.cwd,

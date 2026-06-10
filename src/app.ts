@@ -64,6 +64,8 @@ import {
   type SpawnMode,
 } from "./control/spawner.js";
 import { resolveDelegationSpawn } from "./control/provider-preset.js";
+import { resolveLocalModel } from "./control/famulus-select.js";
+import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
@@ -200,7 +202,7 @@ export function buildApp(deps: AppDeps): Hono {
 
       if (injectPrompt) {
         // prompt 注入あり = delegation invoke 本体に委譲 (render + prompt file + env + run 記録 + --model)。
-        const result = deps.delegationService.invoke({
+        const result = await deps.delegationService.invoke({
           call_name: tpl.call_name,
           args: tplArgs,
           cwd: cwdOverride,
@@ -218,16 +220,22 @@ export function buildApp(deps: AppDeps): Hono {
       }
 
       // prompt 注入なし = provider + model だけ採用した素のセッション。
-      // 論理 provider (gemma4-12 等) → 実 spawn CLI + args に解決 (delegation invoke と同じ写像)。
-      const spawn = resolveDelegationSpawn(tpl.target_provider, tpl.model);
-      // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (delegation invoke
-      // と同じ処理)。展開しないと "${target_repo}" がリテラルのまま wt -d に渡り spawn が落ちる。
-      // 展開後が空 / 未解決 (`${` 残存) なら undefined にして spawnDefaultCwd に委ねる。
+      // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (auto-model の
+      // ヒント用に resolveDelegationSpawn より先に解決)。展開後が空 / 未解決 (`${` 残存) なら
+      // undefined にして spawnDefaultCwd に委ねる。
       let tplCwd: string | undefined = cwdOverride;
       if (!tplCwd && tpl.default_cwd) {
         const expanded = substituteVars(tpl.default_cwd, tplArgs).trim();
         tplCwd = (expanded && !expanded.includes("${")) ? expanded : undefined;
       }
+      // local-LLM レーンで model="auto" なら Famulus 黒箱に選ばせる (delegation invoke と同じ。
+      // 選択 Sonnet は Famulus 内部 = Concordia は LLM-free)。それ以外は素通し。
+      let modelInput = tpl.model;
+      if (tpl.target_provider === "gemma4-12" && (tpl.model ?? "").trim().toLowerCase() === "auto") {
+        modelInput = await resolveLocalModel(tpl.model, { project: tplCwd ? basename(tplCwd) : undefined, repo: tplCwd ?? null });
+      }
+      // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
+      const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
       const result = spawnSession({
         provider: spawn.provider,
         mode,

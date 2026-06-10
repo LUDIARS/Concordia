@@ -98,6 +98,23 @@ features:
       description: 新規セッションを起動 (引数なしでフォーム)
       usage_hint: "[claude|codex] [cwd]"
       should_escape: false
+    - command: /co-stat
+      description: 全セッションの現況
+      should_escape: false
+    - command: /co-prs
+      description: PR キュー
+      should_escape: false
+    - command: /co-end
+      description: セッション終了
+      usage_hint: "<session_id 先頭8桁>"
+      should_escape: false
+    - command: /co-rename
+      description: セッションのやる事を変更
+      usage_hint: "<session_id 先頭8桁> <新タイトル>"
+      should_escape: false
+    - command: /co-help
+      description: Concordia slash のヘルプ
+      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -214,11 +231,13 @@ Slack platform connected (channel=C…, bot=U…)
   答えた場合はボタンが自動失効(再クリックは弾かれる)。
 - **slash**:
   - `/co-spawn` — 新規セッション起動(引数なしで provider/cwd フォーム、引数で即起動)
-  - `/concordia stat` — 全セッション現況
-  - `/concordia prs` — PR キュー
-  - `/concordia spawn <claude|codex> [cwd]` — 新規セッション起動(従来形式)
-  - `/concordia end <session_id 先頭8桁>` — セッション終了
-  - `/concordia help` — ヘルプ
+  - `/co-stat` — 全セッション現況
+  - `/co-prs` — PR キュー
+  - `/co-end <session_id 先頭8桁>` — セッション終了
+  - `/co-rename <session_id 先頭8桁> <新タイトル>` — やる事を変更
+  - `/co-help` — ヘルプ
+  - 従来の `/concordia <sub>`(stat / prs / spawn / end / rename / help)も同じ動作で使える。
+    `/co-<sub>` は同じサブコマンドを独立 slash に分解しただけ(`src/slack/bot.ts` で dispatch)。
 
 ## トラブルシュート
 

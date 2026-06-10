@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseSlashCommand } from "./render.js";
-import { formatStat, formatHelp, runSlackSlash, spawnSession } from "./slash.js";
+import { formatStat, formatHelp, runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 
 describe("runSlackSlash 早期バリデーション (ネットワーク前)", () => {
   const deps = { concordiaUrl: "http://127.0.0.1:1" };
@@ -47,6 +47,22 @@ describe("spawnSession (構造化入力 — slash と custom function 共通)", 
     await spawnSession(deps, "codex", "  ");
     const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
     expect(body).toEqual({ provider: "codex" });
+  });
+});
+
+describe("subFromCoCommand", () => {
+  it("/co-<sub> から sub を取り出す", () => {
+    expect(subFromCoCommand("/co-stat")).toBe("stat");
+    expect(subFromCoCommand("/co-prs")).toBe("prs");
+    expect(subFromCoCommand("/co-spawn")).toBe("spawn");
+    expect(subFromCoCommand("/co-STAT")).toBe("stat"); // sub は小文字化
+  });
+  it("/co- 始まりでなければ null", () => {
+    expect(subFromCoCommand("/concordia")).toBeNull();
+    expect(subFromCoCommand("/cospawn")).toBeNull();
+    expect(subFromCoCommand("")).toBeNull();
+    expect(subFromCoCommand(undefined)).toBeNull();
+    expect(subFromCoCommand("/co-")).toBeNull();
   });
 });
 

@@ -42,6 +42,17 @@ export function formatHelp(): string {
   ].join("\n");
 }
 
+/**
+ * `/co-<sub>` 形式の slash command 名から sub を取り出す（純粋）。
+ * 例: `/co-stat` → `"stat"`、 `/co-prs` → `"prs"`。`/co-` 始まりでなければ null。
+ * これで `/concordia stat` の各サブコマンドを独立 slash (`/co-stat` 等) に分解できる。
+ */
+export function subFromCoCommand(command: string | undefined): string | null {
+  const c = (command ?? "").trim();
+  if (!c.startsWith("/co-")) return null;
+  return c.slice("/co-".length).toLowerCase() || null;
+}
+
 const SPAWN_PROVIDERS = ["claude", "codex"] as const;
 
 /**

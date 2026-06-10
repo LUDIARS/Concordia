@@ -30,7 +30,7 @@ import {
   slackReactionToUnicode,
   type SessionCardState,
 } from "./render.js";
-import { runSlackSlash, spawnSession } from "./slash.js";
+import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
 import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
@@ -465,6 +465,14 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           const parts = args.split(/\s+/).filter(Boolean);
           const resultText = await spawnSession({ concordiaUrl: deps.concordiaUrl }, parts[0], parts.slice(1).join(" "));
           await ack({ response_type: "ephemeral", text: resultText });
+          return;
+        }
+        // `/co-<sub>`（spawn 以外）→ 対応サブコマンドへ dispatch。
+        // 例: `/co-stat` → `stat`、 `/co-end ab12` → `end ab12`。
+        const coSub = subFromCoCommand(body?.command);
+        if (coSub) {
+          const out = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, `${coSub} ${body?.text ?? ""}`.trim());
+          await ack({ response_type: "ephemeral", text: out });
           return;
         }
         const text = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, body?.text ?? "");

@@ -32,7 +32,7 @@ import {
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
-import { ReactionWorkflowRunner, classifyReactionWorkflow, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { ReactionWorkflowRunner, classifyReactionWorkflow, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
@@ -416,16 +416,23 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
             }
           }
           void reactionWorkflow
-            .handle({
-              dedupeKey: `chat:${target.id}`,
-              emoji: wfEmoji,
-              userId: event.user ?? "slack",
-              messageText: target.text,
-              authorLabel: target.author_label,
-              repoPath,
-              sessionActive,
-              sessionId,
-            })
+            .handle(
+              {
+                dedupeKey: `chat:${target.id}`,
+                emoji: wfEmoji,
+                userId: event.user ?? "slack",
+                messageText: target.text,
+                authorLabel: target.author_label,
+                repoPath,
+                sessionActive,
+                sessionId,
+              },
+              (action) => {
+                void web.chat
+                  .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: reactionAckText(action, wfEmoji) })
+                  .catch((e) => log.warn(`emoji workflow ack: ${(e as Error).message}`));
+              },
+            )
             .catch((e) => log.warn(`emoji workflow: ${(e as Error).message}`));
           return;
         }
@@ -592,16 +599,23 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         }
       } catch { /* 本文無しで続行 */ }
 
-      await reactionWorkflow.handle({
-        dedupeKey: `${ch}:${ts}`,
-        emoji,
-        userId: event.user ?? "",
-        messageText,
-        authorLabel,
-        repoPath: null,
-        sessionActive: false,
-        sessionId: null,
-      });
+      await reactionWorkflow.handle(
+        {
+          dedupeKey: `${ch}:${ts}`,
+          emoji,
+          userId: event.user ?? "",
+          messageText,
+          authorLabel,
+          repoPath: null,
+          sessionActive: false,
+          sessionId: null,
+        },
+        (action) => {
+          void web.chat
+            .postMessage({ channel: ch, thread_ts: ts, text: reactionAckText(action, emoji) })
+            .catch((e) => log.warn(`reaction ack: ${(e as Error).message}`));
+        },
+      );
     } catch (e) {
       log.warn(`reaction_added handler: ${(e as Error).message}`);
     }

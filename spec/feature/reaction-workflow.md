@@ -88,8 +88,24 @@ MessageReactionAdd (discord.js)
             ├─ chat_messages から本文 / session_id を引く
             ├─ session から repo_path / active を引く
             ├─ planWorkflow(action, ctx) → {mode, model, cwd, prompt}
+            ├─ onAccept(action)  ← 発火確定の即時フック (slow 処理の前)
             └─ mode=inject ? eventBus.emit(session.inject) : runClaude(prompt, opts)
 ```
+
+### 3-b. 発火の可視化 — 「受付」リプライ
+
+リアクションWF は発火しても結果が見えづらい (inject はセッション側、 headless は 1〜2 分かかる)。
+そこで `handle(input, onAccept?)` に **発火確定フック** `onAccept(action)` を足し、 各 platform が
+**トリガー元メッセージへ「受付」リプライ**を返す (発生の可視化)。
+
+- 文言は共通ヘルパー `reactionAckText(action, emoji)` = 「`<emoji> <WORKFLOW_ACTION_HELP[action].label>`を受け付けました」。
+  例: 🙏 → 「🙏 残作業の洗い出しを受け付けました」。
+- `onAccept` は dedup 通過後・slow な inject/headless の**前**に一度だけ呼ばれるので、 通知は即時。
+  dedup skip / 無効 / 写像外では呼ばれない (= 余計な通知を出さない)。
+- 投稿は best-effort (失敗してもログのみ、 WF 本体は止めない)。 真の ephemeral は interaction 専用で
+  リアクションには使えないため、 通常リプライ (`repliedUser: false` で pingしない) とする。
+- 全トリガー経路で出す: Discord リアクション (`reactions.ts`) / Discord 単発絵文字 (`ingress.ts`) /
+  Slack リアクション・単発絵文字 (`slack/bot.ts`、 `chat.postMessage` の thread 返信)。
 
 ## 4. 安全弁 / 設定
 
@@ -131,7 +147,7 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 
 ## 5. 実装ファイル
 
-- `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）。
+- `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
 - `src/discord/ingress.ts` / `src/slack/bot.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。

@@ -5,7 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { classifyReactionWorkflow, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { classifyReactionWorkflow, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -33,7 +33,9 @@ export interface IngressDeps {
   chatRepo?: ChatRepo;
   messageMap?: DiscordMessageMapRepo;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
-  workflow?: { handle(input: ReactionWorkflowInput): Promise<void> };
+  workflow?: {
+    handle(input: ReactionWorkflowInput, onAccept?: (action: WorkflowAction) => void): Promise<void>;
+  };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
 }
@@ -220,16 +222,24 @@ async function tryEmojiWorkflow(
   }
   deps.log.info(`ingress: emoji "${emoji}" → reaction-workflow chat_messages.id=${chatId} channel=${msg.channelId}`);
   void deps.workflow
-    .handle({
-      dedupeKey: `chat:${chatId}`,
-      emoji,
-      userId: msg.author.id,
-      messageText: target?.text ?? "",
-      authorLabel: target?.author_label ?? "unknown",
-      repoPath,
-      sessionActive,
-      sessionId,
-    })
+    .handle(
+      {
+        dedupeKey: `chat:${chatId}`,
+        emoji,
+        userId: msg.author.id,
+        messageText: target?.text ?? "",
+        authorLabel: target?.author_label ?? "unknown",
+        repoPath,
+        sessionActive,
+        sessionId,
+      },
+      (action) => {
+        // 単発絵文字メッセージ自身へ「受付」リプライを返して発火を可視化する。
+        void msg
+          .reply({ content: reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+          .catch((e) => deps.log.warn(`ingress: emoji ack reply failed: ${(e as Error).message}`));
+      },
+    )
     .catch((e) => deps.log.warn(`ingress: emoji workflow failed: ${(e as Error).message}`));
   return true;
 }

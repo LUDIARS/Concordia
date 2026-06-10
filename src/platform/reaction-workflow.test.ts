@@ -4,10 +4,12 @@ import {
   defaultReactionEmojiMap,
   isWorkflowAction,
   planWorkflow,
+  reactionAckText,
   ReactionWorkflowRunner,
   WORKFLOW_ACTIONS,
   WORKFLOW_ACTION_HELP,
   type ReactionWorkflowInput,
+  type WorkflowAction,
   type WorkflowContext,
 } from "./reaction-workflow.js";
 
@@ -245,5 +247,34 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "🍕" });
     expect(calls).toHaveLength(0);
+  });
+
+  it("発火確定時に onAccept が action 付きで1回だけ呼ばれる", async () => {
+    const { runner } = makeRunner();
+    const accepted: WorkflowAction[] = [];
+    await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" }, (a) => accepted.push(a));
+    expect(accepted).toEqual(["enumerate-remaining"]);
+  });
+
+  it("無効 / 対象外 / dedup-skip では onAccept は呼ばれない", async () => {
+    const accepted: WorkflowAction[] = [];
+    const onAccept = (a: WorkflowAction) => accepted.push(a);
+
+    const disabled = makeRunner({ enabled: false });
+    await disabled.runner.handle({ ...baseInput }, onAccept);
+    expect(accepted).toHaveLength(0); // enabled=false
+
+    const unmapped = makeRunner();
+    await unmapped.runner.handle({ ...baseInput, emoji: "🍕" }, onAccept);
+    expect(accepted).toHaveLength(0); // 写像外
+
+    const dup = makeRunner();
+    await dup.runner.handle({ ...baseInput }, onAccept);
+    await dup.runner.handle({ ...baseInput }, onAccept);
+    expect(accepted).toHaveLength(1); // 2回目は cooldown でスキップ
+  });
+
+  it("reactionAckText は 絵文字 + ラベル + 受付文 を返す", () => {
+    expect(reactionAckText("enumerate-remaining", "🙏")).toBe("🙏 残作業の洗い出しを受け付けました");
   });
 });

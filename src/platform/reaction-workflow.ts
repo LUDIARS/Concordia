@@ -159,6 +159,15 @@ export function classifyReactionWorkflow(
   return null;
 }
 
+/**
+ * 発火時にトリガー元メッセージへ出す「受付」通知の文言。
+ * 例: 「🙏 残作業の洗い出しを受け付けました」。 文言は各 platform で共通。
+ */
+export function reactionAckText(action: WorkflowAction, emoji: string): string {
+  const label = WORKFLOW_ACTION_HELP[action]?.label ?? action;
+  return `${emoji} ${label}を受け付けました`;
+}
+
 /** プロンプト組み立て / 実行手段の決定に渡す文脈。 */
 export interface WorkflowContext {
   /** リアクションされた chat メッセージ本文。 */
@@ -456,8 +465,15 @@ export class ReactionWorkflowRunner {
     return join(roots[0] || this.deps.workspaceRoot, "Memoria");
   }
 
-  /** reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。 */
-  async handle(input: ReactionWorkflowInput): Promise<void> {
+  /**
+   * reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。
+   * `onAccept` は「実際に発火が確定した」直後 (= dedup 通過後、 slow な inject/headless の前) に
+   * 一度だけ呼ばれる。 platform 側が「受付」通知を即時に投稿するためのフック。
+   */
+  async handle(
+    input: ReactionWorkflowInput,
+    onAccept?: (action: WorkflowAction) => void,
+  ): Promise<void> {
     if (!this.isEnabled()) return;
 
     const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
@@ -488,6 +504,15 @@ export class ReactionWorkflowRunner {
       `reaction-workflow: action=${action} mode=${plan.mode} model=${plan.model ?? "-"} ` +
       `cwd=${plan.cwd ?? "-"} dedupeKey=${input.dedupeKey} emoji=${input.emoji}`,
     );
+
+    // 発火確定 → platform 側へ即時通知 (slow な inject/headless を待たせない)。
+    if (onAccept) {
+      try {
+        onAccept(action);
+      } catch (e) {
+        this.deps.log.warn(`reaction-workflow: onAccept failed: ${(e as Error).message}`);
+      }
+    }
 
     try {
       if (plan.mode === "inject") {

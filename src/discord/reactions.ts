@@ -25,7 +25,11 @@ import {
   type DiscordMessageMapRepo,
   type DiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
-import type { ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import {
+  reactionAckText,
+  type ReactionWorkflowInput,
+  type WorkflowAction,
+} from "../platform/reaction-workflow.js";
 
 /** session の作業ディレクトリ / 状態を引く最小インタフェース (SessionsRepo の部分)。 */
 export interface SessionLookup {
@@ -40,7 +44,9 @@ export interface ReactionsDeps {
    * リアクションを「指示」として処理に変換するワークフロー (任意)。
    * message-map に依存せず fire-and-forget で呼ぶ。
    */
-  workflow?: { handle(input: ReactionWorkflowInput): Promise<void> };
+  workflow?: {
+    handle(input: ReactionWorkflowInput, onAccept?: (action: WorkflowAction) => void): Promise<void>;
+  };
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
   sessionChannels?: DiscordSessionChannelsRepo;
   sessions?: SessionLookup;
@@ -89,9 +95,17 @@ export async function handleReactionAdd(
   }
 
   // ワークフロー: message-map に依存せず、 どのメッセージでも発火させる (fire-and-forget)。
+  // 発火が確定したら、 トリガー元メッセージへ「受付」リプライを返して発生を可視化する。
   if (deps.workflow) {
     void deps.workflow
-      .handle({ dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId })
+      .handle(
+        { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
+        (action) => {
+          void message
+            .reply({ content: reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+            .catch((e) => deps.log.info(`reactions: ack reply failed: ${(e as Error).message}`));
+        },
+      )
       .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));
   }
 

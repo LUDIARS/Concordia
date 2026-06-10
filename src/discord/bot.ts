@@ -126,8 +126,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new ReactionWorkflowRunner({
-    chatRepo: deps.chatRepo,
-    sessionsRepo: deps.sessionsRepo,
     runHeadless: runClaude,
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
@@ -363,7 +361,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
-    void handleReactionAdd({ reactionsRepo, messageMap, log, workflow: reactionWorkflow }, reaction, user).catch((e) => {
+    void handleReactionAdd(
+      { reactionsRepo, messageMap, log, workflow: reactionWorkflow, sessionChannels: sessionChannelsRepo, sessions: deps.sessionsRepo },
+      reaction,
+      user,
+    ).catch((e) => {
       log.warn(`reaction add handler failed: ${(e as Error).message}`);
     });
   });

@@ -1,14 +1,21 @@
-// Discord MessageReactionAdd / Remove → chat_message_reactions に記録.
+// Discord MessageReactionAdd / Remove → chat_message_reactions 記録 + リアクションWF発火.
 //
-// 解決経路:
-//   Discord message_id → discord_message_map → chat_messages.id
-//   emoji の文字列 → fine / bad / raw:<emoji>
+// 設計 (2026-06-10 改訂):
+//   - リアクションWF は「どのメッセージに付いても発火」する。 メッセージ本文は
+//     プラットフォーム API (reaction.message) から直接取得し、 discord_message_map /
+//     chat_messages には依存しない。
+//   - session/リポ文脈は channelId → discord_session_channels → session で逆引きする
+//     (メッセージが内部 chat_messages に無くても文脈が取れる)。
+//   - chat_message_reactions への fine/bad 記録は従来通り、 Concordia 投稿に紐づく
+//     (= message-map に在る) ものだけ記録する。
 //
 // 自分の bot が付けたリアクション (起動時の guidance 用等) は無視する.
 
 import type {
   MessageReaction,
   PartialMessageReaction,
+  Message,
+  PartialMessage,
   User,
   PartialUser,
 } from "discord.js";
@@ -16,17 +23,27 @@ import {
   classifyEmoji,
   type ChatMessageReactionsRepo,
   type DiscordMessageMapRepo,
+  type DiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
+import type { ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+
+/** session の作業ディレクトリ / 状態を引く最小インタフェース (SessionsRepo の部分)。 */
+export interface SessionLookup {
+  findSession(sessionId: string): { repo_path: string; status: string } | null;
+}
 
 export interface ReactionsDeps {
   reactionsRepo: ChatMessageReactionsRepo;
   messageMap: DiscordMessageMapRepo;
   log: { info: (m: string) => void };
   /**
-   * リアクションを「指示」として処理に変換するワークフロー (任意)。 記録後に
-   * fire-and-forget で呼ぶ。 未注入 (= deps に無い) なら従来通り記録のみ。
+   * リアクションを「指示」として処理に変換するワークフロー (任意)。
+   * message-map に依存せず fire-and-forget で呼ぶ。
    */
-  workflow?: { handle(input: { chatId: number; emoji: string; userId: string }): Promise<void> };
+  workflow?: { handle(input: ReactionWorkflowInput): Promise<void> };
+  /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
+  sessionChannels?: DiscordSessionChannelsRepo;
+  sessions?: SessionLookup;
 }
 
 export async function handleReactionAdd(
@@ -44,23 +61,46 @@ export async function handleReactionAdd(
   const emoji = r.emoji.name ?? r.emoji.toString();
   if (!emoji) return;
 
-  const discordMessageId = r.message.id;
-  const chatId = deps.messageMap.findChatId(discordMessageId);
-  if (chatId == null) return;        // bot 投稿でない (= 内部 chat_messages に無い) 場合は記録しない
+  // メッセージ本文をプラットフォームから取得 (partial なら fetch)。 取れなくても
+  // 残作業系 WF は本文不要なので続行する。
+  let message: Message<boolean> | PartialMessage = r.message;
+  if (message.partial) {
+    try { message = await message.fetch(); } catch { /* 本文無しで続行 */ }
+  }
+  const discordMessageId = message.id;
+  const messageText = message.content ?? "";
+  const authorLabel = message.author?.username ?? "unknown";
+  const channelId = message.channelId;
 
-  const kind = classifyEmoji(emoji);
-  deps.reactionsRepo.add({
-    message_id: chatId,
-    discord_user_id: user.id,
-    kind,
-  });
-  deps.log.info(`reactions: ${user.id} reacted ${kind} on chat_messages.id=${chatId}`);
+  // channelId → session 解決 (chat_messages に無くても文脈が取れる)。
+  let repoPath: string | null = null;
+  let sessionActive = false;
+  let sessionId: string | null = null;
+  if (channelId && deps.sessionChannels && deps.sessions) {
+    const sc = deps.sessionChannels.findByChannelId(channelId);
+    if (sc) {
+      sessionId = sc.session_id;
+      const s = deps.sessions.findSession(sc.session_id);
+      if (s) {
+        repoPath = s.repo_path;
+        sessionActive = s.status === "active";
+      }
+    }
+  }
 
-  // 記録とは独立に、 リアクションを「指示」としてワークフローに流す (fire-and-forget)。
+  // ワークフロー: message-map に依存せず、 どのメッセージでも発火させる (fire-and-forget)。
   if (deps.workflow) {
     void deps.workflow
-      .handle({ chatId, emoji, userId: user.id })
+      .handle({ dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId })
       .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));
+  }
+
+  // chat_message_reactions 記録: Concordia 投稿 (= message-map に在る) ものだけ。
+  const chatId = deps.messageMap.findChatId(discordMessageId);
+  if (chatId != null) {
+    const kind = classifyEmoji(emoji);
+    deps.reactionsRepo.add({ message_id: chatId, discord_user_id: user.id, kind });
+    deps.log.info(`reactions: ${user.id} reacted ${kind} on chat_messages.id=${chatId}`);
   }
 }
 

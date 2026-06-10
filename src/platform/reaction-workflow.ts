@@ -27,8 +27,6 @@
  */
 
 import { join } from "node:path";
-import type { ChatRepo, ChatMessageRow } from "../db/chat-repo.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
 import { eventBus } from "../events.js";
 
@@ -375,8 +373,6 @@ export function planWorkflow(
 // ─── Runner ──────────────────────────────────────────────────────────────
 
 export interface ReactionWorkflowDeps {
-  chatRepo: ChatRepo;
-  sessionsRepo: SessionsRepo;
   /** headless 実行関数 (既定 runClaude)。 テストで差し替え可能。 */
   runHeadless: (prompt: string, opts?: RunClaudeOptions) => Promise<ClaudeRunResult>;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 */
@@ -399,16 +395,31 @@ export interface ReactionWorkflowDeps {
   now?: () => number;
 }
 
+/**
+ * リアクションWF の入力。 呼び出し側 (Discord/Slack の bot) が、 リアクションされた
+ * メッセージ本文と文脈をプラットフォーム API から解決して渡す。
+ * chat_messages / message-map には依存しない (= どのメッセージに付いても発火する)。
+ */
 export interface ReactionWorkflowInput {
-  /** chat_messages.id (reactions.ts が逆引き済)。 */
-  chatId: number;
-  /** Discord 絵文字文字列 (reaction.emoji.name)。 */
+  /** 再発火抑制の安定キー (プラットフォームの message id)。 */
+  dedupeKey: string;
+  /** リアクション絵文字 (unicode)。 */
   emoji: string;
-  /** リアクションを付けた Discord user id。 */
+  /** リアクションを付けたユーザ id。 */
   userId: string;
+  /** 対象メッセージ本文 (プラットフォーム API から取得)。 残作業系は未使用なので空でも可。 */
+  messageText: string;
+  /** メッセージ投稿者の表示名。 */
+  authorLabel: string;
+  /** 対象メッセージのチャンネルに紐づく session の作業ディレクトリ。 無ければ null。 */
+  repoPath: string | null;
+  /** その session が active か (inject 可否)。 */
+  sessionActive: boolean;
+  /** inject 先 session id。 session チャンネルでなければ null。 */
+  sessionId: string | null;
 }
 
-/** 同一 (chatId, emoji, userId) の再発火を抑える cooldown。 */
+/** 同一 (dedupeKey, emoji, userId) の再発火を抑える cooldown。 */
 const DEDUPE_SEC = 5 * 60;
 
 export class ReactionWorkflowRunner {
@@ -436,7 +447,7 @@ export class ReactionWorkflowRunner {
     const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
     if (!action) return; // ワークフロー対象外の絵文字
 
-    const key = `${input.chatId}|${input.emoji}|${input.userId}`;
+    const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
     const now = this.nowSec();
     const last = this.lastFired.get(key);
     if (last !== undefined && now - last < DEDUPE_SEC) {
@@ -445,49 +456,32 @@ export class ReactionWorkflowRunner {
     }
     this.lastFired.set(key, now);
 
-    const msg = this.deps.chatRepo.findById(input.chatId);
-    if (!msg) {
-      this.deps.log.warn(`reaction-workflow: chat_messages.id=${input.chatId} not found`);
-      return;
-    }
-
-    const ctx = this.buildContext(msg, input.userId);
+    // 文脈は呼び出し側 (Discord/Slack bot) がプラットフォーム API で解決済。
+    // chat_messages / message-map には依存しない。
+    const ctx: WorkflowContext = {
+      messageText: input.messageText,
+      authorLabel: input.authorLabel,
+      repoPath: input.repoPath,
+      sessionActive: input.sessionActive,
+      memoriaPath: this.memoriaPath(),
+      reactorId: input.userId,
+    };
     const plan = planWorkflow(action, ctx, this.deps.models ?? DEFAULT_WORKFLOW_MODELS);
 
     this.deps.log.info(
       `reaction-workflow: action=${action} mode=${plan.mode} model=${plan.model ?? "-"} ` +
-      `cwd=${plan.cwd ?? "-"} chatId=${input.chatId} emoji=${input.emoji}`,
+      `cwd=${plan.cwd ?? "-"} dedupeKey=${input.dedupeKey} emoji=${input.emoji}`,
     );
 
     try {
       if (plan.mode === "inject") {
-        this.inject(msg.session_id, plan.prompt, action);
+        this.inject(input.sessionId, plan.prompt, action);
       } else {
         await this.runHeadless(plan);
       }
     } catch (e) {
       this.deps.log.warn(`reaction-workflow: action=${action} failed: ${(e as Error).message}`);
     }
-  }
-
-  private buildContext(msg: ChatMessageRow, reactorId: string): WorkflowContext {
-    let repoPath: string | null = null;
-    let sessionActive = false;
-    if (msg.session_id) {
-      const s = this.deps.sessionsRepo.findSession(msg.session_id);
-      if (s) {
-        repoPath = s.repo_path;
-        sessionActive = s.status === "active";
-      }
-    }
-    return {
-      messageText: msg.text,
-      authorLabel: msg.author_label,
-      repoPath,
-      sessionActive,
-      memoriaPath: this.memoriaPath(),
-      reactorId,
-    };
   }
 
   private inject(targetSessionId: string | null, text: string, action: WorkflowAction): void {

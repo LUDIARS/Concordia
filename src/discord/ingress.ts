@@ -5,7 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { classifyReactionWorkflow, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { classifyReactionWorkflow, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -33,7 +33,7 @@ export interface IngressDeps {
   chatRepo?: ChatRepo;
   messageMap?: DiscordMessageMapRepo;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
-  workflow?: { handle(input: { chatId: number; emoji: string; userId: string }): Promise<void> };
+  workflow?: { handle(input: ReactionWorkflowInput): Promise<void> };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
 }
@@ -204,9 +204,32 @@ async function tryEmojiWorkflow(
     deps.log.info(`ingress: emoji "${emoji}" but no target message found channel=${msg.channelId}`);
     return false;
   }
+  // 対象 chat_messages から本文 / session 文脈を解決して runner へ渡す
+  // (runner は chat_messages 非依存になったため、 ここで取り出す)。
+  const target = deps.chatRepo?.findById(chatId) ?? null;
+  let repoPath: string | null = null;
+  let sessionActive = false;
+  let sessionId: string | null = null;
+  if (target?.session_id) {
+    sessionId = target.session_id;
+    const s = deps.sessionsRepo.findSession(target.session_id);
+    if (s) {
+      repoPath = s.repo_path;
+      sessionActive = s.status === "active";
+    }
+  }
   deps.log.info(`ingress: emoji "${emoji}" → reaction-workflow chat_messages.id=${chatId} channel=${msg.channelId}`);
   void deps.workflow
-    .handle({ chatId, emoji, userId: msg.author.id })
+    .handle({
+      dedupeKey: `chat:${chatId}`,
+      emoji,
+      userId: msg.author.id,
+      messageText: target?.text ?? "",
+      authorLabel: target?.author_label ?? "unknown",
+      repoPath,
+      sessionActive,
+      sessionId,
+    })
     .catch((e) => deps.log.warn(`ingress: emoji workflow failed: ${(e as Error).message}`));
   return true;
 }

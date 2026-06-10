@@ -4,8 +4,10 @@ import {
   defaultReactionEmojiMap,
   isWorkflowAction,
   planWorkflow,
+  ReactionWorkflowRunner,
   WORKFLOW_ACTIONS,
   WORKFLOW_ACTION_HELP,
+  type ReactionWorkflowInput,
   type WorkflowContext,
 } from "./reaction-workflow.js";
 
@@ -178,5 +180,70 @@ describe("planWorkflow", () => {
   it("honors custom model overrides", () => {
     const plan = planWorkflow("memoria-task", baseCtx, { haiku: "h", sonnet: "claude-sonnet-4-6" });
     expect(plan.model).toBe("claude-sonnet-4-6");
+  });
+});
+
+describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
+  function makeRunner(over: Record<string, unknown> = {}) {
+    const calls: { prompt: string; opts?: { cwd?: string; model?: string } }[] = [];
+    const runHeadless = async (prompt: string, opts?: { cwd?: string; model?: string }) => {
+      calls.push({ prompt, opts });
+      return { ok: true, exit_code: 0, stdout: "", stderr: "", duration_ms: 1 };
+    };
+    const runner = new ReactionWorkflowRunner({
+      runHeadless,
+      workspaceRoot: "E:/Document/Ars",
+      memoriaPath: "E:/Document/Ars/Memoria",
+      enabled: true,
+      log: { info: () => {}, warn: () => {} },
+      now: () => 1_000_000,
+      ...over,
+    });
+    return { runner, calls };
+  }
+
+  const baseInput: ReactionWorkflowInput = {
+    dedupeKey: "m1",
+    emoji: "👀",
+    userId: "u1",
+    messageText: "これメモして",
+    authorLabel: "設計担当",
+    repoPath: "E:/Document/Ars/KuzuSurvivors",
+    sessionActive: false,
+    sessionId: null,
+  };
+
+  it("memoria-note(👀) は headless で memoriaPath を cwd に走り、本文を渡す", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "👀" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/Memoria");
+    expect(calls[0].prompt).toContain("これメモして");
+  });
+
+  it("残作業系(🙏)は本文が空でも発火する (headless / repoPath を cwd に)", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/KuzuSurvivors");
+  });
+
+  it("無効 (enabled=false) なら何もしない", async () => {
+    const { runner, calls } = makeRunner({ enabled: false });
+    await runner.handle({ ...baseInput });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("同一 dedupeKey+emoji+userId は cooldown 内で1回だけ発火", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput });
+    await runner.handle({ ...baseInput });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("ワークフロー対象外の絵文字は無処理", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "🍕" });
+    expect(calls).toHaveLength(0);
   });
 });

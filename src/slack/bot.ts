@@ -101,8 +101,6 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
   // (設定 GUI トグルを bot 再起動なしで反映)。
   const reactionWorkflow = new ReactionWorkflowRunner({
-    chatRepo: deps.chatRepo,
-    sessionsRepo: deps.sessionsRepo,
     runHeadless: runClaude,
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
@@ -393,16 +391,38 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
-        let chatId: number | null = null;
+        let target: { id: number; text: string; author_label: string; session_id: string | null } | null = null;
         if (event.thread_ts && event.thread_ts !== event.ts) {
           const row = threads.findByThreadTs(channelId, event.thread_ts);
-          if (row) chatId = deps.chatRepo.latestForSession(row.session_id)?.id ?? null;
+          if (row) target = deps.chatRepo.latestForSession(row.session_id) ?? null;
         } else {
-          chatId = deps.chatRepo.list({ channel: "consultation", limit: 1 })[0]?.id ?? null;
+          target = deps.chatRepo.list({ channel: "consultation", limit: 1 })[0] ?? null;
         }
-        if (chatId != null) {
+        if (target != null) {
+          // 対象 chat_messages から本文 / session 文脈を解決して runner へ渡す
+          // (runner は chat_messages 非依存になったため、 ここで取り出す)。
+          let repoPath: string | null = null;
+          let sessionActive = false;
+          let sessionId: string | null = null;
+          if (target.session_id) {
+            sessionId = target.session_id;
+            const s = deps.sessionsRepo.findSession(target.session_id);
+            if (s) {
+              repoPath = s.repo_path;
+              sessionActive = s.status === "active";
+            }
+          }
           void reactionWorkflow
-            .handle({ chatId, emoji: wfEmoji, userId: event.user ?? "slack" })
+            .handle({
+              dedupeKey: `chat:${target.id}`,
+              emoji: wfEmoji,
+              userId: event.user ?? "slack",
+              messageText: target.text,
+              authorLabel: target.author_label,
+              repoPath,
+              sessionActive,
+              sessionId,
+            })
             .catch((e) => log.warn(`emoji workflow: ${(e as Error).message}`));
           return;
         }
@@ -542,9 +562,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   );
 
   // ─── reaction_added: リアクションを「指示」として処理に流す（👍=実装着手 等）──
-  // discord/reactions.ts と同じ意味論を Slack に移植。Slack は ts → chat の逆引きが
-  // 無いので slack_message_map で解決し、絵文字名を unicode に正規化してから
-  // platform/reaction-workflow.ts の共通ランナーへ渡す。安全弁 OFF なら無処理。
+  // 2026-06-10 改訂: chat_messages / message-map には依存せず、 リアクション対象
+  // メッセージ本文を Slack API (conversations.history) から直接取得して解釈する。
+  // → どのメッセージに付いても発火する。 安全弁 OFF なら無処理。
   socket.on("reaction_added", async ({ event, ack }: { event: SlackReactionEvent; ack: () => Promise<void> }) => {
     try { await ack(); } catch {}
     try {
@@ -554,11 +574,31 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       const ch = event.item.channel;
       const ts = event.item.ts;
       if (ch !== channelId || !ts) return;
-      const chatId = messageMap.findChatId(channelId, ts);
-      if (chatId == null) return; // Concordia 投稿でない（= 内部 chat に無い）
       const emoji = slackReactionToUnicode(event.reaction ?? "");
       if (!emoji) return; // ワークフロー対象外の絵文字
-      await reactionWorkflow.handle({ chatId, emoji, userId: event.user ?? "" });
+
+      // メッセージ本文を Slack API から直接取得 (取れなくても残作業系は本文不要で続行)。
+      let messageText = "";
+      let authorLabel = event.user ?? "unknown";
+      try {
+        const hist = await web.conversations.history({ channel: ch, latest: ts, oldest: ts, inclusive: true, limit: 1 });
+        const m = hist.messages?.[0] as { text?: string; user?: string } | undefined;
+        if (m) {
+          messageText = m.text ?? "";
+          if (m.user) authorLabel = m.user;
+        }
+      } catch { /* 本文無しで続行 */ }
+
+      await reactionWorkflow.handle({
+        dedupeKey: `${ch}:${ts}`,
+        emoji,
+        userId: event.user ?? "",
+        messageText,
+        authorLabel,
+        repoPath: null,
+        sessionActive: false,
+        sessionId: null,
+      });
     } catch (e) {
       log.warn(`reaction_added handler: ${(e as Error).message}`);
     }

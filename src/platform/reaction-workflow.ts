@@ -340,8 +340,8 @@ export function planWorkflow(
       const prompt =
         head +
         `\n📓 これは「メモに残しておきたいメッセージ」として共有されました。\n` +
-        `内容を解析し、 **Memoria にメモとして記録**してください (Memoria のメモ/ノート機能 or 相応の relay 経路)。\n` +
-        `- メッセージの要点 / 後で見返すべき内容を 1〜3 行に要約してメモ化する。\n` +
+        `**Memoria にメモとして記録**してください (Memoria のメモ/ノート機能 or 相応の relay 経路)。\n` +
+        `- メッセージ本文を**そのまま (原文のまま、 要約・改変せず)** メモ本文として記録する。\n` +
         `- 出所として「Concordia リアクション (👀/👈/📓/✏️) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
       return {
         action,

@@ -48,8 +48,12 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 2. session channel なら、 そのセッションが書いた直近メッセージ (`chatRepo.latestForSession`)。
 3. meta channel (chitchat / consultation / 報告 / system) なら、 その channel の直近メッセージ。
 
-解決できなければ通常経路 (inject / chat) にフォールバック。 安全弁 OFF (runner 未構築) の間は
-単発絵文字も無処理 (= 通常の inject 扱い)。
+解決できなければ通常経路 (inject / chat) にフォールバック。 安全弁 OFF の間は handle() が即 return
+するので単発絵文字も無処理 (= 通常の inject 扱い)。
+
+**Slack も同様** (`src/slack/bot.ts` の message ingress)。 `:name:` 形式は `slackReactionToUnicode`
+で unicode 正規化してから写像照合する。 対象メッセージは ① thread 返信ならその session の直近
+(`chatRepo.latestForSession`) / ② チャンネル直下なら consultation メタチャットの直近、 で解決する。
 
 > 注: `ok` は 🆗 (U+1F197)、 `check` は ✅ (U+2705) と区別する。 `classifyEmoji` (記録用) では
 > ✅/👍 は `fine`、 👎 は `bad` に潰れるが、 ワークフロールータは別系統で細かく分岐する。
@@ -129,7 +133,7 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 - `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
-- `src/discord/ingress.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
+- `src/discord/ingress.ts` / `src/slack/bot.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
 - `src/db/chat-repo.ts` — `latestForSession(sessionId)`（単発絵文字の対象解決に使う）。
 - `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。

@@ -32,7 +32,7 @@ import {
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
-import { ReactionWorkflowRunner, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { ReactionWorkflowRunner, classifyReactionWorkflow, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
@@ -72,6 +72,13 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+}
+
+/** 投稿テキストが `:name:` 形式の Slack 絵文字なら unicode に正規化。 それ以外はそのまま。 */
+function slackEmojiTextToUnicode(t: string): string {
+  const m = t.match(/^:([a-z0-9_+'-]+):$/i);
+  if (m) return slackReactionToUnicode(m[1]) ?? t;
+  return t;
 }
 
 export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | null> {
@@ -379,6 +386,28 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (event.channel !== channelId) return;
       const text = (event.text ?? "").trim();
       if (!text || text.startsWith("//")) return;
+
+      // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
+      // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
+      const wfEmoji = slackEmojiTextToUnicode(text);
+      if (classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
+        // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
+        // consultation メタチャットの直近メッセージ。
+        let chatId: number | null = null;
+        if (event.thread_ts && event.thread_ts !== event.ts) {
+          const row = threads.findByThreadTs(channelId, event.thread_ts);
+          if (row) chatId = deps.chatRepo.latestForSession(row.session_id)?.id ?? null;
+        } else {
+          chatId = deps.chatRepo.list({ channel: "consultation", limit: 1 })[0]?.id ?? null;
+        }
+        if (chatId != null) {
+          void reactionWorkflow
+            .handle({ chatId, emoji: wfEmoji, userId: event.user ?? "slack" })
+            .catch((e) => log.warn(`emoji workflow: ${(e as Error).message}`));
+          return;
+        }
+        // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
+      }
 
       // thread 返信 = その session への inject。
       if (event.thread_ts && event.thread_ts !== event.ts) {

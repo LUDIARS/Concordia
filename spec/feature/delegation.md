@@ -145,16 +145,21 @@ delegation テンプレ選択ベースで起動する:
   `args` / `cwd?` を受ける。 loopback 信頼境界に乗るため bearer token 不要
   (他 `/v1/admin/*` と同様)。 `inject_prompt=true` の実体は delegation invoke に委譲。
 
-## 9. 初期 seed (3 テンプレ)
+## 9. 初期 seed
 
-| call_name | target | 用途 |
-|-----------|--------|------|
-| `impl-from-design` | codex | 設計書 path を渡して実装させる |
-| `fix-bug` | codex | バグ説明 + 任意の再現手順から修正 PR を作らせる |
-| `refactor` | codex | 範囲指定リファクタ (behavior 維持) |
+| call_name | target | model | 用途 |
+|-----------|--------|-------|------|
+| `impl-from-design` | codex | — | 設計書 path を渡して実装させる |
+| `fix-bug` | codex | — | バグ説明 + 任意の再現手順から修正 PR を作らせる |
+| `refactor` | codex | — | 範囲指定リファクタ (behavior 維持) |
+| `claude-opus-4-8-impl` | claude | claude-opus-4-8 | Claude Opus に実装委託 (最上位 / 難所・設計判断向き) |
+| `claude-sonnet-4-6-impl` | claude | claude-sonnet-4-6 | Claude Sonnet に実装委託 (中位 / 一般実装の主力) |
+| `claude-fable-5-impl` | claude | claude-fable-5 | Claude Fable に実装委託 (高速 / 軽量〜中規模) |
+| `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Famulus 経由) に実装委託、 API 課金ゼロ |
 
-prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、 1 PR 集約 等)
-を含める。
+`target_provider=claude` のテンプレは spawn 時に `lictor claude --model <id>` で起動する
+(`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
+1 PR 集約 等) を含める。 旧 `gamma-impl` (target=gamma) は seed 時に deactivate される。
 
 ## 10. v0.1 で やらないこと
 

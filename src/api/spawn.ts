@@ -117,7 +117,8 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
         : undefined,
       cwd: resolveSpawnCwd(body.cwd, deps.defaultSpawnCwd),
       title: typeof body.title === "string" ? body.title : undefined,
-      env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
+      // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
+      // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
     };
 
     const result = spawnSession(request);
@@ -170,12 +171,4 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
   });
 
   return app;
-}
-
-function isStringMap(x: unknown): x is Record<string, string> {
-  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
-  for (const v of Object.values(x as Record<string, unknown>)) {
-    if (typeof v !== "string") return false;
-  }
-  return true;
 }

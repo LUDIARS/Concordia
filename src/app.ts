@@ -275,7 +275,8 @@ export function buildApp(deps: AppDeps): Hono {
         : undefined,
       cwd: resolveSpawnCwd(body.cwd, deps.config.spawnDefaultCwd),
       title: typeof body.title === "string" ? body.title : undefined,
-      env: isStringMap(body.env) ? (body.env as Record<string, string>) : undefined,
+      // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
+      // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
     });
     if (!result.ok) return c.json({ error: result.error }, 400);
     return c.json({ ok: true, pid: result.pid, command: result.command });
@@ -609,14 +610,6 @@ export function buildApp(deps: AppDeps): Hono {
   }
 
   return app;
-}
-
-function isStringMap(x: unknown): x is Record<string, string> {
-  if (!x || typeof x !== "object" || Array.isArray(x)) return false;
-  for (const v of Object.values(x as Record<string, unknown>)) {
-    if (typeof v !== "string") return false;
-  }
-  return true;
 }
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {

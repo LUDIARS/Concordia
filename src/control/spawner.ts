@@ -118,6 +118,26 @@ export function resolveSpawnCwd(
   return fallback;
 }
 
+/**
+ * spawn child に渡してよい env key の prefix allowlist。
+ * Concordia が自前で設定する LICTOR_* (例 LICTOR_LOCAL_MODEL) / CONCORDIA_* のみ。
+ * これ以外 (NODE_OPTIONS / LD_PRELOAD / PATH 等) は一切通さない。
+ */
+const SPAWN_ENV_ALLOW_PREFIXES = ["LICTOR_", "CONCORDIA_"] as const;
+
+/** allowlist prefix の key だけを残す (CWE-78 env 注入対策、 pure)。 */
+export function sanitizeSpawnEnv(
+  reqEnv: Record<string, string> | undefined,
+): Record<string, string> {
+  if (!reqEnv) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(reqEnv)) {
+    if (typeof v !== "string") continue;
+    if (SPAWN_ENV_ALLOW_PREFIXES.some((p) => k.startsWith(p))) out[k] = v;
+  }
+  return out;
+}
+
 export function validateCwd(cwd: string | undefined): string | null {
   if (!cwd) return null;
   try {
@@ -137,7 +157,12 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   if (cwdErr) return { ok: false, error: cwdErr };
 
   const args = buildWtArgs(req, currentLictorLauncher());
-  const env: NodeJS.ProcessEnv = { ...process.env, ...(req.env ?? {}) };
+  // CWE-78 対策: 外部入力 env を子プロセスへ素通ししない。 公開 spawn API は env を
+  // 受け取らない (HTTP ハンドラ側で破棄) ようにしたうえで、 ここでも防御的に
+  // Concordia 自身が設定する allowlist key (LICTOR_* / CONCORDIA_*) のみ通す。
+  // NODE_OPTIONS / LD_PRELOAD / PATH 等の loader 系を注入されると lictor 経由 Node の
+  // 任意コード実行に至るため、 prefix allowlist でそれらを構造的に排除する。
+  const env: NodeJS.ProcessEnv = { ...process.env, ...sanitizeSpawnEnv(req.env) };
   const child = spawn("wt.exe", args, {
     detached: true,
     stdio: "ignore",

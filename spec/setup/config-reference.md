@@ -210,6 +210,7 @@ MCP サーバ (別プロセス) が読む env:
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
 | `lictor_prod_exe` | 空 | 〃 | prod モードの同梱 Lictor exe (Release 公開物) パス。 |
+| `daily_token_budget` | `0` (無効) | `/v1/admin/cost-budget` | 日次トークン上限。 当日 (local 日) の消費合計が上限に達したら Concordia 発の命令 (新規 `spawn` / dispatcher 発話 / リアクションWF / rule engine・proposer) を止める。 消費量は `~/.claude/projects` と `~/.codex/sessions` の全ログを 2 分毎に走査し、 ファイル単位の累積トークンの増分を当日バケットに足し込む (= **登録外の外部バッチ・別ツール起動も合算**)。 GET は `today_tokens` / `blocked` も返す。 |
 
 > PATH に `lictor` が無く spawn に失敗する環境は `lictor_mode=dev/prod` + パス指定で解決する。
 

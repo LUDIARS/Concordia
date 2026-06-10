@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 23;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -645,6 +645,24 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_model_catalog_active
      ON model_catalog(is_active, sort_order, model_id)`,
+
+  // ─── cost budget (v0.x — トークン日次予算 + 超過ブロック) ──────────────
+  // 各ローカル日 (local "YYYY-MM-DD") に消費したトークン総量を蓄積する。
+  // 「外部バッチ / 登録外セッション」も含めて全 Claude/Codex ログを走査し、
+  // ファイル単位の累積トークンの増分 (delta) を today バケットに足し込む。
+  // 予算超過判定 (tokens >= daily_token_budget) で Concordia 発の命令を止める。
+  `CREATE TABLE IF NOT EXISTS cost_daily_usage (
+    date_iso    TEXT PRIMARY KEY,                  -- local "YYYY-MM-DD"
+    tokens      INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL
+  )`,
+  // ログファイル単位の「最後に観測した累積トークン」。 再起動を跨いで delta の
+  // 二重計上を防ぐ (= 既存ファイルの累積を起動直後に today へ足さない)。
+  `CREATE TABLE IF NOT EXISTS cost_log_seen (
+    log_path    TEXT PRIMARY KEY,
+    last_total  INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL
+  )`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

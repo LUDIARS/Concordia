@@ -1,22 +1,14 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import { createChildLogger } from "../shared/logger.js";
+// トークン集計のログ読み取りは cost/log-usage に集約 (cost budget と共用)。
+import { findCodexLog, readLines, readSessionUsage, type Totals } from "../cost/log-usage.js";
 
 const oauthUsageLog = createChildLogger("cost-channel.oauth-usage");
 
 const COST_MESSAGE_KEY = "cost_status_message_id";
-
-type Totals = {
-  input: number;
-  cached: number;
-  output: number;
-  total: number;
-};
 
 type Rate = {
   used5h: number | null;
@@ -167,7 +159,7 @@ function localDayBucket(): string {
 function aggregate(sessions: SessionRow[]): Totals {
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
   for (const s of sessions) {
-    const t = readUsage(s);
+    const t = readSessionUsage(s);
     if (!t) continue;
     out.input += t.input;
     out.cached += t.cached;
@@ -200,20 +192,6 @@ function aggregateCodexRate(sessions: SessionRow[]): Rate {
   };
 }
 
-function readUsage(s: SessionRow): Totals | null {
-  if (s.provider === "codex-cli") {
-    const p = findCodexLog(s);
-    if (!p) return null;
-    return readCodexUsage(p);
-  }
-  if (s.provider === "claude-code") {
-    const p = findClaudeLog(s);
-    if (!p) return null;
-    return readClaudeUsage(p);
-  }
-  return null;
-}
-
 function readCodexRate(s: SessionRow): Rate | null {
   const p = findCodexLog(s);
   if (!p) return null;
@@ -230,150 +208,6 @@ function readCodexRate(s: SessionRow): Rate | null {
     };
   }
   return latest;
-}
-
-function findCodexLog(s: SessionRow): string | null {
-  const root = join(homedir(), ".codex", "sessions");
-  if (!existsSync(root)) return null;
-  let bestPath: string | null = null;
-  let bestScore = -Infinity;
-  walk(root, 4, (p) => {
-    if (!p.endsWith(".jsonl")) return;
-    const head = readCodexHead(p);
-    if (!head) return;
-    if (head.id === s.id) {
-      bestScore = Number.POSITIVE_INFINITY;
-      bestPath = p;
-      return;
-    }
-    if (bestScore === Number.POSITIVE_INFINITY) return;
-    if (head.cwd && head.cwd !== s.repo_path) return;
-    const score = head.started ? -Math.abs(head.started - s.started_at) : -1e9;
-    if (score > bestScore) {
-      bestScore = score;
-      bestPath = p;
-    }
-  });
-  return bestPath;
-}
-
-function findClaudeLog(s: SessionRow): string | null {
-  const encoded = s.repo_path.replace(/[\\/:.]+/g, "-").replace(/^-+|-+$/g, "");
-  const dir = join(homedir(), ".claude", "projects", encoded);
-  if (!existsSync(dir)) return null;
-  const exact = join(dir, `${s.id}.jsonl`);
-  if (existsSync(exact)) return exact;
-  const files = readdirSync(dir).filter((n) => n.endsWith(".jsonl")).map((n) => join(dir, n));
-  if (files.length === 0) return null;
-  let best: { p: string; score: number } | null = null;
-  for (const p of files) {
-    const ts = readFirstTs(p);
-    const score = ts ? -Math.abs(ts - s.started_at) : -1e9;
-    if (!best || score > best.score) best = { p, score };
-  }
-  return best?.p ?? null;
-}
-
-function readCodexUsage(path: string): Totals | null {
-  let max: Totals | null = null;
-  for (const line of readLines(path)) {
-    let o: any;
-    try { o = JSON.parse(line); } catch { continue; }
-    if (o?.type !== "event_msg" || o?.payload?.type !== "token_count") continue;
-    const t = o?.payload?.info?.total_token_usage;
-    if (!t) continue;
-    const cur: Totals = {
-      input: nn(t.input_tokens),
-      cached: nn(t.cached_input_tokens),
-      output: nn(t.output_tokens),
-      total: nn(t.total_tokens),
-    };
-    if (!max || cur.total > max.total) max = cur;
-  }
-  return max;
-}
-
-function readClaudeUsage(path: string): Totals | null {
-  // Claude Code JSONL の assistant 行サンプル:
-  //   {"parentUuid":"...","isSidechain":false,"message":{"id":"msg_xxx",
-  //    "model":"claude-opus-4-7","role":"assistant","content":[...],
-  //    "usage":{"input_tokens":N,"cache_read_input_tokens":N,
-  //             "cache_creation_input_tokens":N,"output_tokens":N}}, ...}
-  //
-  // 旧実装は `o.requestId` を dedup key にしていたが、 そのフィールドは
-  // 存在しない (確認: 2026-05-27 実機 JSONL)。 全 line が seen check で
-  // 弾かれて usage が 1 件も加算されない → Tokens=0 になっていた。
-  //
-  // 真の per-message 識別子は `o.message.id` (msg_xxx) で、 同じ API call
-  // が複数行に複製された場合の重複加算もこれで防げる。 fallback として
-  // 上位の `o.uuid` (per-line uuid) を使うことで、 message.id が無い行
-  // (旧 schema / 部分行) も同一行を二重に数えない。
-  const seen = new Set<string>();
-  const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
-  for (const line of readLines(path)) {
-    let o: any;
-    try { o = JSON.parse(line); } catch { continue; }
-    const u = o?.message?.usage;
-    if (!u) continue;
-    const dedupId =
-      (typeof o?.message?.id === "string" && o.message.id) ||
-      (typeof o?.uuid === "string" && o.uuid) ||
-      null;
-    if (dedupId) {
-      if (seen.has(dedupId)) continue;
-      seen.add(dedupId);
-    }
-    out.input += nn(u.input_tokens);
-    out.cached += nn(u.cache_read_input_tokens) + nn(u.cache_creation_input_tokens);
-    out.output += nn(u.output_tokens);
-    out.total += nn(u.input_tokens) + nn(u.output_tokens);
-  }
-  return out.total > 0 || out.cached > 0 ? out : null;
-}
-
-function readCodexHead(path: string): { id: string | null; cwd: string | null; started: number | null } | null {
-  for (const line of readLines(path, 20)) {
-    let o: any;
-    try { o = JSON.parse(line); } catch { continue; }
-    if (o?.type !== "session_meta") continue;
-    const id = typeof o?.payload?.id === "string" ? o.payload.id : null;
-    const cwd = typeof o?.payload?.cwd === "string" ? o.payload.cwd : null;
-    const tsRaw = typeof o?.payload?.timestamp === "string" ? o.payload.timestamp : null;
-    return { id, cwd, started: tsRaw ? Math.floor(new Date(tsRaw).getTime() / 1000) : null };
-  }
-  return null;
-}
-
-function readFirstTs(path: string): number | null {
-  for (const line of readLines(path, 20)) {
-    let o: any;
-    try { o = JSON.parse(line); } catch { continue; }
-    const t = o?.timestamp;
-    if (typeof t === "string") return Math.floor(new Date(t).getTime() / 1000);
-  }
-  return null;
-}
-
-function walk(root: string, depth: number, visit: (p: string) => void): void {
-  if (depth < 0) return;
-  let ents: import("node:fs").Dirent[];
-  try { ents = readdirSync(root, { withFileTypes: true }); } catch { return; }
-  for (const e of ents) {
-    const p = join(root, e.name);
-    if (e.isDirectory()) walk(p, depth - 1, visit);
-    else if (e.isFile()) visit(p);
-  }
-}
-
-function readLines(path: string, limit?: number): string[] {
-  let text = "";
-  try { text = readFileSync(path, "utf8"); } catch { return []; }
-  const lines = text.split(/\r?\n/).filter((l) => l.trim());
-  return typeof limit === "number" ? lines.slice(0, limit) : lines;
-}
-
-function nn(v: unknown): number {
-  return typeof v === "number" && Number.isFinite(v) ? v : 0;
 }
 
 function nnull(v: unknown): number | null {

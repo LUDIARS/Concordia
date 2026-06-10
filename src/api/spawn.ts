@@ -41,6 +41,11 @@ export interface SpawnApiDeps {
    * or non-existent path = no fallback (Concordia's own cwd is used).
    */
   defaultSpawnCwd?: string;
+  /**
+   * 日次トークン予算を超過している間 true を返す。 true の間は spawn を 429 で
+   * 拒否する (Concordia 発の新規セッション起動を止める)。 未指定なら無効。
+   */
+  isCostBlocked?: () => boolean;
 }
 
 export interface SpawnRecord {
@@ -83,6 +88,13 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
   });
 
   app.post("/", async (c) => {
+    // 日次トークン予算を超過している間は新規セッション起動を拒否する。
+    if (deps.isCostBlocked?.()) {
+      return c.json(
+        { error: "cost budget exceeded — daily token budget reached, spawn blocked" },
+        429,
+      );
+    }
     let body: Record<string, unknown>;
     try {
       body = await c.req.json<Record<string, unknown>>();

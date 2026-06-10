@@ -84,6 +84,13 @@ export interface DispatcherDeps {
    * AdminState.getChatMuted in production; tests can pass () => false.
    */
   isChatMuted?: () => boolean;
+  /**
+   * Runtime cost kill-switch. 日次トークン予算を超過している間は true を返し、
+   * Concordia 発の全 dispatch (chitchat / chat-reply / review / peer-react /
+   * session-departed / daily-report) を止める。 AdminState + CostUsageTracker
+   * から配線する。 未指定なら常に false (= ブロックしない)。
+   */
+  isCostBlocked?: () => boolean;
 }
 
 export class Dispatcher {
@@ -94,18 +101,20 @@ export class Dispatcher {
   /** active peer の round-robin index. 偏らせない. */
   private peerCursor = 0;
   private isChatMuted: () => boolean;
+  private isCostBlocked: () => boolean;
 
   constructor(private readonly deps: DispatcherDeps) {
     this.rng = deps.rng ?? Math.random;
     this.now = deps.now ?? (() => new Date());
     this.isChatMuted = deps.isChatMuted ?? (() => false);
+    this.isCostBlocked = deps.isCostBlocked ?? (() => false);
   }
 
   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
   onEventAppended(session: SessionRow, _eventCount: number): void {
     // chat 全停止スイッチが入っているなら chitchat / chat-reply / 雑談関連を
     // 一切 enqueue しない. role 推定だけ走らせて metadata 保持し、 task 列は触らない.
-    if (this.isChatMuted()) {
+    if (this.isChatMuted() || this.isCostBlocked()) {
       this.refreshRole(session);
       return;
     }
@@ -160,6 +169,8 @@ export class Dispatcher {
     is_actionable: boolean;
   }): void {
     if (message.channel === "system") return;
+    // コスト予算超過中は chat-reply (AI 発話) を一切 enqueue しない。
+    if (this.isCostBlocked()) return;
     // 強制ルール: 深夜帯 (23:00–翌05:00) は chat-reply の確率も 1/10 に抑制する.
     const freq = actionFrequencyMultiplier(this.now());
     const replyProb =
@@ -217,6 +228,7 @@ export class Dispatcher {
   }
 
   onSessionLost(lost: SessionRow): void {
+    if (this.isCostBlocked()) return;
     const role = this.parseRole(lost);
     const lastTask = lost.current_task ?? "(不明)";
     const peers = this.deps.sessions.listSessions({ status: "active" });
@@ -246,7 +258,7 @@ export class Dispatcher {
    * - 反応の中身は AI 側 (skill) に委ねる: chat 投稿 / 静観 / ユーザに伝達
    */
   onLogUpdate(ev: LogEventInput): void {
-    if (this.isChatMuted()) return;
+    if (this.isChatMuted() || this.isCostBlocked()) return;
     const now = Math.floor(Date.now() / 1000);
     const key = `${ev.kind}|${ev.ref ?? ev.source_session_id ?? ""}`;
     const last = this.logCooldown.get(key) ?? 0;
@@ -281,7 +293,7 @@ export class Dispatcher {
   }
 
   onSessionEnd(session: SessionRow, bullets: object): void {
-    if (this.isChatMuted()) return;
+    if (this.isChatMuted() || this.isCostBlocked()) return;
     const role = this.refreshRole(session);
     this.deps.tasks.enqueue({
       session_id: session.id,

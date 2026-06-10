@@ -40,6 +40,8 @@ import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
 import { collectBoyakiToPersona } from "./personas/boyaki.js";
 import { Dispatcher } from "./dispatcher.js";
+import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
+import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
 import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
@@ -64,6 +66,9 @@ import { loadSecretBox } from "./shared/secret-box.js";
 import type { ChatPlatform } from "./platform/chat-platform.js";
 
 const log = createChildLogger("server");
+
+/** コストトラッカーのサンプリング間隔 (ms)。 2 分毎にログ走査して当日消費を更新。 */
+const COST_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
 let slackBotHandle: ChatPlatform | null = null;
@@ -212,6 +217,30 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
+
+  // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
+  // Concordia 発の命令 (spawn / dispatcher / rule engine / proposer) を止める。
+  const costBudgetRepo = new CostBudgetRepo(db);
+  const costTracker = new CostUsageTracker({
+    repo: costBudgetRepo,
+    getBudget: () => adminState.getDailyTokenBudget(),
+  });
+  const isCostBlocked = () => costTracker.isBlocked();
+  // 起動直後に baseline を作る (既存ログの累積を当日へ誤計上しないため即サンプル)。
+  try {
+    costTracker.sample();
+  } catch (e) {
+    log.warn(`cost tracker initial sample failed: ${(e as Error).message}`);
+  }
+  const costSampleTimer = setInterval(() => {
+    try {
+      costTracker.sample();
+    } catch (e) {
+      log.warn(`cost tracker sample failed: ${(e as Error).message}`);
+    }
+  }, COST_SAMPLE_INTERVAL_MS);
+  costSampleTimer.unref?.();
+
   seedDefaultRules(rules);
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
@@ -221,6 +250,7 @@ export async function startBackend(): Promise<BackendHandle> {
     tasks,
     chat,
     isChatMuted: () => adminState.getChatMuted(),
+    isCostBlocked,
   });
   const processManager = new ProcessManager({
     repo: processes,
@@ -311,6 +341,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegationService,
     modelCatalog,
     adminState,
+    costStatus: () => costTracker.status(),
     processManager,
     dailyScheduler,
     dispatcher,
@@ -338,7 +369,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessions: repo,
     chat,
     disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
-    rulesDisabled: () => !adminState.getRulesEnabled(),
+    // 予算超過中も rule engine の claude 呼びを止める (rulesDisabled に OR)。
+    rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
   });
 
   // 既定 5 分間隔で chat post 用 rule を AI に提案させる. interval は admin で変更可.
@@ -348,7 +380,7 @@ export async function startBackend(): Promise<BackendHandle> {
     chat,
     disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
     maxAiRules: cfg.maxAiRules,
-    rulesDisabled: () => !adminState.getRulesEnabled(),
+    rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
     intervalSec: () => adminState.getRuleProposerIntervalSec(),
   });
 
@@ -471,6 +503,7 @@ export async function startBackend(): Promise<BackendHandle> {
       prFullSync.stop();
       errorFixDispatcher.stop();
       sweeper.stop();
+      clearInterval(costSampleTimer);
       unsubLog();
       await stopDiscordBotManaged();
       await stopSlackBotManaged();

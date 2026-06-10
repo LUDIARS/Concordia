@@ -6,6 +6,7 @@ import {
   RuntimeControlsSection,
   ReactionWorkflowSection,
   WorkspaceSection,
+  CostBudgetSection,
   LictorSection,
 } from "./settings/sections.js";
 
@@ -55,6 +56,12 @@ const SECTIONS: SettingsSection[] = [
     label: "ワークスペース",
     hint: "ワークスペースルート / GitHub Organization",
     render: () => <section className="border border-border rounded p-4"><WorkspaceSection /></section>,
+  },
+  {
+    id: "cost",
+    label: "コスト予算",
+    hint: "日次トークン上限 + 超過で命令ブロック",
+    render: () => <section className="border border-border rounded p-4"><CostBudgetSection /></section>,
   },
   {
     id: "lictor",

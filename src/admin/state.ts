@@ -38,6 +38,7 @@ const KEY_REACTION_MAPPINGS = "admin.reaction_emoji_overrides";
 const KEY_LICTOR_MODE = "admin.lictor_mode";
 const KEY_LICTOR_DEV_PATH = "admin.lictor_dev_path";
 const KEY_LICTOR_PROD_EXE = "admin.lictor_prod_exe";
+const KEY_DAILY_TOKEN_BUDGET = "admin.daily_token_budget";
 
 /** Lictor 起動モード。 auto = 従来どおり PATH 上の `lictor` を起動。 */
 export type LictorMode = "auto" | "dev" | "prod";
@@ -223,6 +224,26 @@ export class AdminState {
     this.setRaw(KEY_LICTOR_PROD_EXE, value.trim());
   }
 
+  // ── コスト予算 (日次トークン上限) ────────────────────────────────────
+  // 0 = 無効 (ブロックしない)。 1 以上 = その日のトークン消費合計が上限に
+  // 達したら Concordia 発の命令 (spawn / dispatcher / リアクションWF / proposer)
+  // を止める。 外部バッチのトークンも CostUsageTracker 経由で計上される。
+
+  /** 日次トークン予算 (0 = 無効)。 未設定なら 0。 */
+  getDailyTokenBudget(): number {
+    const raw = this.getRaw(KEY_DAILY_TOKEN_BUDGET);
+    if (raw === null) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  setDailyTokenBudget(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new Error("daily_token_budget must be a finite number");
+    }
+    this.setRaw(KEY_DAILY_TOKEN_BUDGET, String(Math.max(0, Math.floor(value))));
+  }
+
   snapshot(): {
     chat_muted: boolean;
     rules_enabled: boolean;
@@ -234,6 +255,7 @@ export class AdminState {
     lictor_mode: LictorMode;
     lictor_dev_path: string;
     lictor_prod_exe: string;
+    daily_token_budget: number;
   } {
     return {
       chat_muted: this.getChatMuted(),
@@ -246,6 +268,7 @@ export class AdminState {
       lictor_mode: this.getLictorMode(),
       lictor_dev_path: this.getLictorDevPath(),
       lictor_prod_exe: this.getLictorProdExe(),
+      daily_token_budget: this.getDailyTokenBudget(),
     };
   }
 

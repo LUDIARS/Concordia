@@ -40,6 +40,7 @@ import type {
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
+import type { CostBudgetStatus } from "./cost/usage-tracker.js";
 import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
@@ -91,6 +92,8 @@ export interface AppDeps {
   delegationService: DelegationService;
   modelCatalog: ModelCatalogRepo;
   adminState: AdminState;
+  /** コスト予算の現況 (当日消費 / 予算 / block 判定)。 spawn ブロック + 設定 GUI 表示用。 */
+  costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
   dailyScheduler: SchedulerHandle;
   dispatcher: Dispatcher;
@@ -157,7 +160,13 @@ export function buildApp(deps: AppDeps): Hono {
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),
   );
-  app.route("/v1/spawn", spawnRouter({ defaultSpawnCwd: deps.config.spawnDefaultCwd }));
+  app.route(
+    "/v1/spawn",
+    spawnRouter({
+      defaultSpawnCwd: deps.config.spawnDefaultCwd,
+      isCostBlocked: () => deps.costStatus?.().blocked ?? false,
+    }),
+  );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
@@ -406,6 +415,30 @@ export function buildApp(deps: AppDeps): Hono {
     }
     deps.adminState.setWorkspaceRoots(body.workspace_roots as string[]);
     return c.json({ workspace_roots: deps.adminState.getWorkspaceRoots() });
+  });
+
+  // コスト予算 (日次トークン上限)。 0 = 無効。 当日消費 / block 判定も併せて返す。
+  app.get("/v1/admin/cost-budget", (c) => {
+    const status = deps.costStatus?.() ?? null;
+    return c.json({
+      daily_token_budget: deps.adminState.getDailyTokenBudget(),
+      today_tokens: status?.todayTokens ?? 0,
+      blocked: status?.blocked ?? false,
+      date_iso: status?.dateIso ?? null,
+    });
+  });
+  app.put("/v1/admin/cost-budget", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.daily_token_budget !== "number" || !Number.isFinite(body.daily_token_budget)) {
+      return c.json({ error: "body.daily_token_budget (number, 0=disabled) required" }, 400);
+    }
+    deps.adminState.setDailyTokenBudget(body.daily_token_budget);
+    const status = deps.costStatus?.() ?? null;
+    return c.json({
+      daily_token_budget: deps.adminState.getDailyTokenBudget(),
+      today_tokens: status?.todayTokens ?? 0,
+      blocked: status?.blocked ?? false,
+    });
   });
 
   app.get("/v1/admin/github-org", (c) => {

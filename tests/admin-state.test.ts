@@ -71,7 +71,18 @@ describe("AdminState", () => {
       lictor_mode: "auto",
       lictor_dev_path: "",
       lictor_prod_exe: "",
+      daily_token_budget: 0,
     });
+  });
+
+  it("daily_token_budget: 既定 0 / set-get / 負値は 0 / 非有限は throw", () => {
+    expect(env.state.getDailyTokenBudget()).toBe(0);
+    env.state.setDailyTokenBudget(500_000);
+    expect(env.state.getDailyTokenBudget()).toBe(500_000);
+    expect(new AdminState(env.db).getDailyTokenBudget()).toBe(500_000); // 永続
+    env.state.setDailyTokenBudget(-10);
+    expect(env.state.getDailyTokenBudget()).toBe(0);
+    expect(() => env.state.setDailyTokenBudget(Infinity)).toThrow();
   });
 
   it("workspace roots: multi set / get + primary + dedupe + legacy fallback", () => {

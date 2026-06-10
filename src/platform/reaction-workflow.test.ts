@@ -4,6 +4,8 @@ import {
   defaultReactionEmojiMap,
   isWorkflowAction,
   planWorkflow,
+  WORKFLOW_ACTIONS,
+  WORKFLOW_ACTION_HELP,
   type WorkflowContext,
 } from "./reaction-workflow.js";
 
@@ -71,6 +73,17 @@ describe("defaultReactionEmojiMap / isWorkflowAction", () => {
     expect(isWorkflowAction("start-impl")).toBe(true);
     expect(isWorkflowAction("nope")).toBe(false);
     expect(isWorkflowAction(123)).toBe(false);
+  });
+});
+
+describe("WORKFLOW_ACTION_HELP", () => {
+  it("has label/summary/mode for every action", () => {
+    for (const a of WORKFLOW_ACTIONS) {
+      const h = WORKFLOW_ACTION_HELP[a];
+      expect(h.label.length).toBeGreaterThan(0);
+      expect(h.summary).toContain("変換"); // 「投稿内容を変換して渡す」を明示
+      expect(h.mode.length).toBeGreaterThan(0);
+    }
   });
 });
 
@@ -151,6 +164,15 @@ describe("planWorkflow", () => {
     const plan = planWorkflow("status-check", { ...baseCtx, sessionActive: false });
     expect(plan.mode).toBe("headless");
     expect(plan.cwd).toBe(baseCtx.repoPath);
+  });
+
+  it("inject prompts embed the converted posted message (投稿内容を変換して渡す)", () => {
+    for (const action of ["start-impl", "enumerate-remaining", "status-check"] as const) {
+      const plan = planWorkflow(action, { ...baseCtx, sessionActive: true });
+      expect(plan.mode).toBe("inject");
+      expect(plan.prompt).toContain("対象メッセージ");
+      expect(plan.prompt).toContain("キャッシュ層"); // baseCtx.messageText の一部
+    }
   });
 
   it("honors custom model overrides", () => {

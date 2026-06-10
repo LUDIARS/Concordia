@@ -71,6 +71,63 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
 export const WORKFLOW_ACTIONS = Object.keys(WORKFLOW_EMOJI) as WorkflowAction[];
 
+/** 1 アクションのヘルプ (GUI / API で「このコマンドが何をするか」を見せる)。 */
+export interface WorkflowActionHelp {
+  /** 人間向けの短い名前。 */
+  label: string;
+  /** 何をするか (= 投稿内容をどんな指示に変換して渡すか)。 */
+  summary: string;
+  /** 実行手段の概要 (inject / headless + cwd + model)。 */
+  mode: string;
+}
+
+/**
+ * 各リアクションワークフロー (カスタムコマンド) の説明。 「投稿内容を変換して渡す」ので、
+ * summary は「投稿内容を <どんな指示> に変換する」という形で書く。
+ */
+export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = {
+  "start-impl": {
+    label: "実装着手",
+    summary: "投稿内容 (直前の提案 / 計画) を『そのまま実装に着手せよ』という指示に変換して渡す。",
+    mode: "active セッションへ inject / 非active は headless (当該リポ)",
+  },
+  "enumerate-remaining": {
+    label: "残作業の洗い出し",
+    summary: "投稿内容を起点に『今やり残している残作業を洗い出して報告せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "memoria-remaining": {
+    label: "残作業を Memoria に記録",
+    summary: "投稿内容 (残作業の洗い出し結果) を『Memoria に残作業 (タスク) として記録せよ』に変換して渡す。",
+    mode: "headless sonnet (Memoria)",
+  },
+  "status-check": {
+    label: "状況確認",
+    summary: "投稿内容を起点に『今の作業状況 (進捗 / ブロック / 次の一手) を報告せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "repo-memory-good": {
+    label: "良い動きをリポ作業メモリに記録",
+    summary: "投稿内容を『このリポの作業メモリに“うまくいったパターン”として記録せよ』に変換して渡す。",
+    mode: "headless haiku (当該リポ)",
+  },
+  "repo-memory-bad": {
+    label: "良くない動きをリポ作業メモリに記録",
+    summary: "投稿内容を『このリポの作業メモリに“避けるべきパターン”として記録せよ』に変換して渡す。",
+    mode: "headless haiku (当該リポ)",
+  },
+  "memoria-note": {
+    label: "Memoria にメモ",
+    summary: "投稿内容を『要点を Memoria にメモとして記録せよ』に変換して渡す。",
+    mode: "headless haiku (Memoria)",
+  },
+  "memoria-task": {
+    label: "Memoria にタスク登録",
+    summary: "投稿内容を『タスク (名前 / 完了条件 / 対象リポ) を確定して Memoria に登録せよ』に変換して渡す。",
+    mode: "headless sonnet (Memoria)",
+  },
+};
+
 /** action 文字列が有効な WorkflowAction か。 */
 export function isWorkflowAction(v: unknown): v is WorkflowAction {
   return typeof v === "string" && (WORKFLOW_ACTIONS as string[]).includes(v);
@@ -163,6 +220,9 @@ export function planWorkflow(
     `あなたは Concordia から起動された 1 ショットの自動エージェントです。 以下の作業を完了したら終了してください。 余計な対話・確認はしません。\n\n` +
     `- 対象メッセージ投稿者: ${ctx.authorLabel}\n` +
     `- 対象メッセージ本文:\n"""\n${msg}\n"""\n`;
+  // inject 経路 (authoring session へ流す) でも、 トリガとなった投稿内容を変換して必ず渡す。
+  // 対象セッションが文脈を持っていても「どの発言に対する指示か」を明示するため。
+  const msgRef = `\n\n--- 対象メッセージ (${ctx.authorLabel}) ---\n"""\n${msg}\n"""`;
 
   switch (action) {
     case "start-impl": {
@@ -173,7 +233,7 @@ export function planWorkflow(
         `- 提案に曖昧な点があっても、 最も素直な解釈で進めてよい。`;
       // authoring session が生きていれば、 その AI に inject して文脈ごと続行させる。
       if (ctx.sessionActive) {
-        return { action, mode: "inject", prompt };
+        return { action, mode: "inject", prompt: prompt + msgRef };
       }
       // 非 active: headless で repo を開いて着手する。
       return {
@@ -193,7 +253,7 @@ export function planWorkflow(
         `- この洗い出し結果は後段で 🫡 リアクションにより Memoria へ残作業として記録される前提で、 そのまま転記できる形にする。`;
       // authoring session が生きていれば、 その AI に inject して文脈ごと洗い出させる。
       if (ctx.sessionActive) {
-        return { action, mode: "inject", prompt };
+        return { action, mode: "inject", prompt: prompt + msgRef };
       }
       // 非 active: headless で repo を開いて洗い出す。
       return {
@@ -231,7 +291,7 @@ export function planWorkflow(
         `- 進捗が無いなら「待機中」「手詰まり (理由)」など正直な状態を書く。 体裁のための水増しはしない。`;
       // authoring session が生きていれば、 その AI に inject して現状を報告させる。
       if (ctx.sessionActive) {
-        return { action, mode: "inject", prompt };
+        return { action, mode: "inject", prompt: prompt + msgRef };
       }
       // 非 active: headless で repo を開いて状況を報告する。
       return {

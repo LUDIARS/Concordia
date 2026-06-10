@@ -231,10 +231,12 @@ export function RuntimeControlsSection() {
 
 // ─── リアクションワークフロー (ON/OFF + 絵文字→アクション マッピング) ──────
 
+interface ActionHelp { label: string; summary: string; mode: string }
 interface ReactionMappings {
   defaults: Record<string, string>;
   overrides: Record<string, string>;
   actions: string[];
+  action_help?: Record<string, ActionHelp>;
 }
 
 export function ReactionWorkflowSection() {
@@ -286,6 +288,14 @@ export function ReactionWorkflowSection() {
     } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
+  // 各アクションの既定トリガ絵文字 (ヘルプ表示用)。
+  const defaultEmojisByAction: Record<string, string[]> = {};
+  if (maps) {
+    for (const [emoji, action] of Object.entries(maps.defaults)) {
+      (defaultEmojisByAction[action] ??= []).push(emoji);
+    }
+  }
+
   // 既定 + 上書き をマージした実効写像 (表示用)。
   const effective: { emoji: string; action: string; source: "default" | "custom" }[] = [];
   if (maps) {
@@ -318,6 +328,30 @@ export function ReactionWorkflowSection() {
         onLabel="停止中" offLabel="稼働中" onAction="稼働させる" offAction="停止する"
       />
 
+      <details className="bg-muted/40 border border-border rounded p-3">
+        <summary className="text-sm font-medium cursor-pointer">コマンド (ワークフロー) ヘルプ — 各アクションが何をするか</summary>
+        <p className="text-xs text-subtle mt-1">
+          いずれも「投稿内容を変換して claude に渡す」。 既定の絵文字でトリガーされる。
+        </p>
+        <ul className="mt-2 space-y-2">
+          {maps?.actions.map((a) => {
+            const h = maps.action_help?.[a];
+            const emojis = defaultEmojisByAction[a] ?? [];
+            return (
+              <li key={a} className="bg-surface border border-border rounded px-2 py-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-base">{emojis.join(" ") || "—"}</span>
+                  <span className="font-mono text-xs text-accent">{a}</span>
+                  {h?.label && <span className="text-xs font-medium">{h.label}</span>}
+                </div>
+                {h?.summary && <div className="text-xs text-subtle mt-0.5">{h.summary}</div>}
+                {h?.mode && <div className="text-[11px] text-subtle mt-0.5">実行: {h.mode}</div>}
+              </li>
+            );
+          })}
+        </ul>
+      </details>
+
       <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
         <div>
           <div className="text-sm font-medium">絵文字 → アクション マッピング</div>
@@ -336,7 +370,9 @@ export function ReactionWorkflowSection() {
             value={newAction} onChange={(e) => setNewAction(e.target.value)} disabled={busy === "add"}
             className="bg-muted border border-border rounded px-2 py-1 text-sm"
           >
-            {maps?.actions.map((a) => <option key={a} value={a}>{a}</option>)}
+            {maps?.actions.map((a) => (
+              <option key={a} value={a}>{maps.action_help?.[a]?.label ? `${a} — ${maps.action_help[a].label}` : a}</option>
+            ))}
           </select>
           <button
             disabled={busy === "add" || !newEmoji.trim() || !newAction}
@@ -350,7 +386,9 @@ export function ReactionWorkflowSection() {
             <li key={m.emoji} className="flex items-center gap-2 text-sm bg-surface border border-border rounded px-2 py-1">
               <span className="text-lg w-7 text-center">{m.emoji}</span>
               <span className="text-subtle">→</span>
-              <span className="font-mono text-xs">{m.action}</span>
+              <span className="font-mono text-xs" title={maps?.action_help?.[m.action]?.summary}>
+                {m.action}{maps?.action_help?.[m.action]?.label ? ` (${maps.action_help[m.action].label})` : ""}
+              </span>
               <span className={`ml-2 px-1.5 py-0.5 rounded text-[10px] border ${m.source === "custom" ? "bg-accent/20 border-accent text-accent" : "bg-muted border-border text-subtle"}`}>
                 {m.source === "custom" ? "custom" : "default"}
               </span>

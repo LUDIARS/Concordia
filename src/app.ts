@@ -40,7 +40,7 @@ import type {
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
-import { WORKFLOW_ACTIONS, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
+import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
@@ -424,7 +424,8 @@ export function buildApp(deps: AppDeps): Hono {
   app.get("/v1/admin/reaction-mappings", (c) => {
     const defaults = defaultReactionEmojiMap();
     const overrides = deps.adminState.getReactionEmojiOverrides();
-    return c.json({ defaults, overrides, actions: WORKFLOW_ACTIONS });
+    // action_help: 各カスタムコマンド (ワークフロー) が何をするかのヘルプ (GUI 表示用)。
+    return c.json({ defaults, overrides, actions: WORKFLOW_ACTIONS, action_help: WORKFLOW_ACTION_HELP });
   });
   app.put("/v1/admin/reaction-mappings", async (c) => {
     const body = await c.req.json().catch(() => null);

@@ -31,6 +31,7 @@ import {
   type SessionCardState,
 } from "./render.js";
 import { runSlackSlash, spawnSession } from "./slash.js";
+import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
 import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
@@ -390,8 +391,21 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
   });
 
-  // ─── interaction: 質問ボタン → answer-question ─────────────────────────────
-  socket.on("interactive", async ({ body, ack }: { body: SlackInteractionBody; ack: () => Promise<void> }) => {
+  // ─── interaction: spawn モーダル送信 / 質問ボタン → answer-question ─────────
+  socket.on("interactive", async ({ body, ack }: { body: SlackInteractionBody; ack: (res?: unknown) => Promise<void> }) => {
+    // `/co-spawn` のフォーム送信。ack() でモーダルを閉じ、 spawn 結果はチャンネルに通知
+    // (view_submission は response_url を持たないため)。
+    if (body?.type === "view_submission" && body.view?.callback_id === SPAWN_MODAL_CALLBACK_ID) {
+      try { await ack(); } catch {}
+      try {
+        const { provider, cwd } = parseSpawnModalState(body.view);
+        const resultText = await spawnSession({ concordiaUrl: deps.concordiaUrl }, provider, cwd);
+        await web.chat.postMessage({ channel: channelId, text: resultText });
+      } catch (e) {
+        log.warn(`spawn modal submit: ${(e as Error).message}`);
+      }
+      return;
+    }
     try { await ack(); } catch {}
     try {
       const action = body?.actions?.[0];
@@ -434,8 +448,25 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // 経由なので request URL は不要）。spec/feature/slack-platform.md 参照。
   socket.on(
     "slash_commands",
-    async ({ body, ack }: { body: { command?: string; text?: string }; ack: (res?: unknown) => Promise<void> }) => {
+    async ({ body, ack }: { body: { command?: string; text?: string; trigger_id?: string }; ack: (res?: unknown) => Promise<void> }) => {
       try {
+        // `/co-spawn`: 引数なし → フォーム(モーダル)、 引数あり → 即 spawn。
+        if ((body?.command ?? "").trim() === "/co-spawn") {
+          const args = (body?.text ?? "").trim();
+          if (!args && body.trigger_id) {
+            await ack();
+            try {
+              await web.views.open({ trigger_id: body.trigger_id, view: buildSpawnModalView() as never });
+            } catch (e) {
+              log.warn(`views.open(spawn) failed: ${(e as Error).message}`);
+            }
+            return;
+          }
+          const parts = args.split(/\s+/).filter(Boolean);
+          const resultText = await spawnSession({ concordiaUrl: deps.concordiaUrl }, parts[0], parts.slice(1).join(" "));
+          await ack({ response_type: "ephemeral", text: resultText });
+          return;
+        }
         const text = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, body?.text ?? "");
         await ack({ response_type: "ephemeral", text });
       } catch (e) {
@@ -574,10 +605,12 @@ interface SlackMessageEvent {
   thread_ts?: string;
 }
 interface SlackInteractionBody {
+  type?: string;
   actions?: Array<{ action_id?: string; value?: string }>;
   channel?: { id?: string };
   message?: { ts?: string; thread_ts?: string };
   user?: { id?: string };
+  view?: { callback_id?: string; state?: { values?: Record<string, unknown> } };
 }
 interface SlackReactionEvent {
   type?: string;

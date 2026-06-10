@@ -94,23 +94,10 @@ features:
       description: Concordia session control
       usage_hint: stat | prs | spawn | end | help
       should_escape: false
-functions:                    # Workflow Builder のカスタムステップ
-  spawn_session:
-    title: Spawn Concordia session
-    description: 新規セッションを起動する
-    input_parameters:
-      provider:
-        type: string
-        title: Provider          # claude / codex
-        is_required: true
-      cwd:
-        type: string
-        title: 作業ディレクトリ
-        is_required: false
-    output_parameters:
-      result:
-        type: string
-        title: 結果
+    - command: /co-spawn
+      description: 新規セッションを起動 (引数なしでフォーム)
+      usage_hint: "[claude|codex] [cwd]"
+      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -125,7 +112,6 @@ settings:
     bot_events:
       - message.channels      # プライベートなら message.groups
       - reaction_added        # リアクション制御の入口
-      - function_executed     # カスタムステップ spawn_session の実行イベント
   interactivity:
     is_enabled: true
   socket_mode_enabled: true
@@ -138,73 +124,51 @@ manifest で**作れないもの**は手動で残す:
 - **Install App** で `xoxb-…` を取得(手順 7)。
 - bot を運用チャンネルに `/invite`。
 
-## Slack カスタムワークフロー (custom function で spawn)
+## `/co-spawn` でフォーム起動 (slash → モーダル)
 
-`/concordia spawn <provider> [cwd]` を毎回打つ代わりに、 **Workflow Builder** のフォーム
-(provider ドロップダウン + 作業ディレクトリ)からワンクリックで spawn する。
+`/concordia spawn <provider> [cwd]` で provider と cwd を毎回打つ代わりに、 **`/co-spawn`**
+で provider ドロップダウン + 作業ディレクトリ入力の**モーダル**を出してワンクリック起動する。
 
-仕組み: Concordia の Slack App に **カスタムステップ (custom function) `spawn_session`**
-を定義し、 Workflow Builder のステップとして使う。実行時に `function_executed` イベントが
-**既存の Socket Mode 接続**で届き(公開 URL 不要 = loopback 設計のまま)、 slash と同じ
-`spawnSession()`(`src/slack/slash.ts`)に流して `/v1/admin/spawn-session` を叩く。
-ハンドラは `src/slack/bot.ts` の `socket.on("function_executed", …)`。
+仕組み: `/co-spawn`(引数なし)→ `views.open` でフォームを表示 → 送信(`view_submission`)を
+**既存の Socket Mode 接続**で受け、 slash と同じ `spawnSession()`(`src/slack/slash.ts`)に
+流して `/v1/admin/spawn-session` を叩く。結果は運用チャンネルに通知する。実装は
+`src/slack/spawn-modal.ts`(フォーム組み立て/パース)+ `src/slack/bot.ts` の `slash_commands` /
+`interactive`(view_submission)ハンドラ。
 
-> 前提: Workflow Builder + カスタムステップは **有料プラン**が必要。
+> **Enterprise Grid も Workflow Builder も不要**。公開 URL も不要(loopback 設計のまま)。
+> 無料プランでも動く(モーダルは標準機能)。
 
-### 1. App 側に function を定義
+### 1. `/co-spawn` slash コマンドを登録
 
-上の **app manifest** に `functions.spawn_session` と `event_subscriptions.bot_events` の
-`function_executed` を入れてある。既存アプリに後付けする場合は、 api.slack.com/apps →
-該当アプリ → **App Manifest** を開いて同じ 2 ブロックを追記する(または下記を貼る):
+上の **app manifest** に `/co-spawn` を入れてある。既存アプリに後付けするなら api.slack.com/apps →
+該当アプリ → **Slash Commands → Create New Command** で `/co-spawn` を 1 個追加(Request URL
+不要)。**Interactivity** が Enable であること(質問ボタンと共用、既定で有効)。
 
-```yaml
-functions:
-  spawn_session:
-    title: Spawn Concordia session
-    description: 新規セッションを起動する
-    input_parameters:
-      provider: { type: string, title: Provider, is_required: true }   # claude / codex
-      cwd:      { type: string, title: 作業ディレクトリ, is_required: false }
-    output_parameters:
-      result:   { type: string, title: 結果 }
-settings:
-  event_subscriptions:
-    bot_events:
-      - function_executed
-```
+追加後、 **Install App**(再インストール)で反映。コードは同梱済みなので env / 追加設定は不要、
+bot を再接続(Slack タブ保存 / `/restart` / プロセス再起動)すれば有効。
 
-保存後、 **Install App**(再インストール)で manifest 変更を反映する。
+### 2. 使い方
 
-### 2. Concordia を再起動
+- **`/co-spawn`**(引数なし)→ フォームが開く。provider(claude / codex)を選び、 作業ディレクトリ
+  (任意)を入れて「起動」。spawn 結果(pid 等)が運用チャンネルに出る。
+- **`/co-spawn claude E:\Document\Ars\Cernere`** のように引数を付ければフォームを出さず即起動。
+- 従来の **`/concordia spawn …`** もそのまま使える。
 
-`function_executed` ハンドラはコードに同梱済み。 bot を再接続(Slack タブ保存 / `/restart`
-/ プロセス再起動)すれば有効になる。追加の env / 設定は不要。
+### トラブルシュート
 
-### 3. Workflow Builder でワークフローを組む
+- **`/co-spawn` が出てこない**: Slash Command 登録後に **再インストール**したか。
+- **フォームが開かない**: **Interactivity** が Enable か。bot を再接続したか。
+- **「provider は claude / codex のいずれか」**: 引数起動で provider 名が不正。`claude` / `codex` を。
 
-Slack 左メニュー → **ツール → ワークフロー → 新規ワークフロー**:
+### (任意) Workflow Builder のカスタムステップにもしたい場合
 
-1. **トリガー**: 「リンク」(ブックマーク/チャンネル固定でワンクリック起動)、 または
-   ショートカット/ボタン。
-2. **ステップ1「フォームを送信」**: フィールドを 2 つ。
-   - `provider`: ドロップダウン(選択肢に `claude` / `codex`)
-   - `cwd`: 短文(または候補が固定ならドロップダウン)
-3. **ステップ2「カスタム → Concordia → Spawn Concordia session」**: フォーム出力を
-   ステップ入力 `provider` / `cwd` に割当。
-4. **公開**。生成リンクをブックマーク or 運用チャンネルに固定。
-
-これで「リンクをクリック → ドロップダウン選択 → spawn」になる。spawn 結果(pid 等)は
-function の `result` 出力に入るので、 後段に「メッセージを送信」ステップを足せばチャンネルへ
-通知もできる。
-
-### トラブルシュート(カスタムステップ)
-
-- **ステップ一覧に Concordia が出ない**: manifest に `functions` を入れて **再インストール**
-  したか。Workflow Builder が使える(有料)プランか。
-- **実行しても spawn されない**: `function_executed` を bot_events に入れたか、 Concordia を
-  再接続したか。ログに `function_executed(spawn_session) handler:` の warn が出ていないか。
-- **「provider は claude / codex のいずれか」**: フォームの provider 値が想定外。ドロップダウン
-  の選択肢を `claude` / `codex` 文字列に。
+コードには custom function `spawn_session` のハンドラ(`socket.on("function_executed", …)`)も
+同梱しており、 Workflow Builder のステップとして spawn を呼ぶことも**理屈上は**できる。ただし
+カスタムステップは **Enterprise Grid でアプリを Org レベルに有効化**(org-ready + org インストール、
+**Org 管理者の操作**)+ `function_executed` bot event 購読が必須で、 custom function を含む
+ワークフローは**実行回数の従量課金**が乗る。手間と制約が大きいので、 通常は上記 `/co-spawn` で十分。
+Grid 環境で本当に Workflow Builder ステップにしたい時だけ、 Org 管理者に Org レベル有効化を依頼し、
+Functions GUI で `spawn_session`(input: provider/cwd、 output: result)を作る。
 
 ## チャンネルの用意
 
@@ -249,9 +213,10 @@ Slack platform connected (channel=C…, bot=U…)
 - **質問 (AskUserQuestion)**: thread にボタンが出る → 押して回答。ローカル(端末)で
   答えた場合はボタンが自動失効(再クリックは弾かれる)。
 - **slash**:
+  - `/co-spawn` — 新規セッション起動(引数なしで provider/cwd フォーム、引数で即起動)
   - `/concordia stat` — 全セッション現況
   - `/concordia prs` — PR キュー
-  - `/concordia spawn <claude|codex> [cwd]` — 新規セッション起動
+  - `/concordia spawn <claude|codex> [cwd]` — 新規セッション起動(従来形式)
   - `/concordia end <session_id 先頭8桁>` — セッション終了
   - `/concordia help` — ヘルプ
 

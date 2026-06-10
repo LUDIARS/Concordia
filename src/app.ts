@@ -380,6 +380,32 @@ export function buildApp(deps: AppDeps): Hono {
     return c.json({ interval_sec: deps.adminState.getRuleProposerIntervalSec() });
   });
 
+  // ワークスペースルート / GitHub Organization (schema_meta 永続化、 設定 GUI から編集)。
+  // 変更は次の Discord/Slack bot start (= restart) で実効値として反映される。
+  app.get("/v1/admin/workspace-root", (c) => {
+    return c.json({ workspace_root: deps.adminState.getWorkspaceRoot() });
+  });
+  app.put("/v1/admin/workspace-root", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.workspace_root !== "string") {
+      return c.json({ error: "body.workspace_root (string) required" }, 400);
+    }
+    deps.adminState.setWorkspaceRoot(body.workspace_root);
+    return c.json({ workspace_root: deps.adminState.getWorkspaceRoot() });
+  });
+
+  app.get("/v1/admin/github-org", (c) => {
+    return c.json({ github_org: deps.adminState.getGithubOrg() });
+  });
+  app.put("/v1/admin/github-org", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.github_org !== "string") {
+      return c.json({ error: "body.github_org (string) required" }, 400);
+    }
+    deps.adminState.setGithubOrg(body.github_org);
+    return c.json({ github_org: deps.adminState.getGithubOrg() });
+  });
+
   app.get("/v1/admin/state", (c) => {
     return c.json({
       ...deps.adminState.snapshot(),

@@ -190,7 +190,11 @@ MCP サーバ (別プロセス) が読む env:
 | `CONCORDIA_ERROR_AUTOFIX_CWD` | spawn default cwd | `control/error-fix.ts:81` | auto-fix を回す working directory。 |
 | `CONCORDIA_ERROR_WATCH_LOGS_ROOT` | 未設定 | `discord/error-monitor.ts:25` | Discord エラー監視が tail するログのルート。 未設定なら監視 off。 |
 | `CONCORDIA_ERROR_WATCH_INTERVAL_SEC` | `30` (最小 10) | `discord/error-monitor.ts:26` | エラー監視の tail 間隔 (秒)。 |
-| `CONCORDIA_WORKSPACE_ROOT` | spawn default cwd を流用 | `shared/config.ts:83` | 各種機能が参照する workspace ルート。 未設定時は `CONCORDIA_SPAWN_DEFAULT_CWD` の解決値。 |
+| `CONCORDIA_WORKSPACE_ROOT` | spawn default cwd を流用 | `shared/config.ts:83` | 各種機能が参照する workspace ルート (リアクションワークフロー / Work 走査の基点)。 未設定時は `CONCORDIA_SPAWN_DEFAULT_CWD` の解決値。 **設定 GUI (Rules ページ) / `/v1/admin/workspace-root` から上書き可** (schema_meta 永続化、 bot restart で反映)。 |
+| `CONCORDIA_GITHUB_ORG` | `LUDIARS` 運用パス存在時のみ `LUDIARS`、 他は空 | `shared/config.ts` | リポが属する GitHub Organization (PR / repo 操作の owner 解決)。 **設定 GUI / `/v1/admin/github-org` から上書き可** (schema_meta 永続化)。 |
+
+> `workspace_root` / `github_org` は AdminState (`schema_meta`) が source of truth で、 上記 env は
+> 未設定時の既定値。 GUI / API で空に戻すと env 既定へフォールバックする。
 
 ---
 

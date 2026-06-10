@@ -63,6 +63,8 @@ export interface SlackBotDeps {
   resolveConfig?: () => SlackEnv;
   /** リアクションワークフロー (👍 → 実装着手 等) の Memoria 解決用ワークスペースルート。 */
   workspaceRoot?: string;
+  /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
+  resolveWorkspaceRoot?: () => string;
   /** リアクションワークフローの安全弁。true の時だけ reaction_added を処理に流す。 */
   reactionWorkflowEnabled?: boolean;
 }
@@ -90,7 +92,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         chatRepo: deps.chatRepo,
         sessionsRepo: deps.sessionsRepo,
         runHeadless: runClaude,
-        workspaceRoot: deps.workspaceRoot ?? process.cwd(),
+        workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
         enabled: true,
         log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
       })

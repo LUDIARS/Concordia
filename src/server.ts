@@ -198,7 +198,10 @@ export async function startBackend(): Promise<BackendHandle> {
     personas,
     concordiaUrl: publicUrlForDelegation,
   });
-  const adminState = new AdminState(db);
+  const adminState = new AdminState(db, {
+    workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    githubOrg: cfg.githubOrg,
+  });
   seedDefaultRules(rules);
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
@@ -248,7 +251,9 @@ export async function startBackend(): Promise<BackendHandle> {
     prRecordsRepo: prs,
     concordiaUrl: publicUrl,
     // リアクションワークフロー: ローカルクローン親 (Memoria 解決用) + 安全弁。
+    // workspaceRoot は設定 GUI (AdminState) で上書き可能。 bot start のたびに live 値を読む。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
@@ -261,6 +266,7 @@ export async function startBackend(): Promise<BackendHandle> {
     concordiaUrl: publicUrl,
     // リアクションワークフロー (👍 → 実装着手 等): Discord と同じ安全弁 + ワークスペースルート。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),

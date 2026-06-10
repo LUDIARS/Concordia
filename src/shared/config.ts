@@ -58,13 +58,26 @@ export interface ConcordiaConfig {
    * ローカルクローンを並べた作業ルート (Work ページの repo 一覧の走査先)。
    * env `CONCORDIA_WORKSPACE_ROOT` 優先、 無ければ spawnDefaultCwd を流用
    * (LUDIARS では E:\Document\Ars)。 空なら Work の repo 一覧は空になる。
+   *
+   * 実行時は AdminState (schema_meta 永続化 + 設定 GUI) が上書き可能。 ここは既定値。
    */
   workspaceRoot: string;
+  /**
+   * リポジトリが属する GitHub Organization (例 "LUDIARS")。 PR / repo 操作の
+   * owner 解決や delegation 文脈に使う既定値。 env `CONCORDIA_GITHUB_ORG` 優先、
+   * 無ければ LUDIARS 運用パスが存在する Windows 機なら "LUDIARS"、 それ以外は空。
+   *
+   * 実行時は AdminState (schema_meta 永続化 + 設定 GUI) が上書き可能。 ここは既定値。
+   */
+  githubOrg: string;
 }
 
 export function loadConfig(env = process.env): ConcordiaConfig {
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd();
+  const githubOrg =
+    (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
+    (autoDetectSpawnDefaultCwd() ? "LUDIARS" : "");
   return {
     host: env.CONCORDIA_HOST ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? "17330"),
@@ -81,6 +94,7 @@ export function loadConfig(env = process.env): ConcordiaConfig {
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
     spawnDefaultCwd,
     workspaceRoot: (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd,
+    githubOrg,
   };
 }
 

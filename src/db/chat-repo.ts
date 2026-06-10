@@ -61,6 +61,18 @@ export class ChatRepo {
     );
   }
 
+  /**
+   * 指定セッションが書いた直近のメッセージ 1 件。 standalone 絵文字 (🙏 等) を
+   * 「直前のメッセージへのリアクション」として扱うときの対象解決に使う。
+   */
+  latestForSession(sessionId: string): ChatMessageRow | null {
+    return (
+      (this.db
+        .prepare(`SELECT * FROM chat_messages WHERE session_id = ? ORDER BY ts DESC, id DESC LIMIT 1`)
+        .get(sessionId) as ChatMessageRow | undefined) ?? null
+    );
+  }
+
   list(filter: {
     channel?: ChatChannel;
     since?: number;

@@ -76,6 +76,8 @@ export interface DiscordBotDeps {
   concordiaUrl: string;
   /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
   workspaceRoot?: string;
+  /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
+  resolveWorkspaceRoot?: () => string;
   /** リアクションワークフローの安全弁 (既定 OFF)。 true で実処理を起動する。 */
   reactionWorkflowEnabled?: boolean;
   /**
@@ -123,7 +125,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         chatRepo: deps.chatRepo,
         sessionsRepo: deps.sessionsRepo,
         runHeadless: runClaude,
-        workspaceRoot: deps.workspaceRoot ?? process.cwd(),
+        workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
         enabled: true,
         log,
       })
@@ -346,6 +348,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       sessionsRepo: deps.sessionsRepo,
       concordiaUrl: deps.concordiaUrl,
       log,
+      // 単発絵文字 (🙏 / 🫡 等) をリアクションワークフローに流すための解決系。
+      chatRepo: deps.chatRepo,
+      messageMap,
+      workflow: reactionWorkflow,
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });

@@ -17,12 +17,31 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 | 絵文字 | 意味 | WorkflowAction | 実行手段 | model |
 |---|---|---|---|---|
 | 👍 / 🆗 | 良い → そのまま実装着手 | `start-impl` | authoring session へ `session.inject`<br>(非 active なら headless で着手) | — |
+| 🙏 | 残作業を洗い出して報告 (🫡 と対) | `enumerate-remaining` | authoring session へ `session.inject`<br>(非 active なら headless で洗い出し) | sonnet |
+| 🫡 | 残作業 (洗い出し結果) を Memoria に記録 | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
+| 📲 🆙 👆 | 状況どう? → 現在の作業状況を報告 | `status-check` | authoring session へ `session.inject`<br>(非 active なら headless) | sonnet |
 | 😄 😀 😃 😊 🙂 😁 | 良い動き | `repo-memory-good` | headless (cwd = 当該リポ) | haiku |
-| 👀 👁️ | 気になる結果 | `memoria-note` | headless (cwd = Memoria) | haiku |
-| 📝 📓 🗒️ ✏️ / ✅ ☑️ ✔️ | 残作業 | `memoria-task` | headless (cwd = Memoria) | sonnet |
+| 👀 👁️ 👈 📓 ✏️ | メッセージをメモに残す | `memoria-note` | headless (cwd = Memoria) | haiku |
+| 📝 🗒️ / ✅ ☑️ ✔️ | 残作業 → タスク登録 | `memoria-task` | headless (cwd = Memoria) | sonnet |
 | 😡 💢 👿 😠 / 👎 | 良くない | `repo-memory-bad` | headless (cwd = 当該リポ) | haiku |
 
 写像外の絵文字は記録のみで何もしない (`null`)。
+
+`🙏 → 🫡` は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
+セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫡 を付けると Memoria へ記録する。
+
+### 1-b. 単発絵文字 (prompt) も同じトリガにする
+
+リアクションだけでなく、**チャットに単発で投稿された同種の絵文字**も同じワークフローに流す
+(`src/discord/ingress.ts`)。 メッセージ本文が写像対象の絵文字 1 個だけなら、 inject / chat には
+載せず「直前メッセージへのリアクション」と同義に扱う。 対象メッセージの解決順:
+
+1. 返信メッセージ (`message.reference`) なら参照先 → `discord_message_map` で `chat_messages.id`。
+2. session channel なら、 そのセッションが書いた直近メッセージ (`chatRepo.latestForSession`)。
+3. meta channel (chitchat / consultation / 報告 / system) なら、 その channel の直近メッセージ。
+
+解決できなければ通常経路 (inject / chat) にフォールバック。 安全弁 OFF (runner 未構築) の間は
+単発絵文字も無処理 (= 通常の inject 扱い)。
 
 > 注: `ok` は 🆗 (U+1F197)、 `check` は ✅ (U+2705) と区別する。 `classifyEmoji` (記録用) では
 > ✅/👍 は `fine`、 👎 は `bad` に潰れるが、 ワークフロールータは別系統で細かく分岐する。
@@ -66,10 +85,15 @@ MessageReactionAdd (discord.js)
 |---|---|---|
 | `CONCORDIA_REACTION_WORKFLOW` | `0` (OFF) | `1` で実処理を起動。 OFF の間は記録のみ。 |
 | `CONCORDIA_REACTION_MODEL_HAIKU` | `haiku` | memoria-note / repo-memory に使うモデル別名。 |
-| `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task に使うモデル別名。 |
+| `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task / enumerate-remaining / memoria-remaining / status-check に使うモデル別名。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | headless 1 回の timeout。 |
 
 error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路を壊さない。
+
+`workspaceRoot` (Memoria 解決の基点) と `github_org` は設定 GUI (Rules ページ / `/v1/admin/*`)
+からも編集できる。 AdminState (`schema_meta` 永続化) が source of truth で、 未設定なら config
+(`CONCORDIA_WORKSPACE_ROOT` / `CONCORDIA_GITHUB_ORG`) 既定にフォールバック。 変更は次の
+Discord/Slack bot start (= restart) で実効値に反映される。 詳細は `spec/setup/config-reference.md`。
 
 ## 4-b. platform 別 ingress（chat 逆引き + 絵文字正規化）
 
@@ -89,6 +113,8 @@ error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路�
 - `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
+- `src/discord/ingress.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
+- `src/db/chat-repo.ts` — `latestForSession(sessionId)`（単発絵文字の対象解決に使う）。
 - `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
 - `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。

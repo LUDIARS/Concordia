@@ -6,12 +6,20 @@
  *  - reactions.ts が reaction 記録後に handle() を呼ぶ。
  *  - リアクション絵文字 → WorkflowAction に写像 (classifyReactionWorkflow)。
  *  - 実処理は「LLM が解析 + 記録/着手まで」を 1 ショットで担う:
- *      start-impl       👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
- *                                 非 active なら headless で着手)
- *      repo-memory-good 😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
- *      memoria-note     👀        気になる結果 → Memoria にメモを記録 (haiku)
- *      memoria-task     📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
- *      repo-memory-bad  😡 / 👎   良くない → リポ作業メモリに行動結果を記録 (haiku)
+ *      start-impl         👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
+ *                                   非 active なら headless で着手)
+ *      enumerate-remaining 🙏       残作業を洗い出して報告 (authoring session へ inject、
+ *                                   非 active なら headless で洗い出し) ←→ 🫡 と対の WF
+ *      memoria-remaining  🫡       残作業 (洗い出し結果) を Memoria に残作業として記録 (sonnet)
+ *      status-check       📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
+ *                                   非 active なら headless)
+ *      repo-memory-good   😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
+ *      memoria-note       👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
+ *      memoria-task       📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
+ *      repo-memory-bad    😡 / 👎   良くない → リポ作業メモリに行動結果を記録 (haiku)
+ *
+ * 🙏 → 🫡 は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
+ * セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫡 を付けると Memoria へ記録する。
  *
  * 安全弁: 既定 OFF。 enabled (CONCORDIA_REACTION_WORKFLOW=1) の時だけ実処理を走らせる。
  * headless 実行は file 書き込み / Memoria 連携を伴うので dangerouslySkipPermissions で起動する
@@ -26,6 +34,9 @@ import { eventBus } from "../events.js";
 
 export type WorkflowAction =
   | "start-impl"
+  | "enumerate-remaining"
+  | "memoria-remaining"
+  | "status-check"
   | "repo-memory-good"
   | "repo-memory-bad"
   | "memoria-note"
@@ -41,12 +52,18 @@ export type WorkflowAction =
 const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   // 「良い」→ そのまま実装着手 (thumbsup / ok)
   "start-impl": ["👍", "🆗"],
+  // 🙏 → 残作業を洗い出して報告 (2 段 WF の前段)
+  "enumerate-remaining": ["🙏"],
+  // 🫡 → 残作業 (洗い出し結果) を Memoria に記録 (2 段 WF の後段)
+  "memoria-remaining": ["🫡"],
+  // 状況どう? → セッションに今の作業状況を報告させる (point-up / up / mobile 系)
+  "status-check": ["📲", "🆙", "👆"],
   // 良い動き → リポ作業メモリに記録 (smile 系)
   "repo-memory-good": ["😄", "😀", "😃", "😊", "🙂", "😁"],
-  // 気になる結果 → Memoria メモ (eye 系)
-  "memoria-note": ["👀", "👁️", "👁"],
-  // 残作業 → Memoria タスク (Note / check 系)
-  "memoria-task": ["📝", "📓", "🗒️", "🗒", "✏️", "✏", "✅", "☑️", "✔️", "✔"],
+  // メッセージをメモに残す → Memoria メモ (eye / point-left / note / pencil 系)
+  "memoria-note": ["👀", "👁️", "👁", "👈", "📓", "✏️", "✏"],
+  // 残作業 → Memoria タスク (memo / check 系)
+  "memoria-task": ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"],
   // 良くない動き → リポ作業メモリに記録 (rage / bad 系)
   "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
 };
@@ -141,6 +158,65 @@ export function planWorkflow(
       };
     }
 
+    case "enumerate-remaining": {
+      const prompt =
+        `🙏 このメッセージ (直前の作業 / 報告) を起点に、 **今やり残している残作業を洗い出して報告**してください。\n` +
+        `- 着手中の作業・未完了のタスク・TODO・既知の課題を、 重複なくリスト形式で列挙する。\n` +
+        `- 各項目は「何を / どこまで終わっていて / 次に何をすべきか」が分かる粒度で 1 行ずつ書く。\n` +
+        `- 推測で水増しせず、 実際に残っているものだけを挙げる。 無ければ「残作業なし」と明記する。\n` +
+        `- この洗い出し結果は後段で 🫡 リアクションにより Memoria へ残作業として記録される前提で、 そのまま転記できる形にする。`;
+      // authoring session が生きていれば、 その AI に inject して文脈ごと洗い出させる。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt };
+      }
+      // 非 active: headless で repo を開いて洗い出す。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "memoria-remaining": {
+      const prompt =
+        head +
+        `\n🫡 これは「残作業の洗い出し結果」として共有されました (🙏 の後段)。\n` +
+        `内容を解析し、 列挙されている残作業を **Memoria に残作業 (タスク) として記録**してください。\n` +
+        `- メッセージ本文の各残作業項目を 1 件ずつ Memoria のタスク機能 (or 相応の relay 経路) に登録する。\n` +
+        `- 各項目から「タスク名 / 完了条件 / 対象リポ」を読み取り、 曖昧なら最も妥当な形に整える。\n` +
+        `- 既に同等のタスクがあれば重複登録しない。\n` +
+        `- 出所として「Concordia リアクション (🫡) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.memoriaPath,
+        prompt,
+      };
+    }
+
+    case "status-check": {
+      const prompt =
+        `📲 状況どう?\n` +
+        `今やっている作業の**現在の状況を報告**してください。\n` +
+        `- 着手中のタスク / どこまで進んだか / 今ブロックしている点 / 次の一手 を簡潔にまとめる。\n` +
+        `- 進捗が無いなら「待機中」「手詰まり (理由)」など正直な状態を書く。 体裁のための水増しはしない。`;
+      // authoring session が生きていれば、 その AI に inject して現状を報告させる。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt };
+      }
+      // 非 active: headless で repo を開いて状況を報告する。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
     case "repo-memory-good": {
       const prompt =
         head +
@@ -178,10 +254,10 @@ export function planWorkflow(
     case "memoria-note": {
       const prompt =
         head +
-        `\n👀 これは「気になる結果」として共有されました。\n` +
+        `\n📓 これは「メモに残しておきたいメッセージ」として共有されました。\n` +
         `内容を解析し、 **Memoria にメモとして記録**してください (Memoria のメモ/ノート機能 or 相応の relay 経路)。\n` +
-        `- 何が気になるのか / 後で見返すべき要点を 1〜3 行に要約してメモ化する。\n` +
-        `- 出所として「Concordia リアクション (👀) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
+        `- メッセージの要点 / 後で見返すべき内容を 1〜3 行に要約してメモ化する。\n` +
+        `- 出所として「Concordia リアクション (👀/👈/📓/✏️) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
       return {
         action,
         mode: "headless",

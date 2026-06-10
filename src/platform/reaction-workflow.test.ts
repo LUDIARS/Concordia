@@ -18,9 +18,17 @@ describe("classifyReactionWorkflow", () => {
   it.each([
     ["👍", "start-impl"],
     ["🆗", "start-impl"],
+    ["🙏", "enumerate-remaining"],
+    ["🫡", "memoria-remaining"],
+    ["📲", "status-check"],
+    ["🆙", "status-check"],
+    ["👆", "status-check"],
     ["😄", "repo-memory-good"],
     ["😀", "repo-memory-good"],
     ["👀", "memoria-note"],
+    ["👈", "memoria-note"],
+    ["📓", "memoria-note"],
+    ["✏️", "memoria-note"],
     ["📝", "memoria-task"],
     ["✅", "memoria-task"],
     ["✔️", "memoria-task"],
@@ -83,6 +91,40 @@ describe("planWorkflow", () => {
     expect(plan.model).toBe("sonnet");
     expect(plan.cwd).toBe(baseCtx.memoriaPath);
     expect(plan.prompt).toContain("タスク");
+  });
+
+  it("enumerate-remaining on active session → inject (残作業洗い出し)", () => {
+    const plan = planWorkflow("enumerate-remaining", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("残作業");
+  });
+
+  it("enumerate-remaining on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("enumerate-remaining", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+  });
+
+  it("memoria-remaining → headless sonnet in Memoria cwd (残作業記録)", () => {
+    const plan = planWorkflow("memoria-remaining", baseCtx);
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.memoriaPath);
+    expect(plan.prompt).toContain("残作業");
+    expect(plan.prompt).toContain("Memoria");
+  });
+
+  it("status-check on active session → inject (状況報告)", () => {
+    const plan = planWorkflow("status-check", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("状況");
+  });
+
+  it("status-check on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("status-check", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
   });
 
   it("honors custom model overrides", () => {

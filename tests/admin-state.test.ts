@@ -56,7 +56,7 @@ describe("AdminState", () => {
     expect(() => env.state.setRuleProposerIntervalSec(Infinity)).toThrow();
   });
 
-  it("snapshot returns the current triple", () => {
+  it("snapshot returns the full settings set", () => {
     env.state.setChatMuted(false);
     env.state.setRulesEnabled(true);
     env.state.setRuleProposerIntervalSec(120);
@@ -64,6 +64,8 @@ describe("AdminState", () => {
       chat_muted: false,
       rules_enabled: true,
       rule_proposer_interval_sec: 120,
+      workspace_root: "",
+      github_org: "",
     });
   });
 
@@ -72,5 +74,33 @@ describe("AdminState", () => {
       .prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`)
       .run("admin.rule_proposer_interval_sec", "not-a-number");
     expect(env.state.getRuleProposerIntervalSec()).toBe(3600);
+  });
+
+  it("workspace_root / github_org fall back to constructor defaults when unset", () => {
+    const withDefaults = new AdminState(env.db, {
+      workspaceRoot: "E:\\Document\\Ars",
+      githubOrg: "LUDIARS",
+    });
+    expect(withDefaults.getWorkspaceRoot()).toBe("E:\\Document\\Ars");
+    expect(withDefaults.getGithubOrg()).toBe("LUDIARS");
+  });
+
+  it("setWorkspaceRoot / setGithubOrg override defaults and persist (trimmed)", () => {
+    const withDefaults = new AdminState(env.db, {
+      workspaceRoot: "E:\\Document\\Ars",
+      githubOrg: "LUDIARS",
+    });
+    withDefaults.setWorkspaceRoot("  D:\\work  ");
+    withDefaults.setGithubOrg(" ACME ");
+    const second = new AdminState(env.db, { workspaceRoot: "E:\\Document\\Ars", githubOrg: "LUDIARS" });
+    expect(second.getWorkspaceRoot()).toBe("D:\\work");
+    expect(second.getGithubOrg()).toBe("ACME");
+  });
+
+  it("blank workspace_root / github_org revert to defaults", () => {
+    const withDefaults = new AdminState(env.db, { workspaceRoot: "E:\\Document\\Ars", githubOrg: "LUDIARS" });
+    withDefaults.setWorkspaceRoot("D:\\work");
+    withDefaults.setWorkspaceRoot("   ");
+    expect(withDefaults.getWorkspaceRoot()).toBe("E:\\Document\\Ars");
   });
 });

@@ -257,6 +257,7 @@ export function Rules() {
         </header>
 
         <AdminTogglesPanel />
+        <WorkspaceSettingsPanel />
 
         {mode && (
           <RuleForm
@@ -744,6 +745,129 @@ function AdminTogglesPanel() {
           </button>
         </div>
         {discordMsg && <div className="text-xs text-subtle">{discordMsg}</div>}
+      </div>
+
+      {error && <div className="text-danger text-xs">{error}</div>}
+    </section>
+  );
+}
+
+/**
+ * ワークスペースルート / GitHub Organization 設定。 schema_meta 永続化 (AdminState)。
+ * 変更は次の Discord/Slack bot start (= restart) で実効値に反映される。
+ */
+function WorkspaceSettingsPanel() {
+  const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null);
+  const [githubOrg, setGithubOrg] = useState<string | null>(null);
+  const [wsDraft, setWsDraft] = useState<string>("");
+  const [orgDraft, setOrgDraft] = useState<string>("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void refresh();
+  }, []);
+
+  async function refresh() {
+    try {
+      const r = await fetch("/v1/admin/state");
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const s = (await r.json()) as { workspace_root: string; github_org: string };
+      setWorkspaceRoot(s.workspace_root);
+      setGithubOrg(s.github_org);
+      setWsDraft(s.workspace_root);
+      setOrgDraft(s.github_org);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function put(path: string, body: unknown, key: string) {
+    setBusy(key);
+    setError(null);
+    try {
+      const r = await fetch(path, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        throw new Error(`HTTP ${r.status}: ${txt}`);
+      }
+      await refresh();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="bg-surface border border-border rounded p-4 space-y-3">
+      <div>
+        <h2 className="font-semibold text-sm">ワークスペース設定</h2>
+        <p className="text-subtle text-xs mt-0.5">
+          ローカルクローン親 (リアクションワークフロー / Work 走査の基点) と
+          リポが属する GitHub Organization。 永続化され、 次の bot 再起動で実効値に反映。
+        </p>
+      </div>
+
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+        <div className="text-sm font-medium">ワークスペースルート</div>
+        <div className="text-xs text-subtle">
+          例 <code>E:\Document\Ars</code>。 空にすると config (env) 既定に戻る。
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-subtle shrink-0">現在:</span>
+          <span className="shrink-0 px-2 py-0.5 rounded text-xs border bg-ok/20 border-ok text-ok font-mono">
+            {workspaceRoot !== null ? (workspaceRoot || "(未設定)") : "..."}
+          </span>
+          <input
+            type="text"
+            value={wsDraft}
+            onChange={(e) => setWsDraft(e.target.value)}
+            disabled={busy === "ws"}
+            placeholder="E:\\Document\\Ars"
+            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono flex-1 min-w-[180px]"
+          />
+          <button
+            disabled={busy === "ws" || wsDraft === (workspaceRoot ?? "")}
+            onClick={() => put("/v1/admin/workspace-root", { workspace_root: wsDraft }, "ws")}
+            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
+          >
+            apply
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+        <div className="text-sm font-medium">GitHub Organization</div>
+        <div className="text-xs text-subtle">
+          例 <code>LUDIARS</code>。 PR / repo 操作の owner 解決に使う。
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-subtle shrink-0">現在:</span>
+          <span className="shrink-0 px-2 py-0.5 rounded text-xs border bg-ok/20 border-ok text-ok font-mono">
+            {githubOrg !== null ? (githubOrg || "(未設定)") : "..."}
+          </span>
+          <input
+            type="text"
+            value={orgDraft}
+            onChange={(e) => setOrgDraft(e.target.value)}
+            disabled={busy === "org"}
+            placeholder="LUDIARS"
+            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono flex-1 min-w-[180px]"
+          />
+          <button
+            disabled={busy === "org" || orgDraft === (githubOrg ?? "")}
+            onClick={() => put("/v1/admin/github-org", { github_org: orgDraft }, "org")}
+            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
+          >
+            apply
+          </button>
+        </div>
       </div>
 
       {error && <div className="text-danger text-xs">{error}</div>}

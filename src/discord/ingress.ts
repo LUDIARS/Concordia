@@ -1,10 +1,11 @@
 import { ChannelType, type Message } from "discord.js";
-import type { ChatChannel } from "../db/chat-repo.js";
+import type { ChatChannel, ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
+import { classifyReactionWorkflow } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -28,6 +29,11 @@ export interface IngressDeps {
   sessionsRepo: SessionsRepo;
   concordiaUrl: string;
   log: { info: (m: string) => void; warn: (m: string) => void };
+  /** standalone 絵文字 (🙏 等) を「直前メッセージへのリアクション」として扱うための解決系。 */
+  chatRepo?: ChatRepo;
+  messageMap?: DiscordMessageMapRepo;
+  /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
+  workflow?: { handle(input: { chatId: number; emoji: string; userId: string }): Promise<void> };
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -75,6 +81,13 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     `ingress: routing channel=${msg.channelId} route_channel=${routeChannelId} ` +
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
   );
+
+  // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直前メッセージへのリアクション」と同義に扱い、
+  // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
+  if (deps.workflow && classifyReactionWorkflow(text)) {
+    if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
+  }
+
   const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
   if (sessionRow) {
     deps.log.info(
@@ -171,6 +184,52 @@ function resolveRouteChannelId(msg: Message): string {
     return msg.channel.parentId ?? msg.channelId;
   }
   return msg.channelId;
+}
+
+/**
+ * 単発絵文字メッセージ → リアクションワークフロー。 対象 chat_messages を解決して
+ * fire-and-forget で workflow.handle を呼ぶ。 対象が見つからなければ false (通常経路へ)。
+ */
+async function tryEmojiWorkflow(
+  deps: IngressDeps,
+  msg: Message,
+  emoji: string,
+  routeChannelId: string,
+): Promise<boolean> {
+  if (!deps.workflow) return false;
+  const chatId = resolveEmojiTargetChatId(deps, msg, routeChannelId);
+  if (chatId == null) {
+    deps.log.info(`ingress: emoji "${emoji}" but no target message found channel=${msg.channelId}`);
+    return false;
+  }
+  deps.log.info(`ingress: emoji "${emoji}" → reaction-workflow chat_messages.id=${chatId} channel=${msg.channelId}`);
+  void deps.workflow
+    .handle({ chatId, emoji, userId: msg.author.id })
+    .catch((e) => deps.log.warn(`ingress: emoji workflow failed: ${(e as Error).message}`));
+  return true;
+}
+
+/** 単発絵文字の対象メッセージ: 返信先 → session の直近 → meta channel の直近 の順で解決。 */
+function resolveEmojiTargetChatId(deps: IngressDeps, msg: Message, routeChannelId: string): number | null {
+  // 1. 返信メッセージなら参照先を対象に取る (リアクションと同義の最も明示的な指定)。
+  const refId = msg.reference?.messageId;
+  if (refId && deps.messageMap) {
+    const id = deps.messageMap.findChatId(refId);
+    if (id != null) return id;
+  }
+  // 2. session channel: そのセッションが書いた直近メッセージ。
+  const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
+  if (sessionRow && deps.chatRepo) {
+    const m = deps.chatRepo.latestForSession(sessionRow.session_id);
+    if (m) return m.id;
+  }
+  // 3. meta channel (chitchat / consultation / 報告 / system): その channel の直近メッセージ。
+  const kind = resolveMetaKind(deps.configRepo, routeChannelId);
+  if (kind && deps.chatRepo) {
+    const m = deps.chatRepo.list({ channel: metaKindToChatChannel(kind), limit: 1 })[0];
+    if (m) return m.id;
+  }
+  return null;
 }
 
 function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {

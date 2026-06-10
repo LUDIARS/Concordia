@@ -30,7 +30,7 @@ import {
   slackReactionToUnicode,
   type SessionCardState,
 } from "./render.js";
-import { runSlackSlash } from "./slash.js";
+import { runSlackSlash, spawnSession } from "./slash.js";
 import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
@@ -442,6 +442,31 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     },
   );
 
+  // ─── custom function: spawn_session（Workflow Builder のカスタムステップ）──────
+  // Slack App manifest に function `spawn_session`（inputs: provider, cwd）を定義し、
+  // Workflow Builder からステップとして呼ぶ。実行時に function_executed が Socket Mode
+  // で届くので、 slash と同じ spawnSession() に流して結果を completeSuccess で返す。
+  // slash のように毎回 provider/cwd を打たず、 フォームのドロップダウンで起動できる。
+  // 設定手順は spec/setup/slack.md「Slack カスタムワークフロー」節。
+  socket.on(
+    "function_executed",
+    async ({ event, ack }: { event: SlackFunctionExecutedEvent; ack: () => Promise<void> }) => {
+      try { await ack(); } catch {}
+      const execId = event?.function_execution_id;
+      if (!execId) return;
+      try {
+        if (event.function?.callback_id !== "spawn_session") return; // 想定外の function は無視
+        const inputs = event.inputs ?? {};
+        const result = await spawnSession({ concordiaUrl: deps.concordiaUrl }, inputs.provider, inputs.cwd);
+        await web.functions.completeSuccess({ function_execution_id: execId, outputs: { result } });
+      } catch (e) {
+        const msg = (e as Error).message;
+        log.warn(`function_executed(spawn_session) handler: ${msg}`);
+        try { await web.functions.completeError({ function_execution_id: execId, error: msg }); } catch {}
+      }
+    },
+  );
+
   // ─── reaction_added: リアクションを「指示」として処理に流す（👍=実装着手 等）──
   // discord/reactions.ts と同じ意味論を Slack に移植。Slack は ts → chat の逆引きが
   // 無いので slack_message_map で解決し、絵文字名を unicode に正規化してから
@@ -558,4 +583,10 @@ interface SlackReactionEvent {
   reaction?: string;
   item?: { type?: string; channel?: string; ts?: string };
   item_user?: string;
+}
+interface SlackFunctionExecutedEvent {
+  type?: string;
+  function?: { callback_id?: string };
+  inputs?: { provider?: string; cwd?: string };
+  function_execution_id?: string;
 }

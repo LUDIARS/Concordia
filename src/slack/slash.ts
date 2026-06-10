@@ -44,14 +44,17 @@ export function formatHelp(): string {
 
 const SPAWN_PROVIDERS = ["claude", "codex"] as const;
 
-/** `/concordia spawn <provider> [cwd]` を /v1/admin/spawn-session に流す。 */
-async function doSpawn(deps: SlashDeps, args: string): Promise<string> {
-  const parts = args.split(/\s+/).filter(Boolean);
-  const provider = (parts[0] ?? "claude").toLowerCase();
+/**
+ * セッション起動の中核。 slash (`/concordia spawn`) と Slack カスタムステップ
+ * (custom function `spawn_session`) の両方から呼ばれる共通ロジック。
+ * provider/cwd を構造化入力で受け、 /v1/admin/spawn-session に流して人間向け文を返す。
+ */
+export async function spawnSession(deps: SlashDeps, providerRaw: string | undefined, cwdRaw?: string): Promise<string> {
+  const provider = (providerRaw ?? "claude").trim().toLowerCase();
   if (!SPAWN_PROVIDERS.includes(provider as (typeof SPAWN_PROVIDERS)[number])) {
     return `provider は ${SPAWN_PROVIDERS.join(" / ")} のいずれか。例: \`/concordia spawn claude\``;
   }
-  const cwd = parts.slice(1).join(" ").trim() || undefined;
+  const cwd = (cwdRaw ?? "").trim() || undefined;
   const res = await fetch(`${deps.concordiaUrl}/v1/admin/spawn-session`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -60,6 +63,12 @@ async function doSpawn(deps: SlashDeps, args: string): Promise<string> {
   const json = (await res.json().catch(() => ({}))) as { error?: string; pid?: number };
   if (!res.ok) return `spawn 失敗: ${json.error ?? `HTTP ${res.status}`}`;
   return `✅ spawn 起動 (${provider}${cwd ? `, ${cwd}` : ""}) pid=${json.pid ?? "?"}`;
+}
+
+/** `/concordia spawn <provider> [cwd]` の引数文字列を構造化して spawnSession に渡す。 */
+async function doSpawn(deps: SlashDeps, args: string): Promise<string> {
+  const parts = args.split(/\s+/).filter(Boolean);
+  return spawnSession(deps, parts[0], parts.slice(1).join(" "));
 }
 
 /** `/concordia end <sid8>` — session_id 先頭一致で 1 件に解決して DELETE。 */

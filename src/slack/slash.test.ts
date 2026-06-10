@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseSlashCommand } from "./render.js";
-import { formatStat, formatHelp, runSlackSlash } from "./slash.js";
+import { formatStat, formatHelp, runSlackSlash, spawnSession } from "./slash.js";
 
 describe("runSlackSlash 早期バリデーション (ネットワーク前)", () => {
   const deps = { concordiaUrl: "http://127.0.0.1:1" };
@@ -15,6 +15,38 @@ describe("runSlackSlash 早期バリデーション (ネットワーク前)", ()
   it("help はヘルプを返す", async () => {
     expect(await runSlackSlash(deps, "")).toContain("/concordia stat");
     expect(await runSlackSlash(deps, "help")).toContain("/concordia spawn");
+  });
+});
+
+describe("spawnSession (構造化入力 — slash と custom function 共通)", () => {
+  afterEach(() => vi.restoreAllMocks());
+  const deps = { concordiaUrl: "http://127.0.0.1:1" };
+
+  it("不正 provider は fetch せずエラーメッセージ", async () => {
+    const f = vi.spyOn(globalThis, "fetch");
+    const out = await spawnSession(deps, "nope");
+    expect(out).toContain("provider は");
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("provider 未指定は claude 既定で POST し、 cwd を body に載せる", async () => {
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ pid: 4242 }), { status: 200 }),
+    );
+    const out = await spawnSession(deps, undefined, "E:/Document/Ars/Cernere");
+    expect(out).toContain("✅ spawn 起動");
+    expect(out).toContain("4242");
+    const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ provider: "claude", cwd: "E:/Document/Ars/Cernere" });
+  });
+
+  it("空 cwd は body に載せない", async () => {
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ pid: 1 }), { status: 200 }),
+    );
+    await spawnSession(deps, "codex", "  ");
+    const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
+    expect(body).toEqual({ provider: "codex" });
   });
 });
 

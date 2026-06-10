@@ -32,7 +32,7 @@ import {
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
-import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
+import { ReactionWorkflowRunner, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
@@ -66,8 +66,12 @@ export interface SlackBotDeps {
   workspaceRoot?: string;
   /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
   resolveWorkspaceRoot?: () => string;
-  /** リアクションワークフローの安全弁。true の時だけ reaction_added を処理に流す。 */
+  /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
+  /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
+  resolveReactionWorkflowEnabled?: () => boolean;
+  /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
+  resolveReactionMappings?: () => Record<string, WorkflowAction>;
 }
 
 export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | null> {
@@ -87,17 +91,17 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   const messageMap = makeSlackMessageMapRepo(deps.db);
 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
-  // platform 非依存ランナーを流用。安全弁 OFF の間は構築しない (= reaction 無処理)。
-  const reactionWorkflow = deps.reactionWorkflowEnabled
-    ? new ReactionWorkflowRunner({
-        chatRepo: deps.chatRepo,
-        sessionsRepo: deps.sessionsRepo,
-        runHeadless: runClaude,
-        workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
-        enabled: true,
-        log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
-      })
-    : null;
+  // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
+  // (設定 GUI トグルを bot 再起動なしで反映)。
+  const reactionWorkflow = new ReactionWorkflowRunner({
+    chatRepo: deps.chatRepo,
+    sessionsRepo: deps.sessionsRepo,
+    runHeadless: runClaude,
+    workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
+    enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
+    customMappings: deps.resolveReactionMappings,
+    log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
+  });
 
   // 自分の bot user id（自分の投稿を ingress で拾わないため）。
   let botUserId: string | null = null;

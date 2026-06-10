@@ -12,6 +12,7 @@ const SEED_MODELS: CreateModelInput[] = [
   // ── Claude (Claude Code) ─────────────────────────────────
   { provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 10 },
   { provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 20 },
+  { provider: "claude", model_id: "claude-fable-5", label: "Fable 5", sort_order: 25 },
   { provider: "claude", model_id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", sort_order: 30 },
   // ── Codex ────────────────────────────────────────────────
   { provider: "codex", model_id: "gpt-5.3-codex", label: "GPT-5.3 Codex", sort_order: 10 },

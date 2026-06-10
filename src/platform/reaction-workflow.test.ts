@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyReactionWorkflow,
+  defaultReactionEmojiMap,
+  isWorkflowAction,
   planWorkflow,
   type WorkflowContext,
 } from "./reaction-workflow.js";
@@ -45,6 +47,30 @@ describe("classifyReactionWorkflow", () => {
 
   it("ignores surrounding whitespace", () => {
     expect(classifyReactionWorkflow(" 👍 ")).toBe("start-impl");
+  });
+
+  it("custom overrides take precedence over defaults; add new emoji", () => {
+    const overrides = { "👍": "memoria-note" as const, "🔥": "start-impl" as const };
+    expect(classifyReactionWorkflow("👍", overrides)).toBe("memoria-note"); // 上書き
+    expect(classifyReactionWorkflow("🔥", overrides)).toBe("start-impl");   // 新規
+    expect(classifyReactionWorkflow("🫡", overrides)).toBe("memoria-remaining"); // 上書きなし=既定
+    expect(classifyReactionWorkflow("🎉", overrides)).toBeNull();
+  });
+});
+
+describe("defaultReactionEmojiMap / isWorkflowAction", () => {
+  it("flattens defaults and every value is a valid action", () => {
+    const map = defaultReactionEmojiMap();
+    expect(map["🙏"]).toBe("enumerate-remaining");
+    expect(map["🫡"]).toBe("memoria-remaining");
+    expect(map["📲"]).toBe("status-check");
+    for (const action of Object.values(map)) expect(isWorkflowAction(action)).toBe(true);
+  });
+
+  it("isWorkflowAction rejects unknown strings", () => {
+    expect(isWorkflowAction("start-impl")).toBe(true);
+    expect(isWorkflowAction("nope")).toBe(false);
+    expect(isWorkflowAction(123)).toBe(false);
   });
 });
 

@@ -66,7 +66,38 @@ describe("AdminState", () => {
       rule_proposer_interval_sec: 120,
       workspace_root: "",
       github_org: "",
+      reaction_workflow_enabled: false,
+      lictor_mode: "auto",
+      lictor_dev_path: "",
+      lictor_prod_exe: "",
     });
+  });
+
+  it("reaction_workflow_enabled defaults from constructor + round-trips", () => {
+    expect(env.state.getReactionWorkflowEnabled()).toBe(false);
+    const withDefault = new AdminState(env.db, { reactionWorkflowEnabled: true });
+    expect(withDefault.getReactionWorkflowEnabled()).toBe(true);
+    withDefault.setReactionWorkflowEnabled(false);
+    expect(new AdminState(env.db, { reactionWorkflowEnabled: true }).getReactionWorkflowEnabled()).toBe(false);
+  });
+
+  it("reaction emoji overrides upsert / delete / persist", () => {
+    env.state.setReactionEmojiOverride("🔥", "start-impl");
+    env.state.setReactionEmojiOverride("🧊", "memoria-note");
+    expect(new AdminState(env.db).getReactionEmojiOverrides()).toEqual({ "🔥": "start-impl", "🧊": "memoria-note" });
+    env.state.deleteReactionEmojiOverride("🔥");
+    expect(env.state.getReactionEmojiOverrides()).toEqual({ "🧊": "memoria-note" });
+  });
+
+  it("lictor mode validates + dev path falls back to default", () => {
+    const s = new AdminState(env.db, { lictorDevPath: "E:\\Document\\Ars\\Lictor" });
+    expect(s.getLictorMode()).toBe("auto");
+    expect(s.getLictorDevPath()).toBe("E:\\Document\\Ars\\Lictor");
+    s.setLictorMode("prod");
+    s.setLictorProdExe(" C:\\lictor.exe ");
+    expect(new AdminState(env.db, { lictorDevPath: "x" }).getLictorMode()).toBe("prod");
+    expect(s.getLictorProdExe()).toBe("C:\\lictor.exe");
+    expect(() => s.setLictorMode("bogus")).toThrow();
   });
 
   it("corrupt schema_meta value falls back to default", () => {

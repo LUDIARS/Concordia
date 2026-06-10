@@ -89,6 +89,44 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: null,
     is_active: true,
   },
+  // ── Claude (Opus / Sonnet / Fable) への汎用実装委託 ──────────────────
+  // target_provider=claude + model 指定 → spawn は `lictor claude --model <id>`。
+  // 同じ Claude Code でも上位/中位/高速モデルを選んで委託できるよう既定で 3 本入れる。
+  ...(["opus-4-8", "sonnet-4-6", "fable-5"] as const).map((tier) => {
+    const meta = {
+      "opus-4-8": { id: "claude-opus-4-8", label: "Opus 4.8", note: "最上位。 設計判断や難所の実装向き。" },
+      "sonnet-4-6": { id: "claude-sonnet-4-6", label: "Sonnet 4.6", note: "中位。 一般的な実装の主力。" },
+      "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。" },
+    }[tier];
+    return {
+      call_name: `claude-${tier}-impl`,
+      title: `実装委託 (Claude ${meta.label})`,
+      description: `Claude Code (${meta.label}) に実装を委託する。${meta.note} LUDIARS 規約 (feat branch + PR + vitest) を守らせる。`,
+      target_provider: "claude" as const,
+      model: meta.id,
+      prompt_template: [
+        "Implement the following in ${target_repo}:",
+        "",
+        "${task}",
+        "",
+        "${context_extra:}", "",
+        "Requirements:",
+        "- Create a feature branch (feat/<short-slug>) off origin/main.",
+        "- Implement as specified; don't add scope.",
+        "- Add or update vitest tests; all tests must pass.",
+        "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+        "",
+        "Report the PR URL when done.",
+      ].join("\n"),
+      input_schema: [
+        { name: "task", type: "string" as const, required: true, description: "What to implement" },
+        { name: "target_repo", type: "string" as const, required: true, description: "Absolute path of the target repository" },
+        { name: "context_extra", type: "string" as const, required: false, description: "Optional extra context to prepend" },
+      ],
+      default_cwd: "${target_repo}",
+      is_active: true,
+    };
+  }),
   {
     call_name: "gemma4-12-impl",
     title: "ローカル LLM 実装委託 (gemma4-12 / auto)",

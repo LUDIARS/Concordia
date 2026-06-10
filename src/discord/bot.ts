@@ -19,7 +19,7 @@ import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import { ReactionWorkflowRunner } from "../platform/reaction-workflow.js";
+import { ReactionWorkflowRunner, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 import {
   onSessionRegistered,
@@ -78,8 +78,12 @@ export interface DiscordBotDeps {
   workspaceRoot?: string;
   /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
   resolveWorkspaceRoot?: () => string;
-  /** リアクションワークフローの安全弁 (既定 OFF)。 true で実処理を起動する。 */
+  /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
+  /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
+  resolveReactionWorkflowEnabled?: () => boolean;
+  /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
+  resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
    * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
@@ -119,17 +123,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
 
-  // リアクションワークフロー: 安全弁 ON のときだけ runner を構築して reactions に注入。
-  const reactionWorkflow = deps.reactionWorkflowEnabled
-    ? new ReactionWorkflowRunner({
-        chatRepo: deps.chatRepo,
-        sessionsRepo: deps.sessionsRepo,
-        runHeadless: runClaude,
-        workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
-        enabled: true,
-        log,
-      })
-    : undefined;
+  // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
+  // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
+  const reactionWorkflow = new ReactionWorkflowRunner({
+    chatRepo: deps.chatRepo,
+    sessionsRepo: deps.sessionsRepo,
+    runHeadless: runClaude,
+    workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
+    enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
+    customMappings: deps.resolveReactionMappings,
+    log,
+  });
 
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
@@ -352,6 +356,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       chatRepo: deps.chatRepo,
       messageMap,
       workflow: reactionWorkflow,
+      resolveReactionMappings: deps.resolveReactionMappings,
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });

@@ -46,19 +46,43 @@ export interface SpawnResultErr {
 export type SpawnResult = SpawnResultOk | SpawnResultErr;
 
 /**
+ * Lictor の起動コマンド (launcher) を解決する関数。 既定は PATH 上の `lictor`。
+ * server 起動時に AdminState 由来の resolver を注入すると、 dev/prod モードや
+ * 明示パスを spawn のたびに反映できる (setLictorLauncherResolver)。
+ */
+let lictorLauncherResolver: () => string[] = () => ["lictor"];
+
+/** Lictor launcher の解決関数を差し替える (server 起動時に AdminState を束ねて注入)。 */
+export function setLictorLauncherResolver(fn: () => string[]): void {
+  lictorLauncherResolver = fn;
+}
+
+/** 現在の launcher トークン列 (空配列は無効とみなし bare `lictor` にフォールバック)。 */
+function currentLictorLauncher(): string[] {
+  try {
+    const l = lictorLauncherResolver();
+    return Array.isArray(l) && l.length > 0 ? l : ["lictor"];
+  } catch {
+    return ["lictor"];
+  }
+}
+
+/**
  * Pure: build the wt.exe argv for a spawn request. Useful for unit tests
  * that don't want to actually launch a window.
  *
- *   tab:    wt --window 0   new-tab [--title <t>] [-d <cwd>] cmd /d /s /c lictor <provider> [args]
- *   window: wt --window new new-tab [--title <t>] [-d <cwd>] cmd /d /s /c lictor <provider> [args]
+ *   tab:    wt --window 0   new-tab [--title <t>] [-d <cwd>] cmd /d /s /c <launcher...> <provider> [args]
+ *   window: wt --window new new-tab [--title <t>] [-d <cwd>] cmd /d /s /c <launcher...> <provider> [args]
+ *
+ * `launcher` は Lictor 起動トークン (既定 ["lictor"])。 テストは明示指定できる。
  */
-export function buildWtArgs(req: SpawnRequest): string[] {
+export function buildWtArgs(req: SpawnRequest, launcher: string[] = ["lictor"]): string[] {
   const out: string[] = [];
   out.push("--window", req.mode === "window" ? "new" : "0");
   out.push("new-tab");
   if (req.title) out.push("--title", req.title);
   if (req.cwd) out.push("-d", req.cwd);
-  out.push("cmd.exe", "/d", "/s", "/c", "lictor", req.provider);
+  out.push("cmd.exe", "/d", "/s", "/c", ...launcher, req.provider);
   if (req.args && req.args.length > 0) out.push(...req.args);
   return out;
 }
@@ -112,7 +136,7 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
 
-  const args = buildWtArgs(req);
+  const args = buildWtArgs(req, currentLictorLauncher());
   const env: NodeJS.ProcessEnv = { ...process.env, ...(req.env ?? {}) };
   const child = spawn("wt.exe", args, {
     detached: true,

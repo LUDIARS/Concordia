@@ -68,9 +68,35 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
 };
 
-/** 絵文字を WorkflowAction に写像する。 該当無しは null (= 記録のみで処理しない)。 */
-export function classifyReactionWorkflow(emoji: string): WorkflowAction | null {
+/** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
+export const WORKFLOW_ACTIONS = Object.keys(WORKFLOW_EMOJI) as WorkflowAction[];
+
+/** action 文字列が有効な WorkflowAction か。 */
+export function isWorkflowAction(v: unknown): v is WorkflowAction {
+  return typeof v === "string" && (WORKFLOW_ACTIONS as string[]).includes(v);
+}
+
+/** 既定の 絵文字→アクション 写像を flat な Record に展開する (GUI 表示・上書きベース)。 */
+export function defaultReactionEmojiMap(): Record<string, WorkflowAction> {
+  const out: Record<string, WorkflowAction> = {};
+  for (const [action, emojis] of Object.entries(WORKFLOW_EMOJI) as [WorkflowAction, readonly string[]][]) {
+    for (const e of emojis) out[e] = action;
+  }
+  return out;
+}
+
+/**
+ * 絵文字を WorkflowAction に写像する。 該当無しは null (= 記録のみで処理しない)。
+ * `overrides` (ユーザ設定の 絵文字→アクション) が既定写像より優先される。
+ */
+export function classifyReactionWorkflow(
+  emoji: string,
+  overrides?: Record<string, WorkflowAction>,
+): WorkflowAction | null {
   const e = emoji.trim();
+  if (overrides && Object.prototype.hasOwnProperty.call(overrides, e)) {
+    return overrides[e] ?? null;
+  }
   for (const [action, emojis] of Object.entries(WORKFLOW_EMOJI) as [WorkflowAction, readonly string[]][]) {
     if (emojis.includes(e)) return action;
   }
@@ -297,9 +323,17 @@ export interface ReactionWorkflowDeps {
   workspaceRoot: string;
   /** Memoria リポの cwd override。 未指定で join(workspaceRoot, "Memoria")。 */
   memoriaPath?: string;
-  /** false の間は handle() が即 return (安全弁)。 */
-  enabled: boolean;
+  /**
+   * 安全弁。 false の間は handle() が即 return。 関数を渡すと毎回評価するので、
+   * 設定 GUI (AdminState) からの ON/OFF をプロセス再起動なしで反映できる。
+   */
+  enabled: boolean | (() => boolean);
   models?: WorkflowModels;
+  /**
+   * ユーザ設定の 絵文字→アクション 上書き写像を返す (設定 GUI / AdminState 由来)。
+   * 毎回評価するので再起動なしで反映される。 未指定なら既定写像のみ。
+   */
+  customMappings?: () => Record<string, WorkflowAction>;
   log: { info: (m: string) => void; warn: (m: string) => void };
   /** テスト用時刻プロバイダ。 */
   now?: () => number;
@@ -326,15 +360,20 @@ export class ReactionWorkflowRunner {
     return Math.floor((this.deps.now?.() ?? Date.now()) / 1000);
   }
 
+  private isEnabled(): boolean {
+    const e = this.deps.enabled;
+    return typeof e === "function" ? e() : e;
+  }
+
   private memoriaPath(): string {
     return this.deps.memoriaPath ?? join(this.deps.workspaceRoot, "Memoria");
   }
 
   /** reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。 */
   async handle(input: ReactionWorkflowInput): Promise<void> {
-    if (!this.deps.enabled) return;
+    if (!this.isEnabled()) return;
 
-    const action = classifyReactionWorkflow(input.emoji);
+    const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
     if (!action) return; // ワークフロー対象外の絵文字
 
     const key = `${input.chatId}|${input.emoji}|${input.userId}`;

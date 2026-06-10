@@ -90,6 +90,14 @@ MessageReactionAdd (discord.js)
 
 error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路を壊さない。
 
+**安全弁・写像は設定 GUI から編集可 (再起動なしで反映)**:
+- 安全弁 ON/OFF は AdminState (`schema_meta`) に永続化され、 runner が handle() ごとに live 評価する。
+  `GET/PUT /v1/admin/reaction-workflow` / 設定ページ「リアクションWF」。 env はあくまで初期既定。
+- 絵文字→アクション写像はユーザが追加・上書きできる (既定は組み込み構成)。
+  `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、
+  `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で
+  既定より優先される。
+
 `workspaceRoot` (Memoria 解決の基点) と `github_org` は設定 GUI (Rules ページ / `/v1/admin/*`)
 からも編集できる。 AdminState (`schema_meta` 永続化) が source of truth で、 未設定なら config
 (`CONCORDIA_WORKSPACE_ROOT` / `CONCORDIA_GITHUB_ORG`) 既定にフォールバック。 変更は次の

@@ -33,6 +33,9 @@ import { seedDelegationTemplates } from "./delegation/seed.js";
 import { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import { seedModelCatalog } from "./model-catalog/seed.js";
 import { AdminState } from "./admin/state.js";
+import { setLictorLauncherResolver } from "./control/spawner.js";
+import { resolveLictorLauncher } from "./control/lictor-launcher.js";
+import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
 import { collectBoyakiToPersona } from "./personas/boyaki.js";
@@ -198,10 +201,16 @@ export async function startBackend(): Promise<BackendHandle> {
     personas,
     concordiaUrl: publicUrlForDelegation,
   });
+  const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
-    workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
+    workspaceRoot: workspaceRootDefault,
     githubOrg: cfg.githubOrg,
+    reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
+    lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
+  // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
+  setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
   seedDefaultRules(rules);
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
@@ -254,7 +263,10 @@ export async function startBackend(): Promise<BackendHandle> {
     // workspaceRoot は設定 GUI (AdminState) で上書き可能。 bot start のたびに live 値を読む。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
-    reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
+    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
+    resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
   };
@@ -267,7 +279,10 @@ export async function startBackend(): Promise<BackendHandle> {
     // リアクションワークフロー (👍 → 実装着手 等): Discord と同じ安全弁 + ワークスペースルート。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
-    reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
+    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
+    resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };

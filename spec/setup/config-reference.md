@@ -196,6 +196,20 @@ MCP サーバ (別プロセス) が読む env:
 > `workspace_root` / `github_org` は AdminState (`schema_meta`) が source of truth で、 上記 env は
 > 未設定時の既定値。 GUI / API で空に戻すと env 既定へフォールバックする。
 
+### 設定 GUI 専用 (env なし、 schema_meta 永続化)
+
+以下は env を持たず、 設定ページ (Rules 由来の runtime 制御を含む) / `/v1/admin/*` からのみ設定する。
+
+| 設定 | 既定 | API | 意味 |
+|------|------|-----|------|
+| reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
+| reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
+| `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
+| `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
+| `lictor_prod_exe` | 空 | 〃 | prod モードの同梱 Lictor exe (Release 公開物) パス。 |
+
+> PATH に `lictor` が無く spawn に失敗する環境は `lictor_mode=dev/prod` + パス指定で解決する。
+
 ---
 
 ## 関連

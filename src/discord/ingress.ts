@@ -5,7 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { classifyReactionWorkflow } from "../platform/reaction-workflow.js";
+import { classifyReactionWorkflow, type WorkflowAction } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -34,6 +34,8 @@ export interface IngressDeps {
   messageMap?: DiscordMessageMapRepo;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
   workflow?: { handle(input: { chatId: number; emoji: string; userId: string }): Promise<void> };
+  /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
+  resolveReactionMappings?: () => Record<string, WorkflowAction>;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -84,7 +86,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
 
   // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
-  if (deps.workflow && classifyReactionWorkflow(text)) {
+  if (deps.workflow && classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
     if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
   }
 

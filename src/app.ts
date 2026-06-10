@@ -40,6 +40,7 @@ import type {
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
+import { WORKFLOW_ACTIONS, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
@@ -404,6 +405,66 @@ export function buildApp(deps: AppDeps): Hono {
     }
     deps.adminState.setGithubOrg(body.github_org);
     return c.json({ github_org: deps.adminState.getGithubOrg() });
+  });
+
+  // リアクションワークフロー安全弁 (ON/OFF)。 runner が毎回 live 評価するので即時反映。
+  app.get("/v1/admin/reaction-workflow", (c) => {
+    return c.json({ enabled: deps.adminState.getReactionWorkflowEnabled() });
+  });
+  app.put("/v1/admin/reaction-workflow", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setReactionWorkflowEnabled(body.enabled);
+    return c.json({ enabled: deps.adminState.getReactionWorkflowEnabled() });
+  });
+
+  // 絵文字→アクション 写像: 既定 + ユーザ上書き。 上書きは schema_meta 永続化で即時反映。
+  app.get("/v1/admin/reaction-mappings", (c) => {
+    const defaults = defaultReactionEmojiMap();
+    const overrides = deps.adminState.getReactionEmojiOverrides();
+    return c.json({ defaults, overrides, actions: WORKFLOW_ACTIONS });
+  });
+  app.put("/v1/admin/reaction-mappings", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const emoji = typeof body?.emoji === "string" ? body.emoji.trim() : "";
+    const action = typeof body?.action === "string" ? body.action : "";
+    if (!emoji) return c.json({ error: "body.emoji (string) required" }, 400);
+    if (!isWorkflowAction(action)) {
+      return c.json({ error: `body.action must be one of ${WORKFLOW_ACTIONS.join(", ")}` }, 400);
+    }
+    deps.adminState.setReactionEmojiOverride(emoji, action);
+    return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });
+  });
+  app.delete("/v1/admin/reaction-mappings/:emoji", (c) => {
+    deps.adminState.deleteReactionEmojiOverride(decodeURIComponent(c.req.param("emoji")));
+    return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });
+  });
+
+  // Lictor 起動設定 (mode + dev/prod パス)。 spawn の launcher 解決に使う。 即時反映。
+  app.get("/v1/admin/lictor", (c) => {
+    return c.json({
+      lictor_mode: deps.adminState.getLictorMode(),
+      lictor_dev_path: deps.adminState.getLictorDevPath(),
+      lictor_prod_exe: deps.adminState.getLictorProdExe(),
+    });
+  });
+  app.put("/v1/admin/lictor", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "json body required" }, 400);
+    try {
+      if (typeof body.lictor_mode === "string") deps.adminState.setLictorMode(body.lictor_mode);
+      if (typeof body.lictor_dev_path === "string") deps.adminState.setLictorDevPath(body.lictor_dev_path);
+      if (typeof body.lictor_prod_exe === "string") deps.adminState.setLictorProdExe(body.lictor_prod_exe);
+    } catch (err) {
+      return c.json({ error: (err as Error).message }, 400);
+    }
+    return c.json({
+      lictor_mode: deps.adminState.getLictorMode(),
+      lictor_dev_path: deps.adminState.getLictorDevPath(),
+      lictor_prod_exe: deps.adminState.getLictorProdExe(),
+    });
   });
 
   app.get("/v1/admin/state", (c) => {

@@ -18,10 +18,21 @@ import { join } from "node:path";
  */
 const LUDIARS_AUTO_DEFAULT_CWD = "E:\\Document\\Ars";
 
-function autoDetectSpawnDefaultCwd(): string {
-  if (process.platform !== "win32") return "";
+/**
+ * テスト等から platform / existsSync を差し替えるための注入インタフェース。
+ * 省略時はそれぞれ `process.platform` / `existsSync` が使われる。
+ */
+export interface ConfigProbe {
+  platform?: NodeJS.Platform;
+  exists?: (path: string) => boolean;
+}
+
+function autoDetectSpawnDefaultCwd(probe: ConfigProbe = {}): string {
+  const platform = probe.platform ?? process.platform;
+  const exists = probe.exists ?? existsSync;
+  if (platform !== "win32") return "";
   try {
-    return existsSync(LUDIARS_AUTO_DEFAULT_CWD) ? LUDIARS_AUTO_DEFAULT_CWD : "";
+    return exists(LUDIARS_AUTO_DEFAULT_CWD) ? LUDIARS_AUTO_DEFAULT_CWD : "";
   } catch {
     return "";
   }
@@ -137,12 +148,12 @@ export function isLoopbackHost(host: string | undefined): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
-export function loadConfig(env = process.env): ConcordiaConfig {
+export function loadConfig(env = process.env, probe: ConfigProbe = {}): ConcordiaConfig {
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
-  const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd();
+  const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd(probe);
   const githubOrg =
     (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
-    (autoDetectSpawnDefaultCwd() ? "LUDIARS" : "");
+    (autoDetectSpawnDefaultCwd(probe) ? "LUDIARS" : "");
   const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd;
   const workspaceRoots = dedupeWorkspaceRoots([
     workspaceRoot,

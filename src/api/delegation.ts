@@ -102,6 +102,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       ...row,
       input_schema: safeJsonParse(row.input_schema, []),
       is_active: row.is_active === 1,
+      call_only: row.call_only === 1,
     };
   }
 

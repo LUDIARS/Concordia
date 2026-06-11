@@ -58,8 +58,11 @@ delegation_runs
 
 ## 4. invoke flow (v0.1)
 
-1. POST /v1/delegation/invoke `{ call_name, args, cwd?, triggered_by?, spawn? }`
+1. POST /v1/delegation/invoke `{ call_name, args, cwd?, extra_prompt?, triggered_by?, spawn? }`
 2. テンプレ resolve → input_schema validate → render
+   - `extra_prompt` (任意) があれば render 結果の末尾に「## 追加の初回指示（人間）」として
+     追記する。テンプレ render とは別経路で、起動時に人間が渡す追加指示(全テンプレ共通)。
+     prompt file・`run.rendered_prompt`・response の `rendered_prompt` すべてに載る。
 3. rendered_prompt を `<concordia-data>/delegation/<run_id>.md` に保存
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる

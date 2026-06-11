@@ -99,6 +99,8 @@ export interface InvokeInput {
   call_name: string;
   args: Record<string, unknown>;
   cwd?: string;
+  /** render 後の prompt 末尾に追記する任意の追加指示（テンプレ render とは別経路）。 */
+  extra_prompt?: string;
   triggered_by?: string;
   /** false で spawn せず render + 記録のみ */
   spawn?: boolean;
@@ -155,6 +157,12 @@ export class DelegationService {
     if (render.missing.length > 0) {
       return { ok: false, error: "missing required args", details: render.missing };
     }
+    // 初回注入プロンプト (任意) を render 結果の末尾に追記する。テンプレ render とは
+    // 別経路で、 人間が起動時に渡す追加指示。 prompt file + run.rendered_prompt 両方に載る。
+    const extra = (input.extra_prompt ?? "").trim();
+    const renderedPrompt = extra
+      ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
+      : render.rendered;
     const provider = tpl.target_provider as DelegationProvider;
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
@@ -193,7 +201,7 @@ export class DelegationService {
     mkdirSync(this.promptsDir, { recursive: true });
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(tpl, render.rendered, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
+    const promptBody = renderPromptFile(tpl, renderedPrompt, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
     try {
       writeFileSync(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -253,7 +261,7 @@ export class DelegationService {
       call_name: tpl.call_name,
       target_provider: provider,
       args: input.args ?? {},
-      rendered_prompt: render.rendered,
+      rendered_prompt: renderedPrompt,
       prompt_file_path: promptPath,
       spawn_pid: spawnPid,
       spawn_command: spawnCommand,
@@ -266,7 +274,7 @@ export class DelegationService {
       ok: true,
       run,
       prompt_file_path: promptPath,
-      rendered_prompt: render.rendered,
+      rendered_prompt: renderedPrompt,
       spawn_pid: spawnPid,
       spawn_command: spawnCommand,
     };

@@ -114,6 +114,22 @@ describe("DelegationService.invoke", () => {
     expect(spawnCalls.length).toBe(1);
   });
 
+  it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" }, extra_prompt: "追加の指示だよ" });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rendered_prompt).toContain("echo hi");
+    expect(r.rendered_prompt).toContain("追加の初回指示");
+    expect(r.rendered_prompt).toContain("追加の指示だよ");
+    expect(readFileSync(r.prompt_file_path, "utf8")).toContain("追加の指示だよ");
+  });
+
+  it("extra_prompt 空文字は追記しない", async () => {
+    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" }, extra_prompt: "   " });
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.rendered_prompt).toBe("echo hi");
+  });
+
   it("file name matches run.id", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "x" } });
     if (!r.ok) throw new Error("expected ok");

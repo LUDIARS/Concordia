@@ -147,17 +147,27 @@ manifest で**作れないもの**は手動で残す:
 選ぶ → そのテンプレの入力欄が現れる → 「起動」で委託セッションを spawn する。
 `/concordia spawn <provider> [cwd]` で毎回 provider を打つ代わりの GUI 経路。
 
-仕組み(2 段モーダル):
-1. `/co-spawn` → `/v1/delegation/templates`(active のみ)を取得 → `views.open` で
-   **テンプレ select だけ**のモーダルを表示(submit ボタン無し)。
-2. テンプレを選ぶと `block_actions` が届き、`views.update` で **そのテンプレの
-   `input_schema` を入力欄 + 作業ディレクトリ + 「起動」**に差し替える。
-3. 送信(`view_submission`)を **既存の Socket Mode 接続**で受け、`/v1/delegation/invoke`
-   に `{spawn:true}` で流す。結果(`✅ 委託起動: <call_name> pid=…`)は運用チャンネルに通知。
+仕組み(単一モーダル + 起動ボタン常設):
+1. `/co-spawn` → `/v1/delegation/templates`(active のみ)+ ワークスペースルート直下の
+   ディレクトリ一覧を取得 → `views.open`。モーダルは **テンプレ select（dispatch_action 付き
+   の必須 input）+ 作業ディレクトリ select + 初回注入プロンプト（任意・複数行）+「起動」**。
+   起動ボタンは最初から在る(テンプレ select が `dispatch_action` 付き input なので submit を
+   持てる)。
+2. テンプレを選ぶと `block_actions` が届き、`views.update` で **そのテンプレの `input_schema`
+   入力欄**を追加(`target_repo` は作業ディレクトリ選択が兼ねるので描画しない)。
+3. 送信(`view_submission`)を **既存の Socket Mode 接続**で受け、`/v1/delegation/invoke` に
+   `{spawn:true, cwd, args(target_repo=作業ディレクトリ), extra_prompt=初回プロンプト}` で流す。
+   結果(`✅ 委託起動: <call_name> pid=…`)は運用チャンネルに通知。
+
+- **作業ディレクトリ**はワークスペースルート(`adminState.getWorkspaceRoots()`)直下の
+  ディレクトリから選ぶ。cwd と、テンプレが要求する `target_repo` 引数を兼ねる。
+- **初回注入プロンプト**は `extra_prompt` として render 後の初期プロンプト末尾に
+  「## 追加の初回指示（人間）」として追記される(テンプレ render とは別経路、全テンプレ共通)。
 
 実装は `src/slack/delegation-modal.ts`(view 組み立て/選択・送信パース、純粋)+
 `src/slack/slash.ts`(`listDelegationTemplates` / `invokeDelegation`)+ `src/slack/bot.ts` の
-`slash_commands` / `interactive`(`block_actions` の views.update と `view_submission`)ハンドラ。
+`slash_commands` / `interactive`(`block_actions` の views.update と `view_submission`)+
+`src/delegation/service.ts`(`extra_prompt` 追記)。
 
 > アクティブなテンプレが無い場合は ephemeral で案内。`/co-spawn claude [cwd]`(引数あり)は
 > 従来どおり **素のセッション**を即 spawn するフォールバックとして残る。

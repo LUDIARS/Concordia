@@ -36,7 +36,10 @@ import {
   parseDelegationModalSubmit,
   parseDelegationSelectAction,
   DELEGATION_MODAL_CALLBACK_ID,
+  type WorkdirOption,
 } from "./delegation-modal.js";
+import { readdirSync } from "node:fs";
+import { basename } from "node:path";
 import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
@@ -103,6 +106,14 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   const socket = new SocketModeClient({ appToken: env.appToken! });
   const threads = makeSlackSessionThreadsRepo(deps.db);
   const messageMap = makeSlackMessageMapRepo(deps.db);
+
+  // /co-spawn の作業ディレクトリ候補に使うワークスペースルート群を live 解決する。
+  const resolveWorkspaceRoots = (): string[] => {
+    const multi = deps.resolveWorkspaceRoots?.();
+    if (multi && multi.length) return multi;
+    const single = deps.resolveWorkspaceRoot?.() || deps.workspaceRoot;
+    return single ? [single] : [];
+  };
 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
@@ -482,7 +493,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         try {
           const templates = await listDelegationTemplates({ concordiaUrl: deps.concordiaUrl });
           const selected = templates.find((t) => t.call_name === selectedCall) ?? null;
-          await web.views.update({ view_id: body.view.id, view: buildDelegationModalView(templates, selected) as never });
+          const workdirs = listWorkdirOptions(resolveWorkspaceRoots());
+          await web.views.update({ view_id: body.view.id, view: buildDelegationModalView(templates, workdirs, selected) as never });
         } catch (e) {
           log.warn(`delegation modal update: ${(e as Error).message}`);
         }
@@ -496,9 +508,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       try {
         const parsed = parseDelegationModalSubmit(body.view);
         if (!parsed) { log.warn("delegation modal submit: missing call_name"); return; }
+        // 作業ディレクトリ選択は cwd と、 テンプレが要求する target_repo を兼ねる
+        // (delegation テンプレは default_cwd=`${target_repo}` 前提のものが多い)。
+        const args = parsed.cwd ? { ...parsed.args, target_repo: parsed.cwd } : parsed.args;
         const resultText = await invokeDelegation(
           { concordiaUrl: deps.concordiaUrl },
-          { call_name: parsed.call_name, args: parsed.args, cwd: parsed.cwd, triggered_by: `slack:${body.user?.id ?? ""}` },
+          { call_name: parsed.call_name, args, cwd: parsed.cwd, extra_prompt: parsed.extra_prompt, triggered_by: `slack:${body.user?.id ?? ""}` },
         );
         await web.chat.postMessage({ channel: channelId, text: resultText });
       } catch (e) {
@@ -565,7 +580,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
                 });
                 return;
               }
-              await web.views.open({ trigger_id: body.trigger_id, view: buildDelegationModalView(templates) as never });
+              const workdirs = listWorkdirOptions(resolveWorkspaceRoots());
+              await web.views.open({ trigger_id: body.trigger_id, view: buildDelegationModalView(templates, workdirs) as never });
             } catch (e) {
               log.warn(`views.open(delegation) failed: ${(e as Error).message}`);
             }
@@ -730,6 +746,32 @@ async function postChat(deps: SlackBotDeps, text: string, userId: string): Promi
   } catch (e) {
     log.warn(`ingress /v1/chat failed: ${(e as Error).message}`);
   }
+}
+
+// ワークスペースルート直下の各ディレクトリを作業ディレクトリ候補にする（/co-spawn 用）。
+// ルートが複数なら label に root 名を前置して曖昧さを消す。dotfiles / node_modules は除外。
+function listWorkdirOptions(roots: string[]): WorkdirOption[] {
+  const multi = roots.length > 1;
+  const out: WorkdirOption[] = [];
+  const seen = new Set<string>();
+  for (const root of roots) {
+    if (!root) continue;
+    let names: string[];
+    try {
+      names = readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+    } catch {
+      continue;
+    }
+    for (const name of names) {
+      if (name.startsWith(".") || name === "node_modules") continue;
+      const value = `${root.replace(/[\\/]+$/, "")}/${name}`;
+      if (seen.has(value)) continue;
+      seen.add(value);
+      out.push({ label: multi ? `${basename(root)}/${name}` : name, value });
+    }
+  }
+  out.sort((a, b) => a.label.localeCompare(b.label));
+  return out;
 }
 
 function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; model?: string } {

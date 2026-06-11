@@ -91,7 +91,7 @@ export async function listDelegationTemplates(deps: SlashDeps): Promise<Delegati
  */
 export async function invokeDelegation(
   deps: SlashDeps,
-  input: { call_name: string; args: Record<string, unknown>; cwd?: string; triggered_by?: string },
+  input: { call_name: string; args: Record<string, unknown>; cwd?: string; extra_prompt?: string; triggered_by?: string },
 ): Promise<string> {
   const res = await fetch(`${deps.concordiaUrl}/v1/delegation/invoke`, {
     method: "POST",
@@ -100,6 +100,7 @@ export async function invokeDelegation(
       call_name: input.call_name,
       args: input.args,
       ...(input.cwd ? { cwd: input.cwd } : {}),
+      ...(input.extra_prompt ? { extra_prompt: input.extra_prompt } : {}),
       triggered_by: input.triggered_by ?? "slack",
       spawn: true,
     }),

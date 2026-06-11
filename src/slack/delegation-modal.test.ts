@@ -6,6 +6,7 @@ import {
   DELEGATION_MODAL_CALLBACK_ID,
   DELEGATION_TEMPLATE_ACTION,
   type DelegationTemplateLite,
+  type WorkdirOption,
 } from "./delegation-modal.js";
 
 const TEMPLATES: DelegationTemplateLite[] = [
@@ -32,45 +33,52 @@ const TEMPLATES: DelegationTemplateLite[] = [
   },
 ];
 
-type View = {
-  callback_id?: string;
-  submit?: unknown;
-  private_metadata?: string;
-  blocks: Array<{ type: string; block_id?: string; elements?: Array<{ action_id?: string; options?: unknown[] }> }>;
+const WORKDIRS: WorkdirOption[] = [
+  { label: "Cernere", value: "E:/Document/Ars/Cernere" },
+  { label: "Memoria", value: "E:/Document/Ars/Memoria" },
+];
+
+type Block = {
+  type: string;
+  block_id?: string;
+  dispatch_action?: boolean;
+  element?: { action_id?: string; multiline?: boolean; options?: unknown[] };
 };
+type View = { callback_id?: string; submit?: unknown; private_metadata?: string; blocks: Block[] };
 
 describe("buildDelegationModalView", () => {
-  it("テンプレ未選択は select のみ・submit 無し", () => {
-    const v = buildDelegationModalView(TEMPLATES) as unknown as View;
+  it("テンプレ未選択でも submit(起動) は常設・select は dispatch_action 必須 input", () => {
+    const v = buildDelegationModalView(TEMPLATES, WORKDIRS) as unknown as View;
     expect(v.callback_id).toBe(DELEGATION_MODAL_CALLBACK_ID);
-    expect(v.submit).toBeUndefined();
-    const select = v.blocks[0].elements?.[0];
-    expect(select?.action_id).toBe(DELEGATION_TEMPLATE_ACTION);
-    expect(select?.options).toHaveLength(2);
+    expect(v.submit).toBeDefined();
+    const sel = v.blocks[0];
+    expect(sel.type).toBe("input");
+    expect(sel.dispatch_action).toBe(true);
+    expect(sel.element?.action_id).toBe(DELEGATION_TEMPLATE_ACTION);
+    // 未選択でも作業ディレクトリ select + 初回プロンプトは出る
+    expect(v.blocks.some((b) => b.block_id === "cwd_block")).toBe(true);
+    expect(v.blocks.some((b) => b.block_id === "prompt_block" && b.element?.multiline === true)).toBe(true);
   });
 
-  it("テンプレ選択後は input_schema を input block 化 + cwd + submit + private_metadata", () => {
-    const v = buildDelegationModalView(TEMPLATES, TEMPLATES[0]) as unknown as View;
-    expect(v.submit).toBeDefined();
+  it("テンプレ選択後は input_schema を入力欄化するが target_repo は除外 (作業ディレクトリが兼ねる)", () => {
+    const v = buildDelegationModalView(TEMPLATES, WORKDIRS, TEMPLATES[0]) as unknown as View;
+    const argBlocks = v.blocks.filter((b) => b.block_id?.startsWith("arg:")).map((b) => b.block_id);
+    expect(argBlocks).toEqual(["arg:design_path", "arg:context_extra"]);
+    expect(argBlocks).not.toContain("arg:target_repo");
     const meta = JSON.parse(v.private_metadata ?? "{}");
     expect(meta.call_name).toBe("impl-from-design");
-    expect(meta.inputs.map((i: { name: string }) => i.name)).toEqual(["design_path", "target_repo", "context_extra"]);
-    const argBlocks = v.blocks.filter((b) => b.block_id?.startsWith("arg:")).map((b) => b.block_id);
-    expect(argBlocks).toEqual(["arg:design_path", "arg:target_repo", "arg:context_extra"]);
-    expect(v.blocks.some((b) => b.block_id === "cwd_block")).toBe(true);
+    expect(meta.inputs.map((i: { name: string }) => i.name)).toEqual(["design_path", "context_extra"]);
   });
 
-  it("${} を含む default_cwd は cwd の初期値にしない", () => {
-    const v = buildDelegationModalView(TEMPLATES, TEMPLATES[0]) as unknown as {
-      blocks: Array<{ block_id?: string; element?: { initial_value?: string } }>;
-    };
-    const cwd = v.blocks.find((b) => b.block_id === "cwd_block");
-    expect(cwd?.element?.initial_value).toBeUndefined();
+  it("作業ディレクトリ候補が空なら cwd ブロックを出さない", () => {
+    const v = buildDelegationModalView(TEMPLATES, []) as unknown as View;
+    expect(v.blocks.some((b) => b.block_id === "cwd_block")).toBe(false);
+    expect(v.submit).toBeDefined(); // それでも起動ボタンは在る
   });
 });
 
 describe("parseDelegationSelectAction", () => {
-  it("テンプレ select の選択値を返す", () => {
+  it("テンプレ select の選択値を返す（input ブロック由来でも actions 配列に来る）", () => {
     const body = {
       type: "block_actions",
       actions: [{ action_id: DELEGATION_TEMPLATE_ACTION, selected_option: { value: "task-process" } }],
@@ -89,37 +97,48 @@ describe("parseDelegationModalSubmit", () => {
     state: { values },
   });
 
-  it("string / number / boolean を型に沿って coerce し cwd を拾う", () => {
+  it("call_name は select の現在値・cwd と初回プロンプトを拾う", () => {
     const v = view(
-      { call_name: "t", inputs: [
-        { name: "a", type: "string", required: true },
-        { name: "n", type: "number", required: false },
-        { name: "b", type: "boolean", required: false },
-      ] },
+      { call_name: "impl-from-design", inputs: [{ name: "design_path", type: "string", required: true }] },
       {
-        "arg:a": { v: { value: "hello" } },
-        "arg:n": { v: { value: "42" } },
-        "arg:b": { v: { selected_option: { value: "false" } } },
-        cwd_block: { v: { value: "E:/x" } },
+        delegation_template_block: { delegation_template: { selected_option: { value: "impl-from-design" } } },
+        "arg:design_path": { v: { value: "spec/x.md" } },
+        cwd_block: { v: { selected_option: { value: "E:/Document/Ars/Cernere" } } },
+        prompt_block: { v: { value: "まず設計を読んで" } },
       },
     );
     expect(parseDelegationModalSubmit(v)).toEqual({
-      call_name: "t",
-      args: { a: "hello", n: 42, b: false },
-      cwd: "E:/x",
+      call_name: "impl-from-design",
+      args: { design_path: "spec/x.md" },
+      cwd: "E:/Document/Ars/Cernere",
+      extra_prompt: "まず設計を読んで",
     });
   });
 
-  it("空入力は args に載せない・cwd 空は undefined", () => {
+  it("number / boolean を型に沿って coerce、空入力は載せない", () => {
     const v = view(
-      { call_name: "t", inputs: [{ name: "a", type: "string", required: false }] },
-      { "arg:a": { v: { value: "  " } }, cwd_block: { v: { value: "" } } },
+      { call_name: "t", inputs: [
+        { name: "n", type: "number", required: false },
+        { name: "b", type: "boolean", required: false },
+        { name: "s", type: "string", required: false },
+      ] },
+      {
+        delegation_template_block: { delegation_template: { selected_option: { value: "t" } } },
+        "arg:n": { v: { value: "42" } },
+        "arg:b": { v: { selected_option: { value: "false" } } },
+        "arg:s": { v: { value: "  " } },
+      },
     );
-    expect(parseDelegationModalSubmit(v)).toEqual({ call_name: "t", args: {}, cwd: undefined });
+    expect(parseDelegationModalSubmit(v)).toEqual({ call_name: "t", args: { n: 42, b: false }, cwd: undefined, extra_prompt: undefined });
   });
 
-  it("private_metadata 不正は null", () => {
-    expect(parseDelegationModalSubmit({ private_metadata: "not-json", state: { values: {} } })).toBeNull();
+  it("select 値が無ければ private_metadata の call_name にフォールバック", () => {
+    const v = view({ call_name: "fallback", inputs: [] }, {});
+    expect(parseDelegationModalSubmit(v)?.call_name).toBe("fallback");
+  });
+
+  it("call_name が全く無ければ null", () => {
+    expect(parseDelegationModalSubmit(view({ call_name: "", inputs: [] }, {}))).toBeNull();
     expect(parseDelegationModalSubmit({})).toBeNull();
   });
 });

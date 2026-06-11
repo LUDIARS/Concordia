@@ -36,15 +36,20 @@ export class TasksRepo {
     kind: PendingTaskKind;
     payload: object;
     ttlSec?: number;
+    /** テスト用: created_at に使う epoch 秒. 省略時は Math.floor(Date.now() / 1000).
+     *  expires_at は常に実 wall-clock ベースで計算するため、 模擬時刻を渡しても
+     *  pull() の期限チェックには影響しない. */
+    now?: number;
   }): PendingTaskRow {
-    const now = Math.floor(Date.now() / 1000);
+    const createdAt = input.now ?? Math.floor(Date.now() / 1000);
+    const wallNow = Math.floor(Date.now() / 1000);
     const ttl = input.ttlSec ?? DEFAULT_TTL_SEC;
     const r = this.db
       .prepare(
         `INSERT INTO pending_tasks(session_id, kind, payload, created_at, delivered_at, expires_at)
          VALUES (?, ?, ?, ?, NULL, ?)`,
       )
-      .run(input.session_id, input.kind, JSON.stringify(input.payload), now, now + ttl);
+      .run(input.session_id, input.kind, JSON.stringify(input.payload), createdAt, wallNow + ttl);
     return this.find(Number(r.lastInsertRowid))!;
   }
 

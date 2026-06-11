@@ -76,7 +76,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
         !deps.tasks.hasUndelivered(s.id, "stat-collect", t);
 
       if (intervalEligible) {
-        enqueueStatCollect(s, "interval");
+        enqueueStatCollect(s, "interval", t);
         intervalEnqueued++;
         enqueued++;
         continue; // 同じ session に同 tick で 2 本投げない
@@ -85,7 +85,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
       // idle トリガ: 最後の user prompt から 5 分以上、 かつ lastPrompt 以降に stat-collect 未投入
       const lastPrompt = deps.sessions.lastEventTsByKind(s.id, "prompt") ?? s.started_at;
       if (lastPrompt <= idleCutoff && !deps.tasks.hasTaskSince(s.id, "stat-collect", lastPrompt)) {
-        enqueueStatCollect(s, "idle");
+        enqueueStatCollect(s, "idle", t);
         idleEnqueued++;
         enqueued++;
       }
@@ -97,7 +97,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
     return enqueued;
   }
 
-  function enqueueStatCollect(s: ReturnType<SessionsRepo["listSessions"]>[number], trigger: "interval" | "idle"): void {
+  function enqueueStatCollect(s: ReturnType<SessionsRepo["listSessions"]>[number], trigger: "interval" | "idle", atNow: number): void {
     const role = parseRole(s.metadata);
     deps.tasks.enqueue({
       session_id: s.id,
@@ -116,6 +116,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
           "payload に含めるキー (どれも任意): active_repos / open_prs / unmerged_branches / todos_summary / recent_work / note. " +
           "他 session も GET /v1/stat で閲覧するので、 簡潔かつ網羅的に.",
       },
+      now: atNow,
     });
   }
 

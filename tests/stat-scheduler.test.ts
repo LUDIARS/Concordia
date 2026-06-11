@@ -181,11 +181,45 @@ describe("startStatScheduler", () => {
     } finally { sched.stop(); }
   });
 
-  // NOTE: 「新 prompt 後に再発火」 シナリオは tasks-repo.enqueue が wall-clock
-  // (Math.floor(Date.now()/1000)) で created_at を打つため、 模擬 NOW (1_000_000) を
-  // 使うとどうしても created_at が遥かに大きくなり hasTaskSince が常に true になって
-  // しまう. dedup ロジック自体は production の wall-clock 整合下で問題ない
-  // (NOW≒wall-clock のため). 該シナリオは server-side smoke 側で carry することにする.
+  it("idle: 新しい prompt 後に再び idle になったら再発火する", () => {
+    // dedup: hasTaskSince(sessionId, "stat-collect", lastPrompt) が判定根拠.
+    // 新しい prompt が来て lastPrompt が更新されると、 その新しい lastPrompt 以降に
+    // stat-collect が無いため再発火可能になる.
+    const T1 = 1_000_000;
+    const OLD_PROMPT = T1 - IDLE_STAT_THRESHOLD_SEC - 30;
+    startSessionAt(env.sessions, "s2", T1 - 60 * 60, T1 - 5);
+    env.sessions.appendEvent({ session_id: "s2", ts: OLD_PROMPT, kind: "prompt", payload: {} });
+    env.stats.insert({ session_id: "s2", ts: T1 - 10, payload: {} });
+
+    const sched = startStatScheduler({ ...env, now: () => T1, tickMs: 60_000 });
+    try {
+      // 1 回目: idle 発火。 scheduler は now=T1 で enqueue するため created_at=T1。
+      expect(sched.runOnce()).toBe(1);
+      env.tasks.pull("s2"); // 消費 — created_at=T1 は残る → hasTaskSince(OLD_PROMPT) = true
+
+      // 2 回目 (同じ idle stretch): 再発火しない。
+      expect(sched.runOnce()).toBe(0);
+
+      // 新しい prompt イベントを追加 (T2 > OLD_PROMPT)。
+      const T2 = T1 + 100;
+      env.sessions.appendEvent({ session_id: "s2", ts: T2, kind: "prompt", payload: {} });
+
+      // T3 = T2 + IDLE_STAT_THRESHOLD_SEC + 10 で再び idle 判定 (lastPrompt=T2 <= T3 - threshold)。
+      // hasTaskSince(sessionId, "stat-collect", T2) → false (T1 のタスクは T2 より前) → 再発火。
+      const T3 = T2 + IDLE_STAT_THRESHOLD_SEC + 10;
+      const sched2 = startStatScheduler({ ...env, now: () => T3, tickMs: 60_000 });
+      try {
+        expect(sched2.runOnce()).toBe(1);
+        const pulled = env.tasks.pull("s2");
+        expect(pulled).toHaveLength(1);
+        expect(JSON.parse(pulled[0].payload).trigger).toBe("idle");
+      } finally {
+        sched2.stop();
+      }
+    } finally {
+      sched.stop();
+    }
+  });
 
   it("idle: prompt event が一度も無い session も started_at 起点で 5 分過ぎたら発火する", () => {
     const NOW = 1_000_000;

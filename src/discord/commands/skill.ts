@@ -13,6 +13,7 @@ const skillCommand: DiscordCommandSpec = {
     const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
     if (!session) return;
     const name = interaction.options.getString("name", true);
+    await interaction.deferReply({ ephemeral: true });
     const r = await callConcordia<any>(
       deps.concordiaUrl,
       "POST",
@@ -20,10 +21,10 @@ const skillCommand: DiscordCommandSpec = {
       { name },
     );
     if ("error" in r) {
-      await interaction.reply({ content: `skill failed: ${r.error}`, ephemeral: true });
+      await interaction.editReply({ content: `skill failed: ${r.error}` });
       return;
     }
-    await interaction.reply({ content: "Skill command sent.", ephemeral: true });
+    await interaction.editReply({ content: "Skill command sent." });
   },
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused().toLowerCase();

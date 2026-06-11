@@ -167,7 +167,7 @@ type AnswerBody =
   | { question_id: number; other_text: string };
 
 export async function dispatchQuestionInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
-  // 「その他」ボタン → Modal を開く (回答送信はしない)。
+  // 「その他」ボタン → Modal を開くだけ。HTTP なし・同期処理のみなので defer 不要。
   if (interaction.isButton() && interaction.customId.startsWith("qoth:")) {
     const qid = Number(interaction.customId.slice("qoth:".length));
     const row = deps.pendingQuestionsRepo.findById(qid);
@@ -190,19 +190,51 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     return;
   }
 
-  // どの operation か判定して answer-question body を組む。
-  let questionId: number;
-  let body: AnswerBody;
-  if (interaction.isModalSubmit()) {
-    if (!interaction.customId.startsWith("qothm:")) return;
-    questionId = Number(interaction.customId.slice("qothm:".length));
+  // Modal submit — deferReply してから HTTP。
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("qothm:")) {
+    const questionId = Number(interaction.customId.slice("qothm:".length));
     const text = interaction.fields.getTextInputValue("other_text").trim();
     if (!text) {
       await interaction.reply({ content: "空の回答は送れません。", ephemeral: true });
       return;
     }
-    body = { question_id: questionId, other_text: text };
-  } else if (interaction.isButton()) {
+    const row = deps.pendingQuestionsRepo.findById(questionId);
+    if (!row) {
+      await interaction.reply({ content: "Question not found.", ephemeral: true });
+      return;
+    }
+    if (row.answered_at !== null) {
+      await interaction.reply({ content: "Already answered.", ephemeral: true });
+      return;
+    }
+    await interaction.deferReply({ ephemeral: true });
+    const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${row.session_id}/answer-question`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question_id: questionId, other_text: text } satisfies AnswerBody),
+    });
+    const json = await res.json().catch(() => ({} as { error?: unknown; answer_text?: unknown }));
+    if (!res.ok) {
+      const err = typeof (json as { error?: unknown }).error === "string"
+        ? (json as { error: string }).error
+        : `HTTP ${res.status}`;
+      await interaction.editReply({ content: `Answer failed: ${err}` });
+      return;
+    }
+    const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
+      ? (json as { answer_text: string }).answer_text
+      : "";
+    if (interaction.message) {
+      await interaction.message.edit({ components: [] }).catch(() => {});
+    }
+    await interaction.editReply({ content: `回答を送信しました: ${answerText}`.slice(0, 1900) });
+    return;
+  }
+
+  // ボタン (q:xxx) / StringSelect — deferUpdate してから HTTP。
+  let questionId: number;
+  let body: AnswerBody;
+  if (interaction.isButton()) {
     const parsed = parseCustomId(interaction.customId);
     if (!parsed) return;
     questionId = parsed.questionId;
@@ -230,6 +262,7 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     await interaction.reply({ content: "Already answered.", ephemeral: true });
     return;
   }
+  await interaction.deferUpdate();
   const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${row.session_id}/answer-question`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -238,21 +271,10 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
   const json = await res.json().catch(() => ({} as { error?: unknown }));
   if (!res.ok) {
     const err = typeof (json as { error?: unknown }).error === "string"
-      ? ((json as { error: string }).error)
+      ? (json as { error: string }).error
       : `HTTP ${res.status}`;
-    await interaction.reply({ content: `Answer failed: ${err}`, ephemeral: true });
+    await interaction.followUp({ content: `Answer failed: ${err}`, ephemeral: true });
     return;
   }
-  // ボタン/メニューはその場で components を外す。Modal submit は元メッセージを別途編集。
-  if (interaction.isButton() || interaction.isStringSelectMenu()) {
-    await interaction.update({ components: [] });
-  } else if (interaction.isModalSubmit()) {
-    const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
-      ? (json as { answer_text: string }).answer_text
-      : "";
-    if (interaction.message) {
-      await interaction.message.edit({ components: [] }).catch(() => {});
-    }
-    await interaction.reply({ content: `回答を送信しました: ${answerText}`.slice(0, 1900), ephemeral: true });
-  }
+  await interaction.editReply({ components: [] });
 }

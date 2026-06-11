@@ -60,6 +60,7 @@ const spawnCommand: DiscordCommandSpec = {
     // /v1/admin/spawn-session は loopback 信頼境界に乗るので token 不要。
     // provider / model / 既定 cwd はテンプレから継承する。
     if (template) {
+      await interaction.deferReply({ ephemeral: true });
       const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
         deps.concordiaUrl,
         "POST",
@@ -67,15 +68,13 @@ const spawnCommand: DiscordCommandSpec = {
         { template, inject_prompt: inject, cwd },
       );
       if ("error" in r || !r.ok) {
-        await interaction.reply({
+        await interaction.editReply({
           content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}`,
-          ephemeral: true,
         });
         return;
       }
-      await interaction.reply({
+      await interaction.editReply({
         content: `Spawned from \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""})`,
-        ephemeral: true,
       });
       return;
     }
@@ -95,6 +94,7 @@ const spawnCommand: DiscordCommandSpec = {
       });
       return;
     }
+    await interaction.deferReply({ ephemeral: true });
     const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
       deps.concordiaUrl,
       "POST",
@@ -103,10 +103,10 @@ const spawnCommand: DiscordCommandSpec = {
       token,
     );
     if ("error" in r || !r.ok) {
-      await interaction.reply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}`, ephemeral: true });
+      await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
       return;
     }
-    await interaction.reply({ content: `Spawn requested (pid: ${r.pid ?? "n/a"})`, ephemeral: true });
+    await interaction.editReply({ content: `Spawn requested (pid: ${r.pid ?? "n/a"})` });
   },
 };
 

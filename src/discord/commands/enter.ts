@@ -20,6 +20,7 @@ const enterCommand: DiscordCommandSpec = {
   async execute(interaction, deps) {
     const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
     if (!session) return;
+    await interaction.deferReply({ ephemeral: true });
     const r = await callConcordia<{ ok: boolean }>(
       deps.concordiaUrl,
       "POST",
@@ -27,10 +28,10 @@ const enterCommand: DiscordCommandSpec = {
       { text: "\n", source: "discord-enter" },
     );
     if ("error" in r) {
-      await interaction.reply({ content: `enter failed: ${r.error}`, ephemeral: true });
+      await interaction.editReply({ content: `enter failed: ${r.error}` });
       return;
     }
-    await interaction.reply({ content: "Enter pressed.", ephemeral: true });
+    await interaction.editReply({ content: "Enter pressed." });
   },
 };
 

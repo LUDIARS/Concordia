@@ -6,7 +6,7 @@ const session: SessionRow = {
   id: "s1", provider: "claude-code", repo_path: "/x",
   repo_origin: "origin", branch: "main", host: "h",
   started_at: 100, ended_at: 700, status: "ended", last_seen_at: 700,
-  current_task: null, transcript_path: null, metadata: null,
+  current_task: null, transcript_path: null, metadata: null, ws_clients: 0,
 };
 
 function ev(kind: string, ts: number, payload: object = {}): SessionEventRow {

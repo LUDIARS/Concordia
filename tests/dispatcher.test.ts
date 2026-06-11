@@ -1,14 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
 import { Dispatcher } from "../src/dispatcher.js";
 
 function fresh() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   const sessions = new SessionsRepo(db);
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);

@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
 import { seedPersonas, PERSONA_SEEDS } from "../src/personas/seeds.js";
 
 function fresh(): PersonasRepo {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   return new PersonasRepo(db);
 }
 
@@ -140,8 +138,7 @@ describe("PersonasRepo", () => {
 
   it("seedPersonas backfills display_name on existing rows with empty display_name", () => {
     // 旧 DB を模擬: insertOrIgnore で display_name 空を入れた後、 seedPersonas で seed を上書き反映させる
-    const db = new Database(":memory:");
-    applyMigrations(db);
+    const db = makeTestDb();
     const r2 = new PersonasRepo(db);
     r2.insertOrIgnore({
       id: "test-soul",

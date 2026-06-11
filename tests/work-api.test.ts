@@ -1,16 +1,14 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
 import { workRouter } from "../src/api/work.js";
 
 function makeEnv() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   const sessions = new SessionsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
-  const app = workRouter({ sessions, transcriptLogs });
+  const app = workRouter({ sessions, transcriptLogs, resolveWorkspaceRoots: () => [] });
   return { db, sessions, transcriptLogs, app };
 }
 

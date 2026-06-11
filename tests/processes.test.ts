@@ -1,27 +1,24 @@
 import { describe, it, expect } from "vitest";
-import Database from "better-sqlite3";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb, makeTestDir } from "./helpers/db.js";
 import { ProcessesRepo } from "../src/db/processes-repo.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { parseDevProcessMd, readDevProcessMd } from "../src/processes/dev-process-md.js";
 
 function tmpRepo(content: string): string {
-  const dir = mkdtempSync(join(tmpdir(), "concordia-proc-test-"));
+  const dir = makeTestDir("concordia-proc-test-");
   writeFileSync(join(dir, "dev-process.md"), content, "utf8");
   return dir;
 }
 
 function makeRepo() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   return new ProcessesRepo(db);
 }
 
 function makeManager(repo: ProcessesRepo): ProcessManager {
-  const logsDir = mkdtempSync(join(tmpdir(), "concordia-test-logs-"));
+  const logsDir = makeTestDir("concordia-test-logs-");
   return new ProcessManager({ repo, logsDir });
 }
 
@@ -80,7 +77,7 @@ describe("dev-process.md parser", () => {
   });
 
   it("readDevProcessMd: no file = exists false", () => {
-    const dir = mkdtempSync(join(tmpdir(), "concordia-no-md-"));
+    const dir = makeTestDir("concordia-no-md-");
     const out = readDevProcessMd(dir);
     expect(out.exists).toBe(false);
   });
@@ -148,7 +145,7 @@ describe("ProcessManager spawn", () => {
   it("startFromRepo skips when no dev-process.md", () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
-    const dir = mkdtempSync(join(tmpdir(), "concordia-empty-"));
+    const dir = makeTestDir("concordia-empty-");
     const r = mgr.startFromRepo(dir, null);
     expect(r.started).toEqual([]);
     expect(r.failed).toEqual([]);

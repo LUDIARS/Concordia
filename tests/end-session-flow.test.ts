@@ -7,8 +7,6 @@
  */
 
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
@@ -17,10 +15,10 @@ import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
 import { runSessionEndFlow } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
+import { makeTestDb } from "./helpers/db.js";
 
 function makeEnv() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   const repo = new SessionsRepo(db);
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);

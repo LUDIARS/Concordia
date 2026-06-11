@@ -1,10 +1,10 @@
 import { describe, it, expect } from "vitest";
-import Database from "better-sqlite3";
 import { applyMigrations, SCHEMA_VERSION } from "../src/db/schema.js";
+import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
   it("creates tables and indexes", () => {
-    const db = new Database(":memory:");
+    const db = makeRawTestDb();
     applyMigrations(db);
     const tables = db
       .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
@@ -20,14 +20,14 @@ describe("schema", () => {
   });
 
   it("personas table has display_name column on fresh DB", () => {
-    const db = new Database(":memory:");
+    const db = makeRawTestDb();
     applyMigrations(db);
     const cols = db.prepare(`PRAGMA table_info(personas)`).all() as Array<{ name: string }>;
     expect(cols.some((c) => c.name === "display_name")).toBe(true);
   });
 
   it("applyMigrations is idempotent and adds display_name to legacy personas", () => {
-    const db = new Database(":memory:");
+    const db = makeRawTestDb();
     // legacy schema: personas に display_name が無い状態
     db.exec(`CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     db.exec(`CREATE TABLE personas (

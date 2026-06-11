@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { CostBudgetRepo } from "../src/cost/cost-budget-repo.js";
 import { CostUsageTracker, localDateIso } from "../src/cost/usage-tracker.js";
 
 function boot() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   return { db, repo: new CostBudgetRepo(db) };
 }
 

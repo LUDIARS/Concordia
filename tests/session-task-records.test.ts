@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { SessionTaskRecordsRepo } from "../src/db/session-task-records-repo.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 
 function bootRepo() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   return { db, records: new SessionTaskRecordsRepo(db), sessions: new SessionsRepo(db) };
 }
 
@@ -20,10 +18,7 @@ function seedSession(sessions: SessionsRepo, id: string, repo_path = "/repo/A"):
     branch: null,
     host: "test",
     started_at: now,
-    ended_at: null,
-    status: "active",
     last_seen_at: now,
-    current_task: null,
     transcript_path: null,
     metadata: null,
   });

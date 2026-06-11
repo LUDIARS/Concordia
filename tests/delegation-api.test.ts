@@ -1,14 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
 import { Hono } from "hono";
-import { applyMigrations } from "../src/db/schema.js";
+import { makeTestDb } from "./helpers/db.js";
 import { DelegationRepo } from "../src/db/delegation-repo.js";
 import { DelegationService } from "../src/delegation/service.js";
 import { delegationRouter } from "../src/api/delegation.js";
 
 function makeApp() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   const repo = new DelegationRepo(db);
   const service = new DelegationService({ repo, spawn: () => ({ ok: true, pid: 1, command: [] }) });
   const app = new Hono();

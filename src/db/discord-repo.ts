@@ -48,12 +48,22 @@ export function makeDiscordConfigRepo(db: Database): DiscordConfigRepo {
 
 export type DiscordSessionStatus = "active" | "lost" | "ended";
 
+/**
+ * チャンネル名先頭絵文字の「表示状態」。
+ * status とは別軸: active 中でも working (⚙️) ⟷ active (🟢) を切り替える。
+ * チャンネル名文字列から推定せず、このカラムを権威データとする (three-out redesign)。
+ */
+export type ChannelDisplayState = "working" | "active" | "lost" | "ended";
+
 export interface DiscordSessionChannelRow {
   session_id: string;
   channel_id: string;
   webhook_id: string | null;
   webhook_token: string | null;
   status: DiscordSessionStatus;
+  display_state: ChannelDisplayState;
+  agent_type: string | null;
+  name_body: string | null;
   last_rename_ts: number;
   ts: number;
 }
@@ -67,11 +77,21 @@ export interface DiscordSessionChannelsRepo {
     webhook_id?: string | null;
     webhook_token?: string | null;
     status?: DiscordSessionStatus;
+    display_state?: ChannelDisplayState;
+    agent_type?: string | null;
+    name_body?: string | null;
   }): void;
   setWebhook(sessionId: string, webhookId: string, webhookToken: string): void;
   /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
   clearWebhook(sessionId: string): void;
   setStatus(sessionId: string, status: DiscordSessionStatus): void;
+  /** display_state / agent_type / name_body をまとめて更新する。 */
+  setDisplayState(
+    sessionId: string,
+    displayState: ChannelDisplayState,
+    agentType?: string | null,
+    nameBody?: string | null,
+  ): void;
   /**
    * channel rename 直前に呼び、 5 分以内に rename 済なら false を返す
    * (rate limit guard)。 真を返したら ts も更新する。
@@ -101,13 +121,17 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
     upsert(input) {
       db.prepare(
         `INSERT INTO discord_session_channels
-           (session_id, channel_id, webhook_id, webhook_token, status, last_rename_ts, ts)
-         VALUES (?, ?, ?, ?, ?, 0, ?)
+           (session_id, channel_id, webhook_id, webhook_token, status,
+            display_state, agent_type, name_body, last_rename_ts, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            channel_id     = excluded.channel_id,
-           webhook_id     = COALESCE(excluded.webhook_id,     discord_session_channels.webhook_id),
-           webhook_token  = COALESCE(excluded.webhook_token,  discord_session_channels.webhook_token),
+           webhook_id     = COALESCE(excluded.webhook_id,    discord_session_channels.webhook_id),
+           webhook_token  = COALESCE(excluded.webhook_token, discord_session_channels.webhook_token),
            status         = excluded.status,
+           display_state  = excluded.display_state,
+           agent_type     = COALESCE(excluded.agent_type,    discord_session_channels.agent_type),
+           name_body      = COALESCE(excluded.name_body,     discord_session_channels.name_body),
            ts             = excluded.ts`,
       ).run(
         input.session_id,
@@ -115,6 +139,9 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
         input.webhook_id ?? null,
         input.webhook_token ?? null,
         input.status ?? "active",
+        input.display_state ?? "active",
+        input.agent_type ?? null,
+        input.name_body ?? null,
         nowSec(),
       );
     },
@@ -132,6 +159,27 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       db.prepare(
         `UPDATE discord_session_channels SET status = ? WHERE session_id = ?`,
       ).run(status, sessionId);
+    },
+    setDisplayState(sessionId, displayState, agentType, nameBody) {
+      if (agentType !== undefined && nameBody !== undefined) {
+        db.prepare(
+          `UPDATE discord_session_channels
+           SET display_state = ?, agent_type = ?, name_body = ?
+           WHERE session_id = ?`,
+        ).run(displayState, agentType ?? null, nameBody ?? null, sessionId);
+      } else if (agentType !== undefined) {
+        db.prepare(
+          `UPDATE discord_session_channels SET display_state = ?, agent_type = ? WHERE session_id = ?`,
+        ).run(displayState, agentType ?? null, sessionId);
+      } else if (nameBody !== undefined) {
+        db.prepare(
+          `UPDATE discord_session_channels SET display_state = ?, name_body = ? WHERE session_id = ?`,
+        ).run(displayState, nameBody ?? null, sessionId);
+      } else {
+        db.prepare(
+          `UPDATE discord_session_channels SET display_state = ? WHERE session_id = ?`,
+        ).run(displayState, sessionId);
+      }
     },
     tryClaimRename(sessionId, cooldownSec, now = nowSec()) {
       const row = db

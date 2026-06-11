@@ -25,11 +25,10 @@ import type {
   DiscordSessionStatus,
 } from "../db/discord-repo.js";
 import {
-  applyStatusEmoji,
   buildSessionChannelName,
-  extractDisplayState,
   roleSlug,
 } from "./formatter.js";
+import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
@@ -55,7 +54,8 @@ export async function onSessionRegistered(
   if (existing) return; // 既知 (再 register など)
 
   // 名前 = 🟢<エージェント絵文字>-<role>。作業内容は title_renamed で後から body に載る。
-  const name = buildSessionChannelName("active", input.agentType, roleSlug(input.roleLabel ?? "anon"));
+  const nameBody = roleSlug(input.roleLabel ?? "anon");
+  const name = buildSessionChannelName("active", input.agentType, nameBody);
   try {
     const created = await deps.guild.channels.create({
       name,
@@ -69,6 +69,9 @@ export async function onSessionRegistered(
       session_id: input.sessionId,
       channel_id: created.id,
       status: "active",
+      display_state: "active",
+      agent_type: input.agentType ?? null,
+      name_body: nameBody,
     });
     deps.log.info(`session-channel: created #${created.name} for ${input.sessionId}`);
 
@@ -108,10 +111,11 @@ export async function onSessionStatusChanged(
   // DB row は status=ended で残す — 会話チャンネルと対応を保持し続ける.
   if (input.status === "ended") {
     deps.repo.setStatus(input.sessionId, "ended");
+    deps.repo.setDisplayState(input.sessionId, "ended");
     const ch = deps.guild.channels.cache.get(row.channel_id);
     if (ch && ch.type === ChannelType.GuildText) {
       try {
-        const endedName = applyStatusEmoji(ch.name, "ended");
+        const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session");
         await ch.edit({
           name: endedName,
           parent: deps.layout.archiveCategoryId,
@@ -144,7 +148,9 @@ export async function onSessionStatusChanged(
   }
 
   // それ以外 (active <-> lost) は emoji rename のみ. sessions カテゴリに留める.
+  const newDisplayState: ChannelDisplayState = input.status; // "active" or "lost"
   deps.repo.setStatus(input.sessionId, input.status);
+  deps.repo.setDisplayState(input.sessionId, newDisplayState);
 
   // rename rate limit guard
   if (!deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
@@ -160,7 +166,8 @@ export async function onSessionStatusChanged(
     return;
   }
 
-  const newName = applyStatusEmoji(ch.name, input.status);
+  // DB に保存済みの agent_type / name_body から再構築 — チャンネル名パース不要。
+  const newName = buildSessionChannelName(newDisplayState, row.agent_type, row.name_body ?? "session");
 
   try {
     // sessions カテゴリに無い channel (旧レイアウトで状態カテゴリに作られた遺物
@@ -341,9 +348,10 @@ export async function onSessionTitleChanged(
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
   try {
-    // status が ended/lost ならその状態を優先、active なら現在の表示状態 (作業中含む) を維持。
-    const state = row.status === "active" ? extractDisplayState(ch.name) : row.status;
-    const nextName = buildSessionChannelName(state, input.agentType, titleToChannelBase(input.title));
+    // status が ended/lost ならその状態を優先、active なら DB の display_state (作業中含む) を維持。
+    const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
+    const newBody = titleToChannelBase(input.title);
+    const nextName = buildSessionChannelName(state, input.agentType, newBody);
     const patch: { topic: string; reason: string; name: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
@@ -351,6 +359,8 @@ export async function onSessionTitleChanged(
       name: nextName,
     };
     await ch.edit(patch);
+    // タイトル変更後は新 body を DB に保存 (次の status 変化時に再構築できるように)。
+    deps.repo.setDisplayState(input.sessionId, state as ChannelDisplayState, input.agentType, newBody);
     deps.log.info(
       `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name}`,
     );
@@ -373,8 +383,8 @@ export async function onSessionWorkState(
   if (!row || row.status !== "active") return;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
-  const desired = input.working ? "working" : "active";
-  if (extractDisplayState(ch.name) === desired) return; // 既にその状態
+  const desired: ChannelDisplayState = input.working ? "working" : "active";
+  if ((row.display_state ?? "active") === desired) return; // 既にその状態
   // rename rate limit guard — cooldown 内は skip (= 次の状態変化/title で収束)。
   if (!deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
     deps.log.info(
@@ -383,8 +393,10 @@ export async function onSessionWorkState(
     return;
   }
   try {
-    const newName = applyStatusEmoji(ch.name, desired);
+    // DB に保存済みの agent_type / name_body から再構築 — チャンネル名パース不要。
+    const newName = buildSessionChannelName(desired, row.agent_type, row.name_body ?? "session");
     await ch.edit({ name: newName, reason: `session ${input.sessionId} work-state=${desired}` });
+    deps.repo.setDisplayState(input.sessionId, desired);
     deps.log.info(`session-channel: ${input.sessionId} work-state → #${newName}`);
   } catch (e) {
     deps.log.warn(`session-channel: work-state rename failed for ${input.sessionId}: ${(e as Error).message}`);

@@ -1,4 +1,7 @@
 import { EmbedBuilder } from "discord.js";
+import type { ChannelDisplayState } from "../db/discord-repo.js";
+
+export type { ChannelDisplayState };
 
 export const DISCORD_MAX_CONTENT = 1900;
 
@@ -26,11 +29,7 @@ export function roleSlug(role: string): string {
   return trimmed || "role";
 }
 
-/**
- * チャンネル名の表示状態。`working` は作業中オーバーレイ (= session status は active のまま)。
- * 緑(active) ⟷ 歯車(working) を作業の有無で切り替える。lost/ended は session status 由来。
- */
-export type ChannelDisplayState = "working" | "active" | "lost" | "ended";
+// ChannelDisplayState は discord-repo.ts から re-export (DB の権威カラムと同型)。
 
 const STATE_EMOJI: Record<ChannelDisplayState, string> = {
   working: "⚙️", // ⚙️ 歯車
@@ -38,8 +37,6 @@ const STATE_EMOJI: Record<ChannelDisplayState, string> = {
   lost: "\u{1F7E5}", // 🟥
   ended: "\u{26AA}", // ⚪
 };
-// 先頭から剥がす状態絵文字の候補 (Discord が variation selector U+FE0F を落とす場合も拾う)。
-const STATE_EMOJI_PREFIXES = ["⚙️", "⚙", "\u{1F7E2}", "\u{1F7E5}", "\u{26AA}"];
 
 const AGENT_EMOJI: Record<string, string> = {
   claude: "\u{1F9D9}", // 🧙 魔法使い
@@ -62,29 +59,6 @@ export function buildSessionChannelName(
   return `${STATE_EMOJI[state]}${agentEmoji(agentType)}-${b}`.slice(0, 95);
 }
 
-/** 既存名の先頭の状態絵文字だけを差し替える (エージェント絵文字 + body は保持)。 */
-export function applyStatusEmoji(current: string, state: ChannelDisplayState): string {
-  let rest = current;
-  let stripped = false;
-  for (const e of STATE_EMOJI_PREFIXES) {
-    if (rest.startsWith(e)) {
-      rest = rest.slice(e.length);
-      stripped = true;
-      break;
-    }
-  }
-  // 状態絵文字が無かった旧/素の名前は、本体が英数字始まりならハイフンで繋ぐ (後方互換)。
-  const sep = !stripped && /^[a-zA-Z0-9]/.test(rest) ? "-" : "";
-  return `${STATE_EMOJI[state]}${sep}${rest}`;
-}
-
-/** 既存チャンネル名の先頭から現在の表示状態を読む (作業中/lost/ended、無ければ active)。 */
-export function extractDisplayState(name: string): ChannelDisplayState {
-  if (name.startsWith(STATE_EMOJI.working) || name.startsWith("⚙")) return "working";
-  if (name.startsWith(STATE_EMOJI.lost)) return "lost";
-  if (name.startsWith(STATE_EMOJI.ended)) return "ended";
-  return "active";
-}
 
 export function chunkForDiscord(text: string, max = DISCORD_MAX_CONTENT): string[] {
   if (!text) return [];

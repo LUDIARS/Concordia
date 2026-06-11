@@ -737,6 +737,25 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "answer_indices_json",
     ddl: `ALTER TABLE discord_pending_questions ADD COLUMN answer_indices_json TEXT`,
   },
+  // チャンネル名の絵文字を Discord 側文字列パースに依存せず DB で管理する (three-out redesign)。
+  // display_state = 表示状態 (working/active/lost/ended)、
+  // agent_type = claude/codex/gemini 等 (絵文字選択用)、
+  // name_body = チャンネル名のスラグ本体 (role or title slug)。
+  {
+    table: "discord_session_channels",
+    column: "display_state",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN display_state TEXT NOT NULL DEFAULT 'active'`,
+  },
+  {
+    table: "discord_session_channels",
+    column: "agent_type",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN agent_type TEXT`,
+  },
+  {
+    table: "discord_session_channels",
+    column: "name_body",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN name_body TEXT`,
+  },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

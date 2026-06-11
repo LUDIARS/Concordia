@@ -15,7 +15,7 @@ import {
 } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import { applyStatusEmoji, formatAuthorName } from "./formatter.js";
+import { formatAuthorName } from "./formatter.js";
 
 const TRIGGERS = new Set(["control", "/control", "コントロール"]);
 

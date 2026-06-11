@@ -124,15 +124,16 @@ describe("ProcessManager spawn", () => {
     expect(r.ok).toBe(true);
 
     // exit を待つ
-    await new Promise<void>((resolve) => {
+    await new Promise<void>((resolve, reject) => {
       const t = setInterval(() => {
         const row = repo.find("echo1");
         if (row && (row.status === "exited" || row.status === "failed")) {
           clearInterval(t);
+          clearTimeout(deadline);
           resolve();
         }
       }, 50);
-      setTimeout(() => { clearInterval(t); resolve(); }, 5000);
+      const deadline = setTimeout(() => { clearInterval(t); reject(new Error("process did not exit within 5s")); }, 5000);
     });
 
     const row = repo.find("echo1")!;

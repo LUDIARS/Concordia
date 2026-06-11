@@ -8,6 +8,46 @@ import { WebSocket } from "ws";
 import { attachWsServer, type WsHandle } from "../src/api/ws.js";
 import { eventBus } from "../src/events.js";
 
+/**
+ * WS クライアントのメッセージをバッファリングし、event-driven で次の1件を返す。
+ * バッファに既にメッセージが溜まっていれば即 resolve する。
+ */
+function makeWsReader(ws: WebSocket) {
+  const buf: string[] = [];
+  const waiting: Array<(msg: string) => void> = [];
+
+  ws.on("message", (d) => {
+    const msg = String(d);
+    const cb = waiting.shift();
+    if (cb) {
+      cb(msg);
+    } else {
+      buf.push(msg);
+    }
+  });
+
+  function next(timeoutMs = 2000): Promise<string> {
+    if (buf.length > 0) return Promise.resolve(buf.shift()!);
+    return new Promise((resolve, reject) => {
+      const t = setTimeout(() => {
+        const idx = waiting.indexOf(resolve);
+        if (idx >= 0) waiting.splice(idx, 1);
+        reject(new Error("ws message timeout"));
+      }, timeoutMs);
+      waiting.push((msg) => { clearTimeout(t); resolve(msg); });
+    });
+  }
+
+  /** バッファに溜まっている全メッセージを取り出す（不在アサート用）。 */
+  function drain(): string[] {
+    const all = buf.slice();
+    buf.length = 0;
+    return all;
+  }
+
+  return { next, drain };
+}
+
 describe("ws session-targeted broadcast", () => {
   let httpServer: Server;
   let wsHandle: WsHandle;
@@ -32,6 +72,11 @@ describe("ws session-targeted broadcast", () => {
     const wsB = new WebSocket(`ws://127.0.0.1:${port}/ws?session=beta`);
     const wsNone = new WebSocket(`ws://127.0.0.1:${port}/ws`);
 
+    // リスナを open 前に登録してメッセージを取りこぼさない
+    const readerA = makeWsReader(wsA);
+    const readerB = makeWsReader(wsB);
+    const readerNone = makeWsReader(wsNone);
+
     try {
       await Promise.all([
         new Promise<void>((r) => wsA.once("open", r)),
@@ -39,16 +84,8 @@ describe("ws session-targeted broadcast", () => {
         new Promise<void>((r) => wsNone.once("open", r)),
       ]);
 
-      const recA: any[] = [];
-      const recB: any[] = [];
-      const recNone: any[] = [];
-      wsA.on("message", (d) => recA.push(JSON.parse(String(d))));
-      wsB.on("message", (d) => recB.push(JSON.parse(String(d))));
-      wsNone.on("message", (d) => recNone.push(JSON.parse(String(d))));
-
-      // Drain initial "hello" frame.
-      await new Promise((r) => setTimeout(r, 50));
-      recA.length = 0; recB.length = 0; recNone.length = 0;
+      // Drain initial "hello" frame from all sockets concurrently
+      await Promise.all([readerA.next(), readerB.next(), readerNone.next()]);
 
       eventBus.emit({
         type: "session.inject",
@@ -58,14 +95,16 @@ describe("ws session-targeted broadcast", () => {
         ts: 1,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      // wsA の受信を event-driven で待ち、配送完了の同期点とする
+      const raw = await readerA.next();
+      const msgA = JSON.parse(raw);
 
-      const injectsA = recA.filter((m) => m.type === "session.inject");
-      const injectsB = recB.filter((m) => m.type === "session.inject");
-      const injectsNone = recNone.filter((m) => m.type === "session.inject");
+      expect(msgA.type).toBe("session.inject");
+      expect(msgA.text).toBe("hello alpha");
 
-      expect(injectsA).toHaveLength(1);
-      expect(injectsA[0].text).toBe("hello alpha");
+      // 配送完了後に不在側のバッファを確認
+      const injectsB = readerB.drain().filter((m) => JSON.parse(m).type === "session.inject");
+      const injectsNone = readerNone.drain().filter((m) => JSON.parse(m).type === "session.inject");
       expect(injectsB).toHaveLength(0);
       expect(injectsNone).toHaveLength(0);
     } finally {
@@ -76,22 +115,26 @@ describe("ws session-targeted broadcast", () => {
   it("non-targeted events (e.g. ping) still broadcast to all clients", async () => {
     const ws1 = new WebSocket(`ws://127.0.0.1:${port}/ws?session=one`);
     const ws2 = new WebSocket(`ws://127.0.0.1:${port}/ws?session=two`);
+
+    const reader1 = makeWsReader(ws1);
+    const reader2 = makeWsReader(ws2);
+
     try {
       await Promise.all([
         new Promise<void>((r) => ws1.once("open", r)),
         new Promise<void>((r) => ws2.once("open", r)),
       ]);
-      const r1: any[] = []; const r2: any[] = [];
-      ws1.on("message", (d) => r1.push(JSON.parse(String(d))));
-      ws2.on("message", (d) => r2.push(JSON.parse(String(d))));
-      await new Promise((r) => setTimeout(r, 50));
-      r1.length = 0; r2.length = 0;
+
+      // Drain initial "hello" frame from all sockets concurrently
+      await Promise.all([reader1.next(), reader2.next()]);
 
       eventBus.emit({ type: "ping", ts: 2 });
-      await new Promise((r) => setTimeout(r, 50));
 
-      expect(r1.some((m) => m.type === "ping")).toBe(true);
-      expect(r2.some((m) => m.type === "ping")).toBe(true);
+      // event-driven で両方の受信を待つ
+      const [msg1, msg2] = await Promise.all([reader1.next(), reader2.next()]);
+
+      expect(JSON.parse(msg1).type).toBe("ping");
+      expect(JSON.parse(msg2).type).toBe("ping");
     } finally {
       ws1.close(); ws2.close();
     }

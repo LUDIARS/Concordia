@@ -62,12 +62,15 @@ describe("resolveSecretKey", () => {
     expect(second).toEqual(first);
   });
 
-  it("race loser reads the winner's key instead of overwriting (EEXIST path)", () => {
+  it("reads pre-existing key file instead of overwriting", () => {
+    // NOTE: EEXIST 分岐 (existsSync=false の瞬間に別プロセスが wx 書き込みを先行する race)
+    // は単プロセステストでは直接踏めない構造 (existsSync と openSync の間に割り込みが必要)。
+    // ここでは「ファイルが存在する場合は既存キーをそのまま返す」動作を検証する。
     const keyFile = join(dir, "key");
     // 「勝者」が先に生成済みの状態を再現
     const winner = randomBytes(32);
     writeFileSync(keyFile, winner.toString("base64"), { encoding: "utf8" });
-    // existsSync=true でも read path、 仮に同時生成しても EEXIST で勝者を読む
+    // existsSync=true パスで勝者の鍵を読み直す (race に負けた場合も同じ結果)
     expect(resolveSecretKey({ keyFile })).toEqual(winner);
   });
 

@@ -123,14 +123,26 @@ describe("pending_tasks retry", () => {
   it("requeueForRetry stops after maxRetries", () => {
     enqueueStat("a");
     let now = Math.floor(Date.now() / 1000);
-    for (let i = 0; i < 5; i++) {
+
+    const MAX_RETRIES = 3; // tasks-repo DEFAULT_MAX_RETRIES と一致させる
+
+    // retries が MAX_RETRIES (= 3) に到達するまでループ
+    let lastRetries = 0;
+    for (let i = 0; i < MAX_RETRIES; i++) {
       env.tasks.pull("a");
       now += 5 * 60 + 1;
-      env.tasks.requeueForRetry({ kinds: ["stat-collect"], now });
+      const requeued = env.tasks.requeueForRetry({ kinds: ["stat-collect"], now });
+      expect(requeued).toHaveLength(1);
+      lastRetries = requeued[0].retries;
     }
-    const task = env.tasks.find(1)!;
-    // retries が 3 (デフォルト) で頭打ち + 4 回目以降は requeue されない
-    expect(task.retries).toBeLessThanOrEqual(3);
+    // (a) retries がちょうど MAX_RETRIES に到達していること
+    expect(lastRetries).toBe(MAX_RETRIES);
+
+    // (b) 上限到達後: pull して再び stale にしてもう 1 回 requeueForRetry → 空を返す
+    env.tasks.pull("a");
+    now += 5 * 60 + 1;
+    const after = env.tasks.requeueForRetry({ kinds: ["stat-collect"], now });
+    expect(after).toHaveLength(0);
   });
 
   it("markResponded prevents further requeue", () => {

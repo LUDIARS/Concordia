@@ -173,8 +173,32 @@ describe("ProcessManager spawn", () => {
     });
     expect(r1.ok && r2.ok).toBe(true);
     expect(mgr.listRunning()).toHaveLength(2);
+
+    // pid を控えておく (stopAll 後の実プロセス終了確認に使う)
+    const pids = [r1.pid, r2.pid].filter((p): p is number => typeof p === "number" && p > 0);
+
     await mgr.stopAll(2000);
+
+    // manager 内 Map が空になること
     expect(mgr.listRunning()).toHaveLength(0);
+
+    // 実プロセスが終了していること: pid への signal 0 が throw するまで有限リトライ。
+    // NOTE: Windows では shell:true ラッパーの孫が残る既知問題があるため
+    // ラッパー pid の終了確認のみ行い、孫の残存は許容する。
+    const deadline = Date.now() + 3000;
+    for (const pid of pids) {
+      let exited = false;
+      while (Date.now() < deadline) {
+        try {
+          process.kill(pid, 0); // プロセスが生きていれば例外なし
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        } catch {
+          exited = true;
+          break;
+        }
+      }
+      expect(exited, `pid ${pid} should have exited within timeout`).toBe(true);
+    }
   }, 20000);
 
   it("ad-hoc startOne refuses duplicate names", () => {

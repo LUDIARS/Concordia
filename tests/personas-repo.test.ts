@@ -12,7 +12,7 @@ describe("PersonasRepo", () => {
   let repo: PersonasRepo;
   beforeEach(() => { repo = fresh(); seedPersonas(repo); });
 
-  it("seeds 10 base personas", () => {
+  it("seeds all base personas", () => {
     const list = repo.list();
     expect(list).toHaveLength(PERSONA_SEEDS.length);
     expect(list.find((p) => p.id === "architect-sensei")?.name).toBe("アーキテクト先生");
@@ -31,7 +31,7 @@ describe("PersonasRepo", () => {
 
     // 別 session に同 persona は付かない (排他)
     const seen = new Set<string>([personaId]);
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < PERSONA_SEEDS.length - 1; i++) {
       const r = repo.assign(`session-${i}`, () => 0.0);
       expect(r).toBeTruthy();
       expect(seen.has(r!.persona.id)).toBe(false);

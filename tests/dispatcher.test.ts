@@ -146,11 +146,12 @@ describe("Dispatcher (smarter triggers)", () => {
     d.onLogUpdate({ kind: "rule.add", ref: "r3", source_session_id: "src", summary: "added r3" });
 
     const collect = (id: string) => env.tasks.pull(id).filter((t) => t.kind === "peer-log-react").length;
-    const total = collect("p1") + collect("p2") + collect("p3");
     // src は除外されてるので 0
     expect(env.tasks.pull("src").filter((t) => t.kind === "peer-log-react").length).toBe(0);
-    // 3 件の event がそれぞれ 1 peer に届く (= 排他)
-    expect(total).toBe(3);
+    // round-robin: 各 peer がちょうど 1 件ずつ受信すること (2+1+0 は NG)
+    expect(collect("p1")).toBe(1);
+    expect(collect("p2")).toBe(1);
+    expect(collect("p3")).toBe(1);
   });
 
   it("onLogUpdate is rate-limited within cooldown for same key", () => {

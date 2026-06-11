@@ -12,11 +12,10 @@ describe("egress-filters: shouldDropForRelay", () => {
     expect(shouldDropForRelay(guardianText)).toBe(true);
   });
 
-  it("drops guardian JSON regardless of key order (regex matches any order)", () => {
-    // Same keys, different order — the regex requires the three keys in this
-    // specific order ("risk_level", "user_authorization", "outcome"). Codex
-    // serializes them deterministically in this order in practice; if it ever
-    // changes, this test will surface the regression.
+  it("drops guardian JSON with the canonical Codex key order", () => {
+    // NOTE: 既知制約 — 正規表現はキーを "risk_level", "user_authorization", "outcome" の
+    // 順序で固定マッチする。Codex は実際にこの順で serialize するため現状は問題ないが、
+    // キー順序が変わると検出できなくなる。src の regex は本タスクでは直さない。
     const t = '{"risk_level":"low","user_authorization":"high","outcome":"allow"}';
     expect(shouldDropForRelay(t)).toBe(true);
   });

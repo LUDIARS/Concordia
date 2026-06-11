@@ -70,6 +70,19 @@ describe("TranscriptLogsRepo", () => {
   });
 
   it("limit はデフォルト 200 / 上限 1000 にクランプされる", () => {
+    // (a) 250 行挿入 → limit 未指定でちょうど 200 件返ること (デフォルト 200 クランプ)
+    for (let i = 0; i < 250; i++) {
+      env.repo.insert({ session_id: "s2", seq: i, ts: 1000 + i, kind: "text", payload: { i } });
+    }
+    expect(env.repo.listBySession("s2")).toHaveLength(200);
+
+    // (b) 1100 行挿入 → limit: 9999 指定でちょうど 1000 件返ること (上限 1000 クランプ)
+    for (let i = 0; i < 1100; i++) {
+      env.repo.insert({ session_id: "s3", seq: i, ts: 1000 + i, kind: "text", payload: { i } });
+    }
+    expect(env.repo.listBySession("s3", { limit: 9999 })).toHaveLength(1000);
+
+    // 既存の小規模テスト (< 200 なら全件, 任意 limit, 異常値)
     for (let i = 0; i < 50; i++) {
       env.repo.insert({ session_id: "s1", seq: i, ts: 1000 + i, kind: "text", payload: { i } });
     }

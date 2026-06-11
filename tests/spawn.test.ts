@@ -58,7 +58,9 @@ describe("spawn token", () => {
     expect(readSpawnToken(cwd)).toBeNull();
   });
 
-  it("tokenMatches is constant-time and rejects mismatches", () => {
+  it("tokenMatches rejects mismatches", () => {
+    // 実装は timingSafeEqual を使っているが timing 特性はテストで検証不能。
+    // ここでは機能 (一致/不一致の判定) のみを確認する。
     const a = "a".repeat(64);
     expect(tokenMatches(a, a)).toBe(true);
     expect(tokenMatches(a, "b".repeat(64))).toBe(false);
@@ -276,14 +278,24 @@ describe("spawn router (Hono)", () => {
     expect(body.command[body.command.indexOf("--window") + 1]).toBe("new");
   });
 
-  it("GET /recent is empty initially, populates after preview is skipped (only real /post adds)", async () => {
+  it("preview では /recent に追加されない (real /post のみ追加される)", async () => {
+    // /preview は dry-run で records に追加しない。実際の /post (Windows Terminal spawn)
+    // は CI では実行不可のため、「preview しても /recent が増えない」側のみ検証する。
     const app = spawnRouter({ cwd });
     const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
+
+    // /preview を実行しても /recent は増えない
+    await app.request("/preview", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      body: JSON.stringify({ provider: "claude", mode: "tab" }),
+    });
+
     const res = await app.request("/recent", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { spawns: unknown[] };
-    expect(Array.isArray(body.spawns)).toBe(true);
+    expect(body.spawns).toHaveLength(0);
   });
 });

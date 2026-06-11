@@ -11,14 +11,15 @@ describe("concordia-core MCP server", () => {
     expect((s as unknown as { server: unknown }).server).toBeDefined();
   });
 
-  it("buildCoreServer registers all 8 expected tools", () => {
+  it("buildCoreServer registers all expected tools", () => {
     const s = buildCoreServer();
     // _registeredTools is internal but stable across @modelcontextprotocol/sdk
     // 0.x. If the SDK renames it the test will surface that early.
     const internal = s as unknown as { _registeredTools: Record<string, unknown> };
     expect(internal._registeredTools).toBeDefined();
     const names = Object.keys(internal._registeredTools).sort();
-    expect(names).toEqual([
+    // リスト自体でツール名を網羅検証する (個数はリスト長から自動導出)
+    const expectedTools = [
       "concordia_get_conflicts",
       "concordia_get_pending_tasks",
       "concordia_get_session",
@@ -28,7 +29,8 @@ describe("concordia-core MCP server", () => {
       "concordia_post_chat",
       "concordia_pr_queue",
       "concordia_recent_chat",
-    ]);
+    ];
+    expect(names).toEqual(expectedTools.slice().sort());
   });
 });
 

@@ -9,17 +9,17 @@
  *      start-impl         👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
  *                                   非 active なら headless で着手)
  *      enumerate-remaining 🙏       残作業を洗い出して報告 (authoring session へ inject、
- *                                   非 active なら headless で洗い出し) ←→ 🫡 と対の WF
- *      memoria-remaining  🫡       残作業 (洗い出し結果) を Memoria に残作業として記録 (sonnet)
+ *                                   非 active なら headless で洗い出し) ←→ 🫶/😴/✨ と対の WF
+ *      memoria-remaining  🫶/😴/✨  残作業 (洗い出し結果) を重複回避で Memoria に登録 (memoria-record / sonnet)
  *      status-check       📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
  *                                   非 active なら headless)
  *      repo-memory-good   😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
  *      memoria-note       👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
  *      memoria-task       📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
- *      repo-memory-bad    😡 / 👎   良くない → リポ作業メモリに行動結果を記録 (haiku)
+ *      repo-memory-bad    😡 / 👎   良くない → 作業を即中断して反省 (inject、 記録はせず後続 👍 に委ねる)
  *
- * 🙏 → 🫡 は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
- * セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫡 を付けると Memoria へ記録する。
+ * 🙏 → 🫶/😴/✨ は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
+ * セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫶/😴/✨ を付けると Memoria へ記録する。
  *
  * 安全弁: 既定 OFF。 enabled (CONCORDIA_REACTION_WORKFLOW=1) の時だけ実処理を走らせる。
  * headless 実行は file 書き込み / Memoria 連携を伴うので dangerouslySkipPermissions で起動する
@@ -53,8 +53,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "start-impl": ["👍", "🆗"],
   // 🙏 → 残作業を洗い出して報告 (2 段 WF の前段)
   "enumerate-remaining": ["🙏"],
-  // 🫡 → 残作業 (洗い出し結果) を Memoria に記録 (2 段 WF の後段)
-  "memoria-remaining": ["🫡"],
+  // 🫶 / 😴 / ✨ → 残作業を重複回避で Memoria に登録 (memoria-record。 🙏 洗い出しの後段)
+  "memoria-remaining": ["🫶", "😴", "✨"],
   // 状況どう? → セッションに今の作業状況を報告させる (point-up / up / mobile 系)
   "status-check": ["📲", "🆙", "👆"],
   // 良い動き → リポ作業メモリに記録 (smile 系)
@@ -96,8 +96,8 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     mode: "active へ inject / 非active は headless sonnet (当該リポ)",
   },
   "memoria-remaining": {
-    label: "残作業を Memoria に記録",
-    summary: "投稿内容 (残作業の洗い出し結果) を『Memoria に残作業 (タスク) として記録せよ』に変換して渡す。",
+    label: "残作業を Memoria に記録 (memoria-record)",
+    summary: "投稿内容 (残作業の洗い出し結果) を『既存タスクと重複チェックした上で Memoria に登録せよ (memoria-record)』に変換して渡す。",
     mode: "headless sonnet (Memoria)",
   },
   "status-check": {
@@ -111,9 +111,9 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     mode: "headless haiku (当該リポ)",
   },
   "repo-memory-bad": {
-    label: "良くない動きをリポ作業メモリに記録",
-    summary: "投稿内容を『このリポの作業メモリに“避けるべきパターン”として記録せよ』に変換して渡す。",
-    mode: "headless haiku (当該リポ)",
+    label: "作業中断 + 反省",
+    summary: "投稿内容を『今の作業を直ちに中断して反省せよ。 記録は後続の 👍 が来た時だけ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless haiku (反省のみ)",
   },
   "memoria-note": {
     label: "Memoria にメモ",
@@ -238,7 +238,9 @@ export function planWorkflow(
         `👍 このメッセージ (直前の提案 / 計画) が承認されました。 提案内容を**そのまま実装に着手**してください。\n` +
         `- 余計な再確認はせず、 提案された方針で実装を開始する。\n` +
         `- LUDIARS 規約 (ブランチ → 実装 → コミット → PR、 自動マージ可) に従う。\n` +
-        `- 提案に曖昧な点があっても、 最も素直な解釈で進めてよい。`;
+        `- 提案に曖昧な点があっても、 最も素直な解釈で進めてよい。\n` +
+        `- ただし対象が直前の「反省」(😡/👎 由来) なら、 この 👍 は実装着手ではなく ` +
+        `「その反省を“避けるべきパターン”として当該リポの作業メモリに記録せよ」という承認である。`;
       // authoring session が生きていれば、 その AI に inject して文脈ごと続行させる。
       if (ctx.sessionActive) {
         return { action, mode: "inject", prompt: prompt + msgRef };
@@ -258,7 +260,7 @@ export function planWorkflow(
         `- 着手中の作業・未完了のタスク・TODO・既知の課題を、 重複なくリスト形式で列挙する。\n` +
         `- 各項目は「何を / どこまで終わっていて / 次に何をすべきか」が分かる粒度で 1 行ずつ書く。\n` +
         `- 推測で水増しせず、 実際に残っているものだけを挙げる。 無ければ「残作業なし」と明記する。\n` +
-        `- この洗い出し結果は後段で 🫡 リアクションにより Memoria へ残作業として記録される前提で、 そのまま転記できる形にする。`;
+        `- この洗い出し結果は後段で 🫶/😴/✨ リアクションにより Memoria へ残作業として記録される前提で、 そのまま転記できる形にする。`;
       // authoring session が生きていれば、 その AI に inject して文脈ごと洗い出させる。
       if (ctx.sessionActive) {
         return { action, mode: "inject", prompt: prompt + msgRef };
@@ -274,14 +276,18 @@ export function planWorkflow(
     }
 
     case "memoria-remaining": {
+      // memoria-record ワークフロー (洗い出し結果 → 重複回避で Memoria 登録)。 中身は環境依存の
+      // スラッシュコマンドに頼らず Concordia が自前で保持する (headless claude へそのまま渡す)。
       const prompt =
         head +
-        `\n🫡 これは「残作業の洗い出し結果」として共有されました (🙏 の後段)。\n` +
-        `内容を解析し、 列挙されている残作業を **Memoria に残作業 (タスク) として記録**してください。\n` +
-        `- メッセージ本文の各残作業項目を 1 件ずつ Memoria のタスク機能 (or 相応の relay 経路) に登録する。\n` +
-        `- 各項目から「タスク名 / 完了条件 / 対象リポ」を読み取り、 曖昧なら最も妥当な形に整える。\n` +
-        `- 既に同等のタスクがあれば重複登録しない。\n` +
-        `- 出所として「Concordia リアクション (🫡) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
+        `\n🫶 これは「残作業の洗い出し結果」です (🙏 の後段、 memoria-record ワークフロー)。\n` +
+        `列挙された残作業を **重複を避けて Memoria に登録**してください。\n` +
+        `1. 既存タスクを取得して突き合わせる (Memoria の \`GET /api/tasks?limit=200\`、 既定 base http://127.0.0.1:5180)。\n` +
+        `2. メッセージ本文の各残作業から「タスク名 (title) / 完了条件・対象リポ等 (details)」を読み取る。 既存タスクと同義のものは登録しない。\n` +
+        `3. 新規ぶんを Memoria のタスクとして登録する。 PowerShell/curl の日本語文字化けを避けるため、 memoria-task スキルの Node スクリプトを使う:\n` +
+        `   \`node <Memoria>/../.claude/skills/memoria-task/post-tasks.mjs <tasks.json>\` (配列 or { "tasks": [...] }、 creator_type は ai 付与)。 当該スクリプトが無い環境では \`POST /api/tasks\` を直接叩く。\n` +
+        `4. 推測で水増しせず、 実際に残っている項目だけを登録する。 出所として「Concordia リアクション (🫶/😴/✨ / memoria-record) 由来」「投稿者: ${ctx.authorLabel}」を details に残す。\n` +
+        `- Memoria に繋がらない場合は中断せず、 未登録の残作業と失敗理由を報告する。`;
       return {
         action,
         mode: "headless",
@@ -330,18 +336,21 @@ export function planWorkflow(
 
     case "repo-memory-bad": {
       const prompt =
-        head +
-        `\n😡 これは「良くない実装/行動」と評価されました。\n` +
-        `**このリポジトリの作業メモリ**に、 「どんなメッセージ・行動だったか」と「なぜ良くなかったか/その結果」を ` +
-        `1 エントリとして簡潔に追記して保存してください。\n` +
-        `- 既存の作業メモリの場所・形式を踏襲する。\n` +
-        `- 後で「避けるべきパターン」として参照できる粒度で書く。`;
+        `😡 この作業は「良くない」と評価されました。\n` +
+        `1. まず**今やっている作業を直ちに中断**してください (これ以上進めない・コミットしない)。\n` +
+        `2. 次に、 何が良くなかったか / なぜそうなったか / どう変えるべきかを**反省**として簡潔にまとめて報告する。\n` +
+        `3. この時点では**メモリに記録しない**。 記録の要否は後続のユーザ操作に委ねる: ` +
+        `この反省に 👍 が付いたら「避けるべきパターン」としてこのリポの作業メモリに記録する。 付かなければ記録しない。`;
+      // 中断は走っている本人にしかできない。 active なら inject、 非 active は headless で反省のみ。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
       return {
         action,
         mode: "headless",
         model: models.haiku,
         cwd: ctx.repoPath ?? undefined,
-        prompt,
+        prompt: head + "\n" + prompt,
       };
     }
 

@@ -40,6 +40,18 @@ export interface IngressDeps {
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
 }
 
+/** 異体字セレクタ / ZWJ / 肌色修飾を含む「絵文字のみ」で構成された文字列か。 */
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|️|‍)+$/u;
+
+/**
+ * メッセージ本文が「単発絵文字」(絵文字のみ、 短い) か。 該当アクションの無い単発絵文字を
+ * 却下 (プロンプト不通過) するための判定。 通常文・絵文字混じり文は false。
+ */
+function isStandaloneEmoji(text: string): boolean {
+  const t = text.trim();
+  return t.length > 0 && t.length <= 32 && EMOJI_ONLY.test(t) && /\p{Extended_Pictographic}/u.test(t);
+}
+
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
   if (msg.author.bot) {
     deps.log.info(`ingress: skip bot message channel=${msg.channelId} author=${msg.author.id}`);
@@ -86,10 +98,16 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
   );
 
-  // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直前メッセージへのリアクション」と同義に扱い、
+  // 単発で投稿された絵文字 (🙏 / 🫶 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
-  if (deps.workflow && classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
-    if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
+  // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
+  if (deps.workflow) {
+    if (classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
+      if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
+    } else if (isStandaloneEmoji(text)) {
+      deps.log.info(`ingress: standalone emoji "${text.trim()}" has no workflow action → reject (prompt not forwarded)`);
+      return;
+    }
   }
 
   const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);

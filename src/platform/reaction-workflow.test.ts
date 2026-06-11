@@ -27,7 +27,9 @@ describe("classifyReactionWorkflow", () => {
     ["👍", "start-impl"],
     ["🆗", "start-impl"],
     ["🙏", "enumerate-remaining"],
-    ["🫡", "memoria-remaining"],
+    ["🫶", "memoria-remaining"],
+    ["😴", "memoria-remaining"],
+    ["✨", "memoria-remaining"],
     ["📲", "status-check"],
     ["🆙", "status-check"],
     ["👆", "status-check"],
@@ -59,7 +61,7 @@ describe("classifyReactionWorkflow", () => {
     const overrides = { "👍": "memoria-note" as const, "🔥": "start-impl" as const };
     expect(classifyReactionWorkflow("👍", overrides)).toBe("memoria-note"); // 上書き
     expect(classifyReactionWorkflow("🔥", overrides)).toBe("start-impl");   // 新規
-    expect(classifyReactionWorkflow("🫡", overrides)).toBe("memoria-remaining"); // 上書きなし=既定
+    expect(classifyReactionWorkflow("🫶", overrides)).toBe("memoria-remaining"); // 上書きなし=既定
     expect(classifyReactionWorkflow("🎉", overrides)).toBeNull();
   });
 });
@@ -68,7 +70,7 @@ describe("defaultReactionEmojiMap / isWorkflowAction", () => {
   it("flattens defaults and every value is a valid action", () => {
     const map = defaultReactionEmojiMap();
     expect(map["🙏"]).toBe("enumerate-remaining");
-    expect(map["🫡"]).toBe("memoria-remaining");
+    expect(map["🫶"]).toBe("memoria-remaining");
     expect(map["📲"]).toBe("status-check");
     for (const action of Object.values(map)) expect(isWorkflowAction(action)).toBe(true);
   });
@@ -113,10 +115,19 @@ describe("planWorkflow", () => {
     expect(plan.prompt).toContain("キャッシュ層");
   });
 
-  it("repo-memory-bad → headless haiku, framed as avoid-pattern", () => {
+  it("repo-memory-bad on active session → inject (作業中断 + 反省、 記録せず)", () => {
     const plan = planWorkflow("repo-memory-bad", baseCtx);
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("良くない");
+    expect(plan.prompt).toContain("中断");
+    expect(plan.prompt).toContain("記録しない");
+  });
+
+  it("repo-memory-bad on inactive session → headless haiku (反省のみ)", () => {
+    const plan = planWorkflow("repo-memory-bad", { ...baseCtx, sessionActive: false });
     expect(plan.mode).toBe("headless");
     expect(plan.model).toBe("haiku");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
     expect(plan.prompt).toContain("良くない");
   });
 

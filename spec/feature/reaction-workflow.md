@@ -18,12 +18,12 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 |---|---|---|---|---|
 | 👍 / 🆗 | 良い → そのまま実装着手 | `start-impl` | authoring session へ `session.inject`<br>(非 active なら headless で着手) | — |
 | 🙏 | 残作業を洗い出して報告 (🫡 と対) | `enumerate-remaining` | authoring session へ `session.inject`<br>(非 active なら headless で洗い出し) | sonnet |
-| 🫡 | 残作業 (洗い出し結果) を Memoria に記録 | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
+| 🫡 | 残作業 (洗い出し結果) を**重複回避で** Memoria に登録 (memoria-record) | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
 | 📲 🆙 👆 | 状況どう? → 現在の作業状況を報告 | `status-check` | authoring session へ `session.inject`<br>(非 active なら headless) | sonnet |
 | 😄 😀 😃 😊 🙂 😁 | 良い動き | `repo-memory-good` | headless (cwd = 当該リポ) | haiku |
 | 👀 👁️ 👈 📓 ✏️ | メッセージをメモに残す | `memoria-note` | headless (cwd = Memoria) | haiku |
 | 📝 🗒️ / ✅ ☑️ ✔️ | 残作業 → タスク登録 | `memoria-task` | headless (cwd = Memoria) | sonnet |
-| 😡 💢 👿 😠 / 👎 | 良くない | `repo-memory-bad` | headless (cwd = 当該リポ) | haiku |
+| 😡 💢 👿 😠 / 👎 | 良くない → **作業を即中断して反省** (記録はせず、 後続 👍 が来たら記録) | `repo-memory-bad` | active へ `session.inject`<br>(非 active は headless で反省のみ) | haiku |
 
 写像外の絵文字は記録のみで何もしない (`null`)。
 
@@ -37,12 +37,20 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 
 `🙏 → 🫡` は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
 セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫡 を付けると Memoria へ記録する。
+🫡 の記録は **memoria-record** フロー (既存タスクと重複チェックしてから登録) で行う。 この「中身」は
+環境依存のスラッシュコマンドに頼らず Concordia が `planWorkflow` 内に自前で保持する。
 
 ### 1-b. 単発絵文字 (prompt) も同じトリガにする
 
 リアクションだけでなく、**チャットに単発で投稿された同種の絵文字**も同じワークフローに流す
 (`src/discord/ingress.ts`)。 メッセージ本文が写像対象の絵文字 1 個だけなら、 inject / chat には
-載せず「直前メッセージへのリアクション」と同義に扱う。 対象メッセージの解決順:
+載せず「直前メッセージへのリアクション」と同義に扱う。
+
+> **却下ルール**: 「絵文字のみで構成された単発投稿」だが**写像対象のアクションが無い**場合は、
+> その投稿を却下し、 通常経路 (inject / chat) にもフォールバックしない (= プロンプトを通さない)。
+> 絵文字判定は `isStandaloneEmoji` (Extended_Pictographic / Emoji_Modifier / VS16 / ZWJ のみ)。
+
+対象メッセージの解決順:
 
 1. 返信メッセージ (`message.reference`) なら参照先 → `discord_message_map` で `chat_messages.id`。
 2. session channel なら、 そのセッションが書いた直近メッセージ (`chatRepo.latestForSession`)。

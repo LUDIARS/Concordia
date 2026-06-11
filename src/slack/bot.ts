@@ -21,9 +21,12 @@ import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
 import {
+  reformatMarkdownTables,
   buildQuestionBlocks,
+  buildSessionBotUsername,
   extractRelayableFrame,
   parseAnswerActionId,
+  sanitizeSlackMentions,
   truncateForSlack,
   renderSessionCard,
   extractMonologue,
@@ -148,9 +151,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     if (inFlight) return inFlight;
     const p = (async (): Promise<string | null> => {
       try {
+        const cardState = buildCardState(sessionId, "active");
+        const card = renderSessionCard(cardState);
         const res = await web.chat.postMessage({
           channel: channelId,
-          text: renderSessionCard(buildCardState(sessionId, "active")),
+          username: buildSessionBotUsername(cardState),
+          text: card.text,
+          blocks: card.blocks as never,
         });
         const ts = (res.ts as string) ?? null;
         if (!ts) {
@@ -196,10 +203,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     const row = threads.findBySessionId(sessionId);
     if (!row) return;
     try {
+      const card = renderSessionCard(buildCardState(sessionId, status, poem));
       await web.chat.update({
         channel: channelId,
         ts: row.thread_ts,
-        text: renderSessionCard(buildCardState(sessionId, status, poem)),
+        text: card.text,
+        blocks: card.blocks as never,
       });
     } catch (e) {
       log.warn(`root card update failed session=${sessionId}: ${(e as Error).message}`);
@@ -225,10 +234,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       return null;
     }
     try {
+      const sanitized = sanitizeSlackMentions(truncateForSlack(reformatMarkdownTables(text), 12000));
       const r = await web.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
-        text: `*${author}*\n${truncateForSlack(text, 12000)}`,
+        username: author,
+        text: sanitized,
       });
       const ts = (r.ts as string) ?? null;
       log.info(`[verbose-slack-egress] thread relay ok session=${sessionId} thread_ts=${threadTs} ts=${ts ?? "?"} len=${text.length}`);
@@ -588,7 +599,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           { concordiaUrl: deps.concordiaUrl },
           { call_name: parsed.call_name, args, cwd: parsed.cwd, extra_prompt, triggered_by: `slack:${body.user?.id ?? ""}` },
         );
-        await web.chat.postMessage({ channel: channelId, text: resultText });
+        // 起動完了メッセージは発火者のみ見える ephemeral にする（チャンネルに残さない）。
+        const spawnUserId = body.user?.id ?? "";
+        if (spawnUserId) {
+          await web.chat.postEphemeral({ channel: channelId, user: spawnUserId, text: resultText });
+        } else {
+          await web.chat.postMessage({ channel: channelId, text: resultText });
+        }
       } catch (e) {
         log.warn(`delegation modal submit: ${(e as Error).message}`);
       }

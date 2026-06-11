@@ -7,7 +7,7 @@ export default defineConfig({
     host: "0.0.0.0",
     port: 17331,
     strictPort: true,
-    allowedHosts: ["concordia.vtn-game.com", "localhost", "127.0.0.1"],
+    allowedHosts: ["concordia.vtn-game.com", "ccm.vtn-game.com", "localhost", "127.0.0.1"],
     proxy: {
       "/v1": "http://127.0.0.1:17330",
       "/health": "http://127.0.0.1:17330",

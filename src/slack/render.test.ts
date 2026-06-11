@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  reformatMarkdownTables,
   buildQuestionBlocks,
+  buildSessionBotUsername,
   extractRelayableFrame,
   parseAnswerActionId,
+  sanitizeSlackMentions,
   truncateForSlack,
   renderSessionCard,
   extractMonologue,
@@ -11,38 +14,78 @@ import {
 } from "./render.js";
 
 describe("renderSessionCard", () => {
-  it("active: 使用AI + current_task + 返信ヒントを含む", () => {
-    const t = renderSessionCard({
+  it("active: text に engine + current_task + 返信ヒントを含む（フォールバック文字列）", () => {
+    const { text } = renderSessionCard({
       who: "テスト魂", provider: "claude-code", model: "opus",
       currentTask: "Slack ライブカード実装", shortId: "abcd1234", status: "active",
     });
-    expect(t).toContain("テスト魂");
-    expect(t).toContain("claude-code · opus");
-    expect(t).toContain("📌 Slack ライブカード実装");
-    expect(t).toContain("inject");
+    expect(text).toContain("claude-code · opus");
+    expect(text).toContain("📌 Slack ライブカード実装");
+    expect(text).toContain("inject");
+    expect(text).toContain("テスト魂"); // 返信ヒント行にのみ残る
+  });
+  it("active: blocks に Engine/Session の 2 カラムフィールドを含む", () => {
+    const { blocks } = renderSessionCard({
+      who: "テスト魂", provider: "claude-code", model: "opus",
+      currentTask: "実装タスク", shortId: "abcd1234", status: "active",
+    });
+    const fieldsBlock = (blocks as Array<{ type: string; fields?: Array<{ text: string }> }>)
+      .find((b) => b.type === "section" && Array.isArray(b.fields));
+    expect(fieldsBlock).toBeDefined();
+    const fieldTexts = fieldsBlock?.fields?.map((f) => f.text) ?? [];
+    expect(fieldTexts.some((t) => t.includes("Engine"))).toBe(true);
+    expect(fieldTexts.some((t) => t.includes("claude-code"))).toBe(true);
+    expect(fieldTexts.some((t) => t.includes("Session"))).toBe(true);
+    expect(fieldTexts.some((t) => t.includes("abcd1234"))).toBe(true);
   });
   it("active: current_task 空なら短縮 id を見出しに使う", () => {
-    const t = renderSessionCard({ who: "X", shortId: "deadbeef", status: "active" });
-    expect(t).toContain("📌 deadbeef");
+    const { text, blocks } = renderSessionCard({ who: "X", shortId: "deadbeef", status: "active" });
+    expect(text).toContain("📌 deadbeef");
+    const taskBlock = (blocks as Array<{ type: string; text?: { text: string } }>)
+      .find((b) => b.type === "section" && b.text?.text.includes("📌"));
+    expect(taskBlock?.text?.text).toContain("deadbeef");
   });
-  it("ended: ✅ Done + ポエム + 短縮id", () => {
-    const t = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended", poem: "コードは残った\n次へ" });
-    expect(t).toContain("✅ *Done*");
-    expect(t).toContain("abcd1234");
-    expect(t).toContain("コードは残った");
+  it("ended: text に ✅ Done + ポエム + 短縮id", () => {
+    const { text } = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended", poem: "コードは残った\n次へ" });
+    expect(text).toContain("✅ *Done*");
+    expect(text).toContain("abcd1234");
+    expect(text).toContain("コードは残った");
+  });
+  it("ended: blocks に divider とポエムを含む", () => {
+    const { blocks } = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended", poem: "詩のテキスト" });
+    const types = (blocks as Array<{ type: string }>).map((b) => b.type);
+    expect(types).toContain("divider");
+    expect(types.filter((t) => t === "section").length).toBeGreaterThanOrEqual(2);
   });
   it("ended: ポエム無しでも既定文で落ちない", () => {
-    const t = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended" });
-    expect(t).toContain("✅ *Done*");
-    expect(t.length).toBeGreaterThan(10);
+    const { text, blocks } = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended" });
+    expect(text).toContain("✅ *Done*");
+    expect(blocks.length).toBeGreaterThan(0);
   });
-  it("active: delegation 絵文字があれば先頭アイコンに使う", () => {
-    const t = renderSessionCard({ who: "X", emoji: "🧪", shortId: "abcd1234", status: "active" });
-    expect(t.startsWith("🧪 *X*")).toBe(true);
+  it("active: 絵文字は body / blocks に含まれない（username フィールド行き）", () => {
+    const { text, blocks } = renderSessionCard({ who: "X", emoji: "🧪", shortId: "abcd1234", status: "active" });
+    expect(text.startsWith("🧪")).toBe(false);
+    const json = JSON.stringify(blocks);
+    expect(json).not.toContain("🧪 *X*");
   });
-  it("active: 絵文字無しは ▶ にフォールバック", () => {
-    const t = renderSessionCard({ who: "X", shortId: "abcd1234", status: "active" });
-    expect(t.startsWith("▶ *X*")).toBe(true);
+});
+
+describe("buildSessionBotUsername", () => {
+  it("絵文字あり: 絵文字 + スペース + ペルソナ名", () => {
+    expect(buildSessionBotUsername({ who: "淵渡 一", emoji: "🧙", shortId: "x", status: "active" }))
+      .toBe("🧙 淵渡 一");
+  });
+  it(":name: 形式絵文字も先頭に付く", () => {
+    expect(buildSessionBotUsername({ who: "テスト魂", emoji: ":male_mage:", shortId: "x", status: "active" }))
+      .toBe(":male_mage: テスト魂");
+  });
+  it("絵文字なしはペルソナ名のみ", () => {
+    expect(buildSessionBotUsername({ who: "Concordia", shortId: "x", status: "active" }))
+      .toBe("Concordia");
+  });
+  it("who が空なら Concordia にフォールバック", () => {
+    expect(buildSessionBotUsername({ who: "", shortId: "x", status: "active" }))
+      .toBe("Concordia");
   });
 });
 
@@ -123,6 +166,79 @@ describe("extractRelayableFrame", () => {
   it("空 text は中継しない", () => {
     expect(extractRelayableFrame("text", { role: "assistant", text: "" })).toBeNull();
     expect(extractRelayableFrame("summary", {})).toBeNull();
+  });
+  it("ask ブロックのみの本文は null（Slack に raw JSON を流さない）", () => {
+    const askOnly = '```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
+    expect(extractRelayableFrame("text", { role: "assistant", text: askOnly })).toBeNull();
+  });
+  it("ask ブロック + 散文 → ブロックを除去した散文を返す", () => {
+    const mixed = '進め方を確認します。\n\n```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
+    const r = extractRelayableFrame("text", { role: "assistant", text: mixed });
+    expect(r).toEqual({ role: "assistant", text: "進め方を確認します。" });
+  });
+  it("summary の ask ブロックは除去しない（assistant のみ対象）", () => {
+    const askBlock = '```ask\n{"question":"Q","options":[]}\n```';
+    const r = extractRelayableFrame("summary", { text: askBlock });
+    expect(r).toEqual({ role: "summary", text: askBlock });
+  });
+});
+
+describe("sanitizeSlackMentions", () => {
+  it("<!here> を @here に変換", () => {
+    expect(sanitizeSlackMentions("注意 <!here> 全員へ")).toBe("注意 @here 全員へ");
+  });
+  it("<!channel> を @channel に変換", () => {
+    expect(sanitizeSlackMentions("<!channel> お知らせです")).toBe("@channel お知らせです");
+  });
+  it("<!everyone> を @everyone に変換", () => {
+    expect(sanitizeSlackMentions("<!everyone> 緊急です")).toBe("@everyone 緊急です");
+  });
+  it("<@USERID> を @USERID に変換", () => {
+    expect(sanitizeSlackMentions("こんにちは <@U12345ABC>")).toBe("こんにちは @U12345ABC");
+  });
+  it("通常テキストは変更なし", () => {
+    const normal = "普通の文章です。@here とか @channel は変換しない（既に @ だから）。";
+    expect(sanitizeSlackMentions(normal)).toBe(normal);
+  });
+  it("複数のメンションを一括変換", () => {
+    const t = "<!here> と <@UABCDEF> と <!channel> にも通知";
+    expect(sanitizeSlackMentions(t)).toBe("@here と @UABCDEF と @channel にも通知");
+  });
+});
+
+describe("reformatMarkdownTables", () => {
+  it("テーブルなしはそのまま返す", () => {
+    expect(reformatMarkdownTables("普通のテキストです。")).toBe("普通のテキストです。");
+    expect(reformatMarkdownTables("")).toBe("");
+  });
+  it("2 カラムテーブル: ヘッダ太字・セパレータ除去・データ行保持", () => {
+    const text = "| バグ | 修正内容 |\n|---|---|\n| ask | fix |\n| 通知 | sanitize |";
+    const out = reformatMarkdownTables(text);
+    expect(out).toBe("*バグ* | *修正内容*\nask | fix\n通知 | sanitize");
+  });
+  it("テキスト + テーブル + テキストで前後のテキストを保持", () => {
+    const text = "前文です。\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n後文です。";
+    const out = reformatMarkdownTables(text);
+    expect(out).toContain("前文です。");
+    expect(out).toContain("後文です。");
+    expect(out).toContain("*A* | *B*");
+    expect(out).toContain("1 | 2");
+    expect(out).not.toContain("|---|");
+  });
+  it("3 カラムテーブルも同様に処理（カラム数増加対応）", () => {
+    const text = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |";
+    const out = reformatMarkdownTables(text);
+    expect(out).toBe("*A* | *B* | *C*\n1 | 2 | 3");
+  });
+  it("セパレータ行が `| --- | --- |` 形式でも検出", () => {
+    const text = "| X | Y |\n| --- | --- |\n| a | b |";
+    const out = reformatMarkdownTables(text);
+    expect(out).toBe("*X* | *Y*\na | b");
+  });
+  it("セパレータ行（|---|）がテキストに残らない", () => {
+    const text = "| H1 | H2 |\n|:---|---:|\n| v1 | v2 |";
+    const out = reformatMarkdownTables(text);
+    expect(out).not.toMatch(/\|[:\-]+/);
   });
 });
 

@@ -1,7 +1,7 @@
 // Slack 投稿ペイロードの組み立て + interaction 解析（純粋関数）。
 // 副作用 (Web API 呼び出し) は bot.ts 側。ここはテスト可能なロジックだけ。
 
-import { shouldDropForRelay } from "../discord/egress-filters.js";
+import { shouldDropForRelay, stripAskMarkerBlocks } from "../discord/egress-filters.js";
 
 /** Slack section text の実用上限に合わせた truncate（block text は 3000 字制限）。 */
 const MAX_TEXT = 2900;
@@ -46,29 +46,67 @@ function formatEngine(provider?: string | null, model?: string | null): string {
   return p || m || "?";
 }
 
+/** `renderSessionCard` の戻り値。text はフォールバック / 通知文、blocks が Slack Block Kit 本体。 */
+export interface SessionCardPayload {
+  text: string;
+  blocks: unknown[];
+}
+
 /**
- * thread root メッセージの本文を組む（純粋）。
- *  - active: `▶ *<who>* · \`<engine>\`` + 📌 current_task + 返信ヒント
- *  - ended : `✅ *Done* — *<who>*` + 独白ポエム + 短縮 id
+ * thread root メッセージを組む（純粋）。Block Kit の section/fields でテーブル形式に整形する。
+ *  - active: Engine × Session ID の 2 カラムフィールド + 📌 作業内容 + 返信ヒント
+ *  - ended : ✅ Done 行 + 独白ポエム（divider で区切る）
+ * `text` は通知文字列 / blocks 非対応時のフォールバック。
  */
-export function renderSessionCard(state: SessionCardState): string {
+export function renderSessionCard(state: SessionCardState): SessionCardPayload {
   const engine = formatEngine(state.provider, state.model);
   if (state.status === "ended") {
     const poem = (state.poem ?? "").trim() || "（記録は残った。次のセッションへ。）";
-    return (
-      `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n\n` +
-      `${truncateForSlack(poem, 1500)}`
-    );
+    const poemText = truncateForSlack(poem, 1500);
+    return {
+      text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n\n${poemText}`,
+      blocks: [
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`` },
+        },
+        { type: "divider" },
+        {
+          type: "section",
+          text: { type: "mrkdwn", text: truncateForSlack(poemText, 2900) },
+        },
+      ],
+    };
   }
   const task = (state.currentTask ?? "").trim();
   const headline = task ? truncateForSlack(task, 200) : state.shortId;
-  // 先頭アイコンは delegation テンプレ絵文字（あれば）、無ければ ▶。
-  const icon = (state.emoji ?? "").trim() || "▶";
-  return (
-    `${icon} *${state.who}* · \`${engine}\`\n` +
-    `📌 ${headline}\n` +
-    `_(このスレッドに返信すると ${state.who} に inject されます)_`
-  );
+  // ペルソナ名・絵文字は buildSessionBotUsername() 経由で Slack の username フィールドへ。
+  // body は Engine × Session ID のテーブル + 📌 作業内容 + 返信ヒント。
+  return {
+    text: `\`${engine}\`\n📌 ${headline}\n_(このスレッドに返信すると ${state.who} に inject されます)_`,
+    blocks: [
+      {
+        type: "section",
+        fields: [
+          { type: "mrkdwn", text: `*Engine*\n\`${truncateForSlack(engine, 200)}\`` },
+          { type: "mrkdwn", text: `*Session*\n\`${state.shortId}\`` },
+        ],
+      },
+      {
+        type: "section",
+        text: { type: "mrkdwn", text: `📌 *${truncateForSlack(headline, 200)}*` },
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: `_(このスレッドに返信すると ${state.who} に inject されます)_`,
+          },
+        ],
+      },
+    ],
+  };
 }
 
 /**
@@ -149,7 +187,7 @@ export function slackReactionToUnicode(name: string): string | null {
  *   - kind=text && role=assistant : AI の人間向け本文
  *   - kind=summary                : 会話要約
  *   - それ以外 (tool-use/result/thinking/raw/user) は null（中継しない）
- * 本文ベースの drop フィルタ (guardian JSON 等) も適用する。
+ * ask マーカーブロック除去・本文ベースの drop フィルタ (guardian JSON 等) も適用する。
  */
 export function extractRelayableFrame(
   kind: string,
@@ -162,7 +200,11 @@ export function extractRelayableFrame(
     if (!p || typeof p.text !== "string" || !p.text) return null;
     if (p.role !== "assistant") return null;
     role = "assistant";
-    text = p.text;
+    // Lictor の ask マーカー (```ask + JSON) は Slack 側で buildQuestionBlocks が対応するため
+    // 生 JSON ブロックを除去する。ブロックだけなら frame ごと skip。
+    const stripped = stripAskMarkerBlocks(p.text);
+    if (!stripped) return null;
+    text = stripped;
   } else if (kind === "summary") {
     const p = payload as { text?: string; summary?: string } | null | undefined;
     const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
@@ -174,6 +216,73 @@ export function extractRelayableFrame(
   }
   if (shouldDropForRelay(text)) return null;
   return { role, text };
+}
+
+/**
+ * Slack のメンション記法を通知が発火しない形式にエスケープする。
+ * AI 出力に <!here>/<@USERID> が含まれていても全員通知や意図しないメンションに
+ * ならないよう、Slack が特別解釈する記法を無害化する。
+ */
+export function sanitizeSlackMentions(text: string): string {
+  return (text ?? "")
+    .replace(/<!here>/g, "@here")
+    .replace(/<!channel>/g, "@channel")
+    .replace(/<!everyone>/g, "@everyone")
+    .replace(/<@([A-Z][A-Z0-9]+)>/g, "@$1");
+}
+
+/**
+ * SessionCardState から Slack の `username` 文字列を組む。
+ * 絵文字があれば先頭に付ける。`chat.postMessage` の `username` フィールドに渡すことで
+ * ボット名の代わりにペルソナ名が表示される。
+ * 注: Slack の `chat.update` は username を変更できないため、最初の postMessage 時のみ有効。
+ */
+export function buildSessionBotUsername(state: SessionCardState): string {
+  const name = (state.who ?? "").trim() || "Concordia";
+  const emoji = (state.emoji ?? "").trim();
+  return emoji ? `${emoji} ${name}` : name;
+}
+
+// ─── マークダウンテーブル → Slack mrkdwn テキスト変換 ─────────────────────────
+// AI 返信に含まれる `| col | col |` テーブルを Slack mrkdwn 形式で書き換える。
+// Block Kit (blocks パラメータ) は使わず通常の text フィールドに収める。
+// ヘッダ行を *太字* に変換し、セパレータ行（`|---|`）を除去して読みやすくする。
+
+function extractTableCells(line: string): string[] {
+  return line.trim().split("|").slice(1, -1).map((c) => c.trim());
+}
+
+/**
+ * テキスト内のマークダウンテーブルを Slack mrkdwn 形式に書き換える。
+ * - ヘッダ行 → `*col1* | *col2*`（太字）
+ * - セパレータ行（`|---|`）→ 除去
+ * - データ行 → `val1 | val2`
+ * - カラム数の増加に対応（列数を問わず同じ処理）
+ * テーブル外のテキストはそのまま通す。
+ */
+export function reformatMarkdownTables(text: string): string {
+  const lines = (text ?? "").split("\n");
+  const out: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const cur = lines[i].trim();
+    const nxt = lines[i + 1]?.trim() ?? "";
+    if (cur.startsWith("|") && cur.endsWith("|") && /^\|[\s\-|:]+\|$/.test(nxt)) {
+      // ヘッダ行 → 各セルを太字に
+      out.push(extractTableCells(cur).map((c) => `*${c}*`).join(" | "));
+      i++; // header
+      i++; // separator → skip
+      // データ行
+      while (i < lines.length && lines[i].trim().startsWith("|")) {
+        out.push(extractTableCells(lines[i]).join(" | "));
+        i++;
+      }
+    } else {
+      out.push(lines[i]);
+      i++;
+    }
+  }
+  return out.join("\n");
 }
 
 const ANSWER_ACTION_PREFIX = "cc_answer";

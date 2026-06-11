@@ -64,9 +64,10 @@ function templateOptions(templates: DelegationTemplateLite[]): unknown[] {
   });
 }
 
-/** 選択中テンプレの option（initial_option 用）。 */
+/** 選択中テンプレの option（initial_option 用）。templateOptions と text を揃えること。 */
 function selectedOption(t: DelegationTemplateLite): Record<string, unknown> {
-  return { text: { type: "plain_text", text: clip(t.title || t.call_name, 75) }, value: t.call_name };
+  const label = clip(`${t.emoji ? t.emoji + " " : ""}${t.title || t.call_name}`, 75);
+  return { text: { type: "plain_text", text: label, emoji: true }, value: t.call_name };
 }
 
 /** boolean 入力用の true/false static_select element。 */
@@ -127,11 +128,11 @@ function workdirBlock(workdirs: WorkdirOption[]): Record<string, unknown> | null
     type: "input",
     block_id: CWD_BLOCK,
     optional: true,
-    label: { type: "plain_text", text: "作業ディレクトリ (任意)" },
+    label: { type: "plain_text", text: "ワークスペースルート (任意)" },
     element: {
       type: "static_select",
       action_id: FIELD_ACTION,
-      placeholder: { type: "plain_text", text: "ワークスペースから選択" },
+      placeholder: { type: "plain_text", text: "ワークスペースルートを選択" },
       options: workdirs.slice(0, 100).map((w) => ({
         text: { type: "plain_text", text: clip(w.label, 75) },
         value: w.value,

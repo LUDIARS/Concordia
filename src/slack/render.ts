@@ -19,6 +19,11 @@ export function truncateForSlack(text: string, max = MAX_TEXT): string {
 export interface SessionCardState {
   /** 表示名（persona / role を解決済みの文字列）。 */
   who: string;
+  /**
+   * 見出しの先頭アイコン。delegation テンプレで設定した絵文字を spawn 時に
+   * セッション metadata へ焼いたもの（無ければ既定の ▶ を使う）。
+   */
+  emoji?: string | null;
   /** セッションが使う AI provider（claude-code / codex-cli 等）。 */
   provider?: string | null;
   /** metadata 由来の model 名（あれば併記）。 */
@@ -57,11 +62,33 @@ export function renderSessionCard(state: SessionCardState): string {
   }
   const task = (state.currentTask ?? "").trim();
   const headline = task ? truncateForSlack(task, 200) : state.shortId;
+  // 先頭アイコンは delegation テンプレ絵文字（あれば）、無ければ ▶。
+  const icon = (state.emoji ?? "").trim() || "▶";
   return (
-    `▶ *${state.who}* · \`${engine}\`\n` +
+    `${icon} *${state.who}* · \`${engine}\`\n` +
     `📌 ${headline}\n` +
     `_(このスレッドに返信すると ${state.who} に inject されます)_`
   );
+}
+
+/**
+ * スレッドへの最初の投稿本文から、カードの 📌（やる事）に使う短いタイトルを
+ * 直接生成する（LLM 非使用・純粋）。先頭の非空行を採り、Markdown 装飾 / 箇条書き
+ * 記号を削いで 1 行・最大 max 字に整える。実体が無ければ null（タイトル不設定）。
+ */
+export function deriveTitleFromPost(text: string, max = 60): string | null {
+  const firstLine = (text ?? "")
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.length > 0);
+  if (!firstLine) return null;
+  const cleaned = firstLine
+    .replace(/^[#>\-*•\d.)\s]+/, "") // 見出し / 箇条書き / 番号付きの先頭記号を除去
+    .replace(/[*_`~]/g, "")          // Markdown 強調記号を除去
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.length > max ? `${cleaned.slice(0, max - 1)}…` : cleaned;
 }
 
 /**

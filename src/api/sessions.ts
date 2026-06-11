@@ -24,6 +24,7 @@ import {
 } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
 import { spawnSession } from "../control/spawner.js";
+import { claimPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import {
   emitAutoSessionEndInject,
@@ -206,6 +207,12 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         branch: input.branch ?? undefined,
       });
     } else {
+      // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
+      // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
+      const claimed = claimPendingDelegationSpawn(input.repo_path);
+      const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
+      if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
+      if (claimed?.callName) meta.delegation_call_name = claimed.callName;
       deps.repo.insertSession({
         id: input.id,
         provider: input.provider as ProviderName,
@@ -216,7 +223,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         started_at: now,
         last_seen_at: now,
         transcript_path: input.transcript_path ?? null,
-        metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+        metadata: Object.keys(meta).length ? JSON.stringify(meta) : null,
       });
       deps.repo.appendEvent({
         session_id: input.id,
@@ -479,6 +486,10 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const parsed = TitleSetSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const now = nowSec();
+    // current_task も更新する。 Discord は title_renamed の payload からタイトルを読むが、
+    // Slack ライブカードは session.current_task を読むため、 ここを書かないと rename が
+    // Slack カードに反映されない (📌 がセッション id 先頭8桁のまま固まる)。
+    deps.repo.patchSession(id, { current_task: parsed.data.text.slice(0, 200) });
     deps.repo.appendEvent({ session_id: id, ts: now, kind: "title_renamed", payload: { text: parsed.data.text } });
     eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts: now });
     return c.json({ ok: true, ts: now });

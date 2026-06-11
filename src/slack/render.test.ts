@@ -7,6 +7,7 @@ import {
   renderSessionCard,
   extractMonologue,
   slackReactionToUnicode,
+  deriveTitleFromPost,
 } from "./render.js";
 
 describe("renderSessionCard", () => {
@@ -34,6 +35,35 @@ describe("renderSessionCard", () => {
     const t = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended" });
     expect(t).toContain("✅ *Done*");
     expect(t.length).toBeGreaterThan(10);
+  });
+  it("active: delegation 絵文字があれば先頭アイコンに使う", () => {
+    const t = renderSessionCard({ who: "X", emoji: "🧪", shortId: "abcd1234", status: "active" });
+    expect(t.startsWith("🧪 *X*")).toBe(true);
+  });
+  it("active: 絵文字無しは ▶ にフォールバック", () => {
+    const t = renderSessionCard({ who: "X", shortId: "abcd1234", status: "active" });
+    expect(t.startsWith("▶ *X*")).toBe(true);
+  });
+});
+
+describe("deriveTitleFromPost", () => {
+  it("先頭の非空行を 1 行タイトルにする", () => {
+    expect(deriveTitleFromPost("Slack カードを実装する\n詳細は…")).toBe("Slack カードを実装する");
+  });
+  it("Markdown 見出し / 箇条書き記号 / 強調を削ぐ", () => {
+    expect(deriveTitleFromPost("## **設計**を詰める")).toBe("設計を詰める");
+    expect(deriveTitleFromPost("- やる事リスト")).toBe("やる事リスト");
+  });
+  it("先頭の空行を飛ばして最初の中身を採る", () => {
+    expect(deriveTitleFromPost("\n\n  実装開始  \n次行")).toBe("実装開始");
+  });
+  it("max 超過は … で丸める", () => {
+    expect(deriveTitleFromPost("あ".repeat(80), 10)).toBe(`${"あ".repeat(9)}…`);
+  });
+  it("空 / 記号だけは null", () => {
+    expect(deriveTitleFromPost("")).toBeNull();
+    expect(deriveTitleFromPost("\n\n")).toBeNull();
+    expect(deriveTitleFromPost("###")).toBeNull();
   });
 });
 

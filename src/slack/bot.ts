@@ -28,6 +28,7 @@ import {
   renderSessionCard,
   extractMonologue,
   slackReactionToUnicode,
+  deriveTitleFromPost,
   type SessionCardState,
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand, listDelegationTemplates, invokeDelegation } from "./slash.js";
@@ -38,8 +39,6 @@ import {
   DELEGATION_MODAL_CALLBACK_ID,
   type WorkdirOption,
 } from "./delegation-modal.js";
-import { readdirSync } from "node:fs";
-import { basename } from "node:path";
 import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
@@ -179,6 +178,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     const who = formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
     return {
       who,
+      emoji: meta.delegation_emoji ?? null,
       provider: session?.provider ?? null,
       model: meta.model ?? null,
       currentTask: session?.current_task ?? null,
@@ -214,19 +214,56 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   }
 
   // thread に1件投稿し、posted ts を返す（messageMap 登録に使う）。失敗時 null。
+  // 中継経路の不具合 (返信が Slack に出ない) を実機で切り分けられるよう、 thread 解決・
+  // 投稿成否を info で残す ([verbose-slack-egress] 安定後に撤去予定)。
   async function postToSessionThread(sessionId: string, text: string, author: string): Promise<string | null> {
     const threadTs = await ensureSessionThread(sessionId);
-    if (!threadTs) return null;
+    if (!threadTs) {
+      log.warn(`[verbose-slack-egress] postToSessionThread no thread session=${sessionId} (root 作成失敗 → 中継不可)`);
+      return null;
+    }
     try {
       const r = await web.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
         text: `*${author}*\n${truncateForSlack(text, 12000)}`,
       });
-      return (r.ts as string) ?? null;
+      const ts = (r.ts as string) ?? null;
+      log.info(`[verbose-slack-egress] thread relay ok session=${sessionId} thread_ts=${threadTs} ts=${ts ?? "?"} len=${text.length}`);
+      return ts;
     } catch (e) {
       log.warn(`postMessage(thread) failed session=${sessionId}: ${(e as Error).message}`);
       return null;
+    }
+  }
+
+  // 最初のスレッド投稿で /rename 相当を発火し、 親カード（📌）を投稿本文から更新する。
+  // current_task が空（= カードがセッション id 先頭8桁にフォールバックしている）ときだけ
+  // 発火し、 prompt 由来の実 current_task は上書きしない。 1 セッション 1 回（in-memory）。
+  const autoTitledSessions = new Set<string>();
+  async function maybeAutoTitleFromFirstPost(sessionId: string, text: string): Promise<void> {
+    if (autoTitledSessions.has(sessionId)) return;
+    const session = deps.sessionsRepo.findSession(sessionId);
+    if (!session) return;
+    if ((session.current_task ?? "").trim()) { autoTitledSessions.add(sessionId); return; } // 既に題あり
+    const title = deriveTitleFromPost(text);
+    if (!title) return;
+    autoTitledSessions.add(sessionId); // 二重発火防止（POST 前にマーク）
+    try {
+      const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/title`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: title }),
+      });
+      if (!res.ok) {
+        log.warn(`[verbose-slack-egress] auto-title POST /title failed status=${res.status} session=${sessionId}`);
+        autoTitledSessions.delete(sessionId); // 失敗時は再挑戦を許す
+        return;
+      }
+      log.info(`[verbose-slack-egress] auto-title set session=${sessionId} title="${title}"`);
+    } catch (e) {
+      log.warn(`[verbose-slack-egress] auto-title network error session=${sessionId}: ${(e as Error).message}`);
+      autoTitledSessions.delete(sessionId);
     }
   }
 
@@ -240,9 +277,14 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
     const author = row.author_label?.trim() || "Concordia";
     if (row.session_id) {
+      log.info(`[verbose-slack-egress] chat.posted → thread session=${row.session_id} message_id=${row.id} channel=${row.channel}`);
       const ts = await postToSessionThread(row.session_id, row.text, author);
       // リアクション逆引き用に ts → chat_messages.id を登録（👍 ワークフローの入口）。
       if (ts) messageMap.put(channelId, ts, row.id);
+      // 最初の投稿なら投稿本文からカードのやる事(📌)を起こす（/rename 相当）。
+      void maybeAutoTitleFromFirstPost(row.session_id, row.text).catch((e) =>
+        log.warn(`auto-title (chat.posted): ${(e as Error).message}`),
+      );
       return;
     }
     // セッション非紐付け（chitchat / consultation / 報告 等）はチャンネル直下へ。
@@ -256,14 +298,24 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
   async function handleTranscriptFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
     const frame = extractRelayableFrame(ev.kind, ev.payload);
-    if (!frame) return;
+    if (!frame) {
+      log.info(`[verbose-slack-egress] transcript.frame skipped (non-relayable) session=${ev.target_session_id} kind=${ev.kind}`);
+      return;
+    }
     const session = deps.sessionsRepo.findSession(ev.target_session_id);
     const meta = readMeta(session?.metadata);
     const persona = frame.role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
     const author = frame.role === "summary"
       ? "Conversation summary"
       : formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
+    log.info(`[verbose-slack-egress] transcript.frame → thread session=${ev.target_session_id} role=${frame.role}`);
     await postToSessionThread(ev.target_session_id, frame.text, author);
+    // assistant 本文の最初の1件で /rename 相当（summary は題材にしない）。
+    if (frame.role === "assistant") {
+      void maybeAutoTitleFromFirstPost(ev.target_session_id, frame.text).catch((e) =>
+        log.warn(`auto-title (transcript.frame): ${(e as Error).message}`),
+      );
+    }
   }
 
   // question_id → 投稿した質問メッセージの ts。回答/ローカル解決時にボタンを外すため保持。
@@ -748,35 +800,25 @@ async function postChat(deps: SlackBotDeps, text: string, userId: string): Promi
   }
 }
 
-// ワークスペースルート直下の各ディレクトリを作業ディレクトリ候補にする（/co-spawn 用）。
-// ルートが複数なら label に root 名を前置して曖昧さを消す。dotfiles / node_modules は除外。
+// 作業ディレクトリ候補 = ワークスペースルートそのもの（リポ単位ではなく `E:/Document/Ars`
+// のような束ね単位を選ばせる）。複数ルートが設定されていれば各ルートを 1 候補にする。
+// 末尾スラッシュを正規化し、 重複は畳む。候補が 1 つでもそのまま出す（選択の明示になる）。
 function listWorkdirOptions(roots: string[]): WorkdirOption[] {
-  const multi = roots.length > 1;
   const out: WorkdirOption[] = [];
   const seen = new Set<string>();
   for (const root of roots) {
-    if (!root) continue;
-    let names: string[];
-    try {
-      names = readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
-    } catch {
-      continue;
-    }
-    for (const name of names) {
-      if (name.startsWith(".") || name === "node_modules") continue;
-      const value = `${root.replace(/[\\/]+$/, "")}/${name}`;
-      if (seen.has(value)) continue;
-      seen.add(value);
-      out.push({ label: multi ? `${basename(root)}/${name}` : name, value });
-    }
+    const value = (root ?? "").replace(/[\\/]+$/, "");
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    out.push({ label: value, value });
   }
   out.sort((a, b) => a.label.localeCompare(b.label));
   return out;
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; model?: string } {
+function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; model?: string; delegation_emoji?: string } {
   if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; model?: string }; } catch { return {}; }
+  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; model?: string; delegation_emoji?: string }; } catch { return {}; }
 }
 
 // ─── Slack イベントの最小型（@slack/* の型に依存しすぎないための薄い shape）──

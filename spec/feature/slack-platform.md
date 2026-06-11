@@ -90,6 +90,22 @@ thread root メッセージ（= セッション = 投稿）の本文を、セッ
 - 安全弁 `CONCORDIA_REACTION_WORKFLOW=1` の時だけ処理（Discord と共有の env）。OFF なら無処理。
 - スコープ追加: `reactions:read` + bot event `reaction_added`（[`../setup/slack.md`](../setup/slack.md) の manifest 参照）。
 
+## v0.5 追加（2026-06-11）— カード絵文字 / 初回投稿リネーム / ルート選択
+
+- **delegation 絵文字をカード先頭アイコンに**: `/co-spawn` で起動した delegation セッション
+  は、 spawn と Lictor の独立セッション登録が分離しているため、 spawn 時に `(cwd, emoji)` を
+  プロセス内レジストリ ([`../../src/control/pending-delegation-spawns.ts`](../../src/control/pending-delegation-spawns.ts))
+  に積み、 `session.started` 時に `repo_path` で claim → session metadata の `delegation_emoji`
+  に焼く。`renderSessionCard` は emoji があれば見出しの `▶` をそれに差し替える。
+- **最初のスレッド投稿で /rename 相当**: `current_task` が空（= カードがセッション id 先頭 8 桁に
+  フォールバック）のとき、 その session への最初の relay 投稿本文から短いタイトルを `deriveTitleFromPost`
+  で起こし、 `POST /v1/sessions/:id/title` する。`/title` は `current_task` も更新するよう修正済
+  （従来は `title_renamed` イベントのみで Slack カードに反映されなかった）。
+- **作業ディレクトリ選択 = ワークスペースルート**: `/co-spawn` モーダルの候補はルート直下の各リポ
+  ではなく、 設定済みワークスペースルートそのもの（`E:/Document/Ars` 等）を列挙する。
+- **egress 診断ログ**: 中継経路を実機で切り分けられるよう `[verbose-slack-egress]` prefix で
+  thread 解決・投稿成否・auto-title 結果を info 記録（安定後に撤去予定）。
+
 ## 非対象（設計上やらない / 必要時に別途）
 - **per-session チャンネル自動作成**: thread-per-session で routing 要件は充足済。Slack に
   channel を乱立させると workspace を汚し `conversations.create`/招待スコープも要るため見送り。

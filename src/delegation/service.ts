@@ -16,6 +16,7 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
+import { recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { resolveDelegationSpawn } from "../control/provider-preset.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -238,6 +239,10 @@ export class DelegationService {
         spawnPid = result.pid;
         spawnCommand = result.command;
         status = "spawned";
+        // この spawn と、 直後に Lictor が独立登録するセッションを cwd で結ぶための
+        // 一時マーカー。 session.started 時に claim してテンプレ絵文字を metadata へ焼く
+        // (Slack ライブカードの先頭アイコンに使う)。
+        recordPendingDelegationSpawn({ cwd, emoji: tpl.emoji ?? null, callName: input.call_name });
         log.info({
           run_id: runId, call_name: input.call_name, provider, cwd,
           spawn_pid: spawnPid, prompt_file: promptPath,

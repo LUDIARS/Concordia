@@ -141,16 +141,26 @@ manifest で**作れないもの**は手動で残す:
 - **Install App** で `xoxb-…` を取得(手順 7)。
 - bot を運用チャンネルに `/invite`。
 
-## `/co-spawn` でフォーム起動 (slash → モーダル)
+## `/co-spawn` で委託テンプレ起動 (slash → モーダル)
 
-`/concordia spawn <provider> [cwd]` で provider と cwd を毎回打つ代わりに、 **`/co-spawn`**
-で provider ドロップダウン + 作業ディレクトリ入力の**モーダル**を出してワンクリック起動する。
+**`/co-spawn`**(引数なし)で **アクティブな delegation テンプレ一覧**をモーダルに出し、
+選ぶ → そのテンプレの入力欄が現れる → 「起動」で委託セッションを spawn する。
+`/concordia spawn <provider> [cwd]` で毎回 provider を打つ代わりの GUI 経路。
 
-仕組み: `/co-spawn`(引数なし)→ `views.open` でフォームを表示 → 送信(`view_submission`)を
-**既存の Socket Mode 接続**で受け、 slash と同じ `spawnSession()`(`src/slack/slash.ts`)に
-流して `/v1/admin/spawn-session` を叩く。結果は運用チャンネルに通知する。実装は
-`src/slack/spawn-modal.ts`(フォーム組み立て/パース)+ `src/slack/bot.ts` の `slash_commands` /
-`interactive`(view_submission)ハンドラ。
+仕組み(2 段モーダル):
+1. `/co-spawn` → `/v1/delegation/templates`(active のみ)を取得 → `views.open` で
+   **テンプレ select だけ**のモーダルを表示(submit ボタン無し)。
+2. テンプレを選ぶと `block_actions` が届き、`views.update` で **そのテンプレの
+   `input_schema` を入力欄 + 作業ディレクトリ + 「起動」**に差し替える。
+3. 送信(`view_submission`)を **既存の Socket Mode 接続**で受け、`/v1/delegation/invoke`
+   に `{spawn:true}` で流す。結果(`✅ 委託起動: <call_name> pid=…`)は運用チャンネルに通知。
+
+実装は `src/slack/delegation-modal.ts`(view 組み立て/選択・送信パース、純粋)+
+`src/slack/slash.ts`(`listDelegationTemplates` / `invokeDelegation`)+ `src/slack/bot.ts` の
+`slash_commands` / `interactive`(`block_actions` の views.update と `view_submission`)ハンドラ。
+
+> アクティブなテンプレが無い場合は ephemeral で案内。`/co-spawn claude [cwd]`(引数あり)は
+> 従来どおり **素のセッション**を即 spawn するフォールバックとして残る。
 
 > **Enterprise Grid も Workflow Builder も不要**。公開 URL も不要(loopback 設計のまま)。
 > 無料プランでも動く(モーダルは標準機能)。

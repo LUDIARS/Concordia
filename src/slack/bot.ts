@@ -30,8 +30,13 @@ import {
   slackReactionToUnicode,
   type SessionCardState,
 } from "./render.js";
-import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
-import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
+import { runSlackSlash, spawnSession, subFromCoCommand, listDelegationTemplates, invokeDelegation } from "./slash.js";
+import {
+  buildDelegationModalView,
+  parseDelegationModalSubmit,
+  parseDelegationSelectAction,
+  DELEGATION_MODAL_CALLBACK_ID,
+} from "./delegation-modal.js";
 import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
@@ -340,7 +345,14 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   }
 
   const unsubscribe = eventBus.subscribe((ev) => {
-    if (ev.type === "chat.posted") {
+    if (ev.type === "session.started") {
+      // セッション起動の瞬間に thread root（ライブカード）を立てる。これが無いと
+      // 最初の relay 発言まで Slack には何も出ず「起動したのに無反応」に見える。
+      // session.ended のポエム上書き（renderEndedCard）も親カードの存在が前提。
+      void ensureSessionThread(ev.session_id).catch((e) =>
+        log.warn(`session.started thread root: ${(e as Error).message}`),
+      );
+    } else if (ev.type === "chat.posted") {
       void handleChatPosted(ev).catch((e) => log.warn(`chat.posted dispatch: ${(e as Error).message}`));
       if (ev.session_id) working.noteProgress(ev.session_id);
     } else if (ev.type === "transcript.frame") {
@@ -461,16 +473,36 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
   // ─── interaction: spawn モーダル送信 / 質問ボタン → answer-question ─────────
   socket.on("interactive", async ({ body, ack }: { body: SlackInteractionBody; ack: (res?: unknown) => Promise<void> }) => {
-    // `/co-spawn` のフォーム送信。ack() でモーダルを閉じ、 spawn 結果はチャンネルに通知
-    // (view_submission は response_url を持たないため)。
-    if (body?.type === "view_submission" && body.view?.callback_id === SPAWN_MODAL_CALLBACK_ID) {
+    // `/co-spawn` モーダル: テンプレ選択 (block_actions) → その input_schema を入力欄に
+    // 展開するため views.update で②に差し替える。
+    if (body?.type === "block_actions") {
+      const selectedCall = parseDelegationSelectAction(body);
+      if (selectedCall && body.view?.id) {
+        try { await ack(); } catch {}
+        try {
+          const templates = await listDelegationTemplates({ concordiaUrl: deps.concordiaUrl });
+          const selected = templates.find((t) => t.call_name === selectedCall) ?? null;
+          await web.views.update({ view_id: body.view.id, view: buildDelegationModalView(templates, selected) as never });
+        } catch (e) {
+          log.warn(`delegation modal update: ${(e as Error).message}`);
+        }
+        return;
+      }
+    }
+    // `/co-spawn` モーダル送信 → 選んだテンプレを /v1/delegation/invoke {spawn:true} で起動。
+    // ack() でモーダルを閉じ、 結果はチャンネルに通知 (view_submission は response_url を持たない)。
+    if (body?.type === "view_submission" && body.view?.callback_id === DELEGATION_MODAL_CALLBACK_ID) {
       try { await ack(); } catch {}
       try {
-        const { provider, cwd } = parseSpawnModalState(body.view);
-        const resultText = await spawnSession({ concordiaUrl: deps.concordiaUrl }, provider, cwd);
+        const parsed = parseDelegationModalSubmit(body.view);
+        if (!parsed) { log.warn("delegation modal submit: missing call_name"); return; }
+        const resultText = await invokeDelegation(
+          { concordiaUrl: deps.concordiaUrl },
+          { call_name: parsed.call_name, args: parsed.args, cwd: parsed.cwd, triggered_by: `slack:${body.user?.id ?? ""}` },
+        );
         await web.chat.postMessage({ channel: channelId, text: resultText });
       } catch (e) {
-        log.warn(`spawn modal submit: ${(e as Error).message}`);
+        log.warn(`delegation modal submit: ${(e as Error).message}`);
       }
       return;
     }
@@ -516,17 +548,26 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // 経由なので request URL は不要）。spec/feature/slack-platform.md 参照。
   socket.on(
     "slash_commands",
-    async ({ body, ack }: { body: { command?: string; text?: string; trigger_id?: string }; ack: (res?: unknown) => Promise<void> }) => {
+    async ({ body, ack }: { body: { command?: string; text?: string; trigger_id?: string; user_id?: string }; ack: (res?: unknown) => Promise<void> }) => {
       try {
-        // `/co-spawn`: 引数なし → フォーム(モーダル)、 引数あり → 即 spawn。
+        // `/co-spawn`: 引数なし → delegation テンプレ選択モーダル、 引数あり → 即 raw spawn。
         if ((body?.command ?? "").trim() === "/co-spawn") {
           const args = (body?.text ?? "").trim();
           if (!args && body.trigger_id) {
             await ack();
             try {
-              await web.views.open({ trigger_id: body.trigger_id, view: buildSpawnModalView() as never });
+              const templates = await listDelegationTemplates({ concordiaUrl: deps.concordiaUrl });
+              if (templates.length === 0) {
+                await web.chat.postEphemeral({
+                  channel: channelId,
+                  user: body.user_id ?? "",
+                  text: "アクティブな委託テンプレートがありません。`/co-spawn claude` で素のセッションを起動できます。",
+                });
+                return;
+              }
+              await web.views.open({ trigger_id: body.trigger_id, view: buildDelegationModalView(templates) as never });
             } catch (e) {
-              log.warn(`views.open(spawn) failed: ${(e as Error).message}`);
+              log.warn(`views.open(delegation) failed: ${(e as Error).message}`);
             }
             return;
           }
@@ -709,11 +750,11 @@ interface SlackMessageEvent {
 }
 interface SlackInteractionBody {
   type?: string;
-  actions?: Array<{ action_id?: string; value?: string }>;
+  actions?: Array<{ action_id?: string; value?: string; selected_option?: { value?: string } }>;
   channel?: { id?: string };
   message?: { ts?: string; thread_ts?: string };
   user?: { id?: string };
-  view?: { callback_id?: string; state?: { values?: Record<string, unknown> } };
+  view?: { id?: string; callback_id?: string; private_metadata?: string; state?: { values?: Record<string, unknown> } };
 }
 interface SlackReactionEvent {
   type?: string;

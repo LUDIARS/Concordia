@@ -67,6 +67,9 @@ Slack 由来 chat を Slack に再投稿しない（Discord egress の `source="
 
 ### ライブセッションカード（thread root を生きた状態カードにする）
 thread root メッセージ（= セッション = 投稿）の本文を、セッション状態で**書き換える**。
+- **生成タイミング**: `session.started` で即 thread root（active カード）を立てる
+  （`ensureSessionThread`）。これが無いと最初の relay 発言まで Slack に何も出ず
+  「起動したのに無反応」に見える。終了時のポエム上書きも親カードの存在が前提。
 - **active**: `▶ *<persona/role>* · \`<provider · model>\`` + `📌 <current_task>` + 返信ヒント。
 - 再描画トリガ: `persona.assigned`（担当確定）/ `session.event` kind `task_update`・`title_renamed`
   （現在の作業内容が変わった）。`chat.update(thread_ts)` で同一メッセージを更新。

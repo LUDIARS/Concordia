@@ -4,6 +4,7 @@
 // 宛先は Discord コマンドと同じ Concordia HTTP API。
 
 import { parseSlashCommand } from "./render.js";
+import type { DelegationTemplateLite } from "./delegation-modal.js";
 
 export interface SlashDeps {
   concordiaUrl: string;
@@ -74,6 +75,47 @@ export async function spawnSession(deps: SlashDeps, providerRaw: string | undefi
   const json = (await res.json().catch(() => ({}))) as { error?: string; pid?: number };
   if (!res.ok) return `spawn 失敗: ${json.error ?? `HTTP ${res.status}`}`;
   return `✅ spawn 起動 (${provider}${cwd ? `, ${cwd}` : ""}) pid=${json.pid ?? "?"}`;
+}
+
+/** active な delegation テンプレを取得する（/co-spawn のモーダル用）。失敗時は空配列。 */
+export async function listDelegationTemplates(deps: SlashDeps): Promise<DelegationTemplateLite[]> {
+  const res = await fetch(`${deps.concordiaUrl}/v1/delegation/templates`);
+  if (!res.ok) return [];
+  const json = (await res.json().catch(() => ({}))) as { templates?: DelegationTemplateLite[] };
+  return json.templates ?? [];
+}
+
+/**
+ * delegation テンプレを spawn 付きで invoke する（/co-spawn モーダル submit）。
+ * /v1/delegation/invoke に {spawn:true} で流し、人間向けの結果文を返す。
+ */
+export async function invokeDelegation(
+  deps: SlashDeps,
+  input: { call_name: string; args: Record<string, unknown>; cwd?: string; triggered_by?: string },
+): Promise<string> {
+  const res = await fetch(`${deps.concordiaUrl}/v1/delegation/invoke`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      call_name: input.call_name,
+      args: input.args,
+      ...(input.cwd ? { cwd: input.cwd } : {}),
+      triggered_by: input.triggered_by ?? "slack",
+      spawn: true,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    error?: string;
+    detail?: unknown;
+    run?: { status?: string };
+    spawn_pid?: number;
+  };
+  if (!res.ok) {
+    const detail = json.detail ? ` (${JSON.stringify(json.detail)})` : "";
+    return `委託起動 失敗: ${json.error ?? `HTTP ${res.status}`}${detail}`;
+  }
+  if (json.run?.status === "spawn_failed") return `委託テンプレ \`${input.call_name}\` の spawn に失敗しました。`;
+  return `✅ 委託起動: \`${input.call_name}\` pid=${json.spawn_pid ?? "?"}`;
 }
 
 /** `/concordia spawn <provider> [cwd]` の引数文字列を構造化して spawnSession に渡す。 */

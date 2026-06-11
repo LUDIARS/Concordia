@@ -1,0 +1,143 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { makeTestApp } from "./helpers/test-app.js";
+
+function buildTestApp() {
+  return makeTestApp();
+}
+
+describe("admin API", () => {
+  let env: ReturnType<typeof buildTestApp>;
+  beforeEach(() => { env = buildTestApp(); });
+
+  it("POST /v1/admin/spawn-session rejects unknown provider", async () => {
+    const r = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "ghost" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("GET /v1/admin/state exposes snapshot triple with defaults", async () => {
+    const r = await env.app.request("/v1/admin/state");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as {
+      chat_muted: boolean;
+      rules_enabled: boolean;
+      rule_proposer_interval_sec: number;
+    };
+    expect(body.chat_muted).toBe(true);
+    expect(body.rules_enabled).toBe(false);
+    expect(body.rule_proposer_interval_sec).toBe(3600);
+  });
+
+  it("PUT /v1/admin/chat-mute toggles + GET reflects new value", async () => {
+    const put = await env.app.request("/v1/admin/chat-mute", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ muted: false }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { muted: boolean }).muted).toBe(false);
+
+    const get = await env.app.request("/v1/admin/chat-mute");
+    expect((await get.json() as { muted: boolean }).muted).toBe(false);
+  });
+
+  it("PUT /v1/admin/chat-mute rejects non-boolean", async () => {
+    const r = await env.app.request("/v1/admin/chat-mute", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ muted: "yes" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("PUT /v1/admin/rules-enabled toggles + persists", async () => {
+    const put = await env.app.request("/v1/admin/rules-enabled", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
+  });
+
+  it("PUT /v1/admin/rule-proposer-interval clamps + GET echoes", async () => {
+    const tooSmall = await env.app.request("/v1/admin/rule-proposer-interval", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_sec: 10 }),
+    });
+    expect(tooSmall.status).toBe(200);
+    const body = await tooSmall.json() as { interval_sec: number };
+    expect(body.interval_sec).toBe(60); // clamped to MIN
+  });
+
+  it("PUT /v1/admin/rule-proposer-interval rejects non-number", async () => {
+    const r = await env.app.request("/v1/admin/rule-proposer-interval", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ interval_sec: "abc" }),
+    });
+    expect(r.status).toBe(400);
+  });
+
+  it("GET /v1/admin/spawn-defaults reports the configured default_cwd", async () => {
+    const r = await env.app.request("/v1/admin/spawn-defaults");
+    expect(r.status).toBe(200);
+    const body = (await r.json()) as { default_cwd: string; platform_supported: boolean };
+    // loadConfig({}) → CONCORDIA_SPAWN_DEFAULT_CWD unset.
+    // win32 + E:\Document\Ars 存在環境では auto-detect で同パスが返る (LUDIARS 運用機).
+    // 他環境では fallback 無しで空文字. どちらも仕様の範囲内.
+    expect(["", "E:\\Document\\Ars"]).toContain(body.default_cwd);
+    expect(typeof body.platform_supported).toBe("boolean");
+  });
+
+  it("POST /v1/admin/stop-session/:id 404 for unknown id", async () => {
+    const r = await env.app.request("/v1/admin/stop-session/nope", { method: "POST" });
+    expect(r.status).toBe(404);
+  });
+
+  it("POST /v1/admin/stop-session/:id 400 when metadata.lictor_pid missing", async () => {
+    await seedSession(env, "no-meta", "DESKTOP-A", "active");
+    const r = await env.app.request("/v1/admin/stop-session/no-meta", { method: "POST" });
+    expect(r.status).toBe(400);
+  });
+
+  describe("/v1/admin/restart", () => {
+    beforeAll(() => { process.env.CONCORDIA_RESTART_DRY_RUN = "1"; });
+    afterAll(() => { delete process.env.CONCORDIA_RESTART_DRY_RUN; });
+
+    it("dry run returns ok without spawning or exiting", async () => {
+      const app = makeTestApp({ rng: () => 0.99 }).app;
+      const r = await app.request("/v1/admin/restart", { method: "POST" });
+      expect(r.status).toBe(200);
+      const j = (await r.json()) as any;
+      expect(j.ok).toBe(true);
+      expect(j.dry_run).toBe(true);
+    });
+  });
+});
+
+async function seedSession(
+  env: ReturnType<typeof buildTestApp>,
+  id: string,
+  host: string,
+  status: "active" | "ended" | "lost" | "abandoned",
+): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  env.repo.insertSession({
+    id,
+    provider: "claude-code",
+    repo_path: "/repo",
+    repo_origin: null,
+    branch: null,
+    host,
+    started_at: now,
+    last_seen_at: now,
+    transcript_path: null,
+    metadata: null,
+  });
+  if (status !== "active") env.repo.setStatus(id, status, now, now);
+}

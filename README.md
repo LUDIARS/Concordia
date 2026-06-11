@@ -203,6 +203,12 @@ loopback bind に依存する (= 非 localhost からは呼べない)。
 
 ---
 
+## 開発規約
+
+テスト配置: 単一モジュールの unit テストは co-located (`src/**/x.test.ts`)、サーバ横断の API・統合テストは `tests/`。共有 helper は `tests/helpers/`。
+
+---
+
 ## ライセンス
 
 MIT

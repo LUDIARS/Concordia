@@ -48,6 +48,8 @@ describe("classifyReactionWorkflow", () => {
     ["📤", "defer-impl"],
     ["🗂️", "defer-impl"],
     ["🙄", "force-enter"],
+    ["🤝", "delegate-task"],
+    ["🫱", "delegate-task"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -216,6 +218,25 @@ describe("planWorkflow", () => {
     const planInactive = planWorkflow("force-enter", { ...baseCtx, sessionActive: false });
     expect(planInactive.mode).toBe("inject");
     expect(planInactive.prompt).toBe("\n");
+  });
+
+  it("delegate-task on active session → inject (タスク判定 + 委託 + 監視)", () => {
+    const plan = planWorkflow("delegate-task", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("タスク判定");
+    expect(plan.prompt).toContain("delegation/templates");
+    expect(plan.prompt).toContain("監視");
+    expect(plan.prompt).toContain("対象メッセージ");
+    expect(plan.prompt).toContain("キャッシュ層"); // baseCtx.messageText の一部
+  });
+
+  it("delegate-task on inactive session → headless haiku in repoPath cwd", () => {
+    const plan = planWorkflow("delegate-task", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("haiku");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+    expect(plan.prompt).toContain("タスク判定");
+    expect(plan.prompt).toContain("監視は行わない");
   });
 });
 

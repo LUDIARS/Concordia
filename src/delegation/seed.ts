@@ -133,6 +133,24 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     };
   }),
   {
+    call_name: "task-process",
+    title: "タスク処理",
+    description: "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせる。delegate-task リアクションワークフロー (🤝) のデフォルトテンプレート。",
+    target_provider: "claude",
+    model: "claude-sonnet-4-6",
+    emoji: "🤝",
+    prompt_template: [
+      "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせること。",
+      "",
+      "${context_extra:}",
+    ].join("\n"),
+    input_schema: [
+      { name: "context_extra", type: "string" as const, required: false, description: "Optional extra context" },
+    ],
+    default_cwd: null,
+    is_active: true,
+  },
+  {
     call_name: "gemma4-12-impl",
     title: "ローカル LLM 実装委託 (gemma4-12 / auto)",
     description: "ローカル LLM (Famulus 経由、Ollama 上の Gemma 4 等) に実装を委託する。API 課金ゼロ・ローカル完結。model='auto' で対象プロジェクトに合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) が自動選択する。長いエージェントループは精度・速度が落ちるので小さく区切ったタスク向き。",

@@ -41,7 +41,8 @@ export type WorkflowAction =
   | "memoria-note"
   | "memoria-task"
   | "defer-impl"
-  | "force-enter";
+  | "force-enter"
+  | "delegate-task";
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -71,6 +72,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "defer-impl": ["⏭️", "⏭", "📤", "🗂️", "🗂"],
   // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ \n を inject)
   "force-enter": ["🙄"],
+  // delegation に対応する絵文字 → Haiku でタスク判定 → タスクあり = delegation invoke
+  "delegate-task": ["🤝", "🫱", "🫱🏻", "🫱🏼", "🫱🏽", "🫱🏾", "🫱🏿"],
 };
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
@@ -140,6 +143,11 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "Enter 強制送信 (Lictor 救済)",
     summary: "投稿内容を変換せず、 対象 session に \\n を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
     mode: "active セッションへ inject のみ (非 active はスキップ)",
+  },
+  "delegate-task": {
+    label: "タスク委託実行",
+    summary: "投稿内容を『Haiku でタスク判定 → タスクあり = 最適な delegation template を選んで invoke、なし = スキップ』に変換して渡す。",
+    mode: "active へ inject (委託+監視) / 非active は headless haiku (委託のみ)",
   },
 };
 
@@ -420,6 +428,43 @@ export function planWorkflow(
       // 対象 session に \n だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
       // 存在しない = 送る相手がいない)。 session.inject はテキスト経由なので \n を渡す。
       return { action, mode: "inject", prompt: "\n" };
+    }
+
+    case "delegate-task": {
+      // Haiku 分類 → タスクあり = delegation invoke。 inject 経路では authoring session に
+      // 「委託 + 監視」まで担わせる。 headless 経路では委託のみ (監視先 session が無い)。
+      const delegateInstructions =
+        `🤝 このメッセージにタスク委託のリアクションが付きました。以下を順番に実行してください:\n\n` +
+        `**ステップ 1: タスク判定 (Haiku レベルの軽量分類)**\n` +
+        `メッセージに「実行すべき具体的なタスク」が含まれているか判断してください。\n` +
+        `- 含まれない (感想/質問/状態報告のみ) → 「委託タスクなし — スキップ」として即終了。\n` +
+        `- 含まれる → ステップ 2 へ。\n\n` +
+        `**ステップ 2: テンプレート選択 & 委託**\n` +
+        `1. GET http://127.0.0.1:17330/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
+        `2. メッセージ内容に最適なテンプレートを選択する (task-process / impl-from-design / fix-bug / refactor 等)。\n` +
+        `3. GET http://127.0.0.1:17330/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
+        `4. POST http://127.0.0.1:17330/v1/delegation/invoke で委託:\n` +
+        `   { "call_name": "<選んだテンプレート>", "args": { ... }, "triggered_by": "reaction-workflow-delegate" }\n` +
+        `   Authorization: Bearer <spawn token>\n` +
+        `5. run ID と spawn_pid を取得して報告する。`;
+      const monitorNote = ctx.sessionActive
+        ? `\n\n委託後は起動した Lictor プロセスの完了を監視し、結果を報告してください。`
+        : `\n\nセッションが非 active のため監視は行わない。委託のみ実行して終了する。`;
+
+      if (ctx.sessionActive) {
+        return {
+          action,
+          mode: "inject",
+          prompt: delegateInstructions + monitorNote + msgRef,
+        };
+      }
+      return {
+        action,
+        mode: "headless",
+        model: models.haiku,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + delegateInstructions + monitorNote,
+      };
     }
 
     case "defer-impl": {

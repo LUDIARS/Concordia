@@ -36,7 +36,9 @@ import {
   buildDelegationModalView,
   parseDelegationModalSubmit,
   parseDelegationSelectAction,
+  reconcileDelegationArgs,
   DELEGATION_MODAL_CALLBACK_ID,
+  PROMPT_BLOCK,
   type WorkdirOption,
 } from "./delegation-modal.js";
 import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
@@ -556,16 +558,35 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     // `/co-spawn` モーダル送信 → 選んだテンプレを /v1/delegation/invoke {spawn:true} で起動。
     // ack() でモーダルを閉じ、 結果はチャンネルに通知 (view_submission は response_url を持たない)。
     if (body?.type === "view_submission" && body.view?.callback_id === DELEGATION_MODAL_CALLBACK_ID) {
+      const parsed = parseDelegationModalSubmit(body.view);
+      if (!parsed) { try { await ack(); } catch {} log.warn("delegation modal submit: missing call_name"); return; }
+      // テンプレ select の再描画 (views.update) が競合/失敗すると引数入力欄が未描画のまま
+      // submit でき、 private_metadata 由来の args が欠落する。権威 schema を再取得して
+      // 突き合わせ、 未入力の必須 string arg (典型は task) は「初回指示」で補い、
+      // それでも欠ける場合はモーダルを閉じずインラインエラーで知らせる。
+      let schema: { name: string; type: "string" | "number" | "boolean"; required: boolean }[] = [];
+      // task 未入力時のフォールバック: テンプレの description → title（spawn 時はテンプレから取れる）。
+      let fallbackTask = "";
+      try {
+        const tpls = await listDelegationTemplates({ concordiaUrl: deps.concordiaUrl });
+        const tpl = tpls.find((t) => t.call_name === parsed.call_name);
+        schema = (tpl?.input_schema ?? []).map((s) => ({ name: s.name, type: s.type, required: s.required }));
+        fallbackTask = (tpl?.description ?? "").trim() || (tpl?.title ?? "").trim();
+      } catch (e) {
+        log.warn(`delegation modal submit: schema fetch failed: ${(e as Error).message}`);
+      }
+      const { args, extra_prompt, missingRequired } = reconcileDelegationArgs(parsed, schema, fallbackTask);
+      if (missingRequired.length) {
+        try {
+          await ack({ response_action: "errors", errors: { [PROMPT_BLOCK]: `必須項目「${missingRequired.join("・")}」が未入力です。タスク内容を入力してください。` } });
+        } catch (e) { log.warn(`delegation modal submit: ack(errors) failed: ${(e as Error).message}`); }
+        return;
+      }
       try { await ack(); } catch {}
       try {
-        const parsed = parseDelegationModalSubmit(body.view);
-        if (!parsed) { log.warn("delegation modal submit: missing call_name"); return; }
-        // 作業ディレクトリ選択は cwd と、 テンプレが要求する target_repo を兼ねる
-        // (delegation テンプレは default_cwd=`${target_repo}` 前提のものが多い)。
-        const args = parsed.cwd ? { ...parsed.args, target_repo: parsed.cwd } : parsed.args;
         const resultText = await invokeDelegation(
           { concordiaUrl: deps.concordiaUrl },
-          { call_name: parsed.call_name, args, cwd: parsed.cwd, extra_prompt: parsed.extra_prompt, triggered_by: `slack:${body.user?.id ?? ""}` },
+          { call_name: parsed.call_name, args, cwd: parsed.cwd, extra_prompt, triggered_by: `slack:${body.user?.id ?? ""}` },
         );
         await web.chat.postMessage({ channel: channelId, text: resultText });
       } catch (e) {

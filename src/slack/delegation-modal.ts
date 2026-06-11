@@ -14,13 +14,14 @@ export const DELEGATION_TEMPLATE_ACTION = "delegation_template";
 
 const TEMPLATE_BLOCK = "delegation_template_block";
 const CWD_BLOCK = "cwd_block";
-const PROMPT_BLOCK = "prompt_block";
+/** 初回指示 (= 多くの impl テンプレの必須 `task` の入力源) の block_id。 */
+export const PROMPT_BLOCK = "prompt_block";
 const FIELD_ACTION = "v";
 const ARG_BLOCK_PREFIX = "arg:";
 
 // 作業ディレクトリ選択で兼ねるため、入力欄としては描画しない引数名。
 // （多くのテンプレは default_cwd=`${target_repo}` で、cwd と同一を期待する。）
-const CWD_ALIAS_ARG = "target_repo";
+export const CWD_ALIAS_ARG = "target_repo";
 
 /** モーダル描画に必要なテンプレの最小 shape（/v1/delegation/templates のシリアライズ結果）。 */
 export interface DelegationTemplateLite {
@@ -147,12 +148,12 @@ function promptBlock(): Record<string, unknown> {
     type: "input",
     block_id: PROMPT_BLOCK,
     optional: true,
-    label: { type: "plain_text", text: "初回注入プロンプト (任意)" },
+    label: { type: "plain_text", text: "タスク内容 / 初回指示" },
     element: {
       type: "plain_text_input",
       action_id: FIELD_ACTION,
       multiline: true,
-      placeholder: { type: "plain_text", text: "起動直後に渡す追加指示" },
+      placeholder: { type: "plain_text", text: "何をしてほしいか（テンプレの必須 task が空ならこれが使われます）" },
     },
   };
 }
@@ -258,4 +259,40 @@ export function parseDelegationModalSubmit(view: unknown): {
   const cwd = values[CWD_BLOCK]?.[FIELD_ACTION]?.selected_option?.value?.trim() || undefined;
   const extra_prompt = values[PROMPT_BLOCK]?.[FIELD_ACTION]?.value?.trim() || undefined;
   return { call_name, args, cwd, extra_prompt };
+}
+
+/** reconcileDelegationArgs が参照する input_schema の最小 shape。 */
+type ArgSchemaLite = Pick<InputSchemaItem, "name" | "type" | "required">;
+
+/**
+ * submit で得た値を、 テンプレの権威 schema と突き合わせて最終 args に整える（純粋）。
+ *
+ * 背景: テンプレ select の再描画 (views.update) が競合/失敗すると引数入力欄が未描画のまま
+ * submit でき、 `task` 等の必須 arg が欠落して invoke が弾かれていた。これを救うため:
+ *  - 作業ディレクトリ select は target_repo を兼ねる（cwd → args.target_repo）。
+ *  - 未入力の必須 string arg（典型は `task`）の埋め方は: ①「初回指示」テキスト →
+ *    ②テンプレ由来のフォールバック（description→title）。①を使った場合は extra_prompt として
+ *    二重に渡さない（②はそもそも初回指示が空なので渡すものが無い）。
+ *  - それでも欠ける必須 arg 名を missingRequired で返す（呼び出し側がモーダルにエラー表示）。
+ */
+export function reconcileDelegationArgs(
+  parsed: { args: Record<string, unknown>; cwd?: string; extra_prompt?: string },
+  schema: ArgSchemaLite[],
+  fallbackTaskText?: string,
+): { args: Record<string, unknown>; extra_prompt?: string; missingRequired: string[] } {
+  const args: Record<string, unknown> = { ...parsed.args };
+  if (parsed.cwd) args[CWD_ALIAS_ARG] = parsed.cwd;
+  let extra_prompt = parsed.extra_prompt;
+  const prompt = (parsed.extra_prompt ?? "").trim();
+  const taskSource = prompt || (fallbackTaskText ?? "").trim();
+  const isMissing = (s: ArgSchemaLite): boolean => s.name !== CWD_ALIAS_ARG && s.required && args[s.name] === undefined;
+  if (taskSource) {
+    const primary = schema.find((s) => isMissing(s) && s.type === "string");
+    if (primary) {
+      args[primary.name] = taskSource;
+      if (prompt) extra_prompt = undefined; // 初回指示を task に転用したので追加指示としては渡さない
+    }
+  }
+  const missingRequired = schema.filter(isMissing).map((s) => s.name);
+  return { args, extra_prompt, missingRequired };
 }

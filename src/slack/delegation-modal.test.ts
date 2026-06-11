@@ -3,11 +3,69 @@ import {
   buildDelegationModalView,
   parseDelegationModalSubmit,
   parseDelegationSelectAction,
+  reconcileDelegationArgs,
   DELEGATION_MODAL_CALLBACK_ID,
   DELEGATION_TEMPLATE_ACTION,
   type DelegationTemplateLite,
   type WorkdirOption,
 } from "./delegation-modal.js";
+
+describe("reconcileDelegationArgs", () => {
+  const schema = [
+    { name: "task", type: "string" as const, required: true },
+    { name: "target_repo", type: "string" as const, required: true },
+    { name: "context_extra", type: "string" as const, required: false },
+  ];
+
+  it("cwd を target_repo に兼ねる", () => {
+    const r = reconcileDelegationArgs({ args: { task: "x" }, cwd: "E:/Document/Ars" }, schema);
+    expect(r.args.target_repo).toBe("E:/Document/Ars");
+    expect(r.missingRequired).toEqual([]);
+  });
+
+  it("task 未入力 + 初回指示あり → 初回指示を task に転用し extra_prompt は渡さない", () => {
+    const r = reconcileDelegationArgs({ args: {}, cwd: "/a", extra_prompt: "ログ撤去を実装" }, schema);
+    expect(r.args.task).toBe("ログ撤去を実装");
+    expect(r.extra_prompt).toBeUndefined();
+    expect(r.missingRequired).toEqual([]);
+  });
+
+  it("task もプロンプトも空 + フォールバック無し → missingRequired に task", () => {
+    const r = reconcileDelegationArgs({ args: {}, cwd: "/a" }, schema);
+    expect(r.missingRequired).toEqual(["task"]);
+  });
+
+  it("task もプロンプトも空 → テンプレ description を task に充てて欠落なし", () => {
+    const r = reconcileDelegationArgs({ args: {}, cwd: "/a" }, schema, "テンプレの説明文");
+    expect(r.args.task).toBe("テンプレの説明文");
+    expect(r.missingRequired).toEqual([]);
+  });
+
+  it("初回指示はフォールバックより優先", () => {
+    const r = reconcileDelegationArgs({ args: {}, cwd: "/a", extra_prompt: "手入力タスク" }, schema, "テンプレ説明");
+    expect(r.args.task).toBe("手入力タスク");
+    expect(r.extra_prompt).toBeUndefined();
+  });
+
+  it("task を直接入力済みなら extra_prompt は追加指示として温存", () => {
+    const r = reconcileDelegationArgs({ args: { task: "本題" }, cwd: "/a", extra_prompt: "補足" }, schema);
+    expect(r.args.task).toBe("本題");
+    expect(r.extra_prompt).toBe("補足");
+    expect(r.missingRequired).toEqual([]);
+  });
+
+  it("target_repo は cwd が兼ねるため missing 判定から除外（task 入力済なら欠落なし）", () => {
+    const r = reconcileDelegationArgs({ args: { task: "x" } }, schema);
+    expect(r.missingRequired).toEqual([]);
+  });
+
+  it("初回指示は path 引数 (target_repo) には転用しない", () => {
+    const onlyRepo = [{ name: "target_repo", type: "string" as const, required: true }];
+    const r = reconcileDelegationArgs({ args: {}, extra_prompt: "やる事" }, onlyRepo);
+    expect(r.args.target_repo).toBeUndefined();
+    expect(r.extra_prompt).toBe("やる事");
+  });
+});
 
 const TEMPLATES: DelegationTemplateLite[] = [
   {

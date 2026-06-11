@@ -329,6 +329,28 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     expect(accepted).toHaveLength(1); // 2回目は cooldown でスキップ
   });
 
+  it("delegate-task(🤝) inactive → headless haiku / repoPath cwd / タスク判定含む", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/KuzuSurvivors");
+    expect(calls[0].prompt).toContain("タスク判定");
+    expect(calls[0].prompt).toContain("これメモして");
+  });
+
+  it("delegate-task(🤝) active → inject (runHeadless 非呼び出し)", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: true, sessionId: "sess-abc" });
+    expect(calls).toHaveLength(0); // inject 経路なので headless は起動しない
+  });
+
+  it("delegate-task の onAccept は action='delegate-task' で呼ばれる", async () => {
+    const { runner } = makeRunner();
+    const accepted: WorkflowAction[] = [];
+    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: false }, (a) => accepted.push(a));
+    expect(accepted).toEqual(["delegate-task"]);
+  });
+
   it("reactionAckText は 絵文字 + ラベル + 受付文 を返す", () => {
     expect(reactionAckText("enumerate-remaining", "🙏")).toBe("🙏 残作業の洗い出しを受け付けました");
   });

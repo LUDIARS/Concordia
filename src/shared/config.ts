@@ -30,6 +30,18 @@ function autoDetectSpawnDefaultCwd(): string {
 export interface ConcordiaConfig {
   host: string;
   port: number;
+  /**
+   * admin / sweeper エンドポイントを保護する bearer token (env `CONCORDIA_ADMIN_TOKEN`)。
+   *
+   * 信頼境界:
+   *  - `host` が loopback (127.0.0.1/::1/localhost) のときは従来どおり loopback 信頼境界に
+   *    乗り、 token 未設定なら admin API は無認証で使える (空文字列)。
+   *  - token を設定すると loopback でも `/v1/admin/*` と `/v1/sweeper/run` は
+   *    `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。
+   *  - `host` が非 loopback のときは server.ts が起動時に token 必須を強制する
+   *    (未設定なら起動拒否)。 詳細は spec/setup/config-reference.md の信頼境界節。
+   */
+  adminToken: string;
   dbPath: string;
   lostAfterSec: number;
   abandonedAfterSec: number;
@@ -111,6 +123,20 @@ export function dedupeWorkspaceRoots(roots: readonly string[]): string[] {
   return out;
 }
 
+/**
+ * bind host が loopback (= localhost からしか到達できない) かを判定する (pure)。
+ *
+ * 空 (unset) は既定 bind が `127.0.0.1` なので loopback 扱い。 `0.0.0.0` や `::`、
+ * LAN IP / hostname は非 loopback。 IPv6 の角括弧表記 (`[::1]`) も剥がして判定する。
+ */
+export function isLoopbackHost(host: string | undefined): boolean {
+  const h = (host ?? "").trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (!h) return true;
+  if (h === "localhost" || h === "::1") return true;
+  // 127.0.0.0/8 は全て loopback。
+  return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
+}
+
 export function loadConfig(env = process.env): ConcordiaConfig {
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd();
@@ -125,6 +151,7 @@ export function loadConfig(env = process.env): ConcordiaConfig {
   return {
     host: env.CONCORDIA_HOST ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? "17330"),
+    adminToken: (env.CONCORDIA_ADMIN_TOKEN ?? "").trim(),
     dbPath: env.CONCORDIA_DB_PATH || defaultDbPath(),
     // Stop hook が turn 終わりごとに発火する制約があるので、 idle ≠ session 終了.
     // 30 分 heartbeat 無しで初めて lost にする (元 5 分は短すぎた).

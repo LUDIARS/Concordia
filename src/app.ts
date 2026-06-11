@@ -40,6 +40,7 @@ import type {
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
 import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
+import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import type { CostBudgetStatus } from "./cost/usage-tracker.js";
 import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
@@ -117,6 +118,13 @@ export interface AppDeps {
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
+
+  // 信頼境界: admin / sweeper エンドポイントは loopback 前提で無認証だが、
+  // CONCORDIA_ADMIN_TOKEN を設定すると bearer 認証を要求する (非 loopback bind 時は
+  // server.ts が token 必須を強制)。 token は config から live 解決。
+  const adminAuth = adminAuthMiddleware(() => deps.config.adminToken);
+  app.use("/v1/admin/*", adminAuth);
+  app.use("/v1/sweeper/run", adminAuth);
 
   app.get("/health", (c) =>
     c.json({ ok: true, service: "concordia", version: "0.1.0", started_at: deps.startedAt }),
@@ -533,11 +541,13 @@ export function buildApp(deps: AppDeps): Hono {
       return c.json({ ok: true, dry_run: true });
     }
     setTimeout(() => {
-      const child = spawn("npm", ["run", "dev:backend"], {
+      // shell:true を避けてアタック面を減らす (CWE-78)。 固定コマンドだが OS shell を
+      // 介さず、 Windows では npm.cmd を明示して直接 spawn する。
+      const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
+      const child = spawn(npmCmd, ["run", "dev:backend"], {
         cwd: process.cwd(),
         detached: true,
         stdio: "ignore",
-        shell: true, // Windows: npm.cmd を OS shell に解決させる
       });
       child.unref();
       setTimeout(() => process.exit(0), 200);

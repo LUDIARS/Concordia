@@ -6,7 +6,7 @@ import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import { loadConfig } from "./shared/config.js";
+import { loadConfig, isLoopbackHost } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
@@ -164,6 +164,22 @@ export interface BackendHandle {
 export async function startBackend(): Promise<BackendHandle> {
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
+
+  // 信頼境界の強制: 非 loopback bind (0.0.0.0 / LAN IP 等) は admin API を localhost の
+  // 外へ晒す。 warn を出し、 admin token 未設定なら起動拒否する (CWE-306 / CWE-1188)。
+  if (!isLoopbackHost(cfg.host)) {
+    log.warn(
+      { host: cfg.host },
+      "Concordia is binding to a non-loopback host — admin API (/v1/admin/*, /v1/sweeper/run) would be reachable beyond localhost",
+    );
+    if (!cfg.adminToken) {
+      throw new Error(
+        `CONCORDIA_HOST=${cfg.host} is non-loopback but CONCORDIA_ADMIN_TOKEN is unset. ` +
+          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin endpoints, or bind to 127.0.0.1.`,
+      );
+    }
+  }
+
   const dbPath = cfg.dbPath;
 
   const db = openDb(dbPath);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loadConfig } from "../src/shared/config.js";
+import { loadConfig, isLoopbackHost } from "../src/shared/config.js";
 
 describe("loadConfig spawnDefaultCwd resolution", () => {
   it("env CONCORDIA_SPAWN_DEFAULT_CWD が最優先", () => {
@@ -29,5 +29,31 @@ describe("loadConfig spawnDefaultCwd resolution", () => {
     } as NodeJS.ProcessEnv);
     // auto-detect の結果次第なので「明示の空文字 != ""」 という強い assertion はしない.
     expect(typeof cfg.spawnDefaultCwd).toBe("string");
+  });
+});
+
+describe("loadConfig adminToken", () => {
+  it("既定は空文字列", () => {
+    const cfg = loadConfig({} as NodeJS.ProcessEnv);
+    expect(cfg.adminToken).toBe("");
+  });
+
+  it("CONCORDIA_ADMIN_TOKEN を trim して読む", () => {
+    const cfg = loadConfig({ CONCORDIA_ADMIN_TOKEN: "  s3cr3t  " } as NodeJS.ProcessEnv);
+    expect(cfg.adminToken).toBe("s3cr3t");
+  });
+});
+
+describe("isLoopbackHost", () => {
+  it("loopback とみなすもの", () => {
+    for (const h of ["", "127.0.0.1", "127.1.2.3", "::1", "[::1]", "localhost", "LOCALHOST", "  127.0.0.1  "]) {
+      expect(isLoopbackHost(h)).toBe(true);
+    }
+  });
+
+  it("非 loopback とみなすもの", () => {
+    for (const h of ["0.0.0.0", "::", "192.168.1.10", "10.0.0.5", "example.com", "0.0.0.0:17330"]) {
+      expect(isLoopbackHost(h)).toBe(false);
+    }
   });
 });

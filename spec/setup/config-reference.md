@@ -17,7 +17,7 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_HOST` | `127.0.0.1` | bind するホスト。 loopback 前提 (認証なし)。 |
+| `CONCORDIA_HOST` | `127.0.0.1` | bind するホスト。 loopback 前提 (無認証)。 非 loopback (0.0.0.0 等) に変える場合は `CONCORDIA_ADMIN_TOKEN` 必須 (未設定なら起動拒否)。 下記「信頼境界」節参照。 |
 | `CONCORDIA_PORT` | `17330` | backend HTTP ポート (loopback)。 |
 | `CONCORDIA_DB_PATH` | 空 → `<cwd>/concordia.db` | SQLite ファイルパス。 空なら cwd 直下 (`defaultDbPath()`)。 |
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` (30 分) | heartbeat 途絶からこの秒数で `status=lost` に落とす。 |
@@ -27,8 +27,21 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
+| `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
 > 注: `.env.example` の `CONCORDIA_LOST_AFTER_SEC` コメントは「default 5 分」 だが、 実コードの既定は **1800 秒 (30 分)**。 Stop hook が turn 毎に発火する制約で idle ≠ 終了のため延長された (`config.ts:67` のコメント)。
+
+### 信頼境界 (trust boundary)
+
+Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`、 `/v1/admin/truncate-sessions`、 `/v1/admin/spawn-session` 等) は **元来 loopback (127.0.0.1) 前提で無認証**。 同一マシンからしか到達しないことを信頼境界としている。 2026-06-11 の脆弱性レビュー (CWE-306 / CWE-1188) を受けて、 次の 2 段で境界を担保する。
+
+1. **bind host 判定** (`shared/config.ts:isLoopbackHost()`): `127.0.0.0/8` / `::1` / `localhost` / 空 (既定 bind) は loopback。 `0.0.0.0` / `::` / LAN IP / hostname は非 loopback。
+2. **token による保護** (`shared/admin-auth.ts`):
+   - **loopback + token 未設定** (既定): 従来どおり admin API は無認証で使える。
+   - **token 設定済み**: loopback でも admin / sweeper は bearer 認証を要求する。
+   - **非 loopback bind**: 起動時 (`server.ts`) に warn を出し、 `CONCORDIA_ADMIN_TOKEN` 未設定なら **起動拒否** (throw)。 LAN/0.0.0.0 公開時に無認証 admin API が晒されるのを防ぐ。
+
+> つまり LAN へ公開したい場合は `CONCORDIA_HOST=0.0.0.0` + `CONCORDIA_ADMIN_TOKEN=<秘密値>` を必ずセットで指定する。 token はクライアント (Lictor / dashboard / Web UI proxy) 側も同じ値を `Authorization: Bearer` で送る必要がある。
 
 ---
 

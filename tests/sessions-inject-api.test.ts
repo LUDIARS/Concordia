@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
+import type { TestAppEnv } from "./helpers/test-app.js";
 
 function buildTestApp() {
   return makeTestApp().app;
@@ -176,5 +177,69 @@ describe("sessions API — inject / title / title-suggestion", () => {
       body: JSON.stringify({ text: "" }),
     });
     expect(r.status).toBe(400);
+  });
+});
+
+describe("sessions API — inject participants upsert 分岐", () => {
+  let env: TestAppEnv;
+  beforeEach(() => {
+    env = makeTestApp();
+    // セッション "pinj" を作成しておく
+  });
+
+  async function createSession(id: string) {
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id, provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+  }
+
+  it('source="discord:123" + author_label 付きで inject → participants に 1 件 upsert される', async () => {
+    await createSession("pinj1");
+    const r = await env.app.request("/v1/sessions/pinj1/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "hello", source: "discord:123", author_label: "Taro" }),
+    });
+    expect(r.status).toBe(200);
+    const row = env.participants.findByPlatformUser("discord", "123");
+    expect(row).not.toBeNull();
+    expect(row!.platform).toBe("discord");
+    expect(row!.platform_user_id).toBe("123");
+    expect(row!.display_name).toBe("Taro");
+  });
+
+  it('同じ author で 2 回 inject → participants は重複せず 1 件のまま (display_name は最新値)', async () => {
+    await createSession("pinj2");
+    await env.app.request("/v1/sessions/pinj2/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "first", source: "discord:456", author_label: "OldName" }),
+    });
+    await env.app.request("/v1/sessions/pinj2/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "second", source: "discord:456", author_label: "NewName" }),
+    });
+    const rows = env.participants.listByCanonical("newname");
+    // upsert で canonical_name も更新されるため "newname" で 1 件のみヒット
+    expect(rows).toHaveLength(1);
+    expect(rows[0].display_name).toBe("NewName");
+  });
+
+  it('source="test" (コロン区切りでない) → participants は増えない', async () => {
+    await createSession("pinj3");
+    await env.app.request("/v1/sessions/pinj3/inject", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text: "ctrl", source: "test", author_label: "Bot" }),
+    });
+    // participants テーブルは空のまま
+    const row = env.participants.findByPlatformUser("test" as any, "");
+    expect(row).toBeNull();
+    // listByCanonical("bot") も空
+    const rows = env.participants.listByCanonical("bot");
+    expect(rows).toHaveLength(0);
   });
 });

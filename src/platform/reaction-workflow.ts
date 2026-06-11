@@ -132,6 +132,19 @@ export function isWorkflowAction(v: unknown): v is WorkflowAction {
   return typeof v === "string" && (WORKFLOW_ACTIONS as string[]).includes(v);
 }
 
+/** 異体字セレクタ / ZWJ / 肌色修飾を含む「絵文字のみ」で構成された文字列か。 */
+const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|️|‍)+$/u;
+
+/**
+ * 文字列が「単発絵文字」(絵文字のみ、 短い) か。 写像対象アクションの無い単発絵文字を
+ * 却下 (プロンプト不通過) するための判定。 通常文・絵文字混じり文は false。
+ * Discord ingress / Slack bot の両 ingress が共用する。
+ */
+export function isStandaloneEmoji(text: string): boolean {
+  const t = text.trim();
+  return t.length > 0 && t.length <= 32 && EMOJI_ONLY.test(t) && /\p{Extended_Pictographic}/u.test(t);
+}
+
 /** 既定の 絵文字→アクション 写像を flat な Record に展開する (GUI 表示・上書きベース)。 */
 export function defaultReactionEmojiMap(): Record<string, WorkflowAction> {
   const out: Record<string, WorkflowAction> = {};

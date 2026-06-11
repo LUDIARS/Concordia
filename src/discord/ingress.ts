@@ -5,7 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { classifyReactionWorkflow, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -38,18 +38,6 @@ export interface IngressDeps {
   };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
-}
-
-/** 異体字セレクタ / ZWJ / 肌色修飾を含む「絵文字のみ」で構成された文字列か。 */
-const EMOJI_ONLY = /^(?:\p{Extended_Pictographic}|\p{Emoji_Modifier}|️|‍)+$/u;
-
-/**
- * メッセージ本文が「単発絵文字」(絵文字のみ、 短い) か。 該当アクションの無い単発絵文字を
- * 却下 (プロンプト不通過) するための判定。 通常文・絵文字混じり文は false。
- */
-function isStandaloneEmoji(text: string): boolean {
-  const t = text.trim();
-  return t.length > 0 && t.length <= 32 && EMOJI_ONLY.test(t) && /\p{Extended_Pictographic}/u.test(t);
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {

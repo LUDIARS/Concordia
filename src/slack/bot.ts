@@ -32,7 +32,7 @@ import {
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
 import { buildSpawnModalView, parseSpawnModalState, SPAWN_MODAL_CALLBACK_ID } from "./spawn-modal.js";
-import { ReactionWorkflowRunner, classifyReactionWorkflow, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
@@ -437,6 +437,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           return;
         }
         // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
+      } else if (isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
+        // 単発絵文字 (unicode or :name:) だが該当アクション無し → 却下、 プロンプトも通さない
+        // (Discord ingress と同じ挙動)。
+        log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
+        return;
       }
 
       // thread 返信 = その session への inject。

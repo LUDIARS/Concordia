@@ -62,6 +62,8 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 **Slack も同様** (`src/slack/bot.ts` の message ingress)。 `:name:` 形式は `slackReactionToUnicode`
 で unicode 正規化してから写像照合する。 対象メッセージは ① thread 返信ならその session の直近
 (`chatRepo.latestForSession`) / ② チャンネル直下なら consultation メタチャットの直近、 で解決する。
+**却下ルールも Discord と同じ**: 単発絵文字 (unicode の `isStandaloneEmoji` または `:name:` トークン)
+で写像対象アクションが無いものは却下し、 inject / chat に通さない。`isStandaloneEmoji` は両 ingress 共用。
 
 > 注: `ok` は 🆗 (U+1F197)、 `check` は ✅ (U+2705) と区別する。 `classifyEmoji` (記録用) では
 > ✅/👍 は `fine`、 👎 は `bad` に潰れるが、 ワークフロールータは別系統で細かく分岐する。

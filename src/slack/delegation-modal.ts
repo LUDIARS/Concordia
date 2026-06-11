@@ -31,6 +31,7 @@ export interface DelegationTemplateLite {
   model?: string | null;
   default_cwd?: string | null;
   input_schema?: InputSchemaItem[];
+  emoji?: string;
 }
 
 /** ワークスペースルート直下から選ぶ作業ディレクトリ候補（bot.ts が fs scan して渡す）。 */
@@ -53,11 +54,14 @@ function clip(s: string, max: number): string {
 
 /** テンプレ一覧から static_select の options を組む。 */
 function templateOptions(templates: DelegationTemplateLite[]): unknown[] {
-  return templates.slice(0, 100).map((t) => ({
-    text: { type: "plain_text", text: clip(t.title || t.call_name, 75) },
-    value: t.call_name,
-    ...(t.description ? { description: { type: "plain_text", text: clip(t.description, 75) } } : {}),
-  }));
+  return templates.slice(0, 100).map((t) => {
+    const label = clip(`${t.emoji ? t.emoji + " " : ""}${t.title || t.call_name}`, 75);
+    return {
+      text: { type: "plain_text", text: label, emoji: true },
+      value: t.call_name,
+      ...(t.description ? { description: { type: "plain_text", text: clip(t.description, 75) } } : {}),
+    };
+  });
 }
 
 /** 選択中テンプレの option（initial_option 用）。 */

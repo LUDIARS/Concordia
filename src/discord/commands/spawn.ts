@@ -10,6 +10,7 @@ interface DelegationTemplateLite {
   title: string;
   is_active: boolean;
   call_only: boolean;
+  emoji: string;
 }
 
 const spawnCommand: DiscordCommandSpec = {
@@ -46,7 +47,7 @@ const spawnCommand: DiscordCommandSpec = {
       .filter((t) => !t.call_only)
       .filter((t) => !focused || t.call_name.toLowerCase().includes(focused) || t.title.toLowerCase().includes(focused))
       .slice(0, 25)
-      .map((t) => ({ name: `${t.call_name} — ${t.title}`.slice(0, 100), value: t.call_name }));
+      .map((t) => ({ name: `${t.emoji ? t.emoji + " " : ""}${t.call_name} — ${t.title}`.slice(0, 100), value: t.call_name }));
     await interaction.respond(choices);
   },
 

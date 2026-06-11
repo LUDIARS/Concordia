@@ -119,6 +119,8 @@ export class DelegationRepo {
         input_schema: input.input_schema,
         default_cwd: input.default_cwd,
         is_active: input.is_active,
+        emoji: input.emoji,
+        call_only: input.call_only,
       }) ?? existing;
     }
     return this.createTemplate(input);

@@ -12,6 +12,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR + vitest) を守らせる。",
     target_provider: "codex",
+    call_only: true,
     prompt_template: [
       "Read the design document at ${design_path}.",
       "",
@@ -42,6 +43,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
     target_provider: "codex",
+    call_only: true,
     prompt_template: [
       "Fix this bug in ${target_repo}:",
       "",
@@ -69,6 +71,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
     target_provider: "codex",
+    call_only: true,
     prompt_template: [
       "Refactor ${target} to achieve: ${goal}.",
       "",
@@ -92,11 +95,12 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   // ── Claude (Opus / Sonnet / Fable) への汎用実装委託 ──────────────────
   // target_provider=claude + model 指定 → spawn は `lictor claude --model <id>`。
   // 同じ Claude Code でも上位/中位/高速モデルを選んで委託できるよう既定で 3 本入れる。
-  ...(["opus-4-8", "sonnet-4-6", "fable-5"] as const).map((tier) => {
+  ...(["opus-4-8", "sonnet-4-6", "fable-5", "haiku-4-5"] as const).map((tier) => {
     const meta = {
-      "opus-4-8": { id: "claude-opus-4-8", label: "Opus 4.8", note: "最上位。 設計判断や難所の実装向き。" },
-      "sonnet-4-6": { id: "claude-sonnet-4-6", label: "Sonnet 4.6", note: "中位。 一般的な実装の主力。" },
-      "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。" },
+      "opus-4-8": { id: "claude-opus-4-8", label: "Opus 4.8", note: "最上位。 設計判断や難所の実装向き。", emoji: "🧙‍♂️" },
+      "sonnet-4-6": { id: "claude-sonnet-4-6", label: "Sonnet 4.6", note: "中位。 一般的な実装の主力。", emoji: "🧑‍💼" },
+      "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。", emoji: "🦸" },
+      "haiku-4-5": { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", note: "超高速・軽量タスク向き。", emoji: "🗣️" },
     }[tier];
     return {
       call_name: `claude-${tier}-impl`,
@@ -104,6 +108,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       description: `Claude Code (${meta.label}) に実装を委託する。${meta.note} LUDIARS 規約 (feat branch + PR + vitest) を守らせる。`,
       target_provider: "claude" as const,
       model: meta.id,
+      emoji: meta.emoji,
       prompt_template: [
         "Implement the following in ${target_repo}:",
         "",
@@ -132,6 +137,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "ローカル LLM 実装委託 (gemma4-12 / auto)",
     description: "ローカル LLM (Famulus 経由、Ollama 上の Gemma 4 等) に実装を委託する。API 課金ゼロ・ローカル完結。model='auto' で対象プロジェクトに合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) が自動選択する。長いエージェントループは精度・速度が落ちるので小さく区切ったタスク向き。",
     target_provider: "gemma4-12",
+    emoji: "🇬",
     // model="auto" → invoke 時に `famulus select --project <repo basename>` で自動選択
     // (service.ts / app.ts が resolveLocalModel で解決)。固定したいなら Ollama タグを直書き。
     model: "auto",

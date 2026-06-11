@@ -27,6 +27,10 @@ export interface DelegationTemplateRow {
   input_schema: string;          // JSON string
   default_cwd: string | null;
   is_active: number;
+  /** チャット表示用絵文字。 空文字 = モデル/provider フォールバック */
+  emoji: string;
+  /** 1 = LLM 委託専用テンプレ。 Discord/Slack の spawn ドロップダウンに出さない */
+  call_only: number;
   created_at: number;
   updated_at: number;
 }
@@ -65,6 +69,8 @@ export interface CreateTemplateInput {
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
   is_active?: boolean;
+  emoji?: string;
+  call_only?: boolean;
 }
 
 export interface UpdateTemplateInput {
@@ -76,6 +82,8 @@ export interface UpdateTemplateInput {
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
   is_active?: boolean;
+  emoji?: string;
+  call_only?: boolean;
 }
 
 export interface CreateRunInput {
@@ -123,8 +131,8 @@ export class DelegationRepo {
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model,
         prompt_template, input_schema, default_cwd, is_active,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        emoji, call_only, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -136,6 +144,8 @@ export class DelegationRepo {
       JSON.stringify(input.input_schema ?? []),
       input.default_cwd ?? null,
       input.is_active === false ? 0 : 1,
+      input.emoji ?? "",
+      input.call_only ? 1 : 0,
       now,
       now,
     );
@@ -156,6 +166,8 @@ export class DelegationRepo {
         input_schema = ?,
         default_cwd = ?,
         is_active = ?,
+        emoji = ?,
+        call_only = ?,
         updated_at = ?
       WHERE id = ?
     `).run(
@@ -167,6 +179,8 @@ export class DelegationRepo {
       patch.input_schema !== undefined ? JSON.stringify(patch.input_schema) : cur.input_schema,
       patch.default_cwd !== undefined ? patch.default_cwd : cur.default_cwd,
       patch.is_active === undefined ? cur.is_active : (patch.is_active ? 1 : 0),
+      patch.emoji !== undefined ? patch.emoji : cur.emoji,
+      patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,
       now,
       id,
     );

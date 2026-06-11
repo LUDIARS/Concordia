@@ -1,10 +1,76 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api, fmtTs } from "../api.js";
-import type { ChatMessage } from "../api.js";
+import type { ChatMessage, DelegationTemplateLite, SessionRow } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 
 const CHANNELS = ["chitchat", "consultation", "報告", "ぼやき"] as const;
 type Channel = (typeof CHANNELS)[number];
+
+/** provider 種別 → フォールバック絵文字 (delegation テンプレ未登録 / モデル特定不可時)。 */
+const PROVIDER_EMOJI: Record<string, string> = {
+  "claude-code": "🤖",
+  "codex-cli":   "💻",
+  "gemini-cli":  "💎",
+  "local-llm":   "🇬",
+};
+
+/** model_id のパターンに対応する絵文字を返す。 delegation テンプレの emoji を優先。 */
+function emojiFromModelId(modelId: string, modelEmojiMap: Map<string, string>): string {
+  if (modelEmojiMap.has(modelId)) return modelEmojiMap.get(modelId)!;
+  // パターンマッチのフォールバック
+  if (modelId.includes("haiku"))    return "🗣️";
+  if (modelId.includes("fable"))    return "🦸";
+  if (modelId.includes("opus"))     return "🧙‍♂️";
+  if (modelId.includes("sonnet"))   return "🧑‍💼";
+  if (modelId.includes("gemma"))    return "🇬";
+  if (modelId.includes("gemini"))   return "💎";
+  return "";
+}
+
+/** セッション ID → 絵文字 を解決するフック。 */
+function useSessionEmoji() {
+  const modelEmojiMap = useRef<Map<string, string>>(new Map());
+  const sessionMap = useRef<Map<string, SessionRow>>(new Map());
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      api.delegationTemplates().catch(() => ({ templates: [] as DelegationTemplateLite[] })),
+      api.monitor().catch(() => null),
+    ]).then(([tplRes, monRes]) => {
+      const m = new Map<string, string>();
+      for (const t of tplRes.templates) {
+        if (t.emoji && t.model) m.set(t.model, t.emoji);
+      }
+      modelEmojiMap.current = m;
+      const sm = new Map<string, SessionRow>();
+      for (const s of [
+        ...(monRes?.active ?? []),
+        ...(monRes?.lost ?? []),
+        ...(monRes?.recent_ended ?? []),
+      ]) {
+        sm.set(s.id, s);
+      }
+      sessionMap.current = sm;
+      setReady(true);
+    });
+  }, []);
+
+  const resolve = (sessionId: string | null): string => {
+    if (!sessionId) return "";
+    const s = sessionMap.current.get(sessionId);
+    if (!s) return "";
+    const meta = s.metadata as Record<string, unknown> | null;
+    const modelId = (meta?.model_id ?? meta?.model ?? "") as string;
+    if (modelId) {
+      const e = emojiFromModelId(modelId, modelEmojiMap.current);
+      if (e) return e;
+    }
+    return PROVIDER_EMOJI[s.provider] ?? "";
+  };
+
+  return { resolve, ready };
+}
 
 export function Chat() {
   const [channel, setChannel] = useState<Channel>("chitchat");
@@ -15,6 +81,7 @@ export function Chat() {
   );
   const [input, setInput] = useState("");
   const [posting, setPosting] = useState(false);
+  const { resolve: resolveEmoji } = useSessionEmoji();
 
   const send = async () => {
     if (!input.trim() || posting) return;
@@ -63,7 +130,7 @@ export function Chat() {
           <div className="text-subtle text-sm text-center py-8">no messages yet</div>
         )}
         {messages.map((m) => (
-          <ChatRow key={m.id} m={m} />
+          <ChatRow key={m.id} m={m} emoji={resolveEmoji(m.session_id)} />
         ))}
       </div>
 
@@ -92,7 +159,7 @@ export function Chat() {
   );
 }
 
-function ChatRow({ m }: { m: ChatMessage }) {
+function ChatRow({ m, emoji }: { m: ChatMessage; emoji: string }) {
   const isHuman = m.author_label === "human";
   return (
     <div
@@ -102,6 +169,7 @@ function ChatRow({ m }: { m: ChatMessage }) {
     >
       <div className="flex items-center gap-2 text-[11px]">
         <span className={isHuman ? "text-warn" : "text-accent"}>
+          {!isHuman && emoji && <span className="mr-0.5">{emoji}</span>}
           {m.author_label}
         </span>
         {m.session_id && (

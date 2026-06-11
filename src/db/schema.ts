@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 23;
+export const SCHEMA_VERSION = 24;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -515,6 +515,8 @@ const STATEMENTS = [
     input_schema      TEXT    NOT NULL DEFAULT '[]',
     default_cwd       TEXT,
     is_active         INTEGER NOT NULL DEFAULT 1,
+    emoji             TEXT    NOT NULL DEFAULT '',
+    call_only         INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
   )`,
@@ -710,6 +712,19 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "model",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN model TEXT`,
+  },
+  // delegation テンプレの絵文字 (モデル / 用途を視覚区別)。空文字 = フォールバック表示。
+  {
+    table: "delegation_templates",
+    column: "emoji",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN emoji TEXT NOT NULL DEFAULT ''`,
+  },
+  // call_only=1 はプラットフォーム (Discord/Slack) の spawn ドロップダウンに出さない。
+  // LLM 委託専用テンプレ (fix-bug / impl-from-design / refactor 等) に使う。
+  {
+    table: "delegation_templates",
+    column: "call_only",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN call_only INTEGER NOT NULL DEFAULT 0`,
   },
   // ask マーカー / AskUserQuestion の複数選択フラグ + 複数選択回答の記録。
   {

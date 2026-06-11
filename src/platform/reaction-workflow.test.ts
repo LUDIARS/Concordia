@@ -44,6 +44,10 @@ describe("classifyReactionWorkflow", () => {
     ["✔️", "memoria-task"],
     ["😡", "repo-memory-bad"],
     ["👎", "repo-memory-bad"],
+    ["⏭️", "defer-impl"],
+    ["📤", "defer-impl"],
+    ["🗂️", "defer-impl"],
+    ["🙄", "force-enter"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -193,6 +197,25 @@ describe("planWorkflow", () => {
   it("honors custom model overrides", () => {
     const plan = planWorkflow("memoria-task", baseCtx, { haiku: "h", sonnet: "claude-sonnet-4-6" });
     expect(plan.model).toBe("claude-sonnet-4-6");
+  });
+
+  it("defer-impl → headless sonnet in Memoria cwd, 別セッション対応 を含む", () => {
+    const plan = planWorkflow("defer-impl", { ...baseCtx, messageText: "認証トークン更新機能を実装しよう。Memoriaに詳細を記録してください。別セッションで対応します。" });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.memoriaPath);
+    expect(plan.prompt).toContain("別セッション");
+    expect(plan.prompt).toContain("実装タスク");
+    expect(plan.prompt).toContain("認証トークン");
+  });
+
+  it("force-enter → inject \\ n (session に関係なく)", () => {
+    const planActive = planWorkflow("force-enter", { ...baseCtx, sessionActive: true });
+    expect(planActive.mode).toBe("inject");
+    expect(planActive.prompt).toBe("\n");
+    const planInactive = planWorkflow("force-enter", { ...baseCtx, sessionActive: false });
+    expect(planInactive.mode).toBe("inject");
+    expect(planInactive.prompt).toBe("\n");
   });
 });
 

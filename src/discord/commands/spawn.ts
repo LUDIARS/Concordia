@@ -9,6 +9,7 @@ interface DelegationTemplateLite {
   call_name: string;
   title: string;
   is_active: boolean;
+  call_only: boolean;
 }
 
 const spawnCommand: DiscordCommandSpec = {
@@ -42,6 +43,7 @@ const spawnCommand: DiscordCommandSpec = {
     const templates = "error" in r ? [] : r.templates;
     const choices = templates
       .filter((t) => t.is_active !== false)
+      .filter((t) => !t.call_only)
       .filter((t) => !focused || t.call_name.toLowerCase().includes(focused) || t.title.toLowerCase().includes(focused))
       .slice(0, 25)
       .map((t) => ({ name: `${t.call_name} — ${t.title}`.slice(0, 100), value: t.call_name }));

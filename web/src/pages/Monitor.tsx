@@ -172,8 +172,9 @@ function SpawnSessionForm() {
   useEffect(() => {
     api.delegationTemplates()
       .then((r) => {
-        setTemplates(r.templates);
-        if (r.templates.length > 0) setCallName((cur) => cur || r.templates[0].call_name);
+        const spawnable = r.templates.filter((t) => !t.call_only);
+        setTemplates(spawnable);
+        if (spawnable.length > 0) setCallName((cur) => cur || spawnable[0].call_name);
       })
       .catch(() => { /* テンプレ未取得でもフォーム自体は出す */ });
   }, []);

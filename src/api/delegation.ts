@@ -37,6 +37,8 @@ const CreateTemplateSchema = z.object({
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
+  emoji: z.string().max(8).optional(),
+  call_only: z.boolean().optional(),
 });
 
 const PatchTemplateSchema = z.object({
@@ -48,6 +50,8 @@ const PatchTemplateSchema = z.object({
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
+  emoji: z.string().max(8).optional(),
+  call_only: z.boolean().optional(),
 });
 
 /** title 等を call_name スラッグへ。 [a-z][a-z0-9_-]{0,63} に収まらなければ空文字を返す。 */

@@ -23,6 +23,8 @@ interface Template {
   input_schema: InputSchemaItem[];
   default_cwd: string | null;
   is_active: boolean;
+  emoji: string;
+  call_only: boolean;
   created_at: number;
   updated_at: number;
 }
@@ -53,6 +55,8 @@ interface FormState {
   input_schema_json: string;
   default_cwd: string;
   is_active: boolean;
+  emoji: string;
+  call_only: boolean;
 }
 
 const EMPTY_FORM: FormState = {
@@ -65,6 +69,8 @@ const EMPTY_FORM: FormState = {
   input_schema_json: "[]",
   default_cwd: "",
   is_active: true,
+  emoji: "",
+  call_only: false,
 };
 
 type FormMode = { kind: "create" } | { kind: "edit"; templateId: string };
@@ -129,6 +135,8 @@ export function Delegation() {
       input_schema_json: JSON.stringify(t.input_schema, null, 2),
       default_cwd: t.default_cwd ?? "",
       is_active: t.is_active,
+      emoji: t.emoji ?? "",
+      call_only: t.call_only ?? false,
     });
     setFormError(null);
   }
@@ -155,6 +163,8 @@ export function Delegation() {
         input_schema: schema,
         default_cwd: form.default_cwd.trim() ? form.default_cwd.trim() : null,
         is_active: form.is_active,
+        emoji: form.emoji,
+        call_only: form.call_only,
       };
       const path = mode?.kind === "edit"
         ? `/v1/delegation/templates/${mode.templateId}`
@@ -258,10 +268,14 @@ export function Delegation() {
 
         <table className="w-full text-sm">
           <thead className="text-xs text-subtle">
-            <tr><th className="text-left p-2">call_name</th><th className="text-left p-2">title</th>
+            <tr>
+              <th className="text-left p-2">call_name</th>
+              <th className="text-left p-2">title</th>
               <th className="text-left p-2">provider</th>
               <th className="text-left p-2">model</th>
-              <th className="text-left p-2">active</th>
+              <th className="text-center p-2">emoji</th>
+              <th className="text-center p-2">active</th>
+              <th className="text-center p-2" title="call_only=true はスポーン選択肢に出ない">call only</th>
               <th className="text-left p-2">updated</th>
               <th className="text-right p-2">actions</th>
             </tr>
@@ -273,7 +287,9 @@ export function Delegation() {
                 <td className="p-2">{t.title}</td>
                 <td className="p-2"><code>{t.target_provider}</code></td>
                 <td className="p-2 text-xs">{t.model ? <code>{t.model}</code> : <span className="text-subtle">—</span>}</td>
-                <td className="p-2">{t.is_active ? "✓" : "—"}</td>
+                <td className="p-2 text-center">{t.emoji || <span className="text-subtle">—</span>}</td>
+                <td className="p-2 text-center">{t.is_active ? "✓" : "—"}</td>
+                <td className="p-2 text-center">{t.call_only ? "✓" : "—"}</td>
                 <td className="p-2 text-xs text-subtle">{fmtTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
@@ -397,14 +413,34 @@ export function Delegation() {
                 onChange={(e) => setForm({ ...form, input_schema_json: e.target.value })}
               />
             </label>
-            <label className="text-sm flex items-center gap-2">
+            <label className="text-sm space-y-1">
+              <span className="text-subtle">emoji (チャット表示用、省略可)</span>
               <input
-                type="checkbox"
-                checked={form.is_active}
-                onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                className="foundation-form w-full"
+                value={form.emoji}
+                onChange={(e) => setForm({ ...form, emoji: e.target.value })}
+                placeholder="🧙‍♂️"
+                maxLength={8}
               />
-              <span>is_active</span>
             </label>
+            <div className="text-sm flex items-center gap-4">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={form.is_active}
+                  onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
+                />
+                <span>is_active</span>
+              </label>
+              <label className="flex items-center gap-2" title="LLM 委託専用。 Discord/Slack の spawn ドロップダウンに出さない">
+                <input
+                  type="checkbox"
+                  checked={form.call_only}
+                  onChange={(e) => setForm({ ...form, call_only: e.target.checked })}
+                />
+                <span>call_only</span>
+              </label>
+            </div>
           </div>
           <div className="flex gap-2">
             <button

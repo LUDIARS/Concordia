@@ -31,6 +31,8 @@ export interface DelegationTemplateLite {
   default_cwd: string | null;
   input_schema: DelegationInputSchemaItem[];
   is_active: boolean;
+  emoji: string;
+  call_only: boolean;
 }
 
 /** delegation テンプレ / spawn が選べるモデル候補 (GET /v1/model-catalog)。 */

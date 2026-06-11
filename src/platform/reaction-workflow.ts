@@ -39,7 +39,9 @@ export type WorkflowAction =
   | "repo-memory-good"
   | "repo-memory-bad"
   | "memoria-note"
-  | "memoria-task";
+  | "memoria-task"
+  | "defer-impl"
+  | "force-enter";
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -65,6 +67,10 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "memoria-task": ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"],
   // 良くない動き → リポ作業メモリに記録 (rage / bad 系)
   "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
+  // 実装タスクを積んで別セッションへ委ねる (outbox / next / dividers 系)
+  "defer-impl": ["⏭️", "⏭", "📤", "🗂️", "🗂"],
+  // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ \n を inject)
+  "force-enter": ["🙄"],
 };
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
@@ -124,6 +130,16 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "Memoria にタスク登録",
     summary: "投稿内容を『タスク (名前 / 完了条件 / 対象リポ) を確定して Memoria に登録せよ』に変換して渡す。",
     mode: "headless sonnet (Memoria)",
+  },
+  "defer-impl": {
+    label: "実装タスクを別セッションへ委ねる",
+    summary: "投稿内容を『実装タスクを抽出して Memoria に登録し、別セッション対応としてマークせよ』に変換して渡す。",
+    mode: "headless sonnet (Memoria)",
+  },
+  "force-enter": {
+    label: "Enter 強制送信 (Lictor 救済)",
+    summary: "投稿内容を変換せず、 対象 session に \\n を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
+    mode: "active セッションへ inject のみ (非 active はスキップ)",
   },
 };
 
@@ -391,6 +407,31 @@ export function planWorkflow(
         `- メッセージから「タスク名 / 完了条件 / 対象リポ」を読み取り、 曖昧なら最も妥当な形に整える。\n` +
         `- Memoria のタスク機能 (or 相応の relay 経路) に 1 件登録する。\n` +
         `- 出所として「Concordia リアクション (📝/✅) 由来」「投稿者: ${ctx.authorLabel}」を残す。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.memoriaPath,
+        prompt,
+      };
+    }
+
+    case "force-enter": {
+      // 対象 session に \n だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
+      // 存在しない = 送る相手がいない)。 session.inject はテキスト経由なので \n を渡す。
+      return { action, mode: "inject", prompt: "\n" };
+    }
+
+    case "defer-impl": {
+      const prompt =
+        head +
+        `\n⏭️ これは「実装タスクを積んで別セッションへ委ねる」指示です。\n` +
+        `メッセージから**実装タスク**を抽出し、 **Memoria にタスクとして登録**してください。\n` +
+        `- メッセージ本文に含まれる実装タスクを 1 件以上読み取り、 各タスクの「タスク名 / 完了条件 / 対象リポ」を整える。\n` +
+        `- 各タスクの details に「別セッションで対応」という旨と出所「Concordia リアクション (⏭️/📤/🗂️) 由来、 投稿者: ${ctx.authorLabel}」を残す。\n` +
+        `- Memoria のタスク機能 (or 相応の relay 経路) に登録する。 PowerShell/curl の日本語文字化けを避けるため、 memoria-task スキルの Node スクリプトを使う:\n` +
+        `  \`node <Memoria>/../.claude/skills/memoria-task/post-tasks.mjs <tasks.json>\` (配列 or { "tasks": [...] }、 creator_type は ai 付与)。 当該スクリプトが無い環境では \`POST /api/tasks\` を直接叩く。\n` +
+        `- Memoria に繋がらない場合は中断せず、 未登録タスクと失敗理由を報告する。`;
       return {
         action,
         mode: "headless",

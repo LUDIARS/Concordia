@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "./schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeParticipantsRepo, canonicalizeName, type ParticipantsRepo } from "./participants-repo.js";
 
 describe("participants repo", () => {
   let repo: ParticipantsRepo;
   beforeEach(() => {
-    const db = new Database(":memory:");
-    applyMigrations(db);
+    const db = makeTestDb();
     repo = makeParticipantsRepo(db);
   });
 

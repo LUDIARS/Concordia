@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
 import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyMigrations } from "../db/schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { PersonasRepo } from "../db/personas-repo.js";
 import { seedPersonas } from "../personas/seeds.js";
@@ -67,15 +66,14 @@ describe("validateArgs", () => {
 });
 
 describe("DelegationService.invoke", () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof makeTestDb>;
   let repo: DelegationRepo;
   let promptsDir: string;
   let svc: DelegationService;
   const spawnCalls: Array<unknown> = [];
 
   beforeEach(() => {
-    db = new Database(":memory:");
-    applyMigrations(db);
+    db = makeTestDb();
     repo = new DelegationRepo(db);
     promptsDir = mkdtempSync(join(tmpdir(), "deleg-test-"));
     spawnCalls.length = 0;
@@ -97,7 +95,6 @@ describe("DelegationService.invoke", () => {
   });
 
   afterEach(() => {
-    db.close();
     rmSync(promptsDir, { recursive: true, force: true });
   });
 

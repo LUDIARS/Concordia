@@ -1,21 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "./schema.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { PersonasRepo } from "./personas-repo.js";
 import { seedPersonas } from "../personas/seeds.js";
 
-let db: Database.Database;
+let db: ReturnType<typeof makeTestDb>;
 let personas: PersonasRepo;
 
 beforeEach(() => {
-  db = new Database(":memory:");
-  applyMigrations(db);
+  db = makeTestDb();
   personas = new PersonasRepo(db);
   seedPersonas(personas);
-});
-
-afterEach(() => {
-  db.close();
 });
 
 const DRAFT = {

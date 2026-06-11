@@ -1,25 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { PersonasRepo } from "../db/personas-repo.js";
 import { ChatRepo } from "../db/chat-repo.js";
 import { seedPersonas } from "./seeds.js";
 import { collectBoyakiToPersona } from "./boyaki.js";
 
-let db: Database.Database;
 let personas: PersonasRepo;
 let chat: ChatRepo;
 
 beforeEach(() => {
-  db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   personas = new PersonasRepo(db);
   chat = new ChatRepo(db);
   seedPersonas(personas);
-});
-
-afterEach(() => {
-  db.close();
 });
 
 function postBoyaki(session_id: string | null, author_label: string, text: string) {

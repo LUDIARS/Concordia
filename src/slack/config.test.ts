@@ -1,22 +1,18 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
+import { describe, it, expect, beforeEach } from "vitest";
 import { randomBytes } from "node:crypto";
-import { applyMigrations } from "../db/schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeSlackConfigRepo, type SlackConfigRepo } from "../db/slack-config-repo.js";
 import { SecretBox, isEncrypted } from "../shared/secret-box.js";
 import { resolveSlackConfig, setSlackConfig, slackConfigStatus } from "./config.js";
 
-let db: Database.Database;
 let repo: SlackConfigRepo;
 let box: SecretBox;
 
 beforeEach(() => {
-  db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   repo = makeSlackConfigRepo(db);
   box = new SecretBox(randomBytes(32));
 });
-afterEach(() => db.close());
 
 const EMPTY_ENV = {} as NodeJS.ProcessEnv;
 

@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeSlackSessionThreadsRepo, type SlackSessionThreadsRepo } from "./session-threads-repo.js";
 
 describe("slack_session_threads repo", () => {
   let repo: SlackSessionThreadsRepo;
   beforeEach(() => {
-    const db = new Database(":memory:");
-    applyMigrations(db);
+    const db = makeTestDb();
     repo = makeSlackSessionThreadsRepo(db);
   });
 

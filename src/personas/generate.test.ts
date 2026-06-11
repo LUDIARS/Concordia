@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { generatePersonaDraft } from "./generate.js";
 import type { PersonaSignals } from "./signals.js";
 
@@ -21,15 +21,6 @@ function signals(over: Partial<PersonaSignals> = {}): PersonaSignals {
 }
 
 describe("generatePersonaDraft (heuristic fallback)", () => {
-  let prev: string | undefined;
-  beforeEach(() => {
-    prev = process.env.CONCORDIA_DISABLE_CLAUDE;
-    process.env.CONCORDIA_DISABLE_CLAUDE = "1"; // claude を呼ばず heuristic 経路へ
-  });
-  afterEach(() => {
-    if (prev === undefined) delete process.env.CONCORDIA_DISABLE_CLAUDE;
-    else process.env.CONCORDIA_DISABLE_CLAUDE = prev;
-  });
 
   it("always returns a valid draft with all fields populated", async () => {
     const d = await generatePersonaDraft(signals());

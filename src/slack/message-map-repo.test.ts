@@ -1,13 +1,11 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeSlackMessageMapRepo, type SlackMessageMapRepo } from "./message-map-repo.js";
 
 describe("slack_message_map repo", () => {
   let repo: SlackMessageMapRepo;
   beforeEach(() => {
-    const db = new Database(":memory:");
-    applyMigrations(db);
+    const db = makeTestDb();
     repo = makeSlackMessageMapRepo(db);
   });
 

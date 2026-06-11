@@ -1,13 +1,11 @@
 import { describe, it, expect } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { AdminState } from "../admin/state.js";
 import { resolveLictorLauncher } from "./lictor-launcher.js";
 import { buildWtArgs } from "./spawner.js";
 
 function admin(defaults?: { lictorDevPath?: string }) {
-  const db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   return new AdminState(db, defaults);
 }
 

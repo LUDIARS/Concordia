@@ -1,21 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { ChatRepo } from "../db/chat-repo.js";
 import { collectSignals } from "./signals.js";
 import type { SessionRow, SessionEventRow } from "../shared/types.js";
 
-let db: Database.Database;
 let chat: ChatRepo;
 
 beforeEach(() => {
-  db = new Database(":memory:");
-  applyMigrations(db);
+  const db = makeTestDb();
   chat = new ChatRepo(db);
-});
-
-afterEach(() => {
-  db.close();
 });
 
 function ev(id: number, kind: string, payload: object): SessionEventRow {

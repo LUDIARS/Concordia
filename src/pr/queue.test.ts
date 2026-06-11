@@ -1,6 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "../db/schema.js";
+import { describe, it, expect, beforeEach } from "vitest";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { buildPrQueue, bucketOf } from "./queue.js";
 import { renderPrQueueMarkdown } from "./render.js";
@@ -39,14 +38,12 @@ describe("pr/normalize", () => {
 });
 
 describe("pr/queue", () => {
-  let db: Database.Database;
+  let db: ReturnType<typeof makeTestDb>;
   let repo: PrRecordsRepo;
   beforeEach(() => {
-    db = new Database(":memory:");
-    applyMigrations(db);
+    db = makeTestDb();
     repo = new PrRecordsRepo(db);
   });
-  afterEach(() => db.close());
 
   it("buckets by review_state", () => {
     repo.upsertFromStat({ repo_origin: "R/x", number: 1 }); // needs_review default

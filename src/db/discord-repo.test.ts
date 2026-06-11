@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import Database from "better-sqlite3";
-import { applyMigrations } from "./schema.js";
+import { makeTestDb } from "../../tests/helpers/db.js";
 import {
   classifyEmoji,
   makeChatMessageReactionsRepo,
@@ -9,12 +8,6 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "./discord-repo.js";
-
-function makeDb() {
-  const db = new Database(":memory:");
-  applyMigrations(db);
-  return db;
-}
 
 describe("classifyEmoji", () => {
   it("fine / bad / raw に分類", () => {
@@ -28,7 +21,7 @@ describe("classifyEmoji", () => {
 
 describe("discord_config repo", () => {
   it("set/get/all", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordConfigRepo(db);
     repo.set("guild_id", "g1");
     repo.set("guild_id", "g2"); // upsert
@@ -39,8 +32,8 @@ describe("discord_config repo", () => {
 });
 
 describe("discord_session_channels repo", () => {
-  let db: Database.Database;
-  beforeEach(() => { db = makeDb(); });
+  let db: ReturnType<typeof makeTestDb>;
+  beforeEach(() => { db = makeTestDb(); });
 
   it("upsert + find by session/channel + setStatus", () => {
     const repo = makeDiscordSessionChannelsRepo(db);
@@ -74,7 +67,7 @@ describe("discord_session_channels repo", () => {
 
 describe("discord_message_map repo", () => {
   it("put + findChatId", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordMessageMapRepo(db);
     repo.put("dm1", 42);
     expect(repo.findChatId("dm1")).toBe(42);
@@ -86,7 +79,7 @@ describe("discord_message_map repo", () => {
 
 describe("chat_message_reactions repo", () => {
   it("add / remove / countByMessage", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeChatMessageReactionsRepo(db);
     repo.add({ message_id: 1, discord_user_id: "u1", kind: "fine" });
     repo.add({ message_id: 1, discord_user_id: "u2", kind: "fine" });
@@ -103,7 +96,7 @@ describe("chat_message_reactions repo", () => {
 
 describe("discord_pending_questions repo", () => {
   it("insert / find / markAnswered / findLatestUnanswered", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q1 = repo.insert({
       session_id: "s1",
@@ -123,7 +116,7 @@ describe("discord_pending_questions repo", () => {
   });
 
   it("markResolvedLocally は answered_at を立て answer_index は null、再回答を弾く準備", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q = repo.insert({ session_id: "s1", question: "Q", options: ["A", "B"] });
     repo.markResolvedLocally(q.id);
@@ -135,7 +128,7 @@ describe("discord_pending_questions repo", () => {
   });
 
   it("markResolvedLocally は既回答を上書きしない (idempotent)", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q = repo.insert({ session_id: "s1", question: "Q", options: ["A", "B"] });
     repo.markAnswered(q.id, 0, "A");
@@ -146,7 +139,7 @@ describe("discord_pending_questions repo", () => {
   });
 
   it("findUnansweredByQuestion は同一文の未回答だけ返す (冪等化用)", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q = repo.insert({ session_id: "s1", question: "進めますか?", options: ["はい", "いいえ"] });
     // 同じ文 → 既存 id を返す (重複投稿防止)
@@ -160,7 +153,7 @@ describe("discord_pending_questions repo", () => {
   });
 
   it("insert multiSelect + markAnsweredMulti / markAnsweredOther", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q = repo.insert({
       session_id: "s1",
@@ -189,7 +182,7 @@ describe("discord_pending_questions repo", () => {
   });
 
   it("findRecentlyAnsweredByQuestion は回答後の遅延再 POST を窓内で拾う", () => {
-    const db = makeDb();
+    const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);
     const q = repo.insert({ session_id: "s1", question: "進めますか?", options: ["はい", "いいえ"] });
     // 未回答のうちは null (= こちらは findUnansweredByQuestion が担当)

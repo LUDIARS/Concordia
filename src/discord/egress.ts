@@ -1,4 +1,6 @@
-﻿import type { Guild } from "discord.js";
+﻿import fs from "node:fs";
+import path from "node:path";
+import type { Guild } from "discord.js";
 import type { ChatMessageRow, ChatRepo } from "../db/chat-repo.js";
 import type { DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -9,6 +11,8 @@ import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
+
+const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
 const CODEX_DUP_WINDOW_MS = 90_000;
 const codexRelayDedup = new Map<string, number>();
@@ -115,10 +119,15 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     deps.log.info(`egress: chat.posted dedup skipped message_id=${row.id} channel=${channelId}`);
     return;
   }
-  const res = await deps.webhooks.send(client, { content: row.text, username: author });
+  const attachFiles = buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
+  const res = await deps.webhooks.send(client, {
+    content: row.text,
+    username: author,
+    ...(attachFiles.length > 0 ? { files: attachFiles } : {}),
+  });
   if (res) {
     deps.messageMap.put(res.id, row.id);
-    deps.log.info(`egress: chat.posted relayed ok message_id=${row.id} discord_message_id=${res.id} channel=${channelId}`);
+    deps.log.info(`egress: chat.posted relayed ok message_id=${row.id} discord_message_id=${res.id} channel=${channelId} attachments=${attachFiles.length}`);
     return;
   }
   deps.log.warn(`egress: chat.posted relay returned empty response message_id=${row.id} channel=${channelId}`);
@@ -279,6 +288,8 @@ export function readChatMeta(s: string | null | undefined): {
   scope?: string;
   /** Lictor が握る送信先 channel ID (spec/discord-lictor-relay.md §4.3)。 */
   discord_channel_id?: string;
+  /** Discord webhook に添付するローカルファイルパス一覧。 */
+  attachment_paths?: string[];
 } {
   if (!s) return {};
   try {
@@ -288,8 +299,43 @@ export function readChatMeta(s: string | null | undefined): {
       discord_message_id?: string;
       scope?: string;
       discord_channel_id?: string;
+      attachment_paths?: string[];
     };
   } catch {
     return {};
   }
+}
+
+function buildAttachFiles(
+  rawPaths: string[] | undefined,
+  messageId: number,
+  log: { warn: (m: string) => void },
+): Array<{ attachment: Buffer; name: string }> {
+  if (!rawPaths?.length) return [];
+  const out: Array<{ attachment: Buffer; name: string }> = [];
+  for (const p of rawPaths) {
+    const absPath = path.isAbsolute(p) ? p : null;
+    if (!absPath) {
+      log.warn(`egress: attachment skipped (not absolute) message_id=${messageId} path=${p}`);
+      continue;
+    }
+    let stat: fs.Stats;
+    try {
+      stat = fs.statSync(absPath);
+    } catch {
+      log.warn(`egress: attachment not found message_id=${messageId} path=${absPath}`);
+      continue;
+    }
+    if (stat.size > DISCORD_ATTACH_MAX_BYTES) {
+      log.warn(`egress: attachment too large (${stat.size}B) message_id=${messageId} path=${absPath}`);
+      continue;
+    }
+    try {
+      const buf = fs.readFileSync(absPath);
+      out.push({ attachment: buf, name: path.basename(absPath) });
+    } catch (err) {
+      log.warn(`egress: attachment read failed message_id=${messageId} path=${absPath}: ${(err as Error).message}`);
+    }
+  }
+  return out;
 }

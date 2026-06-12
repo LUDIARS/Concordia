@@ -27,12 +27,19 @@ const PostSchema = z.object({
    * channel に直接 webhook 送信する (返信混線の根治)。
    */
   discord_channel_id: z.string().min(1).optional(),
+  /**
+   * Concordia サーバと同一ホスト上のファイル絶対パス一覧。
+   * egress が読み込んで Discord webhook の files に添付する。最大 10 件。
+   * 存在しないパスは egress で warn して skip される。
+   */
+  attachment_paths: z.array(z.string().min(1).max(500)).max(10).optional(),
 });
 
-/** discord_channel_id を metadata に畳み込む (egress が読む). */
+/** discord_channel_id / attachment_paths を metadata に畳み込む (egress が読む). */
 function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
   const merged: Record<string, unknown> = { ...(parsed.metadata ?? {}), scope };
   if (parsed.discord_channel_id) merged.discord_channel_id = parsed.discord_channel_id;
+  if (parsed.attachment_paths?.length) merged.attachment_paths = parsed.attachment_paths;
   return JSON.stringify(merged);
 }
 

@@ -1,23 +1,30 @@
 import {
   type AutocompleteInteraction,
   type ChatInputCommandInteraction,
+  type Guild,
   type Interaction,
   REST,
   Routes,
 } from "discord.js";
 import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type { DiscordConfigSnapshot } from "./config.js";
 import spawnCommand from "./commands/spawn.js";
 import skillCommand from "./commands/skill.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
+import cleanCommand from "./commands/clean.js";
 import { dispatchQuestionInteraction } from "./question.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   pendingQuestionsRepo: DiscordPendingQuestionsRepo;
+  guild: Guild;
+  layout: DiscordConfigSnapshot;
+  log: { info: (m: string) => void; warn: (m: string) => void };
+  logsDir?: string;
 }
 
 export interface DiscordCommandSpec {
@@ -34,6 +41,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   prsCommand,
   endSessionCommand,
   enterCommand,
+  cleanCommand,
 ];
 
 export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {

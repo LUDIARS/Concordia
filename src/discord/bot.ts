@@ -378,10 +378,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     });
   });
   client.on(Events.InteractionCreate, (interaction) => {
+    if (!layout) return;
     void dispatchInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
       sessionChannelsRepo,
       pendingQuestionsRepo,
+      guild: interaction.guild!,
+      layout,
+      log,
     }).catch((e) => {
       log.warn(`interaction handler failed id=${interaction.id}: ${(e as Error).message}`);
     });

@@ -255,7 +255,7 @@ const STALE_CHANNEL_MS = 48 * 60 * 60 * 1000; // 最終更新がこれより前�
  * - 起動時 + 1 時間ごとに呼ぶ想定。
  */
 export async function archiveStaleChannels(
-  deps: SessionChannelDeps & { logsDir?: string },
+  deps: SessionChannelDeps & { logsDir?: string; force?: boolean },
 ): Promise<{ scanned: number; archived: number }> {
   await deps.guild.channels.fetch().catch(() => null);
   const targetCategories = new Set([deps.layout.sessionsCategoryId, deps.layout.archiveCategoryId]);
@@ -275,7 +275,7 @@ export async function archiveStaleChannels(
     scanned += 1;
     if (activeChannelIds.has(ch.id)) continue; // 稼働中は残す
     const lastTs = await lastActivityTs(ch as TextChannel);
-    if (now - lastTs < STALE_CHANNEL_MS) continue; // まだ新しい
+    if (!deps.force && now - lastTs < STALE_CHANNEL_MS) continue; // まだ新しい (force 時はスキップ)
     let saved = false;
     try {
       saved = await exportChannelLog(ch as TextChannel, baseDir, lastTs);

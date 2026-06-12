@@ -756,6 +756,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "name_body",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN name_body TEXT`,
   },
+  {
+    table: "discord_session_channels",
+    column: "delegation_emoji",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+  },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

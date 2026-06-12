@@ -39,13 +39,13 @@ const STATE_EMOJI: Record<ChannelDisplayState, string> = {
 };
 
 const AGENT_EMOJI: Record<string, string> = {
-  claude: "\u{1F9D9}", // 🧙 魔法使い
   codex: "\u{1F916}", // 🤖 ロボット
   gemini: "♊", // ♊ ふたご座
 };
 
-/** provider/agentType に対応するエージェント絵文字。未知は 🔹。 */
-export function agentEmoji(agentType: string | null): string {
+/** provider/agentType に対応するエージェント絵文字。delegationEmoji が優先。未知は 🔹。 */
+export function agentEmoji(agentType: string | null, delegationEmoji?: string | null): string {
+  if (delegationEmoji?.trim()) return delegationEmoji.trim();
   return AGENT_EMOJI[normalizeAgentType(agentType)] ?? "\u{1F539}";
 }
 
@@ -54,9 +54,10 @@ export function buildSessionChannelName(
   state: ChannelDisplayState,
   agentType: string | null,
   body: string,
+  delegationEmoji?: string | null,
 ): string {
   const b = (body || "session").replace(/^-+|-+$/g, "");
-  return `${STATE_EMOJI[state]}${agentEmoji(agentType)}-${b}`.slice(0, 95);
+  return `${STATE_EMOJI[state]}${agentEmoji(agentType, delegationEmoji)}-${b}`.slice(0, 95);
 }
 
 

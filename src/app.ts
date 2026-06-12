@@ -57,6 +57,7 @@ import { delegationRouter } from "./api/delegation.js";
 import type { DelegationRepo } from "./db/delegation-repo.js";
 import type { DelegationService } from "./delegation/service.js";
 import { substituteVars } from "./delegation/service.js";
+import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./api/model-catalog.js";
 import type { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import {
@@ -146,6 +147,7 @@ export function buildApp(deps: AppDeps): Hono {
       discordChannels: deps.discordChannels,
       discordConfig: deps.discordConfig,
       participants: deps.participants,
+      resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
@@ -254,16 +256,19 @@ export function buildApp(deps: AppDeps): Hono {
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
+      const spawnCwd = resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd);
       const result = spawnSession({
         provider: spawn.provider,
         mode,
         args: spawn.args.length > 0 ? spawn.args : undefined,
-        cwd: resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd),
+        cwd: spawnCwd,
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: spawn.env,
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
+      // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
+      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name });
       return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });
     }
 

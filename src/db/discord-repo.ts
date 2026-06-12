@@ -64,6 +64,7 @@ export interface DiscordSessionChannelRow {
   display_state: ChannelDisplayState;
   agent_type: string | null;
   name_body: string | null;
+  delegation_emoji: string | null;
   last_rename_ts: number;
   ts: number;
 }
@@ -80,6 +81,7 @@ export interface DiscordSessionChannelsRepo {
     display_state?: ChannelDisplayState;
     agent_type?: string | null;
     name_body?: string | null;
+    delegation_emoji?: string | null;
   }): void;
   setWebhook(sessionId: string, webhookId: string, webhookToken: string): void;
   /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
@@ -122,17 +124,18 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       db.prepare(
         `INSERT INTO discord_session_channels
            (session_id, channel_id, webhook_id, webhook_token, status,
-            display_state, agent_type, name_body, last_rename_ts, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            display_state, agent_type, name_body, delegation_emoji, last_rename_ts, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
          ON CONFLICT(session_id) DO UPDATE SET
-           channel_id     = excluded.channel_id,
-           webhook_id     = COALESCE(excluded.webhook_id,    discord_session_channels.webhook_id),
-           webhook_token  = COALESCE(excluded.webhook_token, discord_session_channels.webhook_token),
-           status         = excluded.status,
-           display_state  = excluded.display_state,
-           agent_type     = COALESCE(excluded.agent_type,    discord_session_channels.agent_type),
-           name_body      = COALESCE(excluded.name_body,     discord_session_channels.name_body),
-           ts             = excluded.ts`,
+           channel_id       = excluded.channel_id,
+           webhook_id       = COALESCE(excluded.webhook_id,       discord_session_channels.webhook_id),
+           webhook_token    = COALESCE(excluded.webhook_token,    discord_session_channels.webhook_token),
+           status           = excluded.status,
+           display_state    = excluded.display_state,
+           agent_type       = COALESCE(excluded.agent_type,       discord_session_channels.agent_type),
+           name_body        = COALESCE(excluded.name_body,        discord_session_channels.name_body),
+           delegation_emoji = COALESCE(excluded.delegation_emoji, discord_session_channels.delegation_emoji),
+           ts               = excluded.ts`,
       ).run(
         input.session_id,
         input.channel_id,
@@ -142,6 +145,7 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
         input.display_state ?? "active",
         input.agent_type ?? null,
         input.name_body ?? null,
+        input.delegation_emoji ?? null,
         nowSec(),
       );
     },

@@ -410,6 +410,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         {
           sessionId: ev.session_id,
           agentType: ev.provider ?? null,
+          delegationEmoji: meta.delegation_emoji ?? null,
           roleLabel: meta.role_label ?? null,
           personaDisplayName: persona?.display_name ?? null,
         },
@@ -568,6 +569,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           { guild, layout, repo: sessionChannelsRepo, log },
           { sessionId: ev.session_id, title, agentType: s.provider },
         );
+        // delegation_emoji は session-channel.ts が DB の row.delegation_emoji から取るため追加引数不要。
       }
       return;
     }
@@ -615,7 +617,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   };
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
+function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; delegation_emoji?: string } {
   if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
+  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; delegation_emoji?: string }; } catch { return {}; }
 }

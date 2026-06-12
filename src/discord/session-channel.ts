@@ -48,14 +48,14 @@ export interface SessionChannelDeps {
 /** session.registered → channel 作成 + 🟢 prefix + active マーク. */
 export async function onSessionRegistered(
   deps: SessionChannelDeps,
-  input: { sessionId: string; agentType: string | null; roleLabel: string | null; personaDisplayName: string | null },
+  input: { sessionId: string; agentType: string | null; delegationEmoji?: string | null; roleLabel: string | null; personaDisplayName: string | null },
 ): Promise<void> {
   const existing = deps.repo.findBySessionId(input.sessionId);
   if (existing) return; // 既知 (再 register など)
 
   // 名前 = 🟢<エージェント絵文字>-<role>。作業内容は title_renamed で後から body に載る。
   const nameBody = roleSlug(input.roleLabel ?? "anon");
-  const name = buildSessionChannelName("active", input.agentType, nameBody);
+  const name = buildSessionChannelName("active", input.agentType, nameBody, input.delegationEmoji);
   try {
     const created = await deps.guild.channels.create({
       name,
@@ -72,6 +72,7 @@ export async function onSessionRegistered(
       display_state: "active",
       agent_type: input.agentType ?? null,
       name_body: nameBody,
+      delegation_emoji: input.delegationEmoji ?? null,
     });
     deps.log.info(`session-channel: created #${created.name} for ${input.sessionId}`);
 
@@ -115,7 +116,7 @@ export async function onSessionStatusChanged(
     const ch = deps.guild.channels.cache.get(row.channel_id);
     if (ch && ch.type === ChannelType.GuildText) {
       try {
-        const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session");
+        const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
         await ch.edit({
           name: endedName,
           parent: deps.layout.archiveCategoryId,
@@ -351,7 +352,7 @@ export async function onSessionTitleChanged(
     // status が ended/lost ならその状態を優先、active なら DB の display_state (作業中含む) を維持。
     const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
     const newBody = titleToChannelBase(input.title);
-    const nextName = buildSessionChannelName(state, input.agentType, newBody);
+    const nextName = buildSessionChannelName(state, input.agentType, newBody, row.delegation_emoji);
     const patch: { topic: string; reason: string; name: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
@@ -394,7 +395,7 @@ export async function onSessionWorkState(
   }
   try {
     // DB に保存済みの agent_type / name_body から再構築 — チャンネル名パース不要。
-    const newName = buildSessionChannelName(desired, row.agent_type, row.name_body ?? "session");
+    const newName = buildSessionChannelName(desired, row.agent_type, row.name_body ?? "session", row.delegation_emoji);
     await ch.edit({ name: newName, reason: `session ${input.sessionId} work-state=${desired}` });
     deps.repo.setDisplayState(input.sessionId, desired);
     deps.log.info(`session-channel: ${input.sessionId} work-state → #${newName}`);

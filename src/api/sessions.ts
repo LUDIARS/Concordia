@@ -32,6 +32,13 @@ import {
   AUTO_SESSION_END_INJECT_SOURCE,
 } from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
+import {
+  INITIAL_WORK_QUESTION,
+  buildInitialWorkOptions,
+  formatDevelopmentTitle,
+  markInitialWorkQuestionAsked,
+  maybeParseInitialWorkTarget,
+} from "../control/initial-work.js";
 
 const log = createChildLogger("sessions-api");
 
@@ -159,6 +166,7 @@ export interface SessionsApiDeps {
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
   participants: ParticipantsRepo;
+  resolveWorkspaceRoots?: () => string[];
 }
 
 /** discord_config に保存される meta channel の key (resolveMetaKind と揃える). */
@@ -279,6 +287,38 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       });
     }
 
+    const freshSession = deps.repo.findSession(input.id)!;
+    const initialWorkOptions = await buildInitialWorkOptions(
+      deps.repo,
+      freshSession,
+      deps.resolveWorkspaceRoots?.() ?? [input.repo_path],
+    );
+    const initialWorkQuestion = markInitialWorkQuestionAsked(deps.pendingQuestions, freshSession, initialWorkOptions);
+    if (!initialWorkQuestion.deduped) {
+      const ts = nowSec();
+      deps.repo.appendEvent({
+        session_id: input.id,
+        ts,
+        kind: "pending_question",
+        payload: {
+          question_id: initialWorkQuestion.questionId,
+          question: INITIAL_WORK_QUESTION,
+          options: initialWorkOptions,
+          initial_work: true,
+        },
+      });
+      setTimeout(() => {
+        eventBus.emit({
+          type: "question.posted",
+          target_session_id: input.id,
+          question_id: initialWorkQuestion.questionId,
+          question: INITIAL_WORK_QUESTION,
+          options: initialWorkOptions,
+          ts,
+        });
+      }, 500).unref?.();
+    }
+
     return c.json({
       session: serializeSession(deps.repo.findSession(input.id)!),
       peers: peers.map(serializeSession),
@@ -288,6 +328,11 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       persona_reused: assignment ? assignment.reused : false,
       processes: processStartup,
       process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
+      initial_work: {
+        question_id: initialWorkQuestion.questionId,
+        question: INITIAL_WORK_QUESTION,
+        options: initialWorkOptions,
+      },
     });
   });
 
@@ -524,7 +569,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       ts: now,
       kind: "title_renamed",
-      payload: { text: parsed.data.text },
+      // source: "title-suggestion" を付与し、Discord bot 側でチャンネル名リネームを抑制する。
+      // AI の自動タイトル提案はチャンネル名に反映せず topic のみ更新する。
+      payload: { text: parsed.data.text, source: "title-suggestion" },
     });
     eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts: now });
     const text = await upstream.text();
@@ -637,6 +684,26 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       kind: "question_answered",
       payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
     });
+    const session = deps.repo.findSession(id)!;
+    const initialTarget = maybeParseInitialWorkTarget(row.question, answerText, session);
+    if (initialTarget) {
+      const title = formatDevelopmentTitle(initialTarget);
+      deps.repo.patchSession(id, {
+        branch: initialTarget.branch,
+        current_task: title.slice(0, 200),
+      });
+      deps.repo.mergeMetadata(id, {
+        initial_work_target: initialTarget,
+        initial_work_confirmed_at: ts,
+      });
+      deps.repo.appendEvent({
+        session_id: id,
+        ts,
+        kind: "title_renamed",
+        payload: { text: title, reason: "initial_work_selected" },
+      });
+      eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts });
+    }
     return c.json({ ok: true, answer_text: answerText });
   });
 
@@ -1008,6 +1075,14 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       },
       ended,
     );
+    // runSessionEndFlow が完了した時点で AI の session-end 処理は十分に進んでいるため、
+    // Lictor に force-exit を送って WT ウインドウを閉じさせる (best-effort)。
+    // Lictor が既に終了している場合は接続エラーになるが catch で握り潰す。
+    const lictorTarget = resolveLictorTarget(deps.repo, id);
+    if (!("error" in lictorTarget)) {
+      void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
+        .catch(() => {});
+    }
     return c.json({ ok: true, session: serializeSession(ended), report });
   });
 

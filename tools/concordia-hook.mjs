@@ -166,6 +166,22 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     }
   }
   // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
+  if (res?.initial_work && !QUIET_STDOUT) {
+    const iw = res.initial_work;
+    const lines = [
+      "",
+      "[concordia/initial-work]",
+      "最初に、今回作業するブランチ/開発コードを確定してください。",
+      "Concordia/Slack/Discord 側にも同じ選択UIを出しています。候補に無い場合や複数リポジトリにまたがる場合は自由入力を使えます。",
+      "確定後はチャンネル名が「<branch>(<GitHub project>)開発中」になります。",
+    ];
+    const options = Array.isArray(iw.options) ? iw.options.slice(0, 8) : [];
+    if (options.length) {
+      lines.push("候補:");
+      for (const o of options) lines.push(`  - ${o.label ?? String(o)}`);
+    }
+    process.stdout.write(lines.join("\n") + "\n");
+  }
   if (res?.persona && res.persona.skill_template && !QUIET_STDOUT) {
     const reused = res.persona_reused ? " (再開: 既存 assign)" : "";
     process.stdout.write(

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
+import { INITIAL_WORK_QUESTION } from "../src/control/initial-work.js";
 
 function buildTestApp() {
   return makeTestApp();
@@ -10,6 +11,44 @@ describe("sessions API — pending-question / discord-channels", () => {
   beforeEach(() => { env = buildTestApp(); });
 
   describe("pending-question / answer-question", () => {
+    it("POST /v1/sessions creates initial branch/development target question", async () => {
+      const r = await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
+      });
+      expect(r.status).toBe(200);
+      const j = await r.json() as any;
+      expect(j.initial_work.question).toBe(INITIAL_WORK_QUESTION);
+      expect(j.initial_work.options[0].label).toBe("Concordia: main");
+      const row = env.pendingQuestions.findById(j.initial_work.question_id);
+      expect(row?.question).toBe(INITIAL_WORK_QUESTION);
+    });
+
+    it("answering initial work question updates branch, metadata, and title", async () => {
+      const start = await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "iw2", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
+      });
+      const sj = await start.json() as any;
+      const r = await env.app.request("/v1/sessions/iw2/answer-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question_id: sj.initial_work.question_id, other_text: "Concordia: feat/initial-work" }),
+      });
+      expect(r.status).toBe(200);
+      const detail = await (await env.app.request("/v1/sessions/iw2")).json() as any;
+      expect(detail.session.branch).toBe("feat/initial-work");
+      expect(detail.session.current_task).toBe("feat/initial-work(Concordia)開発中");
+      expect(detail.session.metadata.initial_work_target).toMatchObject({
+        repo: "Concordia",
+        branch: "feat/initial-work",
+      });
+      const titleEvent = detail.events.find((e: any) => e.kind === "title_renamed");
+      expect(titleEvent.payload.text).toBe("feat/initial-work(Concordia)開発中");
+    });
+
     it("POST pending-question stores row + emits question.posted", async () => {
       await env.app.request("/v1/sessions", {
         method: "POST",

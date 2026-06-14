@@ -42,7 +42,8 @@ export type WorkflowAction =
   | "memoria-task"
   | "defer-impl"
   | "force-enter"
-  | "delegate-task";
+  | "delegate-task"
+  | "channel-rename";
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -74,6 +75,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "force-enter": ["🙄"],
   // delegation に対応する絵文字 → Haiku でタスク判定 → タスクあり = delegation invoke
   "delegate-task": ["🤝", "🫱", "🫱🏻", "🫱🏼", "🫱🏽", "🫱🏾", "🫱🏿"],
+  // このメッセージ本文をセッションチャンネル名に反映 (手動リネーム)
+  "channel-rename": ["🔹", "📎"],
 };
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
@@ -148,6 +151,11 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "タスク委託実行",
     summary: "投稿内容を『Haiku でタスク判定 → タスクあり = 最適な delegation template を選んで invoke、なし = スキップ』に変換して渡す。",
     mode: "active へ inject (委託+監視) / 非active は headless haiku (委託のみ)",
+  },
+  "channel-rename": {
+    label: "チャンネルリネーム",
+    summary: "このメッセージ本文をセッションチャンネルの名前 (slug 化) に反映する。初回リポ選択後の手動リネーム手段。",
+    mode: "API (Concordia /sessions/:id/title 直接呼び出し)",
   },
 };
 
@@ -485,6 +493,11 @@ export function planWorkflow(
         prompt,
       };
     }
+
+    case "channel-rename":
+      // handle() で concordiaUrl 経由の直接 API 呼び出しを行う。planWorkflow は呼ばれない。
+      // ここは TypeScript の網羅性チェックのためのプレースホルダー。
+      return { action, mode: "headless" as const, prompt: "" };
   }
 }
 
@@ -495,6 +508,8 @@ export interface ReactionWorkflowDeps {
   runHeadless: (prompt: string, opts?: RunClaudeOptions) => Promise<ClaudeRunResult>;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
   workspaceRoot: string;
+  /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
+  concordiaUrl?: string;
   /**
    * 複数ワークスペースルート (走査対象の全ルート)。 Memoria はこのうち実在する
    * `<root>/Memoria` を採用する。 未指定なら [workspaceRoot] 相当。
@@ -596,6 +611,14 @@ export class ReactionWorkflowRunner {
     }
     this.lastFired.set(key, now);
 
+    // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
+    if (action === "channel-rename") {
+      // 発火確定通知
+      if (onAccept) try { onAccept(action); } catch { /* best-effort */ }
+      await this.handleChannelRename(input);
+      return;
+    }
+
     // 文脈は呼び出し側 (Discord/Slack bot) がプラットフォーム API で解決済。
     // chat_messages / message-map には依存しない。
     const ctx: WorkflowContext = {
@@ -630,6 +653,37 @@ export class ReactionWorkflowRunner {
       }
     } catch (e) {
       this.deps.log.warn(`reaction-workflow: action=${action} failed: ${(e as Error).message}`);
+    }
+  }
+
+  private async handleChannelRename(input: ReactionWorkflowInput): Promise<void> {
+    if (!input.sessionId) {
+      this.deps.log.warn("reaction-workflow: channel-rename skipped (no sessionId — not a session channel)");
+      return;
+    }
+    const text = input.messageText.trim().slice(0, 200);
+    if (!text) {
+      this.deps.log.warn("reaction-workflow: channel-rename skipped (empty message text)");
+      return;
+    }
+    const baseUrl = this.deps.concordiaUrl ?? "http://127.0.0.1:17330";
+    try {
+      const res = await fetch(`${baseUrl}/v1/sessions/${input.sessionId}/title`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, source: "reaction-rename" }),
+      });
+      if (!res.ok) {
+        this.deps.log.warn(
+          `reaction-workflow: channel-rename API failed session=${input.sessionId.slice(0, 8)} status=${res.status}`,
+        );
+      } else {
+        this.deps.log.info(
+          `reaction-workflow: channel-rename applied session=${input.sessionId.slice(0, 8)} text="${text.slice(0, 40)}"`,
+        );
+      }
+    } catch (e) {
+      this.deps.log.warn(`reaction-workflow: channel-rename fetch failed: ${(e as Error).message}`);
     }
   }
 

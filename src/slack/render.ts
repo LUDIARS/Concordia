@@ -286,6 +286,7 @@ export function reformatMarkdownTables(text: string): string {
 }
 
 const ANSWER_ACTION_PREFIX = "cc_answer";
+const OTHER_ACTION_PREFIX = "cc_answer_other";
 
 /** AskUserQuestion の選択肢ボタン block を組む。action_id に question_id と index を埋める。 */
 export function buildQuestionBlocks(
@@ -294,12 +295,18 @@ export function buildQuestionBlocks(
   options: Array<string | { label: string; description?: string }>,
 ): { text: string; blocks: unknown[] } {
   const norm = options.map((o) => (typeof o === "string" ? { label: o } : o));
-  const elements = norm.slice(0, 25).map((o, i) => ({
+  const elements = norm.slice(0, 24).map((o, i) => ({
     type: "button",
     text: { type: "plain_text", text: truncateForSlack(o.label, 75), emoji: true },
     value: String(i),
     action_id: `${ANSWER_ACTION_PREFIX}:${questionId}:${i}`,
   }));
+  elements.push({
+    type: "button",
+    text: { type: "plain_text", text: "自由入力", emoji: true },
+    value: "other",
+    action_id: `${OTHER_ACTION_PREFIX}:${questionId}`,
+  });
   const optionLines = norm
     .map((o, i) => `*${i + 1}.* ${o.label}${o.description ? ` — ${o.description}` : ""}`)
     .join("\n");
@@ -337,4 +344,12 @@ export function parseAnswerActionId(actionId: string): { questionId: number; ans
   const answerIndex = Number(parts[2]);
   if (!Number.isInteger(questionId) || !Number.isInteger(answerIndex) || answerIndex < 0) return null;
   return { questionId, answerIndex };
+}
+
+export function parseOtherAnswerActionId(actionId: string): { questionId: number } | null {
+  const parts = (actionId ?? "").split(":");
+  if (parts.length !== 2 || parts[0] !== OTHER_ACTION_PREFIX) return null;
+  const questionId = Number(parts[1]);
+  if (!Number.isInteger(questionId) || questionId < 1) return null;
+  return { questionId };
 }

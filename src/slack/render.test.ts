@@ -252,8 +252,8 @@ describe("buildQuestionBlocks", () => {
     const actions = (blocks as Array<{ type: string; elements?: Array<{ action_id: string; value: string }> }>).find(
       (b) => b.type === "actions",
     );
-    expect(actions?.elements?.map((e) => e.action_id)).toEqual(["cc_answer:42:0", "cc_answer:42:1"]);
-    expect(actions?.elements?.map((e) => e.value)).toEqual(["0", "1"]);
+    expect(actions?.elements?.map((e) => e.action_id)).toEqual(["cc_answer:42:0", "cc_answer:42:1", "cc_answer_other:42"]);
+    expect(actions?.elements?.slice(0, 2).map((e) => e.value)).toEqual(["0", "1"]);
   });
 });
 

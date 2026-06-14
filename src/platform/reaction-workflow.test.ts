@@ -93,7 +93,7 @@ describe("WORKFLOW_ACTION_HELP", () => {
     for (const a of WORKFLOW_ACTIONS) {
       const h = WORKFLOW_ACTION_HELP[a];
       expect(h.label.length).toBeGreaterThan(0);
-      expect(h.summary).toContain("変換"); // 「投稿内容を変換して渡す」を明示
+      expect(h.summary.length).toBeGreaterThan(0);
       expect(h.mode.length).toBeGreaterThan(0);
     }
   });

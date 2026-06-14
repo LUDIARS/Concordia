@@ -42,13 +42,13 @@ describe("sessionChannelSlug", () => {
 
 describe("agentEmoji / buildSessionChannelName", () => {
   it("agentEmoji: provider 別", () => {
-    expect(agentEmoji("claude-code")).toBe("🧙");
+    expect(agentEmoji("claude-code")).toBe("🔹");
     expect(agentEmoji("codex-cli")).toBe("🤖");
     expect(agentEmoji("gemini-cli")).toBe("♊");
     expect(agentEmoji(null)).toBe("🔹");
   });
   it("buildSessionChannelName: <状態><エージェント>-body", () => {
-    expect(buildSessionChannelName("active", "claude-code", "architect")).toBe("🟢🧙-architect");
+    expect(buildSessionChannelName("active", "claude-code", "architect")).toBe("🟢🔹-architect");
     expect(buildSessionChannelName("working", "codex-cli", "di-クローラ機能作成")).toBe("⚙️🤖-di-クローラ機能作成");
   });
 });

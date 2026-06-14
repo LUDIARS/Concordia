@@ -30,7 +30,7 @@ import {
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
-import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards } from "./session-status-card.js";
+import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
 import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
@@ -248,21 +248,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // 10分毎: アクティブな session のカードは更新 (作成はしない)、 非アクティブは削除。
       const lay = layout;
       reconcileTimer = setInterval(() => {
-        // 非アクティブ (lost/ended/消滅) の状態カードを削除。
+        // ロスト/終了セッションの状態カードを削除。
         void reconcileLostStatusCards({ guild, configRepo, sessionsRepo: deps.sessionsRepo, log })
           .then((r) => log.info(`status-card reconcile: scanned=${r.scanned} removed=${r.removed}`))
           .catch((e) => log.warn(`status-card reconcile failed: ${(e as Error).message}`));
-        // アクティブな session のカードのみ更新 (allowCreate=false なので作り直しはしない)。
+        // アクティブセッション全件を一律更新。カードが消えていれば再作成する。
         for (const row of sessionChannelsRepo.listActive()) {
           void upsertSessionStatusCard({
             guild, layout: lay, configRepo, sessionChannelsRepo,
             sessionsRepo: deps.sessionsRepo, sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
             tasksRepo: deps.tasksRepo, personasRepo: deps.personasRepo, log,
-          }, row.session_id).catch((e) => log.warn(`status-card 10min update failed session=${row.session_id}: ${(e as Error).message}`));
+          }, row.session_id, { allowCreate: true })
+            .catch((e) => log.warn(`status-card 1min update failed session=${row.session_id}: ${(e as Error).message}`));
         }
         void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
           .catch((e) => log.warn(`prune failed: ${(e as Error).message}`));
-      }, 10 * 60 * 1000);
+      }, 60 * 1000);
       reconcileTimer.unref?.();
       for (const row of sessionChannelsRepo.listActive()) {
         void upsertSessionStatusCard({
@@ -405,27 +406,48 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "session.started") {
       const meta = readMeta(deps.sessionsRepo.findSession(ev.session_id)?.metadata);
       const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
-      void onSessionRegistered(
-        { guild, layout, repo: sessionChannelsRepo, log, webhooks },
-        {
-          sessionId: ev.session_id,
-          agentType: ev.provider ?? null,
-          delegationEmoji: meta.delegation_emoji ?? null,
-          roleLabel: meta.role_label ?? null,
-          personaDisplayName: persona?.display_name ?? null,
-        },
-      );
-      void upsertSessionStatusCard({
-        guild,
-        layout,
-        configRepo,
-        sessionChannelsRepo,
-        sessionsRepo: deps.sessionsRepo,
-        sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-        tasksRepo: deps.tasksRepo,
-        personasRepo: deps.personasRepo,
-        log,
-      }, ev.session_id, { allowCreate: true }); // spawn 時のみ状態チャンネルを作成
+      const sessionId = ev.session_id;
+      void (async () => {
+        try {
+          await onSessionRegistered(
+            { guild, layout, repo: sessionChannelsRepo, log, webhooks },
+            {
+              sessionId,
+              agentType: ev.provider ?? null,
+              delegationEmoji: meta.delegation_emoji ?? null,
+              roleLabel: meta.role_label ?? null,
+              personaDisplayName: persona?.display_name ?? null,
+            },
+          );
+          await upsertSessionStatusCard({
+            guild,
+            layout,
+            configRepo,
+            sessionChannelsRepo,
+            sessionsRepo: deps.sessionsRepo,
+            sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
+            tasksRepo: deps.tasksRepo,
+            personasRepo: deps.personasRepo,
+            log,
+          }, sessionId, { allowCreate: true });
+          // 状態カード作成後、セッションチャンネルの topic を状態カードリンクにする。
+          const statusChannelId = getStatusChannelId(configRepo, sessionId);
+          if (statusChannelId) {
+            const sessionRow = sessionChannelsRepo.findBySessionId(sessionId);
+            if (sessionRow) {
+              const ch = guild.channels.cache.get(sessionRow.channel_id);
+              if (ch && ch.type === ChannelType.GuildText) {
+                await ch.edit({
+                  topic: `https://discord.com/channels/${guild.id}/${statusChannelId}`,
+                  reason: `session status card link for ${sessionId}`,
+                }).catch((e: unknown) => log.warn(`session-channel: topic link failed ${sessionId}: ${(e as Error).message}`));
+              }
+            }
+          }
+        } catch (e) {
+          log.warn(`session.started handler failed ${sessionId}: ${(e as Error).message}`);
+        }
+      })();
       return;
     }
     if (ev.type === "session.lost") {
@@ -559,17 +581,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       const s = deps.sessionsRepo.findSession(ev.session_id);
       const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
       let title = "";
+      let source: string | undefined;
       try {
-        const payload = latest ? JSON.parse(latest.payload) as { text?: unknown } : {};
+        const payload = latest ? JSON.parse(latest.payload) as { text?: unknown; source?: unknown } : {};
         if (typeof payload.text === "string") title = payload.text;
+        if (typeof payload.source === "string") source = payload.source;
       } catch {}
       if (s && title) {
-        // 会話チャンネル名のリネームのみ。 状態カードの更新は 10 分毎 tick に集約。
+        // title-suggestion (AI 自動) はチャンネル名を変えない。手動/リアクション rename のみ反映。
+        const forceRename = source !== "title-suggestion";
         void onSessionTitleChanged(
           { guild, layout, repo: sessionChannelsRepo, log },
-          { sessionId: ev.session_id, title, agentType: s.provider },
+          { sessionId: ev.session_id, title, agentType: s.provider, forceRename },
         );
-        // delegation_emoji は session-channel.ts が DB の row.delegation_emoji から取るため追加引数不要。
       }
       return;
     }

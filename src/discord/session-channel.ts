@@ -342,7 +342,7 @@ async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number
  */
 export async function onSessionTitleChanged(
   deps: SessionChannelDeps,
-  input: { sessionId: string; title: string; agentType: string | null },
+  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
@@ -353,18 +353,27 @@ export async function onSessionTitleChanged(
     const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
     const newBody = titleToChannelBase(input.title);
     const nextName = buildSessionChannelName(state, input.agentType, newBody, row.delegation_emoji);
-    const patch: { topic: string; reason: string; name: string } = {
+    // チャンネル名リネームは明示的に要求された時だけ行う (forceRename=true)。
+    // AI の title-suggestion 由来 (Lictor 自動) はリネームせず topic のみ更新し、
+    // チャンネル名は初回リポ選択時の名前を保つ。明示リネームは 🔹/📎 リアクション等で行う。
+    const patch: { topic: string; reason: string; name?: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
-      // title rename は常に反映する。status 変化時の cooldown とは分離する。
-      name: nextName,
     };
+    if (input.forceRename) {
+      patch.name = nextName;
+    }
     await ch.edit(patch);
-    // タイトル変更後は新 body を DB に保存 (次の status 変化時に再構築できるように)。
-    deps.repo.setDisplayState(input.sessionId, state as ChannelDisplayState, input.agentType, newBody);
-    deps.log.info(
-      `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name}`,
-    );
+    if (input.forceRename) {
+      deps.repo.setDisplayState(input.sessionId, state as ChannelDisplayState, input.agentType, newBody);
+      deps.log.info(
+        `session-channel: title+name updated for ${input.sessionId} topic=ok name=${nextName}`,
+      );
+    } else {
+      deps.log.info(
+        `session-channel: topic updated for ${input.sessionId} (name preserved)`,
+      );
+    }
   } catch (e) {
     deps.log.warn(`session-channel: title update failed for ${input.sessionId}: ${(e as Error).message}`);
   }

@@ -15,6 +15,7 @@ import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
+import projectsCommand from "./commands/projects.js";
 import { dispatchQuestionInteraction } from "./question.js";
 
 export interface DiscordCommandDeps {
@@ -42,6 +43,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   endSessionCommand,
   enterCommand,
   cleanCommand,
+  projectsCommand,
 ];
 
 export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {

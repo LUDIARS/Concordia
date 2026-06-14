@@ -1,17 +1,12 @@
-/**
- * LUDIARS リポジトリの 2 文字コード lookup.
- *
- * 正本: LUDIARS/PROJECT-CODES.md
- * 同期先: E:/Document/Ars/CLAUDE.md / ~/.claude/skills/project-codes/SKILL.md
- * Web UI のみで使う static map. 新 repo を追加するときは同期先も更新する.
- */
+import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
+import type { DiscordCommandSpec } from "../commands.js";
 
-export interface ProjectCategory {
+interface Category {
   name: string;
-  entries: [string, string][]; // [code, repoName]
+  entries: [string, string][]; // [code, repo]
 }
 
-export const PROJECT_CATEGORIES: ProjectCategory[] = [
+const CATEGORIES: Category[] = [
   {
     name: "メタ / インフラ",
     entries: [
@@ -113,27 +108,23 @@ export const PROJECT_CATEGORIES: ProjectCategory[] = [
   },
 ];
 
-// Flat lookup: repoBasename → code (後方互換で維持)
-const CODES: Record<string, string> = Object.fromEntries(
-  PROJECT_CATEGORIES.flatMap((cat) =>
-    cat.entries.map(([code, repo]) => [repo, code.split("/")[0]]),
-  ),
-);
+const projectsCommand: DiscordCommandSpec = {
+  builder: new SlashCommandBuilder()
+    .setName("projects")
+    .setDescription("LUDIARS プロジェクトコード一覧を表示"),
+  async execute(interaction) {
+    const embed = new EmbedBuilder()
+      .setTitle("LUDIARS プロジェクトコード一覧")
+      .setColor(0x5865f2)
+      .setFooter({ text: "正本: LUDIARS/PROJECT-CODES.md" });
 
-/**
- * repo path (絶対 / 相対どちらでも) から 2 文字コードを返す.
- * basename 一致を試み、マッチしなければ null.
- */
-export function projectCodeFor(repoPath: string | null | undefined): string | null {
-  if (!repoPath) return null;
-  const parts = repoPath.split(/[\\/]/).filter(Boolean);
-  if (parts.length === 0) return null;
-  const base = parts[parts.length - 1];
-  return CODES[base] ?? null;
-}
+    for (const cat of CATEGORIES) {
+      const value = cat.entries.map(([code, repo]) => `\`${code}\` ${repo}`).join("\n");
+      embed.addFields({ name: cat.name, value, inline: false });
+    }
 
-export function repoBasename(repoPath: string | null | undefined): string {
-  if (!repoPath) return "";
-  const parts = repoPath.split(/[\\/]/).filter(Boolean);
-  return parts.length === 0 ? "" : parts[parts.length - 1];
-}
+    await interaction.reply({ embeds: [embed], ephemeral: true });
+  },
+};
+
+export default projectsCommand;

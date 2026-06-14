@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PROJECT_CATEGORIES } from "../project-codes.js";
 
 interface SetupResponse {
   service: string;
@@ -178,6 +179,32 @@ Invoke-RestMethod -Uri http://127.0.0.1:17330/v1/chat -Method Post -ContentType 
         </pre>
         <p className="text-subtle text-xs mt-3">
           bash / zsh / git-bash は UTF-8 既定なので通常の <code>curl --data</code> で問題ありません.
+        </p>
+      </section>
+
+      <section className="bg-surface border border-border rounded p-4 text-sm">
+        <h2 className="font-semibold mb-1">7. プロジェクトコード一覧</h2>
+        <p className="text-subtle text-xs mb-3">
+          チャット / メモ中の略称と対応リポ。Claude → ユーザ方向はフルネームで書く。
+          Discord: <code className="text-accent">/projects</code> でも確認できます。
+        </p>
+        <div className="space-y-3">
+          {PROJECT_CATEGORIES.map((cat) => (
+            <div key={cat.name}>
+              <div className="text-xs font-medium text-subtle mb-1">{cat.name}</div>
+              <div className="flex flex-col gap-0.5">
+                {cat.entries.map(([code, repo]) => (
+                  <div key={code} className="flex gap-1.5 items-baseline text-[11px]">
+                    <code className="text-accent font-mono shrink-0 w-10">{code}</code>
+                    <span className="text-text">{repo}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="text-subtle text-[11px] mt-3">
+          正本: <code>LUDIARS/PROJECT-CODES.md</code>
         </p>
       </section>
     </div>

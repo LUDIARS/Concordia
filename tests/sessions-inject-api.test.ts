@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
 import type { TestAppEnv } from "./helpers/test-app.js";
 
@@ -83,6 +83,48 @@ describe("sessions API — inject / title / title-suggestion", () => {
       body: JSON.stringify({ text: "" }),
     });
     expect(r.status).toBe(400);
+  });
+
+  it("初期ワーク選択の回答で残タスク確認を促す session.inject を流す", async () => {
+    const create = await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/repos/Anatomia", host: "h" }),
+    });
+    const created = await create.json() as any;
+    const questionId = created.initial_work.question_id as number;
+
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.inject" && ev.target_session_id === "iw") captured.push(ev);
+    });
+    vi.useFakeTimers();
+    try {
+      const r = await app.request("/v1/sessions/iw/answer-question", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question_id: questionId, other_text: "Anatomia: dev" }),
+      });
+      expect(r.status).toBe(200);
+      // 指示 inject は picker キーストローク fallback の後に届くよう遅延 emit する
+      expect(captured).toHaveLength(0);
+      vi.advanceTimersByTime(900);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].source).toBe("auto:initial-work");
+      expect(captured[0].text).toContain("残タスク");
+      expect(captured[0].text).toContain("AskUserQuestion");
+    } finally {
+      vi.useRealTimers();
+      unsub();
+    }
+
+    // inject イベントが session に記録されている (同期)
+    const detail = await (await app.request("/v1/sessions/iw")).json() as any;
+    const injectEv = detail.events.find((e: any) => e.kind === "inject");
+    expect(injectEv).toBeTruthy();
+    const payload = typeof injectEv.payload === "string" ? JSON.parse(injectEv.payload) : injectEv.payload;
+    expect(payload.source).toBe("auto:initial-work");
   });
 
   it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {

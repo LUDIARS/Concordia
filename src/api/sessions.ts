@@ -34,6 +34,8 @@ import {
 import { createChildLogger } from "../shared/logger.js";
 import {
   INITIAL_WORK_QUESTION,
+  INITIAL_WORK_INJECT_SOURCE,
+  buildInitialWorkInjectText,
   buildInitialWorkOptions,
   formatDevelopmentTitle,
   markInitialWorkQuestionAsked,
@@ -703,6 +705,28 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         payload: { text: title, reason: "initial_work_selected" },
       });
       eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts });
+
+      // 開発対象が確定したら、 残タスク取得 → 一覧提示 → 実行可否の問い合わせ を
+      // session AI に促す指示を text inject する。 回答経路 (Discord/Slack) に依らず
+      // 同じ流れに揃え、 「Discord は無反応 / Slack は勝手に着手」 の挙動割れを解消する。
+      // question.answered 由来の picker キーストローク fallback が先に pty へ届くので、
+      // 少し遅延させて空プロンプトに指示が綺麗に入るようにする (question.posted と同じ手当て)。
+      const injectText = buildInitialWorkInjectText(initialTarget);
+      deps.repo.appendEvent({
+        session_id: id,
+        ts,
+        kind: "inject",
+        payload: { text: injectText, source: INITIAL_WORK_INJECT_SOURCE },
+      });
+      setTimeout(() => {
+        eventBus.emit({
+          type: "session.inject",
+          target_session_id: id,
+          text: injectText,
+          source: INITIAL_WORK_INJECT_SOURCE,
+          ts: nowSec(),
+        });
+      }, 800).unref?.();
     }
     return c.json({ ok: true, answer_text: answerText });
   });

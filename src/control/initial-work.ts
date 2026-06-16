@@ -65,6 +65,38 @@ export function formatDevelopmentTitle(target: InitialWorkTarget): string {
   return `${target.branch}(${target.repo})開発中`.slice(0, 120);
 }
 
+/**
+ * 初期ワーク選択 (= 開発対象リポ確定) 後に wrapped session へ流し込む inject の source。
+ * `discord:`/`slack:` で始まらないので participants ミラー対象から外れ、制御 inject 扱いになる。
+ */
+export const INITIAL_WORK_INJECT_SOURCE = "auto:initial-work";
+
+/**
+ * 開発対象リポを選んだ直後に session AI へ与える指示文を組み立てる純関数。
+ *
+ * 背景: 初期ワーク質問の回答は Concordia がタイトルに反映するだけで、
+ * 「次に何をするか」 を AI に伝えていなかった。 そのため Lictor 側では
+ * picker 用キーストローク fallback に落ちて空プロンプトで no-op (= Discord は無反応)、
+ * プラットフォームによっては勝手に作業を始める、 と挙動が割れていた。
+ *
+ * ここで決定論的な指示を text inject すると、 回答経路 (Discord/Slack) に依らず
+ * 同じ流れ (残タスク取得 → 一覧提示 → 実行可否の問い合わせ) に揃う。
+ *
+ * 件数が事前に読めないため、 選択肢ピッカー (AskUserQuestion) ではなく
+ * 自由文での確認を明示する。
+ */
+export function buildInitialWorkInjectText(target: InitialWorkTarget): string {
+  const repo = target.repo.trim() || "選択したリポジトリ";
+  const branch = target.branch.trim();
+  const where = branch ? `「${repo} / ${branch}」` : `「${repo}」`;
+  return [
+    `開発対象として ${where} を選択しました。`,
+    `まずタスク管理アプリ (Memoria / Actio など) から ${repo} の残タスクを取得し、一覧をこのチャットに提示してください。`,
+    `そのうえで、どれを実行するか (または実行しないか) をユーザに問い合わせてください。`,
+    `タスク件数が事前に読めないため、AskUserQuestion (選択肢ピッカー) は使わず、自由文で確認してください。`,
+  ].join("\n");
+}
+
 export function markInitialWorkQuestionAsked(
   pendingQuestions: DiscordPendingQuestionsRepo,
   session: SessionRow,

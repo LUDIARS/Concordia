@@ -306,9 +306,9 @@ export function buildApp(deps: AppDeps): Hono {
 
   // 管理 API: 既存 lictor-wrapped セッションを kill.
   // 1. session row から metadata.lictor_pid を取得
-  // 2. プラットフォーム別に process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
-  // 3. session を ended に遷移 + end event append (stopped_by: admin)
-  // 4. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  // 2. session を ended に遷移 + end event append (stopped_by: admin)
+  // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  // 4. 独白後に platform 別 process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
   //    DELETE /v1/sessions/:id と同じ helper (control/end-session-flow.ts) を経由する.
   app.post("/v1/admin/stop-session/:id", async (c) => {
     const id = c.req.param("id");
@@ -326,8 +326,6 @@ export function buildApp(deps: AppDeps): Hono {
     if (typeof meta.lictor_pid !== "number") {
       return c.json({ error: "session.metadata.lictor_pid missing" }, 400);
     }
-    const killResult = stopSessionByLictorPid(meta.lictor_pid);
-    if (!killResult.ok) return c.json({ error: killResult.error }, 500);
     const now = Math.floor(Date.now() / 1000);
     deps.repo.setStatus(id, "ended", now, now);
     deps.repo.appendEvent({
@@ -347,6 +345,16 @@ export function buildApp(deps: AppDeps): Hono {
       },
       ended,
     );
+    const killResult = stopSessionByLictorPid(meta.lictor_pid);
+    if (!killResult.ok) {
+      return c.json({
+        ok: false,
+        error: killResult.error,
+        pid: meta.lictor_pid,
+        report_generated: flow.report !== null,
+        monologue_posted: flow.postedMessageId !== null,
+      }, 500);
+    }
     return c.json({
       ok: true,
       pid: meta.lictor_pid,

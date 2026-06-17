@@ -109,6 +109,7 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("echo");
     expect(r.spawn_pid).toBe(999);
     expect(spawnCalls.length).toBe(1);
+    expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
   it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {

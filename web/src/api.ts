@@ -392,6 +392,19 @@ export const api = {
     ),
   permissionRespond: (id: string, body: { request_id: string; decision: "allow" | "deny" | "ask"; reason?: string }) =>
     post<{ ok: boolean }>(`/v1/sessions/${encodeURIComponent(id)}/permission-response`, body),
+  answerQuestion: (
+    id: string,
+    body:
+      | { question_id: number; answer_index: number }
+      | { question_id: number; answer_indices: number[] }
+      | { question_id: number; other_text: string },
+  ) =>
+    post<{ ok: boolean; ts: number }>(`/v1/sessions/${encodeURIComponent(id)}/answer-question`, body),
+  resolveQuestion: (id: string, questionId: number) =>
+    post<{ ok: boolean }>(
+      `/v1/sessions/${encodeURIComponent(id)}/pending-question/${encodeURIComponent(String(questionId))}/resolve`,
+      {},
+    ),
   fsList: (id: string, path: string) => {
     const qs = new URLSearchParams({ path }).toString();
     return get<{ path: string; entries: Array<{ name: string; is_dir: boolean; size: number | null }>; truncated: boolean }>(

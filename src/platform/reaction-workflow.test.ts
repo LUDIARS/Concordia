@@ -211,13 +211,13 @@ describe("planWorkflow", () => {
     expect(plan.prompt).toContain("認証トークン");
   });
 
-  it("force-enter → inject \\ n (session に関係なく)", () => {
+  it("force-enter → inject CR (session に関係なく)", () => {
     const planActive = planWorkflow("force-enter", { ...baseCtx, sessionActive: true });
     expect(planActive.mode).toBe("inject");
-    expect(planActive.prompt).toBe("\n");
+    expect(planActive.prompt).toBe("\r");
     const planInactive = planWorkflow("force-enter", { ...baseCtx, sessionActive: false });
     expect(planInactive.mode).toBe("inject");
-    expect(planInactive.prompt).toBe("\n");
+    expect(planInactive.prompt).toBe("\r");
   });
 
   it("delegate-task on active session → inject (タスク判定 + 委託 + 監視)", () => {

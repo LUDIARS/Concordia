@@ -17,6 +17,7 @@ import { formatAuthorName } from "../discord/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
+import { ENTER_KEY_TEXT } from "../control/enter-key.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
@@ -879,7 +880,7 @@ async function injectToSession(deps: SlackBotDeps, sessionId: string, text: stri
         await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: "\n", source: "slack-enter-fallback" }),
+          body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "slack-enter-fallback" }),
         });
       } catch { /* non-fatal */ }
     }

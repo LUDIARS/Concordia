@@ -221,7 +221,7 @@ export class DelegationService {
         // 実 spawn は解決後の CLI。 gemma4-12 は Lictor ネイティブ local-agent
         // (`lictor gemma4-12`)、 それ以外は同名 CLI。 記録上の論理 provider とは別。
         provider: spawn.provider,
-        mode: "tab",
+        mode: "window",
         cwd: cwd ?? undefined,
         // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
         args: spawn.args.length > 0 ? spawn.args : undefined,

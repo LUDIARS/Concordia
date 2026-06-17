@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     "delegation_invoke",
     {
       description:
-        "Invoke a registered delegation template. Concordia renders the prompt, writes it to a markdown file, and spawns the target agent (Codex / Claude / Gemini) in a new Windows Terminal tab. Returns the spawn pid and the rendered prompt file path.",
+        "Invoke a registered delegation template. Concordia renders the prompt, writes it to a markdown file, and spawns the target agent (Codex / Claude / Gemini) in a new Windows Terminal window. Returns the spawn pid and the rendered prompt file path.",
       inputSchema: {
         call_name: z.string().describe("Template call_name, e.g. 'fix-bug'"),
         args: z.record(z.unknown()).optional().describe("Variable bindings for the template (object)"),

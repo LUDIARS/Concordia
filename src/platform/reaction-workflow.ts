@@ -30,6 +30,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
 import { eventBus } from "../events.js";
+import { ENTER_KEY_TEXT } from "../control/enter-key.js";
 
 export type WorkflowAction =
   | "start-impl"
@@ -71,7 +72,7 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
   // 実装タスクを積んで別セッションへ委ねる (outbox / next / dividers 系)
   "defer-impl": ["⏭️", "⏭", "📤", "🗂️", "🗂"],
-  // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ \n を inject)
+  // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ CR を inject)
   "force-enter": ["🙄"],
   // delegation に対応する絵文字 → Haiku でタスク判定 → タスクあり = delegation invoke
   "delegate-task": ["🤝", "🫱", "🫱🏻", "🫱🏼", "🫱🏽", "🫱🏾", "🫱🏿"],
@@ -144,7 +145,7 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
   },
   "force-enter": {
     label: "Enter 強制送信 (Lictor 救済)",
-    summary: "投稿内容を変換せず、 対象 session に \\n を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
+    summary: "投稿内容を変換せず、 対象 session に CR を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
     mode: "active セッションへ inject のみ (非 active はスキップ)",
   },
   "delegate-task": {
@@ -433,9 +434,9 @@ export function planWorkflow(
     }
 
     case "force-enter": {
-      // 対象 session に \n だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
-      // 存在しない = 送る相手がいない)。 session.inject はテキスト経由なので \n を渡す。
-      return { action, mode: "inject", prompt: "\n" };
+      // 対象 session に CR だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
+      // 存在しない = 送る相手がいない)。
+      return { action, mode: "inject", prompt: ENTER_KEY_TEXT };
     }
 
     case "delegate-task": {

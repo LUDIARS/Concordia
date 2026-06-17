@@ -6,20 +6,26 @@
  *  - reactions.ts が reaction 記録後に handle() を呼ぶ。
  *  - リアクション絵文字 → WorkflowAction に写像 (classifyReactionWorkflow)。
  *  - 実処理は「LLM が解析 + 記録/着手まで」を 1 ショットで担う:
- *      start-impl         👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
- *                                   非 active なら headless で着手)
- *      enumerate-remaining 🙏       残作業を洗い出して報告 (authoring session へ inject、
- *                                   非 active なら headless で洗い出し) ←→ 🫶/😴/✨ と対の WF
- *      memoria-remaining  🫶/😴/✨  残作業 (洗い出し結果) を重複回避で Memoria に登録 (memoria-record / sonnet)
- *      status-check       📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
- *                                   非 active なら headless)
- *      repo-memory-good   😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
- *      memoria-note       👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
- *      memoria-task       📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
- *      repo-memory-bad    😡 / 👎   良くない → 作業を即中断して反省 (inject、 記録はせず後続 👍 に委ねる)
+ *      start-impl            👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
+ *                                      非 active なら headless で着手)
+ *      enumerate-remaining   🙏        残作業を洗い出して報告 (authoring session へ inject、
+ *                                      非 active なら headless で洗い出し) ←→ 🫶/😴/✨ と対の WF
+ *      memoria-remaining     🫶/😴/✨  残作業 (洗い出し結果) を重複回避で Memoria に登録 (memoria-record / sonnet)
+ *      status-check          📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
+ *                                      非 active なら headless)
+ *      repo-memory-good      😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
+ *      memoria-note          👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
+ *      memoria-task          📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
+ *      repo-memory-bad       😡 / 👎   良くない → 作業を即中断して反省 (inject、 記録はせず後続 👍 に委ねる)
+ *      reschedule-non-goal   📅 / 🗓️  6月目標外タスクの期日を来週 (+7日) に延期 (headless sonnet / Memoria)
+ *      run-june-goal-tasks   🎯        6月目標タスクのうち AI が実行可能なものを実行 (inject / headless sonnet)
+ *      add-as-workflow       🛠️        メッセージをカスタムワークフローとして登録 (headless haiku / Ars)
  *
  * 🙏 → 🫶/😴/✨ は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
  * セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫶/😴/✨ を付けると Memoria へ記録する。
+ *
+ * カスタムワークフロー: add-as-workflow で登録した (emoji, prompt) ペアを customWorkflowsPath の
+ * JSON ファイルに保存する。 handle() は組み込み写像にない絵文字をこのファイルでも照合する。
  *
  * 安全弁: 既定 OFF。 enabled (CONCORDIA_REACTION_WORKFLOW=1) の時だけ実処理を走らせる。
  * headless 実行は file 書き込み / Memoria 連携を伴うので dangerouslySkipPermissions で起動する
@@ -27,10 +33,30 @@
  */
 
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
 import { eventBus } from "../events.js";
 import { ENTER_KEY_TEXT } from "../control/enter-key.js";
+
+/**
+ * カスタムワークフローエントリ。 add-as-workflow で登録した (絵文字 → プロンプト) ペア。
+ * customWorkflowsPath の JSON ファイルに配列として保存される。
+ */
+export interface CustomWorkflowEntry {
+  /** トリガー絵文字 (unicode)。 */
+  emoji: string;
+  /** 人間向けの短い名前。 */
+  label: string;
+  /** headless claude に渡すプロンプト本文。 */
+  prompt: string;
+  /** headless 時のモデル。 未指定なら sonnet。 */
+  model?: string;
+  /**
+   * headless 時の cwd。 "Memoria" / "Ars" などワークスペース相対名、
+   * または絶対パスを指定できる。 未指定ならリポパスを使う。
+   */
+  cwd?: string;
+}
 
 export type WorkflowAction =
   | "start-impl"
@@ -44,7 +70,10 @@ export type WorkflowAction =
   | "defer-impl"
   | "force-enter"
   | "delegate-task"
-  | "channel-rename";
+  | "channel-rename"
+  | "reschedule-non-goal"
+  | "run-goal-tasks"
+  | "add-as-workflow";
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -78,6 +107,12 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "delegate-task": ["🤝", "🫱", "🫱🏻", "🫱🏼", "🫱🏽", "🫱🏾", "🫱🏿"],
   // このメッセージ本文をセッションチャンネル名に反映 (手動リネーム)
   "channel-rename": ["🔹", "📎"],
+  // 当月目標外タスクの期日を来週 (+7日) に延期 (calendar 系)
+  "reschedule-non-goal": ["📅", "🗓️", "🗓"],
+  // 当月目標の実行可能タスクを実行
+  "run-goal-tasks": ["🎯"],
+  // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
+  "add-as-workflow": ["🛠️", "🛠"],
 };
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
@@ -157,6 +192,21 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "チャンネルリネーム",
     summary: "このメッセージ本文をセッションチャンネルの名前 (slug 化) に反映する。初回リポ選択後の手動リネーム手段。",
     mode: "API (Concordia /sessions/:id/title 直接呼び出し)",
+  },
+  "reschedule-non-goal": {
+    label: "当月目標外タスクの期日延期",
+    summary: "Memoria の未完了タスクのうち当月目標に関連しないものの期日を来週 (+7日) に延期する。",
+    mode: "headless sonnet (Memoria)",
+  },
+  "run-goal-tasks": {
+    label: "当月目標タスクを実行",
+    summary: "投稿内容を起点に、当月目標に関連する Memoria タスクのうち AI が実行可能なものを実行する。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "add-as-workflow": {
+    label: "カスタムワークフロー登録",
+    summary: "投稿内容 (1行目=絵文字、2行目=ラベル、3行目以降=プロンプト) をカスタムワークフローとして JSON に登録する。",
+    mode: "headless haiku (Ars workspace)",
   },
 };
 
@@ -499,6 +549,82 @@ export function planWorkflow(
       // handle() で concordiaUrl 経由の直接 API 呼び出しを行う。planWorkflow は呼ばれない。
       // ここは TypeScript の網羅性チェックのためのプレースホルダー。
       return { action, mode: "headless" as const, prompt: "" };
+
+    case "reschedule-non-goal": {
+      const prompt =
+        head +
+        `\n📅 当月目標に関連しない Memoria タスクの期日を来週 (今日 +7日の 23:59) に延期してください。\n\n` +
+        `手順:\n` +
+        `1. 今日の日付を確認する (CLAUDE.md の currentDate またはシステム日付)。\n` +
+        `2. GET http://127.0.0.1:5180/api/tasks?limit=500 で全タスクを取得する。\n` +
+        `3. status=todo かつ due_at が今日から 8 日以内 (過去日含む) のものを抽出する。\n` +
+        `4. 当月目標に関連するカテゴリ・タスクを除外する。\n` +
+        `   関連とみなす判断材料: Memoria の設定/CLAUDE.md に記載の「今月の集中目標」を参照し、\n` +
+        `   category や title にそのプロジェクト略称・名称を含むタスクを除く。\n` +
+        `   目標記載がない場合は Concordia/LUDIARS運用/Excubitor/KS/Tr など直近の作業傾向で判断する。\n` +
+        `5. 残ったタスクを PATCH http://127.0.0.1:5180/api/tasks/:id { "due_at": "<今日+7日>T23:59" } で更新する。\n` +
+        `6. 更新件数と対象タスクの ID/タイトル一覧を報告する。 Memoria に繋がらない場合は失敗理由を報告する。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.memoriaPath,
+        prompt,
+      };
+    }
+
+    case "run-goal-tasks": {
+      const prompt =
+        `🎯 当月目標に関連する Memoria タスクのうち、今すぐ AI が実行できるものを実行してください。\n\n` +
+        `手順:\n` +
+        `1. CLAUDE.md (またはこのセッションの memory) に記載の「今月の集中目標」を確認する。\n` +
+        `2. GET http://127.0.0.1:5180/api/tasks?limit=500 で未完了タスクを取得する。\n` +
+        `3. 目標に関連する category/title のタスクを抽出する。\n` +
+        `4. 各タスクを実行可能性で分類する:\n` +
+        `   - コード実装/PR作成 → 実装して PR を出す (LUDIARS 規約に従う)\n` +
+        `   - コマンド実行 (npm run, git, etc.) → 実行する\n` +
+        `   - 実機確認/人間操作が必要 → スキップして報告\n` +
+        `   - 設定投入/env 設定 → 設定して報告\n` +
+        `5. 実行したタスクは PATCH /api/tasks/:id { "status": "done" } で完了にする。\n` +
+        `6. 実行結果 (完了/スキップとその理由) を一覧で報告する。`;
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "add-as-workflow": {
+      const prompt =
+        head +
+        `\n🛠️ このメッセージをカスタムリアクションワークフローとして登録してください。\n\n` +
+        `メッセージ形式 (ベストエフォートで解釈してよい):\n` +
+        `  1行目: トリガー絵文字\n` +
+        `  2行目: ラベル (短い名前)\n` +
+        `  3行目以降: プロンプト本文 (ワークフローが実行する指示)\n\n` +
+        `手順:\n` +
+        `1. メッセージ本文を上記形式で解析し、 (emoji, label, prompt) を抽出する。\n` +
+        `   形式が曖昧なら: 冒頭の絵文字を emoji、1行目テキストを label、全文を prompt として扱う。\n` +
+        `2. カスタムワークフロー JSON ファイル (customWorkflowsPath) を読み込む (なければ空配列)。\n` +
+        `   customWorkflowsPath は deps から inject されるが、 デフォルトは\n` +
+        `   E:\\Document\\Ars\\.claude\\custom-reaction-workflows.json。\n` +
+        `3. 同じ絵文字のエントリがあれば上書き、 なければ追記する。\n` +
+        `   形式: { "emoji": "...", "label": "...", "prompt": "...", "model": "sonnet", "cwd": null }\n` +
+        `4. ファイルに書き戻す (UTF-8、 インデント 2)。\n` +
+        `5. 登録内容 (絵文字・ラベル・プロンプト冒頭) を確認メッセージとして返す。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.haiku,
+        cwd: ctx.repoPath ?? undefined,
+        prompt,
+      };
+    }
   }
 }
 
@@ -518,6 +644,11 @@ export interface ReactionWorkflowDeps {
   workspaceRoots?: string[];
   /** Memoria リポの cwd override。 未指定なら各ルートから探索 (無ければ先頭ルート/Memoria)。 */
   memoriaPath?: string;
+  /**
+   * add-as-workflow が書き込み / handle() が読み込むカスタムワークフロー JSON のパス。
+   * 未指定なら `<workspaceRoot>/../.claude/custom-reaction-workflows.json`。
+   */
+  customWorkflowsPath?: string;
   /**
    * 安全弁。 false の間は handle() が即 return。 関数を渡すと毎回評価するので、
    * 設定 GUI (AdminState) からの ON/OFF をプロセス再起動なしで反映できる。
@@ -589,6 +720,45 @@ export class ReactionWorkflowRunner {
     return join(roots[0] || this.deps.workspaceRoot, "Memoria");
   }
 
+  private customWorkflowsPath(): string {
+    if (this.deps.customWorkflowsPath) return this.deps.customWorkflowsPath;
+    // デフォルト: <workspaceRoot>/../.claude/custom-reaction-workflows.json
+    return join(this.deps.workspaceRoot, "..", ".claude", "custom-reaction-workflows.json");
+  }
+
+  /** カスタムワークフロー JSON を読み込む (エラー時は空配列)。 */
+  private loadCustomWorkflows(): CustomWorkflowEntry[] {
+    const p = this.customWorkflowsPath();
+    if (!existsSync(p)) return [];
+    try {
+      const raw = readFileSync(p, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (e): e is CustomWorkflowEntry =>
+          typeof e === "object" && e !== null &&
+          typeof (e as CustomWorkflowEntry).emoji === "string" &&
+          typeof (e as CustomWorkflowEntry).prompt === "string",
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /** カスタムワークフローで絵文字を照合する。 ヒットすれば headless 実行計画を返す。 */
+  private matchCustomWorkflow(emoji: string): WorkflowPlan | null {
+    const entries = this.loadCustomWorkflows();
+    const entry = entries.find((e) => e.emoji.trim() === emoji.trim());
+    if (!entry) return null;
+    return {
+      action: "add-as-workflow", // プレースホルダー (ログ用)
+      mode: "headless",
+      model: entry.model ?? "sonnet",
+      cwd: entry.cwd ?? undefined,
+      prompt: entry.prompt,
+    };
+  }
+
   /**
    * reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。
    * `onAccept` は「実際に発火が確定した」直後 (= dedup 通過後、 slow な inject/headless の前) に
@@ -601,7 +771,28 @@ export class ReactionWorkflowRunner {
     if (!this.isEnabled()) return;
 
     const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
-    if (!action) return; // ワークフロー対象外の絵文字
+
+    // 組み込み写像にない絵文字をカスタムワークフロー JSON で照合する。
+    if (!action) {
+      const customPlan = this.matchCustomWorkflow(input.emoji);
+      if (!customPlan) return; // どちらにも該当しない絵文字
+      const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
+      const now = this.nowSec();
+      const last = this.lastFired.get(key);
+      if (last !== undefined && now - last < DEDUPE_SEC) {
+        this.deps.log.info(`reaction-workflow: dedup skip (custom) ${key}`);
+        return;
+      }
+      this.lastFired.set(key, now);
+      if (onAccept) try { onAccept("add-as-workflow"); } catch { /* best-effort */ }
+      this.deps.log.info(
+        `reaction-workflow: custom action emoji=${input.emoji} model=${customPlan.model ?? "-"} cwd=${customPlan.cwd ?? "-"}`,
+      );
+      await this.runHeadless(customPlan).catch((e) =>
+        this.deps.log.warn(`reaction-workflow: custom failed: ${(e as Error).message}`),
+      );
+      return;
+    }
 
     const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
     const now = this.nowSec();

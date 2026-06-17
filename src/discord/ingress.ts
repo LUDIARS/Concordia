@@ -5,6 +5,7 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
+import { ENTER_KEY_TEXT } from "../control/enter-key.js";
 import { classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
@@ -136,7 +137,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: "\n", source: "discord-enter-fallback" }),
+            body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "discord-enter-fallback" }),
           });
         } catch {
           // Enter fallback failure is non-fatal for main inject path.

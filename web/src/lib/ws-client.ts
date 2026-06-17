@@ -29,6 +29,17 @@ export type ConcordiaEvent =
   | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
   | { type: "transcript.frame"; target_session_id: string; seq: number; kind: string; payload: unknown; ts: number }
   | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
+  | {
+      type: "question.posted";
+      target_session_id: string;
+      question_id: number;
+      question: string;
+      options: Array<string | { label: string; description?: string }>;
+      multi_select?: boolean;
+      ts: number;
+    }
+  | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
+  | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
   | { type: "ping";             ts: number };
 
 type Listener = (ev: ConcordiaEvent) => void;

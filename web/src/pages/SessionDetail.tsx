@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
-import type { SessionRow } from "../api.js";
+import type { SessionEvent, SessionRow } from "../api.js";
 import { useLiveQuery, useWsEvent } from "../hooks/useWsEvent.js";
 import { projectCodeFor, repoBasename } from "../project-codes.js";
 
@@ -11,7 +11,7 @@ import { projectCodeFor, repoBasename } from "../project-codes.js";
  *   1. ヘッダ (ロール / セッション情報)
  *   2. 作業リポジトリのコード一覧
  *   3. 直近の会話 5 件 (3 行で省略)
- *   4. テキスト入力 (textarea; Enter=改行, Ctrl/Cmd+Enter=送信)
+ *   4. テキスト入力 (textarea; Enter=送信, Shift+Enter=改行)
  *   5. 直近 stat
  *   6. 停止 / stat / rename ボタン
  *   7. event log (toggle)
@@ -94,6 +94,7 @@ export function SessionDetail() {
 
       {/* permission modal — active 時のみ */}
       {isActive && <PermissionModal sessionId={s.id} />}
+      {isActive && <AskUserQuestionModal sessionId={s.id} events={data.events} />}
     </div>
   );
 }
@@ -275,7 +276,7 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   );
 }
 
-// ─── 4. テキスト入力 (Enter=改行, Ctrl+Enter=送信) ────────────────────────
+// ─── 4. テキスト入力 (Enter=送信, Shift+Enter=改行) ────────────────────────
 
 function InjectForm({ sessionId }: { sessionId: string }) {
   const [text, setText] = useState("");
@@ -298,9 +299,9 @@ function InjectForm({ sessionId }: { sessionId: string }) {
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    // Enter 単独 = 改行 (textarea デフォルト).
-    // Ctrl+Enter / Cmd+Enter = 送信.
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+    // Enter = send. Shift+Enter keeps textarea's default newline behavior.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       void submit();
     }
@@ -316,7 +317,7 @@ function InjectForm({ sessionId }: { sessionId: string }) {
     >
       <div className="flex items-center gap-2 flex-wrap">
         <h2 className="text-sm font-semibold">指示を送る</h2>
-        <span className="text-xs text-subtle">Enter=改行 / Ctrl+Enter=送信</span>
+        <span className="text-xs text-subtle">Enter=送信 / Shift+Enter=改行</span>
       </div>
       <textarea
         value={text}
@@ -703,6 +704,222 @@ function PermissionModal({ sessionId }: { sessionId: string }) {
   );
 }
 
+interface PendingQuestionUi {
+  question_id: number;
+  question: string;
+  options: Array<{ label: string; description?: string }>;
+  multi_select: boolean;
+  ts: number;
+}
+
+const QUESTION_DISPLAY_DELAY_MS = 350;
+
+function AskUserQuestionModal({ sessionId, events }: { sessionId: string; events: SessionEvent[] }) {
+  const [queue, setQueue] = useState<PendingQuestionUi[]>([]);
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [otherText, setOtherText] = useState("");
+  const [sending, setSending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const timersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    setQueue(unansweredQuestionsFromEvents(events));
+  }, [events]);
+
+  useEffect(() => () => {
+    for (const timer of timersRef.current) window.clearTimeout(timer);
+    timersRef.current = [];
+  }, []);
+
+  useWsEvent(["question.posted", "question.answered", "question.resolved"], (ev) => {
+    if (ev.type !== "question.posted" && ev.type !== "question.answered" && ev.type !== "question.resolved") {
+      return;
+    }
+    if (ev.target_session_id !== sessionId) return;
+    if (ev.type === "question.posted") {
+      const question = normalizeQuestionEvent(ev);
+      const timer = window.setTimeout(() => {
+        setQueue((prev) => mergeQuestions(prev, [question]));
+      }, QUESTION_DISPLAY_DELAY_MS);
+      timersRef.current.push(timer);
+      return;
+    }
+    setQueue((prev) => prev.filter((q) => q.question_id !== ev.question_id));
+  });
+
+  const head = queue[0] ?? null;
+
+  useEffect(() => {
+    setSelected(new Set());
+    setOtherText("");
+    setErr(null);
+  }, [head?.question_id]);
+
+  if (!head) return null;
+
+  const removeHead = (): void => {
+    setQueue((prev) => prev.filter((q) => q.question_id !== head.question_id));
+  };
+
+  const answerSingle = async (answerIndex: number): Promise<void> => {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.answerQuestion(sessionId, { question_id: head.question_id, answer_index: answerIndex });
+      removeHead();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const answerMulti = async (): Promise<void> => {
+    if (sending || selected.size === 0) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.answerQuestion(sessionId, {
+        question_id: head.question_id,
+        answer_indices: Array.from(selected).sort((a, b) => a - b),
+      });
+      removeHead();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const answerOther = async (): Promise<void> => {
+    const text = otherText.trim();
+    if (sending || !text) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.answerQuestion(sessionId, { question_id: head.question_id, other_text: text });
+      removeHead();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const resolveLocal = async (): Promise<void> => {
+    if (sending) return;
+    setSending(true);
+    setErr(null);
+    try {
+      await api.resolveQuestion(sessionId, head.question_id);
+      removeHead();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const toggle = (idx: number): void => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[60] p-4">
+      <div className="bg-surface border border-accent rounded p-5 max-w-2xl w-full shadow-lg">
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-base font-semibold">AskUserQuestion</h2>
+          <span className="text-xs text-subtle ml-auto">
+            queue {queue.length} / id {head.question_id}
+          </span>
+        </div>
+        <div className="text-sm whitespace-pre-wrap break-words mb-3">{head.question}</div>
+        <div className="space-y-2">
+          {head.options.map((opt, idx) => (
+            head.multi_select ? (
+              <label
+                key={`${head.question_id}:${idx}`}
+                className="flex gap-2 border border-border rounded px-3 py-2 text-sm hover:border-accent cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selected.has(idx)}
+                  disabled={sending}
+                  onChange={() => toggle(idx)}
+                />
+                <span>
+                  <span className="block font-medium">{opt.label}</span>
+                  {opt.description && <span className="block text-xs text-subtle">{opt.description}</span>}
+                </span>
+              </label>
+            ) : (
+              <button
+                key={`${head.question_id}:${idx}`}
+                type="button"
+                disabled={sending}
+                onClick={() => void answerSingle(idx)}
+                className="w-full text-left border border-border rounded px-3 py-2 text-sm hover:border-accent hover:bg-accent/10 disabled:opacity-50"
+              >
+                <span className="block font-medium">{opt.label}</span>
+                {opt.description && <span className="block text-xs text-subtle">{opt.description}</span>}
+              </button>
+            )
+          ))}
+        </div>
+        {head.multi_select && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              disabled={sending || selected.size === 0}
+              onClick={() => void answerMulti()}
+              className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
+            >
+              Answer selected
+            </button>
+          </div>
+        )}
+        <div className="mt-4 border-t border-border pt-3">
+          <label className="text-xs text-subtle" htmlFor="questionOtherText">Other answer</label>
+          <textarea
+            id="questionOtherText"
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
+            disabled={sending}
+            rows={3}
+            maxLength={2000}
+            className="mt-1 w-full foundation-form text-sm resize-y"
+          />
+          <div className="mt-2 flex gap-2 justify-end">
+            <button
+              type="button"
+              disabled={sending}
+              onClick={() => void resolveLocal()}
+              className="px-3 py-1.5 bg-muted border border-border rounded text-sm disabled:opacity-50"
+            >
+              Already handled
+            </button>
+            <button
+              type="button"
+              disabled={sending || !otherText.trim()}
+              onClick={() => void answerOther()}
+              className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
+            >
+              Send other
+            </button>
+          </div>
+        </div>
+        {err && <div className="mt-2 text-xs text-danger">{err}</div>}
+      </div>
+    </div>
+  );
+}
+
 function previewToolInput(input: unknown): string {
   if (typeof input === "string") return input.slice(0, 1000);
   try {
@@ -714,6 +931,79 @@ function previewToolInput(input: unknown): string {
 }
 
 // ─── shared helpers ──────────────────────────────────────────────────
+
+function normalizeQuestionOptions(input: unknown): Array<{ label: string; description?: string }> {
+  if (!Array.isArray(input)) return [];
+  const out: Array<{ label: string; description?: string }> = [];
+  for (const item of input) {
+    if (typeof item === "string") {
+      if (item.trim()) out.push({ label: item.trim() });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const label = (item as { label?: unknown }).label;
+    const description = (item as { description?: unknown }).description;
+    if (typeof label !== "string" || !label.trim()) continue;
+    const opt: { label: string; description?: string } = { label: label.trim() };
+    if (typeof description === "string" && description.trim()) opt.description = description.trim();
+    out.push(opt);
+  }
+  return out;
+}
+
+function normalizeQuestionEvent(ev: {
+  question_id: number;
+  question: string;
+  options: Array<string | { label: string; description?: string }>;
+  multi_select?: boolean;
+  ts: number;
+}): PendingQuestionUi {
+  return {
+    question_id: ev.question_id,
+    question: ev.question,
+    options: normalizeQuestionOptions(ev.options),
+    multi_select: !!ev.multi_select,
+    ts: ev.ts,
+  };
+}
+
+function unansweredQuestionsFromEvents(events: SessionEvent[]): PendingQuestionUi[] {
+  const closed = new Set<number>();
+  const questions = new Map<number, PendingQuestionUi>();
+  for (const ev of events) {
+    const payload = ev.payload;
+    if (ev.kind === "question_answered" || ev.kind === "question_resolved") {
+      const qid = Number((payload as { question_id?: unknown } | null)?.question_id);
+      if (Number.isInteger(qid)) closed.add(qid);
+      continue;
+    }
+    if (ev.kind !== "pending_question" || !payload || typeof payload !== "object") continue;
+    const p = payload as {
+      question_id?: unknown;
+      question?: unknown;
+      options?: unknown;
+      multi_select?: unknown;
+    };
+    const qid = Number(p.question_id);
+    if (!Number.isInteger(qid) || typeof p.question !== "string") continue;
+    questions.set(qid, {
+      question_id: qid,
+      question: p.question,
+      options: normalizeQuestionOptions(p.options),
+      multi_select: !!p.multi_select,
+      ts: ev.ts,
+    });
+  }
+  for (const qid of closed) questions.delete(qid);
+  return mergeQuestions([], Array.from(questions.values()));
+}
+
+function mergeQuestions(existing: PendingQuestionUi[], incoming: PendingQuestionUi[]): PendingQuestionUi[] {
+  const byId = new Map<number, PendingQuestionUi>();
+  for (const q of existing) byId.set(q.question_id, q);
+  for (const q of incoming) byId.set(q.question_id, q);
+  return Array.from(byId.values()).sort((a, b) => (a.ts - b.ts) || (a.question_id - b.question_id));
+}
 
 function mergeBySeq(existing: TranscriptFrame[], incoming: TranscriptFrame[]): TranscriptFrame[] {
   if (incoming.length === 0) return existing;

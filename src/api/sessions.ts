@@ -26,6 +26,8 @@ import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js
 import { spawnSession } from "../control/spawner.js";
 import { claimPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
+import { stopSessionByLictorPid, isPidAlive } from "../control/stop-session.js";
+import { parseLictorPid } from "../control/reaper.js";
 import {
   emitAutoSessionEndInject,
   pickSessionEndInjectText,
@@ -50,6 +52,8 @@ const log = createChildLogger("sessions-api");
  * 個人情報やシークレットを大量に流さないよう冒頭だけ残す.
  */
 const PROMPT_LOG_PREVIEW_CHARS = 200;
+/** DELETE 後 force-exit の猶予。 これを過ぎても lictor_pid 生存なら強制 kill する。 */
+const FORCE_EXIT_GRACE_MS = 5000;
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -1106,6 +1110,18 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     if (!("error" in lictorTarget)) {
       void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
         .catch(() => {});
+    }
+    // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
+    // 猶予後に lictor_pid がまだ生きていれば process tree を確実に kill する (taskkill /F /T)。
+    const lictorPid = parseLictorPid(ended.metadata);
+    if (lictorPid != null) {
+      setTimeout(() => {
+        if (isPidAlive(lictorPid)) {
+          const r = stopSessionByLictorPid(lictorPid);
+          if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
+          else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
+        }
+      }, FORCE_EXIT_GRACE_MS).unref?.();
     }
     return c.json({ ok: true, session: serializeSession(ended), report });
   });

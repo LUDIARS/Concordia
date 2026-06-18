@@ -71,6 +71,7 @@ import { resolveDelegationSpawn } from "./control/provider-preset.js";
 import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
+import { reapOrphans } from "./control/reaper.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
 export interface AppDeps {
@@ -360,6 +361,32 @@ export function buildApp(deps: AppDeps): Hono {
       pid: meta.lictor_pid,
       report_generated: flow.report !== null,
       monologue_posted: flow.postedMessageId !== null,
+    });
+  });
+
+  // ── 管理 API: 孤児プロセス回収 (reaper) ─────────────────────────────
+  // GET  /v1/admin/orphans : dry-run。 終了/消滅 session に紐付かない Lictor/agent-client の一覧。
+  // POST /v1/admin/reap    : 回収実行 (kill)。 body {dry_run?: boolean, min_age_sec?: number}。
+  app.get("/v1/admin/orphans", async (c) => {
+    const r = await reapOrphans({ repo: deps.repo }, {
+      dryRun: true,
+      minAgeSec: deps.config.reaperMinAgeSec,
+    });
+    return c.json({ scanned: r.scanned, orphans: r.orphans });
+  });
+  app.post("/v1/admin/reap", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { dry_run?: boolean; min_age_sec?: number };
+    const minAgeSec =
+      typeof body.min_age_sec === "number" && body.min_age_sec >= 0
+        ? body.min_age_sec
+        : deps.config.reaperMinAgeSec;
+    const r = await reapOrphans({ repo: deps.repo }, { dryRun: body.dry_run === true, minAgeSec });
+    return c.json({
+      scanned: r.scanned,
+      orphans: r.orphans.length,
+      killed: r.killed.length,
+      failed: r.failed.length,
+      detail: r,
     });
   });
 

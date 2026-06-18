@@ -43,6 +43,7 @@ import { Dispatcher } from "./dispatcher.js";
 import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
+import { startReaper } from "./control/reaper.js";
 import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
@@ -285,6 +286,17 @@ export async function startBackend(): Promise<BackendHandle> {
     purgeAfterDays: cfg.purgeAfterDays,
   });
 
+  // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。
+  // sweeper が行を purge して記録が消えた分も OS 走査で回収する (止血は kill 経路の配線、 これは掃除)。
+  const reaper = startReaper(
+    { repo },
+    {
+      enabled: cfg.reaperEnabled,
+      intervalMs: cfg.reaperIntervalMs,
+      minAgeSec: cfg.reaperMinAgeSec,
+    },
+  );
+
   const toolPath = join(process.cwd(), "tools", "concordia-hook.mjs");
   const publicUrl = `http://${cfg.host}:${cfg.port}`;
 
@@ -521,6 +533,7 @@ export async function startBackend(): Promise<BackendHandle> {
       prFullSync.stop();
       errorFixDispatcher.stop();
       sweeper.stop();
+      reaper.stop();
       clearInterval(costSampleTimer);
       unsubLog();
       await stopDiscordBotManaged();

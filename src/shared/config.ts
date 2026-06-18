@@ -59,6 +59,12 @@ export interface ConcordiaConfig {
   lostPurgeAfterSec: number;
   purgeAfterDays: number;
   sweeperIntervalMs: number;
+  /** 孤児プロセス回収 (reaper) の有効/無効。 env `CONCORDIA_REAPER_ENABLED` (既定 ON)。 */
+  reaperEnabled: boolean;
+  /** reaper の走査間隔 (ms)。 env `CONCORDIA_REAPER_INTERVAL_MS` (既定 5 分)。 */
+  reaperIntervalMs: number;
+  /** 起動からこの秒数未満のプロセスは reaper の対象外 (登録レース回避)。 既定 180 秒。 */
+  reaperMinAgeSec: number;
   anthropicApiKey: string;
   reportModel: string;
   /** AI proposer が新 rule を提案するときの上限. enabled な ai 由来 rule 数が
@@ -171,6 +177,9 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     lostPurgeAfterSec: Number(env.CONCORDIA_LOST_PURGE_AFTER_SEC ?? "1800"),
     purgeAfterDays: Number(env.CONCORDIA_PURGE_AFTER_DAYS ?? "90"),
     sweeperIntervalMs: Number(env.CONCORDIA_SWEEPER_INTERVAL_MS ?? "60000"),
+    reaperEnabled: (env.CONCORDIA_REAPER_ENABLED ?? "1") !== "0",
+    reaperIntervalMs: Number(env.CONCORDIA_REAPER_INTERVAL_MS ?? "300000"),
+    reaperMinAgeSec: Number(env.CONCORDIA_REAPER_MIN_AGE_SEC ?? "180"),
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),

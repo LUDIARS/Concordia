@@ -282,9 +282,27 @@ export interface PersonaFeedback {
   detail: any;
 }
 
+export interface HostSnapshot {
+  sampled_at: number;
+  host: { totalMem: number; usedMem: number; freeMem: number; cpuCount: number; loadPct: number | null };
+  topProcesses: Array<{ name: string; rss: number; count: number }>;
+  wsl: Array<{ key: string; side: "guest" | "host"; rss: number; total?: number }>;
+  docker: Array<{ name: string; rss: number; percent: number | null }>;
+  sessions: Array<{
+    session_id: string;
+    label: string;
+    repo_path: string;
+    status: string;
+    rss: number;
+    procCount: number;
+    pid: number;
+  }>;
+}
+
 export const api = {
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
   monitor: () => get<MonitorPayload>("/v1/monitor"),
+  metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>
     get<{ session: SessionRow; events: SessionEvent[] }>(`/v1/sessions/${encodeURIComponent(id)}`),
   sessionInject: (id: string, text: string, source?: string) =>

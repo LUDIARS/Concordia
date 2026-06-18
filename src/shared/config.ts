@@ -65,6 +65,12 @@ export interface ConcordiaConfig {
   reaperIntervalMs: number;
   /** 起動からこの秒数未満のプロセスは reaper の対象外 (登録レース回避)。 既定 180 秒。 */
   reaperMinAgeSec: number;
+  /** ホストメトリクス採取の有効/無効。 env `CONCORDIA_METRICS_ENABLED` (既定 ON)。 */
+  metricsEnabled: boolean;
+  /** メトリクス採取間隔 (ms)。 env `CONCORDIA_METRICS_INTERVAL_MS` (既定 30 秒)。 */
+  metricsIntervalMs: number;
+  /** host_metrics の保持時間 (h)。 env `CONCORDIA_METRICS_RETENTION_HOURS` (既定 24)。 */
+  metricsRetentionHours: number;
   anthropicApiKey: string;
   reportModel: string;
   /** AI proposer が新 rule を提案するときの上限. enabled な ai 由来 rule 数が
@@ -180,6 +186,9 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     reaperEnabled: (env.CONCORDIA_REAPER_ENABLED ?? "1") !== "0",
     reaperIntervalMs: Number(env.CONCORDIA_REAPER_INTERVAL_MS ?? "300000"),
     reaperMinAgeSec: Number(env.CONCORDIA_REAPER_MIN_AGE_SEC ?? "180"),
+    metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
+    metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
+    metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),

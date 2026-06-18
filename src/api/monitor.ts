@@ -8,10 +8,13 @@
 
 import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { MetricsStore } from "../metrics/store.js";
 import { serializeSession } from "./sessions.js";
 
 export interface MonitorApiDeps {
   repo: SessionsRepo;
+  /** ホストメトリクスの読み出し (省略時は metrics 機能無効として 503)。 */
+  metrics?: MetricsStore;
 }
 
 export function monitorRouter(deps: MonitorApiDeps): Hono {
@@ -80,6 +83,24 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
       conflicts: matching.map(serializeSession),
       branches: [...byBranch.entries()].map(([branch, count]) => ({ branch, count })),
     });
+  });
+
+  // PC パフォーマンス: 最新スナップショット (host メモリ/CPU + 上位プロセス + WSL/docker
+  // + セッション別 RSS)。 Monitor ページのマシン概況 + セッション別メモリ列に使う。
+  app.get("/metrics", (c) => {
+    if (!deps.metrics) return c.json({ error: "metrics disabled" }, 503);
+    const snapshot = deps.metrics.latest();
+    if (!snapshot) return c.json({ snapshot: null });
+    return c.json({ snapshot });
+  });
+
+  // セッション別 RSS の時系列 (sparkline 用)。
+  app.get("/metrics/session/:id", (c) => {
+    if (!deps.metrics) return c.json({ error: "metrics disabled" }, 503);
+    const id = c.req.param("id");
+    const windowMin = Math.max(1, Math.min(1440, Number(c.req.query("window_min") ?? 120)));
+    const series = deps.metrics.sessionSeries(id, Date.now() - windowMin * 60_000);
+    return c.json({ session_id: id, window_min: windowMin, series });
   });
 
   return app;

@@ -44,6 +44,8 @@ import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
 import { startReaper } from "./control/reaper.js";
+import { MetricsStore } from "./metrics/store.js";
+import { startMetricsLoop } from "./metrics/loop.js";
 import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
@@ -297,6 +299,18 @@ export async function startBackend(): Promise<BackendHandle> {
     },
   );
 
+  // PC パフォーマンス監視: ホストのメモリ/CPU + 上位プロセス + WSL/docker + セッション別 RSS を
+  // 周期サンプリングして host_metrics に蓄積。 Monitor ページが最新スナップショットを表示する。
+  const metricsStore = new MetricsStore(db);
+  const metricsLoop = startMetricsLoop(
+    { repo, store: metricsStore },
+    {
+      enabled: cfg.metricsEnabled,
+      intervalMs: cfg.metricsIntervalMs,
+      retentionHours: cfg.metricsRetentionHours,
+    },
+  );
+
   const toolPath = join(process.cwd(), "tools", "concordia-hook.mjs");
   const publicUrl = `http://${cfg.host}:${cfg.port}`;
 
@@ -352,6 +366,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const app = buildApp({
     repo,
+    metrics: metricsStore,
     tasks,
     chat,
     skills,
@@ -534,6 +549,7 @@ export async function startBackend(): Promise<BackendHandle> {
       errorFixDispatcher.stop();
       sweeper.stop();
       reaper.stop();
+      metricsLoop.stop();
       clearInterval(costSampleTimer);
       unsubLog();
       await stopDiscordBotManaged();

@@ -72,10 +72,13 @@ import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { reapOrphans } from "./control/reaper.js";
+import type { MetricsStore } from "./metrics/store.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
 export interface AppDeps {
   repo: SessionsRepo;
+  /** PC パフォーマンススナップショットの読み出し (Monitor /metrics 用)。 */
+  metrics?: MetricsStore;
   tasks: TasksRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
@@ -158,7 +161,7 @@ export function buildApp(deps: AppDeps): Hono {
     personasRouter({ personas: deps.personas, sessions: deps.repo, chat: deps.chat, config: deps.config }),
   );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
-  app.route("/v1/monitor", monitorRouter({ repo: deps.repo }));
+  app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat, dispatcher: deps.dispatcher }));
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
   app.route("/v1/skills", skillsRouter({ skills: deps.skills }));

@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -416,6 +416,16 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_session_stats_session_ts ON session_stats(session_id, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_session_stats_ts ON session_stats(ts DESC)`,
+
+  // ─── host metrics (v0.6 — PC パフォーマンススナップショット) ──────────
+  // ホストのメモリ/CPU + 上位プロセス + WSL/docker + セッション別 RSS を 1 tick = 1 行
+  // (payload JSON) で蓄積する。 Monitor は最新行を読み、 sparkline は時系列を走査する。
+  `CREATE TABLE IF NOT EXISTS host_metrics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sampled_at  INTEGER NOT NULL,
+    payload     TEXT NOT NULL  -- JSON (HostSnapshot)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_host_metrics_ts ON host_metrics(sampled_at DESC)`,
 
   // ─── transcript logs (v0.5 — session log 永続化) ──────
   // Lictor の transcript-tail が POST する transcript frame (Claude/Codex 内部 JSONL

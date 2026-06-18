@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>アーキテクチャ / ドメイングラフ — Concordia</title>
+<link rel="icon" href="./assets/concordia.svg" />
+<link rel="stylesheet" href="./assets/style.css" />
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="./index.html"><img src="./assets/concordia.svg" alt="" />Concordia</a>
+  <div class="links">
+    <a href="./index.html">概要</a>
+    <a href="./architecture.html" class="active">アーキテクチャ / グラフ</a>
+    <a href="./api.html">API リファレンス</a>
+    <a href="./review.html">仕様 ↔ コード レビュー</a>
+  </div>
+</nav>
+
+<main class="wrap wide">
+  <h1>アーキテクチャ / ドメイン関連グラフ</h1>
+  <p class="lead">
+    <code>src/</code> の import を解析して得たドメイン（モジュール）と依存関係。ノードをクリックすると役割・依存先・被依存が表示される。
+    ドラッグで移動、ホイールでズーム、凡例クリックでカテゴリの表示/非表示を切り替えられる。ノードサイズは <b>被依存数</b> に比例する。
+  </p>
+
+  <div class="graph-shell">
+    <div>
+      <canvas id="graph-canvas"></canvas>
+      <p class="hint">エッジ A→B は「A が B を import / 呼び出す」を意味する。フォーカス時のみ矢印を表示。</p>
+    </div>
+    <div class="graph-side">
+      <div class="legend">
+        <h3>カテゴリ（クリックで絞込）</h3>
+        <div id="legend-rows"></div>
+      </div>
+      <div class="node-info" id="node-info"></div>
+    </div>
+  </div>
+
+  <section>
+    <h2>ドメイン一覧</h2>
+    <p>中心となるのは <b>db</b>（ほぼ全ドメインが依存する永続化基盤）、<b>shared</b>（config/logger/型）、<b>events</b>（実行時の協調ハブ）。
+    <code>app</code> / <code>server</code> は composition root（最大の fan-out）。</p>
+
+    <h3 style="color:#60a5fa">Core / infra</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>db</b></td><td>SQLite 層。migration 適用 + エンティティ別 repository を公開する全体の永続化基盤</td><td><code>index.ts · schema.ts</code></td></tr>
+      <tr><td><b>events</b></td><td>プロセス内 pub/sub イベントバス。<code>ConcordiaEvent</code> union を定義（依存ゼロの pure sink）</td><td><code>events.ts</code></td></tr>
+      <tr><td><b>shared</b></td><td>横断ユーティリティ（config / logger / quiet-hours / secret-box / 型 / admin auth）</td><td><code>config.ts · logger.ts</code></td></tr>
+      <tr><td><b>app</b></td><td>Hono app ファクトリ。<code>api/*</code> ルータを 1 つの HTTP app に配線</td><td><code>app.ts</code></td></tr>
+      <tr><td><b>server</b></td><td>backend entrypoint = composition root。全 repo/service/scheduler/bot を生成し起動</td><td><code>server.ts</code></td></tr>
+      <tr><td><b>auth</b></td><td>Claude Code OAuth の rate-usage 取得。token は永続化しない leaf</td><td><code>anthropic-oauth-usage.ts</code></td></tr>
+    </tbody></table>
+
+    <h3 style="color:#34d399">Session lifecycle</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>api</b></td><td>HTTP ルートハンドラ群（sessions/chat/reports/PRs/cost/personas/delegation/spawn/stat/stream）</td><td><code>sessions.ts · chat.ts</code></td></tr>
+      <tr><td><b>sweeper</b></td><td>停滞 active を lost→abandoned に遷移、provider recovery、古い event を auto-purge</td><td><code>sweeper.ts</code></td></tr>
+      <tr><td><b>report</b></td><td>セッション終了レポート生成（構造化 bullets + claude/template ナラティブ）</td><td><code>generator.ts</code></td></tr>
+      <tr><td><b>processes</b></td><td>ProcessManager。dev-process.md から dev プロセスを spawn/監視しログ永続化</td><td><code>manager.ts · runner.ts</code></td></tr>
+      <tr><td><b>providers</b></td><td>provider 名 → AgentProvider 実装（claude-code / codex-cli / gemini-cli）レジストリ</td><td><code>index.ts · types.ts</code></td></tr>
+      <tr><td><b>stat</b></td><td>stat-collect タスクを enqueue する scheduler（interval + idle trigger）</td><td><code>scheduler.ts</code></td></tr>
+    </tbody></table>
+
+    <h3 style="color:#a78bfa">Coordination</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>dispatcher</b></td><td>chitchat/review/通知タスクの発火を決める静的アルゴリズム（topic-shift / cadence / quiet-hours）</td><td><code>dispatcher.ts</code></td></tr>
+      <tr><td><b>delegation</b></td><td>委託サービス。テンプレを render し sub-session を spawn、run を記録</td><td><code>service.ts</code></td></tr>
+      <tr><td><b>pr</b></td><td>PR キュー。open PR を取込・正規化・状態照合し <code>pr.changed</code> を emit</td><td><code>ingest.ts · reconcile.ts</code></td></tr>
+      <tr><td><b>rules</b></td><td>ルールエンジン。tick/event 駆動で claude CLI を invoke。<code>claude-runner</code> は personas/daily/report からも再利用</td><td><code>engine.ts · claude-runner.ts</code></td></tr>
+      <tr><td><b>work</b></td><td>ローカル repo clone を走査し branch/worktree/所有 session を取得</td><td><code>repo-scan.ts</code></td></tr>
+      <tr><td><b>triggers</b></td><td>topic-shift 検出と会話シード選択（dispatcher が使用）</td><td><code>topic-change.ts · seeds.ts</code></td></tr>
+    </tbody></table>
+
+    <h3 style="color:#fbbf24">Identity / config</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>personas</b></td><td>活動シグナルからセッション persona を合成（claude CLI + heuristic fallback）</td><td><code>generate.ts · signals.ts</code></td></tr>
+      <tr><td><b>role</b></td><td>tool/file-type 使用から role をルールベース推論</td><td><code>predict.ts</code></td></tr>
+      <tr><td><b>skills</b></td><td>skill ファイルの poison/growth スコアリング</td><td><code>analyzer.ts</code></td></tr>
+      <tr><td><b>model-catalog</b></td><td>起動時に選択可能なモデルカタログを seed</td><td><code>seed.ts</code></td></tr>
+    </tbody></table>
+
+    <h3 style="color:#f472b6">Integrations / platform</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>discord</b></td><td>Discord ChatPlatform 一式（bot / ingress / egress / channel layout / reactions / cost・error・PR channel）</td><td><code>bot.ts · egress.ts</code></td></tr>
+      <tr><td><b>slack</b></td><td>Slack ChatPlatform（Socket Mode, thread-per-session, slash, cost canvas）</td><td><code>bot.ts · render.ts</code></td></tr>
+      <tr><td><b>platform</b></td><td>Discord/Slack を抽象する <code>ChatPlatform</code> contract + reaction-workflow / working-indicator</td><td><code>chat-platform.ts</code></td></tr>
+      <tr><td><b>control</b></td><td>セッション制御プレーン。Lictor ラップ端末の spawn / reaper / session-end / error-fix / key injection</td><td><code>spawner.ts · reaper.ts</code></td></tr>
+      <tr><td><b>mcp</b></td><td>MCP stdio サーバ（core / delegation / vestigium）。横断状態を tool 公開</td><td><code>core-server.ts</code></td></tr>
+    </tbody></table>
+
+    <h3 style="color:#2dd4bf">Observability</h3>
+    <table><thead><tr><th>ドメイン</th><th>役割</th><th>主ファイル</th></tr></thead><tbody>
+      <tr><td><b>cost</b></td><td>token 使用量・日次予算強制・cost feed/report 集計</td><td><code>usage-tracker.ts</code></td></tr>
+      <tr><td><b>metrics</b></td><td>host/process パフォーマンススナップショット（CPU / RSS / セッション別メモリ）</td><td><code>collector.ts · process-tree.ts</code></td></tr>
+      <tr><td><b>daily</b></td><td>日次レポートの aggregator / generator / scheduler</td><td><code>generator.ts · aggregator.ts</code></td></tr>
+      <tr><td><b>admin</b></td><td>runtime トグル（chat_muted / rules_enabled / proposer interval / workspace_root）を schema_meta に永続化</td><td><code>state.ts</code></td></tr>
+    </tbody></table>
+  </section>
+</main>
+
+<footer class="site">
+  Concordia · LUDIARS · MIT License · <a href="https://github.com/LUDIARS/Concordia">GitHub</a>
+</footer>
+
+<script src="./assets/graph-data.js"></script>
+<script src="./assets/graph.js"></script>
+</body>
+</html>

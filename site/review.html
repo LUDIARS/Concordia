@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>仕様 ↔ コード レビュー — Concordia</title>
+<link rel="icon" href="./assets/concordia.svg" />
+<link rel="stylesheet" href="./assets/style.css" />
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="./index.html"><img src="./assets/concordia.svg" alt="" />Concordia</a>
+  <div class="links">
+    <a href="./index.html">概要</a>
+    <a href="./architecture.html">アーキテクチャ / グラフ</a>
+    <a href="./api.html">API リファレンス</a>
+    <a href="./review.html" class="active">仕様 ↔ コード レビュー</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <h1>仕様 ↔ コード 対応レビュー</h1>
+  <p class="lead">
+    <code>spec/</code> の仕様書（feature 17 本 + interface + data + setup + test）を <code>src/</code> の実装と突き合わせた対応監査。
+    結論から言うと <b>多くの不一致は「コードが仕様より先行している」</b> 種類で、純粋に壊れている/欠落している項目は 2 件。
+  </p>
+
+  <div class="pill-row">
+    <span class="pill"><span class="badge ok">IMPLEMENTED</span> 仕様どおり実装</span>
+    <span class="pill"><span class="badge partial">PARTIAL</span> 一部のみ</span>
+    <span class="pill"><span class="badge missing">MISSING</span> 未実装</span>
+    <span class="pill"><span class="badge diverged">DIVERGED</span> 仕様と差異</span>
+    <span class="pill"><span class="badge extra">SUPERSET</span> 仕様超過（コード先行）</span>
+  </div>
+
+  <section>
+    <h2>最優先の不一致（要対応）</h2>
+    <div class="callout warn">
+      <ol>
+        <li><b>POST /v1/sessions/:id/recover が無い</b> — <code>service-schema.md §6.2</code> が定義する lost からの復元エンドポイントが <code>src/api/sessions.ts</code> に存在しない。sweeper の自動 recover 呼出も該当ルート不在。<span class="badge missing">MISSING</span></li>
+        <li><b>Discord control-ui のボタンが dead code</b> — <code>handleControlInteraction</code> / <code>handleControlModalSubmit</code> が export されているが <code>commands.ts</code> の <code>dispatchInteraction</code> に配線されておらず、すべての <code>ctrl:*</code> インタラクションが無言で破棄される。<span class="badge partial">機能欠陥</span></li>
+      </ol>
+    </div>
+  </section>
+
+  <section>
+    <h2>interface / data 仕様</h2>
+    <table>
+      <thead><tr><th>仕様</th><th>状況</th><th>メモ</th></tr></thead>
+      <tbody>
+        <tr><td><code>service-schema.md §4</code> session/report/monitor API</td><td><span class="badge ok">IMPLEMENTED</span></td><td>9 本の session ライフサイクル + reports + monitor + health + sweeper はすべて存在。コードは title/inject/fork/fs/transcript-frame/permission/question 等を <b>追加</b>（仕様 §4 は文書化された部分集合）。</td></tr>
+        <tr><td><code>service-schema.md §6.2</code> recover</td><td><span class="badge missing">MISSING</span></td><td><code>POST /v1/sessions/:id/recover</code> 不在。</td></tr>
+        <tr><td><code>service-schema.md §12</code> F8 managed processes</td><td><span class="badge ok">IMPLEMENTED</span></td><td>9 本すべて <code>src/api/processes.ts</code> に存在。仕様は "v0.2" ラベルだが完全実装済。テーブルも一致。</td></tr>
+        <tr><td><code>data/schema.md</code> テーブルカタログ</td><td><span class="badge partial">PARTIAL / 陳腐化</span></td><td><code>SCHEMA_VERSION</code> が仕様 15 に対し実コード <b>25</b>（<code>src/db/schema.ts:7</code>）。既存行の列/index は一致するが <code>host_metrics · pr_records · slack_* · participants · model_catalog · cost_*</code> など <b>9 テーブルが未記載</b>。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>feature 仕様（17 本）</h2>
+    <table>
+      <thead><tr><th>仕様</th><th>状況</th><th>メモ</th></tr></thead>
+      <tbody>
+        <tr><td>discord-ui</td><td><span class="badge diverged">DIVERGED(minor)</span></td><td>channel slug が <code>&lt;agent&gt;-&lt;role&gt;</code>（仕様の "id 先頭 4 文字" ではない）。<code>working</code>(⚙️) 状態と広い emoji セットを追加。</td></tr>
+        <tr><td>discord-ui-pr-b</td><td><span class="badge partial">PARTIAL / DIVERGED</span></td><td>slash の顔ぶれが相違（<code>/inject /keys /answer /chitchat /consultation</code> が無く、<code>prs/enter/clean/projects</code> を追加）。embed builder はあるが egress は依然プレーンテキスト（§7 embed 化が未了）。質問ブリッジは完全実装。</td></tr>
+        <tr><td>discord-control-ui</td><td><span class="badge partial">PARTIAL(壊れ)</span></td><td>パネルは投稿されるが <code>ctrl:*</code> ボタンが dispatcher 未配線（最優先 #2）。</td></tr>
+        <tr><td>discord-lictor-relay</td><td><span class="badge ok">IMPLEMENTED</span></td><td>Concordia 側スコープ完了（<code>/discord-channels</code>、<code>/v1/chat</code> の <code>discord_channel_id</code>、egress 優先）。Lictor 側は仕様上スコープ外。</td></tr>
+        <tr><td>discord-session-direct-inject</td><td><span class="badge ok">IMPLEMENTED(改良)</span></td><td>ack を transcript frame が動くまで遅延（仕様の "200 で react" より良い）。</td></tr>
+        <tr><td>slack-platform</td><td><span class="badge ok">IMPLEMENTED</span></td><td>ChatPlatform + Socket Mode + thread + question button + cost canvas。<code>/co-*</code> サブコマンドを追加（超過）。</td></tr>
+        <tr><td>reaction-workflow</td><td><span class="badge diverged">DIVERGED</span></td><td><code>memoria-remaining</code> がコードでは 🫶/😴/✨、仕様は 🫡。追加 action（<code>channel-rename</code> 等）は未文書化。</td></tr>
+        <tr><td>participants</td><td><span class="badge ok">IMPLEMENTED</span></td><td>registry + 話者属性付きクロスプラットフォームミラー。</td></tr>
+        <tr><td>working-indicator</td><td><span class="badge ok">IMPLEMENTED</span></td><td>状態機械一致。仕様の "Slack 未実装(v0.1)" 注記は陳腐化（Slack 配線済）。</td></tr>
+        <tr><td>boyaki-channel</td><td><span class="badge ok">IMPLEMENTED</span></td><td>ぼやき channel + persona feedback 収集 + 0.2 返信確率。</td></tr>
+        <tr><td>error-pipeline</td><td><span class="badge ok">IMPLEMENTED</span></td><td>集約 + opt-in 自動修正（既定 OFF）。</td></tr>
+        <tr><td>delegation</td><td><span class="badge ok">IMPLEMENTED</span></td><td>§5 全エンドポイント + persona/model 注入 + gemma4-12 lane。<code>emoji</code>/<code>call_only</code> 追加。</td></tr>
+        <tr><td>multi-provider</td><td><span class="badge diverged">DIVERGED(先行)</span></td><td><code>codex-cli</code> は <b>完全実装</b>（仕様は stub のまま）。未文書の <code>local-llm</code> を追加。<code>gemini-cli</code> は仕様どおり stub。</td></tr>
+        <tr><td>persona-generation</td><td><span class="badge ok">IMPLEMENTED</span></td><td><code>POST /v1/personas/generate</code> + signals + Claude/heuristic fallback。schema バージョン記述が陳腐化。</td></tr>
+        <tr><td>session-process-reaper</td><td><span class="badge ok">IMPLEMENTED</span></td><td>3 フェーズ + env 既定値（1 / 300000 / 180）が正確に一致。</td></tr>
+        <tr><td>pr-queue</td><td><span class="badge ok">IMPLEMENTED</span></td><td>バケット + ingest/reconcile + API 3 本 + MCP tool + Discord メッセージ + <code>/prs</code>。<code>full-sync</code> 追加。</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>test 設計</h2>
+    <p>
+      <span class="badge ok">概ね一致</span> Vitest + <code>CONCORDIA_DISABLE_CLAUDE=1</code> + CI（lint/test/build）が一致。テストファイルは <b>84 本</b>存在（仕様は "40+"）。
+      ただし <code>admin-restart.test.ts</code> / <code>claude-code-provider.test.ts</code> / <code>codex-cli-provider.test.ts</code> は仕様に名があるが実在せず（provider テストは <code>tests/providers.test.ts</code> に統合）。
+    </p>
+  </section>
+
+  <section>
+    <h2>仕様が無いコードドメイン</h2>
+    <p>以下は専用の feature/interface/data 仕様を持たない（横断 utils の <code>shared</code> を除き、文書化が望ましい）:</p>
+    <div class="pill-row">
+      <span class="pill">cost</span><span class="pill">role</span><span class="pill">skills</span>
+      <span class="pill">model-catalog</span><span class="pill">work</span><span class="pill">daily</span>
+      <span class="pill">triggers</span><span class="pill">metrics</span><span class="pill">auth</span>
+      <span class="pill">admin</span><span class="pill">stat</span><span class="pill">mcp(interface のみ)</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>総評</h2>
+    <ul class="clean">
+      <li>仕様で定義された機能はほぼ実装され、コードはしばしば仕様を <b>超過</b> している（Slack / cost / PR queue / personas / processes 等）。</li>
+      <li>本当に対応が必要なのは <b>recover エンドポイント欠落</b> と <b>Discord control パネルの未配線</b> の 2 件。</li>
+      <li>ドキュメントの陳腐化（schema version、provider 状態、reaction emoji、未記載テーブル/ドメイン）が散見され、仕様の追従更新が推奨される。</li>
+    </ul>
+  </section>
+</main>
+
+<footer class="site">
+  Concordia · LUDIARS · MIT License · <a href="https://github.com/LUDIARS/Concordia">GitHub</a>
+</footer>
+</body>
+</html>

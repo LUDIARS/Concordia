@@ -8,6 +8,7 @@ import {
   WorkspaceSection,
   CostBudgetSection,
   LictorSection,
+  WebHostsSection,
 } from "./settings/sections.js";
 
 // Concordia の「設定」ページ。 設定項目が増えたので左メニュー + セクション構成にした。
@@ -68,6 +69,12 @@ const SECTIONS: SettingsSection[] = [
     label: "Lictor",
     hint: "spawn の Lictor 起動 (auto / dev / prod)",
     render: () => <section className="border border-border rounded p-4"><LictorSection /></section>,
+  },
+  {
+    id: "web-hosts",
+    label: "Web ホスト",
+    hint: "Vite allowedHosts (Tunnel / Tailscale 等の外部ホスト名)",
+    render: () => <section className="border border-border rounded p-4"><WebHostsSection /></section>,
   },
 ];
 

@@ -4,6 +4,8 @@
 
 import { Hono } from "hono";
 import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { ParticipantsRepo } from "./db/participants-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
@@ -670,6 +672,44 @@ export function buildApp(deps: AppDeps): Hono {
       slackAdminRouter({ config: deps.slackConfig, secretBox: deps.secretBox, admin: deps.slackAdmin }),
     );
   }
+
+  // Web allowedHosts 設定 (concordia.config.json の web.allowedHosts を読み書き)。
+  // Vite dev server 再起動で反映される。
+  const webConfigPath = resolve(process.cwd(), "concordia.config.json");
+
+  function readWebHosts(): string[] {
+    if (!existsSync(webConfigPath)) return [];
+    try {
+      const cfg = JSON.parse(readFileSync(webConfigPath, "utf8")) as { web?: { allowedHosts?: unknown } };
+      const hosts = cfg?.web?.allowedHosts;
+      return Array.isArray(hosts) ? hosts.filter((h): h is string => typeof h === "string") : [];
+    } catch { return []; }
+  }
+
+  function writeWebHosts(hosts: string[]): void {
+    let cfg: Record<string, unknown> = {};
+    if (existsSync(webConfigPath)) {
+      try { cfg = JSON.parse(readFileSync(webConfigPath, "utf8")) as Record<string, unknown>; } catch { /* ignore */ }
+    }
+    const web = (cfg.web && typeof cfg.web === "object" && !Array.isArray(cfg.web))
+      ? { ...(cfg.web as Record<string, unknown>) }
+      : {} as Record<string, unknown>;
+    web.allowedHosts = hosts;
+    cfg.web = web;
+    writeFileSync(webConfigPath, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  }
+
+  app.get("/v1/admin/web-hosts", (c) => c.json({ allowed_hosts: readWebHosts() }));
+
+  app.put("/v1/admin/web-hosts", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || !Array.isArray(body.allowed_hosts)) {
+      return c.json({ error: "body.allowed_hosts (string[]) required" }, 400);
+    }
+    const hosts = (body.allowed_hosts as unknown[]).filter((h): h is string => typeof h === "string");
+    writeWebHosts(hosts);
+    return c.json({ allowed_hosts: readWebHosts(), note: "Vite dev server の再起動後に反映されます" });
+  });
 
   return app;
 }

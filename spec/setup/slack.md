@@ -64,6 +64,7 @@ curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
    - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 / ライブカード更新 (`chat.postMessage/update/delete`)
    - `channels:history` — 公開チャンネルの発言受信(ingress = thread 返信 → inject)
    - `reactions:read` — リアクション受信(👍=実装着手 等のリアクション制御)
+   - `canvases:write` — 「コスト」Canvas の作成・更新(`conversations.canvases.create` / `canvases.edit`)
    - `commands` — `/concordia` slash コマンド
    - ※プライベートチャンネル運用なら `channels:history` の代わりに `groups:history`
 3. **Socket Mode → Enable**。**Basic Information → App-Level Tokens** で
@@ -122,6 +123,7 @@ oauth_config:
       - channels:history
       - channels:read
       - reactions:read        # 👍=実装着手 等のリアクション制御
+      - canvases:write        # 「コスト」Canvas の作成・更新
       - commands
       # プライベートチャンネル運用なら channels:history を groups:history に置換
 settings:

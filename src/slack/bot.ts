@@ -10,6 +10,8 @@ import { SocketModeClient } from "@slack/socket-mode";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
+import type { SlackConfigRepo } from "../db/slack-config-repo.js";
+import { upsertCostCanvas, type CostCanvasClient } from "./cost-canvas.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -70,6 +72,8 @@ export interface SlackBotDeps {
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
   personasRepo: PersonasRepo;
+  /** cost Canvas の canvas_id 永続化に使う key/value repo (slack_config)。 */
+  slackConfigRepo: SlackConfigRepo;
   concordiaUrl: string;
   /** test 用に env を直接差し替えるための injection（最優先）。 */
   env?: SlackEnv;
@@ -848,12 +852,35 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   await socket.start();
   log.info(`Slack platform connected (channel=${channelId}, bot=${botUserId ?? "?"})`);
 
+  // ─── cost Canvas: Discord の cost チャンネルと同じ集計を「コスト」Canvas に毎回反映 ──
+  // canvas_id は slack_config に保存し (= 親 (= Canvas) の id を持っておく)、 以後は edit で
+  // 同じ Canvas を上書きする。Discord の cost-channel と同じ refresh 間隔 (既定 10 分)。
+  const costCanvasClient: CostCanvasClient = {
+    canvases: { edit: (args) => web.canvases.edit(args as never) },
+    conversations: { canvases: { create: (args) => web.conversations.canvases.create(args as never) } },
+  };
+  const refreshCostCanvas = () =>
+    upsertCostCanvas({
+      client: costCanvasClient,
+      channelId,
+      sessionsRepo: deps.sessionsRepo,
+      configGet: (k) => deps.slackConfigRepo.get(k),
+      configSet: (k, v) => deps.slackConfigRepo.set(k, v),
+      configDelete: (k) => deps.slackConfigRepo.delete(k),
+      log: { info: (m) => log.info(`cost-canvas: ${m}`), warn: (m) => log.warn(`cost-canvas: ${m}`) },
+    }).catch((e) => log.warn(`cost canvas refresh failed: ${(e as Error).message}`));
+  void refreshCostCanvas();
+  const costMins = Math.max(10, Number(process.env.CONCORDIA_SLACK_COST_REFRESH_MIN ?? "10") || 10);
+  const costCanvasTimer: ReturnType<typeof setInterval> = setInterval(() => { void refreshCostCanvas(); }, costMins * 60 * 1000);
+  costCanvasTimer.unref?.();
+
   let stopped = false;
   return {
     name: "slack",
     async stop() {
       if (stopped) return;
       stopped = true;
+      clearInterval(costCanvasTimer);
       unsubscribe();
       try { await socket.disconnect(); } catch {}
     },

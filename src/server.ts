@@ -323,6 +323,8 @@ export async function startBackend(): Promise<BackendHandle> {
     chatRepo: chat,
     sessionsRepo: repo,
     personasRepo: personas,
+    // cost Canvas の canvas_id 永続化 (slack_config key/value)。
+    slackConfigRepo: slackConfig,
     concordiaUrl: publicUrl,
     // リアクションワークフロー (👍 → 実装着手 等): Discord と同じ安全弁 + ワークスペースルート。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,

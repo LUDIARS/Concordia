@@ -1,7 +1,7 @@
 ---
 name: concordia
 description: Concordia (LUDIARS multi-agent session coordinator) との連携スキル. **env CONCORDIA_HOOK=1 がセットされた対話セッションでのみ有効**. それ以外では無視. session-start / event / chat / report の各 hook 出力を解釈し、 適切な API を叩く. action 提案を含むチャットは必ずユーザに確認してから実行する.
-version: 0.1.6
+version: 0.1.7
 ---
 
 # Concordia 連携スキル
@@ -60,6 +60,19 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 
 委託 (delegation) で spawn された場合も同様で、 初期プロンプト冒頭の Concordia
 コンテキストに同じ指示が入っている。
+
+## 勝手に作業しない (重要)
+
+報告ファーストと対になる原則。 **明確な指示・承認がないまま実作業 (コード変更 /
+ファイル作成・削除 / コミット / 外部送信など) を勝手に始めない**。 これは Concordia 自身
+にも、 Concordia が spawn したエージェントにも等しく課す。
+
+- chat / chitchat / consultation で見聞きした提案や TODO を、 ユーザの承認なく自分で
+  実行に移さない。 特に `[HUMAN_CONFIRMATION_REQUIRED]` 付きは厳守 (後述)。
+- 方針が複数あり得る / スコープが曖昧 / 影響が大きいときは、 着手前に方針を 1〜3 行で
+  示して承認を待つ。 「やっておきました」 ではなく 「こう進めてよいですか」 が既定。
+- 調査・読み取り (現状把握 / ログ確認 / 設計の検討) は進めてよい。 変更を伴う一歩だけ
+  ユーザの GO を確認してから踏み出す。
 
 ## hook 出力の読み方
 

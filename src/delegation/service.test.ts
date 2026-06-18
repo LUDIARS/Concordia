@@ -183,6 +183,8 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("Concordia コンテキスト");
     // 起動後の報告ファースト指示が含まれる
     expect(file).toContain("これから何をするか");
+    // 「勝手に作業しない」 ガードが含まれる
+    expect(file).toContain("勝手に作業しない");
     // persona 無しなので「割り当て人格」セクションは出ない
     expect(file).not.toContain("割り当て人格");
   });

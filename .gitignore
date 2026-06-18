@@ -53,6 +53,9 @@ concordia.secret.key
 # 委託 prompt の実行時生成物
 delegation-prompts/
 
+# vite.config.ts はドメイン名を含むためローカル管理 (vite.config.example.ts を参照)
+web/vite.config.ts
+
 # runtime logs (Vestigium / Lictor)
 logs/
 web/logs/

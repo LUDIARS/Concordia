@@ -14,6 +14,7 @@ import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
+import { CostFeed } from "./pages/CostFeed.js";
 
 const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
@@ -22,6 +23,7 @@ const NAV: NavItem[] = [
   { to: "/world", label: "World" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
+  { to: "/cost", label: "Cost" },
   { to: "/reports", label: "Reports" },
   { to: "/skills", label: "Skills" },
   { to: "/rules", label: "Rules" },
@@ -54,6 +56,7 @@ export function App() {
           <Route path="/skills" element={<Skills />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/personas" element={<Personas />} />
+          <Route path="/cost" element={<CostFeed />} />
           <Route path="/delegation" element={<Delegation />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />

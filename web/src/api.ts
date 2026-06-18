@@ -299,8 +299,30 @@ export interface HostSnapshot {
   }>;
 }
 
+/** クロスサービス cost-feed の集計 1 group (GET /v1/cost-feed)。 */
+export interface CostAgg {
+  /** group key: "(total)" / サービス名 / model id。 */
+  key: string;
+  sessions: number;
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  costUsd: number;
+}
+
+export interface CostFeedReport {
+  total: CostAgg;
+  byService: CostAgg[];
+  byModel: CostAgg[];
+  /** 見えた最新 entry の ts (epoch ms)、空なら null。 */
+  updatedAt: number | null;
+}
+
 export const api = {
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
+  costFeed: () => get<CostFeedReport>("/v1/cost-feed"),
   monitor: () => get<MonitorPayload>("/v1/monitor"),
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>

@@ -321,9 +321,9 @@ export function buildApp(deps: AppDeps): Hono {
     if (!session.metadata) {
       return c.json({ error: "session has no metadata — was it lictor-wrapped?" }, 400);
     }
-    let meta: { lictor_pid?: number };
+    let meta: { lictor_pid?: number; agent_client_pid?: number };
     try {
-      meta = JSON.parse(session.metadata) as { lictor_pid?: number };
+      meta = JSON.parse(session.metadata) as { lictor_pid?: number; agent_client_pid?: number };
     } catch {
       return c.json({ error: "session.metadata is not JSON" }, 400);
     }
@@ -350,6 +350,10 @@ export function buildApp(deps: AppDeps): Hono {
       ended,
     );
     const killResult = stopSessionByLictorPid(meta.lictor_pid);
+    // agent-client (別ツリー) も登録 pid があれば落とす (best-effort)。
+    if (typeof meta.agent_client_pid === "number") {
+      stopSessionByLictorPid(meta.agent_client_pid);
+    }
     if (!killResult.ok) {
       return c.json({
         ok: false,
@@ -362,6 +366,7 @@ export function buildApp(deps: AppDeps): Hono {
     return c.json({
       ok: true,
       pid: meta.lictor_pid,
+      agent_client_pid: meta.agent_client_pid ?? null,
       report_generated: flow.report !== null,
       monologue_posted: flow.postedMessageId !== null,
     });

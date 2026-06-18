@@ -27,7 +27,7 @@ import { spawnSession } from "../control/spawner.js";
 import { claimPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { stopSessionByLictorPid, isPidAlive } from "../control/stop-session.js";
-import { parseLictorPid } from "../control/reaper.js";
+import { parseLictorPid, parseAgentClientPid } from "../control/reaper.js";
 import {
   emitAutoSessionEndInject,
   pickSessionEndInjectText,
@@ -1112,14 +1112,21 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         .catch(() => {});
     }
     // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
-    // 猶予後に lictor_pid がまだ生きていれば process tree を確実に kill する (taskkill /F /T)。
+    // 猶予後に lictor_pid / agent_client_pid がまだ生きていれば確定的に kill する (taskkill /F /T)。
+    // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
     const lictorPid = parseLictorPid(ended.metadata);
-    if (lictorPid != null) {
+    const agentClientPid = parseAgentClientPid(ended.metadata);
+    if (lictorPid != null || agentClientPid != null) {
       setTimeout(() => {
-        if (isPidAlive(lictorPid)) {
+        if (lictorPid != null && isPidAlive(lictorPid)) {
           const r = stopSessionByLictorPid(lictorPid);
           if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
           else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
+        }
+        if (agentClientPid != null && isPidAlive(agentClientPid)) {
+          const r = stopSessionByLictorPid(agentClientPid);
+          if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
+          else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
         }
       }, FORCE_EXIT_GRACE_MS).unref?.();
     }

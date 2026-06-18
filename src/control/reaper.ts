@@ -129,10 +129,19 @@ export function liveSetsFromRepo(repo: SessionsRepo): {
 
 /** session.metadata (JSON 文字列) から lictor_pid を取り出す (pure)。 */
 export function parseLictorPid(metadata: string | null): number | null {
+  return parseMetaPid(metadata, "lictor_pid");
+}
+
+/** session.metadata から agent_client_pid を取り出す (pure)。 agent-client が起動時に自己登録する。 */
+export function parseAgentClientPid(metadata: string | null): number | null {
+  return parseMetaPid(metadata, "agent_client_pid");
+}
+
+function parseMetaPid(metadata: string | null, key: string): number | null {
   if (!metadata) return null;
   try {
-    const m = JSON.parse(metadata) as { lictor_pid?: unknown };
-    return typeof m.lictor_pid === "number" ? m.lictor_pid : null;
+    const m = JSON.parse(metadata) as Record<string, unknown>;
+    return typeof m[key] === "number" ? (m[key] as number) : null;
   } catch {
     return null;
   }

@@ -60,6 +60,13 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
 - `CONCORDIA_REAPER_INTERVAL_MS` (既定 `300000`)
 - `CONCORDIA_REAPER_MIN_AGE_SEC` (既定 `180`)
 
+## Phase 2: agent-client の明示 kill (実装済)
+agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に
+終了イベントが飛ぶと取りこぼし**孤児化する (reaper が 5 分以内に回収はする)。確定的に潰すため:
+- `tools/concordia-agent-client.mjs` が起動時に `PATCH /v1/sessions/:id`
+  `{ metadata: { agent_client_pid } }` で自分の pid を登録。
+- `DELETE /v1/sessions/:id`(猶予後保険)と `POST /v1/admin/stop-session/:id` が
+  `lictor_pid` と並べて `agent_client_pid` も kill (`parseAgentClientPid`)。
+
 ## 残 (follow-up)
-- agent-client の pid を session metadata に登録し、 終了時に明示 kill (Phase 2)。
-- PC パフォーマンス / セッション別メモリの Monitor 可視化 (別 PR)。
+- PC パフォーマンス / セッション別メモリの Monitor 可視化 → 実装済 (PR #186)。

@@ -6,6 +6,7 @@ import {
   parsePosixProcLine,
   classifyOrphans,
   parseLictorPid,
+  parseAgentClientPid,
   type RunningAgentProc,
 } from "../src/control/reaper.js";
 
@@ -62,6 +63,11 @@ describe("parseLictorPid", () => {
     expect(parseLictorPid("not json")).toBeNull();
     expect(parseLictorPid('{"x":1}')).toBeNull();
     expect(parseLictorPid(null)).toBeNull();
+  });
+  it("agent_client_pid も同様に取れる", () => {
+    expect(parseAgentClientPid('{"lictor_pid":1,"agent_client_pid":4242}')).toBe(4242);
+    expect(parseAgentClientPid('{"lictor_pid":1}')).toBeNull();
+    expect(parseAgentClientPid(null)).toBeNull();
   });
 });
 

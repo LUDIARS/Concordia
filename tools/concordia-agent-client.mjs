@@ -38,6 +38,31 @@ if (logPath) {
 }
 
 const target = `${url}?session=${encodeURIComponent(session)}`;
+
+// 自分の pid を Concordia の session.metadata に登録する (best-effort)。
+// WS の終了イベントを取りこぼした場合でも、 Concordia 側が agent_client_pid で
+// このプロセスを確定的に kill できるようにする (session-end / reaper の保険)。
+function httpBaseFromWs(wsUrl) {
+  try {
+    const u = new URL(wsUrl);
+    u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+    u.pathname = '';
+    u.search = '';
+    return u.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
+}
+function registerPid() {
+  const base = httpBaseFromWs(url);
+  if (!base || typeof fetch !== 'function') return;
+  void fetch(`${base}/v1/sessions/${encodeURIComponent(session)}`, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ metadata: { agent_client_pid: process.pid } }),
+  }).catch(() => { /* best-effort */ });
+}
+
 let stopped = false;
 let backoffMs = 1000;
 const MAX_BACKOFF_MS = 30_000;
@@ -107,4 +132,5 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
 write({ _client: 'agent', _ts: Date.now(), event: 'starting', target, session });
+registerPid();
 connect();

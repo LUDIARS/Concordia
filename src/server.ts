@@ -49,6 +49,7 @@ import { startMetricsLoop } from "./metrics/loop.js";
 import { startRuleEngine } from "./rules/engine.js";
 import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
+import { startMorningScheduler } from "./morning/scheduler.js";
 import { startStatScheduler } from "./stat/scheduler.js";
 import { startRepoChangeWatcher } from "./stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "./pr/ingest.js";
@@ -319,6 +320,10 @@ export async function startBackend(): Promise<BackendHandle> {
     dayReports,
   });
 
+  // 毎朝 8 時に Memoria の今日期限タスクを取得し、Lictor セッションを起動して処理させる。
+  // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
+  const morningScheduler = startMorningScheduler({ delegationService });
+
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に
   // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
   // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
@@ -539,6 +544,7 @@ export async function startBackend(): Promise<BackendHandle> {
     port: cfg.port,
     shutdown: async () => {
       dailyScheduler.stop();
+      morningScheduler.stop();
       ruleProposer.stop();
       ruleEngine.stop();
       statScheduler.stop();

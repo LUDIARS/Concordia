@@ -164,6 +164,35 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     }
     role = "summary";
     text = candidate;
+  } else if (ev.kind === "image") {
+    const p = ev.payload as { media_type?: string; data?: string } | null | undefined;
+    if (!p?.data) {
+      deps.log.info(`egress: transcript.frame skipped empty image session=${ev.target_session_id} seq=${ev.seq}`);
+      return;
+    }
+    const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+    if (!sessionRow || sessionRow.status === "ended") return;
+    const client = await deps.webhooks.getForSession(ev.target_session_id);
+    if (!client) {
+      deps.log.warn(`egress: transcript.frame image no webhook session=${ev.target_session_id}`);
+      return;
+    }
+    const session = deps.sessionsRepo.findSession(ev.target_session_id);
+    const meta = readMeta(session?.metadata);
+    const author = formatAuthorName(null, meta.role_label ?? null);
+    const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
+    const buf = Buffer.from(p.data, "base64");
+    const res = await deps.webhooks.send(client, {
+      content: "",
+      username: author,
+      files: [{ attachment: buf, name: `image.${ext}` }],
+    });
+    if (res) {
+      deps.log.info(`egress: transcript.frame image relayed ok session=${ev.target_session_id} seq=${ev.seq}`);
+    } else {
+      deps.log.warn(`egress: transcript.frame image relay empty session=${ev.target_session_id} seq=${ev.seq}`);
+    }
+    return;
   } else {
     deps.log.info(
       `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +

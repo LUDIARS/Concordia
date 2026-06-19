@@ -89,8 +89,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "claude",
+      "lictor claude & exit 0",
     ]);
   });
 
@@ -115,11 +114,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "codex",
-      "--continue",
-      "--model",
-      "o3",
+      "lictor codex --continue --model o3 & exit 0",
     ]);
   });
 
@@ -132,8 +127,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "gemini",
+      "lictor gemini & exit 0",
     ]);
   });
 
@@ -272,7 +266,8 @@ describe("spawn router (Hono)", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { command: string[] };
-    expect(body.command).toContain("gemini");
+    // provider は cmd string に結合されているため join 後の要素で確認する
+    expect(body.command.some((a) => a.includes("gemini"))).toBe(true);
     // window mode → --window new
     expect(body.command.indexOf("--window")).toBeGreaterThanOrEqual(0);
     expect(body.command[body.command.indexOf("--window") + 1]).toBe("new");

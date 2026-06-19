@@ -50,10 +50,10 @@ describe("buildWtArgs launcher injection", () => {
 
   it("custom launcher replaces the lictor token", () => {
     const args = buildWtArgs({ provider: "codex", cwd: "E:\\x" }, ["node", "E:\\Lictor\\bin\\lictor.mjs"]);
-    expect(args).toContain("node");
-    expect(args).toContain("E:\\Lictor\\bin\\lictor.mjs");
-    // launcher の直後に provider が来る
-    const i = args.indexOf("E:\\Lictor\\bin\\lictor.mjs");
-    expect(args[i + 1]).toBe("codex");
+    // launcher + provider は cmd string に結合されるため、 join 後の単一要素で確認する
+    const cmdStr = args.find((a) => a.includes("node"));
+    expect(cmdStr).toBeDefined();
+    expect(cmdStr).toContain("node E:\\Lictor\\bin\\lictor.mjs codex");
+    expect(cmdStr).toContain("& exit 0");
   });
 });

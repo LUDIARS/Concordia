@@ -82,8 +82,12 @@ export function buildWtArgs(req: SpawnRequest, launcher: string[] = ["lictor"]):
   out.push("new-tab");
   if (req.title) out.push("--title", req.title);
   if (req.cwd) out.push("-d", req.cwd);
-  out.push("cmd.exe", "/d", "/s", "/c", ...launcher, req.provider);
-  if (req.args && req.args.length > 0) out.push(...req.args);
+  // コマンドを 1 つの文字列に結合して `& exit 0` を末尾に付ける。
+  // これにより lictor が非ゼロ終了してもcmd.exeは 0 で終了し、
+  // Windows Terminal が「プロセスはコード 1 で終了しました」メッセージを
+  // 表示してタブを残す挙動を防ぐ (closeOnExit: graceful の既定動作を回避)。
+  const providerParts = [req.provider, ...(req.args ?? [])];
+  out.push("cmd.exe", "/d", "/s", "/c", [...launcher, ...providerParts].join(" ") + " & exit 0");
   return out;
 }
 

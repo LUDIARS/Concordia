@@ -54,6 +54,14 @@ const log = createChildLogger("sessions-api");
 const PROMPT_LOG_PREVIEW_CHARS = 200;
 /** DELETE 後 force-exit の猶予。 これを過ぎても lictor_pid 生存なら強制 kill する。 */
 const FORCE_EXIT_GRACE_MS = 5000;
+/**
+ * AI 側の session-end スキルが完了シグナルを送るまで force-exit を保留する猶予。
+ * `POST /v1/sessions/:id/session-end-done` が来ればその時点で即 force-exit。
+ * 来なくてもこの時間後に保険として force-exit を発行する。
+ */
+const SESSION_END_DONE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+/** id → force-exit 実行関数。 session-end-done シグナルかタイムアウトで発火する。 */
+const pendingSessionEndExits = new Map<string, () => void>();
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -1103,34 +1111,62 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       },
       ended,
     );
-    // runSessionEndFlow が完了した時点で AI の session-end 処理は十分に進んでいるため、
-    // Lictor に force-exit を送って WT ウインドウを閉じさせる (best-effort)。
-    // Lictor が既に終了している場合は接続エラーになるが catch で握り潰す。
-    const lictorTarget = resolveLictorTarget(deps.repo, id);
-    if (!("error" in lictorTarget)) {
-      void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
-        .catch(() => {});
-    }
-    // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
-    // 猶予後に lictor_pid / agent_client_pid がまだ生きていれば確定的に kill する (taskkill /F /T)。
-    // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
+    // force-exit は AI 側の session-end スキル完了後に発行する。
+    // `POST /v1/sessions/:id/session-end-done` が来た時点で即 force-exit、
+    // シグナルなし時は SESSION_END_DONE_TIMEOUT_MS 後に保険として発行する。
+    // これにより session-log 出力・memory 更新・残タスク登録が完了する前に
+    // WT ウインドウが閉じる問題を防ぐ。
     const lictorPid = parseLictorPid(ended.metadata);
     const agentClientPid = parseAgentClientPid(ended.metadata);
-    if (lictorPid != null || agentClientPid != null) {
-      setTimeout(() => {
-        if (lictorPid != null && isPidAlive(lictorPid)) {
-          const r = stopSessionByLictorPid(lictorPid);
-          if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
-          else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
-        }
-        if (agentClientPid != null && isPidAlive(agentClientPid)) {
-          const r = stopSessionByLictorPid(agentClientPid);
-          if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
-          else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
-        }
-      }, FORCE_EXIT_GRACE_MS).unref?.();
-    }
+    const doForceExit = () => {
+      pendingSessionEndExits.delete(id);
+      const lictorTarget = resolveLictorTarget(deps.repo, id);
+      if (!("error" in lictorTarget)) {
+        void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
+          .catch(() => {});
+      }
+      // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
+      // 猶予後に lictor_pid / agent_client_pid がまだ生きていれば確定的に kill する (taskkill /F /T)。
+      // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
+      if (lictorPid != null || agentClientPid != null) {
+        setTimeout(() => {
+          if (lictorPid != null && isPidAlive(lictorPid)) {
+            const r = stopSessionByLictorPid(lictorPid);
+            if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
+            else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
+          }
+          if (agentClientPid != null && isPidAlive(agentClientPid)) {
+            const r = stopSessionByLictorPid(agentClientPid);
+            if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
+            else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
+          }
+        }, FORCE_EXIT_GRACE_MS).unref?.();
+      }
+    };
+    const exitTimer = setTimeout(() => {
+      log.info({ session_id: id }, "session-end-done timeout — forcing exit");
+      doForceExit();
+    }, SESSION_END_DONE_TIMEOUT_MS);
+    exitTimer.unref?.();
+    pendingSessionEndExits.set(id, () => {
+      clearTimeout(exitTimer);
+      doForceExit();
+    });
     return c.json({ ok: true, session: serializeSession(ended), report });
+  });
+
+  // AI session-end スキルが全処理 (session-log/memory 更新/残タスク登録/report append)
+  // を完了した直後に呼ぶ。 Concordia はこれを受けて即座に force-exit を発行し WT を閉じる。
+  // シグナルなしでも SESSION_END_DONE_TIMEOUT_MS 後に自動 force-exit するので必須ではないが、
+  // 呼ぶことでターミナルが素早く閉じる。
+  app.post("/:id/session-end-done", (c) => {
+    const id = c.req.param("id");
+    const trigger = pendingSessionEndExits.get(id);
+    if (trigger) {
+      log.info({ session_id: id }, "session-end-done received — triggering force-exit");
+      trigger();
+    }
+    return c.json({ ok: true });
   });
 
   return app;

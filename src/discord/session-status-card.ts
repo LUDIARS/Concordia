@@ -6,6 +6,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
+import { fetchSessionCacheStats, type SessionCacheStats } from "../anatomia/cache-stats-client.js";
 
 /** 「直近のセッション活動」 と判定する閾値 (秒). recentEvents の最新 ts と現在時刻の差で見る. */
 const ACTIVE_WINDOW_SEC = 60;
@@ -82,6 +83,10 @@ export async function upsertSessionStatusCard(
   // タスクを送ったのに session が拾ってくれていない、 を見える化する.
   const concordiaPending = deps.tasksRepo.countUndeliveredForSession(sessionId);
 
+  // Anatomia 共有キャッシュの当セッション取り分 (ヒット率 + 想定コスト)。warm サーバが
+  // 居ない / イベント未発生なら null → カードはこのフィールドを省く (best-effort)。
+  const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
+
   const embed = buildSessionStatusEmbed({
     sessionId,
     provider: sessionRow.provider,
@@ -96,6 +101,7 @@ export async function upsertSessionStatusCard(
     pending,
     doneCount,
     concordiaPending,
+    cache,
   });
 
   const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
@@ -152,6 +158,8 @@ export interface StatusEmbedInput {
   pending: Array<{ task_text: string }>;
   doneCount: number;
   concordiaPending: number;
+  /** Anatomia 共有キャッシュの当セッション取り分。未取得/イベント無しは null。 */
+  cache?: SessionCacheStats | null;
 }
 
 /**
@@ -181,7 +189,7 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(statusColor(i.status, i.ageSec))
     .setTitle((i.personaText && i.personaText !== "-" ? i.personaText : i.provider).slice(0, 250))
     .setDescription(descParts.join("\n"))
@@ -191,9 +199,26 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
       { name: "Branch", value: `\`${i.branch ?? "-"}\``, inline: true },
       { name: "Repo", value: `\`${repoName}\``, inline: true },
       { name: `タスク (${taskHeader})`, value: taskValue, inline: false },
-    )
+    );
+
+  const cacheLine = formatCacheField(i.cache);
+  if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });
+
+  return embed
     .setFooter({ text: `session ${shortId} · ${truncate(i.repoPath, 80)}` })
     .setTimestamp(new Date());
+}
+
+/**
+ * Anatomia 共有キャッシュの当セッション取り分を 1 行に。`~` は想定 (stub-llm) basis。
+ * 例: `67% hit (8/12) · 節約 ~$0.14 · コスト ~$0.07`。null は省略。
+ */
+function formatCacheField(cache: SessionCacheStats | null | undefined): string | null {
+  if (!cache || cache.gets === 0) return null;
+  const pct = `${Math.round(cache.hitRate * 100)}%`;
+  const tilde = cache.basis === "assumed" ? "~" : "";
+  const usd = (v: number) => `${tilde}$${v.toFixed(v < 0.1 ? 4 : 2)}`;
+  return `${pct} hit (${cache.hits}/${cache.gets}) · 節約 ${usd(cache.savedUsd)} · コスト ${usd(cache.spentUsd)}`;
 }
 
 /** 状態 + 直近活動から Embed のアクセントカラーを決める。 */

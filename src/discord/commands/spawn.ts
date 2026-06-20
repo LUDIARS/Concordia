@@ -32,6 +32,14 @@ const spawnCommand: DiscordCommandSpec = {
       o.setName("inject")
         .setDescription("テンプレの prompt を render して自動注入する (既定: 注入しない)")
         .setRequired(false))
+    .addStringOption((o) =>
+      o.setName("prompt")
+        .setDescription("初回プロンプト (自由テキスト)。新セッション起動直後に注入する")
+        .setRequired(false))
+    .addStringOption((o) =>
+      o.setName("model")
+        .setDescription("モデル (例 haiku / sonnet / opus)。provider 直指定時のみ有効")
+        .setRequired(false))
     .addStringOption((o) => o.setName("cwd").setDescription("working directory").setRequired(false)),
 
   async autocomplete(interaction, deps) {
@@ -55,6 +63,8 @@ const spawnCommand: DiscordCommandSpec = {
     const provider = interaction.options.getString("provider") as (typeof providers)[number] | null;
     const template = interaction.options.getString("template") ?? undefined;
     const inject = interaction.options.getBoolean("inject") ?? false;
+    const prompt = interaction.options.getString("prompt")?.trim() || undefined;
+    const model = interaction.options.getString("model")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
 
     // スポーン前のアクティブセッション ID を記録し、新規セッションチャンネルを特定する。
@@ -89,6 +99,28 @@ const spawnCommand: DiscordCommandSpec = {
     // ── 従来経路: provider 直接指定 (/v1/spawn は token 必須) ──────
     if (!provider) {
       await interaction.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
+      return;
+    }
+    // prompt / model 指定あり = 自由テキスト初回プロンプト経路。/v1/admin/spawn-session
+    // (loopback 信頼境界、token 不要) が prompt を prompt file 化して注入する。
+    if (prompt || model) {
+      await interaction.deferReply({ ephemeral: false });
+      const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
+        deps.concordiaUrl,
+        "POST",
+        "/v1/admin/spawn-session",
+        { provider, prompt, model, cwd },
+      );
+      if ("error" in r || !r.ok) {
+        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
+        return;
+      }
+      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
+      await interaction.editReply({
+        content: channelMention
+          ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
+          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+      });
       return;
     }
     // /v1/spawn requires the Bearer token from `<cwd>/.spawn.token`. The bot

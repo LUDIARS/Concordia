@@ -290,19 +290,29 @@ export function buildApp(deps: AppDeps): Hono {
         400,
       );
     }
+    // model 指定 → resolveDelegationSpawn で `--model` 引数 / LICTOR_LOCAL_MODEL env に解決。
+    const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+    const resolved = resolveDelegationSpawn(provider, modelInput);
+    const userArgs = Array.isArray(body.args)
+      ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
+      : [];
+    // prompt (自由テキスト初回指示) があれば prompt file に書き、 Lictor 注入用 env を内部設定する。
+    // env 値は Concordia が生成するファイルパスのみ (外部から任意 env は受け取らない = CWE-78 対策)。
+    const adHocPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
+    const spawnEnv: Record<string, string> = { ...resolved.env };
+    if (adHocPrompt) {
+      spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
+    }
     const result = spawnSession({
-      provider,
+      provider: resolved.provider,
       mode,
-      args: Array.isArray(body.args)
-        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
-        : undefined,
+      args: [...resolved.args, ...userArgs],
       cwd: resolveSpawnCwd(body.cwd, deps.config.spawnDefaultCwd),
       title: typeof body.title === "string" ? body.title : undefined,
-      // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
-      // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
+      env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
     if (!result.ok) return c.json({ error: result.error }, 400);
-    return c.json({ ok: true, pid: result.pid, command: result.command });
+    return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: !!adHocPrompt });
   });
 
   // 管理 API: spawn の既定値を UI に晒す.

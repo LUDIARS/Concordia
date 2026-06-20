@@ -145,6 +145,18 @@ export class DelegationService {
     return this.deps.promptsDir ?? join(process.cwd(), "delegation-prompts");
   }
 
+  /**
+   * テンプレを介さない自由テキストの初回プロンプトを prompt file に書き出し、 そのパスを返す。
+   * 呼び出し側は `CONCORDIA_DELEGATION_PROMPT_FILE` に渡して素の provider spawn に注入する
+   * (Lictor が起動直後に paste+submit する)。 /spawn の prompt 欄 / 返信由来 spawn が使う。
+   */
+  writeAdHocPrompt(prompt: string): string {
+    mkdirSync(this.promptsDir, { recursive: true });
+    const path = join(this.promptsDir, `${randomUUID()}.md`);
+    writeFileSync(path, prompt, "utf8");
+    return path;
+  }
+
   async invoke(input: InvokeInput): Promise<InvokeResult> {
     const tpl = this.deps.repo.findTemplateByCallName(input.call_name);
     if (!tpl) return { ok: false, error: `unknown call_name: ${input.call_name}` };

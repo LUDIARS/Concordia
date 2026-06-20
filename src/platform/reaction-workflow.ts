@@ -73,6 +73,7 @@ export type WorkflowAction =
   | "channel-rename"
   | "reschedule-non-goal"
   | "run-goal-tasks"
+  | "handoff-document"
   | "add-as-workflow";
 
 /**
@@ -111,6 +112,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "reschedule-non-goal": ["📅", "🗓️", "🗓"],
   // 当月目標の実行可能タスクを実行
   "run-goal-tasks": ["🎯"],
+  // 次セッション向けの引継ぎ資料を作る (ok-hand / wave)
+  "handoff-document": ["👌", "👋"],
   // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
   "add-as-workflow": ["🛠️", "🛠"],
 };
@@ -201,6 +204,11 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
   "run-goal-tasks": {
     label: "当月目標タスクを実行",
     summary: "投稿内容を起点に、当月目標に関連する Memoria タスクのうち AI が実行可能なものを実行する。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "handoff-document": {
+    label: "次セッションへの引継ぎ資料作成",
+    summary: "投稿内容と現在の作業文脈から『次セッションへの引継ぎ資料 (現状 / 残作業 / 次の一手 / 注意点 / 関連ブランチ・PR・ファイル) を作成し session-logs に保存せよ』に変換して渡す。",
     mode: "active へ inject / 非active は headless sonnet (当該リポ)",
   },
   "add-as-workflow": {
@@ -590,6 +598,33 @@ export function planWorkflow(
       if (ctx.sessionActive) {
         return { action, mode: "inject", prompt: prompt + msgRef };
       }
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "handoff-document": {
+      const prompt =
+        `👌 このメッセージ (直近の作業 / 報告) を起点に、 **次のセッションへの引継ぎ資料**を作成してください。\n` +
+        `次に作業を引き継ぐ別セッションが「文脈ゼロからでも続きを再開できる」ことが目的です。\n\n` +
+        `引継ぎ資料に含める項目 (Markdown、 簡潔に):\n` +
+        `1. いま何をしていたか (目的 / 対象リポ・ブランチ)\n` +
+        `2. どこまで終わったか (完了 / 進行中 / 未着手の区別)\n` +
+        `3. 残作業と次の一手 (具体的に、 着手順が分かる粒度で)\n` +
+        `4. 注意点・ハマりどころ (既知の罠 / 失敗した方法 / 暫定回避)\n` +
+        `5. 関連する PR / Issue / 主要ファイルパス / 実行コマンド\n\n` +
+        `保存先: \`E:/Document/Ars/session-logs/\` に \`<YYYY-MM-DD>-handoff-<短い主題>.md\` で書き出す ` +
+        `(ディレクトリが無ければ作成)。 書き出したパスと 3〜5 行の要約を報告してください。\n` +
+        `- 推測で水増しせず、 実際の作業状態だけを書く。 不明点は「未確認」と明記する。`;
+      // authoring session が生きていれば、 その AI に inject して文脈ごと書かせる (最も解像度が高い)。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 残った痕跡 (git log / 未コミット差分等) から再構成する。
       return {
         action,
         mode: "headless",

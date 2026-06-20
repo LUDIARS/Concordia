@@ -50,6 +50,8 @@ describe("classifyReactionWorkflow", () => {
     ["🙄", "force-enter"],
     ["🤝", "delegate-task"],
     ["🫱", "delegate-task"],
+    ["👌", "handoff-document"],
+    ["👋", "handoff-document"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -109,6 +111,21 @@ describe("planWorkflow", () => {
   it("start-impl on inactive session → headless in repo cwd", () => {
     const plan = planWorkflow("start-impl", { ...baseCtx, sessionActive: false });
     expect(plan.mode).toBe("headless");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+  });
+
+  it("handoff-document on active session → inject, 引継ぎ資料を session-logs へ", () => {
+    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("引継ぎ資料");
+    expect(plan.prompt).toContain("session-logs");
+    expect(plan.prompt).toContain("残作業");
+  });
+
+  it("handoff-document on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
     expect(plan.cwd).toBe(baseCtx.repoPath);
   });
 

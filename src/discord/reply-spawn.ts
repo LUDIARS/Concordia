@@ -58,12 +58,19 @@ export interface MaybeSpawnDeps {
 
 const JUDGE_INSTRUCTIONS =
   `あなたは Discord 返信を分類する 1 ショット判定器です。 出力は JSON 1 個のみ (説明文なし)。\n` +
-  `session channel への「返信」を受け取ります。 返信は基本的に走っているセッションへの情報補足で、 ` +
-  `その場合は何もしません。 ただし返信が「別モデルでやり直す」「これも追加でやって」等の ` +
-  `**モデル指定や新しい作業指示**を含むなら、 新規セッションを立てるべきと判定します。\n\n` +
+  `session channel への「返信」を受け取ります。 返信は基本的にセッションへの情報補足であり、 ` +
+  `**原則 spawn=false** です。\n\n` +
+  `spawn=true にするのは以下の条件を **両方** 満たす場合のみです:\n` +
+  `  1. 「〜して」「実装して」「作業開始」「やり直して」など、 明示的な作業指示の動詞形が含まれている\n` +
+  `  2. 返信の主眼が「情報を伝える」ではなく「何かを行わせる」ことである\n\n` +
+  `spawn=false にするケース (代表例):\n` +
+  `  - 確認・承認・相槌 (「了解」「わかった」「なるほど」「ありがとう」「確認しました」)\n` +
+  `  - 現況報告・完了通知 (「〜が完了しました」「〜しました」「RWF動作確認完了」)\n` +
+  `  - 情報追加・補足 (「ちなみに〜」「補足ですが〜」)\n` +
+  `  - 質問への回答 (質問していないのに返信が情報を提供するだけ)\n\n` +
   `次の JSON だけを出力してください:\n` +
   `{"spawn": <bool>, "model": <string|null>, "instructions": <string>}\n` +
-  `- spawn: 新規セッションを立てるべきなら true。 単なる補足/相槌/情報追加だけなら false。\n` +
+  `- spawn: 上記条件を両方満たす場合のみ true。 迷ったら false。\n` +
   `- model: 返信で指定されたモデル名 (haiku/sonnet/opus/claude-* 等)。 指定が無ければ null。\n` +
   `- instructions: 返信から読み取れる追加の作業指示 (無ければ "")。`;
 
@@ -108,11 +115,12 @@ export function buildSpawnPrompt(input: MaybeSpawnInput, judgment: ReplyJudgment
 /**
  * 返信を判定し、 必要なら新規セッションを spawn する。
  * 戻り値 `spawned=false` は「補足扱い (何もしない)」。
+ * `spawned=true` の場合は `spawnPrompt` に新セッションへ渡した作業内容が入る。
  */
 export async function maybeSpawnFromReply(
   deps: MaybeSpawnDeps,
   input: MaybeSpawnInput,
-): Promise<{ spawned: boolean; reason: string; model?: string }> {
+): Promise<{ spawned: boolean; reason: string; model?: string; spawnPrompt?: string }> {
   const run = deps.run ?? ((p, o) => runClaude(p, o));
   const log = deps.log ?? { info: () => {}, warn: () => {} };
 
@@ -150,7 +158,7 @@ export async function maybeSpawnFromReply(
       return { spawned: false, reason: `spawn failed: ${r.error ?? "unknown"}` };
     }
     log.info(`reply-spawn: spawned new session model=${judgment.model ?? "default"}`);
-    return { spawned: true, reason: "spawned", model: judgment.model ?? undefined };
+    return { spawned: true, reason: "spawned", model: judgment.model ?? undefined, spawnPrompt: prompt };
   } catch (e) {
     log.warn(`reply-spawn: spawn error: ${(e as Error).message}`);
     return { spawned: false, reason: "spawn error" };

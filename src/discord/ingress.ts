@@ -238,6 +238,21 @@ async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: st
         allowedMentions: { repliedUser: false },
       });
     } catch { /* best-effort */ }
+    // spawn した作業内容を session channel へ投稿して可視化する。
+    if (result.spawnPrompt) {
+      try {
+        await fetch(`${deps.concordiaUrl}/v1/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            channel: "報告",
+            text: result.spawnPrompt.slice(0, 2000),
+            author_label: "Concordia (spawn)",
+            discord_channel_id: msg.channelId,
+          }),
+        });
+      } catch { /* best-effort */ }
+    }
   }
   deps.log.info(`ingress: session reply → reply-spawn spawned=${result.spawned} reason=${result.reason}`);
 }

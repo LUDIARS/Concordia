@@ -99,4 +99,21 @@ describe("maybeSpawnFromReply", () => {
     expect(r.spawned).toBe(false);
     expect(r.reason).toContain("HTTP 500");
   });
+
+  it("spawn 成功時は spawnPrompt を返す", async () => {
+    const spawn = vi.fn().mockResolvedValue({ ok: true });
+    const run = vi.fn().mockResolvedValue({ ok: true, stdout: `{"spawn":true,"model":null,"instructions":"テスト追加"}` });
+    const r = await maybeSpawnFromReply({ run, spawn }, baseInput);
+    expect(r.spawned).toBe(true);
+    expect(r.spawnPrompt).toBeDefined();
+    expect(r.spawnPrompt).toContain("引き継ぎ作業");
+  });
+
+  it("spawn=false の場合 spawnPrompt は undefined", async () => {
+    const spawn = vi.fn();
+    const run = vi.fn().mockResolvedValue({ ok: true, stdout: `{"spawn":false,"model":null,"instructions":""}` });
+    const r = await maybeSpawnFromReply({ run, spawn }, baseInput);
+    expect(r.spawned).toBe(false);
+    expect(r.spawnPrompt).toBeUndefined();
+  });
 });

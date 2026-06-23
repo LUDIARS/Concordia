@@ -40,6 +40,8 @@ import { ProcessManager } from "./processes/manager.js";
 import { seedPersonas } from "./personas/seeds.js";
 import { collectBoyakiToPersona } from "./personas/boyaki.js";
 import { Dispatcher } from "./dispatcher.js";
+import { ChatResponder } from "./chat/responder.js";
+import { resolveRenderConfig } from "./chat/render-config.js";
 import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
@@ -48,7 +50,6 @@ import { startStalledSessionNudge } from "./control/stalled-session-nudge.js";
 import { MetricsStore } from "./metrics/store.js";
 import { startMetricsLoop } from "./metrics/loop.js";
 import { startRuleEngine } from "./rules/engine.js";
-import { startRuleProposer } from "./rules/proposer.js";
 import { startDailyScheduler } from "./daily/scheduler.js";
 import { startMorningScheduler } from "./morning/scheduler.js";
 import { startStatScheduler } from "./stat/scheduler.js";
@@ -266,13 +267,32 @@ export async function startBackend(): Promise<BackendHandle> {
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
   seedModelCatalog(modelCatalog);
+  // 中央チャット描画 (Haiku). 「いつ / 誰が」 は決定的に決め、 発話文だけここで描画する。
+  const renderConfig = () =>
+    resolveRenderConfig({
+      renderer: cfg.chatRenderer,
+      model: cfg.chatModel,
+      reportModel: cfg.reportModel,
+      apiKey: cfg.anthropicApiKey,
+    });
+  const responder = new ChatResponder({
+    chat,
+    personas,
+    sessions: repo,
+    renderConfig,
+    isChatMuted: () => adminState.getChatMuted(),
+    isCostBlocked,
+  });
   const dispatcher = new Dispatcher({
     sessions: repo,
     tasks,
     chat,
+    responder,
     isChatMuted: () => adminState.getChatMuted(),
     isCostBlocked,
   });
+  // 循環参照を遅延束縛: responder の投稿後 peer 返信ファンアウトを dispatcher に委ねる。
+  responder.attachFanout(dispatcher);
   const processManager = new ProcessManager({
     repo: processes,
     logsDir: join(process.cwd(), "logs"),
@@ -425,24 +445,16 @@ export async function startBackend(): Promise<BackendHandle> {
     },
   });
 
+  // ブラックボックス rule engine (決定的). 発火判定は LLM 不使用、 発話文は
+  // 中央 Haiku レスポンダが描画する。 ルールは外部注入 + 決定的レビュー (api/rules) で増える。
+  // 旧 rule proposer (5 分ごとの LLM 自動提案ループ) は撤去した。
   const ruleEngine = startRuleEngine({
     rules,
     sessions: repo,
     chat,
-    disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
-    // 予算超過中も rule engine の claude 呼びを止める (rulesDisabled に OR)。
+    responder,
+    // 予算超過 / admin 無効化中は発火を止める。
     rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
-  });
-
-  // 既定 5 分間隔で chat post 用 rule を AI に提案させる. interval は admin で変更可.
-  const ruleProposer = startRuleProposer({
-    rules,
-    sessions: repo,
-    chat,
-    disable_claude: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
-    maxAiRules: cfg.maxAiRules,
-    rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
-    intervalSec: () => adminState.getRuleProposerIntervalSec(),
   });
 
   // 10 分毎に active session に stat-collect を enqueue する scheduler.
@@ -556,7 +568,6 @@ export async function startBackend(): Promise<BackendHandle> {
     shutdown: async () => {
       dailyScheduler.stop();
       morningScheduler.stop();
-      ruleProposer.stop();
       ruleEngine.stop();
       statScheduler.stop();
       repoChangeWatcher.stop();

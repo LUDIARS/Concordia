@@ -13,6 +13,7 @@ import { ChatRepo } from "../src/db/chat-repo.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
 import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
+import { ChatResponder } from "../src/chat/responder.js";
 import { runSessionEndFlow } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
@@ -24,7 +25,13 @@ function makeEnv() {
   const chat = new ChatRepo(db);
   const personas = new PersonasRepo(db);
   seedPersonas(personas);
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: () => 1 });
+  // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
+  const responder = new ChatResponder({
+    chat, personas, sessions: repo,
+    renderConfig: () => ({ renderer: "template", model: "" }),
+  });
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: () => 1 });
+  responder.attachFanout(dispatcher);
   const config = { ...loadConfig({}), anthropicApiKey: "" };
   return { db, repo, tasks, chat, personas, dispatcher, config };
 }
@@ -102,13 +109,13 @@ describe("runSessionEndFlow", () => {
     expect(stillActive).toBeNull();
   });
 
-  it("dispatcher.onSessionEnd が daily-report task を enqueue する", async () => {
+  it("dispatcher.onSessionEnd は daily-report を enqueue しない (report 経路が独白を担う)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const ended = endedSession(env.repo, "s4", now);
 
     await runSessionEndFlow(env, ended);
 
     const pulled = env.tasks.pull("s4");
-    expect(pulled.some((t) => t.kind === "daily-report")).toBe(true);
+    expect(pulled.some((t) => t.kind === "daily-report")).toBe(false);
   });
 });

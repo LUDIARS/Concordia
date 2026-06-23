@@ -7,22 +7,9 @@ import { z } from "zod";
 import type { RulesRepo, TriggerType } from "../db/rules-repo.js";
 import { eventBus } from "../events.js";
 import { runClaude, extractJson } from "../rules/claude-runner.js";
+import { reviewRule, KNOWN_EVENT_KINDS } from "../rules/review.js";
 
 function nowSec(): number { return Math.floor(Date.now() / 1000); }
-
-/** rule engine が認識する event_kind の一覧 (`*` で全 event). 編集 UI から見えるよう公開. */
-const KNOWN_EVENT_KINDS = [
-  "*",
-  "session.started",
-  "session.ended",
-  "session.lost",
-  "session.event",
-  "chat.posted",
-  "task.enqueued",
-  "skill.snapshot",
-  "report.generated",
-  "rule.changed",
-] as const;
 
 const RuleInput = z.object({
   id: z.string().min(1).max(64),
@@ -59,7 +46,24 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
     const r = parsed.data;
     const existing = deps.rules.find(r.id);
     if (existing) return c.json({ error: "id already exists; use POST /:id/toggle to update enabled" }, 409);
-    const enabled = r.enabled !== false; // 省略時 true. 明示的に false ならレビュー待ち.
+
+    // 発火前の決定的レビュー (LLM 不使用). 通れば自動有効化、 落ちれば理由付きで拒否.
+    const review = reviewRule({
+      id: r.id,
+      description: r.description ?? null,
+      trigger_type: r.trigger_type as TriggerType,
+      tick_sec: r.tick_sec ?? null,
+      event_kind: r.event_kind ?? null,
+      target: r.target ?? null,
+      cooldown_sec: r.cooldown_sec ?? null,
+      instructions: r.instructions,
+    });
+    if (!review.ok) {
+      deps.rules.log({ rule_id: r.id, action: "error", actor: "human", detail: `rejected by review: ${review.reason}` });
+      return c.json({ error: "rule_review_failed", reason: review.reason }, 422);
+    }
+
+    const enabled = r.enabled !== false; // 省略時 true (review 通過済). 明示 false で手動ドラフト保留可.
     const inserted = deps.rules.insert({
       id: r.id,
       description: r.description ?? null,
@@ -167,7 +171,8 @@ export function rulesRouter(deps: RulesApiDeps): Hono {
       '{"id":"","description":"","trigger_type":"","tick_sec":null,"event_kind":null,"conditions":[],"instructions":"","cooldown_sec":300}',
     ].join("\n");
 
-    const r = await runClaude(prompt);
+    // rule 補完は人手のオーサリング補助 (低頻度). Haiku で十分.
+    const r = await runClaude(prompt, { model: "haiku" });
     if (!r.ok) return c.json({ error: `claude failed: ${r.stderr.slice(0, 200)}` }, 502);
     const json = extractJson(r.stdout);
     if (!json || typeof json !== "object") return c.json({ error: "unparsable", stdout_preview: r.stdout.slice(0, 200) }, 502);

@@ -1,34 +1,36 @@
 /**
- * Concordia dispatcher — チャット発話 / レビュー / 通知 task の発火集約.
+ * Concordia dispatcher — チャット発話の発火集約 (決定的トリガ).
  *
- * **チャット発話判断は完全に Concordia 側 (静的アルゴリズム)**.
- * AI 側は受け取った task を実行するだけで、 自分で「雑談しよう」とは判断しない.
+ * **発話判断は完全に Concordia 側 (静的アルゴリズム)**. 何を喋るかは 2 系統:
  *
- * 静的ルール (v0.1):
- *  - **topic shift** (新領域に作業がスライド): 70% で 新規領域雑談 (NEW_AREA seed)
- *  - **work count per session が 5 の倍数** (edit + tool_call 等の作業 event): 100% で 軽レビュー
- *  - **完全ランダム** (低確率 5%): 純粋雑談 (PURE_CHITCHAT seed)
- *  - chat post 後: 他 active session に chat-reply (chitchat 30% / consultation 50%)
- *  - sweeper の active→lost: 全 active session に session-departed
- *  - DELETE /v1/sessions/:id: 当該 session に daily-report
+ *  - **セッション帰属の発話** (あるセッションの persona が喋るもの) は、 その
+ *    セッションのタスクキューに chat task を積み、 **セッション側エージェント
+ *    (= そのセッションの LLM, 作業メモリを持つ)** に書かせる. これにより発話が
+ *    そのセッションの記憶 / 文脈を反映する. 対象: 雑談 (chitchat-suggest) /
+ *    軽レビュー (review-summary) / peer 返信 (chat-reply) / ログ反応 (peer-log-react).
+ *  - **Concordia 自身の声** (司会の口火・離脱告知) は中央 Haiku レスポンダ
+ *    (chat/responder.ts) が描画する. 特定セッションの記憶に依存しないため安価でよい.
  *
- * 強制ルール:
- *  - **深夜帯 (23:00–翌05:00)**: 上記の能動的な雑談 / 軽レビュー / chat-reply の
- *    発火頻度を一律 1/10 に抑制する (shared/quiet-hours.ts). session 離脱通知 /
- *    daily-report などのライフサイクル通知は対象外 (取りこぼすと困るため).
+ * 静的トリガ:
+ *  - **topic shift** (新領域へ作業がスライド): 70% で新規領域雑談 (→ session LLM)
+ *  - **work count が 5 の倍数**: 軽レビュー (→ session LLM)
+ *  - **完全ランダム** (低確率 5%): 純粋雑談 (→ session LLM)
+ *  - chat post 後: 他 active session が返信 (channel 別確率, → session LLM)
+ *  - session lost: 司会が離脱を 1 件告知 (→ 中央 Haiku)
+ *  - 動作ログ更新: 1 active peer が反応 (→ session LLM)
+ *
+ * 強制ルール: 深夜帯 (23:00–翌05:00) は能動発火を一律 1/10 に抑制 (shared/quiet-hours.ts).
  */
 
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { ChatChannel, ChatRepo } from "./db/chat-repo.js";
 import type { SessionRow } from "./shared/types.js";
+import type { ChatResponder } from "./chat/responder.js";
+import { MAX_REPLY_DEPTH } from "./chat/responder.js";
 import { predictRole } from "./role/predict.js";
 import { detectTopicShift } from "./triggers/topic-change.js";
-import {
-  pickNewAreaSeed,
-  pickPureChitchatSeed,
-  pickReviewIntroSeed,
-} from "./triggers/seeds.js";
+import { pickNewAreaSeed, pickPureChitchatSeed, pickReviewIntroSeed } from "./triggers/seeds.js";
 import { actionFrequencyMultiplier } from "./shared/quiet-hours.js";
 import { createChildLogger } from "./shared/logger.js";
 
@@ -40,8 +42,8 @@ const WORK_COUNT_REVIEW_PERIOD = 5;
 const REPLY_PROBABILITY_BY_CHANNEL: Record<ChatChannel, number> = {
   chitchat: 0.3,
   consultation: 0.5,
-  "報告": 0.8,   // 独白を見たら反応する確率高め
-  "ぼやき": 0.2,  // 独り言。たまに誰かが拾って反応する程度の低確率
+  "報告": 0.8,
+  "ぼやき": 0.2,
   system: 0,
 };
 
@@ -60,13 +62,9 @@ export type LogEventKind =
 
 export interface LogEventInput {
   kind: LogEventKind;
-  /** 発生源 session_id (あれば). この session は通知対象から除外する. */
   source_session_id?: string | null;
-  /** AI が反応するときに参考にする情報. UI 表示でなく chat 投稿の素材. */
   summary: string;
-  /** 関連 entity (rule_id / skill_name 等). cooldown key にも使う. */
   ref?: string | null;
-  /** 任意の構造化 payload. */
   detail?: Record<string, unknown>;
 }
 
@@ -74,31 +72,22 @@ export interface DispatcherDeps {
   sessions: SessionsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
+  /** Concordia 自身の声 (司会 / 離脱告知) の中央 Haiku 描画用. */
+  responder: ChatResponder;
   rng?: () => number;
   /** 深夜帯判定に使う現在時刻プロバイダ. 既定はシステム時計 (テスト用に注入可). */
   now?: () => Date;
-  /**
-   * Runtime kill-switch for chat-related enqueues (chitchat-suggest,
-   * chat-reply, peer-log-react, daily-report). When the returned value
-   * is true, enqueue methods early-return and emit nothing. Wired from
-   * AdminState.getChatMuted in production; tests can pass () => false.
-   */
+  /** chat 全停止スイッチ. true で能動発火しない. */
   isChatMuted?: () => boolean;
-  /**
-   * Runtime cost kill-switch. 日次トークン予算を超過している間は true を返し、
-   * Concordia 発の全 dispatch (chitchat / chat-reply / review / peer-react /
-   * session-departed / daily-report) を止める。 AdminState + CostUsageTracker
-   * から配線する。 未指定なら常に false (= ブロックしない)。
-   */
+  /** コスト予算超過スイッチ. true で全 dispatch を止める. */
   isCostBlocked?: () => boolean;
 }
 
 export class Dispatcher {
   private rng: () => number;
   private now: () => Date;
-  /** peer-log-react cooldown 管理: key = `${kind}|${ref ?? source}` → last_dispatched_sec */
+  /** peer-log-react cooldown: key = `${kind}|${ref ?? source}` → last_dispatched_sec */
   private logCooldown = new Map<string, number>();
-  /** active peer の round-robin index. 偏らせない. */
   private peerCursor = 0;
   private isChatMuted: () => boolean;
   private isCostBlocked: () => boolean;
@@ -112,28 +101,25 @@ export class Dispatcher {
 
   /** session_event insert 後に呼ぶ. 発火条件を全部評価する */
   onEventAppended(session: SessionRow, _eventCount: number): void {
-    // chat 全停止スイッチが入っているなら chitchat / chat-reply / 雑談関連を
-    // 一切 enqueue しない. role 推定だけ走らせて metadata 保持し、 task 列は触らない.
     if (this.isChatMuted() || this.isCostBlocked()) {
       this.refreshRole(session);
       return;
     }
     const recent = this.deps.sessions.recentEvents(session.id, 30);
     const role = this.refreshRole(session, recent);
-    // 強制ルール: 深夜帯 (23:00–翌05:00) は能動的な発火頻度を 1/10 に抑制する.
     const freq = actionFrequencyMultiplier(this.now());
 
     // 1. topic shift 検出 — 新領域雑談
     if (recent.length >= 2) {
       const newest = recent[0];
-      const previous = recent.slice(1).reverse(); // 古い→新しい順
+      const previous = recent.slice(1).reverse();
       if (detectTopicShift(previous, newest) && this.rng() < TOPIC_SHIFT_PROBABILITY * freq) {
         this.enqueueChitchat(session, role, "new-area", pickNewAreaSeed(this.rng), recent);
         return;
       }
     }
 
-    // 2. work count == n*5 — 軽レビュー (深夜帯は freq で確率的に間引く)
+    // 2. work count == n*5 — 軽レビュー
     const workCount = countWorkEvents(recent);
     if (workCount > 0 && workCount % WORK_COUNT_REVIEW_PERIOD === 0 && this.rng() < freq) {
       const total = this.deps.sessions.countEvents(session.id);
@@ -160,43 +146,37 @@ export class Dispatcher {
     }
   }
 
-  onChatPosted(message: {
-    id: number;
-    channel: ChatChannel;
-    session_id: string | null;
-    text: string;
-    author_label: string;
-    is_actionable: boolean;
-  }): void {
+  /**
+   * chat 投稿後に呼ぶ. 他 active session が **自分の LLM で** 返信する
+   * (chat-reply task をキューに積む = セッションの記憶を反映した返信).
+   *
+   * replyDepth は中央レスポンダ (司会) 起点の連鎖を止めるための guard.
+   * セッション LLM の返信は /v1/chat 経由で depth 0 として戻るため、 連鎖の
+   * 主たる減衰は channel 別確率に委ねる (旧来動作と同じ).
+   */
+  onChatPosted(
+    message: {
+      id: number;
+      channel: ChatChannel;
+      session_id: string | null;
+      text: string;
+      author_label: string;
+      is_actionable: boolean;
+    },
+    replyDepth = 0,
+  ): void {
     if (message.channel === "system") return;
-    // コスト予算超過中は chat-reply (AI 発話) を一切 enqueue しない。
     if (this.isCostBlocked()) return;
-    // 強制ルール: 深夜帯 (23:00–翌05:00) は chat-reply の確率も 1/10 に抑制する.
+    if (replyDepth >= MAX_REPLY_DEPTH) return; // 司会起点の連鎖暴走を止める
+
     const freq = actionFrequencyMultiplier(this.now());
-    const replyProb =
-      (REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0) * freq;
-
+    const replyProb = (REPLY_PROBABILITY_BY_CHANNEL[message.channel] ?? 0) * freq;
     const peers = this.deps.sessions.listSessions({ status: "active" });
-    dispatcherLog.info(
-      {
-        message_id: message.id,
-        source_session_id: message.session_id,
-        channel: message.channel,
-        author_label: message.author_label,
-        reply_prob: replyProb,
-        freq_multiplier: freq,
-        active_peer_count: peers.length,
-        active_peer_ids: peers.map((p) => p.id),
-      },
-      "dispatcher.onChatPosted entry",
-    );
-    const enqueued: string[] = [];
-    const skippedSelf: string[] = [];
-    const skippedProb: string[] = [];
-    for (const peer of peers) {
-      if (peer.id === message.session_id) { skippedSelf.push(peer.id); continue; }
-      if (this.rng() >= replyProb) { skippedProb.push(peer.id); continue; }
 
+    const enqueued: string[] = [];
+    for (const peer of peers) {
+      if (peer.id === message.session_id) continue;
+      if (this.rng() >= replyProb) continue;
       const role = this.refreshRole(peer);
       this.deps.tasks.enqueue({
         session_id: peer.id,
@@ -216,46 +196,38 @@ export class Dispatcher {
       enqueued.push(peer.id);
     }
     dispatcherLog.info(
-      {
-        message_id: message.id,
-        source_session_id: message.session_id,
-        enqueued_peer_ids: enqueued,
-        skipped_self: skippedSelf,
-        skipped_by_probability: skippedProb,
-      },
-      "dispatcher.onChatPosted result",
+      { message_id: message.id, source_session_id: message.session_id, reply_depth: replyDepth, replied_peer_ids: enqueued },
+      "dispatcher.onChatPosted fanout (session LLM)",
     );
   }
 
+  /** session lost 時. 司会が 1 件だけ離脱を告知する (Concordia 自身の声 = 中央 Haiku). */
   onSessionLost(lost: SessionRow): void {
-    if (this.isCostBlocked()) return;
+    if (this.isChatMuted() || this.isCostBlocked()) return;
     const role = this.parseRole(lost);
     const lastTask = lost.current_task ?? "(不明)";
     const peers = this.deps.sessions.listSessions({ status: "active" });
-    for (const peer of peers) {
-      this.deps.tasks.enqueue({
-        session_id: peer.id,
-        kind: "session-departed",
-        payload: {
-          lost_session_id: lost.id,
-          lost_role: role,
-          lost_branch: lost.branch,
-          lost_repo: lost.repo_path,
-          last_task: lastTask,
-          instructions:
-            "離脱通知. 残作業に介入が必要そうなら chitchat に一言流すか、 ユーザに伝える程度で十分.",
+    if (peers.length === 0) return;
+    void this.deps.responder
+      .speak({
+        channel: "chitchat",
+        intent: "notice",
+        sessionId: null, // 司会
+        context: {
+          extra:
+            `セッション離脱: ${role} (${repoBase(lost.repo_path)}, branch ${lost.branch ?? "-"})。 ` +
+            `残作業: ${lastTask}。 介入が要りそうなら一言。`,
+          recent: this.recentChatLines(),
         },
-      });
-    }
+      })
+      .catch(() => {});
   }
 
   /**
-   * 動作ログ更新を 1 active peer に exclusive 通知する.
-   *
-   * - source_session_id を除外し、 round-robin で 1 peer を選ぶ
+   * 動作ログ更新を 1 active peer に exclusive 通知する (peer-log-react task).
+   * - source を除外し round-robin で 1 peer を選ぶ
    * - 60 秒 cooldown (kind+ref キー単位) で連発抑制
-   * - pending_tasks に enqueue するので 1 task = 1 session = 1 回だけ pull される (排他)
-   * - 反応の中身は AI 側 (skill) に委ねる: chat 投稿 / 静観 / ユーザに伝達
+   * - 反応の中身はセッション側 LLM に委ねる (記憶反映)
    */
   onLogUpdate(ev: LogEventInput): void {
     if (this.isChatMuted() || this.isCostBlocked()) return;
@@ -264,11 +236,11 @@ export class Dispatcher {
     const last = this.logCooldown.get(key) ?? 0;
     if (now - last < PEER_LOG_REACT_COOLDOWN_SEC) return;
 
-    const peers = this.deps.sessions.listSessions({ status: "active" })
+    const peers = this.deps.sessions
+      .listSessions({ status: "active" })
       .filter((s) => s.id !== ev.source_session_id);
     if (peers.length === 0) return;
 
-    // round-robin: cursor を peers の数で取り回す. log 量が多い時に偏らない.
     const target = peers[this.peerCursor % peers.length];
     this.peerCursor = (this.peerCursor + 1) % Math.max(1, peers.length);
     this.logCooldown.set(key, now);
@@ -285,27 +257,18 @@ export class Dispatcher {
         summary: ev.summary,
         detail: ev.detail ?? {},
         instructions:
-          "Concordia の動作ログ更新 通知. " +
-          "summary を読んで、 自分のロールで chitchat (or consultation) に 1 文 reaction を出すか、 言うべきことが無ければ skip. " +
-          "他 peer も同じ event を見ている可能性があるので、 同じ趣旨の重複投稿はしない (この task 自体は 1 peer にしか届かないので排他).",
+          "Concordia の動作ログ更新 通知. summary を読んで、 自分のロールで chitchat (or consultation) に " +
+          "1 文 reaction を出すか、 言うべきことが無ければ skip. この task は 1 peer にしか届かないので排他.",
       },
     });
   }
 
-  onSessionEnd(session: SessionRow, bullets: object): void {
-    if (this.isChatMuted() || this.isCostBlocked()) return;
-    const role = this.refreshRole(session);
-    this.deps.tasks.enqueue({
-      session_id: session.id,
-      kind: "daily-report",
-      payload: {
-        role,
-        bullets,
-        instructions:
-          "本日のセッション終了. ロールに沿った 1〜2 段落の感想文 (ハイライト / 引っかかり / 明日への一言) を書き、 " +
-          `POST /v1/reports/${session.id}/append { "role": "${role}", "monologue": "<text>" } で追記.`,
-      },
-    });
+  /**
+   * session 終了時. 終了レポートの独白は report 経路 (#報告) が扱うため、
+   * ここでは追加の発話を起こさない (二重投稿防止). フックは互換のため残す.
+   */
+  onSessionEnd(_session: SessionRow, _bullets: object): void {
+    /* no-op: report 経路が独白を担う */
   }
 
   private enqueueChitchat(
@@ -331,13 +294,17 @@ export class Dispatcher {
     });
   }
 
+  private recentChatLines(): string[] {
+    return this.deps.chat
+      .list({ limit: 8 })
+      .map((m) => `[${m.channel}] ${m.author_label}: ${m.text.slice(0, 80)}`);
+  }
+
   private refreshRole(
     session: SessionRow,
     recentEvents?: ReturnType<SessionsRepo["recentEvents"]>,
   ): string {
     const meta = parseMeta(session.metadata);
-    // persona が assign 済の session は role_label を固定する.
-    // session-end (DELETE) で release されるまで人格はぶれない.
     if (meta.persona_id && typeof meta.role_label === "string") {
       return meta.role_label;
     }
@@ -365,11 +332,23 @@ function serializeEvent(ev: { kind: string; ts: number; payload: string }) {
   return { kind: ev.kind, ts: ev.ts, payload: safeParse(ev.payload) };
 }
 
+function repoBase(p: string): string {
+  return p.split(/[/\\]/).filter(Boolean).pop() ?? p;
+}
+
 function parseMeta(s: string | null): Record<string, any> {
   if (!s) return {};
-  try { return JSON.parse(s); } catch { return {}; }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return {};
+  }
 }
 
 function safeParse(s: string): any {
-  try { return JSON.parse(s); } catch { return s; }
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
 }

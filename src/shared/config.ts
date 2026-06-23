@@ -81,8 +81,18 @@ export interface ConcordiaConfig {
   metricsRetentionHours: number;
   anthropicApiKey: string;
   reportModel: string;
-  /** AI proposer が新 rule を提案するときの上限. enabled な ai 由来 rule 数が
-   *  これ以上なら proposer は claude を呼ばずに skip する (rule 雪だるま防止). */
+  /**
+   * 中央チャット描画の renderer。 env `CONCORDIA_CHAT_RENDERER`。
+   * "cli" | "haiku-api" | "template"。 空 ("") なら APIキー有無で自動選択
+   * (キーあり→haiku-api / キー無し→cli)。 どちらも Haiku。
+   */
+  chatRenderer: string;
+  /**
+   * 中央チャット描画のモデル。 env `CONCORDIA_CHAT_MODEL`。 空なら renderer から既定
+   * (cli→"haiku" / haiku-api→reportModel)。
+   */
+  chatModel: string;
+  /** (廃止予定) 旧 rule proposer の上限。 proposer 撤去済のため未使用。 */
   maxAiRules: number;
   /**
    * /v1/spawn (および /v1/admin/spawn-session) で body.cwd が省略された時に
@@ -205,6 +215,8 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),
     anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
+    chatRenderer: env.CONCORDIA_CHAT_RENDERER ?? "",
+    chatModel: env.CONCORDIA_CHAT_MODEL ?? "",
     maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
     spawnDefaultCwd,
     workspaceRoot,

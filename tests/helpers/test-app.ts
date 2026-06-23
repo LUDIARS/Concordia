@@ -35,6 +35,7 @@ import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
 import { Dispatcher } from "../../src/dispatcher.js";
+import { ChatResponder } from "../../src/chat/responder.js";
 import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
@@ -122,7 +123,13 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: opts.rng ?? (() => 1) });
+  // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
+  const responder = new ChatResponder({
+    chat, personas, sessions: repo,
+    renderConfig: () => ({ renderer: "template", model: "" }),
+  });
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: opts.rng ?? (() => 1) });
+  responder.attachFanout(dispatcher);
   const config: ConcordiaConfig = {
     ...loadConfig({}),
     anthropicApiKey: "",

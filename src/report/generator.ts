@@ -273,7 +273,8 @@ async function narrativeViaCli(
     ).slice(0, 12_000),
   ].join("\n");
 
-  const r = await runClaude(prompt);
+  // 日報 narrative も Haiku 固定 (コスト削減方針)。
+  const r = await runClaude(prompt, { model: "haiku" });
   if (!r.ok) {
     log.warn({ stderr: r.stderr.slice(0, 200) }, "claude CLI narrative failed");
     return null;

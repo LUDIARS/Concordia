@@ -92,8 +92,6 @@ export interface ConcordiaConfig {
    * (cli→"haiku" / haiku-api→reportModel)。
    */
   chatModel: string;
-  /** (廃止予定) 旧 rule proposer の上限。 proposer 撤去済のため未使用。 */
-  maxAiRules: number;
   /**
    * /v1/spawn (および /v1/admin/spawn-session) で body.cwd が省略された時に
    * 使う既定の working directory.
@@ -217,7 +215,6 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     chatRenderer: env.CONCORDIA_CHAT_RENDERER ?? "",
     chatModel: env.CONCORDIA_CHAT_MODEL ?? "",
-    maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
     spawnDefaultCwd,
     workspaceRoot,
     workspaceRoots,

@@ -1,10 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestDb } from "./helpers/db.js";
-import {
-  AdminState,
-  ADMIN_PROPOSER_INTERVAL_MAX,
-  ADMIN_PROPOSER_INTERVAL_MIN,
-} from "../src/admin/state.js";
+import { AdminState } from "../src/admin/state.js";
 
 function boot() {
   const db = makeTestDb();
@@ -23,10 +19,6 @@ describe("AdminState", () => {
     expect(env.state.getRulesEnabled()).toBe(false);
   });
 
-  it("rule_proposer_interval defaults to 3600", () => {
-    expect(env.state.getRuleProposerIntervalSec()).toBe(3600);
-  });
-
   it("setChatMuted / getChatMuted round-trip", () => {
     env.state.setChatMuted(false);
     expect(env.state.getChatMuted()).toBe(false);
@@ -40,28 +32,12 @@ describe("AdminState", () => {
     expect(second.getRulesEnabled()).toBe(true);
   });
 
-  it("setRuleProposerIntervalSec clamps to [60, 86400]", () => {
-    env.state.setRuleProposerIntervalSec(30);
-    expect(env.state.getRuleProposerIntervalSec()).toBe(ADMIN_PROPOSER_INTERVAL_MIN);
-    env.state.setRuleProposerIntervalSec(999_999);
-    expect(env.state.getRuleProposerIntervalSec()).toBe(ADMIN_PROPOSER_INTERVAL_MAX);
-    env.state.setRuleProposerIntervalSec(600);
-    expect(env.state.getRuleProposerIntervalSec()).toBe(600);
-  });
-
-  it("setRuleProposerIntervalSec rejects non-finite", () => {
-    expect(() => env.state.setRuleProposerIntervalSec(NaN)).toThrow();
-    expect(() => env.state.setRuleProposerIntervalSec(Infinity)).toThrow();
-  });
-
   it("snapshot returns the full settings set", () => {
     env.state.setChatMuted(false);
     env.state.setRulesEnabled(true);
-    env.state.setRuleProposerIntervalSec(120);
     expect(env.state.snapshot()).toEqual({
       chat_muted: false,
       rules_enabled: true,
-      rule_proposer_interval_sec: 120,
       workspace_root: "",
       workspace_roots: [],
       github_org: "",
@@ -140,8 +116,8 @@ describe("AdminState", () => {
   it("corrupt schema_meta value falls back to default", () => {
     env.db
       .prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`)
-      .run("admin.rule_proposer_interval_sec", "not-a-number");
-    expect(env.state.getRuleProposerIntervalSec()).toBe(3600);
+      .run("admin.daily_token_budget", "not-a-number");
+    expect(env.state.getDailyTokenBudget()).toBe(0);
   });
 
   it("workspace_root / github_org fall back to constructor defaults when unset", () => {

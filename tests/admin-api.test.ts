@@ -18,17 +18,15 @@ describe("admin API", () => {
     expect(r.status).toBe(400);
   });
 
-  it("GET /v1/admin/state exposes snapshot triple with defaults", async () => {
+  it("GET /v1/admin/state exposes snapshot with defaults", async () => {
     const r = await env.app.request("/v1/admin/state");
     expect(r.status).toBe(200);
     const body = (await r.json()) as {
       chat_muted: boolean;
       rules_enabled: boolean;
-      rule_proposer_interval_sec: number;
     };
     expect(body.chat_muted).toBe(true);
     expect(body.rules_enabled).toBe(false);
-    expect(body.rule_proposer_interval_sec).toBe(3600);
   });
 
   it("PUT /v1/admin/chat-mute toggles + GET reflects new value", async () => {
@@ -61,26 +59,6 @@ describe("admin API", () => {
     });
     expect(put.status).toBe(200);
     expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
-  });
-
-  it("PUT /v1/admin/rule-proposer-interval clamps + GET echoes", async () => {
-    const tooSmall = await env.app.request("/v1/admin/rule-proposer-interval", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ interval_sec: 10 }),
-    });
-    expect(tooSmall.status).toBe(200);
-    const body = await tooSmall.json() as { interval_sec: number };
-    expect(body.interval_sec).toBe(60); // clamped to MIN
-  });
-
-  it("PUT /v1/admin/rule-proposer-interval rejects non-number", async () => {
-    const r = await env.app.request("/v1/admin/rule-proposer-interval", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ interval_sec: "abc" }),
-    });
-    expect(r.status).toBe(400);
   });
 
   it("GET /v1/admin/spawn-defaults reports the configured default_cwd", async () => {

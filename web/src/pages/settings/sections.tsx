@@ -1,6 +1,6 @@
 // 設定ページの各セクション。Settings.tsx が左メニューで切り替えて表示する。
 // web-hosts: Vite allowedHosts を concordia.config.json 経由で管理。
-// runtime kill switch (chat-mute / rules-enabled / proposer) は旧 Rules ページの
+// runtime kill switch (chat-mute / rules-enabled) は旧 Rules ページの
 // AdminTogglesPanel から移設。reaction-workflow / workspace / Lictor は新規。
 
 import { useEffect, useState } from "react";
@@ -162,10 +162,6 @@ async function putJson(path: string, body: unknown): Promise<void> {
 export function RuntimeControlsSection() {
   const [chatMuted, setChatMuted] = useState<boolean | null>(null);
   const [rulesEnabled, setRulesEnabled] = useState<boolean | null>(null);
-  const [intervalSec, setIntervalSec] = useState<number | null>(null);
-  const [minSec, setMinSec] = useState<number>(60);
-  const [maxSec, setMaxSec] = useState<number>(86400);
-  const [intervalDraft, setIntervalDraft] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [discordMsg, setDiscordMsg] = useState<string | null>(null);
@@ -177,15 +173,10 @@ export function RuntimeControlsSection() {
       const r = await fetch("/v1/admin/state");
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const s = (await r.json()) as {
-        chat_muted: boolean; rules_enabled: boolean; rule_proposer_interval_sec: number;
-        proposer_interval_min_sec: number; proposer_interval_max_sec: number;
+        chat_muted: boolean; rules_enabled: boolean;
       };
       setChatMuted(s.chat_muted);
       setRulesEnabled(s.rules_enabled);
-      setIntervalSec(s.rule_proposer_interval_sec);
-      setIntervalDraft(String(s.rule_proposer_interval_sec));
-      setMinSec(s.proposer_interval_min_sec);
-      setMaxSec(s.proposer_interval_max_sec);
       setError(null);
     } catch (err) { setError((err as Error).message); }
   }
@@ -202,7 +193,7 @@ export function RuntimeControlsSection() {
       <div>
         <h2 className="font-semibold text-sm">runtime kill switches</h2>
         <p className="text-subtle text-xs mt-0.5">
-          dispatcher / rule engine / proposer の停止スイッチ. 即時反映 + 再起動後も維持.
+          dispatcher / rule engine の停止スイッチ. 即時反映 + 再起動後も維持.
         </p>
       </div>
 
@@ -216,36 +207,13 @@ export function RuntimeControlsSection() {
           onLabel="禁止中" offLabel="稼働中" onAction="稼働させる" offAction="禁止する"
         />
         <ToggleRow
-          label="チャットルール改善禁止 (rules-enabled)"
-          hint="OFF で rule engine + proposer の claude 呼び出しを skip. デフォルト OFF (=禁止)."
+          label="チャットルール停止 (rules-enabled)"
+          hint="OFF で rule engine の発火を skip. デフォルト OFF (=停止)."
           value={rulesEnabled === null ? null : !rulesEnabled}
           onToggle={(v) => put("/v1/admin/rules-enabled", { enabled: !v }, "rules-enabled")}
           busy={busy === "rules-enabled"}
           onLabel="禁止中" offLabel="稼働中" onAction="稼働させる" offAction="禁止する"
         />
-      </div>
-
-      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
-        <div>
-          <div className="text-sm font-medium">proposer interval</div>
-          <div className="text-xs text-subtle mt-0.5">rule proposer の tick 間隔. 範囲 [{minSec}, {maxSec}] sec.</div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-subtle shrink-0">現在:</span>
-          <span className="shrink-0 px-2 py-0.5 rounded text-xs border bg-ok/20 border-ok text-ok">
-            {intervalSec !== null ? `${intervalSec}s (${Math.round(intervalSec / 60)} 分)` : "..."}
-          </span>
-          <input
-            type="number" min={minSec} max={maxSec} value={intervalDraft}
-            onChange={(e) => setIntervalDraft(e.target.value)} disabled={busy === "interval"}
-            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono w-24 ml-auto"
-          />
-          <button
-            disabled={busy === "interval" || intervalDraft === String(intervalSec ?? "")}
-            onClick={() => put("/v1/admin/rule-proposer-interval", { interval_sec: Number(intervalDraft) }, "interval")}
-            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
-          >apply</button>
-        </div>
       </div>
 
       <div className="bg-muted/40 border border-border rounded p-3 space-y-2">

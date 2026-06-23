@@ -43,7 +43,7 @@ const SECTIONS: SettingsSection[] = [
   {
     id: "runtime",
     label: "ランタイム制御",
-    hint: "chat-mute / rules-enabled / proposer / Discord bot",
+    hint: "chat-mute / rules-enabled / Discord bot",
     render: () => <section className="border border-border rounded p-4"><RuntimeControlsSection /></section>,
   },
   {

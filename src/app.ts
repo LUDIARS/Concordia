@@ -43,7 +43,6 @@ import type {
   DiscordConfigRepo,
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
-import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import type { CostBudgetStatus } from "./cost/usage-tracker.js";
 import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
@@ -471,27 +470,6 @@ export function buildApp(deps: AppDeps): Hono {
     return c.json({ enabled: deps.adminState.getRulesEnabled() });
   });
 
-  app.get("/v1/admin/rule-proposer-interval", (c) => {
-    return c.json({
-      interval_sec: deps.adminState.getRuleProposerIntervalSec(),
-      min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
-      max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
-    });
-  });
-  app.put("/v1/admin/rule-proposer-interval", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const n = Number(body?.interval_sec);
-    if (!Number.isFinite(n)) {
-      return c.json({ error: "body.interval_sec (number) required" }, 400);
-    }
-    try {
-      deps.adminState.setRuleProposerIntervalSec(n);
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 400);
-    }
-    return c.json({ interval_sec: deps.adminState.getRuleProposerIntervalSec() });
-  });
-
   // ワークスペースルート / GitHub Organization (schema_meta 永続化、 設定 GUI から編集)。
   // 変更は次の Discord/Slack bot start (= restart) で実効値として反映される。
   app.get("/v1/admin/workspace-root", (c) => {
@@ -617,11 +595,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/v1/admin/state", (c) => {
-    return c.json({
-      ...deps.adminState.snapshot(),
-      proposer_interval_min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
-      proposer_interval_max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
-    });
+    return c.json(deps.adminState.snapshot());
   });
 
   // 管理 API: 新コード反映用の self-restart.

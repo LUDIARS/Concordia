@@ -357,6 +357,97 @@ export interface CostFeedReport {
   updatedAt: number | null;
 }
 
+// ── Library Hygiene (メモリ/スキル整理) ──────────────────────────────
+export interface LibraryBlockFlags {
+  orphanIndex?: boolean;
+  orphanFile?: boolean;
+  duplicateName?: boolean;
+  stale?: boolean;
+  oversize?: boolean;
+  poison?: string[];
+}
+export interface LibraryBlock {
+  id: string;
+  sourceId: string;
+  kind: "memory" | "skill";
+  name: string;
+  title: string;
+  description: string;
+  relPath: string;
+  size_bytes: number;
+  line_count: number;
+  mtime: number;
+  flags: LibraryBlockFlags;
+  indexLine?: string;
+}
+export interface LibrarySource {
+  id: string;
+  kind: "memory" | "skill";
+  sourceKind: "central-memory" | "project-memory" | "global-skill" | "project-skill";
+  label: string;
+  rootDir: string;
+  indexPath?: string;
+  indexLineCount?: number;
+  indexBytes?: number;
+  blocks: LibraryBlock[];
+}
+export interface LibraryFinding {
+  level: "warn" | "info";
+  code: string;
+  message: string;
+  sourceId?: string;
+  blockId?: string;
+}
+export interface LibrarySnapshot {
+  scannedAt: number;
+  sources: LibrarySource[];
+  summary: {
+    totalSources: number;
+    totalBlocks: number;
+    totalBytes: number;
+    memoryBlocks: number;
+    skillBlocks: number;
+  };
+  findings: LibraryFinding[];
+}
+export interface LibrarySuggestion {
+  kind: "contradiction" | "merge" | "archive" | "shorten" | "split";
+  message: string;
+  blockIds: string[];
+  rationale?: string;
+}
+export interface LibraryAnalyzeResult {
+  disabled: boolean;
+  model: string;
+  suggestions: LibrarySuggestion[];
+  error?: string;
+}
+export interface ArchivePlanItem {
+  blockId: string;
+  name: string;
+  action: "move-and-deindex" | "deindex-only" | "move";
+  from: string | null;
+  to: string | null;
+  indexLineRemoved: boolean;
+  warnings: string[];
+  ok: boolean;
+}
+export interface ArchiveResponse {
+  applied: boolean;
+  items: ArchivePlanItem[];
+  notFound: Array<{ sourceId: string; name: string }>;
+}
+export interface ArchivedRecord {
+  ts: number;
+  blockId: string;
+  name: string;
+  kind: "memory" | "skill";
+  relPath: string;
+  archivedAs: string | null;
+  indexLine?: string;
+  reason?: string;
+}
+
 export const api = {
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
   costFeed: () => get<CostFeedReport>("/v1/cost-feed"),
@@ -606,6 +697,21 @@ export const api = {
       branches: Array<{ branch: string; count: number }>;
     }>(`/v1/monitor/conflicts?${q.toString()}`);
   },
+  library: () => get<LibrarySnapshot>("/v1/library"),
+  libraryArchived: (sourceId: string) =>
+    get<{ source: string; archived: ArchivedRecord[] }>(
+      `/v1/library/archived?source=${encodeURIComponent(sourceId)}`,
+    ),
+  libraryAnalyze: (home: string) => post<LibraryAnalyzeResult>("/v1/library/analyze", { home }),
+  libraryArchive: (
+    blocks: Array<{ sourceId: string; name: string }>,
+    opts: { apply?: boolean; reason?: string } = {},
+  ) => post<ArchiveResponse>("/v1/library/archive", { blocks, ...opts }),
+  libraryRestore: (blocks: Array<{ sourceId: string; blockId: string }>) =>
+    post<{ results: Array<{ ok: boolean; name: string; restoredTo: string | null; indexLineRestored: boolean; warnings: string[] }> }>(
+      "/v1/library/restore",
+      { blocks },
+    ),
 };
 
 export function fmtTs(ts: number): string {

@@ -21,6 +21,7 @@ import { setupRouter } from "./api/setup.js";
 import { skillsRouter } from "./api/skills.js";
 import { streamRouter } from "./api/stream.js";
 import { rulesRouter } from "./api/rules.js";
+import { libraryRouter } from "./api/library.js";
 import { dailyRouter } from "./api/daily.js";
 import { processesRouter } from "./api/processes.js";
 import { statRouter } from "./api/stat.js";
@@ -175,6 +176,10 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
   app.route("/v1/stream", streamRouter());
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
+  app.route(
+    "/v1/library",
+    libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+  );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));

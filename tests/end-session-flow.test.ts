@@ -109,13 +109,13 @@ describe("runSessionEndFlow", () => {
     expect(stillActive).toBeNull();
   });
 
-  it("dispatcher.onSessionEnd は daily-report を enqueue しない (report 経路が独白を担う)", async () => {
+  it("dispatcher.onSessionEnd は終了セッションへ task を積まない (report 経路が独白を担う)", async () => {
     const now = Math.floor(Date.now() / 1000);
     const ended = endedSession(env.repo, "s4", now);
 
     await runSessionEndFlow(env, ended);
 
     const pulled = env.tasks.pull("s4");
-    expect(pulled.some((t) => t.kind === "daily-report")).toBe(false);
+    expect(pulled.length).toBe(0);
   });
 });

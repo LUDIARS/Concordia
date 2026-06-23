@@ -3,7 +3,7 @@
  *
  * `DELETE /v1/sessions/:id` と `POST /v1/admin/stop-session/:id` の両方が
  * セッション終了時に以下を実行する:
- *   1. aggregateBullets + dispatcher.onSessionEnd → daily-report task を enqueue
+ *   1. aggregateBullets (+ dispatcher.onSessionEnd は現在 no-op、 独白は report 経路が担う)
  *   2. generateReport → upsertReport  (per-session レポート、 claude CLI で narrative)
  *   3. report 冒頭の独白を #報告 channel に投稿 + chat-reply task ばらまき
  *   4. eventBus.emit session.ended + report.generated
@@ -61,7 +61,7 @@ export async function runSessionEndFlow(
   const id = endedSession.id;
   const now = endedSession.ended_at ?? Math.floor(Date.now() / 1000);
 
-  // 1. aggregateBullets + dispatcher.onSessionEnd (daily-report task enqueue)
+  // 1. aggregateBullets (+ dispatcher.onSessionEnd は no-op: 独白は report 経路)
   let bullets: object = {};
   try {
     const events = deps.repo.allEvents(id);

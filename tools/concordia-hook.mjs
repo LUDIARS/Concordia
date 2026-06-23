@@ -224,13 +224,8 @@ async function dumpPendingTasks(sessionId) {
   const lines = ["[Concordia tasks]"];
   for (const t of tasks) {
     const p = t.payload ?? {};
-    if (t.kind === "session-departed") {
-      lines.push(
-        `[Concordia notice] session ${shorten(p.lost_session_id)} ('${p.lost_role ?? "?"}') が離脱. ` +
-        `branch=${p.lost_branch ?? "?"} 残作業=${p.last_task ?? "(不明)"}`,
-      );
-      continue;
-    }
+    // 注: session-departed / daily-report task は廃止 (離脱告知は中央 Haiku の司会発話、
+    // 終了独白は report 経路)。 旧 DB に残骸があれば下の汎用描画で表示される。
     if (t.kind === "chat-reply" && p.is_actionable_suggestion) {
       lines.push(
         `#${t.id} chat-reply [HUMAN_CONFIRMATION_REQUIRED]`,
@@ -338,10 +333,6 @@ async function dumpProcessLogs(sessionId) {
 }
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
-
-function shorten(id) {
-  return id ? String(id).slice(0, 8) : "?";
-}
 
 function truncate(s, n = 80) {
   if (typeof s !== "string") return "";

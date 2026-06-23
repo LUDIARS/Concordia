@@ -1,0 +1,18 @@
+{
+  "name": "analysis-core",
+  "description": "Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/anatomia/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/skills/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/model-catalog/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"analysis-core\" domain: Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline"
+}

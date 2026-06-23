@@ -60,3 +60,6 @@ web/vite.config.ts
 logs/
 web/logs/
 bash.exe.stackdump
+
+# Anatomia retune ローカル状態（反復カウンタ等）
+.anatomia/

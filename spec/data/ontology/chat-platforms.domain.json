@@ -1,0 +1,30 @@
+{
+  "name": "chat-platforms",
+  "description": "Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch and synthetic personas.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/discord/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/commands/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/slack/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/platform/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/triggers/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/personas/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"chat-platforms\" domain: Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch and synthetic personas."
+}

@@ -52,6 +52,10 @@ describe("classifyReactionWorkflow", () => {
     ["🫱", "delegate-task"],
     ["👌", "handoff-document"],
     ["👋", "handoff-document"],
+    ["▶️", "resume-work"],
+    ["⏩", "resume-work"],
+    ["🔀", "merge-pr"],
+    ["🚀", "merge-pr"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -254,6 +258,38 @@ describe("planWorkflow", () => {
     expect(plan.cwd).toBe(baseCtx.repoPath);
     expect(plan.prompt).toContain("タスク判定");
     expect(plan.prompt).toContain("監視は行わない");
+  });
+
+  it("resume-work on active session → inject (中断した作業の続き)", () => {
+    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("続き");
+    expect(plan.prompt).toContain("対象メッセージ");
+  });
+
+  it("resume-work on inactive session → headless sonnet in repo cwd, session-logs から復元", () => {
+    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+    expect(plan.prompt).toContain("session-logs");
+    expect(plan.prompt).toContain("git status");
+  });
+
+  it("merge-pr on active session → inject (open PR を squash merge)", () => {
+    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("マージ");
+    expect(plan.prompt).toContain("--squash");
+    expect(plan.prompt).toContain("gh pr checks");
+  });
+
+  it("merge-pr on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+    expect(plan.prompt).toContain("gh pr merge");
   });
 });
 

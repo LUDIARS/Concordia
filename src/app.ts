@@ -14,6 +14,7 @@ import type { Dispatcher } from "./dispatcher.js";
 import type { ConcordiaConfig } from "./shared/config.js";
 import { sessionsRouter } from "./api/sessions.js";
 import { reportsRouter } from "./api/reports.js";
+import { sessionLogsRouter } from "./api/session-logs.js";
 import { monitorRouter } from "./api/monitor.js";
 import { chatRouter } from "./api/chat.js";
 import { setupRouter } from "./api/setup.js";
@@ -75,6 +76,7 @@ import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
 import { reapOrphans } from "./control/reaper.js";
+import { runWsCleanup } from "./control/ws-cleanup.js";
 import type { MetricsStore } from "./metrics/store.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
@@ -164,6 +166,10 @@ export function buildApp(deps: AppDeps): Hono {
     personasRouter({ personas: deps.personas, sessions: deps.repo, chat: deps.chat, config: deps.config }),
   );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
+  app.route(
+    "/v1/session-logs",
+    sessionLogsRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+  );
   app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat, dispatcher: deps.dispatcher }));
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
@@ -412,6 +418,29 @@ export function buildApp(deps: AppDeps): Hono {
       failed: r.failed.length,
       detail: r,
     });
+  });
+
+  // ── 管理 API: ワークスペース整理 (ws-cleanup) ───────────────────────
+  // GET  /v1/admin/ws-cleanup : dry-run。 各リポの worktree prune / main ff 更新 /
+  //   マージ済みブランチ削除の「予定」と、 ユーザ判断に委ねる保留事項を出す (無変更)。
+  // POST /v1/admin/ws-cleanup : 実行。 body {apply?: boolean(既定 true), fetch?: boolean,
+  //   delete_merged_remote_gone?: boolean}。 安全アクションのみ自動、 未マージ/作業中は保留出力。
+  app.get("/v1/admin/ws-cleanup", async (c) => {
+    const r = await runWsCleanup(deps.adminState.getWorkspaceRoots(), deps.repo, { apply: false });
+    return c.json(r);
+  });
+  app.post("/v1/admin/ws-cleanup", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      apply?: boolean;
+      fetch?: boolean;
+      delete_merged_remote_gone?: boolean;
+    };
+    const r = await runWsCleanup(deps.adminState.getWorkspaceRoots(), deps.repo, {
+      apply: body.apply !== false,
+      fetch: body.fetch !== false,
+      deleteMergedRemoteGone: body.delete_merged_remote_gone !== false,
+    });
+    return c.json(r);
   });
 
   // ── 管理 API: 3 つの runtime toggle ─────────────────────────────────

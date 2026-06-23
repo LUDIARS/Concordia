@@ -191,6 +191,43 @@ export interface ReportSummary {
   summary_preview: string;
 }
 
+export interface SessionLogMeta {
+  id: string;
+  date: string;
+  seq: number;
+  title: string;
+  projects: string[];
+  sections: string[];
+  size_bytes: number;
+  mtime: number;
+  excerpt: string;
+}
+export interface SessionLogFull extends SessionLogMeta {
+  content_md: string;
+}
+export interface SessionLogsList {
+  root: string | null;
+  total: number;
+  total_matched: number;
+  projects: Array<{ name: string; count: number }>;
+  entries: SessionLogMeta[];
+}
+
+export interface RepoCleanupReport {
+  name: string;
+  path: string;
+  default_branch: string | null;
+  current_branch: string | null;
+  actions: string[];
+  deferred: string[];
+  error: string | null;
+}
+export interface WsCleanupResult {
+  apply: boolean;
+  repos: RepoCleanupReport[];
+  summary: { repos: number; actions: number; deferred: number; errors: number };
+}
+
 export interface PrItem {
   id: number;
   repo_origin: string;
@@ -514,6 +551,18 @@ export const api = {
     return get<PrQueueResult>(`/v1/prs${tail ? `?${tail}` : ""}`);
   },
   reportsList: (limit = 30) => get<{ reports: ReportSummary[] }>(`/v1/reports?limit=${limit}`),
+  sessionLogsList: (opts: { project?: string; q?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.project) qs.set("project", opts.project);
+    if (opts.q) qs.set("q", opts.q);
+    if (opts.limit !== undefined) qs.set("limit", String(opts.limit));
+    const tail = qs.toString();
+    return get<SessionLogsList>(`/v1/session-logs${tail ? `?${tail}` : ""}`);
+  },
+  sessionLog: (id: string) => get<SessionLogFull>(`/v1/session-logs/${encodeURIComponent(id)}`),
+  wsCleanupDryRun: () => get<WsCleanupResult>("/v1/admin/ws-cleanup"),
+  wsCleanupApply: (body: { fetch?: boolean; delete_merged_remote_gone?: boolean } = {}) =>
+    post<WsCleanupResult>("/v1/admin/ws-cleanup", { apply: true, ...body }),
   skillsList: () => get<{ skills: SkillSnapshot[] }>("/v1/skills"),
   skillsHistory: (repo_path: string, skill_name = "concordia") =>
     get<{ history: SkillSnapshot[] }>(

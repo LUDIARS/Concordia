@@ -13,8 +13,8 @@
  *     }
  *   }
  *
- * 9 tools — Concordia の横断状態 (sessions / stat / prs / chat / conflicts / pending-tasks)
- * を読み書きできる:
+ * 11 tools — Concordia の横断状態 (sessions / stat / prs / chat / conflicts /
+ * pending-tasks / session-logs) を読み書きできる:
  *   - concordia_list_sessions
  *   - concordia_get_session
  *   - concordia_get_session_stat
@@ -24,6 +24,8 @@
  *   - concordia_get_conflicts
  *   - concordia_post_chat
  *   - concordia_recent_chat
+ *   - concordia_list_session_logs
+ *   - concordia_get_session_log
  *
  * Concordia HTTP loopback (default 127.0.0.1:17330) を直接叩く。 DB は触らない
  * (= Concordia が running していない場合は全 tool が失敗するが、 spawn の責任
@@ -266,6 +268,41 @@ export function buildCoreServer(): McpServer {
       if (typeof limit === "number") params.set("limit", String(limit));
       const qs = params.toString();
       return toToolResult(await callConcordia("GET", `/v1/chat${qs ? `?${qs}` : ""}`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_list_session_logs",
+    {
+      description:
+        "List past work session-logs (the hand-written `session-logs/<date>.md` records produced at /session-end and handoff). Each entry is one session document with extracted project tags, an outline (## headings) and an excerpt. Use this FIRST when picking up work — filter by project to find prior context, then call concordia_get_session_log to read the full doc. Returns { root, total, total_matched, projects:[{name,count}], entries:[{id,date,title,projects,sections,excerpt,...}] }.",
+      inputSchema: {
+        project: z.string().optional().describe("Filter to logs touching this project (canonical name, e.g. 'Anatomia', 'KuzuSurvivors', 'Concordia')"),
+        q: z.string().optional().describe("Case-insensitive substring filter over title / outline / excerpt"),
+        limit: z.number().int().min(1).max(1000).optional().describe("Max entries (default 200, newest first)"),
+      },
+    },
+    async ({ project, q, limit }) => {
+      const params = new URLSearchParams();
+      if (project) params.set("project", project);
+      if (q) params.set("q", q);
+      if (typeof limit === "number") params.set("limit", String(limit));
+      const qs = params.toString();
+      return toToolResult(await callConcordia("GET", `/v1/session-logs${qs ? `?${qs}` : ""}`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_get_session_log",
+    {
+      description:
+        "Return the full markdown body of one session-log by id (the filename without .md, e.g. '2026-06-22' or '2026-06-26-2'). Use this after concordia_list_session_logs to load prior work context when handing off / resuming a task. Returns { id, date, title, projects, sections, content_md, ... }.",
+      inputSchema: {
+        id: z.string().describe("session-log id = filename without .md (e.g. '2026-06-22')"),
+      },
+    },
+    async ({ id }) => {
+      return toToolResult(await callConcordia("GET", `/v1/session-logs/${encodeURIComponent(id)}`));
     },
   );
 

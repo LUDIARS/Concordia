@@ -74,6 +74,8 @@ export type WorkflowAction =
   | "reschedule-non-goal"
   | "run-goal-tasks"
   | "handoff-document"
+  | "resume-work"
+  | "merge-pr"
   | "add-as-workflow";
 
 /**
@@ -114,6 +116,10 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "run-goal-tasks": ["🎯"],
   // 次セッション向けの引継ぎ資料を作る (ok-hand / wave)
   "handoff-document": ["👌", "👋"],
+  // 中断していた作業を再開する「続けて」 (play / fast-forward 系)
+  "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
+  // 当該リポの open PR を CI green 確認の上 squash merge + ブランチ削除 + main 同期 (merge / rocket)
+  "merge-pr": ["🔀", "🚀"],
   // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
   "add-as-workflow": ["🛠️", "🛠"],
 };
@@ -209,6 +215,16 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
   "handoff-document": {
     label: "次セッションへの引継ぎ資料作成",
     summary: "投稿内容と現在の作業文脈から『次セッションへの引継ぎ資料 (現状 / 残作業 / 次の一手 / 注意点 / 関連ブランチ・PR・ファイル) を作成し session-logs に保存せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "resume-work": {
+    label: "作業を続ける",
+    summary: "投稿内容 (直近の作業 / 中断点) を起点に『中断していた作業の続きを再開せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ、 git 痕跡 + session-logs から文脈復元)",
+  },
+  "merge-pr": {
+    label: "PR をマージする",
+    summary: "投稿内容を起点に『当該リポの open PR を CI green 確認の上で squash merge し、 ブランチ削除 + main 同期まで行え』に変換して渡す。",
     mode: "active へ inject / 非active は headless sonnet (当該リポ)",
   },
   "add-as-workflow": {
@@ -625,6 +641,59 @@ export function planWorkflow(
         return { action, mode: "inject", prompt: prompt + msgRef };
       }
       // 非 active: headless で repo を開き、 残った痕跡 (git log / 未コミット差分等) から再構成する。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "resume-work": {
+      const prompt =
+        `▶️ このメッセージ (直近の作業 / 中断点) を起点に、 **中断していた作業の続きを再開**してください。\n` +
+        `- 直前の提案 / 実装 / 調査の文脈を引き継ぎ、 中断したところから素直に続行する。\n` +
+        `- 余計な再確認はせず、 最も妥当な解釈で次の一手に進む。 残作業が複数あれば着手順が分かる方から。\n` +
+        `- LUDIARS 規約 (ブランチ → 実装 → コミット → PR、 自動マージ可) に従う。`;
+      // authoring session が生きていれば、 その AI に inject して文脈ごと続行させる (最も解像度が高い)。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 git 痕跡 (status / log / 未コミット差分) と
+      // 直近の session-logs (E:/Document/Ars/session-logs/) から最後の作業文脈を復元して続行する。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt:
+          head +
+          `\n▶️ このリポジトリで中断していた作業を再開してください。\n` +
+          `セッション文脈が無いので、 まず以下から最後の作業状態を復元する:\n` +
+          `1. \`git status -sb\` / \`git log --oneline -10\` / 未コミット差分で「どこまでやったか」を把握する。\n` +
+          `2. 直近の session-logs (E:/Document/Ars/session-logs/ の最新日付 md) の当該リポ該当節を読む。\n` +
+          `3. 復元した文脈から残作業の続きに着手する (LUDIARS 規約: ブランチ → 実装 → コミット → PR)。\n` +
+          `- 文脈が復元できず続きが特定できない場合は、 推測で進めず「再開地点を特定できなかった」と理由付きで報告する。`,
+      };
+    }
+
+    case "merge-pr": {
+      const prompt =
+        `🔀 このメッセージを起点に、 **当該リポジトリの open PR をマージ**してください。\n` +
+        `手順 (merge-clean-pr / ship 相当):\n` +
+        `1. 対象 PR を特定する。 通常は今の作業ブランチに紐づく PR。 \`gh pr list --state open --json number,title,headRefName,mergeStateStatus\` で確認し、 ` +
+        `自分の作業ブランチ (= 現在の HEAD) の PR を選ぶ。 候補が複数あって判別できない時は、 マージせず候補を報告して止まる。\n` +
+        `2. CI を確認する (\`gh pr checks <番号>\`)。 green を確認してからマージする。 ` +
+        `失敗・pending があれば、 直せるものは直して push し直し、 直せないものは理由を報告して止まる (赤いままマージしない)。\n` +
+        `3. \`gh pr merge <番号> --squash --delete-branch\` で squash merge + リモートブランチ削除。\n` +
+        `4. ローカルを main へ戻して ff 更新する (\`git checkout main && git pull --ff-only\`)。 削除済みローカルブランチも掃除する。\n` +
+        `- reset --hard は使わない。 未コミットの tracked 変更があれば破壊しないよう退避してから行う。`;
+      // authoring session が生きていれば、 その AI に inject して自分のブランチをマージさせる。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 open PR を特定してマージフローを回す。
       return {
         action,
         mode: "headless",

@@ -7,6 +7,8 @@ import { Chat } from "./pages/Chat.js";
 import { WorldChat } from "./pages/WorldChat.js";
 import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
+import { SessionLogs } from "./pages/SessionLogs.js";
+import { WsCleanup } from "./pages/WsCleanup.js";
 import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
@@ -25,8 +27,10 @@ const NAV: NavItem[] = [
   { to: "/personas", label: "Personas" },
   { to: "/cost", label: "Cost" },
   { to: "/reports", label: "Reports" },
+  { to: "/session-logs", label: "作業ログ" },
   { to: "/skills", label: "Skills" },
   { to: "/rules", label: "Rules" },
+  { to: "/ws-cleanup", label: "整理" },
   { to: "/delegation", label: "Delegation" },
   { to: "/setup", label: "Setup" },
   { to: "/settings", label: "設定" },
@@ -53,10 +57,12 @@ export function App() {
           <Route path="/chat" element={<Chat />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportView />} />
+          <Route path="/session-logs" element={<SessionLogs />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/personas" element={<Personas />} />
           <Route path="/cost" element={<CostFeed />} />
+          <Route path="/ws-cleanup" element={<WsCleanup />} />
           <Route path="/delegation" element={<Delegation />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />

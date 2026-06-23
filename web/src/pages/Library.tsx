@@ -362,16 +362,21 @@ function SourceCard(props: {
                   <li className="text-xs text-subtle">退避済みはありません。</li>
                 )}
                 {(props.archived ?? []).map((r) => (
-                  <li key={r.blockId} className="text-xs flex items-center gap-2">
-                    <span className="text-subtle font-mono">{fmtTs(r.ts)}</span>
-                    <span>{r.name}</span>
-                    {r.reason && <span className="text-subtle">— {r.reason}</span>}
-                    <button
-                      onClick={() => props.onRestore(r.blockId, r.name)}
-                      className="text-accent hover:underline ml-auto"
-                    >
-                      復帰
-                    </button>
+                  <li key={r.blockId} className="text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="text-subtle font-mono">{fmtTs(r.ts)}</span>
+                      <span>{r.name}</span>
+                      {r.reason && <span className="text-subtle">— {r.reason}</span>}
+                      <button
+                        onClick={() => props.onRestore(r.blockId, r.name)}
+                        className="text-accent hover:underline ml-auto"
+                      >
+                        復帰
+                      </button>
+                    </div>
+                    {r.archivedAs && (
+                      <ContentPreview sourceId={props.src.id} path={r.archivedAs} archived={true} />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -400,8 +405,56 @@ function BlockRow(props: { block: LibraryBlock; checked: boolean; onToggle: () =
             {(b.size_bytes / 1024).toFixed(1)}KB · {b.line_count}行 · {fmtTs(b.mtime)}
           </div>
         )}
+        {!b.flags.orphanIndex && (
+          <ContentPreview sourceId={b.sourceId} path={b.relPath} archived={false} />
+        )}
       </div>
     </li>
+  );
+}
+
+/** block / 退避ファイルの中身を遅延取得して折りたたみ表示する (レビュー用)。 */
+function ContentPreview(props: { sourceId: string; path: string; archived: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [content, setContent] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next && content === null && !loading) {
+      setLoading(true);
+      api
+        .libraryContent(props.sourceId, props.path, props.archived)
+        .then((r) => {
+          setContent(r.content);
+          setTruncated(r.truncated);
+        })
+        .catch((e) => setErr((e as Error).message))
+        .finally(() => setLoading(false));
+    }
+  };
+
+  return (
+    <div className="mt-0.5">
+      <button onClick={toggle} className="text-[10px] text-subtle hover:text-accent">
+        {open ? "▾ 中身を隠す" : "▸ 中身"}
+      </button>
+      {open && (
+        <div className="mt-1">
+          {loading && <div className="text-[10px] text-subtle">loading…</div>}
+          {err && <div className="text-[10px] text-danger">error: {err}</div>}
+          {content !== null && (
+            <pre className="text-[10px] bg-bg border border-border rounded p-2 max-h-72 overflow-auto whitespace-pre-wrap break-words">
+              {content}
+              {truncated && "\n…(truncated)"}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

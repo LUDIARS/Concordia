@@ -2,6 +2,7 @@
  * /v1/library API — メモリ/スキル整理 (Library Hygiene)。
  *
  * - GET  /v1/library            : スナップショット + 決定的レビュー (LLM 不使用・高速)
+ * - GET  /v1/library/content    : block / 退避ファイルの中身 (レビュー用プレビュー)
  * - GET  /v1/library/archived   : ある source の退避済み台帳
  * - POST /v1/library/analyze    : 矛盾検査 + 自動整理サジェスト (claude -p haiku、 提案のみ)
  * - POST /v1/library/archive    : 選択 block の退避 (既定 dry-run、 apply:true で実行)
@@ -17,6 +18,7 @@ import { resolveLibraryRoots, LibraryRootsError } from "../library/roots.js";
 import { scanLibrary } from "../library/scanner.js";
 import { reviewSnapshot } from "../library/review.js";
 import { analyzeHome } from "../library/contradictions.js";
+import { readBlockContent } from "../library/content.js";
 import {
   planArchive,
   applyArchive,
@@ -56,6 +58,24 @@ export function libraryRouter(deps: LibraryApiDeps): Hono {
     const sourceFilter = c.req.query("source");
     const sources = sourceFilter ? snap.sources.filter((s) => s.id === sourceFilter) : snap.sources;
     return c.json({ ...snap, sources });
+  });
+
+  app.get("/content", (c) => {
+    const sourceId = c.req.query("source");
+    const path = c.req.query("path");
+    const archived = c.req.query("archived") === "1" || c.req.query("archived") === "true";
+    if (!sourceId || !path) return c.json({ error: "source and path required" }, 400);
+    let snap: LibrarySnapshot;
+    try {
+      snap = snapshot();
+    } catch (e) {
+      return rootsError(c, e);
+    }
+    const src = snap.sources.find((s) => s.id === sourceId);
+    if (!src) return c.json({ error: "source not found" }, 404);
+    const content = readBlockContent(src.rootDir, path, archived);
+    if (!content) return c.json({ error: "not found" }, 404);
+    return c.json(content);
   });
 
   app.get("/archived", (c) => {

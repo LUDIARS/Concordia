@@ -698,6 +698,10 @@ export const api = {
     }>(`/v1/monitor/conflicts?${q.toString()}`);
   },
   library: () => get<LibrarySnapshot>("/v1/library"),
+  libraryContent: (sourceId: string, path: string, archived = false) =>
+    get<{ path: string; content: string; truncated: boolean; size_bytes: number }>(
+      `/v1/library/content?source=${encodeURIComponent(sourceId)}&path=${encodeURIComponent(path)}${archived ? "&archived=1" : ""}`,
+    ),
   libraryArchived: (sourceId: string) =>
     get<{ source: string; archived: ArchivedRecord[] }>(
       `/v1/library/archived?source=${encodeURIComponent(sourceId)}`,

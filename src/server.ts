@@ -44,6 +44,7 @@ import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
 import { startReaper } from "./control/reaper.js";
+import { startStalledSessionNudge } from "./control/stalled-session-nudge.js";
 import { MetricsStore } from "./metrics/store.js";
 import { startMetricsLoop } from "./metrics/loop.js";
 import { startRuleEngine } from "./rules/engine.js";
@@ -324,6 +325,16 @@ export async function startBackend(): Promise<BackendHandle> {
   // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
   const morningScheduler = startMorningScheduler({ delegationService });
 
+  // 1 時間応答が無い (transcript 無更新) active セッションに「残作業を確認して続行 / 判断が
+  // 要るなら ask で停止」 を inject する。 ask で人間判断待ちのセッションは踏み潰さないよう除外。
+  const stallNudge = startStalledSessionNudge({
+    repo,
+    enabled: cfg.stallNudgeEnabled,
+    intervalMs: cfg.stallNudgeIntervalMs,
+    idleSec: cfg.stallIdleSec,
+    cooldownSec: cfg.stallNudgeCooldownSec,
+  });
+
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に
   // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
   // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
@@ -555,6 +566,7 @@ export async function startBackend(): Promise<BackendHandle> {
       errorFixDispatcher.stop();
       sweeper.stop();
       reaper.stop();
+      stallNudge.stop();
       metricsLoop.stop();
       clearInterval(costSampleTimer);
       unsubLog();

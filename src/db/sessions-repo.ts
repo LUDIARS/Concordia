@@ -67,6 +67,13 @@ export class SessionsRepo {
       .all(repoPath, excludeId) as SessionRow[];
   }
 
+  /** すべての active session 一覧 (停止 nudge 等の周期スキャン用) */
+  findAllActive(): SessionRow[] {
+    return this.db
+      .prepare(`SELECT * FROM sessions WHERE status = 'active' ORDER BY started_at DESC`)
+      .all() as SessionRow[];
+  }
+
   /** 同 (repo_path, host) の lost session 一覧 (resume 候補) */
   findLostCandidates(repoPath: string, host: string): SessionRow[] {
     return this.db

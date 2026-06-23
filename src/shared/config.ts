@@ -65,6 +65,14 @@ export interface ConcordiaConfig {
   reaperIntervalMs: number;
   /** 起動からこの秒数未満のプロセスは reaper の対象外 (登録レース回避)。 既定 180 秒。 */
   reaperMinAgeSec: number;
+  /** 停止セッションの続行 nudge の有効/無効。 env `CONCORDIA_STALL_NUDGE_ENABLED` (既定 ON)。 */
+  stallNudgeEnabled: boolean;
+  /** 停止 nudge の走査間隔 (ms)。 env `CONCORDIA_STALL_NUDGE_INTERVAL_MS` (既定 10 分)。 */
+  stallNudgeIntervalMs: number;
+  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 env `CONCORDIA_STALL_IDLE_SEC` (既定 3600=1h)。 */
+  stallIdleSec: number;
+  /** 一度 nudge したら次まで空ける秒数。 env `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 stallIdleSec と同じ)。 */
+  stallNudgeCooldownSec: number;
   /** ホストメトリクス採取の有効/無効。 env `CONCORDIA_METRICS_ENABLED` (既定 ON)。 */
   metricsEnabled: boolean;
   /** メトリクス採取間隔 (ms)。 env `CONCORDIA_METRICS_INTERVAL_MS` (既定 30 秒)。 */
@@ -186,6 +194,12 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     reaperEnabled: (env.CONCORDIA_REAPER_ENABLED ?? "1") !== "0",
     reaperIntervalMs: Number(env.CONCORDIA_REAPER_INTERVAL_MS ?? "300000"),
     reaperMinAgeSec: Number(env.CONCORDIA_REAPER_MIN_AGE_SEC ?? "180"),
+    stallNudgeEnabled: (env.CONCORDIA_STALL_NUDGE_ENABLED ?? "1") !== "0",
+    stallNudgeIntervalMs: Number(env.CONCORDIA_STALL_NUDGE_INTERVAL_MS ?? "600000"),
+    stallIdleSec: Number(env.CONCORDIA_STALL_IDLE_SEC ?? "3600"),
+    stallNudgeCooldownSec: Number(
+      env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
+    ),
     metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
     metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
     metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),

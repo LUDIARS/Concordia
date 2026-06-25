@@ -51,6 +51,14 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
   - live = status `active` または `lost` (lost は復帰しうるので殺さない)。
     回収対象は ended/abandoned/purged(行なし) のみ。
   - 起動から `reaperMinAgeSec` (既定 180s) 未満は見送り (pid 登録レース回避)。
+  - **session-end 進行中の保護 (安全弁):** `ended_at` から `reaperEndedGraceSec`
+    (既定 300s = 5 分) 以内の ended session は live 扱いで殺さない
+    (`liveSetsFromRepo` が active/lost に加えて grace 内 ended を live 集合へ入れる)。
+    `DELETE /v1/sessions/:id` が status=ended にした直後から AI 側 session-end スキル
+    (log 保存 / memory 更新 / Memoria 登録) が走り、 その完了は
+    `POST /v1/sessions/:id/session-end-done` → force-exit で確定的に閉じる。
+    reaper がこの猶予内に割り込むと WT を巻き込んで「途中で終わる」事故になるため、
+    猶予の間は kill を背後にキューしたまま session-end の終了を見届ける。
 - `startReaper()` — 既定 ON、 `reaperIntervalMs` (既定 5 分) 周期 + 起動直後 1 回。
 - 手動: `GET /v1/admin/orphans` (dry-run 一覧) / `POST /v1/admin/reap`
   (`{dry_run?, min_age_sec?}`)。
@@ -59,6 +67,7 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
 - `CONCORDIA_REAPER_ENABLED` (既定 `1`)
 - `CONCORDIA_REAPER_INTERVAL_MS` (既定 `300000`)
 - `CONCORDIA_REAPER_MIN_AGE_SEC` (既定 `180`)
+- `CONCORDIA_REAPER_ENDED_GRACE_SEC` (既定 `300` = 5 分。 `0` で無効 = ended を即回収)
 
 ## Phase 2: agent-client の明示 kill (実装済)
 agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に

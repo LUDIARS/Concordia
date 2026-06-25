@@ -405,6 +405,7 @@ export function buildApp(deps: AppDeps): Hono {
     const r = await reapOrphans({ repo: deps.repo }, {
       dryRun: true,
       minAgeSec: deps.config.reaperMinAgeSec,
+      endedGraceSec: deps.config.reaperEndedGraceSec,
     });
     return c.json({ scanned: r.scanned, orphans: r.orphans });
   });
@@ -414,7 +415,10 @@ export function buildApp(deps: AppDeps): Hono {
       typeof body.min_age_sec === "number" && body.min_age_sec >= 0
         ? body.min_age_sec
         : deps.config.reaperMinAgeSec;
-    const r = await reapOrphans({ repo: deps.repo }, { dryRun: body.dry_run === true, minAgeSec });
+    const r = await reapOrphans(
+      { repo: deps.repo },
+      { dryRun: body.dry_run === true, minAgeSec, endedGraceSec: deps.config.reaperEndedGraceSec },
+    );
     return c.json({
       scanned: r.scanned,
       orphans: r.orphans.length,

@@ -5,10 +5,12 @@ import {
   parseWindowsProcLine,
   parsePosixProcLine,
   classifyOrphans,
+  liveSetsFromRepo,
   parseLictorPid,
   parseAgentClientPid,
   type RunningAgentProc,
 } from "../src/control/reaper.js";
+import type { SessionsRepo } from "../src/db/sessions-repo.js";
 
 describe("classifyKind", () => {
   it("lictor.mjs を lictor に分類", () => {
@@ -98,5 +100,41 @@ describe("classifyOrphans (誤爆防止が核心)", () => {
     // pid 200 を live に含めると孤児から外れる
     const orphans = classifyOrphans(procs, new Set([100, 200]), liveSessionIds, 180);
     expect(orphans.find((o) => o.pid === 200)).toBeUndefined();
+  });
+});
+
+describe("liveSetsFromRepo (session-end 進行中の保護 = 安全弁)", () => {
+  type Row = { id: string; status: string; metadata: string | null; ended_at: number | null };
+  const makeRepo = (rows: Row[]): SessionsRepo =>
+    ({
+      listSessions: ({ status }: { status?: string }) => rows.filter((r) => r.status === status),
+    }) as unknown as SessionsRepo;
+
+  const now = 10_000;
+  const rows: Row[] = [
+    { id: "active-1", status: "active", metadata: '{"lictor_pid":11,"agent_client_pid":111}', ended_at: null },
+    // ended から 60s (grace 内) — 保護される
+    { id: "ending-fresh", status: "ended", metadata: '{"lictor_pid":22}', ended_at: now - 60 },
+    // ended から 600s (grace 超) — 保護されない
+    { id: "ending-stale", status: "ended", metadata: '{"lictor_pid":33}', ended_at: now - 600 },
+  ];
+
+  it("grace 無しでは active/lost のみ live (ended は含めない)", () => {
+    const { lictorPids, sessionIds } = liveSetsFromRepo(makeRepo(rows));
+    expect([...sessionIds]).toEqual(["active-1"]);
+    expect([...lictorPids]).toEqual([11]);
+  });
+
+  it("grace 内の ended は live 扱いで保護され、 grace 超の ended は保護しない", () => {
+    const { lictorPids, sessionIds } = liveSetsFromRepo(makeRepo(rows), { nowSec: now, graceSec: 300 });
+    expect(sessionIds.has("ending-fresh")).toBe(true); // session-end 途中 → 殺さない
+    expect(lictorPids.has(22)).toBe(true);
+    expect(sessionIds.has("ending-stale")).toBe(false); // grace 超 → 回収対象
+    expect(lictorPids.has(33)).toBe(false);
+  });
+
+  it("graceSec=0 (無効) なら ended は一切保護しない", () => {
+    const { sessionIds } = liveSetsFromRepo(makeRepo(rows), { nowSec: now, graceSec: 0 });
+    expect(sessionIds.has("ending-fresh")).toBe(false);
   });
 });

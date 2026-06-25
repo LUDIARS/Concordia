@@ -11,6 +11,12 @@
  *  - agent-client: `--session <id>` の id が status active/lost の session に無ければ孤児。
  *  - いずれも起動から minAgeSec 未満は見送る (登録レース回避: 起動直後で pid 未登録の可能性)。
  *  - active / lost は live 扱い (lost は復帰しうるので殺さない)。ended/abandoned/purged(行なし)のみ回収。
+ *  - **session-end 進行中の保護 (安全弁):** ended になっても、 ended_at から endedGraceSec
+ *    (既定 5 分) 以内は live 扱いで殺さない。 DELETE /v1/sessions/:id で status=ended に
+ *    した直後から AI 側 session-end スキル (log 保存 / memory 更新 / Memoria 登録) が走り、
+ *    その完了は `POST /v1/sessions/:id/session-end-done` → force-exit で確定的に閉じる。
+ *    reaper がこの猶予内に割り込むと WT を巻き込んで「途中で終わる」事故になるため、
+ *    猶予の間は kill を背後にキューしたまま session-end の終了を見届ける。
  */
 
 import { spawn } from "node:child_process";
@@ -110,18 +116,34 @@ export function classifyOrphans(
   return out;
 }
 
-/** active + lost の session から live な lictor_pid / session id 集合を作る。 */
-export function liveSetsFromRepo(repo: SessionsRepo): {
+/**
+ * live な lictor_pid / session id 集合を作る。
+ * active + lost は常に live。 加えて `endedGrace` を渡すと、 ended_at が
+ * `nowSec - graceSec` 以降の ended セッション (= session-end 進行中) も live に含める。
+ * これが「5 分間は安全弁でプロセスキルしない」 = session-end の途中で殺さない保護。
+ */
+export function liveSetsFromRepo(
+  repo: SessionsRepo,
+  endedGrace?: { nowSec: number; graceSec: number },
+): {
   lictorPids: Set<number>;
   sessionIds: Set<string>;
 } {
   const lictorPids = new Set<number>();
   const sessionIds = new Set<string>();
+  const addLive = (s: { id: string; metadata: string | null }): void => {
+    sessionIds.add(s.id);
+    const pid = parseLictorPid(s.metadata);
+    if (pid != null) lictorPids.add(pid);
+  };
   for (const status of ["active", "lost"] as const) {
-    for (const s of repo.listSessions({ status })) {
-      sessionIds.add(s.id);
-      const pid = parseLictorPid(s.metadata);
-      if (pid != null) lictorPids.add(pid);
+    for (const s of repo.listSessions({ status })) addLive(s);
+  }
+  // session-end 進行中 (ended から graceSec 以内) は live 扱いで保護する。
+  if (endedGrace && endedGrace.graceSec > 0) {
+    const floor = endedGrace.nowSec - endedGrace.graceSec;
+    for (const s of repo.listSessions({ status: "ended" })) {
+      if (s.ended_at != null && s.ended_at >= floor) addLive(s);
     }
   }
   return { lictorPids, sessionIds };
@@ -166,9 +188,21 @@ export async function scanAgentProcesses(): Promise<RunningAgentProc[]> {
   return out.split(/\r?\n/).map(parsePosixProcLine).filter((p): p is RunningAgentProc => p !== null);
 }
 
+/** ended セッションの保護猶予 (秒) の既定値 = 5 分。 */
+export const DEFAULT_ENDED_GRACE_SEC = 300;
+
 export interface ReapOptions {
   dryRun: boolean;
   minAgeSec: number;
+  /**
+   * ended_at がこの秒数以内の ended セッションは live 扱いで殺さない安全弁。
+   * session-end スキル (log 保存 / memory 更新 / Memoria 登録) の実行中に reaper が
+   * 割り込んで WT を巻き込み kill する事故を防ぐ。 既定 {@link DEFAULT_ENDED_GRACE_SEC} (5 分)。
+   * 0 で無効 (旧挙動: ended は即回収対象)。
+   */
+  endedGraceSec?: number;
+  /** 現在時刻 (秒)。 テスト注入用。 省略時は実時刻。 */
+  nowSec?: number;
 }
 
 export interface ReapResult {
@@ -184,7 +218,11 @@ export async function reapOrphans(
   opts: ReapOptions,
 ): Promise<ReapResult> {
   const procs = await scanAgentProcesses();
-  const { lictorPids, sessionIds } = liveSetsFromRepo(deps.repo);
+  const graceSec = opts.endedGraceSec ?? DEFAULT_ENDED_GRACE_SEC;
+  const { lictorPids, sessionIds } = liveSetsFromRepo(
+    deps.repo,
+    graceSec > 0 ? { nowSec: opts.nowSec ?? nowSecReal(), graceSec } : undefined,
+  );
   const orphans = classifyOrphans(procs, lictorPids, sessionIds, opts.minAgeSec);
 
   const killed: OrphanProc[] = [];
@@ -207,9 +245,10 @@ export interface ReaperHandle {
 /** 周期 reaper を起動する。 */
 export function startReaper(
   deps: { repo: SessionsRepo },
-  opts: { enabled: boolean; intervalMs: number; minAgeSec: number },
+  opts: { enabled: boolean; intervalMs: number; minAgeSec: number; endedGraceSec: number },
 ): ReaperHandle {
-  const runOnce = () => reapOrphans(deps, { dryRun: false, minAgeSec: opts.minAgeSec });
+  const runOnce = () =>
+    reapOrphans(deps, { dryRun: false, minAgeSec: opts.minAgeSec, endedGraceSec: opts.endedGraceSec });
 
   if (!opts.enabled) {
     log.info("reaper disabled (CONCORDIA_REAPER_ENABLED=0)");
@@ -233,7 +272,10 @@ export function startReaper(
 
   timer = setInterval(() => void tick(), opts.intervalMs);
   timer.unref?.();
-  log.info({ intervalMs: opts.intervalMs, minAgeSec: opts.minAgeSec }, "reaper started");
+  log.info(
+    { intervalMs: opts.intervalMs, minAgeSec: opts.minAgeSec, endedGraceSec: opts.endedGraceSec },
+    "reaper started",
+  );
   // 起動直後に 1 回 (溜まった孤児を即回収)。
   void tick();
 
@@ -244,6 +286,11 @@ export function startReaper(
     },
     runOnce,
   };
+}
+
+/** 現在時刻 (秒)。 grace 判定の基準。 */
+function nowSecReal(): number {
+  return Math.floor(Date.now() / 1000);
 }
 
 /** stdout を集める軽量 spawn。 失敗・非 0 終了・timeout は null。 */

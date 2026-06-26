@@ -63,3 +63,6 @@ bash.exe.stackdump
 
 # Anatomia retune ローカル状態（反復カウンタ等）
 .anatomia/
+
+# ローカル review/ は中央 Review/<repo>/ に集約する (per-repo review/ は追跡しない)
+review/

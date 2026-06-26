@@ -15,15 +15,17 @@
  * 同じ session を再 push しうるので、集計は key ごとに LATEST 行を採用する
  * (cost-feed-aggregate.ts 参照)。重複加算はしない。
  *
- * 保管は append-only JSONL を CONCORDIA_COST_FEED_LOG で gate する
- * (cross-process の ground truth)。env 未設定なら in-memory バッファに退避し、
- * 単一プロセス内では dev パネルが動く。
+ * 保管は append-only JSONL (cross-process の ground truth)。既定で
+ * `logs/cost-feed.jsonl` (cwd 相対) に永続化し、再起動を跨いで集計が残る。
+ * パスは CONCORDIA_COST_FEED_LOG で上書きでき、明示的に空文字を渡すと
+ * in-memory バッファ (プロセス寿命) に切り替わる (= 永続化のオプトアウト)。
  *
  * SRP: entry 形状 + JSONL append/read + env 解決のみ。
  * 集計は cost-feed-aggregate.ts、HTTP routing は api/cost-feed.ts。
  */
 
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 /** サービスが push する per-(session × model × backend) コスト要約 1 件。 */
 export interface CostFeedEntry {
@@ -55,7 +57,7 @@ export interface CostFeed {
   flush(): Promise<void>;
 }
 
-/** in-memory feed (プロセス寿命)。CONCORDIA_COST_FEED_LOG 未設定時に使う。 */
+/** in-memory feed (プロセス寿命)。CONCORDIA_COST_FEED_LOG="" の明示オプトアウト時に使う。 */
 export function createMemoryCostFeed(): CostFeed {
   const buf: CostFeedEntry[] = [];
   return {
@@ -73,7 +75,10 @@ export function createMemoryCostFeed(): CostFeed {
 
 /** JSONL-backed feed: 1 entry = 1 行 append、read で parse して読み戻す。 */
 export function createJsonlCostFeed(path: string): CostFeed {
-  let queue: Promise<void> = Promise.resolve();
+  // 初回 append 前にディレクトリを用意して書き込みの silent drop を防ぐ。
+  let queue: Promise<void> = mkdir(dirname(path), { recursive: true })
+    .then(() => undefined)
+    .catch(() => undefined);
   return {
     record(e) {
       const line = JSON.stringify(e) + "\n";
@@ -112,15 +117,23 @@ export async function readCostEntries(path: string): Promise<CostFeedEntry[]> {
 
 let singleton: CostFeed | null = null;
 
+/** 永続化の既定パス (cwd 相対)。logs/ は logger と共用・.gitignore 済み。 */
+function defaultCostFeedLog(): string {
+  return join(process.cwd(), "logs", "cost-feed.jsonl");
+}
+
 /**
  * env から解決するプロセス共通の cost feed。
- * CONCORDIA_COST_FEED_LOG = JSONL ファイルパス (cross-process)、未設定なら in-memory。
+ * CONCORDIA_COST_FEED_LOG = JSONL ファイルパス (cross-process)。
+ * 未設定なら既定 `logs/cost-feed.jsonl` に永続化、明示的に空文字なら in-memory。
  */
 export function getCostFeed(): CostFeed {
   if (singleton) return singleton;
-  const logPath = process.env["CONCORDIA_COST_FEED_LOG"];
+  const envPath = process.env["CONCORDIA_COST_FEED_LOG"];
+  // 未設定 (undefined) → 既定パスで永続化 / 明示的な "" → in-memory オプトアウト。
+  const logPath = envPath ?? defaultCostFeedLog();
   singleton =
-    logPath && logPath.trim() ? createJsonlCostFeed(logPath.trim()) : createMemoryCostFeed();
+    logPath.trim() ? createJsonlCostFeed(logPath.trim()) : createMemoryCostFeed();
   return singleton;
 }
 

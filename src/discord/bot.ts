@@ -91,6 +91,23 @@ export interface DiscordBotDeps {
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
    */
   resolveConfig?: () => DiscordEnv;
+  /**
+   * 子会社モード。 指定すると:
+   *  - config / session-channels を `sub:<id>` scope で namespacing (本社と混ざらない)。
+   *  - その子会社が起こしたセッションのみ 3 カテゴリに写す (subsidiary-only 可視)。
+   *  - 出張先からの作業指示をガードゲートに通す (intake チャンネル → 専用 delegation)。
+   *  - bot 自身のメンションを抑制 (高頻度カテゴリのデフォルト通知ミュート)。
+   * spec/feature/subsidiary-delegation.md §3。
+   */
+  subsidiary?: {
+    id: string;
+    /** intake (受付) チャンネル id。 ここへの新規メッセージ = 修正依頼。 */
+    intakeChannelId: string | null;
+    /** 依頼 1 件をガード→記録→delegation まで処理し replyText を返す。 */
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    /** 当該ユーザがロック済みか。 */
+    isLocked: (userId: string) => boolean;
+  };
 }
 
 export interface DiscordBotHandle {
@@ -108,6 +125,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     return null;
   }
 
+  // 子会社 scope: config / session-channels の namespacing と subsidiary-only 可視に使う。
+  const scope = deps.subsidiary ? `sub:${deps.subsidiary.id}` : "";
+  const subsidiaryId = deps.subsidiary?.id ?? null;
+
   const client = new Client({
     intents: [
       GatewayIntentBits.Guilds,
@@ -117,10 +138,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       GatewayIntentBits.GuildWebhooks,
     ],
     partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
+    // 子会社 Bot は高頻度カテゴリのデフォルト通知ミュートのため、 bot 発メッセージの
+    // メンションを既定で一切解決しない (個別に上書きしない限り誰も ping しない)。
+    ...(deps.subsidiary ? { allowedMentions: { parse: [] as never[] } } : {}),
   });
 
-  const configRepo = makeDiscordConfigRepo(deps.db);
-  const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db);
+  const configRepo = makeDiscordConfigRepo(deps.db, scope);
+  const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
+  // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
+  // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
+  const ownsSession = (sessionId: string): boolean => {
+    const meta = readMeta(deps.sessionsRepo.findSession(sessionId)?.metadata);
+    const sid = meta.subsidiary_id ?? null;
+    return subsidiaryId ? sid === subsidiaryId : !sid;
+  };
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
@@ -359,6 +390,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       messageMap,
       workflow: reactionWorkflow,
       resolveReactionMappings: deps.resolveReactionMappings,
+      // 子会社モード: intake チャンネルの依頼をガードゲートに通し、 ロック済みユーザを遮断する。
+      subsidiary: deps.subsidiary
+        ? {
+            intakeChannelId: deps.subsidiary.intakeChannelId,
+            process: deps.subsidiary.process,
+            isLocked: deps.subsidiary.isLocked,
+          }
+        : undefined,
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
@@ -402,6 +441,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (!layout || !webhooks) return;
+
+    // subsidiary-only 可視: このイベントが対象とするセッションが Bot の scope 外なら無視する
+    // (本社 Bot は子会社セッションを写さず、 子会社 Bot は自分のセッションのみ写す)。
+    const evSid = eventSessionId(ev);
+    if (evSid !== null && !ownsSession(evSid)) return;
 
     if (ev.type === "session.started") {
       const meta = readMeta(deps.sessionsRepo.findSession(ev.session_id)?.metadata);
@@ -641,7 +685,27 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   };
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; delegation_emoji?: string } {
+function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; delegation_emoji?: string; subsidiary_id?: string } {
   if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; delegation_emoji?: string }; } catch { return {}; }
+  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; delegation_emoji?: string; subsidiary_id?: string }; } catch { return {}; }
+}
+
+/** session-scoped イベントの対象 session id を返す (subsidiary-only 可視のゲート用)。 非該当は null。 */
+function eventSessionId(ev: ConcordiaEvent): string | null {
+  switch (ev.type) {
+    case "session.started":
+    case "session.lost":
+    case "session.ended":
+    case "session.event":
+      return ev.session_id;
+    case "transcript.frame":
+    case "session.inject":
+    case "question.posted":
+    case "question.resolved":
+      return ev.target_session_id;
+    case "chat.posted":
+      return ev.session_id ?? null;
+    default:
+      return null;
+  }
 }

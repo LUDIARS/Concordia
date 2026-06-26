@@ -105,6 +105,8 @@ export interface InvokeInput {
   triggered_by?: string;
   /** false で spawn せず render + 記録のみ */
   spawn?: boolean;
+  /** 子会社由来の invoke なら子会社 id。 spawn したセッションの metadata.subsidiary_id へ焼く。 */
+  subsidiary_id?: string | null;
 }
 
 export interface InvokeResultOk {
@@ -254,7 +256,7 @@ export class DelegationService {
         // この spawn と、 直後に Lictor が独立登録するセッションを cwd で結ぶための
         // 一時マーカー。 session.started 時に claim してテンプレ絵文字を metadata へ焼く
         // (Slack ライブカードの先頭アイコンに使う)。
-        recordPendingDelegationSpawn({ cwd, emoji: tpl.emoji ?? null, callName: input.call_name });
+        recordPendingDelegationSpawn({ cwd, emoji: tpl.emoji ?? null, callName: input.call_name, subsidiaryId: input.subsidiary_id ?? null });
         log.info({
           run_id: runId, call_name: input.call_name, provider, cwd,
           spawn_pid: spawnPid, prompt_file: promptPath,

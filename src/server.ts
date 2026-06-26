@@ -32,6 +32,12 @@ import { DelegationService } from "./delegation/service.js";
 import { seedDelegationTemplates } from "./delegation/seed.js";
 import { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import { seedModelCatalog } from "./model-catalog/seed.js";
+import { SubsidiaryRepo } from "./db/subsidiary-repo.js";
+import { HarnessRulesRepo } from "./db/harness-rules-repo.js";
+import { seedHarnessRules } from "./subsidiary/harness-seed.js";
+import { SubsidiaryBotManager } from "./subsidiary/manager.js";
+import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
+import { runClaude } from "./rules/claude-runner.js";
 import { AdminState } from "./admin/state.js";
 import { setLictorLauncherResolver } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
@@ -222,6 +228,11 @@ export async function startBackend(): Promise<BackendHandle> {
   const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const modelCatalog = new ModelCatalogRepo(db);
+  const subsidiaryRepo = new SubsidiaryRepo(db);
+  const harnessRepo = new HarnessRulesRepo(db);
+  // 子会社の日次トークン予算トラッカー。 subsidiary_id タグ付きセッションの当日消費を
+  // ログから直接合算する (グローバル予算と違い delta 累積は不要 = 冪等)。
+  const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
   const publicUrlForDelegation = `http://${cfg.host}:${cfg.port}`;
   const delegationService = new DelegationService({
     repo: delegationRepo,
@@ -267,6 +278,7 @@ export async function startBackend(): Promise<BackendHandle> {
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
   seedModelCatalog(modelCatalog);
+  seedHarnessRules(harnessRepo);
   // 中央チャット描画 (Haiku). 「いつ / 誰が」 は決定的に決め、 発話文だけここで描画する。
   const renderConfig = () =>
     resolveRenderConfig({
@@ -401,6 +413,23 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };
 
+  // 子会社 Bot マネージャ。 本社 Discord bot と同じ共有 deps を base にし、 接続設定と
+  // ガードゲートだけを子会社ごとに差し替えて startDiscordBot を子会社モードで起動する。
+  const subsidiaryManager = new SubsidiaryBotManager({
+    subsidiaryRepo,
+    harnessRepo,
+    delegationRepo,
+    delegationService,
+    secretBox,
+    runClaude,
+    budgetTracker: subsidiaryBudget,
+    baseDiscordDeps: () => {
+      // resolveConfig / subsidiary は manager が差し替えるので除く。
+      const { resolveConfig: _rc, subsidiary: _sub, ...base } = discordBotDeps!;
+      return base;
+    },
+  });
+
   const app = buildApp({
     repo,
     metrics: metricsStore,
@@ -422,6 +451,10 @@ export async function startBackend(): Promise<BackendHandle> {
     delegation: delegationRepo,
     delegationService,
     modelCatalog,
+    subsidiary: subsidiaryRepo,
+    harnessRules: harnessRepo,
+    subsidiaryManager,
+    subsidiaryBudget,
     adminState,
     costStatus: () => costTracker.status(),
     processManager,
@@ -564,6 +597,10 @@ export async function startBackend(): Promise<BackendHandle> {
     if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
   }
 
+  // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
+  // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
+  await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
+
   return {
     port: cfg.port,
     shutdown: async () => {
@@ -584,6 +621,7 @@ export async function startBackend(): Promise<BackendHandle> {
       unsubLog();
       await stopDiscordBotManaged();
       await stopSlackBotManaged();
+      await subsidiaryManager.stopAll();
       await processManager.stopAll();
       ws.close();
       server.close();

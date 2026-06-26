@@ -716,7 +716,114 @@ export const api = {
       "/v1/library/restore",
       { blocks },
     ),
+
+  // ── 共通ハーネスルール (子会社ガードのポリシー) ──
+  harnessRulesList: (all = false) =>
+    get<{ rules: HarnessRule[] }>(`/v1/harness-rules${all ? "?all=1" : ""}`),
+  harnessRuleCreate: (body: Partial<HarnessRule> & { kind: "allow" | "block"; description: string }) =>
+    post<{ rule: HarnessRule }>("/v1/harness-rules", body),
+  harnessRuleUpdate: (id: string, body: Partial<HarnessRule>) =>
+    patch<{ rule: HarnessRule }>(`/v1/harness-rules/${encodeURIComponent(id)}`, body),
+  harnessRuleDelete: (id: string) =>
+    del<{ ok: boolean; error?: string }>(`/v1/harness-rules/${encodeURIComponent(id)}`),
+
+  // ── 子会社 Delegation ──
+  subsidiariesList: () => get<{ subsidiaries: SubsidiarySummary[] }>("/v1/subsidiaries"),
+  subsidiaryGet: (id: string) =>
+    get<{ subsidiary: SubsidiarySummary; delegations: SubsidiaryDelegation[]; locks: SubsidiaryLock[]; requests: SubsidiaryRequest[] }>(
+      `/v1/subsidiaries/${encodeURIComponent(id)}`,
+    ),
+  subsidiaryCreate: (body: SubsidiaryInput) => post<{ subsidiary: SubsidiarySummary }>("/v1/subsidiaries", body),
+  subsidiaryUpdate: (id: string, body: Partial<SubsidiaryInput>) =>
+    patch<{ subsidiary: SubsidiarySummary }>(`/v1/subsidiaries/${encodeURIComponent(id)}`, body),
+  subsidiaryDelete: (id: string) => del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}`),
+  subsidiarySetDelegations: (id: string, delegations: Array<{ call_name: string; is_default?: boolean }>) =>
+    put<{ delegations: SubsidiaryDelegation[] }>(`/v1/subsidiaries/${encodeURIComponent(id)}/delegations`, { delegations }),
+  subsidiaryStart: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/start`, {}),
+  subsidiaryStop: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/stop`, {}),
+  subsidiaryRestart: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/restart`, {}),
+  subsidiaryUnlock: (id: string, platform: string, userId: string) =>
+    del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}/locks/${encodeURIComponent(platform)}/${encodeURIComponent(userId)}`),
 };
+
+export interface HarnessRule {
+  id: string;
+  kind: "allow" | "block";
+  title: string;
+  description: string;
+  enabled: boolean;
+  builtin: boolean;
+  sort_order: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SubsidiaryDelegation {
+  subsidiary_id: string;
+  call_name: string;
+  is_default: number;
+}
+export interface SubsidiaryLock {
+  id: number;
+  subsidiary_id: string;
+  platform: string;
+  platform_user_id: string;
+  user_label: string;
+  reason: string;
+  locked_at: number;
+}
+export interface SubsidiaryRequest {
+  id: string;
+  platform: string;
+  platform_user_id: string;
+  user_label: string;
+  instruction: string;
+  decision: "allow" | "deny";
+  reason: string;
+  violations_json: string;
+  matched_call_name: string | null;
+  locked: number;
+  run_id: string | null;
+  created_at: number;
+}
+export interface SubsidiarySummary {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  platform: "discord" | "slack";
+  enabled: boolean;
+  guild_id: string | null;
+  application_id: string | null;
+  channel_id: string | null;
+  guard_model: string;
+  guard_scope: string;
+  home_cwd: string | null;
+  daily_token_budget: number;
+  bot_token_set: boolean;
+  app_token_set: boolean;
+  running: boolean;
+  usage_today_tokens?: number;
+  budget_blocked?: boolean;
+  delegations?: SubsidiaryDelegation[];
+  lock_count?: number;
+}
+export interface SubsidiaryInput {
+  name?: string;
+  display_name?: string;
+  description?: string;
+  platform?: "discord" | "slack";
+  enabled?: boolean;
+  guild_id?: string | null;
+  application_id?: string | null;
+  channel_id?: string | null;
+  bot_token?: string | null;
+  app_token?: string | null;
+  guard_model?: string;
+  guard_scope?: string;
+  home_cwd?: string | null;
+  daily_token_budget?: number;
+}
 
 export function fmtTs(ts: number): string {
   const d = new Date(ts * 1000);

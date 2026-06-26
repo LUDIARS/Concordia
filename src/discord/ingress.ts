@@ -40,6 +40,15 @@ export interface IngressDeps {
   };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /**
+   * 子会社モード。 intake チャンネルの新規メッセージはガードゲートに通し (process)、
+   * ロック済みユーザは他チャンネルでも遮断する。 spec/feature/subsidiary-delegation.md §3.1。
+   */
+  subsidiary?: {
+    intakeChannelId: string | null;
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    isLocked: (userId: string) => boolean;
+  };
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -87,6 +96,28 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     `ingress: routing channel=${msg.channelId} route_channel=${routeChannelId} ` +
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
   );
+
+  // 子会社モード: 受付チャンネルの新規依頼はガードゲートへ。 他チャンネルでもロック済みは遮断。
+  if (deps.subsidiary) {
+    const sub = deps.subsidiary;
+    if (sub.intakeChannelId && routeChannelId === sub.intakeChannelId) {
+      const userLabel = msg.member?.nickname?.trim() || msg.author.username;
+      deps.log.info(`ingress: subsidiary intake request channel=${msg.channelId} user=${msg.author.id}`);
+      try {
+        const result = await sub.process(msg.author.id, userLabel, text.slice(0, 8000));
+        await msg.reply({ content: result.replyText, allowedMentions: { parse: [], repliedUser: false } });
+      } catch (e) {
+        deps.log.warn(`ingress: subsidiary gate failed channel=${msg.channelId}: ${(e as Error).message}`);
+        try { await msg.reply({ content: `⚠️ 内部エラーで処理できませんでした: ${(e as Error).message}`, allowedMentions: { parse: [], repliedUser: false } }); } catch {}
+      }
+      return;
+    }
+    if (sub.isLocked(msg.author.id)) {
+      deps.log.info(`ingress: subsidiary locked user=${msg.author.id} channel=${msg.channelId}; blocked`);
+      try { await msg.reply({ content: "🔒 ロック中のため処理できません。", allowedMentions: { parse: [], repliedUser: false } }); } catch {}
+      return;
+    }
+  }
 
   // 単発で投稿された絵文字 (🙏 / 🫶 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。

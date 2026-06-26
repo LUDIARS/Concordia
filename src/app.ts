@@ -63,6 +63,12 @@ import type { DelegationService } from "./delegation/service.js";
 import { substituteVars } from "./delegation/service.js";
 import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./api/model-catalog.js";
+import { subsidiaryRouter } from "./api/subsidiary.js";
+import { harnessRulesRouter } from "./api/harness-rules.js";
+import type { SubsidiaryRepo } from "./db/subsidiary-repo.js";
+import type { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
+import type { HarnessRulesRepo } from "./db/harness-rules-repo.js";
+import type { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import type { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import {
   isSpawnProvider,
@@ -102,6 +108,12 @@ export interface AppDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   modelCatalog: ModelCatalogRepo;
+  /** 子会社 Delegation。 揃った時のみ /v1/subsidiaries / /v1/harness-rules を有効化。 */
+  subsidiary?: SubsidiaryRepo;
+  harnessRules?: HarnessRulesRepo;
+  subsidiaryManager?: SubsidiaryBotManager;
+  /** 子会社の日次トークン予算トラッカー (ダッシュボードに当日消費を表示)。 */
+  subsidiaryBudget?: SubsidiaryBudgetTracker;
   adminState: AdminState;
   /** コスト予算の現況 (当日消費 / 予算 / block 判定)。 spawn ブロック + 設定 GUI 表示用。 */
   costStatus?: () => CostBudgetStatus;
@@ -197,6 +209,15 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
+  if (deps.harnessRules) {
+    app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
+  }
+  if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
+    app.route(
+      "/v1/subsidiaries",
+      subsidiaryRouter({ repo: deps.subsidiary, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget }),
+    );
+  }
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
   // env 解決の singleton を使うので AppDeps への配線は不要。
   app.route("/v1/cost-feed", costFeedRouter());

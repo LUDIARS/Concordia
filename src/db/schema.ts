@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 27;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -469,6 +469,7 @@ const STATEMENTS = [
     webhook_token   TEXT,
     status          TEXT NOT NULL DEFAULT 'active',
     last_rename_ts  INTEGER NOT NULL DEFAULT 0,
+    scope           TEXT NOT NULL DEFAULT '',
     ts              INTEGER NOT NULL
   )`,
 
@@ -675,6 +676,89 @@ const STATEMENTS = [
     last_total  INTEGER NOT NULL DEFAULT 0,
     updated_at  INTEGER NOT NULL
   )`,
+
+  // ─── 子会社 Delegation (v0.x) ─────────────────────────────────────────────
+  // 別の Discord サーバ / Slack に出張する「子会社」。 専用 Bot + 専用 Delegation +
+  // Sonnet ガードを持つ。 spec/feature/subsidiary-delegation.md が正本。
+  // ★ bot_token_enc / app_token_enc は secret-box で暗号化した値のみ保存 (平文厳禁)。
+  `CREATE TABLE IF NOT EXISTS subsidiaries (
+    id              TEXT    PRIMARY KEY,
+    name            TEXT    NOT NULL UNIQUE,           -- slug ^[a-z][a-z0-9_-]{0,63}$
+    display_name    TEXT    NOT NULL DEFAULT '',
+    description     TEXT    NOT NULL DEFAULT '',
+    platform        TEXT    NOT NULL DEFAULT 'discord', -- discord | slack
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    guild_id        TEXT,                              -- Discord guild / Slack team
+    application_id  TEXT,                              -- Discord slash 登録用 (任意)
+    channel_id      TEXT,                              -- 依頼受付チャンネル
+    bot_token_enc   TEXT,                              -- 暗号化 bot token
+    app_token_enc   TEXT,                              -- 暗号化 Slack socket app token
+    guard_model     TEXT    NOT NULL DEFAULT 'sonnet',
+    guard_scope     TEXT    NOT NULL DEFAULT '',       -- 許可作業の自然文スコープ
+    home_cwd        TEXT,                              -- delegation 既定 cwd (横断は許可)
+    daily_token_budget INTEGER NOT NULL DEFAULT 0,     -- 日次トークン予算 (0 = 無制限)。 超過で受付停止。
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+
+  // 子会社が呼べる delegation テンプレの許可リスト (call_name 参照)。
+  `CREATE TABLE IF NOT EXISTS subsidiary_delegations (
+    subsidiary_id  TEXT    NOT NULL,
+    call_name      TEXT    NOT NULL,
+    is_default     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (subsidiary_id, call_name)
+  )`,
+
+  // ロックされた依頼者 (ガードが lock 判定 / 手動ロック)。 以降ガード前に即 deny。
+  `CREATE TABLE IF NOT EXISTS subsidiary_locks (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    subsidiary_id     TEXT    NOT NULL,
+    platform          TEXT    NOT NULL,
+    platform_user_id  TEXT    NOT NULL,
+    user_label        TEXT    NOT NULL DEFAULT '',
+    reason            TEXT    NOT NULL DEFAULT '',
+    locked_at         INTEGER NOT NULL,
+    UNIQUE (subsidiary_id, platform, platform_user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_subsidiary_locks_lookup
+     ON subsidiary_locks(subsidiary_id, platform, platform_user_id)`,
+
+  // 受信依頼 + ガード結論の監査ログ。
+  `CREATE TABLE IF NOT EXISTS subsidiary_requests (
+    id                 TEXT    PRIMARY KEY,
+    subsidiary_id      TEXT    NOT NULL,
+    platform           TEXT    NOT NULL,
+    platform_user_id   TEXT    NOT NULL,
+    user_label         TEXT    NOT NULL DEFAULT '',
+    instruction        TEXT    NOT NULL,
+    decision           TEXT    NOT NULL,               -- allow | deny
+    reason             TEXT    NOT NULL DEFAULT '',
+    violations_json    TEXT    NOT NULL DEFAULT '[]',
+    matched_call_name  TEXT,
+    locked             INTEGER NOT NULL DEFAULT 0,
+    run_id             TEXT,                            -- allow 時に起動した delegation
+    guard_model        TEXT    NOT NULL DEFAULT '',
+    guard_raw          TEXT    NOT NULL DEFAULT '',
+    created_at         INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_subsidiary_requests_sub
+     ON subsidiary_requests(subsidiary_id, created_at DESC)`,
+
+  // 共通ハーネスルール (ダッシュボード設定)。 ガードプロンプトに自然文で列挙される。
+  // builtin=1 は既定ルール (無効化可・削除不可)。
+  `CREATE TABLE IF NOT EXISTS harness_rules (
+    id          TEXT    PRIMARY KEY,
+    kind        TEXT    NOT NULL,                       -- allow | block
+    title       TEXT    NOT NULL DEFAULT '',
+    description TEXT    NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    builtin     INTEGER NOT NULL DEFAULT 0,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_rules_order
+     ON harness_rules(enabled, sort_order)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.
@@ -770,6 +854,19 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "discord_session_channels",
     column: "delegation_emoji",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
+  },
+  // 子会社 Bot の per-guild namespacing。 '' = 本社、 'sub:<id>' = 子会社。
+  // 複数 Discord bot が同一テーブルを共有しても listActive 等が混ざらないようにする。
+  {
+    table: "discord_session_channels",
+    column: "scope",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
+  },
+  // 子会社の日次トークン予算 (0 = 無制限)。 子会社ごとにコスト上限を設け、 超過で受付を止める。
+  {
+    table: "subsidiaries",
+    column: "daily_token_budget",
+    ddl: `ALTER TABLE subsidiaries ADD COLUMN daily_token_budget INTEGER NOT NULL DEFAULT 0`,
   },
 ];
 

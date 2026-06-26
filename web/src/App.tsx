@@ -15,6 +15,7 @@ import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
 import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
+import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
 import { CostFeed } from "./pages/CostFeed.js";
@@ -34,6 +35,7 @@ const NAV: NavItem[] = [
   { to: "/ws-cleanup", label: "整理" },
   { to: "/library", label: "記憶整理" },
   { to: "/delegation", label: "Delegation" },
+  { to: "/subsidiaries", label: "子会社" },
   { to: "/setup", label: "Setup" },
   { to: "/settings", label: "設定" },
 ];
@@ -67,6 +69,7 @@ export function App() {
           <Route path="/ws-cleanup" element={<WsCleanup />} />
           <Route path="/library" element={<Library />} />
           <Route path="/delegation" element={<Delegation />} />
+          <Route path="/subsidiaries" element={<Subsidiaries />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

@@ -58,7 +58,7 @@ class ConcordiaWsClient {
 
   constructor() {
     const proto = typeof window !== "undefined" && window.location.protocol === "https:" ? "wss:" : "ws:";
-    const host = typeof window !== "undefined" ? window.location.host : "127.0.0.1:17330";
+    const host = typeof window !== "undefined" ? window.location.host : "127.0.0.1:11111";
     this.url = `${proto}//${host}/ws`;
   }
 

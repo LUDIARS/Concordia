@@ -11,7 +11,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 | キー | 既定値 | いつ変える |
 |------|--------|-----------|
 | `CONCORDIA_HOST` | `127.0.0.1` | 基本変えない (認証なし loopback 前提)。 |
-| `CONCORDIA_PORT` | `17330` | port 衝突時のみ。 |
+| `CONCORDIA_PORT` | `11111` | port 衝突時のみ。 |
 | `CONCORDIA_DB_PATH` | `<cwd>/concordia.db` | DB を別ボリュームに置きたいとき。 |
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` | lost 判定を早めたい/遅くしたいとき。 |
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` | 放置判定の閾値。 |
@@ -29,7 +29,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 2. 起動 (dev は backend + Vite を `concurrently` で同時起動):
 
    ```bash
-   npm run dev          # backend(17330) + frontend
+   npm run dev          # backend(11111) + frontend
    # または backend 単体
    npm run dev:backend  # tsx watch src/server.ts
    # production
@@ -79,7 +79,7 @@ chat 投稿 / rule engine は **env ではなく runtime のスイッチ**で制
 | 症状 | 原因 / 対処 |
 |------|------------|
 | 起動で即落ち / `claude CLI` 系エラー (Windows) | git-bash パス未設定。 [windows.md](windows.md) を参照。 |
-| port 17330 が listen できない | 別プロセスが掴んでいる。 `CONCORDIA_PORT` を変えるか古い node を kill。 [windows.md](windows.md) の port 節。 |
+| port 11111 が listen できない | 別プロセスが掴んでいる。 `CONCORDIA_PORT` を変えるか古い node を kill。 [windows.md](windows.md) の port 節。 |
 | session が登録されない | hook 側の `CONCORDIA_HOOK=1` opt-in 漏れ。 hook ガイド参照。 |
 | active session がすぐ lost になる | `CONCORDIA_LOST_AFTER_SEC` が短すぎる。 既定 1800 に戻す。 |
 

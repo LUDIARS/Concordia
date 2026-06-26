@@ -5,7 +5,7 @@ Concordia の `tools/concordia-hook.mjs` を経由して HTTP API を叩く。
 
 ## 前提
 
-- Concordia backend が `http://127.0.0.1:17330` で稼働中
+- Concordia backend が `http://127.0.0.1:11111` で稼働中
 - `node` が PATH に存在
 - Claude Code の hook 機構 (公式) を理解している
 
@@ -89,7 +89,7 @@ exit 0 で抜ける (Claude Code 側の動作を阻害しない)。 ログは st
 
 | key | default | 用途 |
 |-----|--------|------|
-| `CONCORDIA_URL` | `http://127.0.0.1:17330` | backend URL override |
+| `CONCORDIA_URL` | `http://127.0.0.1:11111` | backend URL override |
 | `CONCORDIA_PROVIDER` | `claude-code` | provider 名 (任意 agent 用) |
 | `CONCORDIA_DISABLE` | (unset) | `1` で hook を no-op 化 |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | HTTP timeout (Claude Code を待たせない) |

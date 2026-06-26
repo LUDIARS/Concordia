@@ -11,8 +11,7 @@ function ctx(overrides: Partial<GuardContext> = {}): GuardContext {
   return {
     subsidiaryName: "TestCo",
     guardScope: "コンテンツの誤字修正のみ",
-    homeCwd: "E:/Document/Ars/Pictor",
-    allowedDelegations: [{ call_name: "fix-content", title: "誤字修正" }],
+    allowedDelegations: [{ call_name: "fix-content", title: "誤字修正", default_cwd: "E:/Document/Ars/Pictor", project: "Pictor" }],
     harnessRules: [
       { kind: "allow", title: "ディレクトリ横断を許可", description: "横断は可" },
       { kind: "block", title: "個人情報アクセス禁止", description: "PII不可" },

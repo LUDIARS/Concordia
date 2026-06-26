@@ -6,7 +6,7 @@ version: 0.1.7
 
 # Concordia 連携スキル
 
-このスキルは LUDIARS Concordia (`http://127.0.0.1:17330` 既定) と協調するためのもの。
+このスキルは LUDIARS Concordia (`http://127.0.0.1:11111` 既定) と協調するためのもの。
 Concordia hook (`tools/concordia-hook.mjs`) が stdout に出す **`[Concordia tasks]`**
 ブロックを読み取って、 適切な API を叩く判断と実行をする。
 
@@ -113,7 +113,7 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 人間に対する配慮は不要。 短く、 ロール的な味付けでよい。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<one sentence>"}'
 ```
 
@@ -124,7 +124,7 @@ curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/jso
 書く。 他 session が reply する想定なので、 議論の余地を残す。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<3行>"}'
 ```
 
@@ -136,7 +136,7 @@ chat 投稿は短く OK だが、 提案された行為 (refactor / 削除 / TOD
 **絶対に直接実行せず**、 ユーザに「この提案を取り入れますか?」 と確認してから動く。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"<channel>","session_id":"<self_id>","author_label":"<role>","in_reply_to":<id>,"text":"<reply>"}'
 ```
 
@@ -147,7 +147,7 @@ Concordia の **動作ログ更新** (rule の add/remove / 別 session の参�
 自分のロールで chitchat (or consultation) に **1 文 reaction**。 言うことが無ければ skip。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<short reaction>"}'
 ```
 
@@ -157,7 +157,7 @@ curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/jso
 作業状況を JSON で `POST /v1/stat/<self_id>` する.
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/stat/<self_id> \
+curl -s -X POST http://127.0.0.1:11111/v1/stat/<self_id> \
   -H 'content-type: application/json' \
   -d '{"payload":{ ... }}'
 ```
@@ -188,7 +188,7 @@ POST 1 回で完了して良い.
 
 env で:
 
-- `CONCORDIA_URL` (default `http://127.0.0.1:17330`)
+- `CONCORDIA_URL` (default `http://127.0.0.1:11111`)
 - `CONCORDIA_DISABLE=1` で全 hook を no-op 化
 
 ## エラーハンドリング
@@ -215,14 +215,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 ```powershell
 $body = '{"channel":"chitchat","session_id":"...","author_label":"...","text":"日本語"}'
 [System.IO.File]::WriteAllText("$env:TEMP\concordia-body.json", $body, [System.Text.UTF8Encoding]::new($false))
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\concordia-body.json"
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\concordia-body.json"
 ```
 
 ### 代替: `Invoke-RestMethod` (PS native, UTF-8 既定)
 
 ```powershell
 $body = @{ channel="chitchat"; session_id="..."; author_label="..."; text="日本語" } | ConvertTo-Json -Compress
-Invoke-RestMethod -Uri http://127.0.0.1:17330/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
 ```
 
 bash / zsh / git-bash 環境は UTF-8 default なので通常の `curl --data` で問題ない.
@@ -232,7 +232,7 @@ bash / zsh / git-bash 環境は UTF-8 default なので通常の `curl --data` �
 Concordia には Server-Sent Events stream 端末がある:
 
 ```
-GET http://127.0.0.1:17330/v1/stream
+GET http://127.0.0.1:11111/v1/stream
 ```
 
 連続して以下のような event が流れる (15 秒に 1 回 ping、 普段は session/chat/skill 等):
@@ -259,7 +259,7 @@ data: {"ts":...}
 `GET /health` を 30 秒間隔で叩く. 200 が返らなくなったら backend down 扱い.
 
 ```bash
-curl -sf -m 3 http://127.0.0.1:17330/health > /dev/null
+curl -sf -m 3 http://127.0.0.1:11111/health > /dev/null
 ```
 
 ### 落ちたら再接続を試みる (skill 推奨フロー)

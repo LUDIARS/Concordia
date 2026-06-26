@@ -2,10 +2,10 @@
 
 このファイルがあると AI agent が `npm run dev` / `npm run dev:backend` を background 起動可能。
 
-- backend: `tsx watch src/server.ts` (port 17330 loopback)
+- backend: `tsx watch src/server.ts` (port 11111 loopback)
 - web: `cd web && npm run dev` (Vite)
 
-Concordia は loopback 17330 のみで動く。 hook から /v1/sessions, /v1/chat 等を叩くため
+Concordia は loopback 11111 のみで動く。 hook から /v1/sessions, /v1/chat 等を叩くため
 session 監視 / chitchat / report 機能を使うときは backend を立ち上げておく。
 
 ## Concordia managed processes (v0.2)

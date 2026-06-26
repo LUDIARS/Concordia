@@ -34,11 +34,11 @@ function renderPersonaBlock(persona: PersonaRow): string {
  * delegation prompt の冒頭に差し込む context ブロックを組み立てる。
  *
  * @param persona  暫定 persona (null なら persona ブロックは省く)
- * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:17330)
+ * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:11111)
  */
 export function buildDelegationContext(
   persona: PersonaRow | null,
-  concordiaUrl = "http://127.0.0.1:17330",
+  concordiaUrl = "http://127.0.0.1:11111",
 ): string {
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",

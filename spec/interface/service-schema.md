@@ -81,7 +81,7 @@ CREATE TABLE session_reports (
 
 ## 4. API
 
-base: `http://127.0.0.1:17330`
+base: `http://127.0.0.1:11111`
 
 ### 4.1 セッションライフサイクル
 
@@ -382,7 +382,7 @@ CREATE TABLE process_logs (
 
 1. **SessionStart additionalContext (一時的注入)**
    - `POST /v1/sessions` の response に `processes: { started, skipped, failed, warnings }` と
-     `process_stream_url: ws://127.0.0.1:17330/ws` を含める.
+     `process_stream_url: ws://127.0.0.1:11111/ws` を含める.
    - `concordia-hook.mjs` が start 時に `[concordia/processes] auto-started: ...` を stdout に出す.
 2. **UserPromptSubmit (差分注入)**
    - 各 prompt のたびに自分の repo に紐づくプロセスの「前回 cursor 以降の error 行」を

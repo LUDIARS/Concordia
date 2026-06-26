@@ -12,7 +12,7 @@
 
 import type { SubsidiaryRepo, SubsidiaryRow } from "../db/subsidiary-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
-import type { DelegationRepo } from "../db/delegation-repo.js";
+import type { DelegationProvider, DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import type { SubsidiaryBudgetStatus } from "./budget.js";
 import { runGuard, type GuardVerdict, type RunClaudeFn } from "./guard.js";
@@ -90,19 +90,21 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     };
   }
 
-  // 2) ガード判定。
+  // 2) ガード判定。 子会社が所有する delegation 複製 (cwd/project を内包) を根拠にする。
   const allowed = deps.subsidiaryRepo.listDelegations(sub.id);
-  const allowedRefs = allowed.map((d) => {
-    const tpl = deps.delegationRepo.findTemplateByCallName(d.call_name);
-    return { call_name: d.call_name, title: tpl?.title, description: tpl?.description };
-  });
+  const allowedRefs = allowed.map((d) => ({
+    call_name: d.call_name,
+    title: d.title,
+    description: d.description,
+    default_cwd: d.default_cwd,
+    project: d.project,
+  }));
   const harnessRules = deps.harnessRepo.list().map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
 
   const { verdict, raw } = await runGuard(
     {
       subsidiaryName: sub.display_name || sub.name,
       guardScope: sub.guard_scope,
-      homeCwd: sub.home_cwd,
       allowedDelegations: allowedRefs,
       harnessRules,
       instruction,
@@ -146,16 +148,39 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     };
   }
 
-  // 4) allow 経路: 専用 delegation を起動。
+  // 4) allow 経路: 子会社が所有する delegation 複製を起動 (cwd/project は複製側が保持)。
   const callName = effectiveCall!;
-  const result = await deps.delegationService.invoke({
-    call_name: callName,
-    args: {},
-    cwd: sub.home_cwd ?? undefined,
-    extra_prompt: instruction,
-    triggered_by: `subsidiary:${sub.name}:${platform}:${userId}`,
-    subsidiary_id: sub.id,
-  });
+  const owned = deps.subsidiaryRepo.findDelegation(sub.id, callName);
+  if (!owned) {
+    // ガードは allowedNames から選んだはずなので通常起きないが、 競合削除等で消えていたら安全側 deny。
+    deps.subsidiaryRepo.recordRequest({
+      subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
+      instruction, decision: "deny", reason: `所有 delegation が見つかりません: ${callName}`,
+      violations: ["out_of_scope"], matched_call_name: callName, guard_model: sub.guard_model, guard_raw: raw,
+    });
+    return { outcome: "denied", reason: "owned delegation not found", verdict, callName,
+      replyText: `⛔ 受け付けられません: 指定の delegation (${callName}) が見つかりません。` };
+  }
+  const result = await deps.delegationService.invokeDefinition(
+    {
+      template_id: null,
+      call_name: owned.call_name,
+      title: owned.title,
+      target_provider: owned.target_provider as DelegationProvider,
+      model: owned.model,
+      prompt_template: owned.prompt_template,
+      input_schema: owned.input_schema,
+      default_cwd: owned.default_cwd,
+      project: owned.project,
+      emoji: owned.emoji,
+    },
+    {
+      args: {},
+      extra_prompt: instruction,
+      triggered_by: `subsidiary:${sub.name}:${platform}:${userId}`,
+      subsidiary_id: sub.id,
+    },
+  );
 
   if (!result.ok) {
     deps.subsidiaryRepo.recordRequest({

@@ -33,12 +33,12 @@ CLAUDE_CODE_GIT_BASH_PATH=C:\Program Files\Git\bin\bash.exe
 
 > これは Concordia 全体で繰り返し踏んでいる既知事項 (memory: feedback_concordia_bash_path / feedback_claude_cli_windows_bash)。 未設定だと spawn 系が exit 1 になる。 Concordia を `claude` / `codex` 等から spawn する場合 (Lictor ラップ含む) は特に明示推奨。
 
-## port 事情 (17330 loopback)
+## port 事情 (11111 loopback)
 
-Concordia は `127.0.0.1:17330` で listen する (`CONCORDIA_PORT`)。 LUDIARS の port 運用上の注意:
+Concordia は `127.0.0.1:11111` で listen する (`CONCORDIA_PORT`)。 LUDIARS の port 運用上の注意:
 
-- **17330 は Concordia 専有 (loopback)**。 旧 Excubitor が使っていた **17331 / 17332 は機能統合に伴い空き** になっている (Excubitor は Concordia に吸収済 — memory: project_concordia_absorbs_excubitor)。 古い設定でそれらを掴むものは無い。
-- Windows の **TCP dynamic port range が広すぎると** loopback でも RST が返ることがある (memory: feedback_windows_tcp_dynamic_port_range)。 17330 が不可解に listen 失敗するときは `netsh int ipv4 show dynamicport tcp` を確認し、 ephemeral 範囲を既定 (49152 起点) に戻す。
+- **11111 は Concordia 専有 (loopback)**。 旧 Excubitor が使っていた **10101 / 17332 は機能統合に伴い空き** になっている (Excubitor は Concordia に吸収済 — memory: project_concordia_absorbs_excubitor)。 古い設定でそれらを掴むものは無い。
+- Windows の **TCP dynamic port range が広すぎると** loopback でも RST が返ることがある (memory: feedback_windows_tcp_dynamic_port_range)。 11111 が不可解に listen 失敗するときは `netsh int ipv4 show dynamicport tcp` を確認し、 ephemeral 範囲を既定 (49152 起点) に戻す。
 - port 衝突時は古い node プロセスを kill する (`Stop-Process`) か `CONCORDIA_PORT` を変える。
 
 ## dev / production 起動 (Windows)
@@ -58,7 +58,7 @@ restart endpoint (`POST /v1/admin/restart`, `app.ts:308`) は `npm run dev:backe
 |------|------|
 | spawn 系が exit 1 / `bash` 見つからない | `CLAUDE_CODE_GIT_BASH_PATH` を実体パスで明示。 |
 | auto-fix が claude を起動できない | `CLAUDE_CLI_PATH` を確認 (PATH に `claude` が無いならフルパス指定)。 |
-| 17330 が listen できない | 古い node を kill、 または dynamic port range を確認 (上記)。 |
+| 11111 が listen できない | 古い node を kill、 または dynamic port range を確認 (上記)。 |
 | `bash.exe.stackdump` が cwd に出る | git-bash 子プロセスのクラッシュ痕跡。 bash パスが不正 / 壊れている可能性。 正しい bash を指す。 |
 
 ## 関連

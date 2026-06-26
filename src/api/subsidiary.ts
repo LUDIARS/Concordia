@@ -8,10 +8,12 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
-import type { SubsidiaryRepo, SubsidiaryRow } from "../db/subsidiary-repo.js";
+import type { SubsidiaryDelegationRow, SubsidiaryRepo, SubsidiaryRow } from "../db/subsidiary-repo.js";
+import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { SecretBox } from "../shared/secret-box.js";
+import { ownedToPortable, parsePortable, templateToPortable } from "../delegation/portable.js";
 
 const NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -28,14 +30,19 @@ const CreateSchema = z.object({
   app_token: z.string().max(200).nullable().optional(),
   guard_model: z.string().max(64).optional(),
   guard_scope: z.string().max(8000).optional(),
-  home_cwd: z.string().max(1000).nullable().optional(),
   daily_token_budget: z.number().int().min(0).max(1_000_000_000).optional(),
 });
 
 const PatchSchema = CreateSchema.partial().omit({ name: true });
 
-const DelegationsSchema = z.object({
-  delegations: z.array(z.object({ call_name: z.string().max(64), is_default: z.boolean().optional() })),
+const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
+
+/** 所有 delegation の clone 元 (グローバルテンプレ) を call_name で指定する。 */
+const CloneDelegationSchema = z.object({
+  call_name: z.string().regex(CALL_NAME_RE),
+  /** clone 先の call_name を変えたい場合 (省略時は元と同じ)。 */
+  as_call_name: z.string().regex(CALL_NAME_RE).optional(),
+  is_default: z.boolean().optional(),
 });
 
 const LockSchema = z.object({
@@ -47,10 +54,35 @@ const LockSchema = z.object({
 
 export interface SubsidiaryApiDeps {
   repo: SubsidiaryRepo;
+  /** グローバル delegation テンプレ (所有 delegation の clone 元)。 */
+  delegationRepo: DelegationRepo;
   manager: SubsidiaryBotManager;
   secretBox: SecretBox;
   /** 子会社の日次トークン予算トラッカー (当日消費を serialize に載せる)。 省略可。 */
   budget?: SubsidiaryBudgetTracker;
+}
+
+/** 所有 delegation 行を API 表現へ (input_schema を配列にパース)。 */
+function serializeOwnedDelegation(row: SubsidiaryDelegationRow) {
+  return {
+    call_name: row.call_name,
+    is_default: row.is_default === 1,
+    title: row.title,
+    description: row.description,
+    target_provider: row.target_provider,
+    model: row.model,
+    prompt_template: row.prompt_template,
+    input_schema: safeJsonParse(row.input_schema, [] as unknown[]),
+    default_cwd: row.default_cwd,
+    project: row.project,
+    emoji: row.emoji,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function safeJsonParse<T>(s: string, fallback: T): T {
+  try { return JSON.parse(s) as T; } catch { return fallback; }
 }
 
 export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
@@ -81,7 +113,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
   app.get("/", (c) => {
     const rows = deps.repo.list().map((r) => ({
       ...serialize(r),
-      delegations: deps.repo.listDelegations(r.id),
+      delegations: deps.repo.listDelegations(r.id).map(serializeOwnedDelegation),
       lock_count: deps.repo.listLocks(r.id).length,
     }));
     return c.json({ subsidiaries: rows });
@@ -92,7 +124,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     if (!row) return c.json({ error: "not_found" }, 404);
     return c.json({
       subsidiary: serialize(row),
-      delegations: deps.repo.listDelegations(row.id),
+      delegations: deps.repo.listDelegations(row.id).map(serializeOwnedDelegation),
       locks: deps.repo.listLocks(row.id),
       requests: deps.repo.recentRequests(row.id, 50),
     });
@@ -135,14 +167,85 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     return c.json({ ok: true });
   });
 
-  app.put("/:id/delegations", async (c) => {
+  // ── 所有 delegation (子会社が複製所有する定義) ──────────────
+  // 一覧は GET /:id に含む。 ここでは 1 件単位の upsert / 削除 / 既定設定 / clone / export。
+
+  /** 可搬 JSON (貼付) で 1 件 upsert する。 call_name はパスで固定。 */
+  app.put("/:id/delegations/:callName", async (c) => {
+    const id = c.req.param("id");
+    const callName = c.req.param("callName");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    if (!CALL_NAME_RE.test(callName)) return c.json({ error: "invalid_call_name" }, 400);
+    const body = await c.req.json().catch(() => null);
+    const parsed = parsePortable(body);
+    if (!parsed.ok) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const p = parsed.data;
+    // is_default は所有 delegation 固有の属性 (可搬 JSON には含めない)。 既定設定は
+    // 専用エンドポイント (/default) で行う。 upsert では据え置き (新規は 0)。
+    const row = deps.repo.upsertDelegation(id, {
+      call_name: callName,
+      title: p.title,
+      description: p.description,
+      target_provider: p.target_provider,
+      model: p.model ?? null,
+      prompt_template: p.prompt_template,
+      input_schema: p.input_schema !== undefined ? JSON.stringify(p.input_schema) : undefined,
+      default_cwd: p.default_cwd ?? null,
+      project: p.project ?? null,
+      emoji: p.emoji,
+    });
+    return c.json({ delegation: serializeOwnedDelegation(row) });
+  });
+
+  app.delete("/:id/delegations/:callName", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    const ok = deps.repo.removeDelegation(id, c.req.param("callName"));
+    return c.json({ ok });
+  });
+
+  /** 既定 delegation を 1 件立てる (他は 0 に落とす)。 */
+  app.post("/:id/delegations/:callName/default", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    const ok = deps.repo.setDefaultDelegation(id, c.req.param("callName"));
+    if (!ok) return c.json({ error: "delegation_not_found" }, 404);
+    return c.json({ ok: true, delegations: deps.repo.listDelegations(id).map(serializeOwnedDelegation) });
+  });
+
+  /** 所有 delegation を可搬 JSON で書き出す (コピー用)。 */
+  app.get("/:id/delegations/:callName/export", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
+    const row = deps.repo.findDelegation(id, c.req.param("callName"));
+    if (!row) return c.json({ error: "delegation_not_found" }, 404);
+    return c.json({ delegation: ownedToPortable(row) });
+  });
+
+  /** グローバルテンプレを所有 delegation に複製 (clone) する。 */
+  app.post("/:id/delegations/clone", async (c) => {
     const id = c.req.param("id");
     if (!deps.repo.find(id)) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
-    const parsed = DelegationsSchema.safeParse(body);
+    const parsed = CloneDelegationSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    deps.repo.setDelegations(id, parsed.data.delegations);
-    return c.json({ delegations: deps.repo.listDelegations(id) });
+    const tpl = deps.delegationRepo.findTemplateByCallName(parsed.data.call_name);
+    if (!tpl) return c.json({ error: "template_not_found" }, 404);
+    const portable = templateToPortable(tpl);
+    const row = deps.repo.upsertDelegation(id, {
+      call_name: parsed.data.as_call_name ?? portable.call_name,
+      is_default: parsed.data.is_default,
+      title: portable.title,
+      description: portable.description,
+      target_provider: portable.target_provider,
+      model: portable.model,
+      prompt_template: portable.prompt_template,
+      input_schema: JSON.stringify(portable.input_schema),
+      default_cwd: portable.default_cwd,
+      project: portable.project,
+      emoji: portable.emoji,
+    });
+    return c.json({ delegation: serializeOwnedDelegation(row) }, 201);
   });
 
   // ── Bot lifecycle ─────────────────────────────────────────

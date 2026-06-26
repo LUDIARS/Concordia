@@ -29,6 +29,7 @@ delegation_templates
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
   default_cwd (NULLABLE TEXT)
+  project (NULLABLE TEXT)  -- 対象プロジェクト名 (cwd と別。 famulus auto-model のヒント等)
   is_active (INTEGER 0/1)
   created_at, updated_at (epoch ms)
 
@@ -81,6 +82,8 @@ delegation_runs
 | GET    | /v1/delegation/templates | none | 一覧 (is_active=1) |
 | GET    | /v1/delegation/templates/all | none | 一覧 (含む inactive) |
 | GET    | /v1/delegation/templates/:call_name | none | 1 件取得 |
+| GET    | /v1/delegation/templates/:identifier/export | none | 1 件を可搬 JSON で書き出す (コピー) |
+| POST   | /v1/delegation/templates/import | none | 可搬 JSON を貼付して新規作成 (call_name 自動採番) |
 | POST   | /v1/delegation/templates | none | 新規作成 |
 | PATCH  | /v1/delegation/templates/:id | none | 更新 |
 | DELETE | /v1/delegation/templates/:id | none | soft delete (is_active=0) |
@@ -88,7 +91,7 @@ delegation_runs
 | GET    | /v1/delegation/runs | none | 直近 100 件 |
 
 mutating endpoint も bearer token を要求しない。 Concordia は loopback
-(既定 127.0.0.1:17330) 限定で動き、 `/v1/admin/*` と同じ信頼境界に乗る。
+(既定 127.0.0.1:11111) 限定で動き、 `/v1/admin/*` と同じ信頼境界に乗る。
 以前は `.spawn.token` を要求していたが、 同じ loopback サービスで Monitor の
 spawn は token-free・Delegation CRUD だけ token 必須という非対称が混乱の元
 (token 未貼付で Save できない) だったため撤廃。
@@ -100,7 +103,7 @@ spawn は token-free・Delegation CRUD だけ token 必須という非対称が�
 - `delegation_list_templates` — 一覧 (call_name / title / description / input_schema)
 - `delegation_invoke` — `{ call_name, args, cwd?, triggered_by? }` で resolve + spawn、 結果を返す
 
-Concordia loopback (デフォルト http://127.0.0.1:17330) に対して HTTP fetch。
+Concordia loopback (デフォルト http://127.0.0.1:11111) に対して HTTP fetch。
 Bearer token は `process.env.CONCORDIA_SPAWN_TOKEN` から取得。
 
 ## 7. CLI skill

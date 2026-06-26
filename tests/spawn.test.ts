@@ -9,7 +9,12 @@ import {
   spawnTokenPath,
   tokenMatches,
 } from "../src/control/token.js";
-import { buildWtArgs, resolveSpawnCwd, validateCwd } from "../src/control/spawner.js";
+import {
+  buildConcordiaAddressEnv,
+  buildWtArgs,
+  resolveSpawnCwd,
+  validateCwd,
+} from "../src/control/spawner.js";
 import { spawnRouter } from "../src/api/spawn.js";
 
 describe("spawn token", () => {
@@ -138,6 +143,35 @@ describe("spawn arg builder", () => {
     rmSync(tmp, { recursive: true, force: true });
     const missing = join(tmpdir(), "concordia-nope-" + Date.now());
     expect(validateCwd(missing)).toMatch(/does not exist/);
+  });
+
+  describe("buildConcordiaAddressEnv", () => {
+    it("stamps CONCORDIA_HOST / CONCORDIA_PORT from the listen address", () => {
+      expect(buildConcordiaAddressEnv("127.0.0.1", 11111)).toEqual({
+        CONCORDIA_HOST: "127.0.0.1",
+        CONCORDIA_PORT: "11111",
+      });
+    });
+
+    it("maps wildcard bind hosts to loopback (Lictor is same-host)", () => {
+      expect(buildConcordiaAddressEnv("0.0.0.0", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
+      expect(buildConcordiaAddressEnv("::", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
+    });
+
+    it("trims host and keeps explicit non-loopback hosts", () => {
+      expect(buildConcordiaAddressEnv("  10.0.0.5  ", 18000)).toEqual({
+        CONCORDIA_HOST: "10.0.0.5",
+        CONCORDIA_PORT: "18000",
+      });
+    });
+
+    it("omits empty host / non-positive port", () => {
+      expect(buildConcordiaAddressEnv("", 11111)).toEqual({ CONCORDIA_PORT: "11111" });
+      expect(buildConcordiaAddressEnv("127.0.0.1", 0)).toEqual({ CONCORDIA_HOST: "127.0.0.1" });
+      expect(buildConcordiaAddressEnv("127.0.0.1", Number.NaN)).toEqual({
+        CONCORDIA_HOST: "127.0.0.1",
+      });
+    });
   });
 
   describe("resolveSpawnCwd", () => {

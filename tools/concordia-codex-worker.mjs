@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 
 const flags = parseArgs(process.argv.slice(2));
-const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http://127.0.0.1:17330").replace(/\/+$/, "");
+const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
 const codexBin = flags.codexBin ?? process.env.CODEX_BIN ?? "codex";
 const cwd = flags.cwd ?? process.cwd();
 const timeoutMs = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");

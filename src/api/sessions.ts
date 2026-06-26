@@ -1035,7 +1035,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         trigger: "manual",
         instructions:
           "Web UI から手動依頼です. 現在の作業現況を JSON で集計し " +
-          "POST http://127.0.0.1:17330/v1/stat/<self_id> に投稿してください. " +
+          "POST http://127.0.0.1:11111/v1/stat/<self_id> に投稿してください. " +
           "本文 body は `{ \"payload\": { ... } }`. " +
           "payload に含めるキー (どれも任意): active_repos / open_prs / unmerged_branches / todos_summary / recent_work / note.",
       },
@@ -1058,7 +1058,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         reason: "manual",
         instructions:
           "Web UI から手動依頼です. 現在の作業を 30 文字以内 (日本語可、 OSC タイトル向け) " +
-          `で 1 行に要約して POST http://127.0.0.1:17330/v1/sessions/${id}/title-suggestion ` +
+          `で 1 行に要約して POST http://127.0.0.1:11111/v1/sessions/${id}/title-suggestion ` +
           "に { \"text\": \"<タイトル文字列>\" } で投稿してください. " +
           "Concordia 側が Lictor の /v1/rename に転送します.",
       },

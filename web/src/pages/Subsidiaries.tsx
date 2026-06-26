@@ -141,12 +141,9 @@ const EMPTY_FORM: SubsidiaryInput = {
   platform: "discord",
   enabled: false,
   guild_id: "",
-  application_id: "",
   channel_id: "",
-  bot_token: "",
   guard_model: "sonnet",
   guard_scope: "",
-  home_cwd: "",
   daily_token_budget: 0,
 };
 
@@ -178,12 +175,9 @@ function SubsidiariesSection() {
       platform: r.subsidiary.platform,
       enabled: r.subsidiary.enabled,
       guild_id: r.subsidiary.guild_id ?? "",
-      application_id: r.subsidiary.application_id ?? "",
       channel_id: r.subsidiary.channel_id ?? "",
-      bot_token: "",
       guard_model: r.subsidiary.guard_model,
       guard_scope: r.subsidiary.guard_scope,
-      home_cwd: r.subsidiary.home_cwd ?? "",
       daily_token_budget: r.subsidiary.daily_token_budget ?? 0,
     });
     setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests });
@@ -193,10 +187,8 @@ function SubsidiariesSection() {
     setErr(null);
     try {
       if (editId) {
-        // bot_token は空なら据え置き (送らない)。
         const body: Partial<SubsidiaryInput> = { ...form };
         delete body.name;
-        if (!form.bot_token) delete body.bot_token;
         await api.subsidiaryUpdate(editId, body);
       } else {
         await api.subsidiaryCreate(form);
@@ -217,26 +209,52 @@ function SubsidiariesSection() {
     load();
   };
 
-  const toggleDelegation = async (callName: string) => {
-    if (!editId || !detail) return;
-    const has = detail.delegations.some((d) => d.call_name === callName);
-    const next = has
-      ? detail.delegations.filter((d) => d.call_name !== callName)
-      : [...detail.delegations, { subsidiary_id: editId, call_name: callName, is_default: detail.delegations.length === 0 ? 1 : 0 }];
-    await api.subsidiarySetDelegations(
-      editId,
-      next.map((d) => ({ call_name: d.call_name, is_default: d.is_default === 1 })),
-    );
-    openDetail(editId);
+  // ── 所有 delegation 操作 (clone / 既定 / JSON コピー / 貼付 / 削除) ──
+  const [cloneFrom, setCloneFrom] = useState("");
+  const [pasteJson, setPasteJson] = useState("");
+
+  const cloneTemplate = async () => {
+    if (!editId || !cloneFrom) return;
+    try {
+      await api.subsidiaryDelegationClone(editId, { call_name: cloneFrom, is_default: (detail?.delegations.length ?? 0) === 0 });
+      setCloneFrom("");
+      openDetail(editId);
+    } catch (e) { setErr(String(e)); }
   };
 
   const setDefault = async (callName: string) => {
-    if (!editId || !detail) return;
-    await api.subsidiarySetDelegations(
-      editId,
-      detail.delegations.map((d) => ({ call_name: d.call_name, is_default: d.call_name === callName })),
-    );
+    if (!editId) return;
+    await api.subsidiaryDelegationSetDefault(editId, callName);
     openDetail(editId);
+  };
+
+  const removeOwned = async (callName: string) => {
+    if (!editId) return;
+    if (!confirm(`delegation「${callName}」を削除しますか?`)) return;
+    await api.subsidiaryDelegationDelete(editId, callName);
+    openDetail(editId);
+  };
+
+  const copyOwnedJson = async (callName: string) => {
+    if (!editId) return;
+    try {
+      const r = await api.subsidiaryDelegationExport(editId, callName);
+      await navigator.clipboard.writeText(JSON.stringify(r.delegation, null, 2));
+      setErr(null);
+    } catch (e) { setErr(`JSON コピー失敗: ${String(e)}`); }
+  };
+
+  const pasteOwned = async () => {
+    if (!editId) return;
+    let obj: { call_name?: string } & Record<string, unknown>;
+    try { obj = JSON.parse(pasteJson); } catch { setErr("貼付 JSON が不正です"); return; }
+    const callName = (obj.call_name ?? "").toString().trim();
+    if (!callName) { setErr("貼付 JSON に call_name がありません"); return; }
+    try {
+      await api.subsidiaryDelegationUpsert(editId, callName, obj as never);
+      setPasteJson("");
+      openDetail(editId);
+    } catch (e) { setErr(`貼付で作成/更新に失敗: ${String(e)}`); }
   };
 
   return (
@@ -244,7 +262,12 @@ function SubsidiariesSection() {
       <h2 className="text-lg font-semibold mb-1">子会社 (出張先 Delegation)</h2>
       <p className="text-subtle text-xs mb-3">
         別の Discord/Slack サーバに出張する子会社。 専用 Bot が受付チャンネルの修正依頼を受け、
-        Sonnet ガードを通してから専用 delegation を起動する。 セッション/コスト/状態カードは子会社単位で表示。
+        Sonnet ガードを通してから所有 delegation を起動する。 セッション/コスト/状態カードは子会社単位で表示。
+        <br />
+        <span className="text-[11px]">
+          ※ Bot の application_id / token は<b>本社と同じものを共有</b> (同一 Bot を出張先 guild に招待)。
+          子会社固有なのは guild_id だけ。 受付チャンネルは Bot 起動時に<b>自動作成</b>される (手動指定は override)。
+        </span>
       </p>
       {err && <div className="text-red-400 text-xs mb-2">{err}</div>}
 
@@ -258,7 +281,7 @@ function SubsidiariesSection() {
                 {!s.enabled && <span className="ml-2 text-[10px] text-subtle">無効</span>}
               </div>
               <div className="text-xs text-subtle truncate">
-                guild={s.guild_id ?? "-"} · 受付={s.channel_id ?? "-"} · token={s.bot_token_set ? "✓" : "✗"} · lock={s.lock_count ?? 0}
+                guild={s.guild_id ?? "-"} · 受付={s.channel_id ?? "auto"} · deleg={(s.delegations?.length ?? 0)} · lock={s.lock_count ?? 0}
                 {" · "}
                 <span className={s.budget_blocked ? "text-red-400" : ""}>
                   {s.budget_blocked ? "💸 " : ""}予算 {fmtTokens(s.usage_today_tokens ?? 0)}/{s.daily_token_budget ? fmtTokens(s.daily_token_budget) : "∞"}
@@ -289,12 +312,9 @@ function SubsidiariesSection() {
               <option value="slack">slack</option>
             </select>
           </div>
-          <LabeledInput label="guild_id / team" value={form.guild_id ?? ""} onChange={(v) => setForm({ ...form, guild_id: v })} />
-          <LabeledInput label="application_id (任意)" value={form.application_id ?? ""} onChange={(v) => setForm({ ...form, application_id: v })} />
-          <LabeledInput label="受付チャンネル id" value={form.channel_id ?? ""} onChange={(v) => setForm({ ...form, channel_id: v })} />
-          <LabeledInput label={`bot token ${editId ? "(空=据え置き)" : ""}`} value={form.bot_token ?? ""} onChange={(v) => setForm({ ...form, bot_token: v })} type="password" />
+          <LabeledInput label="guild_id / team (出張先)" value={form.guild_id ?? ""} onChange={(v) => setForm({ ...form, guild_id: v })} />
+          <LabeledInput label="受付チャンネル id (空=自動作成)" value={form.channel_id ?? ""} onChange={(v) => setForm({ ...form, channel_id: v })} />
           <LabeledInput label="guard model" value={form.guard_model ?? ""} onChange={(v) => setForm({ ...form, guard_model: v })} />
-          <LabeledInput label="home_cwd (delegation 起点)" value={form.home_cwd ?? ""} onChange={(v) => setForm({ ...form, home_cwd: v })} />
           <label className="flex flex-col">
             <span className="text-[10px] text-subtle">日次トークン予算 (0 = 無制限)</span>
             <input
@@ -318,20 +338,40 @@ function SubsidiariesSection() {
 
         {editId && detail && (
           <div className="border-t border-border pt-2 mt-1">
-            <div className="text-xs text-subtle mb-1">許可 delegation (チェック=許可 / ★=既定)</div>
-            <div className="flex flex-wrap gap-2">
-              {templates.map((t) => {
-                const sel = detail.delegations.find((d) => d.call_name === t.call_name);
-                return (
-                  <span key={t.call_name} className={`text-xs border border-border rounded px-2 py-1 flex items-center gap-1 ${sel ? "bg-surface" : "opacity-60"}`}>
-                    <input type="checkbox" checked={!!sel} onChange={() => toggleDelegation(t.call_name)} />
-                    {t.call_name}
-                    {sel && (
-                      <button className={sel.is_default === 1 ? "text-yellow-400" : "text-subtle"} title="既定にする" onClick={() => setDefault(t.call_name)}>★</button>
-                    )}
-                  </span>
-                );
-              })}
+            <div className="text-xs text-subtle mb-1">所有 delegation (子会社が複製所有。 cwd / project はここで管理 / ★=既定)</div>
+            <div className="flex flex-col gap-1 mb-2">
+              {detail.delegations.map((d) => (
+                <div key={d.call_name} className="text-xs border border-border rounded px-2 py-1 flex items-center gap-2">
+                  <button className={d.is_default ? "text-yellow-400" : "text-subtle"} title="既定にする" onClick={() => setDefault(d.call_name)}>★</button>
+                  <span className="font-medium">{d.call_name}</span>
+                  <span className="text-subtle truncate">{d.title}</span>
+                  <span className="text-subtle whitespace-nowrap">{d.project ? `· ${d.project}` : ""}{d.default_cwd ? ` · ${d.default_cwd}` : ""}</span>
+                  <span className="flex-1" />
+                  <button className="underline shrink-0" title="可搬 JSON をクリップボードにコピー" onClick={() => copyOwnedJson(d.call_name)}>📋JSON</button>
+                  <button className="underline text-red-400 shrink-0" onClick={() => removeOwned(d.call_name)}>削除</button>
+                </div>
+              ))}
+              {detail.delegations.length === 0 && <div className="text-subtle text-xs">所有 delegation は未登録です。</div>}
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <select className="foundation-form text-xs" value={cloneFrom} onChange={(e) => setCloneFrom(e.target.value)}>
+                <option value="">グローバルテンプレから複製…</option>
+                {templates.map((t) => (
+                  <option key={t.call_name} value={t.call_name}>{t.call_name}{t.title ? ` — ${t.title}` : ""}</option>
+                ))}
+              </select>
+              <button className="text-xs px-2 py-1 rounded-md border border-border" disabled={!cloneFrom} onClick={cloneTemplate}>複製</button>
+            </div>
+            <div className="flex flex-col gap-1 mb-1">
+              <span className="text-[10px] text-subtle">JSON 貼付で追加/更新 (📋JSON でコピーした可搬 delegation を貼り付け)</span>
+              <textarea
+                className="foundation-form text-xs font-mono"
+                rows={3}
+                placeholder='{"call_name":"...","target_provider":"claude","default_cwd":"...","project":"..."}'
+                value={pasteJson}
+                onChange={(e) => setPasteJson(e.target.value)}
+              />
+              <button className="self-start text-xs px-2 py-1 rounded-md border border-border" disabled={!pasteJson.trim()} onClick={pasteOwned}>貼付で追加/更新</button>
             </div>
 
             {detail.locks.length > 0 && (

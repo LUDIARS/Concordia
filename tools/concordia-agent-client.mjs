@@ -9,7 +9,7 @@
 //   node tools/concordia-agent-client.mjs --session <id> [--url <ws-url>] [--log <path>]
 //
 // Defaults:
-//   --url  ws://127.0.0.1:17330/ws
+//   --url  ws://127.0.0.1:11111/ws
 //   --log  stdout
 //
 // 出力は JSON Lines (1 行 1 イベント). AI agent はこのログを tail することで
@@ -26,7 +26,7 @@ function arg(name, fallback) {
 }
 
 const session = arg('--session') ?? arg('-s');
-const url = arg('--url', 'ws://127.0.0.1:17330/ws');
+const url = arg('--url', 'ws://127.0.0.1:11111/ws');
 const logPath = arg('--log');
 
 if (!session) {

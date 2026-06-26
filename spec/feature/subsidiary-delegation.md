@@ -17,11 +17,18 @@ Discord サーバ / Slack に「出張所」を持ちたい。 例: あるゲー
 delegation で安全に処理する。
 
 - **子会社** = { 名前, 出張先 (Discord guild / Slack workspace+channel) の接続情報,
-  専用 Bot, 利用可能な Delegation 集合, ガードのスコープ }。
-- **子会社ごとに Bot を立てる** (本社 bot とは別 token / 別 guild)。
-- 子会社 Bot も本社と同じく **状態カード / コスト / セッションの 3 カテゴリを
-  自動作成** する (運用体験は本社と同一)。
-- 受け取った指示は **必ず Sonnet ガード** を通してから delegation を起こす。
+  所有する Delegation 複製集合, ガードのスコープ }。
+- **子会社 Bot は本社と同じ application_id / bot token を使う** (同一 Bot を複数 guild に
+  招待する形)。 子会社固有なのは **guild_id だけ**。 token / application_id は本社 Discord
+  設定 (`resolveDiscordConfig`) から解決する (子会社行の `bot_token_enc` / `application_id`
+  は接続に使わない dormant 列)。
+  > ⚠️ 実装は子会社ごとに別 Gateway 接続を張る (現状維持)。 同一 token で複数接続になるため
+  > IDENTIFY throttle / イベント重複のリスクがある。 単一接続の共有 (guild ルーティング) は
+  > 将来の整理対象。
+- 子会社 Bot も本社と同じく **状態カード / コスト / セッションの 3 カテゴリ + 受付チャンネルを
+  自動作成** する (運用体験は本社と同一)。 受付チャンネルは手動設定不要 (§3.1)。
+- 受け取った指示は **必ず Sonnet ガード** を通してから、 子会社が所有する delegation 複製を
+  起こす (cwd / project はその複製が保持)。
 
 ## 2. ガード (Sonnet) — 共通ハーネスルール
 
@@ -87,9 +94,14 @@ delegation で安全に処理する。
 `startDiscordBot` を **子会社モード** で再利用する (深い作り込み = 3 カテゴリ自動作成・
 状態カード・コスト・セッションチャンネルをそのまま得る)。 差分:
 
-- 接続設定 (`resolveConfig`) は子会社の token / guild / application_id を返す。
+- 接続設定 (`resolveConfig`) は **本社の token / application_id** + **子会社の guild_id** を
+  返す (token/app は本社共有、 guild だけ子会社固有)。
+- **受付チャンネルは自動作成**: 子会社モードの `ClientReady` で `ensureIntakeChannel`
+  (meta カテゴリ配下に「受付」テキストチャンネルを冪等確保) を呼び、 その id を
+  `sub:<id>` config scope に永続化する。 手動で `channel_id` を設定した場合のみそれを
+  override として優先する。
 - ingress に **ガードゲート** を挿む: 出張先からの人間メッセージ (= 作業指示) は
-  inject / spawn の前に §2 ガードを通す。 allow なら専用 delegation を起動、 deny なら
+  inject / spawn の前に §2 ガードを通す。 allow なら所有 delegation を起動、 deny なら
   ロック判定 + 返信のみ (inject/spawn しない)。
 - 子会社が起こすセッションは `subsidiary_id` でタグ付けし、 状態カード/コスト/セッション
   カテゴリは **その子会社が起こしたセッションのみ** を写す (出張所の独立性)。【要確認 §8】
@@ -135,21 +147,30 @@ subsidiaries
   description
   platform ("discord" | "slack")
   enabled (0/1)
-  guild_id            -- Discord: 出張先 guild / Slack: workspace (team) id
-  application_id      -- Discord slash 登録用 (任意)
-  channel_id          -- 依頼受付チャンネル (任意。 Slack は必須運用)
-  bot_token_enc       -- 子会社 Bot token (secret-box 暗号化)
+  guild_id            -- Discord: 出張先 guild / Slack: workspace (team) id (子会社固有)
+  application_id      -- [DEPRECATED] 接続は本社 application_id を使う (dormant 列)
+  channel_id          -- 受付チャンネルの手動 override (任意。 通常は自動作成)
+  bot_token_enc       -- [DEPRECATED] 接続は本社 bot token を使う (dormant 列)
   app_token_enc       -- Slack socket mode app token (secret-box 暗号化、 Slack のみ)
   guard_model         -- 既定 "sonnet"
   guard_scope (TEXT)  -- この子会社が許可する作業の自然文スコープ
-  home_cwd (TEXT)     -- delegation 既定 cwd (横断は許可、 ここは起点)
+  home_cwd (TEXT)     -- [DEPRECATED] cwd は所有 delegation 側 (default_cwd)。 dormant 列
   daily_token_budget  -- 日次トークン予算 (0 = 無制限)。 当日消費が超過で受付停止 (§7-cost)
   created_at, updated_at
 
-subsidiary_delegations              -- 子会社が呼べる delegation の許可リスト
-  subsidiary_id (fk)
-  call_name (delegation_templates.call_name)
+subsidiary_delegations              -- 子会社が「所有する」 delegation の複製定義
+  subsidiary_id (fk)                -- (グローバル delegation_templates から clone した時点の
+  call_name                         --  コピー。 以降は独立編集可。 cwd/project もここで持つ)
   is_default (0/1)                  -- 出張先の素の依頼で使う既定 delegation
+  title, description
+  target_provider                   -- claude | codex | gemini | gemma4-12
+  model (NULLABLE)
+  prompt_template (TEXT)
+  input_schema (TEXT, JSON)
+  default_cwd (TEXT)                -- cwd は所有 delegation 側で管理 (home_cwd を置換)
+  project (TEXT)                    -- 対象プロジェクト名 (cwd と別。 famulus auto-model のヒント等)
+  emoji (TEXT)
+  created_at, updated_at
   PRIMARY KEY (subsidiary_id, call_name)
 
 subsidiary_locks                    -- ロックされた依頼者
@@ -200,7 +221,11 @@ metadata JSON を踏襲。 schema 変更不要)。
 | POST | `/v1/subsidiaries` | 作成 |
 | PATCH | `/v1/subsidiaries/:id` | 更新 (token は set 時のみ暗号化保存、 空でクリア) |
 | DELETE | `/v1/subsidiaries/:id` | 削除 (Bot 停止 + 行削除) |
-| PUT | `/v1/subsidiaries/:id/delegations` | 許可 delegation 集合を置換 |
+| PUT | `/v1/subsidiaries/:id/delegations/:callName` | 所有 delegation を 1 件 upsert (可搬 JSON 貼付) |
+| DELETE | `/v1/subsidiaries/:id/delegations/:callName` | 所有 delegation を 1 件削除 |
+| POST | `/v1/subsidiaries/:id/delegations/:callName/default` | 既定 delegation を立てる |
+| GET | `/v1/subsidiaries/:id/delegations/:callName/export` | 所有 delegation を可搬 JSON で書き出す (コピー) |
+| POST | `/v1/subsidiaries/:id/delegations/clone` | グローバルテンプレを所有 delegation に複製 |
 | POST | `/v1/subsidiaries/:id/start\|stop\|restart` | Bot ライフサイクル |
 | GET | `/v1/subsidiaries/:id/requests` | 監査ログ直近 N |
 | GET/POST/DELETE | `/v1/subsidiaries/:id/locks` | ロック一覧 / 手動ロック / 解除 |

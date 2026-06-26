@@ -14,8 +14,6 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
-import type { SecretBox } from "../shared/secret-box.js";
-import { isEncrypted } from "../shared/secret-box.js";
 import { processSubsidiaryRequest } from "./gate.js";
 import type { RunClaudeFn } from "./guard.js";
 import type { SubsidiaryBudgetTracker } from "./budget.js";
@@ -31,7 +29,12 @@ export interface SubsidiaryManagerDeps {
   harnessRepo: HarnessRulesRepo;
   delegationRepo: DelegationRepo;
   delegationService: DelegationService;
-  secretBox: SecretBox;
+  /**
+   * 本社 Discord 接続設定を live 解決する。 子会社 Bot は **本社と同じ application_id /
+   * bot token** を使い (同一 Bot を複数 guild に招待する形)、 guild_id だけ子会社固有にする。
+   * spec/feature/subsidiary-delegation.md §1/§3.1。
+   */
+  headOfficeDiscord: () => DiscordEnv;
   runClaude: RunClaudeFn;
   /** 子会社の日次トークン予算トラッカー (ゲートが受付前に超過判定する)。 */
   budgetTracker: SubsidiaryBudgetTracker;
@@ -52,18 +55,6 @@ export class SubsidiaryBotManager {
 
   constructor(private readonly deps: SubsidiaryManagerDeps) {}
 
-  /** secret-box 暗号化 token を復号 (平文混入はそのまま返す = 移行容易性)。 */
-  private decrypt(stored: string | null): string | null {
-    if (!stored) return null;
-    if (!isEncrypted(stored)) return stored;
-    try {
-      return this.deps.secretBox.decrypt(stored);
-    } catch (e) {
-      log.warn(`subsidiary token decrypt failed: ${(e as Error).message}`);
-      return null;
-    }
-  }
-
   /** 単一の子会社 Bot を起動する。 既に動いていれば already_running。 */
   async start(id: string): Promise<SubsidiaryStartResult> {
     if (this.handles.has(id)) return { ok: true, status: "already_running" };
@@ -78,17 +69,26 @@ export class SubsidiaryBotManager {
       return { ok: false, status: "unsupported_platform", error: `platform '${sub.platform}' はまだ Bot 未配線` };
     }
 
-    const token = this.decrypt(sub.bot_token_enc);
-    if (!token || !sub.guild_id) {
-      return { ok: false, status: "missing_config", error: "bot token または guild_id が未設定" };
+    // 子会社 Bot は本社と同じ application_id / bot token を使う (同一 Bot を別 guild に招待)。
+    // よって個別 token は不要 — 本社 token 未設定 / guild_id 未設定だけが missing_config。
+    const head = this.deps.headOfficeDiscord();
+    if (!head.token) {
+      return { ok: false, status: "missing_config", error: "本社 Discord bot token が未設定 (子会社は本社と同じ token を使う)" };
+    }
+    if (!sub.guild_id) {
+      return { ok: false, status: "missing_config", error: "guild_id が未設定 (出張先 Discord サーバの guild id)" };
     }
 
-    const resolveConfig = (): DiscordEnv => ({
-      enabled: true,
-      token: this.decrypt(this.deps.subsidiaryRepo.find(id)?.bot_token_enc ?? null),
-      guildId: this.deps.subsidiaryRepo.find(id)?.guild_id ?? null,
-      applicationId: this.deps.subsidiaryRepo.find(id)?.application_id ?? null,
-    });
+    const resolveConfig = (): DiscordEnv => {
+      const h = this.deps.headOfficeDiscord();
+      const row = this.deps.subsidiaryRepo.find(id);
+      return {
+        enabled: true,
+        token: h.token,                  // 本社と共有
+        guildId: row?.guild_id ?? null,  // 出張先 guild は子会社固有
+        applicationId: h.applicationId,  // 本社と共有
+      };
+    };
 
     const process = async (userId: string, userLabel: string, instruction: string): Promise<{ replyText: string }> => {
       const row = this.deps.subsidiaryRepo.find(id);

@@ -9,7 +9,7 @@
  *         "command": "node",
  *         "args": ["E:/Document/Ars/Concordia/dist/mcp/delegation-server.js"],
  *         "env": {
- *           "CONCORDIA_BASE_URL": "http://127.0.0.1:17330",
+ *           "CONCORDIA_BASE_URL": "http://127.0.0.1:11111",
  *           "CONCORDIA_SPAWN_TOKEN_PATH": "E:/Document/Ars/Concordia/.spawn.token"
  *         }
  *       }
@@ -29,7 +29,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-const DEFAULT_BASE = "http://127.0.0.1:17330";
+const DEFAULT_BASE = "http://127.0.0.1:11111";
 
 function loadToken(): string | null {
   const path = process.env.CONCORDIA_SPAWN_TOKEN_PATH;

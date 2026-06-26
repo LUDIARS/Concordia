@@ -50,7 +50,7 @@ API:
 
 ```bash
 # 例: token と channel を一括設定して即接続
-curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
+curl -s -X PUT http://127.0.0.1:11111/v1/admin/slack/config \
   -H "content-type: application/json" \
   -d '{"enabled":true,"channel_id":"C0XXXXXXX","bot_token":"xoxb-...","app_token":"xapp-..."}'
 ```

@@ -52,7 +52,7 @@ API:
 
 ```bash
 # 例: token と guild を一括設定して即接続
-curl -s -X PUT http://127.0.0.1:17330/v1/admin/discord/config \
+curl -s -X PUT http://127.0.0.1:11111/v1/admin/discord/config \
   -H "content-type: application/json" \
   -d '{"enabled":true,"guild_id":"123456789012345678","application_id":"123456789012345678","token":"..."}'
 ```

@@ -95,6 +95,19 @@ export async function ensureDiscordLayout(
   };
 }
 
+/**
+ * 子会社 Bot の受付 (intake) チャンネルを guild 内に自動作成する (無ければ作る・冪等)。
+ * 受付チャンネルは手動設定不要 — 子会社 Bot 起動時にこの helper で勝手に用意する。
+ * meta カテゴリ配下に「受付」テキストチャンネルを 1 本だけ確保し、 その id を返す。
+ */
+export async function ensureIntakeChannel(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  parentId: string,
+): Promise<string> {
+  return ensureTextChannel(guild, repo, "intake_channel_id", "受付", parentId);
+}
+
 async function ensureCategory(guild: Guild, repo: DiscordConfigRepo, key: string, name: string): Promise<string> {
   const cached = repo.get(key);
   if (cached) {

@@ -68,6 +68,48 @@ function currentLictorLauncher(): string[] {
 }
 
 /**
+ * spawn する Lictor へ「接続先 Concordia の住所」を渡すための resolver。 server 起動時に
+ * 自分の listen アドレス (cfg.host / cfg.port) を束ねて注入する (setConcordiaAddress)。
+ * 未注入なら何も足さない (= Lictor 側の既定 / 既存 env にフォールバック)。
+ */
+let concordiaAddressResolver: (() => { host: string; port: number }) | null = null;
+
+/** spawn 子 (Lictor) へ注入する Concordia 住所の解決関数を差し替える (server 起動時)。 */
+export function setConcordiaAddress(fn: () => { host: string; port: number }): void {
+  concordiaAddressResolver = fn;
+}
+
+/**
+ * Concordia 自身の listen アドレスを spawn 子 (Lictor) 向けの env に変換する (pure)。
+ *
+ * Lictor は CONCORDIA_HOST / CONCORDIA_PORT で接続先を決めるが、 これを ambient env の
+ * 継承に頼ると Concordia の実 listen port (config 既定 11111) と Lictor 既定 (17330) が
+ * 食い違って疎通しない。 spawn する Concordia が自分の住所を明示注入することで、 起動された
+ * Lictor は必ず spawning Concordia を指す。
+ *
+ * bind host が wildcard (0.0.0.0 / ::) のときは client から到達できないため loopback へ
+ * 寄せる (Lictor は同一ホスト上の sidecar)。
+ */
+export function buildConcordiaAddressEnv(host: string, port: number): Record<string, string> {
+  const out: Record<string, string> = {};
+  const h = (host ?? "").trim();
+  if (h) out.CONCORDIA_HOST = h === "0.0.0.0" || h === "::" ? "127.0.0.1" : h;
+  if (Number.isFinite(port) && port > 0) out.CONCORDIA_PORT = String(port);
+  return out;
+}
+
+/** resolver が注入済みなら Concordia 住所 env を返す。 未注入 / 失敗時は空 (素通し)。 */
+function currentConcordiaAddressEnv(): Record<string, string> {
+  if (!concordiaAddressResolver) return {};
+  try {
+    const { host, port } = concordiaAddressResolver();
+    return buildConcordiaAddressEnv(host, port);
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Pure: build the wt.exe argv for a spawn request. Useful for unit tests
  * that don't want to actually launch a window.
  *
@@ -166,7 +208,13 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   // Concordia 自身が設定する allowlist key (LICTOR_* / CONCORDIA_*) のみ通す。
   // NODE_OPTIONS / LD_PRELOAD / PATH 等の loader 系を注入されると lictor 経由 Node の
   // 任意コード実行に至るため、 prefix allowlist でそれらを構造的に排除する。
-  const env: NodeJS.ProcessEnv = { ...process.env, ...sanitizeSpawnEnv(req.env) };
+  // CONCORDIA_HOST / CONCORDIA_PORT は最後に Concordia 自身の listen アドレスで上書きし、
+  // ambient env の継承に頼らず spawning Concordia を必ず指すようにする。
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...sanitizeSpawnEnv(req.env),
+    ...currentConcordiaAddressEnv(),
+  };
   const child = spawn("wt.exe", args, {
     detached: true,
     stdio: "ignore",

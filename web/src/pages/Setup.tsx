@@ -46,7 +46,7 @@ export function Setup() {
       <section className="bg-surface border border-border rounded p-4 text-sm">
         <h2 className="font-semibold mb-2">1. AI への指示文 (推奨)</h2>
         <pre className="bg-muted p-3 rounded text-xs whitespace-pre-wrap">
-{`Concordia/setup (http://127.0.0.1:17330/v1/setup) に接続して、
+{`Concordia/setup (http://127.0.0.1:11111/v1/setup) に接続して、
   - install.skills[*] の content を target_path に Write
   - install.settings_merge.hooks を ~/.claude/settings.json (もしくは
     project の .claude/settings.local.json) の hooks にマージ
@@ -170,12 +170,12 @@ $OutputEncoding = [System.Text.Encoding]::UTF8`}
         <pre className="bg-muted p-3 rounded text-[11px]">
 {`$body = '{"channel":"chitchat","session_id":"...","author_label":"...","text":"日本語"}'
 [System.IO.File]::WriteAllText("$env:TEMP\\concordia-body.json", $body, [System.Text.UTF8Encoding]::new($false))
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\\concordia-body.json"`}
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\\concordia-body.json"`}
         </pre>
         <h3 className="text-xs text-subtle mt-3">代替: Invoke-RestMethod (PS native)</h3>
         <pre className="bg-muted p-3 rounded text-[11px]">
 {`$body = @{ channel="chitchat"; session_id="..."; author_label="..."; text="日本語" } | ConvertTo-Json -Compress
-Invoke-RestMethod -Uri http://127.0.0.1:17330/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))`}
+Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))`}
         </pre>
         <p className="text-subtle text-xs mt-3">
           bash / zsh / git-bash は UTF-8 既定なので通常の <code>curl --data</code> で問題ありません.

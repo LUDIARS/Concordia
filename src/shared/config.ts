@@ -5,7 +5,7 @@
  * Production は systemd 等で env を渡す前提.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
@@ -179,7 +179,26 @@ export function isLoopbackHost(host: string | undefined): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
+/**
+ * concordia.config.json の `server` ブロックを読む。 host / port の既定値はここ
+ * (env は override 用)。 ファイルが無ければ空 (= ハードコード既定にフォール) を返すが、
+ * ファイルが在って壊れている (JSON parse 失敗) ときは握りつぶさず即 throw する
+ * (無言フォールバック禁止 / RULE §7.1)。
+ */
+export function loadServerFileConfig(probe: ConfigProbe = {}): { host?: string; port?: number } {
+  const exists = probe.exists ?? existsSync;
+  const path = join(process.cwd(), "concordia.config.json");
+  if (!exists(path)) return {};
+  const raw = JSON.parse(readFileSync(path, "utf8")) as {
+    server?: { host?: unknown; port?: unknown };
+  };
+  const host = typeof raw?.server?.host === "string" ? raw.server.host : undefined;
+  const port = typeof raw?.server?.port === "number" ? raw.server.port : undefined;
+  return { host, port };
+}
+
 export function loadConfig(env = process.env, probe: ConfigProbe = {}): ConcordiaConfig {
+  const file = loadServerFileConfig(probe);
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd(probe);
   const githubOrg =
@@ -191,8 +210,9 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     ...parseExtraWorkspaceRoots(env.CONCORDIA_WORKSPACE_ROOTS),
   ]);
   return {
-    host: env.CONCORDIA_HOST ?? "127.0.0.1",
-    port: Number(env.CONCORDIA_PORT ?? "17330"),
+    // 既定値は concordia.config.json (env は override 用)。 env を使わない方針。
+    host: env.CONCORDIA_HOST ?? file.host ?? "127.0.0.1",
+    port: Number(env.CONCORDIA_PORT ?? file.port ?? 11111),
     adminToken: (env.CONCORDIA_ADMIN_TOKEN ?? "").trim(),
     dbPath: env.CONCORDIA_DB_PATH || defaultDbPath(),
     // Stop hook が turn 終わりごとに発火する制約があるので、 idle ≠ session 終了.

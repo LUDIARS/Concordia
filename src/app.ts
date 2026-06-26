@@ -216,7 +216,7 @@ export function buildApp(deps: AppDeps): Hono {
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(
       "/v1/subsidiaries",
-      subsidiaryRouter({ repo: deps.subsidiary, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget }),
+      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget }),
     );
   }
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
@@ -756,11 +756,11 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   // ─── Web UI 配信 (built SPA) ────────────────────────────────────────────
-  // backend port (17330) の root を 404 にしない。 ビルド済み web UI (web/dist) を
-  // 配信し、 Excubitor / Tunnel から :17330 を開いても UI が出るようにする
+  // backend port (11111) の root を 404 にしない。 ビルド済み web UI (web/dist) を
+  // 配信し、 Excubitor / Tunnel から :11111 を開いても UI が出るようにする
   // (tier: personal の Memoria local と同様、 server 単一 port で UI を提供する)。
   // API (/v1, /health) は上で解決済みなので干渉しない。 dev で UI を hot-reload したい
-  // 場合は従来どおり Vite (17331) を直接開く。
+  // 場合は従来どおり Vite (10101) を直接開く。
   const webDistRoot = "./web/dist";
   const webIndexPath = resolve(process.cwd(), "web/dist/index.html");
   if (existsSync(webIndexPath)) {

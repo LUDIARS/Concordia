@@ -7,7 +7,7 @@ HTTP API を叩く。 Claude Code 用の `concordia-hook.mjs` をそのまま使
 
 ## 前提
 
-- Concordia backend が `http://127.0.0.1:17330` で稼働中
+- Concordia backend が `http://127.0.0.1:11111` で稼働中
 - `node` が PATH に存在
 - Codex CLI v0.x (`hooks.json` / `[hooks]` テーブル対応版) を使っている
   - 公式: <https://developers.openai.com/codex/hooks>
@@ -126,7 +126,7 @@ Codex の動作は一切阻害されない.
 
 | key | default | 用途 |
 |-----|--------|------|
-| `CONCORDIA_URL` | `http://127.0.0.1:17330` | backend URL override |
+| `CONCORDIA_URL` | `http://127.0.0.1:11111` | backend URL override |
 | `CONCORDIA_PROVIDER` | `claude-code` | provider 名 (Codex 側で hooks.json から起動するなら `-c` で `CONCORDIA_PROVIDER=codex-cli` を渡すと session-start で正しい provider が記録される) |
 | `CONCORDIA_DISABLE` | (unset) | `1` で hook を no-op 化 |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | HTTP timeout (Codex を待たせない) |

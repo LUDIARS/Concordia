@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 27;
+export const SCHEMA_VERSION = 28;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -526,6 +526,7 @@ const STATEMENTS = [
     prompt_template   TEXT    NOT NULL,
     input_schema      TEXT    NOT NULL DEFAULT '[]',
     default_cwd       TEXT,
+    project           TEXT,                            -- 対象プロジェクト名 (cwd と別に delegation が持つ)
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
@@ -696,17 +697,31 @@ const STATEMENTS = [
     app_token_enc   TEXT,                              -- 暗号化 Slack socket app token
     guard_model     TEXT    NOT NULL DEFAULT 'sonnet',
     guard_scope     TEXT    NOT NULL DEFAULT '',       -- 許可作業の自然文スコープ
-    home_cwd        TEXT,                              -- delegation 既定 cwd (横断は許可)
+    home_cwd        TEXT,                              -- [DEPRECATED] cwd は所有 delegation 側で管理 (subsidiary_delegations.default_cwd)。 列は後方互換で残すが未使用。
     daily_token_budget INTEGER NOT NULL DEFAULT 0,     -- 日次トークン予算 (0 = 無制限)。 超過で受付停止。
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL
   )`,
 
-  // 子会社が呼べる delegation テンプレの許可リスト (call_name 参照)。
+  // 子会社が「所有する」 delegation の複製定義 (グローバル delegation_templates から clone)。
+  // 旧版は (subsidiary_id, call_name) の薄い許可リストだったが、 cwd / project / prompt を
+  // 子会社ごとに独立して持てるよう full copy へ拡張した (spec/feature/subsidiary-delegation.md §4)。
+  // グローバルテンプレは別管理として残り、 ここはその時点の clone (以降は独立編集可)。
   `CREATE TABLE IF NOT EXISTS subsidiary_delegations (
-    subsidiary_id  TEXT    NOT NULL,
-    call_name      TEXT    NOT NULL,
-    is_default     INTEGER NOT NULL DEFAULT 0,
+    subsidiary_id   TEXT    NOT NULL,
+    call_name       TEXT    NOT NULL,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    title           TEXT    NOT NULL DEFAULT '',
+    description     TEXT    NOT NULL DEFAULT '',
+    target_provider TEXT    NOT NULL DEFAULT 'claude',
+    model           TEXT,
+    prompt_template TEXT    NOT NULL DEFAULT '',
+    input_schema    TEXT    NOT NULL DEFAULT '[]',
+    default_cwd     TEXT,                              -- cwd は子会社所有 delegation 側で管理
+    project         TEXT,                              -- 対象プロジェクト名
+    emoji           TEXT    NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (subsidiary_id, call_name)
   )`,
 
@@ -876,6 +891,26 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "daily_token_budget",
     ddl: `ALTER TABLE subsidiaries ADD COLUMN daily_token_budget INTEGER NOT NULL DEFAULT 0`,
   },
+  // delegation の対象プロジェクト名 (cwd と別に持つ)。 グローバルテンプレ + 子会社所有の両方。
+  {
+    table: "delegation_templates",
+    column: "project",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN project TEXT`,
+  },
+  // subsidiary_delegations を薄い許可リスト → 子会社所有の複製定義へ拡張する差分 column 群。
+  // 既存 (旧スキーマの) 行はデフォルト空で埋まり、 applyOwnedDelegationBackfill が
+  // 同名グローバルテンプレから 1 回だけ複製内容を埋める。
+  { table: "subsidiary_delegations", column: "title", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN title TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "description", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN description TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "target_provider", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN target_provider TEXT NOT NULL DEFAULT 'claude'` },
+  { table: "subsidiary_delegations", column: "model", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN model TEXT` },
+  { table: "subsidiary_delegations", column: "prompt_template", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN prompt_template TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "input_schema", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN input_schema TEXT NOT NULL DEFAULT '[]'` },
+  { table: "subsidiary_delegations", column: "default_cwd", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN default_cwd TEXT` },
+  { table: "subsidiary_delegations", column: "project", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN project TEXT` },
+  { table: "subsidiary_delegations", column: "emoji", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN emoji TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "created_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0` },
+  { table: "subsidiary_delegations", column: "updated_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {
@@ -887,6 +922,52 @@ function applyColumnAdditions(db: Database.Database): void {
   }
 }
 
+/**
+ * 旧スキーマ (薄い許可リスト) の subsidiary_delegations 行を、 同名グローバルテンプレから
+ * 複製内容で埋める 1 回限りのバックフィル。 prompt_template が空 (= 拡張 column を ALTER で
+ * 後追いしただけの旧行) かつ同名テンプレが存在する行だけを対象にする (冪等)。 同名テンプレが
+ * 無い旧行は空のまま残る (UI から手動で定義し直す)。
+ */
+function applyOwnedDelegationBackfill(db: Database.Database): void {
+  // delegation_templates が無い (まだ作られていない) 環境では何もしない。
+  const hasTemplates = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='delegation_templates'`)
+    .get();
+  if (!hasTemplates) return;
+  const stale = db
+    .prepare(`SELECT subsidiary_id, call_name FROM subsidiary_delegations WHERE prompt_template = ''`)
+    .all() as Array<{ subsidiary_id: string; call_name: string }>;
+  if (stale.length === 0) return;
+  const findTpl = db.prepare(`SELECT * FROM delegation_templates WHERE call_name = ?`);
+  const upd = db.prepare(`
+    UPDATE subsidiary_delegations SET
+      title = ?, description = ?, target_provider = ?, model = ?,
+      prompt_template = ?, input_schema = ?, default_cwd = ?, project = ?, emoji = ?,
+      created_at = CASE WHEN created_at = 0 THEN ? ELSE created_at END,
+      updated_at = ?
+    WHERE subsidiary_id = ? AND call_name = ?
+  `);
+  const now = 0; // 決定的な epoch (Date.now はスキーマ層で使わない)。表示用 timestamp は API/repo 側で付く。
+  const tx = db.transaction(() => {
+    for (const row of stale) {
+      const tpl = findTpl.get(row.call_name) as
+        | {
+            title: string; description: string; target_provider: string; model: string | null;
+            prompt_template: string; input_schema: string; default_cwd: string | null;
+            project: string | null; emoji: string;
+          }
+        | undefined;
+      if (!tpl) continue;
+      upd.run(
+        tpl.title, tpl.description, tpl.target_provider, tpl.model,
+        tpl.prompt_template, tpl.input_schema, tpl.default_cwd, tpl.project ?? null, tpl.emoji,
+        now, now, row.subsidiary_id, row.call_name,
+      );
+    }
+  });
+  tx();
+}
+
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -895,6 +976,7 @@ export function applyMigrations(db: Database.Database): void {
   });
   tx(STATEMENTS);
   applyColumnAdditions(db);
+  applyOwnedDelegationBackfill(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));

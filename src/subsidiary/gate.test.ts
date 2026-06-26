@@ -28,8 +28,8 @@ function makeDeps(runClaudeOut: string | { ok: boolean; stdout: string; stderr: 
     subsidiaryRepo: subRepo,
     harnessRepo,
     delegationRepo,
-    // 最小スタブ: gate は invoke しか使わない。
-    delegationService: { invoke } as unknown as SubsidiaryGateDeps["delegationService"],
+    // 最小スタブ: gate は所有 delegation を invokeDefinition で起動する。
+    delegationService: { invokeDefinition: invoke } as unknown as SubsidiaryGateDeps["delegationService"],
     runClaude,
   };
   return { deps, invoke };
@@ -46,9 +46,13 @@ beforeEach(() => {
   });
   sub = subRepo.create({
     name: "testco", display_name: "TestCo", platform: "discord", enabled: true,
-    guild_id: "g1", channel_id: "intake", guard_scope: "誤字修正のみ", home_cwd: "E:/Document/Ars/Pictor",
+    guild_id: "g1", channel_id: "intake", guard_scope: "誤字修正のみ",
   });
-  subRepo.setDelegations(sub.id, [{ call_name: "fix-content", is_default: true }]);
+  // 子会社が所有する delegation 複製 (cwd / project を内包)。
+  subRepo.upsertDelegation(sub.id, {
+    call_name: "fix-content", is_default: true, title: "誤字修正",
+    target_provider: "claude", prompt_template: "", default_cwd: "E:/Document/Ars/Pictor", project: "Pictor",
+  });
 });
 
 describe("processSubsidiaryRequest", () => {
@@ -62,8 +66,11 @@ describe("processSubsidiaryRequest", () => {
     expect(r.outcome).toBe("allowed");
     expect(r.callName).toBe("fix-content");
     expect(invoke).toHaveBeenCalledOnce();
-    // subsidiary_id がタグ付けされて invoke される。
-    expect(invoke.mock.calls[0][0]).toMatchObject({ call_name: "fix-content", subsidiary_id: sub.id });
+    // 第1引数は所有 delegation 定義 (cwd/project を内包)、 第2引数に subsidiary_id タグ。
+    expect(invoke.mock.calls[0][0]).toMatchObject({
+      call_name: "fix-content", template_id: null, default_cwd: "E:/Document/Ars/Pictor", project: "Pictor",
+    });
+    expect(invoke.mock.calls[0][1]).toMatchObject({ subsidiary_id: sub.id });
     const reqs = subRepo.recentRequests(sub.id);
     expect(reqs[0].decision).toBe("allow");
     expect(reqs[0].run_id).toBe("run-1");

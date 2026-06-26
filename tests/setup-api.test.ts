@@ -13,7 +13,7 @@ describe("/v1/setup", () => {
     const j = (await r.json()) as any;
 
     expect(j.service).toBe("concordia");
-    expect(j.url).toBe("http://127.0.0.1:17330");
+    expect(j.url).toBe("http://127.0.0.1:11111");
     expect(j.provider).toBe("claude-code");
     expect(j.skill_version).toMatch(/\d+\.\d+\.\d+/);
 

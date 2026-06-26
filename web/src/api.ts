@@ -29,6 +29,7 @@ export interface DelegationTemplateLite {
   target_provider: SpawnProvider;
   model: string | null;
   default_cwd: string | null;
+  project: string | null;
   input_schema: DelegationInputSchemaItem[];
   is_active: boolean;
   emoji: string;
@@ -494,6 +495,11 @@ export const api = {
     ),
   delegationTemplates: () =>
     get<{ templates: DelegationTemplateLite[] }>("/v1/delegation/templates"),
+  // 1 つの delegation テンプレを可搬 JSON で書き出す/貼付して作成する (コピー/貼付)。
+  delegationTemplateExport: (idOrCallName: string) =>
+    get<{ delegation: PortableDelegation }>(`/v1/delegation/templates/${encodeURIComponent(idOrCallName)}/export`),
+  delegationTemplateImport: (body: PortableDelegation) =>
+    post<{ template: DelegationTemplateLite }>("/v1/delegation/templates/import", body),
   // ── model catalog (delegation テンプレ / spawn が選べるモデル候補) ──
   modelCatalogList: (includeInactive = false) =>
     get<{ models: ModelCatalogItem[] }>(`/v1/model-catalog${includeInactive ? "?all=1" : ""}`),
@@ -737,8 +743,25 @@ export const api = {
   subsidiaryUpdate: (id: string, body: Partial<SubsidiaryInput>) =>
     patch<{ subsidiary: SubsidiarySummary }>(`/v1/subsidiaries/${encodeURIComponent(id)}`, body),
   subsidiaryDelete: (id: string) => del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}`),
-  subsidiarySetDelegations: (id: string, delegations: Array<{ call_name: string; is_default?: boolean }>) =>
-    put<{ delegations: SubsidiaryDelegation[] }>(`/v1/subsidiaries/${encodeURIComponent(id)}/delegations`, { delegations }),
+  // 所有 delegation: 1 件 upsert (可搬 JSON 貼付) / 削除 / 既定設定 / export(コピー) / clone。
+  subsidiaryDelegationUpsert: (id: string, callName: string, body: PortableDelegation) =>
+    put<{ delegation: SubsidiaryDelegation }>(
+      `/v1/subsidiaries/${encodeURIComponent(id)}/delegations/${encodeURIComponent(callName)}`,
+      body,
+    ),
+  subsidiaryDelegationDelete: (id: string, callName: string) =>
+    del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}/delegations/${encodeURIComponent(callName)}`),
+  subsidiaryDelegationSetDefault: (id: string, callName: string) =>
+    post<{ ok: boolean; delegations: SubsidiaryDelegation[] }>(
+      `/v1/subsidiaries/${encodeURIComponent(id)}/delegations/${encodeURIComponent(callName)}/default`,
+      {},
+    ),
+  subsidiaryDelegationExport: (id: string, callName: string) =>
+    get<{ delegation: PortableDelegation }>(
+      `/v1/subsidiaries/${encodeURIComponent(id)}/delegations/${encodeURIComponent(callName)}/export`,
+    ),
+  subsidiaryDelegationClone: (id: string, body: { call_name: string; as_call_name?: string; is_default?: boolean }) =>
+    post<{ delegation: SubsidiaryDelegation }>(`/v1/subsidiaries/${encodeURIComponent(id)}/delegations/clone`, body),
   subsidiaryStart: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/start`, {}),
   subsidiaryStop: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/stop`, {}),
   subsidiaryRestart: (id: string) => post<{ ok: boolean; status: string; error?: string }>(`/v1/subsidiaries/${encodeURIComponent(id)}/restart`, {}),
@@ -758,10 +781,37 @@ export interface HarnessRule {
   updated_at: number;
 }
 
+/** 子会社が所有する delegation 複製 (cwd / project を内包)。 */
 export interface SubsidiaryDelegation {
-  subsidiary_id: string;
   call_name: string;
-  is_default: number;
+  is_default: boolean;
+  title: string;
+  description: string;
+  target_provider: SpawnProvider;
+  model: string | null;
+  prompt_template: string;
+  input_schema: DelegationInputSchemaItem[];
+  default_cwd: string | null;
+  project: string | null;
+  emoji: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** 1 つの delegation を持ち運ぶ可搬 JSON (コピー/貼付)。 */
+export interface PortableDelegation {
+  kind?: string;
+  version?: number;
+  call_name?: string;
+  title?: string;
+  description?: string;
+  target_provider: SpawnProvider;
+  model?: string | null;
+  prompt_template?: string;
+  input_schema?: DelegationInputSchemaItem[];
+  default_cwd?: string | null;
+  project?: string | null;
+  emoji?: string;
 }
 export interface SubsidiaryLock {
   id: number;
@@ -821,7 +871,6 @@ export interface SubsidiaryInput {
   app_token?: string | null;
   guard_model?: string;
   guard_scope?: string;
-  home_cwd?: string | null;
   daily_token_budget?: number;
 }
 

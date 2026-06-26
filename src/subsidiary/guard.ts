@@ -22,12 +22,15 @@ export interface GuardDelegationRef {
   call_name: string;
   title?: string;
   description?: string;
+  /** 所有 delegation の起点ディレクトリ (cwd は delegation 側で管理)。 */
+  default_cwd?: string | null;
+  /** 所有 delegation の対象プロジェクト名。 */
+  project?: string | null;
 }
 
 export interface GuardContext {
   subsidiaryName: string;
   guardScope: string;
-  homeCwd: string | null;
   allowedDelegations: GuardDelegationRef[];
   harnessRules: GuardHarnessRule[];
   instruction: string;
@@ -61,7 +64,13 @@ export function buildGuardPrompt(ctx: GuardContext): string {
     ctx.allowedDelegations.length === 0
       ? "(なし — 利用可能な delegation が無い場合はすべて deny)"
       : ctx.allowedDelegations
-          .map((d) => `- ${d.call_name}${d.title ? `: ${d.title}` : ""}${d.description ? ` — ${d.description}` : ""}`)
+          .map((d) => {
+            const meta = [
+              d.project?.trim() ? `project=${d.project.trim()}` : "",
+              d.default_cwd?.trim() ? `cwd=${d.default_cwd.trim()}` : "",
+            ].filter(Boolean).join(", ");
+            return `- ${d.call_name}${d.title ? `: ${d.title}` : ""}${d.description ? ` — ${d.description}` : ""}${meta ? ` (${meta})` : ""}`;
+          })
           .join("\n");
 
   return [
@@ -83,9 +92,8 @@ export function buildGuardPrompt(ctx: GuardContext): string {
     "",
     `## 子会社「${ctx.subsidiaryName}」のスコープ`,
     ctx.guardScope.trim() || "(スコープ未設定 — 利用可能 delegation の範囲のみ許可)",
-    ctx.homeCwd ? `起点ディレクトリ (横断は許可): ${ctx.homeCwd}` : "",
     "",
-    "## 利用可能な delegation (allow 時はこの中から 1 つ選ぶ)",
+    "## 利用可能な delegation (allow 時はこの中から 1 つ選ぶ。 cwd/project は各 delegation が保持)",
     delegations,
     "",
     `## 依頼者: ${ctx.userLabel || "(不明)"}`,

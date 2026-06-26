@@ -45,7 +45,7 @@ Concordia は repo・session・event を 1 つの SQLite に集約し、 各エ�
 ┌──────────────────┐                     │  - worktree manager    │
 │ Codex CLI        ├────────────────────►│                        │
 │ (v0.2)           │                     │  Backend: SQLite (WAL) │
-└──────────────────┘                     │  Port: 17330 (loopback)│
+└──────────────────┘                     │  Port: 11111 (loopback)│
 ┌──────────────────┐                     │                        │
 │ Web monitor      ├────────────────────►│  Frontend: Vite+React+ │
 │ (Foundation UI)  │  GET /v1/monitor    │  Foundation UI         │
@@ -105,7 +105,7 @@ npm install
 ### 2. 起動
 
 ```bash
-npm run dev          # Hono backend + Vite frontend を同時起動 (port 17330 / 17331)
+npm run dev          # Hono backend + Vite frontend を同時起動 (port 11111 / 10101)
 npm run build        # production build
 ```
 
@@ -133,7 +133,7 @@ npm run build        # production build
 
 ### 4. Web monitor
 
-ブラウザで `http://127.0.0.1:17331/` を開く。 全 active session の一覧 + 詳細 timeline + report が見える。
+ブラウザで `http://127.0.0.1:10101/` を開く。 全 active session の一覧 + 詳細 timeline + report が見える。
 
 ---
 
@@ -156,13 +156,13 @@ Claude Code の `.claude/mcp_servers.json` に登録する例 (3 本まとめて
     "concordia-core": {
       "command": "node",
       "args": ["E:/Document/Ars/Concordia/dist/mcp/core-server.js"],
-      "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:17330" }
+      "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:11111" }
     },
     "concordia-delegation": {
       "command": "node",
       "args": ["E:/Document/Ars/Concordia/dist/mcp/delegation-server.js"],
       "env": {
-        "CONCORDIA_BASE_URL": "http://127.0.0.1:17330",
+        "CONCORDIA_BASE_URL": "http://127.0.0.1:11111",
         "CONCORDIA_SPAWN_TOKEN_PATH": "E:/Document/Ars/Concordia/.spawn.token"
       }
     },
@@ -174,7 +174,7 @@ Claude Code の `.claude/mcp_servers.json` に登録する例 (3 本まとめて
 }
 ```
 
-`concordia-core` は Concordia HTTP loopback (default `127.0.0.1:17330`) を直接叩く
+`concordia-core` は Concordia HTTP loopback (default `127.0.0.1:11111`) を直接叩く
 だけなので、 Concordia backend が起動している限り読み書き共に動作する。 認証は
 loopback bind に依存する (= 非 localhost からは呼べない)。
 

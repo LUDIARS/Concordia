@@ -523,10 +523,10 @@ export function planWorkflow(
         `- 含まれない (感想/質問/状態報告のみ) → 「委託タスクなし — スキップ」として即終了。\n` +
         `- 含まれる → ステップ 2 へ。\n\n` +
         `**ステップ 2: テンプレート選択 & 委託**\n` +
-        `1. GET http://127.0.0.1:17330/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
+        `1. GET http://127.0.0.1:11111/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
         `2. メッセージ内容に最適なテンプレートを選択する (task-process / impl-from-design / fix-bug / refactor 等)。\n` +
-        `3. GET http://127.0.0.1:17330/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
-        `4. POST http://127.0.0.1:17330/v1/delegation/invoke で委託:\n` +
+        `3. GET http://127.0.0.1:11111/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
+        `4. POST http://127.0.0.1:11111/v1/delegation/invoke で委託:\n` +
         `   { "call_name": "<選んだテンプレート>", "args": { ... }, "triggered_by": "reaction-workflow-delegate" }\n` +
         `   Authorization: Bearer <spawn token>\n` +
         `5. run ID と spawn_pid を取得して報告する。`;
@@ -962,7 +962,7 @@ export class ReactionWorkflowRunner {
       this.deps.log.warn("reaction-workflow: channel-rename skipped (empty message text)");
       return;
     }
-    const baseUrl = this.deps.concordiaUrl ?? "http://127.0.0.1:17330";
+    const baseUrl = this.deps.concordiaUrl ?? "http://127.0.0.1:11111";
     try {
       const res = await fetch(`${baseUrl}/v1/sessions/${input.sessionId}/title`, {
         method: "POST",

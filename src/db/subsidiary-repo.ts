@@ -31,10 +31,41 @@ export interface SubsidiaryRow {
   updated_at: number;
 }
 
+/**
+ * 子会社が「所有する」 delegation の複製定義 (1 行 = 1 つの所有 delegation)。
+ * グローバル delegation_templates から clone した時点のコピーで、 以降は独立編集可。
+ * cwd / project はここで管理する (subsidiary.home_cwd は廃止)。
+ */
 export interface SubsidiaryDelegationRow {
   subsidiary_id: string;
   call_name: string;
   is_default: number;
+  title: string;
+  description: string;
+  target_provider: string;
+  model: string | null;
+  prompt_template: string;
+  input_schema: string;          // JSON string
+  default_cwd: string | null;
+  project: string | null;
+  emoji: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** 所有 delegation の作成/更新 input (call_name はキーなので create 専用)。 */
+export interface UpsertOwnedDelegationInput {
+  call_name: string;
+  is_default?: boolean;
+  title?: string;
+  description?: string;
+  target_provider?: string;
+  model?: string | null;
+  prompt_template?: string;
+  input_schema?: string;         // JSON string
+  default_cwd?: string | null;
+  project?: string | null;
+  emoji?: string;
 }
 
 export interface SubsidiaryLockRow {
@@ -78,7 +109,6 @@ export interface CreateSubsidiaryInput {
   app_token_enc?: string | null;
   guard_model?: string;
   guard_scope?: string;
-  home_cwd?: string | null;
   daily_token_budget?: number;
 }
 
@@ -95,7 +125,6 @@ export interface UpdateSubsidiaryInput {
   app_token_enc?: string | null;
   guard_model?: string;
   guard_scope?: string;
-  home_cwd?: string | null;
   daily_token_budget?: number;
 }
 
@@ -111,8 +140,8 @@ export class SubsidiaryRepo {
       INSERT INTO subsidiaries(
         id, name, display_name, description, platform, enabled,
         guild_id, application_id, channel_id, bot_token_enc, app_token_enc,
-        guard_model, guard_scope, home_cwd, daily_token_budget, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        guard_model, guard_scope, daily_token_budget, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
@@ -127,7 +156,6 @@ export class SubsidiaryRepo {
       input.app_token_enc ?? null,
       input.guard_model?.trim() || "sonnet",
       input.guard_scope ?? "",
-      input.home_cwd ?? null,
       sanitizeBudget(input.daily_token_budget),
       now,
       now,
@@ -151,7 +179,6 @@ export class SubsidiaryRepo {
         app_token_enc  = ?,
         guard_model    = ?,
         guard_scope    = ?,
-        home_cwd       = ?,
         daily_token_budget = ?,
         updated_at     = ?
       WHERE id = ?
@@ -167,7 +194,6 @@ export class SubsidiaryRepo {
       patch.app_token_enc !== undefined ? patch.app_token_enc : cur.app_token_enc,
       patch.guard_model?.trim() || cur.guard_model,
       patch.guard_scope ?? cur.guard_scope,
-      patch.home_cwd !== undefined ? patch.home_cwd : cur.home_cwd,
       patch.daily_token_budget !== undefined ? sanitizeBudget(patch.daily_token_budget) : cur.daily_token_budget,
       Date.now(),
       id,
@@ -201,18 +227,7 @@ export class SubsidiaryRepo {
     return this.db.prepare(`SELECT * FROM subsidiaries WHERE enabled = 1 ORDER BY name ASC`).all() as SubsidiaryRow[];
   }
 
-  // ── delegations (許可リスト) ───────────────────────────────
-
-  setDelegations(subsidiaryId: string, items: Array<{ call_name: string; is_default?: boolean }>): void {
-    const tx = this.db.transaction(() => {
-      this.db.prepare(`DELETE FROM subsidiary_delegations WHERE subsidiary_id = ?`).run(subsidiaryId);
-      const stmt = this.db.prepare(
-        `INSERT OR REPLACE INTO subsidiary_delegations(subsidiary_id, call_name, is_default) VALUES (?, ?, ?)`,
-      );
-      for (const it of items) stmt.run(subsidiaryId, it.call_name, it.is_default ? 1 : 0);
-    });
-    tx();
-  }
+  // ── 所有 delegation (子会社が複製所有する定義) ──────────────
 
   listDelegations(subsidiaryId: string): SubsidiaryDelegationRow[] {
     return this.db
@@ -220,10 +235,78 @@ export class SubsidiaryRepo {
       .all(subsidiaryId) as SubsidiaryDelegationRow[];
   }
 
-  /** 既定 delegation (is_default=1) の call_name。 無ければ最初の 1 件 → null。 */
-  defaultCallName(subsidiaryId: string): string | null {
+  findDelegation(subsidiaryId: string, callName: string): SubsidiaryDelegationRow | null {
+    return (this.db
+      .prepare(`SELECT * FROM subsidiary_delegations WHERE subsidiary_id = ? AND call_name = ?`)
+      .get(subsidiaryId, callName) as SubsidiaryDelegationRow | undefined) ?? null;
+  }
+
+  /**
+   * 所有 delegation を 1 件作成/更新する (call_name がキー)。 既存があれば与えられた
+   * フィールドのみ更新 (undefined は据え置き)、 無ければ新規作成する。
+   */
+  upsertDelegation(subsidiaryId: string, input: UpsertOwnedDelegationInput): SubsidiaryDelegationRow {
+    const cur = this.findDelegation(subsidiaryId, input.call_name);
+    const now = Date.now();
+    if (cur) {
+      this.db.prepare(`
+        UPDATE subsidiary_delegations SET
+          is_default = ?, title = ?, description = ?, target_provider = ?, model = ?,
+          prompt_template = ?, input_schema = ?, default_cwd = ?, project = ?, emoji = ?,
+          updated_at = ?
+        WHERE subsidiary_id = ? AND call_name = ?
+      `).run(
+        input.is_default === undefined ? cur.is_default : (input.is_default ? 1 : 0),
+        input.title ?? cur.title,
+        input.description ?? cur.description,
+        input.target_provider ?? cur.target_provider,
+        input.model !== undefined ? input.model : cur.model,
+        input.prompt_template ?? cur.prompt_template,
+        input.input_schema ?? cur.input_schema,
+        input.default_cwd !== undefined ? input.default_cwd : cur.default_cwd,
+        input.project !== undefined ? input.project : cur.project,
+        input.emoji ?? cur.emoji,
+        now,
+        subsidiaryId, input.call_name,
+      );
+    } else {
+      this.db.prepare(`
+        INSERT INTO subsidiary_delegations(
+          subsidiary_id, call_name, is_default, title, description, target_provider, model,
+          prompt_template, input_schema, default_cwd, project, emoji, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        subsidiaryId, input.call_name, input.is_default ? 1 : 0,
+        input.title ?? "", input.description ?? "", input.target_provider ?? "claude",
+        input.model ?? null, input.prompt_template ?? "", input.input_schema ?? "[]",
+        input.default_cwd ?? null, input.project ?? null, input.emoji ?? "", now, now,
+      );
+    }
+    return this.findDelegation(subsidiaryId, input.call_name)!;
+  }
+
+  removeDelegation(subsidiaryId: string, callName: string): boolean {
+    return this.db
+      .prepare(`DELETE FROM subsidiary_delegations WHERE subsidiary_id = ? AND call_name = ?`)
+      .run(subsidiaryId, callName).changes > 0;
+  }
+
+  /** is_default を 1 件だけ立てる (他は 0 に落とす)。 call_name 不在なら false。 */
+  setDefaultDelegation(subsidiaryId: string, callName: string): boolean {
+    if (!this.findDelegation(subsidiaryId, callName)) return false;
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`UPDATE subsidiary_delegations SET is_default = 0 WHERE subsidiary_id = ?`).run(subsidiaryId);
+      this.db.prepare(`UPDATE subsidiary_delegations SET is_default = 1 WHERE subsidiary_id = ? AND call_name = ?`)
+        .run(subsidiaryId, callName);
+    });
+    tx();
+    return true;
+  }
+
+  /** 既定 delegation 行 (is_default=1)。 無ければ最初の 1 件 → null。 */
+  defaultDelegation(subsidiaryId: string): SubsidiaryDelegationRow | null {
     const rows = this.listDelegations(subsidiaryId);
-    return rows.find((r) => r.is_default === 1)?.call_name ?? rows[0]?.call_name ?? null;
+    return rows.find((r) => r.is_default === 1) ?? rows[0] ?? null;
   }
 
   // ── locks ──────────────────────────────────────────────────

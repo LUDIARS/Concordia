@@ -85,7 +85,7 @@ export function startRepoChangeWatcher(deps: RepoChangeWatcherDeps): RepoChangeW
         reason,
         instructions:
           "現在の作業を 30 文字以内 (日本語可、 OSC タイトル向け) で 1 行に要約して " +
-          `POST http://127.0.0.1:17330/v1/sessions/${sessionId}/title-suggestion ` +
+          `POST http://127.0.0.1:11111/v1/sessions/${sessionId}/title-suggestion ` +
           "に { \"text\": \"<タイトル文字列>\" } で投稿してほしい. " +
           "Concordia 側が Lictor の /v1/rename に転送してターミナルタイトルを更新する.",
       },

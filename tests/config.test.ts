@@ -57,7 +57,7 @@ describe("isLoopbackHost", () => {
   });
 
   it("非 loopback とみなすもの", () => {
-    for (const h of ["0.0.0.0", "::", "192.168.1.10", "10.0.0.5", "example.com", "0.0.0.0:17330"]) {
+    for (const h of ["0.0.0.0", "::", "192.168.1.10", "10.0.0.5", "example.com", "0.0.0.0:11111"]) {
       expect(isLoopbackHost(h)).toBe(false);
     }
   });

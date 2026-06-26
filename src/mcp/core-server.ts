@@ -8,7 +8,7 @@
  *       "concordia-core": {
  *         "command": "node",
  *         "args": ["E:/Document/Ars/Concordia/dist/mcp/core-server.js"],
- *         "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:17330" }
+ *         "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:11111" }
  *       }
  *     }
  *   }
@@ -27,7 +27,7 @@
  *   - concordia_list_session_logs
  *   - concordia_get_session_log
  *
- * Concordia HTTP loopback (default 127.0.0.1:17330) を直接叩く。 DB は触らない
+ * Concordia HTTP loopback (default 127.0.0.1:11111) を直接叩く。 DB は触らない
  * (= Concordia が running していない場合は全 tool が失敗するが、 spawn の責任
  * 分界が delegation-server.ts と同じ形で明確になる)。
  */
@@ -36,7 +36,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-const DEFAULT_BASE = "http://127.0.0.1:17330";
+const DEFAULT_BASE = "http://127.0.0.1:11111";
 
 interface CallResult {
   ok: boolean;

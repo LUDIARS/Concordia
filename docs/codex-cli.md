@@ -20,7 +20,7 @@ Useful environment variables:
 
 | variable | default | purpose |
 | --- | --- | --- |
-| `CONCORDIA_URL` | `http://127.0.0.1:17330` | Concordia backend URL |
+| `CONCORDIA_URL` | `http://127.0.0.1:11111` | Concordia backend URL |
 | `CODEX_BIN` | `codex` | Codex CLI executable |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | Concordia HTTP timeout |
 

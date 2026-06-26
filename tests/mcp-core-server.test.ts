@@ -41,7 +41,7 @@ describe("callConcordia", () => {
   const originalBase = process.env.CONCORDIA_BASE_URL;
 
   beforeEach(() => {
-    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:17330";
+    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:11111";
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -87,7 +87,7 @@ describe("callConcordia", () => {
   });
 
   it("strips trailing slash from CONCORDIA_BASE_URL before composing the URL", async () => {
-    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:17330/";
+    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:11111/";
     const calls: string[] = [];
     globalThis.fetch = vi.fn(async (url: unknown) => {
       calls.push(String(url));
@@ -97,7 +97,7 @@ describe("callConcordia", () => {
     await callConcordia("GET", "/v1/sessions");
     expect(calls).toHaveLength(1);
     // No double slash before /v1.
-    expect(calls[0]).toBe("http://127.0.0.1:17330/v1/sessions");
+    expect(calls[0]).toBe("http://127.0.0.1:11111/v1/sessions");
   });
 
   it("sends body as JSON on POST", async () => {

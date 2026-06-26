@@ -15,7 +15,7 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
-import { ensureDiscordLayout, type DiscordConfigSnapshot } from "./config.js";
+import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
@@ -128,6 +128,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // 子会社 scope: config / session-channels の namespacing と subsidiary-only 可視に使う。
   const scope = deps.subsidiary ? `sub:${deps.subsidiary.id}` : "";
   const subsidiaryId = deps.subsidiary?.id ?? null;
+  // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
+  // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
+  let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;
 
   const client = new Client({
     intents: [
@@ -191,6 +194,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       const guild = await c.guilds.fetch(env.guildId!);
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo);
+      // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
+      if (deps.subsidiary) {
+        try {
+          if (!subsidiaryIntakeChannelId) {
+            subsidiaryIntakeChannelId = await ensureIntakeChannel(guild, configRepo, layout.metaCategoryId);
+            log.info(`subsidiary intake channel ensured id=${subsidiaryIntakeChannelId} guild=${guild.id}`);
+          }
+        } catch (e) {
+          log.warn(`subsidiary intake channel ensure failed guild=${guild.id}: ${(e as Error).message}`);
+        }
+      }
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
       if (env.applicationId) {
         await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
@@ -393,7 +407,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // 子会社モード: intake チャンネルの依頼をガードゲートに通し、 ロック済みユーザを遮断する。
       subsidiary: deps.subsidiary
         ? {
-            intakeChannelId: deps.subsidiary.intakeChannelId,
+            // 自動作成 (or 手動 override) で解決した受付チャンネル id を使う。
+            intakeChannelId: subsidiaryIntakeChannelId,
             process: deps.subsidiary.process,
             isLocked: deps.subsidiary.isLocked,
           }

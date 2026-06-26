@@ -39,7 +39,7 @@ import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { AdminState } from "./admin/state.js";
-import { setLictorLauncherResolver } from "./control/spawner.js";
+import { setLictorLauncherResolver, setConcordiaAddress } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { ProcessManager } from "./processes/manager.js";
@@ -250,6 +250,9 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
+  // spawn する Lictor が必ず spawning Concordia を指すよう、 自分の listen アドレスを
+  // env 継承ではなく CONCORDIA_HOST / CONCORDIA_PORT として明示注入する。
+  setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
 
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
   // Concordia 発の命令 (spawn / dispatcher / rule engine / proposer) を止める。
@@ -418,7 +421,8 @@ export async function startBackend(): Promise<BackendHandle> {
     harnessRepo,
     delegationRepo,
     delegationService,
-    secretBox,
+    // 子会社 Bot は本社と同じ application_id / bot token を使う (同一 Bot を別 guild に招待)。
+    headOfficeDiscord: () => resolveDiscordConfig(discordConfig, secretBox),
     runClaude,
     budgetTracker: subsidiaryBudget,
     baseDiscordDeps: () => {

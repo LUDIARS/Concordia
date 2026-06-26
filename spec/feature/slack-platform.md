@@ -16,7 +16,7 @@ coequal な実装で、どちらも eventBus を独立に購読する。server.t
 起動/停止する（`CONCORDIA_DISCORD_ENABLED` / `CONCORDIA_SLACK_ENABLED`）。
 
 ## 接続方式: Socket Mode
-Concordia は loopback-only（17330）で inbound URL を持てないため、Events API では
+Concordia は loopback-only（11111）で inbound URL を持てないため、Events API では
 なく **Socket Mode**（outbound WebSocket）で接続する。必要 token:
 - `CONCORDIA_SLACK_BOT_TOKEN`（xoxb-, Web API）
 - `CONCORDIA_SLACK_APP_TOKEN`（xapp-, Socket Mode, `connections:write`）

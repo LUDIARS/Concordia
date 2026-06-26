@@ -145,7 +145,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     startedAt: new Date().toISOString(),
     sweeperRunOnce: () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
-    publicUrl: "http://127.0.0.1:17330",
+    publicUrl: "http://127.0.0.1:11111",
   };
 
   return {

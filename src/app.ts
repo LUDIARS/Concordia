@@ -3,6 +3,7 @@
  */
 
 import { Hono } from "hono";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { spawn } from "node:child_process";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
@@ -753,6 +754,27 @@ export function buildApp(deps: AppDeps): Hono {
     writeWebHosts(hosts);
     return c.json({ allowed_hosts: readWebHosts(), note: "Vite dev server の再起動後に反映されます" });
   });
+
+  // ─── Web UI 配信 (built SPA) ────────────────────────────────────────────
+  // backend port (17330) の root を 404 にしない。 ビルド済み web UI (web/dist) を
+  // 配信し、 Excubitor / Tunnel から :17330 を開いても UI が出るようにする
+  // (tier: personal の Memoria local と同様、 server 単一 port で UI を提供する)。
+  // API (/v1, /health) は上で解決済みなので干渉しない。 dev で UI を hot-reload したい
+  // 場合は従来どおり Vite (17331) を直接開く。
+  const webDistRoot = "./web/dist";
+  const webIndexPath = resolve(process.cwd(), "web/dist/index.html");
+  if (existsSync(webIndexPath)) {
+    const indexHtml = readFileSync(webIndexPath, "utf8");
+    // 実ファイル (index.html / assets / favicon 等) を配信。
+    app.use("/*", serveStatic({ root: webDistRoot }));
+    // SPA フォールバック: ファイルが無いパス (クライアントルート) は index.html を返す。
+    // ただし API 名前空間は HTML を返さず 404 のままにする。
+    app.get("*", (c) => {
+      const p = c.req.path;
+      if (p.startsWith("/v1") || p === "/health") return c.notFound();
+      return c.html(indexHtml);
+    });
+  }
 
   return app;
 }

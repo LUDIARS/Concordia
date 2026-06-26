@@ -470,6 +470,7 @@ const STATEMENTS = [
     status          TEXT NOT NULL DEFAULT 'active',
     last_rename_ts  INTEGER NOT NULL DEFAULT 0,
     scope           TEXT NOT NULL DEFAULT '',
+    name_locked     INTEGER NOT NULL DEFAULT 0,
     ts              INTEGER NOT NULL
   )`,
 
@@ -861,6 +862,13 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "discord_session_channels",
     column: "scope",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
+  },
+  // name_locked = /ch_name で固定したチャンネル名。 1 のとき title_renamed (reaction-rename
+  // 含む) による name_body 上書きを抑止し、 ユーザ指定名を維持する (状態絵文字は更新可)。
+  {
+    table: "discord_session_channels",
+    column: "name_locked",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0`,
   },
   // 子会社の日次トークン予算 (0 = 無制限)。 子会社ごとにコスト上限を設け、 超過で受付を止める。
   {

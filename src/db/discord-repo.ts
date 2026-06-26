@@ -87,6 +87,8 @@ export interface DiscordSessionChannelRow {
   delegation_emoji: string | null;
   last_rename_ts: number;
   scope: string;
+  /** 1 = /ch_name で名前を固定 (title_renamed による name_body 上書きを抑止)。 */
+  name_locked: number;
   ts: number;
 }
 
@@ -108,6 +110,11 @@ export interface DiscordSessionChannelsRepo {
   /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
   clearWebhook(sessionId: string): void;
   setStatus(sessionId: string, status: DiscordSessionStatus): void;
+  /**
+   * /ch_name 用。 name_body を固定値に更新し name_locked=1 を立てる。
+   * 以後 setDisplayState(nameBody) / title 由来の name_body 上書きを抑止する。
+   */
+  setNameLock(sessionId: string, nameBody: string): void;
   /** display_state / agent_type / name_body をまとめて更新する。 */
   setDisplayState(
     sessionId: string,
@@ -191,6 +198,11 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
       db.prepare(
         `UPDATE discord_session_channels SET status = ? WHERE session_id = ?`,
       ).run(status, sessionId);
+    },
+    setNameLock(sessionId, nameBody) {
+      db.prepare(
+        `UPDATE discord_session_channels SET name_body = ?, name_locked = 1 WHERE session_id = ?`,
+      ).run(nameBody, sessionId);
     },
     setDisplayState(sessionId, displayState, agentType, nameBody) {
       if (agentType !== undefined && nameBody !== undefined) {

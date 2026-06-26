@@ -284,8 +284,6 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveRenderConfig({
       renderer: cfg.chatRenderer,
       model: cfg.chatModel,
-      reportModel: cfg.reportModel,
-      apiKey: cfg.anthropicApiKey,
     });
   const responder = new ChatResponder({
     chat,
@@ -578,7 +576,7 @@ export async function startBackend(): Promise<BackendHandle> {
       host: cfg.host,
       port: cfg.port,
       dbPath,
-      llm: cfg.anthropicApiKey ? "available (unused in v0.1)" : "disabled",
+      llm: "cli (claude -p)",
     },
     "Concordia listening",
   );

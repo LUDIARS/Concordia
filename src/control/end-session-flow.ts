@@ -75,10 +75,7 @@ export async function runSessionEndFlow(
   let report: SessionReportRow | null = null;
   try {
     const events = deps.repo.allEvents(id);
-    report = await generateReport(endedSession, events, {
-      apiKey: deps.config.anthropicApiKey,
-      model: deps.config.reportModel,
-    });
+    report = await generateReport(endedSession, events);
     deps.repo.upsertReport(report);
   } catch (err) {
     log.warn(

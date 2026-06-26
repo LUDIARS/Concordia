@@ -85,17 +85,14 @@ export interface ConcordiaConfig {
   metricsIntervalMs: number;
   /** host_metrics の保持時間 (h)。 env `CONCORDIA_METRICS_RETENTION_HOURS` (既定 24)。 */
   metricsRetentionHours: number;
-  anthropicApiKey: string;
-  reportModel: string;
   /**
    * 中央チャット描画の renderer。 env `CONCORDIA_CHAT_RENDERER`。
-   * "cli" | "haiku-api" | "template"。 空 ("") なら APIキー有無で自動選択
-   * (キーあり→haiku-api / キー無し→cli)。 どちらも Haiku。
+   * "cli" | "template"。 空 ("") なら "cli" (claude -p サブスク Haiku)。
+   * LUDIARS は API 不使用のため Anthropic API 直叩きは廃止。
    */
   chatRenderer: string;
   /**
-   * 中央チャット描画のモデル。 env `CONCORDIA_CHAT_MODEL`。 空なら renderer から既定
-   * (cli→"haiku" / haiku-api→reportModel)。
+   * 中央チャット描画のモデル。 env `CONCORDIA_CHAT_MODEL`。 空なら "haiku"。
    */
   chatModel: string;
   /**
@@ -218,8 +215,6 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
     metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
     metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),
-    anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
-    reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
     chatRenderer: env.CONCORDIA_CHAT_RENDERER ?? "",
     chatModel: env.CONCORDIA_CHAT_MODEL ?? "",
     spawnDefaultCwd,

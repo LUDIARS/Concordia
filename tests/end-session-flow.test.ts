@@ -32,7 +32,7 @@ function makeEnv() {
   });
   const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: () => 1 });
   responder.attachFanout(dispatcher);
-  const config = { ...loadConfig({}), anthropicApiKey: "" };
+  const config = { ...loadConfig({}) };
   return { db, repo, tasks, chat, personas, dispatcher, config };
 }
 

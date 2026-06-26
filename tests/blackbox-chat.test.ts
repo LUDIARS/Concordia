@@ -52,29 +52,21 @@ describe("render template mode (no LLM)", () => {
     );
     expect(out).toBe("場をつなぐ一言");
   });
-  it("haiku-api without key returns null (no silent fallback)", async () => {
-    const out = await renderChat(
-      { persona: COORDINATOR_VOICE, channel: "chitchat", intent: "chitchat", context: { seed: "x" } },
-      { renderer: "haiku-api", model: "claude-haiku-4-5" }, // apiKey 未指定
-    );
-    expect(out).toBeNull();
-  });
 });
 
-describe("resolveRenderConfig", () => {
-  it("uses haiku-api when an API key is present", () => {
-    const c = resolveRenderConfig({ renderer: "", model: "", reportModel: "claude-haiku-4-5", apiKey: "sk-x" });
-    expect(c.renderer).toBe("haiku-api");
-    expect(c.model).toBe("claude-haiku-4-5");
-    expect(c.apiKey).toBe("sk-x");
+describe("resolveRenderConfig (API 不使用 = cli 固定)", () => {
+  it("defaults to cli haiku when nothing is specified", () => {
+    const c = resolveRenderConfig({ renderer: "", model: "" });
+    expect(c.renderer).toBe("cli");
+    expect(c.model).toBe("haiku");
   });
-  it("falls back to cli haiku without an API key", () => {
-    const c = resolveRenderConfig({ renderer: "", model: "", reportModel: "claude-haiku-4-5", apiKey: "" });
+  it("coerces the legacy haiku-api renderer to cli", () => {
+    const c = resolveRenderConfig({ renderer: "haiku-api", model: "" });
     expect(c.renderer).toBe("cli");
     expect(c.model).toBe("haiku");
   });
   it("respects explicit renderer and model", () => {
-    const c = resolveRenderConfig({ renderer: "template", model: "custom", reportModel: "r", apiKey: "" });
+    const c = resolveRenderConfig({ renderer: "template", model: "custom" });
     expect(c.renderer).toBe("template");
     expect(c.model).toBe("custom");
   });

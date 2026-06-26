@@ -132,7 +132,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   responder.attachFanout(dispatcher);
   const config: ConcordiaConfig = {
     ...loadConfig({}),
-    anthropicApiKey: "",
     ...opts.config,
   };
 

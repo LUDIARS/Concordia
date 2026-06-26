@@ -5,14 +5,12 @@
  * 「いつ / 誰が喋るか」 の判断は呼び出し側 (rules/decide.ts・dispatcher.ts) が決定的に行い、
  * ここは渡された persona の声色で 1 文を組み立てるだけ (= 描画の単一責任).
  *
- * モデルは Haiku 固定運用. 3 モード:
- *  - "cli"       : `claude -p --model <model>` (サブスク Haiku, APIキー不要)
- *  - "haiku-api" : Anthropic Messages API 直叩き (APIキー必須, 低レイテンシ・低コスト)
+ * モデルは Haiku 固定運用. 2 モード (LUDIARS は API 不使用 = claude CLI 経由):
+ *  - "cli"       : `claude -p --model <model>` (サブスク Haiku). 既定.
  *  - "template"  : LLM 非使用. seed 文字列をそのまま返す (明示オプトアウト時のみ)
  *
- * **設定不備の無言フォールバックは禁止** (memory: no-silent-fallback):
- *  renderer="haiku-api" なのに apiKey 不在なら error ログを出して null を返す
- *  (= 発話スキップ). template への暗黙降格はしない.
+ * Anthropic API 直叩き経路 ("haiku-api") は撤去済み
+ * (policy: LUDIARS は API キーを使わず claude CLI で描画する).
  */
 
 import type { ChatChannel } from "../db/chat-repo.js";
@@ -21,7 +19,7 @@ import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("chat-render");
 
-export type ChatRenderer = "cli" | "haiku-api" | "template";
+export type ChatRenderer = "cli" | "template";
 
 /** 発話の意図. prompt の組み立てと文体を切り替える. */
 export type ChatIntent =
@@ -65,12 +63,8 @@ export interface RenderRequest {
 
 export interface RenderConfig {
   renderer: ChatRenderer;
-  /** cli: "haiku" 等のエイリアス / haiku-api: "claude-haiku-4-5" 等の完全 id. */
+  /** cli の `--model` に渡すエイリアス (例 "haiku"). */
   model: string;
-  /** haiku-api 用. cli / template では未使用. */
-  apiKey?: string;
-  /** 描画 1 回あたりの最大出力トークン (haiku-api). 既定 220. */
-  maxTokens?: number;
 }
 
 const INTENT_GUIDE: Record<ChatIntent, string> = {
@@ -93,19 +87,7 @@ export async function renderChat(req: RenderRequest, cfg: RenderConfig): Promise
 
   const prompt = buildRenderPrompt(req);
 
-  if (cfg.renderer === "haiku-api") {
-    if (!cfg.apiKey) {
-      // 設定不備: api モードなのにキーが無い → 無言降格せず error にして発話スキップ.
-      log.error(
-        { intent: req.intent, channel: req.channel },
-        "chat renderer=haiku-api but ANTHROPIC_API_KEY is unset; skipping utterance (no silent fallback)",
-      );
-      return null;
-    }
-    return renderViaApi(prompt, cfg);
-  }
-
-  // cli (既定)
+  // cli (既定・唯一の LLM 経路). LUDIARS は API キーを使わないため claude -p で描画する.
   return renderViaCli(prompt, cfg);
 }
 
@@ -116,34 +98,6 @@ async function renderViaCli(prompt: string, cfg: RenderConfig): Promise<string |
     return null;
   }
   return sanitize(r.stdout);
-}
-
-async function renderViaApi(prompt: string, cfg: RenderConfig): Promise<string | null> {
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": cfg.apiKey as string,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: cfg.maxTokens ?? 220,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) {
-      log.warn({ status: res.status }, "chat render via API non-200");
-      return null;
-    }
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
-    return sanitize(data.content?.[0]?.text ?? "");
-  } catch (err) {
-    log.warn({ err: (err as Error).message }, "chat render via API threw");
-    return null;
-  }
 }
 
 /** template モード: LLM を使わず seed / trigger をそのまま短文化して返す. */

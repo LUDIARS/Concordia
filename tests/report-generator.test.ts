@@ -59,8 +59,8 @@ describe("aggregateBullets", () => {
         ev("prompt", 110),
         ev("edit", 120, { file: "src/foo.ts" }),
       ];
-      // apiKey 空で Anthropic API も skip → templateSummary fallback 経路に必ず入る
-      const r = await generateReport(session, events, { apiKey: "", model: "x" });
+      // CONCORDIA_DISABLE_CLAUDE=1 で CLI narrative を skip → templateSummary fallback 経路に必ず入る
+      const r = await generateReport(session, events);
       const md = r.summary_md;
       const sepCount = (md.match(/\n---\n/g) ?? []).length;
       expect(sepCount).toBeGreaterThanOrEqual(2); // poem | middle | summary

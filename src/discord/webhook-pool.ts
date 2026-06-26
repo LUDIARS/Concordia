@@ -9,10 +9,12 @@ import type { Guild, TextChannel, WebhookMessageCreateOptions } from "discord.js
 import { ChannelType, WebhookClient } from "discord.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { createChildLogger } from "../shared/logger.js";
+import { runClaude } from "../rules/claude-runner.js";
 
 const WEBHOOK_NAME = "Concordia";
 const DISCORD_MESSAGE_MAX = 2000;
-const SPLIT_MODEL = "claude-haiku-4-5";
+// claude -p の --model エイリアス (LUDIARS は API 不使用 = CLI 経由).
+const SPLIT_MODEL = "haiku";
 const whLog = createChildLogger("webhook-pool");
 
 export class WebhookPool {
@@ -183,8 +185,6 @@ export class WebhookPool {
 }
 
 async function splitForDiscord(text: string, maxLen: number): Promise<string[]> {
-  const key = process.env.ANTHROPIC_API_KEY ?? "";
-  if (!key) return fallbackSplit(text, maxLen);
   try {
     const prompt =
       "Split the following text into natural chunks for Discord posting.\n" +
@@ -194,28 +194,14 @@ async function splitForDiscord(text: string, maxLen: number): Promise<string[]> 
       "- Split on semantic boundaries when possible (paragraph/sentence).\n" +
       "- Return JSON only: {\"chunks\":[\"...\", ...]}\n\n" +
       `Text:\n${text}`;
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: SPLIT_MODEL,
-        max_tokens: 4000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return fallbackSplit(text, maxLen);
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
-    const raw = data.content?.[0]?.text ?? "";
-    const parsed = extractChunks(raw);
+    // LUDIARS は API 不使用. claude -p (サブスク Haiku) で分割する.
+    const r = await runClaude(prompt, { model: SPLIT_MODEL });
+    if (!r.ok) return fallbackSplit(text, maxLen);
+    const parsed = extractChunks(r.stdout);
     if (!parsed.length || parsed.some((c) => c.length > maxLen)) return fallbackSplit(text, maxLen);
     return parsed;
   } catch (err) {
-    whLog.warn({ err: (err as Error).message }, "webhook-pool split with haiku failed; fallback");
+    whLog.warn({ err: (err as Error).message }, "webhook-pool split with claude failed; fallback");
     return fallbackSplit(text, maxLen);
   }
 }

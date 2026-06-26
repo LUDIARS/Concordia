@@ -2,7 +2,8 @@
  * セッション終了レポート生成.
  *
  * - bullets: 構造化集計 (events count / files / todos / outcome)
- * - summary_md: claude CLI で narrative 生成 → fallback で Anthropic API → fallback で template
+ * - summary_md: claude CLI (claude -p) で narrative 生成 → fallback で template
+ *   (LUDIARS は API 不使用のため Anthropic API 直叩き経路は撤去済み)
  *
  * spec/service-schema.md §7 準拠.
  */
@@ -109,64 +110,16 @@ export function templateSummary(session: SessionRow, b: ReportBullets): string {
   return lines.join("\n");
 }
 
-/**
- * LLM (Anthropic API) で要約. 失敗時は template fallback.
- * v0.1 では fetch で直叩き (SDK に依存しない). 詳細は v0.2 で claude-api skill 流用.
- */
-export async function llmSummary(
-  session: SessionRow,
-  events: SessionEventRow[],
-  cfg: { apiKey: string; model: string },
-): Promise<string | null> {
-  if (!cfg.apiKey) return null;
-  const compact = events
-    .filter((e) => ["prompt", "edit", "compact", "task_update", "lost"].includes(e.kind))
-    .map((e) => ({ kind: e.kind, ts: e.ts, payload: safeParse(e.payload) }));
-
-  const promptText =
-    `You are summarizing an AI coding session. Output a concise markdown report (Japanese).\n` +
-    `provider=${session.provider} repo=${session.repo_origin} branch=${session.branch ?? ""}\n` +
-    `events:\n${JSON.stringify(compact).slice(0, 8000)}`;
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": cfg.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 800,
-        messages: [{ role: "user", content: promptText }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
-    return data.content?.[0]?.text ?? null;
-  } catch {
-    return null;
-  }
-}
-
 export async function generateReport(
   session: SessionRow,
   events: SessionEventRow[],
-  llm: { apiKey: string; model: string },
 ): Promise<SessionReportRow> {
   const bullets = aggregateBullets(session, events);
 
-  // 優先 1: claude CLI で narrative
+  // 優先: claude CLI (claude -p) で narrative
   let summary_md: string | null = await narrativeViaCli(session, events, bullets);
 
-  // 優先 2: Anthropic API (legacy path)
-  if (!summary_md) {
-    summary_md = await llmSummary(session, events, llm);
-  }
-
-  // 最終 fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
+  // fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
   if (!summary_md) {
     summary_md = fallbackThreeSection(session, bullets);
   }
@@ -194,7 +147,7 @@ function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): stri
     `${dur} の作業ログ. ${bullets.outcome}.`,
   ].join("\n");
   const summaryPlaceholder =
-    "narrative 生成が両系統 (claude CLI / Anthropic API) とも失敗したため、 構造化集計のみ.";
+    "narrative 生成 (claude CLI) が失敗したため、 構造化集計のみ.";
   const middle = templateSummary(session, bullets);
   return [
     poemPlaceholder,

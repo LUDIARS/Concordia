@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 28;
+export const SCHEMA_VERSION = 29;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -775,6 +775,29 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_rules_order
      ON harness_rules(enabled, sort_order)`,
+
+  // ローカルセッションのハーネス強制ゲートの監査ログ。 子会社 (subsidiary_requests) と
+  // 同じ思想だが、 対象は外部依頼ではなく「自セッションの操作 (編集/コマンド)」。 すべての
+  // 判定 (allow/deny/warn) を 1 行ずつ残し、 後から「強制が効いたか」を裏取りできるようにする。
+  // event: inject(supply) | gate(判定) | block(fail-closed) | start_prompt | override。
+  `CREATE TABLE IF NOT EXISTS harness_session_audit (
+    id           TEXT    PRIMARY KEY,
+    session_id   TEXT    NOT NULL DEFAULT '',
+    project      TEXT    NOT NULL DEFAULT '',
+    hook         TEXT    NOT NULL DEFAULT '',      -- supply | gate
+    event        TEXT    NOT NULL,                 -- inject | gate | block | start_prompt | override
+    tool         TEXT    NOT NULL DEFAULT '',      -- 試行ツール (Edit/Write/Bash/...)
+    action       TEXT    NOT NULL DEFAULT '',      -- 操作の要約 (コマンド / パス)
+    repo         TEXT    NOT NULL DEFAULT '',      -- 操作対象リポ root (max-repos 集計の状態源)
+    rule         TEXT    NOT NULL DEFAULT '',      -- 当たった述語キー (空=該当なし)
+    decision     TEXT    NOT NULL,                 -- allow | deny | warn
+    reason       TEXT    NOT NULL DEFAULT '',
+    detail_json  TEXT    NOT NULL DEFAULT '{}',
+    ms           INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_session_audit_created
+     ON harness_session_audit(created_at DESC)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.
@@ -911,6 +934,8 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "subsidiary_delegations", column: "emoji", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN emoji TEXT NOT NULL DEFAULT ''` },
   { table: "subsidiary_delegations", column: "created_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0` },
   { table: "subsidiary_delegations", column: "updated_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0` },
+  // ハーネス監査に操作対象リポ root を残す (max-repos の editedRepos をサーバ側で蓄積する状態源)。
+  { table: "harness_session_audit", column: "repo", ddl: `ALTER TABLE harness_session_audit ADD COLUMN repo TEXT NOT NULL DEFAULT ''` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

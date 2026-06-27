@@ -733,6 +733,19 @@ export const api = {
   harnessRuleDelete: (id: string) =>
     del<{ ok: boolean; error?: string }>(`/v1/harness-rules/${encodeURIComponent(id)}`),
 
+  // ── ハーネス監査ログ (ローカルセッション強制ゲートの裏取り) ──
+  harnessAudit: (
+    params: { session_id?: string; decision?: HarnessAuditDecision; event?: HarnessAuditEvent; limit?: number } = {},
+  ) => {
+    const q = new URLSearchParams();
+    if (params.session_id) q.set("session_id", params.session_id);
+    if (params.decision) q.set("decision", params.decision);
+    if (params.event) q.set("event", params.event);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return get<HarnessAuditResponse>(`/v1/harness/audit${qs ? `?${qs}` : ""}`);
+  },
+
   // ── 子会社 Delegation ──
   subsidiariesList: () => get<{ subsidiaries: SubsidiarySummary[] }>("/v1/subsidiaries"),
   subsidiaryGet: (id: string) =>
@@ -779,6 +792,32 @@ export interface HarnessRule {
   sort_order: number;
   created_at: number;
   updated_at: number;
+}
+
+export type HarnessAuditEvent = "inject" | "gate" | "block" | "start_prompt" | "override";
+export type HarnessAuditDecision = "allow" | "deny" | "warn";
+
+/** ローカルセッションのハーネス強制ゲート 監査ログ 1 行 (created_at は ms = Date.now())。 */
+export interface HarnessAuditRow {
+  id: string;
+  session_id: string;
+  project: string;
+  hook: string;
+  event: HarnessAuditEvent;
+  tool: string;
+  action: string;
+  repo: string;
+  rule: string;
+  decision: HarnessAuditDecision;
+  reason: string;
+  detail_json: string;
+  ms: number;
+  created_at: number;
+}
+
+export interface HarnessAuditResponse {
+  audit: HarnessAuditRow[];
+  summary: Array<{ decision: HarnessAuditDecision; count: number }>;
 }
 
 /** 子会社が所有する delegation 複製 (cwd / project を内包)。 */

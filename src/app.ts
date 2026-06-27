@@ -66,6 +66,9 @@ import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawn
 import { modelCatalogRouter } from "./api/model-catalog.js";
 import { subsidiaryRouter } from "./api/subsidiary.js";
 import { harnessRulesRouter } from "./api/harness-rules.js";
+import { harnessSessionRouter } from "./api/harness-session.js";
+import type { HarnessAuditRepo } from "./db/harness-audit-repo.js";
+import type { RunClaudeFn } from "./subsidiary/guard.js";
 import type { SubsidiaryRepo } from "./db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
 import type { HarnessRulesRepo } from "./db/harness-rules-repo.js";
@@ -112,6 +115,10 @@ export interface AppDeps {
   /** 子会社 Delegation。 揃った時のみ /v1/subsidiaries / /v1/harness-rules を有効化。 */
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
+  /** ローカルセッションのハーネス強制ゲートの監査ログ。 揃った時のみ /v1/harness を有効化。 */
+  harnessAudit?: HarnessAuditRepo;
+  /** per-prompt 意図判定 (POST /v1/harness/intent) 用の Sonnet runner。 未指定なら /intent は無効 (opt-in)。 */
+  harnessRunClaude?: RunClaudeFn;
   subsidiaryManager?: SubsidiaryBotManager;
   /** 子会社の日次トークン予算トラッカー (ダッシュボードに当日消費を表示)。 */
   subsidiaryBudget?: SubsidiaryBudgetTracker;
@@ -212,6 +219,12 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
   if (deps.harnessRules) {
     app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
+  }
+  if (deps.harnessAudit && deps.harnessRules) {
+    app.route(
+      "/v1/harness",
+      harnessSessionRouter({ audit: deps.harnessAudit, rules: deps.harnessRules, runClaude: deps.harnessRunClaude }),
+    );
   }
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(

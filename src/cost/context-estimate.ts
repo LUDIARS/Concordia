@@ -1,0 +1,103 @@
+/**
+ * セッションの「現在のコンテキスト占有」を provider ログから概算する。
+ *
+ * 累積コスト (log-usage.ts: readClaudeUsage) とは別物。 コンテキスト窓の占有は
+ * **最後の assistant メッセージの usage スナップショット** (= その turn でモデルに
+ * 送られたプロンプト総量) で近似する。 /clear するとこの値が落ちる。
+ *
+ * spec/feature/session-compaction.md §4。
+ */
+
+import type { SessionRow } from "../shared/types.js";
+import { findClaudeLog, findCodexLog, readLines, nn } from "./log-usage.js";
+
+/** コンテキスト窓の既定サイズ (トークン)。 env CONCORDIA_CONTEXT_WINDOW_TOKENS で上書き。 */
+export const DEFAULT_CONTEXT_WINDOW = Number(process.env.CONCORDIA_CONTEXT_WINDOW_TOKENS ?? "200000") || 200000;
+
+export interface ContextEstimate {
+  /** 現在コンテキストに乗っていると推定されるトークン (input + cache)。 */
+  tokens: number;
+  /** 母数の窓サイズ。 */
+  windowTokens: number;
+  /** tokens / windowTokens を 0..1 に丸めた占有率。 */
+  pct: number;
+}
+
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
+/**
+ * Claude JSONL の最後の assistant usage から「送信プロンプト総量」を拾う。
+ * input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
+ */
+export function readClaudeContextTokens(path: string): number | null {
+  let last: number | null = null;
+  for (const line of readLines(path)) {
+    let o: unknown;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isObj(o)) continue;
+    const msg = o.message;
+    if (!isObj(msg)) continue;
+    const u = msg.usage;
+    if (!isObj(u)) continue;
+    // input + 両キャッシュ = その turn のプロンプト総量 ≒ 直近コンテキスト占有。
+    const snapshot = nn(u.input_tokens) + nn(u.cache_read_input_tokens) + nn(u.cache_creation_input_tokens);
+    if (snapshot > 0) last = snapshot;
+  }
+  return last;
+}
+
+/** Codex JSONL の最後の token_count から現在コンテキストを概算 (input + cached)。 */
+export function readCodexContextTokens(path: string): number | null {
+  let last: number | null = null;
+  for (const line of readLines(path)) {
+    let o: unknown;
+    try {
+      o = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!isObj(o) || o.type !== "event_msg") continue;
+    const payload = o.payload;
+    if (!isObj(payload) || payload.type !== "token_count") continue;
+    const info = payload.info;
+    if (!isObj(info)) continue;
+    const t = info.total_token_usage;
+    if (!isObj(t)) continue;
+    const snapshot = nn(t.input_tokens) + nn(t.cached_input_tokens);
+    if (snapshot > 0) last = snapshot;
+  }
+  return last;
+}
+
+/** tokens から ContextEstimate を組む (純粋)。 */
+export function toEstimate(tokens: number, windowTokens = DEFAULT_CONTEXT_WINDOW): ContextEstimate {
+  const w = windowTokens > 0 ? windowTokens : DEFAULT_CONTEXT_WINDOW;
+  return { tokens, windowTokens: w, pct: Math.max(0, Math.min(1, tokens / w)) };
+}
+
+/** セッションのコンテキスト占有を概算する。 ログが取れなければ null。 */
+export function estimateContextTokens(s: SessionRow, windowTokens = DEFAULT_CONTEXT_WINDOW): ContextEstimate | null {
+  let tokens: number | null = null;
+  if (s.provider === "codex-cli") {
+    const p = findCodexLog(s);
+    tokens = p ? readCodexContextTokens(p) : null;
+  } else if (s.provider === "claude-code") {
+    const p = findClaudeLog(s);
+    tokens = p ? readClaudeContextTokens(p) : null;
+  }
+  if (tokens === null) return null;
+  return toEstimate(tokens, windowTokens);
+}
+
+/** 状態カード表示用の短い文字列。 例 "🧠 ctx ~62% (124k)"。 null なら空文字。 */
+export function formatContextBadge(est: ContextEstimate | null): string {
+  if (!est) return "";
+  const k = est.tokens >= 1000 ? `${Math.round(est.tokens / 1000)}k` : String(est.tokens);
+  return `🧠 ctx ~${Math.round(est.pct * 100)}% (${k})`;
+}

@@ -54,6 +54,8 @@ import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { startSweeper } from "./sweeper.js";
 import { startReaper } from "./control/reaper.js";
 import { startStalledSessionNudge } from "./control/stalled-session-nudge.js";
+import { startAutoCompaction } from "./control/auto-compaction.js";
+import { runCompaction, makeCompactionIO } from "./control/compaction.js";
 import { MetricsStore } from "./metrics/store.js";
 import { startMetricsLoop } from "./metrics/loop.js";
 import { startRuleEngine } from "./rules/engine.js";
@@ -371,6 +373,17 @@ export async function startBackend(): Promise<BackendHandle> {
     cooldownSec: cfg.stallNudgeCooldownSec,
   });
 
+  // 自動コンパクション: active セッションのコンテキスト占有 + 区切りを周期監視し、
+  // 閾値超え/区切りで引き継ぎ型コンパクションを発火する。安全弁 CONCORDIA_AUTO_COMPACTION=1
+  // (既定 OFF)。spec/feature/session-compaction.md
+  const compactionIO = makeCompactionIO({ sessions: repo, chat });
+  const autoCompaction = startAutoCompaction({
+    sessions: repo,
+    compact: (sessionId) =>
+      runCompaction({ sessions: repo, transcriptLogs, runClaude, ...compactionIO }, sessionId),
+    enabled: () => process.env.CONCORDIA_AUTO_COMPACTION === "1",
+  });
+
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に
   // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
   // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
@@ -622,6 +635,7 @@ export async function startBackend(): Promise<BackendHandle> {
       sweeper.stop();
       reaper.stop();
       stallNudge.stop();
+      autoCompaction.stop();
       metricsLoop.stop();
       clearInterval(costSampleTimer);
       unsubLog();

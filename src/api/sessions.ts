@@ -13,6 +13,8 @@ import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js
 import type { Dispatcher } from "../dispatcher.js";
 import type { PersonasRepo, PersonaRow } from "../db/personas-repo.js";
 import { eventBus } from "../events.js";
+import { runCompaction, makeCompactionIO } from "../control/compaction.js";
+import { runClaude } from "../rules/claude-runner.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
@@ -984,6 +986,19 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       payload: { text: parsed.data.text, source: src },
     });
     return c.json({ ok: true, ts });
+  });
+
+  // POST /v1/sessions/:id/compact — 引き継ぎ型コンパクション (生成→投稿→/clear→再投入)。
+  // spec/feature/session-compaction.md。 loopback 信頼境界 (token 不要)。
+  app.post("/:id/compact", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const io = makeCompactionIO({ sessions: deps.repo, chat: deps.chat });
+    const result = await runCompaction(
+      { sessions: deps.repo, transcriptLogs: deps.transcriptLogs, runClaude, ...io },
+      id,
+    );
+    return c.json(result, result.ok ? 200 : 400);
   });
 
   // POST /v1/sessions/:id/resume

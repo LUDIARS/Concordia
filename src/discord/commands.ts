@@ -18,6 +18,7 @@ import cleanCommand from "./commands/clean.js";
 import projectsCommand from "./commands/projects.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
+import goalCommand from "./commands/goal.js";
 import { dispatchQuestionInteraction } from "./question.js";
 
 export interface DiscordCommandDeps {
@@ -48,6 +49,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   projectsCommand,
   chNameCommand,
   compactionCommand,
+  goalCommand,
 ];
 
 export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {

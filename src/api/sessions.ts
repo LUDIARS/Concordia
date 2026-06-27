@@ -37,6 +37,7 @@ import {
 } from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
 import { lastHumanRequester, prefixRequesterTag } from "../control/requester.js";
+import { parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata } from "../control/goal.js";
 import {
   INITIAL_WORK_QUESTION,
   INITIAL_WORK_INJECT_SOURCE,
@@ -101,6 +102,12 @@ const InjectSchema = z.object({
   source: z.string().min(1).max(120).optional(),
   // 人間入力者の表示名 (ingress が付与)。参加者レジストリ登録 + ミラー発言者明示に使う。
   author_label: z.string().min(1).max(120).optional(),
+});
+
+// セッションのゴール設定 (/co-goal)。 mode 明示 / 自由文どちらか or 両方。
+const GoalSchema = z.object({
+  mode: z.enum(["complete", "scoped", "watch"]).optional(),
+  text: z.string().max(500).optional(),
 });
 
 const TranscriptFrameSchema = z.object({
@@ -996,6 +1003,28 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       payload: { text: injectText, source: src },
     });
     return c.json({ ok: true, ts });
+  });
+
+  // GET /v1/sessions/:id/goal — 現在のゴール (未設定は既定 complete)。/co-goal 表示用。
+  app.get("/:id/goal", (c) => {
+    const s = deps.repo.findSession(c.req.param("id"));
+    if (!s) return c.json({ error: "not_found" }, 404);
+    return c.json({ goal: readGoalFromMetadata(s.metadata) });
+  });
+
+  // POST /v1/sessions/:id/goal — ゴールを設定/変更する (/co-goal)。
+  // metadata JSON にマージ保存 (persona 等の既存キーは保持)。schema 列は増やさない。
+  app.post("/:id/goal", async (c) => {
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = GoalSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const goal = parseGoalInput({ mode: parsed.data.mode, text: parsed.data.text });
+    deps.repo.setMetadata(id, mergeGoalIntoMetadata(s.metadata, goal));
+    deps.repo.appendEvent({ session_id: id, ts: nowSec(), kind: "goal", payload: { goal } });
+    return c.json({ ok: true, goal });
   });
 
   // POST /v1/sessions/:id/compact — 引き継ぎ型コンパクション (生成→投稿→/clear→再投入)。

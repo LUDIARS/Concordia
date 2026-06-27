@@ -1,6 +1,7 @@
 import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
 import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
 import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
+import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -113,6 +114,7 @@ export async function upsertSessionStatusCard(
     contextBadge: formatContextBadge(ctx),
     contextPct: ctx?.pct ?? null,
     costBadge: formatCostBadge(cost),
+    goalBadge: formatGoalBadge(readGoalFromMetadata(sessionRow.metadata)),
   });
 
   const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
@@ -177,6 +179,8 @@ export interface StatusEmbedInput {
   contextPct?: number | null;
   /** 想定コスト合算バッジ (💰 ~$1.23)。 推定不可は空。 */
   costBadge?: string;
+  /** ゴールバッジ (🎯 完成まで実装)。 常に既定が入る。 */
+  goalBadge?: string;
 }
 
 /**
@@ -205,6 +209,8 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
+  // ゴール (🎯 完成まで実装)。 自走の強さ・確認頻度の基準。
+  if (i.goalBadge) descParts.push(i.goalBadge);
   // コンテキスト占有 (🧠 ctx ~62% (124k)) と想定コスト合算 (💰 ~$1.23) を 1 行に。
   // コンテキスト閾値超えは ⚠️ を添えて圧縮の目安に。
   const usageBadges: string[] = [];

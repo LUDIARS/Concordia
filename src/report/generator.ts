@@ -16,6 +16,7 @@ import {
   renderUsageMarkdown,
   type SessionUsageSummary,
 } from "../cost/session-cost.js";
+import { detectSummaryFlags, renderSummaryFlagsMarkdown, hasFlags } from "./summary-flags.js";
 
 const log = createChildLogger("report");
 
@@ -143,13 +144,19 @@ export async function generateReport(
     summary_md = fallbackThreeSection(session, bullets, usage);
   }
 
+  // ④ サマリー検出: ハーネスブロック / 人間確認事項を Sonnet で抽出し別建てで載せる。
+  // needsHuman 通知 (起因者メンション) は呼び出し側 (end-session-flow) が metadata から拾う。
+  const flags = await detectSummaryFlags(session, events);
+  const flagLines = renderSummaryFlagsMarkdown(flags);
+  if (flagLines.length) summary_md = `${summary_md}\n\n${flagLines.join("\n")}`;
+
   return {
     session_id: session.id,
     generated_at: nowSec(),
     summary_md,
     bullets: JSON.stringify(bullets),
     duration_sec: bullets.duration_sec,
-    metadata: null,
+    metadata: hasFlags(flags) ? JSON.stringify({ summary_flags: flags }) : null,
   };
 }
 

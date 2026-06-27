@@ -14,9 +14,38 @@ import { PersonasRepo } from "../src/db/personas-repo.js";
 import { seedPersonas } from "../src/personas/seeds.js";
 import { Dispatcher } from "../src/dispatcher.js";
 import { ChatResponder } from "../src/chat/responder.js";
-import { runSessionEndFlow } from "../src/control/end-session-flow.js";
+import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
+import type { SessionEventRow, SessionReportRow } from "../src/shared/types.js";
+
+function fakeReport(metadata: string | null): SessionReportRow {
+  return { session_id: "s", generated_at: 0, summary_md: "", bullets: "{}", duration_sec: 0, metadata };
+}
+function injectEvent(source: string): SessionEventRow {
+  return { id: 1, session_id: "s", ts: 1, kind: "inject", payload: JSON.stringify({ source }) };
+}
+
+describe("withNeedsHumanNotice", () => {
+  it("needsHuman があれば起因者メンション + 箇条書きを独白冒頭に被せる", () => {
+    const report = fakeReport(JSON.stringify({ summary_flags: { blocked: [], needsHuman: ["方針確認", "本番影響不明"] } }));
+    const out = withNeedsHumanNotice("詩。", report, [injectEvent("discord:123:c:m")]);
+    expect(out).toContain("<@123>");
+    expect(out).toContain("人間の確認が必要");
+    expect(out).toContain("- 方針確認");
+    expect(out).toContain("詩。");
+  });
+  it("needsHuman 無し / metadata 無しは独白そのまま", () => {
+    expect(withNeedsHumanNotice("詩。", fakeReport(null), [])).toBe("詩。");
+    expect(withNeedsHumanNotice("詩。", fakeReport(JSON.stringify({ summary_flags: { blocked: ["x"], needsHuman: [] } })), [])).toBe("詩。");
+  });
+  it("起因者が discord でない/不明ならメンション無しで通知のみ", () => {
+    const report = fakeReport(JSON.stringify({ summary_flags: { blocked: [], needsHuman: ["確認"] } }));
+    const out = withNeedsHumanNotice("詩。", report, []);
+    expect(out).not.toContain("<@");
+    expect(out).toContain("- 確認");
+  });
+});
 
 function makeEnv() {
   const db = makeTestDb();

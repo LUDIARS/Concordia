@@ -70,6 +70,9 @@ export async function postQuestion(
     question: string;
     options: Array<string | { label: string; description?: string }>;
     multi_select?: boolean;
+    /** 起因者 (直近で指示した人間)。 discord のときだけ @メンションする。 */
+    requester_platform?: "discord" | "slack";
+    requester_user_id?: string;
   },
 ): Promise<void> {
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
@@ -128,7 +131,19 @@ export async function postQuestion(
     ),
   );
 
-  const msg = await tc.send({ embeds: [embed], components });
+  // 起因者が discord ユーザなら @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
+  // mention は content に置き、 allowedMentions を当人だけに絞って @everyone 等の誤爆を防ぐ。
+  const mentionId =
+    ev.requester_platform === "discord" && ev.requester_user_id ? ev.requester_user_id : null;
+  const payload: Parameters<TextChannel["send"]>[0] = mentionId
+    ? {
+        content: `<@${mentionId}> 確認をお願いします`,
+        embeds: [embed],
+        components,
+        allowedMentions: { users: [mentionId] },
+      }
+    : { embeds: [embed], components };
+  const msg = await tc.send(payload);
   input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id);
 }
 

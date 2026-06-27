@@ -75,6 +75,9 @@ export type ConcordiaEvent =
       options: Array<string | { label: string; description?: string }>;
       /** 複数選択可か (Discord UI を menu(min1/maxN) に切替)。未指定は単一選択。 */
       multi_select?: boolean;
+      /** この質問の起因者 (直近で指示した人間)。 Discord は @メンションに使う。未取得は省略。 */
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
       ts: number;
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }

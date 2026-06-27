@@ -36,6 +36,7 @@ import {
   AUTO_SESSION_END_INJECT_SOURCE,
 } from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
+import { lastHumanRequester, prefixRequesterTag } from "../control/requester.js";
 import {
   INITIAL_WORK_QUESTION,
   INITIAL_WORK_INJECT_SOURCE,
@@ -640,6 +641,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         multi_select: parsed.data.multi_select === true,
       },
     });
+    // 起因者 (直近で指示した人間) を session_events の inject source から後追い解決し、
+    // Discord 側で @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
+    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50));
     eventBus.emit({
       type: "question.posted",
       target_session_id: id,
@@ -647,6 +651,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       question: row.question,
       options: parsed.data.options,
       multi_select: parsed.data.multi_select === true,
+      requester_platform: requester?.platform,
+      requester_user_id: requester?.userId,
       ts,
     });
     return c.json({ ok: true, question_id: row.id, ts });
@@ -960,6 +966,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     // 相手プラットフォームのミラーで「誰の発言か」を出せるようにする。
     // /enter 等の制御 inject (source 例 "discord-enter") はコロン区切りでないため除外。
     let authorLabel: string | null = null;
+    // 複数名同時利用に備え、人間 inject は本文に「誰の指示か」を前置して AI に起因者を
+    // 明示する。AskUserQuestion の @メンションは後追いで source(=uid 埋め込み) を読む。
+    let injectText = parsed.data.text;
     if (src && parsed.data.author_label) {
       const m = /^(discord|slack):([^:]+)/.exec(src);
       if (m) {
@@ -969,12 +978,13 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
           display_name: parsed.data.author_label,
         });
         authorLabel = row.display_name;
+        injectText = prefixRequesterTag(authorLabel, parsed.data.text);
       }
     }
     eventBus.emit({
       type: "session.inject",
       target_session_id: id,
-      text: parsed.data.text,
+      text: injectText,
       source: src,
       author_label: authorLabel,
       ts,
@@ -983,7 +993,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       ts,
       kind: "inject",
-      payload: { text: parsed.data.text, source: src },
+      payload: { text: injectText, source: src },
     });
     return c.json({ ok: true, ts });
   });

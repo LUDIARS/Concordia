@@ -18,6 +18,19 @@ import { evaluateAction } from "../harness/session-gate.js";
 import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/predicates.js";
 import { classifyPromptIntent, type IntentHarnessRule } from "../harness/prompt-intent.js";
 import type { RunClaudeFn } from "../subsidiary/guard.js";
+import { createChildLogger } from "../shared/logger.js";
+import { vgWrite, type VgLevel } from "../shared/vestigium.js";
+
+const hlog = createChildLogger("harness");
+
+/**
+ * ハーネスイベントを pino (dev コンソール/ファイル) と Vestigium (横断 JSONL) の両方へ出す。
+ * ctx はメタデータのみ — コマンド/プロンプトの生データや秘密は入れない (Vestigium redact ルール)。
+ */
+function emit(level: VgLevel, msg: string, ctx: Record<string, unknown>): void {
+  hlog[level](ctx, msg);
+  vgWrite(level, msg, ctx);
+}
 
 const ActionSchema = z.object({
   tool: z.string().max(64),
@@ -112,6 +125,13 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       reason: verdict.reason, detail: { hits: verdict.hits, branch: action.branch }, ms: Date.now() - t0,
     });
 
+    const gateLevel: VgLevel = verdict.decision === "deny" ? "warn" : verdict.decision === "warn" ? "info" : "debug";
+    emit(gateLevel, `harness gate ${verdict.decision}${lead?.rule ? `: ${lead.rule}` : ""}`, {
+      session_id, hook: hook ?? "gate", tool: action.tool, repo, branch: action.branch,
+      decision: verdict.decision, rules: verdict.hits.map((h) => h.rule), editedRepos: editedRepos.length,
+      audit_ok: rec.ok, ms: Date.now() - t0,
+    });
+
     return c.json({
       decision: verdict.decision,
       blocked: verdict.blocked,
@@ -137,6 +157,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       session_id, project, hook: "supply", event: "inject", decision: "allow",
       action: (task ?? "").slice(0, 200), reason: `rules:${rules.length} gates:${gates.length}`, ms: Date.now() - t0,
     });
+
+    emit("info", "harness supply", { session_id, project, rules: rules.length, gates: gates.length, ms: Date.now() - t0 });
 
     return c.json({ rules, gates });
   });
@@ -166,6 +188,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       reason: verdict.advice || verdict.intent,
       detail: { risk: verdict.risk, concerns: verdict.concerns, intent: verdict.intent, raw: raw.slice(0, 2000) },
       ms: Date.now() - t0,
+    });
+
+    const intentLevel: VgLevel = verdict.decision === "warn" ? "warn" : "info";
+    emit(intentLevel, `harness intent ${verdict.decision} (risk=${verdict.risk})`, {
+      session_id, project, branch, decision: verdict.decision, risk: verdict.risk,
+      concerns: verdict.concerns, intent: verdict.intent.slice(0, 120), ms: Date.now() - t0,
     });
 
     return c.json({ enabled: true, ...verdict, audit_ok: rec.ok, ...(rec.error ? { audit_error: rec.error } : {}) });

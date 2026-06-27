@@ -12,6 +12,8 @@ concurrency:
 
 permissions:
   contents: read
+  # @ludiars/* (Vestigium 等) を GitHub Packages から取得するため
+  packages: read
 
 env:
   # テスト中は実 LLM を絶対に叩かない (vitest.config.ts でも設定済だが二重で固定)
@@ -34,6 +36,9 @@ jobs:
 
       - name: Install deps (backend)
         run: npm ci
+        env:
+          # .npmrc の @ludiars レジストリ認証 (Vestigium 等)。 org 内 packages:read で足りる。
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install deps (web)
         run: npm ci --prefix web

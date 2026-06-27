@@ -47,6 +47,10 @@ export interface ArchiveTarget {
   indexPath?: string;
   /** memory のみ: 除去する index 行 (verbatim、 終端改行は含まない)。 */
   indexLine?: string;
+  /** memory のみ: この block を指すリンクの markdown 文字列。 grouped 行 (indexLineSole=false) で 1 リンクだけ除去する用。 */
+  indexLinkText?: string;
+  /** memory のみ: index 行にリンクが 1 つだけか。 false=grouped (linkText だけ除去し行は残す)。 */
+  indexLineSole?: boolean;
   /** ファイル移動なしで index 行だけ消す (orphan-index)。 */
   orphanIndex?: boolean;
   /** 退避理由 (台帳に残す)。 */
@@ -135,7 +139,7 @@ export function applyArchive(targets: ArchiveTarget[], now: number): ArchiveResu
       }
       let indexLineRemoved = false;
       if (t.indexPath && t.indexLine && existsSync(t.indexPath)) {
-        indexLineRemoved = removeIndexLineFromFile(t.indexPath, t.indexLine);
+        indexLineRemoved = removeIndexLineFromFile(t.indexPath, t);
       }
       appendLedger(t, now, archivedAs, indexLineRemoved);
       items.push({ ...plan, indexLineRemoved });
@@ -283,9 +287,54 @@ export function removeIndexLine(raw: string, indexLine: string): { content: stri
   return { content: kept.join(""), removed };
 }
 
-function removeIndexLineFromFile(indexPath: string, indexLine: string): boolean {
+/**
+ * grouped 行 (1 行に複数リンク) から該当リンク `[title](file.md)` 1 つだけを除去する。
+ * 該当物理行を indexLine(trim 一致) で特定し、 linkText + 隣接セパレータ (" / " か "/")
+ * を 1 つ削る。 除去後にその行へリンクが残らなければ行ごと消す。 他行の改行コードは保つ。
+ * 注: リンク直後の括弧注記 (例 "(正本RULE§7)") は残置する (まれな大原則行のみ該当)。
+ */
+export function removeIndexLink(raw: string, lineRaw: string, linkText: string): { content: string; removed: boolean } {
+  const target = lineRaw.trim();
+  if (!target || !linkText) return { content: raw, removed: false };
+  const segs = raw.match(/[^\r\n]*(?:\r\n|\r|\n|$)/g) ?? [];
+  let removed = false;
+  const kept: string[] = [];
+  for (const seg of segs) {
+    const eol = seg.match(/\r\n$|\r$|\n$/)?.[0] ?? "";
+    const text = seg.slice(0, seg.length - eol.length);
+    if (!removed && text.trim() === target) {
+      const idx = text.indexOf(linkText);
+      if (idx < 0) {
+        kept.push(seg);
+        continue;
+      }
+      removed = true;
+      let start = idx;
+      let end = idx + linkText.length;
+      const sepAfter = text.slice(end).match(/^\s*\/\s*/);
+      if (sepAfter) {
+        end += sepAfter[0].length;
+      } else {
+        const sepBefore = text.slice(0, start).match(/\s*\/\s*$/);
+        if (sepBefore) start -= sepBefore[0].length;
+      }
+      const next = (text.slice(0, start) + text.slice(end)).replace(/\s+$/, "");
+      // リンクが残らなければ行ごと除去 (eol も落とす)。
+      if (!/\[[^\]]+\]\([^)]+\)/.test(next)) continue;
+      kept.push(next + eol);
+      continue;
+    }
+    kept.push(seg);
+  }
+  return { content: kept.join(""), removed };
+}
+
+function removeIndexLineFromFile(indexPath: string, t: ArchiveTarget): boolean {
   const raw = readFileSync(indexPath, "utf-8");
-  const { content, removed } = removeIndexLine(raw, indexLine);
+  const { content, removed } =
+    t.indexLineSole === false && t.indexLinkText
+      ? removeIndexLink(raw, t.indexLine ?? "", t.indexLinkText)
+      : removeIndexLine(raw, t.indexLine ?? "");
   if (removed) writeFileSync(indexPath, content, "utf-8");
   return removed;
 }

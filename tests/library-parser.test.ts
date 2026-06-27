@@ -32,6 +32,27 @@ describe("parseMemoryIndex", () => {
   it("returns empty for content without index lines", () => {
     expect(parseMemoryIndex("# title\n\n本文のみ")).toEqual([]);
   });
+
+  it("extracts every link from a grouped (multi-link) line", () => {
+    const line = "- 大原則: [無言禁止](feedback_a.md)(正本§7.1) / [握りつぶし禁止](feedback_b.md) / [API不使用](feedback_c.md)";
+    const entries = parseMemoryIndex(line);
+    expect(entries.map((e) => e.fileName)).toEqual(["feedback_a.md", "feedback_b.md", "feedback_c.md"]);
+    // grouped 行は sole=false、 hook は曖昧なので空。
+    expect(entries.every((e) => e.sole === false)).toBe(true);
+    expect(entries.every((e) => e.hook === "")).toBe(true);
+    // linkText は除去キーになる正確な markdown 部分文字列。
+    expect(entries[0].linkText).toBe("[無言禁止](feedback_a.md)");
+    expect(entries[1].linkText).toBe("[握りつぶし禁止](feedback_b.md)");
+    // raw は行全体を共有。
+    expect(entries[2].raw).toBe(line);
+  });
+
+  it("marks single-link lines as sole and keeps the hook", () => {
+    const [e] = parseMemoryIndex("- [Foo](feedback_foo.md) — フック");
+    expect(e.sole).toBe(true);
+    expect(e.hook).toBe("フック");
+    expect(e.linkText).toBe("[Foo](feedback_foo.md)");
+  });
 });
 
 describe("parseFrontmatter", () => {

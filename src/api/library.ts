@@ -189,6 +189,8 @@ function buildTarget(
     relPath: block.relPath,
     indexPath: src.indexPath,
     indexLine: block.indexLine,
+    indexLinkText: block.indexLinkText,
+    indexLineSole: block.indexLineSole,
     orphanIndex: block.flags.orphanIndex,
     reason,
   };

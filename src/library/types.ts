@@ -52,8 +52,12 @@ export interface LibraryBlock {
   /** epoch 秒。 */
   mtime: number;
   flags: BlockFlags;
-  /** memory のみ: MEMORY.md の該当 index 行 (verbatim、 退避時に除去する対象)。 */
+  /** memory のみ: MEMORY.md の該当 index 行 (verbatim、 退避時に行/リンクを特定するキー)。 */
   indexLine?: string;
+  /** memory のみ: この block を指すリンクの markdown 文字列 (grouped 行で 1 リンクだけ除去する用)。 */
+  indexLinkText?: string;
+  /** memory のみ: index 行にリンクが 1 つだけか。 false=grouped (linkText だけ除去)。 */
+  indexLineSole?: boolean;
 }
 
 /** 1 つの出所 (メモリ home or スキル root)。 */

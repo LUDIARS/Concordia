@@ -13,10 +13,14 @@ export interface IndexEntry {
   link: string;
   /** リンク先の basename (例 "feedback_foo.md")。 メモリファイルとの突合キー。 */
   fileName: string;
-  /** 末尾の説明 ("— " 以降)。 無ければ ""。 */
+  /** 末尾の説明 ("— " 以降)。 1 行 1 リンクのときのみ。 grouped 行では ""。 */
   hook: string;
-  /** 元の行 (verbatim、 退避時に MEMORY.md から除去する対象)。 */
+  /** 元の行 (verbatim、 退避時に MEMORY.md から該当行/リンクを特定するキー)。 */
   raw: string;
+  /** このリンクの正確な markdown 文字列 (例 "[title](feedback_foo.md)")。 grouped 行で 1 リンクだけ除去する際に使う。 */
+  linkText: string;
+  /** この行にリンクが 1 つだけか。 true=行ごと除去可 / false=grouped (linkText だけ除去)。 */
+  sole: boolean;
 }
 
 /** frontmatter から取れる最小メタ。 */
@@ -27,18 +31,46 @@ export interface Frontmatter {
   type?: string;
 }
 
-const INDEX_RE = /^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*(?:[—–-]\s+(.*))?$/;
+/** 箇条書き行か (index 行は全て `- ` で始まる)。 */
+const BULLET_RE = /^\s*-\s/;
+/** 行内の全 markdown リンク `[label](target)`。 */
+const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
+/** 1 行 1 リンク行の末尾 "— hook" (リンクの後ろにある説明のみ採用)。 */
+const HOOK_TAIL_RE = /\)\s*[—–-]\s+(.*)$/;
 
-/** MEMORY.md 全文を index エントリ配列に分解する (見出し行のみ拾う)。 */
+/**
+ * MEMORY.md 全文を index エントリ配列に分解する。
+ *
+ * index は箇条書き行で、 **1 行に複数リンクを束ねた grouped 形式** ("圧縮" 索引) を取る:
+ *   `- 大原則: [A](a.md) / [B](b.md) / ...`
+ * そのため行頭 1 リンク前提ではなく、 各箇条書き行から全リンクを抽出する。
+ * 旧来の「1 行 1 リンク + 末尾 hook」 形式も sole=true として包含する。
+ */
 export function parseMemoryIndex(content: string): IndexEntry[] {
   const out: IndexEntry[] = [];
   for (const rawLine of content.split(/\r?\n/)) {
-    const m = INDEX_RE.exec(rawLine);
-    if (!m) continue;
-    const title = m[1].trim();
-    const link = m[2].trim();
-    const hook = (m[3] ?? "").trim();
-    out.push({ title, link, fileName: basename(link), hook, raw: rawLine });
+    if (!BULLET_RE.test(rawLine)) continue;
+    const links = [...rawLine.matchAll(LINK_RE)];
+    if (links.length === 0) continue;
+    const sole = links.length === 1;
+    // hook は grouped 行では各リンクへの帰属が曖昧なので 1 リンク行のときだけ採用。
+    let hook = "";
+    if (sole) {
+      const hm = HOOK_TAIL_RE.exec(rawLine);
+      if (hm) hook = hm[1].trim();
+    }
+    for (const m of links) {
+      const link = m[2].trim();
+      out.push({
+        title: m[1].trim(),
+        link,
+        fileName: basename(link),
+        hook,
+        raw: rawLine,
+        linkText: m[0],
+        sole,
+      });
+    }
   }
   return out;
 }

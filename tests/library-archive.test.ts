@@ -7,6 +7,7 @@ import {
   listArchived,
   restoreArchived,
   removeIndexLine,
+  removeIndexLink,
   type ArchiveTarget,
 } from "../src/library/archive.js";
 import { makeTestDir } from "./helpers/db.js";
@@ -52,6 +53,68 @@ describe("removeIndexLine", () => {
   it("returns removed=false when line not present", () => {
     const { removed } = removeIndexLine("a\nb\n", "- [X](x.md)");
     expect(removed).toBe(false);
+  });
+});
+
+describe("removeIndexLink (grouped lines)", () => {
+  const LINE = "- 規約: [A](feedback_a.md) / [B](feedback_b.md) / [C](feedback_c.md)";
+
+  it("removes only the targeted link from a grouped line, keeping siblings and CRLF", () => {
+    const raw = `head\r\n${LINE}\r\ntail\r\n`;
+    const { content, removed } = removeIndexLink(raw, LINE, "[B](feedback_b.md)");
+    expect(removed).toBe(true);
+    expect(content).toBe("head\r\n- 規約: [A](feedback_a.md) / [C](feedback_c.md)\r\ntail\r\n");
+  });
+
+  it("removes the leading link without leaving a dangling separator", () => {
+    const { content } = removeIndexLink(LINE + "\n", LINE, "[A](feedback_a.md)");
+    expect(content).toBe("- 規約: [B](feedback_b.md) / [C](feedback_c.md)\n");
+  });
+
+  it("drops the whole line when the last remaining link is removed", () => {
+    const solo = "- 規約: [Only](feedback_only.md)";
+    const raw = `head\n${solo}\ntail\n`;
+    const { content, removed } = removeIndexLink(raw, solo, "[Only](feedback_only.md)");
+    expect(removed).toBe(true);
+    expect(content).toBe("head\ntail\n");
+  });
+
+  it("returns removed=false when the linkText is absent", () => {
+    const { removed } = removeIndexLink(LINE + "\n", LINE, "[Z](feedback_z.md)");
+    expect(removed).toBe(false);
+  });
+});
+
+describe("applyArchive on a grouped index line", () => {
+  it("moves the file but excises only its link, leaving siblings in MEMORY.md", () => {
+    const dir = makeTestDir("concordia-library-grouped-");
+    const fileName = "feedback_b.md";
+    const groupedLine = "- 規約: [A](feedback_a.md) / [B](feedback_b.md) / [C](feedback_c.md)";
+    const indexPath = join(dir, "MEMORY.md");
+    writeFileSync(indexPath, `# MEMORY\n\n${groupedLine}\n`, "utf-8");
+    writeFileSync(join(dir, fileName), "---\nname: b\n---\n本文", "utf-8");
+
+    const t: ArchiveTarget = {
+      blockId: `mem:t::${fileName}`,
+      name: fileName,
+      kind: "memory",
+      absPath: join(dir, fileName),
+      archiveDir: join(dir, "_archive"),
+      relPath: fileName,
+      indexPath,
+      indexLine: groupedLine,
+      indexLinkText: "[B](feedback_b.md)",
+      indexLineSole: false,
+    };
+    const result = applyArchive([t], NOW);
+    expect(result.items[0].ok).toBe(true);
+    expect(result.items[0].indexLineRemoved).toBe(true);
+    expect(existsSync(join(dir, "_archive", fileName))).toBe(true);
+
+    const idx = readFileSync(indexPath, "utf-8");
+    expect(idx).toContain("[A](feedback_a.md)");
+    expect(idx).toContain("[C](feedback_c.md)");
+    expect(idx).not.toContain("feedback_b.md");
   });
 });
 

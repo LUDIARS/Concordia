@@ -118,12 +118,19 @@ function buildMemorySource(
       mtime: st.mtime,
       flags: poison.length > 0 ? { poison } : {},
       indexLine: entry?.raw,
+      indexLinkText: entry?.linkText,
+      indexLineSole: entry?.sole,
     });
   }
 
-  // index にあるが実ファイルが無い (orphan-index)。 退避 = index 行のみ除去。
+  // index にあるが実ファイルが無い (orphan-index)。 退避 = index 行/リンクのみ除去。
+  // パスリンク (例 `../skills/.../SKILL.md`) は兄弟メモリファイルではないので対象外。
+  const seenOrphan = new Set<string>();
   for (const e of indexEntries) {
     if (seenFiles.has(e.fileName)) continue;
+    if (e.link.includes("/")) continue;
+    if (seenOrphan.has(e.fileName)) continue;
+    seenOrphan.add(e.fileName);
     blocks.push({
       id: `${sourceId}::${e.fileName}`,
       sourceId,
@@ -137,6 +144,8 @@ function buildMemorySource(
       mtime: 0,
       flags: { orphanIndex: true },
       indexLine: e.raw,
+      indexLinkText: e.linkText,
+      indexLineSole: e.sole,
     });
   }
 

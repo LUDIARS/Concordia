@@ -37,16 +37,13 @@ import {
 } from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
 import { lastHumanRequester, prefixRequesterTag } from "../control/requester.js";
-import { parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata } from "../control/goal.js";
 import {
-  INITIAL_WORK_QUESTION,
-  INITIAL_WORK_INJECT_SOURCE,
-  buildInitialWorkInjectText,
-  buildInitialWorkOptions,
-  formatDevelopmentTitle,
-  markInitialWorkQuestionAsked,
-  maybeParseInitialWorkTarget,
-} from "../control/initial-work.js";
+  parseGoalInput,
+  readGoalFromMetadata,
+  mergeGoalIntoMetadata,
+  buildGoalStartInjectText,
+  GOAL_START_INJECT_SOURCE,
+} from "../control/goal.js";
 
 const log = createChildLogger("sessions-api");
 
@@ -314,37 +311,28 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       });
     }
 
+    // 起動時にブランチ/開発コードを picker で選ばせる旧フローは廃止。
+    // 代わりにゴール (既定=完成まで実装) を起点とする指示を AI へ inject する。
+    // スコープは最初のユーザ指示で確定し、 不明な時だけ AI が 1 度確認する。
     const freshSession = deps.repo.findSession(input.id)!;
-    const initialWorkOptions = await buildInitialWorkOptions(
-      deps.repo,
-      freshSession,
-      deps.resolveWorkspaceRoots?.() ?? [input.repo_path],
-    );
-    const initialWorkQuestion = markInitialWorkQuestionAsked(deps.pendingQuestions, freshSession, initialWorkOptions);
-    if (!initialWorkQuestion.deduped) {
-      const ts = nowSec();
-      deps.repo.appendEvent({
-        session_id: input.id,
-        ts,
-        kind: "pending_question",
-        payload: {
-          question_id: initialWorkQuestion.questionId,
-          question: INITIAL_WORK_QUESTION,
-          options: initialWorkOptions,
-          initial_work: true,
-        },
+    const goalStartText = buildGoalStartInjectText(readGoalFromMetadata(freshSession.metadata));
+    const goalTs = nowSec();
+    deps.repo.appendEvent({
+      session_id: input.id,
+      ts: goalTs,
+      kind: "inject",
+      payload: { text: goalStartText, source: GOAL_START_INJECT_SOURCE },
+    });
+    // picker キーストローク fallback 等が pty に届く前に綺麗に入るよう少し遅延 (旧来の手当てを踏襲)。
+    setTimeout(() => {
+      eventBus.emit({
+        type: "session.inject",
+        target_session_id: input.id,
+        text: goalStartText,
+        source: GOAL_START_INJECT_SOURCE,
+        ts: nowSec(),
       });
-      setTimeout(() => {
-        eventBus.emit({
-          type: "question.posted",
-          target_session_id: input.id,
-          question_id: initialWorkQuestion.questionId,
-          question: INITIAL_WORK_QUESTION,
-          options: initialWorkOptions,
-          ts,
-        });
-      }, 500).unref?.();
-    }
+    }, 500).unref?.();
 
     return c.json({
       session: serializeSession(deps.repo.findSession(input.id)!),
@@ -355,11 +343,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       persona_reused: assignment ? assignment.reused : false,
       processes: processStartup,
       process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
-      initial_work: {
-        question_id: initialWorkQuestion.questionId,
-        question: INITIAL_WORK_QUESTION,
-        options: initialWorkOptions,
-      },
+      goal: readGoalFromMetadata(freshSession.metadata),
     });
   });
 
@@ -716,48 +700,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       kind: "question_answered",
       payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
     });
-    const session = deps.repo.findSession(id)!;
-    const initialTarget = maybeParseInitialWorkTarget(row.question, answerText, session);
-    if (initialTarget) {
-      const title = formatDevelopmentTitle(initialTarget);
-      deps.repo.patchSession(id, {
-        branch: initialTarget.branch,
-        current_task: title.slice(0, 200),
-      });
-      deps.repo.mergeMetadata(id, {
-        initial_work_target: initialTarget,
-        initial_work_confirmed_at: ts,
-      });
-      deps.repo.appendEvent({
-        session_id: id,
-        ts,
-        kind: "title_renamed",
-        payload: { text: title, reason: "initial_work_selected" },
-      });
-      eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts });
-
-      // 開発対象が確定したら、 残タスク取得 → 一覧提示 → 実行可否の問い合わせ を
-      // session AI に促す指示を text inject する。 回答経路 (Discord/Slack) に依らず
-      // 同じ流れに揃え、 「Discord は無反応 / Slack は勝手に着手」 の挙動割れを解消する。
-      // question.answered 由来の picker キーストローク fallback が先に pty へ届くので、
-      // 少し遅延させて空プロンプトに指示が綺麗に入るようにする (question.posted と同じ手当て)。
-      const injectText = buildInitialWorkInjectText(initialTarget);
-      deps.repo.appendEvent({
-        session_id: id,
-        ts,
-        kind: "inject",
-        payload: { text: injectText, source: INITIAL_WORK_INJECT_SOURCE },
-      });
-      setTimeout(() => {
-        eventBus.emit({
-          type: "session.inject",
-          target_session_id: id,
-          text: injectText,
-          source: INITIAL_WORK_INJECT_SOURCE,
-          ts: nowSec(),
-        });
-      }, 800).unref?.();
-    }
+    // 旧「起動時ブランチ選択」の回答処理は廃止 (起動フローはゴール起点に刷新)。
+    // 通常の AskUserQuestion 回答として answer_text を返すだけ。
     return c.json({ ok: true, answer_text: answerText });
   });
 

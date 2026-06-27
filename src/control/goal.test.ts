@@ -8,6 +8,8 @@ import {
   formatGoalBadge,
   goalDrivesAutoContinue,
   goalRequiresStepConfirm,
+  buildGoalStartInjectText,
+  GOAL_START_INJECT_SOURCE,
   DEFAULT_GOAL,
 } from "./goal.js";
 
@@ -66,6 +68,26 @@ describe("describeGoal / formatGoalBadge", () => {
     expect(describeGoal({ mode: "scoped", text: "月内 #441" })).toBe("範囲限定: 月内 #441");
     expect(describeGoal({ mode: "watch" })).toBe("様子見 (確認しながら)");
     expect(formatGoalBadge({ mode: "complete" })).toBe("🎯 完成まで実装");
+  });
+});
+
+describe("buildGoalStartInjectText", () => {
+  it("制御 source (人間injectでない)", () => {
+    expect(GOAL_START_INJECT_SOURCE).toBe("auto:goal-start");
+    expect(/^(discord|slack):/.test(GOAL_START_INJECT_SOURCE)).toBe(false);
+  });
+  it("ゴールを提示し、スコープは最初の指示で確定・不明時のみ確認、と伝える", () => {
+    const t = buildGoalStartInjectText({ mode: "complete" });
+    expect(t).toContain("完成まで実装");
+    expect(t).toContain("/co-goal");
+    expect(t).toContain("最初の指示");
+    expect(t).toContain("自走");
+  });
+  it("watch は自走しない旨を伝える", () => {
+    expect(buildGoalStartInjectText({ mode: "watch" })).toContain("自走はしない");
+  });
+  it("scoped は範囲超過を確認する旨", () => {
+    expect(buildGoalStartInjectText({ mode: "scoped", text: "#441" })).toContain("範囲を超える");
   });
 });
 

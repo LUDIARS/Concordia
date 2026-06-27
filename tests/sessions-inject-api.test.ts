@@ -85,15 +85,7 @@ describe("sessions API — inject / title / title-suggestion", () => {
     expect(r.status).toBe(400);
   });
 
-  it("初期ワーク選択の回答で残タスク確認を促す session.inject を流す", async () => {
-    const create = await app.request("/v1/sessions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/repos/Anatomia", host: "h" }),
-    });
-    const created = await create.json() as any;
-    const questionId = created.initial_work.question_id as number;
-
+  it("起動時にゴール起点の session.inject を遅延 emit する (旧branch picker廃止)", async () => {
     const { eventBus } = await import("../src/events.js");
     const captured: any[] = [];
     const unsub = eventBus.subscribe((ev) => {
@@ -101,19 +93,19 @@ describe("sessions API — inject / title / title-suggestion", () => {
     });
     vi.useFakeTimers();
     try {
-      const r = await app.request("/v1/sessions/iw/answer-question", {
+      const r = await app.request("/v1/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question_id: questionId, other_text: "Anatomia: dev" }),
+        body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/repos/Anatomia", host: "h" }),
       });
       expect(r.status).toBe(200);
-      // 指示 inject は picker キーストローク fallback の後に届くよう遅延 emit する
+      // 起点 inject は picker キーストローク fallback の後に届くよう遅延 emit する
       expect(captured).toHaveLength(0);
-      vi.advanceTimersByTime(900);
+      vi.advanceTimersByTime(600);
       expect(captured).toHaveLength(1);
-      expect(captured[0].source).toBe("auto:initial-work");
-      expect(captured[0].text).toContain("残タスク");
-      expect(captured[0].text).toContain("AskUserQuestion");
+      expect(captured[0].source).toBe("auto:goal-start");
+      expect(captured[0].text).toContain("完成まで実装");
+      expect(captured[0].text).toContain("/co-goal");
     } finally {
       vi.useRealTimers();
       unsub();
@@ -124,7 +116,7 @@ describe("sessions API — inject / title / title-suggestion", () => {
     const injectEv = detail.events.find((e: any) => e.kind === "inject");
     expect(injectEv).toBeTruthy();
     const payload = typeof injectEv.payload === "string" ? JSON.parse(injectEv.payload) : injectEv.payload;
-    expect(payload.source).toBe("auto:initial-work");
+    expect(payload.source).toBe("auto:goal-start");
   });
 
   it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {

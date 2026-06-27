@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
-import { INITIAL_WORK_QUESTION } from "../src/control/initial-work.js";
 
 function buildTestApp() {
   return makeTestApp();
@@ -11,7 +10,7 @@ describe("sessions API — pending-question / discord-channels", () => {
   beforeEach(() => { env = buildTestApp(); });
 
   describe("pending-question / answer-question", () => {
-    it("POST /v1/sessions creates initial branch/development target question", async () => {
+    it("POST /v1/sessions は branch picker でなく既定ゴール + goal-start inject を返す/積む", async () => {
       const r = await env.app.request("/v1/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -19,34 +18,34 @@ describe("sessions API — pending-question / discord-channels", () => {
       });
       expect(r.status).toBe(200);
       const j = await r.json() as any;
-      expect(j.initial_work.question).toBe(INITIAL_WORK_QUESTION);
-      expect(j.initial_work.options[0].label).toBe("Concordia: main");
-      const row = env.pendingQuestions.findById(j.initial_work.question_id);
-      expect(row?.question).toBe(INITIAL_WORK_QUESTION);
+      // 旧 initial_work picker は廃止、 代わりに既定ゴール (complete) を返す。
+      expect(j.initial_work).toBeUndefined();
+      expect(j.goal).toEqual({ mode: "complete" });
+      const detail = await (await env.app.request("/v1/sessions/iw")).json() as any;
+      const goalStart = detail.events.find(
+        (e: any) => e.kind === "inject" && e.payload?.source === "auto:goal-start",
+      );
+      expect(goalStart).toBeTruthy();
+      expect(goalStart.payload.text).toContain("完成まで実装");
     });
 
-    it("answering initial work question updates branch, metadata, and title", async () => {
-      const start = await env.app.request("/v1/sessions", {
+    it("POST/GET /goal でゴールを変更・取得できる (metadata に保存)", async () => {
+      await env.app.request("/v1/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "iw2", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
+        body: JSON.stringify({ id: "g1", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
       });
-      const sj = await start.json() as any;
-      const r = await env.app.request("/v1/sessions/iw2/answer-question", {
+      const set = await env.app.request("/v1/sessions/g1/goal", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ question_id: sj.initial_work.question_id, other_text: "Concordia: feat/initial-work" }),
+        body: JSON.stringify({ mode: "scoped", text: "月内目標 #441" }),
       });
-      expect(r.status).toBe(200);
-      const detail = await (await env.app.request("/v1/sessions/iw2")).json() as any;
-      expect(detail.session.branch).toBe("feat/initial-work");
-      expect(detail.session.current_task).toBe("feat/initial-work(Concordia)開発中");
-      expect(detail.session.metadata.initial_work_target).toMatchObject({
-        repo: "Concordia",
-        branch: "feat/initial-work",
-      });
-      const titleEvent = detail.events.find((e: any) => e.kind === "title_renamed");
-      expect(titleEvent.payload.text).toBe("feat/initial-work(Concordia)開発中");
+      expect(set.status).toBe(200);
+      expect((await set.json() as any).goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
+      const got = await (await env.app.request("/v1/sessions/g1/goal")).json() as any;
+      expect(got.goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
+      const detail = await (await env.app.request("/v1/sessions/g1")).json() as any;
+      expect(detail.session.metadata.goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
     });
 
     it("POST pending-question stores row + emits question.posted", async () => {

@@ -117,3 +117,34 @@ export function goalDrivesAutoContinue(mode: GoalMode): boolean {
 export function goalRequiresStepConfirm(mode: GoalMode): boolean {
   return mode === "watch";
 }
+
+/**
+ * 起動時に session AI へ与える指示文の source。 `discord:`/`slack:` で始まらないので
+ * participants ミラー対象から外れ、 制御 inject 扱いになる (起因者前置もされない)。
+ */
+export const GOAL_START_INJECT_SOURCE = "auto:goal-start";
+
+/**
+ * 起動直後に session AI へ与える「ゴール起点」指示文を組み立てる純関数。
+ *
+ * 旧フロー (起動時にブランチ/開発コードを picker で選ばせる) を廃し、 代わりに
+ * このセッションのゴールを提示する。 スコープ (対象リポ/ブランチ/作業範囲) は
+ * 起動時に固定せず、 ユーザの最初の指示で確定する。 最初の指示でスコープが
+ * 判断できない場合のみ 1 度だけ自由文で確認する (AskUserQuestion は使わない)。
+ */
+export function buildGoalStartInjectText(goal: Goal): string {
+  const lines = [
+    `このセッションのゴールは「${describeGoal(goal)}」です (変更は /co-goal)。`,
+    `起動時に作業対象を選ばせる旧フローは廃止しました。 対象リポ/ブランチ/作業範囲は`,
+    `ユーザの最初の指示で確定します。 最初の指示でスコープが判断できない場合のみ、`,
+    `1 度だけ自由文で確認してください (AskUserQuestion ピッカーは使わない)。`,
+  ];
+  if (goal.mode === "complete") {
+    lines.push(`ゴールが達成 (完成) するまで、 対応可能な残作業を自走で進めてください。`);
+  } else if (goal.mode === "scoped") {
+    lines.push(`ゴールの範囲内に限って自走し、 範囲を超える作業は着手前に確認してください。`);
+  } else {
+    lines.push(`様子見モードです。 各ステップの前にユーザの確認を取り、 自走はしないでください。`);
+  }
+  return lines.join("\n");
+}

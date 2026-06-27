@@ -1,5 +1,6 @@
 import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
 import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
+import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -91,6 +92,9 @@ export async function upsertSessionStatusCard(
   // コンテキスト占有の概算 (provider ログから)。取れなければ null → カードは省く。
   const ctx = estimateContextTokens(sessionRow);
 
+  // 当セッションの想定コスト合算 (等価 API 価格)。取れなければ null → カードは省く。
+  const cost = estimateSessionCostUsd(sessionRow);
+
   const embed = buildSessionStatusEmbed({
     sessionId,
     provider: sessionRow.provider,
@@ -108,6 +112,7 @@ export async function upsertSessionStatusCard(
     cache,
     contextBadge: formatContextBadge(ctx),
     contextPct: ctx?.pct ?? null,
+    costBadge: formatCostBadge(cost),
   });
 
   const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
@@ -170,6 +175,8 @@ export interface StatusEmbedInput {
   contextBadge?: string;
   /** コンテキスト占有率 (0..1)。 null=推定不可。 閾値色付け用。 */
   contextPct?: number | null;
+  /** 想定コスト合算バッジ (💰 ~$1.23)。 推定不可は空。 */
+  costBadge?: string;
 }
 
 /**
@@ -198,10 +205,14 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
-  // コンテキスト占有の概算 (🧠 ctx ~62% (124k))。閾値超えは ⚠️ を添えて圧縮の目安に。
+  // コンテキスト占有 (🧠 ctx ~62% (124k)) と想定コスト合算 (💰 ~$1.23) を 1 行に。
+  // コンテキスト閾値超えは ⚠️ を添えて圧縮の目安に。
+  const usageBadges: string[] = [];
   if (i.contextBadge) {
-    descParts.push(i.contextPct != null && i.contextPct >= 0.75 ? `⚠️ ${i.contextBadge}` : i.contextBadge);
+    usageBadges.push(i.contextPct != null && i.contextPct >= 0.75 ? `⚠️ ${i.contextBadge}` : i.contextBadge);
   }
+  if (i.costBadge) usageBadges.push(i.costBadge);
+  if (usageBadges.length) descParts.push(usageBadges.join(" · "));
 
   const embed = new EmbedBuilder()
     .setColor(statusColor(i.status, i.ageSec))

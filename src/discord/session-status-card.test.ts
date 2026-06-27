@@ -66,6 +66,24 @@ describe("buildSessionStatusEmbed", () => {
     expect(field(withPending, "タスク")!.value).toContain("no open tasks");
   });
 
+  it("コンテキスト占有と想定コストを description に 1 行で出す", () => {
+    const e = buildSessionStatusEmbed(base({
+      contextBadge: "🧠 ctx ~62% (124k)",
+      contextPct: 0.62,
+      costBadge: "💰 ~$1.23",
+    }));
+    expect(e.data.description).toContain("🧠 ctx ~62% (124k) · 💰 ~$1.23");
+    // 閾値超え (>=0.75) は ⚠️ を添える
+    const warn = buildSessionStatusEmbed(base({
+      contextBadge: "🧠 ctx ~80% (160k)",
+      contextPct: 0.8,
+      costBadge: "💰 ~$2.50",
+    }));
+    expect(warn.data.description).toContain("⚠️ 🧠 ctx ~80% (160k) · 💰 ~$2.50");
+    // どちらも無ければ usage 行は出ない
+    expect(buildSessionStatusEmbed(base()).data.description).not.toContain("💰");
+  });
+
   it("Anatomia キャッシュ field は cache があるときだけ出る (assumed は ~ 付き)", () => {
     const none = buildSessionStatusEmbed(base());
     expect(field(none, "Anatomia")).toBeUndefined();

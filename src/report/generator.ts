@@ -11,6 +11,11 @@
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
+import {
+  summarizeSessionUsage,
+  renderUsageMarkdown,
+  type SessionUsageSummary,
+} from "../cost/session-cost.js";
 
 const log = createChildLogger("report");
 
@@ -78,7 +83,11 @@ export function aggregateBullets(
   };
 }
 
-export function templateSummary(session: SessionRow, b: ReportBullets): string {
+export function templateSummary(
+  session: SessionRow,
+  b: ReportBullets,
+  usage?: SessionUsageSummary,
+): string {
   const lines: string[] = [];
   lines.push(`# Session ${session.id}`);
   lines.push("");
@@ -107,6 +116,13 @@ export function templateSummary(session: SessionRow, b: ReportBullets): string {
     lines.push(`- in_progress: ${b.todos.in_progress}`);
     lines.push(`- pending: ${b.todos.pending}`);
   }
+  if (usage) {
+    const usageLines = renderUsageMarkdown(usage);
+    if (usageLines.length) {
+      lines.push("");
+      lines.push(...usageLines);
+    }
+  }
   return lines.join("\n");
 }
 
@@ -115,13 +131,16 @@ export async function generateReport(
   events: SessionEventRow[],
 ): Promise<SessionReportRow> {
   const bullets = aggregateBullets(session, events);
+  // 想定コスト + コンテキスト占有を 1 回だけ概算し、 業務報告セクションに載せる
+  // (provider ログ読み。 取れなければ各フィールドが null になり該当行を省く)。
+  const usage = summarizeSessionUsage(session);
 
   // 優先: claude CLI (claude -p) で narrative
-  let summary_md: string | null = await narrativeViaCli(session, events, bullets);
+  let summary_md: string | null = await narrativeViaCli(session, events, bullets, usage);
 
   // fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
   if (!summary_md) {
-    summary_md = fallbackThreeSection(session, bullets);
+    summary_md = fallbackThreeSection(session, bullets, usage);
   }
 
   return {
@@ -139,7 +158,11 @@ export async function generateReport(
  * 「生成できなかった」 と明記した placeholder を入れて 3 セクション構造だけ保つ.
  * extractMonologue が `\n---` 前で切るので poem セクションは独白として #報告 channel に流れる.
  */
-function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): string {
+function fallbackThreeSection(
+  session: SessionRow,
+  bullets: ReportBullets,
+  usage?: SessionUsageSummary,
+): string {
   const role = parseMetadata(session.metadata).role_label ?? "雑用係";
   const dur = formatDuration(bullets.duration_sec);
   const poemPlaceholder = [
@@ -148,7 +171,7 @@ function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): stri
   ].join("\n");
   const summaryPlaceholder =
     "narrative 生成 (claude CLI) が失敗したため、 構造化集計のみ.";
-  const middle = templateSummary(session, bullets);
+  const middle = templateSummary(session, bullets, usage);
   return [
     poemPlaceholder,
     "",
@@ -168,6 +191,7 @@ async function narrativeViaCli(
   session: SessionRow,
   events: SessionEventRow[],
   bullets: ReportBullets,
+  usage?: SessionUsageSummary,
 ): Promise<string | null> {
   if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return null;
 
@@ -240,7 +264,7 @@ async function narrativeViaCli(
   }
 
   // 3 セクションを deterministic に結合: poem + 既存テンプレート + summary
-  const middle = templateSummary(session, bullets);
+  const middle = templateSummary(session, bullets, usage);
   return [
     json.poem.trim(),
     "",

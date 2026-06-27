@@ -107,11 +107,23 @@ describe("shouldNudge", () => {
 });
 
 describe("buildNudgeText", () => {
-  it("残作業続行 / ask 停止 / session-end の 3 指示を含む", () => {
+  it("既定(complete)は残作業続行 / ask 停止 / session-end の 3 指示を含む", () => {
     const t = buildNudgeText("claude-code");
     expect(t).toContain("残作業がなくなるまで実装");
     expect(t).toContain("ask");
     expect(t).toContain("/session-end");
+  });
+  it("scoped はゴール範囲内に限定し範囲超過は確認", () => {
+    const t = buildNudgeText("claude-code", { mode: "scoped", text: "月内 #441" });
+    expect(t).toContain("月内 #441");
+    expect(t).toContain("範囲を超える");
+    expect(t).not.toContain("残作業がなくなるまで実装");
+  });
+  it("watch は自走せず確認のみ", () => {
+    const t = buildNudgeText("claude-code", { mode: "watch" });
+    expect(t).toContain("自走しない");
+    expect(t).not.toContain("残作業がなくなるまで実装");
+    expect(t).not.toContain("ask マーカー");
   });
 });
 
@@ -148,6 +160,22 @@ describe("startStalledSessionNudge.runOnce", () => {
     const ev = injects()[0];
     expect(ev.target_session_id).toBe("idle-1");
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
+  });
+
+  it("watch ゴールの session は自走せず確認の nudge を流す", () => {
+    const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([s]),
+      now: () => NOW,
+      transcriptMtimeMs: () => NOW - 3_700_000,
+      readTranscriptTail: () => jsonl({ role: "assistant", content: "完了。" }),
+      intervalMs: 1_000_000,
+    });
+    expect(h.runOnce()).toEqual(["watch-1"]);
+    h.stop();
+    const ev = injects()[0];
+    expect(ev.text).toContain("自走しない");
+    expect(ev.text).not.toContain("残作業がなくなるまで実装");
   });
 
   it("idle が閾値未満なら nudge しない", () => {

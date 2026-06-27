@@ -29,6 +29,7 @@ import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { readGoalFromMetadata, describeGoal, DEFAULT_GOAL, type Goal } from "./goal.js";
 
 const log = createChildLogger("stall-nudge");
 
@@ -165,12 +166,31 @@ function extractAllText(msg: Record<string, unknown>): string {
   return "";
 }
 
-/** provider に応じた nudge 本文 (全 provider 共通の自然言語)。 */
-export function buildNudgeText(_provider: string): string {
+/**
+ * nudge 本文。 セッションのゴールで挙動を出し分ける (③ 残作業自走):
+ *  - complete: 残作業がなくなるまで自走で続行。
+ *  - scoped: ゴール範囲内の残作業のみ進め、 範囲超過は ask で確認。
+ *  - watch: 自走しない。 残作業を一覧提示して進めてよいか確認する。
+ * いずれも人間判断が要る点では ask で停止する。
+ */
+export function buildNudgeText(_provider: string, goal: Goal = DEFAULT_GOAL): string {
+  if (goal.mode === "watch") {
+    return [
+      "[自動確認] 1 時間ほど応答が止まっているようです。",
+      "",
+      "- このセッションは様子見モードです。 残作業を一覧で提示し、 どれを進めてよいか",
+      "  ユーザに確認してください (**自走しない**)。",
+      "- 残作業が無ければ `/session-end` で終了してください。",
+    ].join("\n");
+  }
+  const scopeLine =
+    goal.mode === "scoped" && goal.text
+      ? `- ゴール「${goal.text}」の範囲内の残作業を進め、 範囲を超える作業は ask で確認してください。`
+      : "- 進行中の作業・Todo に未完があれば、 **残作業がなくなるまで実装を続けて**ください。";
   return [
-    "[自動確認] 1 時間ほど応答が止まっているようです。 残作業を確認してください。",
+    `[自動確認] 1 時間ほど応答が止まっているようです。 ゴール「${describeGoal(goal)}」に沿って残作業を確認してください。`,
     "",
-    "- 進行中の作業・Todo に未完があれば、 **残作業がなくなるまで実装を続けて**ください。",
+    scopeLine,
     "- 人間の判断が必要な点 (方針が割れる / 破壊的操作 / 本番影響不明 / 仕様が曖昧 等) が",
     "  出たら、 決め打ちせず ask マーカーで質問して **進行を止めて**ください。",
     "- 残作業が無ければ `/session-end` で終了してください。",
@@ -251,7 +271,7 @@ export function startStalledSessionNudge(
       eventBus.emit({
         type: "session.inject",
         target_session_id: s.id,
-        text: buildNudgeText(s.provider),
+        text: buildNudgeText(s.provider, readGoalFromMetadata(s.metadata)),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });

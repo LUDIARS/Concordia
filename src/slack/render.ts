@@ -243,47 +243,9 @@ export function buildSessionBotUsername(state: SessionCardState): string {
   return emoji ? `${emoji} ${name}` : name;
 }
 
-// ─── マークダウンテーブル → Slack mrkdwn テキスト変換 ─────────────────────────
-// AI 返信に含まれる `| col | col |` テーブルを Slack mrkdwn 形式で書き換える。
-// Block Kit (blocks パラメータ) は使わず通常の text フィールドに収める。
-// ヘッダ行を *太字* に変換し、セパレータ行（`|---|`）を除去して読みやすくする。
-
-function extractTableCells(line: string): string[] {
-  return line.trim().split("|").slice(1, -1).map((c) => c.trim());
-}
-
-/**
- * テキスト内のマークダウンテーブルを Slack mrkdwn 形式に書き換える。
- * - ヘッダ行 → `*col1* | *col2*`（太字）
- * - セパレータ行（`|---|`）→ 除去
- * - データ行 → `val1 | val2`
- * - カラム数の増加に対応（列数を問わず同じ処理）
- * テーブル外のテキストはそのまま通す。
- */
-export function reformatMarkdownTables(text: string): string {
-  const lines = (text ?? "").split("\n");
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const cur = lines[i].trim();
-    const nxt = lines[i + 1]?.trim() ?? "";
-    if (cur.startsWith("|") && cur.endsWith("|") && /^\|[\s\-|:]+\|$/.test(nxt)) {
-      // ヘッダ行 → 各セルを太字に
-      out.push(extractTableCells(cur).map((c) => `*${c}*`).join(" | "));
-      i++; // header
-      i++; // separator → skip
-      // データ行
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        out.push(extractTableCells(lines[i]).join(" | "));
-        i++;
-      }
-    } else {
-      out.push(lines[i]);
-      i++;
-    }
-  }
-  return out.join("\n");
-}
+// マークダウンテーブルの整形は shared/message-blocks.ts の wrapTablesInCode
+// (``` コードフェンスで囲んで等幅整列) に一本化した。 旧 reformatMarkdownTables
+// (太字パイプ変換) は桁ズレが残るため撤去。
 
 const ANSWER_ACTION_PREFIX = "cc_answer";
 const OTHER_ACTION_PREFIX = "cc_answer_other";

@@ -23,8 +23,8 @@ import { ENTER_KEY_TEXT } from "../control/enter-key.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
+import { wrapTablesInCode } from "../shared/message-blocks.js";
 import {
-  reformatMarkdownTables,
   buildQuestionBlocks,
   buildSessionBotUsername,
   extractRelayableFrame,
@@ -243,7 +243,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       return null;
     }
     try {
-      const sanitized = sanitizeSlackMentions(truncateForSlack(reformatMarkdownTables(text), 12000));
+      // テーブルを ``` で囲んで桁ズレを防ぐ (Slack も等幅コードブロックで整列)。
+      const sanitized = sanitizeSlackMentions(truncateForSlack(wrapTablesInCode(text), 12000));
       const r = await web.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,

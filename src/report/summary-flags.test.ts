@@ -4,8 +4,28 @@ import {
   mergeFlags,
   hasFlags,
   renderSummaryFlagsMarkdown,
+  harnessDenyToBlocked,
   EMPTY_FLAGS,
 } from "./summary-flags.js";
+import type { HarnessAuditRow } from "../db/harness-audit-repo.js";
+
+function denyRow(over: Partial<HarnessAuditRow> = {}): HarnessAuditRow {
+  return {
+    id: "1", session_id: "s", project: "", hook: "", event: "block", tool: "Bash", action: "rm -rf",
+    repo: "", rule: "RULE_CODE§7", decision: "deny", reason: "破壊的操作は要確認", detail_json: "{}",
+    ms: 0, created_at: 0, ...over,
+  };
+}
+
+describe("harnessDenyToBlocked", () => {
+  it("deny 行を tool+action — 理由 に整形し重複排除", () => {
+    const out = harnessDenyToBlocked([denyRow(), denyRow(), denyRow({ tool: "Edit", action: "x", reason: "", rule: "max-repos" })]);
+    expect(out).toEqual(["Bash rm -rf — 破壊的操作は要確認", "Edit x — max-repos"]);
+  });
+  it("deny 以外は無視", () => {
+    expect(harnessDenyToBlocked([denyRow({ decision: "allow" }), denyRow({ decision: "warn" })])).toEqual([]);
+  });
+});
 
 describe("parseSummaryFlags", () => {
   it("素の JSON を解釈", () => {

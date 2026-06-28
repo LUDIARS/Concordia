@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
@@ -188,6 +189,8 @@ export interface SessionsApiDeps {
   discordConfig: DiscordConfigRepo;
   participants: ParticipantsRepo;
   resolveWorkspaceRoots?: () => string[];
+  /** session-end レポートのブロック検出に決定論ソースを併用する (任意)。 */
+  harnessAudit?: HarnessAuditRepo;
 }
 
 /** discord_config に保存される meta channel の key (resolveMetaKind と揃える). */
@@ -1109,6 +1112,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
+        harnessAudit: deps.harnessAudit,
       },
       ended,
     );

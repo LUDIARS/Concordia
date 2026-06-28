@@ -13,6 +13,7 @@
  */
 
 import type { SessionEventRow, SessionRow } from "../shared/types.js";
+import type { HarnessAuditRow } from "../db/harness-audit-repo.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -77,6 +78,27 @@ export function mergeFlags(...all: SummaryFlags[]): SummaryFlags {
 /** 何か検出されているか。 */
 export function hasFlags(f: SummaryFlags): boolean {
   return f.blocked.length > 0 || f.needsHuman.length > 0;
+}
+
+/**
+ * ハーネス監査の deny 行を blocked 文字列へ変換する (決定論ソース)。
+ * Sonnet 検出と併用してブロック検出を確実にする。 重複は排除。
+ * 例: "Bash rm -rf — RULE_CODE§7: 破壊的操作は要確認"。
+ */
+export function harnessDenyToBlocked(rows: HarnessAuditRow[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of rows) {
+    if (r.decision !== "deny") continue;
+    const what = [r.tool, r.action].map((s) => (s ?? "").trim()).filter(Boolean).join(" ");
+    const why = r.reason?.trim() || r.rule?.trim() || "ハーネスでブロック";
+    const s = (what ? `${what} — ${why}` : why).slice(0, 500);
+    const key = s.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
 }
 
 /**

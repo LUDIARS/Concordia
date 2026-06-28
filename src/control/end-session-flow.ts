@@ -29,6 +29,7 @@ import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
 import { lastHumanRequester } from "./requester.js";
 import type { SummaryFlags } from "../report/summary-flags.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
@@ -65,6 +66,8 @@ export interface EndSessionFlowDeps {
   dispatcher: Dispatcher;
   personas: PersonasRepo;
   config: ConcordiaConfig;
+  /** あればブロック検出に決定論ソース (harness 監査 deny 行) を併用。 */
+  harnessAudit?: HarnessAuditRepo;
 }
 
 export interface SessionEndFlowResult {
@@ -101,7 +104,7 @@ export async function runSessionEndFlow(
   let report: SessionReportRow | null = null;
   try {
     const events = deps.repo.allEvents(id);
-    report = await generateReport(endedSession, events);
+    report = await generateReport(endedSession, events, { harnessAudit: deps.harnessAudit });
     deps.repo.upsertReport(report);
   } catch (err) {
     log.warn(

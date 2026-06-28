@@ -177,6 +177,7 @@ export function buildApp(deps: AppDeps): Hono {
       discordConfig: deps.discordConfig,
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      harnessAudit: deps.harnessAudit,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
@@ -407,6 +408,7 @@ export function buildApp(deps: AppDeps): Hono {
         dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
+        harnessAudit: deps.harnessAudit,
       },
       ended,
     );

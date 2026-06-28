@@ -9,6 +9,7 @@
  */
 
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
@@ -16,7 +17,19 @@ import {
   renderUsageMarkdown,
   type SessionUsageSummary,
 } from "../cost/session-cost.js";
-import { detectSummaryFlags, renderSummaryFlagsMarkdown, hasFlags } from "./summary-flags.js";
+import {
+  detectSummaryFlags,
+  renderSummaryFlagsMarkdown,
+  harnessDenyToBlocked,
+  mergeFlags,
+  hasFlags,
+  EMPTY_FLAGS,
+} from "./summary-flags.js";
+
+/** generateReport の任意依存。 harnessAudit があればブロック検出に決定論ソースを併用。 */
+export interface GenerateReportOptions {
+  harnessAudit?: HarnessAuditRepo;
+}
 
 const log = createChildLogger("report");
 
@@ -130,6 +143,7 @@ export function templateSummary(
 export async function generateReport(
   session: SessionRow,
   events: SessionEventRow[],
+  opts: GenerateReportOptions = {},
 ): Promise<SessionReportRow> {
   const bullets = aggregateBullets(session, events);
   // 想定コスト + コンテキスト占有を 1 回だけ概算し、 業務報告セクションに載せる
@@ -144,9 +158,16 @@ export async function generateReport(
     summary_md = fallbackThreeSection(session, bullets, usage);
   }
 
-  // ④ サマリー検出: ハーネスブロック / 人間確認事項を Sonnet で抽出し別建てで載せる。
-  // needsHuman 通知 (起因者メンション) は呼び出し側 (end-session-flow) が metadata から拾う。
-  const flags = await detectSummaryFlags(session, events);
+  // ④ サマリー検出: ハーネスブロック / 人間確認事項を別建てで載せる。
+  //  - 決定論ソース: harness_session_audit の deny 行 (確実なブロック証跡)。
+  //  - Sonnet narrative 検出: transcript から拾うブロック/人間確認。
+  // 両者を merge・重複排除する。 needsHuman 通知 (起因者メンション) は呼び出し側が拾う。
+  const denyRows = opts.harnessAudit?.recent({ session_id: session.id, decision: "deny", limit: 50 }) ?? [];
+  const deterministic = denyRows.length
+    ? { blocked: harnessDenyToBlocked(denyRows), needsHuman: [] as string[] }
+    : EMPTY_FLAGS;
+  const sonnet = await detectSummaryFlags(session, events);
+  const flags = mergeFlags(deterministic, sonnet);
   const flagLines = renderSummaryFlagsMarkdown(flags);
   if (flagLines.length) summary_md = `${summary_md}\n\n${flagLines.join("\n")}`;
 

@@ -6,7 +6,8 @@ import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
 import { ENTER_KEY_TEXT } from "../control/enter-key.js";
-import { classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { maybeSpawnFromReply } from "./reply-spawn.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
@@ -123,9 +124,9 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
   if (deps.workflow) {
-    if (classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
+    if (getRwf().classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
       if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
-    } else if (isStandaloneEmoji(text)) {
+    } else if (getRwf().isStandaloneEmoji(text)) {
       deps.log.info(`ingress: standalone emoji "${text.trim()}" has no workflow action → reject (prompt not forwarded)`);
       return;
     }
@@ -345,7 +346,7 @@ async function tryEmojiWorkflow(
       (action) => {
         // 単発絵文字メッセージ自身へ「受付」リプライを返して発火を可視化する。
         void msg
-          .reply({ content: reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+          .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
           .catch((e) => deps.log.warn(`ingress: emoji ack reply failed: ${(e as Error).message}`));
       },
     )

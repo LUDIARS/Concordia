@@ -19,7 +19,8 @@ import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } 
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import { ReactionWorkflowRunner, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { type WorkflowAction } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { runClaude } from "../rules/claude-runner.js";
 import {
   onSessionRegistered,
@@ -161,7 +162,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
 
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
-  const reactionWorkflow = new ReactionWorkflowRunner({
+  const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: runClaude,
     emitInject: (sessionId, text, source) =>
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),

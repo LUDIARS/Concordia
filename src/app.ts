@@ -47,7 +47,7 @@ import type {
 import type { AdminState } from "./admin/state.js";
 import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import type { CostBudgetStatus } from "./cost/usage-tracker.js";
-import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
+import { getRwf } from "./platform/reaction-workflow-loader.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
@@ -594,18 +594,19 @@ export function buildApp(deps: AppDeps): Hono {
 
   // 絵文字→アクション 写像: 既定 + ユーザ上書き。 上書きは schema_meta 永続化で即時反映。
   app.get("/v1/admin/reaction-mappings", (c) => {
-    const defaults = defaultReactionEmojiMap();
+    const rwf = getRwf();
+    const defaults = rwf.defaultReactionEmojiMap();
     const overrides = deps.adminState.getReactionEmojiOverrides();
     // action_help: 各カスタムコマンド (ワークフロー) が何をするかのヘルプ (GUI 表示用)。
-    return c.json({ defaults, overrides, actions: WORKFLOW_ACTIONS, action_help: WORKFLOW_ACTION_HELP });
+    return c.json({ defaults, overrides, actions: rwf.WORKFLOW_ACTIONS, action_help: rwf.WORKFLOW_ACTION_HELP });
   });
   app.put("/v1/admin/reaction-mappings", async (c) => {
     const body = await c.req.json().catch(() => null);
     const emoji = typeof body?.emoji === "string" ? body.emoji.trim() : "";
     const action = typeof body?.action === "string" ? body.action : "";
     if (!emoji) return c.json({ error: "body.emoji (string) required" }, 400);
-    if (!isWorkflowAction(action)) {
-      return c.json({ error: `body.action must be one of ${WORKFLOW_ACTIONS.join(", ")}` }, 400);
+    if (!getRwf().isWorkflowAction(action)) {
+      return c.json({ error: `body.action must be one of ${getRwf().WORKFLOW_ACTIONS.join(", ")}` }, 400);
     }
     deps.adminState.setReactionEmojiOverride(emoji, action);
     return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });

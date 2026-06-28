@@ -72,6 +72,7 @@ import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "./discord/bot.js";
 import { startDiscordBot } from "./discord/bot.js";
+import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { SlackBotDeps } from "./slack/bot.js";
 import { startSlackBot } from "./slack/bot.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
@@ -601,6 +602,10 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     "Concordia listening",
   );
+
+  // RWF (Reaction-WorkFlow) プラグインを bots 起動前に読み込む。 外部プラグイン
+  // (Concordia-RWF) が在れば動的 import、 無ければ同梱エンジンにフォールバック。
+  await initReactionWorkflow(workspaceRootDefault, log);
 
   // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
   // spec/discord-ui.md

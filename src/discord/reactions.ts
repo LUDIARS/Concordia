@@ -26,10 +26,10 @@ import {
   type DiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import {
-  reactionAckText,
   type ReactionWorkflowInput,
   type WorkflowAction,
 } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
 
 /** session の作業ディレクトリ / 状態を引く最小インタフェース (SessionsRepo の部分)。 */
 export interface SessionLookup {
@@ -102,7 +102,7 @@ export async function handleReactionAdd(
         { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
         (action) => {
           void message
-            .reply({ content: reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+            .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
             .catch((e) => deps.log.info(`reactions: ack reply failed: ${(e as Error).message}`));
         },
       )

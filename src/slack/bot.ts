@@ -48,7 +48,8 @@ import {
   PROMPT_BLOCK,
   type WorkdirOption,
 } from "./delegation-modal.js";
-import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { type WorkflowAction } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
@@ -131,7 +132,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
   // (設定 GUI トグルを bot 再起動なしで反映)。
-  const reactionWorkflow = new ReactionWorkflowRunner({
+  const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: runClaude,
     emitInject: (sessionId, text, source) =>
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
@@ -513,7 +514,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
       // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
       const wfEmoji = slackEmojiTextToUnicode(text);
-      if (classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
+      if (getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
         let target: { id: number; text: string; author_label: string; session_id: string | null } | null = null;
@@ -551,7 +552,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
               },
               (action) => {
                 void web.chat
-                  .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: reactionAckText(action, wfEmoji) })
+                  .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: getRwf().reactionAckText(action, wfEmoji) })
                   .catch((e) => log.warn(`emoji workflow ack: ${(e as Error).message}`));
               },
             )
@@ -559,7 +560,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           return;
         }
         // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
-      } else if (isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
+      } else if (getRwf().isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
         // 単発絵文字 (unicode or :name:) だが該当アクション無し → 却下、 プロンプトも通さない
         // (Discord ingress と同じ挙動)。
         log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
@@ -841,7 +842,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         },
         (action) => {
           void web.chat
-            .postMessage({ channel: ch, thread_ts: ts, text: reactionAckText(action, emoji) })
+            .postMessage({ channel: ch, thread_ts: ts, text: getRwf().reactionAckText(action, emoji) })
             .catch((e) => log.warn(`reaction ack: ${(e as Error).message}`));
         },
       );

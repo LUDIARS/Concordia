@@ -296,12 +296,14 @@ describe("planWorkflow", () => {
 describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
   function makeRunner(over: Record<string, unknown> = {}) {
     const calls: { prompt: string; opts?: { cwd?: string; model?: string } }[] = [];
+    const injects: { sessionId: string; text: string; source: string }[] = [];
     const runHeadless = async (prompt: string, opts?: { cwd?: string; model?: string }) => {
       calls.push({ prompt, opts });
       return { ok: true, exit_code: 0, stdout: "", stderr: "", duration_ms: 1 };
     };
     const runner = new ReactionWorkflowRunner({
       runHeadless,
+      emitInject: (sessionId: string, text: string, source: string) => injects.push({ sessionId, text, source }),
       workspaceRoot: "E:/Document/Ars",
       memoriaPath: "E:/Document/Ars/Memoria",
       enabled: true,
@@ -309,7 +311,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       now: () => 1_000_000,
       ...over,
     });
-    return { runner, calls };
+    return { runner, calls, injects };
   }
 
   const baseInput: ReactionWorkflowInput = {

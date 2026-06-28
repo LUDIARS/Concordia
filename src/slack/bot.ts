@@ -133,6 +133,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // (設定 GUI トグルを bot 再起動なしで反映)。
   const reactionWorkflow = new ReactionWorkflowRunner({
     runHeadless: runClaude,
+    emitInject: (sessionId, text, source) =>
+      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),

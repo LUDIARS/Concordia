@@ -34,9 +34,28 @@
 
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
-import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
-import { eventBus } from "../events.js";
-import { ENTER_KEY_TEXT } from "../control/enter-key.js";
+
+// ─── プラグイン契約: Concordia 内部に依存しない自己完結エンジンにするための型 ─────
+// (ユーザカスタマイズ可能な別フォルダプラグインとして切り出すため、 eventBus /
+//  claude-runner / enter-key への直接 import を排し、 すべて deps 注入で受ける。)
+
+/** wrapped CLI で「Enter キー押下」を意味する文字 (CR)。 control/enter-key.ts と同値。 */
+const ENTER_KEY_TEXT = "\r";
+
+/** headless 実行 (runClaude 相当) のオプション。 engine が使うフィールドのみ。 */
+export interface RwfRunOptions {
+  model?: string;
+  cwd?: string;
+  dangerouslySkipPermissions?: boolean;
+}
+
+/** headless 実行の結果。 engine が参照するフィールドのみ。 */
+export interface RwfRunResult {
+  ok: boolean;
+  exit_code: number | null;
+  stderr: string;
+  duration_ms: number;
+}
 
 /**
  * カスタムワークフローエントリ。 add-as-workflow で登録した (絵文字 → プロンプト) ペア。
@@ -736,7 +755,12 @@ export function planWorkflow(
 
 export interface ReactionWorkflowDeps {
   /** headless 実行関数 (既定 runClaude)。 テストで差し替え可能。 */
-  runHeadless: (prompt: string, opts?: RunClaudeOptions) => Promise<ClaudeRunResult>;
+  runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
+  /**
+   * 対象セッションへ文字列を inject する (eventBus.emit("session.inject") 相当)。
+   * engine を Concordia 内部 (events) から切り離すため、 ホスト側が実装を注入する。
+   */
+  emitInject: (sessionId: string, text: string, source: string) => void;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
   workspaceRoot: string;
   /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
@@ -988,13 +1012,7 @@ export class ReactionWorkflowRunner {
       this.deps.log.warn(`reaction-workflow: ${action} inject skipped (no session_id)`);
       return;
     }
-    eventBus.emit({
-      type: "session.inject",
-      target_session_id: targetSessionId,
-      text,
-      source: "reaction-workflow",
-      ts: this.nowSec(),
-    });
+    this.deps.emitInject(targetSessionId, text, "reaction-workflow");
     this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId.slice(0, 8)}`);
   }
 

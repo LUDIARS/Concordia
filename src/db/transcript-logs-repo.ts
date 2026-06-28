@@ -100,6 +100,17 @@ export class TranscriptLogsRepo {
     }));
   }
 
+  /**
+   * Highest row id for a session (0 if none).
+   * compaction の elicit が inject 前の watermark を取り、 以後の frame だけ捕捉するのに使う.
+   */
+  maxId(session_id: string): number {
+    const row = this.db
+      .prepare(`SELECT MAX(id) AS m FROM transcript_logs WHERE session_id = ?`)
+      .get(session_id) as { m: number | null };
+    return row.m ?? 0;
+  }
+
   countBySession(session_id: string): number {
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM transcript_logs WHERE session_id = ?`)

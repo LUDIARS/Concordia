@@ -19,8 +19,24 @@ Claude Code / Codex のコンテキストは有限。 長いセッションは�
 
 ## 2. 引き継ぎ資料 (handoff)
 
-`buildHandoffPrompt()` が直近 transcript + current_task からタスク引き継ぎ用の要約を
-claude (既定 sonnet) に作らせる。 構成 (Markdown):
+handoff は **実作業を行った当のセッション自身に書かせる** (session-end 相当)。 切り離した
+Sonnet に transcript 抜粋を要約させると「計画段階の発言」しか材料が無く、 並行セッションが
+完了させた成果やリポ実状を知らないため「計画では PR-A だが実際は A〜D 完了済み」のような
+古い引き継ぎを生む。 当のセッションはフルコンテキストを持つのでこれを自分で解消できる。
+
+- `buildSessionEndHandoffPrompt(currentTask)` が「`/clear` 直前。 session-end 相当の振り返りを
+  行い、 **今の実状** (実際にマージ/完了した PR・現ブランチ/HEAD・残タスク・ブロック) を根拠に
+  引き継ぎ資料を Markdown で書け。 計画と実状が食い違えば実状を優先。 書き終えても `/clear` 等の
+  操作はするな (Concordia が続けて行う)」 というプロンプトを組む。
+- これをセッションへ inject し、 セッションが書いた地の文 (assistant text frame) を
+  `elicitHandoffFromSession()` が transcript_logs の since_id テールで捕捉する
+  (Lictor の transcript-tail → `POST /v1/sessions/:id/transcript-frame` → transcript_logs)。
+  inject 前の `transcriptLogs.maxId()` を watermark にし、 以後の assistant 地の文だけ拾う。
+  最初の地の文が出てから quiet (新規が途絶える) まで集約。 env で調整:
+  `CONCORDIA_COMPACTION_ELICIT_TIMEOUT_MS` (既定 120000) /
+  `…_ELICIT_QUIET_MS` (8000) / `…_ELICIT_POLL_MS` (2000)。
+
+構成 (Markdown):
 
 - **現在のタスク / ゴール**
 - **これまでに完了したこと** (要点)
@@ -29,12 +45,17 @@ claude (既定 sonnet) に作らせる。 構成 (Markdown):
 - **重要なファイル・コマンド・PR**
 - **参照**: 「細部はこの Discord チャンネル / Slack スレッドの履歴を遡れ」
 
-LLM 失敗時は current_task + 直近イベントから決定論フォールバック資料を作る
-(無言で空にしない)。
+捕捉が timeout までに得られない場合は、 従来の切り離し生成 (`buildHandoffPrompt()` +
+`generateHandoff()` で claude/既定 sonnet に直近 transcript + current_task を要約させる) へ
+**フォールバック**する。 それも失敗すれば current_task + 直近イベントから決定論フォールバック
+資料を作る (無言で空にしない)。
 
 ## 3. コンパクションの流れ (`runCompaction`)
 
-1. handoff を生成。
+0. **watermark 記録**: inject 前に `transcriptLogs.maxId(sessionId)` を控える。
+1. **handoff をセッション自身に書かせて捕捉**: `buildSessionEndHandoffPrompt` を inject + Enter
+   → セッションが書いた地の文を `elicitHandoffFromSession` が watermark 以降の transcript で
+   捕捉。 timeout で空なら切り離し生成へフォールバック (§2)。
 2. **チャンネルへ投稿**: session の Discord チャンネル (Slack スレッド) に handoff を
    投稿し、 可能なら pin する (`📌 引き継ぎ資料`)。 これが「活かすチャンネル」の本体。
 3. **`/clear` を inject**: `POST /v1/sessions/:id/inject` で `"/clear"` → Enter (`\r`)。
@@ -86,7 +107,12 @@ assistant メッセージの usage スナップショット** からコンテキ
 
 - context-estimate: claude/codex JSONL 固定 fixture で最後 usage を拾う / pct 計算 / ログ無で null。
 - handoff: prompt builder が current_task・参照指示を含む純粋テスト。 LLM 失敗時フォールバック。
-- runCompaction: inject (mock) が `/clear`→Enter→handoff の順で呼ばれること、 投稿が呼ばれること。
+- buildSessionEndHandoffPrompt: 実状優先・current_task・clear 禁止を含む純粋テスト。
+- elicitHandoffFromSession: watermark 以降の assistant 地の文だけ捕捉 / user エコー除外 /
+  何も出なければ null (フォールバック誘発)。
+- transcriptLogs.maxId: frame 無で 0 / セッション別に最大 id。
+- runCompaction: inject (mock) が handoff 依頼→`/clear`→Enter→再投入 の順で呼ばれること、
+  捕捉失敗時に切り離し生成へフォールバックすること、 投稿が呼ばれること。
 - shouldAutoCompact: 閾値 / 区切り / クールダウン / 作業中ガードの各分岐。
 
 ## 8. 設計判断

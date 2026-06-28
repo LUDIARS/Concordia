@@ -24,6 +24,12 @@ const CLEAR_WAIT_MS = Number(process.env.CONCORDIA_COMPACTION_CLEAR_WAIT_MS ?? "
 const HANDOFF_MODEL = process.env.CONCORDIA_COMPACTION_MODEL || "sonnet";
 const HANDOFF_TIMEOUT_MS = Number(process.env.CONCORDIA_COMPACTION_TIMEOUT_MS ?? "90000") || 90000;
 
+// セッション自筆 handoff の捕捉 (elicit) パラメータ。 inject したプロンプトに対し
+// セッション自身が書いた地の文 (transcript の assistant text frame) を since_id テールで拾う。
+const ELICIT_TIMEOUT_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_TIMEOUT_MS ?? "120000") || 120000;
+const ELICIT_QUIET_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_QUIET_MS ?? "8000") || 8000;
+const ELICIT_POLL_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_POLL_MS ?? "2000") || 2000;
+
 export interface CompactionDeps {
   sessions: SessionsRepo;
   transcriptLogs: TranscriptLogsRepo;
@@ -36,6 +42,10 @@ export interface CompactionDeps {
   clearWaitMs?: number;
   /** 待機関数 (テスト差し替え用)。 */
   sleep?: (ms: number) => Promise<void>;
+  /** elicit のタイミング上書き (テスト用)。 未指定は env / 既定値。 */
+  elicitTimeoutMs?: number;
+  elicitQuietMs?: number;
+  elicitPollMs?: number;
   log?: { info: (m: string) => void; warn: (m: string) => void };
 }
 
@@ -132,6 +142,104 @@ function fallbackHandoff(currentTask: string, recentContext: string): string {
   ].join("\n");
 }
 
+/**
+ * セッション自身に書かせる handoff プロンプト (session-end 相当)。
+ *
+ * 切り離し Sonnet に transcript 抜粋を要約させる buildHandoffPrompt と違い、 これは
+ * **実作業を行った当のセッション** へ inject する。 セッションはフルコンテキスト
+ * (実際に何をマージ/完了したか・リポ実状・残タスク) を持つので、 「計画では PR-A だが
+ * 実際は A〜D 完了済み」 のような乖離を自分で解消できる。 出力 (地の文) は Lictor の
+ * transcript-tail 経由で transcript_logs に入り、 Concordia が since_id で捕捉する。
+ */
+export function buildSessionEndHandoffPrompt(currentTask: string): string {
+  return [
+    "【コンパクション】このセッションのコンテキストをまもなく `/clear` します。",
+    "session-end と同等の振り返りを行い、 `/clear` 後の自分自身が会話の細部を失っても",
+    "作業を続けられる **タスク引き継ぎ資料** を Markdown で書いてください。",
+    "",
+    "重要: あなたは実作業を行った当人です。 計画段階の発言ではなく **今この時点の実状**",
+    "(実際にマージ/完了した PR・現在のブランチ/HEAD・残タスク・ブロック) を根拠にしてください。",
+    "計画と実状が食い違う場合は **実状を優先** し、 既に完了済みなら次の一手をそれに合わせて更新します。",
+    "必要なら git log / PR 状態を確認してから書いて構いません。",
+    "",
+    "## 出力フォーマット (この見出しで / 資料本文のみ。 前置き・後置きの地の文は不要)",
+    "### 現在のタスク / ゴール",
+    "### これまでに完了したこと",
+    "### 次の一手 (最優先)",
+    "### 未解決の論点 / 判断待ち",
+    "### 重要なファイル・コマンド・PR",
+    "### 参照",
+    "- 細部はこの Discord チャンネル / Slack スレッドの履歴を上に遡れば復元できます。",
+    "",
+    "## 既知の current_task (参考。 実状と違えば実状を優先)",
+    currentTask || "(未設定)",
+    "",
+    "資料を書き終えたら、 `/clear` 等の操作は **しないで** ください (Concordia が続けて行います)。",
+  ].join("\n");
+}
+
+/** transcript frame からセッション (assistant) の地の文を取り出す。 user 指示・tool 系は除外。 */
+function assistantTextFromFrame(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const o = payload as Record<string, unknown>;
+  if (o.role === "user") return null; // inject したプロンプトのエコーを除外
+  if (typeof o.text === "string" && o.text.trim()) return o.text.trim();
+  return null;
+}
+
+/**
+ * inject した session-end プロンプトに対し、 セッションが書いた handoff (assistant 地の文) を
+ * transcript_logs の since_id テールで捕捉する。
+ *
+ * - watermark: inject 前の最大 transcript id。 これより新しい frame だけ見る。
+ * - 最初の地の文が出るまで待ち、 出た後 quiet (新規地の文が途絶える) まで集約する。
+ * - timeout までに何も得られなければ null (呼び出し側が切り離し生成へフォールバック)。
+ */
+export async function elicitHandoffFromSession(
+  deps: Pick<CompactionDeps, "transcriptLogs" | "sleep" | "elicitTimeoutMs" | "elicitQuietMs" | "elicitPollMs" | "log">,
+  sessionId: string,
+  watermark: number,
+): Promise<string | null> {
+  const pollMs = deps.elicitPollMs ?? ELICIT_POLL_MS;
+  const quietMs = deps.elicitQuietMs ?? ELICIT_QUIET_MS;
+  const timeoutMs = deps.elicitTimeoutMs ?? ELICIT_TIMEOUT_MS;
+  const sleep = deps.sleep ?? defaultSleep;
+
+  const maxPolls = Math.max(1, Math.ceil(timeoutMs / Math.max(1, pollMs)));
+  const quietPolls = Math.max(1, Math.ceil(quietMs / Math.max(1, pollMs)));
+
+  let sinceId = watermark;
+  const collected: string[] = [];
+  let emptyStreak = 0;
+
+  for (let i = 0; i < maxPolls; i++) {
+    await sleep(pollMs);
+    let entries: Array<{ id: number; payload: unknown; kind: string }> = [];
+    try {
+      entries = deps.transcriptLogs.listBySession(sessionId, { since_id: sinceId, limit: 1000 });
+    } catch (e) {
+      deps.log?.warn(`compaction: elicit transcript 取得失敗 session=${sessionId}: ${(e as Error).message}`);
+      continue;
+    }
+    let gotText = false;
+    for (const e of entries) {
+      if (e.id > sinceId) sinceId = e.id;
+      if (e.kind !== "text") continue;
+      const t = assistantTextFromFrame(e.payload);
+      if (t) {
+        collected.push(t);
+        gotText = true;
+      }
+    }
+    if (collected.length === 0) continue; // まだ最初の地の文が来ていない
+    if (gotText) emptyStreak = 0;
+    else if (++emptyStreak >= quietPolls) break; // 地の文が途絶えた = 書き終わり
+  }
+
+  const handoff = collected.join("\n").trim();
+  return handoff.length > 0 ? handoff : null;
+}
+
 /** handoff を生成する。 LLM 失敗時はフォールバック。 */
 export async function generateHandoff(
   deps: Pick<CompactionDeps, "runClaude" | "log">,
@@ -158,8 +266,31 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
   if (!session) return { ok: false, error: "session not found" };
   if (session.status !== "active") return { ok: false, error: `session is ${session.status}` };
 
-  const recent = collectRecentContext(deps.transcriptLogs, sessionId);
-  const handoff = await generateHandoff(deps, session.current_task ?? "", recent);
+  const currentTask = session.current_task ?? "";
+
+  // 0) handoff は **セッション自身に書かせる** (session-end 相当)。 実作業を行った当人が
+  //    フルコンテキストで書くため、 切り離し要約のような計画/実状の乖離が起きない。
+  //    inject 前の transcript 最大 id を watermark にし、 以後の assistant 地の文を捕捉する。
+  let handoff = "";
+  let watermark = 0;
+  try {
+    watermark = deps.transcriptLogs.maxId(sessionId);
+  } catch (e) {
+    deps.log?.warn(`compaction: watermark 取得失敗 session=${sessionId}: ${(e as Error).message}`);
+  }
+  const askedOk = await deps.inject(sessionId, buildSessionEndHandoffPrompt(currentTask), "compaction-handoff-request");
+  await deps.inject(sessionId, ENTER_KEY_TEXT, "compaction-handoff-request-enter");
+  if (askedOk) {
+    const captured = await elicitHandoffFromSession(deps, sessionId, watermark);
+    if (captured) handoff = captured;
+  }
+
+  // フォールバック (無言で空にしない): 捕捉失敗時は従来の切り離し生成に切替える。
+  if (!handoff) {
+    deps.log?.warn(`compaction: セッション自筆 handoff の捕捉失敗 → 切り離し生成にフォールバック session=${sessionId}`);
+    const recent = collectRecentContext(deps.transcriptLogs, sessionId);
+    handoff = await generateHandoff(deps, currentTask, recent);
+  }
 
   // 1) チャンネルへ投稿 (= 活かす durable ログ)。 失敗しても続行はするが警告。
   try {

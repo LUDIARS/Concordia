@@ -14,7 +14,7 @@ import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js
 import type { Dispatcher } from "../dispatcher.js";
 import type { PersonasRepo, PersonaRow } from "../db/personas-repo.js";
 import { eventBus } from "../events.js";
-import { runCompaction, makeCompactionIO } from "../control/compaction.js";
+import { runCompaction, makeCompactionIO, collectRecentContext, generateHandoff } from "../control/compaction.js";
 import { runClaude } from "../rules/claude-runner.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
@@ -26,8 +26,9 @@ import {
   type DiscordConfigRepo,
 } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
-import { spawnSession } from "../control/spawner.js";
+import { spawnSession, type SpawnProvider } from "../control/spawner.js";
 import { claimPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
+import { recordPendingRelictor, claimPendingRelictor } from "../control/pending-relictor.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { stopSessionByLictorPid, isPidAlive } from "../control/stop-session.js";
 import { parseLictorPid, parseAgentClientPid } from "../control/reaper.js";
@@ -64,6 +65,27 @@ const FORCE_EXIT_GRACE_MS = 5000;
 const SESSION_END_DONE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 /** id → force-exit 実行関数。 session-end-done シグナルかタイムアウトで発火する。 */
 const pendingSessionEndExits = new Map<string, () => void>();
+
+/** /co-relictor で再起動した新セッションへ流す引き継ぎ inject の source。 */
+const RELICTOR_INJECT_SOURCE = "auto:relictor-handoff";
+const RELICTOR_REINJECT_HEADER =
+  "【Lictor 再起動・引き継ぎ】前のセッションを最新 Lictor で再起動しました。" +
+  "直前にこのチャンネルへ投稿した引き継ぎ資料 (🔁) に従って作業を続行してください。" +
+  "細部は前セッションのチャンネル / Slack スレッド履歴を遡れば確認できます。\n\n";
+
+/** Concordia の provider 名 → spawn (Lictor launcher) provider 名。 spawn 不可は null。 */
+function toSpawnProvider(provider: string): SpawnProvider | null {
+  switch (provider) {
+    case "claude-code":
+      return "claude";
+    case "codex-cli":
+      return "codex";
+    case "gemini-cli":
+      return "gemini";
+    default:
+      return null;
+  }
+}
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -223,6 +245,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
     const now = nowSec();
+    // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
+    let relictorHandoff: string | null = null;
 
     const existing = deps.repo.findSession(input.id);
     if (existing) {
@@ -248,6 +272,13 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       // 子会社由来の spawn は subsidiary_id を焼く。 子会社 Bot はこれで自分のセッションを
       // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
+      // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
+      // handoff 本文は後段 (goal-start の後) で inject する。
+      const relictor = claimPendingRelictor(input.repo_path);
+      if (relictor) {
+        relictorHandoff = relictor.handoff;
+        if (relictor.goal) meta.goal = relictor.goal;
+      }
       deps.repo.insertSession({
         id: input.id,
         provider: input.provider as ProviderName,
@@ -336,6 +367,27 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         ts: nowSec(),
       });
     }, 500).unref?.();
+
+    // /co-relictor 再起動なら、 goal-start の後に引き継ぎ資料を inject して文脈を復元する。
+    if (relictorHandoff) {
+      const handoffText = `${RELICTOR_REINJECT_HEADER}${relictorHandoff}`;
+      deps.repo.appendEvent({
+        session_id: input.id,
+        ts: nowSec(),
+        kind: "inject",
+        payload: { text: handoffText, source: RELICTOR_INJECT_SOURCE },
+      });
+      // goal-start (500ms) より後に届くよう少し長めの遅延。
+      setTimeout(() => {
+        eventBus.emit({
+          type: "session.inject",
+          target_session_id: input.id,
+          text: handoffText,
+          source: RELICTOR_INJECT_SOURCE,
+          ts: nowSec(),
+        });
+      }, 1500).unref?.();
+    }
 
     return c.json({
       session: serializeSession(deps.repo.findSession(input.id)!),
@@ -985,6 +1037,64 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       id,
     );
     return c.json(result, result.ok ? 200 : 400);
+  });
+
+  // POST /v1/sessions/:id/relictor — 文脈引き継ぎ Lictor 再起動 (/co-relictor)。
+  // Lictor は claude を pty 子に抱えるため単体再 exec 不可 → ラップ中セッションごと再起動する:
+  //   1) 引き継ぎ資料を生成しチャンネルへ投稿、 2) cwd キーで handoff+goal を記録、
+  //   3) 新セッションを spawn (= 最新 Lictor dist)、 4) 旧セッションを ended 化 + force-exit。
+  // 新セッションは登録時 (session.started) に handoff を claim して inject し文脈を復元する。
+  app.post("/:id/relictor", async (c) => {
+    const id = c.req.param("id");
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    if (session.status !== "active") return c.json({ error: `session is ${session.status}` }, 400);
+    const sp = toSpawnProvider(session.provider);
+    if (!sp) return c.json({ error: `provider ${session.provider} is not spawnable` }, 400);
+    // lictor_port が無いと force-exit できない (= Lictor ラップでない)。 spawn 自体は可能だが
+    // 旧セッションを確実に畳めないので拒否する。
+    const target = resolveLictorTarget(deps.repo, id);
+    if ("error" in target) return c.json({ error: `not lictor-wrapped: ${target.error}` }, 400);
+
+    // 1) 引き継ぎ資料を生成しチャンネルへ投稿 (durable ログ)。
+    const recent = collectRecentContext(deps.transcriptLogs, id);
+    const handoff = await generateHandoff({ runClaude, log }, session.current_task ?? "", recent);
+    const io = makeCompactionIO({ sessions: deps.repo, chat: deps.chat });
+    try {
+      await io.postHandoff(id, `🔁 **再起動引き継ぎ資料 (relictor)**\n\n${handoff}`);
+    } catch (e) {
+      log.warn({ session_id: id, err: (e as Error).message }, "relictor: handoff post failed");
+    }
+
+    // 2) cwd キーで handoff + goal を記録 (新セッション登録時に claim される)。
+    recordPendingRelictor({ cwd: session.repo_path, handoff, goal: readGoalFromMetadata(session.metadata) });
+
+    // 3) 新セッションを spawn (最新 Lictor dist を junction 経由で拾う)。
+    const result = spawnSession({
+      provider: sp,
+      cwd: session.repo_path,
+      mode: "tab",
+      title: session.current_task ?? undefined,
+    });
+    if (!result.ok) {
+      return c.json({ error: `spawn failed: ${result.error}` }, 500);
+    }
+
+    // 4) 旧セッションを ended 化 + force-exit (runSessionEndFlow は回さない=再起動なので軽量に畳む)。
+    const now = nowSec();
+    deps.repo.setStatus(id, "ended", now, now);
+    deps.repo.appendEvent({ session_id: id, ts: now, kind: "end", payload: { reason: "relictor", duration_sec: now - session.started_at } });
+    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+    void fetchFromLictor(target.port, "/v1/internal/force-exit", { method: "POST" }).catch(() => {});
+    // 保険: force-exit は Windows/ConPTY で不発になりやすい。 猶予後に生存していれば確定 kill。
+    const lictorPid = parseLictorPid(session.metadata);
+    if (lictorPid != null) {
+      setTimeout(() => {
+        if (isPidAlive(lictorPid)) stopSessionByLictorPid(lictorPid);
+      }, FORCE_EXIT_GRACE_MS).unref?.();
+    }
+    log.info({ session_id: id, repo: session.repo_path }, "relictor: spawned replacement + ended old");
+    return c.json({ ok: true, spawn: result.command });
   });
 
   // POST /v1/sessions/:id/resume

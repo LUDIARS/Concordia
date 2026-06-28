@@ -211,7 +211,9 @@ export function buildApp(deps: AppDeps): Hono {
   app.route(
     "/v1/spawn",
     spawnRouter({
-      defaultSpawnCwd: deps.config.spawnDefaultCwd,
+      // 既定 cwd は env 固定の spawnDefaultCwd ではなくプライマリ workspace ルート
+      // (実行時解決) を採用する。 設定 GUI での workspace root 変更が即反映される。
+      resolveDefaultCwd: () => deps.adminState.getWorkspaceRoot(),
       isCostBlocked: () => deps.costStatus?.().blocked ?? false,
     }),
   );
@@ -312,7 +314,7 @@ export function buildApp(deps: AppDeps): Hono {
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
-      const spawnCwd = resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd);
+      const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const result = spawnSession({
         provider: spawn.provider,
         mode,
@@ -353,7 +355,7 @@ export function buildApp(deps: AppDeps): Hono {
       provider: resolved.provider,
       mode,
       args: [...resolved.args, ...userArgs],
-      cwd: resolveSpawnCwd(body.cwd, deps.config.spawnDefaultCwd),
+      cwd: resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot()),
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
@@ -365,7 +367,8 @@ export function buildApp(deps: AppDeps): Hono {
   // body.cwd を省略したときに実際に使われる path と、 platform_supported を返す.
   app.get("/v1/admin/spawn-defaults", (c) => {
     return c.json({
-      default_cwd: deps.config.spawnDefaultCwd,
+      // 実際に spawn で使われる既定 cwd = プライマリ workspace ルート (実行時解決)。
+      default_cwd: deps.adminState.getWorkspaceRoot(),
       platform_supported: process.platform === "win32",
     });
   });

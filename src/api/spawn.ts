@@ -37,10 +37,12 @@ export interface SpawnApiDeps {
   cwd?: string;
   /**
    * Default working directory the spawn endpoint applies when the caller
-   * omits `cwd` (e.g. CONCORDIA_SPAWN_DEFAULT_CWD=E:\Document\Ars). Empty
-   * or non-existent path = no fallback (Concordia's own cwd is used).
+   * omits `cwd`. 既定はプライマリ workspace ルート (`workspaceRoots[0]`) を
+   * 実行時に解決する resolver。 これにより設定 GUI / AdminState での上書きが
+   * 即座に反映される (env 固定の spawnDefaultCwd を流用しない)。 空文字列を
+   * 返す / 未指定なら fallback 無し (Concordia 自身の cwd で spawn)。
    */
-  defaultSpawnCwd?: string;
+  resolveDefaultCwd?: () => string;
   /**
    * 日次トークン予算を超過している間 true を返す。 true の間は spawn を 429 で
    * 拒否する (Concordia 発の新規セッション起動を止める)。 未指定なら無効。
@@ -72,7 +74,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
     return c.json({
       token_path: spawnTokenPath(cwd),
       platform_supported: process.platform === "win32",
-      default_cwd: deps.defaultSpawnCwd ?? "",
+      default_cwd: deps.resolveDefaultCwd?.() ?? "",
     });
   });
 
@@ -115,7 +117,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: resolveSpawnCwd(body.cwd, deps.defaultSpawnCwd),
+      cwd: resolveSpawnCwd(body.cwd, deps.resolveDefaultCwd?.()),
       title: typeof body.title === "string" ? body.title : undefined,
       // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
       // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
@@ -164,7 +166,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: resolveSpawnCwd(body.cwd, deps.defaultSpawnCwd),
+      cwd: resolveSpawnCwd(body.cwd, deps.resolveDefaultCwd?.()),
       title: typeof body.title === "string" ? body.title : undefined,
     });
     return c.json({ command: ["wt.exe", ...args] });

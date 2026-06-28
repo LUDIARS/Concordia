@@ -244,11 +244,11 @@ describe("spawn router (Hono)", () => {
     expect(body.default_cwd).toBe("");
   });
 
-  it("GET /info echoes deps.defaultSpawnCwd", async () => {
-    const app = spawnRouter({ cwd, defaultSpawnCwd: "E:\\Document\\Ars" });
+  it("GET /info echoes deps.resolveDefaultCwd() (実行時解決のプライマリ workspace ルート)", async () => {
+    const app = spawnRouter({ cwd, resolveDefaultCwd: () => "D:\\LUDIARS" });
     const res = await app.request("/info");
     const body = (await res.json()) as { default_cwd: string };
-    expect(body.default_cwd).toBe("E:\\Document\\Ars");
+    expect(body.default_cwd).toBe("D:\\LUDIARS");
   });
 
   it("POST / without token returns 401 with WWW-Authenticate", async () => {

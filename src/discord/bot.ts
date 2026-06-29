@@ -129,6 +129,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // 子会社 scope: config / session-channels の namespacing と subsidiary-only 可視に使う。
   const scope = deps.subsidiary ? `sub:${deps.subsidiary.id}` : "";
   const subsidiaryId = deps.subsidiary?.id ?? null;
+  // 本社 Bot と子会社 Bot は同一 token を共有するため、 各 Client は **全 guild** の
+  // gateway イベントを受信してしまう。 そのまま処理すると interaction の二重 ack
+  // (Unknown interaction / already acknowledged) や、 子会社 guild の /spawn を本社
+  // Client が拾って本社側にセッションを作る、 等が起きる。 自分の guild 以外のイベントは
+  // 全ハンドラ入口で捨てる (guildId が無い DM 等も対象外)。
+  const inScope = (guildId: string | null | undefined): boolean => guildId === env.guildId;
+  // 子会社は本社のような雑談 (meta) / pr-queue / errors を持たない slim 構成 (ユーザ要望)。
+  const layoutOpts = deps.subsidiary
+    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
+    : undefined;
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
   let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;
@@ -196,7 +206,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     try {
       const guild = await c.guilds.fetch(env.guildId!);
       await guild.channels.fetch();
-      layout = await ensureDiscordLayout(guild, configRepo);
+      layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
         try {
@@ -236,7 +246,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
       const refreshMonitor = async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo);
+        layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
         const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
         if (!monitorCh || monitorCh.type !== ChannelType.GuildText) {
           log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
@@ -260,7 +270,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
       const refreshPrQueue = async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo);
+        layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
         const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
         if (!prQueueCh || prQueueCh.type !== ChannelType.GuildText) {
           log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);
@@ -274,7 +284,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           (k, v) => configRepo.set(k, v),
         );
       };
-      {
+      // pr-queue を持たない構成 (子会社) では定期更新ごと skip する。
+      if (layout.prQueueChannelId) {
         prQueueRefresh = () => { void refreshPrQueue(); };
         void refreshPrQueue().catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
         const prMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN ?? "15") || 15);
@@ -284,13 +295,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         prQueueTimer.unref?.();
       }
       // errors チャンネル: error.reported を転記する poster + Vestigium 監視を起動.
-      const errorCh = guild.channels.cache.get(layout.errorChannelId);
-      if (errorCh && errorCh.type === ChannelType.GuildText) {
-        errorPoster = new ErrorChannelPoster(errorCh);
-        errorPoster.start();
-        errorMonitor = startVestigiumErrorWatch();
-      } else {
-        log.warn(`errors channel unavailable id=${layout.errorChannelId}`);
+      // errors を持たない構成 (子会社) では poster/監視を立てない (warn も出さない)。
+      if (layout.errorChannelId) {
+        const errorCh = guild.channels.cache.get(layout.errorChannelId);
+        if (errorCh && errorCh.type === ChannelType.GuildText) {
+          errorPoster = new ErrorChannelPoster(errorCh);
+          errorPoster.start();
+          errorMonitor = startVestigiumErrorWatch();
+        } else {
+          log.warn(`errors channel unavailable id=${layout.errorChannelId}`);
+        }
       }
       // 状態カードは 3 タイミングのみ更新: spawn=作成 / 10分毎=更新 / Session-End=削除。
       // 10分毎: アクティブな session のカードは更新 (作成はしない)、 非アクティブは削除。
@@ -389,6 +403,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   });
 
   client.on(Events.MessageCreate, (msg) => {
+    // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
+    if (!inScope(msg.guildId)) return;
     const raw = msg.content ?? "";
     const compact = raw.replace(/\s+/g, " ").trim();
     const preview = compact.length > 200 ? `${compact.slice(0, 200)}...` : compact;
@@ -422,6 +438,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
+    if (!inScope(reaction.message.guildId)) return;
     void handleReactionAdd(
       { reactionsRepo, messageMap, log, workflow: reactionWorkflow, sessionChannels: sessionChannelsRepo, sessions: deps.sessionsRepo },
       reaction,
@@ -431,12 +448,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     });
   });
   client.on(Events.MessageReactionRemove, (reaction, user) => {
+    if (!inScope(reaction.message.guildId)) return;
     void handleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
       log.warn(`reaction remove handler failed: ${(e as Error).message}`);
     });
   });
   client.on(Events.InteractionCreate, (interaction) => {
     if (!layout) return;
+    // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
+    // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
+    // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を
+    // 本社 Client が拾って本社側にセッションを作ってしまう。
+    if (!inScope(interaction.guildId)) return;
     void dispatchInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
       sessionChannelsRepo,

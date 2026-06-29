@@ -397,6 +397,10 @@ export async function startBackend(): Promise<BackendHandle> {
     tasksRepo: tasks,
     personasRepo: personas,
     prRecordsRepo: prs,
+    // 本社モニターの「本社/子会社別コスト」用。 子会社 Bot は manager が baseDiscordDeps を
+    // そのまま使うが、 monitor 側で subsidiary モード時は無視するので渡しても害は無い。
+    listSubsidiaries: () =>
+      subsidiaryRepo.list().map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget })),
     concordiaUrl: publicUrl,
     // リアクションワークフロー: ローカルクローン親 (Memoria 解決用) + 安全弁。
     // workspaceRoot は設定 GUI (AdminState) で上書き可能。 bot start のたびに live 値を読む。

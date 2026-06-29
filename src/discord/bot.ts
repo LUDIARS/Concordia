@@ -74,6 +74,11 @@ export interface DiscordBotDeps {
   personasRepo: PersonasRepo;
   /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
   prRecordsRepo: PrRecordsRepo;
+  /**
+   * 子会社一覧を live 解決する (本社モニターの「本社/子会社別コスト」用)。 本社 Bot のみ
+   * 渡され、 子会社 Bot には渡さない (subsidiary モードでは無視 = 他子会社の漏洩防止)。
+   */
+  listSubsidiaries?: () => Array<{ id: string; name: string; daily_token_budget: number }>;
   concordiaUrl: string;
   /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
   workspaceRoot?: string;
@@ -258,7 +263,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           deps.sessionTaskRecordsRepo,
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
-          getEgressDedupStats(),
+          {
+            stats: getEgressDedupStats(),
+            // 本社モニターのみ本社/子会社別コストを出す (子会社 Bot では出さない)。
+            costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
+          },
         );
       };
       void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));

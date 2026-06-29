@@ -91,7 +91,7 @@ export function localDayRange(nowMs: number): [number, number] {
 }
 
 /** session.metadata (JSON) から subsidiary_id を取り出す (壊れていれば null)。 */
-function readSubsidiaryId(metadata: string | null): string | null {
+export function readSubsidiaryId(metadata: string | null): string | null {
   if (!metadata) return null;
   try {
     const o = JSON.parse(metadata) as unknown;

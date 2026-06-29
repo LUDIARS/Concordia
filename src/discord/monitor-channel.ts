@@ -1,6 +1,7 @@
 import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
+import { collectOrgCost, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
 
 const MONITOR_MESSAGE_KEY = "monitor_status_message_id";
 
@@ -10,14 +11,24 @@ export interface DiscordDedupStats {
   total: number;
 }
 
+export interface MonitorOptions {
+  stats?: DiscordDedupStats;
+  /**
+   * 本社 / 子会社別コスト (本日トークン) を出すための子会社一覧。 本社モニターのときだけ渡す
+   * (子会社モニターに渡すと他子会社の数字が漏れるので渡さない)。 undefined ならコスト節は出さない。
+   */
+  costSubsidiaries?: OrgCostSubsidiary[];
+}
+
 export async function upsertMonitorChannelMessage(
   channel: TextChannel,
   sessionsRepo: SessionsRepo,
   sessionTaskRecordsRepo: SessionTaskRecordsRepo,
   configGet: (k: string) => string | null,
   configSet: (k: string, v: string) => void,
-  stats?: DiscordDedupStats,
+  opts: MonitorOptions = {},
 ): Promise<void> {
+  const { stats, costSubsidiaries } = opts;
   const active = sessionsRepo.listSessions({ status: "active" });
 
   const lines: string[] = [];
@@ -29,6 +40,12 @@ export async function upsertMonitorChannelMessage(
     lines.push(
       `- Discord dedup: total=${stats.total} (chat=${stats.skipped_chat_posted}, transcript=${stats.skipped_transcript_frame})`,
     );
+  }
+
+  // 本社 / 子会社別の当日コスト (本社モニターのみ)。
+  if (costSubsidiaries) {
+    lines.push("");
+    lines.push(...renderOrgCostLines(collectOrgCost(sessionsRepo, costSubsidiaries)));
   }
   if (active.length > 0) {
     lines.push("");

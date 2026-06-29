@@ -13,7 +13,9 @@
 
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const _concordiaRoot = fileURLToPath(new URL("../..", import.meta.url));
 import * as bundled from "./reaction-workflow.js";
 
 /** RWF プラグインの公開モジュール型 (= 同梱エンジンの型)。 外部もこれに構造一致する前提。 */
@@ -36,12 +38,11 @@ function isValidRwfModule(m: unknown): m is RwfModule {
 }
 
 /** 外部プラグイン entry の既定パス (env 優先)。 */
-function resolvePluginPath(workspaceRoot: string | null | undefined): string {
+function resolvePluginPath(_workspaceRoot: string | null | undefined): string {
   const env = (process.env.CONCORDIA_RWF_PLUGIN_PATH ?? "").trim();
   if (env) return env;
-  const root = (workspaceRoot ?? "").trim();
-  // <workspaceRoot>/Concordia-RWF/dist/index.js (= ローカル clone のビルド成果物)。
-  return root ? join(root, "Concordia-RWF", "dist", "index.js") : "";
+  // plugins/concordia-rwf/ submodule のビルド成果物を既定とする。
+  return join(_concordiaRoot, "plugins", "concordia-rwf", "dist", "index.js");
 }
 
 /**

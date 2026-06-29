@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -34,11 +36,12 @@ jobs:
             package-lock.json
             web/package-lock.json
 
+      - name: Build submodules
+        run: |
+          cd lib/vestigium && npm install --ignore-scripts && npm run build && npm prune --omit=dev && cd ../..
+
       - name: Install deps (backend)
         run: npm ci
-        env:
-          # .npmrc の @ludiars レジストリ認証 (Vestigium 等)。 org 内 packages:read で足りる。
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install deps (web)
         run: npm ci --prefix web

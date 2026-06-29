@@ -1,7 +1,7 @@
 import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
-import { collectOrgCost, collectOrgCostWeekly, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
+import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
 
 const MONITOR_MESSAGE_KEY = "monitor_status_message_id";
 
@@ -42,13 +42,10 @@ export async function upsertMonitorChannelMessage(
     );
   }
 
-  // 本社 / 子会社別のコスト (本日 + 週間、 本社モニターのみ)。
+  // 本社 / 子会社別のコスト (本日 + 週間、 時間帯集計、 本社モニターのみ)。
   if (costSubsidiaries) {
     lines.push("");
-    lines.push(...renderOrgCostLines(
-      collectOrgCost(sessionsRepo, costSubsidiaries),
-      collectOrgCostWeekly(sessionsRepo, costSubsidiaries),
-    ));
+    lines.push(...renderOrgCostLines(collectOrgCostWindows(sessionsRepo, costSubsidiaries)));
   }
   if (active.length > 0) {
     lines.push("");

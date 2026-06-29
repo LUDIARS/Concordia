@@ -1,21 +1,21 @@
 /**
- * 組織 (本社 / 子会社) 別のトークンコスト集計 (本日 / 週間)。
+ * 組織 (本社 / 子会社) 別のトークンコスト集計 (本日 / 週間、 時間帯集計)。
  *
  * 子会社が起動したセッションは metadata.subsidiary_id でタグ付けされる
- * (api/sessions.ts が pending spawn を claim して焼く)。 指定範囲に始まったセッション群の
- * provider ログ累積トークンを subsidiary_id でグルーピングし、 本社 (= 未タグ) と各子会社の
- * 消費トークンを出す。 Concordia モニターに本社 / 子会社のコストを並べて出すための単一の
- * 集計点 (LUDIARS は API 非課金のため「コスト」 = サブスク消費トークン)。
+ * (api/sessions.ts が pending spawn を claim して焼く)。 直近 7 日に動いた
+ * (last_seen_at) セッションを候補に取り、 各セッションの provider JSONL を **時刻で
+ * ウィンドウ集計** (windowed-usage) して、 本社 (= 未タグ) と各子会社の「本日 / 週間」
+ * 消費トークンを出す。 Concordia モニターに並べて出すための単一の集計点
+ * (LUDIARS は API 非課金のため「コスト」 = サブスク消費トークン)。
  *
- * 集計は subsidiary/budget.ts (子会社の予算判定) と同じ「local 範囲 × readSessionUsage」
- * を踏襲し、 本社分も同じ 1 パスで出すので両者の数字がぶれない。 本日 = local 暦日、
- * 週間 = 直近 7 暦日 (今日含む)。 帰属はセッション開始時刻 (listSessionsInRange) で判定する。
+ * 重要: セッション開始日での按分はしない (日跨ぎの長時間セッションで 0/誤帰属になる)。
+ * 各 JSONL エントリのタイムスタンプで本日 / 直近 7 日のウィンドウに入る分だけ数える。
  */
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import { readSessionUsage } from "./log-usage.js";
 import { localDateIso } from "./usage-tracker.js";
-import { localDayRange, readSubsidiaryId } from "../subsidiary/budget.js";
+import { readSubsidiaryId } from "../subsidiary/budget.js";
+import { readSessionWindowedTotals, type SessionWindowReader } from "./windowed-usage.js";
 
 /** コスト行を出す対象子会社の最小フィールド。 */
 export interface OrgCostSubsidiary {
@@ -30,9 +30,9 @@ export interface OrgCostRow {
   id: string | null;
   /** 表示名。 */
   name: string;
-  /** 範囲内の累積トークン。 */
+  /** ウィンドウ内の消費トークン。 */
   tokens: number;
-  /** 日次予算 (トークン)。 0 = 無制限 (本社は常に 0)。 週間集計では常に 0。 */
+  /** 日次予算 (トークン)。 0 = 無制限。 週間集計では常に 0。 */
   budget: number;
   /** 予算超過中か (budget>0 かつ tokens>=budget)。 週間集計では常に false。 */
   blocked: boolean;
@@ -49,77 +49,87 @@ export interface OrgCostReport {
   label: string;
 }
 
-/** epoch(ms) → 直近 7 暦日 (今日含む) の [00:00(6日前), 翌00:00] の epoch(ms) 範囲。 */
-export function localWeekRange(nowMs: number): [number, number] {
-  const d = new Date(nowMs);
-  const start = new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6).getTime();
-  const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
-  return [start, end];
+export interface OrgCostWindows {
+  daily: OrgCostReport;
+  weekly: OrgCostReport;
 }
 
-/** [start,end) のセッションを 1 パス走査し、 本社 / 各子会社のトークンを集計する (共通コア)。 */
-function aggregateOrgCost(
+/** epoch(ms) → その local 暦日 00:00 の epoch 秒。 */
+function localMidnightSec(nowMs: number): number {
+  const d = new Date(nowMs);
+  return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() / 1000);
+}
+
+/** epoch(ms) → 直近 7 暦日 (今日含む) の開始 00:00(6日前) の epoch 秒。 */
+function localWeekStartSec(nowMs: number): number {
+  const d = new Date(nowMs);
+  return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate() - 6).getTime() / 1000);
+}
+
+/**
+ * 本社 / 子会社別の本日・週間コストを JSONL 時間帯集計で出す。
+ * reader はテスト差し替え用 (既定は実 JSONL を読む readSessionWindowedTotals)。
+ */
+export function collectOrgCostWindows(
   sessionsRepo: SessionsRepo,
   subsidiaries: OrgCostSubsidiary[],
-  start: number,
-  end: number,
-  label: string,
-  withBudget: boolean,
-): OrgCostReport {
-  const rows = sessionsRepo.listSessionsInRange(start, end);
+  nowMs: number = Date.now(),
+  reader: SessionWindowReader = readSessionWindowedTotals,
+): OrgCostWindows {
+  const nowSec = Math.floor(nowMs / 1000);
+  const todayStartSec = localMidnightSec(nowMs);
+  const weekStartSec = localWeekStartSec(nowMs);
+  // endSec は now を含めるため +1 (半開区間 [start, end))。
+  const windows = [
+    { key: "d", startSec: todayStartSec, endSec: nowSec + 1 },
+    { key: "w", startSec: weekStartSec, endSec: nowSec + 1 },
+  ];
+
+  const sessions = sessionsRepo.listSessionsSeenSince(weekStartSec);
   const known = new Set(subsidiaries.map((s) => s.id));
 
-  const bySub = new Map<string, number>();
-  let headTokens = 0;
-  let total = 0;
-  for (const s of rows) {
-    const usage = readSessionUsage(s);
-    const t = usage?.total ?? 0;
-    if (t <= 0) continue;
-    total += t;
+  const dailyBySub = new Map<string, number>();
+  const weeklyBySub = new Map<string, number>();
+  let dailyHead = 0, weeklyHead = 0, dailyTotal = 0, weeklyTotal = 0;
+
+  for (const s of sessions) {
+    const t = reader(s, windows);
+    const dd = t.d ?? 0;
+    const ww = t.w ?? 0;
+    if (dd <= 0 && ww <= 0) continue;
+    dailyTotal += dd;
+    weeklyTotal += ww;
     const sid = readSubsidiaryId(s.metadata);
     if (sid && known.has(sid)) {
-      bySub.set(sid, (bySub.get(sid) ?? 0) + t);
+      dailyBySub.set(sid, (dailyBySub.get(sid) ?? 0) + dd);
+      weeklyBySub.set(sid, (weeklyBySub.get(sid) ?? 0) + ww);
     } else if (!sid) {
-      headTokens += t;
+      dailyHead += dd;
+      weeklyHead += ww;
     }
     // sid があるが known でない (削除済み子会社等) は total のみ反映。
   }
 
-  const subRows: OrgCostRow[] = subsidiaries.map((sub) => {
-    const tokens = bySub.get(sub.id) ?? 0;
-    // 予算 (blocked) は日次概念なので、 週間集計 (withBudget=false) では出さない。
-    const budget = withBudget ? Math.max(0, Math.floor(sub.daily_token_budget || 0)) : 0;
-    return { id: sub.id, name: sub.name, tokens, budget, blocked: budget > 0 && tokens >= budget };
-  });
+  const buildSubs = (m: Map<string, number>, withBudget: boolean): OrgCostRow[] =>
+    subsidiaries.map((sub) => {
+      const tokens = m.get(sub.id) ?? 0;
+      const budget = withBudget ? Math.max(0, Math.floor(sub.daily_token_budget || 0)) : 0;
+      return { id: sub.id, name: sub.name, tokens, budget, blocked: budget > 0 && tokens >= budget };
+    });
 
-  return {
-    headOffice: { id: null, name: "本社", tokens: headTokens, budget: 0, blocked: false },
-    subsidiaries: subRows,
-    totalTokens: total,
-    label,
+  const daily: OrgCostReport = {
+    headOffice: { id: null, name: "本社", tokens: dailyHead, budget: 0, blocked: false },
+    subsidiaries: buildSubs(dailyBySub, true),
+    totalTokens: dailyTotal,
+    label: localDateIso(nowMs),
   };
-}
-
-/** 当日 (local 暦日) の本社 / 子会社別コスト。 子会社は日次予算 / 超過も持つ。 */
-export function collectOrgCost(
-  sessionsRepo: SessionsRepo,
-  subsidiaries: OrgCostSubsidiary[],
-  nowMs: number = Date.now(),
-): OrgCostReport {
-  const [start, end] = localDayRange(nowMs);
-  return aggregateOrgCost(sessionsRepo, subsidiaries, start, end, localDateIso(nowMs), true);
-}
-
-/** 週間 (直近 7 暦日) の本社 / 子会社別コスト。 予算概念は無し (tokens のみ)。 */
-export function collectOrgCostWeekly(
-  sessionsRepo: SessionsRepo,
-  subsidiaries: OrgCostSubsidiary[],
-  nowMs: number = Date.now(),
-): OrgCostReport {
-  const [start, end] = localWeekRange(nowMs);
-  const label = `${localDateIso(start)}〜${localDateIso(nowMs)}`;
-  return aggregateOrgCost(sessionsRepo, subsidiaries, start, end, label, false);
+  const weekly: OrgCostReport = {
+    headOffice: { id: null, name: "本社", tokens: weeklyHead, budget: 0, blocked: false },
+    subsidiaries: buildSubs(weeklyBySub, false),
+    totalTokens: weeklyTotal,
+    label: `${localDateIso(weekStartSec * 1000)}〜${localDateIso(nowMs)}`,
+  };
+  return { daily, weekly };
 }
 
 /** トークン数を人が読みやすく整形 (1,234,567 / 12k 系ではなくフル桁)。 */
@@ -142,16 +152,13 @@ function renderReportBlock(report: OrgCostReport, heading: string): string[] {
 
 /**
  * 本社/子会社別コストを Concordia モニター用の markdown 行配列に描く。
- * daily は必須、 weekly を渡すと「本日」「週間」の 2 ブロックを出す。
- * 本社 → 各子会社の順。 日次予算ありは `消費 / 予算`、 超過は ⚠️。
+ * 「本日」「週間」の 2 ブロック。 本社 → 各子会社の順。 日次予算ありは `消費 / 予算`、 超過は ⚠️。
  */
-export function renderOrgCostLines(daily: OrgCostReport, weekly?: OrgCostReport): string[] {
+export function renderOrgCostLines(windows: OrgCostWindows): string[] {
   const lines: string[] = [];
   lines.push("### コスト (トークン)");
-  lines.push(...renderReportBlock(daily, `**本日 (${daily.label})**`));
-  if (weekly) {
-    lines.push("");
-    lines.push(...renderReportBlock(weekly, `**週間 (${weekly.label})**`));
-  }
+  lines.push(...renderReportBlock(windows.daily, `**本日 (${windows.daily.label})**`));
+  lines.push("");
+  lines.push(...renderReportBlock(windows.weekly, `**週間 (${windows.weekly.label})**`));
   return lines;
 }

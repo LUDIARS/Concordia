@@ -210,6 +210,17 @@ export class SessionsRepo {
       .all(startTs, endTs) as SessionRow[];
   }
 
+  /**
+   * last_seen_at が sinceTs (epoch 秒) 以降のセッションを返す。 コスト時間帯集計
+   * (JSONL を時刻で漁る) の候補抽出に使う — started_at ではなく「直近に動いたか」で
+   * 絞るので、 日跨ぎの長時間セッションも対象に入る。
+   */
+  listSessionsSeenSince(sinceTs: number): SessionRow[] {
+    return this.db
+      .prepare(`SELECT * FROM sessions WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT 1000`)
+      .all(sinceTs) as SessionRow[];
+  }
+
   setStatus(id: string, status: SessionStatus, ts: number, endedAt?: number): void {
     this.db
       .prepare(

@@ -78,7 +78,7 @@ Claude Code は SessionStart hook の引数で `session_id` を渡す
 ### 2.4 hook 設定
 
 `~/.claude/settings.json` の `hooks` に以下を追加 (詳細は
-[`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md)):
+[`setup/hooks-claude-code.md`](../setup/hooks-claude-code.md)):
 
 ```jsonc
 {
@@ -174,4 +174,4 @@ provider が `unknown` の場合、 transcript recovery は走らない (parseTr
 | `codex-cli` | OpenAI Codex CLI | stub |
 | `unknown` | hook 経路不明 / 汎用 wrapper | event のみ |
 
-新 provider 追加手順は `docs/contributing-provider.md` (将来) を参照。
+新 provider 追加手順は `spec/setup/contributing-provider.md` (将来) を参照。

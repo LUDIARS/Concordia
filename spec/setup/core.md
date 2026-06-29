@@ -40,7 +40,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 
 3. 起動確認: ログに `Concordia listening` (`host` / `port` / `dbPath`) が出る (`src/server.ts:303`)。 ブラウザで Vite frontend (dev は別 port) を開くと全 active session が見える。
 
-4. session 連携を使うには各 AI セッション側に hook を仕込む → [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+4. session 連携を使うには各 AI セッション側に hook を仕込む → [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 ## 起動時に走るもの (参考)
 

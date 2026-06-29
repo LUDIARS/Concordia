@@ -158,7 +158,7 @@ MCP サーバ (別プロセス) が読む env:
 
 ## 7. hook / worker ツール (別プロセス)
 
-サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 `tools/concordia-hook.mjs`:
 

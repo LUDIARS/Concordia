@@ -91,7 +91,7 @@ codex --dangerously-bypass-hook-trust
 
 ## Lictor 配下で使うときの session_id
 
-[`concordia-hook.mjs`](../tools/concordia-hook.mjs) は session_id を以下の優先順で
+[`concordia-hook.mjs`](../../tools/concordia-hook.mjs) は session_id を以下の優先順で
 解決する (`tools/concordia-hook-resolver.mjs`):
 
 1. `CONCORDIA_SESSION_ID` env (Lictor が wrap 時に export する強い signal)

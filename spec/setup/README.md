@@ -29,7 +29,7 @@ npm run dev          # backend (11111) + Vite frontend を同時起動
 
 `.env` は無くても起動する (全キーに既定値あり)。 ただし Windows では git-bash パスの設定が必要になりがちなので、 初回は [windows.md](windows.md) を先に読む。 dev 起動の background 化が許可されているのは cwd に [`dev-process.md`](../../dev-process.md) があるため (LUDIARS の dev-server policy)。
 
-セッション協調 (hook 連携) を実際に使うには、 各 AI セッション側に hook を仕込む。 手順は [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+セッション協調 (hook 連携) を実際に使うには、 各 AI セッション側に hook を仕込む。 手順は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 ---
 

@@ -22,10 +22,12 @@ GitHub Pages へデプロイする。
 ## ローカル確認
 
 ```bash
-cd site && python3 -m http.server 8080   # http://127.0.0.1:8080/
+cd docs && python3 -m http.server 8080   # http://127.0.0.1:8080/
 ```
 
 ## Pages の有効化（初回のみ）
 
-リポジトリ Settings → Pages → Build and deployment → Source を **GitHub Actions** に設定すると
-`pages.yml` のデプロイが反映される。
+次のどちらかで公開できる:
+
+- **GitHub Actions**: Settings → Pages → Source を **GitHub Actions** に設定 → `pages.yml` がデプロイ。
+- **ブランチ配信**: Settings → Pages → Source を **Deploy from a branch** にし、`main` ブランチの **`/docs`** フォルダを選択（Actions ワークフロー不要）。

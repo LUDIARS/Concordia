@@ -11,7 +11,7 @@ spec/
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
 ├── feature/     # 機能（Discord 連携 / 委託 / multi-provider）
 ├── interface/   # API・schema 正本（service-schema.md）
-├── setup/       # 起動・設定（用途別ガイド）
+├── setup/       # 起動・設定（用途別ガイド + hook 連携手順）
 └── test/        # テスト設計
 ```
 > `plan/` は未設置（ロードマップは README §開発ステータス）。

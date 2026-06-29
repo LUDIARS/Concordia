@@ -1,12 +1,12 @@
 name: Deploy Pages
 
 # Concordia のサービス概要 / アーキテクチャ / API リファレンスを
-# GitHub Pages で公開する。site/ は build 不要の静的サイト。
+# GitHub Pages で公開する。docs/ は build 不要の静的サイト。
 on:
   push:
     branches: [main]
     paths:
-      - "site/**"
+      - "docs/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -35,7 +35,7 @@ jobs:
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: docs
 
       - name: Deploy to GitHub Pages
         id: deployment

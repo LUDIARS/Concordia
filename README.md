@@ -112,7 +112,7 @@ npm run build        # production build
 ### 3. Claude Code の hook 設定
 
 `~/.claude/settings.json` の `hooks` に以下を追加 (詳細は
-[`docs/hooks-claude-code.md`](docs/hooks-claude-code.md)):
+[`spec/setup/hooks-claude-code.md`](spec/setup/hooks-claude-code.md)):
 
 ```jsonc
 {

@@ -14,11 +14,13 @@ import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { ownedToPortable, parsePortable, templateToPortable } from "../delegation/portable.js";
-
-const NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
+import type { RunClaudeFn } from "../subsidiary/guard.js";
+import { NAME_RE, resolveSubsidiaryName } from "../subsidiary/name-slug.js";
 
 const CreateSchema = z.object({
-  name: z.string().regex(NAME_RE),
+  // 入力は弾かず受け取り、 正規 slug でなければ自動正規化する (resolveSubsidiaryName)。
+  // 受付チャンネル名の自動補正と同じ発想。 空だけは拒否 (補正の手掛かりが無い)。
+  name: z.string().min(1).max(120),
   display_name: z.string().max(120).optional(),
   description: z.string().max(2000).optional(),
   platform: z.enum(["discord", "slack"]).optional(),
@@ -60,6 +62,10 @@ export interface SubsidiaryApiDeps {
   secretBox: SecretBox;
   /** 子会社の日次トークン予算トラッカー (当日消費を serialize に載せる)。 省略可。 */
   budget?: SubsidiaryBudgetTracker;
+  /** name 自動正規化で日本語等をローマ字 slug 化する Haiku (claude CLI)。 省略時は決定的経路のみ。 */
+  runClaude?: RunClaudeFn;
+  /** 自動正規化の fallback を記録する logger。 省略可。 */
+  log?: { warn: (msg: string) => void };
 }
 
 /** 所有 delegation 行を API 表現へ (input_schema を配列にパース)。 */
@@ -134,14 +140,27 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = CreateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    if (deps.repo.findByName(parsed.data.name)) return c.json({ error: "name_taken" }, 409);
-    const { bot_token, app_token, ...rest } = parsed.data;
+    // 入力 name が既に正規 slug かつ重複 → 明示 409 (利用者の意図が明確なので自動改名しない)。
+    // 正規 slug でない場合は弾かず resolveSubsidiaryName が自動補正・自動一意化する。
+    if (NAME_RE.test(parsed.data.name) && deps.repo.findByName(parsed.data.name)) {
+      return c.json({ error: "name_taken" }, 409);
+    }
+    const resolved = await resolveSubsidiaryName(parsed.data.name, parsed.data.display_name, {
+      exists: (n) => !!deps.repo.findByName(n),
+      runClaude: deps.runClaude,
+      log: deps.log,
+    });
+    const { bot_token, app_token, name: _rawName, ...rest } = parsed.data;
     const row = deps.repo.create({
       ...rest,
+      name: resolved.name,
       bot_token_enc: encField(bot_token) ?? null,
       app_token_enc: encField(app_token) ?? null,
     });
-    return c.json({ subsidiary: serialize(row) }, 201);
+    return c.json(
+      { subsidiary: serialize(row), name_normalized: resolved.normalized, name_source: resolved.source },
+      201,
+    );
   });
 
   app.patch("/:id", async (c) => {

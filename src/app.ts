@@ -65,6 +65,7 @@ import { substituteVars } from "./delegation/service.js";
 import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./api/model-catalog.js";
 import { subsidiaryRouter } from "./api/subsidiary.js";
+import { createChildLogger } from "./shared/logger.js";
 import { harnessRulesRouter } from "./api/harness-rules.js";
 import { harnessSessionRouter } from "./api/harness-session.js";
 import type { HarnessAuditRepo } from "./db/harness-audit-repo.js";
@@ -232,7 +233,7 @@ export function buildApp(deps: AppDeps): Hono {
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(
       "/v1/subsidiaries",
-      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget }),
+      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api") }),
     );
   }
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。

@@ -467,6 +467,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       guild: interaction.guild!,
       layout,
       log,
+      subsidiaryId,
     }).catch((e) => {
       log.warn(`interaction handler failed id=${interaction.id}: ${(e as Error).message}`);
     });

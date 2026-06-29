@@ -79,7 +79,7 @@ const spawnCommand: DiscordCommandSpec = {
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        { template, inject_prompt: inject, cwd },
+        { template, inject_prompt: inject, cwd, subsidiary_id: deps.subsidiaryId ?? null },
       );
       if ("error" in r || !r.ok) {
         await interaction.editReply({
@@ -109,7 +109,7 @@ const spawnCommand: DiscordCommandSpec = {
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        { provider, prompt, model, cwd },
+        { provider, prompt, model, cwd, subsidiary_id: deps.subsidiaryId ?? null },
       );
       if ("error" in r || !r.ok) {
         await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
@@ -119,6 +119,28 @@ const spawnCommand: DiscordCommandSpec = {
       await interaction.editReply({
         content: channelMention
           ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
+          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+      });
+      return;
+    }
+    // 子会社 Bot の素の provider spawn は、 subsidiary_id を焼ける /v1/admin/spawn-session
+    // (loopback 信頼境界) を使う。 これで子会社セッションが本社側に出ず子会社 guild に出る。
+    if (deps.subsidiaryId) {
+      await interaction.deferReply({ ephemeral: false });
+      const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
+        deps.concordiaUrl,
+        "POST",
+        "/v1/admin/spawn-session",
+        { provider, cwd, subsidiary_id: deps.subsidiaryId },
+      );
+      if ("error" in r || !r.ok) {
+        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
+        return;
+      }
+      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
+      await interaction.editReply({
+        content: channelMention
+          ? `Spawned \`${provider}\` → ${channelMention}`
           : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
       });
       return;

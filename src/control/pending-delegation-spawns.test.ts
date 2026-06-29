@@ -61,4 +61,14 @@ describe("pending-delegation-spawns", () => {
     expect(got).not.toBeNull();
     expect(got?.emoji).toBeNull();
   });
+
+  it("subsidiaryId を round-trip する（/spawn 子会社対応の要）", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", callName: "spawn", subsidiaryId: "sub-123" }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.subsidiaryId).toBe("sub-123");
+  });
+
+  it("subsidiaryId 未設定は null（本社の通常 spawn）", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", emoji: "x", callName: "x" }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.subsidiaryId).toBeNull();
+  });
 });

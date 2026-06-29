@@ -30,6 +30,8 @@ export interface DiscordCommandDeps {
   layout: DiscordConfigSnapshot;
   log: { info: (m: string) => void; warn: (m: string) => void };
   logsDir?: string;
+  /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
+  subsidiaryId?: string | null;
 }
 
 export interface DiscordCommandSpec {

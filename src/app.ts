@@ -263,6 +263,10 @@ export function buildApp(deps: AppDeps): Hono {
       return c.json({ error: "invalid JSON" }, 400);
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    // 子会社 Bot 由来の spawn は subsidiary_id を引き継ぎ、 spawn したセッションに焼く
+    // (session.started 時に cwd で claim → metadata.subsidiary_id)。 これが無いと
+    // 未タグ = 本社所有扱いになり、 自動生成された session チャンネルが本社側に出てしまう。
+    const subsidiaryId = typeof body.subsidiary_id === "string" && body.subsidiary_id.trim() ? body.subsidiary_id.trim() : null;
 
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
@@ -287,6 +291,7 @@ export function buildApp(deps: AppDeps): Hono {
           cwd: cwdOverride,
           triggered_by: "web-spawn",
           spawn: true,
+          subsidiary_id: subsidiaryId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
         return c.json({
@@ -327,7 +332,7 @@ export function buildApp(deps: AppDeps): Hono {
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name });
+      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId });
       return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });
     }
 
@@ -352,15 +357,21 @@ export function buildApp(deps: AppDeps): Hono {
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
+    const directCwd = resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot());
     const result = spawnSession({
       provider: resolved.provider,
       mode,
       args: [...resolved.args, ...userArgs],
-      cwd: resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot()),
+      cwd: directCwd,
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
     if (!result.ok) return c.json({ error: result.error }, 400);
+    // 子会社由来の素の provider spawn も subsidiary_id を焼く (本社流入防止)。 本社の通常
+    // spawn では pending を積まない (cwd 衝突で他 delegation の claim を奪わないため)。
+    if (subsidiaryId) {
+      recordPendingDelegationSpawn({ cwd: directCwd, callName: "spawn", subsidiaryId });
+    }
     return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: !!adHocPrompt });
   });
 

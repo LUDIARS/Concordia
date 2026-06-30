@@ -51,6 +51,8 @@ import { ChatResponder } from "./chat/responder.js";
 import { resolveRenderConfig } from "./chat/render-config.js";
 import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
+import { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
+import { collectUsageSamples } from "./cost/usage-sampler.js";
 import { startSweeper } from "./sweeper.js";
 import { startReaper } from "./control/reaper.js";
 import { startStalledSessionNudge } from "./control/stalled-session-nudge.js";
@@ -85,6 +87,10 @@ const log = createChildLogger("server");
 
 /** コストトラッカーのサンプリング間隔 (ms)。 2 分毎にログ走査して当日消費を更新。 */
 const COST_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
+/** 使用量時系列サンプルの記録間隔 (ms)。 10 分毎 (WebUI /cost グラフ用)。 */
+const USAGE_SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
+/** 使用量サンプルの保持期間 (秒)。 これより古い行は掃除する (60 日)。 */
+const USAGE_SAMPLE_RETENTION_SEC = 60 * 24 * 60 * 60;
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
 let slackBotHandle: ChatPlatform | null = null;
@@ -282,6 +288,24 @@ export async function startBackend(): Promise<BackendHandle> {
   }, COST_SAMPLE_INTERVAL_MS);
   costSampleTimer.unref?.();
 
+  // 10 分毎に全 active セッションの「現在のコンテキスト占有」+「累積消費トークン」を
+  // subsidiary/provider タグ付きで時系列テーブルへ記録する。 WebUI /cost が折れ線グラフに繋ぐ。
+  // (予算トラッカーの 2 分サンプルとは別系統 — あちらは合計の日次バケットのみ。)
+  const usageSamplesRepo = new CostUsageSamplesRepo(db);
+  const sampleUsage = (): void => {
+    try {
+      const active = repo.listSessions({ status: "active" });
+      const nowSec = Math.floor(Date.now() / 1000);
+      usageSamplesRepo.insertMany(collectUsageSamples(active, nowSec));
+      usageSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
+    } catch (e) {
+      log.warn(`usage sampler failed: ${(e as Error).message}`);
+    }
+  };
+  sampleUsage(); // 起動直後に 1 点打つ
+  const usageSampleTimer = setInterval(sampleUsage, USAGE_SAMPLE_INTERVAL_MS);
+  usageSampleTimer.unref?.();
+
   seedDefaultRules(rules);
   seedPersonas(personas);
   seedDelegationTemplates(delegationRepo);
@@ -468,6 +492,7 @@ export async function startBackend(): Promise<BackendHandle> {
     transcriptLogs,
     pendingQuestions,
     discordChannels,
+    costSamples: usageSamplesRepo,
     discordConfig,
     participants,
     delegation: delegationRepo,
@@ -647,6 +672,7 @@ export async function startBackend(): Promise<BackendHandle> {
       autoCompaction.stop();
       metricsLoop.stop();
       clearInterval(costSampleTimer);
+      clearInterval(usageSampleTimer);
       unsubLog();
       await stopDiscordBotManaged();
       await stopSlackBotManaged();

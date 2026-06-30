@@ -29,6 +29,8 @@ import { statRouter } from "./api/stat.js";
 import { workRouter } from "./api/work.js";
 import { prsRouter } from "./api/prs.js";
 import { costFeedRouter } from "./api/cost-feed.js";
+import { costRouter } from "./api/cost.js";
+import type { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
@@ -109,6 +111,8 @@ export interface AppDeps {
   pendingQuestions: DiscordPendingQuestionsRepo;
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
+  /** 10 分毎の使用量サンプル (WebUI /cost の時系列グラフ用)。 */
+  costSamples: CostUsageSamplesRepo;
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
@@ -239,6 +243,20 @@ export function buildApp(deps: AppDeps): Hono {
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
   // env 解決の singleton を使うので AppDeps への配線は不要。
   app.route("/v1/cost-feed", costFeedRouter());
+  app.route(
+    "/v1/cost",
+    costRouter({
+      sessions: deps.repo,
+      channels: deps.discordChannels,
+      samples: deps.costSamples,
+      listSubsidiaries: () =>
+        deps.subsidiary
+          ? deps.subsidiary
+              .list()
+              .map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget }))
+          : [],
+    }),
+  );
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();

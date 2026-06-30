@@ -358,6 +358,45 @@ export interface CostFeedReport {
   updatedAt: number | null;
 }
 
+// ── 自セッションコスト (/v1/cost) — Discord の「Concordia Monitor」「コスト」と同内容 ──
+/** 1 組織 (本社 or 子会社) のコスト行。 */
+export interface OrgCostRow {
+  id: string | null;
+  name: string;
+  tokens: number;
+  budget: number;
+  blocked: boolean;
+}
+export interface OrgCostReport {
+  headOffice: OrgCostRow;
+  subsidiaries: OrgCostRow[];
+  totalTokens: number;
+  label: string;
+}
+/** 1 セッション (= 1 チャンネル) の現在の context/cost。 */
+export interface ChannelCostRow {
+  sessionId: string;
+  channelId: string | null;
+  provider: string;
+  contextTokens: number | null;
+  costTokens: number;
+}
+export interface CostOverview {
+  windows: { daily: OrgCostReport; weekly: OrgCostReport };
+  channels: ChannelCostRow[];
+}
+/** 時系列グラフ 1 点 (バケット)。 */
+export interface UsageTimeseriesPoint {
+  ts: number;
+  sessions: number;
+  contextTokens: number;
+  spentTokens: number;
+}
+export interface UsageTimeseries {
+  bucketSec: number;
+  points: UsageTimeseriesPoint[];
+}
+
 // ── Library Hygiene (メモリ/スキル整理) ──────────────────────────────
 export interface LibraryBlockFlags {
   orphanIndex?: boolean;
@@ -452,6 +491,14 @@ export interface ArchivedRecord {
 export const api = {
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
   costFeed: () => get<CostFeedReport>("/v1/cost-feed"),
+  costOverview: () => get<CostOverview>("/v1/cost/overview"),
+  costTimeseries: (opts?: { sinceSec?: number; bucketSec?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.sinceSec !== undefined) q.set("since", String(opts.sinceSec));
+    if (opts?.bucketSec !== undefined) q.set("bucket", String(opts.bucketSec));
+    const qs = q.toString();
+    return get<UsageTimeseries>(`/v1/cost/timeseries${qs ? "?" + qs : ""}`);
+  },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>

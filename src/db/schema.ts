@@ -798,6 +798,25 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_session_audit_created
      ON harness_session_audit(created_at DESC)`,
+
+  // ─── cost 使用量の時系列サンプル (10 分毎、 セッション別) ───────────────
+  // 10 分毎に全 active セッションの「現在のコンテキスト占有」 と「累積消費トークン」 を
+  // subsidiary/provider タグ付きで 1 行ずつ記録する。 これを時刻で繋いで WebUI の /cost に
+  // 折れ線グラフ化し、 「いつ・誰が・どれだけ使ったか」 を可視化する (ユーザ要望)。
+  // JSONL ローテートで消える生ログと違い、 ここに焼けば長期履歴が残る。
+  `CREATE TABLE IF NOT EXISTS cost_usage_samples (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             INTEGER NOT NULL,            -- epoch 秒 (サンプル時刻)
+    session_id     TEXT    NOT NULL,
+    subsidiary_id  TEXT,                        -- null = 本社
+    provider       TEXT,                        -- claude-code / codex-cli / ...
+    context_tokens INTEGER,                     -- 現在のコンテキスト占有 (不明なら null)
+    cost_tokens    INTEGER NOT NULL DEFAULT 0   -- 累積消費トークン (input+output)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_ts
+     ON cost_usage_samples(ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_session
+     ON cost_usage_samples(session_id, ts)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { buildApp, type AppDeps } from "../../src/app.js";
 import { AdminState } from "../../src/admin/state.js";
 import { ChatRepo } from "../../src/db/chat-repo.js";
+import { CostUsageSamplesRepo } from "../../src/db/cost-usage-samples-repo.js";
 import { DayReportsRepo } from "../../src/db/day-reports-repo.js";
 import { DelegationRepo } from "../../src/db/delegation-repo.js";
 import {
@@ -98,6 +99,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  const costSamples = new CostUsageSamplesRepo(db);
   const participants = makeParticipantsRepo(db);
   const delegation = new DelegationRepo(db);
   seedDelegationTemplates(delegation);
@@ -137,7 +139,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   const deps: AppDeps = {
     repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
+    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples,
     participants, delegation, delegationService, modelCatalog, adminState,
     processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },

@@ -117,10 +117,13 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
   }
 
   app.get("/", (c) => {
+    // Monitor の子会社カードが「直近 24h でガードが何件 allow/deny したか」を出すための集計。
+    const since24h = Date.now() - 24 * 60 * 60 * 1000;
     const rows = deps.repo.list().map((r) => ({
       ...serialize(r),
       delegations: deps.repo.listDelegations(r.id).map(serializeOwnedDelegation),
       lock_count: deps.repo.listLocks(r.id).length,
+      requests_24h: deps.repo.countRequestsSince(r.id, since24h),
     }));
     return c.json({ subsidiaries: rows });
   });

@@ -403,6 +403,26 @@ export class SubsidiaryRepo {
       .prepare(`SELECT * FROM subsidiary_requests WHERE subsidiary_id = ? ORDER BY created_at DESC LIMIT ?`)
       .all(subsidiaryId, limit) as SubsidiaryRequestRow[];
   }
+
+  /**
+   * 子会社の受信依頼を decision 別に集計する (sinceMs 以降のみ)。 Monitor の子会社カードで
+   * 「直近 N 時間でガードが何件 allow/deny したか」を一目で出すための軽量カウント。
+   * created_at は ms (Date.now())。 sinceMs を渡さなければ全期間。
+   */
+  countRequestsSince(subsidiaryId: string, sinceMs = 0): { allow: number; deny: number } {
+    const rows = this.db
+      .prepare(
+        `SELECT decision, COUNT(*) AS n FROM subsidiary_requests
+         WHERE subsidiary_id = ? AND created_at >= ? GROUP BY decision`,
+      )
+      .all(subsidiaryId, sinceMs) as Array<{ decision: "allow" | "deny"; n: number }>;
+    const out = { allow: 0, deny: 0 };
+    for (const r of rows) {
+      if (r.decision === "allow") out.allow = r.n;
+      else if (r.decision === "deny") out.deny = r.n;
+    }
+    return out;
+  }
 }
 
 /** 予算値を 0 以上の整数に丸める (負値・NaN・少数は 0 扱いに正規化)。 */

@@ -943,6 +943,8 @@ export interface SubsidiarySummary {
   budget_blocked?: boolean;
   delegations?: SubsidiaryDelegation[];
   lock_count?: number;
+  /** 直近 24h にガードが処理した依頼の decision 別件数 (一覧 GET のみ)。 */
+  requests_24h?: { allow: number; deny: number };
 }
 export interface SubsidiaryInput {
   name?: string;

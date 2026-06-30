@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
-import type { SessionRow, DelegationTemplateLite, HostSnapshot } from "../api.js";
+import type { SessionRow, DelegationTemplateLite, HostSnapshot, SubsidiarySummary } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 
 function fmtBytes(b: number | null | undefined): string {
@@ -107,6 +107,7 @@ export function Monitor() {
         </section>
       )}
 
+      <SubsidiariesSection active={data.active} />
       <MachinesSection />
       <PerformanceSection />
       <SpawnSessionForm />
@@ -115,6 +116,120 @@ export function Monitor() {
       <SessionList title="lost" rows={data.lost} statByIdx={statByIdx} />
       <SessionList title="recently ended" rows={data.recent_ended} statByIdx={statByIdx} />
     </div>
+  );
+}
+
+/** トークン数を人が読みやすい桁 (1,234k / 1,234) に整形する。 */
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 1000).toLocaleString("en-US")}k`;
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * 子会社の様子 — 出張先 (別 Discord/Slack) で動く子会社 Bot の稼働状況を Monitor に一覧する。
+ * 管理は /subsidiaries に集約されているが、 ここでは「今どの子会社が動いていて、 何件
+ * セッションを起こし、 予算をどれだけ使い、 ガードが何件弾いたか」を一目で出す。
+ *
+ *  - 稼働中セッション数: active セッションを metadata.subsidiary_id で集計 (本社セッションは
+ *    subsidiary_id を持たないので自然に除外される)。 親から渡る active は WS で更新されるため
+ *    セッション数はライブに反映される。
+ *  - 子会社サマリ (running / 予算 / lock / 直近 24h の allow|deny) は WS イベントが無いので
+ *    8 秒 poll で取り直す (PC パフォーマンスと同じ方式)。
+ * カードクリックで管理ページ (/subsidiaries) へ。
+ */
+function SubsidiariesSection({ active }: { active: SessionRow[] }) {
+  const [subs, setSubs] = useState<SubsidiarySummary[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    let stopped = false;
+    const tick = () =>
+      api.subsidiariesList()
+        .then((r) => { if (!stopped) setSubs(r.subsidiaries); })
+        .catch(() => { if (!stopped) setSubs(null); });
+    void tick();
+    const id = setInterval(tick, 8000);
+    return () => { stopped = true; clearInterval(id); };
+  }, []);
+
+  // subsidiary_id ごとの稼働中セッション数 (本社セッションは subsidiary_id 無しで除外)。
+  const activeBySub = new Map<string, number>();
+  for (const s of active) {
+    const sid = (s.metadata as any)?.subsidiary_id;
+    if (typeof sid === "string" && sid) activeBySub.set(sid, (activeBySub.get(sid) ?? 0) + 1);
+  }
+
+  if (subs === undefined) return null; // 初回ロード中
+  if (subs === null || subs.length === 0) return null; // 未取得 / 未登録は出さない
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-base font-semibold">
+          子会社 <span className="text-subtle text-xs ml-2">{subs.length}</span>
+        </h2>
+        <Link to="/subsidiaries" className="text-xs text-accent ml-auto">管理 →</Link>
+      </div>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+      >
+        {subs.map((s) => {
+          const activeCount = activeBySub.get(s.id) ?? 0;
+          const budget = s.daily_token_budget ?? 0;
+          const used = s.usage_today_tokens ?? 0;
+          const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
+          const deny = s.requests_24h?.deny ?? 0;
+          const allow = s.requests_24h?.allow ?? 0;
+          const locks = s.lock_count ?? 0;
+          return (
+            <Link
+              key={s.id}
+              to="/subsidiaries"
+              className="block bg-surface border border-border rounded p-3 hover:border-accent transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${s.running ? "bg-ok" : "bg-subtle"}`}
+                  title={s.running ? "Bot 稼働中" : "Bot 停止"}
+                />
+                <span className="text-sm font-medium truncate">{s.display_name || s.name}</span>
+                <span className="text-subtle text-xs">/ {s.platform}</span>
+                {!s.enabled && <span className="text-[10px] text-subtle ml-auto">無効</span>}
+              </div>
+
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className={activeCount > 0 ? "text-accent" : "text-subtle"} title="この子会社が今起こしている active セッション数">
+                  セッション {activeCount}
+                </span>
+                {locks > 0 && <span className="text-warn">🔒 {locks}</span>}
+                <span className="ml-auto flex items-center gap-2">
+                  {deny > 0 && <span className="text-danger" title="直近 24h に deny した件数">deny {deny}</span>}
+                  {allow > 0 && <span className="text-subtle" title="直近 24h に allow した件数">allow {allow}</span>}
+                </span>
+              </div>
+
+              {/* 当日トークン予算 */}
+              <div className="mt-2 text-[11px]">
+                <div className="flex items-center gap-1 text-subtle">
+                  <span className={s.budget_blocked ? "text-danger" : ""}>
+                    {s.budget_blocked ? "💸 " : ""}予算 {fmtTokens(used)}/{budget > 0 ? fmtTokens(budget) : "∞"}
+                  </span>
+                  {budget > 0 && <span className="ml-auto">{pct}%</span>}
+                </div>
+                {budget > 0 && (
+                  <div className="mt-1 h-1 bg-muted rounded overflow-hidden">
+                    <div
+                      className={`h-full ${s.budget_blocked || pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-warn" : "bg-accent"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 

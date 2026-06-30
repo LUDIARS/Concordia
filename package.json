@@ -8,7 +8,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "npm run sync:skill && tsc -p tsconfig.json && cd web && npm run build",
+    "build": "npm run sync:skill && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
+    "build:spec-index": "node tools/build-spec-index.mjs",
     "dev": "npm run sync:skill && concurrently --kill-others-on-fail -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
     "dev:backend": "node --watch --import tsx --env-file-if-exists=.env src/server.ts",
     "dev:web": "cd web && npm run dev",

@@ -19,6 +19,7 @@ import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } 
 import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
+import { repinSession } from "../control/repin-session.js";
 import { type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { runClaude } from "../rules/claude-runner.js";
@@ -449,7 +450,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   client.on(Events.MessageReactionAdd, (reaction, user) => {
     if (!inScope(reaction.message.guildId)) return;
     void handleReactionAdd(
-      { reactionsRepo, messageMap, log, workflow: reactionWorkflow, sessionChannels: sessionChannelsRepo, sessions: deps.sessionsRepo },
+      {
+        reactionsRepo,
+        messageMap,
+        log,
+        workflow: reactionWorkflow,
+        sessionChannels: sessionChannelsRepo,
+        sessions: deps.sessionsRepo,
+        repin: (sid) => repinSession(deps.sessionsRepo, sid),
+      },
       reaction,
       user,
     ).catch((e) => {

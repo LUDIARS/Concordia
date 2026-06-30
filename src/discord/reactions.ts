@@ -31,6 +31,9 @@ import {
 } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 
+/** 📌 で transcript relay を /clear なしで再束縛する built-in アクションのトリガー絵文字。 */
+const REPIN_EMOJI = "📌";
+
 /** session の作業ディレクトリ / 状態を引く最小インタフェース (SessionsRepo の部分)。 */
 export interface SessionLookup {
   findSession(sessionId: string): { repo_path: string; status: string } | null;
@@ -50,6 +53,12 @@ export interface ReactionsDeps {
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
   sessionChannels?: DiscordSessionChannelsRepo;
   sessions?: SessionLookup;
+  /**
+   * 📌 re-pin: セッションチャンネルで pushpin リアクション → その session の Lictor へ
+   * `POST /v1/repin` を投げ、 transcript relay を /clear なしで生 transcript へ束縛し直す。
+   * built-in 操作 (RWF プラグインに依らない)。 未注入なら 📌 は no-op。
+   */
+  repin?: (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
 }
 
 export async function handleReactionAdd(
@@ -92,6 +101,23 @@ export async function handleReactionAdd(
         sessionActive = s.status === "active";
       }
     }
+  }
+
+  // 📌 re-pin (built-in): セッションチャンネルで pushpin → その Lictor の transcript relay を
+  // /clear なしで再束縛する。 stall (Concordia 再起動で中継が止まった等) からの手動復帰口。
+  // session 未解決 / 非 active のときは無視 (壊れた相手に投げない)。
+  if (deps.repin && emoji === REPIN_EMOJI && sessionId && sessionActive) {
+    const sid = sessionId;
+    void deps.repin(sid)
+      .then((res) => {
+        const text = res.ok
+          ? `📌 relay を再束縛しました${res.path ? ` → \`${res.path.split(/[\\/]/).pop()}\`` : ""}`
+          : `📌 re-pin 失敗: ${res.error ?? "新しい transcript が見つかりません"}`;
+        return message
+          .reply({ content: text, allowedMentions: { repliedUser: false } })
+          .catch((e) => deps.log.info(`reactions: repin ack failed: ${(e as Error).message}`));
+      })
+      .catch((e) => deps.log.info(`reactions: repin failed for ${sid}: ${(e as Error).message}`));
   }
 
   // ワークフロー: message-map に依存せず、 どのメッセージでも発火させる (fire-and-forget)。

@@ -5,6 +5,7 @@ describe("loadConfig spawnDefaultCwd resolution", () => {
   it("env CONCORDIA_SPAWN_DEFAULT_CWD が最優先", () => {
     const cfg = loadConfig({
       CONCORDIA_SPAWN_DEFAULT_CWD: "D:\\custom\\path",
+      LUDIARS_ROOT: "D:\\LUDIARS",
     } as NodeJS.ProcessEnv);
     expect(cfg.spawnDefaultCwd).toBe("D:\\custom\\path");
   });
@@ -16,24 +17,39 @@ describe("loadConfig spawnDefaultCwd resolution", () => {
     expect(cfg.spawnDefaultCwd).toBe("D:\\custom\\path");
   });
 
-  it("win32 + Ars dir 実在なら auto-detect で E:\\Document\\Ars", () => {
-    const cfg = loadConfig({} as NodeJS.ProcessEnv, { platform: "win32", exists: () => true });
-    expect(cfg.spawnDefaultCwd).toBe("E:\\Document\\Ars");
+  it("CONCORDIA_SPAWN_DEFAULT_CWD 未設定なら LUDIARS_ROOT (Excubitor 注入) を採用", () => {
+    const cfg = loadConfig({ LUDIARS_ROOT: "D:\\LUDIARS" } as NodeJS.ProcessEnv);
+    expect(cfg.spawnDefaultCwd).toBe("D:\\LUDIARS");
   });
 
-  it("win32 でも Ars dir が無ければ空", () => {
-    const cfg = loadConfig({} as NodeJS.ProcessEnv, { platform: "win32", exists: () => false });
+  it("LUDIARS_ROOT は前後 whitespace を trim する", () => {
+    const cfg = loadConfig({ LUDIARS_ROOT: "  E:/Document/Ars  " } as NodeJS.ProcessEnv);
+    expect(cfg.spawnDefaultCwd).toBe("E:/Document/Ars");
+  });
+
+  it("どちらの env も無ければ空 (ドライブを焼き込まない)", () => {
+    const cfg = loadConfig({} as NodeJS.ProcessEnv);
     expect(cfg.spawnDefaultCwd).toBe("");
   });
 
-  it("非 win32 では auto-detect しない", () => {
-    const cfg = loadConfig({} as NodeJS.ProcessEnv, { platform: "linux", exists: () => true });
-    expect(cfg.spawnDefaultCwd).toBe("");
+  it("env が空文字なら LUDIARS_ROOT にフォールバック", () => {
+    const cfg = loadConfig({
+      CONCORDIA_SPAWN_DEFAULT_CWD: "",
+      LUDIARS_ROOT: "D:\\LUDIARS",
+    } as NodeJS.ProcessEnv);
+    expect(cfg.spawnDefaultCwd).toBe("D:\\LUDIARS");
   });
 
-  it("env が空文字なら auto-detect にフォールバック", () => {
-    const cfg = loadConfig({ CONCORDIA_SPAWN_DEFAULT_CWD: "" } as NodeJS.ProcessEnv, { platform: "win32", exists: () => true });
-    expect(cfg.spawnDefaultCwd).toBe("E:\\Document\\Ars");
+  it("workspaceRoot は CONCORDIA_WORKSPACE_ROOT > spawnDefaultCwd(=LUDIARS_ROOT)", () => {
+    expect(loadConfig({ LUDIARS_ROOT: "D:\\LUDIARS" } as NodeJS.ProcessEnv).workspaceRoot).toBe("D:\\LUDIARS");
+    expect(
+      loadConfig({ LUDIARS_ROOT: "D:\\LUDIARS", CONCORDIA_WORKSPACE_ROOT: "D:\\OTHER" } as NodeJS.ProcessEnv).workspaceRoot,
+    ).toBe("D:\\OTHER");
+  });
+
+  it("LUDIARS_ROOT があれば githubOrg は LUDIARS、 無ければ空", () => {
+    expect(loadConfig({ LUDIARS_ROOT: "D:\\LUDIARS" } as NodeJS.ProcessEnv).githubOrg).toBe("LUDIARS");
+    expect(loadConfig({} as NodeJS.ProcessEnv).githubOrg).toBe("");
   });
 });
 

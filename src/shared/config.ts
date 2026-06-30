@@ -9,33 +9,27 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * spawnDefaultCwd の自動既定値. LUDIARS の運用パス (E:\Document\Ars) が
- * 存在する Windows 機なら自動で採用する. env override (CONCORDIA_SPAWN_DEFAULT_CWD)
- * が最優先で、 ここでは env が unset/空 の場合に限り評価する.
+ * LUDIARS ワークスペースルート (= ローカルクローンの親ディレクトリ) の解決。
  *
- * Linux/macOS や該当パスを持たない Windows 機では空のまま (= フォールバック無し、
- * Concordia 自身の cwd で spawn) を返すので、 open-source 環境を壊さない.
+ * 正本は Excubitor が spawn 時にプロセス env として注入する `LUDIARS_ROOT`
+ * (Excubitor 側 `arsRoot()` = env `EXCUBITOR_ARS_ROOT` / `LUDIARS_ROOT` → cwd 親 で解決した値)。
+ * 旧実装は `E:\Document\Ars` を直書きして「存在すれば採用」 していたが、 別ドライブ
+ * (D:\LUDIARS) のマシンで全パスが壊れるため、 ドライブの焼き込みを廃止し注入 env を基準にする。
+ * `.env` ファイルには依存しない (プロセス env のみ)。
+ *
+ * 未注入 (env 無し) なら空文字列を返す (= フォールバック無し)。 実行時は AdminState の上書き、
+ * あるいは明示 env CONCORDIA_SPAWN_DEFAULT_CWD / CONCORDIA_WORKSPACE_ROOT が効く。
  */
-const LUDIARS_AUTO_DEFAULT_CWD = "E:\\Document\\Ars";
-
-/**
- * テスト等から platform / existsSync を差し替えるための注入インタフェース。
- * 省略時はそれぞれ `process.platform` / `existsSync` が使われる。
- */
-export interface ConfigProbe {
-  platform?: NodeJS.Platform;
-  exists?: (path: string) => boolean;
+function resolveLudiarsRoot(env: NodeJS.ProcessEnv): string {
+  return (env.LUDIARS_ROOT ?? "").trim();
 }
 
-function autoDetectSpawnDefaultCwd(probe: ConfigProbe = {}): string {
-  const platform = probe.platform ?? process.platform;
-  const exists = probe.exists ?? existsSync;
-  if (platform !== "win32") return "";
-  try {
-    return exists(LUDIARS_AUTO_DEFAULT_CWD) ? LUDIARS_AUTO_DEFAULT_CWD : "";
-  } catch {
-    return "";
-  }
+/**
+ * テスト等から existsSync を差し替えるための注入インタフェース。
+ * 省略時は `existsSync` が使われる。
+ */
+export interface ConfigProbe {
+  exists?: (path: string) => boolean;
 }
 
 export interface ConcordiaConfig {
@@ -101,7 +95,7 @@ export interface ConcordiaConfig {
    *
    * 解決順:
    *  1. env `CONCORDIA_SPAWN_DEFAULT_CWD` (明示指定、 最優先)
-   *  2. `E:\Document\Ars` が存在する Windows 機ならその値 (LUDIARS 運用既定)
+   *  2. env `LUDIARS_ROOT` (Excubitor が spawn 時に注入する LUDIARS ワークスペースルート)
    *  3. 空文字列 (= フォールバック無し、 Concordia 自身の cwd で spawn)
    *
    * 空文字列なら spawn endpoint は cwd を指定せず spawnSession 側のロジックで
@@ -111,7 +105,7 @@ export interface ConcordiaConfig {
   /**
    * ローカルクローンを並べた作業ルート (Work ページの repo 一覧の走査先)。
    * env `CONCORDIA_WORKSPACE_ROOT` 優先、 無ければ spawnDefaultCwd を流用
-   * (LUDIARS では E:\Document\Ars)。 空なら Work の repo 一覧は空になる。
+   * (= LUDIARS_ROOT)。 空なら Work の repo 一覧は空になる。
    *
    * 複数ルート (`workspaceRoots`) のうち先頭 (= プライマリ)。 Memoria / Lictor
    * 等「単一ルートを前提とする」消費者はこの値を流用する。
@@ -200,10 +194,12 @@ export function loadServerFileConfig(probe: ConfigProbe = {}): { host?: string; 
 export function loadConfig(env = process.env, probe: ConfigProbe = {}): ConcordiaConfig {
   const file = loadServerFileConfig(probe);
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
-  const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd(probe);
+  // 作業ディレクトリの既定は Excubitor 注入の LUDIARS_ROOT を基準にする (ドライブ非依存)。
+  const ludiarsRoot = resolveLudiarsRoot(env);
+  const spawnDefaultCwd = explicitSpawnCwd || ludiarsRoot;
   const githubOrg =
     (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
-    (autoDetectSpawnDefaultCwd(probe) ? "LUDIARS" : "");
+    (ludiarsRoot ? "LUDIARS" : "");
   const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd;
   const workspaceRoots = dedupeWorkspaceRoots([
     workspaceRoot,

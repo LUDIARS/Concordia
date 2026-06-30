@@ -1,3 +1,23 @@
+---
+type: feature
+title: "participants — 人間入力者の identity レジストリ + クロスプラットフォーム・ミラー"
+description: "Discord/Slack の複数プラットフォーム間で session 宛て発言を発言者付きで相互ミラーする。participants テーブルで platform handle と canonical 名を管理し、同名異 PF を同一人物として扱う identity レジストリを提供する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - typescript
+  - sqlite
+  - discord
+  - slack
+  - relay
+  - webhook
+  - persona
+  - lifecycle
+status: implemented
+updated: 2026-06-30
+---
+
+
 # participants — 人間入力者の identity レジストリ + クロスプラットフォーム・ミラー
 
 ## 目的

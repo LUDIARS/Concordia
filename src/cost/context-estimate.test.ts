@@ -36,12 +36,20 @@ describe("readClaudeContextTokens", () => {
 });
 
 describe("readCodexContextTokens", () => {
-  it("最後の token_count の input+cached を返す", () => {
+  it("最後の token_count の last_token_usage.input_tokens (= 最終要求の入力) を返す", () => {
+    // codex の input_tokens は cached を内包するので足さない。 total_token_usage はセッション累積
+    // なので使わず last_token_usage を見る (= /clear や圧縮で現在コンテキストが落ちるのを反映)。
     const p = fixture([
-      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 5, cached_input_tokens: 50 } } } },
-      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 30, cached_input_tokens: 900 } } } },
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 9999, total_tokens: 9999 }, last_token_usage: { input_tokens: 50, cached_input_tokens: 40 } } } },
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 99999, total_tokens: 99999 }, last_token_usage: { input_tokens: 1200, cached_input_tokens: 900 } } } },
     ]);
-    expect(readCodexContextTokens(p)).toBe(930);
+    expect(readCodexContextTokens(p)).toBe(1200);
+  });
+  it("last_token_usage が無ければ null", () => {
+    const p = fixture([
+      { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 5 } } } },
+    ]);
+    expect(readCodexContextTokens(p)).toBeNull();
   });
 });
 

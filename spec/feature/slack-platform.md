@@ -1,3 +1,26 @@
+---
+type: feature
+title: "Slack platform（Discord と並ぶ ChatPlatform / v0.1）"
+description: "Concordia を Slack でも運用できるようにする ChatPlatform 実装。Socket Mode で接続し、thread-per-session 多重化・inject・ボタン回答・working indicator・slash コマンド・ライブセッションカード・リアクション Workflow・cost Canvas を v0.1〜v0.6 で段階実装。"
+service: concordia
+domain: chat-platforms
+tags:
+  - slack
+  - websocket
+  - typescript
+  - webhook
+  - event-driven
+  - relay
+  - lifecycle
+  - notification
+status: implemented
+related:
+  - ../setup/slack.md
+  - ./reaction-workflow.md
+updated: 2026-06-30
+---
+
+
 # Slack platform（Discord と並ぶ ChatPlatform / v0.1）
 
 ## 目的

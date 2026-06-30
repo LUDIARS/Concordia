@@ -111,7 +111,11 @@ export function findCodexLog(s: SessionRow): string | null {
 }
 
 export function findClaudeLog(s: SessionRow): string | null {
-  const encoded = s.repo_path.replace(/[\\/:.]+/g, "-").replace(/^-+|-+$/g, "");
+  // Claude Code は cwd を ~/.claude/projects/<encoded> に保存する。 エンコードは特殊文字
+  // (`/` `\` `:` `.`) を **1 文字ずつ** `-` に置換する (隣接は潰さない)。 例 `E:/Document/Ars`
+  // → `E--Document-Ars` (`:/` が `--`)。 以前は `[\\/:.]+` と `+` で隣接を 1 つに潰しており、
+  // ドライブレター付き Windows パス (常に `X:\`/`X:/` を含む) で全て発見失敗していた。
+  const encoded = s.repo_path.replace(/[\\/:.]/g, "-").replace(/^-+|-+$/g, "");
   const dir = join(CLAUDE_PROJECTS_ROOT, encoded);
   if (!existsSync(dir)) return null;
   const exact = join(dir, `${s.id}.jsonl`);

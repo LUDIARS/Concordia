@@ -1,3 +1,23 @@
+---
+type: feature
+title: "子会社 Delegation — 設計"
+description: "外部 Discord/Slack サーバに出張する「子会社」Bot を Concordia に追加する機能設計。受け取った作業指示を Sonnet ガードで検証してから専用 Delegation セッションを起動し、インジェクション・個人情報アクセス・破壊操作をブロックして違反ユーザをロックする。SQLite データモデル・REST API・日次トークン予算管理・Bot ライフサイクル管理・ハーネスルール設定を包括する。"
+service: concordia
+domain: governance
+tags:
+  - typescript
+  - sqlite
+  - discord
+  - slack
+  - delegation
+  - llm
+  - lifecycle
+  - spawn
+status: planned
+updated: 2026-06-30
+---
+
+
 # 子会社 Delegation — 設計
 
 > Concordia に「子会社 (subsidiary)」を導入する。 子会社は **別の Discord サーバ /

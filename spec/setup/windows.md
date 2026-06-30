@@ -1,3 +1,27 @@
+---
+type: setup
+title: "Windows で起動するための設定 (windows)"
+description: "Concordia を Windows で安定起動させるための設定ガイド。git-bash パス解決 (CLAUDE_CODE_GIT_BASH_PATH) と loopback port 11111 の Windows 固有の落とし穴、dev/production 起動手順、トラブルシュートをまとめる。"
+service: concordia
+domain: tooling
+tags:
+  - typescript
+  - spawn
+  - windows
+  - claude
+  - lifecycle
+  - monitoring
+  - auto-fix
+  - setup
+status: implemented
+related:
+  - ../setup/core.md
+  - ../setup/observability.md
+  - ../setup/config-reference.md
+updated: 2026-06-30
+---
+
+
 # Windows で起動するための設定 (windows)
 
 ## 目的

@@ -41,18 +41,27 @@ export function readClaudeContextTokens(path: string): number | null {
       continue;
     }
     if (!isObj(o)) continue;
+    // サブエージェント (Task tool) turn は同一 transcript に isSidechain=true で混ざる。
+    // 本流のコンテキスト占有ではないので除外し、 最後の本流 assistant turn を採る。
+    if (o.isSidechain === true) continue;
     const msg = o.message;
     if (!isObj(msg)) continue;
     const u = msg.usage;
     if (!isObj(u)) continue;
     // input + 両キャッシュ = その turn のプロンプト総量 ≒ 直近コンテキスト占有。
+    // (claude は input_tokens がキャッシュを含まないので両キャッシュを足す)。
     const snapshot = nn(u.input_tokens) + nn(u.cache_read_input_tokens) + nn(u.cache_creation_input_tokens);
     if (snapshot > 0) last = snapshot;
   }
   return last;
 }
 
-/** Codex JSONL の最後の token_count から現在コンテキストを概算 (input + cached)。 */
+/**
+ * Codex JSONL の最後の token_count から現在コンテキストを概算。
+ * last_token_usage.input_tokens = **最終要求** でモデルに送った入力 = 現在のコンテキスト占有。
+ * total_token_usage はセッション累積 (毎ターン増え続ける) なので占有率には使わない。 また codex の
+ * input_tokens は cached を内包するため cached を足さない (= 二重計上回避)。
+ */
 export function readCodexContextTokens(path: string): number | null {
   let last: number | null = null;
   for (const line of readLines(path)) {
@@ -67,9 +76,9 @@ export function readCodexContextTokens(path: string): number | null {
     if (!isObj(payload) || payload.type !== "token_count") continue;
     const info = payload.info;
     if (!isObj(info)) continue;
-    const t = info.total_token_usage;
-    if (!isObj(t)) continue;
-    const snapshot = nn(t.input_tokens) + nn(t.cached_input_tokens);
+    const lastTurn = isObj(info.last_token_usage) ? info.last_token_usage : null;
+    if (!lastTurn) continue;
+    const snapshot = nn(lastTurn.input_tokens);
     if (snapshot > 0) last = snapshot;
   }
   return last;

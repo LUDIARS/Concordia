@@ -1,3 +1,23 @@
+---
+type: feature
+title: "セッション・コンパクション (引き継ぎ型) — 設計"
+description: "長いセッションを会話要約ではなくタスク引き継ぎ資料で圧縮する機能。セッション自身に handoff を書かせて Discord/Slack へ投稿後 /clear し、引き継ぎを読ませて続行する。自動コンパクション (context_pct 閾値監視) と手動トリガ (Discord スラッシュコマンド / REST API) の両方をサポート。"
+service: concordia
+domain: session-coordination
+tags:
+  - compaction
+  - session-lifecycle
+  - typescript
+  - discord
+  - slack
+  - injection
+  - polling
+  - state-machine
+status: implemented
+updated: 2026-06-30
+---
+
+
 # セッション・コンパクション (引き継ぎ型) — 設計
 
 > 長くなったセッションを「一般的な要約 compact」ではなく **タスク引き継ぎ** で圧縮する。

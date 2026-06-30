@@ -1,3 +1,26 @@
+---
+type: setup
+title: "Slack bot を動かすための設定 (slack)"
+description: "Concordia のセッション出力を Slack に転送し、スレッド返信で inject・ボタンで質問回答・slash コマンドでセッション操作するための Slack bot セットアップガイド。Socket Mode (outbound WebSocket) を使い、公開 inbound URL 不要で loopback 専用設計のまま動作する。DB への暗号化保存と hot 再接続によるサービス再起動不要な設定変更に対応。"
+service: concordia
+domain: chat-platforms
+tags:
+  - slack
+  - websocket
+  - webhook
+  - typescript
+  - auth
+  - delegation
+  - spawn
+  - lifecycle
+status: implemented
+related:
+  - ../feature/slack-platform.md
+  - ../feature/reaction-workflow.md
+updated: 2026-06-30
+---
+
+
 # Slack bot を動かすための設定 (slack)
 
 ## 目的

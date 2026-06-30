@@ -1,3 +1,25 @@
+---
+type: interface
+title: "Concordia — Service Schema"
+description: "Concordia のサービス全体スキーマ仕様。SQLite データモデル (sessions / session_events / session_reports / processes / process_logs)、REST API (セッションライフサイクル・レポート・プロセス管理)、イベント種別、lost 検知・リカバリ・resume フロー、および v0.2 の F8 managed processes (dev-process.md 起動・SSE ストリーミング) を定義する。version: 0.1.0-draft。"
+service: concordia
+domain: http-interface
+tags:
+  - typescript
+  - sqlite
+  - rest-api
+  - websocket
+  - lifecycle
+  - state-machine
+  - spawn
+  - relay
+status: wip
+related:
+  - ../feature/multi-provider.md
+updated: 2026-06-30
+---
+
+
 # Concordia — Service Schema
 
 最終更新: 2026-05-02 / version: 0.1.0-draft

@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia セットアップガイド (用途別)"
+description: "Concordia の用途別セットアップインデックス。core / windows / discord / slack / observability / spawn の各ガイドへの案内と、設定優先順位 (env > .env > 既定値) を定義する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - discord
+  - slack
+  - websocket
+  - spawn
+  - relay
+  - lifecycle
+  - setup
+status: implemented
+related:
+  - ../interface/service-schema.md
+  - ../feature/discord-ui.md
+  - ../feature/discord-control-ui.md
+  - ../feature/discord-lictor-relay.md
+  - ../feature/delegation.md
+updated: 2026-06-30
+---
+
+
 # Concordia セットアップガイド (用途別)
 
 Concordia は多機能サービス (loopback でのセッション協調 + Discord UI + observability + spawn 管制) なので、 「全部入りの 1 手順」 ではなく **やりたいことから引ける** ように用途別に分けてある。 まず下表で目的のガイドへ飛ぶ。

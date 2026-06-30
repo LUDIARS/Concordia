@@ -1,3 +1,23 @@
+---
+type: feature
+title: "自走継続 — 朝タスク仕分け + 停止セッション nudge"
+description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、transcript mtime を基準に 1 時間応答のないセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。ask 待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - lifecycle
+  - delegation
+  - state-machine
+  - injection
+  - polling
+  - resume
+  - monitoring
+status: implemented
+updated: 2026-06-30
+---
+
+
 # 自走継続 — 朝タスク仕分け + 停止セッション nudge
 
 ユーザ指示 (2026-06-23) に基づく 2 つの自走支援機構。 共通の原則:

@@ -1,3 +1,24 @@
+---
+type: setup
+title: "Codex CLI worker"
+description: "Concordia が Codex CLI セッションを `codex exec --json` 経由で追跡するワーカー。セッション登録・初期プロンプト記録・終了イベント収集と、JSONL ロールアウトからのトランスクリプト復元をサポートする。"
+service: concordia
+domain: tooling
+tags:
+  - codex
+  - llm
+  - spawn
+  - relay
+  - session-coordination
+  - transcript
+  - lifecycle
+  - delegation
+  - typescript
+status: implemented
+updated: 2026-06-30
+---
+
+
 # Codex CLI worker
 
 Concordia can track Codex CLI sessions through `codex exec --json`.

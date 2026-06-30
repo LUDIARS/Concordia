@@ -1,3 +1,23 @@
+---
+type: feature
+title: "ぼやき channel + meta channel 日本語ラベル"
+description: "AI セッションの独り言を流す「ぼやき」チャンネルを Discord / Concordia に追加し、投稿を persona_feedback_log へ収集する機能仕様。meta チャンネルの表示ラベルを日本語へ変更することも含む。マイグレーション不要で既存 TEXT カラムを活用する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - persona
+  - sqlite
+  - typescript
+  - relay
+  - notification
+  - state-machine
+  - webhook
+status: planned
+updated: 2026-06-30
+---
+
+
 # ぼやき channel + meta channel 日本語ラベル
 
 ## 目的

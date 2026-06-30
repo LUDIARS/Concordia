@@ -260,7 +260,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         await upsertMonitorChannelMessage(
           monitorCh,
           deps.sessionsRepo,
-          deps.sessionTaskRecordsRepo,
+          sessionChannelsRepo,
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
           {

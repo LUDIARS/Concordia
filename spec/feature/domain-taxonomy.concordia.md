@@ -1,3 +1,25 @@
+---
+type: feature
+title: "ドメイン taxonomy: concordia"
+description: "Concordia コードベースの全ドメイン分類表。`npm run retune` (domain-retune パイプライン) が自動生成する生成物ファイルで、chat-platforms / http-interface / session-coordination / persistence / observability / governance / analysis-core / tooling の 8 ドメインと各サブカテゴリのパスパターンを定義する。手動編集禁止。"
+service: concordia
+domain: analysis-core
+tags:
+  - typescript
+  - discord
+  - slack
+  - sqlite
+  - rest-api
+  - session-coordination
+  - taxonomy
+  - delegation
+status: implemented
+related:
+  - ./domain-retune.md
+updated: 2026-06-30
+---
+
+
 # ドメイン taxonomy: concordia
 
 自己調整パイプライン（[domain-retune](./domain-retune.md)）が生成。反復 2 回。

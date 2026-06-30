@@ -1,3 +1,25 @@
+---
+type: feature
+title: "Reaction Workflow — リアクション駆動の処理ディスパッチ"
+description: "Discord / Slack のリアクション（および単発絵文字投稿）を処理トリガとして解釈し、絵文字→アクション写像に従って headless claude -p 起動または session.inject でワークフローを実行する。安全弁・絵文字写像は管理 API と設定 GUI からリアルタイム変更可能で、dedup と fire-and-forget により記録経路を壊さない。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - slack
+  - event-driven
+  - delegation
+  - injection
+  - relay
+  - webhook
+  - typescript
+status: implemented
+related:
+  - ../setup/config-reference.md
+updated: 2026-06-30
+---
+
+
 # Reaction Workflow — リアクション駆動の処理ディスパッチ
 
 Concordia の chat メッセージ (Discord / Slack にミラーされた bot 投稿) に付けられた**リアクション**を

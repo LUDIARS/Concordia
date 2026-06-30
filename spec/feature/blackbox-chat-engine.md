@@ -1,3 +1,24 @@
+---
+type: feature
+title: "ブラックボックス チャットエンジン + 中央 Haiku 描画"
+description: "2026-06 の方針転換で Concordia のエージェント間チャットを低コストに再設計する spec。rule proposer を撤去し発火判断を決定化、Concordia 自身の司会声は中央 Haiku (安価)、セッション帰属の発話はセッション LLM へのタスク注入に分離する 2 系統構成を定義する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - typescript
+  - claude
+  - llm
+  - persona
+  - rule-engine
+  - relay
+  - event-driven
+  - lifecycle
+  - delegation
+status: planned
+updated: 2026-06-30
+---
+
+
 # ブラックボックス チャットエンジン + 中央 Haiku 描画
 
 2026-06 の方針転換。 Concordia のエージェント間チャットを **低コスト** に復活させる。

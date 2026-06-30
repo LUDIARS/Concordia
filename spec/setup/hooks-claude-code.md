@@ -1,3 +1,24 @@
+---
+type: setup
+title: "Claude Code hook integration"
+description: "Claude Code の settings.json hooks 設定から Concordia backend (HTTP :11111) へイベントを中継するセットアップガイド。SessionStart / UserPromptSubmit / PostToolUse / PreCompact / Stop の 5 イベントを concordia-hook.mjs 経由で POST/DELETE し、advisory をコンテキスト注入する。hook 失敗時は exit 0 で Claude Code 動作を阻害しない設計。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - lifecycle
+  - webhook
+  - relay
+  - compaction
+  - spawn
+  - http-interface
+  - claude
+  - llm
+status: implemented
+updated: 2026-06-30
+---
+
+
 # Claude Code hook integration
 
 Claude Code の `~/.claude/settings.json` に追加する `hooks` 設定例。

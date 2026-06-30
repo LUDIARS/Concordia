@@ -1,3 +1,23 @@
+---
+type: test
+title: "テスト設計"
+description: "Concordia の vitest ベーステスト設計。in-memory SQLite で LLM を呼ばない決定的検証を基本方針とし、40+ テストファイルでスキーマ/API/repo/provider/MCP/実プロセス spawn を網羅。CI では lint(tsc --noEmit)/vitest/build を実行し、spawn 伴うテストは 20s timeout を付与。"
+service: concordia
+domain: tooling
+tags:
+  - vitest
+  - typescript
+  - sqlite
+  - spawn
+  - claude
+  - codex
+  - persona
+  - monitoring
+status: implemented
+updated: 2026-06-30
+---
+
+
 # テスト設計
 
 ランナーは **vitest**（`npm test` = `vitest run`）。`vitest.config.ts` で

@@ -1,3 +1,27 @@
+---
+type: setup
+title: "セッション管制 (spawn) の設定 (spawn)"
+description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。Bearer token 認証の外部エンドポイント (`/v1/spawn`) と loopback 信頼境界の管理エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、MCP delegation 経由の委託 spawn と既定 cwd の解決順も網羅する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - spawn
+  - lifecycle
+  - delegation
+  - auth
+  - llm
+  - claude
+  - codex
+  - gemini
+status: implemented
+related:
+  - ../feature/delegation.md
+  - discord.md
+  - config-reference.md
+updated: 2026-06-30
+---
+
 # セッション管制 (spawn) の設定 (spawn)
 
 ## 目的

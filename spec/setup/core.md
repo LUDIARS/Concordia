@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia 本体を起動するための設定 (core)"
+description: "Concordia backend (loopback HTTP port 11111) を起動し、複数 AI セッションの登録・進捗共有・lost 検知・終了レポートを有効化するセットアップガイド。sweeper / rule engine / WebSocket broadcast などの起動時コンポーネントと runtime kill switch (chat_muted / rules_enabled) の設定方法を記述する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - sqlite
+  - websocket
+  - lifecycle
+  - state-machine
+  - polling
+  - spawn
+  - monitoring
+status: implemented
+related:
+  - config-reference.md
+  - hooks-claude-code.md
+  - hooks-codex-cli.md
+  - windows.md
+  - ../interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # Concordia 本体を起動するための設定 (core)
 
 ## 目的

@@ -1,3 +1,27 @@
+---
+type: feature
+title: "Discord session channel 直接 inject — 仕様 (PR-B 後の小機能)"
+description: "Discord の session channel に送られた平文メッセージを自動的に `/v1/sessions/:id/inject` へ転送する機能仕様。PR-B (slash command / AskUserQuestion bridge) マージ後に着手予定で、完了基準のチェックリストはすべて未完了。`//` コメント・bot 投稿・`コントロール` キーワードを除外するルーティング優先順位と、セッション状態エラー時の reply 挙動を定義する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - typescript
+  - discord
+  - injection
+  - relay
+  - event-driven
+  - lifecycle
+  - session-coordination
+  - webhook
+status: planned
+related:
+  - ../feature/discord-ui.md
+  - ../feature/discord-ui-pr-b.md
+  - ../feature/discord-control-ui.md
+updated: 2026-06-30
+---
+
+
 # Discord session channel 直接 inject — 仕様 (PR-B 後の小機能)
 
 ## Context

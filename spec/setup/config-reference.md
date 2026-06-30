@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia 設定キー正本 (config-reference)"
+description: "Concordia の全環境変数設定キーを集約した正本リファレンス。コア起動・LLM・Discord/Slack bot・セッション管制・observability・ログ・hook・PR キュー・error 自動対応の 9 カテゴリを網羅し、既定値・読み出し元ファイル・信頼境界ルールを明記する。"
+service: concordia
+domain: governance
+tags:
+  - typescript
+  - sqlite
+  - discord
+  - slack
+  - configuration
+  - env
+  - auth
+  - monitoring
+status: implemented
+related:
+  - ../interface/service-schema.md
+  - spawn.md
+  - discord.md
+  - slack.md
+  - observability.md
+updated: 2026-06-30
+---
+
+
 # Concordia 設定キー正本 (config-reference)
 
 最終更新: 2026-05-31

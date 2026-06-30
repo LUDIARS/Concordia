@@ -1,3 +1,26 @@
+---
+type: setup
+title: "Codex CLI hook integration"
+description: "OpenAI Codex CLI の hook 機構 (SessionStart / UserPromptSubmit / PostToolUse / PreCompact / Stop) を通じて Concordia backend の HTTP API を叩くセットアップガイド。concordia-hook.mjs を Claude Code と共用し、payload 差は concordia-hook-resolver.mjs で吸収する。Lictor 配下では CONCORDIA_SESSION_ID が優先され、session_id の不一致バグ (#35) を回避する。"
+service: concordia
+domain: session-coordination
+tags:
+  - codex
+  - claude
+  - llm
+  - webhook
+  - spawn
+  - lifecycle
+  - relay
+  - injection
+  - typescript
+status: implemented
+related:
+  - ../../tools/concordia-hook.mjs
+updated: 2026-06-30
+---
+
+
 # Codex CLI hook integration
 
 OpenAI Codex CLI (`codex`) の hook 機構を経由して Concordia backend の

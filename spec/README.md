@@ -1,3 +1,29 @@
+---
+type: feature
+title: "Concordia 仕様書"
+description: "複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を行う Concordia の仕様ルートインデックス。feature（Discord 連携・委託・マルチプロバイダー）/ interface（DB・REST・WS・MCP API 正本）/ setup / test の 4 セクション構成で整理されている。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - discord
+  - websocket
+  - sqlite
+  - relay
+  - delegation
+  - multi-provider
+  - session-coordination
+status: implemented
+related:
+  - feature/discord-ui.md
+  - feature/discord-lictor-relay.md
+  - feature/delegation.md
+  - feature/multi-provider.md
+  - interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # Concordia 仕様書
 
 複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を

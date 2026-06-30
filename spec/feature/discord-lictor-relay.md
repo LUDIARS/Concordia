@@ -1,3 +1,26 @@
+---
+type: feature
+title: "Discord ↔ Lictor 仲介リレー設計 (返信混線の根治)"
+description: "AI エージェントが Concordia /v1/chat を直叩きして session_id を自己申告することで発生していた返信混線を根治する設計。Lictor sidecar が channel ID と session ID を authoritative に保持し、AI は中身だけ Lictor 経由で渡す仲介リレーアーキテクチャ。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - relay
+  - session-coordination
+  - websocket
+  - typescript
+  - injection
+  - state-machine
+  - webhook
+status: implemented
+related:
+  - ../feature/discord-ui.md
+  - ../interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # Discord ↔ Lictor 仲介リレー設計 (返信混線の根治)
 
 2026-05-30 起草。 関連: [discord-ui.md](./discord-ui.md) / [service-schema.md](../interface/service-schema.md) /

@@ -1,3 +1,23 @@
+---
+type: feature
+title: "「作業中」インジケータ"
+description: "セッションが指令を受けて transcript が動いている間、Discord チャンネルの最後のメッセージとして「作業中」を表示し続け、進捗があれば削除・再投稿する状態機械。WorkingIndicator は per-session かつ platform 非依存で、Discord bot から配線済み。Slack 配線は v0.1 では未実装。"
+service: concordia
+domain: chat-platforms
+tags:
+  - typescript
+  - discord
+  - slack
+  - state-machine
+  - lifecycle
+  - relay
+  - webhook
+  - notification
+status: implemented
+updated: 2026-06-30
+---
+
+
 # 「作業中」インジケータ
 
 ## 目的

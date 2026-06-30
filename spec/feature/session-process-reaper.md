@@ -1,3 +1,23 @@
+---
+type: feature
+title: "セッション終了プロセスの回収 (reaper)"
+description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの孤児回収設計。DELETE /v1/sessions/:id への kill 配線 (Phase 1)、agent-client への明示 kill (Phase 2)、OS プロセス走査ベースの reaper (Phase 3) の 3 段構成で根本解決する。誤爆防止のため active/lost セッションおよび ended から 5 分以内のセッションは live 扱いで保護する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - lifecycle
+  - spawn
+  - state-machine
+  - monitoring
+  - polling
+  - websocket
+  - event-driven
+status: implemented
+updated: 2026-06-30
+---
+
+
 # セッション終了プロセスの回収 (reaper)
 
 終了したセッションの周辺プロセス (Lictor ラッパ `node lictor.mjs` と

@@ -1,3 +1,23 @@
+---
+type: feature
+title: "Delegation Templates — 設計"
+description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択まで実装済み。"
+service: concordia
+domain: governance
+tags:
+  - delegation
+  - llm
+  - spawn
+  - claude
+  - codex
+  - sqlite
+  - rest-api
+  - lifecycle
+status: implemented
+updated: 2026-06-30
+---
+
+
 # Delegation Templates — 設計
 
 > AI エージェント間の作業委託フレームワーク。 Claude / Codex / Gemini が

@@ -200,7 +200,8 @@ function ConversationPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let cancelled = false;
     setTurns([]);
-    void api.sessionTranscript(sessionId, { limit: 200 })
+    // tail=true: 起動直後の raw frame ではなく直近 200 frame を取得 (最新の作業を表示).
+    void api.sessionTranscript(sessionId, { limit: 200, tail: true })
       .then((res) => {
         if (cancelled) return;
         const seeded = res.entries
@@ -547,7 +548,8 @@ function TranscriptPanel({ sessionId }: { sessionId: string }) {
   useEffect(() => {
     let cancelled = false;
     setFrames([]);
-    void api.sessionTranscript(sessionId, { limit: 200 })
+    // tail=true: 起動直後の raw frame ではなく直近 200 frame を取得 (最新の作業を表示).
+    void api.sessionTranscript(sessionId, { limit: 200, tail: true })
       .then((res) => {
         if (cancelled) return;
         const seeded = res.entries.map((e) => ({

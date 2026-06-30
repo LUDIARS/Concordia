@@ -416,8 +416,17 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
 
   // GET /v1/sessions/:id
   app.get("/:id", (c) => {
-    const s = deps.repo.findSession(c.req.param("id"));
-    if (!s) return c.json({ error: "not_found" }, 404);
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) {
+      // session 行が purge 済みでも transcript が残っていれば、 ログ閲覧用に
+      // synthetic session を返す (詳細ページが描画でき transcript パネルが読める).
+      const span = deps.transcriptLogs.tsSpan(id);
+      if (span) {
+        return c.json({ session: syntheticPurgedSession(id, span), persona: null, events: [] });
+      }
+      return c.json({ error: "not_found" }, 404);
+    }
     const events = deps.repo.recentEvents(s.id, 200);
     // persona (active assignment があれば) を同梱. statusline / UI が 1 リクエストで
     // ロール名 + 人物名を取れるように.
@@ -865,18 +874,30 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   // クエリ:
   //   - since_id  : 指定 id より新しい行だけ返す (incremental tail)
   //   - limit     : 1..1000 (default 200)
+  //   - tail      : "1"/"true" で「最新 limit 件」を返す (web viewer 用). 既定は先頭から
+  //                 (= 従来契約: ASC + next_since_id で前方ページング). since_id 指定時は無効.
   // 並び順は ts ASC + seq ASC (chronological).
+  //
+  // session 行が sweeper で purge 済みでも、 transcript_logs が残っていれば閲覧できる
+  // (= ログ閲覧をセッション行のライフサイクルから切り離す). frame が 1 件も無いときだけ 404.
   app.get("/:id/transcript", (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
     const q = c.req.query();
     const sinceId = q.since_id ? Number(q.since_id) : undefined;
-    const limit = q.limit ? Number(q.limit) : undefined;
-    const entries = deps.transcriptLogs.listBySession(id, {
-      since_id: Number.isFinite(sinceId) ? sinceId : undefined,
-      limit: Number.isFinite(limit) ? limit : undefined,
-    });
+    const hasSince = Number.isFinite(sinceId);
     const total = deps.transcriptLogs.countBySession(id);
+    if (!deps.repo.findSession(id) && total === 0) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    const limit = q.limit ? Number(q.limit) : undefined;
+    // tail は opt-in. 数千 frame あるセッションを開いたとき先頭(起動直後の raw)ではなく
+    // 直近を見せたい viewer が ?tail=1 を付ける. since_id 指定時は前方ページングなので無効.
+    const tail = !hasSince && (q.tail === "1" || q.tail === "true");
+    const entries = deps.transcriptLogs.listBySession(id, {
+      since_id: hasSince ? sinceId : undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+      tail,
+    });
     return c.json({
       session_id: id,
       total,
@@ -1318,6 +1339,28 @@ export function serializeSession(s: SessionRow) {
     last_seen_at: s.last_seen_at,
     current_task: s.current_task,
     metadata: s.metadata ? safeParse(s.metadata) : null,
+  };
+}
+
+/**
+ * sessions 行が sweeper (purgeStale) で消えても transcript_logs が残っている
+ * 孤児セッション向けの、 閲覧用 synthetic session. serializeSession と同形.
+ * 開始/終了は transcript の ts レンジ、 status は誤操作防止のため abandoned 扱い.
+ */
+function syntheticPurgedSession(id: string, span: { first_ts: number; last_ts: number }) {
+  return {
+    id,
+    provider: "purged",
+    repo_path: null,
+    repo_origin: null,
+    branch: null,
+    host: null,
+    started_at: span.first_ts,
+    ended_at: span.last_ts,
+    status: "abandoned" as const,
+    last_seen_at: span.last_ts,
+    current_task: "(session purged — transcript ログのみ保持)",
+    metadata: { synthetic: true, purged: true },
   };
 }
 

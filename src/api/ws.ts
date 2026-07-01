@@ -57,6 +57,14 @@ export function attachWsServer(
 ): WsHandle {
   const wss = new WebSocketServer({ server: httpServer, path: pathName });
 
+  // ws は server オプション指定時に httpServer の 'error' を wss へ転送する。
+  // wss 側にハンドラが無いと、 その転送された 'error' (例: listen EADDRINUSE) が
+  // 未捕捉となりプロセスごとクラッシュする。 ここで握って握りつぶさずログする
+  // (listen エラー自体の終了処理は server.ts の server.on("error") が担う)。
+  wss.on("error", (err) => {
+    log.error({ err: (err as Error).message }, "ws server error");
+  });
+
   // Track per-client session id so session-scoped events (e.g. session.inject)
   // can be delivered only to the intended client. WeakMap so disconnected
   // sockets GC normally.

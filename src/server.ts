@@ -577,6 +577,23 @@ export async function startBackend(): Promise<BackendHandle> {
     port: cfg.port,
   });
 
+  // listen エラー (EADDRINUSE 等) は serve() の後に非同期で http server へ emit される。
+  // ハンドラが無いと ws (attachWsServer) が wss へ転送 → 未捕捉 'error' イベントで
+  // ハードクラッシュする (二重起動の典型: 既存 Concordia がポートを占有)。 ここで捕捉して
+  // 原因を一行で明示し、 きれいに exit する (serve() 後の非同期エラーなので startBackend()
+  // の .catch では拾えない)。 'listening' より前に登録するため serve() 直後に置く。
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      log.error(
+        { host: cfg.host, port: cfg.port },
+        `ポート ${cfg.host}:${cfg.port} は既に使用中です。 Concordia が既に起動しているか、 別プロセスがポートを占有しています。 既存プロセスを停止してから再起動してください。`,
+      );
+    } else {
+      log.error({ err }, "Concordia HTTP server failed to listen");
+    }
+    process.exit(1);
+  });
+
   // WebSocket broadcast (/ws). eventBus を全 connected client に流す.
   // `?session=<id>` で接続された WS は sessions.ws_clients をインクリメント →
   // 切断でデクリメント. sweeper の lost 判定からは ws_clients > 0 の session が除外される.
@@ -625,15 +642,20 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   });
 
-  log.info(
-    {
-      host: cfg.host,
-      port: cfg.port,
-      dbPath,
-      llm: "cli (claude -p)",
-    },
-    "Concordia listening",
-  );
+  // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
+  // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
+  // 埋もれていた (二重起動時に「起動したのに落ちる」 ように見える原因)。
+  server.on("listening", () => {
+    log.info(
+      {
+        host: cfg.host,
+        port: cfg.port,
+        dbPath,
+        llm: "cli (claude -p)",
+      },
+      "Concordia listening",
+    );
+  });
 
   // RWF (Reaction-WorkFlow) プラグインを bots 起動前に読み込む。 外部プラグイン
   // (Concordia-RWF) が在れば動的 import、 無ければ同梱エンジンにフォールバック。

@@ -160,7 +160,6 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
             display_state, agent_type, name_body, delegation_emoji, last_rename_ts, scope, ts)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
-           channel_id       = excluded.channel_id,
            webhook_id       = COALESCE(excluded.webhook_id,       discord_session_channels.webhook_id),
            webhook_token    = COALESCE(excluded.webhook_token,    discord_session_channels.webhook_token),
            status           = excluded.status,
@@ -168,7 +167,6 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
            agent_type       = COALESCE(excluded.agent_type,       discord_session_channels.agent_type),
            name_body        = COALESCE(excluded.name_body,        discord_session_channels.name_body),
            delegation_emoji = COALESCE(excluded.delegation_emoji, discord_session_channels.delegation_emoji),
-           scope            = excluded.scope,
            ts               = excluded.ts`,
       ).run(
         input.session_id,

@@ -1,3 +1,26 @@
+---
+type: feature
+title: "Slack platform（Discord と並ぶ ChatPlatform / v0.1）"
+description: "Concordia を Slack でも運用できるようにする ChatPlatform 実装。Socket Mode で接続し、thread-per-session 多重化・inject・ボタン回答・working indicator・slash コマンド・ライブセッションカード・リアクション Workflow・cost Canvas を v0.1〜v0.6 で段階実装。"
+service: concordia
+domain: chat-platforms
+tags:
+  - slack
+  - websocket
+  - typescript
+  - webhook
+  - event-driven
+  - relay
+  - lifecycle
+  - notification
+status: implemented
+related:
+  - ../setup/slack.md
+  - ./reaction-workflow.md
+updated: 2026-06-30
+---
+
+
 # Slack platform（Discord と並ぶ ChatPlatform / v0.1）
 
 ## 目的
@@ -16,7 +39,7 @@ coequal な実装で、どちらも eventBus を独立に購読する。server.t
 起動/停止する（`CONCORDIA_DISCORD_ENABLED` / `CONCORDIA_SLACK_ENABLED`）。
 
 ## 接続方式: Socket Mode
-Concordia は loopback-only（17330）で inbound URL を持てないため、Events API では
+Concordia は loopback-only（11111）で inbound URL を持てないため、Events API では
 なく **Socket Mode**（outbound WebSocket）で接続する。必要 token:
 - `CONCORDIA_SLACK_BOT_TOKEN`（xoxb-, Web API）
 - `CONCORDIA_SLACK_APP_TOKEN`（xapp-, Socket Mode, `connections:write`）
@@ -106,12 +129,30 @@ thread root メッセージ（= セッション = 投稿）の本文を、セッ
 - **egress 診断ログ**: 中継経路を実機で切り分けられるよう `[verbose-slack-egress]` prefix で
   thread 解決・投稿成否・auto-title 結果を info 記録（安定後に撤去予定）。
 
+## v0.6 追加（2026-06-11）— 勝手に作業しないガード + cost Canvas
+
+- **「勝手に作業しない」ガード**: Concordia 連携セッション (`src/skills/concordia.md`) と
+  delegation で spawn したエージェント (`src/delegation/persona-context.ts`) の両方に、
+  「明確な指示・承認がないまま実作業 (コード変更 / 作成・削除 / コミット / 外部送信) を
+  始めない」原則を明記。 調査・読み取りは可、 変更を伴う一歩は GO を待つ。 報告ファーストと対。
+- **cost Canvas**: Discord の cost チャンネルと**同じ集計・同じ本文**を Slack の「コスト」
+  Canvas に毎回反映する。 集計と本文描画は [`../../src/cost/cost-report.ts`](../../src/cost/cost-report.ts)
+  に集約し、 Discord (`discord/cost-channel.ts`) と共有 (タイムスタンプ表現だけ platform で差し替え:
+  Discord は `<t:..>` トークン、 Slack は JST 素テキスト)。
+  - **親 (= Canvas) の id を持っておいてあとから編集**: 初回は `conversations.canvases.create`
+    でチャンネル Canvas を作り、 返った `canvas_id` を `slack_config` (`cost_canvas_id`) に保存。
+    以後は `canvases.edit`（`operation: replace`）で同じ Canvas を上書きする
+    （Discord cost-channel の `cost_status_message_id` と同じ「id を持って edit」方式）。
+  - edit が失敗（Canvas 削除 / id 失効）したら保存 id を捨て、 次サイクルで作り直す。
+  - 更新間隔は `CONCORDIA_SLACK_COST_REFRESH_MIN`（既定 10 分 / 下限 10 分）。 実装は
+    [`../../src/slack/cost-canvas.ts`](../../src/slack/cost-canvas.ts)、 タイマー配線は `slack/bot.ts`。
+
 ## 非対象（設計上やらない / 必要時に別途）
 - **per-session チャンネル自動作成**: thread-per-session で routing 要件は充足済。Slack に
   channel を乱立させると workspace を汚し `conversations.create`/招待スコープも要るため見送り。
-- **cost / monitor / pr-queue / status-card ダッシュボード全移植**: Discord 固有の作り込み。
+- **monitor / pr-queue / status-card ダッシュボード移植**: Discord 固有の作り込み。
   Slack では `/concordia stat`・`/concordia prs`（slash）+ thread root で実用上代替できるため、
-  Block Kit 定期更新の全移植はコスト大・価値中につき見送り（必要になれば monitor 1 枚から検討）。
+  Block Kit 定期更新の全移植はコスト大・価値中につき見送り。 cost のみ Canvas で移植済 (v0.6)。
 
 ## テスト
 純粋ロジック（`render` / `types` / `slash` / `session-threads-repo` / `working-indicator`）を

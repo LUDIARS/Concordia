@@ -10,6 +10,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createChildLogger } from "../shared/logger.js";
+import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
 
 const log = createChildLogger("claude-runner");
 const TIMEOUT_MS = Number(process.env.CONCORDIA_CLAUDE_TIMEOUT_MS ?? "120000");
@@ -90,6 +91,13 @@ export async function runClaude(
       });
     } catch (e) {
       log.warn({ err: (e as Error).message }, "spawn claude failed");
+      recordClaudeOneShot(prompt, opts, {
+        startedAt,
+        status: "error",
+        exit_code: -1,
+        duration_ms: Date.now() - startedAt,
+        error: (e as Error).message,
+      });
       resolve({
         ok: false,
         stdout: "",
@@ -108,6 +116,13 @@ export async function runClaude(
       resolved = true;
       if (timer) clearTimeout(timer);
       log.warn({ err: e.message }, "claude CLI error");
+      recordClaudeOneShot(prompt, opts, {
+        startedAt,
+        status: "error",
+        exit_code: -1,
+        duration_ms: Date.now() - startedAt,
+        error: e.message,
+      });
       resolve({
         ok: false,
         stdout: out,
@@ -121,6 +136,12 @@ export async function runClaude(
       if (resolved) return;
       resolved = true;
       if (timer) clearTimeout(timer);
+      recordClaudeOneShot(prompt, opts, {
+        startedAt,
+        status: code === 0 ? "ok" : "error",
+        exit_code: code,
+        duration_ms: Date.now() - startedAt,
+      });
       resolve({
         ok: code === 0,
         stdout: out,
@@ -135,6 +156,12 @@ export async function runClaude(
       log.warn({ duration_ms: Date.now() - startedAt }, "claude CLI timeout, killing");
       try { child.kill("SIGKILL"); } catch { /* swallow */ }
       resolved = true;
+      recordClaudeOneShot(prompt, opts, {
+        startedAt,
+        status: "timeout",
+        exit_code: -1,
+        duration_ms: Date.now() - startedAt,
+      });
       resolve({
         ok: false,
         stdout: out,
@@ -149,6 +176,36 @@ export async function runClaude(
     } catch (e) {
       log.warn({ err: (e as Error).message }, "claude CLI stdin write failed");
     }
+  });
+}
+
+function recordClaudeOneShot(
+  prompt: string,
+  opts: RunClaudeOptions,
+  result: {
+    startedAt: number;
+    status: "ok" | "error" | "timeout";
+    exit_code: number | null;
+    duration_ms: number;
+    error?: string;
+  },
+): void {
+  recordLocalOneShot({
+    ts: result.startedAt,
+    service: "concordia",
+    provider: "claude",
+    command: "claude -p",
+    model: opts.model ?? null,
+    cwd: opts.cwd ?? process.cwd(),
+    prompt,
+    status: result.status,
+    exit_code: result.exit_code,
+    duration_ms: result.duration_ms,
+    metadata_json: JSON.stringify({
+      dangerouslySkipPermissions: opts.dangerouslySkipPermissions === true,
+      timeoutMs: opts.timeoutMs,
+      error: result.error,
+    }),
   });
 }
 

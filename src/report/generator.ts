@@ -2,14 +2,34 @@
  * セッション終了レポート生成.
  *
  * - bullets: 構造化集計 (events count / files / todos / outcome)
- * - summary_md: claude CLI で narrative 生成 → fallback で Anthropic API → fallback で template
+ * - summary_md: claude CLI (claude -p) で narrative 生成 → fallback で template
+ *   (LUDIARS は API 不使用のため Anthropic API 直叩き経路は撤去済み)
  *
  * spec/service-schema.md §7 準拠.
  */
 
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
+import {
+  summarizeSessionUsage,
+  renderUsageMarkdown,
+  type SessionUsageSummary,
+} from "../cost/session-cost.js";
+import {
+  detectSummaryFlags,
+  renderSummaryFlagsMarkdown,
+  harnessDenyToBlocked,
+  mergeFlags,
+  hasFlags,
+  EMPTY_FLAGS,
+} from "./summary-flags.js";
+
+/** generateReport の任意依存。 harnessAudit があればブロック検出に決定論ソースを併用。 */
+export interface GenerateReportOptions {
+  harnessAudit?: HarnessAuditRepo;
+}
 
 const log = createChildLogger("report");
 
@@ -77,7 +97,11 @@ export function aggregateBullets(
   };
 }
 
-export function templateSummary(session: SessionRow, b: ReportBullets): string {
+export function templateSummary(
+  session: SessionRow,
+  b: ReportBullets,
+  usage?: SessionUsageSummary,
+): string {
   const lines: string[] = [];
   lines.push(`# Session ${session.id}`);
   lines.push("");
@@ -106,70 +130,46 @@ export function templateSummary(session: SessionRow, b: ReportBullets): string {
     lines.push(`- in_progress: ${b.todos.in_progress}`);
     lines.push(`- pending: ${b.todos.pending}`);
   }
-  return lines.join("\n");
-}
-
-/**
- * LLM (Anthropic API) で要約. 失敗時は template fallback.
- * v0.1 では fetch で直叩き (SDK に依存しない). 詳細は v0.2 で claude-api skill 流用.
- */
-export async function llmSummary(
-  session: SessionRow,
-  events: SessionEventRow[],
-  cfg: { apiKey: string; model: string },
-): Promise<string | null> {
-  if (!cfg.apiKey) return null;
-  const compact = events
-    .filter((e) => ["prompt", "edit", "compact", "task_update", "lost"].includes(e.kind))
-    .map((e) => ({ kind: e.kind, ts: e.ts, payload: safeParse(e.payload) }));
-
-  const promptText =
-    `You are summarizing an AI coding session. Output a concise markdown report (Japanese).\n` +
-    `provider=${session.provider} repo=${session.repo_origin} branch=${session.branch ?? ""}\n` +
-    `events:\n${JSON.stringify(compact).slice(0, 8000)}`;
-
-  try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": cfg.apiKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: cfg.model,
-        max_tokens: 800,
-        messages: [{ role: "user", content: promptText }],
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
-    return data.content?.[0]?.text ?? null;
-  } catch {
-    return null;
+  if (usage) {
+    const usageLines = renderUsageMarkdown(usage);
+    if (usageLines.length) {
+      lines.push("");
+      lines.push(...usageLines);
+    }
   }
+  return lines.join("\n");
 }
 
 export async function generateReport(
   session: SessionRow,
   events: SessionEventRow[],
-  llm: { apiKey: string; model: string },
+  opts: GenerateReportOptions = {},
 ): Promise<SessionReportRow> {
   const bullets = aggregateBullets(session, events);
+  // 想定コスト + コンテキスト占有を 1 回だけ概算し、 業務報告セクションに載せる
+  // (provider ログ読み。 取れなければ各フィールドが null になり該当行を省く)。
+  const usage = summarizeSessionUsage(session);
 
-  // 優先 1: claude CLI で narrative
-  let summary_md: string | null = await narrativeViaCli(session, events, bullets);
+  // 優先: claude CLI (claude -p) で narrative
+  let summary_md: string | null = await narrativeViaCli(session, events, bullets, usage);
 
-  // 優先 2: Anthropic API (legacy path)
+  // fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
   if (!summary_md) {
-    summary_md = await llmSummary(session, events, llm);
+    summary_md = fallbackThreeSection(session, bullets, usage);
   }
 
-  // 最終 fallback: template (3 セクション構造を保つため poem / summary placeholder を被せる)
-  if (!summary_md) {
-    summary_md = fallbackThreeSection(session, bullets);
-  }
+  // ④ サマリー検出: ハーネスブロック / 人間確認事項を別建てで載せる。
+  //  - 決定論ソース: harness_session_audit の deny 行 (確実なブロック証跡)。
+  //  - Sonnet narrative 検出: transcript から拾うブロック/人間確認。
+  // 両者を merge・重複排除する。 needsHuman 通知 (起因者メンション) は呼び出し側が拾う。
+  const denyRows = opts.harnessAudit?.recent({ session_id: session.id, decision: "deny", limit: 50 }) ?? [];
+  const deterministic = denyRows.length
+    ? { blocked: harnessDenyToBlocked(denyRows), needsHuman: [] as string[] }
+    : EMPTY_FLAGS;
+  const sonnet = await detectSummaryFlags(session, events);
+  const flags = mergeFlags(deterministic, sonnet);
+  const flagLines = renderSummaryFlagsMarkdown(flags);
+  if (flagLines.length) summary_md = `${summary_md}\n\n${flagLines.join("\n")}`;
 
   return {
     session_id: session.id,
@@ -177,7 +177,7 @@ export async function generateReport(
     summary_md,
     bullets: JSON.stringify(bullets),
     duration_sec: bullets.duration_sec,
-    metadata: null,
+    metadata: hasFlags(flags) ? JSON.stringify({ summary_flags: flags }) : null,
   };
 }
 
@@ -186,7 +186,11 @@ export async function generateReport(
  * 「生成できなかった」 と明記した placeholder を入れて 3 セクション構造だけ保つ.
  * extractMonologue が `\n---` 前で切るので poem セクションは独白として #報告 channel に流れる.
  */
-function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): string {
+function fallbackThreeSection(
+  session: SessionRow,
+  bullets: ReportBullets,
+  usage?: SessionUsageSummary,
+): string {
   const role = parseMetadata(session.metadata).role_label ?? "雑用係";
   const dur = formatDuration(bullets.duration_sec);
   const poemPlaceholder = [
@@ -194,8 +198,8 @@ function fallbackThreeSection(session: SessionRow, bullets: ReportBullets): stri
     `${dur} の作業ログ. ${bullets.outcome}.`,
   ].join("\n");
   const summaryPlaceholder =
-    "narrative 生成が両系統 (claude CLI / Anthropic API) とも失敗したため、 構造化集計のみ.";
-  const middle = templateSummary(session, bullets);
+    "narrative 生成 (claude CLI) が失敗したため、 構造化集計のみ.";
+  const middle = templateSummary(session, bullets, usage);
   return [
     poemPlaceholder,
     "",
@@ -215,6 +219,7 @@ async function narrativeViaCli(
   session: SessionRow,
   events: SessionEventRow[],
   bullets: ReportBullets,
+  usage?: SessionUsageSummary,
 ): Promise<string | null> {
   if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return null;
 
@@ -273,7 +278,8 @@ async function narrativeViaCli(
     ).slice(0, 12_000),
   ].join("\n");
 
-  const r = await runClaude(prompt);
+  // 日報 narrative も Haiku 固定 (コスト削減方針)。
+  const r = await runClaude(prompt, { model: "haiku" });
   if (!r.ok) {
     log.warn({ stderr: r.stderr.slice(0, 200) }, "claude CLI narrative failed");
     return null;
@@ -286,7 +292,7 @@ async function narrativeViaCli(
   }
 
   // 3 セクションを deterministic に結合: poem + 既存テンプレート + summary
-  const middle = templateSummary(session, bullets);
+  const middle = templateSummary(session, bullets, usage);
   return [
     json.poem.trim(),
     "",

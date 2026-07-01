@@ -85,6 +85,34 @@ describe("sessions API — inject / title / title-suggestion", () => {
     expect(r.status).toBe(400);
   });
 
+  it("起動時に goal-start inject はせず collaboration context packet を返す", async () => {
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.inject" && ev.target_session_id === "iw") captured.push(ev);
+    });
+    try {
+      const r = await app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/repos/Anatomia", host: "h" }),
+      });
+      expect(r.status).toBe(200);
+      const j = await r.json() as any;
+      expect(j.context_packet.repo.project).toBe("Anatomia");
+      expect(j.context_packet.harness.context).toBe("POST /v1/harness/context");
+      expect(captured).toHaveLength(0);
+    } finally {
+      unsub();
+    }
+
+    const detail = await (await app.request("/v1/sessions/iw")).json() as any;
+    const injectEv = detail.events.find((e: any) => e.kind === "inject");
+    expect(injectEv).toBeFalsy();
+    const ctx = await (await app.request("/v1/sessions/iw/context")).json() as any;
+    expect(ctx.context_packet.session_id).toBe("iw");
+  });
+
   it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {
     const r = await app.request("/v1/sessions/nope/inject", {
       method: "POST",

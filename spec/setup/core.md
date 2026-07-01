@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia 本体を起動するための設定 (core)"
+description: "Concordia backend (loopback HTTP port 11111) を起動し、複数 AI セッションの登録・進捗共有・lost 検知・終了レポートを有効化するセットアップガイド。sweeper / rule engine / WebSocket broadcast などの起動時コンポーネントと runtime kill switch (chat_muted / rules_enabled) の設定方法を記述する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - sqlite
+  - websocket
+  - lifecycle
+  - state-machine
+  - polling
+  - spawn
+  - monitoring
+status: implemented
+related:
+  - config-reference.md
+  - hooks-claude-code.md
+  - hooks-codex-cli.md
+  - windows.md
+  - ../interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # Concordia 本体を起動するための設定 (core)
 
 ## 目的
@@ -11,7 +37,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 | キー | 既定値 | いつ変える |
 |------|--------|-----------|
 | `CONCORDIA_HOST` | `127.0.0.1` | 基本変えない (認証なし loopback 前提)。 |
-| `CONCORDIA_PORT` | `17330` | port 衝突時のみ。 |
+| `CONCORDIA_PORT` | `11111` | port 衝突時のみ。 |
 | `CONCORDIA_DB_PATH` | `<cwd>/concordia.db` | DB を別ボリュームに置きたいとき。 |
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` | lost 判定を早めたい/遅くしたいとき。 |
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` | 放置判定の閾値。 |
@@ -29,7 +55,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 2. 起動 (dev は backend + Vite を `concurrently` で同時起動):
 
    ```bash
-   npm run dev          # backend(17330) + frontend
+   npm run dev          # backend(11111) + frontend
    # または backend 単体
    npm run dev:backend  # tsx watch src/server.ts
    # production
@@ -40,7 +66,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 
 3. 起動確認: ログに `Concordia listening` (`host` / `port` / `dbPath`) が出る (`src/server.ts:303`)。 ブラウザで Vite frontend (dev は別 port) を開くと全 active session が見える。
 
-4. session 連携を使うには各 AI セッション側に hook を仕込む → [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+4. session 連携を使うには各 AI セッション側に hook を仕込む → [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 ## 起動時に走るもの (参考)
 
@@ -79,7 +105,7 @@ chat 投稿 / rule engine は **env ではなく runtime のスイッチ**で制
 | 症状 | 原因 / 対処 |
 |------|------------|
 | 起動で即落ち / `claude CLI` 系エラー (Windows) | git-bash パス未設定。 [windows.md](windows.md) を参照。 |
-| port 17330 が listen できない | 別プロセスが掴んでいる。 `CONCORDIA_PORT` を変えるか古い node を kill。 [windows.md](windows.md) の port 節。 |
+| port 11111 が listen できない | 別プロセスが掴んでいる。 `CONCORDIA_PORT` を変えるか古い node を kill。 [windows.md](windows.md) の port 節。 |
 | session が登録されない | hook 側の `CONCORDIA_HOOK=1` opt-in 漏れ。 hook ガイド参照。 |
 | active session がすぐ lost になる | `CONCORDIA_LOST_AFTER_SEC` が短すぎる。 既定 1800 に戻す。 |
 

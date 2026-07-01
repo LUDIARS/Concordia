@@ -8,13 +8,13 @@
  *       "concordia-core": {
  *         "command": "node",
  *         "args": ["E:/Document/Ars/Concordia/dist/mcp/core-server.js"],
- *         "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:17330" }
+ *         "env": { "CONCORDIA_BASE_URL": "http://127.0.0.1:11111" }
  *       }
  *     }
  *   }
  *
- * 9 tools — Concordia の横断状態 (sessions / stat / prs / chat / conflicts / pending-tasks)
- * を読み書きできる:
+ * Concordia の横断状態 (sessions / stat / prs / chat / conflicts /
+ * pending-tasks / session-logs / collaboration context / harness) を読み書きできる:
  *   - concordia_list_sessions
  *   - concordia_get_session
  *   - concordia_get_session_stat
@@ -24,8 +24,15 @@
  *   - concordia_get_conflicts
  *   - concordia_post_chat
  *   - concordia_recent_chat
+ *   - concordia_list_session_logs
+ *   - concordia_get_session_log
+ *   - concordia_context_packet
+ *   - concordia_harness_context
+ *   - concordia_harness_gate
+ *   - concordia_harness_intent
+ *   - concordia_harness_audit
  *
- * Concordia HTTP loopback (default 127.0.0.1:17330) を直接叩く。 DB は触らない
+ * Concordia HTTP loopback (default 127.0.0.1:11111) を直接叩く。 DB は触らない
  * (= Concordia が running していない場合は全 tool が失敗するが、 spawn の責任
  * 分界が delegation-server.ts と同じ形で明確になる)。
  */
@@ -34,7 +41,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-const DEFAULT_BASE = "http://127.0.0.1:17330";
+const DEFAULT_BASE = "http://127.0.0.1:11111";
 
 interface CallResult {
   ok: boolean;
@@ -95,7 +102,7 @@ function toToolResult(r: CallResult) {
 }
 
 /**
- * Build the MCP server with all 8 tools registered. Exported so tests can
+ * Build the MCP server with tools registered. Exported so tests can
  * instantiate it without going through stdio (the main() entry below is what
  * the CLI command launches).
  */
@@ -266,6 +273,132 @@ export function buildCoreServer(): McpServer {
       if (typeof limit === "number") params.set("limit", String(limit));
       const qs = params.toString();
       return toToolResult(await callConcordia("GET", `/v1/chat${qs ? `?${qs}` : ""}`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_list_session_logs",
+    {
+      description:
+        "List past work session-logs (the hand-written `session-logs/<date>.md` records produced at /session-end and handoff). Each entry is one session document with extracted project tags, an outline (## headings) and an excerpt. Use this FIRST when picking up work — filter by project to find prior context, then call concordia_get_session_log to read the full doc. Returns { root, total, total_matched, projects:[{name,count}], entries:[{id,date,title,projects,sections,excerpt,...}] }.",
+      inputSchema: {
+        project: z.string().optional().describe("Filter to logs touching this project (canonical name, e.g. 'Anatomia', 'KuzuSurvivors', 'Concordia')"),
+        q: z.string().optional().describe("Case-insensitive substring filter over title / outline / excerpt"),
+        limit: z.number().int().min(1).max(1000).optional().describe("Max entries (default 200, newest first)"),
+      },
+    },
+    async ({ project, q, limit }) => {
+      const params = new URLSearchParams();
+      if (project) params.set("project", project);
+      if (q) params.set("q", q);
+      if (typeof limit === "number") params.set("limit", String(limit));
+      const qs = params.toString();
+      return toToolResult(await callConcordia("GET", `/v1/session-logs${qs ? `?${qs}` : ""}`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_get_session_log",
+    {
+      description:
+        "Return the full markdown body of one session-log by id (the filename without .md, e.g. '2026-06-22' or '2026-06-26-2'). Use this after concordia_list_session_logs to load prior work context when handing off / resuming a task. Returns { id, date, title, projects, sections, content_md, ... }.",
+      inputSchema: {
+        id: z.string().describe("session-log id = filename without .md (e.g. '2026-06-22')"),
+      },
+    },
+    async ({ id }) => {
+      return toToolResult(await callConcordia("GET", `/v1/session-logs/${encodeURIComponent(id)}`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_context_packet",
+    {
+      description:
+        "Return Concordia's collaboration context packet for a session: active peers, same-branch conflicts, worktree recommendation, relevant prior session logs, harness entrypoints, and stalled-recovery guidance. This is situational knowledge, not a goal prompt.",
+      inputSchema: {
+        session_id: z.string().describe("The active session id to build context for"),
+      },
+    },
+    async ({ session_id }) => {
+      return toToolResult(await callConcordia("GET", `/v1/sessions/${encodeURIComponent(session_id)}/context`));
+    },
+  );
+
+  server.registerTool(
+    "concordia_harness_context",
+    {
+      description:
+        "Return active Concordia harness rules and deterministic gates for a task. Use this before implementation when an agent needs the shared rule context without relying on provider-specific hooks.",
+      inputSchema: {
+        task: z.string().max(8000).optional(),
+        project: z.string().max(256).optional(),
+        session_id: z.string().max(128).optional(),
+      },
+    },
+    async ({ task, project, session_id }) => {
+      return toToolResult(await callConcordia("POST", "/v1/harness/context", { task, project, session_id }));
+    },
+  );
+
+  server.registerTool(
+    "concordia_harness_gate",
+    {
+      description:
+        "Evaluate one normalized tool action against Concordia's deterministic harness gates. This is provider-neutral: callers should map their own tool names and inputs into {tool, command, filePath, cwd, branch}.",
+      inputSchema: {
+        tool: z.string().max(64),
+        command: z.string().max(20000).optional(),
+        filePath: z.string().max(4096).optional(),
+        cwd: z.string().max(4096).optional(),
+        project: z.string().max(256).optional(),
+        branch: z.string().max(256).optional(),
+        session_id: z.string().max(128).optional(),
+        hook: z.string().max(64).optional(),
+      },
+    },
+    async ({ session_id, hook, ...action }) => {
+      return toToolResult(await callConcordia("POST", "/v1/harness/gate", { action, session_id, hook: hook ?? "mcp" }));
+    },
+  );
+
+  server.registerTool(
+    "concordia_harness_intent",
+    {
+      description:
+        "Run Concordia's advisory prompt intent analyzer. The backend selects the analyzer via CONCORDIA_PROMPT_ANALYZER (default local LLM with heuristic fallback; Claude models are optional).",
+      inputSchema: {
+        prompt: z.string().min(1).max(20000),
+        project: z.string().max(256).optional(),
+        branch: z.string().max(256).optional(),
+        session_id: z.string().max(128).optional(),
+      },
+    },
+    async (args) => {
+      return toToolResult(await callConcordia("POST", "/v1/harness/intent", args));
+    },
+  );
+
+  server.registerTool(
+    "concordia_harness_audit",
+    {
+      description:
+        "Read recent Concordia harness audit events. Use this to verify that supply, intent, gate, block, and override events were recorded across providers.",
+      inputSchema: {
+        session_id: z.string().max(128).optional(),
+        decision: z.enum(["allow", "deny", "warn"]).optional(),
+        event: z.enum(["inject", "gate", "block", "start_prompt", "override"]).optional(),
+        limit: z.number().int().min(1).max(1000).optional(),
+      },
+    },
+    async ({ session_id, decision, event, limit }) => {
+      const params = new URLSearchParams();
+      if (session_id) params.set("session_id", session_id);
+      if (decision) params.set("decision", decision);
+      if (event) params.set("event", event);
+      if (typeof limit === "number") params.set("limit", String(limit));
+      const qs = params.toString();
+      return toToolResult(await callConcordia("GET", `/v1/harness/audit${qs ? `?${qs}` : ""}`));
     },
   );
 

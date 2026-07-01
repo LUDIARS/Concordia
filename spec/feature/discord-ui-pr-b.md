@@ -1,3 +1,25 @@
+---
+type: feature
+title: "Concordia Discord-UI PR-B — 実装指示 (codex 向け)"
+description: "Concordia Discord-UI の PR-B として、スラッシュコマンド 9 個・AskUserQuestion の Button/Select ブリッジ・Embed 整形を codex 向けに仕様化した実装指示書。DB に discord_pending_questions テーブルを追加し、質問投稿→Discord ボタン回答→セッションフィードバックの一連フローを構築する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - typescript
+  - discord
+  - sqlite
+  - slash-command
+  - webhook
+  - embed
+  - event-driven
+  - spawn
+status: planned
+related:
+  - discord-ui.md
+updated: 2026-06-30
+---
+
+
 # Concordia Discord-UI PR-B — 実装指示 (codex 向け)
 
 ## 前提

@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia 設定キー正本 (config-reference)"
+description: "Concordia の全環境変数設定キーを集約した正本リファレンス。コア起動・LLM・Discord/Slack bot・セッション管制・observability・ログ・hook・PR キュー・error 自動対応の 9 カテゴリを網羅し、既定値・読み出し元ファイル・信頼境界ルールを明記する。"
+service: concordia
+domain: governance
+tags:
+  - typescript
+  - sqlite
+  - discord
+  - slack
+  - configuration
+  - env
+  - auth
+  - monitoring
+status: implemented
+related:
+  - ../interface/service-schema.md
+  - spawn.md
+  - discord.md
+  - slack.md
+  - observability.md
+updated: 2026-06-30
+---
+
+
 # Concordia 設定キー正本 (config-reference)
 
 最終更新: 2026-05-31
@@ -18,7 +44,7 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | キー | 既定値 | 意味 |
 |------|--------|------|
 | `CONCORDIA_HOST` | `127.0.0.1` | bind するホスト。 loopback 前提 (無認証)。 非 loopback (0.0.0.0 等) に変える場合は `CONCORDIA_ADMIN_TOKEN` 必須 (未設定なら起動拒否)。 下記「信頼境界」節参照。 |
-| `CONCORDIA_PORT` | `17330` | backend HTTP ポート (loopback)。 |
+| `CONCORDIA_PORT` | `11111` | backend HTTP ポート (loopback)。 |
 | `CONCORDIA_DB_PATH` | 空 → `<cwd>/concordia.db` | SQLite ファイルパス。 空なら cwd 直下 (`defaultDbPath()`)。 |
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` (30 分) | heartbeat 途絶からこの秒数で `status=lost` に落とす。 |
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` (24h) | lost からこの秒数で `abandoned`。 |
@@ -115,7 +141,7 @@ MCP サーバ (別プロセス) が読む env:
 
 | キー | 既定値 | 読み出し元 | 意味 |
 |------|--------|-----------|------|
-| `CONCORDIA_BASE_URL` | `http://127.0.0.1:17330` | `mcp/core-server.ts:60`, `mcp/delegation-server.ts:51` | MCP サーバが叩く Concordia loopback URL。 |
+| `CONCORDIA_BASE_URL` | `http://127.0.0.1:11111` | `mcp/core-server.ts:60`, `mcp/delegation-server.ts:51` | MCP サーバが叩く Concordia loopback URL。 |
 | `CONCORDIA_MCP_FETCH_TIMEOUT_MS` | (実装値) | `mcp/core-server.ts:49` | core MCP server の fetch timeout。 |
 | `VESTIGIUM_CATALOG_PATH` | `<cwd>/catalog/services.yaml` | `mcp/vestigium-server.ts:71` | vestigium MCP server が参照する service catalog。 |
 
@@ -158,7 +184,7 @@ MCP サーバ (別プロセス) が読む env:
 
 ## 7. hook / worker ツール (別プロセス)
 
-サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 `tools/concordia-hook.mjs`:
 
@@ -166,7 +192,7 @@ MCP サーバ (別プロセス) が読む env:
 |------|--------|------|
 | `CONCORDIA_HOOK` | 未設定 (`1` で opt-in) | `1` のセッションだけ hook が動く (sub-agent の自動登録防止)。 |
 | `CONCORDIA_DISABLE` | 未設定 (`1` で no-op) | レガシー無効化フラグ。 |
-| `CONCORDIA_URL` | `http://127.0.0.1:17330` | hook の送信先。 |
+| `CONCORDIA_URL` | `http://127.0.0.1:11111` | hook の送信先。 |
 | `CONCORDIA_PROVIDER` | `claude-code` | provider 識別子。 |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | hook HTTP の timeout。 |
 
@@ -174,7 +200,7 @@ MCP サーバ (別プロセス) が読む env:
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_URL` | `http://127.0.0.1:17330` | 送信先。 |
+| `CONCORDIA_URL` | `http://127.0.0.1:11111` | 送信先。 |
 | `CODEX_BIN` | `codex` | codex CLI のバイナリ。 |
 | `CONCORDIA_TIMEOUT_MS` | `1500` | HTTP timeout。 |
 

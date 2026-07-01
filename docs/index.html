@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Concordia — マルチ AI エージェント協調サービス</title>
+<meta name="description" content="複数 AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI) のセッション協調・記録・管制を行う Concordia の概要・設計・API。" />
+<link rel="icon" href="./assets/concordia.svg" />
+<link rel="stylesheet" href="./assets/style.css" />
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="./index.html"><img src="./assets/concordia.svg" alt="" />Concordia</a>
+  <div class="links">
+    <a href="./index.html" class="active">概要</a>
+    <a href="./architecture.html">アーキテクチャ / グラフ</a>
+    <a href="./api.html">API リファレンス</a>
+    <a href="./review.html">仕様 ↔ コード レビュー</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <img src="./assets/concordia.svg" alt="Concordia logo" />
+  <h1>Concordia</h1>
+  <div class="tag">複数 AI コーディングエージェント セッションの協調 / 認識 / 記録</div>
+  <p class="sub">
+    ラテン語で <b>同心 / 一致 / 協調</b> を意味し、ローマ女神 Concordia（元老院・市民の和合の象徴）に由来する。
+    <b>lock せず</b>、各セッションが自律的に状態を共有することで重複作業や知識の分断を防ぐ LUDIARS のサービス。
+  </p>
+  <div class="pill-row" style="justify-content:center">
+    <span class="pill">TypeScript + Node 22</span>
+    <span class="pill">Hono</span>
+    <span class="pill">better-sqlite3 (WAL)</span>
+    <span class="pill">React 19 + Vite</span>
+    <span class="pill">loopback :11111</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section>
+    <h2>サービスの役割</h2>
+    <p class="lead">
+      Claude Code / Gemini CLI / Codex CLI などの AI コーディングエージェントを <b>並行して</b> 使うとき、
+      互いの作業が見えず重複・分断・取りこぼしが起きる。Concordia は repo・session・event を 1 つの SQLite に集約し、
+      各エージェントの hook から HTTP で報告させることでこれを解決する。
+    </p>
+    <div class="cards">
+      <div class="card"><h3>① 重複作業の検出</h3><p>同じ repo を複数セッションで触っていることを検出し、worktree 分離を <b>提案</b>（強制はしない）。</p></div>
+      <div class="card"><h3>② ロスト検知 + 復元</h3><p>セッションが落ちても heartbeat 途絶で検知し、transcript (jsonl) から最終状態を復元・引き継ぎ。</p></div>
+      <div class="card"><h3>③ 終了レポート自動生成</h3><p>Stop 時に LLM サマリ + 構造化集計（diff / Todo 完遂率）を自動生成。</p></div>
+      <div class="card"><h3>④ 横断モニタ</h3><p>全 repo / 全 host の active session・timeline・コスト・PR キューを Web / Discord / Slack で可視化。</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>アーキテクチャ概観</h2>
+    <pre><code>┌──────────────────┐   hooks (HTTP)    ┌────────────────────────┐
+│ Claude Code      ├──────────────────►│ Concordia (HTTP/Hono)  │
+│ Gemini CLI       │  POST /v1/sessions │  - sessions / events   │
+│ Codex CLI        │  POST /v1/.../event│  - reports / personas  │
+│ (Lictor ラップ)  │                    │  - sweeper / recovery  │
+└──────────────────┘                    │  - rules engine        │
+┌──────────────────┐                    │  Backend: SQLite (WAL) │
+│ Web / Discord /  ├──────────────────►│  Port: 11111 (loopback)│
+│ Slack monitor    │  GET /v1/monitor   │  + WS /ws · SSE /stream│
+└──────────────────┘  WS /ws            └────────────────────────┘</code></pre>
+    <p>
+      中心はプロセス内 <b>イベントバス</b>（<code>events.ts</code>）と <b>dispatcher</b>。HTTP API（Hono）と
+      SQLite <b>db</b> 層がその下にある。詳細な依存関係は
+      <a href="./architecture.html">アーキテクチャ / グラフ</a> ページのインタラクティブグラフで確認できる。
+    </p>
+  </section>
+
+  <section>
+    <h2>主機能</h2>
+    <table>
+      <thead><tr><th>機能</th><th>詳細</th><th>関連エンドポイント</th></tr></thead>
+      <tbody>
+        <tr><td><b>セッション登録</b></td><td>start hook で repo/host/cwd/branch を登録、同 repo の active peers と lost candidates を返す</td><td><code>POST /v1/sessions</code></td></tr>
+        <tr><td><b>進捗共有</b></td><td>UserPromptSubmit / PostToolUse / PreCompact で current_task と event を蓄積</td><td><code>POST /v1/sessions/:id/event</code></td></tr>
+        <tr><td><b>終了レポート</b></td><td>Stop hook で LLM サマライズ + 構造化集計（event count / file diff / Todo 完遂率）を生成</td><td><code>DELETE /v1/sessions/:id</code></td></tr>
+        <tr><td><b>ロスト検知 + 復元</b></td><td>5 分 heartbeat 無し → <code>lost</code>、transcript から最終 tool_use / response を抽出</td><td>sweeper + providers</td></tr>
+        <tr><td><b>worktree 自動化</b></td><td>同 repo + 同 branch を検出 → SessionStart の additionalContext で worktree 指示を AI に注入（lock しない）</td><td>advisory</td></tr>
+        <tr><td><b>persona / role</b></td><td>活動シグナルからセッション人格を合成、tool/file から role を推論</td><td><code>/v1/personas</code></td></tr>
+        <tr><td><b>delegation</b></td><td>テンプレートを render し sub-session を spawn（Codex / Claude / Gemini）</td><td><code>/v1/delegation</code></td></tr>
+        <tr><td><b>rules engine</b></td><td>tick / event 駆動で claude CLI を invoke する自動化</td><td><code>/v1/rules</code></td></tr>
+        <tr><td><b>managed processes (F8)</b></td><td>dev-process.md 由来の常駐プロセスを spawn / 監視 / ログ配信</td><td><code>/v1/processes</code></td></tr>
+        <tr><td><b>cost / metrics / daily</b></td><td>token 使用量・予算、host metrics、日次レポート</td><td><code>/v1/cost-feed</code>, <code>/v1/daily-reports</code></td></tr>
+        <tr><td><b>chat 連携</b></td><td>世界/ローカルチャットを Discord / Slack にミラー、reaction でワークフロー操作</td><td><code>/v1/chat</code></td></tr>
+      </tbody>
+    </table>
+    <p class="hint"><b>100 本超の REST エンドポイント</b>・3 本の MCP サーバ（15 tools）・24 種の WS/SSE イベントは <a href="./api.html">API リファレンス</a> に収録。</p>
+  </section>
+
+  <section>
+    <h2>設計指針</h2>
+    <ul class="clean">
+      <li><b>lock しない</b>: 並行作業を前提とする。worktree 自動化は提案のみで強制しない（lock より自由度を優先）。</li>
+      <li><b>provider 中立</b>: <code>sessions.provider</code> 列で agent 種別を識別。Claude Code / Codex CLI は実装済、Gemini CLI は stub。<code>local-llm</code>（Lictor ネイティブ）も追加済。</li>
+      <li><b>個人データ非保管</b>: session 内容は session_events に蓄積し 90 日で GC。transcript はパス参照のみ保持し本体は複写しない。</li>
+      <li><b>ローカル運用</b>: loopback (127.0.0.1) bind、認証は loopback 信頼ベース（admin token は任意）。tailnet 越えは将来。</li>
+      <li><b>LUDIARS スタック準拠</b>: TypeScript + Node 22 + Hono + better-sqlite3、frontend は React 19 + Vite + Foundation UI。</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>provider 対応状況</h2>
+    <table>
+      <thead><tr><th></th><th>Claude Code</th><th>Codex CLI</th><th>Gemini CLI</th><th>local-llm</th></tr></thead>
+      <tbody>
+        <tr><td>実装</td><td><span class="badge ok">FULL</span></td><td><span class="badge ok">FULL</span></td><td><span class="badge partial">STUB</span></td><td><span class="badge ok">実装</span></td></tr>
+        <tr><td>session_id</td><td><code>$CLAUDE_SESSION_ID</code></td><td>provider 実装</td><td>TBD</td><td>Lictor 払出</td></tr>
+        <tr><td>transcript</td><td><code>~/.claude/projects/&lt;cwd&gt;/&lt;id&gt;.jsonl</code></td><td>provider 実装</td><td>TBD</td><td>—</td></tr>
+      </tbody>
+    </table>
+    <p class="hint">汎用 wrapper <code>tools/concordia-hook.mjs</code> は curl の薄ラッパで、hook 機構を持たない CLI でも動く。</p>
+  </section>
+
+  <div class="callout">
+    このサイトは <code>spec/</code> の仕様書と <code>src/</code> の実装を突き合わせてレビューした上で生成している。
+    対応状況・不一致は <a href="./review.html">仕様 ↔ コード レビュー</a> を参照。
+  </div>
+</main>
+
+<footer class="site">
+  Concordia · LUDIARS · MIT License · <a href="https://github.com/LUDIARS/Concordia">GitHub</a>
+</footer>
+</body>
+</html>

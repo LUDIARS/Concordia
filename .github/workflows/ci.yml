@@ -12,6 +12,8 @@ concurrency:
 
 permissions:
   contents: read
+  # @ludiars/* (Vestigium 等) を GitHub Packages から取得するため
+  packages: read
 
 env:
   # テスト中は実 LLM を絶対に叩かない (vitest.config.ts でも設定済だが二重で固定)
@@ -22,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -31,6 +35,10 @@ jobs:
           cache-dependency-path: |
             package-lock.json
             web/package-lock.json
+
+      - name: Build submodules
+        run: |
+          cd lib/vestigium && npm install --ignore-scripts && npm run build && npm prune --omit=dev && cd ../..
 
       - name: Install deps (backend)
         run: npm ci

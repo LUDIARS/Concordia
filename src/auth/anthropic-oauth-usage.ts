@@ -45,6 +45,7 @@ export interface OAuthUsageExtraCredit {
 }
 
 export interface OAuthUsage {
+  plan: string | null;
   fiveHour: OAuthUsageWindow | null;
   sevenDay: OAuthUsageWindow | null;
   sevenDaySonnet: OAuthUsageWindow | null;
@@ -120,6 +121,14 @@ function parseUsage(raw: unknown): OAuthUsage {
   const r = (raw ?? {}) as Record<string, unknown>;
   const extra = (r.extra_usage ?? {}) as Record<string, unknown>;
   return {
+    plan: firstString(
+      r.plan,
+      r.tier,
+      r.subscription,
+      (r.subscription as Record<string, unknown> | undefined)?.plan,
+      (r.account as Record<string, unknown> | undefined)?.plan,
+      (r.organization as Record<string, unknown> | undefined)?.plan,
+    ),
     fiveHour: parseWindow(r.five_hour),
     sevenDay: parseWindow(r.seven_day),
     sevenDaySonnet: parseWindow(r.seven_day_sonnet),
@@ -133,6 +142,13 @@ function parseUsage(raw: unknown): OAuthUsage {
     },
     fetchedAt: Date.now(),
   };
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
 }
 
 function parseWindow(v: unknown): OAuthUsageWindow | null {

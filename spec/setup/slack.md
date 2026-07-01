@@ -1,3 +1,26 @@
+---
+type: setup
+title: "Slack bot を動かすための設定 (slack)"
+description: "Concordia のセッション出力を Slack に転送し、スレッド返信で inject・ボタンで質問回答・slash コマンドでセッション操作するための Slack bot セットアップガイド。Socket Mode (outbound WebSocket) を使い、公開 inbound URL 不要で loopback 専用設計のまま動作する。DB への暗号化保存と hot 再接続によるサービス再起動不要な設定変更に対応。"
+service: concordia
+domain: chat-platforms
+tags:
+  - slack
+  - websocket
+  - webhook
+  - typescript
+  - auth
+  - delegation
+  - spawn
+  - lifecycle
+status: implemented
+related:
+  - ../feature/slack-platform.md
+  - ../feature/reaction-workflow.md
+updated: 2026-06-30
+---
+
+
 # Slack bot を動かすための設定 (slack)
 
 ## 目的
@@ -50,7 +73,7 @@ API:
 
 ```bash
 # 例: token と channel を一括設定して即接続
-curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
+curl -s -X PUT http://127.0.0.1:11111/v1/admin/slack/config \
   -H "content-type: application/json" \
   -d '{"enabled":true,"channel_id":"C0XXXXXXX","bot_token":"xoxb-...","app_token":"xapp-..."}'
 ```
@@ -64,6 +87,7 @@ curl -s -X PUT http://127.0.0.1:17330/v1/admin/slack/config \
    - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 / ライブカード更新 (`chat.postMessage/update/delete`)
    - `channels:history` — 公開チャンネルの発言受信(ingress = thread 返信 → inject)
    - `reactions:read` — リアクション受信(👍=実装着手 等のリアクション制御)
+   - `canvases:write` — 「コスト」Canvas の作成・更新(`conversations.canvases.create` / `canvases.edit`)
    - `commands` — `/concordia` slash コマンド
    - ※プライベートチャンネル運用なら `channels:history` の代わりに `groups:history`
 3. **Socket Mode → Enable**。**Basic Information → App-Level Tokens** で
@@ -122,6 +146,7 @@ oauth_config:
       - channels:history
       - channels:read
       - reactions:read        # 👍=実装着手 等のリアクション制御
+      - canvases:write        # 「コスト」Canvas の作成・更新
       - commands
       # プライベートチャンネル運用なら channels:history を groups:history に置換
 settings:

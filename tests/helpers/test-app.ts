@@ -13,6 +13,9 @@ import { join } from "node:path";
 import { buildApp, type AppDeps } from "../../src/app.js";
 import { AdminState } from "../../src/admin/state.js";
 import { ChatRepo } from "../../src/db/chat-repo.js";
+import { CostOneShotCallsRepo } from "../../src/db/cost-one-shot-calls-repo.js";
+import { CostLimitSamplesRepo } from "../../src/db/cost-limit-samples-repo.js";
+import { CostUsageSamplesRepo } from "../../src/db/cost-usage-samples-repo.js";
 import { DayReportsRepo } from "../../src/db/day-reports-repo.js";
 import { DelegationRepo } from "../../src/db/delegation-repo.js";
 import {
@@ -35,6 +38,7 @@ import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
 import { Dispatcher } from "../../src/dispatcher.js";
+import { ChatResponder } from "../../src/chat/responder.js";
 import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
@@ -97,6 +101,9 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  const costSamples = new CostUsageSamplesRepo(db);
+  const costLimitSamples = new CostLimitSamplesRepo(db);
+  const costOneShots = new CostOneShotCallsRepo(db);
   const participants = makeParticipantsRepo(db);
   const delegation = new DelegationRepo(db);
   seedDelegationTemplates(delegation);
@@ -122,16 +129,21 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, rng: opts.rng ?? (() => 1) });
+  // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
+  const responder = new ChatResponder({
+    chat, personas, sessions: repo,
+    renderConfig: () => ({ renderer: "template", model: "" }),
+  });
+  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: opts.rng ?? (() => 1) });
+  responder.attachFanout(dispatcher);
   const config: ConcordiaConfig = {
     ...loadConfig({}),
-    anthropicApiKey: "",
     ...opts.config,
   };
 
   const deps: AppDeps = {
     repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
+    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, adminState,
     processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },
@@ -139,7 +151,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     startedAt: new Date().toISOString(),
     sweeperRunOnce: () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
-    publicUrl: "http://127.0.0.1:17330",
+    publicUrl: "http://127.0.0.1:11111",
   };
 
   return {

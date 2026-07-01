@@ -1,19 +1,21 @@
 /**
- * Rule engine.
+ * Rule engine (ブラックボックス / 決定的).
  *
  * - 1 秒ごとに rules を見て、 trigger=tick で last_fired_at から tick_sec 以上経った rule を発火
  * - event 発火は eventBus 購読で受ける (trigger=event の rule)
- * - 並列実行は禁止 (claude CLI invocation は重い & コンテキスト混ざるとよくない)
- *   → mutex 1 つだけ. 走行中は他 rule は queue せずに skip
+ * - 並列実行は禁止 (mutex 1 つ. 走行中は他 rule を skip)
+ *
+ * **LLM は使わない**: 「いつ / どの channel に / どんな意図で」 喋るかは
+ * decide.ts が決定的に判定し、 発話文だけを中央 Haiku レスポンダ (chat/responder.ts)
+ * が描画する. 旧来の claude CLI 判断 (buildPrompt + handler) は撤去した.
  */
 
 import type { RulesRepo, RuleRow } from "../db/rules-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
+import type { ChatResponder } from "../chat/responder.js";
+import { decideRuleFire } from "./decide.js";
 import { eventBus } from "../events.js";
-import { runClaude, extractJson } from "./claude-runner.js";
-import { buildPrompt } from "./prompt-builder.js";
-import { handleAction } from "./handler.js";
 import { createChildLogger } from "../shared/logger.js";
 import { actionFrequencyMultiplier } from "../shared/quiet-hours.js";
 
@@ -24,12 +26,10 @@ export interface EngineDeps {
   rules: RulesRepo;
   sessions: SessionsRepo;
   chat: ChatRepo;
-  /** dry-run 用. true で claude CLI を呼ばずスキップ (テスト・デバッグ) */
-  disable_claude?: boolean;
+  responder: ChatResponder;
   /**
-   * Runtime kill-switch. When the function returns true, every fire skips
-   * (logged as 'skip / rules disabled at runtime'). Wired from
-   * AdminState.getRulesEnabled() so the Web UI can toggle without restart.
+   * Runtime kill-switch. true を返す間は全 fire を skip
+   * (admin の rules-enabled=false / コスト予算超過から配線).
    */
   rulesDisabled?: () => boolean;
 }
@@ -50,7 +50,8 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
     if (stopped) return;
     if (ev.type === "ping") return;
     const eventKind = ev.type;
-    const candidates = deps.rules.list({ enabled: true, trigger_type: "event" })
+    const candidates = deps.rules
+      .list({ enabled: true, trigger_type: "event" })
       .filter((r) => !r.event_kind || r.event_kind === eventKind || matchesEvent(r.event_kind, eventKind));
     if (candidates.length === 0) return;
     // 強制ルール: 深夜帯 (23:00–翌05:00) は event rule の発火も 1/10 に間引く.
@@ -70,8 +71,7 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   timer = setInterval(async () => {
     if (stopped) return;
     const now = Math.floor(Date.now() / 1000);
-    // 強制ルール: 深夜帯 (23:00–翌05:00) は tick の発火間隔を 1/freq 倍に伸ばす
-    // (= 行動頻度 1/10). 昼帯は freq=1 で間隔は据え置き.
+    // 深夜帯は tick の発火間隔を 1/freq 倍に伸ばす (= 行動頻度 1/10).
     const freq = actionFrequencyMultiplier();
     const ticks = deps.rules.list({ enabled: true, trigger_type: "tick" });
     for (const r of ticks) {
@@ -83,26 +83,17 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
     }
   }, ENGINE_TICK_MS);
 
-  log.info({ tickMs: ENGINE_TICK_MS }, "rule engine started");
+  log.info({ tickMs: ENGINE_TICK_MS }, "rule engine started (deterministic / haiku-rendered)");
 
   async function tryFire(rule: RuleRow, triggeredBy: string): Promise<void> {
     if (running) {
-      // 並列禁止: 既に走行中なら skip ログだけ
       deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "engine busy" });
       return;
     }
 
     const now = Math.floor(Date.now() / 1000);
     if (rule.last_fired_at && now - rule.last_fired_at < rule.cooldown_sec) {
-      // cooldown 内
-      return;
-    }
-
-    // 簡易 condition チェック. skip でも last_fired_at を進めて毎秒 spam を防ぐ.
-    if (!evaluateConditions(rule, deps)) {
-      deps.rules.setLastFired(rule.id, now);
-      log.debug({ rule_id: rule.id, reason: "conditions not met" }, "rule skip");
-      return;
+      return; // cooldown 内
     }
 
     running = true;
@@ -118,50 +109,38 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   }
 
   async function fireOnce(rule: RuleRow, triggeredBy: string): Promise<void> {
-    if (deps.disable_claude) {
-      deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "claude disabled" });
-      return;
-    }
     if (deps.rulesDisabled?.()) {
-      deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "rules disabled at runtime (admin)" });
+      deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: "rules disabled at runtime (admin/cost)" });
       return;
     }
 
-    const prompt = buildPrompt({
-      rule,
-      sessions: deps.sessions,
-      chat: deps.chat,
-      rules: deps.rules,
-      triggered_by: triggeredBy,
+    const active = deps.sessions.listSessions({ status: "active" });
+    const decision = decideRuleFire(rule, {
+      nowSec: Math.floor(Date.now() / 1000),
+      activeSessionCount: active.length,
+    });
+    if (!decision.fire) {
+      deps.rules.log({ rule_id: rule.id, action: "skip", actor: "engine", detail: decision.reason });
+      return;
+    }
+
+    await deps.responder.speak({
+      channel: decision.channel,
+      intent: decision.intent,
+      sessionId: null, // rule engine は司会 (coordinator) として喋る
+      context: {
+        extra: rule.instructions,
+        recent: recentChatLines(deps.chat),
+      },
+      replyDepth: 0,
     });
 
-    const res = await runClaude(prompt);
-    if (!res.ok) {
-      deps.rules.log({
-        rule_id: rule.id,
-        action: "error",
-        actor: "engine",
-        detail: `claude failed: ${res.stderr.slice(0, 200)}`,
-      });
-      return;
-    }
-
-    const json = extractJson(res.stdout);
-    if (!json) {
-      deps.rules.log({
-        rule_id: rule.id,
-        action: "error",
-        actor: "engine",
-        detail: `unparsable: ${res.stdout.slice(0, 200)}`,
-      });
-      return;
-    }
-
-    const result = handleAction({ chat: deps.chat, rules: deps.rules }, rule.id, json);
-    if (result.applied && result.action_type === "post") {
-      // chat post 経路は eventBus.chat.posted 経由で onChatPosted が peer reaction を回すので、
-      // 二重発火を避けるため fire 単独の log-update は出さない. (rule.add / rule.remove は handler 側で emit 済み.)
-    }
+    deps.rules.log({
+      rule_id: rule.id,
+      action: "fire",
+      actor: "engine",
+      detail: `${triggeredBy} → ${decision.channel}/${decision.intent}`,
+    });
   }
 
   return {
@@ -175,22 +154,13 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   };
 }
 
-function evaluateConditions(rule: RuleRow, deps: EngineDeps): boolean {
-  let conds: any[] = [];
-  try { conds = JSON.parse(rule.conditions); } catch { conds = []; }
-  for (const c of conds) {
-    if (!c || typeof c !== "object") continue;
-    if (c.type === "any_active_session") {
-      const n = deps.sessions.listSessions({ status: "active" }).length;
-      if (n === 0) return false;
-    }
-    // (将来) 他の condition type を追加
-  }
-  return true;
+function recentChatLines(chat: ChatRepo): string[] {
+  return chat
+    .list({ limit: 10 })
+    .map((m) => `[${m.channel}] ${m.author_label}: ${m.text.slice(0, 80)}`);
 }
 
 function matchesEvent(rulePattern: string, evKind: string): boolean {
-  // glob-ish: "*" だけ簡易対応
   if (rulePattern === "*") return true;
   return rulePattern === evKind;
 }

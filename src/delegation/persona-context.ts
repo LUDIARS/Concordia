@@ -34,11 +34,11 @@ function renderPersonaBlock(persona: PersonaRow): string {
  * delegation prompt の冒頭に差し込む context ブロックを組み立てる。
  *
  * @param persona  暫定 persona (null なら persona ブロックは省く)
- * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:17330)
+ * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:11111)
  */
 export function buildDelegationContext(
   persona: PersonaRow | null,
-  concordiaUrl = "http://127.0.0.1:17330",
+  concordiaUrl = "http://127.0.0.1:11111",
 ): string {
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",
@@ -59,6 +59,14 @@ export function buildDelegationContext(
     "  ください (どのファイル/モジュールに、 どんな順序で手を入れるか)。 挨拶や inject を受けた",
     "  直後も同様に、 まず受領と次の一手を短く宣言してから動きます。",
     "- 報告のあとに実作業へ進みます。 委託元/ユーザはこの宣言を見て次の行動を取ります。",
+    "",
+    "### 勝手に作業しない (重要)",
+    "",
+    "- **明確な指示・承認がないまま実作業 (コード変更 / ファイル作成・削除 / コミット / 外部送信",
+    "  など) を勝手に始めないでください。** 委託プロンプトで与えられた範囲を超える追加作業も同様。",
+    "- 方針が複数あり得る / スコープが曖昧 / 影響が大きい場合は、 着手前に方針を 1〜3 行で示して",
+    "  ユーザの承認を待ちます。 「やっておきました」 ではなく 「こう進めてよいですか」 が既定。",
+    "- 調査・読み取りは進めてよいですが、 変更を伴う一歩はユーザの GO を確認してから踏み出します。",
     "",
   ];
 

@@ -7,13 +7,18 @@ import { Chat } from "./pages/Chat.js";
 import { WorldChat } from "./pages/WorldChat.js";
 import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
+import { SessionLogs } from "./pages/SessionLogs.js";
+import { WsCleanup } from "./pages/WsCleanup.js";
+import { Library } from "./pages/Library.js";
 import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
 import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
+import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
+import { CostFeed } from "./pages/CostFeed.js";
 
 const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
@@ -22,10 +27,15 @@ const NAV: NavItem[] = [
   { to: "/world", label: "World" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
+  { to: "/cost", label: "Cost" },
   { to: "/reports", label: "Reports" },
+  { to: "/session-logs", label: "作業ログ" },
   { to: "/skills", label: "Skills" },
   { to: "/rules", label: "Rules" },
+  { to: "/ws-cleanup", label: "整理" },
+  { to: "/library", label: "記憶整理" },
   { to: "/delegation", label: "Delegation" },
+  { to: "/subsidiaries", label: "子会社" },
   { to: "/setup", label: "Setup" },
   { to: "/settings", label: "設定" },
 ];
@@ -51,10 +61,15 @@ export function App() {
           <Route path="/chat" element={<Chat />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportView />} />
+          <Route path="/session-logs" element={<SessionLogs />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/rules" element={<Rules />} />
           <Route path="/personas" element={<Personas />} />
+          <Route path="/cost" element={<CostFeed />} />
+          <Route path="/ws-cleanup" element={<WsCleanup />} />
+          <Route path="/library" element={<Library />} />
           <Route path="/delegation" element={<Delegation />} />
+          <Route path="/subsidiaries" element={<Subsidiaries />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>
@@ -64,7 +79,7 @@ export function App() {
         <a href="https://github.com/LUDIARS/Concordia" target="_blank" rel="noreferrer">
           LUDIARS/Concordia
         </a>
-        {" · "}loopback 17330
+        {" · "}loopback 11111
       </footer>
     </div>
   );

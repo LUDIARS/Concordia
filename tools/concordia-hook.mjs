@@ -15,7 +15,7 @@
  * stdin: Claude Code の hook 機構が JSON で渡す情報を読む.
  *
  * env override:
- *   CONCORDIA_URL          — default http://127.0.0.1:17330
+ *   CONCORDIA_URL          — default http://127.0.0.1:11111
  *   CONCORDIA_PROVIDER     — default claude-code
  *   CONCORDIA_DISABLE      — "1" で no-op
  *   CONCORDIA_TIMEOUT_MS   — default 1500
@@ -41,7 +41,7 @@ const HOOK_ENV_OPT_IN = process.env.CONCORDIA_HOOK === "1";
 // レガシー対応: CONCORDIA_DISABLE=1 が明示的にセットされてれば従来どおり no-op
 if (process.env.CONCORDIA_DISABLE === "1") process.exit(0);
 
-const URL_BASE = (process.env.CONCORDIA_URL ?? "http://127.0.0.1:17330").replace(/\/+$/, "");
+const URL_BASE = (process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
 const PROVIDER = process.env.CONCORDIA_PROVIDER ?? "claude-code";
 const TIMEOUT_MS = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
 
@@ -161,11 +161,27 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     if (ps.failed?.length)   procLines.push(`[concordia/processes] failed: ${ps.failed.map((f) => `${f.name} (${f.reason})`).join(", ")}`);
     if (ps.warnings?.length) procLines.push(`[concordia/processes] warnings: ${ps.warnings.join(" / ")}`);
     if (procLines.length && !QUIET_STDOUT) {
-      procLines.push(`[concordia/processes] ログ stream: ${res.process_stream_url ?? "ws://127.0.0.1:17330/ws"} (process.log / process.exited を購読)`);
+      procLines.push(`[concordia/processes] ログ stream: ${res.process_stream_url ?? "ws://127.0.0.1:11111/ws"} (process.log / process.exited を購読)`);
       process.stdout.write(procLines.join("\n") + "\n");
     }
   }
   // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
+  if (res?.initial_work && !QUIET_STDOUT) {
+    const iw = res.initial_work;
+    const lines = [
+      "",
+      "[concordia/initial-work]",
+      "最初に、今回作業するブランチ/開発コードを確定してください。",
+      "Concordia/Slack/Discord 側にも同じ選択UIを出しています。候補に無い場合や複数リポジトリにまたがる場合は自由入力を使えます。",
+      "確定後はチャンネル名が「<branch>(<GitHub project>)開発中」になります。",
+    ];
+    const options = Array.isArray(iw.options) ? iw.options.slice(0, 8) : [];
+    if (options.length) {
+      lines.push("候補:");
+      for (const o of options) lines.push(`  - ${o.label ?? String(o)}`);
+    }
+    process.stdout.write(lines.join("\n") + "\n");
+  }
   if (res?.persona && res.persona.skill_template && !QUIET_STDOUT) {
     const reused = res.persona_reused ? " (再開: 既存 assign)" : "";
     process.stdout.write(
@@ -208,13 +224,8 @@ async function dumpPendingTasks(sessionId) {
   const lines = ["[Concordia tasks]"];
   for (const t of tasks) {
     const p = t.payload ?? {};
-    if (t.kind === "session-departed") {
-      lines.push(
-        `[Concordia notice] session ${shorten(p.lost_session_id)} ('${p.lost_role ?? "?"}') が離脱. ` +
-        `branch=${p.lost_branch ?? "?"} 残作業=${p.last_task ?? "(不明)"}`,
-      );
-      continue;
-    }
+    // 注: session-departed / daily-report task は廃止 (離脱告知は中央 Haiku の司会発話、
+    // 終了独白は report 経路)。 旧 DB に残骸があれば下の汎用描画で表示される。
     if (t.kind === "chat-reply" && p.is_actionable_suggestion) {
       lines.push(
         `#${t.id} chat-reply [HUMAN_CONFIRMATION_REQUIRED]`,
@@ -247,7 +258,7 @@ async function dumpPendingTasks(sessionId) {
         `#${t.id} title-suggest`,
         `  ${p.instructions ?? "現在の作業のサマリを 30 文字以内にまとめて投稿"}`,
         `  ★作業内容を 30 文字以内 (日本語可、 OSC タイトル向け) にまとめ、 ` +
-          `POST http://127.0.0.1:17330/v1/sessions/${encodeURIComponent(sessionId)}/title-suggestion ` +
+          `POST http://127.0.0.1:11111/v1/sessions/${encodeURIComponent(sessionId)}/title-suggestion ` +
           `{ "text": "<タイトル文字列>" } で投稿する。 Concordia がそれを Lictor の /v1/rename に転送して反映する。`,
       );
       continue;
@@ -322,10 +333,6 @@ async function dumpProcessLogs(sessionId) {
 }
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
-
-function shorten(id) {
-  return id ? String(id).slice(0, 8) : "?";
-}
 
 function truncate(s, n = 80) {
   if (typeof s !== "string") return "";

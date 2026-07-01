@@ -1,3 +1,25 @@
+---
+type: feature
+title: "Concordia — Multi-Provider Spec"
+description: "複数の AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI) を 1 つの Concordia インスタンスで扱うための AgentProvider 抽象レイヤーの仕様。v0.1 では claude-code が完全実装済み、gemini-cli / codex-cli は interface stub のみでトランスクリプトパーサ・hook 設定生成は v0.2 以降の予定。"
+service: concordia
+domain: analysis-core
+tags:
+  - typescript
+  - llm
+  - claude
+  - codex
+  - gemini
+  - webhook
+  - relay
+  - lifecycle
+status: wip
+related:
+  - ../setup/hooks-claude-code.md
+updated: 2026-06-30
+---
+
+
 # Concordia — Multi-Provider Spec
 
 複数の AI コーディングエージェント (Claude Code / Gemini CLI / Codex CLI など)
@@ -78,7 +100,7 @@ Claude Code は SessionStart hook の引数で `session_id` を渡す
 ### 2.4 hook 設定
 
 `~/.claude/settings.json` の `hooks` に以下を追加 (詳細は
-[`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md)):
+[`setup/hooks-claude-code.md`](../setup/hooks-claude-code.md)):
 
 ```jsonc
 {
@@ -174,4 +196,4 @@ provider が `unknown` の場合、 transcript recovery は走らない (parseTr
 | `codex-cli` | OpenAI Codex CLI | stub |
 | `unknown` | hook 経路不明 / 汎用 wrapper | event のみ |
 
-新 provider 追加手順は `docs/contributing-provider.md` (将来) を参照。
+新 provider 追加手順は `spec/setup/contributing-provider.md` (将来) を参照。

@@ -70,6 +70,9 @@ export async function postQuestion(
     question: string;
     options: Array<string | { label: string; description?: string }>;
     multi_select?: boolean;
+    /** 起因者 (直近で指示した人間)。 discord のときだけ @メンションする。 */
+    requester_platform?: "discord" | "slack";
+    requester_user_id?: string;
   },
 ): Promise<void> {
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
@@ -128,8 +131,32 @@ export async function postQuestion(
     ),
   );
 
-  const msg = await tc.send({ embeds: [embed], components });
+  // 起因者が discord ユーザなら @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
+  // mention は content に置き、 allowedMentions を当人だけに絞って @everyone 等の誤爆を防ぐ。
+  const mentionId =
+    ev.requester_platform === "discord" && ev.requester_user_id ? ev.requester_user_id : null;
+  const payload: Parameters<TextChannel["send"]>[0] = mentionId
+    ? {
+        content: `<@${mentionId}> 確認をお願いします`,
+        embeds: [embed],
+        components,
+        allowedMentions: { users: [mentionId] },
+      }
+    : { embeds: [embed], components };
+  // #2: 質問カードは「直前の AI メッセージ (地の文)」の後に出す。 AskUserQuestion は
+  // PreToolUse の早出しで question.posted が transcript リレーより先に来うるため、
+  // 少し待って地の文の relay を先行させる (env で 0 にすれば即時)。
+  if (QUESTION_POST_DELAY_MS > 0) await sleep(QUESTION_POST_DELAY_MS);
+  const msg = await tc.send(payload);
   input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id);
+}
+
+/** 質問カードを地の文の後に出すための遅延 (ms)。 env CONCORDIA_QUESTION_POST_DELAY_MS で上書き。 */
+const QUESTION_POST_DELAY_MS =
+  Number(process.env.CONCORDIA_QUESTION_POST_DELAY_MS ?? "1200") || 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 /**
@@ -225,7 +252,8 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
       ? (json as { answer_text: string }).answer_text
       : "";
     if (interaction.message) {
-      await interaction.message.edit({ components: [] }).catch(() => {});
+      // 自由入力の回答もカードに残す (#3)。
+      await interaction.message.edit(answeredCardEdit(interaction.message.embeds?.[0], answerText)).catch(() => {});
     }
     await interaction.editReply({ content: `回答を送信しました: ${answerText}`.slice(0, 1900) });
     return;
@@ -276,5 +304,29 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     await interaction.followUp({ content: `Answer failed: ${err}`, ephemeral: true });
     return;
   }
-  await interaction.editReply({ components: [] });
+  // 選択結果をチャンネルに残す (#3): カードに「✅ 回答」を追記して可視化する。
+  const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
+    ? (json as { answer_text: string }).answer_text
+    : "";
+  await interaction.editReply(answeredCardEdit(interaction.message?.embeds?.[0], answerText));
+}
+
+/**
+ * 回答済みカードの編集ペイロード。 既存 embed に「✅ 回答」フィールドを足し、 緑にして
+ * components を外す。 embed が取れなければ components 除去だけ行う。 #3 (選択結果の可視化)。
+ */
+function answeredCardEdit(
+  baseEmbed: { toJSON?: () => unknown } | undefined | null,
+  answerText: string,
+): { embeds?: EmbedBuilder[]; components: [] } {
+  const value = (answerText.trim() || "(送信済み)").slice(0, 1024);
+  if (!baseEmbed) return { components: [] };
+  try {
+    const embed = EmbedBuilder.from(baseEmbed as Parameters<typeof EmbedBuilder.from>[0])
+      .addFields({ name: "✅ 回答", value })
+      .setColor(0x3ba55d);
+    return { embeds: [embed], components: [] };
+  } catch {
+    return { components: [] };
+  }
 }

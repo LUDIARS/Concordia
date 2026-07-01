@@ -32,6 +32,14 @@ const spawnCommand: DiscordCommandSpec = {
       o.setName("inject")
         .setDescription("テンプレの prompt を render して自動注入する (既定: 注入しない)")
         .setRequired(false))
+    .addStringOption((o) =>
+      o.setName("prompt")
+        .setDescription("初回プロンプト (自由テキスト)。新セッション起動直後に注入する")
+        .setRequired(false))
+    .addStringOption((o) =>
+      o.setName("model")
+        .setDescription("モデル (例 haiku / sonnet / opus)。provider 直指定時のみ有効")
+        .setRequired(false))
     .addStringOption((o) => o.setName("cwd").setDescription("working directory").setRequired(false)),
 
   async autocomplete(interaction, deps) {
@@ -55,18 +63,23 @@ const spawnCommand: DiscordCommandSpec = {
     const provider = interaction.options.getString("provider") as (typeof providers)[number] | null;
     const template = interaction.options.getString("template") ?? undefined;
     const inject = interaction.options.getBoolean("inject") ?? false;
+    const prompt = interaction.options.getString("prompt")?.trim() || undefined;
+    const model = interaction.options.getString("model")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
+
+    // スポーン前のアクティブセッション ID を記録し、新規セッションチャンネルを特定する。
+    const knownIds = new Set(deps.sessionChannelsRepo.listActive().map((r) => r.session_id));
 
     // ── template 起動経路 ───────────────────────────────────────
     // /v1/admin/spawn-session は loopback 信頼境界に乗るので token 不要。
     // provider / model / 既定 cwd はテンプレから継承する。
     if (template) {
-      await interaction.deferReply({ ephemeral: true });
+      await interaction.deferReply({ ephemeral: false });
       const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        { template, inject_prompt: inject, cwd },
+        { template, inject_prompt: inject, cwd, subsidiary_id: deps.subsidiaryId ?? null },
       );
       if ("error" in r || !r.ok) {
         await interaction.editReply({
@@ -74,8 +87,11 @@ const spawnCommand: DiscordCommandSpec = {
         });
         return;
       }
+      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
       await interaction.editReply({
-        content: `Spawned from \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""})`,
+        content: channelMention
+          ? `Spawned from \`${template}\`${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
+          : `Spawned from \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""})`,
       });
       return;
     }
@@ -83,6 +99,50 @@ const spawnCommand: DiscordCommandSpec = {
     // ── 従来経路: provider 直接指定 (/v1/spawn は token 必須) ──────
     if (!provider) {
       await interaction.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
+      return;
+    }
+    // prompt / model 指定あり = 自由テキスト初回プロンプト経路。/v1/admin/spawn-session
+    // (loopback 信頼境界、token 不要) が prompt を prompt file 化して注入する。
+    if (prompt || model) {
+      await interaction.deferReply({ ephemeral: false });
+      const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
+        deps.concordiaUrl,
+        "POST",
+        "/v1/admin/spawn-session",
+        { provider, prompt, model, cwd, subsidiary_id: deps.subsidiaryId ?? null },
+      );
+      if ("error" in r || !r.ok) {
+        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
+        return;
+      }
+      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
+      await interaction.editReply({
+        content: channelMention
+          ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
+          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+      });
+      return;
+    }
+    // 子会社 Bot の素の provider spawn は、 subsidiary_id を焼ける /v1/admin/spawn-session
+    // (loopback 信頼境界) を使う。 これで子会社セッションが本社側に出ず子会社 guild に出る。
+    if (deps.subsidiaryId) {
+      await interaction.deferReply({ ephemeral: false });
+      const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
+        deps.concordiaUrl,
+        "POST",
+        "/v1/admin/spawn-session",
+        { provider, cwd, subsidiary_id: deps.subsidiaryId },
+      );
+      if ("error" in r || !r.ok) {
+        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
+        return;
+      }
+      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
+      await interaction.editReply({
+        content: channelMention
+          ? `Spawned \`${provider}\` → ${channelMention}`
+          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+      });
       return;
     }
     // /v1/spawn requires the Bearer token from `<cwd>/.spawn.token`. The bot
@@ -95,7 +155,7 @@ const spawnCommand: DiscordCommandSpec = {
       });
       return;
     }
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ ephemeral: false });
     const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
       deps.concordiaUrl,
       "POST",
@@ -107,8 +167,35 @@ const spawnCommand: DiscordCommandSpec = {
       await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
       return;
     }
-    await interaction.editReply({ content: `Spawn requested (pid: ${r.pid ?? "n/a"})` });
+    const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
+    await interaction.editReply({
+      content: channelMention
+        ? `Spawned \`${provider}\` → ${channelMention}`
+        : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+    });
   },
 };
 
 export default spawnCommand;
+
+/**
+ * スポーン後、新しいセッションチャンネルが DB に現れるまで最大 12s ポーリングし、
+ * Discord チャンネルメンション文字列 (`<#channelId>`) を返す。見つからなければ null。
+ */
+async function waitForSessionChannel(
+  sessionChannelsRepo: import("../../db/discord-repo.js").DiscordSessionChannelsRepo,
+  knownIds: Set<string>,
+  timeoutMs = 12000,
+  intervalMs = 800,
+): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise<void>((r) => setTimeout(r, intervalMs));
+    for (const row of sessionChannelsRepo.listActive()) {
+      if (!knownIds.has(row.session_id) && row.channel_id) {
+        return `<#${row.channel_id}>`;
+      }
+    }
+  }
+  return null;
+}

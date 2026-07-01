@@ -38,7 +38,7 @@ export function Reports() {
       {reports.length === 0 && (
         <div className="bg-surface border border-border rounded p-4 text-subtle text-sm">
           まだレポートがありません. 任意の active session で
-          <code className="text-accent mx-1">curl -X DELETE http://127.0.0.1:17330/v1/sessions/&lt;id&gt;</code>
+          <code className="text-accent mx-1">curl -X DELETE http://127.0.0.1:11111/v1/sessions/&lt;id&gt;</code>
           を呼ぶと生成されます.
         </div>
       )}

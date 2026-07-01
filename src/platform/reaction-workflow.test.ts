@@ -50,6 +50,12 @@ describe("classifyReactionWorkflow", () => {
     ["🙄", "force-enter"],
     ["🤝", "delegate-task"],
     ["🫱", "delegate-task"],
+    ["👌", "handoff-document"],
+    ["👋", "handoff-document"],
+    ["▶️", "resume-work"],
+    ["⏩", "resume-work"],
+    ["🔀", "merge-pr"],
+    ["🚀", "merge-pr"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -93,7 +99,7 @@ describe("WORKFLOW_ACTION_HELP", () => {
     for (const a of WORKFLOW_ACTIONS) {
       const h = WORKFLOW_ACTION_HELP[a];
       expect(h.label.length).toBeGreaterThan(0);
-      expect(h.summary).toContain("変換"); // 「投稿内容を変換して渡す」を明示
+      expect(h.summary.length).toBeGreaterThan(0);
       expect(h.mode.length).toBeGreaterThan(0);
     }
   });
@@ -109,6 +115,21 @@ describe("planWorkflow", () => {
   it("start-impl on inactive session → headless in repo cwd", () => {
     const plan = planWorkflow("start-impl", { ...baseCtx, sessionActive: false });
     expect(plan.mode).toBe("headless");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+  });
+
+  it("handoff-document on active session → inject, 引継ぎ資料を session-logs へ", () => {
+    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("引継ぎ資料");
+    expect(plan.prompt).toContain("session-logs");
+    expect(plan.prompt).toContain("残作業");
+  });
+
+  it("handoff-document on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
     expect(plan.cwd).toBe(baseCtx.repoPath);
   });
 
@@ -211,13 +232,13 @@ describe("planWorkflow", () => {
     expect(plan.prompt).toContain("認証トークン");
   });
 
-  it("force-enter → inject \\ n (session に関係なく)", () => {
+  it("force-enter → inject CR (session に関係なく)", () => {
     const planActive = planWorkflow("force-enter", { ...baseCtx, sessionActive: true });
     expect(planActive.mode).toBe("inject");
-    expect(planActive.prompt).toBe("\n");
+    expect(planActive.prompt).toBe("\r");
     const planInactive = planWorkflow("force-enter", { ...baseCtx, sessionActive: false });
     expect(planInactive.mode).toBe("inject");
-    expect(planInactive.prompt).toBe("\n");
+    expect(planInactive.prompt).toBe("\r");
   });
 
   it("delegate-task on active session → inject (タスク判定 + 委託 + 監視)", () => {
@@ -238,17 +259,51 @@ describe("planWorkflow", () => {
     expect(plan.prompt).toContain("タスク判定");
     expect(plan.prompt).toContain("監視は行わない");
   });
+
+  it("resume-work on active session → inject (中断した作業の続き)", () => {
+    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("続き");
+    expect(plan.prompt).toContain("対象メッセージ");
+  });
+
+  it("resume-work on inactive session → headless sonnet in repo cwd, session-logs から復元", () => {
+    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+    expect(plan.prompt).toContain("session-logs");
+    expect(plan.prompt).toContain("git status");
+  });
+
+  it("merge-pr on active session → inject (open PR を squash merge)", () => {
+    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: true });
+    expect(plan.mode).toBe("inject");
+    expect(plan.prompt).toContain("マージ");
+    expect(plan.prompt).toContain("--squash");
+    expect(plan.prompt).toContain("gh pr checks");
+  });
+
+  it("merge-pr on inactive session → headless sonnet in repo cwd", () => {
+    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: false });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe(baseCtx.repoPath);
+    expect(plan.prompt).toContain("gh pr merge");
+  });
 });
 
 describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
   function makeRunner(over: Record<string, unknown> = {}) {
     const calls: { prompt: string; opts?: { cwd?: string; model?: string } }[] = [];
+    const injects: { sessionId: string; text: string; source: string }[] = [];
     const runHeadless = async (prompt: string, opts?: { cwd?: string; model?: string }) => {
       calls.push({ prompt, opts });
       return { ok: true, exit_code: 0, stdout: "", stderr: "", duration_ms: 1 };
     };
     const runner = new ReactionWorkflowRunner({
       runHeadless,
+      emitInject: (sessionId: string, text: string, source: string) => injects.push({ sessionId, text, source }),
       workspaceRoot: "E:/Document/Ars",
       memoriaPath: "E:/Document/Ars/Memoria",
       enabled: true,
@@ -256,7 +311,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       now: () => 1_000_000,
       ...over,
     });
-    return { runner, calls };
+    return { runner, calls, injects };
   }
 
   const baseInput: ReactionWorkflowInput = {

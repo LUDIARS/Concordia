@@ -10,6 +10,8 @@ import { SocketModeClient } from "@slack/socket-mode";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
+import type { SlackConfigRepo } from "../db/slack-config-repo.js";
+import { upsertCostCanvas, type CostCanvasClient } from "./cost-canvas.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -17,11 +19,12 @@ import { formatAuthorName } from "../discord/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
+import { ENTER_KEY_TEXT } from "../control/enter-key.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
+import { wrapTablesInCode } from "../shared/message-blocks.js";
 import {
-  reformatMarkdownTables,
   buildQuestionBlocks,
   buildSessionBotUsername,
   extractRelayableFrame,
@@ -32,6 +35,7 @@ import {
   extractMonologue,
   slackReactionToUnicode,
   deriveTitleFromPost,
+  parseOtherAnswerActionId,
   type SessionCardState,
 } from "./render.js";
 import { runSlackSlash, spawnSession, subFromCoCommand, listDelegationTemplates, invokeDelegation } from "./slash.js";
@@ -44,10 +48,14 @@ import {
   PROMPT_BLOCK,
   type WorkdirOption,
 } from "./delegation-modal.js";
-import { ReactionWorkflowRunner, classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction } from "../platform/reaction-workflow.js";
+import { type WorkflowAction } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
+const QUESTION_OTHER_MODAL_CALLBACK_ID = "concordia_question_other";
+const QUESTION_OTHER_BLOCK = "question_other_block";
+const QUESTION_OTHER_ACTION = "question_other_text";
 const log = {
   info: (m: string) => slackLog.info(m),
   warn: (m: string) => {
@@ -65,6 +73,8 @@ export interface SlackBotDeps {
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
   personasRepo: PersonasRepo;
+  /** cost Canvas の canvas_id 永続化に使う key/value repo (slack_config)。 */
+  slackConfigRepo: SlackConfigRepo;
   concordiaUrl: string;
   /** test 用に env を直接差し替えるための injection（最優先）。 */
   env?: SlackEnv;
@@ -122,8 +132,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
   // (設定 GUI トグルを bot 再起動なしで反映)。
-  const reactionWorkflow = new ReactionWorkflowRunner({
+  const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: runClaude,
+    emitInject: (sessionId, text, source) =>
+      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
@@ -234,7 +246,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       return null;
     }
     try {
-      const sanitized = sanitizeSlackMentions(truncateForSlack(reformatMarkdownTables(text), 12000));
+      // テーブルを ``` で囲んで桁ズレを防ぐ (Slack も等幅コードブロックで整列)。
+      const sanitized = sanitizeSlackMentions(truncateForSlack(wrapTablesInCode(text), 12000));
       const r = await web.chat.postMessage({
         channel: channelId,
         thread_ts: threadTs,
@@ -364,6 +377,28 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
   }
 
+  function buildQuestionOtherModal(sessionId: string, questionId: number): Record<string, unknown> {
+    return {
+      type: "modal",
+      callback_id: QUESTION_OTHER_MODAL_CALLBACK_ID,
+      private_metadata: JSON.stringify({ session_id: sessionId, question_id: questionId }),
+      title: { type: "plain_text", text: "自由入力" },
+      submit: { type: "plain_text", text: "送信" },
+      close: { type: "plain_text", text: "キャンセル" },
+      blocks: [{
+        type: "input",
+        block_id: QUESTION_OTHER_BLOCK,
+        label: { type: "plain_text", text: "回答" },
+        element: {
+          type: "plain_text_input",
+          action_id: QUESTION_OTHER_ACTION,
+          multiline: true,
+          max_length: 2000,
+        },
+      }],
+    };
+  }
+
   // 「作業中」インジケータ: session thread の最下部に「🔄 作業中…」を出し、進捗で
   // 消して落ち着いたら出し直す。Discord と同じ platform 非依存コントローラを流用し、
   // post/remove だけ Slack thread 用に差す。spec/feature/working-indicator.md
@@ -479,7 +514,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
       // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
       const wfEmoji = slackEmojiTextToUnicode(text);
-      if (classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
+      if (getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
         let target: { id: number; text: string; author_label: string; session_id: string | null } | null = null;
@@ -517,7 +552,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
               },
               (action) => {
                 void web.chat
-                  .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: reactionAckText(action, wfEmoji) })
+                  .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: getRwf().reactionAckText(action, wfEmoji) })
                   .catch((e) => log.warn(`emoji workflow ack: ${(e as Error).message}`));
               },
             )
@@ -525,7 +560,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           return;
         }
         // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
-      } else if (isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
+      } else if (getRwf().isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
         // 単発絵文字 (unicode or :name:) だが該当アクション無し → 却下、 プロンプトも通さない
         // (Discord ingress と同じ挙動)。
         log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
@@ -611,10 +646,53 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       }
       return;
     }
+    if (body?.type === "view_submission" && body.view?.callback_id === QUESTION_OTHER_MODAL_CALLBACK_ID) {
+      let meta: { session_id?: string; question_id?: number } = {};
+      try { meta = JSON.parse(body.view.private_metadata ?? "{}"); } catch {}
+      const text = readSlackInputValue(body.view.state?.values, QUESTION_OTHER_BLOCK, QUESTION_OTHER_ACTION);
+      const questionId = Number(meta.question_id);
+      if (!meta.session_id || !Number.isInteger(questionId)) {
+        try { await ack({ response_action: "errors", errors: { [QUESTION_OTHER_BLOCK]: "質問情報が見つかりません。" } }); } catch {}
+        return;
+      }
+      if (!text) {
+        try { await ack({ response_action: "errors", errors: { [QUESTION_OTHER_BLOCK]: "回答を入力してください。" } }); } catch {}
+        return;
+      }
+      try { await ack(); } catch {}
+      try {
+        const res = await fetch(
+          `${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(meta.session_id)}/answer-question`,
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ question_id: questionId, other_text: text }),
+          },
+        );
+        if (!res.ok) {
+          log.warn(`answer-question(other) failed status=${res.status} qid=${questionId}`);
+          return;
+        }
+        await clearQuestionButtons(questionId, "自由入力");
+      } catch (e) {
+        log.warn(`question other submit: ${(e as Error).message}`);
+      }
+      return;
+    }
     try { await ack(); } catch {}
     try {
       const action = body?.actions?.[0];
       if (!action?.action_id) return;
+      const other = parseOtherAnswerActionId(action.action_id);
+      if (other) {
+        const sessionRow = threads.findByThreadTs(channelId, body.message?.thread_ts ?? body.message?.ts ?? "");
+        if (!sessionRow?.session_id || !body.trigger_id) return;
+        await web.views.open({
+          trigger_id: body.trigger_id,
+          view: buildQuestionOtherModal(sessionRow.session_id, other.questionId) as never,
+        });
+        return;
+      }
       const parsed = parseAnswerActionId(action.action_id);
       if (!parsed) return;
       const sessionRow = threads.findByThreadTs(channelId, body.message?.thread_ts ?? body.message?.ts ?? "");
@@ -764,7 +842,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         },
         (action) => {
           void web.chat
-            .postMessage({ channel: ch, thread_ts: ts, text: reactionAckText(action, emoji) })
+            .postMessage({ channel: ch, thread_ts: ts, text: getRwf().reactionAckText(action, emoji) })
             .catch((e) => log.warn(`reaction ack: ${(e as Error).message}`));
         },
       );
@@ -778,12 +856,35 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   await socket.start();
   log.info(`Slack platform connected (channel=${channelId}, bot=${botUserId ?? "?"})`);
 
+  // ─── cost Canvas: Discord の cost チャンネルと同じ集計を「コスト」Canvas に毎回反映 ──
+  // canvas_id は slack_config に保存し (= 親 (= Canvas) の id を持っておく)、 以後は edit で
+  // 同じ Canvas を上書きする。Discord の cost-channel と同じ refresh 間隔 (既定 10 分)。
+  const costCanvasClient: CostCanvasClient = {
+    canvases: { edit: (args) => web.canvases.edit(args as never) },
+    conversations: { canvases: { create: (args) => web.conversations.canvases.create(args as never) } },
+  };
+  const refreshCostCanvas = () =>
+    upsertCostCanvas({
+      client: costCanvasClient,
+      channelId,
+      sessionsRepo: deps.sessionsRepo,
+      configGet: (k) => deps.slackConfigRepo.get(k),
+      configSet: (k, v) => deps.slackConfigRepo.set(k, v),
+      configDelete: (k) => deps.slackConfigRepo.delete(k),
+      log: { info: (m) => log.info(`cost-canvas: ${m}`), warn: (m) => log.warn(`cost-canvas: ${m}`) },
+    }).catch((e) => log.warn(`cost canvas refresh failed: ${(e as Error).message}`));
+  void refreshCostCanvas();
+  const costMins = Math.max(10, Number(process.env.CONCORDIA_SLACK_COST_REFRESH_MIN ?? "10") || 10);
+  const costCanvasTimer: ReturnType<typeof setInterval> = setInterval(() => { void refreshCostCanvas(); }, costMins * 60 * 1000);
+  costCanvasTimer.unref?.();
+
   let stopped = false;
   return {
     name: "slack",
     async stop() {
       if (stopped) return;
       stopped = true;
+      clearInterval(costCanvasTimer);
       unsubscribe();
       try { await socket.disconnect(); } catch {}
     },
@@ -810,7 +911,7 @@ async function injectToSession(deps: SlackBotDeps, sessionId: string, text: stri
         await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: "\n", source: "slack-enter-fallback" }),
+          body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "slack-enter-fallback" }),
         });
       } catch { /* non-fatal */ }
     }
@@ -860,6 +961,13 @@ function readMeta(s: string | null | undefined): { persona_id?: string; role_lab
 }
 
 // ─── Slack イベントの最小型（@slack/* の型に依存しすぎないための薄い shape）──
+function readSlackInputValue(values: unknown, blockId: string, actionId: string): string {
+  const block = values && typeof values === "object" ? (values as Record<string, unknown>)[blockId] : null;
+  const action = block && typeof block === "object" ? (block as Record<string, unknown>)[actionId] : null;
+  const value = action && typeof action === "object" ? (action as { value?: unknown }).value : null;
+  return typeof value === "string" ? value.trim() : "";
+}
+
 interface SlackMessageEvent {
   type?: string;
   subtype?: string;
@@ -876,6 +984,7 @@ interface SlackInteractionBody {
   channel?: { id?: string };
   message?: { ts?: string; thread_ts?: string };
   user?: { id?: string };
+  trigger_id?: string;
   view?: { id?: string; callback_id?: string; private_metadata?: string; state?: { values?: Record<string, unknown> } };
 }
 interface SlackReactionEvent {

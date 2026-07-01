@@ -34,7 +34,7 @@ describe("RulesRepo + seedDefaultRules", () => {
     seedDefaultRules(r); // 二度目の seed で drift 検知 → UPDATE
     const after = r.find("default-tick");
     expect(after?.instructions).not.toBe("OLD instructions");
-    expect(after?.instructions).toMatch(/チャットの発言フック用/);
+    expect(after?.instructions).toMatch(/司会/);
     expect(after?.cooldown_sec).toBe(300);
     expect(after?.description).toMatch(/default 5-min tick/);
   });
@@ -115,14 +115,13 @@ describe("RulesRepo + seedDefaultRules", () => {
     expect(actions).toEqual(["fire", "skip"]);
   });
 
-  it("default-tick instructions include the five rule guards", () => {
+  it("default-tick instructions are short (Haiku 追加指示用) and target chitchat", () => {
     seedDefaultRules(r);
-    const inst = r.find("default-tick")?.instructions ?? "";
-    // 禁則 (無音 / 進捗 ping / 汎用雑談 / 衝突回避先行 / stat 取りこぼし) が織り込まれている
-    expect(inst).toMatch(/無音/);
-    expect(inst).toMatch(/進捗 ping|進捗\?|進捗どう/);
-    expect(inst).toMatch(/汎用雑談|persona の役割/);
-    expect(inst).toMatch(/conflicts\?repo=|衝突回避が会話より先/);
-    expect(inst).toMatch(/取りこぼし|stat (poll|取りこぼし)/);
+    const rule = r.find("default-tick");
+    const inst = rule?.instructions ?? "";
+    // 旧来の長文ガードは review.ts (決定的レビュー) に移管. ここは描画への短い追加指示のみ.
+    expect(inst).toMatch(/司会/);
+    expect(inst.length).toBeLessThan(200);
+    expect(rule?.target).toBe("chitchat");
   });
 });

@@ -243,49 +243,12 @@ export function buildSessionBotUsername(state: SessionCardState): string {
   return emoji ? `${emoji} ${name}` : name;
 }
 
-// ─── マークダウンテーブル → Slack mrkdwn テキスト変換 ─────────────────────────
-// AI 返信に含まれる `| col | col |` テーブルを Slack mrkdwn 形式で書き換える。
-// Block Kit (blocks パラメータ) は使わず通常の text フィールドに収める。
-// ヘッダ行を *太字* に変換し、セパレータ行（`|---|`）を除去して読みやすくする。
-
-function extractTableCells(line: string): string[] {
-  return line.trim().split("|").slice(1, -1).map((c) => c.trim());
-}
-
-/**
- * テキスト内のマークダウンテーブルを Slack mrkdwn 形式に書き換える。
- * - ヘッダ行 → `*col1* | *col2*`（太字）
- * - セパレータ行（`|---|`）→ 除去
- * - データ行 → `val1 | val2`
- * - カラム数の増加に対応（列数を問わず同じ処理）
- * テーブル外のテキストはそのまま通す。
- */
-export function reformatMarkdownTables(text: string): string {
-  const lines = (text ?? "").split("\n");
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const cur = lines[i].trim();
-    const nxt = lines[i + 1]?.trim() ?? "";
-    if (cur.startsWith("|") && cur.endsWith("|") && /^\|[\s\-|:]+\|$/.test(nxt)) {
-      // ヘッダ行 → 各セルを太字に
-      out.push(extractTableCells(cur).map((c) => `*${c}*`).join(" | "));
-      i++; // header
-      i++; // separator → skip
-      // データ行
-      while (i < lines.length && lines[i].trim().startsWith("|")) {
-        out.push(extractTableCells(lines[i]).join(" | "));
-        i++;
-      }
-    } else {
-      out.push(lines[i]);
-      i++;
-    }
-  }
-  return out.join("\n");
-}
+// マークダウンテーブルの整形は shared/message-blocks.ts の wrapTablesInCode
+// (``` コードフェンスで囲んで等幅整列) に一本化した。 旧 reformatMarkdownTables
+// (太字パイプ変換) は桁ズレが残るため撤去。
 
 const ANSWER_ACTION_PREFIX = "cc_answer";
+const OTHER_ACTION_PREFIX = "cc_answer_other";
 
 /** AskUserQuestion の選択肢ボタン block を組む。action_id に question_id と index を埋める。 */
 export function buildQuestionBlocks(
@@ -294,12 +257,18 @@ export function buildQuestionBlocks(
   options: Array<string | { label: string; description?: string }>,
 ): { text: string; blocks: unknown[] } {
   const norm = options.map((o) => (typeof o === "string" ? { label: o } : o));
-  const elements = norm.slice(0, 25).map((o, i) => ({
+  const elements = norm.slice(0, 24).map((o, i) => ({
     type: "button",
     text: { type: "plain_text", text: truncateForSlack(o.label, 75), emoji: true },
     value: String(i),
     action_id: `${ANSWER_ACTION_PREFIX}:${questionId}:${i}`,
   }));
+  elements.push({
+    type: "button",
+    text: { type: "plain_text", text: "自由入力", emoji: true },
+    value: "other",
+    action_id: `${OTHER_ACTION_PREFIX}:${questionId}`,
+  });
   const optionLines = norm
     .map((o, i) => `*${i + 1}.* ${o.label}${o.description ? ` — ${o.description}` : ""}`)
     .join("\n");
@@ -337,4 +306,12 @@ export function parseAnswerActionId(actionId: string): { questionId: number; ans
   const answerIndex = Number(parts[2]);
   if (!Number.isInteger(questionId) || !Number.isInteger(answerIndex) || answerIndex < 0) return null;
   return { questionId, answerIndex };
+}
+
+export function parseOtherAnswerActionId(actionId: string): { questionId: number } | null {
+  const parts = (actionId ?? "").split(":");
+  if (parts.length !== 2 || parts[0] !== OTHER_ACTION_PREFIX) return null;
+  const questionId = Number(parts[1]);
+  if (!Number.isInteger(questionId) || questionId < 1) return null;
+  return { questionId };
 }

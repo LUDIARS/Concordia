@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>API リファレンス — Concordia</title>
+<link rel="icon" href="./assets/concordia.svg" />
+<link rel="stylesheet" href="./assets/style.css" />
+</head>
+<body>
+<nav class="nav">
+  <a class="brand" href="./index.html"><img src="./assets/concordia.svg" alt="" />Concordia</a>
+  <div class="links">
+    <a href="./index.html">概要</a>
+    <a href="./architecture.html">アーキテクチャ / グラフ</a>
+    <a href="./api.html" class="active">API リファレンス</a>
+    <a href="./review.html">仕様 ↔ コード レビュー</a>
+  </div>
+</nav>
+
+<main class="wrap">
+  <h1>API リファレンス</h1>
+  <p class="lead">
+    base: <code id="base"></code> · loopback bind。各エンドポイントは <b>トグルで展開</b> すると用途・パラメータ・レスポンス・実装位置を確認できる。
+    内容は <code>src/</code> の実ルート定義から抽出（<span id="total-rest"></span> 項目の REST エントリ、3 本の MCP サーバ / 15 tools、24 種の WS·SSE イベント）。一部の admin 行は GET·PUT を 1 項目にまとめている。
+  </p>
+
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="メソッド / パス / 用途で絞り込み (例: sessions, POST, persona)" />
+    <button id="expand-all">すべて展開</button>
+    <button id="collapse-all">すべて閉じる</button>
+  </div>
+
+  <nav class="pill-row" id="jump"></nav>
+
+  <div id="rest"></div>
+
+  <h2>MCP サーバ / tools</h2>
+  <p>3 本の stdio MCP サーバを同梱。別 AI session（Claude Code / Codex / Gemini）から Concordia 状態を直接読み書き / 操作できる。</p>
+  <div id="mcp"></div>
+
+  <h2>WebSocket / SSE イベント</h2>
+  <p>
+    <code>/ws</code>（WebSocket）と <code>/v1/stream</code>（SSE firehose）で <code>ConcordiaEvent</code> を配信。
+    <code>target_session_id</code> 付きイベント（<code>session.inject</code> 等）は該当 <code>?session=</code> クライアントのみに配信される。
+    <code>/v1/processes/:name/stream</code> は当該プロセスの <code>process.log</code> / <code>process.exited</code> のみ（backfill 100 行）。
+  </p>
+  <table>
+    <thead><tr><th>type</th><th>payload フィールド（+ ts）</th></tr></thead>
+    <tbody id="events"></tbody>
+  </table>
+</main>
+
+<footer class="site">
+  Concordia · LUDIARS · MIT License · <a href="https://github.com/LUDIARS/Concordia">GitHub</a>
+</footer>
+
+<script src="./assets/api-data.js"></script>
+<script>
+(function () {
+  var D = window.API_DATA;
+  document.getElementById("base").textContent = D.base;
+
+  function mClass(m) {
+    var f = m.split("·")[0].split("/")[0].trim().toLowerCase();
+    return "m-" + (["get","post","patch","delete","put"].indexOf(f) >= 0 ? f : "get");
+  }
+  function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+
+  var total = 0;
+  var restEl = document.getElementById("rest");
+  var jumpEl = document.getElementById("jump");
+
+  D.rest.forEach(function (g) {
+    total += g.items.length;
+    var sec = document.createElement("section");
+    sec.className = "api-group";
+    sec.id = "g-" + g.group;
+    var h = document.createElement("h2");
+    h.innerHTML = esc(g.title) + ' <span class="count">' + g.items.length + " endpoints</span>";
+    sec.appendChild(h);
+    if (g.note) {
+      var n = document.createElement("p");
+      n.className = "hint";
+      n.textContent = g.note;
+      sec.appendChild(n);
+    }
+    g.items.forEach(function (it) {
+      var d = document.createElement("details");
+      d.className = "api";
+      d.dataset.text = (it.m + " " + it.p + " " + it.d).toLowerCase();
+      d.innerHTML =
+        '<summary><span class="method ' + mClass(it.m) + '">' + esc(it.m) + "</span>" +
+        '<span class="path">' + esc(it.p) + "</span>" +
+        '<span class="desc">' + esc(it.d) + "</span></summary>" +
+        '<div class="api-body">' +
+        "<h4>用途</h4><div>" + esc(it.d) + "</div>" +
+        "<h4>パラメータ</h4><div><code>" + esc(it.params) + "</code></div>" +
+        "<h4>レスポンス</h4><div><code>" + esc(it.resp) + "</code></div>" +
+        '<h4>実装</h4><div class="src">src/' + (g.group === "admin" || g.group === "health" ? "" : "api/") + esc(it.src) + "</div>" +
+        "</div>";
+      sec.appendChild(d);
+    });
+    restEl.appendChild(sec);
+
+    var a = document.createElement("a");
+    a.className = "pill";
+    a.href = "#g-" + g.group;
+    a.textContent = g.title.split(" —")[0].split(" /")[0] + " (" + g.items.length + ")";
+    jumpEl.appendChild(a);
+  });
+  document.getElementById("total-rest").textContent = total;
+
+  // MCP
+  var mcpEl = document.getElementById("mcp");
+  D.mcp.forEach(function (s) {
+    var sec = document.createElement("div");
+    sec.className = "api-group";
+    sec.innerHTML = "<h3><code>" + esc(s.server) + "</code> <span class='count'>" + s.tools.length + " tools · " + esc(s.dist) + "</span></h3>" +
+      "<p class='hint'>" + esc(s.note) + "</p>";
+    s.tools.forEach(function (t) {
+      var d = document.createElement("details");
+      d.className = "api";
+      d.innerHTML = '<summary><span class="method m-post">TOOL</span><span class="path">' + esc(t.name) + '</span>' +
+        '<span class="desc">' + esc(t.d) + "</span></summary>" +
+        '<div class="api-body"><h4>用途</h4><div>' + esc(t.d) + "</div>" +
+        "<h4>入力パラメータ</h4><div><code>" + esc(t.params) + "</code></div></div>";
+      sec.appendChild(d);
+    });
+    mcpEl.appendChild(sec);
+  });
+
+  // events
+  var evEl = document.getElementById("events");
+  D.events.forEach(function (e) {
+    var tr = document.createElement("tr");
+    tr.innerHTML = "<td><code>" + esc(e.t) + "</code></td><td>" + esc(e.f) + "</td>";
+    evEl.appendChild(tr);
+  });
+
+  // search + expand controls
+  var search = document.getElementById("search");
+  search.addEventListener("input", function () {
+    var q = search.value.trim().toLowerCase();
+    document.querySelectorAll("#rest details.api").forEach(function (d) {
+      var hit = !q || d.dataset.text.indexOf(q) >= 0;
+      d.style.display = hit ? "" : "none";
+      if (q && hit) d.open = true;
+      if (!q) d.open = false;
+    });
+    document.querySelectorAll("#rest .api-group").forEach(function (g) {
+      var any = g.querySelectorAll("details.api:not([style*='none'])").length;
+      g.style.display = any ? "" : "none";
+    });
+  });
+  document.getElementById("expand-all").addEventListener("click", function () {
+    document.querySelectorAll("details.api").forEach(function (d) { d.open = true; });
+  });
+  document.getElementById("collapse-all").addEventListener("click", function () {
+    document.querySelectorAll("details.api").forEach(function (d) { d.open = false; });
+  });
+})();
+</script>
+</body>
+</html>

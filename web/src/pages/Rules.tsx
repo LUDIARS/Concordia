@@ -257,7 +257,7 @@ export function Rules() {
         </header>
 
         <div className="bg-surface border border-border rounded p-3 text-xs text-subtle">
-          runtime kill switch (チャット mute / ルール有効化 / proposer 間隔 / Discord bot) と
+          runtime kill switch (チャット mute / ルール有効化 / Discord bot) と
           ワークスペース・リアクションWF・Lictor 設定は
           <a href="#/settings" className="text-accent"> 設定</a> ページに移動しました。
         </div>

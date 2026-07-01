@@ -1,7 +1,7 @@
 /**
  * /v1/model-catalog API — delegation テンプレ / spawn が選べるモデル候補の CRUD。
  *
- * Concordia は loopback (既定 127.0.0.1:17330) 限定で動くので bearer token は要求しない
+ * Concordia は loopback (既定 127.0.0.1:11111) 限定で動くので bearer token は要求しない
  * (delegation CRUD と同じ信頼境界)。 spec/delegation.md §6。
  */
 

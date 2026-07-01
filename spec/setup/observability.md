@@ -1,3 +1,27 @@
+---
+type: setup
+title: "observability (旧 Excubitor) を有効にするための設定 (observability)"
+description: "LUDIARS 各サービスの起動状態・git・package version の周期スキャン、ログ tail + エラー検知、error task の auto-fix / investigate を行う Concordia の observability レイヤー。旧 Excubitor を `src/observability/` に集約したもので、backend 起動時に `bootObservability()` で自動的に立ち上がる。監視対象は `catalog/services.yaml` で宣言し、file watch による自動 re-sync に対応。"
+service: concordia
+domain: observability
+tags:
+  - typescript
+  - monitoring
+  - auto-fix
+  - claude
+  - rest-api
+  - spawn
+  - polling
+  - lifecycle
+status: implemented
+related:
+  - ../setup/windows.md
+  - ../setup/config-reference.md
+  - ../setup/core.md
+updated: 2026-06-30
+---
+
+
 # observability (旧 Excubitor) を有効にするための設定 (observability)
 
 ## 目的

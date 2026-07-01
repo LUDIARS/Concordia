@@ -13,6 +13,10 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { SessionRow } from "../shared/types.js";
 
+function isObj(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
+}
+
 export type Totals = {
   input: number;
   cached: number;
@@ -107,7 +111,11 @@ export function findCodexLog(s: SessionRow): string | null {
 }
 
 export function findClaudeLog(s: SessionRow): string | null {
-  const encoded = s.repo_path.replace(/[\\/:.]+/g, "-").replace(/^-+|-+$/g, "");
+  // Claude Code は cwd を ~/.claude/projects/<encoded> に保存する。 エンコードは特殊文字
+  // (`/` `\` `:` `.`) を **1 文字ずつ** `-` に置換する (隣接は潰さない)。 例 `E:/Document/Ars`
+  // → `E--Document-Ars` (`:/` が `--`)。 以前は `[\\/:.]+` と `+` で隣接を 1 つに潰しており、
+  // ドライブレター付き Windows パス (常に `X:\`/`X:/` を含む) で全て発見失敗していた。
+  const encoded = s.repo_path.replace(/[\\/:.]/g, "-").replace(/^-+|-+$/g, "");
   const dir = join(CLAUDE_PROJECTS_ROOT, encoded);
   if (!existsSync(dir)) return null;
   const exact = join(dir, `${s.id}.jsonl`);
@@ -126,15 +134,19 @@ export function findClaudeLog(s: SessionRow): string | null {
 export function readCodexUsage(path: string): Totals | null {
   let max: Totals | null = null;
   for (const line of readLines(path)) {
-    let o: any;
+    let o: unknown;
     try {
       o = JSON.parse(line);
     } catch {
       continue;
     }
-    if (o?.type !== "event_msg" || o?.payload?.type !== "token_count") continue;
-    const t = o?.payload?.info?.total_token_usage;
-    if (!t) continue;
+    if (!isObj(o) || o.type !== "event_msg") continue;
+    const payload = o.payload;
+    if (!isObj(payload) || payload.type !== "token_count") continue;
+    const info = payload.info;
+    if (!isObj(info)) continue;
+    const t = info.total_token_usage;
+    if (!isObj(t)) continue;
     const cur: Totals = {
       input: nn(t.input_tokens),
       cached: nn(t.cached_input_tokens),
@@ -152,17 +164,20 @@ export function readClaudeUsage(path: string): Totals | null {
   const seen = new Set<string>();
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
   for (const line of readLines(path)) {
-    let o: any;
+    let o: unknown;
     try {
       o = JSON.parse(line);
     } catch {
       continue;
     }
-    const u = o?.message?.usage;
-    if (!u) continue;
+    if (!isObj(o)) continue;
+    const msg = o.message;
+    if (!isObj(msg)) continue;
+    const u = msg.usage;
+    if (!isObj(u)) continue;
     const dedupId =
-      (typeof o?.message?.id === "string" && o.message.id) ||
-      (typeof o?.uuid === "string" && o.uuid) ||
+      (typeof msg.id === "string" && msg.id) ||
+      (typeof o.uuid === "string" && o.uuid) ||
       null;
     if (dedupId) {
       if (seen.has(dedupId)) continue;
@@ -178,16 +193,17 @@ export function readClaudeUsage(path: string): Totals | null {
 
 export function readCodexHead(path: string): { id: string | null; cwd: string | null; started: number | null } | null {
   for (const line of readLines(path, 20)) {
-    let o: any;
+    let o: unknown;
     try {
       o = JSON.parse(line);
     } catch {
       continue;
     }
-    if (o?.type !== "session_meta") continue;
-    const id = typeof o?.payload?.id === "string" ? o.payload.id : null;
-    const cwd = typeof o?.payload?.cwd === "string" ? o.payload.cwd : null;
-    const tsRaw = typeof o?.payload?.timestamp === "string" ? o.payload.timestamp : null;
+    if (!isObj(o) || o.type !== "session_meta") continue;
+    const payload = isObj(o.payload) ? o.payload : null;
+    const id = typeof payload?.id === "string" ? payload.id : null;
+    const cwd = typeof payload?.cwd === "string" ? payload.cwd : null;
+    const tsRaw = typeof payload?.timestamp === "string" ? payload.timestamp : null;
     return { id, cwd, started: tsRaw ? Math.floor(new Date(tsRaw).getTime() / 1000) : null };
   }
   return null;
@@ -195,13 +211,14 @@ export function readCodexHead(path: string): { id: string | null; cwd: string | 
 
 export function readFirstTs(path: string): number | null {
   for (const line of readLines(path, 20)) {
-    let o: any;
+    let o: unknown;
     try {
       o = JSON.parse(line);
     } catch {
       continue;
     }
-    const t = o?.timestamp;
+    if (!isObj(o)) continue;
+    const t = o.timestamp;
     if (typeof t === "string") return Math.floor(new Date(t).getTime() / 1000);
   }
   return null;

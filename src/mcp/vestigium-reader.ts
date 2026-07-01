@@ -11,14 +11,14 @@ export interface VestigiumRecord {
   ts: number;
   level: 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
   service: string;
-  channel: 'stdout' | 'stderr' | 'app';
+  channel: 'stdout' | 'stderr' | 'app' | 'llm';
   msg: string;
   pid?: number;
   ctx?: Record<string, unknown>;
 }
 
 const LEVELS = ['trace', 'debug', 'info', 'warn', 'error', 'fatal'] as const;
-const CHANNELS = ['stdout', 'stderr', 'app'] as const;
+const CHANNELS = ['stdout', 'stderr', 'app', 'llm'] as const;
 
 export function parseRecord(line: string): VestigiumRecord | null {
   const trimmed = line.trim();

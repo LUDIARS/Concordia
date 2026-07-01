@@ -67,6 +67,13 @@ export class SessionsRepo {
       .all(repoPath, excludeId) as SessionRow[];
   }
 
+  /** すべての active session 一覧 (停止 nudge 等の周期スキャン用) */
+  findAllActive(): SessionRow[] {
+    return this.db
+      .prepare(`SELECT * FROM sessions WHERE status = 'active' ORDER BY started_at DESC`)
+      .all() as SessionRow[];
+  }
+
   /** 同 (repo_path, host) の lost session 一覧 (resume 候補) */
   findLostCandidates(repoPath: string, host: string): SessionRow[] {
     return this.db
@@ -82,6 +89,7 @@ export class SessionsRepo {
     host?: string;
     status?: SessionStatus;
     provider?: ProviderName;
+    subsidiary_id?: string;
   }): SessionRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
@@ -89,6 +97,10 @@ export class SessionsRepo {
     if (filter.host)        { where.push("host = ?");        args.push(filter.host); }
     if (filter.status)      { where.push("status = ?");      args.push(filter.status); }
     if (filter.provider)    { where.push("provider = ?");    args.push(filter.provider); }
+    if (filter.subsidiary_id) {
+      where.push("json_extract(metadata, '$.subsidiary_id') = ?");
+      args.push(filter.subsidiary_id);
+    }
     const sql =
       `SELECT * FROM sessions ${where.length ? "WHERE " + where.join(" AND ") : ""} ` +
       `ORDER BY started_at DESC LIMIT 200`;
@@ -201,6 +213,17 @@ export class SessionsRepo {
         `SELECT * FROM sessions WHERE started_at >= ? AND started_at < ? ORDER BY started_at ASC`,
       )
       .all(startTs, endTs) as SessionRow[];
+  }
+
+  /**
+   * last_seen_at が sinceTs (epoch 秒) 以降のセッションを返す。 コスト時間帯集計
+   * (JSONL を時刻で漁る) の候補抽出に使う — started_at ではなく「直近に動いたか」で
+   * 絞るので、 日跨ぎの長時間セッションも対象に入る。
+   */
+  listSessionsSeenSince(sinceTs: number): SessionRow[] {
+    return this.db
+      .prepare(`SELECT * FROM sessions WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT 1000`)
+      .all(sinceTs) as SessionRow[];
   }
 
   setStatus(id: string, status: SessionStatus, ts: number, endedAt?: number): void {

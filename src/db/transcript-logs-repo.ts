@@ -70,27 +70,45 @@ export class TranscriptLogsRepo {
    *
    * 並び順は `ts ASC, seq ASC` (chronological). web monitor が読みやすい順.
    * since_id を指定すると id > since_id の行だけを返す (incremental tail 用).
+   *
+   * tail=true (かつ since_id 未指定) のときは「最新 limit 件」を時系列順で返す.
+   *   数千 frame あるセッションを開いたとき、 先頭 (起動直後の raw frame) ではなく
+   *   直近の作業が見えるようにするための既定モード. 内側で DESC LIMIT して新しい順に
+   *   切り出し、 外側で ASC に並べ直す (表示は chronological のまま).
+   * since_id 指定時は incremental tail なので tail は無視する (古い→新しいで積み増す).
    */
   listBySession(
     session_id: string,
-    opts: { since_id?: number; limit?: number } = {},
+    opts: { since_id?: number; limit?: number; tail?: boolean } = {},
   ): TranscriptLogEntry[] {
     const limit = clampLimit(opts.limit);
-    const params: unknown[] = [session_id];
-    let sql = `SELECT id, seq, ts, kind, payload FROM transcript_logs WHERE session_id = ?`;
-    if (typeof opts.since_id === "number" && Number.isFinite(opts.since_id)) {
-      sql += ` AND id > ?`;
-      params.push(opts.since_id);
+    const hasSince =
+      typeof opts.since_id === "number" && Number.isFinite(opts.since_id);
+
+    let rows: Array<{ id: number; seq: number; ts: number; kind: string; payload: string }>;
+    if (opts.tail && !hasSince) {
+      rows = this.db
+        .prepare(
+          `SELECT id, seq, ts, kind, payload FROM (
+             SELECT id, seq, ts, kind, payload FROM transcript_logs
+              WHERE session_id = ?
+              ORDER BY ts DESC, seq DESC
+              LIMIT ?
+           ) ORDER BY ts ASC, seq ASC`,
+        )
+        .all(session_id, limit) as typeof rows;
+    } else {
+      const params: unknown[] = [session_id];
+      let sql = `SELECT id, seq, ts, kind, payload FROM transcript_logs WHERE session_id = ?`;
+      if (hasSince) {
+        sql += ` AND id > ?`;
+        params.push(opts.since_id);
+      }
+      sql += ` ORDER BY ts ASC, seq ASC LIMIT ?`;
+      params.push(limit);
+      rows = this.db.prepare(sql).all(...params) as typeof rows;
     }
-    sql += ` ORDER BY ts ASC, seq ASC LIMIT ?`;
-    params.push(limit);
-    const rows = this.db.prepare(sql).all(...params) as Array<{
-      id: number;
-      seq: number;
-      ts: number;
-      kind: string;
-      payload: string;
-    }>;
+
     return rows.map((r) => ({
       id: r.id,
       seq: r.seq,
@@ -98,6 +116,32 @@ export class TranscriptLogsRepo {
       kind: r.kind,
       payload: safeParse(r.payload),
     }));
+  }
+
+  /**
+   * Min/Max ts for a session (null if no frames).
+   * session 行が purge 済みでも transcript が残っている孤児セッションに対し、
+   * 閲覧用の synthetic session (開始/終了時刻) を組み立てるのに使う.
+   */
+  tsSpan(session_id: string): { first_ts: number; last_ts: number } | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(ts) AS f, MAX(ts) AS l FROM transcript_logs WHERE session_id = ?`,
+      )
+      .get(session_id) as { f: number | null; l: number | null };
+    if (row.f == null || row.l == null) return null;
+    return { first_ts: row.f, last_ts: row.l };
+  }
+
+  /**
+   * Highest row id for a session (0 if none).
+   * compaction の elicit が inject 前の watermark を取り、 以後の frame だけ捕捉するのに使う.
+   */
+  maxId(session_id: string): number {
+    const row = this.db
+      .prepare(`SELECT MAX(id) AS m FROM transcript_logs WHERE session_id = ?`)
+      .get(session_id) as { m: number | null };
+    return row.m ?? 0;
   }
 
   countBySession(session_id: string): number {

@@ -23,8 +23,15 @@ describe("concordia-core MCP server", () => {
       "concordia_get_conflicts",
       "concordia_get_pending_tasks",
       "concordia_get_session",
+      "concordia_get_session_log",
       "concordia_get_session_stat",
+      "concordia_context_packet",
+      "concordia_harness_audit",
+      "concordia_harness_context",
+      "concordia_harness_gate",
+      "concordia_harness_intent",
       "concordia_list_all_stats",
+      "concordia_list_session_logs",
       "concordia_list_sessions",
       "concordia_post_chat",
       "concordia_pr_queue",
@@ -39,7 +46,7 @@ describe("callConcordia", () => {
   const originalBase = process.env.CONCORDIA_BASE_URL;
 
   beforeEach(() => {
-    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:17330";
+    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:11111";
   });
   afterEach(() => {
     globalThis.fetch = originalFetch;
@@ -85,7 +92,7 @@ describe("callConcordia", () => {
   });
 
   it("strips trailing slash from CONCORDIA_BASE_URL before composing the URL", async () => {
-    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:17330/";
+    process.env.CONCORDIA_BASE_URL = "http://127.0.0.1:11111/";
     const calls: string[] = [];
     globalThis.fetch = vi.fn(async (url: unknown) => {
       calls.push(String(url));
@@ -95,7 +102,7 @@ describe("callConcordia", () => {
     await callConcordia("GET", "/v1/sessions");
     expect(calls).toHaveLength(1);
     // No double slash before /v1.
-    expect(calls[0]).toBe("http://127.0.0.1:17330/v1/sessions");
+    expect(calls[0]).toBe("http://127.0.0.1:11111/v1/sessions");
   });
 
   it("sends body as JSON on POST", async () => {

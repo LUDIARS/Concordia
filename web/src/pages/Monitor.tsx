@@ -1,8 +1,16 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
-import type { SessionRow, DelegationTemplateLite } from "../api.js";
+import type { SessionRow, DelegationTemplateLite, HostSnapshot, SubsidiarySummary } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
+
+function fmtBytes(b: number | null | undefined): string {
+  if (b == null || !isFinite(b)) return "—";
+  if (b < 1024) return `${b} B`;
+  const mib = b / 1024 ** 2;
+  if (mib < 1024) return `${mib.toFixed(0)} MiB`;
+  return `${(b / 1024 ** 3).toFixed(2)} GiB`;
+}
 
 export function Monitor() {
   const { data, error } = useLiveQuery(
@@ -99,13 +107,129 @@ export function Monitor() {
         </section>
       )}
 
+      <SubsidiariesSection active={data.active} />
       <MachinesSection />
+      <PerformanceSection />
       <SpawnSessionForm />
 
       <SessionList title="active" rows={data.active} statByIdx={statByIdx} />
       <SessionList title="lost" rows={data.lost} statByIdx={statByIdx} />
       <SessionList title="recently ended" rows={data.recent_ended} statByIdx={statByIdx} />
     </div>
+  );
+}
+
+/** トークン数を人が読みやすい桁 (1,234k / 1,234) に整形する。 */
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${Math.round(n / 1000).toLocaleString("en-US")}k`;
+  return n.toLocaleString("en-US");
+}
+
+/**
+ * 子会社の様子 — 出張先 (別 Discord/Slack) で動く子会社 Bot の稼働状況を Monitor に一覧する。
+ * 管理は /subsidiaries に集約されているが、 ここでは「今どの子会社が動いていて、 何件
+ * セッションを起こし、 予算をどれだけ使い、 ガードが何件弾いたか」を一目で出す。
+ *
+ *  - 稼働中セッション数: active セッションを metadata.subsidiary_id で集計 (本社セッションは
+ *    subsidiary_id を持たないので自然に除外される)。 親から渡る active は WS で更新されるため
+ *    セッション数はライブに反映される。
+ *  - 子会社サマリ (running / 予算 / lock / 直近 24h の allow|deny) は WS イベントが無いので
+ *    8 秒 poll で取り直す (PC パフォーマンスと同じ方式)。
+ * カードクリックで管理ページ (/subsidiaries) へ。
+ */
+function SubsidiariesSection({ active }: { active: SessionRow[] }) {
+  const [subs, setSubs] = useState<SubsidiarySummary[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    let stopped = false;
+    const tick = () =>
+      api.subsidiariesList()
+        .then((r) => { if (!stopped) setSubs(r.subsidiaries); })
+        .catch(() => { if (!stopped) setSubs(null); });
+    void tick();
+    const id = setInterval(tick, 8000);
+    return () => { stopped = true; clearInterval(id); };
+  }, []);
+
+  // subsidiary_id ごとの稼働中セッション数 (本社セッションは subsidiary_id 無しで除外)。
+  const activeBySub = new Map<string, number>();
+  for (const s of active) {
+    const sid = (s.metadata as any)?.subsidiary_id;
+    if (typeof sid === "string" && sid) activeBySub.set(sid, (activeBySub.get(sid) ?? 0) + 1);
+  }
+
+  if (subs === undefined) return null; // 初回ロード中
+  if (subs === null || subs.length === 0) return null; // 未取得 / 未登録は出さない
+
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-2">
+        <h2 className="text-base font-semibold">
+          子会社 <span className="text-subtle text-xs ml-2">{subs.length}</span>
+        </h2>
+        <Link to="/subsidiaries" className="text-xs text-accent ml-auto">管理 →</Link>
+      </div>
+      <div
+        className="grid gap-3"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+      >
+        {subs.map((s) => {
+          const activeCount = activeBySub.get(s.id) ?? 0;
+          const budget = s.daily_token_budget ?? 0;
+          const used = s.usage_today_tokens ?? 0;
+          const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
+          const deny = s.requests_24h?.deny ?? 0;
+          const allow = s.requests_24h?.allow ?? 0;
+          const locks = s.lock_count ?? 0;
+          return (
+            <Link
+              key={s.id}
+              to="/subsidiaries"
+              className="block bg-surface border border-border rounded p-3 hover:border-accent transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${s.running ? "bg-ok" : "bg-subtle"}`}
+                  title={s.running ? "Bot 稼働中" : "Bot 停止"}
+                />
+                <span className="text-sm font-medium truncate">{s.display_name || s.name}</span>
+                <span className="text-subtle text-xs">/ {s.platform}</span>
+                {!s.enabled && <span className="text-[10px] text-subtle ml-auto">無効</span>}
+              </div>
+
+              <div className="mt-2 flex items-center gap-2 text-xs">
+                <span className={activeCount > 0 ? "text-accent" : "text-subtle"} title="この子会社が今起こしている active セッション数">
+                  セッション {activeCount}
+                </span>
+                {locks > 0 && <span className="text-warn">🔒 {locks}</span>}
+                <span className="ml-auto flex items-center gap-2">
+                  {deny > 0 && <span className="text-danger" title="直近 24h に deny した件数">deny {deny}</span>}
+                  {allow > 0 && <span className="text-subtle" title="直近 24h に allow した件数">allow {allow}</span>}
+                </span>
+              </div>
+
+              {/* 当日トークン予算 */}
+              <div className="mt-2 text-[11px]">
+                <div className="flex items-center gap-1 text-subtle">
+                  <span className={s.budget_blocked ? "text-danger" : ""}>
+                    {s.budget_blocked ? "💸 " : ""}予算 {fmtTokens(used)}/{budget > 0 ? fmtTokens(budget) : "∞"}
+                  </span>
+                  {budget > 0 && <span className="ml-auto">{pct}%</span>}
+                </div>
+                {budget > 0 && (
+                  <div className="mt-1 h-1 bg-muted rounded overflow-hidden">
+                    <div
+                      className={`h-full ${s.budget_blocked || pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-warn" : "bg-accent"}`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -141,6 +265,136 @@ function MachinesSection() {
             </div>
           </div>
         ))}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * PC パフォーマンス概況 — ホストのメモリ/CPU + 上位プロセス + WSL/docker +
+ * セッション別メモリ (並び替え可)。 host_metrics の最新スナップショットを 10 秒 poll。
+ */
+function PerformanceSection() {
+  const [snap, setSnap] = useState<HostSnapshot | null | undefined>(undefined);
+  const [sortKey, setSortKey] = useState<"rss" | "label">("rss");
+
+  useEffect(() => {
+    let stopped = false;
+    const tick = () =>
+      api.metrics()
+        .then((r) => { if (!stopped) setSnap(r.snapshot); })
+        .catch(() => { if (!stopped) setSnap(null); });
+    void tick();
+    const id = setInterval(tick, 10000);
+    return () => { stopped = true; clearInterval(id); };
+  }, []);
+
+  if (snap === undefined) return null; // 初回ロード中
+  if (snap === null) {
+    return (
+      <section>
+        <h2 className="text-base font-semibold mb-2">PC パフォーマンス</h2>
+        <div className="text-subtle text-sm">メトリクス未取得 (Concordia 再起動で有効化、 または無効設定)。</div>
+      </section>
+    );
+  }
+
+  const memPct = snap.host.totalMem > 0 ? Math.round((snap.host.usedMem / snap.host.totalMem) * 100) : 0;
+  const sessions = [...snap.sessions].sort((a, b) =>
+    sortKey === "rss" ? b.rss - a.rss : a.label.localeCompare(b.label),
+  );
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-base font-semibold">
+        PC パフォーマンス
+        <span className="text-subtle text-xs ml-2">{fmtTs(Math.floor(snap.sampled_at / 1000))}</span>
+      </h2>
+
+      {/* host メモリ / CPU */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))" }}>
+        <div className="bg-surface border border-border rounded p-3">
+          <div className="text-xs text-subtle">メモリ</div>
+          <div className="text-lg font-semibold">{fmtBytes(snap.host.usedMem)} <span className="text-subtle text-sm">/ {fmtBytes(snap.host.totalMem)} ({memPct}%)</span></div>
+          <div className="mt-1 h-1.5 bg-muted rounded overflow-hidden">
+            <div className={`h-full ${memPct >= 85 ? "bg-danger" : memPct >= 70 ? "bg-warning" : "bg-accent"}`} style={{ width: `${memPct}%` }} />
+          </div>
+        </div>
+        <div className="bg-surface border border-border rounded p-3">
+          <div className="text-xs text-subtle">CPU ({snap.host.cpuCount} コア)</div>
+          <div className="text-lg font-semibold">{snap.host.loadPct == null ? "—" : `${snap.host.loadPct}%`}</div>
+        </div>
+      </div>
+
+      {/* セッション別メモリ (並び替え可) */}
+      {sessions.length > 0 && (
+        <div className="bg-surface border border-border rounded p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-sm font-semibold">セッション別メモリ</span>
+            <span className="text-subtle text-xs">{sessions.length}</span>
+            <div className="ml-auto flex gap-1 text-xs">
+              <button onClick={() => setSortKey("rss")} className={`px-2 py-0.5 rounded ${sortKey === "rss" ? "bg-accent text-white" : "bg-muted"}`}>RSS 順</button>
+              <button onClick={() => setSortKey("label")} className={`px-2 py-0.5 rounded ${sortKey === "label" ? "bg-accent text-white" : "bg-muted"}`}>名前順</button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {sessions.map((s) => (
+              <Link key={s.session_id} to={`/sessions/${encodeURIComponent(s.session_id)}`} className="flex items-center gap-2 text-xs hover:bg-muted rounded px-1 py-0.5">
+                <span className="font-mono font-semibold w-20 text-right">{fmtBytes(s.rss)}</span>
+                <span className={`px-1 rounded ${statusBadge(s.status as SessionRow["status"])}`}>{s.status}</span>
+                <span className="truncate flex-1">{s.label}</span>
+                <span className="text-subtle">{s.procCount}p · pid {s.pid}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 上位プロセス + WSL/docker */}
+      <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
+        <div className="bg-surface border border-border rounded p-3">
+          <div className="text-sm font-semibold mb-1">上位プロセス</div>
+          <div className="space-y-0.5">
+            {snap.topProcesses.slice(0, 10).map((p) => (
+              <div key={p.name} className="flex items-center gap-2 text-xs">
+                <span className="font-mono w-20 text-right">{fmtBytes(p.rss)}</span>
+                <span className="truncate flex-1">{p.name}</span>
+                <span className="text-subtle">×{p.count}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {(snap.wsl.length > 0 || snap.docker.length > 0) && (
+          <div className="bg-surface border border-border rounded p-3">
+            {snap.wsl.length > 0 && (
+              <>
+                <div className="text-sm font-semibold mb-1">WSL</div>
+                <div className="space-y-0.5 mb-2">
+                  {snap.wsl.map((w) => (
+                    <div key={w.key} className="flex items-center gap-2 text-xs">
+                      <span className="font-mono w-20 text-right">{fmtBytes(w.rss)}</span>
+                      <span className="truncate flex-1">{w.key}</span>
+                      <span className="text-subtle">{w.side}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+            {snap.docker.length > 0 && (
+              <>
+                <div className="text-sm font-semibold mb-1">docker ({snap.docker.length})</div>
+                <div className="space-y-0.5">
+                  {snap.docker.slice(0, 8).map((d) => (
+                    <div key={d.name} className="flex items-center gap-2 text-xs">
+                      <span className="font-mono w-20 text-right">{fmtBytes(d.rss)}</span>
+                      <span className="truncate flex-1">{d.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );

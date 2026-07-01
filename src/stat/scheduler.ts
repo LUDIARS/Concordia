@@ -111,7 +111,7 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
             ? "ユーザ指示が 5 分以上途絶えているので現況スナップショットを送ってほしい. "
             : "") +
           "現在の作業現況を JSON で集計し " +
-          "POST http://127.0.0.1:17330/v1/stat/<self_id> に投稿する. " +
+          "POST http://127.0.0.1:11111/v1/stat/<self_id> に投稿する. " +
           "本文 body は `{ \"payload\": { ... } }` の形式. " +
           "payload に含めるキー (どれも任意): active_repos / open_prs / unmerged_branches / todos_summary / recent_work / note. " +
           "他 session も GET /v1/stat で閲覧するので、 簡潔かつ網羅的に.",

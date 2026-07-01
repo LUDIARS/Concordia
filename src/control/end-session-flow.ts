@@ -3,7 +3,7 @@
  *
  * `DELETE /v1/sessions/:id` と `POST /v1/admin/stop-session/:id` の両方が
  * セッション終了時に以下を実行する:
- *   1. aggregateBullets + dispatcher.onSessionEnd → daily-report task を enqueue
+ *   1. aggregateBullets (+ dispatcher.onSessionEnd は現在 no-op、 独白は report 経路が担う)
  *   2. generateReport → upsertReport  (per-session レポート、 claude CLI で narrative)
  *   3. report 冒頭の独白を #報告 channel に投稿 + chat-reply task ばらまき
  *   4. eventBus.emit session.ended + report.generated
@@ -27,11 +27,38 @@ import type { Dispatcher } from "../dispatcher.js";
 import { eventBus } from "../events.js";
 import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
+import { lastHumanRequester } from "./requester.js";
+import type { SummaryFlags } from "../report/summary-flags.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
-import type { SessionReportRow, SessionRow } from "../shared/types.js";
+import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
 
 const log = createChildLogger("end-session-flow");
+
+/**
+ * needsHuman (人間確認事項) があれば、 独白の冒頭に起因者メンション + 箇条書き通知を被せる。
+ * report.metadata.summary_flags は ④ generator が入れる。 無ければ独白そのまま。
+ */
+export function withNeedsHumanNotice(
+  monologue: string,
+  report: SessionReportRow,
+  recentEvents: SessionEventRow[],
+): string {
+  let flags: SummaryFlags | null = null;
+  if (report.metadata) {
+    try {
+      flags = (JSON.parse(report.metadata) as { summary_flags?: SummaryFlags }).summary_flags ?? null;
+    } catch {
+      flags = null;
+    }
+  }
+  if (!flags || flags.needsHuman.length === 0) return monologue;
+  const req = lastHumanRequester(recentEvents);
+  const mention = req?.platform === "discord" && req.userId ? `<@${req.userId}> ` : "";
+  const list = flags.needsHuman.map((n) => `- ${n}`).join("\n");
+  return `${mention}⚠️ 人間の確認が必要な事項があります:\n${list}\n\n${monologue}`;
+}
 
 export interface EndSessionFlowDeps {
   repo: SessionsRepo;
@@ -39,6 +66,8 @@ export interface EndSessionFlowDeps {
   dispatcher: Dispatcher;
   personas: PersonasRepo;
   config: ConcordiaConfig;
+  /** あればブロック検出に決定論ソース (harness 監査 deny 行) を併用。 */
+  harnessAudit?: HarnessAuditRepo;
 }
 
 export interface SessionEndFlowResult {
@@ -61,7 +90,7 @@ export async function runSessionEndFlow(
   const id = endedSession.id;
   const now = endedSession.ended_at ?? Math.floor(Date.now() / 1000);
 
-  // 1. aggregateBullets + dispatcher.onSessionEnd (daily-report task enqueue)
+  // 1. aggregateBullets (+ dispatcher.onSessionEnd は no-op: 独白は report 経路)
   let bullets: object = {};
   try {
     const events = deps.repo.allEvents(id);
@@ -75,10 +104,7 @@ export async function runSessionEndFlow(
   let report: SessionReportRow | null = null;
   try {
     const events = deps.repo.allEvents(id);
-    report = await generateReport(endedSession, events, {
-      apiKey: deps.config.anthropicApiKey,
-      model: deps.config.reportModel,
-    });
+    report = await generateReport(endedSession, events, { harnessAudit: deps.harnessAudit });
     deps.repo.upsertReport(report);
   } catch (err) {
     log.warn(
@@ -94,11 +120,14 @@ export async function runSessionEndFlow(
     if (monologue) {
       try {
         const role = parseSessionRole(endedSession);
+        // ④ 人間確認事項 (needsHuman) があれば、 起因者 (直近で指示した人間) を @メンションして
+        // 独白の冒頭に通知を被せる (Discord)。 report.metadata に summary_flags が入る。
+        const text = withNeedsHumanNotice(monologue, report, deps.repo.recentEvents(id, 50));
         const msg = deps.chat.insert({
           channel: "報告",
           session_id: id,
           author_label: role,
-          text: monologue,
+          text,
           in_reply_to: null,
           is_actionable: false,
           metadata: JSON.stringify({ from_report: true, session_id: id }),

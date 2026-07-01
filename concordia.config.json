@@ -1,0 +1,13 @@
+{
+  "$comment": "Concordia 統合設定 (非シークレットのみ)。シークレット (Discord token 等) は DB 暗号化ストア (SecretBox) へ。env は override 用で既定値はこのファイル。",
+  "server": {
+    "$comment": "backend の bind host / port。既定値はここ (env を使わない)。env (CONCORDIA_HOST / CONCORDIA_PORT) を設定したときのみ override される。",
+    "host": "127.0.0.1",
+    "port": 11111
+  },
+  "web": {
+    "$comment": "Vite dev server。port = フロント待受、allowedHosts = 外部ホスト (Cloudflare Tunnel / Tailscale 等)。localhost / 127.0.0.1 は常に許可されるため不要。変更後は dev server 再起動が必要。",
+    "port": 10101,
+    "allowedHosts": ["concordia.vtn-game.com", "ccm.vtn-game.com"]
+  }
+}

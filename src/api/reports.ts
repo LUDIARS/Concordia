@@ -39,10 +39,7 @@ export function reportsRouter(deps: ReportsApiDeps): Hono {
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
     const events = deps.repo.allEvents(id);
-    const report = await generateReport(s, events, {
-      apiKey: deps.config.anthropicApiKey,
-      model: deps.config.reportModel,
-    });
+    const report = await generateReport(s, events);
     deps.repo.upsertReport(report);
     return c.json({
       session_id: report.session_id,

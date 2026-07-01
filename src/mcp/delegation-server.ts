@@ -9,7 +9,7 @@
  *         "command": "node",
  *         "args": ["E:/Document/Ars/Concordia/dist/mcp/delegation-server.js"],
  *         "env": {
- *           "CONCORDIA_BASE_URL": "http://127.0.0.1:17330",
+ *           "CONCORDIA_BASE_URL": "http://127.0.0.1:11111",
  *           "CONCORDIA_SPAWN_TOKEN_PATH": "E:/Document/Ars/Concordia/.spawn.token"
  *         }
  *       }
@@ -29,7 +29,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
-const DEFAULT_BASE = "http://127.0.0.1:17330";
+const DEFAULT_BASE = "http://127.0.0.1:11111";
 
 function loadToken(): string | null {
   const path = process.env.CONCORDIA_SPAWN_TOKEN_PATH;
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     "delegation_invoke",
     {
       description:
-        "Invoke a registered delegation template. Concordia renders the prompt, writes it to a markdown file, and spawns the target agent (Codex / Claude / Gemini) in a new Windows Terminal tab. Returns the spawn pid and the rendered prompt file path.",
+        "Invoke a registered delegation template. Concordia renders the prompt, writes it to a markdown file, and spawns the target agent (Codex / Claude / Gemini) in a new Windows Terminal window. Returns the spawn pid and the rendered prompt file path.",
       inputSchema: {
         call_name: z.string().describe("Template call_name, e.g. 'fix-bug'"),
         args: z.record(z.unknown()).optional().describe("Variable bindings for the template (object)"),

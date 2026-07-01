@@ -81,11 +81,24 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const metaKind = mapChannelKind(row, ev.channel);
   const metaChannelId = deps.layout.metaChannels[metaKind] ?? null;
   const forceMeta = row.channel === "chitchat" || row.channel === "consultation" || row.channel === "報告";
-  // Lictor が握る送信先を明示してきた場合は最優先 (spec/discord-lictor-relay.md §4.3)。
-  // session→channel の DB ルックアップを routing の権威から外し、 返信混線を断つ。
+  // Lictor が握る送信先を明示してきた場合でも、session-scoped な通常投稿では
+  // Concordia が最初に記録した session channel と一致する時だけ採用する。
   const explicitChannelId = chatMeta.discord_channel_id ?? null;
-  const channelId = explicitChannelId
-    ? explicitChannelId
+  const trustedExplicitChannelId = trustedDiscordChannelId({
+    explicitChannelId,
+    sessionId,
+    sessionChannelId: sessionRow?.channel_id ?? null,
+    forceMeta,
+  });
+  if (explicitChannelId && trustedExplicitChannelId !== explicitChannelId) {
+    deps.log.warn(
+      `egress.handleChatPosted ignored discord_channel_id mismatch message_id=${row.id} ` +
+      `row_session_id=${sessionId ?? "null"} explicit=${explicitChannelId} ` +
+      `session_channel=${sessionRow?.channel_id ?? "null"}`,
+    );
+  }
+  const channelId = trustedExplicitChannelId
+    ? trustedExplicitChannelId
     : forceMeta
       ? metaChannelId
       : (sessionRow ? sessionRow.channel_id : metaChannelId);
@@ -93,16 +106,16 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     `egress.handleChatPosted routing message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
     `session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
     `meta_kind=${metaKind} meta_channel=${metaChannelId ?? "null"} chosen=${channelId ?? "null"} ` +
-    `explicit=${explicitChannelId ?? "null"} ` +
-    `policy=${explicitChannelId ? "explicit" : forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
+    `explicit=${explicitChannelId ?? "null"} trusted_explicit=${trustedExplicitChannelId ?? "null"} ` +
+    `policy=${trustedExplicitChannelId ? "explicit" : forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
   );
   if (!channelId) {
     deps.log.warn(`egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
     return;
   }
-  // 明示 channel 指定時は session webhook ではなく channel webhook を使う
-  // (明示先が session channel と異なりうるため)。
-  const client = explicitChannelId
+  // 明示 channel 指定時は session webhook ではなく channel webhook を使う。
+  // session-scoped 投稿では上で session channel との一致を検証済み。
+  const client = trustedExplicitChannelId
     ? await deps.webhooks.getForChannel(channelId)
     : sessionRow && sessionId
       ? await deps.webhooks.getForSession(sessionId)
@@ -164,6 +177,35 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     }
     role = "summary";
     text = candidate;
+  } else if (ev.kind === "image") {
+    const p = ev.payload as { media_type?: string; data?: string } | null | undefined;
+    if (!p?.data) {
+      deps.log.info(`egress: transcript.frame skipped empty image session=${ev.target_session_id} seq=${ev.seq}`);
+      return;
+    }
+    const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+    if (!sessionRow || sessionRow.status === "ended") return;
+    const client = await deps.webhooks.getForSession(ev.target_session_id);
+    if (!client) {
+      deps.log.warn(`egress: transcript.frame image no webhook session=${ev.target_session_id}`);
+      return;
+    }
+    const session = deps.sessionsRepo.findSession(ev.target_session_id);
+    const meta = readMeta(session?.metadata);
+    const author = formatAuthorName(null, meta.role_label ?? null);
+    const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
+    const buf = Buffer.from(p.data, "base64");
+    const res = await deps.webhooks.send(client, {
+      content: "",
+      username: author,
+      files: [{ attachment: buf, name: `image.${ext}` }],
+    });
+    if (res) {
+      deps.log.info(`egress: transcript.frame image relayed ok session=${ev.target_session_id} seq=${ev.seq}`);
+    } else {
+      deps.log.warn(`egress: transcript.frame image relay empty session=${ev.target_session_id} seq=${ev.seq}`);
+    }
+    return;
   } else {
     deps.log.info(
       `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +
@@ -304,6 +346,18 @@ export function readChatMeta(s: string | null | undefined): {
   } catch {
     return {};
   }
+}
+
+export function trustedDiscordChannelId(input: {
+  explicitChannelId: string | null;
+  sessionId: string | null;
+  sessionChannelId: string | null;
+  forceMeta: boolean;
+}): string | null {
+  if (!input.explicitChannelId) return null;
+  if (!input.sessionId || input.forceMeta) return input.explicitChannelId;
+  if (!input.sessionChannelId) return null;
+  return input.explicitChannelId === input.sessionChannelId ? input.explicitChannelId : null;
 }
 
 function buildAttachFiles(

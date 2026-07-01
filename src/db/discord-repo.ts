@@ -15,10 +15,21 @@ export interface DiscordConfigRepo {
   all(): Record<string, string>;
 }
 
-export function makeDiscordConfigRepo(db: Database): DiscordConfigRepo {
+/**
+ * discord_config を key/value で読み書きする。
+ *
+ * `scope` は子会社 Bot 用の namespacing。 既定 '' (本社) は従来どおりキー無加工で、
+ * 既存 DB と完全互換。 子会社は `sub:<id>` を渡すと全キーに `<scope>::` を前置し、
+ * 別 guild のレイアウト (category id 等) が本社と混ざらないようにする。 all() は
+ * その scope のキーのみを prefix 除去して返す (ingress の resolveMetaKind 等が
+ * scope 内で閉じる)。
+ */
+export function makeDiscordConfigRepo(db: Database, scope = ""): DiscordConfigRepo {
+  const prefix = scope ? `${scope}::` : "";
+  const k = (key: string): string => `${prefix}${key}`;
   return {
     get(key) {
-      const row = db.prepare("SELECT value FROM discord_config WHERE key = ?").get(key) as
+      const row = db.prepare("SELECT value FROM discord_config WHERE key = ?").get(k(key)) as
         | { value: string }
         | undefined;
       return row?.value ?? null;
@@ -27,10 +38,10 @@ export function makeDiscordConfigRepo(db: Database): DiscordConfigRepo {
       db.prepare(
         `INSERT INTO discord_config (key, value) VALUES (?, ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-      ).run(key, value);
+      ).run(k(key), value);
     },
     delete(key) {
-      db.prepare("DELETE FROM discord_config WHERE key = ?").run(key);
+      db.prepare("DELETE FROM discord_config WHERE key = ?").run(k(key));
     },
     all() {
       const rows = db.prepare("SELECT key, value FROM discord_config").all() as {
@@ -38,7 +49,16 @@ export function makeDiscordConfigRepo(db: Database): DiscordConfigRepo {
         value: string;
       }[];
       const out: Record<string, string> = {};
-      for (const r of rows) out[r.key] = r.value;
+      for (const r of rows) {
+        if (prefix) {
+          if (!r.key.startsWith(prefix)) continue;
+          out[r.key.slice(prefix.length)] = r.value;
+        } else {
+          // 本社 scope ('') は子会社キー (sub:...::) を除外する。
+          if (r.key.includes("::")) continue;
+          out[r.key] = r.value;
+        }
+      }
       return out;
     },
   };
@@ -66,6 +86,9 @@ export interface DiscordSessionChannelRow {
   name_body: string | null;
   delegation_emoji: string | null;
   last_rename_ts: number;
+  scope: string;
+  /** 1 = /ch_name で名前を固定 (title_renamed による name_body 上書きを抑止)。 */
+  name_locked: number;
   ts: number;
 }
 
@@ -87,6 +110,11 @@ export interface DiscordSessionChannelsRepo {
   /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
   clearWebhook(sessionId: string): void;
   setStatus(sessionId: string, status: DiscordSessionStatus): void;
+  /**
+   * /ch_name 用。 name_body を固定値に更新し name_locked=1 を立てる。
+   * 以後 setDisplayState(nameBody) / title 由来の name_body 上書きを抑止する。
+   */
+  setNameLock(sessionId: string, nameBody: string): void;
   /** display_state / agent_type / name_body をまとめて更新する。 */
   setDisplayState(
     sessionId: string,
@@ -104,7 +132,12 @@ export interface DiscordSessionChannelsRepo {
   deleteBySessionId(sessionId: string): void;
 }
 
-export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChannelsRepo {
+/**
+ * `scope` は子会社 Bot 用の per-guild namespacing。 '' = 本社。 listActive/listAll は
+ * scope で絞り、 upsert は行に scope を刻む。 find 系/delete 系は session_id/channel_id が
+ * 全 scope 横断で一意なため scope 非依存 (1 セッションは 1 scope にしか属さない)。
+ */
+export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): DiscordSessionChannelsRepo {
   return {
     findBySessionId(sessionId) {
       return (
@@ -124,10 +157,9 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       db.prepare(
         `INSERT INTO discord_session_channels
            (session_id, channel_id, webhook_id, webhook_token, status,
-            display_state, agent_type, name_body, delegation_emoji, last_rename_ts, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            display_state, agent_type, name_body, delegation_emoji, last_rename_ts, scope, ts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
-           channel_id       = excluded.channel_id,
            webhook_id       = COALESCE(excluded.webhook_id,       discord_session_channels.webhook_id),
            webhook_token    = COALESCE(excluded.webhook_token,    discord_session_channels.webhook_token),
            status           = excluded.status,
@@ -146,6 +178,7 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
         input.agent_type ?? null,
         input.name_body ?? null,
         input.delegation_emoji ?? null,
+        scope,
         nowSec(),
       );
     },
@@ -163,6 +196,11 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
       db.prepare(
         `UPDATE discord_session_channels SET status = ? WHERE session_id = ?`,
       ).run(status, sessionId);
+    },
+    setNameLock(sessionId, nameBody) {
+      db.prepare(
+        `UPDATE discord_session_channels SET name_body = ?, name_locked = 1 WHERE session_id = ?`,
+      ).run(nameBody, sessionId);
     },
     setDisplayState(sessionId, displayState, agentType, nameBody) {
       if (agentType !== undefined && nameBody !== undefined) {
@@ -198,13 +236,13 @@ export function makeDiscordSessionChannelsRepo(db: Database): DiscordSessionChan
     },
     listActive() {
       return db
-        .prepare("SELECT * FROM discord_session_channels WHERE status = 'active'")
-        .all() as DiscordSessionChannelRow[];
+        .prepare("SELECT * FROM discord_session_channels WHERE status = 'active' AND scope = ?")
+        .all(scope) as DiscordSessionChannelRow[];
     },
     listAll() {
       return db
-        .prepare("SELECT * FROM discord_session_channels")
-        .all() as DiscordSessionChannelRow[];
+        .prepare("SELECT * FROM discord_session_channels WHERE scope = ?")
+        .all(scope) as DiscordSessionChannelRow[];
     },
     deleteBySessionId(sessionId) {
       db.prepare("DELETE FROM discord_session_channels WHERE session_id = ?").run(sessionId);

@@ -1,3 +1,29 @@
+---
+type: feature
+title: "Concordia 仕様書"
+description: "複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を行う Concordia の仕様ルートインデックス。feature（Discord 連携・委託・マルチプロバイダー）/ interface（DB・REST・WS・MCP API 正本）/ setup / test の 4 セクション構成で整理されている。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - discord
+  - websocket
+  - sqlite
+  - relay
+  - delegation
+  - multi-provider
+  - session-coordination
+status: implemented
+related:
+  - feature/discord-ui.md
+  - feature/discord-lictor-relay.md
+  - feature/delegation.md
+  - feature/multi-provider.md
+  - interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # Concordia 仕様書
 
 複数 AI エージェント（Claude Code / Gemini / Codex）のセッション協調・記録・管制を
@@ -11,7 +37,7 @@ spec/
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
 ├── feature/     # 機能（Discord 連携 / 委託 / multi-provider）
 ├── interface/   # API・schema 正本（service-schema.md）
-├── setup/       # 起動・設定（用途別ガイド）
+├── setup/       # 起動・設定（用途別ガイド + hook 連携手順）
 └── test/        # テスト設計
 ```
 > `plan/` は未設置（ロードマップは README §開発ステータス）。

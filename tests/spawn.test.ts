@@ -9,7 +9,12 @@ import {
   spawnTokenPath,
   tokenMatches,
 } from "../src/control/token.js";
-import { buildWtArgs, resolveSpawnCwd, validateCwd } from "../src/control/spawner.js";
+import {
+  buildConcordiaAddressEnv,
+  buildWtArgs,
+  resolveSpawnCwd,
+  validateCwd,
+} from "../src/control/spawner.js";
 import { spawnRouter } from "../src/api/spawn.js";
 
 describe("spawn token", () => {
@@ -89,8 +94,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "claude",
+      "lictor claude & exit 0",
     ]);
   });
 
@@ -115,11 +119,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "codex",
-      "--continue",
-      "--model",
-      "o3",
+      "lictor codex --continue --model o3 & exit 0",
     ]);
   });
 
@@ -132,8 +132,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor",
-      "gemini",
+      "lictor gemini & exit 0",
     ]);
   });
 
@@ -144,6 +143,35 @@ describe("spawn arg builder", () => {
     rmSync(tmp, { recursive: true, force: true });
     const missing = join(tmpdir(), "concordia-nope-" + Date.now());
     expect(validateCwd(missing)).toMatch(/does not exist/);
+  });
+
+  describe("buildConcordiaAddressEnv", () => {
+    it("stamps CONCORDIA_HOST / CONCORDIA_PORT from the listen address", () => {
+      expect(buildConcordiaAddressEnv("127.0.0.1", 11111)).toEqual({
+        CONCORDIA_HOST: "127.0.0.1",
+        CONCORDIA_PORT: "11111",
+      });
+    });
+
+    it("maps wildcard bind hosts to loopback (Lictor is same-host)", () => {
+      expect(buildConcordiaAddressEnv("0.0.0.0", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
+      expect(buildConcordiaAddressEnv("::", 11111).CONCORDIA_HOST).toBe("127.0.0.1");
+    });
+
+    it("trims host and keeps explicit non-loopback hosts", () => {
+      expect(buildConcordiaAddressEnv("  10.0.0.5  ", 18000)).toEqual({
+        CONCORDIA_HOST: "10.0.0.5",
+        CONCORDIA_PORT: "18000",
+      });
+    });
+
+    it("omits empty host / non-positive port", () => {
+      expect(buildConcordiaAddressEnv("", 11111)).toEqual({ CONCORDIA_PORT: "11111" });
+      expect(buildConcordiaAddressEnv("127.0.0.1", 0)).toEqual({ CONCORDIA_HOST: "127.0.0.1" });
+      expect(buildConcordiaAddressEnv("127.0.0.1", Number.NaN)).toEqual({
+        CONCORDIA_HOST: "127.0.0.1",
+      });
+    });
   });
 
   describe("resolveSpawnCwd", () => {
@@ -216,11 +244,11 @@ describe("spawn router (Hono)", () => {
     expect(body.default_cwd).toBe("");
   });
 
-  it("GET /info echoes deps.defaultSpawnCwd", async () => {
-    const app = spawnRouter({ cwd, defaultSpawnCwd: "E:\\Document\\Ars" });
+  it("GET /info echoes deps.resolveDefaultCwd() (実行時解決のプライマリ workspace ルート)", async () => {
+    const app = spawnRouter({ cwd, resolveDefaultCwd: () => "D:\\LUDIARS" });
     const res = await app.request("/info");
     const body = (await res.json()) as { default_cwd: string };
-    expect(body.default_cwd).toBe("E:\\Document\\Ars");
+    expect(body.default_cwd).toBe("D:\\LUDIARS");
   });
 
   it("POST / without token returns 401 with WWW-Authenticate", async () => {
@@ -272,7 +300,8 @@ describe("spawn router (Hono)", () => {
     });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { command: string[] };
-    expect(body.command).toContain("gemini");
+    // provider は cmd string に結合されているため join 後の要素で確認する
+    expect(body.command.some((a) => a.includes("gemini"))).toBe(true);
     // window mode → --window new
     expect(body.command.indexOf("--window")).toBeGreaterThanOrEqual(0);
     expect(body.command[body.command.indexOf("--window") + 1]).toBe("new");

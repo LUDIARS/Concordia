@@ -12,6 +12,7 @@ import {
   type DelegationProvider,
 } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
+import { parsePortable, templateToPortable } from "../delegation/portable.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -36,6 +37,7 @@ const CreateTemplateSchema = z.object({
   prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
+  project: z.string().max(200).nullable().optional(),
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
@@ -49,6 +51,7 @@ const PatchTemplateSchema = z.object({
   prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
+  project: z.string().max(200).nullable().optional(),
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
@@ -93,7 +96,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
 
   // mutating endpoint は bearer token を要求しない。 Concordia は loopback
-  // (既定 127.0.0.1:17330) 限定で動き、 /v1/admin/* と同じ信頼境界に乗る。
+  // (既定 127.0.0.1:11111) 限定で動き、 /v1/admin/* と同じ信頼境界に乗る。
   // 以前は spawn token を要求していたが、 同じ loopback サービス内で Monitor の
   // spawn は token-free・Delegation CRUD だけ token 必須という非対称が混乱の元
   // (token 未貼付で Save できない) だったため撤廃。
@@ -135,6 +138,14 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     return c.json({ template: serializeTemplate(row) });
   });
 
+  // 1 つの delegation を可搬 JSON で書き出す (コピー用)。 id でも call_name でも引ける。
+  app.get("/templates/:identifier/export", (c) => {
+    const id = c.req.param("identifier");
+    const row = deps.repo.findTemplate(id) ?? deps.repo.findTemplateByCallName(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+    return c.json({ delegation: templateToPortable(row) });
+  });
+
   app.get("/runs", (c) => {
     const limitRaw = Number(c.req.query("limit") ?? 100);
     const limit = Math.max(1, Math.min(500, isFinite(limitRaw) ? limitRaw : 100));
@@ -156,6 +167,30 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       call_name,
       title,
       prompt_template: parsed.data.prompt_template ?? "",
+    });
+    return c.json({ template: serializeTemplate(row) }, 201);
+  });
+
+  // 可搬 JSON を貼り付けて新規テンプレを作成する (コピー/貼付による複製・移植)。
+  // call_name は衝突回避で自動採番 (resolveCallName) するため、 貼付で常に新規が立つ。
+  app.post("/templates/import", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = parsePortable(body);
+    if (!parsed.ok) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const p = parsed.data;
+    const call_name = resolveCallName(deps.repo, p.call_name, p.title);
+    const title = (p.title ?? "").trim() || call_name;
+    const row = deps.repo.createTemplate({
+      call_name,
+      title,
+      description: p.description,
+      target_provider: p.target_provider,
+      model: p.model ?? null,
+      prompt_template: p.prompt_template ?? "",
+      input_schema: p.input_schema,
+      default_cwd: p.default_cwd ?? null,
+      project: p.project ?? null,
+      emoji: p.emoji,
     });
     return c.json({ template: serializeTemplate(row) }, 201);
   });

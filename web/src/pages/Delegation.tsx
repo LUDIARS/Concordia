@@ -22,6 +22,7 @@ interface Template {
   prompt_template: string;
   input_schema: InputSchemaItem[];
   default_cwd: string | null;
+  project: string | null;
   is_active: boolean;
   emoji: string;
   call_only: boolean;
@@ -54,6 +55,7 @@ interface FormState {
   prompt_template: string;
   input_schema_json: string;
   default_cwd: string;
+  project: string;
   is_active: boolean;
   emoji: string;
   call_only: boolean;
@@ -68,6 +70,7 @@ const EMPTY_FORM: FormState = {
   prompt_template: "",
   input_schema_json: "[]",
   default_cwd: "",
+  project: "",
   is_active: true,
   emoji: "",
   call_only: false,
@@ -82,7 +85,7 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response> {
-  // Concordia は loopback (既定 127.0.0.1:17330) 限定なので bearer token は不要。
+  // Concordia は loopback (既定 127.0.0.1:11111) 限定なので bearer token は不要。
   const headers: Record<string, string> = { "content-type": "application/json" };
   return fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
 }
@@ -100,6 +103,8 @@ export function Delegation() {
   const [invokeArgs, setInvokeArgs] = useState<Record<string, string>>({});
   const [invokeCwd, setInvokeCwd] = useState("");
   const [invokeResult, setInvokeResult] = useState<unknown>(null);
+  // 可搬 JSON の貼付欄 (null = 非表示)。
+  const [importText, setImportText] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -134,6 +139,7 @@ export function Delegation() {
       prompt_template: t.prompt_template,
       input_schema_json: JSON.stringify(t.input_schema, null, 2),
       default_cwd: t.default_cwd ?? "",
+      project: t.project ?? "",
       is_active: t.is_active,
       emoji: t.emoji ?? "",
       call_only: t.call_only ?? false,
@@ -162,6 +168,7 @@ export function Delegation() {
         prompt_template: form.prompt_template,
         input_schema: schema,
         default_cwd: form.default_cwd.trim() ? form.default_cwd.trim() : null,
+        project: form.project.trim() ? form.project.trim() : null,
         is_active: form.is_active,
         emoji: form.emoji,
         call_only: form.call_only,
@@ -180,6 +187,34 @@ export function Delegation() {
       await refresh();
     } catch (err) {
       setFormError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 1 つの delegation を可搬 JSON でクリップボードにコピーする。
+  async function copyJson(t: Template) {
+    try {
+      const { delegation } = await getJson<{ delegation: unknown }>(`/v1/delegation/templates/${t.id}/export`);
+      await navigator.clipboard.writeText(JSON.stringify(delegation, null, 2));
+      setFormError(null);
+    } catch (err) {
+      setFormError(`JSON copy 失敗: ${(err as Error).message}`);
+    }
+  }
+
+  // 貼付された可搬 JSON から新規テンプレを作成する (call_name は自動採番で衝突回避)。
+  async function importJson() {
+    setBusy(true);
+    setFormError(null);
+    try {
+      const body = JSON.parse(importText || "{}");
+      const r = await mutate("POST", "/v1/delegation/templates/import", body);
+      if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      setImportText(null);
+      await refresh();
+    } catch (err) {
+      setFormError(`import 失敗: ${(err as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -264,7 +299,29 @@ export function Delegation() {
             onClick={startCreate}
             className="ml-auto bg-accent text-bg px-3 py-1.5 rounded text-sm font-medium"
           >+ New template</button>
+          <button
+            onClick={() => setImportText(importText === null ? "" : null)}
+            className="border border-border px-3 py-1.5 rounded text-sm"
+            title="可搬 JSON を貼り付けてテンプレを作成"
+          >貼付で作成</button>
         </div>
+
+        {importText !== null && (
+          <div className="mb-3 rounded border border-border bg-surface p-3 space-y-2">
+            <div className="text-xs text-subtle">📋JSON でコピーした可搬 delegation を貼り付け → 作成 (call_name は自動採番)</div>
+            <textarea
+              className="foundation-form w-full font-mono text-xs"
+              rows={6}
+              placeholder='{"kind":"concordia.delegation","call_name":"...","target_provider":"claude", ...}'
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+            />
+            <div className="flex gap-2">
+              <button className="bg-accent text-bg px-3 py-1 rounded text-sm" disabled={busy || !importText.trim()} onClick={importJson}>作成</button>
+              <button className="border border-border px-3 py-1 rounded text-sm" onClick={() => setImportText(null)}>閉じる</button>
+            </div>
+          </div>
+        )}
 
         <table className="w-full text-sm">
           <thead className="text-xs text-subtle">
@@ -294,6 +351,7 @@ export function Delegation() {
                 <td className="p-2 text-right space-x-2">
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
                   <button className="text-xs" onClick={() => startEdit(t)}>edit</button>
+                  <button className="text-xs" title="可搬 JSON をクリップボードにコピー" onClick={() => copyJson(t)}>📋JSON</button>
                   <button className="text-red-500 text-xs" onClick={() => deactivate(t.id)}>deactivate</button>
                 </td>
               </tr>
@@ -391,6 +449,15 @@ export function Delegation() {
                 className="foundation-form w-full"
                 value={form.default_cwd}
                 onChange={(e) => setForm({ ...form, default_cwd: e.target.value })}
+              />
+            </label>
+            <label className="text-sm space-y-1">
+              <span className="text-subtle">project (対象プロジェクト名、省略可)</span>
+              <input
+                className="foundation-form w-full"
+                value={form.project}
+                onChange={(e) => setForm({ ...form, project: e.target.value })}
+                placeholder="Pictor"
               />
             </label>
             <label className="text-sm space-y-1 col-span-2">

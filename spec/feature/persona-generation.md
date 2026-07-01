@@ -1,3 +1,24 @@
+---
+type: feature
+title: "Persona 動的生成 (投稿者シグナル → 人格)"
+description: "投稿者の活動シグナル (ツール使用・ファイル種別・チャット発言) を収集し、Claude CLI を用いて人格を動的生成してセッションに割り当てる機能。固定 seed 割り当てと並走する追加経路として設計され、`POST /v1/personas/generate` エンドポイントと SQLite への冪等 upsert (SCHEMA_VERSION 19) で構成される。"
+service: concordia
+domain: session-coordination
+tags:
+  - persona
+  - llm
+  - typescript
+  - sqlite
+  - claude
+  - hono
+  - rest-api
+  - lifecycle
+  - state-machine
+status: planned
+updated: 2026-06-30
+---
+
+
 # Persona 動的生成 (投稿者シグナル → 人格)
 
 ## 目的

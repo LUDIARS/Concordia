@@ -96,6 +96,40 @@ export function validateArgs(
   return errors.length === 0 ? { ok: true } : { ok: false, errors };
 }
 
+/**
+ * 起動に必要な delegation 定義の最小集合。 グローバルテンプレ (delegation_templates) と
+ * 子会社所有の複製 (subsidiary_delegations) を同じ起動経路 (runDefinition) に載せるための共通形。
+ */
+export interface DelegationDefinition {
+  /** run 記録の template_id。 グローバルテンプレなら id、 子会社所有 (テンプレ無し) なら null。 */
+  template_id: string | null;
+  call_name: string;
+  title: string;
+  target_provider: DelegationProvider;
+  model: string | null;
+  prompt_template: string;
+  input_schema: string;          // JSON string
+  default_cwd: string | null;
+  project?: string | null;
+  emoji?: string | null;
+}
+
+/** グローバルテンプレ行を起動定義に変換する。 */
+export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefinition {
+  return {
+    template_id: tpl.id,
+    call_name: tpl.call_name,
+    title: tpl.title,
+    target_provider: tpl.target_provider as DelegationProvider,
+    model: tpl.model,
+    prompt_template: tpl.prompt_template,
+    input_schema: tpl.input_schema,
+    default_cwd: tpl.default_cwd,
+    project: tpl.project,
+    emoji: tpl.emoji,
+  };
+}
+
 export interface InvokeInput {
   call_name: string;
   args: Record<string, unknown>;
@@ -105,6 +139,8 @@ export interface InvokeInput {
   triggered_by?: string;
   /** false で spawn せず render + 記録のみ */
   spawn?: boolean;
+  /** 子会社由来の invoke なら子会社 id。 spawn したセッションの metadata.subsidiary_id へ焼く。 */
+  subsidiary_id?: string | null;
 }
 
 export interface InvokeResultOk {
@@ -145,16 +181,43 @@ export class DelegationService {
     return this.deps.promptsDir ?? join(process.cwd(), "delegation-prompts");
   }
 
+  /**
+   * テンプレを介さない自由テキストの初回プロンプトを prompt file に書き出し、 そのパスを返す。
+   * 呼び出し側は `CONCORDIA_DELEGATION_PROMPT_FILE` に渡して素の provider spawn に注入する
+   * (Lictor が起動直後に paste+submit する)。 /spawn の prompt 欄 / 返信由来 spawn が使う。
+   */
+  writeAdHocPrompt(prompt: string): string {
+    mkdirSync(this.promptsDir, { recursive: true });
+    const path = join(this.promptsDir, `${randomUUID()}.md`);
+    writeFileSync(path, prompt, "utf8");
+    return path;
+  }
+
+  /**
+   * call_name でグローバルテンプレを解決して起動する (従来経路)。 内部で runDefinition に委ねる。
+   */
   async invoke(input: InvokeInput): Promise<InvokeResult> {
     const tpl = this.deps.repo.findTemplateByCallName(input.call_name);
     if (!tpl) return { ok: false, error: `unknown call_name: ${input.call_name}` };
     if (!tpl.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
-    const schema = parseInputSchema(tpl.input_schema);
+    return this.runDefinition(templateToDefinition(tpl), input);
+  }
+
+  /**
+   * グローバルテンプレを介さず、 与えられた delegation 定義をそのまま起動する。
+   * 子会社が「所有する」 delegation の複製 (cwd / project / prompt が独立) を起動するための経路。
+   */
+  async invokeDefinition(def: DelegationDefinition, input: Omit<InvokeInput, "call_name">): Promise<InvokeResult> {
+    return this.runDefinition(def, { ...input, call_name: def.call_name });
+  }
+
+  private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
+    const schema = parseInputSchema(def.input_schema);
     const validation = validateArgs(input.args ?? {}, schema);
     if (!validation.ok) {
       return { ok: false, error: "invalid args", details: validation.errors };
     }
-    const render = renderTemplate(tpl.prompt_template, input.args ?? {}, schema);
+    const render = renderTemplate(def.prompt_template, input.args ?? {}, schema);
     if (render.missing.length > 0) {
       return { ok: false, error: "missing required args", details: render.missing };
     }
@@ -164,33 +227,35 @@ export class DelegationService {
     const renderedPrompt = extra
       ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
       : render.rendered;
-    const provider = tpl.target_provider as DelegationProvider;
+    const provider = def.target_provider;
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
-    // 1) caller 指定 → 2) template.default_cwd を args で `${var}` 展開
+    // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。
     let cwd: string | undefined = input.cwd ?? undefined;
-    if (!cwd && tpl.default_cwd) {
-      const expanded = substituteVars(tpl.default_cwd, input.args ?? {}).trim();
+    if (!cwd && def.default_cwd) {
+      const expanded = substituteVars(def.default_cwd, input.args ?? {}).trim();
       cwd = expanded === "" ? undefined : expanded;
     }
     // local-LLM レーン (gemma4-12、旧 gamma) で model="auto" のとき、Famulus の黒箱
     // 切り替え機にモデルを選ばせる。選択の Sonnet ワンショットは Famulus 内部なので
     // Concordia は LLM-free を維持 (`famulus select` を shell するだけ)。それ以外は素通し。
-    let modelInput = tpl.model;
-    if (provider === "gemma4-12" && (tpl.model ?? "").trim().toLowerCase() === "auto") {
-      const projectHint = cwd ? basename(cwd) : undefined;
-      modelInput = await resolveLocalModel(tpl.model, { project: projectHint, repo: cwd ?? null });
-      log.info({ call_name: input.call_name, project: projectHint, resolved_model: modelInput }, "famulus auto-model resolved");
+    // project ヒントは delegation の project を最優先、 無ければ cwd の basename。
+    let modelInput = def.model;
+    if (provider === "gemma4-12" && (def.model ?? "").trim().toLowerCase() === "auto") {
+      const projectHint = (def.project ?? "").trim() || (cwd ? basename(cwd) : undefined);
+      modelInput = await resolveLocalModel(def.model, { project: projectHint, repo: cwd ?? null });
+      log.info({ call_name: def.call_name, project: projectHint, resolved_model: modelInput }, "famulus auto-model resolved");
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
     log.info({
-      call_name: input.call_name,
-      template_id: tpl.id,
+      call_name: def.call_name,
+      template_id: def.template_id,
       provider,
       cwd,
+      project: def.project ?? null,
       caller_cwd: input.cwd ?? null,
-      template_default_cwd: tpl.default_cwd ?? null,
+      template_default_cwd: def.default_cwd ?? null,
       triggered_by: input.triggered_by ?? null,
     }, "delegation invoke received");
 
@@ -202,7 +267,7 @@ export class DelegationService {
     mkdirSync(this.promptsDir, { recursive: true });
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(tpl, renderedPrompt, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
+    const promptBody = renderPromptFile(def, renderedPrompt, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
     try {
       writeFileSync(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -221,7 +286,7 @@ export class DelegationService {
         // 実 spawn は解決後の CLI。 gemma4-12 は Lictor ネイティブ local-agent
         // (`lictor gemma4-12`)、 それ以外は同名 CLI。 記録上の論理 provider とは別。
         provider: spawn.provider,
-        mode: "tab",
+        mode: "window",
         cwd: cwd ?? undefined,
         // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
         args: spawn.args.length > 0 ? spawn.args : undefined,
@@ -242,7 +307,7 @@ export class DelegationService {
         // この spawn と、 直後に Lictor が独立登録するセッションを cwd で結ぶための
         // 一時マーカー。 session.started 時に claim してテンプレ絵文字を metadata へ焼く
         // (Slack ライブカードの先頭アイコンに使う)。
-        recordPendingDelegationSpawn({ cwd, emoji: tpl.emoji ?? null, callName: input.call_name });
+        recordPendingDelegationSpawn({ cwd, emoji: def.emoji ?? null, callName: input.call_name, subsidiaryId: input.subsidiary_id ?? null });
         log.info({
           run_id: runId, call_name: input.call_name, provider, cwd,
           spawn_pid: spawnPid, prompt_file: promptPath,
@@ -262,8 +327,8 @@ export class DelegationService {
     // 3) record run (pass pre-allocated runId so prompt_file_path matches run.id)
     const run = this.deps.repo.createRun({
       id: runId,
-      template_id: tpl.id,
-      call_name: tpl.call_name,
+      template_id: def.template_id,
+      call_name: def.call_name,
       target_provider: provider,
       args: input.args ?? {},
       rendered_prompt: renderedPrompt,
@@ -287,7 +352,7 @@ export class DelegationService {
 }
 
 function renderPromptFile(
-  tpl: DelegationTemplateRow,
+  def: DelegationDefinition,
   rendered: string,
   args: Record<string, unknown>,
   runId: string,
@@ -299,13 +364,14 @@ function renderPromptFile(
     ? "(none)"
     : Object.entries(args).map(([k, v]) => `- ${k}: ${JSON.stringify(v)}`).join("\n");
   return [
-    `# Delegation: ${tpl.call_name}`,
+    `# Delegation: ${def.call_name}`,
     "",
     `- run_id: ${runId}`,
-    `- target_provider: ${tpl.target_provider}`,
-    `- model: ${effectiveModel ?? tpl.model ?? "(provider default)"}`,
+    `- target_provider: ${def.target_provider}`,
+    `- model: ${effectiveModel ?? def.model ?? "(provider default)"}`,
+    `- project: ${def.project?.trim() || "(none)"}`,
     `- persona: ${personaName ?? "(none)"}`,
-    `- template_title: ${tpl.title}`,
+    `- template_title: ${def.title}`,
     "",
     // Concordia 文脈 + 暫定 persona 全文 (起動後の振る舞い指示を含む)。
     contextBlock,

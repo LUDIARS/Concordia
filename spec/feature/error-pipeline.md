@@ -1,3 +1,24 @@
+---
+type: feature
+title: "エラー集約パイプライン + 自動修正"
+description: "Vestigium ログや Discord 操作失敗を error.reported イベントで集約し、Discord「エラー」チャンネルへ転記する (PR #81 済)。さらに常駐 error-fixer Codex セッションへ自動修正依頼を inject する経路を実装。レート制御・dedupe・spawn cooldown・安全弁 env を備える。"
+service: concordia
+domain: observability
+tags:
+  - typescript
+  - event-driven
+  - polling
+  - monitoring
+  - auto-fix
+  - llm
+  - relay
+  - codex
+  - discord
+status: implemented
+updated: 2026-06-30
+---
+
+
 # エラー集約パイプライン + 自動修正
 
 > 監視ロガー検知 / Concordia 内部失敗を Discord「エラー」カテゴリへ集約し、

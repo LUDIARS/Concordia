@@ -10,7 +10,6 @@
 import type { PersonaRow, PersonasRepo } from "../db/personas-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionRow } from "../shared/types.js";
-import { runClaude } from "../rules/claude-runner.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -66,53 +65,15 @@ function collectChatSamples(chat: ChatRepo, session_id: string, persona_name: st
     .slice(-30); // 直近 30 件
 }
 
-async function summarize(samples: string[], persona: PersonaRow): Promise<string | null> {
-  if (samples.length === 0) return null;
-
-  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") {
-    return heuristicNote(samples, persona);
-  }
-
-  const prompt = [
-    `あなたは Concordia の "人格学習エージェント" です. ${persona.name} (= "${persona.description}") というロールが`,
-    `1 セッションを終えたところ. このセッション中の chat 発言サンプルを見て、`,
-    `**この人格に追記すべき新しい癖 / 傾向 / 学んだ語彙** を 1 つだけ、 **80 文字以下の 1 文** で書いてください.`,
-    "",
-    "## 制約",
-    "- 既存の traits / speech_style と重複してはいけない (新規追加分のみ)",
-    "- 内容は中立的・前向き・後の世代でも使える形で",
-    "- 不要なら出力なしで OK (空文字列を返す)",
-    "- **80 文字以下、 1 文、 \"〜する傾向\" / \"〜と表現する癖\" 等の癖記述形式**",
-    "",
-    "## 既存の人格",
-    `description: ${persona.description}`,
-    `speech_style: ${persona.speech_style}`,
-    `traits: ${persona.traits}`,
-    `learned_notes (既存): ${persona.learned_notes}`,
-    "",
-    "## chat 発言サンプル (時系列, 最大 30 件)",
-    samples.join("\n"),
-    "",
-    "## 出力 (JSON 1 つだけ. 余計な前置きなし)",
-    `{"note":"<80 字以下の 1 文 / 不要なら空文字列>"}`,
-  ].join("\n");
-
-  const r = await runClaude(prompt);
-  if (!r.ok) return heuristicNote(samples, persona);
-  try {
-    const m = /\{[\s\S]*?\}/.exec(r.stdout);
-    if (!m) return heuristicNote(samples, persona);
-    const parsed = JSON.parse(m[0]);
-    if (typeof parsed.note === "string" && parsed.note.trim().length > 0) {
-      return parsed.note.trim();
-    }
-    return null;
-  } catch {
-    return heuristicNote(samples, persona);
-  }
+/**
+ * 学習ノートを決定的に組む (LLM 不使用). ペルソナエンジンは LLM を介さない方針.
+ * セッション中の発言数を素朴に記録するだけ.
+ */
+function summarize(samples: string[], persona: PersonaRow): string | null {
+  return heuristicNote(samples, persona);
 }
 
-/** AI 失敗 / 無効時の最低限 fallback. 発言数だけを記録. */
+/** 発言数だけを記録する決定的 note. */
 function heuristicNote(samples: string[], persona: PersonaRow): string | null {
   if (samples.length === 0) return null;
   const counted = samples.filter((s) => s.includes(persona.name)).length;

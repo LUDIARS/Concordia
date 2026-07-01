@@ -1,3 +1,23 @@
+---
+type: feature
+title: "PR キュー (PR Queue)"
+description: "複数の AI セッションが並行作成した PR を横断で 1 本のキューに集約し、review_state / ci_status による優先度順で Concordia API・MCP・Discord に出力する機能。schema v16 で追加され、stat 派生取り込み (ingest) と GitHub reconcile のハイブリッドで PR 状態を管理する。"
+service: concordia
+domain: governance
+tags:
+  - typescript
+  - sqlite
+  - rest-api
+  - discord
+  - state-machine
+  - polling
+  - persona
+  - monitoring
+status: implemented
+updated: 2026-06-30
+---
+
+
 # PR キュー (PR Queue)
 
 > 各 AI セッションが作った PR を横断で 1 本のキューにし、 「対応すべき順」 で

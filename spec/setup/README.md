@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Concordia セットアップガイド (用途別)"
+description: "Concordia の用途別セットアップインデックス。core / windows / discord / slack / observability / spawn の各ガイドへの案内と、設定優先順位 (env > .env > 既定値) を定義する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - discord
+  - slack
+  - websocket
+  - spawn
+  - relay
+  - lifecycle
+  - setup
+status: implemented
+related:
+  - ../interface/service-schema.md
+  - ../feature/discord-ui.md
+  - ../feature/discord-control-ui.md
+  - ../feature/discord-lictor-relay.md
+  - ../feature/delegation.md
+updated: 2026-06-30
+---
+
+
 # Concordia セットアップガイド (用途別)
 
 Concordia は多機能サービス (loopback でのセッション協調 + Discord UI + observability + spawn 管制) なので、 「全部入りの 1 手順」 ではなく **やりたいことから引ける** ように用途別に分けてある。 まず下表で目的のガイドへ飛ぶ。
@@ -11,7 +37,7 @@ Concordia は多機能サービス (loopback でのセッション協調 + Disco
 | やりたいこと | ガイド | 主な設定軸 |
 |--------------|--------|-----------|
 | まず Concordia 本体を起動して session 協調を使う | [core.md](core.md) | `CONCORDIA_HOST` / `PORT` / `DB_PATH` / sweeper タイムアウト |
-| **Windows** で正しく起動する (git-bash 問題等) | [windows.md](windows.md) | `CLAUDE_CODE_GIT_BASH_PATH` / port 17330 事情 |
+| **Windows** で正しく起動する (git-bash 問題等) | [windows.md](windows.md) | `CLAUDE_CODE_GIT_BASH_PATH` / port 11111 事情 |
 | Discord で session を見る / 操作する | [discord.md](discord.md) | `CONCORDIA_DISCORD_*` + privileged intent |
 | Slack で session を見る / 操作する | [slack.md](slack.md) | `CONCORDIA_SLACK_*` + Socket Mode + `/concordia` slash |
 | サービス監視 / auto-fix (旧 Excubitor) を有効化 | [observability.md](observability.md) | `catalog/services.yaml` / `LUDIARS_ROOT` / bash path |
@@ -24,12 +50,12 @@ Concordia は多機能サービス (loopback でのセッション協調 + Disco
 
 ```bash
 npm install
-npm run dev          # backend (17330) + Vite frontend を同時起動
+npm run dev          # backend (11111) + Vite frontend を同時起動
 ```
 
 `.env` は無くても起動する (全キーに既定値あり)。 ただし Windows では git-bash パスの設定が必要になりがちなので、 初回は [windows.md](windows.md) を先に読む。 dev 起動の background 化が許可されているのは cwd に [`dev-process.md`](../../dev-process.md) があるため (LUDIARS の dev-server policy)。
 
-セッション協調 (hook 連携) を実際に使うには、 各 AI セッション側に hook を仕込む。 手順は [`docs/hooks-claude-code.md`](../../docs/hooks-claude-code.md) / [`docs/hooks-codex-cli.md`](../../docs/hooks-codex-cli.md)。
+セッション協調 (hook 連携) を実際に使うには、 各 AI セッション側に hook を仕込む。 手順は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
 ---
 

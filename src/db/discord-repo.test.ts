@@ -44,6 +44,17 @@ describe("discord_session_channels repo", () => {
     expect(repo.findBySessionId("s1")?.status).toBe("lost");
   });
 
+  it("upsert does not replace the first channel for a session", () => {
+    const repo = makeDiscordSessionChannelsRepo(db);
+    repo.upsert({ session_id: "s1", channel_id: "c1" });
+    repo.upsert({ session_id: "s1", channel_id: "c2", status: "lost" });
+
+    expect(repo.findBySessionId("s1")?.channel_id).toBe("c1");
+    expect(repo.findByChannelId("c1")?.session_id).toBe("s1");
+    expect(repo.findByChannelId("c2")).toBeNull();
+    expect(repo.findBySessionId("s1")?.status).toBe("lost");
+  });
+
   it("tryClaimRename は cooldown 内で false / 外で true", () => {
     const repo = makeDiscordSessionChannelsRepo(db);
     repo.upsert({ session_id: "s1", channel_id: "c1" });

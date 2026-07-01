@@ -8,9 +8,11 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "npm run sync:skill && tsc -p tsconfig.json && cd web && npm run build",
-    "dev": "npm run sync:skill && concurrently -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
-    "dev:backend": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "build": "npm run sync:skill && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
+    "build:spec-index": "node tools/build-spec-index.mjs",
+    "dev": "npm run sync:skill && concurrently --kill-others-on-fail -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
+    "dev:backend": "node --watch --import tsx --env-file-if-exists=.env src/server.ts",
+    "discord:worker": "node --import tsx --env-file-if-exists=.env src/discord-worker.ts",
     "dev:web": "cd web && npm run dev",
     "start": "node dist/server.js",
     "test": "vitest run",
@@ -20,6 +22,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
+    "@ludiars/vestigium": "file:./lib/vestigium",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/socket-mode": "^2.0.7",
     "@slack/web-api": "^7.16.0",
@@ -39,7 +42,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "concurrently": "^10.0.3",
-    "tsx": "^4.19.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.7.0",
     "vitest": "^3.2.4"
   },

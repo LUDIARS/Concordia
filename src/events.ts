@@ -62,7 +62,16 @@ export type ConcordiaEvent =
    * Session-targeted so only clients viewing this session receive it.
    * `tool_input` is a slim preview (kept compact for wire / UI).
    */
-  | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
+  | {
+      type: "session.permission_request";
+      target_session_id: string;
+      request_id: string;
+      tool_name: string;
+      tool_input: unknown;
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
+      ts: number;
+    }
   | {
       type: "question.posted";
       target_session_id: string;
@@ -75,6 +84,9 @@ export type ConcordiaEvent =
       options: Array<string | { label: string; description?: string }>;
       /** 複数選択可か (Discord UI を menu(min1/maxN) に切替)。未指定は単一選択。 */
       multi_select?: boolean;
+      /** この質問の起因者 (直近で指示した人間)。 Discord は @メンションに使う。未取得は省略。 */
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
       ts: number;
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }

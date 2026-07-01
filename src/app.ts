@@ -3,7 +3,10 @@
  */
 
 import { Hono } from "hono";
+import { serveStatic } from "@hono/node-server/serve-static";
 import { spawn } from "node:child_process";
+import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { resolve } from "node:path";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { ParticipantsRepo } from "./db/participants-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
@@ -12,17 +15,24 @@ import type { Dispatcher } from "./dispatcher.js";
 import type { ConcordiaConfig } from "./shared/config.js";
 import { sessionsRouter } from "./api/sessions.js";
 import { reportsRouter } from "./api/reports.js";
+import { sessionLogsRouter } from "./api/session-logs.js";
 import { monitorRouter } from "./api/monitor.js";
 import { chatRouter } from "./api/chat.js";
 import { setupRouter } from "./api/setup.js";
 import { skillsRouter } from "./api/skills.js";
 import { streamRouter } from "./api/stream.js";
 import { rulesRouter } from "./api/rules.js";
+import { libraryRouter } from "./api/library.js";
 import { dailyRouter } from "./api/daily.js";
 import { processesRouter } from "./api/processes.js";
 import { statRouter } from "./api/stat.js";
 import { workRouter } from "./api/work.js";
 import { prsRouter } from "./api/prs.js";
+import { costFeedRouter } from "./api/cost-feed.js";
+import { costRouter } from "./api/cost.js";
+import type { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
+import type { CostLimitSamplesRepo } from "./db/cost-limit-samples-repo.js";
+import type { CostOneShotCallsRepo } from "./db/cost-one-shot-calls-repo.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
@@ -39,10 +49,9 @@ import type {
   DiscordConfigRepo,
 } from "./db/discord-repo.js";
 import type { AdminState } from "./admin/state.js";
-import { ADMIN_PROPOSER_INTERVAL_MAX, ADMIN_PROPOSER_INTERVAL_MIN } from "./admin/state.js";
 import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import type { CostBudgetStatus } from "./cost/usage-tracker.js";
-import { WORKFLOW_ACTIONS, WORKFLOW_ACTION_HELP, isWorkflowAction, defaultReactionEmojiMap } from "./platform/reaction-workflow.js";
+import { getRwf } from "./platform/reaction-workflow-loader.js";
 import type { SchedulerHandle } from "./daily/scheduler.js";
 import { personasRouter } from "./api/personas.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
@@ -59,6 +68,16 @@ import type { DelegationService } from "./delegation/service.js";
 import { substituteVars } from "./delegation/service.js";
 import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./api/model-catalog.js";
+import { subsidiaryRouter } from "./api/subsidiary.js";
+import { createChildLogger } from "./shared/logger.js";
+import { harnessRulesRouter } from "./api/harness-rules.js";
+import { harnessSessionRouter } from "./api/harness-session.js";
+import type { HarnessAuditRepo } from "./db/harness-audit-repo.js";
+import type { RunClaudeFn } from "./subsidiary/guard.js";
+import type { SubsidiaryRepo } from "./db/subsidiary-repo.js";
+import type { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
+import type { HarnessRulesRepo } from "./db/harness-rules-repo.js";
+import type { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import type { ModelCatalogRepo } from "./db/model-catalog-repo.js";
 import {
   isSpawnProvider,
@@ -71,10 +90,15 @@ import { resolveDelegationSpawn } from "./control/provider-preset.js";
 import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
+import { reapOrphans } from "./control/reaper.js";
+import { runWsCleanup } from "./control/ws-cleanup.js";
+import type { MetricsStore } from "./metrics/store.js";
 import { runSessionEndFlow } from "./control/end-session-flow.js";
 
 export interface AppDeps {
   repo: SessionsRepo;
+  /** PC パフォーマンススナップショットの読み出し (Monitor /metrics 用)。 */
+  metrics?: MetricsStore;
   tasks: TasksRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
@@ -89,10 +113,24 @@ export interface AppDeps {
   pendingQuestions: DiscordPendingQuestionsRepo;
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
+  /** 10 分毎の使用量サンプル (WebUI /cost の時系列グラフ用)。 */
+  costSamples: CostUsageSamplesRepo;
+  costLimitSamples: CostLimitSamplesRepo;
+  costOneShots: CostOneShotCallsRepo;
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
   modelCatalog: ModelCatalogRepo;
+  /** 子会社 Delegation。 揃った時のみ /v1/subsidiaries / /v1/harness-rules を有効化。 */
+  subsidiary?: SubsidiaryRepo;
+  harnessRules?: HarnessRulesRepo;
+  /** ローカルセッションのハーネス強制ゲートの監査ログ。 揃った時のみ /v1/harness を有効化。 */
+  harnessAudit?: HarnessAuditRepo;
+  /** per-prompt 意図判定 (POST /v1/harness/intent) 用の Sonnet runner。 未指定なら /intent は無効 (opt-in)。 */
+  harnessRunClaude?: RunClaudeFn;
+  subsidiaryManager?: SubsidiaryBotManager;
+  /** 子会社の日次トークン予算トラッカー (ダッシュボードに当日消費を表示)。 */
+  subsidiaryBudget?: SubsidiaryBudgetTracker;
   adminState: AdminState;
   /** コスト予算の現況 (当日消費 / 予算 / block 判定)。 spawn ブロック + 設定 GUI 表示用。 */
   costStatus?: () => CostBudgetStatus;
@@ -148,6 +186,7 @@ export function buildApp(deps: AppDeps): Hono {
       discordConfig: deps.discordConfig,
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      harnessAudit: deps.harnessAudit,
     }),
   );
   app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
@@ -157,12 +196,20 @@ export function buildApp(deps: AppDeps): Hono {
     personasRouter({ personas: deps.personas, sessions: deps.repo, chat: deps.chat, config: deps.config }),
   );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
-  app.route("/v1/monitor", monitorRouter({ repo: deps.repo }));
+  app.route(
+    "/v1/session-logs",
+    sessionLogsRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+  );
+  app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat, dispatcher: deps.dispatcher }));
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
   app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
   app.route("/v1/stream", streamRouter());
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
+  app.route(
+    "/v1/library",
+    libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+  );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
@@ -173,13 +220,49 @@ export function buildApp(deps: AppDeps): Hono {
   app.route(
     "/v1/spawn",
     spawnRouter({
-      defaultSpawnCwd: deps.config.spawnDefaultCwd,
+      // 既定 cwd は env 固定の spawnDefaultCwd ではなくプライマリ workspace ルート
+      // (実行時解決) を採用する。 設定 GUI での workspace root 変更が即反映される。
+      resolveDefaultCwd: () => deps.adminState.getWorkspaceRoot(),
       isCostBlocked: () => deps.costStatus?.().blocked ?? false,
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
+  if (deps.harnessRules) {
+    app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
+  }
+  if (deps.harnessAudit && deps.harnessRules) {
+    app.route(
+      "/v1/harness",
+      harnessSessionRouter({ audit: deps.harnessAudit, rules: deps.harnessRules, runClaude: deps.harnessRunClaude }),
+    );
+  }
+  if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
+    app.route(
+      "/v1/subsidiaries",
+      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api") }),
+    );
+  }
+  // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
+  // env 解決の singleton を使うので AppDeps への配線は不要。
+  app.route("/v1/cost-feed", costFeedRouter());
+  app.route(
+    "/v1/cost",
+    costRouter({
+      sessions: deps.repo,
+      channels: deps.discordChannels,
+      samples: deps.costSamples,
+      limitSamples: deps.costLimitSamples,
+      oneShots: deps.costOneShots,
+      listSubsidiaries: () =>
+        deps.subsidiary
+          ? deps.subsidiary
+              .list()
+              .map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget }))
+          : [],
+    }),
+  );
 
   app.post("/v1/sweeper/run", (c) => {
     deps.sweeperRunOnce();
@@ -204,6 +287,10 @@ export function buildApp(deps: AppDeps): Hono {
       return c.json({ error: "invalid JSON" }, 400);
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    // 子会社 Bot 由来の spawn は subsidiary_id を引き継ぎ、 spawn したセッションに焼く
+    // (session.started 時に cwd で claim → metadata.subsidiary_id)。 これが無いと
+    // 未タグ = 本社所有扱いになり、 自動生成された session チャンネルが本社側に出てしまう。
+    const subsidiaryId = typeof body.subsidiary_id === "string" && body.subsidiary_id.trim() ? body.subsidiary_id.trim() : null;
 
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
@@ -228,6 +315,7 @@ export function buildApp(deps: AppDeps): Hono {
           cwd: cwdOverride,
           triggered_by: "web-spawn",
           spawn: true,
+          subsidiary_id: subsidiaryId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
         return c.json({
@@ -256,7 +344,7 @@ export function buildApp(deps: AppDeps): Hono {
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
-      const spawnCwd = resolveSpawnCwd(tplCwd, deps.config.spawnDefaultCwd);
+      const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const result = spawnSession({
         provider: spawn.provider,
         mode,
@@ -268,7 +356,7 @@ export function buildApp(deps: AppDeps): Hono {
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name });
+      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId });
       return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });
     }
 
@@ -280,35 +368,52 @@ export function buildApp(deps: AppDeps): Hono {
         400,
       );
     }
+    // model 指定 → resolveDelegationSpawn で `--model` 引数 / LICTOR_LOCAL_MODEL env に解決。
+    const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
+    const resolved = resolveDelegationSpawn(provider, modelInput);
+    const userArgs = Array.isArray(body.args)
+      ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
+      : [];
+    // prompt (自由テキスト初回指示) があれば prompt file に書き、 Lictor 注入用 env を内部設定する。
+    // env 値は Concordia が生成するファイルパスのみ (外部から任意 env は受け取らない = CWE-78 対策)。
+    const adHocPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
+    const spawnEnv: Record<string, string> = { ...resolved.env };
+    if (adHocPrompt) {
+      spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
+    }
+    const directCwd = resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot());
     const result = spawnSession({
-      provider,
+      provider: resolved.provider,
       mode,
-      args: Array.isArray(body.args)
-        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
-        : undefined,
-      cwd: resolveSpawnCwd(body.cwd, deps.config.spawnDefaultCwd),
+      args: [...resolved.args, ...userArgs],
+      cwd: directCwd,
       title: typeof body.title === "string" ? body.title : undefined,
-      // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
-      // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
+      env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
     if (!result.ok) return c.json({ error: result.error }, 400);
-    return c.json({ ok: true, pid: result.pid, command: result.command });
+    // 子会社由来の素の provider spawn も subsidiary_id を焼く (本社流入防止)。 本社の通常
+    // spawn では pending を積まない (cwd 衝突で他 delegation の claim を奪わないため)。
+    if (subsidiaryId) {
+      recordPendingDelegationSpawn({ cwd: directCwd, callName: "spawn", subsidiaryId });
+    }
+    return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: !!adHocPrompt });
   });
 
   // 管理 API: spawn の既定値を UI に晒す.
   // body.cwd を省略したときに実際に使われる path と、 platform_supported を返す.
   app.get("/v1/admin/spawn-defaults", (c) => {
     return c.json({
-      default_cwd: deps.config.spawnDefaultCwd,
+      // 実際に spawn で使われる既定 cwd = プライマリ workspace ルート (実行時解決)。
+      default_cwd: deps.adminState.getWorkspaceRoot(),
       platform_supported: process.platform === "win32",
     });
   });
 
   // 管理 API: 既存 lictor-wrapped セッションを kill.
   // 1. session row から metadata.lictor_pid を取得
-  // 2. プラットフォーム別に process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
-  // 3. session を ended に遷移 + end event append (stopped_by: admin)
-  // 4. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  // 2. session を ended に遷移 + end event append (stopped_by: admin)
+  // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  // 4. 独白後に platform 別 process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
   //    DELETE /v1/sessions/:id と同じ helper (control/end-session-flow.ts) を経由する.
   app.post("/v1/admin/stop-session/:id", async (c) => {
     const id = c.req.param("id");
@@ -317,17 +422,15 @@ export function buildApp(deps: AppDeps): Hono {
     if (!session.metadata) {
       return c.json({ error: "session has no metadata — was it lictor-wrapped?" }, 400);
     }
-    let meta: { lictor_pid?: number };
+    let meta: { lictor_pid?: number; agent_client_pid?: number };
     try {
-      meta = JSON.parse(session.metadata) as { lictor_pid?: number };
+      meta = JSON.parse(session.metadata) as { lictor_pid?: number; agent_client_pid?: number };
     } catch {
       return c.json({ error: "session.metadata is not JSON" }, 400);
     }
     if (typeof meta.lictor_pid !== "number") {
       return c.json({ error: "session.metadata.lictor_pid missing" }, 400);
     }
-    const killResult = stopSessionByLictorPid(meta.lictor_pid);
-    if (!killResult.ok) return c.json({ error: killResult.error }, 500);
     const now = Math.floor(Date.now() / 1000);
     deps.repo.setStatus(id, "ended", now, now);
     deps.repo.appendEvent({
@@ -344,15 +447,84 @@ export function buildApp(deps: AppDeps): Hono {
         dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
+        harnessAudit: deps.harnessAudit,
       },
       ended,
     );
+    const killResult = stopSessionByLictorPid(meta.lictor_pid);
+    // agent-client (別ツリー) も登録 pid があれば落とす (best-effort)。
+    if (typeof meta.agent_client_pid === "number") {
+      stopSessionByLictorPid(meta.agent_client_pid);
+    }
+    if (!killResult.ok) {
+      return c.json({
+        ok: false,
+        error: killResult.error,
+        pid: meta.lictor_pid,
+        report_generated: flow.report !== null,
+        monologue_posted: flow.postedMessageId !== null,
+      }, 500);
+    }
     return c.json({
       ok: true,
       pid: meta.lictor_pid,
+      agent_client_pid: meta.agent_client_pid ?? null,
       report_generated: flow.report !== null,
       monologue_posted: flow.postedMessageId !== null,
     });
+  });
+
+  // ── 管理 API: 孤児プロセス回収 (reaper) ─────────────────────────────
+  // GET  /v1/admin/orphans : dry-run。 終了/消滅 session に紐付かない Lictor/agent-client の一覧。
+  // POST /v1/admin/reap    : 回収実行 (kill)。 body {dry_run?: boolean, min_age_sec?: number}。
+  app.get("/v1/admin/orphans", async (c) => {
+    const r = await reapOrphans({ repo: deps.repo }, {
+      dryRun: true,
+      minAgeSec: deps.config.reaperMinAgeSec,
+      endedGraceSec: deps.config.reaperEndedGraceSec,
+    });
+    return c.json({ scanned: r.scanned, orphans: r.orphans });
+  });
+  app.post("/v1/admin/reap", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { dry_run?: boolean; min_age_sec?: number };
+    const minAgeSec =
+      typeof body.min_age_sec === "number" && body.min_age_sec >= 0
+        ? body.min_age_sec
+        : deps.config.reaperMinAgeSec;
+    const r = await reapOrphans(
+      { repo: deps.repo },
+      { dryRun: body.dry_run === true, minAgeSec, endedGraceSec: deps.config.reaperEndedGraceSec },
+    );
+    return c.json({
+      scanned: r.scanned,
+      orphans: r.orphans.length,
+      killed: r.killed.length,
+      failed: r.failed.length,
+      detail: r,
+    });
+  });
+
+  // ── 管理 API: ワークスペース整理 (ws-cleanup) ───────────────────────
+  // GET  /v1/admin/ws-cleanup : dry-run。 各リポの worktree prune / main ff 更新 /
+  //   マージ済みブランチ削除の「予定」と、 ユーザ判断に委ねる保留事項を出す (無変更)。
+  // POST /v1/admin/ws-cleanup : 実行。 body {apply?: boolean(既定 true), fetch?: boolean,
+  //   delete_merged_remote_gone?: boolean}。 安全アクションのみ自動、 未マージ/作業中は保留出力。
+  app.get("/v1/admin/ws-cleanup", async (c) => {
+    const r = await runWsCleanup(deps.adminState.getWorkspaceRoots(), deps.repo, { apply: false });
+    return c.json(r);
+  });
+  app.post("/v1/admin/ws-cleanup", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      apply?: boolean;
+      fetch?: boolean;
+      delete_merged_remote_gone?: boolean;
+    };
+    const r = await runWsCleanup(deps.adminState.getWorkspaceRoots(), deps.repo, {
+      apply: body.apply !== false,
+      fetch: body.fetch !== false,
+      deleteMergedRemoteGone: body.delete_merged_remote_gone !== false,
+    });
+    return c.json(r);
   });
 
   // ── 管理 API: 3 つの runtime toggle ─────────────────────────────────
@@ -381,27 +553,6 @@ export function buildApp(deps: AppDeps): Hono {
     }
     deps.adminState.setRulesEnabled(body.enabled);
     return c.json({ enabled: deps.adminState.getRulesEnabled() });
-  });
-
-  app.get("/v1/admin/rule-proposer-interval", (c) => {
-    return c.json({
-      interval_sec: deps.adminState.getRuleProposerIntervalSec(),
-      min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
-      max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
-    });
-  });
-  app.put("/v1/admin/rule-proposer-interval", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const n = Number(body?.interval_sec);
-    if (!Number.isFinite(n)) {
-      return c.json({ error: "body.interval_sec (number) required" }, 400);
-    }
-    try {
-      deps.adminState.setRuleProposerIntervalSec(n);
-    } catch (err) {
-      return c.json({ error: (err as Error).message }, 400);
-    }
-    return c.json({ interval_sec: deps.adminState.getRuleProposerIntervalSec() });
   });
 
   // ワークスペースルート / GitHub Organization (schema_meta 永続化、 設定 GUI から編集)。
@@ -482,18 +633,19 @@ export function buildApp(deps: AppDeps): Hono {
 
   // 絵文字→アクション 写像: 既定 + ユーザ上書き。 上書きは schema_meta 永続化で即時反映。
   app.get("/v1/admin/reaction-mappings", (c) => {
-    const defaults = defaultReactionEmojiMap();
+    const rwf = getRwf();
+    const defaults = rwf.defaultReactionEmojiMap();
     const overrides = deps.adminState.getReactionEmojiOverrides();
     // action_help: 各カスタムコマンド (ワークフロー) が何をするかのヘルプ (GUI 表示用)。
-    return c.json({ defaults, overrides, actions: WORKFLOW_ACTIONS, action_help: WORKFLOW_ACTION_HELP });
+    return c.json({ defaults, overrides, actions: rwf.WORKFLOW_ACTIONS, action_help: rwf.WORKFLOW_ACTION_HELP });
   });
   app.put("/v1/admin/reaction-mappings", async (c) => {
     const body = await c.req.json().catch(() => null);
     const emoji = typeof body?.emoji === "string" ? body.emoji.trim() : "";
     const action = typeof body?.action === "string" ? body.action : "";
     if (!emoji) return c.json({ error: "body.emoji (string) required" }, 400);
-    if (!isWorkflowAction(action)) {
-      return c.json({ error: `body.action must be one of ${WORKFLOW_ACTIONS.join(", ")}` }, 400);
+    if (!getRwf().isWorkflowAction(action)) {
+      return c.json({ error: `body.action must be one of ${getRwf().WORKFLOW_ACTIONS.join(", ")}` }, 400);
     }
     deps.adminState.setReactionEmojiOverride(emoji, action);
     return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });
@@ -529,11 +681,7 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/v1/admin/state", (c) => {
-    return c.json({
-      ...deps.adminState.snapshot(),
-      proposer_interval_min_sec: ADMIN_PROPOSER_INTERVAL_MIN,
-      proposer_interval_max_sec: ADMIN_PROPOSER_INTERVAL_MAX,
-    });
+    return c.json(deps.adminState.snapshot());
   });
 
   // 管理 API: 新コード反映用の self-restart.
@@ -622,6 +770,65 @@ export function buildApp(deps: AppDeps): Hono {
       "/v1/admin/slack",
       slackAdminRouter({ config: deps.slackConfig, secretBox: deps.secretBox, admin: deps.slackAdmin }),
     );
+  }
+
+  // Web allowedHosts 設定 (concordia.config.json の web.allowedHosts を読み書き)。
+  // Vite dev server 再起動で反映される。
+  const webConfigPath = resolve(process.cwd(), "concordia.config.json");
+
+  function readWebHosts(): string[] {
+    if (!existsSync(webConfigPath)) return [];
+    try {
+      const cfg = JSON.parse(readFileSync(webConfigPath, "utf8")) as { web?: { allowedHosts?: unknown } };
+      const hosts = cfg?.web?.allowedHosts;
+      return Array.isArray(hosts) ? hosts.filter((h): h is string => typeof h === "string") : [];
+    } catch { return []; }
+  }
+
+  function writeWebHosts(hosts: string[]): void {
+    let cfg: Record<string, unknown> = {};
+    if (existsSync(webConfigPath)) {
+      try { cfg = JSON.parse(readFileSync(webConfigPath, "utf8")) as Record<string, unknown>; } catch { /* ignore */ }
+    }
+    const web = (cfg.web && typeof cfg.web === "object" && !Array.isArray(cfg.web))
+      ? { ...(cfg.web as Record<string, unknown>) }
+      : {} as Record<string, unknown>;
+    web.allowedHosts = hosts;
+    cfg.web = web;
+    writeFileSync(webConfigPath, JSON.stringify(cfg, null, 2) + "\n", "utf8");
+  }
+
+  app.get("/v1/admin/web-hosts", (c) => c.json({ allowed_hosts: readWebHosts() }));
+
+  app.put("/v1/admin/web-hosts", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || !Array.isArray(body.allowed_hosts)) {
+      return c.json({ error: "body.allowed_hosts (string[]) required" }, 400);
+    }
+    const hosts = (body.allowed_hosts as unknown[]).filter((h): h is string => typeof h === "string");
+    writeWebHosts(hosts);
+    return c.json({ allowed_hosts: readWebHosts(), note: "Vite dev server の再起動後に反映されます" });
+  });
+
+  // ─── Web UI 配信 (built SPA) ────────────────────────────────────────────
+  // backend port (11111) の root を 404 にしない。 ビルド済み web UI (web/dist) を
+  // 配信し、 Excubitor / Tunnel から :11111 を開いても UI が出るようにする
+  // (tier: personal の Memoria local と同様、 server 単一 port で UI を提供する)。
+  // API (/v1, /health) は上で解決済みなので干渉しない。 dev で UI を hot-reload したい
+  // 場合は従来どおり Vite (10101) を直接開く。
+  const webDistRoot = "./web/dist";
+  const webIndexPath = resolve(process.cwd(), "web/dist/index.html");
+  if (existsSync(webIndexPath)) {
+    const indexHtml = readFileSync(webIndexPath, "utf8");
+    // 実ファイル (index.html / assets / favicon 等) を配信。
+    app.use("/*", serveStatic({ root: webDistRoot }));
+    // SPA フォールバック: ファイルが無いパス (クライアントルート) は index.html を返す。
+    // ただし API 名前空間は HTML を返さず 404 のままにする。
+    app.get("*", (c) => {
+      const p = c.req.path;
+      if (p.startsWith("/v1") || p === "/health") return c.notFound();
+      return c.html(indexHtml);
+    });
   }
 
   return app;

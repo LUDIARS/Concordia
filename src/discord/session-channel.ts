@@ -342,29 +342,41 @@ async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number
  */
 export async function onSessionTitleChanged(
   deps: SessionChannelDeps,
-  input: { sessionId: string; title: string; agentType: string | null },
+  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
+  // /ch_name で名前を固定している場合は title (= 処理内容) でリネームしない。
+  // topic だけ更新し、 チャンネル名はユーザ指定名を維持する。
+  const locked = row.name_locked === 1;
   try {
     // status が ended/lost ならその状態を優先、active なら DB の display_state (作業中含む) を維持。
     const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
     const newBody = titleToChannelBase(input.title);
     const nextName = buildSessionChannelName(state, input.agentType, newBody, row.delegation_emoji);
-    const patch: { topic: string; reason: string; name: string } = {
+    // チャンネル名リネームは明示的に要求された時だけ行う (forceRename=true)。
+    // AI の title-suggestion 由来 (Lictor 自動) はリネームせず topic のみ更新し、
+    // チャンネル名は初回リポ選択時の名前を保つ。明示リネームは 🔹/📎 リアクション等で行う。
+    const patch: { topic: string; reason: string; name?: string } = {
       topic: `${input.title.slice(0, 120)} | session ${input.sessionId}`,
       reason: `session title updated: ${input.sessionId}`,
-      // title rename は常に反映する。status 変化時の cooldown とは分離する。
-      name: nextName,
     };
+    if (input.forceRename && !locked) {
+      patch.name = nextName;
+    }
     await ch.edit(patch);
-    // タイトル変更後は新 body を DB に保存 (次の status 変化時に再構築できるように)。
-    deps.repo.setDisplayState(input.sessionId, state as ChannelDisplayState, input.agentType, newBody);
-    deps.log.info(
-      `session-channel: title updated for ${input.sessionId} topic=ok name=${patch.name}`,
-    );
+    if (input.forceRename && !locked) {
+      deps.repo.setDisplayState(input.sessionId, state as ChannelDisplayState, input.agentType, newBody);
+      deps.log.info(
+        `session-channel: title+name updated for ${input.sessionId} topic=ok name=${nextName}`,
+      );
+    } else {
+      deps.log.info(
+        `session-channel: topic updated for ${input.sessionId} (name preserved)`,
+      );
+    }
   } catch (e) {
     deps.log.warn(`session-channel: title update failed for ${input.sessionId}: ${(e as Error).message}`);
   }
@@ -401,6 +413,42 @@ export async function onSessionWorkState(
     deps.log.info(`session-channel: ${input.sessionId} work-state → #${newName}`);
   } catch (e) {
     deps.log.warn(`session-channel: work-state rename failed for ${input.sessionId}: ${(e as Error).message}`);
+  }
+}
+
+/**
+ * /ch_name — チャンネル名 (body) をユーザ指定値で固定する。
+ * name_body を locked 値に更新し name_locked=1 を立てた上で、 現在の状態絵文字 +
+ * エージェント絵文字を保ったまま即リネームする。 以後は title (処理内容) による
+ * 自動リネームを受け付けない (onSessionTitleChanged が locked を見て抑止)。
+ *
+ * 戻り値は実際に採用した body (空入力時は "session" にフォールバック)。
+ */
+export async function onSessionChannelNameLocked(
+  deps: SessionChannelDeps,
+  input: { sessionId: string; name: string; agentType: string | null },
+): Promise<{ ok: boolean; name?: string; reason?: string }> {
+  const row = deps.repo.findBySessionId(input.sessionId);
+  if (!row) return { ok: false, reason: "not_a_session_channel" };
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return { ok: false, reason: "channel_missing" };
+
+  const body = titleToChannelBase(input.name);
+  // DB を先に固定 — 以降の自動リネームを確実に抑止する (rename API が失敗しても lock は残す)。
+  deps.repo.setNameLock(input.sessionId, body);
+
+  const state = row.status === "active" ? (row.display_state ?? "active") : row.status;
+  const agentType = input.agentType ?? row.agent_type;
+  const newName = buildSessionChannelName(state, agentType, body, row.delegation_emoji);
+  try {
+    await ch.edit({ name: newName, reason: `session ${input.sessionId} name locked via /ch_name` });
+    deps.log.info(`session-channel: name locked for ${input.sessionId} → #${newName}`);
+    return { ok: true, name: newName };
+  } catch (e) {
+    // Discord の rename レート制限 (2回/10min) 等で失敗しても lock 自体は有効。
+    // 次の状態変化 (work-state/status) 時に locked body で反映される。
+    deps.log.warn(`session-channel: name-lock rename failed for ${input.sessionId}: ${(e as Error).message}`);
+    return { ok: true, name: newName, reason: "rename_deferred" };
   }
 }
 

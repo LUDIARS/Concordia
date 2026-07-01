@@ -2,14 +2,18 @@
 
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { appendFile, mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
+import { dirname, join } from "node:path";
 
 const flags = parseArgs(process.argv.slice(2));
-const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http://127.0.0.1:17330").replace(/\/+$/, "");
+const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
 const codexBin = flags.codexBin ?? process.env.CODEX_BIN ?? "codex";
 const cwd = flags.cwd ?? process.cwd();
 const timeoutMs = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
 const prompt = flags.prompt.length > 0 ? flags.prompt.join(" ") : readStdin();
+const startedAt = Date.now();
+const queuePath = process.env.CONCORDIA_COST_ONESHOT_QUEUE || join(process.cwd(), "logs", "cost-one-shot-queue.jsonl");
 
 if (!prompt.trim()) {
   process.stderr.write("usage: concordia-codex-worker.mjs [--cd=DIR] [--model=MODEL] [--codex-bin=codex] <prompt>\n");
@@ -43,6 +47,7 @@ let lastAssistantText = "";
 let stdoutBuffer = "";
 let stderr = "";
 let pending = Promise.resolve();
+let oneShotRecorded = false;
 
 child.stdin.end(prompt, "utf8");
 
@@ -65,6 +70,20 @@ child.stderr.on("data", (chunk) => {
 
 child.on("error", (err) => {
   process.stderr.write(`[concordia-codex-worker] ${err.message}\n`);
+  oneShotRecorded = true;
+  queueOneShot({
+    ts: startedAt,
+    service: "concordia",
+    provider: "codex",
+    command: [codexBin, ...codexArgs].join(" "),
+    model: flags.model ?? null,
+    cwd,
+    prompt,
+    status: "error",
+    exit_code: -1,
+    duration_ms: Date.now() - startedAt,
+    metadata: { error: err.message },
+  }).catch(() => undefined);
   process.exitCode = 1;
 });
 
@@ -77,6 +96,22 @@ child.on("close", async (code) => {
       payload: { code, stderr: stderr.slice(-1000) },
     });
     await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {});
+  }
+  if (!oneShotRecorded) {
+    oneShotRecorded = true;
+    await postOneShot({
+      ts: startedAt,
+      service: "concordia",
+      provider: "codex",
+      command: [codexBin, ...codexArgs].join(" "),
+      model: flags.model ?? null,
+      cwd,
+      prompt,
+      status: code === 0 ? "ok" : "error",
+      exit_code: code,
+      duration_ms: Date.now() - startedAt,
+      metadata: { sessionId, transcriptPath, stderr: stderr.slice(-1000) },
+    });
   }
   if (lastAssistantText) process.stdout.write(lastAssistantText.trim() + "\n");
   process.exitCode = code ?? 1;
@@ -168,6 +203,34 @@ async function postJson(path, body) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function postOneShot(payload) {
+  const ok = await postJsonChecked("/v1/cost/one-shots", payload);
+  if (!ok) await queueOneShot(payload);
+}
+
+async function postJsonChecked(path, body) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${concordiaUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function queueOneShot(payload) {
+  await mkdir(dirname(queuePath), { recursive: true });
+  await appendFile(queuePath, JSON.stringify(payload) + "\n", "utf8");
 }
 
 function readStdin() {

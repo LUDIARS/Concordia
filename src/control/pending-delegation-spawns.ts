@@ -14,16 +14,27 @@ export interface PendingDelegationSpawn {
   cwd: string;
   emoji: string | null;
   callName: string;
+  /** 子会社由来の spawn なら子会社 id。 session.started 時に metadata.subsidiary_id へ焼く。 */
+  subsidiaryId: string | null;
   at: number;
 }
 
 const pending: PendingDelegationSpawn[] = [];
 
 /** spawn 直後に呼ぶ。cwd が空なら記録しない（照合に使えないため）。 */
-export function recordPendingDelegationSpawn(input: { cwd?: string | null; emoji?: string | null; callName: string }, now = Date.now()): void {
+export function recordPendingDelegationSpawn(
+  input: { cwd?: string | null; emoji?: string | null; callName: string; subsidiaryId?: string | null },
+  now = Date.now(),
+): void {
   const cwd = (input.cwd ?? "").trim();
   if (!cwd) return;
-  pending.push({ cwd: normalize(cwd), emoji: (input.emoji ?? "").trim() || null, callName: input.callName, at: now });
+  pending.push({
+    cwd: normalize(cwd),
+    emoji: (input.emoji ?? "").trim() || null,
+    callName: input.callName,
+    subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
+    at: now,
+  });
   prune(now);
 }
 

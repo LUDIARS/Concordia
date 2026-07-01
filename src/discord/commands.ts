@@ -16,7 +16,13 @@ import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
 import mmtaskCommand from "./commands/mmtask.js";
+import projectsCommand from "./commands/projects.js";
+import chNameCommand from "./commands/ch-name.js";
+import compactionCommand from "./commands/compaction.js";
+import goalCommand from "./commands/goal.js";
+import relictorCommand from "./commands/relictor.js";
 import { dispatchQuestionInteraction } from "./question.js";
+import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -26,6 +32,9 @@ export interface DiscordCommandDeps {
   layout: DiscordConfigSnapshot;
   log: { info: (m: string) => void; warn: (m: string) => void };
   logsDir?: string;
+  permissionActions?: PermissionActionStore;
+  /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
+  subsidiaryId?: string | null;
 }
 
 export interface DiscordCommandSpec {
@@ -44,6 +53,11 @@ const COMMANDS: DiscordCommandSpec[] = [
   enterCommand,
   cleanCommand,
   mmtaskCommand,
+  projectsCommand,
+  chNameCommand,
+  compactionCommand,
+  goalCommand,
+  relictorCommand,
 ];
 
 export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {
@@ -62,6 +76,10 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   if (interaction.isAutocomplete()) {
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
     if (cmd?.autocomplete) await cmd.autocomplete(interaction, deps);
+    return;
+  }
+  if (isPermissionInteraction(interaction)) {
+    await dispatchPermissionInteraction(interaction, deps);
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {

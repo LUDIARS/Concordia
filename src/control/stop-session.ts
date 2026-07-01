@@ -20,6 +20,17 @@ export interface StopOk { ok: true; method: "taskkill" | "signal" }
 export interface StopErr { ok: false; error: string }
 export type StopResult = StopOk | StopErr;
 
+/** pid が生存しているか (signal 0)。 EPERM は「存在するが権限なし」= 生存扱い。 */
+export function isPidAlive(pid: number): boolean {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
 export function stopSessionByLictorPid(pid: number): StopResult {
   if (!Number.isInteger(pid) || pid <= 0) {
     return { ok: false, error: `invalid pid: ${pid}` };

@@ -1,3 +1,29 @@
+---
+type: setup
+title: "Discord bot を動かすための設定 (discord)"
+description: "Concordia の Discord bot を同一プロセス内で起動するためのセットアップガイド。env キーによる opt-in 制御、secret-box 暗号化による DB 保存、hot 再接続、slash command 登録の手順を網羅する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - typescript
+  - webhook
+  - lifecycle
+  - auth
+  - spawn
+  - relay
+  - rest-api
+status: implemented
+related:
+  - ../feature/discord-ui.md
+  - ../feature/discord-control-ui.md
+  - ../feature/discord-lictor-relay.md
+  - ../feature/discord-session-direct-inject.md
+  - spawn.md
+updated: 2026-06-30
+---
+
+
 # Discord bot を動かすための設定 (discord)
 
 ## 目的
@@ -52,7 +78,7 @@ API:
 
 ```bash
 # 例: token と guild を一括設定して即接続
-curl -s -X PUT http://127.0.0.1:17330/v1/admin/discord/config \
+curl -s -X PUT http://127.0.0.1:11111/v1/admin/discord/config \
   -H "content-type: application/json" \
   -d '{"enabled":true,"guild_id":"123456789012345678","application_id":"123456789012345678","token":"..."}'
 ```

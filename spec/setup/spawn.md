@@ -1,3 +1,27 @@
+---
+type: setup
+title: "セッション管制 (spawn) の設定 (spawn)"
+description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。Bearer token 認証の外部エンドポイント (`/v1/spawn`) と loopback 信頼境界の管理エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、MCP delegation 経由の委託 spawn と既定 cwd の解決順も網羅する。"
+service: concordia
+domain: session-coordination
+tags:
+  - typescript
+  - spawn
+  - lifecycle
+  - delegation
+  - auth
+  - llm
+  - claude
+  - codex
+  - gemini
+status: implemented
+related:
+  - ../feature/delegation.md
+  - discord.md
+  - config-reference.md
+updated: 2026-06-30
+---
+
 # セッション管制 (spawn) の設定 (spawn)
 
 ## 目的
@@ -25,15 +49,19 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | token ファイルの場所を上書き (docker/systemd の volume 分離用)。 |
 | `CONCORDIA_RESTART_DRY_RUN` | 未設定 | `1` で `/v1/admin/restart` の spawn/exit を skip (テスト用)。 |
 
-### CONCORDIA_SPAWN_DEFAULT_CWD の解決順
+### spawn 既定 cwd の解決順
 
-`body.cwd` が省略されたときの既定値 (`src/shared/config.ts` / `src/api/spawn.ts`):
+`body.cwd` が省略されたときの既定値は **プライマリ workspace ルート** (`workspaceRoots[0]` = `AdminState.getWorkspaceRoot()`) を実行時に解決する (`src/app.ts` / `src/api/spawn.ts`)。 env 固定の `CONCORDIA_SPAWN_DEFAULT_CWD` を直接流用せず、 設定 GUI / `/v1/admin/workspace-root(s)` での上書きが即反映される。
 
-1. env `CONCORDIA_SPAWN_DEFAULT_CWD` (明示指定、 最優先)
-2. Windows かつ `E:\Document\Ars` が存在すればその値 (LUDIARS 運用既定の自動採用)
-3. 空 → フォールバック無し (Concordia 自身の cwd で spawn)
+`getWorkspaceRoot()` 自体の解決順 (`src/admin/state.ts` / `src/shared/config.ts`):
 
-> LUDIARS の Windows 機ではほぼ常に (2) が効くので、 別パスに変えたいときだけ env を設定する。 Concordia への委託は cwd 明示が安全 (memory: feedback_delegation_cwd_needed)。
+1. AdminState の `workspace_roots` (設定 GUI / API で上書き、 schema_meta 永続化) の先頭
+2. (移行用) 旧 single key `workspace_root`
+3. config 既定 `workspaceRoots[0]` = env `CONCORDIA_WORKSPACE_ROOT` || `spawnDefaultCwd`
+   - `spawnDefaultCwd` = env `CONCORDIA_SPAWN_DEFAULT_CWD` || (Windows かつ `E:\Document\Ars` 存在時の自動採用)
+4. 空 → フォールバック無し (Concordia 自身の cwd で spawn)
+
+> 既定 cwd は workspace ルート先頭が source of truth。 別パスに恒久的に変えたいときは設定 GUI で workspace root を変更する (env `CONCORDIA_SPAWN_DEFAULT_CWD` は最終フォールバックの一段でしかない)。 Concordia への委託は cwd 明示が安全 (memory: feedback_delegation_cwd_needed)。
 
 ## MCP delegation 経由の spawn
 
@@ -41,7 +69,7 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_BASE_URL` | `http://127.0.0.1:17330` | 叩く先。 |
+| `CONCORDIA_BASE_URL` | `http://127.0.0.1:11111` | 叩く先。 |
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | `/v1/spawn` 用 token の場所。 |
 
 MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](../feature/delegation.md)。

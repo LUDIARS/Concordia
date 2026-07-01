@@ -1,3 +1,25 @@
+---
+type: feature
+title: "Concordia Discord-UI 統合 — 仕様 (PR-A)"
+description: "Concordia の session lifecycle イベントを hook して Discord channel を自動作成し、チャット/トランスクリプトの双方向 egress・ingress および reaction 評価記録を実現する統合仕様 (PR-A スコープ)。bot 常駐・session channel CRUD・webhook 経由の persona 投稿・SQLite 4 テーブル追加を定義する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - typescript
+  - sqlite
+  - webhook
+  - event-driven
+  - state-machine
+  - persona
+  - relay
+status: implemented
+related:
+  - discord-ui-pr-b.md
+updated: 2026-06-30
+---
+
+
 # Concordia Discord-UI 統合 — 仕様 (PR-A)
 
 ## 目的

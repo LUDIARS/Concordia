@@ -26,6 +26,8 @@ export interface DelegationTemplateRow {
   prompt_template: string;
   input_schema: string;          // JSON string
   default_cwd: string | null;
+  /** 対象プロジェクト名 (cwd と別に delegation が持つ。 famulus auto-model のヒント等)。 */
+  project: string | null;
   is_active: number;
   /** チャット表示用絵文字。 空文字 = モデル/provider フォールバック */
   emoji: string;
@@ -68,6 +70,7 @@ export interface CreateTemplateInput {
   prompt_template: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
+  project?: string | null;
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
@@ -81,6 +84,7 @@ export interface UpdateTemplateInput {
   prompt_template?: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
+  project?: string | null;
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
@@ -118,6 +122,7 @@ export class DelegationRepo {
         prompt_template: input.prompt_template,
         input_schema: input.input_schema,
         default_cwd: input.default_cwd,
+        project: input.project,
         is_active: input.is_active,
         emoji: input.emoji,
         call_only: input.call_only,
@@ -132,9 +137,9 @@ export class DelegationRepo {
     this.db.prepare(`
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model,
-        prompt_template, input_schema, default_cwd, is_active,
+        prompt_template, input_schema, default_cwd, project, is_active,
         emoji, call_only, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -145,6 +150,7 @@ export class DelegationRepo {
       input.prompt_template,
       JSON.stringify(input.input_schema ?? []),
       input.default_cwd ?? null,
+      input.project ?? null,
       input.is_active === false ? 0 : 1,
       input.emoji ?? "",
       input.call_only ? 1 : 0,
@@ -167,6 +173,7 @@ export class DelegationRepo {
         prompt_template = ?,
         input_schema = ?,
         default_cwd = ?,
+        project = ?,
         is_active = ?,
         emoji = ?,
         call_only = ?,
@@ -180,6 +187,7 @@ export class DelegationRepo {
       patch.prompt_template ?? cur.prompt_template,
       patch.input_schema !== undefined ? JSON.stringify(patch.input_schema) : cur.input_schema,
       patch.default_cwd !== undefined ? patch.default_cwd : cur.default_cwd,
+      patch.project !== undefined ? patch.project : cur.project,
       patch.is_active === undefined ? cur.is_active : (patch.is_active ? 1 : 0),
       patch.emoji !== undefined ? patch.emoji : cur.emoji,
       patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,

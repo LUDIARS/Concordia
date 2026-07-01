@@ -1,3 +1,25 @@
+---
+type: data
+title: "データスキーマ"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=15、セッション中核・chat/tasks・ルールエンジン・ペルソナ・Discord連携・delegation・observability の全テーブルを網羅する。権威は src/db/schema.ts。"
+service: concordia
+domain: persistence
+tags:
+  - sqlite
+  - schema
+  - session-coordination
+  - discord
+  - persona
+  - delegation
+  - observability
+  - lifecycle
+status: implemented
+related:
+  - ../interface/service-schema.md
+updated: 2026-06-30
+---
+
+
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は

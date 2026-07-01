@@ -98,6 +98,13 @@ describe("DelegationService.invoke", () => {
     rmSync(promptsDir, { recursive: true, force: true });
   });
 
+  it("writeAdHocPrompt writes the raw prompt to a file and returns its path", () => {
+    const path = svc.writeAdHocPrompt("自由テキストの初回指示\n2行目");
+    expect(path.startsWith(promptsDir)).toBe(true);
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path, "utf8")).toBe("自由テキストの初回指示\n2行目");
+  });
+
   it("invokes a template, writes prompt file, spawns by default", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
@@ -109,6 +116,7 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("echo");
     expect(r.spawn_pid).toBe(999);
     expect(spawnCalls.length).toBe(1);
+    expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
   it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {
@@ -182,6 +190,8 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("Concordia コンテキスト");
     // 起動後の報告ファースト指示が含まれる
     expect(file).toContain("これから何をするか");
+    // 「勝手に作業しない」 ガードが含まれる
+    expect(file).toContain("勝手に作業しない");
     // persona 無しなので「割り当て人格」セクションは出ない
     expect(file).not.toContain("割り当て人格");
   });

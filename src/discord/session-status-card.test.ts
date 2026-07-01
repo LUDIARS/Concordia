@@ -65,4 +65,42 @@ describe("buildSessionStatusEmbed", () => {
     expect(field(withPending, "タスク")!.name).toContain("依頼残 3");
     expect(field(withPending, "タスク")!.value).toContain("no open tasks");
   });
+
+  it("コンテキスト占有と想定コストを description に 1 行で出す", () => {
+    const e = buildSessionStatusEmbed(base({
+      contextBadge: "🧠 ctx ~62% (124k)",
+      contextPct: 0.62,
+      costBadge: "💰 ~$1.23",
+    }));
+    expect(e.data.description).toContain("🧠 ctx ~62% (124k) · 💰 ~$1.23");
+    // 閾値超え (>=0.75) は ⚠️ を添える
+    const warn = buildSessionStatusEmbed(base({
+      contextBadge: "🧠 ctx ~80% (160k)",
+      contextPct: 0.8,
+      costBadge: "💰 ~$2.50",
+    }));
+    expect(warn.data.description).toContain("⚠️ 🧠 ctx ~80% (160k) · 💰 ~$2.50");
+    // どちらも無ければ usage 行は出ない
+    expect(buildSessionStatusEmbed(base()).data.description).not.toContain("💰");
+  });
+
+  it("Anatomia キャッシュ field は cache があるときだけ出る (assumed は ~ 付き)", () => {
+    const none = buildSessionStatusEmbed(base());
+    expect(field(none, "Anatomia")).toBeUndefined();
+
+    const withCache = buildSessionStatusEmbed(base({
+      cache: { hits: 8, gets: 12, hitRate: 8 / 12, savedUsd: 0.14, spentUsd: 0.07, basis: "assumed" },
+    }));
+    const f = field(withCache, "Anatomia")!;
+    expect(f.value).toContain("67% hit (8/12)");
+    expect(f.value).toContain("節約 ~$0.14");
+    expect(f.value).toContain("コスト ~$0.07");
+
+    // measured basis は ~ なし、gets=0 は省略
+    const measured = buildSessionStatusEmbed(base({
+      cache: { hits: 2, gets: 10, hitRate: 0.2, savedUsd: 0.035, spentUsd: 0.14, basis: "measured" },
+    }));
+    expect(field(measured, "Anatomia")!.value).toContain("20% hit (2/10) · 節約 $0.0350 · コスト $0.14");
+    expect(field(buildSessionStatusEmbed(base({ cache: { hits: 0, gets: 0, hitRate: 0, savedUsd: 0, spentUsd: 0, basis: "assumed" } })), "Anatomia")).toBeUndefined();
+  });
 });

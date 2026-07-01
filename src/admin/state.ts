@@ -4,10 +4,7 @@
  *
  *   - chat_muted               default true   — chitchat / chat-reply / report
  *                                                 task enqueues are skipped
- *   - rules_enabled            default false  — rule engine + proposer both
- *                                                 paused (no claude calls)
- *   - rule_proposer_interval   default 3600s  — gap between proposer ticks
- *                                                 (60..86400)
+ *   - rules_enabled            default false  — rule engine 発火を停止
  *   - workspace_root           default cfg    — ローカルクローン親 (Memoria 解決 /
  *                                                 reaction-workflow / Work 走査の基点)
  *   - github_org               default cfg    — リポが属する GitHub Organization
@@ -29,7 +26,6 @@ import type Database from "better-sqlite3";
 
 const KEY_CHAT_MUTED = "admin.chat_muted";
 const KEY_RULES_ENABLED = "admin.rules_enabled";
-const KEY_PROPOSER_INTERVAL = "admin.rule_proposer_interval_sec";
 const KEY_WORKSPACE_ROOT = "admin.workspace_root";
 const KEY_WORKSPACE_ROOTS = "admin.workspace_roots";
 const KEY_GITHUB_ORG = "admin.github_org";
@@ -46,10 +42,6 @@ const LICTOR_MODES: readonly LictorMode[] = ["auto", "dev", "prod"];
 
 const DEFAULT_CHAT_MUTED = true;
 const DEFAULT_RULES_ENABLED = false;
-const DEFAULT_PROPOSER_INTERVAL = 3600;
-
-const PROPOSER_INTERVAL_MIN = 60;
-const PROPOSER_INTERVAL_MAX = 86400;
 
 /** workspace_root / github_org / reaction_workflow の未設定時フォールバック (config / env 由来)。 */
 export interface AdminStateDefaults {
@@ -83,22 +75,6 @@ export class AdminState {
 
   setRulesEnabled(value: boolean): void {
     this.setBool(KEY_RULES_ENABLED, value);
-  }
-
-  getRuleProposerIntervalSec(): number {
-    const raw = this.getRaw(KEY_PROPOSER_INTERVAL);
-    if (raw === null) return DEFAULT_PROPOSER_INTERVAL;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return DEFAULT_PROPOSER_INTERVAL;
-    return clamp(n, PROPOSER_INTERVAL_MIN, PROPOSER_INTERVAL_MAX);
-  }
-
-  setRuleProposerIntervalSec(value: number): void {
-    if (!Number.isFinite(value)) {
-      throw new Error("rule_proposer_interval_sec must be a finite number");
-    }
-    const clamped = clamp(Math.floor(value), PROPOSER_INTERVAL_MIN, PROPOSER_INTERVAL_MAX);
-    this.setRaw(KEY_PROPOSER_INTERVAL, String(clamped));
   }
 
   /**
@@ -247,7 +223,6 @@ export class AdminState {
   snapshot(): {
     chat_muted: boolean;
     rules_enabled: boolean;
-    rule_proposer_interval_sec: number;
     workspace_root: string;
     workspace_roots: string[];
     github_org: string;
@@ -260,7 +235,6 @@ export class AdminState {
     return {
       chat_muted: this.getChatMuted(),
       rules_enabled: this.getRulesEnabled(),
-      rule_proposer_interval_sec: this.getRuleProposerIntervalSec(),
       workspace_root: this.getWorkspaceRoot(),
       workspace_roots: this.getWorkspaceRoots(),
       github_org: this.getGithubOrg(),
@@ -298,10 +272,6 @@ export class AdminState {
   }
 }
 
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
 /** schema_meta に入った JSON 配列文字列を string[] に復元 (壊れた値は [])。 */
 function parseRootsJson(raw: string): string[] {
   try {
@@ -327,6 +297,3 @@ function cleanRoots(roots: readonly string[]): string[] {
   }
   return out;
 }
-
-export const ADMIN_PROPOSER_INTERVAL_MIN = PROPOSER_INTERVAL_MIN;
-export const ADMIN_PROPOSER_INTERVAL_MAX = PROPOSER_INTERVAL_MAX;

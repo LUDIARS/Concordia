@@ -53,7 +53,20 @@ concordia.secret.key
 # 委託 prompt の実行時生成物
 delegation-prompts/
 
+# vite.config.ts はドメイン名を含むためローカル管理 (vite.config.example.ts を参照)
+web/vite.config.ts
+
 # runtime logs (Vestigium / Lictor)
 logs/
 web/logs/
 bash.exe.stackdump
+
+# Anatomia retune ローカル状態（反復カウンタ等）
+.anatomia/
+
+# ローカル review/ は中央 Review/<repo>/ に集約する (per-repo review/ は追跡しない)
+review/
+
+# ローカル依存ライブラリ (git submodule update --init でセットアップ)
+/lib/
+/plugins/

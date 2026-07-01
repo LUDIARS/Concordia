@@ -6,20 +6,26 @@
  *  - reactions.ts が reaction 記録後に handle() を呼ぶ。
  *  - リアクション絵文字 → WorkflowAction に写像 (classifyReactionWorkflow)。
  *  - 実処理は「LLM が解析 + 記録/着手まで」を 1 ショットで担う:
- *      start-impl         👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
- *                                   非 active なら headless で着手)
- *      enumerate-remaining 🙏       残作業を洗い出して報告 (authoring session へ inject、
- *                                   非 active なら headless で洗い出し) ←→ 🫶/😴/✨ と対の WF
- *      memoria-remaining  🫶/😴/✨  残作業 (洗い出し結果) を重複回避で Memoria に登録 (memoria-record / sonnet)
- *      status-check       📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
- *                                   非 active なら headless)
- *      repo-memory-good   😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
- *      memoria-note       👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
- *      memoria-task       📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
- *      repo-memory-bad    😡 / 👎   良くない → 作業を即中断して反省 (inject、 記録はせず後続 👍 に委ねる)
+ *      start-impl            👍 / 🆗   良い → 提案をそのまま実装着手 (authoring session へ inject、
+ *                                      非 active なら headless で着手)
+ *      enumerate-remaining   🙏        残作業を洗い出して報告 (authoring session へ inject、
+ *                                      非 active なら headless で洗い出し) ←→ 🫶/😴/✨ と対の WF
+ *      memoria-remaining     🫶/😴/✨  残作業 (洗い出し結果) を重複回避で Memoria に登録 (memoria-record / sonnet)
+ *      status-check          📲/🆙/👆 状況どう? → セッションに今の作業状況を報告させる (inject、
+ *                                      非 active なら headless)
+ *      repo-memory-good      😄        良い動き → 当該リポの作業メモリにメッセージ+結果を記録 (haiku)
+ *      memoria-note          👀/👈/📓/✏️ メッセージをメモに残す → Memoria にメモを記録 (haiku)
+ *      memoria-task          📝 / ✅   残作業 → タスク内容を確認して Memoria にタスク登録 (sonnet)
+ *      repo-memory-bad       😡 / 👎   良くない → 作業を即中断して反省 (inject、 記録はせず後続 👍 に委ねる)
+ *      reschedule-non-goal   📅 / 🗓️  6月目標外タスクの期日を来週 (+7日) に延期 (headless sonnet / Memoria)
+ *      run-june-goal-tasks   🎯        6月目標タスクのうち AI が実行可能なものを実行 (inject / headless sonnet)
+ *      add-as-workflow       🛠️        メッセージをカスタムワークフローとして登録 (headless haiku / Ars)
  *
  * 🙏 → 🫶/😴/✨ は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
  * セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫶/😴/✨ を付けると Memoria へ記録する。
+ *
+ * カスタムワークフロー: add-as-workflow で登録した (emoji, prompt) ペアを customWorkflowsPath の
+ * JSON ファイルに保存する。 handle() は組み込み写像にない絵文字をこのファイルでも照合する。
  *
  * 安全弁: 既定 OFF。 enabled (CONCORDIA_REACTION_WORKFLOW=1) の時だけ実処理を走らせる。
  * headless 実行は file 書き込み / Memoria 連携を伴うので dangerouslySkipPermissions で起動する
@@ -27,9 +33,49 @@
  */
 
 import { join } from "node:path";
-import { existsSync } from "node:fs";
-import type { RunClaudeOptions, ClaudeRunResult } from "../rules/claude-runner.js";
-import { eventBus } from "../events.js";
+import { existsSync, readFileSync } from "node:fs";
+
+// ─── プラグイン契約: Concordia 内部に依存しない自己完結エンジンにするための型 ─────
+// (ユーザカスタマイズ可能な別フォルダプラグインとして切り出すため、 eventBus /
+//  claude-runner / enter-key への直接 import を排し、 すべて deps 注入で受ける。)
+
+/** wrapped CLI で「Enter キー押下」を意味する文字 (CR)。 control/enter-key.ts と同値。 */
+const ENTER_KEY_TEXT = "\r";
+
+/** headless 実行 (runClaude 相当) のオプション。 engine が使うフィールドのみ。 */
+export interface RwfRunOptions {
+  model?: string;
+  cwd?: string;
+  dangerouslySkipPermissions?: boolean;
+}
+
+/** headless 実行の結果。 engine が参照するフィールドのみ。 */
+export interface RwfRunResult {
+  ok: boolean;
+  exit_code: number | null;
+  stderr: string;
+  duration_ms: number;
+}
+
+/**
+ * カスタムワークフローエントリ。 add-as-workflow で登録した (絵文字 → プロンプト) ペア。
+ * customWorkflowsPath の JSON ファイルに配列として保存される。
+ */
+export interface CustomWorkflowEntry {
+  /** トリガー絵文字 (unicode)。 */
+  emoji: string;
+  /** 人間向けの短い名前。 */
+  label: string;
+  /** headless claude に渡すプロンプト本文。 */
+  prompt: string;
+  /** headless 時のモデル。 未指定なら sonnet。 */
+  model?: string;
+  /**
+   * headless 時の cwd。 "Memoria" / "Ars" などワークスペース相対名、
+   * または絶対パスを指定できる。 未指定ならリポパスを使う。
+   */
+  cwd?: string;
+}
 
 export type WorkflowAction =
   | "start-impl"
@@ -42,7 +88,14 @@ export type WorkflowAction =
   | "memoria-task"
   | "defer-impl"
   | "force-enter"
-  | "delegate-task";
+  | "delegate-task"
+  | "channel-rename"
+  | "reschedule-non-goal"
+  | "run-goal-tasks"
+  | "handoff-document"
+  | "resume-work"
+  | "merge-pr"
+  | "add-as-workflow";
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -70,10 +123,24 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "repo-memory-bad": ["😡", "💢", "👿", "😠", "👎"],
   // 実装タスクを積んで別セッションへ委ねる (outbox / next / dividers 系)
   "defer-impl": ["⏭️", "⏭", "📤", "🗂️", "🗂"],
-  // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ \n を inject)
+  // Enter を強制送信 (Lictor が送信を取りこぼした時の救済。 対象 session へ CR を inject)
   "force-enter": ["🙄"],
   // delegation に対応する絵文字 → Haiku でタスク判定 → タスクあり = delegation invoke
   "delegate-task": ["🤝", "🫱", "🫱🏻", "🫱🏼", "🫱🏽", "🫱🏾", "🫱🏿"],
+  // このメッセージ本文をセッションチャンネル名に反映 (手動リネーム)
+  "channel-rename": ["🔹", "📎"],
+  // 当月目標外タスクの期日を来週 (+7日) に延期 (calendar 系)
+  "reschedule-non-goal": ["📅", "🗓️", "🗓"],
+  // 当月目標の実行可能タスクを実行
+  "run-goal-tasks": ["🎯"],
+  // 次セッション向けの引継ぎ資料を作る (ok-hand / wave)
+  "handoff-document": ["👌", "👋"],
+  // 中断していた作業を再開する「続けて」 (play / fast-forward 系)
+  "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
+  // 当該リポの open PR を CI green 確認の上 squash merge + ブランチ削除 + main 同期 (merge / rocket)
+  "merge-pr": ["🔀", "🚀"],
+  // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
+  "add-as-workflow": ["🛠️", "🛠"],
 };
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
@@ -141,13 +208,48 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
   },
   "force-enter": {
     label: "Enter 強制送信 (Lictor 救済)",
-    summary: "投稿内容を変換せず、 対象 session に \\n を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
+    summary: "投稿内容を変換せず、 対象 session に CR を inject して送信を強制する (Lictor が Enter を取りこぼした時の救済)。",
     mode: "active セッションへ inject のみ (非 active はスキップ)",
   },
   "delegate-task": {
     label: "タスク委託実行",
     summary: "投稿内容を『Haiku でタスク判定 → タスクあり = 最適な delegation template を選んで invoke、なし = スキップ』に変換して渡す。",
     mode: "active へ inject (委託+監視) / 非active は headless haiku (委託のみ)",
+  },
+  "channel-rename": {
+    label: "チャンネルリネーム",
+    summary: "このメッセージ本文をセッションチャンネルの名前 (slug 化) に反映する。初回リポ選択後の手動リネーム手段。",
+    mode: "API (Concordia /sessions/:id/title 直接呼び出し)",
+  },
+  "reschedule-non-goal": {
+    label: "当月目標外タスクの期日延期",
+    summary: "Memoria の未完了タスクのうち当月目標に関連しないものの期日を来週 (+7日) に延期する。",
+    mode: "headless sonnet (Memoria)",
+  },
+  "run-goal-tasks": {
+    label: "当月目標タスクを実行",
+    summary: "投稿内容を起点に、当月目標に関連する Memoria タスクのうち AI が実行可能なものを実行する。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "handoff-document": {
+    label: "次セッションへの引継ぎ資料作成",
+    summary: "投稿内容と現在の作業文脈から『次セッションへの引継ぎ資料 (現状 / 残作業 / 次の一手 / 注意点 / 関連ブランチ・PR・ファイル) を作成し session-logs に保存せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "resume-work": {
+    label: "作業を続ける",
+    summary: "投稿内容 (直近の作業 / 中断点) を起点に『中断していた作業の続きを再開せよ』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ、 git 痕跡 + session-logs から文脈復元)",
+  },
+  "merge-pr": {
+    label: "PR をマージする",
+    summary: "投稿内容を起点に『当該リポの open PR を CI green 確認の上で squash merge し、 ブランチ削除 + main 同期まで行え』に変換して渡す。",
+    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+  },
+  "add-as-workflow": {
+    label: "カスタムワークフロー登録",
+    summary: "投稿内容 (1行目=絵文字、2行目=ラベル、3行目以降=プロンプト) をカスタムワークフローとして JSON に登録する。",
+    mode: "headless haiku (Ars workspace)",
   },
 };
 
@@ -425,9 +527,9 @@ export function planWorkflow(
     }
 
     case "force-enter": {
-      // 対象 session に \n だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
-      // 存在しない = 送る相手がいない)。 session.inject はテキスト経由なので \n を渡す。
-      return { action, mode: "inject", prompt: "\n" };
+      // 対象 session に CR だけ inject して「Enter 送信」を強制する。 headless は不要 (session が
+      // 存在しない = 送る相手がいない)。
+      return { action, mode: "inject", prompt: ENTER_KEY_TEXT };
     }
 
     case "delegate-task": {
@@ -440,10 +542,10 @@ export function planWorkflow(
         `- 含まれない (感想/質問/状態報告のみ) → 「委託タスクなし — スキップ」として即終了。\n` +
         `- 含まれる → ステップ 2 へ。\n\n` +
         `**ステップ 2: テンプレート選択 & 委託**\n` +
-        `1. GET http://127.0.0.1:17330/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
+        `1. GET http://127.0.0.1:11111/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
         `2. メッセージ内容に最適なテンプレートを選択する (task-process / impl-from-design / fix-bug / refactor 等)。\n` +
-        `3. GET http://127.0.0.1:17330/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
-        `4. POST http://127.0.0.1:17330/v1/delegation/invoke で委託:\n` +
+        `3. GET http://127.0.0.1:11111/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
+        `4. POST http://127.0.0.1:11111/v1/delegation/invoke で委託:\n` +
         `   { "call_name": "<選んだテンプレート>", "args": { ... }, "triggered_by": "reaction-workflow-delegate" }\n` +
         `   Authorization: Bearer <spawn token>\n` +
         `5. run ID と spawn_pid を取得して報告する。`;
@@ -485,6 +587,167 @@ export function planWorkflow(
         prompt,
       };
     }
+
+    case "channel-rename":
+      // handle() で concordiaUrl 経由の直接 API 呼び出しを行う。planWorkflow は呼ばれない。
+      // ここは TypeScript の網羅性チェックのためのプレースホルダー。
+      return { action, mode: "headless" as const, prompt: "" };
+
+    case "reschedule-non-goal": {
+      const prompt =
+        head +
+        `\n📅 当月目標に関連しない Memoria タスクの期日を来週 (今日 +7日の 23:59) に延期してください。\n\n` +
+        `手順:\n` +
+        `1. 今日の日付を確認する (CLAUDE.md の currentDate またはシステム日付)。\n` +
+        `2. GET http://127.0.0.1:5180/api/tasks?limit=500 で全タスクを取得する。\n` +
+        `3. status=todo かつ due_at が今日から 8 日以内 (過去日含む) のものを抽出する。\n` +
+        `4. 当月目標に関連するカテゴリ・タスクを除外する。\n` +
+        `   関連とみなす判断材料: Memoria の設定/CLAUDE.md に記載の「今月の集中目標」を参照し、\n` +
+        `   category や title にそのプロジェクト略称・名称を含むタスクを除く。\n` +
+        `   目標記載がない場合は Concordia/LUDIARS運用/Excubitor/KS/Tr など直近の作業傾向で判断する。\n` +
+        `5. 残ったタスクを PATCH http://127.0.0.1:5180/api/tasks/:id { "due_at": "<今日+7日>T23:59" } で更新する。\n` +
+        `6. 更新件数と対象タスクの ID/タイトル一覧を報告する。 Memoria に繋がらない場合は失敗理由を報告する。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.memoriaPath,
+        prompt,
+      };
+    }
+
+    case "run-goal-tasks": {
+      const prompt =
+        `🎯 当月目標に関連する Memoria タスクのうち、今すぐ AI が実行できるものを実行してください。\n\n` +
+        `手順:\n` +
+        `1. CLAUDE.md (またはこのセッションの memory) に記載の「今月の集中目標」を確認する。\n` +
+        `2. GET http://127.0.0.1:5180/api/tasks?limit=500 で未完了タスクを取得する。\n` +
+        `3. 目標に関連する category/title のタスクを抽出する。\n` +
+        `4. 各タスクを実行可能性で分類する:\n` +
+        `   - コード実装/PR作成 → 実装して PR を出す (LUDIARS 規約に従う)\n` +
+        `   - コマンド実行 (npm run, git, etc.) → 実行する\n` +
+        `   - 実機確認/人間操作が必要 → スキップして報告\n` +
+        `   - 設定投入/env 設定 → 設定して報告\n` +
+        `5. 実行したタスクは PATCH /api/tasks/:id { "status": "done" } で完了にする。\n` +
+        `6. 実行結果 (完了/スキップとその理由) を一覧で報告する。`;
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "handoff-document": {
+      const prompt =
+        `👌 このメッセージ (直近の作業 / 報告) を起点に、 **次のセッションへの引継ぎ資料**を作成してください。\n` +
+        `次に作業を引き継ぐ別セッションが「文脈ゼロからでも続きを再開できる」ことが目的です。\n\n` +
+        `引継ぎ資料に含める項目 (Markdown、 簡潔に):\n` +
+        `1. いま何をしていたか (目的 / 対象リポ・ブランチ)\n` +
+        `2. どこまで終わったか (完了 / 進行中 / 未着手の区別)\n` +
+        `3. 残作業と次の一手 (具体的に、 着手順が分かる粒度で)\n` +
+        `4. 注意点・ハマりどころ (既知の罠 / 失敗した方法 / 暫定回避)\n` +
+        `5. 関連する PR / Issue / 主要ファイルパス / 実行コマンド\n\n` +
+        `保存先: \`E:/Document/Ars/session-logs/\` に \`<YYYY-MM-DD>-handoff-<短い主題>.md\` で書き出す ` +
+        `(ディレクトリが無ければ作成)。 書き出したパスと 3〜5 行の要約を報告してください。\n` +
+        `- 推測で水増しせず、 実際の作業状態だけを書く。 不明点は「未確認」と明記する。`;
+      // authoring session が生きていれば、 その AI に inject して文脈ごと書かせる (最も解像度が高い)。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 残った痕跡 (git log / 未コミット差分等) から再構成する。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "resume-work": {
+      const prompt =
+        `▶️ このメッセージ (直近の作業 / 中断点) を起点に、 **中断していた作業の続きを再開**してください。\n` +
+        `- 直前の提案 / 実装 / 調査の文脈を引き継ぎ、 中断したところから素直に続行する。\n` +
+        `- 余計な再確認はせず、 最も妥当な解釈で次の一手に進む。 残作業が複数あれば着手順が分かる方から。\n` +
+        `- LUDIARS 規約 (ブランチ → 実装 → コミット → PR、 自動マージ可) に従う。`;
+      // authoring session が生きていれば、 その AI に inject して文脈ごと続行させる (最も解像度が高い)。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 git 痕跡 (status / log / 未コミット差分) と
+      // 直近の session-logs (E:/Document/Ars/session-logs/) から最後の作業文脈を復元して続行する。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt:
+          head +
+          `\n▶️ このリポジトリで中断していた作業を再開してください。\n` +
+          `セッション文脈が無いので、 まず以下から最後の作業状態を復元する:\n` +
+          `1. \`git status -sb\` / \`git log --oneline -10\` / 未コミット差分で「どこまでやったか」を把握する。\n` +
+          `2. 直近の session-logs (E:/Document/Ars/session-logs/ の最新日付 md) の当該リポ該当節を読む。\n` +
+          `3. 復元した文脈から残作業の続きに着手する (LUDIARS 規約: ブランチ → 実装 → コミット → PR)。\n` +
+          `- 文脈が復元できず続きが特定できない場合は、 推測で進めず「再開地点を特定できなかった」と理由付きで報告する。`,
+      };
+    }
+
+    case "merge-pr": {
+      const prompt =
+        `🔀 このメッセージを起点に、 **当該リポジトリの open PR をマージ**してください。\n` +
+        `手順 (merge-clean-pr / ship 相当):\n` +
+        `1. 対象 PR を特定する。 通常は今の作業ブランチに紐づく PR。 \`gh pr list --state open --json number,title,headRefName,mergeStateStatus\` で確認し、 ` +
+        `自分の作業ブランチ (= 現在の HEAD) の PR を選ぶ。 候補が複数あって判別できない時は、 マージせず候補を報告して止まる。\n` +
+        `2. CI を確認する (\`gh pr checks <番号>\`)。 green を確認してからマージする。 ` +
+        `失敗・pending があれば、 直せるものは直して push し直し、 直せないものは理由を報告して止まる (赤いままマージしない)。\n` +
+        `3. \`gh pr merge <番号> --squash --delete-branch\` で squash merge + リモートブランチ削除。\n` +
+        `4. ローカルを main へ戻して ff 更新する (\`git checkout main && git pull --ff-only\`)。 削除済みローカルブランチも掃除する。\n` +
+        `- reset --hard は使わない。 未コミットの tracked 変更があれば破壊しないよう退避してから行う。`;
+      // authoring session が生きていれば、 その AI に inject して自分のブランチをマージさせる。
+      if (ctx.sessionActive) {
+        return { action, mode: "inject", prompt: prompt + msgRef };
+      }
+      // 非 active: headless で repo を開き、 open PR を特定してマージフローを回す。
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: ctx.repoPath ?? undefined,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
+    case "add-as-workflow": {
+      const prompt =
+        head +
+        `\n🛠️ このメッセージをカスタムリアクションワークフローとして登録してください。\n\n` +
+        `メッセージ形式 (ベストエフォートで解釈してよい):\n` +
+        `  1行目: トリガー絵文字\n` +
+        `  2行目: ラベル (短い名前)\n` +
+        `  3行目以降: プロンプト本文 (ワークフローが実行する指示)\n\n` +
+        `手順:\n` +
+        `1. メッセージ本文を上記形式で解析し、 (emoji, label, prompt) を抽出する。\n` +
+        `   形式が曖昧なら: 冒頭の絵文字を emoji、1行目テキストを label、全文を prompt として扱う。\n` +
+        `2. カスタムワークフロー JSON ファイル (customWorkflowsPath) を読み込む (なければ空配列)。\n` +
+        `   customWorkflowsPath は deps から inject されるが、 デフォルトは\n` +
+        `   E:\\Document\\Ars\\.claude\\custom-reaction-workflows.json。\n` +
+        `3. 同じ絵文字のエントリがあれば上書き、 なければ追記する。\n` +
+        `   形式: { "emoji": "...", "label": "...", "prompt": "...", "model": "sonnet", "cwd": null }\n` +
+        `4. ファイルに書き戻す (UTF-8、 インデント 2)。\n` +
+        `5. 登録内容 (絵文字・ラベル・プロンプト冒頭) を確認メッセージとして返す。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.haiku,
+        cwd: ctx.repoPath ?? undefined,
+        prompt,
+      };
+    }
   }
 }
 
@@ -492,9 +755,16 @@ export function planWorkflow(
 
 export interface ReactionWorkflowDeps {
   /** headless 実行関数 (既定 runClaude)。 テストで差し替え可能。 */
-  runHeadless: (prompt: string, opts?: RunClaudeOptions) => Promise<ClaudeRunResult>;
+  runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
+  /**
+   * 対象セッションへ文字列を inject する (eventBus.emit("session.inject") 相当)。
+   * engine を Concordia 内部 (events) から切り離すため、 ホスト側が実装を注入する。
+   */
+  emitInject: (sessionId: string, text: string, source: string) => void;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
   workspaceRoot: string;
+  /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
+  concordiaUrl?: string;
   /**
    * 複数ワークスペースルート (走査対象の全ルート)。 Memoria はこのうち実在する
    * `<root>/Memoria` を採用する。 未指定なら [workspaceRoot] 相当。
@@ -502,6 +772,11 @@ export interface ReactionWorkflowDeps {
   workspaceRoots?: string[];
   /** Memoria リポの cwd override。 未指定なら各ルートから探索 (無ければ先頭ルート/Memoria)。 */
   memoriaPath?: string;
+  /**
+   * add-as-workflow が書き込み / handle() が読み込むカスタムワークフロー JSON のパス。
+   * 未指定なら `<workspaceRoot>/../.claude/custom-reaction-workflows.json`。
+   */
+  customWorkflowsPath?: string;
   /**
    * 安全弁。 false の間は handle() が即 return。 関数を渡すと毎回評価するので、
    * 設定 GUI (AdminState) からの ON/OFF をプロセス再起動なしで反映できる。
@@ -573,6 +848,45 @@ export class ReactionWorkflowRunner {
     return join(roots[0] || this.deps.workspaceRoot, "Memoria");
   }
 
+  private customWorkflowsPath(): string {
+    if (this.deps.customWorkflowsPath) return this.deps.customWorkflowsPath;
+    // デフォルト: <workspaceRoot>/../.claude/custom-reaction-workflows.json
+    return join(this.deps.workspaceRoot, "..", ".claude", "custom-reaction-workflows.json");
+  }
+
+  /** カスタムワークフロー JSON を読み込む (エラー時は空配列)。 */
+  private loadCustomWorkflows(): CustomWorkflowEntry[] {
+    const p = this.customWorkflowsPath();
+    if (!existsSync(p)) return [];
+    try {
+      const raw = readFileSync(p, "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter(
+        (e): e is CustomWorkflowEntry =>
+          typeof e === "object" && e !== null &&
+          typeof (e as CustomWorkflowEntry).emoji === "string" &&
+          typeof (e as CustomWorkflowEntry).prompt === "string",
+      );
+    } catch {
+      return [];
+    }
+  }
+
+  /** カスタムワークフローで絵文字を照合する。 ヒットすれば headless 実行計画を返す。 */
+  private matchCustomWorkflow(emoji: string): WorkflowPlan | null {
+    const entries = this.loadCustomWorkflows();
+    const entry = entries.find((e) => e.emoji.trim() === emoji.trim());
+    if (!entry) return null;
+    return {
+      action: "add-as-workflow", // プレースホルダー (ログ用)
+      mode: "headless",
+      model: entry.model ?? "sonnet",
+      cwd: entry.cwd ?? undefined,
+      prompt: entry.prompt,
+    };
+  }
+
   /**
    * reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。
    * `onAccept` は「実際に発火が確定した」直後 (= dedup 通過後、 slow な inject/headless の前) に
@@ -585,7 +899,28 @@ export class ReactionWorkflowRunner {
     if (!this.isEnabled()) return;
 
     const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
-    if (!action) return; // ワークフロー対象外の絵文字
+
+    // 組み込み写像にない絵文字をカスタムワークフロー JSON で照合する。
+    if (!action) {
+      const customPlan = this.matchCustomWorkflow(input.emoji);
+      if (!customPlan) return; // どちらにも該当しない絵文字
+      const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
+      const now = this.nowSec();
+      const last = this.lastFired.get(key);
+      if (last !== undefined && now - last < DEDUPE_SEC) {
+        this.deps.log.info(`reaction-workflow: dedup skip (custom) ${key}`);
+        return;
+      }
+      this.lastFired.set(key, now);
+      if (onAccept) try { onAccept("add-as-workflow"); } catch { /* best-effort */ }
+      this.deps.log.info(
+        `reaction-workflow: custom action emoji=${input.emoji} model=${customPlan.model ?? "-"} cwd=${customPlan.cwd ?? "-"}`,
+      );
+      await this.runHeadless(customPlan).catch((e) =>
+        this.deps.log.warn(`reaction-workflow: custom failed: ${(e as Error).message}`),
+      );
+      return;
+    }
 
     const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
     const now = this.nowSec();
@@ -595,6 +930,14 @@ export class ReactionWorkflowRunner {
       return;
     }
     this.lastFired.set(key, now);
+
+    // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
+    if (action === "channel-rename") {
+      // 発火確定通知
+      if (onAccept) try { onAccept(action); } catch { /* best-effort */ }
+      await this.handleChannelRename(input);
+      return;
+    }
 
     // 文脈は呼び出し側 (Discord/Slack bot) がプラットフォーム API で解決済。
     // chat_messages / message-map には依存しない。
@@ -633,18 +976,43 @@ export class ReactionWorkflowRunner {
     }
   }
 
+  private async handleChannelRename(input: ReactionWorkflowInput): Promise<void> {
+    if (!input.sessionId) {
+      this.deps.log.warn("reaction-workflow: channel-rename skipped (no sessionId — not a session channel)");
+      return;
+    }
+    const text = input.messageText.trim().slice(0, 200);
+    if (!text) {
+      this.deps.log.warn("reaction-workflow: channel-rename skipped (empty message text)");
+      return;
+    }
+    const baseUrl = this.deps.concordiaUrl ?? "http://127.0.0.1:11111";
+    try {
+      const res = await fetch(`${baseUrl}/v1/sessions/${input.sessionId}/title`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text, source: "reaction-rename" }),
+      });
+      if (!res.ok) {
+        this.deps.log.warn(
+          `reaction-workflow: channel-rename API failed session=${input.sessionId.slice(0, 8)} status=${res.status}`,
+        );
+      } else {
+        this.deps.log.info(
+          `reaction-workflow: channel-rename applied session=${input.sessionId.slice(0, 8)} text="${text.slice(0, 40)}"`,
+        );
+      }
+    } catch (e) {
+      this.deps.log.warn(`reaction-workflow: channel-rename fetch failed: ${(e as Error).message}`);
+    }
+  }
+
   private inject(targetSessionId: string | null, text: string, action: WorkflowAction): void {
     if (!targetSessionId) {
       this.deps.log.warn(`reaction-workflow: ${action} inject skipped (no session_id)`);
       return;
     }
-    eventBus.emit({
-      type: "session.inject",
-      target_session_id: targetSessionId,
-      text,
-      source: "reaction-workflow",
-      ts: this.nowSec(),
-    });
+    this.deps.emitInject(targetSessionId, text, "reaction-workflow");
     this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId.slice(0, 8)}`);
   }
 

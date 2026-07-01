@@ -9,14 +9,53 @@ import type { Guild, TextChannel, WebhookMessageCreateOptions } from "discord.js
 import { ChannelType, WebhookClient } from "discord.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { createChildLogger } from "../shared/logger.js";
+import { formatForChunkedPost } from "../shared/message-blocks.js";
 
 const WEBHOOK_NAME = "Concordia";
 const DISCORD_MESSAGE_MAX = 2000;
-const SPLIT_MODEL = "claude-haiku-4-5";
+const DEFAULT_WEBHOOK_SEND_TIMEOUT_MS = 12_000;
+const DEFAULT_WEBHOOK_RATE_LIMIT_RETRY_MS = 15_000;
+const WEBHOOK_FALLBACK_THRESHOLD_MS = 30_000;
+const WEBHOOK_SEND_SPACING_MS = 500;
 const whLog = createChildLogger("webhook-pool");
+
+function webhookSendTimeoutMs(): number {
+  const raw = process.env.CONCORDIA_DISCORD_WEBHOOK_SEND_TIMEOUT_MS;
+  if (!raw) return DEFAULT_WEBHOOK_SEND_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_WEBHOOK_SEND_TIMEOUT_MS;
+}
+
+function webhookSendAbortSignal(): AbortSignal {
+  const timeoutMs = webhookSendTimeoutMs();
+  return AbortSignal.timeout(timeoutMs);
+}
+
+function webhookToken(client: WebhookClient): string | null {
+  return (client as unknown as { token?: string | null }).token ?? null;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function webhookRetryAfterMs(res: Response): Promise<number> {
+  const header = res.headers.get("retry-after");
+  if (header) {
+    const seconds = Number(header);
+    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds * 1000);
+  }
+  const body = await res.clone().json().catch(() => null) as { retry_after?: number } | null;
+  if (body?.retry_after && Number.isFinite(body.retry_after) && body.retry_after > 0) {
+    return Math.ceil(body.retry_after * 1000);
+  }
+  return DEFAULT_WEBHOOK_RATE_LIMIT_RETRY_MS;
+}
 
 export class WebhookPool {
   private cache = new Map<string, WebhookClient>(); // channel_id → WebhookClient
+  private webhookChannels = new Map<string, string>(); // webhook_id → channel_id
+  private sendQueues = new Map<string, Promise<void>>(); // webhook_id → serialized sends
   // channel_id → 進行中の webhook 取得 promise.
   // 主経路はセッション登録時 (onSessionRegistered) の eager 作成なので、 通常は
   // egress 到来時には DB に token があり ensureWebhookForChannel を踏まない。
@@ -60,6 +99,7 @@ export class WebhookPool {
       }
       const client = new WebhookClient({ id: row.webhook_id, token: row.webhook_token });
       this.cache.set(row.channel_id, client);
+      this.webhookChannels.set(row.webhook_id, row.channel_id);
       whLog.info({ sessionId, channel_id: row.channel_id, webhook_id: row.webhook_id }, "webhook-pool.getForSession new client from DB token");
       return client;
     }
@@ -84,6 +124,9 @@ export class WebhookPool {
   async purgeChannel(channelId: string): Promise<number> {
     this.cache.delete(channelId);
     this.inflight.delete(channelId);
+    for (const [webhookId, mappedChannelId] of this.webhookChannels) {
+      if (mappedChannelId === channelId) this.webhookChannels.delete(webhookId);
+    }
     const ch = this.guild.channels.cache.get(channelId) ?? null;
     if (!ch || ch.type !== ChannelType.GuildText) return 0;
     let deleted = 0;
@@ -141,6 +184,7 @@ export class WebhookPool {
         persist?.(wh.id, wh.token);
         const client = new WebhookClient({ id: wh.id, token: wh.token });
         this.cache.set(channelId, client);
+        this.webhookChannels.set(wh.id, channelId);
         whLog.info(
           { sessionId, channel_id: channelId, webhook_id: wh.id, reused: !!found },
           "webhook-pool.ensure webhook ready",
@@ -162,99 +206,117 @@ export class WebhookPool {
     client: WebhookClient,
     options: WebhookMessageCreateOptions,
   ): Promise<{ id: string } | null> {
+    const previous = this.sendQueues.get(client.id) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(() => this.sendNow(client, options));
+    const tail = run.then(() => undefined, () => undefined);
+    this.sendQueues.set(client.id, tail);
+    tail.finally(() => {
+      if (this.sendQueues.get(client.id) === tail) this.sendQueues.delete(client.id);
+    }).catch(() => undefined);
+    return run;
+  }
+
+  private async sendNow(
+    client: WebhookClient,
+    options: WebhookMessageCreateOptions,
+  ): Promise<{ id: string } | null> {
     try {
+      await sleep(WEBHOOK_SEND_SPACING_MS);
       const content = typeof options.content === "string" ? options.content : null;
-      if (!content || content.length <= DISCORD_MESSAGE_MAX) {
+      if (content === null) {
         const msg = await client.send(options);
         return { id: msg.id };
       }
 
-      const chunks = await splitForDiscord(content, DISCORD_MESSAGE_MAX);
+      // テーブルを ``` で囲み、 上限超なら ``` ブロックをまたがず分割する
+      // (テーブル/コードブロックがメッセージ境界で割れて崩れるのを防ぐ)。
+      const chunks = formatForChunkedPost(content, DISCORD_MESSAGE_MAX);
       let firstId: string | null = null;
       for (const chunk of chunks) {
-        const msg = await client.send({ ...options, content: chunk });
+        const msg = await this.sendTextChunk(client, { ...options, content: chunk });
         if (!firstId) firstId = msg.id;
       }
       return firstId ? { id: firstId } : null;
-    } catch {
+    } catch (err) {
+      whLog.warn(
+        {
+          webhook_id: client.id,
+          err: err instanceof Error ? err.message : String(err),
+        },
+        "webhook-pool.send failed",
+      );
       return null;
     }
   }
-}
 
-async function splitForDiscord(text: string, maxLen: number): Promise<string[]> {
-  const key = process.env.ANTHROPIC_API_KEY ?? "";
-  if (!key) return fallbackSplit(text, maxLen);
-  try {
-    const prompt =
-      "Split the following text into natural chunks for Discord posting.\n" +
-      `Rules:\n` +
-      `- Each chunk must be <= ${maxLen} characters.\n` +
-      "- Preserve the original text exactly. Do not rewrite or summarize.\n" +
-      "- Split on semantic boundaries when possible (paragraph/sentence).\n" +
-      "- Return JSON only: {\"chunks\":[\"...\", ...]}\n\n" +
-      `Text:\n${text}`;
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: SPLIT_MODEL,
-        max_tokens: 4000,
-        messages: [{ role: "user", content: prompt }],
-      }),
-      signal: AbortSignal.timeout(15_000),
+  private async sendTextChunk(
+    client: WebhookClient,
+    options: WebhookMessageCreateOptions & { content: string },
+  ): Promise<{ id: string }> {
+    if (options.files?.length) {
+      const msg = await client.send(options);
+      return { id: msg.id };
+    }
+    const token = webhookToken(client);
+    if (!token) throw new Error("Discord webhook token unavailable");
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const res = await fetch(`https://discord.com/api/v10/webhooks/${client.id}/${token}?wait=true`, {
+        method: "POST",
+        signal: webhookSendAbortSignal(),
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          content: options.content,
+          username: options.username,
+          avatar_url: options.avatarURL,
+          allowed_mentions: options.allowedMentions,
+          embeds: options.embeds,
+          components: options.components,
+        }),
+      });
+      if (res.status === 429 && attempt < 2) {
+        const retryMs = await webhookRetryAfterMs(res);
+        if (retryMs >= WEBHOOK_FALLBACK_THRESHOLD_MS) {
+          whLog.warn(
+            { webhook_id: client.id, retry_ms: retryMs },
+            "webhook-pool.send rate limited too long; falling back to bot send",
+          );
+          return this.sendTextChunkViaBot(client, options);
+        }
+        whLog.warn(
+          { webhook_id: client.id, retry_ms: retryMs, attempt: attempt + 1 },
+          "webhook-pool.send rate limited; retrying",
+        );
+        await sleep(retryMs);
+        continue;
+      }
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`Discord webhook HTTP ${res.status}: ${body.slice(0, 300)}`);
+      }
+      const json = await res.json() as { id?: string };
+      if (!json.id) throw new Error("Discord webhook response missing message id");
+      return { id: json.id };
+    }
+    throw new Error("Discord webhook send retry exhausted");
+  }
+
+  private async sendTextChunkViaBot(
+    client: WebhookClient,
+    options: WebhookMessageCreateOptions & { content: string },
+  ): Promise<{ id: string }> {
+    const channelId = this.webhookChannels.get(client.id);
+    if (!channelId) throw new Error("Discord webhook fallback channel unavailable");
+    const ch = this.guild.channels.cache.get(channelId) ?? null;
+    if (!ch || ch.type !== ChannelType.GuildText) throw new Error("Discord webhook fallback channel is not text");
+    const author = typeof options.username === "string" && options.username.trim() ? options.username.trim() : null;
+    const content = author ? `**${author}**\n${options.content}` : options.content;
+    const msg = await (ch as TextChannel).send({
+      content,
+      allowedMentions: options.allowedMentions,
+      embeds: options.embeds,
+      components: options.components,
     });
-    if (!res.ok) return fallbackSplit(text, maxLen);
-    const data = (await res.json()) as { content?: Array<{ text?: string }> };
-    const raw = data.content?.[0]?.text ?? "";
-    const parsed = extractChunks(raw);
-    if (!parsed.length || parsed.some((c) => c.length > maxLen)) return fallbackSplit(text, maxLen);
-    return parsed;
-  } catch (err) {
-    whLog.warn({ err: (err as Error).message }, "webhook-pool split with haiku failed; fallback");
-    return fallbackSplit(text, maxLen);
+    return { id: msg.id };
   }
-}
-
-function extractChunks(raw: string): string[] {
-  const obj = parseJsonObject(raw);
-  if (!obj || !Array.isArray((obj as any).chunks)) return [];
-  const chunks = (obj as any).chunks.filter((v: unknown): v is string => typeof v === "string");
-  return chunks.map((s: string) => s.trim()).filter(Boolean);
-}
-
-function parseJsonObject(raw: string): Record<string, unknown> | null {
-  try { return JSON.parse(raw.trim()) as Record<string, unknown>; } catch { /* continue */ }
-  const fence = /```(?:json)?\s*([\s\S]*?)```/.exec(raw);
-  if (fence) {
-    try { return JSON.parse(fence[1].trim()) as Record<string, unknown>; } catch { /* continue */ }
-  }
-  const obj = /\{[\s\S]*\}/.exec(raw);
-  if (obj) {
-    try { return JSON.parse(obj[0]) as Record<string, unknown>; } catch { return null; }
-  }
-  return null;
-}
-
-function fallbackSplit(text: string, maxLen: number): string[] {
-  const out: string[] = [];
-  let rest = text;
-  while (rest.length > maxLen) {
-    let cut = Math.max(
-      rest.lastIndexOf("\n\n", maxLen),
-      rest.lastIndexOf("\n", maxLen),
-      rest.lastIndexOf("。", maxLen),
-      rest.lastIndexOf(". ", maxLen),
-      rest.lastIndexOf(" ", maxLen),
-    );
-    if (cut <= 0) cut = maxLen;
-    out.push(rest.slice(0, cut).trim());
-    rest = rest.slice(cut).trimStart();
-  }
-  if (rest.length) out.push(rest);
-  return out.length ? out : [text.slice(0, maxLen)];
 }

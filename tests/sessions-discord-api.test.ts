@@ -10,6 +10,42 @@ describe("sessions API — pending-question / discord-channels", () => {
   beforeEach(() => { env = buildTestApp(); });
 
   describe("pending-question / answer-question", () => {
+    it("POST /v1/sessions は goal inject ではなく collaboration context packet を返す", async () => {
+      const r = await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
+      });
+      expect(r.status).toBe(200);
+      const j = await r.json() as any;
+      // 旧 initial_work picker と goal-start inject は廃止。協働 context だけ返す。
+      expect(j.initial_work).toBeUndefined();
+      expect(j.goal).toEqual({ mode: "complete" });
+      expect(j.context_packet.repo.project).toBe("Concordia");
+      expect(j.context_packet.stalled_recovery.inject_source).toBe("auto:stall-nudge");
+      const detail = await (await env.app.request("/v1/sessions/iw")).json() as any;
+      expect(detail.events.some((e: any) => e.kind === "inject" && e.payload?.source === "auto:goal-start")).toBe(false);
+    });
+
+    it("POST/GET /goal でゴールを変更・取得できる (metadata に保存)", async () => {
+      await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "g1", provider: "claude-code", repo_path: "/work/Concordia", branch: "main", host: "h" }),
+      });
+      const set = await env.app.request("/v1/sessions/g1/goal", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "scoped", text: "月内目標 #441" }),
+      });
+      expect(set.status).toBe(200);
+      expect((await set.json() as any).goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
+      const got = await (await env.app.request("/v1/sessions/g1/goal")).json() as any;
+      expect(got.goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
+      const detail = await (await env.app.request("/v1/sessions/g1")).json() as any;
+      expect(detail.session.metadata.goal).toEqual({ mode: "scoped", text: "月内目標 #441" });
+    });
+
     it("POST pending-question stores row + emits question.posted", async () => {
       await env.app.request("/v1/sessions", {
         method: "POST",

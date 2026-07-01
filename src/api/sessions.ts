@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
+import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
@@ -13,6 +14,8 @@ import type { SessionRow, SessionStatus, ProviderName } from "../shared/types.js
 import type { Dispatcher } from "../dispatcher.js";
 import type { PersonasRepo, PersonaRow } from "../db/personas-repo.js";
 import { eventBus } from "../events.js";
+import { runCompaction, makeCompactionIO, collectRecentContext, generateHandoff } from "../control/compaction.js";
+import { runClaude } from "../rules/claude-runner.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
@@ -23,15 +26,25 @@ import {
   type DiscordConfigRepo,
 } from "../db/discord-repo.js";
 import { resolveLictorTarget, fetchFromLictor } from "../control/lictor-proxy.js";
-import { spawnSession } from "../control/spawner.js";
+import { spawnSession, type SpawnProvider } from "../control/spawner.js";
 import { claimPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
+import { recordPendingRelictor, claimPendingRelictor } from "../control/pending-relictor.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
+import { stopSessionByLictorPid, isPidAlive } from "../control/stop-session.js";
+import { parseLictorPid, parseAgentClientPid } from "../control/reaper.js";
 import {
   emitAutoSessionEndInject,
   pickSessionEndInjectText,
   AUTO_SESSION_END_INJECT_SOURCE,
 } from "../control/auto-session-end-inject.js";
 import { createChildLogger } from "../shared/logger.js";
+import { lastHumanRequester, prefixRequesterTag } from "../control/requester.js";
+import {
+  parseGoalInput,
+  readGoalFromMetadata,
+  mergeGoalIntoMetadata,
+} from "../control/goal.js";
+import { buildCollaborationContextPacket } from "../control/collaboration-context.js";
 
 const log = createChildLogger("sessions-api");
 
@@ -41,6 +54,37 @@ const log = createChildLogger("sessions-api");
  * 個人情報やシークレットを大量に流さないよう冒頭だけ残す.
  */
 const PROMPT_LOG_PREVIEW_CHARS = 200;
+/** DELETE 後 force-exit の猶予。 これを過ぎても lictor_pid 生存なら強制 kill する。 */
+const FORCE_EXIT_GRACE_MS = 5000;
+/**
+ * AI 側の session-end スキルが完了シグナルを送るまで force-exit を保留する猶予。
+ * `POST /v1/sessions/:id/session-end-done` が来ればその時点で即 force-exit。
+ * 来なくてもこの時間後に保険として force-exit を発行する。
+ */
+const SESSION_END_DONE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
+/** id → force-exit 実行関数。 session-end-done シグナルかタイムアウトで発火する。 */
+const pendingSessionEndExits = new Map<string, () => void>();
+
+/** /co-relictor で再起動した新セッションへ流す引き継ぎ inject の source。 */
+const RELICTOR_INJECT_SOURCE = "auto:relictor-handoff";
+const RELICTOR_REINJECT_HEADER =
+  "【Lictor 再起動・引き継ぎ】前のセッションを最新 Lictor で再起動しました。" +
+  "直前にこのチャンネルへ投稿した引き継ぎ資料 (🔁) に従って作業を続行してください。" +
+  "細部は前セッションのチャンネル / Slack スレッド履歴を遡れば確認できます。\n\n";
+
+/** Concordia の provider 名 → spawn (Lictor launcher) provider 名。 spawn 不可は null。 */
+function toSpawnProvider(provider: string): SpawnProvider | null {
+  switch (provider) {
+    case "claude-code":
+      return "claude";
+    case "codex-cli":
+      return "codex";
+    case "gemini-cli":
+      return "gemini";
+    default:
+      return null;
+  }
+}
 
 const StartSchema = z.object({
   id: z.string().min(1).max(128),
@@ -77,6 +121,12 @@ const InjectSchema = z.object({
   source: z.string().min(1).max(120).optional(),
   // 人間入力者の表示名 (ingress が付与)。参加者レジストリ登録 + ミラー発言者明示に使う。
   author_label: z.string().min(1).max(120).optional(),
+});
+
+// セッションのゴール設定 (/co-goal)。 mode 明示 / 自由文どちらか or 両方。
+const GoalSchema = z.object({
+  mode: z.enum(["complete", "scoped", "watch"]).optional(),
+  text: z.string().max(500).optional(),
 });
 
 const TranscriptFrameSchema = z.object({
@@ -159,6 +209,9 @@ export interface SessionsApiDeps {
   discordChannels: DiscordSessionChannelsRepo;
   discordConfig: DiscordConfigRepo;
   participants: ParticipantsRepo;
+  resolveWorkspaceRoots?: () => string[];
+  /** session-end レポートのブロック検出に決定論ソースを併用する (任意)。 */
+  harnessAudit?: HarnessAuditRepo;
 }
 
 /** discord_config に保存される meta channel の key (resolveMetaKind と揃える). */
@@ -191,6 +244,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
     const now = nowSec();
+    // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
+    let relictorHandoff: string | null = null;
 
     const existing = deps.repo.findSession(input.id);
     if (existing) {
@@ -213,6 +268,16 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
       if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
       if (claimed?.callName) meta.delegation_call_name = claimed.callName;
+      // 子会社由来の spawn は subsidiary_id を焼く。 子会社 Bot はこれで自分のセッションを
+      // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
+      if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
+      // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
+      // handoff 本文は後段で inject する。
+      const relictor = claimPendingRelictor(input.repo_path);
+      if (relictor) {
+        relictorHandoff = relictor.handoff;
+        if (relictor.goal) meta.goal = relictor.goal;
+      }
       deps.repo.insertSession({
         id: input.id,
         provider: input.provider as ProviderName,
@@ -279,6 +344,33 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       });
     }
 
+    const freshSession = deps.repo.findSession(input.id)!;
+    const contextPacket = buildCollaborationContextPacket({
+      repo: deps.repo,
+      session: freshSession,
+      workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+    });
+
+    // /co-relictor 再起動なら、引き継ぎ資料だけを inject して文脈を復元する。
+    if (relictorHandoff) {
+      const handoffText = `${RELICTOR_REINJECT_HEADER}${relictorHandoff}`;
+      deps.repo.appendEvent({
+        session_id: input.id,
+        ts: nowSec(),
+        kind: "inject",
+        payload: { text: handoffText, source: RELICTOR_INJECT_SOURCE },
+      });
+      setTimeout(() => {
+        eventBus.emit({
+          type: "session.inject",
+          target_session_id: input.id,
+          text: handoffText,
+          source: RELICTOR_INJECT_SOURCE,
+          ts: nowSec(),
+        });
+      }, 1500).unref?.();
+    }
+
     return c.json({
       session: serializeSession(deps.repo.findSession(input.id)!),
       peers: peers.map(serializeSession),
@@ -288,25 +380,53 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       persona_reused: assignment ? assignment.reused : false,
       processes: processStartup,
       process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
+      goal: readGoalFromMetadata(freshSession.metadata),
+      context_packet: contextPacket,
     });
   });
 
   // GET /v1/sessions
   app.get("/", (c) => {
     const q = c.req.query();
+    const subsidiaryId = (q.subsidiary_id ?? "").trim();
     const list = deps.repo.listSessions({
       repo_origin: q.repo_origin || undefined,
       host: q.host || undefined,
       status: (q.status as SessionStatus) || undefined,
       provider: (q.provider as ProviderName) || undefined,
+      subsidiary_id: subsidiaryId || undefined,
     });
     return c.json({ sessions: list.map(serializeSession) });
   });
 
+  // GET /v1/sessions/:id/context — 協働用 context packet。
+  // Goal 注入ではなく、衝突・関連ログ・ハーネス入口などの状況認識を返す。
+  app.get("/:id/context", (c) => {
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) return c.json({ error: "not_found" }, 404);
+    return c.json({
+      context_packet: buildCollaborationContextPacket({
+        repo: deps.repo,
+        session: s,
+        workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+      }),
+    });
+  });
+
   // GET /v1/sessions/:id
   app.get("/:id", (c) => {
-    const s = deps.repo.findSession(c.req.param("id"));
-    if (!s) return c.json({ error: "not_found" }, 404);
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) {
+      // session 行が purge 済みでも transcript が残っていれば、 ログ閲覧用に
+      // synthetic session を返す (詳細ページが描画でき transcript パネルが読める).
+      const span = deps.transcriptLogs.tsSpan(id);
+      if (span) {
+        return c.json({ session: syntheticPurgedSession(id, span), persona: null, events: [] });
+      }
+      return c.json({ error: "not_found" }, 404);
+    }
     const events = deps.repo.recentEvents(s.id, 200);
     // persona (active assignment があれば) を同梱. statusline / UI が 1 リクエストで
     // ロール名 + 人物名を取れるように.
@@ -436,12 +556,15 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PermissionRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50));
     eventBus.emit({
       type: "session.permission_request",
       target_session_id: id,
       request_id: parsed.data.request_id,
       tool_name: parsed.data.tool_name,
       tool_input: parsed.data.tool_input,
+      requester_platform: requester?.platform,
+      requester_user_id: requester?.userId,
       ts: nowSec(),
     });
     return c.json({ ok: true });
@@ -524,7 +647,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       ts: now,
       kind: "title_renamed",
-      payload: { text: parsed.data.text },
+      // source: "title-suggestion" を付与し、Discord bot 側でチャンネル名リネームを抑制する。
+      // AI の自動タイトル提案はチャンネル名に反映せず topic のみ更新する。
+      payload: { text: parsed.data.text, source: "title-suggestion" },
     });
     eventBus.emit({ type: "session.event", session_id: id, kind: "title_renamed", ts: now });
     const text = await upstream.text();
@@ -574,6 +699,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         multi_select: parsed.data.multi_select === true,
       },
     });
+    // 起因者 (直近で指示した人間) を session_events の inject source から後追い解決し、
+    // Discord 側で @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
+    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50));
     eventBus.emit({
       type: "question.posted",
       target_session_id: id,
@@ -581,6 +709,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       question: row.question,
       options: parsed.data.options,
       multi_select: parsed.data.multi_select === true,
+      requester_platform: requester?.platform,
+      requester_user_id: requester?.userId,
       ts,
     });
     return c.json({ ok: true, question_id: row.id, ts });
@@ -637,6 +767,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       kind: "question_answered",
       payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
     });
+    // 旧「起動時ブランチ選択」の回答処理は廃止 (起動フローはゴール起点に刷新)。
+    // 通常の AskUserQuestion 回答として answer_text を返すだけ。
     return c.json({ ok: true, answer_text: answerText });
   });
 
@@ -745,18 +877,30 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   // クエリ:
   //   - since_id  : 指定 id より新しい行だけ返す (incremental tail)
   //   - limit     : 1..1000 (default 200)
+  //   - tail      : "1"/"true" で「最新 limit 件」を返す (web viewer 用). 既定は先頭から
+  //                 (= 従来契約: ASC + next_since_id で前方ページング). since_id 指定時は無効.
   // 並び順は ts ASC + seq ASC (chronological).
+  //
+  // session 行が sweeper で purge 済みでも、 transcript_logs が残っていれば閲覧できる
+  // (= ログ閲覧をセッション行のライフサイクルから切り離す). frame が 1 件も無いときだけ 404.
   app.get("/:id/transcript", (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
     const q = c.req.query();
     const sinceId = q.since_id ? Number(q.since_id) : undefined;
-    const limit = q.limit ? Number(q.limit) : undefined;
-    const entries = deps.transcriptLogs.listBySession(id, {
-      since_id: Number.isFinite(sinceId) ? sinceId : undefined,
-      limit: Number.isFinite(limit) ? limit : undefined,
-    });
+    const hasSince = Number.isFinite(sinceId);
     const total = deps.transcriptLogs.countBySession(id);
+    if (!deps.repo.findSession(id) && total === 0) {
+      return c.json({ error: "not_found" }, 404);
+    }
+    const limit = q.limit ? Number(q.limit) : undefined;
+    // tail は opt-in. 数千 frame あるセッションを開いたとき先頭(起動直後の raw)ではなく
+    // 直近を見せたい viewer が ?tail=1 を付ける. since_id 指定時は前方ページングなので無効.
+    const tail = !hasSince && (q.tail === "1" || q.tail === "true");
+    const entries = deps.transcriptLogs.listBySession(id, {
+      since_id: hasSince ? sinceId : undefined,
+      limit: Number.isFinite(limit) ? limit : undefined,
+      tail,
+    });
     return c.json({
       session_id: id,
       total,
@@ -852,6 +996,9 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     // 相手プラットフォームのミラーで「誰の発言か」を出せるようにする。
     // /enter 等の制御 inject (source 例 "discord-enter") はコロン区切りでないため除外。
     let authorLabel: string | null = null;
+    // 複数名同時利用に備え、人間 inject は本文に「誰の指示か」を前置して AI に起因者を
+    // 明示する。AskUserQuestion の @メンションは後追いで source(=uid 埋め込み) を読む。
+    let injectText = parsed.data.text;
     if (src && parsed.data.author_label) {
       const m = /^(discord|slack):([^:]+)/.exec(src);
       if (m) {
@@ -861,12 +1008,13 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
           display_name: parsed.data.author_label,
         });
         authorLabel = row.display_name;
+        injectText = prefixRequesterTag(authorLabel, parsed.data.text);
       }
     }
     eventBus.emit({
       type: "session.inject",
       target_session_id: id,
-      text: parsed.data.text,
+      text: injectText,
       source: src,
       author_label: authorLabel,
       ts,
@@ -875,9 +1023,102 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       session_id: id,
       ts,
       kind: "inject",
-      payload: { text: parsed.data.text, source: src },
+      payload: { text: injectText, source: src },
     });
     return c.json({ ok: true, ts });
+  });
+
+  // GET /v1/sessions/:id/goal — 現在のゴール (未設定は既定 complete)。/co-goal 表示用。
+  app.get("/:id/goal", (c) => {
+    const s = deps.repo.findSession(c.req.param("id"));
+    if (!s) return c.json({ error: "not_found" }, 404);
+    return c.json({ goal: readGoalFromMetadata(s.metadata) });
+  });
+
+  // POST /v1/sessions/:id/goal — ゴールを設定/変更する (/co-goal)。
+  // metadata JSON にマージ保存 (persona 等の既存キーは保持)。schema 列は増やさない。
+  app.post("/:id/goal", async (c) => {
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = GoalSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const goal = parseGoalInput({ mode: parsed.data.mode, text: parsed.data.text });
+    deps.repo.setMetadata(id, mergeGoalIntoMetadata(s.metadata, goal));
+    deps.repo.appendEvent({ session_id: id, ts: nowSec(), kind: "goal", payload: { goal } });
+    return c.json({ ok: true, goal });
+  });
+
+  // POST /v1/sessions/:id/compact — 引き継ぎ型コンパクション (生成→投稿→/clear→再投入)。
+  // spec/feature/session-compaction.md。 loopback 信頼境界 (token 不要)。
+  app.post("/:id/compact", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const io = makeCompactionIO({ sessions: deps.repo, chat: deps.chat });
+    const result = await runCompaction(
+      { sessions: deps.repo, transcriptLogs: deps.transcriptLogs, runClaude, ...io },
+      id,
+    );
+    return c.json(result, result.ok ? 200 : 400);
+  });
+
+  // POST /v1/sessions/:id/relictor — 文脈引き継ぎ Lictor 再起動 (/co-relictor)。
+  // Lictor は claude を pty 子に抱えるため単体再 exec 不可 → ラップ中セッションごと再起動する:
+  //   1) 引き継ぎ資料を生成しチャンネルへ投稿、 2) cwd キーで handoff+goal を記録、
+  //   3) 新セッションを spawn (= 最新 Lictor dist)、 4) 旧セッションを ended 化 + force-exit。
+  // 新セッションは登録時 (session.started) に handoff を claim して inject し文脈を復元する。
+  app.post("/:id/relictor", async (c) => {
+    const id = c.req.param("id");
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    if (session.status !== "active") return c.json({ error: `session is ${session.status}` }, 400);
+    const sp = toSpawnProvider(session.provider);
+    if (!sp) return c.json({ error: `provider ${session.provider} is not spawnable` }, 400);
+    // lictor_port が無いと force-exit できない (= Lictor ラップでない)。 spawn 自体は可能だが
+    // 旧セッションを確実に畳めないので拒否する。
+    const target = resolveLictorTarget(deps.repo, id);
+    if ("error" in target) return c.json({ error: `not lictor-wrapped: ${target.error}` }, 400);
+
+    // 1) 引き継ぎ資料を生成しチャンネルへ投稿 (durable ログ)。
+    const recent = collectRecentContext(deps.transcriptLogs, id);
+    const handoff = await generateHandoff({ runClaude, log }, session.current_task ?? "", recent);
+    const io = makeCompactionIO({ sessions: deps.repo, chat: deps.chat });
+    try {
+      await io.postHandoff(id, `🔁 **再起動引き継ぎ資料 (relictor)**\n\n${handoff}`);
+    } catch (e) {
+      log.warn({ session_id: id, err: (e as Error).message }, "relictor: handoff post failed");
+    }
+
+    // 2) cwd キーで handoff + goal を記録 (新セッション登録時に claim される)。
+    recordPendingRelictor({ cwd: session.repo_path, handoff, goal: readGoalFromMetadata(session.metadata) });
+
+    // 3) 新セッションを spawn (最新 Lictor dist を junction 経由で拾う)。
+    const result = spawnSession({
+      provider: sp,
+      cwd: session.repo_path,
+      mode: "tab",
+      title: session.current_task ?? undefined,
+    });
+    if (!result.ok) {
+      return c.json({ error: `spawn failed: ${result.error}` }, 500);
+    }
+
+    // 4) 旧セッションを ended 化 + force-exit (runSessionEndFlow は回さない=再起動なので軽量に畳む)。
+    const now = nowSec();
+    deps.repo.setStatus(id, "ended", now, now);
+    deps.repo.appendEvent({ session_id: id, ts: now, kind: "end", payload: { reason: "relictor", duration_sec: now - session.started_at } });
+    eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+    void fetchFromLictor(target.port, "/v1/internal/force-exit", { method: "POST" }).catch(() => {});
+    // 保険: force-exit は Windows/ConPTY で不発になりやすい。 猶予後に生存していれば確定 kill。
+    const lictorPid = parseLictorPid(session.metadata);
+    if (lictorPid != null) {
+      setTimeout(() => {
+        if (isPidAlive(lictorPid)) stopSessionByLictorPid(lictorPid);
+      }, FORCE_EXIT_GRACE_MS).unref?.();
+    }
+    log.info({ session_id: id, repo: session.repo_path }, "relictor: spawned replacement + ended old");
+    return c.json({ ok: true, spawn: result.command });
   });
 
   // POST /v1/sessions/:id/resume
@@ -929,7 +1170,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         trigger: "manual",
         instructions:
           "Web UI から手動依頼です. 現在の作業現況を JSON で集計し " +
-          "POST http://127.0.0.1:17330/v1/stat/<self_id> に投稿してください. " +
+          "POST http://127.0.0.1:11111/v1/stat/<self_id> に投稿してください. " +
           "本文 body は `{ \"payload\": { ... } }`. " +
           "payload に含めるキー (どれも任意): active_repos / open_prs / unmerged_branches / todos_summary / recent_work / note.",
       },
@@ -952,7 +1193,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         reason: "manual",
         instructions:
           "Web UI から手動依頼です. 現在の作業を 30 文字以内 (日本語可、 OSC タイトル向け) " +
-          `で 1 行に要約して POST http://127.0.0.1:17330/v1/sessions/${id}/title-suggestion ` +
+          `で 1 行に要約して POST http://127.0.0.1:11111/v1/sessions/${id}/title-suggestion ` +
           "に { \"text\": \"<タイトル文字列>\" } で投稿してください. " +
           "Concordia 側が Lictor の /v1/rename に転送します.",
       },
@@ -1005,10 +1246,66 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
+        harnessAudit: deps.harnessAudit,
       },
       ended,
     );
+    // force-exit は AI 側の session-end スキル完了後に発行する。
+    // `POST /v1/sessions/:id/session-end-done` が来た時点で即 force-exit、
+    // シグナルなし時は SESSION_END_DONE_TIMEOUT_MS 後に保険として発行する。
+    // これにより session-log 出力・memory 更新・残タスク登録が完了する前に
+    // WT ウインドウが閉じる問題を防ぐ。
+    const lictorPid = parseLictorPid(ended.metadata);
+    const agentClientPid = parseAgentClientPid(ended.metadata);
+    const doForceExit = () => {
+      pendingSessionEndExits.delete(id);
+      const lictorTarget = resolveLictorTarget(deps.repo, id);
+      if (!("error" in lictorTarget)) {
+        void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
+          .catch(() => {});
+      }
+      // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
+      // 猶予後に lictor_pid / agent_client_pid がまだ生きていれば確定的に kill する (taskkill /F /T)。
+      // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
+      if (lictorPid != null || agentClientPid != null) {
+        setTimeout(() => {
+          if (lictorPid != null && isPidAlive(lictorPid)) {
+            const r = stopSessionByLictorPid(lictorPid);
+            if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
+            else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
+          }
+          if (agentClientPid != null && isPidAlive(agentClientPid)) {
+            const r = stopSessionByLictorPid(agentClientPid);
+            if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
+            else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
+          }
+        }, FORCE_EXIT_GRACE_MS).unref?.();
+      }
+    };
+    const exitTimer = setTimeout(() => {
+      log.info({ session_id: id }, "session-end-done timeout — forcing exit");
+      doForceExit();
+    }, SESSION_END_DONE_TIMEOUT_MS);
+    exitTimer.unref?.();
+    pendingSessionEndExits.set(id, () => {
+      clearTimeout(exitTimer);
+      doForceExit();
+    });
     return c.json({ ok: true, session: serializeSession(ended), report });
+  });
+
+  // AI session-end スキルが全処理 (session-log/memory 更新/残タスク登録/report append)
+  // を完了した直後に呼ぶ。 Concordia はこれを受けて即座に force-exit を発行し WT を閉じる。
+  // シグナルなしでも SESSION_END_DONE_TIMEOUT_MS 後に自動 force-exit するので必須ではないが、
+  // 呼ぶことでターミナルが素早く閉じる。
+  app.post("/:id/session-end-done", (c) => {
+    const id = c.req.param("id");
+    const trigger = pendingSessionEndExits.get(id);
+    if (trigger) {
+      log.info({ session_id: id }, "session-end-done received — triggering force-exit");
+      trigger();
+    }
+    return c.json({ ok: true });
   });
 
   return app;
@@ -1045,6 +1342,28 @@ export function serializeSession(s: SessionRow) {
     last_seen_at: s.last_seen_at,
     current_task: s.current_task,
     metadata: s.metadata ? safeParse(s.metadata) : null,
+  };
+}
+
+/**
+ * sessions 行が sweeper (purgeStale) で消えても transcript_logs が残っている
+ * 孤児セッション向けの、 閲覧用 synthetic session. serializeSession と同形.
+ * 開始/終了は transcript の ts レンジ、 status は誤操作防止のため abandoned 扱い.
+ */
+function syntheticPurgedSession(id: string, span: { first_ts: number; last_ts: number }) {
+  return {
+    id,
+    provider: "purged",
+    repo_path: null,
+    repo_origin: null,
+    branch: null,
+    host: null,
+    started_at: span.first_ts,
+    ended_at: span.last_ts,
+    status: "abandoned" as const,
+    last_seen_at: span.last_ts,
+    current_task: "(session purged — transcript ログのみ保持)",
+    metadata: { synthetic: true, purged: true },
   };
 }
 

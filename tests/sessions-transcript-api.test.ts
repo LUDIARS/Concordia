@@ -133,4 +133,53 @@ describe("sessions API — transcript", () => {
       expect(r.status).toBe(400);
     });
   });
+
+  // ログ閲覧の改善: tail (最新を表示) と、 sweeper purge 済みセッションの閲覧.
+  describe("transcript log viewing", () => {
+    it("?tail=1 は最新 limit 件を時系列 (ASC) で返す", async () => {
+      const env = makeTestApp();
+      await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "tl", provider: "claude-code", repo_path: "/p", host: "h" }),
+      });
+      for (let i = 0; i < 5; i++) {
+        await env.app.request("/v1/sessions/tl/transcript-frame", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ seq: i, kind: "text", payload: { text: `m${i}` } }),
+        });
+      }
+      // tail 無し = 先頭 2 件 (従来契約).
+      const head = await env.app.request("/v1/sessions/tl/transcript?limit=2");
+      expect(((await head.json()) as { entries: Array<{ seq: number }> }).entries.map((e) => e.seq)).toEqual([0, 1]);
+      // tail=1 = 最新 2 件を時系列順で.
+      const tail = await env.app.request("/v1/sessions/tl/transcript?tail=1&limit=2");
+      expect(((await tail.json()) as { entries: Array<{ seq: number }> }).entries.map((e) => e.seq)).toEqual([3, 4]);
+    });
+
+    it("sessions 行が無くても transcript_logs があれば閲覧でき synthetic session を返す", async () => {
+      const env = makeTestApp();
+      // sessions 行は作らず purge 済み相当の孤児 transcript を直接 seed.
+      env.transcriptLogs.insert({ session_id: "orphan", seq: 0, ts: 1000, kind: "text", payload: { text: "a" } });
+      env.transcriptLogs.insert({ session_id: "orphan", seq: 1, ts: 1001, kind: "text", payload: { text: "b" } });
+
+      const rt = await env.app.request("/v1/sessions/orphan/transcript");
+      expect(rt.status).toBe(200);
+      const jt = (await rt.json()) as { total: number; entries: Array<{ seq: number }> };
+      expect(jt.total).toBe(2);
+      expect(jt.entries.map((e) => e.seq)).toEqual([0, 1]);
+
+      const rs = await env.app.request("/v1/sessions/orphan");
+      expect(rs.status).toBe(200);
+      const js = (await rs.json()) as {
+        session: { id: string; status: string; metadata: { purged?: boolean } | null };
+        events: unknown[];
+      };
+      expect(js.session.id).toBe("orphan");
+      expect(js.session.status).toBe("abandoned");
+      expect(js.session.metadata?.purged).toBe(true);
+      expect(js.events).toEqual([]);
+    });
+  });
 });

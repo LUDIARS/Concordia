@@ -5,7 +5,10 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { classifyReactionWorkflow, isStandaloneEmoji, reactionAckText, type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { ENTER_KEY_TEXT } from "../control/enter-key.js";
+import { type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { getRwf } from "../platform/reaction-workflow-loader.js";
+import { maybeSpawnFromReply } from "./reply-spawn.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const COMMAND_LIST_TEXT = [
@@ -38,6 +41,15 @@ export interface IngressDeps {
   };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /**
+   * 子会社モード。 intake チャンネルの新規メッセージはガードゲートに通し (process)、
+   * ロック済みユーザは他チャンネルでも遮断する。 spec/feature/subsidiary-delegation.md §3.1。
+   */
+  subsidiary?: {
+    intakeChannelId: string | null;
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    isLocked: (userId: string) => boolean;
+  };
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -86,13 +98,35 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
   );
 
+  // 子会社モード: 受付チャンネルの新規依頼はガードゲートへ。 他チャンネルでもロック済みは遮断。
+  if (deps.subsidiary) {
+    const sub = deps.subsidiary;
+    if (sub.intakeChannelId && routeChannelId === sub.intakeChannelId) {
+      const userLabel = msg.member?.nickname?.trim() || msg.author.username;
+      deps.log.info(`ingress: subsidiary intake request channel=${msg.channelId} user=${msg.author.id}`);
+      try {
+        const result = await sub.process(msg.author.id, userLabel, text.slice(0, 8000));
+        await msg.reply({ content: result.replyText, allowedMentions: { parse: [], repliedUser: false } });
+      } catch (e) {
+        deps.log.warn(`ingress: subsidiary gate failed channel=${msg.channelId}: ${(e as Error).message}`);
+        try { await msg.reply({ content: `⚠️ 内部エラーで処理できませんでした: ${(e as Error).message}`, allowedMentions: { parse: [], repliedUser: false } }); } catch {}
+      }
+      return;
+    }
+    if (sub.isLocked(msg.author.id)) {
+      deps.log.info(`ingress: subsidiary locked user=${msg.author.id} channel=${msg.channelId}; blocked`);
+      try { await msg.reply({ content: "🔒 ロック中のため処理できません。", allowedMentions: { parse: [], repliedUser: false } }); } catch {}
+      return;
+    }
+  }
+
   // 単発で投稿された絵文字 (🙏 / 🫶 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
   if (deps.workflow) {
-    if (classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
+    if (getRwf().classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
       if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
-    } else if (isStandaloneEmoji(text)) {
+    } else if (getRwf().isStandaloneEmoji(text)) {
       deps.log.info(`ingress: standalone emoji "${text.trim()}" has no workflow action → reject (prompt not forwarded)`);
       return;
     }
@@ -104,6 +138,13 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       `ingress: session channel matched route_channel=${routeChannelId} ` +
       `session=${sessionRow.session_id} status=${sessionRow.status}`,
     );
+    // 返信 (message reference あり) は走っているセッションへは inject しない。
+    // 基本は「情報補足」で AI は反応せず、 モデル指定/作業指示を含む時だけ Haiku 判定で
+    // 新規セッションを立てる (reply-spawn)。 通常 (非返信) メッセージは従来どおり inject。
+    if (msg.reference?.messageId) {
+      await handleSessionReply(deps, msg, sessionRow.session_id);
+      return;
+    }
     if (sessionRow.status !== "active") {
       try {
         await msg.reply({ content: `This session is ${sessionRow.status}; inject is disabled.`, allowedMentions: { repliedUser: false } });
@@ -136,7 +177,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: "\n", source: "discord-enter-fallback" }),
+            body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "discord-enter-fallback" }),
           });
         } catch {
           // Enter fallback failure is non-fatal for main inject path.
@@ -183,6 +224,69 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   } catch (e) {
     deps.log.warn(`ingress: /v1/chat failed discord_channel=${msg.channelId}: ${(e as Error).message}`);
   }
+}
+
+/**
+ * session channel への返信を処理する。 走っているセッションへは inject せず、
+ * Haiku 判定でモデル指定/作業指示を含む時だけ新規セッションを spawn する。
+ * 補足扱い (spawn なし) のときは AI は反応しない (Discord にも何も返さない)。
+ */
+async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: string): Promise<void> {
+  const replyText = msg.content.trim();
+  // 返信先メッセージ本文 (元の作業内容)。 取得失敗は空文字で続行 (返信本文だけで判定)。
+  let repliedToText = "";
+  try {
+    const ref = await msg.fetchReference();
+    repliedToText = ref?.content?.trim() ?? "";
+  } catch {
+    // 参照先が削除済 / 取得不可 → 空のまま。
+  }
+  const repoPath = deps.sessionsRepo.findSession(sessionId)?.repo_path ?? null;
+  const concordiaUrl = deps.concordiaUrl;
+  const result = await maybeSpawnFromReply(
+    {
+      log: deps.log,
+      spawn: async (body) => {
+        try {
+          const res = await fetch(`${concordiaUrl}/v1/admin/spawn-session`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+          return { ok: true };
+        } catch (e) {
+          return { ok: false, error: (e as Error).message };
+        }
+      },
+    },
+    { replyText, repliedToText, repoPath },
+  );
+  // 起動した時だけ可視化する。 補足扱いは「AI 一切反応しない」ため無言。
+  if (result.spawned) {
+    try {
+      await msg.reply({
+        content: `🆕 返信内容で新規セッションを起動しました${result.model ? ` (model: ${result.model})` : ""}。`,
+        allowedMentions: { repliedUser: false },
+      });
+    } catch { /* best-effort */ }
+    // spawn した作業内容を session channel へ投稿して可視化する。
+    if (result.spawnPrompt) {
+      try {
+        await fetch(`${deps.concordiaUrl}/v1/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            channel: "報告",
+            text: result.spawnPrompt.slice(0, 2000),
+            author_label: "Concordia (spawn)",
+            discord_channel_id: msg.channelId,
+          }),
+        });
+      } catch { /* best-effort */ }
+    }
+  }
+  deps.log.info(`ingress: session reply → reply-spawn spawned=${result.spawned} reason=${result.reason}`);
 }
 
 function resolveRouteChannelId(msg: Message): string {
@@ -242,7 +346,7 @@ async function tryEmojiWorkflow(
       (action) => {
         // 単発絵文字メッセージ自身へ「受付」リプライを返して発火を可視化する。
         void msg
-          .reply({ content: reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+          .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
           .catch((e) => deps.log.warn(`ingress: emoji ack reply failed: ${(e as Error).message}`));
       },
     )

@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  reformatMarkdownTables,
   buildQuestionBlocks,
   buildSessionBotUsername,
   extractRelayableFrame,
@@ -206,42 +205,6 @@ describe("sanitizeSlackMentions", () => {
   });
 });
 
-describe("reformatMarkdownTables", () => {
-  it("テーブルなしはそのまま返す", () => {
-    expect(reformatMarkdownTables("普通のテキストです。")).toBe("普通のテキストです。");
-    expect(reformatMarkdownTables("")).toBe("");
-  });
-  it("2 カラムテーブル: ヘッダ太字・セパレータ除去・データ行保持", () => {
-    const text = "| バグ | 修正内容 |\n|---|---|\n| ask | fix |\n| 通知 | sanitize |";
-    const out = reformatMarkdownTables(text);
-    expect(out).toBe("*バグ* | *修正内容*\nask | fix\n通知 | sanitize");
-  });
-  it("テキスト + テーブル + テキストで前後のテキストを保持", () => {
-    const text = "前文です。\n\n| A | B |\n|---|---|\n| 1 | 2 |\n\n後文です。";
-    const out = reformatMarkdownTables(text);
-    expect(out).toContain("前文です。");
-    expect(out).toContain("後文です。");
-    expect(out).toContain("*A* | *B*");
-    expect(out).toContain("1 | 2");
-    expect(out).not.toContain("|---|");
-  });
-  it("3 カラムテーブルも同様に処理（カラム数増加対応）", () => {
-    const text = "| A | B | C |\n|---|---|---|\n| 1 | 2 | 3 |";
-    const out = reformatMarkdownTables(text);
-    expect(out).toBe("*A* | *B* | *C*\n1 | 2 | 3");
-  });
-  it("セパレータ行が `| --- | --- |` 形式でも検出", () => {
-    const text = "| X | Y |\n| --- | --- |\n| a | b |";
-    const out = reformatMarkdownTables(text);
-    expect(out).toBe("*X* | *Y*\na | b");
-  });
-  it("セパレータ行（|---|）がテキストに残らない", () => {
-    const text = "| H1 | H2 |\n|:---|---:|\n| v1 | v2 |";
-    const out = reformatMarkdownTables(text);
-    expect(out).not.toMatch(/\|[:\-]+/);
-  });
-});
-
 describe("buildQuestionBlocks", () => {
   it("各選択肢を action_id=cc_answer:<qid>:<index> のボタンにする", () => {
     const { text, blocks } = buildQuestionBlocks(42, "Which?", [
@@ -252,8 +215,8 @@ describe("buildQuestionBlocks", () => {
     const actions = (blocks as Array<{ type: string; elements?: Array<{ action_id: string; value: string }> }>).find(
       (b) => b.type === "actions",
     );
-    expect(actions?.elements?.map((e) => e.action_id)).toEqual(["cc_answer:42:0", "cc_answer:42:1"]);
-    expect(actions?.elements?.map((e) => e.value)).toEqual(["0", "1"]);
+    expect(actions?.elements?.map((e) => e.action_id)).toEqual(["cc_answer:42:0", "cc_answer:42:1", "cc_answer_other:42"]);
+    expect(actions?.elements?.slice(0, 2).map((e) => e.value)).toEqual(["0", "1"]);
   });
 });
 

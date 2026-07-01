@@ -1,4 +1,7 @@
 import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
+import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
+import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
+import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
@@ -6,6 +9,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
+import { fetchSessionCacheStats, type SessionCacheStats } from "../anatomia/cache-stats-client.js";
 
 /** 「直近のセッション活動」 と判定する閾値 (秒). recentEvents の最新 ts と現在時刻の差で見る. */
 const ACTIVE_WINDOW_SEC = 60;
@@ -14,6 +18,15 @@ const WAITING_WINDOW_SEC = 5 * 60;
 
 const STATUS_MESSAGE_KEY_PREFIX = "session_status_message_id:";
 const STATUS_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
+
+/** configRepo に保存済みの状態カードチャンネル ID を返す。未作成なら null。 */
+export function getStatusChannelId(
+  configRepo: DiscordConfigRepo,
+  sessionId: string,
+): string | null {
+  const v = configRepo.get(STATUS_CHANNEL_KEY_PREFIX + sessionId);
+  return v || null;
+}
 
 export interface SessionStatusCardDeps {
   guild: Guild;
@@ -73,6 +86,16 @@ export async function upsertSessionStatusCard(
   // タスクを送ったのに session が拾ってくれていない、 を見える化する.
   const concordiaPending = deps.tasksRepo.countUndeliveredForSession(sessionId);
 
+  // Anatomia 共有キャッシュの当セッション取り分 (ヒット率 + 想定コスト)。warm サーバが
+  // 居ない / イベント未発生なら null → カードはこのフィールドを省く (best-effort)。
+  const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
+
+  // コンテキスト占有の概算 (provider ログから)。取れなければ null → カードは省く。
+  const ctx = estimateContextTokens(sessionRow);
+
+  // 当セッションの想定コスト合算 (等価 API 価格)。取れなければ null → カードは省く。
+  const cost = estimateSessionCostUsd(sessionRow);
+
   const embed = buildSessionStatusEmbed({
     sessionId,
     provider: sessionRow.provider,
@@ -87,41 +110,47 @@ export async function upsertSessionStatusCard(
     pending,
     doneCount,
     concordiaPending,
+    cache,
+    contextBadge: formatContextBadge(ctx),
+    contextPct: ctx?.pct ?? null,
+    costBadge: formatCostBadge(cost),
+    goalBadge: formatGoalBadge(readGoalFromMetadata(sessionRow.metadata)),
   });
 
-  const key = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
-  const messageId = deps.configRepo.get(key);
-  try {
-    if (messageId) {
+  const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
+  const chKey = `${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`;
+  // Unknown Channel (10003) が来たらチャンネルが Discord 側で削除済みの確定サイン。
+  // warn を出さず info でキャッシュだけ破棄して終了 → 次 tick で allowCreate=true なら再作成。
+  // (warn にすると looksLikeFailure でエラーチャンネルへ転記されノイズになる)
+  const handleUnknownChannel = () => {
+    deps.configRepo.set(msgKey, "");
+    deps.configRepo.set(chKey, "");
+    deps.guild.channels.cache.delete(statusChannel.id);
+    deps.log.info(`status-card: channel gone, cache cleared session=${sessionId} channel=${statusChannel.id}`);
+  };
+
+  const messageId = deps.configRepo.get(msgKey);
+  if (messageId) {
+    try {
       const msg = await statusChannel.messages.fetch(messageId);
-      // 旧実装は content 本文だった。 embeds へ移行するため content を空に上書きする。
       await msg.edit({ content: "", embeds: [embed] });
       return;
+    } catch (e) {
+      if ((e as { code?: number }).code === 10003) { handleUnknownChannel(); return; }
+      // Unknown Message (10008) 等 → 再作成パスへ fall through
     }
-  } catch {
-    // fall through and recreate
   }
 
   // message id を失った再作成パス: チャンネルに残った古い bot カードを掃除してから
   // 1 枚だけ送り直す (1 チャンネルにカードが複数並ぶ重複を防ぐ)。
-  await purgeBotMessages(deps, statusChannel);
   try {
+    await purgeBotMessages(deps, statusChannel); // Unknown Channel は re-throw
     const sent = await statusChannel.send({ embeds: [embed] });
-    deps.configRepo.set(key, sent.id);
+    deps.configRepo.set(msgKey, sent.id);
     deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
   } catch (e) {
-    // 送信先チャンネルが Discord 側で削除されている (Unknown Channel=10003) 等で
-    // 送れないケース。 ここで throw すると `void upsertSessionStatusCard(...)` の
-    // 未ハンドル rejection で bot プロセスごと落ち、 session.ended のアーカイブ等
-    // 後続処理まで巻き添えで止まる。 クラッシュさせず stale キャッシュを破棄して終える。
-    // 状態チャンネルは「無い前提」なので作り直さない (次回は ensureStatusChannel が
-    // 既存なし → null を返して skip するだけ)。
-    const code = (e as { code?: number }).code;
-    deps.configRepo.set(key, ""); // message id は無効
-    if (code === 10003 /* Unknown Channel */) {
-      deps.configRepo.set(`${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`, "");
-      deps.guild.channels.cache.delete(statusChannel.id);
-    }
+    if ((e as { code?: number }).code === 10003) { handleUnknownChannel(); return; }
+    deps.configRepo.set(msgKey, "");
     deps.log.warn(
       `status-card: send failed session=${sessionId} channel=${statusChannel.id}: ${(e as Error).message}`,
     );
@@ -142,6 +171,16 @@ export interface StatusEmbedInput {
   pending: Array<{ task_text: string }>;
   doneCount: number;
   concordiaPending: number;
+  /** Anatomia 共有キャッシュの当セッション取り分。未取得/イベント無しは null。 */
+  cache?: SessionCacheStats | null;
+  /** コンテキスト占有バッジ (🧠 ctx ~62% (124k))。 推定不可は空。 */
+  contextBadge?: string;
+  /** コンテキスト占有率 (0..1)。 null=推定不可。 閾値色付け用。 */
+  contextPct?: number | null;
+  /** 想定コスト合算バッジ (💰 ~$1.23)。 推定不可は空。 */
+  costBadge?: string;
+  /** ゴールバッジ (🎯 完成まで実装)。 常に既定が入る。 */
+  goalBadge?: string;
 }
 
 /**
@@ -170,8 +209,18 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
+  // ゴール (🎯 完成まで実装)。作業モード・確認頻度の表示。
+  if (i.goalBadge) descParts.push(i.goalBadge);
+  // コンテキスト占有 (🧠 ctx ~62% (124k)) と想定コスト合算 (💰 ~$1.23) を 1 行に。
+  // コンテキスト閾値超えは ⚠️ を添えて圧縮の目安に。
+  const usageBadges: string[] = [];
+  if (i.contextBadge) {
+    usageBadges.push(i.contextPct != null && i.contextPct >= 0.75 ? `⚠️ ${i.contextBadge}` : i.contextBadge);
+  }
+  if (i.costBadge) usageBadges.push(i.costBadge);
+  if (usageBadges.length) descParts.push(usageBadges.join(" · "));
 
-  return new EmbedBuilder()
+  const embed = new EmbedBuilder()
     .setColor(statusColor(i.status, i.ageSec))
     .setTitle((i.personaText && i.personaText !== "-" ? i.personaText : i.provider).slice(0, 250))
     .setDescription(descParts.join("\n"))
@@ -181,9 +230,26 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
       { name: "Branch", value: `\`${i.branch ?? "-"}\``, inline: true },
       { name: "Repo", value: `\`${repoName}\``, inline: true },
       { name: `タスク (${taskHeader})`, value: taskValue, inline: false },
-    )
+    );
+
+  const cacheLine = formatCacheField(i.cache);
+  if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });
+
+  return embed
     .setFooter({ text: `session ${shortId} · ${truncate(i.repoPath, 80)}` })
     .setTimestamp(new Date());
+}
+
+/**
+ * Anatomia 共有キャッシュの当セッション取り分を 1 行に。`~` は想定 (stub-llm) basis。
+ * 例: `67% hit (8/12) · 節約 ~$0.14 · コスト ~$0.07`。null は省略。
+ */
+function formatCacheField(cache: SessionCacheStats | null | undefined): string | null {
+  if (!cache || cache.gets === 0) return null;
+  const pct = `${Math.round(cache.hitRate * 100)}%`;
+  const tilde = cache.basis === "assumed" ? "~" : "";
+  const usd = (v: number) => `${tilde}$${v.toFixed(v < 0.1 ? 4 : 2)}`;
+  return `${pct} hit (${cache.hits}/${cache.gets}) · 節約 ${usd(cache.savedUsd)} · コスト ${usd(cache.spentUsd)}`;
 }
 
 /** 状態 + 直近活動から Embed のアクセントカラーを決める。 */
@@ -194,7 +260,8 @@ function statusColor(status: string, ageSec: number | null): number {
   return 0x747f8d; // アイドル → グレー
 }
 
-/** 状態カード channel に残った自分(bot)の過去メッセージを一掃する (重複カード防止)。 */
+/** 状態カード channel に残った自分(bot)の過去メッセージを一掃する (重複カード防止)。
+ *  Unknown Channel (10003) は呼び出し元で一元処理するため re-throw する。 */
 async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChannel): Promise<void> {
   try {
     const msgs = await channel.messages.fetch({ limit: 10 });
@@ -204,6 +271,7 @@ async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChanne
       try { await m.delete(); } catch { /* best-effort */ }
     }
   } catch (e) {
+    if ((e as { code?: number }).code === 10003) throw e; // Unknown Channel → 呼び出し元へ
     deps.log.warn(`status-card: purge failed channel=${channel.id}: ${(e as Error).message}`);
   }
 }
@@ -309,7 +377,15 @@ export async function deleteSessionStatusCard(
         await ch.delete(`session ${sessionId} status card removed`);
         deps.log.info(`status-card: deleted channel=${channelId} for ${sessionId}`);
       } catch (e) {
-        deps.log.warn(`status-card: delete failed session=${sessionId}: ${(e as Error).message}`);
+        // Unknown Channel (10003) = Discord 側で既に消えている → 目的達成と同義。
+        // warn にすると looksLikeFailure でエラーチャンネルに転記されるので info に留める。
+        const isGone = (e as { code?: number }).code === 10003;
+        if (isGone) {
+          deps.guild.channels.cache.delete(channelId);
+          deps.log.info(`status-card: channel already gone session=${sessionId} channel=${channelId}`);
+        } else {
+          deps.log.warn(`status-card: delete failed session=${sessionId}: ${(e as Error).message}`);
+        }
       }
     }
     deps.configRepo.set(chKey, "");

@@ -1,0 +1,230 @@
+{
+  "version": 1,
+  "project": "concordia",
+  "iterations": 2,
+  "domains": [
+    {
+      "name": "chat-platforms",
+      "description": "Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch and synthetic personas.",
+      "modules": [
+        {
+          "name": "discord",
+          "description": "Discord bot, control UI, session channels, and command handlers (src/discord, src/discord/commands).",
+          "paths": [
+            "(^|/)src/discord/[^/]+$",
+            "(^|/)src/discord/commands/[^/]+$"
+          ]
+        },
+        {
+          "name": "slack",
+          "description": "Slack bot, message/thread mapping, and session mirroring repos (src/slack).",
+          "paths": [
+            "(^|/)src/slack/[^/]+$"
+          ]
+        },
+        {
+          "name": "reaction-workflow",
+          "description": "Emoji-to-action mapping, workflow planning, and runner harness (src/platform, src/triggers).",
+          "paths": [
+            "(^|/)src/platform/[^/]+$",
+            "(^|/)src/triggers/[^/]+$"
+          ]
+        },
+        {
+          "name": "personas-delegation",
+          "description": "Dynamic persona generation from signals and delegation templates (src/personas, src/delegation).",
+          "paths": [
+            "(^|/)src/personas/[^/]+$",
+            "(^|/)src/delegation/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "http-interface",
+      "description": "External access surfaces: the HTTP/Hono REST API that hooks report to, the MCP server, and the web monitoring frontend.",
+      "modules": [
+        {
+          "name": "rest-api",
+          "description": "Hono routers for sessions, spawn, reports, and other v1 endpoints (src/api).",
+          "paths": [
+            "(^|/)src/api/[^/]+$"
+          ]
+        },
+        {
+          "name": "web-monitor",
+          "description": "Vite+React Foundation UI pages, components, and hooks for live monitoring (web/src).",
+          "paths": [
+            "(^|/)web/src/pages/[^/]+$",
+            "(^|/)web/src/pages/settings/[^/]+$",
+            "(^|/)web/src/[^/]+$",
+            "(^|/)web/src/components/[^/]+$",
+            "(^|/)web/src/hooks/[^/]+$"
+          ]
+        },
+        {
+          "name": "mcp-server",
+          "description": "MCP tool surface exposing Concordia queries to agents (src/mcp).",
+          "paths": [
+            "(^|/)src/mcp/[^/]+$"
+          ]
+        },
+        {
+          "name": "web-client",
+          "description": "Browser-side UI library (rendering, connection, event wiring) and host/config loading that front the HTTP interface",
+          "paths": [
+            "(^|/)web/src/lib/[^/]+$",
+            "(^|/)web/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "session-coordination",
+      "description": "Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
+      "modules": [
+        {
+          "name": "session-lifecycle",
+          "description": "Session registration, heartbeat, end flow, spawn and reaper control (src/control, src).",
+          "paths": [
+            "(^|/)src/control/[^/]+$",
+            "(^|/)src/[^/]+$"
+          ]
+        },
+        {
+          "name": "worktree-automation",
+          "description": "Parallel git worktree detection and management for same-repo/branch sessions (src/work, src/processes).",
+          "paths": [
+            "(^|/)src/work/[^/]+$",
+            "(^|/)src/processes/[^/]+$"
+          ]
+        },
+        {
+          "name": "session-reports",
+          "description": "LLM summarization plus structured aggregation of session events into reports (src/report).",
+          "paths": [
+            "(^|/)src/report/[^/]+$"
+          ]
+        },
+        {
+          "name": "lost-recovery",
+          "description": "Heartbeat sweeper, jsonl transcript parsing, and lost-session candidate handling (src/providers, src/work).",
+          "paths": [
+            "(^|/)src/providers/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "persistence",
+      "description": "Durable state and cross-cutting infrastructure: SQLite repositories for all entities plus shared config, secrets, and auth helpers.",
+      "modules": [
+        {
+          "name": "repositories",
+          "description": "SQLite-backed repos for sessions, participants, channels, PRs, and more (src/db).",
+          "paths": [
+            "(^|/)src/db/[^/]+$"
+          ]
+        },
+        {
+          "name": "config-secrets",
+          "description": "Config loading, secret resolution, encryption, and bearer extraction (src/shared, src/auth).",
+          "paths": [
+            "(^|/)src/shared/[^/]+$",
+            "(^|/)src/auth/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "observability",
+      "description": "Cost, resource, and time-based reporting: aggregating spend, sampling host/WSL metrics, and scheduling daily/morning/stat rollups.",
+      "modules": [
+        {
+          "name": "cost-tracking",
+          "description": "Cost feed aggregation and usage rate reading across providers (src/cost).",
+          "paths": [
+            "(^|/)src/cost/[^/]+$"
+          ]
+        },
+        {
+          "name": "host-metrics",
+          "description": "Host and WSL process/resource snapshots and capture (src/metrics).",
+          "paths": [
+            "(^|/)src/metrics/[^/]+$"
+          ]
+        },
+        {
+          "name": "scheduled-reports",
+          "description": "Daily, morning, and stat schedulers driving periodic reports (src/daily, src/morning, src/stat).",
+          "paths": [
+            "(^|/)src/daily/[^/]+$",
+            "(^|/)src/stat/[^/]+$",
+            "(^|/)src/morning/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "governance",
+      "description": "Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
+      "modules": [
+        {
+          "name": "pr-queue",
+          "description": "PR ingestion, reconciliation, and queue building (src/pr).",
+          "paths": [
+            "(^|/)src/pr/[^/]+$"
+          ]
+        },
+        {
+          "name": "rules-engine",
+          "description": "Rule evaluation, proposal, and action execution (src/rules, src/role).",
+          "paths": [
+            "(^|/)src/rules/[^/]+$",
+            "(^|/)src/role/[^/]+$"
+          ]
+        },
+        {
+          "name": "admin-settings",
+          "description": "Workspace, chat, and feature toggle administration (src/admin).",
+          "paths": [
+            "(^|/)src/admin/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "analysis-core",
+      "description": "Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline",
+      "modules": [
+        {
+          "name": "anatomia-engine",
+          "description": "Core Anatomia analysis engine (session cache, parsing) together with skill frontmatter parsing/analysis and model-catalog seeding that feed the analysis pipeline",
+          "paths": [
+            "(^|/)src/anatomia/[^/]+$",
+            "(^|/)src/skills/[^/]+$",
+            "(^|/)src/model-catalog/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tooling",
+      "description": "Automated test suites plus shared test helpers, fixtures, and DB/app/dir factories supporting them",
+      "modules": [
+        {
+          "name": "test-harness",
+          "description": "Automated test suites plus shared test helpers, fixtures, and DB/app/dir factories supporting them",
+          "paths": [
+            "(^|/)tests/[^/]+$",
+            "(^|/)tests/helpers/[^/]+$"
+          ]
+        }
+      ]
+    }
+  ],
+  "unassigned": {
+    "count": 0,
+    "sample": []
+  }
+}

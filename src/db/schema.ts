@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 30;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -417,6 +417,16 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_session_stats_session_ts ON session_stats(session_id, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_session_stats_ts ON session_stats(ts DESC)`,
 
+  // ─── host metrics (v0.6 — PC パフォーマンススナップショット) ──────────
+  // ホストのメモリ/CPU + 上位プロセス + WSL/docker + セッション別 RSS を 1 tick = 1 行
+  // (payload JSON) で蓄積する。 Monitor は最新行を読み、 sparkline は時系列を走査する。
+  `CREATE TABLE IF NOT EXISTS host_metrics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sampled_at  INTEGER NOT NULL,
+    payload     TEXT NOT NULL  -- JSON (HostSnapshot)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_host_metrics_ts ON host_metrics(sampled_at DESC)`,
+
   // ─── transcript logs (v0.5 — session log 永続化) ──────
   // Lictor の transcript-tail が POST する transcript frame (Claude/Codex 内部 JSONL
   // から抽出した user/assistant/tool_use/tool_result/thinking) を per-session で
@@ -459,6 +469,8 @@ const STATEMENTS = [
     webhook_token   TEXT,
     status          TEXT NOT NULL DEFAULT 'active',
     last_rename_ts  INTEGER NOT NULL DEFAULT 0,
+    scope           TEXT NOT NULL DEFAULT '',
+    name_locked     INTEGER NOT NULL DEFAULT 0,
     ts              INTEGER NOT NULL
   )`,
 
@@ -514,6 +526,7 @@ const STATEMENTS = [
     prompt_template   TEXT    NOT NULL,
     input_schema      TEXT    NOT NULL DEFAULT '[]',
     default_cwd       TEXT,
+    project           TEXT,                            -- 対象プロジェクト名 (cwd と別に delegation が持つ)
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
@@ -665,12 +678,194 @@ const STATEMENTS = [
     last_total  INTEGER NOT NULL DEFAULT 0,
     updated_at  INTEGER NOT NULL
   )`,
+
+  // ─── 子会社 Delegation (v0.x) ─────────────────────────────────────────────
+  // 別の Discord サーバ / Slack に出張する「子会社」。 専用 Bot + 専用 Delegation +
+  // Sonnet ガードを持つ。 spec/feature/subsidiary-delegation.md が正本。
+  // ★ bot_token_enc / app_token_enc は secret-box で暗号化した値のみ保存 (平文厳禁)。
+  `CREATE TABLE IF NOT EXISTS subsidiaries (
+    id              TEXT    PRIMARY KEY,
+    name            TEXT    NOT NULL UNIQUE,           -- slug ^[a-z][a-z0-9_-]{0,63}$
+    display_name    TEXT    NOT NULL DEFAULT '',
+    description     TEXT    NOT NULL DEFAULT '',
+    platform        TEXT    NOT NULL DEFAULT 'discord', -- discord | slack
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    guild_id        TEXT,                              -- Discord guild / Slack team
+    application_id  TEXT,                              -- Discord slash 登録用 (任意)
+    channel_id      TEXT,                              -- 依頼受付チャンネル
+    bot_token_enc   TEXT,                              -- 暗号化 bot token
+    app_token_enc   TEXT,                              -- 暗号化 Slack socket app token
+    guard_model     TEXT    NOT NULL DEFAULT 'sonnet',
+    guard_scope     TEXT    NOT NULL DEFAULT '',       -- 許可作業の自然文スコープ
+    home_cwd        TEXT,                              -- [DEPRECATED] cwd は所有 delegation 側で管理 (subsidiary_delegations.default_cwd)。 列は後方互換で残すが未使用。
+    daily_token_budget INTEGER NOT NULL DEFAULT 0,     -- 日次トークン予算 (0 = 無制限)。 超過で受付停止。
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+  )`,
+
+  // 子会社が「所有する」 delegation の複製定義 (グローバル delegation_templates から clone)。
+  // 旧版は (subsidiary_id, call_name) の薄い許可リストだったが、 cwd / project / prompt を
+  // 子会社ごとに独立して持てるよう full copy へ拡張した (spec/feature/subsidiary-delegation.md §4)。
+  // グローバルテンプレは別管理として残り、 ここはその時点の clone (以降は独立編集可)。
+  `CREATE TABLE IF NOT EXISTS subsidiary_delegations (
+    subsidiary_id   TEXT    NOT NULL,
+    call_name       TEXT    NOT NULL,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    title           TEXT    NOT NULL DEFAULT '',
+    description     TEXT    NOT NULL DEFAULT '',
+    target_provider TEXT    NOT NULL DEFAULT 'claude',
+    model           TEXT,
+    prompt_template TEXT    NOT NULL DEFAULT '',
+    input_schema    TEXT    NOT NULL DEFAULT '[]',
+    default_cwd     TEXT,                              -- cwd は子会社所有 delegation 側で管理
+    project         TEXT,                              -- 対象プロジェクト名
+    emoji           TEXT    NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL DEFAULT 0,
+    updated_at      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (subsidiary_id, call_name)
+  )`,
+
+  // ロックされた依頼者 (ガードが lock 判定 / 手動ロック)。 以降ガード前に即 deny。
+  `CREATE TABLE IF NOT EXISTS subsidiary_locks (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    subsidiary_id     TEXT    NOT NULL,
+    platform          TEXT    NOT NULL,
+    platform_user_id  TEXT    NOT NULL,
+    user_label        TEXT    NOT NULL DEFAULT '',
+    reason            TEXT    NOT NULL DEFAULT '',
+    locked_at         INTEGER NOT NULL,
+    UNIQUE (subsidiary_id, platform, platform_user_id)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_subsidiary_locks_lookup
+     ON subsidiary_locks(subsidiary_id, platform, platform_user_id)`,
+
+  // 受信依頼 + ガード結論の監査ログ。
+  `CREATE TABLE IF NOT EXISTS subsidiary_requests (
+    id                 TEXT    PRIMARY KEY,
+    subsidiary_id      TEXT    NOT NULL,
+    platform           TEXT    NOT NULL,
+    platform_user_id   TEXT    NOT NULL,
+    user_label         TEXT    NOT NULL DEFAULT '',
+    instruction        TEXT    NOT NULL,
+    decision           TEXT    NOT NULL,               -- allow | deny
+    reason             TEXT    NOT NULL DEFAULT '',
+    violations_json    TEXT    NOT NULL DEFAULT '[]',
+    matched_call_name  TEXT,
+    locked             INTEGER NOT NULL DEFAULT 0,
+    run_id             TEXT,                            -- allow 時に起動した delegation
+    guard_model        TEXT    NOT NULL DEFAULT '',
+    guard_raw          TEXT    NOT NULL DEFAULT '',
+    created_at         INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_subsidiary_requests_sub
+     ON subsidiary_requests(subsidiary_id, created_at DESC)`,
+
+  // 共通ハーネスルール (ダッシュボード設定)。 ガードプロンプトに自然文で列挙される。
+  // builtin=1 は既定ルール (無効化可・削除不可)。
+  `CREATE TABLE IF NOT EXISTS harness_rules (
+    id          TEXT    PRIMARY KEY,
+    kind        TEXT    NOT NULL,                       -- allow | block
+    title       TEXT    NOT NULL DEFAULT '',
+    description TEXT    NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    builtin     INTEGER NOT NULL DEFAULT 0,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_rules_order
+     ON harness_rules(enabled, sort_order)`,
+
+  // ローカルセッションのハーネス強制ゲートの監査ログ。 子会社 (subsidiary_requests) と
+  // 同じ思想だが、 対象は外部依頼ではなく「自セッションの操作 (編集/コマンド)」。 すべての
+  // 判定 (allow/deny/warn) を 1 行ずつ残し、 後から「強制が効いたか」を裏取りできるようにする。
+  // event: inject(supply) | gate(判定) | block(fail-closed) | start_prompt | override。
+  `CREATE TABLE IF NOT EXISTS harness_session_audit (
+    id           TEXT    PRIMARY KEY,
+    session_id   TEXT    NOT NULL DEFAULT '',
+    project      TEXT    NOT NULL DEFAULT '',
+    hook         TEXT    NOT NULL DEFAULT '',      -- supply | gate
+    event        TEXT    NOT NULL,                 -- inject | gate | block | start_prompt | override
+    tool         TEXT    NOT NULL DEFAULT '',      -- 試行ツール (Edit/Write/Bash/...)
+    action       TEXT    NOT NULL DEFAULT '',      -- 操作の要約 (コマンド / パス)
+    repo         TEXT    NOT NULL DEFAULT '',      -- 操作対象リポ root (max-repos 集計の状態源)
+    rule         TEXT    NOT NULL DEFAULT '',      -- 当たった述語キー (空=該当なし)
+    decision     TEXT    NOT NULL,                 -- allow | deny | warn
+    reason       TEXT    NOT NULL DEFAULT '',
+    detail_json  TEXT    NOT NULL DEFAULT '{}',
+    ms           INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_harness_session_audit_created
+     ON harness_session_audit(created_at DESC)`,
+
+  // ─── cost 使用量の時系列サンプル (10 分毎、 セッション別) ───────────────
+  // 10 分毎に全 active セッションの「現在のコンテキスト占有」 と「累積消費トークン」 を
+  // subsidiary/provider タグ付きで 1 行ずつ記録する。 これを時刻で繋いで WebUI の /cost に
+  // 折れ線グラフ化し、 「いつ・誰が・どれだけ使ったか」 を可視化する (ユーザ要望)。
+  // JSONL ローテートで消える生ログと違い、 ここに焼けば長期履歴が残る。
+  `CREATE TABLE IF NOT EXISTS cost_usage_samples (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             INTEGER NOT NULL,            -- epoch 秒 (サンプル時刻)
+    session_id     TEXT    NOT NULL,
+    subsidiary_id  TEXT,                        -- null = 本社
+    provider       TEXT,                        -- claude-code / codex-cli / ...
+    context_tokens INTEGER,                     -- 現在のコンテキスト占有 (不明なら null)
+    cost_tokens    INTEGER NOT NULL DEFAULT 0   -- 累積消費トークン (input+output)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_ts
+     ON cost_usage_samples(ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_session
+     ON cost_usage_samples(session_id, ts)`,
+
+  `CREATE TABLE IF NOT EXISTS cost_limit_samples (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                INTEGER NOT NULL,
+    provider          TEXT    NOT NULL,
+    plan              TEXT,
+    used_5h_pct       REAL,
+    used_weekly_pct   REAL,
+    reset_5h_at       INTEGER,
+    reset_weekly_at   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_limit_samples_ts
+     ON cost_limit_samples(ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_limit_samples_provider
+     ON cost_limit_samples(provider, ts)`,
+
+  `CREATE TABLE IF NOT EXISTS cost_one_shot_calls (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             INTEGER NOT NULL,
+    service        TEXT    NOT NULL,
+    provider       TEXT    NOT NULL,
+    command        TEXT    NOT NULL DEFAULT '',
+    model          TEXT,
+    cwd            TEXT,
+    prompt         TEXT    NOT NULL DEFAULT '',
+    status         TEXT    NOT NULL DEFAULT 'unknown',
+    exit_code      INTEGER,
+    duration_ms    INTEGER,
+    input_tokens   INTEGER NOT NULL DEFAULT 0,
+    output_tokens  INTEGER NOT NULL DEFAULT 0,
+    total_tokens   INTEGER NOT NULL DEFAULT 0,
+    cost_usd       REAL    NOT NULL DEFAULT 0,
+    metadata_json  TEXT    NOT NULL DEFAULT '{}'
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_one_shot_calls_ts
+     ON cost_one_shot_calls(ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_one_shot_calls_service
+     ON cost_one_shot_calls(service, ts DESC)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.
 // CREATE TABLE IF NOT EXISTS は新規スキーマには効くが、 既存 DB の column 追加には効かない.
 // 各エントリは PRAGMA table_info で存在チェックしてから ALTER する.
 const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = [
+  {
+    table: "cost_limit_samples",
+    column: "plan",
+    ddl: `ALTER TABLE cost_limit_samples ADD COLUMN plan TEXT`,
+  },
   {
     table: "personas",
     column: "display_name",
@@ -761,6 +956,48 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "delegation_emoji",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN delegation_emoji TEXT`,
   },
+  // 子会社 Bot の per-guild namespacing。 '' = 本社、 'sub:<id>' = 子会社。
+  // 複数 Discord bot が同一テーブルを共有しても listActive 等が混ざらないようにする。
+  {
+    table: "discord_session_channels",
+    column: "scope",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN scope TEXT NOT NULL DEFAULT ''`,
+  },
+  // name_locked = /ch_name で固定したチャンネル名。 1 のとき title_renamed (reaction-rename
+  // 含む) による name_body 上書きを抑止し、 ユーザ指定名を維持する (状態絵文字は更新可)。
+  {
+    table: "discord_session_channels",
+    column: "name_locked",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0`,
+  },
+  // 子会社の日次トークン予算 (0 = 無制限)。 子会社ごとにコスト上限を設け、 超過で受付を止める。
+  {
+    table: "subsidiaries",
+    column: "daily_token_budget",
+    ddl: `ALTER TABLE subsidiaries ADD COLUMN daily_token_budget INTEGER NOT NULL DEFAULT 0`,
+  },
+  // delegation の対象プロジェクト名 (cwd と別に持つ)。 グローバルテンプレ + 子会社所有の両方。
+  {
+    table: "delegation_templates",
+    column: "project",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN project TEXT`,
+  },
+  // subsidiary_delegations を薄い許可リスト → 子会社所有の複製定義へ拡張する差分 column 群。
+  // 既存 (旧スキーマの) 行はデフォルト空で埋まり、 applyOwnedDelegationBackfill が
+  // 同名グローバルテンプレから 1 回だけ複製内容を埋める。
+  { table: "subsidiary_delegations", column: "title", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN title TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "description", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN description TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "target_provider", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN target_provider TEXT NOT NULL DEFAULT 'claude'` },
+  { table: "subsidiary_delegations", column: "model", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN model TEXT` },
+  { table: "subsidiary_delegations", column: "prompt_template", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN prompt_template TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "input_schema", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN input_schema TEXT NOT NULL DEFAULT '[]'` },
+  { table: "subsidiary_delegations", column: "default_cwd", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN default_cwd TEXT` },
+  { table: "subsidiary_delegations", column: "project", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN project TEXT` },
+  { table: "subsidiary_delegations", column: "emoji", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN emoji TEXT NOT NULL DEFAULT ''` },
+  { table: "subsidiary_delegations", column: "created_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0` },
+  { table: "subsidiary_delegations", column: "updated_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0` },
+  // ハーネス監査に操作対象リポ root を残す (max-repos の editedRepos をサーバ側で蓄積する状態源)。
+  { table: "harness_session_audit", column: "repo", ddl: `ALTER TABLE harness_session_audit ADD COLUMN repo TEXT NOT NULL DEFAULT ''` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {
@@ -772,6 +1009,52 @@ function applyColumnAdditions(db: Database.Database): void {
   }
 }
 
+/**
+ * 旧スキーマ (薄い許可リスト) の subsidiary_delegations 行を、 同名グローバルテンプレから
+ * 複製内容で埋める 1 回限りのバックフィル。 prompt_template が空 (= 拡張 column を ALTER で
+ * 後追いしただけの旧行) かつ同名テンプレが存在する行だけを対象にする (冪等)。 同名テンプレが
+ * 無い旧行は空のまま残る (UI から手動で定義し直す)。
+ */
+function applyOwnedDelegationBackfill(db: Database.Database): void {
+  // delegation_templates が無い (まだ作られていない) 環境では何もしない。
+  const hasTemplates = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='delegation_templates'`)
+    .get();
+  if (!hasTemplates) return;
+  const stale = db
+    .prepare(`SELECT subsidiary_id, call_name FROM subsidiary_delegations WHERE prompt_template = ''`)
+    .all() as Array<{ subsidiary_id: string; call_name: string }>;
+  if (stale.length === 0) return;
+  const findTpl = db.prepare(`SELECT * FROM delegation_templates WHERE call_name = ?`);
+  const upd = db.prepare(`
+    UPDATE subsidiary_delegations SET
+      title = ?, description = ?, target_provider = ?, model = ?,
+      prompt_template = ?, input_schema = ?, default_cwd = ?, project = ?, emoji = ?,
+      created_at = CASE WHEN created_at = 0 THEN ? ELSE created_at END,
+      updated_at = ?
+    WHERE subsidiary_id = ? AND call_name = ?
+  `);
+  const now = 0; // 決定的な epoch (Date.now はスキーマ層で使わない)。表示用 timestamp は API/repo 側で付く。
+  const tx = db.transaction(() => {
+    for (const row of stale) {
+      const tpl = findTpl.get(row.call_name) as
+        | {
+            title: string; description: string; target_provider: string; model: string | null;
+            prompt_template: string; input_schema: string; default_cwd: string | null;
+            project: string | null; emoji: string;
+          }
+        | undefined;
+      if (!tpl) continue;
+      upd.run(
+        tpl.title, tpl.description, tpl.target_provider, tpl.model,
+        tpl.prompt_template, tpl.input_schema, tpl.default_cwd, tpl.project ?? null, tpl.emoji,
+        now, now, row.subsidiary_id, row.call_name,
+      );
+    }
+  });
+  tx();
+}
+
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -780,6 +1063,7 @@ export function applyMigrations(db: Database.Database): void {
   });
   tx(STATEMENTS);
   applyColumnAdditions(db);
+  applyOwnedDelegationBackfill(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));

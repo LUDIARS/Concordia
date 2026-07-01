@@ -5,37 +5,31 @@
  * Production は systemd 等で env を渡す前提.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 /**
- * spawnDefaultCwd の自動既定値. LUDIARS の運用パス (E:\Document\Ars) が
- * 存在する Windows 機なら自動で採用する. env override (CONCORDIA_SPAWN_DEFAULT_CWD)
- * が最優先で、 ここでは env が unset/空 の場合に限り評価する.
+ * LUDIARS ワークスペースルート (= ローカルクローンの親ディレクトリ) の解決。
  *
- * Linux/macOS や該当パスを持たない Windows 機では空のまま (= フォールバック無し、
- * Concordia 自身の cwd で spawn) を返すので、 open-source 環境を壊さない.
+ * 正本は Excubitor が spawn 時にプロセス env として注入する `LUDIARS_ROOT`
+ * (Excubitor 側 `arsRoot()` = env `EXCUBITOR_ARS_ROOT` / `LUDIARS_ROOT` → cwd 親 で解決した値)。
+ * 旧実装は `E:\Document\Ars` を直書きして「存在すれば採用」 していたが、 別ドライブ
+ * (D:\LUDIARS) のマシンで全パスが壊れるため、 ドライブの焼き込みを廃止し注入 env を基準にする。
+ * `.env` ファイルには依存しない (プロセス env のみ)。
+ *
+ * 未注入 (env 無し) なら空文字列を返す (= フォールバック無し)。 実行時は AdminState の上書き、
+ * あるいは明示 env CONCORDIA_SPAWN_DEFAULT_CWD / CONCORDIA_WORKSPACE_ROOT が効く。
  */
-const LUDIARS_AUTO_DEFAULT_CWD = "E:\\Document\\Ars";
-
-/**
- * テスト等から platform / existsSync を差し替えるための注入インタフェース。
- * 省略時はそれぞれ `process.platform` / `existsSync` が使われる。
- */
-export interface ConfigProbe {
-  platform?: NodeJS.Platform;
-  exists?: (path: string) => boolean;
+function resolveLudiarsRoot(env: NodeJS.ProcessEnv): string {
+  return (env.LUDIARS_ROOT ?? "").trim();
 }
 
-function autoDetectSpawnDefaultCwd(probe: ConfigProbe = {}): string {
-  const platform = probe.platform ?? process.platform;
-  const exists = probe.exists ?? existsSync;
-  if (platform !== "win32") return "";
-  try {
-    return exists(LUDIARS_AUTO_DEFAULT_CWD) ? LUDIARS_AUTO_DEFAULT_CWD : "";
-  } catch {
-    return "";
-  }
+/**
+ * テスト等から existsSync を差し替えるための注入インタフェース。
+ * 省略時は `existsSync` が使われる。
+ */
+export interface ConfigProbe {
+  exists?: (path: string) => boolean;
 }
 
 export interface ConcordiaConfig {
@@ -59,18 +53,49 @@ export interface ConcordiaConfig {
   lostPurgeAfterSec: number;
   purgeAfterDays: number;
   sweeperIntervalMs: number;
-  anthropicApiKey: string;
-  reportModel: string;
-  /** AI proposer が新 rule を提案するときの上限. enabled な ai 由来 rule 数が
-   *  これ以上なら proposer は claude を呼ばずに skip する (rule 雪だるま防止). */
-  maxAiRules: number;
+  /** 孤児プロセス回収 (reaper) の有効/無効。 env `CONCORDIA_REAPER_ENABLED` (既定 ON)。 */
+  reaperEnabled: boolean;
+  /** reaper の走査間隔 (ms)。 env `CONCORDIA_REAPER_INTERVAL_MS` (既定 5 分)。 */
+  reaperIntervalMs: number;
+  /** 起動からこの秒数未満のプロセスは reaper の対象外 (登録レース回避)。 既定 180 秒。 */
+  reaperMinAgeSec: number;
+  /**
+   * ended_at がこの秒数以内の ended セッションは reaper の回収対象外 (live 扱い)。
+   * session-end スキル実行中に reaper が割り込んで WT を kill する事故を防ぐ安全弁。
+   * env `CONCORDIA_REAPER_ENDED_GRACE_SEC` (既定 300 = 5 分)。 0 で無効。
+   */
+  reaperEndedGraceSec: number;
+  /** 停止セッションの続行 nudge の有効/無効。 env `CONCORDIA_STALL_NUDGE_ENABLED` (既定 ON)。 */
+  stallNudgeEnabled: boolean;
+  /** 停止 nudge の走査間隔 (ms)。 env `CONCORDIA_STALL_NUDGE_INTERVAL_MS` (既定 10 分)。 */
+  stallNudgeIntervalMs: number;
+  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 env `CONCORDIA_STALL_IDLE_SEC` (既定 3600=1h)。 */
+  stallIdleSec: number;
+  /** 一度 nudge したら次まで空ける秒数。 env `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 stallIdleSec と同じ)。 */
+  stallNudgeCooldownSec: number;
+  /** ホストメトリクス採取の有効/無効。 env `CONCORDIA_METRICS_ENABLED` (既定 ON)。 */
+  metricsEnabled: boolean;
+  /** メトリクス採取間隔 (ms)。 env `CONCORDIA_METRICS_INTERVAL_MS` (既定 30 秒)。 */
+  metricsIntervalMs: number;
+  /** host_metrics の保持時間 (h)。 env `CONCORDIA_METRICS_RETENTION_HOURS` (既定 24)。 */
+  metricsRetentionHours: number;
+  /**
+   * 中央チャット描画の renderer。 env `CONCORDIA_CHAT_RENDERER`。
+   * "cli" | "template"。 空 ("") なら "cli" (claude -p サブスク Haiku)。
+   * LUDIARS は API 不使用のため Anthropic API 直叩きは廃止。
+   */
+  chatRenderer: string;
+  /**
+   * 中央チャット描画のモデル。 env `CONCORDIA_CHAT_MODEL`。 空なら "haiku"。
+   */
+  chatModel: string;
   /**
    * /v1/spawn (および /v1/admin/spawn-session) で body.cwd が省略された時に
    * 使う既定の working directory.
    *
    * 解決順:
    *  1. env `CONCORDIA_SPAWN_DEFAULT_CWD` (明示指定、 最優先)
-   *  2. `E:\Document\Ars` が存在する Windows 機ならその値 (LUDIARS 運用既定)
+   *  2. env `LUDIARS_ROOT` (Excubitor が spawn 時に注入する LUDIARS ワークスペースルート)
    *  3. 空文字列 (= フォールバック無し、 Concordia 自身の cwd で spawn)
    *
    * 空文字列なら spawn endpoint は cwd を指定せず spawnSession 側のロジックで
@@ -80,7 +105,7 @@ export interface ConcordiaConfig {
   /**
    * ローカルクローンを並べた作業ルート (Work ページの repo 一覧の走査先)。
    * env `CONCORDIA_WORKSPACE_ROOT` 優先、 無ければ spawnDefaultCwd を流用
-   * (LUDIARS では E:\Document\Ars)。 空なら Work の repo 一覧は空になる。
+   * (= LUDIARS_ROOT)。 空なら Work の repo 一覧は空になる。
    *
    * 複数ルート (`workspaceRoots`) のうち先頭 (= プライマリ)。 Memoria / Lictor
    * 等「単一ルートを前提とする」消費者はこの値を流用する。
@@ -148,20 +173,42 @@ export function isLoopbackHost(host: string | undefined): boolean {
   return /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h);
 }
 
+/**
+ * concordia.config.json の `server` ブロックを読む。 host / port の既定値はここ
+ * (env は override 用)。 ファイルが無ければ空 (= ハードコード既定にフォール) を返すが、
+ * ファイルが在って壊れている (JSON parse 失敗) ときは握りつぶさず即 throw する
+ * (無言フォールバック禁止 / RULE §7.1)。
+ */
+export function loadServerFileConfig(probe: ConfigProbe = {}): { host?: string; port?: number } {
+  const exists = probe.exists ?? existsSync;
+  const path = join(process.cwd(), "concordia.config.json");
+  if (!exists(path)) return {};
+  const raw = JSON.parse(readFileSync(path, "utf8")) as {
+    server?: { host?: unknown; port?: unknown };
+  };
+  const host = typeof raw?.server?.host === "string" ? raw.server.host : undefined;
+  const port = typeof raw?.server?.port === "number" ? raw.server.port : undefined;
+  return { host, port };
+}
+
 export function loadConfig(env = process.env, probe: ConfigProbe = {}): ConcordiaConfig {
+  const file = loadServerFileConfig(probe);
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
-  const spawnDefaultCwd = explicitSpawnCwd || autoDetectSpawnDefaultCwd(probe);
+  // 作業ディレクトリの既定は Excubitor 注入の LUDIARS_ROOT を基準にする (ドライブ非依存)。
+  const ludiarsRoot = resolveLudiarsRoot(env);
+  const spawnDefaultCwd = explicitSpawnCwd || ludiarsRoot;
   const githubOrg =
     (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
-    (autoDetectSpawnDefaultCwd(probe) ? "LUDIARS" : "");
+    (ludiarsRoot ? "LUDIARS" : "");
   const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd;
   const workspaceRoots = dedupeWorkspaceRoots([
     workspaceRoot,
     ...parseExtraWorkspaceRoots(env.CONCORDIA_WORKSPACE_ROOTS),
   ]);
   return {
-    host: env.CONCORDIA_HOST ?? "127.0.0.1",
-    port: Number(env.CONCORDIA_PORT ?? "17330"),
+    // 既定値は concordia.config.json (env は override 用)。 env を使わない方針。
+    host: env.CONCORDIA_HOST ?? file.host ?? "127.0.0.1",
+    port: Number(env.CONCORDIA_PORT ?? file.port ?? 11111),
     adminToken: (env.CONCORDIA_ADMIN_TOKEN ?? "").trim(),
     dbPath: env.CONCORDIA_DB_PATH || defaultDbPath(),
     // Stop hook が turn 終わりごとに発火する制約があるので、 idle ≠ session 終了.
@@ -171,9 +218,21 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     lostPurgeAfterSec: Number(env.CONCORDIA_LOST_PURGE_AFTER_SEC ?? "1800"),
     purgeAfterDays: Number(env.CONCORDIA_PURGE_AFTER_DAYS ?? "90"),
     sweeperIntervalMs: Number(env.CONCORDIA_SWEEPER_INTERVAL_MS ?? "60000"),
-    anthropicApiKey: env.ANTHROPIC_API_KEY ?? "",
-    reportModel: env.CONCORDIA_REPORT_MODEL ?? "claude-haiku-4-5",
-    maxAiRules: Number(env.CONCORDIA_MAX_AI_RULES ?? "10"),
+    reaperEnabled: (env.CONCORDIA_REAPER_ENABLED ?? "1") !== "0",
+    reaperIntervalMs: Number(env.CONCORDIA_REAPER_INTERVAL_MS ?? "300000"),
+    reaperMinAgeSec: Number(env.CONCORDIA_REAPER_MIN_AGE_SEC ?? "180"),
+    reaperEndedGraceSec: Number(env.CONCORDIA_REAPER_ENDED_GRACE_SEC ?? "300"),
+    stallNudgeEnabled: (env.CONCORDIA_STALL_NUDGE_ENABLED ?? "1") !== "0",
+    stallNudgeIntervalMs: Number(env.CONCORDIA_STALL_NUDGE_INTERVAL_MS ?? "600000"),
+    stallIdleSec: Number(env.CONCORDIA_STALL_IDLE_SEC ?? "3600"),
+    stallNudgeCooldownSec: Number(
+      env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
+    ),
+    metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
+    metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
+    metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),
+    chatRenderer: env.CONCORDIA_CHAT_RENDERER ?? "",
+    chatModel: env.CONCORDIA_CHAT_MODEL ?? "",
     spawnDefaultCwd,
     workspaceRoot,
     workspaceRoots,

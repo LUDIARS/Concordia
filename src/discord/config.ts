@@ -45,10 +45,29 @@ const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
   system: "system",
 };
 
+/**
+ * レイアウト生成オプション。 子会社 Bot は本社のような雑談 (meta) / pr-queue / errors を
+ * 持たず、 受付 + セッション系だけの slim 構成にする (ユーザ要望)。 省略時は全部作る (本社)。
+ */
+export interface EnsureLayoutOptions {
+  /** meta カテゴリ配下の雑談系チャンネル (雑談/相談/houkoku/ぼやき/system) を作るか。 既定 true。 */
+  includeMetaChannels?: boolean;
+  /** pr-queue チャンネルを作るか。 既定 true。 */
+  includePrQueue?: boolean;
+  /** 「エラー」 カテゴリ + errors チャンネルを作るか。 既定 true。 */
+  includeErrors?: boolean;
+}
+
 export async function ensureDiscordLayout(
   guild: Guild,
   repo: DiscordConfigRepo,
+  opts: EnsureLayoutOptions = {},
 ): Promise<DiscordConfigSnapshot> {
+  const includeMetaChannels = opts.includeMetaChannels ?? true;
+  const includePrQueue = opts.includePrQueue ?? true;
+  const includeErrors = opts.includeErrors ?? true;
+
+  // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
   const sessionsCategoryId = await ensureCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
   const statusCategoryId = await ensureCategory(guild, repo, STATUS_CATEGORY_KEY, CATEGORY_NAMES.status);
@@ -56,24 +75,31 @@ export async function ensureDiscordLayout(
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
-  const prQueueChannelId = await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId);
+  // pr-queue / errors / 雑談系 (meta) は子会社では作らない (空 id を返し、 消費側はガードで skip)。
+  const prQueueChannelId = includePrQueue
+    ? await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId)
+    : "";
   // 「エラー」 カテゴリ + errors チャンネル: 監視ロガー検知 / Discord 操作失敗の転記先.
-  const errorCategoryId = await ensureCategory(guild, repo, ERROR_CATEGORY_KEY, CATEGORY_NAMES.error);
-  const errorChannelId = await ensureTextChannel(guild, repo, ERROR_CHANNEL_KEY, "errors", errorCategoryId);
+  const errorCategoryId = includeErrors ? await ensureCategory(guild, repo, ERROR_CATEGORY_KEY, CATEGORY_NAMES.error) : "";
+  const errorChannelId = includeErrors
+    ? await ensureTextChannel(guild, repo, ERROR_CHANNEL_KEY, "errors", errorCategoryId)
+    : "";
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
-  for (const k of META_CHANNEL_KIND) {
-    const desired = META_CHANNEL_NAMES[k];
-    const id = await ensureTextChannel(guild, repo, `${k}_channel_id`, desired, metaCategoryId);
-    metaChannels[k] = id;
-    // 既存 channel の表示ラベルを desired に揃える (旧 romaji 名 → 日本語ラベルへ rename).
-    // id 解決済みなので routing には影響しない (表示名のみ). best-effort.
-    const ch = guild.channels.cache.get(id);
-    if (ch && ch.type === ChannelType.GuildText && ch.name !== desired) {
-      try {
-        await ch.edit({ name: desired, reason: "meta channel label sync" });
-      } catch {
-        /* rename rate limit 等は無視。 次回 ensureDiscordLayout で再試行される。 */
+  if (includeMetaChannels) {
+    for (const k of META_CHANNEL_KIND) {
+      const desired = META_CHANNEL_NAMES[k];
+      const id = await ensureTextChannel(guild, repo, `${k}_channel_id`, desired, metaCategoryId);
+      metaChannels[k] = id;
+      // 既存 channel の表示ラベルを desired に揃える (旧 romaji 名 → 日本語ラベルへ rename).
+      // id 解決済みなので routing には影響しない (表示名のみ). best-effort.
+      const ch = guild.channels.cache.get(id);
+      if (ch && ch.type === ChannelType.GuildText && ch.name !== desired) {
+        try {
+          await ch.edit({ name: desired, reason: "meta channel label sync" });
+        } catch {
+          /* rename rate limit 等は無視。 次回 ensureDiscordLayout で再試行される。 */
+        }
       }
     }
   }
@@ -93,6 +119,19 @@ export async function ensureDiscordLayout(
     errorChannelId,
     metaChannels,
   };
+}
+
+/**
+ * 子会社 Bot の受付 (intake) チャンネルを guild 内に自動作成する (無ければ作る・冪等)。
+ * 受付チャンネルは手動設定不要 — 子会社 Bot 起動時にこの helper で勝手に用意する。
+ * meta カテゴリ配下に「受付」テキストチャンネルを 1 本だけ確保し、 その id を返す。
+ */
+export async function ensureIntakeChannel(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  parentId: string,
+): Promise<string> {
+  return ensureTextChannel(guild, repo, "intake_channel_id", "受付", parentId);
 }
 
 async function ensureCategory(guild: Guild, repo: DiscordConfigRepo, key: string, name: string): Promise<string> {

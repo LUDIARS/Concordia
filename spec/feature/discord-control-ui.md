@@ -1,3 +1,26 @@
+---
+type: feature
+title: "Discord コントロール UI — 仕様 (codex / 並行 session 向け)"
+description: "Discord チャンネルで「コントロール」と発言すると Control Panel embed + ボタンを投稿し、セッションの新規起動・終了・rename を GUI 操作できる補助 UI。Claude / Codex / Gemini の spawn、セッション終了確認フロー、embed 更新を Button + Modal + StringSelectMenu で実装する。"
+service: concordia
+domain: chat-platforms
+tags:
+  - discord
+  - typescript
+  - spawn
+  - lifecycle
+  - delegation
+  - webhook
+  - claude
+  - codex
+status: planned
+related:
+  - ../feature/discord-ui.md
+  - ../feature/discord-ui-pr-b.md
+updated: 2026-06-30
+---
+
+
 # Discord コントロール UI — 仕様 (codex / 並行 session 向け)
 
 PR-B (Slash Command 等) と独立した追加機能。 PR-B に積むか別 PR にするかは codex 判断で OK。

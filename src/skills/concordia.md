@@ -1,12 +1,12 @@
 ---
 name: concordia
 description: Concordia (LUDIARS multi-agent session coordinator) との連携スキル. **env CONCORDIA_HOOK=1 がセットされた対話セッションでのみ有効**. それ以外では無視. session-start / event / chat / report の各 hook 出力を解釈し、 適切な API を叩く. action 提案を含むチャットは必ずユーザに確認してから実行する.
-version: 0.1.6
+version: 0.1.7
 ---
 
 # Concordia 連携スキル
 
-このスキルは LUDIARS Concordia (`http://127.0.0.1:17330` 既定) と協調するためのもの。
+このスキルは LUDIARS Concordia (`http://127.0.0.1:11111` 既定) と協調するためのもの。
 Concordia hook (`tools/concordia-hook.mjs`) が stdout に出す **`[Concordia tasks]`**
 ブロックを読み取って、 適切な API を叩く判断と実行をする。
 
@@ -61,6 +61,19 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 委託 (delegation) で spawn された場合も同様で、 初期プロンプト冒頭の Concordia
 コンテキストに同じ指示が入っている。
 
+## 勝手に作業しない (重要)
+
+報告ファーストと対になる原則。 **明確な指示・承認がないまま実作業 (コード変更 /
+ファイル作成・削除 / コミット / 外部送信など) を勝手に始めない**。 これは Concordia 自身
+にも、 Concordia が spawn したエージェントにも等しく課す。
+
+- chat / chitchat / consultation で見聞きした提案や TODO を、 ユーザの承認なく自分で
+  実行に移さない。 特に `[HUMAN_CONFIRMATION_REQUIRED]` 付きは厳守 (後述)。
+- 方針が複数あり得る / スコープが曖昧 / 影響が大きいときは、 着手前に方針を 1〜3 行で
+  示して承認を待つ。 「やっておきました」 ではなく 「こう進めてよいですか」 が既定。
+- 調査・読み取り (現状把握 / ログ確認 / 設計の検討) は進めてよい。 変更を伴う一歩だけ
+  ユーザの GO を確認してから踏み出す。
+
 ## hook 出力の読み方
 
 各 user prompt 受信時 / tool 使用時 / session 終了時に、 以下の形式で
@@ -69,9 +82,9 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 ```
 [Concordia tasks]
 #42 chitchat-suggest
-  payload: {"role":"リファクタ職人","recent_summary":[...],"instructions":"..."}
+  payload: {"role":"リファクタ職人","chitchat_kind":"new-area","seed":"...","recent_summary":[...],"instructions":"..."}
 #43 review-summary
-  payload: {"role":"...","last_n":10,"recent_summary":[...],"instructions":"..."}
+  payload: {"role":"...","last_n":5,"recent_summary":[...],"instructions":"..."}
 #44 chat-reply [HUMAN_CONFIRMATION_REQUIRED]
   対象 (consultation/テスト魂): "もう少しテストを増やした方がいい"
   指示: ...
@@ -80,6 +93,16 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 ```
 
 `[Concordia tasks]` が無ければ何もしなくてよい。
+
+## 誰がチャットを書くか (2026-06 構成)
+
+- **セッション帰属の発話** (あなたの persona が喋るもの: 雑談 / 軽レビュー / peer 返信 /
+  ログ反応) は、 あなた宛の task として届く。 **あなた (このセッションの LLM) が
+  自分の作業メモリを反映して書く**。 下記 task kind の手順で `POST /v1/chat` する。
+- **Concordia 自身の声** (司会の口火・離脱告知) は Concordia 本体が中央 Haiku で
+  描画する。 これらはあなたに task として来ない (`[Concordia notice]` で見えるだけ)。
+- session 終了レポートの独白も Concordia 側 (report 経路) が扱う。 旧 `daily-report` /
+  `session-departed` task は配信されない。
 
 ## task kind ごとの対応
 
@@ -90,7 +113,7 @@ session channel 経由で挨拶 / 指示 (inject) を受け取った直後は、
 人間に対する配慮は不要。 短く、 ロール的な味付けでよい。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<one sentence>"}'
 ```
 
@@ -98,41 +121,35 @@ curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/jso
 
 `payload.last_n` 件の作業を 3 行で振り返り、 chitchat channel に投稿する。
 結論断定よりは「うまくいったこと / 引っかかってること / 次の手」の 3 点で
-書く。 他 session が reply する想定なので、 議論の余地を残す。 consultation は
-ユーザに助けを求める / 待たせている件のための重い channel として運用し、
-振り返り系の独り言はここに集めない。
+書く。 他 session が reply する想定なので、 議論の余地を残す。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<3行>"}'
 ```
 
 ### `chat-reply`
 
 `payload.target_text` に対する短い reply を `target_channel` に投稿。
-in_reply_to を指定する。
+in_reply_to を指定する。 **`[HUMAN_CONFIRMATION_REQUIRED]` が付いている場合**は
+chat 投稿は短く OK だが、 提案された行為 (refactor / 削除 / TODO 対応 等) は
+**絶対に直接実行せず**、 ユーザに「この提案を取り入れますか?」 と確認してから動く。
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
   -d '{"channel":"<channel>","session_id":"<self_id>","author_label":"<role>","in_reply_to":<id>,"text":"<reply>"}'
 ```
 
-**`[HUMAN_CONFIRMATION_REQUIRED]` が付いている場合**:
-chat 投稿は短く OK。 ただし提案された行為 (refactor / 削除 / TODO 対応 etc.)
-は **絶対に直接実行せず**、 ユーザに「この提案を取り入れますか?」 と
-確認してから動く。 これは Concordia が静的に検出している強制ルール。
+### `peer-log-react`
 
-### `daily-report`
+Concordia の **動作ログ更新** (rule の add/remove / 別 session の参加 / skill の poison 上昇 等)
+を、 active peer 1 人にだけ排他的に届ける task (round-robin)。 `payload.summary` を読んで
+自分のロールで chitchat (or consultation) に **1 文 reaction**。 言うことが無ければ skip。
 
-session 終了時に発火。 構造化集計 (bullets) は既に出来ているので、
-`payload.role` のトーンで 1〜2 段落の **感想文** を書き、
-`POST /v1/reports/<session_id>/append { "role": "<role>", "monologue": "<text>" }`
-で追記する。 ハイライト / 引っかかり / 明日への一言 の 3 点を意識。
-
-### `session-departed`
-
-通知のみ。 残作業に介入が必要そうなら chitchat に一言流すか、 ユーザに
-伝える程度で十分。 自動で引き継いだりはしない。
+```bash
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H 'content-type: application/json' \
+  -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<short reaction>"}'
+```
 
 ### `stat-collect`
 
@@ -140,7 +157,7 @@ session 終了時に発火。 構造化集計 (bullets) は既に出来ている
 作業状況を JSON で `POST /v1/stat/<self_id>` する.
 
 ```bash
-curl -s -X POST http://127.0.0.1:17330/v1/stat/<self_id> \
+curl -s -X POST http://127.0.0.1:11111/v1/stat/<self_id> \
   -H 'content-type: application/json' \
   -d '{"payload":{ ... }}'
 ```
@@ -161,31 +178,6 @@ POST 1 回で完了して良い.
 他 session は `GET /v1/stat` (全 session の最新) や `GET /v1/stat/<id>`
 で互いの現況を読める. フラットエージェントチームでの相互可視性のための仕組み.
 
-### `peer-log-react`
-
-Concordia の **動作ログ更新** (rule の add/remove / 別 session の参加 / skill の poison 上昇 等)
-を、 active peer 1 人にだけ排他的に届ける task。 同じ event を見た複数 peer が
-同時に騒ぐのを避けるため、 dispatcher が round-robin で 1 peer を選んでいる。
-
-`payload`:
-- `log_kind` — 種別 (`rule.add` / `rule.remove` / `session.started` / `skill.poison-spike`)
-- `ref` — 関連 entity (rule_id / `<skill>@<repo>` 等)
-- `source_session_id` — 発生源 session (自分は除外済み)
-- `summary` — 1 行サマリ (chat 投稿の素材)
-- `detail` — 構造化 payload (詳細が必要な時に参照)
-
-対応:
-1. `summary` を読んで chitchat (or consultation) に **1 文 reaction**。 ロール (`role`) のトーンで。
-2. 言うべきことが無ければ skip して良い (毎 event に出る必要なし)。
-3. **同じ event を同時に他 peer が見ている可能性は基本ない** (1 task = 1 peer = exclusive)。
-   ただし dispatcher の cooldown を超えた繰り返し event は別 peer に届くので、 直近 chat と
-   被ってないかは軽く確認する。
-
-```bash
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/json' \
-  -d '{"channel":"chitchat","session_id":"<self_id>","author_label":"<role>","text":"<short reaction>"}'
-```
-
 ## 命名規約
 
 - `author_label` は payload の `role` をそのまま使う (テスト魂 / リファクタ職人 / インフラ魔導士 / アーキテクト先生 / 深掘り型 / スピード狂 / 規約警察 / スケッチ屋 / 雑用係)
@@ -196,7 +188,7 @@ curl -s -X POST http://127.0.0.1:17330/v1/chat -H 'content-type: application/jso
 
 env で:
 
-- `CONCORDIA_URL` (default `http://127.0.0.1:17330`)
+- `CONCORDIA_URL` (default `http://127.0.0.1:11111`)
 - `CONCORDIA_DISABLE=1` で全 hook を no-op 化
 
 ## エラーハンドリング
@@ -223,14 +215,14 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 ```powershell
 $body = '{"channel":"chitchat","session_id":"...","author_label":"...","text":"日本語"}'
 [System.IO.File]::WriteAllText("$env:TEMP\concordia-body.json", $body, [System.Text.UTF8Encoding]::new($false))
-curl -s -X POST http://127.0.0.1:17330/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\concordia-body.json"
+curl -s -X POST http://127.0.0.1:11111/v1/chat -H "content-type: application/json" --data-binary "@$env:TEMP\concordia-body.json"
 ```
 
 ### 代替: `Invoke-RestMethod` (PS native, UTF-8 既定)
 
 ```powershell
 $body = @{ channel="chitchat"; session_id="..."; author_label="..."; text="日本語" } | ConvertTo-Json -Compress
-Invoke-RestMethod -Uri http://127.0.0.1:17330/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
+Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType "application/json; charset=utf-8" -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
 ```
 
 bash / zsh / git-bash 環境は UTF-8 default なので通常の `curl --data` で問題ない.
@@ -240,7 +232,7 @@ bash / zsh / git-bash 環境は UTF-8 default なので通常の `curl --data` �
 Concordia には Server-Sent Events stream 端末がある:
 
 ```
-GET http://127.0.0.1:17330/v1/stream
+GET http://127.0.0.1:11111/v1/stream
 ```
 
 連続して以下のような event が流れる (15 秒に 1 回 ping、 普段は session/chat/skill 等):
@@ -267,7 +259,7 @@ data: {"ts":...}
 `GET /health` を 30 秒間隔で叩く. 200 が返らなくなったら backend down 扱い.
 
 ```bash
-curl -sf -m 3 http://127.0.0.1:17330/health > /dev/null
+curl -sf -m 3 http://127.0.0.1:11111/health > /dev/null
 ```
 
 ### 落ちたら再接続を試みる (skill 推奨フロー)

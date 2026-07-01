@@ -100,6 +100,10 @@ let discordBotDeps: DiscordBotDeps | null = null;
 let slackBotHandle: ChatPlatform | null = null;
 let slackBotDeps: SlackBotDeps | null = null;
 
+function discordEmbeddedEnabled(): boolean {
+  return process.env.CONCORDIA_DISCORD_EMBEDDED !== "0";
+}
+
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (slackBotHandle) return { ok: true, status: "already_running" };
   if (!slackBotDeps) return { ok: false, status: "error", error: "slack deps not initialized" };
@@ -134,6 +138,7 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 }
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
+  if (!discordEmbeddedEnabled()) return { ok: true, status: "disabled" };
   if (discordBotHandle) return { ok: true, status: "already_running" };
   if (!discordBotDeps) return { ok: false, status: "error", error: "discord deps not initialized" };
   try {
@@ -682,8 +687,12 @@ export async function startBackend(): Promise<BackendHandle> {
   // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
   // spec/discord-ui.md
   {
-    const started = await startDiscordBotManaged();
-    if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+    if (discordEmbeddedEnabled()) {
+      const started = await startDiscordBotManaged();
+      if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+    } else {
+      log.info("Discord embedded bot disabled; run `npm run discord:worker` as a separate relay process");
+    }
   }
 
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
@@ -695,7 +704,9 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
-  await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
+  if (discordEmbeddedEnabled()) {
+    await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
+  }
 
   return {
     port: cfg.port,

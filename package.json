@@ -12,6 +12,7 @@
     "build:spec-index": "node tools/build-spec-index.mjs",
     "dev": "npm run sync:skill && concurrently --kill-others-on-fail -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
     "dev:backend": "node --watch --import tsx --env-file-if-exists=.env src/server.ts",
+    "discord:worker": "node --import tsx --env-file-if-exists=.env src/discord-worker.ts",
     "dev:web": "cd web && npm run dev",
     "start": "node dist/server.js",
     "test": "vitest run",

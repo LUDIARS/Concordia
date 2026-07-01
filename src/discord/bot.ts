@@ -95,6 +95,12 @@ export interface DiscordBotDeps {
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
+   * Override for workflow-triggered session injects. In the embedded backend
+   * this is the in-process event bus. In the standalone Discord worker it
+   * posts to the backend API so the session WS receives the inject.
+   */
+  emitSessionInject?: (sessionId: string, text: string, source: string) => void;
+  /**
    * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
    */
@@ -182,8 +188,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: runClaude,
-    emitInject: (sessionId, text, source) =>
-      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
+    emitInject: deps.emitSessionInject ?? ((sessionId, text, source) =>
+      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) })),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),

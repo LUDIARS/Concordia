@@ -16,6 +16,8 @@ const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB lim
 
 const CODEX_DUP_WINDOW_MS = 90_000;
 const codexRelayDedup = new Map<string, number>();
+const INACTIVE_TRANSCRIPT_LOG_WINDOW_MS = 30_000;
+const inactiveTranscriptLogState = new Map<string, { lastAt: number; suppressed: number }>();
 const dedupStats = {
   skipped_chat_posted: 0,
   skipped_transcript_frame: 0,
@@ -78,6 +80,15 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
   const sessionId = row.session_id;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
+  const session = sessionId ? deps.sessionsRepo.findSession(sessionId) : null;
+  if (sessionId && !isActiveRelayTarget(session?.status ?? null, sessionRow?.status ?? null)) {
+    deps.log.warn(
+      `egress.handleChatPosted skipped inactive session message_id=${row.id} row_session_id=${sessionId} ` +
+      `session_status=${session?.status ?? "null"} discord_status=${sessionRow?.status ?? "null"} ` +
+      `session_channel=${sessionRow?.channel_id ?? "null"}`,
+    );
+    return;
+  }
   const metaKind = mapChannelKind(row, ev.channel);
   const metaChannelId = deps.layout.metaChannels[metaKind] ?? null;
   const forceMeta = row.channel === "chitchat" || row.channel === "consultation" || row.channel === "報告";
@@ -126,7 +137,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
 
   const author = resolveAuthor(deps, row);
-  const provider = sessionId ? deps.sessionsRepo.findSession(sessionId)?.provider ?? null : null;
+  const provider = sessionId ? session?.provider ?? null : null;
   if (provider === "codex-cli" && shouldSkipCodexDuplicate(channelId, author, row.text)) {
     dedupStats.skipped_chat_posted += 1;
     deps.log.info(`egress: chat.posted dedup skipped message_id=${row.id} channel=${channelId}`);
@@ -147,6 +158,23 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
 }
 
 async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
+  const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+  const session = deps.sessionsRepo.findSession(ev.target_session_id);
+  const sessionStatus = session?.status ?? null;
+  const discordStatus = sessionRow?.status ?? null;
+  if (!isActiveRelayTarget(sessionStatus, discordStatus)) {
+    logInactiveTranscriptFrame(deps, ev, {
+      sessionStatus,
+      discordStatus,
+      sessionChannelId: sessionRow?.channel_id ?? null,
+    });
+    return;
+  }
+  if (!sessionRow || !session) {
+    deps.log.warn(`egress: transcript.frame active check inconsistent session=${ev.target_session_id} seq=${ev.seq}`);
+    return;
+  }
+
   // Per 2026-05-27 ユーザ指示: only relay "人間向けの最終回答" — concretely:
   //   1) kind=text && role=assistant : AI が user に返す本文
   //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
@@ -183,14 +211,11 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       deps.log.info(`egress: transcript.frame skipped empty image session=${ev.target_session_id} seq=${ev.seq}`);
       return;
     }
-    const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-    if (!sessionRow || sessionRow.status === "ended") return;
     const client = await deps.webhooks.getForSession(ev.target_session_id);
     if (!client) {
       deps.log.warn(`egress: transcript.frame image no webhook session=${ev.target_session_id}`);
       return;
     }
-    const session = deps.sessionsRepo.findSession(ev.target_session_id);
     const meta = readMeta(session?.metadata);
     const author = formatAuthorName(null, meta.role_label ?? null);
     const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
@@ -234,27 +259,17 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
 
-  const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   deps.log.info(
     `egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +
-    `role=${role} session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
-    `webhook_id=${sessionRow?.webhook_id ?? "null"}`,
+    `role=${role} session_channel=${sessionRow.channel_id} session_status=${sessionStatus} ` +
+    `discord_status=${sessionRow.status} webhook_id=${sessionRow.webhook_id ?? "null"}`,
   );
-  if (!sessionRow) {
-    deps.log.warn(`egress: transcript.frame no session-channel mapping session=${ev.target_session_id} seq=${ev.seq}`);
-    return;
-  }
-  if (sessionRow.status === "ended") {
-    deps.log.info(`egress: transcript.frame skipped ended session=${ev.target_session_id} seq=${ev.seq}`);
-    return;
-  }
   const client = await deps.webhooks.getForSession(ev.target_session_id);
   if (!client) {
     deps.log.warn(`egress: transcript.frame no webhook client session=${ev.target_session_id} seq=${ev.seq}`);
     return;
   }
 
-  const session = deps.sessionsRepo.findSession(ev.target_session_id);
   const meta = readMeta(session?.metadata);
   const persona = role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
   const author = role === "summary"
@@ -271,6 +286,26 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
   deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+}
+
+function logInactiveTranscriptFrame(
+  deps: EgressDeps,
+  ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>,
+  status: { sessionStatus: string | null; discordStatus: string | null; sessionChannelId: string | null },
+): void {
+  const now = Date.now();
+  const prev = inactiveTranscriptLogState.get(ev.target_session_id);
+  if (prev && now - prev.lastAt < INACTIVE_TRANSCRIPT_LOG_WINDOW_MS) {
+    prev.suppressed += 1;
+    return;
+  }
+  const suppressed = prev?.suppressed ?? 0;
+  inactiveTranscriptLogState.set(ev.target_session_id, { lastAt: now, suppressed: 0 });
+  deps.log.warn(
+    `egress: transcript.frame skipped inactive session=${ev.target_session_id} seq=${ev.seq} kind=${ev.kind} ` +
+    `session_status=${status.sessionStatus ?? "null"} discord_status=${status.discordStatus ?? "null"} ` +
+    `session_channel=${status.sessionChannelId ?? "null"} suppressed=${suppressed}`,
+  );
 }
 
 function previewPayload(payload: unknown): string {
@@ -358,6 +393,13 @@ export function trustedDiscordChannelId(input: {
   if (!input.sessionId || input.forceMeta) return input.explicitChannelId;
   if (!input.sessionChannelId) return null;
   return input.explicitChannelId === input.sessionChannelId ? input.explicitChannelId : null;
+}
+
+export function isActiveRelayTarget(
+  sessionStatus: string | null | undefined,
+  discordStatus: string | null | undefined,
+): boolean {
+  return sessionStatus === "active" && discordStatus === "active";
 }
 
 function buildAttachFiles(

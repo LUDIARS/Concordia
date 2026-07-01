@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { trustedDiscordChannelId } from "./egress.js";
+import { isActiveRelayTarget, trustedDiscordChannelId } from "./egress.js";
 
 describe("trustedDiscordChannelId", () => {
   it("accepts the explicit channel when it matches the session channel", () => {
@@ -27,5 +27,15 @@ describe("trustedDiscordChannelId", () => {
       sessionChannelId: "c1",
       forceMeta: true,
     })).toBe("meta1");
+  });
+});
+
+describe("isActiveRelayTarget", () => {
+  it("allows relay only when both Concordia session and Discord channel mapping are active", () => {
+    expect(isActiveRelayTarget("active", "active")).toBe(true);
+    expect(isActiveRelayTarget("lost", "active")).toBe(false);
+    expect(isActiveRelayTarget("active", "lost")).toBe(false);
+    expect(isActiveRelayTarget("ended", "active")).toBe(false);
+    expect(isActiveRelayTarget("active", null)).toBe(false);
   });
 });

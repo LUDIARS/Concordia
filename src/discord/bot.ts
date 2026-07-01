@@ -16,7 +16,7 @@ import {
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } from "./config.js";
-import { getEgressDedupStats, handleEvent as handleEgressEvent } from "./egress.js";
+import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import { repinSession } from "../control/repin-session.js";
@@ -179,6 +179,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     const sid = meta.subsidiary_id ?? null;
     return subsidiaryId ? sid === subsidiaryId : !sid;
   };
+  const isActiveDiscordSession = (sessionId: string): boolean => {
+    const session = deps.sessionsRepo.findSession(sessionId);
+    const row = sessionChannelsRepo.findBySessionId(sessionId);
+    return isActiveRelayTarget(session?.status ?? null, row?.status ?? null);
+  };
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
@@ -234,7 +239,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       }
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
       if (env.applicationId) {
-        await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
+        try {
+          await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
+          log.info(`slash commands registered guild=${env.guildId}`);
+        } catch (e) {
+          log.warn(`slash command registration failed guild=${env.guildId}: ${(e as Error).message}`);
+        }
       } else {
         log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
       }
@@ -488,6 +498,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (!inScope(interaction.guildId)) return;
     void dispatchInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
+      sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo,
       pendingQuestionsRepo,
       guild: interaction.guild!,
@@ -606,7 +617,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // 落ち着いたら最下部へ出し直す（idle で除去）。session に紐づくものだけ。
       const progressSession =
         ev.type === "transcript.frame" ? ev.target_session_id : ev.session_id ?? null;
-      if (progressSession) {
+      if (progressSession && isActiveDiscordSession(progressSession)) {
         workingIndicator?.noteProgress(progressSession);
         channelWorkState?.noteProgress(progressSession);
       }
@@ -632,12 +643,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.event" && ev.kind === "prompt") {
       // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
-      workingIndicator?.noteProgress(ev.session_id);
-      channelWorkState?.noteProgress(ev.session_id);
       const s = deps.sessionsRepo.findSession(ev.session_id);
       if (!s || s.provider !== "codex-cli") return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
-      if (!row || row.status !== "active") return;
+      if (!isActiveRelayTarget(s.status, row?.status ?? null)) return;
+      workingIndicator?.noteProgress(ev.session_id);
+      channelWorkState?.noteProgress(ev.session_id);
       const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
       let text = "";
       let source = "";
@@ -692,6 +703,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.event" && ev.kind === "title_renamed") {
       const s = deps.sessionsRepo.findSession(ev.session_id);
+      if (!isActiveDiscordSession(ev.session_id)) return;
       const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
       let title = "";
       let source: string | undefined;
@@ -712,15 +724,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     // task_update での状態カード即時更新は撤去 (更新は 10 分毎の定期 tick のみ)。
     if (ev.type === "question.posted") {
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
       void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
       return;
     }
     if (ev.type === "session.permission_request") {
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
       void postPermissionRequest({ guild, sessionChannelsRepo, permissionActions, log }, ev)
         .catch((e) => log.warn(`permission request post failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "question.resolved") {
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
       // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
       void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
       return;
@@ -731,8 +746,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // 制御 inject (/enter 等、source 例 "discord-enter") は ^slack: に一致せず除外。
       const src = ev.source ?? "";
       if (!src.startsWith("slack:")) return;
-      const sessionRow = sessionChannelsRepo.findBySessionId(ev.target_session_id);
-      if (!sessionRow || sessionRow.status !== "active") return;
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
       const who = ev.author_label?.trim() || "Slack user";
       void (async () => {
         const client = await webhooks.getForSession(ev.target_session_id);

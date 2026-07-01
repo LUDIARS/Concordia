@@ -101,17 +101,24 @@ function sessionOptions(sessionsRepo: SessionsRepo): Array<{ label: string; valu
 
 export async function handleControlInteraction(
   interaction: Interaction,
-  deps: { concordiaUrl: string; sessionsRepo: SessionsRepo; sessionChannelsRepo: DiscordSessionChannelsRepo },
+  deps: {
+    concordiaUrl: string;
+    sessionsRepo: SessionsRepo;
+    sessionChannelsRepo: DiscordSessionChannelsRepo;
+    log?: { info: (m: string) => void; warn: (m: string) => void };
+  },
 ): Promise<void> {
   if (interaction.isButton()) {
     const id = interaction.customId;
     if (!id.startsWith("ctrl:")) return;
+    deps.log?.info(`control interaction button id=${id} channel=${interaction.channelId ?? "-"} user=${interaction.user.id}`);
     if (id === "ctrl:refresh") {
       await interaction.update(buildControlPayload(deps.sessionsRepo, deps.sessionChannelsRepo));
       return;
     }
     if (id.startsWith("ctrl:spawn:")) {
       const provider = id.slice("ctrl:spawn:".length);
+      deps.log?.info(`control spawn modal show provider=${provider} channel=${interaction.channelId ?? "-"}`);
       const modal = new ModalBuilder().setCustomId(`ctrl:spawn-modal:${provider}`).setTitle(`Spawn ${provider}`);
       const cwd = new TextInputBuilder().setCustomId("cwd").setLabel("cwd").setRequired(true).setStyle(TextInputStyle.Short);
       const args = new TextInputBuilder().setCustomId("args").setLabel("args (optional)").setRequired(false).setStyle(TextInputStyle.Paragraph);
@@ -141,6 +148,7 @@ export async function handleControlInteraction(
   }
   if (interaction.isStringSelectMenu()) {
     const id = interaction.customId;
+    deps.log?.info(`control interaction select id=${id} channel=${interaction.channelId ?? "-"} user=${interaction.user.id}`);
     if (id === "ctrl:end-session:pick") {
       const sid = interaction.values[0];
       const btn = new ButtonBuilder().setCustomId(`ctrl:end-session:confirm:${sid}`).setLabel(`Confirm end ${sid.slice(0, 8)}`).setStyle(ButtonStyle.Danger);
@@ -159,16 +167,23 @@ export async function handleControlInteraction(
 
 export async function handleControlModalSubmit(
   interaction: ModalSubmitInteraction | ChatInputCommandInteraction,
-  deps: { concordiaUrl: string },
+  deps: { concordiaUrl: string; log?: { info: (m: string) => void; warn: (m: string) => void } },
 ): Promise<void> {
   const cid = (interaction as ModalSubmitInteraction).customId;
   if (!cid?.startsWith("ctrl:")) return;
+  deps.log?.info(`control modal submit id=${cid} channel=${interaction.channelId ?? "-"} user=${interaction.user.id}`);
   if (cid.startsWith("ctrl:spawn-modal:")) {
     const provider = cid.slice("ctrl:spawn-modal:".length);
     const cwd = (interaction as ModalSubmitInteraction).fields.getTextInputValue("cwd");
     const argsRaw = (interaction as ModalSubmitInteraction).fields.getTextInputValue("args");
     const args = argsRaw ? argsRaw.split(/\s+/).filter(Boolean) : [];
-    const r = await callConcordia(deps.concordiaUrl, "POST", "/v1/spawn", { provider, cwd, args });
+    deps.log?.info(`control spawn submit provider=${provider} has_cwd=${cwd ? 1 : 0} args_count=${args.length}`);
+    const r = await callConcordia(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", { provider, cwd, args });
+    if (r.ok) {
+      deps.log?.info(`control spawn submit ok provider=${provider}`);
+    } else {
+      deps.log?.warn(`control spawn submit failed provider=${provider} error=${r.error ?? "unknown"}`);
+    }
     await (interaction as ModalSubmitInteraction).reply({ content: r.ok ? "Spawn requested." : `Spawn failed: ${r.error ?? "unknown"}`, ephemeral: true });
     return;
   }

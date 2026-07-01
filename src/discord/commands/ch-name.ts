@@ -23,10 +23,10 @@ const chNameCommand: DiscordCommandSpec = {
         .setMaxLength(90),
     ),
   async execute(interaction, deps) {
-    const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
-    if (!session) return;
     const name = interaction.options.getString("name", true);
     await interaction.deferReply({ ephemeral: true });
+    const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
+    if (!session) return;
 
     const r = await onSessionChannelNameLocked(
       { guild: deps.guild, layout: deps.layout, repo: deps.sessionChannelsRepo, log: deps.log },

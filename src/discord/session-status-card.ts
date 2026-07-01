@@ -10,6 +10,7 @@ import type { TasksRepo } from "../db/tasks-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
 import { fetchSessionCacheStats, type SessionCacheStats } from "../anatomia/cache-stats-client.js";
+import { lastHumanRequester } from "../control/requester.js";
 
 /** 「直近のセッション活動」 と判定する閾値 (秒). recentEvents の最新 ts と現在時刻の差で見る. */
 const ACTIVE_WINDOW_SEC = 60;
@@ -18,6 +19,8 @@ const WAITING_WINDOW_SEC = 5 * 60;
 
 const STATUS_MESSAGE_KEY_PREFIX = "session_status_message_id:";
 const STATUS_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
+const CONTEXT_WARNING_KEY_PREFIX = "session_context85_notified:";
+const CONTEXT_WARNING_THRESHOLD = 0.85;
 
 /** configRepo に保存済みの状態カードチャンネル ID を返す。未作成なら null。 */
 export function getStatusChannelId(
@@ -117,6 +120,13 @@ export async function upsertSessionStatusCard(
     goalBadge: formatGoalBadge(readGoalFromMetadata(sessionRow.metadata)),
   });
 
+  await maybeNotifyHighContextUsage(deps, {
+    sessionId,
+    statusChannel,
+    contextBadge: formatContextBadge(ctx),
+    contextPct: ctx?.pct ?? null,
+  });
+
   const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
   const chKey = `${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`;
   // Unknown Channel (10003) が来たらチャンネルが Discord 側で削除済みの確定サイン。
@@ -181,6 +191,21 @@ export interface StatusEmbedInput {
   costBadge?: string;
   /** ゴールバッジ (🎯 完成まで実装)。 常に既定が入る。 */
   goalBadge?: string;
+}
+
+export interface ContextWarningInput {
+  sessionId: string;
+  contextBadge: string;
+  contextPct: number;
+  requesterUserId?: string | null;
+}
+
+/** 85% 超過時に status channel へ出す通知文。純粋関数にしてテストしやすくする。 */
+export function buildContextWarningMessage(i: ContextWarningInput): string {
+  const mention = i.requesterUserId ? `<@${i.requesterUserId}> ` : "";
+  const pct = Math.round(i.contextPct * 100);
+  return `${mention}⚠️ コンテキスト使用量が ${pct}% を超えました (${i.contextBadge})。\n` +
+    "必要なら `/co-compaction` で引き継ぎ型コンパクションするか、区切りのよいところでセッションを分けてください。";
 }
 
 /**
@@ -273,6 +298,40 @@ async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChanne
   } catch (e) {
     if ((e as { code?: number }).code === 10003) throw e; // Unknown Channel → 呼び出し元へ
     deps.log.warn(`status-card: purge failed channel=${channel.id}: ${(e as Error).message}`);
+  }
+}
+
+async function maybeNotifyHighContextUsage(
+  deps: SessionStatusCardDeps,
+  input: {
+    sessionId: string;
+    statusChannel: TextChannel;
+    contextBadge: string;
+    contextPct: number | null;
+  },
+): Promise<void> {
+  const key = `${CONTEXT_WARNING_KEY_PREFIX}${input.sessionId}`;
+  if (input.contextPct === null || input.contextPct < CONTEXT_WARNING_THRESHOLD) {
+    if (deps.configRepo.get(key)) deps.configRepo.set(key, "");
+    return;
+  }
+  if (deps.configRepo.get(key)) return;
+
+  const requester = lastHumanRequester(deps.sessionsRepo.recentEvents(input.sessionId, 100));
+  const requesterUserId = requester?.platform === "discord" ? requester.userId : null;
+  try {
+    await input.statusChannel.send({
+      content: buildContextWarningMessage({
+        sessionId: input.sessionId,
+        contextBadge: input.contextBadge,
+        contextPct: input.contextPct,
+        requesterUserId,
+      }),
+      allowedMentions: requesterUserId ? { users: [requesterUserId] } : { users: [] },
+    });
+    deps.configRepo.set(key, String(Date.now()));
+  } catch (e) {
+    deps.log.warn(`status-card: context warning failed session=${input.sessionId}: ${(e as Error).message}`);
   }
 }
 

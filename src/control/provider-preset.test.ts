@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { resolveDelegationSpawn, GEMMA4_12_DEFAULT_MODEL } from "./provider-preset.js";
+import {
+  delegationOptionSuggestions,
+  GEMMA4_12_DEFAULT_MODEL,
+  resolveDelegationRuntimeArgs,
+  resolveDelegationSpawn,
+} from "./provider-preset.js";
 
 describe("resolveDelegationSpawn", () => {
   it("gemma4-12 → Lictor ネイティブ local-agent (codex 経由しない) + LICTOR_LOCAL_MODEL env", () => {
@@ -51,5 +56,31 @@ describe("resolveDelegationSpawn", () => {
   it("空文字 model は未指定扱い", () => {
     expect(resolveDelegationSpawn("codex", "  ").args).toEqual([]);
     expect(resolveDelegationSpawn("gemma4-12", "  ").effectiveModel).toBe(GEMMA4_12_DEFAULT_MODEL);
+  });
+});
+
+describe("delegation runtime options", () => {
+  it("suggests reasoning effort only for Codex", () => {
+    expect(delegationOptionSuggestions("codex").map((s) => s.key)).toContain("model_reasoning_effort");
+    expect(delegationOptionSuggestions("claude")).toEqual([]);
+  });
+
+  it("passes Codex reasoning effort as one-shot config args", () => {
+    expect(resolveDelegationRuntimeArgs("codex", { model_reasoning_effort: "high" })).toEqual([
+      "-c",
+      'model_reasoning_effort="high"',
+    ]);
+  });
+
+  it("passes extra Codex config options and ignores unsupported providers", () => {
+    expect(resolveDelegationRuntimeArgs("codex", {
+      codex_config: { sandbox_mode: "workspace-write", approval_policy: "never" },
+    })).toEqual([
+      "-c",
+      'sandbox_mode="workspace-write"',
+      "-c",
+      'approval_policy="never"',
+    ]);
+    expect(resolveDelegationRuntimeArgs("claude", { model_reasoning_effort: "high" })).toEqual([]);
   });
 });

@@ -176,6 +176,18 @@ describe("DelegationService.invoke", () => {
     expect(req.args).toEqual(["--model", "gpt-5.5"]);
   });
 
+  it("passes one-shot Codex runtime options to spawn args", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      options: { model_reasoning_effort: "high" },
+    });
+    expect(r.ok).toBe(true);
+    const req = spawnCalls[0] as { args?: string[]; provider: string };
+    expect(req.provider).toBe("codex");
+    expect(req.args).toEqual(["-c", 'model_reasoning_effort="high"']);
+  });
+
   it("omits --model args when template has no model", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);

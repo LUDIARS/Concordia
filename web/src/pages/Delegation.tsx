@@ -12,6 +12,20 @@ interface InputSchemaItem {
   default?: string | number | boolean;
 }
 
+interface DelegationOptionChoice {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+interface DelegationOptionSuggestion {
+  key: string;
+  label: string;
+  type: "select" | "string" | "boolean" | "number";
+  description?: string;
+  choices?: DelegationOptionChoice[];
+}
+
 interface Template {
   id: string;
   call_name: string;
@@ -26,6 +40,7 @@ interface Template {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  runtime_options?: DelegationOptionSuggestion[];
   created_at: number;
   updated_at: number;
 }
@@ -101,6 +116,8 @@ export function Delegation() {
   const [busy, setBusy] = useState(false);
   const [invokeFor, setInvokeFor] = useState<Template | null>(null);
   const [invokeArgs, setInvokeArgs] = useState<Record<string, string>>({});
+  const [invokeOptions, setInvokeOptions] = useState<Record<string, string>>({});
+  const [invokeOptionsJson, setInvokeOptionsJson] = useState("{}");
   const [invokeCwd, setInvokeCwd] = useState("");
   const [invokeResult, setInvokeResult] = useState<unknown>(null);
   // 可搬 JSON の貼付欄 (null = 非表示)。
@@ -240,7 +257,13 @@ export function Delegation() {
     for (const s of t.input_schema) {
       init[s.name] = s.default !== undefined ? String(s.default) : "";
     }
+    const optionInit: Record<string, string> = {};
+    for (const opt of t.runtime_options ?? []) {
+      optionInit[opt.key] = "";
+    }
     setInvokeArgs(init);
+    setInvokeOptions(optionInit);
+    setInvokeOptionsJson("{}");
     setInvokeCwd(t.default_cwd ?? "");
     setInvokeResult(null);
   }
@@ -258,11 +281,29 @@ export function Delegation() {
         else if (s.type === "boolean") args[s.name] = v === "true";
         else args[s.name] = v;
       }
+      let options: Record<string, unknown> = {};
+      const rawOptionsJson = invokeOptionsJson.trim();
+      if (rawOptionsJson && rawOptionsJson !== "{}") {
+        const parsed = JSON.parse(rawOptionsJson);
+        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+          throw new Error("runtime options JSON must be an object");
+        }
+        options = parsed as Record<string, unknown>;
+      }
+      for (const opt of invokeFor.runtime_options ?? []) {
+        const v = invokeOptions[opt.key];
+        if (v === undefined || v === "") continue;
+        if (opt.type === "number") options[opt.key] = Number(v);
+        else if (opt.type === "boolean") options[opt.key] = v === "true";
+        else options[opt.key] = v;
+      }
+      const hasOptions = Object.keys(options).length > 0;
       const r = await mutate("POST", "/v1/delegation/invoke", {
         call_name: invokeFor.call_name,
         args,
         cwd: invokeCwd.trim() || undefined,
         triggered_by: "web-ui",
+        options: hasOptions ? options : undefined,
       });
       const data = await r.json();
       setInvokeResult(data);
@@ -549,6 +590,55 @@ export function Delegation() {
                 className="foundation-form w-full"
                 value={invokeCwd}
                 onChange={(e) => setInvokeCwd(e.target.value)}
+              />
+            </label>
+            {invokeFor.runtime_options && invokeFor.runtime_options.length > 0 && (
+              <div className="col-span-2 grid grid-cols-2 gap-3">
+                {invokeFor.runtime_options.map((opt) => (
+                  <label key={opt.key} className="text-sm space-y-1">
+                    <span className="text-subtle">
+                      {opt.label} <span className="font-mono text-xs">{opt.key}</span>
+                      {opt.description && <div className="text-xs text-subtle">{opt.description}</div>}
+                    </span>
+                    {opt.type === "select" ? (
+                      <select
+                        className="foundation-form w-full"
+                        value={invokeOptions[opt.key] ?? ""}
+                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
+                      >
+                        <option value="">(provider default)</option>
+                        {(opt.choices ?? []).map((choice) => (
+                          <option key={choice.value} value={choice.value}>{choice.label}</option>
+                        ))}
+                      </select>
+                    ) : opt.type === "boolean" ? (
+                      <select
+                        className="foundation-form w-full"
+                        value={invokeOptions[opt.key] ?? ""}
+                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
+                      >
+                        <option value="">(provider default)</option>
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                    ) : (
+                      <input
+                        className="foundation-form w-full"
+                        value={invokeOptions[opt.key] ?? ""}
+                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
+            <label className="text-sm space-y-1 col-span-2">
+              <span className="text-subtle">runtime options JSON</span>
+              <textarea
+                className="foundation-form w-full font-mono text-xs"
+                rows={3}
+                value={invokeOptionsJson}
+                onChange={(e) => setInvokeOptionsJson(e.target.value)}
               />
             </label>
           </div>

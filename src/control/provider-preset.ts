@@ -54,6 +54,78 @@ export interface ResolvedSpawn {
   env?: Record<string, string>;
 }
 
+export interface DelegationOptionChoice {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export interface DelegationOptionSuggestion {
+  key: string;
+  label: string;
+  type: "select" | "string" | "boolean" | "number";
+  description?: string;
+  choices?: DelegationOptionChoice[];
+}
+
+export type DelegationRuntimeOptions = Record<string, unknown>;
+
+const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
+const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
+
+export function delegationOptionSuggestions(provider: string): DelegationOptionSuggestion[] {
+  if (provider !== "codex") return [];
+  return [
+    {
+      key: "model_reasoning_effort",
+      label: "Reasoning effort",
+      type: "select",
+      description: "Codex/GPT only. Passed as a one-shot Codex config override.",
+      choices: [
+        { label: "minimal", value: "minimal" },
+        { label: "low", value: "low" },
+        { label: "medium", value: "medium" },
+        { label: "high", value: "high" },
+      ],
+    },
+  ];
+}
+
+export function resolveDelegationRuntimeArgs(
+  provider: string,
+  options: DelegationRuntimeOptions | null | undefined,
+): string[] {
+  if (!options || provider !== "codex") return [];
+  const args: string[] = [];
+  const effort = normalizeReasoningEffort(options.model_reasoning_effort ?? options.reasoning_effort);
+  if (effort) {
+    args.push("-c", `model_reasoning_effort=${tomlScalar(effort)}`);
+  }
+  const config = isPlainRecord(options.codex_config) ? options.codex_config : {};
+  for (const [key, value] of Object.entries(config)) {
+    if (!CODEX_CONFIG_KEY_RE.test(key)) continue;
+    if (value === undefined || value === null) continue;
+    args.push("-c", `${key}=${tomlScalar(value)}`);
+  }
+  return args;
+}
+
+function normalizeReasoningEffort(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function tomlScalar(value: unknown): string {
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return JSON.stringify(String(value));
+}
+
 /**
  * 論理 delegation provider を実 spawn (CLI + args) に解決する。
  *

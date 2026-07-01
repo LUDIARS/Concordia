@@ -13,6 +13,7 @@ import {
 } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { parsePortable, templateToPortable } from "../delegation/portable.js";
+import { delegationOptionSuggestions } from "../control/provider-preset.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -85,6 +86,7 @@ const InvokeSchema = z.object({
   extra_prompt: z.string().max(20000).optional(),
   triggered_by: z.string().max(120).optional(),
   spawn: z.boolean().optional(),
+  options: z.record(z.unknown()).optional(),
 });
 
 export interface DelegationApiDeps {
@@ -108,6 +110,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       input_schema: safeJsonParse(row.input_schema, []),
       is_active: row.is_active === 1,
       call_only: row.call_only === 1,
+      runtime_options: delegationOptionSuggestions(row.target_provider),
     };
   }
 
@@ -151,6 +154,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const limit = Math.max(1, Math.min(500, isFinite(limitRaw) ? limitRaw : 100));
     const rows = deps.repo.recentRuns(limit);
     return c.json({ runs: rows.map(serializeRun) });
+  });
+
+  app.get("/options", (c) => {
+    const provider = c.req.query("provider") ?? "";
+    return c.json({ provider, suggestions: delegationOptionSuggestions(provider) });
   });
 
   // ── Mutating endpoints (bearer auth) ─────────────────────
@@ -223,6 +231,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       extra_prompt: parsed.data.extra_prompt,
       triggered_by: parsed.data.triggered_by,
       spawn: parsed.data.spawn,
+      options: parsed.data.options,
     });
     if (!result.ok) {
       const status = result.error.startsWith("unknown call_name") ? 404 : 400;

@@ -54,6 +54,26 @@ export interface OrgCostWindows {
   weekly: OrgCostReport;
 }
 
+export interface OrgCostProfileEvent {
+  sessionId: string;
+  provider: string;
+  repoPath: string;
+  ms: number;
+  dailyTokens: number;
+  weeklyTokens: number;
+}
+
+export interface OrgCostProfile {
+  sessions: number;
+  readMs: number;
+  slowReads: OrgCostProfileEvent[];
+}
+
+export interface OrgCostOptions {
+  slowReadMs?: number;
+  onProfile?: (profile: OrgCostProfile) => void;
+}
+
 /** epoch(ms) → その local 暦日 00:00 の epoch 秒。 */
 function localMidnightSec(nowMs: number): number {
   const d = new Date(nowMs);
@@ -75,6 +95,7 @@ export function collectOrgCostWindows(
   subsidiaries: OrgCostSubsidiary[],
   nowMs: number = Date.now(),
   reader: SessionWindowReader = readSessionWindowedTotals,
+  options: OrgCostOptions = {},
 ): OrgCostWindows {
   const nowSec = Math.floor(nowMs / 1000);
   const todayStartSec = localMidnightSec(nowMs);
@@ -87,15 +108,30 @@ export function collectOrgCostWindows(
 
   const sessions = sessionsRepo.listSessionsSeenSince(weekStartSec);
   const known = new Set(subsidiaries.map((s) => s.id));
+  const slowReadMs = options.slowReadMs ?? 250;
+  const profile: OrgCostProfile = { sessions: sessions.length, readMs: 0, slowReads: [] };
 
   const dailyBySub = new Map<string, number>();
   const weeklyBySub = new Map<string, number>();
   let dailyHead = 0, weeklyHead = 0, dailyTotal = 0, weeklyTotal = 0;
 
   for (const s of sessions) {
+    const readStarted = Date.now();
     const t = reader(s, windows);
+    const readMs = Date.now() - readStarted;
+    profile.readMs += readMs;
     const dd = t.d ?? 0;
     const ww = t.w ?? 0;
+    if (readMs >= slowReadMs) {
+      profile.slowReads.push({
+        sessionId: s.id,
+        provider: s.provider,
+        repoPath: s.repo_path,
+        ms: readMs,
+        dailyTokens: dd,
+        weeklyTokens: ww,
+      });
+    }
     if (dd <= 0 && ww <= 0) continue;
     dailyTotal += dd;
     weeklyTotal += ww;
@@ -109,6 +145,9 @@ export function collectOrgCostWindows(
     }
     // sid があるが known でない (削除済み子会社等) は total のみ反映。
   }
+
+  profile.slowReads.sort((a, b) => b.ms - a.ms);
+  options.onProfile?.(profile);
 
   const buildSubs = (m: Map<string, number>, withBudget: boolean): OrgCostRow[] =>
     subsidiaries.map((sub) => {

@@ -59,6 +59,19 @@ export class CostLimitSamplesRepo {
       .all(Math.floor(sinceSec)) as CostLimitSampleRow[];
   }
 
+  listLatestByProvider(): CostLimitSampleRow[] {
+    return this.db
+      .prepare(
+        `SELECT id, ts, provider, plan, used_5h_pct, used_weekly_pct, reset_5h_at, reset_weekly_at
+           FROM cost_limit_samples
+          WHERE id IN (
+            SELECT MAX(id) FROM cost_limit_samples GROUP BY provider
+          )
+          ORDER BY provider ASC`,
+      )
+      .all() as CostLimitSampleRow[];
+  }
+
   pruneOlderThan(cutoffSec: number): number {
     const r = this.db
       .prepare(`DELETE FROM cost_limit_samples WHERE ts < ?`)

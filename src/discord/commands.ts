@@ -23,9 +23,12 @@ import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
+import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
+  sessionsRepo: SessionsRepo;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   pendingQuestionsRepo: DiscordPendingQuestionsRepo;
   guild: Guild;
@@ -68,18 +71,45 @@ export async function registerGuildCommands(token: string, applicationId: string
 
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
   if (interaction.isChatInputCommand()) {
+    deps.log.info(
+      `discord command received name=${interaction.commandName} guild=${interaction.guildId ?? "-"} ` +
+      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"}`,
+    );
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
-    if (!cmd) return;
+    if (!cmd) {
+      deps.log.warn(`discord command ignored unknown name=${interaction.commandName}`);
+      return;
+    }
     await cmd.execute(interaction, deps);
     return;
   }
   if (interaction.isAutocomplete()) {
+    deps.log.info(
+      `discord autocomplete received name=${interaction.commandName} guild=${interaction.guildId ?? "-"} ` +
+      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"}`,
+    );
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
-    if (cmd?.autocomplete) await cmd.autocomplete(interaction, deps);
+    if (cmd?.autocomplete) {
+      await cmd.autocomplete(interaction, deps);
+    } else {
+      deps.log.warn(`discord autocomplete ignored name=${interaction.commandName}`);
+    }
     return;
   }
   if (isPermissionInteraction(interaction)) {
     await dispatchPermissionInteraction(interaction, deps);
+    return;
+  }
+  if (
+    (interaction.isButton() || interaction.isStringSelectMenu()) &&
+    interaction.customId.startsWith("ctrl:")
+  ) {
+    await handleControlInteraction(interaction, {
+      concordiaUrl: deps.concordiaUrl,
+      sessionsRepo: deps.sessionsRepo,
+      sessionChannelsRepo: deps.sessionChannelsRepo,
+      log: deps.log,
+    });
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
@@ -90,5 +120,9 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   // 他の modal surface は無いので、それ以外は無視。
   if (interaction.isModalSubmit() && interaction.customId.startsWith("qothm:")) {
     await dispatchQuestionInteraction(interaction, deps);
+    return;
+  }
+  if (interaction.isModalSubmit() && interaction.customId.startsWith("ctrl:")) {
+    await handleControlModalSubmit(interaction, { concordiaUrl: deps.concordiaUrl, log: deps.log });
   }
 }

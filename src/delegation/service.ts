@@ -17,7 +17,11 @@ import {
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
 import { recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
-import { resolveDelegationSpawn } from "../control/provider-preset.js";
+import {
+  resolveDelegationRuntimeArgs,
+  resolveDelegationSpawn,
+  type DelegationRuntimeOptions,
+} from "../control/provider-preset.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
@@ -139,6 +143,8 @@ export interface InvokeInput {
   triggered_by?: string;
   /** false で spawn せず render + 記録のみ */
   spawn?: boolean;
+  /** Provider-specific one-shot options. These are not stored on the template. */
+  options?: DelegationRuntimeOptions;
   /** 子会社由来の invoke なら子会社 id。 spawn したセッションの metadata.subsidiary_id へ焼く。 */
   subsidiary_id?: string | null;
 }
@@ -248,6 +254,8 @@ export class DelegationService {
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
+    const runtimeArgs = resolveDelegationRuntimeArgs(provider, input.options);
+    const spawnArgs = [...spawn.args, ...runtimeArgs];
     log.info({
       call_name: def.call_name,
       template_id: def.template_id,
@@ -257,6 +265,7 @@ export class DelegationService {
       caller_cwd: input.cwd ?? null,
       template_default_cwd: def.default_cwd ?? null,
       triggered_by: input.triggered_by ?? null,
+      option_keys: Object.keys(input.options ?? {}),
     }, "delegation invoke received");
 
     // 1) write prompt to file (pre-allocate run id so file name == row id)
@@ -267,7 +276,16 @@ export class DelegationService {
     mkdirSync(this.promptsDir, { recursive: true });
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(def, renderedPrompt, input.args ?? {}, runId, contextBlock, persona?.name ?? null, spawn.effectiveModel);
+    const promptBody = renderPromptFile(
+      def,
+      renderedPrompt,
+      input.args ?? {},
+      input.options ?? {},
+      runId,
+      contextBlock,
+      persona?.name ?? null,
+      spawn.effectiveModel,
+    );
     try {
       writeFileSync(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -289,7 +307,7 @@ export class DelegationService {
         mode: "window",
         cwd: cwd ?? undefined,
         // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
-        args: spawn.args.length > 0 ? spawn.args : undefined,
+        args: spawnArgs.length > 0 ? spawnArgs : undefined,
         title: `delegation:${input.call_name}`,
         env: {
           // spawn 解決由来の env (gemma4-12 の LICTOR_LOCAL_MODEL 等) を先に展開。
@@ -355,6 +373,7 @@ function renderPromptFile(
   def: DelegationDefinition,
   rendered: string,
   args: Record<string, unknown>,
+  options: Record<string, unknown>,
   runId: string,
   contextBlock: string,
   personaName: string | null,
@@ -363,6 +382,9 @@ function renderPromptFile(
   const argsBlock = Object.keys(args).length === 0
     ? "(none)"
     : Object.entries(args).map(([k, v]) => `- ${k}: ${JSON.stringify(v)}`).join("\n");
+  const optionsBlock = Object.keys(options).length === 0
+    ? "(none)"
+    : Object.entries(options).map(([k, v]) => `- ${k}: ${JSON.stringify(v)}`).join("\n");
   return [
     `# Delegation: ${def.call_name}`,
     "",
@@ -378,6 +400,10 @@ function renderPromptFile(
     "## Args",
     "",
     argsBlock,
+    "",
+    "## Runtime Options",
+    "",
+    optionsBlock,
     "",
     "## Prompt",
     "",

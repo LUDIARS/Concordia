@@ -318,7 +318,8 @@ export async function startBackend(): Promise<BackendHandle> {
     try {
       const nowSec = Math.floor(Date.now() / 1000);
       const report = await collectCostReport(repo, { oauthLog: log });
-      costLimitSamplesRepo.insertMany(collectLimitSamples(report, nowSec));
+      const previous = costLimitSamplesRepo.listLatestByProvider();
+      costLimitSamplesRepo.insertMany(collectLimitSamples(report, nowSec, previous));
       costLimitSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
     } catch (e) {
       log.warn(`cost limit sampler failed: ${(e as Error).message}`);

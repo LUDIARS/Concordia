@@ -157,6 +157,18 @@ export interface AppDeps {
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
+  const requestLog = createChildLogger("http");
+
+  app.use("*", async (c, next) => {
+    const started = Date.now();
+    await next();
+    const elapsedMs = Date.now() - started;
+    if (c.req.path === "/health" || elapsedMs >= 1000) {
+      const line = `request ${c.req.method} ${c.req.path} status=${c.res.status} duration_ms=${elapsedMs}`;
+      if (elapsedMs >= 1000) requestLog.warn(line);
+      else requestLog.info(line);
+    }
+  });
 
   // 信頼境界: admin / sweeper エンドポイントは loopback 前提で無認証だが、
   // CONCORDIA_ADMIN_TOKEN を設定すると bearer 認証を要求する (非 loopback bind 時は

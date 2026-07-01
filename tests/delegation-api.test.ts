@@ -55,3 +55,17 @@ describe("POST /v1/delegation/templates (空欄許容)", () => {
     expect(j.template.call_name).toMatch(/^tpl-[0-9a-f]{8}$/);
   });
 });
+
+describe("GET /v1/delegation/templates runtime options", () => {
+  it("returns provider-specific runtime option suggestions", async () => {
+    const { app } = makeApp();
+    await postTemplate(app, { target_provider: "codex", call_name: "codex-job", title: "Codex Job" });
+    await postTemplate(app, { target_provider: "claude", call_name: "claude-job", title: "Claude Job" });
+    const r = await app.request("/v1/delegation/templates");
+    const j = (await r.json()) as any;
+    const codex = j.templates.find((t: any) => t.call_name === "codex-job");
+    const claude = j.templates.find((t: any) => t.call_name === "claude-job");
+    expect(codex.runtime_options.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
+    expect(claude.runtime_options).toEqual([]);
+  });
+});

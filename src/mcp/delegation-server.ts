@@ -121,14 +121,15 @@ async function main(): Promise<void> {
         args: z.record(z.unknown()).optional().describe("Variable bindings for the template (object)"),
         cwd: z.string().optional().describe("Working directory for the spawned session"),
         triggered_by: z.string().optional().describe("Who is initiating (free-form identifier)"),
+        options: z.record(z.unknown()).optional().describe("Provider-specific one-shot options, e.g. {\"model_reasoning_effort\":\"high\"} for Codex"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),
       },
     },
-    async ({ call_name, args, cwd, triggered_by, spawn }) => {
+    async ({ call_name, args, cwd, triggered_by, spawn, options }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
-        { call_name, args: args ?? {}, cwd, triggered_by, spawn },
+        { call_name, args: args ?? {}, cwd, triggered_by, spawn, options },
         true,
       );
       if (!r.ok) {

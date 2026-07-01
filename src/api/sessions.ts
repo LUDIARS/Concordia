@@ -54,6 +54,8 @@ const log = createChildLogger("sessions-api");
  * 個人情報やシークレットを大量に流さないよう冒頭だけ残す.
  */
 const PROMPT_LOG_PREVIEW_CHARS = 200;
+const INACTIVE_TRANSCRIPT_LOG_WINDOW_MS = 30_000;
+const inactiveTranscriptPostLogState = new Map<string, { lastAt: number; suppressed: number }>();
 /** DELETE 後 force-exit の猶予。 これを過ぎても lictor_pid 生存なら強制 kill する。 */
 const FORCE_EXIT_GRACE_MS = 5000;
 /**
@@ -800,11 +802,14 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   // 受け取れるようにする.
   app.post("/:id/transcript-frame", async (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
+    const discordRow = deps.discordChannels.findBySessionId(id);
+    const activeRelayTarget = session.status === "active" && discordRow?.status === "active";
 
     // 永続化: 失敗してもログ流通は止めず、 続けて WS broadcast に進む
     // (永続化失敗は dispatcher / 監視への副作用が無いため安全)
@@ -826,6 +831,15 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
 
     // ユーザ指示テキスト (kind="text" + payload.role="user") を構造化ログに残す.
     // Lictor → Concordia 転送経路の「いま何を頼まれて動いているか」 を後追いできるようにする目的.
+    if (!activeRelayTarget) {
+      logInactiveTranscriptPost(id, parsed.data.seq, parsed.data.kind, {
+        sessionStatus: session.status,
+        discordStatus: discordRow?.status ?? null,
+        persisted,
+      });
+      return c.json({ ok: true, persisted, inactive: true });
+    }
+
     if (parsed.data.kind === "text") {
       const p = parsed.data.payload as { role?: unknown; text?: unknown } | null;
       if (p && p.role === "user" && typeof p.text === "string") {
@@ -1382,6 +1396,34 @@ async function proxyGet(c: { json: (body: any, status: any) => Response }, port:
 
 function nowSec(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function logInactiveTranscriptPost(
+  sessionId: string,
+  seq: number,
+  kind: string,
+  status: { sessionStatus: string; discordStatus: string | null; persisted: boolean },
+): void {
+  const now = Date.now();
+  const prev = inactiveTranscriptPostLogState.get(sessionId);
+  if (prev && now - prev.lastAt < INACTIVE_TRANSCRIPT_LOG_WINDOW_MS) {
+    prev.suppressed += 1;
+    return;
+  }
+  const suppressed = prev?.suppressed ?? 0;
+  inactiveTranscriptPostLogState.set(sessionId, { lastAt: now, suppressed: 0 });
+  log.warn(
+    {
+      session_id: sessionId,
+      seq,
+      kind,
+      session_status: status.sessionStatus,
+      discord_status: status.discordStatus,
+      persisted: status.persisted,
+      suppressed,
+    },
+    "transcript frame accepted but not broadcast for inactive session",
+  );
 }
 
 function safeParse(s: string): unknown {

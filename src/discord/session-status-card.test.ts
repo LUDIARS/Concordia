@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { buildSessionStatusEmbed, type StatusEmbedInput } from "./session-status-card.js";
+import {
+  buildContextWarningMessage,
+  buildSessionStatusEmbed,
+  type StatusEmbedInput,
+} from "./session-status-card.js";
 
 function base(overrides: Partial<StatusEmbedInput> = {}): StatusEmbedInput {
   return {
@@ -102,5 +106,17 @@ describe("buildSessionStatusEmbed", () => {
     }));
     expect(field(measured, "Anatomia")!.value).toContain("20% hit (2/10) · 節約 $0.0350 · コスト $0.14");
     expect(field(buildSessionStatusEmbed(base({ cache: { hits: 0, gets: 0, hitRate: 0, savedUsd: 0, spentUsd: 0, basis: "assumed" } })), "Anatomia")).toBeUndefined();
+  });
+
+  it("85% 超過通知は依頼者メンションと具体的な圧縮案を含む", () => {
+    const msg = buildContextWarningMessage({
+      sessionId: "lictor-abc123",
+      contextBadge: "🧠 ctx ~86% (172k)",
+      contextPct: 0.86,
+      requesterUserId: "1234567890",
+    });
+    expect(msg).toContain("<@1234567890>");
+    expect(msg).toContain("86%");
+    expect(msg).toContain("/co-compaction");
   });
 });

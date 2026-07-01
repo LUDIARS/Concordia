@@ -18,9 +18,12 @@ import type { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
 import type { CostOneShotCallsRepo, CostOneShotStatus } from "../db/cost-one-shot-calls-repo.js";
 import { collectOrgCostWindows, type OrgCostSubsidiary } from "../cost/org-cost.js";
 import { collectChannelCostRows } from "../cost/channel-cost.js";
+import type { CostReport } from "../cost/cost-report.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
 import { aggregateLimitTimeseries, collectLimitSamples } from "../cost/limit-sampler.js";
-import { collectCostReport } from "../cost/cost-report.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("cost-api");
 
 export interface CostApiDeps {
   sessions: SessionsRepo;
@@ -36,16 +39,45 @@ export function costRouter(deps: CostApiDeps): Hono {
   const app = new Hono();
 
   app.get("/overview", (c) => {
+    const started = Date.now();
+    const marks: Record<string, number> = {};
+    const mark = (name: string, since: number): number => {
+      const now = Date.now();
+      marks[name] = now - since;
+      return now;
+    };
     const subs = deps.listSubsidiaries();
-    const windows = collectOrgCostWindows(deps.sessions, subs);
+    let t = mark("listSubsidiariesMs", started);
+    let orgProfile: unknown = null;
+    const windows = collectOrgCostWindows(deps.sessions, subs, Date.now(), undefined, {
+      onProfile: (profile) => {
+        orgProfile = {
+          sessions: profile.sessions,
+          readMs: profile.readMs,
+          slowReads: profile.slowReads.slice(0, 10),
+        };
+      },
+    });
+    t = mark("collectOrgCostWindowsMs", t);
     const active = deps.sessions.listSessions({ status: "active" });
+    t = mark("listActiveSessionsMs", t);
     const channelOf = (sid: string): string | null =>
       deps.channels.findBySessionId(sid)?.channel_id ?? null;
     const channels = collectChannelCostRows(active, channelOf);
-    return c.json({ windows, channels });
+    mark("collectChannelCostRowsMs", t);
+    const body = { windows, channels };
+    logTiming("/overview", started, {
+      activeSessions: active.length,
+      channels: channels.length,
+      subsidiaries: subs.length,
+      ...marks,
+      orgProfile,
+    });
+    return c.json(body);
   });
 
   app.get("/timeseries", (c) => {
+    const started = Date.now();
     const nowSec = Math.floor(Date.now() / 1000);
     const sinceQ = Number(c.req.query("since"));
     const bucketQ = Number(c.req.query("bucket"));
@@ -53,19 +85,25 @@ export function costRouter(deps: CostApiDeps): Hono {
     const sinceSec = Number.isFinite(sinceQ) && sinceQ >= 0 ? Math.floor(sinceQ) : nowSec - 24 * 3600;
     const bucketSec = Number.isFinite(bucketQ) && bucketQ > 0 ? Math.floor(bucketQ) : 600;
     const rows = deps.samples.listSince(sinceSec);
-    return c.json(aggregateUsageTimeseries(rows, bucketSec));
+    const body = aggregateUsageTimeseries(rows, bucketSec);
+    logTiming("/timeseries", started, { rows: rows.length, points: body.points.length, providerPoints: body.providerPoints.length, bucketSec });
+    return c.json(body);
   });
 
   app.get("/limit-timeseries", async (c) => {
+    const started = Date.now();
     const nowSec = Math.floor(Date.now() / 1000);
     const sinceQ = Number(c.req.query("since"));
     const sinceSec = Number.isFinite(sinceQ) && sinceQ >= 0 ? Math.floor(sinceQ) : nowSec - 7 * 24 * 3600;
     const rows = deps.limitSamples.listSince(sinceSec);
-    const latest = collectLimitSamples(await collectCostReport(deps.sessions), nowSec).map((s, i) => ({
+    const previous = deps.limitSamples.listLatestByProvider();
+    const latest = collectLimitSamples(emptyCostReport(), nowSec, previous).map((s, i) => ({
       id: -1 - i,
       ...s,
     }));
-    return c.json(aggregateLimitTimeseries([...rows, ...latest]));
+    const body = aggregateLimitTimeseries([...rows, ...latest]);
+    logTiming("/limit-timeseries", started, { rows: rows.length, latest: latest.length, points: body.points.length });
+    return c.json(body);
   });
 
   app.post("/one-shots", async (c) => {
@@ -166,4 +204,17 @@ function parseJson(raw: string): unknown {
   } catch {
     return {};
   }
+}
+
+function logTiming(route: string, started: number, extra: Record<string, unknown>): void {
+  log.info({ route, ms: Date.now() - started, ...extra }, "cost api timing");
+}
+
+function emptyCostReport(): CostReport {
+  return {
+    codexTotals: { input: 0, cached: 0, output: 0, total: 0 },
+    claudeTotals: { input: 0, cached: 0, output: 0, total: 0 },
+    codexRate: { used5h: null, usedWeekly: null, reset5hAt: null, resetWeeklyAt: null, plan: null },
+    claudeUsage: null,
+  };
 }

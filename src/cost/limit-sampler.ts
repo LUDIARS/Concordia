@@ -16,10 +16,14 @@ export interface LimitTimeseries {
   providers: Record<string, LimitTimeseriesPoint[]>;
 }
 
-export function collectLimitSamples(report: CostReport, nowSec: number): CostLimitSampleInput[] {
+export function collectLimitSamples(
+  report: CostReport,
+  nowSec: number,
+  previous: CostLimitSampleRow[] = [],
+): CostLimitSampleInput[] {
   const samples: CostLimitSampleInput[] = [];
-  if (hasLimitValue(report.codexRate.used5h, report.codexRate.usedWeekly)) {
-    samples.push({
+  const previousByProvider = new Map(previous.map((p) => [p.provider, p]));
+  const codexSample = carryForwardMissing({
       ts: nowSec,
       provider: "codex-cli",
       plan: report.codexRate.plan,
@@ -27,19 +31,24 @@ export function collectLimitSamples(report: CostReport, nowSec: number): CostLim
       used_weekly_pct: report.codexRate.usedWeekly,
       reset_5h_at: report.codexRate.reset5hAt,
       reset_weekly_at: report.codexRate.resetWeeklyAt,
-    });
-  }
-  if (report.claudeUsage && hasLimitValue(report.claudeUsage.fiveHour?.utilization ?? null, report.claudeUsage.sevenDay?.utilization ?? null)) {
-    samples.push({
+    },
+    previousByProvider.get("codex-cli"),
+  );
+  if (codexSample) samples.push(codexSample);
+
+  const claudeSample = carryForwardMissing(
+    {
       ts: nowSec,
       provider: "claude-code",
-      plan: report.claudeUsage.plan,
-      used_5h_pct: report.claudeUsage.fiveHour?.utilization ?? null,
-      used_weekly_pct: report.claudeUsage.sevenDay?.utilization ?? null,
-      reset_5h_at: report.claudeUsage.fiveHour?.resetsAtSec ?? null,
-      reset_weekly_at: report.claudeUsage.sevenDay?.resetsAtSec ?? null,
-    });
-  }
+      plan: report.claudeUsage?.plan ?? null,
+      used_5h_pct: report.claudeUsage?.fiveHour?.utilization ?? null,
+      used_weekly_pct: report.claudeUsage?.sevenDay?.utilization ?? null,
+      reset_5h_at: report.claudeUsage?.fiveHour?.resetsAtSec ?? null,
+      reset_weekly_at: report.claudeUsage?.sevenDay?.resetsAtSec ?? null,
+    },
+    previousByProvider.get("claude-code"),
+  );
+  if (claudeSample) samples.push(claudeSample);
   return samples;
 }
 
@@ -69,4 +78,19 @@ function toPoint(r: CostLimitSampleRow): LimitTimeseriesPoint {
 
 function hasLimitValue(a: number | null, b: number | null): boolean {
   return a !== null || b !== null;
+}
+
+function carryForwardMissing(
+  current: CostLimitSampleInput,
+  previous: CostLimitSampleRow | undefined,
+): CostLimitSampleInput | null {
+  if (!previous && !hasLimitValue(current.used_5h_pct, current.used_weekly_pct)) return null;
+  return {
+    ...current,
+    plan: current.plan ?? previous?.plan ?? null,
+    used_5h_pct: current.used_5h_pct ?? previous?.used_5h_pct ?? null,
+    used_weekly_pct: current.used_weekly_pct ?? previous?.used_weekly_pct ?? null,
+    reset_5h_at: current.reset_5h_at ?? previous?.reset_5h_at ?? null,
+    reset_weekly_at: current.reset_weekly_at ?? previous?.reset_weekly_at ?? null,
+  };
 }

@@ -85,17 +85,19 @@ export function CostFeed() {
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const started = performance.now();
     try {
       const [ov, ts, lim, fd] = await Promise.all([
-        api.costOverview(),
-        api.costTimeseries({ bucketSec: 600 }),
-        api.costLimitTimeseries(),
-        api.costFeed().catch(() => null),
+        timed("overview", () => api.costOverview()),
+        timed("timeseries", () => api.costTimeseries({ bucketSec: 600 })),
+        timed("limit-timeseries", () => api.costLimitTimeseries()),
+        timed("cost-feed", () => api.costFeed().catch(() => null)),
       ]);
       setOverview(ov);
       setSeries(ts);
       setLimits(lim);
       setFeed(fd);
+      console.info(`[CostFeed] total loaded in ${Math.round(performance.now() - started)}ms`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -130,12 +132,12 @@ export function CostFeed() {
     return plan ? `${provider} (${plan})` : provider;
   };
   const weeklyLimitSeries = Object.entries(limits?.providers ?? {}).map(([provider, rows], i) => {
-    const byTs = new Map(rows.map((p) => [p.ts, p.usedWeeklyPct ?? 0]));
-    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: limitTs.map((ts) => byTs.get(ts) ?? 0), fmt: pct };
+    const byTs = new Map(rows.map((p) => [p.ts, p.usedWeeklyPct]));
+    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: carryForward(limitTs.map((ts) => byTs.get(ts) ?? null)), fmt: pct };
   });
   const shortLimitSeries = Object.entries(limits?.providers ?? {}).map(([provider, rows], i) => {
-    const byTs = new Map(rows.map((p) => [p.ts, p.used5hPct ?? 0]));
-    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: limitTs.map((ts) => byTs.get(ts) ?? 0), fmt: pct };
+    const byTs = new Map(rows.map((p) => [p.ts, p.used5hPct]));
+    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: carryForward(limitTs.map((ts) => byTs.get(ts) ?? null)), fmt: pct };
   });
 
   return (
@@ -266,4 +268,21 @@ export function CostFeed() {
       </section>
     </div>
   );
+}
+
+function carryForward(values: Array<number | null>): number[] {
+  let last = 0;
+  return values.map((v) => {
+    if (v !== null && Number.isFinite(v)) last = v;
+    return last;
+  });
+}
+
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  try {
+    return await fn();
+  } finally {
+    console.info(`[CostFeed] ${label} loaded in ${Math.round(performance.now() - started)}ms`);
+  }
 }

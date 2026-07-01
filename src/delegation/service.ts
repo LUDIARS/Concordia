@@ -13,6 +13,7 @@ import {
   type DelegationRunRow,
   type DelegationTemplateRow,
   type InputSchemaItem,
+  parseRuntimeOptions,
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
@@ -111,6 +112,7 @@ export interface DelegationDefinition {
   title: string;
   target_provider: DelegationProvider;
   model: string | null;
+  runtime_options_json?: string | null;
   prompt_template: string;
   input_schema: string;          // JSON string
   default_cwd: string | null;
@@ -126,6 +128,7 @@ export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefi
     title: tpl.title,
     target_provider: tpl.target_provider as DelegationProvider,
     model: tpl.model,
+    runtime_options_json: tpl.runtime_options_json,
     prompt_template: tpl.prompt_template,
     input_schema: tpl.input_schema,
     default_cwd: tpl.default_cwd,
@@ -254,7 +257,8 @@ export class DelegationService {
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
-    const runtimeArgs = resolveDelegationRuntimeArgs(provider, input.options);
+    const effectiveOptions = { ...parseRuntimeOptions(def.runtime_options_json), ...(input.options ?? {}) };
+    const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveOptions);
     const spawnArgs = [...spawn.args, ...runtimeArgs];
     log.info({
       call_name: def.call_name,
@@ -265,7 +269,7 @@ export class DelegationService {
       caller_cwd: input.cwd ?? null,
       template_default_cwd: def.default_cwd ?? null,
       triggered_by: input.triggered_by ?? null,
-      option_keys: Object.keys(input.options ?? {}),
+      option_keys: Object.keys(effectiveOptions),
     }, "delegation invoke received");
 
     // 1) write prompt to file (pre-allocate run id so file name == row id)
@@ -280,7 +284,7 @@ export class DelegationService {
       def,
       renderedPrompt,
       input.args ?? {},
-      input.options ?? {},
+      effectiveOptions,
       runId,
       contextBlock,
       persona?.name ?? null,

@@ -15,6 +15,7 @@ import {
   type DelegationProvider,
   type DelegationTemplateRow,
   parseInputSchema,
+  parseRuntimeOptions,
   type InputSchemaItem,
 } from "../db/delegation-repo.js";
 import type { SubsidiaryDelegationRow } from "../db/subsidiary-repo.js";
@@ -41,6 +42,7 @@ export const PortableDelegationSchema = z.object({
     DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]],
   ),
   model: z.string().max(120).nullable().optional(),
+  runtime_options: z.record(z.unknown()).optional(),
   prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().max(1000).nullable().optional(),
@@ -59,6 +61,7 @@ export interface PortableDelegationOut {
   description: string;
   target_provider: DelegationProvider;
   model: string | null;
+  runtime_options: Record<string, unknown>;
   prompt_template: string;
   input_schema: InputSchemaItem[];
   default_cwd: string | null;
@@ -75,6 +78,7 @@ export function templateToPortable(row: DelegationTemplateRow): PortableDelegati
     description: row.description,
     target_provider: row.target_provider as DelegationProvider,
     model: row.model,
+    runtime_options: parseRuntimeOptions(row.runtime_options_json),
     prompt_template: row.prompt_template,
     input_schema: parseInputSchema(row.input_schema),
     default_cwd: row.default_cwd,
@@ -92,6 +96,7 @@ export function ownedToPortable(row: SubsidiaryDelegationRow): PortableDelegatio
     description: row.description,
     target_provider: row.target_provider as DelegationProvider,
     model: row.model,
+    runtime_options: {},
     prompt_template: row.prompt_template,
     input_schema: parseInputSchema(row.input_schema),
     default_cwd: row.default_cwd,

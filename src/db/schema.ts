@@ -523,6 +523,7 @@ const STATEMENTS = [
     description       TEXT    NOT NULL DEFAULT '',
     target_provider   TEXT    NOT NULL,
     model             TEXT,
+    runtime_options_json TEXT NOT NULL DEFAULT '{}',
     prompt_template   TEXT    NOT NULL,
     input_schema      TEXT    NOT NULL DEFAULT '[]',
     default_cwd       TEXT,
@@ -907,6 +908,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "model",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN model TEXT`,
+  },
+  {
+    table: "delegation_templates",
+    column: "runtime_options_json",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN runtime_options_json TEXT NOT NULL DEFAULT '{}'`,
   },
   // delegation テンプレの絵文字 (モデル / 用途を視覚区別)。空文字 = フォールバック表示。
   {

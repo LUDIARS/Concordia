@@ -59,13 +59,31 @@ describe("POST /v1/delegation/templates (空欄許容)", () => {
 describe("GET /v1/delegation/templates runtime options", () => {
   it("returns provider-specific runtime option suggestions", async () => {
     const { app } = makeApp();
-    await postTemplate(app, { target_provider: "codex", call_name: "codex-job", title: "Codex Job" });
+    await postTemplate(app, {
+      target_provider: "codex",
+      call_name: "codex-job",
+      title: "Codex Job",
+      model: "gpt-5.5",
+      runtime_options: { model_reasoning_effort: "high" },
+    });
     await postTemplate(app, { target_provider: "claude", call_name: "claude-job", title: "Claude Job" });
     const r = await app.request("/v1/delegation/templates");
     const j = (await r.json()) as any;
     const codex = j.templates.find((t: any) => t.call_name === "codex-job");
     const claude = j.templates.find((t: any) => t.call_name === "claude-job");
     expect(codex.runtime_options.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
+    expect(codex.default_options).toEqual({ model_reasoning_effort: "high" });
     expect(claude.runtime_options).toEqual([]);
+  });
+
+  it("returns model-specific option suggestions", async () => {
+    const { app } = makeApp();
+    const gpt = await app.request("/v1/delegation/options?provider=codex&model=gpt-5.5");
+    const gptJson = (await gpt.json()) as any;
+    expect(gptJson.suggestions.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
+
+    const legacy = await app.request("/v1/delegation/options?provider=codex&model=gpt-3.5-turbo");
+    const legacyJson = (await legacy.json()) as any;
+    expect(legacyJson.suggestions).toEqual([]);
   });
 });

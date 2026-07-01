@@ -12,6 +12,12 @@ function fmtBytes(b: number | null | undefined): string {
   return `${(b / 1024 ** 3).toFixed(2)} GiB`;
 }
 
+function optionValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "boolean") return value ? "true" : "false";
+  return String(value);
+}
+
 export function Monitor() {
   const { data, error } = useLiveQuery(
     () => api.monitor(),
@@ -445,8 +451,9 @@ function SpawnSessionForm() {
       init[s.name] = s.default !== undefined ? String(s.default) : "";
     }
     const optionInit: Record<string, string> = {};
+    const defaultOptions = selected.default_options ?? {};
     for (const opt of selected.runtime_options ?? []) {
-      optionInit[opt.key] = "";
+      optionInit[opt.key] = optionValue(defaultOptions[opt.key]);
     }
     setArgs(init);
     setRuntimeOptions(optionInit);

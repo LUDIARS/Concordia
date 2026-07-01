@@ -10,6 +10,7 @@ import {
   DELEGATION_PROVIDERS,
   type DelegationRepo,
   type DelegationProvider,
+  parseRuntimeOptions,
 } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { parsePortable, templateToPortable } from "../delegation/portable.js";
@@ -37,6 +38,7 @@ const CreateTemplateSchema = z.object({
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]),
   model: z.string().max(120).nullable().optional(),
+  runtime_options: z.record(z.unknown()).optional(),
   prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
@@ -51,6 +53,7 @@ const PatchTemplateSchema = z.object({
   description: z.string().max(2000).optional(),
   target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]).optional(),
   model: z.string().max(120).nullable().optional(),
+  runtime_options: z.record(z.unknown()).optional(),
   prompt_template: z.string().max(20000).optional(),
   input_schema: z.array(InputSchemaItemSchema).optional(),
   default_cwd: z.string().nullable().optional(),
@@ -126,7 +129,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       input_schema: safeJsonParse(row.input_schema, []),
       is_active: row.is_active === 1,
       call_only: row.call_only === 1,
-      runtime_options: delegationOptionSuggestions(row.target_provider),
+      default_options: parseRuntimeOptions(row.runtime_options_json),
+      runtime_options: delegationOptionSuggestions(row.target_provider, row.model),
     };
   }
 
@@ -174,7 +178,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
 
   app.get("/options", (c) => {
     const provider = c.req.query("provider") ?? "";
-    return c.json({ provider, suggestions: delegationOptionSuggestions(provider) });
+    const model = c.req.query("model") ?? null;
+    return c.json({ provider, model, suggestions: delegationOptionSuggestions(provider, model) });
   });
 
   // ── Mutating endpoints (bearer auth) ─────────────────────
@@ -211,6 +216,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       description: p.description,
       target_provider: p.target_provider,
       model: p.model ?? null,
+      runtime_options: p.runtime_options,
       prompt_template: p.prompt_template ?? "",
       input_schema: p.input_schema,
       default_cwd: p.default_cwd ?? null,

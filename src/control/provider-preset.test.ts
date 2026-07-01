@@ -62,6 +62,8 @@ describe("resolveDelegationSpawn", () => {
 describe("delegation runtime options", () => {
   it("suggests reasoning effort only for Codex", () => {
     expect(delegationOptionSuggestions("codex").map((s) => s.key)).toContain("model_reasoning_effort");
+    expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
+    expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo")).toEqual([]);
     expect(delegationOptionSuggestions("claude")).toEqual([]);
   });
 

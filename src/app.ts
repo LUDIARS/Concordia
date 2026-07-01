@@ -63,7 +63,7 @@ import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
 import { tasksRouter } from "./api/tasks.js";
 import { delegationRouter } from "./api/delegation.js";
-import type { DelegationRepo } from "./db/delegation-repo.js";
+import { parseRuntimeOptions, type DelegationRepo } from "./db/delegation-repo.js";
 import type { DelegationService } from "./delegation/service.js";
 import { substituteVars } from "./delegation/service.js";
 import { recordPendingDelegationSpawn } from "./control/pending-delegation-spawns.js";
@@ -317,7 +317,10 @@ export function buildApp(deps: AppDeps): Hono {
       if (!tpl.is_active) return c.json({ error: `template inactive: ${templateName}` }, 400);
       const injectPrompt = body.inject_prompt === true;
       const tplArgs = isPlainObject(body.args) ? (body.args as Record<string, unknown>) : {};
-      const runtimeOptions = isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {};
+      const runtimeOptions = {
+        ...parseRuntimeOptions(tpl.runtime_options_json),
+        ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
+      };
       const cwdOverride = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined;
 
       if (injectPrompt) {

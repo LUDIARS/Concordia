@@ -40,6 +40,7 @@ interface Template {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
   created_at: number;
   updated_at: number;
@@ -71,6 +72,7 @@ interface FormState {
   input_schema_json: string;
   default_cwd: string;
   project: string;
+  runtime_options_json: string;
   is_active: boolean;
   emoji: string;
   call_only: boolean;
@@ -86,6 +88,7 @@ const EMPTY_FORM: FormState = {
   input_schema_json: "[]",
   default_cwd: "",
   project: "",
+  runtime_options_json: "{}",
   is_active: true,
   emoji: "",
   call_only: false,
@@ -112,6 +115,7 @@ export function Delegation() {
   const [includeInactive, setIncludeInactive] = useState(false);
   const [mode, setMode] = useState<FormMode | null>(null);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [formRuntimeOptions, setFormRuntimeOptions] = useState<DelegationOptionSuggestion[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [invokeFor, setInvokeFor] = useState<Template | null>(null);
@@ -139,6 +143,60 @@ export function Delegation() {
 
   useEffect(() => { refresh(); }, [includeInactive]);
 
+  useEffect(() => {
+    if (!mode) {
+      setFormRuntimeOptions([]);
+      return;
+    }
+    let cancelled = false;
+    api.delegationOptions(form.target_provider, form.model)
+      .then((r) => {
+        if (!cancelled) setFormRuntimeOptions(r.suggestions);
+      })
+      .catch(() => {
+        if (!cancelled) setFormRuntimeOptions([]);
+      });
+    return () => { cancelled = true; };
+  }, [mode, form.target_provider, form.model]);
+
+  function parseRuntimeOptionsJson(text: string): Record<string, unknown> {
+    const trimmed = text.trim();
+    if (!trimmed) return {};
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("runtime_options must be a JSON object");
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  function safeRuntimeOptions(text: string): Record<string, unknown> {
+    try {
+      return parseRuntimeOptionsJson(text);
+    } catch {
+      return {};
+    }
+  }
+
+  function optionValueForJson(value: unknown): string {
+    if (value === undefined || value === null) return "";
+    if (typeof value === "boolean") return value ? "true" : "false";
+    return String(value);
+  }
+
+  function setFormRuntimeOption(opt: DelegationOptionSuggestion, raw: string) {
+    const options = safeRuntimeOptions(form.runtime_options_json);
+    if (raw === "") {
+      delete options[opt.key];
+    } else if (opt.type === "number") {
+      options[opt.key] = Number(raw);
+    } else if (opt.type === "boolean") {
+      options[opt.key] = raw === "true";
+    } else {
+      options[opt.key] = raw;
+    }
+    setForm({ ...form, runtime_options_json: JSON.stringify(options, null, 2) });
+  }
+
   function startCreate() {
     setMode({ kind: "create" });
     setForm(EMPTY_FORM);
@@ -157,6 +215,7 @@ export function Delegation() {
       input_schema_json: JSON.stringify(t.input_schema, null, 2),
       default_cwd: t.default_cwd ?? "",
       project: t.project ?? "",
+      runtime_options_json: JSON.stringify(t.default_options ?? {}, null, 2),
       is_active: t.is_active,
       emoji: t.emoji ?? "",
       call_only: t.call_only ?? false,
@@ -169,12 +228,18 @@ export function Delegation() {
     setFormError(null);
     try {
       let schema: InputSchemaItem[];
+      let runtimeOptions: Record<string, unknown>;
       try {
         const parsed = JSON.parse(form.input_schema_json || "[]");
         if (!Array.isArray(parsed)) throw new Error("must be a JSON array");
         schema = parsed;
       } catch (err) {
         throw new Error(`input_schema is not valid JSON: ${(err as Error).message}`);
+      }
+      try {
+        runtimeOptions = parseRuntimeOptionsJson(form.runtime_options_json);
+      } catch (err) {
+        throw new Error(`runtime_options is not valid JSON: ${(err as Error).message}`);
       }
       const body = {
         call_name: form.call_name,
@@ -186,6 +251,7 @@ export function Delegation() {
         input_schema: schema,
         default_cwd: form.default_cwd.trim() ? form.default_cwd.trim() : null,
         project: form.project.trim() ? form.project.trim() : null,
+        runtime_options: runtimeOptions,
         is_active: form.is_active,
         emoji: form.emoji,
         call_only: form.call_only,
@@ -258,12 +324,17 @@ export function Delegation() {
       init[s.name] = s.default !== undefined ? String(s.default) : "";
     }
     const optionInit: Record<string, string> = {};
+    const defaultOptions = t.default_options ?? {};
+    const suggestedKeys = new Set((t.runtime_options ?? []).map((opt) => opt.key));
     for (const opt of t.runtime_options ?? []) {
-      optionInit[opt.key] = "";
+      optionInit[opt.key] = optionValueForJson(defaultOptions[opt.key]);
     }
+    const extraDefaultOptions = Object.fromEntries(
+      Object.entries(defaultOptions).filter(([key]) => !suggestedKeys.has(key)),
+    );
     setInvokeArgs(init);
     setInvokeOptions(optionInit);
-    setInvokeOptionsJson("{}");
+    setInvokeOptionsJson(JSON.stringify(extraDefaultOptions, null, 2));
     setInvokeCwd(t.default_cwd ?? "");
     setInvokeResult(null);
   }
@@ -484,6 +555,68 @@ export function Delegation() {
                 );
               })()}
             </label>
+            <div className="text-sm space-y-2 col-span-2 rounded border border-border p-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-subtle">default runtime options</span>
+                <span className="text-xs text-subtle">
+                  {formRuntimeOptions.length > 0
+                    ? `${form.target_provider}${form.model.trim() ? ` / ${form.model.trim()}` : ""}`
+                    : "no suggestions for selected provider/model"}
+                </span>
+              </div>
+              {formRuntimeOptions.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {formRuntimeOptions.map((opt) => {
+                    const current = optionValueForJson(safeRuntimeOptions(form.runtime_options_json)[opt.key]);
+                    return (
+                      <label key={opt.key} className="space-y-1">
+                        <span className="text-subtle">
+                          {opt.label} <span className="font-mono text-xs">{opt.key}</span>
+                          {opt.description && <div className="text-xs text-subtle">{opt.description}</div>}
+                        </span>
+                        {opt.type === "select" ? (
+                          <select
+                            className="foundation-form w-full"
+                            value={current}
+                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
+                          >
+                            <option value="">(provider default)</option>
+                            {(opt.choices ?? []).map((choice) => (
+                              <option key={choice.value} value={choice.value}>{choice.label}</option>
+                            ))}
+                          </select>
+                        ) : opt.type === "boolean" ? (
+                          <select
+                            className="foundation-form w-full"
+                            value={current}
+                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
+                          >
+                            <option value="">(provider default)</option>
+                            <option value="true">true</option>
+                            <option value="false">false</option>
+                          </select>
+                        ) : (
+                          <input
+                            className="foundation-form w-full"
+                            value={current}
+                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
+                          />
+                        )}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              <label className="block space-y-1">
+                <span className="text-subtle">runtime_options JSON</span>
+                <textarea
+                  className="foundation-form w-full font-mono text-xs"
+                  rows={4}
+                  value={form.runtime_options_json}
+                  onChange={(e) => setForm({ ...form, runtime_options_json: e.target.value })}
+                />
+              </label>
+            </div>
             <label className="text-sm space-y-1">
               <span className="text-subtle">default_cwd (optional)</span>
               <input
@@ -557,7 +690,7 @@ export function Delegation() {
               className="bg-accent text-bg px-4 py-1.5 rounded text-sm font-medium disabled:opacity-50"
             >Save</button>
             <button
-              onClick={() => { setMode(null); setForm(EMPTY_FORM); }}
+              onClick={() => { setMode(null); setForm(EMPTY_FORM); setFormRuntimeOptions([]); }}
               disabled={busy}
               className="text-sm px-4 py-1.5 rounded border border-border"
             >Cancel</button>

@@ -23,6 +23,7 @@ export interface DelegationTemplateRow {
   target_provider: DelegationProvider;
   /** spawn する CLI に `--model` で渡す値。 null = provider CLI の config 既定に委ねる */
   model: string | null;
+  runtime_options_json: string;
   prompt_template: string;
   input_schema: string;          // JSON string
   default_cwd: string | null;
@@ -67,6 +68,7 @@ export interface CreateTemplateInput {
   description?: string;
   target_provider: DelegationProvider;
   model?: string | null;
+  runtime_options?: Record<string, unknown>;
   prompt_template: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
@@ -81,6 +83,7 @@ export interface UpdateTemplateInput {
   description?: string;
   target_provider?: DelegationProvider;
   model?: string | null;
+  runtime_options?: Record<string, unknown>;
   prompt_template?: string;
   input_schema?: InputSchemaItem[];
   default_cwd?: string | null;
@@ -119,6 +122,7 @@ export class DelegationRepo {
         description: input.description,
         target_provider: input.target_provider,
         model: input.model,
+        runtime_options: input.runtime_options,
         prompt_template: input.prompt_template,
         input_schema: input.input_schema,
         default_cwd: input.default_cwd,
@@ -136,10 +140,10 @@ export class DelegationRepo {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO delegation_templates(
-        id, call_name, title, description, target_provider, model,
+        id, call_name, title, description, target_provider, model, runtime_options_json,
         prompt_template, input_schema, default_cwd, project, is_active,
         emoji, call_only, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -147,6 +151,7 @@ export class DelegationRepo {
       input.description ?? "",
       input.target_provider,
       input.model ?? null,
+      JSON.stringify(normalizeRuntimeOptions(input.runtime_options)),
       input.prompt_template,
       JSON.stringify(input.input_schema ?? []),
       input.default_cwd ?? null,
@@ -170,6 +175,7 @@ export class DelegationRepo {
         description = ?,
         target_provider = ?,
         model = ?,
+        runtime_options_json = ?,
         prompt_template = ?,
         input_schema = ?,
         default_cwd = ?,
@@ -184,6 +190,7 @@ export class DelegationRepo {
       patch.description ?? cur.description,
       patch.target_provider ?? cur.target_provider,
       patch.model !== undefined ? patch.model : cur.model,
+      patch.runtime_options !== undefined ? JSON.stringify(normalizeRuntimeOptions(patch.runtime_options)) : cur.runtime_options_json,
       patch.prompt_template ?? cur.prompt_template,
       patch.input_schema !== undefined ? JSON.stringify(patch.input_schema) : cur.input_schema,
       patch.default_cwd !== undefined ? patch.default_cwd : cur.default_cwd,
@@ -280,4 +287,18 @@ export function parseInputSchema(json: string): InputSchemaItem[] {
   } catch {
     return [];
   }
+}
+
+export function parseRuntimeOptions(json: string | null | undefined): Record<string, unknown> {
+  if (!json) return {};
+  try {
+    return normalizeRuntimeOptions(JSON.parse(json));
+  } catch {
+    return {};
+  }
+}
+
+function normalizeRuntimeOptions(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
 }

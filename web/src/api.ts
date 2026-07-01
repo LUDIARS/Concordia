@@ -48,6 +48,7 @@ export interface DelegationTemplateLite {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
 }
 
@@ -582,6 +583,13 @@ export const api = {
     ),
   delegationTemplates: () =>
     get<{ templates: DelegationTemplateLite[] }>("/v1/delegation/templates"),
+  delegationOptions: (provider: SpawnProvider, model?: string | null) => {
+    const params = new URLSearchParams({ provider });
+    if (model && model.trim()) params.set("model", model.trim());
+    return get<{ provider: SpawnProvider; model: string | null; suggestions: DelegationOptionSuggestion[] }>(
+      `/v1/delegation/options?${params.toString()}`,
+    );
+  },
   // 1 つの delegation テンプレを可搬 JSON で書き出す/貼付して作成する (コピー/貼付)。
   delegationTemplateExport: (idOrCallName: string) =>
     get<{ delegation: PortableDelegation }>(`/v1/delegation/templates/${encodeURIComponent(idOrCallName)}/export`),

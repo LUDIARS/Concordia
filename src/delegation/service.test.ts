@@ -188,6 +188,29 @@ describe("DelegationService.invoke", () => {
     expect(req.args).toEqual(["-c", 'model_reasoning_effort="high"']);
   });
 
+  it("uses template default runtime options and lets invoke override them", async () => {
+    repo.createTemplate({
+      call_name: "with-default-options",
+      title: "With default options",
+      target_provider: "codex",
+      runtime_options: { model_reasoning_effort: "medium" },
+      prompt_template: "do ${x}",
+      input_schema: [{ name: "x", type: "string", required: true }],
+    });
+
+    const r1 = await svc.invoke({ call_name: "with-default-options", args: { x: "y" } });
+    expect(r1.ok).toBe(true);
+    expect((spawnCalls[0] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="medium"']);
+
+    const r2 = await svc.invoke({
+      call_name: "with-default-options",
+      args: { x: "z" },
+      options: { model_reasoning_effort: "high" },
+    });
+    expect(r2.ok).toBe(true);
+    expect((spawnCalls[1] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="high"']);
+  });
+
   it("omits --model args when template has no model", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);

@@ -73,8 +73,9 @@ export type DelegationRuntimeOptions = Record<string, unknown>;
 const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
-export function delegationOptionSuggestions(provider: string): DelegationOptionSuggestion[] {
+export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
   if (provider !== "codex") return [];
+  if (!supportsCodexReasoningEffort(model)) return [];
   return [
     {
       key: "model_reasoning_effort",
@@ -89,6 +90,17 @@ export function delegationOptionSuggestions(provider: string): DelegationOptionS
       ],
     },
   ];
+}
+
+function supportsCodexReasoningEffort(model: string | null | undefined): boolean {
+  const normalized = (model ?? "").trim().toLowerCase();
+  if (!normalized) return true;
+  return (
+    normalized.startsWith("gpt-5") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4") ||
+    normalized.includes("codex")
+  );
 }
 
 export function resolveDelegationRuntimeArgs(

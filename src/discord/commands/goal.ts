@@ -6,7 +6,7 @@ import { describeGoal, type Goal } from "../../control/goal.js";
 /**
  * /co-goal — このセッションのゴールを表示/変更する。
  * 引数なし=現在のゴール表示。 mode / text 指定で変更。
- * ゴールは自走の強さ・確認頻度を規定する (complete=完成まで自走 / scoped=範囲限定 /
+ * ゴールは作業モード・確認頻度を表示/変更する (complete=完成まで / scoped=範囲限定 /
  * watch=様子見・確認しながら)。 spec: review/design-2026-06-27-goal-system…。
  */
 const goalCommand: DiscordCommandSpec = {

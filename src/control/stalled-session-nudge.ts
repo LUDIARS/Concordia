@@ -1,10 +1,10 @@
 /**
- * 停止セッションの残作業続行 nudge.
+ * 停止セッションの協働復帰 nudge.
  *
- * ユーザ指示 (2026-06-23):
- *   「Concordia は止まっているセッションに対して残作業を都度確認し、 実装タスクが
- *    あれば残作業がなくなるまで実装させる。 人間の判断が必要になったら進行を止める。
- *    『止まっている』 の判断は 1 時間応答がないこととする。」
+ * 方針:
+ *   Concordia は単独 AI Agent をずっと走らせ続けるのではなく、止まっている作業へ
+ *   状況の見直し・小さな再実装・worktree 分割/委譲を促す。人間の判断が必要なら
+ *   ask で止める。
  *
  * 仕組み:
  *   - 周期 (既定 10 分) で全 active session を走査。
@@ -12,7 +12,7 @@
  *     last_seen_at は WS ハートビート由来で「プロセス生存」 signal にすぎず、
  *     idle を表さない。 transcript mtime こそが「応答が止まった」 の真の signal。
  *   - idleSec (既定 3600) 以上無更新で、 かつ **ask マーカーで人間判断待ちでない**
- *     セッションにだけ、 「残作業を確認して続行 / 判断が要るなら ask で停止」 を
+ *     セッションにだけ、 「状態を見直して小さく再実装 / 判断が要るなら ask で停止」 を
  *     `session.inject` で流し込む。
  *   - 一度 nudge したら cooldownSec (既定 idleSec と同じ) は再 nudge しない
  *     (per-session の in-memory タイムスタンプで抑止)。
@@ -29,7 +29,6 @@ import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
-import { readGoalFromMetadata, describeGoal, DEFAULT_GOAL, type Goal } from "./goal.js";
 
 const log = createChildLogger("stall-nudge");
 
@@ -167,32 +166,17 @@ function extractAllText(msg: Record<string, unknown>): string {
 }
 
 /**
- * nudge 本文。 セッションのゴールで挙動を出し分ける (③ 残作業自走):
- *  - complete: 残作業がなくなるまで自走で続行。
- *  - scoped: ゴール範囲内の残作業のみ進め、 範囲超過は ask で確認。
- *  - watch: 自走しない。 残作業を一覧提示して進めてよいか確認する。
- * いずれも人間判断が要る点では ask で停止する。
+ * nudge 本文。goal は注入しない。Cc は止まった作業を「実装し直すための状況整理」
+ * に戻すだけで、単独 agent を無期限に走らせる指示は出さない。
  */
-export function buildNudgeText(_provider: string, goal: Goal = DEFAULT_GOAL): string {
-  if (goal.mode === "watch") {
-    return [
-      "[自動確認] 1 時間ほど応答が止まっているようです。",
-      "",
-      "- このセッションは様子見モードです。 残作業を一覧で提示し、 どれを進めてよいか",
-      "  ユーザに確認してください (**自走しない**)。",
-      "- 残作業が無ければ `/session-end` で終了してください。",
-    ].join("\n");
-  }
-  const scopeLine =
-    goal.mode === "scoped" && goal.text
-      ? `- ゴール「${goal.text}」の範囲内の残作業を進め、 範囲を超える作業は ask で確認してください。`
-      : "- 進行中の作業・Todo に未完があれば、 **残作業がなくなるまで実装を続けて**ください。";
+export function buildNudgeText(_provider: string): string {
   return [
-    `[自動確認] 1 時間ほど応答が止まっているようです。 ゴール「${describeGoal(goal)}」に沿って残作業を確認してください。`,
+    "[自動確認] 1 時間ほど応答が止まっているようです。",
     "",
-    scopeLine,
-    "- 人間の判断が必要な点 (方針が割れる / 破壊的操作 / 本番影響不明 / 仕様が曖昧 等) が",
-    "  出たら、 決め打ちせず ask マーカーで質問して **進行を止めて**ください。",
+    "- 直近の diff / 失敗ログ / テスト結果を見直し、止まった原因を 1 行で整理してください。",
+    "- まだ実装できるなら、範囲を小さく切って別アプローチで再実装してください。",
+    "- 同じ branch が混んでいる、または作業が大きすぎる場合は worktree 分割や delegation を提案してください。",
+    "- 方針が割れる / 破壊的操作 / 本番影響不明 / 仕様が曖昧な場合は、決め打ちせず ask マーカーで質問して進行を止めてください。",
     "- 残作業が無ければ `/session-end` で終了してください。",
   ].join("\n");
 }
@@ -271,7 +255,7 @@ export function startStalledSessionNudge(
       eventBus.emit({
         type: "session.inject",
         target_session_id: s.id,
-        text: buildNudgeText(s.provider, readGoalFromMetadata(s.metadata)),
+        text: buildNudgeText(s.provider),
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });

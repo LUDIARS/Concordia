@@ -1,5 +1,5 @@
 /**
- * セッションごとの「ゴール」。 自走の強さ・確認頻度・完了判定を規定する。
+ * セッションごとの「ゴール」。作業モード・確認頻度・完了判定を表示/分類する。
  *
  * 保存先は sessions.metadata JSON の `goal` キー (schema 列は足さない)。
  * 既定は `complete` (完成まで実装)。 ユーザが無指定なら既定がそのまま使われる。
@@ -11,7 +11,7 @@
 export type GoalMode = "complete" | "scoped" | "watch";
 
 export interface Goal {
-  /** complete=完成まで自走 / scoped=範囲限定自走 / watch=様子見(自走せず確認)。 */
+  /** complete=完成まで / scoped=範囲限定 / watch=様子見(確認しながら)。 */
   mode: GoalMode;
   /** 範囲や条件の自由文 (例「月内目標 #441 まで」)。未指定は undefined。 */
   text?: string;
@@ -108,43 +108,13 @@ export function formatGoalBadge(goal: Goal): string {
   return `🎯 ${describeGoal(goal)}`;
 }
 
-/** complete/scoped は残作業を自走で消化。 watch は自走しない。 */
+/** Goal は表示・分類用。自動継続は stall nudge / delegation 側の明示判断で行う。 */
 export function goalDrivesAutoContinue(mode: GoalMode): boolean {
-  return mode === "complete" || mode === "scoped";
+  void mode;
+  return false;
 }
 
 /** watch は各ステップ前に確認を取る。 */
 export function goalRequiresStepConfirm(mode: GoalMode): boolean {
   return mode === "watch";
-}
-
-/**
- * 起動時に session AI へ与える指示文の source。 `discord:`/`slack:` で始まらないので
- * participants ミラー対象から外れ、 制御 inject 扱いになる (起因者前置もされない)。
- */
-export const GOAL_START_INJECT_SOURCE = "auto:goal-start";
-
-/**
- * 起動直後に session AI へ与える「ゴール起点」指示文を組み立てる純関数。
- *
- * 旧フロー (起動時にブランチ/開発コードを picker で選ばせる) を廃し、 代わりに
- * このセッションのゴールを提示する。 スコープ (対象リポ/ブランチ/作業範囲) は
- * 起動時に固定せず、 ユーザの最初の指示で確定する。 最初の指示でスコープが
- * 判断できない場合のみ 1 度だけ自由文で確認する (AskUserQuestion は使わない)。
- */
-export function buildGoalStartInjectText(goal: Goal): string {
-  const lines = [
-    `このセッションのゴールは「${describeGoal(goal)}」です (変更は /co-goal)。`,
-    `起動時に作業対象を選ばせる旧フローは廃止しました。 対象リポ/ブランチ/作業範囲は`,
-    `ユーザの最初の指示で確定します。 最初の指示でスコープが判断できない場合のみ、`,
-    `1 度だけ自由文で確認してください (AskUserQuestion ピッカーは使わない)。`,
-  ];
-  if (goal.mode === "complete") {
-    lines.push(`ゴールが達成 (完成) するまで、 対応可能な残作業を自走で進めてください。`);
-  } else if (goal.mode === "scoped") {
-    lines.push(`ゴールの範囲内に限って自走し、 範囲を超える作業は着手前に確認してください。`);
-  } else {
-    lines.push(`様子見モードです。 各ステップの前にユーザの確認を取り、 自走はしないでください。`);
-  }
-  return lines.join("\n");
 }

@@ -21,6 +21,7 @@ import compactionCommand from "./commands/compaction.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import { dispatchQuestionInteraction } from "./question.js";
+import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -30,6 +31,7 @@ export interface DiscordCommandDeps {
   layout: DiscordConfigSnapshot;
   log: { info: (m: string) => void; warn: (m: string) => void };
   logsDir?: string;
+  permissionActions?: PermissionActionStore;
   /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
   subsidiaryId?: string | null;
 }
@@ -72,6 +74,10 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   if (interaction.isAutocomplete()) {
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
     if (cmd?.autocomplete) await cmd.autocomplete(interaction, deps);
+    return;
+  }
+  if (isPermissionInteraction(interaction)) {
+    await dispatchPermissionInteraction(interaction, deps);
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {

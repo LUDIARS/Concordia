@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
 import type { TestAppEnv } from "./helpers/test-app.js";
 
@@ -85,13 +85,12 @@ describe("sessions API — inject / title / title-suggestion", () => {
     expect(r.status).toBe(400);
   });
 
-  it("起動時にゴール起点の session.inject を遅延 emit する (旧branch picker廃止)", async () => {
+  it("起動時に goal-start inject はせず collaboration context packet を返す", async () => {
     const { eventBus } = await import("../src/events.js");
     const captured: any[] = [];
     const unsub = eventBus.subscribe((ev) => {
       if (ev.type === "session.inject" && ev.target_session_id === "iw") captured.push(ev);
     });
-    vi.useFakeTimers();
     try {
       const r = await app.request("/v1/sessions", {
         method: "POST",
@@ -99,24 +98,19 @@ describe("sessions API — inject / title / title-suggestion", () => {
         body: JSON.stringify({ id: "iw", provider: "claude-code", repo_path: "/repos/Anatomia", host: "h" }),
       });
       expect(r.status).toBe(200);
-      // 起点 inject は picker キーストローク fallback の後に届くよう遅延 emit する
+      const j = await r.json() as any;
+      expect(j.context_packet.repo.project).toBe("Anatomia");
+      expect(j.context_packet.harness.context).toBe("POST /v1/harness/context");
       expect(captured).toHaveLength(0);
-      vi.advanceTimersByTime(600);
-      expect(captured).toHaveLength(1);
-      expect(captured[0].source).toBe("auto:goal-start");
-      expect(captured[0].text).toContain("完成まで実装");
-      expect(captured[0].text).toContain("/co-goal");
     } finally {
-      vi.useRealTimers();
       unsub();
     }
 
-    // inject イベントが session に記録されている (同期)
     const detail = await (await app.request("/v1/sessions/iw")).json() as any;
     const injectEv = detail.events.find((e: any) => e.kind === "inject");
-    expect(injectEv).toBeTruthy();
-    const payload = typeof injectEv.payload === "string" ? JSON.parse(injectEv.payload) : injectEv.payload;
-    expect(payload.source).toBe("auto:goal-start");
+    expect(injectEv).toBeFalsy();
+    const ctx = await (await app.request("/v1/sessions/iw/context")).json() as any;
+    expect(ctx.context_packet.session_id).toBe("iw");
   });
 
   it("POST /v1/sessions/:id/inject returns 404 for unknown session", async () => {

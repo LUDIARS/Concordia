@@ -19,6 +19,7 @@ export interface TimeSeriesChartProps {
   xLabels: string[];
   series: ChartSeries[];
   height?: number;
+  maxValue?: number;
 }
 
 const W = 720;
@@ -27,13 +28,16 @@ const PAD_R = 8;
 const PAD_B = 18;
 const PAD_T = 8;
 
-export function TimeSeriesChart({ xLabels, series, height = 200 }: TimeSeriesChartProps) {
+export function TimeSeriesChart({ xLabels, series, height = 200, maxValue }: TimeSeriesChartProps) {
   const [hover, setHover] = useState<number | null>(null);
   const n = xLabels.length;
   const innerW = W - PAD_L - PAD_R;
   const innerH = height - PAD_T - PAD_B;
 
-  const maxes = useMemo(() => series.map((s) => Math.max(1, ...s.values)), [series]);
+  const maxes = useMemo(
+    () => series.map((s) => maxValue !== undefined ? Math.max(1, maxValue) : Math.max(1, ...s.values)),
+    [series, maxValue],
+  );
   const xAt = (i: number) => PAD_L + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
   const yAt = (v: number, max: number) => PAD_T + innerH - (Math.max(0, v) / max) * innerH;
 

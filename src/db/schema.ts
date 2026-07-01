@@ -818,6 +818,21 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_session
      ON cost_usage_samples(session_id, ts)`,
 
+  `CREATE TABLE IF NOT EXISTS cost_limit_samples (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts                INTEGER NOT NULL,
+    provider          TEXT    NOT NULL,
+    plan              TEXT,
+    used_5h_pct       REAL,
+    used_weekly_pct   REAL,
+    reset_5h_at       INTEGER,
+    reset_weekly_at   INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_limit_samples_ts
+     ON cost_limit_samples(ts)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_limit_samples_provider
+     ON cost_limit_samples(provider, ts)`,
+
   `CREATE TABLE IF NOT EXISTS cost_one_shot_calls (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     ts             INTEGER NOT NULL,
@@ -846,6 +861,11 @@ const STATEMENTS = [
 // CREATE TABLE IF NOT EXISTS は新規スキーマには効くが、 既存 DB の column 追加には効かない.
 // 各エントリは PRAGMA table_info で存在チェックしてから ALTER する.
 const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = [
+  {
+    table: "cost_limit_samples",
+    column: "plan",
+    ddl: `ALTER TABLE cost_limit_samples ADD COLUMN plan TEXT`,
+  },
   {
     table: "personas",
     column: "display_name",

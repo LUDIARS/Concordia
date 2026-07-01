@@ -14,15 +14,19 @@ import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { CostUsageSamplesRepo } from "../db/cost-usage-samples-repo.js";
+import type { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
 import type { CostOneShotCallsRepo, CostOneShotStatus } from "../db/cost-one-shot-calls-repo.js";
 import { collectOrgCostWindows, type OrgCostSubsidiary } from "../cost/org-cost.js";
 import { collectChannelCostRows } from "../cost/channel-cost.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
+import { aggregateLimitTimeseries, collectLimitSamples } from "../cost/limit-sampler.js";
+import { collectCostReport } from "../cost/cost-report.js";
 
 export interface CostApiDeps {
   sessions: SessionsRepo;
   channels: DiscordSessionChannelsRepo;
   samples: CostUsageSamplesRepo;
+  limitSamples: CostLimitSamplesRepo;
   oneShots: CostOneShotCallsRepo;
   /** 本社モニターと同じ子会社一覧 (本社=未タグは内部で算出)。 */
   listSubsidiaries: () => OrgCostSubsidiary[];
@@ -50,6 +54,18 @@ export function costRouter(deps: CostApiDeps): Hono {
     const bucketSec = Number.isFinite(bucketQ) && bucketQ > 0 ? Math.floor(bucketQ) : 600;
     const rows = deps.samples.listSince(sinceSec);
     return c.json(aggregateUsageTimeseries(rows, bucketSec));
+  });
+
+  app.get("/limit-timeseries", async (c) => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sinceQ = Number(c.req.query("since"));
+    const sinceSec = Number.isFinite(sinceQ) && sinceQ >= 0 ? Math.floor(sinceQ) : nowSec - 7 * 24 * 3600;
+    const rows = deps.limitSamples.listSince(sinceSec);
+    const latest = collectLimitSamples(await collectCostReport(deps.sessions), nowSec).map((s, i) => ({
+      id: -1 - i,
+      ...s,
+    }));
+    return c.json(aggregateLimitTimeseries([...rows, ...latest]));
   });
 
   app.post("/one-shots", async (c) => {

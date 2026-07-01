@@ -209,7 +209,7 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
-  // ゴール (🎯 完成まで実装)。 自走の強さ・確認頻度の基準。
+  // ゴール (🎯 完成まで実装)。作業モード・確認頻度の表示。
   if (i.goalBadge) descParts.push(i.goalBadge);
   // コンテキスト占有 (🧠 ctx ~62% (124k)) と想定コスト合算 (💰 ~$1.23) を 1 行に。
   // コンテキスト閾値超えは ⚠️ を添えて圧縮の目安に。

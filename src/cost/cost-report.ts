@@ -21,6 +21,7 @@ export interface CostRate {
   usedWeekly: number | null;
   reset5hAt: number | null;
   resetWeeklyAt: number | null;
+  plan: string | null;
 }
 
 /** cost 本文を描くのに必要な集計済みデータ一式。 */
@@ -140,6 +141,7 @@ function aggregateCodexRate(sessions: SessionRow[]): CostRate {
     usedWeekly: minRemainWeekly === null ? null : 100 - minRemainWeekly,
     reset5hAt: minReset5h,
     resetWeeklyAt: minResetWeekly,
+    plan: firstString(...sessions.map(readCodexPlan)),
   };
 }
 
@@ -156,9 +158,26 @@ function readCodexRate(s: SessionRow): CostRate | null {
       usedWeekly: nnull(o?.payload?.rate_limits?.secondary?.used_percent),
       reset5hAt: nnEpoch(o?.payload?.rate_limits?.primary?.resets_at),
       resetWeeklyAt: nnEpoch(o?.payload?.rate_limits?.secondary?.resets_at),
+      plan: firstString(
+        o?.payload?.plan,
+        o?.payload?.rate_limits?.plan,
+        o?.payload?.rate_limits?.tier,
+        o?.payload?.rate_limits?.subscription,
+      ),
     };
   }
   return latest;
+}
+
+function readCodexPlan(s: SessionRow): string | null {
+  return readCodexRate(s)?.plan ?? null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const v of values) {
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return null;
 }
 
 function nnull(v: unknown): number | null {

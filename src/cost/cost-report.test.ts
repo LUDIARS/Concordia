@@ -21,8 +21,9 @@ function baseReport(): CostReport {
   return {
     codexTotals: { input: 100, cached: 20, output: 30, total: 150 },
     claudeTotals: { input: 200, cached: 40, output: 60, total: 300 },
-    codexRate: { used5h: 40, usedWeekly: 10, reset5hAt: 1000, resetWeeklyAt: 2000 },
+    codexRate: { used5h: 40, usedWeekly: 10, reset5hAt: 1000, resetWeeklyAt: 2000, plan: "pro" },
     claudeUsage: {
+      plan: "max",
       fiveHour: { utilization: 25, resetsAtSec: 3000 },
       sevenDay: { utilization: 5, resetsAtSec: 4000 },
       sevenDaySonnet: null,

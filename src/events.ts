@@ -62,7 +62,16 @@ export type ConcordiaEvent =
    * Session-targeted so only clients viewing this session receive it.
    * `tool_input` is a slim preview (kept compact for wire / UI).
    */
-  | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
+  | {
+      type: "session.permission_request";
+      target_session_id: string;
+      request_id: string;
+      tool_name: string;
+      tool_input: unknown;
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
+      ts: number;
+    }
   | {
       type: "question.posted";
       target_session_id: string;

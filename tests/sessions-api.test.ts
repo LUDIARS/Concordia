@@ -161,6 +161,34 @@ describe("sessions API", () => {
     expect(detail.session.metadata.lictor_pid).toBeUndefined(); // null deleted it
   });
 
+  it("GET /v1/sessions can filter by subsidiary_id without returning head-office sessions", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "head",
+        provider: "claude-code",
+        repo_path: "/x",
+        host: "h",
+      }),
+    });
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "sub",
+        provider: "claude-code",
+        repo_path: "/x",
+        host: "h",
+        metadata: { subsidiary_id: "sub-1" },
+      }),
+    });
+
+    const r = await app.request("/v1/sessions?subsidiary_id=sub-1");
+    const body = (await r.json()) as any;
+    expect(body.sessions.map((s: any) => s.id)).toEqual(["sub"]);
+  });
+
   describe("POST /v1/sessions/:id/request-stat / request-title — 手動 enqueue", () => {
     async function startReqSession(id = "rq1") {
       const r = await app.request("/v1/sessions", {

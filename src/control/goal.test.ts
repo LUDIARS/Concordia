@@ -8,8 +8,6 @@ import {
   formatGoalBadge,
   goalDrivesAutoContinue,
   goalRequiresStepConfirm,
-  buildGoalStartInjectText,
-  GOAL_START_INJECT_SOURCE,
   DEFAULT_GOAL,
 } from "./goal.js";
 
@@ -71,30 +69,10 @@ describe("describeGoal / formatGoalBadge", () => {
   });
 });
 
-describe("buildGoalStartInjectText", () => {
-  it("制御 source (人間injectでない)", () => {
-    expect(GOAL_START_INJECT_SOURCE).toBe("auto:goal-start");
-    expect(/^(discord|slack):/.test(GOAL_START_INJECT_SOURCE)).toBe(false);
-  });
-  it("ゴールを提示し、スコープは最初の指示で確定・不明時のみ確認、と伝える", () => {
-    const t = buildGoalStartInjectText({ mode: "complete" });
-    expect(t).toContain("完成まで実装");
-    expect(t).toContain("/co-goal");
-    expect(t).toContain("最初の指示");
-    expect(t).toContain("自走");
-  });
-  it("watch は自走しない旨を伝える", () => {
-    expect(buildGoalStartInjectText({ mode: "watch" })).toContain("自走はしない");
-  });
-  it("scoped は範囲超過を確認する旨", () => {
-    expect(buildGoalStartInjectText({ mode: "scoped", text: "#441" })).toContain("範囲を超える");
-  });
-});
-
 describe("predicates", () => {
-  it("complete/scoped は自走、 watch はしない", () => {
-    expect(goalDrivesAutoContinue("complete")).toBe(true);
-    expect(goalDrivesAutoContinue("scoped")).toBe(true);
+  it("goal mode だけでは自動継続しない", () => {
+    expect(goalDrivesAutoContinue("complete")).toBe(false);
+    expect(goalDrivesAutoContinue("scoped")).toBe(false);
     expect(goalDrivesAutoContinue("watch")).toBe(false);
     expect(goalRequiresStepConfirm("watch")).toBe(true);
     expect(goalRequiresStepConfirm("complete")).toBe(false);

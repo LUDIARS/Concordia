@@ -392,9 +392,27 @@ export interface UsageTimeseriesPoint {
   contextTokens: number;
   spentTokens: number;
 }
+export interface UsageProviderTimeseriesPoint extends UsageTimeseriesPoint {
+  provider: string;
+}
 export interface UsageTimeseries {
   bucketSec: number;
   points: UsageTimeseriesPoint[];
+  providers: Record<string, UsageTimeseriesPoint[]>;
+  providerPoints: UsageProviderTimeseriesPoint[];
+}
+export interface LimitTimeseriesPoint {
+  ts: number;
+  provider: string;
+  plan: string | null;
+  used5hPct: number | null;
+  usedWeeklyPct: number | null;
+  reset5hAt: number | null;
+  resetWeeklyAt: number | null;
+}
+export interface LimitTimeseries {
+  points: LimitTimeseriesPoint[];
+  providers: Record<string, LimitTimeseriesPoint[]>;
 }
 
 // ── Library Hygiene (メモリ/スキル整理) ──────────────────────────────
@@ -498,6 +516,12 @@ export const api = {
     if (opts?.bucketSec !== undefined) q.set("bucket", String(opts.bucketSec));
     const qs = q.toString();
     return get<UsageTimeseries>(`/v1/cost/timeseries${qs ? "?" + qs : ""}`);
+  },
+  costLimitTimeseries: (opts?: { sinceSec?: number }) => {
+    const q = new URLSearchParams();
+    if (opts?.sinceSec !== undefined) q.set("since", String(opts.sinceSec));
+    const qs = q.toString();
+    return get<LimitTimeseries>(`/v1/cost/limit-timeseries${qs ? "?" + qs : ""}`);
   },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),

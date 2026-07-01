@@ -10,7 +10,7 @@ describe("sessions API — pending-question / discord-channels", () => {
   beforeEach(() => { env = buildTestApp(); });
 
   describe("pending-question / answer-question", () => {
-    it("POST /v1/sessions は branch picker でなく既定ゴール + goal-start inject を返す/積む", async () => {
+    it("POST /v1/sessions は goal inject ではなく collaboration context packet を返す", async () => {
       const r = await env.app.request("/v1/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -18,15 +18,13 @@ describe("sessions API — pending-question / discord-channels", () => {
       });
       expect(r.status).toBe(200);
       const j = await r.json() as any;
-      // 旧 initial_work picker は廃止、 代わりに既定ゴール (complete) を返す。
+      // 旧 initial_work picker と goal-start inject は廃止。協働 context だけ返す。
       expect(j.initial_work).toBeUndefined();
       expect(j.goal).toEqual({ mode: "complete" });
+      expect(j.context_packet.repo.project).toBe("Concordia");
+      expect(j.context_packet.stalled_recovery.inject_source).toBe("auto:stall-nudge");
       const detail = await (await env.app.request("/v1/sessions/iw")).json() as any;
-      const goalStart = detail.events.find(
-        (e: any) => e.kind === "inject" && e.payload?.source === "auto:goal-start",
-      );
-      expect(goalStart).toBeTruthy();
-      expect(goalStart.payload.text).toContain("完成まで実装");
+      expect(detail.events.some((e: any) => e.kind === "inject" && e.payload?.source === "auto:goal-start")).toBe(false);
     });
 
     it("POST/GET /goal でゴールを変更・取得できる (metadata に保存)", async () => {

@@ -44,6 +44,7 @@ import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
+import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 
@@ -175,6 +176,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const messageMap = makeDiscordMessageMapRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
+  const permissionActions: PermissionActionStore = new Map();
 
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
@@ -485,6 +487,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       guild: interaction.guild!,
       layout,
       log,
+      permissionActions,
       subsidiaryId,
     }).catch((e) => {
       log.warn(`interaction handler failed id=${interaction.id}: ${(e as Error).message}`);
@@ -706,6 +709,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
       return;
     }
+    if (ev.type === "session.permission_request") {
+      void postPermissionRequest({ guild, sessionChannelsRepo, permissionActions, log }, ev)
+        .catch((e) => log.warn(`permission request post failed session=${ev.target_session_id}: ${(e as Error).message}`));
+      return;
+    }
     if (ev.type === "question.resolved") {
       // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
       void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
@@ -760,6 +768,7 @@ function eventSessionId(ev: ConcordiaEvent): string | null {
       return ev.session_id;
     case "transcript.frame":
     case "session.inject":
+    case "session.permission_request":
     case "question.posted":
     case "question.resolved":
       return ev.target_session_id;

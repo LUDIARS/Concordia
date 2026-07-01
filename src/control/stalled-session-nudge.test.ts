@@ -107,23 +107,13 @@ describe("shouldNudge", () => {
 });
 
 describe("buildNudgeText", () => {
-  it("既定(complete)は残作業続行 / ask 停止 / session-end の 3 指示を含む", () => {
+  it("再実装の後押し / ask 停止 / session-end の指示を含む", () => {
     const t = buildNudgeText("claude-code");
-    expect(t).toContain("残作業がなくなるまで実装");
+    expect(t).toContain("再実装");
+    expect(t).toContain("worktree");
+    expect(t).toContain("delegation");
     expect(t).toContain("ask");
     expect(t).toContain("/session-end");
-  });
-  it("scoped はゴール範囲内に限定し範囲超過は確認", () => {
-    const t = buildNudgeText("claude-code", { mode: "scoped", text: "月内 #441" });
-    expect(t).toContain("月内 #441");
-    expect(t).toContain("範囲を超える");
-    expect(t).not.toContain("残作業がなくなるまで実装");
-  });
-  it("watch は自走せず確認のみ", () => {
-    const t = buildNudgeText("claude-code", { mode: "watch" });
-    expect(t).toContain("自走しない");
-    expect(t).not.toContain("残作業がなくなるまで実装");
-    expect(t).not.toContain("ask マーカー");
   });
 });
 
@@ -162,7 +152,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
   });
 
-  it("watch ゴールの session は自走せず確認の nudge を流す", () => {
+  it("goal metadata に関係なく同じ協働復帰 nudge を流す", () => {
     const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
     const h = startStalledSessionNudge({
       repo: fakeRepo([s]),
@@ -174,8 +164,8 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(h.runOnce()).toEqual(["watch-1"]);
     h.stop();
     const ev = injects()[0];
-    expect(ev.text).toContain("自走しない");
-    expect(ev.text).not.toContain("残作業がなくなるまで実装");
+    expect(ev.text).toContain("再実装");
+    expect(ev.text).toContain("worktree");
   });
 
   it("idle が閾値未満なら nudge しない", () => {

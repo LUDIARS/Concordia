@@ -89,6 +89,7 @@ export class SessionsRepo {
     host?: string;
     status?: SessionStatus;
     provider?: ProviderName;
+    subsidiary_id?: string;
   }): SessionRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
@@ -96,6 +97,10 @@ export class SessionsRepo {
     if (filter.host)        { where.push("host = ?");        args.push(filter.host); }
     if (filter.status)      { where.push("status = ?");      args.push(filter.status); }
     if (filter.provider)    { where.push("provider = ?");    args.push(filter.provider); }
+    if (filter.subsidiary_id) {
+      where.push("json_extract(metadata, '$.subsidiary_id') = ?");
+      args.push(filter.subsidiary_id);
+    }
     const sql =
       `SELECT * FROM sessions ${where.length ? "WHERE " + where.join(" AND ") : ""} ` +
       `ORDER BY started_at DESC LIMIT 200`;

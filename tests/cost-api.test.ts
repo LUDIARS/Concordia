@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
 import { CostUsageSamplesRepo } from "../src/db/cost-usage-samples-repo.js";
+import { CostLimitSamplesRepo } from "../src/db/cost-limit-samples-repo.js";
 
 describe("/v1/cost", () => {
   let env: TestAppEnv;
@@ -36,6 +37,7 @@ describe("/v1/cost", () => {
     // bucket 1000: 2 サンプル → spent = 0(baseline)+500、 context = 110000
     expect(body.points).toHaveLength(1);
     expect(body.points[0]).toMatchObject({ ts: 1000, sessions: 1, contextTokens: 110000, spentTokens: 500 });
+    expect(body.providers["claude-code"][0]).toMatchObject({ ts: 1000, sessions: 1, spentTokens: 500 });
   });
 
   it("GET /timeseries は since より古いサンプルを除外する", async () => {
@@ -47,5 +49,20 @@ describe("/v1/cost", () => {
     const sessionsSeen = new Set(body.points.flatMap((p: any) => p.sessions));
     expect(body.points.every((p: any) => p.ts >= 1000)).toBe(true);
     expect(body.points.length).toBe(1); // new のみ
+  });
+
+  it("GET /limit-timeseries returns provider limit percentage history", async () => {
+    const samples = new CostLimitSamplesRepo(env.db);
+    samples.insert({ ts: 1000, provider: "codex-cli", plan: "pro", used_5h_pct: 12, used_weekly_pct: 34, reset_5h_at: 2000, reset_weekly_at: 3000 });
+    samples.insert({ ts: 1600, provider: "codex-cli", plan: "pro", used_5h_pct: 18, used_weekly_pct: 40, reset_5h_at: 2000, reset_weekly_at: 3000 });
+    samples.insert({ ts: 500, provider: "claude-code", plan: null, used_5h_pct: 1, used_weekly_pct: 2, reset_5h_at: null, reset_weekly_at: null });
+
+    const res = await env.app.request("/v1/cost/limit-timeseries?since=900");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.points).toHaveLength(2);
+    expect(body.providers["codex-cli"].slice(0, 2).map((p: any) => p.usedWeeklyPct)).toEqual([34, 40]);
+    expect(body.providers["codex-cli"][0].plan).toBe("pro");
+    expect(body.providers["claude-code"]).toBeUndefined();
   });
 });

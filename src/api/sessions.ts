@@ -43,9 +43,8 @@ import {
   parseGoalInput,
   readGoalFromMetadata,
   mergeGoalIntoMetadata,
-  buildGoalStartInjectText,
-  GOAL_START_INJECT_SOURCE,
 } from "../control/goal.js";
+import { buildCollaborationContextPacket } from "../control/collaboration-context.js";
 
 const log = createChildLogger("sessions-api");
 
@@ -273,7 +272,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
       // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
-      // handoff 本文は後段 (goal-start の後) で inject する。
+      // handoff 本文は後段で inject する。
       const relictor = claimPendingRelictor(input.repo_path);
       if (relictor) {
         relictorHandoff = relictor.handoff;
@@ -345,30 +344,14 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       });
     }
 
-    // 起動時にブランチ/開発コードを picker で選ばせる旧フローは廃止。
-    // 代わりにゴール (既定=完成まで実装) を起点とする指示を AI へ inject する。
-    // スコープは最初のユーザ指示で確定し、 不明な時だけ AI が 1 度確認する。
     const freshSession = deps.repo.findSession(input.id)!;
-    const goalStartText = buildGoalStartInjectText(readGoalFromMetadata(freshSession.metadata));
-    const goalTs = nowSec();
-    deps.repo.appendEvent({
-      session_id: input.id,
-      ts: goalTs,
-      kind: "inject",
-      payload: { text: goalStartText, source: GOAL_START_INJECT_SOURCE },
+    const contextPacket = buildCollaborationContextPacket({
+      repo: deps.repo,
+      session: freshSession,
+      workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
     });
-    // picker キーストローク fallback 等が pty に届く前に綺麗に入るよう少し遅延 (旧来の手当てを踏襲)。
-    setTimeout(() => {
-      eventBus.emit({
-        type: "session.inject",
-        target_session_id: input.id,
-        text: goalStartText,
-        source: GOAL_START_INJECT_SOURCE,
-        ts: nowSec(),
-      });
-    }, 500).unref?.();
 
-    // /co-relictor 再起動なら、 goal-start の後に引き継ぎ資料を inject して文脈を復元する。
+    // /co-relictor 再起動なら、引き継ぎ資料だけを inject して文脈を復元する。
     if (relictorHandoff) {
       const handoffText = `${RELICTOR_REINJECT_HEADER}${relictorHandoff}`;
       deps.repo.appendEvent({
@@ -377,7 +360,6 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
         kind: "inject",
         payload: { text: handoffText, source: RELICTOR_INJECT_SOURCE },
       });
-      // goal-start (500ms) より後に届くよう少し長めの遅延。
       setTimeout(() => {
         eventBus.emit({
           type: "session.inject",
@@ -399,19 +381,37 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       processes: processStartup,
       process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
       goal: readGoalFromMetadata(freshSession.metadata),
+      context_packet: contextPacket,
     });
   });
 
   // GET /v1/sessions
   app.get("/", (c) => {
     const q = c.req.query();
+    const subsidiaryId = (q.subsidiary_id ?? "").trim();
     const list = deps.repo.listSessions({
       repo_origin: q.repo_origin || undefined,
       host: q.host || undefined,
       status: (q.status as SessionStatus) || undefined,
       provider: (q.provider as ProviderName) || undefined,
+      subsidiary_id: subsidiaryId || undefined,
     });
     return c.json({ sessions: list.map(serializeSession) });
+  });
+
+  // GET /v1/sessions/:id/context — 協働用 context packet。
+  // Goal 注入ではなく、衝突・関連ログ・ハーネス入口などの状況認識を返す。
+  app.get("/:id/context", (c) => {
+    const id = c.req.param("id");
+    const s = deps.repo.findSession(id);
+    if (!s) return c.json({ error: "not_found" }, 404);
+    return c.json({
+      context_packet: buildCollaborationContextPacket({
+        repo: deps.repo,
+        session: s,
+        workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+      }),
+    });
   });
 
   // GET /v1/sessions/:id
@@ -556,12 +556,15 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PermissionRequestSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50));
     eventBus.emit({
       type: "session.permission_request",
       target_session_id: id,
       request_id: parsed.data.request_id,
       tool_name: parsed.data.tool_name,
       tool_input: parsed.data.tool_input,
+      requester_platform: requester?.platform,
+      requester_user_id: requester?.userId,
       ts: nowSec(),
     });
     return c.json({ ok: true });

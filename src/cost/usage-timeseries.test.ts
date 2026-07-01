@@ -6,6 +6,10 @@ function row(id: number, ts: number, session: string, ctx: number | null, cost: 
   return { id, ts, session_id: session, subsidiary_id: null, provider: "claude-code", context_tokens: ctx, cost_tokens: cost };
 }
 
+function providerRow(id: number, ts: number, session: string, provider: string, cost: number): CostUsageSampleRow {
+  return { id, ts, session_id: session, subsidiary_id: null, provider, context_tokens: 0, cost_tokens: cost };
+}
+
 describe("aggregateUsageTimeseries", () => {
   it("時刻バケットに畳み、 cost は前サンプル差分 (初回 baseline=0) を spent に積む", () => {
     // bucket=100s。 セッション s1: ts100 cost=1000(baseline), ts150 cost=1500(+500), ts250 cost=1800(+300)
@@ -59,5 +63,20 @@ describe("aggregateUsageTimeseries", () => {
     );
     // 1 バケット(0): baseline1000 → +500 → +300 = spent 800
     expect(r.points[0].spentTokens).toBe(800);
+  });
+
+  it("provider 別の時系列も返す", () => {
+    const r = aggregateUsageTimeseries(
+      [
+        providerRow(1, 100, "c1", "codex-cli", 100),
+        providerRow(2, 200, "c1", "codex-cli", 150),
+        providerRow(3, 100, "a1", "claude-code", 10),
+        providerRow(4, 200, "a1", "claude-code", 40),
+      ],
+      1000,
+    );
+    expect(r.providers["codex-cli"][0].spentTokens).toBe(50);
+    expect(r.providers["claude-code"][0].spentTokens).toBe(30);
+    expect(r.providerPoints.map((p) => p.provider).sort()).toEqual(["claude-code", "codex-cli"]);
   });
 });

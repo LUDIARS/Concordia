@@ -14,6 +14,7 @@ import {
   type CostAgg,
   type CostOverview,
   type UsageTimeseries,
+  type LimitTimeseries,
   type OrgCostReport,
 } from "../api.js";
 import { TimeSeriesChart } from "../components/TimeSeriesChart.js";
@@ -27,6 +28,8 @@ const tok = (v: number | null): string => {
   if (x < 1_000_000) return (x / 1000).toFixed(1) + "k";
   return (x / 1_000_000).toFixed(2) + "M";
 };
+const providerColors = ["#2563eb", "#dc2626", "#16a34a", "#9333ea", "#ea580c", "#0891b2"];
+const pct = (v: number | null): string => v === null || !Number.isFinite(v) ? "—" : `${v.toFixed(1)}%`;
 
 function OrgBlock({ report, heading }: { report: OrgCostReport; heading: string }) {
   return (
@@ -74,6 +77,7 @@ function FeedRow({ label, a }: { label: string; a: CostAgg }) {
 export function CostFeed() {
   const [overview, setOverview] = useState<CostOverview | null>(null);
   const [series, setSeries] = useState<UsageTimeseries | null>(null);
+  const [limits, setLimits] = useState<LimitTimeseries | null>(null);
   const [feed, setFeed] = useState<CostFeedReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -82,13 +86,15 @@ export function CostFeed() {
     setLoading(true);
     setError(null);
     try {
-      const [ov, ts, fd] = await Promise.all([
+      const [ov, ts, lim, fd] = await Promise.all([
         api.costOverview(),
         api.costTimeseries({ bucketSec: 600 }),
+        api.costLimitTimeseries(),
         api.costFeed().catch(() => null),
       ]);
       setOverview(ov);
       setSeries(ts);
+      setLimits(lim);
       setFeed(fd);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -106,6 +112,31 @@ export function CostFeed() {
   const xLabels = points.map((p) =>
     new Date(p.ts * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }),
   );
+  const providerSpentSeries = Object.entries(series?.providers ?? {}).map(([provider, rows], i) => {
+    const byTs = new Map(rows.map((p) => [p.ts, p.spentTokens]));
+    return {
+      label: provider,
+      color: providerColors[i % providerColors.length],
+      values: points.map((p) => byTs.get(p.ts) ?? 0),
+      fmt: tok,
+    };
+  });
+  const limitTs = Array.from(new Set((limits?.points ?? []).map((p) => p.ts))).sort((a, b) => a - b);
+  const limitLabels = limitTs.map((ts) =>
+    new Date(ts * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }),
+  );
+  const limitLabel = (provider: string, rows: Array<{ plan: string | null }>): string => {
+    const plan = [...rows].reverse().find((p) => p.plan)?.plan;
+    return plan ? `${provider} (${plan})` : provider;
+  };
+  const weeklyLimitSeries = Object.entries(limits?.providers ?? {}).map(([provider, rows], i) => {
+    const byTs = new Map(rows.map((p) => [p.ts, p.usedWeeklyPct ?? 0]));
+    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: limitTs.map((ts) => byTs.get(ts) ?? 0), fmt: pct };
+  });
+  const shortLimitSeries = Object.entries(limits?.providers ?? {}).map(([provider, rows], i) => {
+    const byTs = new Map(rows.map((p) => [p.ts, p.used5hPct ?? 0]));
+    return { label: limitLabel(provider, rows), color: providerColors[i % providerColors.length], values: limitTs.map((ts) => byTs.get(ts) ?? 0), fmt: pct };
+  });
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -121,6 +152,16 @@ export function CostFeed() {
       </header>
 
       {error && <div className="text-danger text-sm">load error: {error}</div>}
+
+      <section className="bg-surface border border-border rounded p-4 space-y-2">
+        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (週間)</h2>
+        <TimeSeriesChart xLabels={limitLabels} series={weeklyLimitSeries} height={180} maxValue={100} />
+      </section>
+
+      <section className="bg-surface border border-border rounded p-4 space-y-2">
+        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (日別/5H)</h2>
+        <TimeSeriesChart xLabels={limitLabels} series={shortLimitSeries} height={180} maxValue={100} />
+      </section>
 
       {/* ① 本社/子会社別 (本日・週間) */}
       {overview && (
@@ -141,6 +182,7 @@ export function CostFeed() {
           series={[
             { label: "💰 消費/10分", color: "#f59e0b", values: points.map((p) => p.spentTokens), fmt: tok },
             { label: "🧠 コンテキスト", color: "#38bdf8", values: points.map((p) => p.contextTokens), fmt: tok },
+            ...providerSpentSeries,
             { label: "セッション数", color: "#a3a3a3", values: points.map((p) => p.sessions) },
           ]}
         />

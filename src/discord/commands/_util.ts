@@ -7,7 +7,12 @@ export async function requireSessionChannel(
 ): Promise<{ sessionId: string; channelId: string } | null> {
   const row = sessionChannelsRepo.findByChannelId(interaction.channelId);
   if (!row) {
-    await interaction.reply({ content: "This command is only available in a session channel.", ephemeral: true });
+    const content = "This command is only available in a session channel.";
+    if (interaction.deferred || interaction.replied) {
+      await interaction.editReply({ content });
+    } else {
+      await interaction.reply({ content, ephemeral: true });
+    }
     return null;
   }
   return { sessionId: row.session_id, channelId: row.channel_id };

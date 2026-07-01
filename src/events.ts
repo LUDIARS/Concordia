@@ -14,6 +14,13 @@ export type ConcordiaEvent =
   | { type: "skill.snapshot";   skill_name: string; repo_path: string; poison_score: number; growth_score: number; ts: number }
   | { type: "report.generated"; session_id: string; ts: number }
   | { type: "rule.changed";     rule_id: string | null; action: "add" | "remove" | "toggle" | "fire" | "skip" | "error"; ts: number }
+  | {
+      type: "delegation.templates_changed";
+      action: "create" | "import" | "patch" | "delete";
+      template_id: string | null;
+      call_name: string | null;
+      ts: number;
+    }
   | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
   | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
   | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }

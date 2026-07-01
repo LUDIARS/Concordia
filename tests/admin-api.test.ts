@@ -18,6 +18,41 @@ describe("admin API", () => {
     expect(r.status).toBe(400);
   });
 
+  it("POST /v1/admin/spawn-session passes runtime options to delegation template spawn", async () => {
+    const spawnCalls: Array<{ provider: string; args?: string[] }> = [];
+    env = makeTestApp({
+      delegationSpawn: (req) => {
+        spawnCalls.push({ provider: req.provider, args: req.args });
+        return { ok: true, pid: 123, command: ["wt.exe", req.provider, ...(req.args ?? [])] };
+      },
+    });
+    env.delegation.createTemplate({
+      call_name: "codex-runtime-options",
+      title: "Codex runtime options",
+      target_provider: "codex",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+    });
+
+    const r = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        template: "codex-runtime-options",
+        inject_prompt: true,
+        args: { task: "x" },
+        options: { model_reasoning_effort: "high" },
+      }),
+    });
+
+    expect(r.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toEqual({
+      provider: "codex",
+      args: ["-c", 'model_reasoning_effort="high"'],
+    });
+  });
+
   it("GET /v1/admin/state exposes snapshot with defaults", async () => {
     const r = await env.app.request("/v1/admin/state");
     expect(r.status).toBe(200);

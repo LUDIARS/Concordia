@@ -86,7 +86,7 @@ import {
   SPAWN_PROVIDERS,
   type SpawnMode,
 } from "./control/spawner.js";
-import { resolveDelegationSpawn } from "./control/provider-preset.js";
+import { resolveDelegationRuntimeArgs, resolveDelegationSpawn } from "./control/provider-preset.js";
 import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "./control/stop-session.js";
@@ -317,6 +317,7 @@ export function buildApp(deps: AppDeps): Hono {
       if (!tpl.is_active) return c.json({ error: `template inactive: ${templateName}` }, 400);
       const injectPrompt = body.inject_prompt === true;
       const tplArgs = isPlainObject(body.args) ? (body.args as Record<string, unknown>) : {};
+      const runtimeOptions = isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {};
       const cwdOverride = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined;
 
       if (injectPrompt) {
@@ -327,6 +328,7 @@ export function buildApp(deps: AppDeps): Hono {
           cwd: cwdOverride,
           triggered_by: "web-spawn",
           spawn: true,
+          options: runtimeOptions,
           subsidiary_id: subsidiaryId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
@@ -356,11 +358,13 @@ export function buildApp(deps: AppDeps): Hono {
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
+      const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, runtimeOptions);
+      const spawnArgs = [...spawn.args, ...runtimeArgs];
       const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const result = spawnSession({
         provider: spawn.provider,
         mode,
-        args: spawn.args.length > 0 ? spawn.args : undefined,
+        args: spawnArgs.length > 0 ? spawnArgs : undefined,
         cwd: spawnCwd,
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。

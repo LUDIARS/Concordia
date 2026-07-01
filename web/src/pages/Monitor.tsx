@@ -419,6 +419,7 @@ function SpawnSessionForm() {
   const [mode, setMode] = useState<"tab" | "window">("tab");
   const [injectPrompt, setInjectPrompt] = useState(false);
   const [args, setArgs] = useState<Record<string, string>>({});
+  const [runtimeOptions, setRuntimeOptions] = useState<Record<string, string>>({});
   const [cwd, setCwd] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
@@ -438,12 +439,17 @@ function SpawnSessionForm() {
   // テンプレ切替時に arg 入力欄を default で初期化、 cwd override はクリア
   // (空なら backend がテンプレの default_cwd を使う)。
   useEffect(() => {
-    if (!selected) { setArgs({}); setCwd(""); return; }
+    if (!selected) { setArgs({}); setRuntimeOptions({}); setCwd(""); return; }
     const init: Record<string, string> = {};
     for (const s of selected.input_schema) {
       init[s.name] = s.default !== undefined ? String(s.default) : "";
     }
+    const optionInit: Record<string, string> = {};
+    for (const opt of selected.runtime_options ?? []) {
+      optionInit[opt.key] = "";
+    }
     setArgs(init);
+    setRuntimeOptions(optionInit);
     setCwd("");
   }, [callName]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -469,6 +475,15 @@ function SpawnSessionForm() {
         }
         body.args = a;
       }
+      const options: Record<string, unknown> = {};
+      for (const opt of selected.runtime_options ?? []) {
+        const v = runtimeOptions[opt.key];
+        if (v === undefined || v === "") continue;
+        if (opt.type === "number") options[opt.key] = Number(v);
+        else if (opt.type === "boolean") options[opt.key] = v === "true";
+        else options[opt.key] = v;
+      }
+      if (Object.keys(options).length > 0) body.options = options;
       if (cwd.trim()) body.cwd = cwd.trim();
       const r = await api.adminSpawn(body);
       setResult({
@@ -540,6 +555,48 @@ function SpawnSessionForm() {
             <div className="text-xs text-subtle">
               provider: <code>{selected.target_provider}</code>
               {" / "}model: <code>{selected.model ?? "(provider 既定)"}</code>
+            </div>
+          )}
+          {selected && (selected.runtime_options ?? []).length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {(selected.runtime_options ?? []).map((opt) => (
+                <label key={opt.key} className="text-xs space-y-1">
+                  <span className="text-subtle">
+                    {opt.label} <span className="font-mono">{opt.key}</span>
+                  </span>
+                  {opt.type === "select" ? (
+                    <select
+                      className="foundation-form w-full text-sm"
+                      value={runtimeOptions[opt.key] ?? ""}
+                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
+                      disabled={sending}
+                    >
+                      <option value="">provider default</option>
+                      {(opt.choices ?? []).map((choice) => (
+                        <option key={choice.value} value={choice.value}>{choice.label}</option>
+                      ))}
+                    </select>
+                  ) : opt.type === "boolean" ? (
+                    <select
+                      className="foundation-form w-full text-sm"
+                      value={runtimeOptions[opt.key] ?? ""}
+                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
+                      disabled={sending}
+                    >
+                      <option value="">provider default</option>
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  ) : (
+                    <input
+                      className="foundation-form w-full text-sm"
+                      value={runtimeOptions[opt.key] ?? ""}
+                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
+                      disabled={sending}
+                    />
+                  )}
+                </label>
+              ))}
             </div>
           )}
           {injectPrompt && selected && selected.input_schema.length > 0 && (

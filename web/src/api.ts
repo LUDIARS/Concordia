@@ -20,6 +20,20 @@ export interface DelegationInputSchemaItem {
   default?: string | number | boolean;
 }
 
+export interface DelegationOptionChoice {
+  label: string;
+  value: string;
+  description?: string;
+}
+
+export interface DelegationOptionSuggestion {
+  key: string;
+  label: string;
+  type: "select" | "string" | "boolean" | "number";
+  description?: string;
+  choices?: DelegationOptionChoice[];
+}
+
 /** Monitor の spawn フォームが使う delegation テンプレ (GET /v1/delegation/templates)。 */
 export interface DelegationTemplateLite {
   id: string;
@@ -34,6 +48,7 @@ export interface DelegationTemplateLite {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  runtime_options?: DelegationOptionSuggestion[];
 }
 
 /** delegation テンプレ / spawn が選べるモデル候補 (GET /v1/model-catalog)。 */
@@ -556,6 +571,7 @@ export const api = {
     inject_prompt?: boolean;
     /** inject_prompt 時の render 引数 */
     args?: Record<string, unknown>;
+    options?: Record<string, unknown>;
     cwd?: string;
     title?: string;
     mode?: "tab" | "window";

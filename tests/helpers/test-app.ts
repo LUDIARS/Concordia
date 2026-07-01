@@ -42,6 +42,7 @@ import { ChatResponder } from "../../src/chat/responder.js";
 import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
+import type { SpawnRequest } from "../../src/control/spawner.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
@@ -52,6 +53,7 @@ export interface TestAppOptions {
   config?: Partial<ConcordiaConfig>;
   /** Dispatcher の rng (default: () => 1)。 */
   rng?: () => number;
+  delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
 }
 
 export interface TestAppEnv {
@@ -125,7 +127,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     repo: delegation,
     personas,
     promptsDir: join(logsDir, "delegation-prompts"),
-    spawn: () => ({ ok: true, pid: null, command: [] }),
+    spawn: opts.delegationSpawn ?? (() => ({ ok: true, pid: null, command: [] })),
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });

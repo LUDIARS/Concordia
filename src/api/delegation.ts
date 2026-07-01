@@ -14,6 +14,8 @@ import {
 import type { DelegationService } from "../delegation/service.js";
 import { parsePortable, templateToPortable } from "../delegation/portable.js";
 import { delegationOptionSuggestions } from "../control/provider-preset.js";
+import { eventBus } from "../events.js";
+import { invalidateDelegationTemplateCache } from "../discord/delegation-template-cache.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -97,6 +99,20 @@ export interface DelegationApiDeps {
 export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
 
+  function invalidateTemplates(
+    action: "create" | "import" | "patch" | "delete",
+    row: Awaited<ReturnType<DelegationRepo["findTemplate"]>> | null,
+  ): void {
+    invalidateDelegationTemplateCache();
+    eventBus.emit({
+      type: "delegation.templates_changed",
+      action,
+      template_id: row?.id ?? null,
+      call_name: row?.call_name ?? null,
+      ts: Math.floor(Date.now() / 1000),
+    });
+  }
+
   // mutating endpoint は bearer token を要求しない。 Concordia は loopback
   // (既定 127.0.0.1:11111) 限定で動き、 /v1/admin/* と同じ信頼境界に乗る。
   // 以前は spawn token を要求していたが、 同じ loopback サービス内で Monitor の
@@ -176,6 +192,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       title,
       prompt_template: parsed.data.prompt_template ?? "",
     });
+    invalidateTemplates("create", row);
     return c.json({ template: serializeTemplate(row) }, 201);
   });
 
@@ -200,6 +217,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       project: p.project ?? null,
       emoji: p.emoji,
     });
+    invalidateTemplates("import", row);
     return c.json({ template: serializeTemplate(row) }, 201);
   });
 
@@ -210,13 +228,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const parsed = PatchTemplateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const row = deps.repo.updateTemplate(id, parsed.data);
+    invalidateTemplates("patch", row);
     return c.json({ template: serializeTemplate(row) });
   });
 
   app.delete("/templates/:id", (c) => {
     const id = c.req.param("id");
+    const row = deps.repo.findTemplate(id);
     const ok = deps.repo.deactivateTemplate(id);
     if (!ok) return c.json({ error: "not_found" }, 404);
+    invalidateTemplates("delete", row);
     return c.json({ ok: true });
   });
 

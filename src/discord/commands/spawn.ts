@@ -2,16 +2,9 @@ import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../commands.js";
 import { callConcordia } from "./_util.js";
 import { readSpawnToken } from "../../control/token.js";
+import { delegationTemplateCache } from "../delegation-template-cache.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
-
-interface DelegationTemplateLite {
-  call_name: string;
-  title: string;
-  is_active: boolean;
-  call_only: boolean;
-  emoji: string;
-}
 
 const spawnCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder()
@@ -48,22 +41,18 @@ const spawnCommand: DiscordCommandSpec = {
       `spawn autocomplete start guild=${interaction.guildId ?? "-"} channel=${interaction.channelId ?? "-"} ` +
       `focused_len=${focused.length}`,
     );
-    const r = await callConcordia<{ templates: DelegationTemplateLite[] }>(
-      deps.concordiaUrl,
-      "GET",
-      "/v1/delegation/templates",
-    );
-    if ("error" in r) {
-      deps.log.warn(`spawn autocomplete templates failed error=${r.error}`);
-    }
-    const templates = "error" in r ? [] : r.templates;
+    const cached = await delegationTemplateCache.get(deps.concordiaUrl, deps.log);
+    const templates = cached.templates;
     const choices = templates
       .filter((t) => t.is_active !== false)
       .filter((t) => !t.call_only)
       .filter((t) => !focused || t.call_name.toLowerCase().includes(focused) || t.title.toLowerCase().includes(focused))
       .slice(0, 25)
       .map((t) => ({ name: `${t.emoji ? t.emoji + " " : ""}${t.call_name} — ${t.title}`.slice(0, 100), value: t.call_name }));
-    deps.log.info(`spawn autocomplete respond templates=${templates.length} choices=${choices.length}`);
+    deps.log.info(
+      `spawn autocomplete respond templates=${templates.length} choices=${choices.length} ` +
+      `source=${cached.source} refreshing=${cached.refreshing ? 1 : 0}`,
+    );
     await interaction.respond(choices);
   },
 

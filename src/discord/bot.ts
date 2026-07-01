@@ -43,6 +43,7 @@ import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { invalidateDelegationTemplateCache } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -515,6 +516,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
+    if (ev.type === "delegation.templates_changed") {
+      invalidateDelegationTemplateCache();
+      log.info(
+        `delegation template cache invalidated action=${ev.action} ` +
+        `call_name=${ev.call_name ?? "-"} template_id=${ev.template_id ?? "-"}`,
+      );
+      return;
+    }
     // error.reported は errors チャンネルへ (webhooks/layout 完備前でも poster があれば処理).
     if (ev.type === "error.reported") {
       errorPoster?.enqueue({ source: ev.source, message: ev.message, detail: ev.detail, ts: ev.ts });

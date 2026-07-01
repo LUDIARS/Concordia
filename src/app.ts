@@ -31,6 +31,7 @@ import { prsRouter } from "./api/prs.js";
 import { costFeedRouter } from "./api/cost-feed.js";
 import { costRouter } from "./api/cost.js";
 import type { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
+import type { CostOneShotCallsRepo } from "./db/cost-one-shot-calls-repo.js";
 import type { ProcessManager } from "./processes/manager.js";
 import type { ProcessesRepo } from "./db/processes-repo.js";
 import type { SkillsRepo } from "./db/skills-repo.js";
@@ -113,6 +114,7 @@ export interface AppDeps {
   discordConfig: DiscordConfigRepo;
   /** 10 分毎の使用量サンプル (WebUI /cost の時系列グラフ用)。 */
   costSamples: CostUsageSamplesRepo;
+  costOneShots: CostOneShotCallsRepo;
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
@@ -249,6 +251,7 @@ export function buildApp(deps: AppDeps): Hono {
       sessions: deps.repo,
       channels: deps.discordChannels,
       samples: deps.costSamples,
+      oneShots: deps.costOneShots,
       listSubsidiaries: () =>
         deps.subsidiary
           ? deps.subsidiary

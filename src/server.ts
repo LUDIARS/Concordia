@@ -52,6 +52,7 @@ import { resolveRenderConfig } from "./chat/render-config.js";
 import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
 import { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
+import { CostOneShotCallsRepo } from "./db/cost-one-shot-calls-repo.js";
 import { collectUsageSamples } from "./cost/usage-sampler.js";
 import { startSweeper } from "./sweeper.js";
 import { startReaper } from "./control/reaper.js";
@@ -292,6 +293,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // subsidiary/provider タグ付きで時系列テーブルへ記録する。 WebUI /cost が折れ線グラフに繋ぐ。
   // (予算トラッカーの 2 分サンプルとは別系統 — あちらは合計の日次バケットのみ。)
   const usageSamplesRepo = new CostUsageSamplesRepo(db);
+  const costOneShotsRepo = new CostOneShotCallsRepo(db);
   const sampleUsage = (): void => {
     try {
       const active = repo.listSessions({ status: "active" });
@@ -493,6 +495,7 @@ export async function startBackend(): Promise<BackendHandle> {
     pendingQuestions,
     discordChannels,
     costSamples: usageSamplesRepo,
+    costOneShots: costOneShotsRepo,
     discordConfig,
     participants,
     delegation: delegationRepo,

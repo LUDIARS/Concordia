@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 29;
+export const SCHEMA_VERSION = 30;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -817,6 +817,29 @@ const STATEMENTS = [
      ON cost_usage_samples(ts)`,
   `CREATE INDEX IF NOT EXISTS idx_cost_usage_samples_session
      ON cost_usage_samples(session_id, ts)`,
+
+  `CREATE TABLE IF NOT EXISTS cost_one_shot_calls (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts             INTEGER NOT NULL,
+    service        TEXT    NOT NULL,
+    provider       TEXT    NOT NULL,
+    command        TEXT    NOT NULL DEFAULT '',
+    model          TEXT,
+    cwd            TEXT,
+    prompt         TEXT    NOT NULL DEFAULT '',
+    status         TEXT    NOT NULL DEFAULT 'unknown',
+    exit_code      INTEGER,
+    duration_ms    INTEGER,
+    input_tokens   INTEGER NOT NULL DEFAULT 0,
+    output_tokens  INTEGER NOT NULL DEFAULT 0,
+    total_tokens   INTEGER NOT NULL DEFAULT 0,
+    cost_usd       REAL    NOT NULL DEFAULT 0,
+    metadata_json  TEXT    NOT NULL DEFAULT '{}'
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_one_shot_calls_ts
+     ON cost_one_shot_calls(ts DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_cost_one_shot_calls_service
+     ON cost_one_shot_calls(service, ts DESC)`,
 ];
 
 // 冪等 ALTER: 既存 DB に新規 column を後追いするための差分マイグレーション.

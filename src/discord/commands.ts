@@ -15,6 +15,7 @@ import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
+import mmtaskCommand from "./commands/mmtask.js";
 import projectsCommand from "./commands/projects.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
@@ -51,6 +52,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   endSessionCommand,
   enterCommand,
   cleanCommand,
+  mmtaskCommand,
   projectsCommand,
   chNameCommand,
   compactionCommand,

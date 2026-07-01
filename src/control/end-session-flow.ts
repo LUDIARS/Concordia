@@ -146,6 +146,7 @@ export async function runSessionEndFlow(
           message_id: msg.id,
           channel: msg.channel,
           author_label: msg.author_label,
+          session_id: msg.session_id,
           ts: msg.ts,
           is_actionable: false,
         });

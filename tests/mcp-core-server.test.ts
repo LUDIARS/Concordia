@@ -39,6 +39,23 @@ describe("concordia-core MCP server", () => {
     ];
     expect(names).toEqual(expectedTools.slice().sort());
   });
+
+  it("requires session_id for concordia_post_chat", () => {
+    const s = buildCoreServer();
+    const internal = s as unknown as {
+      _registeredTools: {
+        concordia_post_chat: {
+          inputSchema: {
+            safeParse(input: unknown): { success: boolean };
+          };
+        };
+      };
+    };
+    const schema = internal._registeredTools.concordia_post_chat.inputSchema;
+
+    expect(schema.safeParse({ channel: "system", text: "hi", author_label: "test" }).success).toBe(false);
+    expect(schema.safeParse({ channel: "system", text: "hi", author_label: "test", session_id: "s1" }).success).toBe(true);
+  });
 });
 
 describe("callConcordia", () => {
@@ -114,8 +131,8 @@ describe("callConcordia", () => {
       return { ok: true, status: 200, text: async () => "{}" } as never;
     }) as unknown as typeof fetch;
 
-    await callConcordia("POST", "/v1/chat", { channel: "system", text: "hi", author_label: "test" });
+    await callConcordia("POST", "/v1/chat", { channel: "system", text: "hi", author_label: "test", session_id: "s1" });
     expect(captured.method).toBe("POST");
-    expect(JSON.parse(captured.body ?? "")).toEqual({ channel: "system", text: "hi", author_label: "test" });
+    expect(JSON.parse(captured.body ?? "")).toEqual({ channel: "system", text: "hi", author_label: "test", session_id: "s1" });
   });
 });

@@ -17,6 +17,7 @@ import { ChatResponder } from "../src/chat/responder.js";
 import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
+import { eventBus, type ConcordiaEvent } from "../src/events.js";
 import type { SessionEventRow, SessionReportRow } from "../src/shared/types.js";
 
 function fakeReport(metadata: string | null): SessionReportRow {
@@ -115,13 +116,18 @@ describe("runSessionEndFlow", () => {
   it("monologue (poem) が抽出できれば #報告 channel に投稿される", async () => {
     const now = Math.floor(Date.now() / 1000);
     const ended = endedSession(env.repo, "s2", now);
+    const events: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((ev) => events.push(ev));
 
     const result = await runSessionEndFlow(env, ended);
+    unsubscribe();
     expect(result.postedMessageId).not.toBeNull();
     const msgs = env.chat.list({ channel: "報告", limit: 10 });
     expect(msgs.length).toBeGreaterThanOrEqual(1);
     const m = msgs.find((x) => x.session_id === "s2");
     expect(m).toBeTruthy();
+    const posted = events.find((ev) => ev.type === "chat.posted" && ev.message_id === m!.id);
+    expect(posted).toMatchObject({ type: "chat.posted", session_id: "s2" });
     expect(m!.channel).toBe("報告");
   });
 

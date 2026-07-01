@@ -81,9 +81,9 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const sessionId = row.session_id;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
   const session = sessionId ? deps.sessionsRepo.findSession(sessionId) : null;
-  if (sessionId && !isActiveRelayTarget(session?.status ?? null, sessionRow?.status ?? null)) {
+  if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null)) {
     deps.log.warn(
-      `egress.handleChatPosted skipped inactive session message_id=${row.id} row_session_id=${sessionId} ` +
+      `egress.handleChatPosted skipped unrelayable session message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
       `session_status=${session?.status ?? "null"} discord_status=${sessionRow?.status ?? "null"} ` +
       `session_channel=${sessionRow?.channel_id ?? "null"}`,
     );
@@ -390,9 +390,18 @@ export function trustedDiscordChannelId(input: {
   forceMeta: boolean;
 }): string | null {
   if (!input.explicitChannelId) return null;
-  if (!input.sessionId || input.forceMeta) return input.explicitChannelId;
+  if (!input.sessionId) return null;
+  if (input.forceMeta) return input.explicitChannelId;
   if (!input.sessionChannelId) return null;
   return input.explicitChannelId === input.sessionChannelId ? input.explicitChannelId : null;
+}
+
+export function isChatRelayTarget(
+  sessionId: string | null | undefined,
+  sessionStatus: string | null | undefined,
+  discordStatus: string | null | undefined,
+): boolean {
+  return !!sessionId && isActiveRelayTarget(sessionStatus, discordStatus);
 }
 
 export function isActiveRelayTarget(

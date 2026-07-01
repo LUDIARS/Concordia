@@ -237,7 +237,7 @@ export function buildCoreServer(): McpServer {
         channel: z.enum(["chitchat", "consultation", "報告", "system"]),
         text: z.string().min(1).max(2000),
         author_label: z.string().min(1).max(64),
-        session_id: z.string().optional().describe("Caller's session id (so the message is attributed). Optional."),
+        session_id: z.string().min(1).describe("Caller's Concordia session id. Required; unscoped chat is not relayed to Discord."),
         in_reply_to: z.number().int().positive().optional().describe("Reply to an existing chat message id"),
         scope: z.enum(["world", "local"]).optional().describe("'world' (default) = visible to all; 'local' = nearby only"),
       },
@@ -247,8 +247,8 @@ export function buildCoreServer(): McpServer {
         channel: args.channel,
         text: args.text,
         author_label: args.author_label,
+        session_id: args.session_id,
       };
-      if (args.session_id) body.session_id = args.session_id;
       if (args.in_reply_to) body.in_reply_to = args.in_reply_to;
       if (args.scope) body.scope = args.scope;
       return toToolResult(await callConcordia("POST", "/v1/chat", body));

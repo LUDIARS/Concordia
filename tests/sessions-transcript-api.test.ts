@@ -10,16 +10,20 @@ describe("sessions API — transcript", () => {
   beforeEach(() => { app = buildTestApp(); });
 
   it("POST /v1/sessions/:id/transcript-frame emits a session-targeted transcript.frame event", async () => {
-    await app.request("/v1/sessions", {
+    // emit は「active session + active Discord channel 紐付け」 のときだけ
+    // (33f3a7f: inactive relay 抑制)。 テストでも紐付けを作ってから叩く。
+    const env = makeTestApp();
+    await env.app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: "tf", provider: "claude-code", repo_path: "/x", host: "h" }),
     });
+    env.discordChannels.upsert({ session_id: "tf", channel_id: "ch-tf", status: "active" });
     const { eventBus } = await import("../src/events.js");
     const captured: any[] = [];
     const unsub = eventBus.subscribe((ev) => { if (ev.type === "transcript.frame") captured.push(ev); });
     try {
-      const r = await app.request("/v1/sessions/tf/transcript-frame", {
+      const r = await env.app.request("/v1/sessions/tf/transcript-frame", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ seq: 0, kind: "text", payload: { role: "assistant", text: "hi" } }),
@@ -32,6 +36,31 @@ describe("sessions API — transcript", () => {
         seq: 0,
         kind: "text",
       });
+    } finally {
+      unsub();
+    }
+  });
+
+  it("Discord channel 紐付けが無い session の frame は永続化のみで emit しない (inactive 抑制)", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf-nb", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsub = eventBus.subscribe((ev) => { if (ev.type === "transcript.frame") captured.push(ev); });
+    try {
+      const r = await app.request("/v1/sessions/tf-nb/transcript-frame", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seq: 0, kind: "text", payload: { role: "assistant", text: "hi" } }),
+      });
+      expect(r.status).toBe(200);
+      const body = await r.json() as { persisted: boolean; inactive?: boolean };
+      expect(body.persisted).toBe(true);
+      expect(body.inactive).toBe(true);
+      expect(captured).toHaveLength(0);
     } finally {
       unsub();
     }

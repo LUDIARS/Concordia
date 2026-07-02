@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
-    "@ludiars/vestigium": "file:./lib/vestigium",
+    "@ludiars/vestigium": "file:lib/vestigium",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@slack/socket-mode": "^2.0.7",
     "@slack/web-api": "^7.16.0",

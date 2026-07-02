@@ -37,8 +37,11 @@ jobs:
             web/package-lock.json
 
       - name: Build submodules
+        # install-links (junction 禁止, #261) で root npm ci が pack 時に prepare (tsc) を
+        # 再実行するため、devDeps (typescript/@types) は prune せず残す。
+        # copy 方式では node_modules は pack に含まれないので prune は不要。
         run: |
-          cd lib/vestigium && npm install --ignore-scripts && npm run build && npm prune --omit=dev && cd ../..
+          cd lib/vestigium && npm install --ignore-scripts && npm run build && cd ../..
 
       - name: Install deps (backend)
         run: npm ci

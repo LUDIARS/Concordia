@@ -555,6 +555,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
                   .postMessage({ channel: channelId, thread_ts: event.thread_ts ?? event.ts, text: getRwf().reactionAckText(action, wfEmoji) })
                   .catch((e) => log.warn(`emoji workflow ack: ${(e as Error).message}`));
               },
+              (action, result) => {
+                const prefix = result.ok ? "✅" : "⚠️";
+                void web.chat
+                  .postMessage({
+                    channel: channelId,
+                    thread_ts: event.thread_ts ?? event.ts,
+                    text: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
+                  })
+                  .catch((e) => log.warn(`emoji workflow result: ${(e as Error).message}`));
+              },
             )
             .catch((e) => log.warn(`emoji workflow: ${(e as Error).message}`));
           return;
@@ -844,6 +854,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           void web.chat
             .postMessage({ channel: ch, thread_ts: ts, text: getRwf().reactionAckText(action, emoji) })
             .catch((e) => log.warn(`reaction ack: ${(e as Error).message}`));
+        },
+        (action, result) => {
+          const prefix = result.ok ? "✅" : "⚠️";
+          void web.chat
+            .postMessage({
+              channel: ch,
+              thread_ts: ts,
+              text: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
+            })
+            .catch((e) => log.warn(`reaction result: ${(e as Error).message}`));
         },
       );
     } catch (e) {

@@ -406,6 +406,44 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     expect(accepted).toEqual(["delegate-task"]);
   });
 
+  it("handoff-document inactive は headless 結果を onResult に返す", async () => {
+    const { runner } = makeRunner({
+      runHeadless: async () => ({
+        ok: true,
+        exit_code: 0,
+        stdout: "保存先: session-logs/2026-07-01-handoff-test.md\n\n# 引継ぎ資料\n本文",
+        stderr: "",
+        duration_ms: 1,
+      }),
+    });
+    const results: { action: WorkflowAction; ok: boolean; text: string }[] = [];
+    await runner.handle(
+      { ...baseInput, emoji: "👋", sessionActive: false },
+      undefined,
+      (action, result) => results.push({ action, ...result }),
+    );
+    expect(results).toEqual([{
+      action: "handoff-document",
+      ok: true,
+      text: "保存先: session-logs/2026-07-01-handoff-test.md\n\n# 引継ぎ資料\n本文",
+    }]);
+  });
+
+  it("handoff-document 以外の headless 結果は onResult に返さない", async () => {
+    const { runner } = makeRunner({
+      runHeadless: async () => ({
+        ok: true,
+        exit_code: 0,
+        stdout: "完了",
+        stderr: "",
+        duration_ms: 1,
+      }),
+    });
+    const results: unknown[] = [];
+    await runner.handle({ ...baseInput, emoji: "👀" }, undefined, (_action, result) => results.push(result));
+    expect(results).toHaveLength(0);
+  });
+
   it("reactionAckText は 絵文字 + ラベル + 受付文 を返す", () => {
     expect(reactionAckText("enumerate-remaining", "🙏")).toBe("🙏 残作業の洗い出しを受け付けました");
   });

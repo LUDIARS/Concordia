@@ -6,7 +6,7 @@ import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
 import { ENTER_KEY_TEXT } from "../control/enter-key.js";
-import { type WorkflowAction, type ReactionWorkflowInput } from "../platform/reaction-workflow.js";
+import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { maybeSpawnFromReply } from "./reply-spawn.js";
 
@@ -37,7 +37,11 @@ export interface IngressDeps {
   messageMap?: DiscordMessageMapRepo;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
   workflow?: {
-    handle(input: ReactionWorkflowInput, onAccept?: (action: WorkflowAction) => void): Promise<void>;
+    handle(
+      input: ReactionWorkflowInput,
+      onAccept?: (action: WorkflowAction) => void,
+      onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+    ): Promise<void>;
   };
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
@@ -348,6 +352,15 @@ async function tryEmojiWorkflow(
         void msg
           .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
           .catch((e) => deps.log.warn(`ingress: emoji ack reply failed: ${(e as Error).message}`));
+      },
+      (action, result) => {
+        const prefix = result.ok ? "✅" : "⚠️";
+        void msg
+          .reply({
+            content: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
+            allowedMentions: { repliedUser: false },
+          })
+          .catch((e) => deps.log.warn(`ingress: emoji result reply failed: ${(e as Error).message}`));
       },
     )
     .catch((e) => deps.log.warn(`ingress: emoji workflow failed: ${(e as Error).message}`));

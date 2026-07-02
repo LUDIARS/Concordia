@@ -27,6 +27,7 @@ import {
 } from "../db/discord-repo.js";
 import {
   type ReactionWorkflowInput,
+  type WorkflowResultRelay,
   type WorkflowAction,
 } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
@@ -48,7 +49,11 @@ export interface ReactionsDeps {
    * message-map に依存せず fire-and-forget で呼ぶ。
    */
   workflow?: {
-    handle(input: ReactionWorkflowInput, onAccept?: (action: WorkflowAction) => void): Promise<void>;
+    handle(
+      input: ReactionWorkflowInput,
+      onAccept?: (action: WorkflowAction) => void,
+      onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+    ): Promise<void>;
   };
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
   sessionChannels?: DiscordSessionChannelsRepo;
@@ -130,6 +135,15 @@ export async function handleReactionAdd(
           void message
             .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
             .catch((e) => deps.log.info(`reactions: ack reply failed: ${(e as Error).message}`));
+        },
+        (action, result) => {
+          const prefix = result.ok ? "✅" : "⚠️";
+          void message
+            .reply({
+              content: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
+              allowedMentions: { repliedUser: false },
+            })
+            .catch((e) => deps.log.info(`reactions: result reply failed: ${(e as Error).message}`));
         },
       )
       .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));

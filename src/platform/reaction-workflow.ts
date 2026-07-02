@@ -52,6 +52,7 @@ export interface RwfRunOptions {
 /** headless 実行の結果。 engine が参照するフィールドのみ。 */
 export interface RwfRunResult {
   ok: boolean;
+  stdout: string;
   exit_code: number | null;
   stderr: string;
   duration_ms: number;
@@ -653,7 +654,7 @@ export function planWorkflow(
         `4. 注意点・ハマりどころ (既知の罠 / 失敗した方法 / 暫定回避)\n` +
         `5. 関連する PR / Issue / 主要ファイルパス / 実行コマンド\n\n` +
         `保存先: \`E:/Document/Ars/session-logs/\` に \`<YYYY-MM-DD>-handoff-<短い主題>.md\` で書き出す ` +
-        `(ディレクトリが無ければ作成)。 書き出したパスと 3〜5 行の要約を報告してください。\n` +
+        `(ディレクトリが無ければ作成)。 書き出したパス、 3〜5 行の要約、 そして保存した引継ぎ資料の本文全体を最終回答に含めてください。\n` +
         `- 推測で水増しせず、 実際の作業状態だけを書く。 不明点は「未確認」と明記する。`;
       // authoring session が生きていれば、 その AI に inject して文脈ごと書かせる (最も解像度が高い)。
       if (ctx.sessionActive) {
@@ -817,6 +818,11 @@ export interface ReactionWorkflowInput {
   sessionId: string | null;
 }
 
+export interface WorkflowResultRelay {
+  ok: boolean;
+  text: string;
+}
+
 /** 同一 (dedupeKey, emoji, userId) の再発火を抑える cooldown。 */
 const DEDUPE_SEC = 5 * 60;
 
@@ -895,6 +901,7 @@ export class ReactionWorkflowRunner {
   async handle(
     input: ReactionWorkflowInput,
     onAccept?: (action: WorkflowAction) => void,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
   ): Promise<void> {
     if (!this.isEnabled()) return;
 
@@ -969,10 +976,18 @@ export class ReactionWorkflowRunner {
       if (plan.mode === "inject") {
         this.inject(input.sessionId, plan.prompt, action);
       } else {
-        await this.runHeadless(plan);
+        const result = await this.runHeadless(plan);
+        this.relayHeadlessResult(action, result, onResult);
       }
     } catch (e) {
       this.deps.log.warn(`reaction-workflow: action=${action} failed: ${(e as Error).message}`);
+      this.relayHeadlessResult(action, {
+        ok: false,
+        exit_code: null,
+        stdout: "",
+        stderr: (e as Error).message,
+        duration_ms: 0,
+      }, onResult);
     }
   }
 
@@ -1016,7 +1031,7 @@ export class ReactionWorkflowRunner {
     this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId.slice(0, 8)}`);
   }
 
-  private async runHeadless(plan: WorkflowPlan): Promise<void> {
+  private async runHeadless(plan: WorkflowPlan): Promise<RwfRunResult> {
     const r = await this.deps.runHeadless(plan.prompt, {
       model: plan.model,
       cwd: plan.cwd,
@@ -1029,5 +1044,30 @@ export class ReactionWorkflowRunner {
         `reaction-workflow: ${plan.action} headless failed exit=${r.exit_code}: ${r.stderr.slice(0, 300)}`,
       );
     }
+    return r;
   }
+
+  private relayHeadlessResult(
+    action: WorkflowAction,
+    result: RwfRunResult,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+  ): void {
+    if (!onResult || !shouldRelayHeadlessResult(action)) return;
+    const raw = result.ok ? result.stdout.trim() : (result.stderr.trim() || `exit=${result.exit_code ?? "unknown"}`);
+    const text = raw || (result.ok ? "完了しました。" : "失敗しました。");
+    try {
+      onResult(action, { ok: result.ok, text: clipWorkflowRelayText(text) });
+    } catch (e) {
+      this.deps.log.warn(`reaction-workflow: result relay failed: ${(e as Error).message}`);
+    }
+  }
+}
+
+function shouldRelayHeadlessResult(action: WorkflowAction): boolean {
+  return action === "handoff-document";
+}
+
+function clipWorkflowRelayText(text: string, max = 1800): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 40).trimEnd()}\n\n...(truncated; see session-logs for full handoff)`;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fmtTs, api, type ModelCatalogItem } from "../api.js";
+import { RuntimeOptionsBuilder } from "../components/RuntimeOptionsBuilder.js";
 
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
 type Provider = "claude" | "codex" | "gemini" | "gemma4-12";
@@ -120,7 +121,6 @@ export function Delegation() {
   const [busy, setBusy] = useState(false);
   const [invokeFor, setInvokeFor] = useState<Template | null>(null);
   const [invokeArgs, setInvokeArgs] = useState<Record<string, string>>({});
-  const [invokeOptions, setInvokeOptions] = useState<Record<string, string>>({});
   const [invokeOptionsJson, setInvokeOptionsJson] = useState("{}");
   const [invokeCwd, setInvokeCwd] = useState("");
   const [invokeResult, setInvokeResult] = useState<unknown>(null);
@@ -323,18 +323,10 @@ export function Delegation() {
     for (const s of t.input_schema) {
       init[s.name] = s.default !== undefined ? String(s.default) : "";
     }
-    const optionInit: Record<string, string> = {};
-    const defaultOptions = t.default_options ?? {};
-    const suggestedKeys = new Set((t.runtime_options ?? []).map((opt) => opt.key));
-    for (const opt of t.runtime_options ?? []) {
-      optionInit[opt.key] = optionValueForJson(defaultOptions[opt.key]);
-    }
-    const extraDefaultOptions = Object.fromEntries(
-      Object.entries(defaultOptions).filter(([key]) => !suggestedKeys.has(key)),
-    );
     setInvokeArgs(init);
-    setInvokeOptions(optionInit);
-    setInvokeOptionsJson(JSON.stringify(extraDefaultOptions, null, 2));
+    // テンプレの default_options を初期値として JSON (単一の正本) に展開する。
+    // ビルダーと textarea は同じ JSON を編集するビュー。
+    setInvokeOptionsJson(JSON.stringify(t.default_options ?? {}, null, 2));
     setInvokeCwd(t.default_cwd ?? "");
     setInvokeResult(null);
   }
@@ -360,13 +352,6 @@ export function Delegation() {
           throw new Error("runtime options JSON must be an object");
         }
         options = parsed as Record<string, unknown>;
-      }
-      for (const opt of invokeFor.runtime_options ?? []) {
-        const v = invokeOptions[opt.key];
-        if (v === undefined || v === "") continue;
-        if (opt.type === "number") options[opt.key] = Number(v);
-        else if (opt.type === "boolean") options[opt.key] = v === "true";
-        else options[opt.key] = v;
       }
       const hasOptions = Object.keys(options).length > 0;
       const r = await mutate("POST", "/v1/delegation/invoke", {
@@ -564,49 +549,11 @@ export function Delegation() {
                     : "no suggestions for selected provider/model"}
                 </span>
               </div>
-              {formRuntimeOptions.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {formRuntimeOptions.map((opt) => {
-                    const current = optionValueForJson(safeRuntimeOptions(form.runtime_options_json)[opt.key]);
-                    return (
-                      <label key={opt.key} className="space-y-1">
-                        <span className="text-subtle">
-                          {opt.label} <span className="font-mono text-xs">{opt.key}</span>
-                          {opt.description && <div className="text-xs text-subtle">{opt.description}</div>}
-                        </span>
-                        {opt.type === "select" ? (
-                          <select
-                            className="foundation-form w-full"
-                            value={current}
-                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
-                          >
-                            <option value="">(provider default)</option>
-                            {(opt.choices ?? []).map((choice) => (
-                              <option key={choice.value} value={choice.value}>{choice.label}</option>
-                            ))}
-                          </select>
-                        ) : opt.type === "boolean" ? (
-                          <select
-                            className="foundation-form w-full"
-                            value={current}
-                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
-                          >
-                            <option value="">(provider default)</option>
-                            <option value="true">true</option>
-                            <option value="false">false</option>
-                          </select>
-                        ) : (
-                          <input
-                            className="foundation-form w-full"
-                            value={current}
-                            onChange={(e) => setFormRuntimeOption(opt, e.target.value)}
-                          />
-                        )}
-                      </label>
-                    );
-                  })}
-                </div>
-              )}
+              <RuntimeOptionsBuilder
+                suggestions={formRuntimeOptions}
+                json={form.runtime_options_json}
+                onJsonChange={(j) => setForm({ ...form, runtime_options_json: j })}
+              />
               <label className="block space-y-1">
                 <span className="text-subtle">runtime_options JSON</span>
                 <textarea
@@ -725,46 +672,13 @@ export function Delegation() {
                 onChange={(e) => setInvokeCwd(e.target.value)}
               />
             </label>
-            {invokeFor.runtime_options && invokeFor.runtime_options.length > 0 && (
-              <div className="col-span-2 grid grid-cols-2 gap-3">
-                {invokeFor.runtime_options.map((opt) => (
-                  <label key={opt.key} className="text-sm space-y-1">
-                    <span className="text-subtle">
-                      {opt.label} <span className="font-mono text-xs">{opt.key}</span>
-                      {opt.description && <div className="text-xs text-subtle">{opt.description}</div>}
-                    </span>
-                    {opt.type === "select" ? (
-                      <select
-                        className="foundation-form w-full"
-                        value={invokeOptions[opt.key] ?? ""}
-                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
-                      >
-                        <option value="">(provider default)</option>
-                        {(opt.choices ?? []).map((choice) => (
-                          <option key={choice.value} value={choice.value}>{choice.label}</option>
-                        ))}
-                      </select>
-                    ) : opt.type === "boolean" ? (
-                      <select
-                        className="foundation-form w-full"
-                        value={invokeOptions[opt.key] ?? ""}
-                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
-                      >
-                        <option value="">(provider default)</option>
-                        <option value="true">true</option>
-                        <option value="false">false</option>
-                      </select>
-                    ) : (
-                      <input
-                        className="foundation-form w-full"
-                        value={invokeOptions[opt.key] ?? ""}
-                        onChange={(e) => setInvokeOptions({ ...invokeOptions, [opt.key]: e.target.value })}
-                      />
-                    )}
-                  </label>
-                ))}
-              </div>
-            )}
+            <div className="col-span-2">
+              <RuntimeOptionsBuilder
+                suggestions={invokeFor.runtime_options ?? []}
+                json={invokeOptionsJson}
+                onJsonChange={setInvokeOptionsJson}
+              />
+            </div>
             <label className="text-sm space-y-1 col-span-2">
               <span className="text-subtle">runtime options JSON</span>
               <textarea

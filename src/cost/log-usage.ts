@@ -62,7 +62,7 @@ export function enumerateRecentLogTotals(maxAgeMs: number, now: number): Array<{
 }
 
 /** root 配下を depth まで掘り、 mtime >= cutoff の *.jsonl を visit する (best-effort)。 */
-function collectRecent(root: string, depth: number, cutoff: number, visit: (p: string) => void): void {
+export function collectRecent(root: string, depth: number, cutoff: number, visit: (p: string) => void): void {
   if (depth < 0 || !existsSync(root)) return;
   let ents: import("node:fs").Dirent[];
   try {

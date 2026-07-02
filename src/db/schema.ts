@@ -473,6 +473,27 @@ const STATEMENTS = [
     name_locked     INTEGER NOT NULL DEFAULT 0,
     ts              INTEGER NOT NULL
   )`,
+  // inbound (channel → session) 解決用。 channel_id は歴史データに重複がありうるため
+  // UNIQUE にはせず、 findByChannelId 側で「最新の active 束縛が勝つ」 を固定する。
+  `CREATE INDEX IF NOT EXISTS idx_discord_session_channels_channel
+     ON discord_session_channels(channel_id, status, ts)`,
+
+  // 「いま何が起動テスト / 再起動中か」 の宣言レジストリ (テスト交通整備)。
+  // セッションはサービスをテストする前に claim を宣言し、 Concordia が同一サービスの
+  // 並行テストを検知して両セッションへ警告 inject する。 spec/feature/testing-traffic.md
+  `CREATE TABLE IF NOT EXISTS service_test_claims (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    service     TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    branch      TEXT,
+    note        TEXT NOT NULL DEFAULT '',
+    started_at  INTEGER NOT NULL,
+    released_at INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_service_test_claims_active
+     ON service_test_claims(service, released_at, started_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_service_test_claims_session
+     ON service_test_claims(session_id, released_at)`,
 
   // Discord message id ↔ chat_messages.id の解決表. reaction を Concordia 内部
   // ID に解決するために必要 (Discord は message_id しか持たない).

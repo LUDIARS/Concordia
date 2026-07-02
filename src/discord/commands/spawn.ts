@@ -70,6 +70,24 @@ const spawnCommand: DiscordCommandSpec = {
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
 
+    // spawn は「あらかじめ用意されたチャンネル」 (#spawn, ensureDiscordLayout が自動作成)
+    // でのみ受け付ける。 spawnChannelId が空 = この guild では spawn 不可 (子会社等)。
+    if (!deps.layout.spawnChannelId) {
+      deps.log.warn(`spawn command rejected: spawn channel not provisioned guild=${interaction.guildId ?? "-"}`);
+      await interaction.reply({ content: "このサーバでは /spawn は利用できません。", ephemeral: true });
+      return;
+    }
+    if (interaction.channelId !== deps.layout.spawnChannelId) {
+      deps.log.warn(
+        `spawn command rejected: wrong channel channel=${interaction.channelId} allowed=${deps.layout.spawnChannelId}`,
+      );
+      await interaction.reply({
+        content: `/spawn は <#${deps.layout.spawnChannelId}> でのみ実行できます。`,
+        ephemeral: true,
+      });
+      return;
+    }
+
     // スポーン前のアクティブセッション ID を記録し、新規セッションチャンネルを特定する。
     const knownIds = new Set(deps.sessionChannelsRepo.listActive().map((r) => r.session_id));
 
@@ -133,31 +151,8 @@ const spawnCommand: DiscordCommandSpec = {
       });
       return;
     }
-    // 子会社 Bot の素の provider spawn は、 subsidiary_id を焼ける /v1/admin/spawn-session
-    // (loopback 信頼境界) を使う。 これで子会社セッションが本社側に出ず子会社 guild に出る。
-    if (deps.subsidiaryId) {
-      await interaction.deferReply({ ephemeral: false });
-      deps.log.info(`spawn command branch=subsidiary-provider provider=${provider} subsidiary=${deps.subsidiaryId}`);
-      const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
-        deps.concordiaUrl,
-        "POST",
-        "/v1/admin/spawn-session",
-        { provider, cwd, subsidiary_id: deps.subsidiaryId },
-      );
-      if ("error" in r || !r.ok) {
-        deps.log.warn(`spawn command subsidiary-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
-        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
-        return;
-      }
-      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
-      deps.log.info(`spawn command subsidiary-provider ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
-      await interaction.editReply({
-        content: channelMention
-          ? `Spawned \`${provider}\` → ${channelMention}`
-          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
-      });
-      return;
-    }
+    // 子会社経路は廃止: 子会社 guild では dispatchInteraction が全コマンドを拒否する
+    // (子会社は Discord コマンド不許可。 依頼は受付チャンネル → ガードゲートのみ)。
     // /v1/spawn requires the Bearer token from `<cwd>/.spawn.token`. The bot
     // runs in-process with Concordia so it can read the file directly.
     const token = readSpawnToken();

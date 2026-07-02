@@ -51,6 +51,10 @@ import { ChatResponder } from "./chat/responder.js";
 import { resolveRenderConfig } from "./chat/render-config.js";
 import { CostBudgetRepo } from "./cost/cost-budget-repo.js";
 import { CostUsageTracker } from "./cost/usage-tracker.js";
+import { cachedRecentLogTotals } from "./cost/log-totals-cache.js";
+import { cachedChannelCostReader } from "./cost/channel-cost-cache.js";
+import { TestingClaimsRepo } from "./db/testing-claims-repo.js";
+import { startBranchWatch } from "./testing/branch-watch.js";
 import { CostUsageSamplesRepo } from "./db/cost-usage-samples-repo.js";
 import { CostLimitSamplesRepo } from "./db/cost-limit-samples-repo.js";
 import { CostOneShotCallsRepo } from "./db/cost-one-shot-calls-repo.js";
@@ -84,6 +88,7 @@ import { startSlackBot } from "./slack/bot.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
+import { readWorkerLease, RELAY_CHECK_MS } from "./discord/relay-owner.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import type { ChatPlatform } from "./platform/chat-platform.js";
 
@@ -97,6 +102,8 @@ const USAGE_SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
 const USAGE_SAMPLE_RETENTION_SEC = 60 * 24 * 60 * 60;
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
+/** relay 所有権 lease の確認用 (init で設定)。 worker が生きていれば embedded は退く。 */
+let discordRelayConfigRepo: import("./db/discord-repo.js").DiscordConfigRepo | null = null;
 let slackBotHandle: ChatPlatform | null = null;
 let slackBotDeps: SlackBotDeps | null = null;
 
@@ -139,6 +146,12 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!discordEmbeddedEnabled()) return { ok: true, status: "disabled" };
+  // env 設定漏れで embedded と discord-worker が同一 token で二重起動すると
+  // interaction 二重 dispatch / spawn 二重実行になる。 live な worker lease が
+  // あれば embedded は起動しない (worker 優先)。
+  if (discordRelayConfigRepo && readWorkerLease(discordRelayConfigRepo)) {
+    return { ok: true, status: "disabled" };
+  }
   if (discordBotHandle) return { ok: true, status: "already_running" };
   if (!discordBotDeps) return { ok: false, status: "error", error: "discord deps not initialized" };
   try {
@@ -237,6 +250,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  discordRelayConfigRepo = discordConfig;
   // Slack 連携をサービス内 (DB) で設定するための repo + token 暗号化用 secret-box。
   // 鍵は DB の外 (env CONCORDIA_SECRET_KEY、 無ければ cwd の concordia.secret.key) に置く。
   const slackConfig = makeSlackConfigRepo(db);
@@ -274,12 +288,29 @@ export async function startBackend(): Promise<BackendHandle> {
   // env 継承ではなく CONCORDIA_HOST / CONCORDIA_PORT として明示注入する。
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
 
+  // テスト交通整備: 起動テスト/再起動の宣言レジストリ (/v1/testing) + ブランチ切替
+  // 監視 inject。 spec/feature/testing-traffic.md
+  const testingClaims = new TestingClaimsRepo(db);
+  const branchWatch = startBranchWatch({ sessions: repo, claims: testingClaims, log });
+  // セッション終了/喪失で claim を自動解放 (放置クレームの残留防止)。
+  const unsubTestingRelease = eventBus.subscribe((ev) => {
+    if (ev.type === "session.ended" || ev.type === "session.lost") {
+      try {
+        testingClaims.release(ev.session_id, null, Math.floor(Date.now() / 1000));
+      } catch { /* best-effort */ }
+    }
+  });
+
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
   // Concordia 発の命令 (spawn / dispatcher / rule engine / proposer) を止める。
   const costBudgetRepo = new CostBudgetRepo(db);
   const costTracker = new CostUsageTracker({
     repo: costBudgetRepo,
     getBudget: () => adminState.getDailyTokenBudget(),
+    // 2 分ごとの全 transcript フル再読みを増分読み (mtime/size 不変なら再読みゼロ) に
+    // 置き換える。 旧既定 (enumerateRecentLogTotals) は毎 tick 数十 MB の同期読みで
+    // イベントループを塞いでいた。
+    enumerate: cachedRecentLogTotals,
   });
   const isCostBlocked = () => costTracker.isBlocked();
   // 起動直後に baseline を作る (既存ログの累積を当日へ誤計上しないため即サンプル)。
@@ -307,7 +338,9 @@ export async function startBackend(): Promise<BackendHandle> {
     try {
       const active = repo.listSessions({ status: "active" });
       const nowSec = Math.floor(Date.now() / 1000);
-      usageSamplesRepo.insertMany(collectUsageSamples(active, nowSec));
+      // overview / モニターと同じ memo reader を共有する (無キャッシュ既定 reader は
+      // codex 1 セッションあたりツリー全走査 + フル読みを 2 回ずつ行っていた)。
+      usageSamplesRepo.insertMany(collectUsageSamples(active, nowSec, cachedChannelCostReader));
       usageSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
     } catch (e) {
       log.warn(`usage sampler failed: ${(e as Error).message}`);
@@ -525,6 +558,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegation: delegationRepo,
     delegationService,
     modelCatalog,
+    testingClaims,
     subsidiary: subsidiaryRepo,
     harnessRules: harnessRepo,
     harnessAudit: harnessAuditRepo,
@@ -689,12 +723,24 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/discord-ui.md
   {
     if (discordEmbeddedEnabled()) {
-      const started = await startDiscordBotManaged();
-      if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+      if (readWorkerLease(discordConfig)) {
+        log.info("Discord embedded bot skipped: live discord-worker lease found (worker owns relay)");
+      } else {
+        const started = await startDiscordBotManaged();
+        if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+      }
     } else {
       log.info("Discord embedded bot disabled; run `npm run discord:worker` as a separate relay process");
     }
   }
+  // embedded 稼働中に worker が後から起動した場合も二重化を解消する (worker 優先)。
+  const relayOwnerWatch = setInterval(() => {
+    if (!discordBotHandle || !readWorkerLease(discordConfig)) return;
+    log.warn("live discord-worker lease detected; stopping embedded Discord bot to avoid double relay");
+    void stopDiscordBotManaged();
+    void subsidiaryManager.stopAll().catch(() => { /* best-effort: worker 側が引き継ぐ */ });
+  }, RELAY_CHECK_MS);
+  relayOwnerWatch.unref?.();
 
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
@@ -726,6 +772,9 @@ export async function startBackend(): Promise<BackendHandle> {
       stallNudge.stop();
       autoCompaction.stop();
       metricsLoop.stop();
+      branchWatch.stop();
+      unsubTestingRelease();
+      clearInterval(relayOwnerWatch);
       clearInterval(costSampleTimer);
       clearInterval(usageSampleTimer);
       clearInterval(costLimitSampleTimer);

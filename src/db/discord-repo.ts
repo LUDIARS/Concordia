@@ -147,9 +147,16 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
       );
     },
     findByChannelId(channelId) {
+      // channel_id は歴史的に UNIQUE でなく、 チャンネル再利用で同一 channel_id の行が
+      // 複数残りうる。 旧実装 (無 ORDER BY の .get) は任意の 1 行を返し、 受信メッセージが
+      // 別セッションへ inject される混入の温床だった。 「最新の active 束縛が勝つ」 を
+      // 決定論として固定する。
       return (
         (db
-          .prepare("SELECT * FROM discord_session_channels WHERE channel_id = ?")
+          .prepare(
+            `SELECT * FROM discord_session_channels WHERE channel_id = ?
+             ORDER BY (status = 'active') DESC, ts DESC, rowid DESC LIMIT 1`,
+          )
           .get(channelId) as DiscordSessionChannelRow | undefined) ?? null
       );
     },

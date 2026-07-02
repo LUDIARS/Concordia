@@ -42,7 +42,7 @@ import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monit
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
-import { dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { clearGuildCommands, dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { invalidateDelegationTemplateCache } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
@@ -151,7 +151,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const inScope = (guildId: string | null | undefined): boolean => guildId === env.guildId;
   // 子会社は本社のような雑談 (meta) / pr-queue / errors を持たない slim 構成 (ユーザ要望)。
   const layoutOpts = deps.subsidiary
-    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
+    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false, includeSpawn: false }
     : undefined;
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
@@ -241,8 +241,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
       if (env.applicationId) {
         try {
-          await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
-          log.info(`slash commands registered guild=${env.guildId}`);
+          if (deps.subsidiary) {
+            // 子会社 guild には slash commands を出さない (過去登録があれば解除)。
+            // 依頼は受付チャンネルのメッセージ → ガードゲート経由のみ。
+            await clearGuildCommands(env.token!, env.applicationId, env.guildId!);
+            log.info(`slash commands cleared (subsidiary) guild=${env.guildId}`);
+          } else {
+            await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
+            log.info(`slash commands registered guild=${env.guildId}`);
+          }
         } catch (e) {
           log.warn(`slash command registration failed guild=${env.guildId}: ${(e as Error).message}`);
         }
@@ -491,12 +498,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     });
   });
   client.on(Events.InteractionCreate, (interaction) => {
-    if (!layout) return;
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
     // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
     // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を
     // 本社 Client が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
+    if (!layout) {
+      // 起動/再起動直後は layout 未準備。 旧実装は黙って捨てて "This interaction failed"
+      // に見えていた (spawn が効いたり効かなかったりする一因)。 明示的に案内する。
+      if (interaction.isRepliable()) {
+        void interaction.reply({ content: "Bot 起動処理中です。数秒後にもう一度お試しください。", ephemeral: true })
+          .catch(() => { /* interaction expired; best-effort */ });
+      }
+      return;
+    }
     void dispatchInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
       sessionsRepo: deps.sessionsRepo,

@@ -30,12 +30,15 @@ import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./d
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
-import { makeDiscordConfigRepo } from "./db/discord-repo.js";
+import { makeDiscordConfigRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus, type ConcordiaEvent } from "./events.js";
+import { startWorkerLease } from "./discord/relay-owner.js";
 
 const log = createChildLogger("discord-worker");
 const RECONNECT_MS = 3_000;
+/** 定期 reconcile の間隔 (WS 切断中に取りこぼした session.started の救済)。 */
+const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
 
 function loadDotEnv(file: string): void {
   if (!existsSync(file)) return;
@@ -57,7 +60,7 @@ interface WsBridge {
   stop(): void;
 }
 
-function startWsBridge(wsUrl: string): WsBridge {
+function startWsBridge(wsUrl: string, onOpen?: () => void): WsBridge {
   let stopped = false;
   let ws: WebSocket | null = null;
   let retry: ReturnType<typeof setTimeout> | null = null;
@@ -65,7 +68,10 @@ function startWsBridge(wsUrl: string): WsBridge {
   const connect = () => {
     if (stopped) return;
     ws = new WebSocket(wsUrl);
-    ws.on("open", () => log.info(`connected to backend ws ${wsUrl}`));
+    ws.on("open", () => {
+      log.info(`connected to backend ws ${wsUrl}`);
+      onOpen?.();
+    });
     ws.on("message", (raw) => {
       try {
         const msg = JSON.parse(raw.toString()) as { type?: unknown };
@@ -134,7 +140,37 @@ async function main(): Promise<void> {
   await initReactionWorkflow(workspaceRootDefault, log);
 
   const concordiaUrl = `http://${cfg.host}:${cfg.port}`;
-  const bridge = startWsBridge(`ws://${cfg.host}:${cfg.port}/ws`);
+  // relay 所有権 lease: embedded bot との二重起動 (interaction 二重 dispatch /
+  // spawn 二重実行) を機械的に防ぐ。 embedded 側は live な lease を見て退く。
+  const relayLease = startWorkerLease(discordConfig);
+  // WS 切断中に発火した session.started は再送されない。 接続 (再接続) 時と定期で、
+  // 「active なのにセッションチャンネル未作成」 のセッションへ合成 session.started を
+  // 流して救済する (onSessionRegistered は既知セッションを no-op する冪等実装)。
+  const headOfficeChannels = makeDiscordSessionChannelsRepo(db);
+  const reconcileMissedSessions = () => {
+    try {
+      const known = new Set(headOfficeChannels.listActive().map((r) => r.session_id));
+      for (const s of repo.listSessions({ status: "active" })) {
+        if (known.has(s.id)) continue;
+        eventBus.emit({
+          type: "session.started",
+          session_id: s.id,
+          provider: s.provider ?? "",
+          repo_path: s.repo_path,
+          branch: s.branch,
+          ts: Date.now(),
+        });
+      }
+    } catch (e) {
+      log.warn(`session reconcile failed: ${(e as Error).message}`);
+    }
+  };
+  const bridge = startWsBridge(`ws://${cfg.host}:${cfg.port}/ws`, () => {
+    // bot 側の layout 準備を待つ猶予をとってから救済する (起動直後の空振り回避)。
+    setTimeout(reconcileMissedSessions, 10_000).unref?.();
+  });
+  const reconcileTimer = setInterval(reconcileMissedSessions, RECONCILE_INTERVAL_MS);
+  reconcileTimer.unref?.();
   const emitSessionInject = postInject(concordiaUrl);
   const delegationRepo = new DelegationRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
@@ -185,6 +221,8 @@ async function main(): Promise<void> {
   log.info("Discord worker started");
 
   const shutdown = async () => {
+    clearInterval(reconcileTimer);
+    relayLease.stop();
     bridge.stop();
     await subsidiaryManager.stopAll().catch(() => {});
     if (bot) await bot.stop().catch(() => {});

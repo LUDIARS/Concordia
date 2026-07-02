@@ -16,6 +16,7 @@ import type { DelegationProvider, DelegationRepo } from "../db/delegation-repo.j
 import type { DelegationService } from "../delegation/service.js";
 import type { SubsidiaryBudgetStatus } from "./budget.js";
 import { runGuard, type GuardVerdict, type RunClaudeFn } from "./guard.js";
+import { buildSubsidiaryIntentInjection } from "./intent-inject.js";
 
 export interface SubsidiaryGateDeps {
   subsidiaryRepo: SubsidiaryRepo;
@@ -161,6 +162,27 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     return { outcome: "denied", reason: "owned delegation not found", verdict, callName,
       replyText: `⛔ 受け付けられません: 指定の delegation (${callName}) が見つかりません。` };
   }
+  // 4.5) intent 注入 (子会社のみ): instruction を prompt analyzer (heuristic/local LLM/
+  //      haiku) に通し、 判定とハーネスルールを spawn プロンプトへ前置きする。
+  //      注入は advisory の追加レイヤなので、 analyzer が失敗してもゲートは止めない
+  //      (deny 判定は上の Sonnet ガードが担う)。
+  let extraPrompt = instruction;
+  try {
+    const intent = await buildSubsidiaryIntentInjection({
+      instruction,
+      project: owned.project,
+      rules: harnessRules,
+      runClaude: deps.runClaude,
+    });
+    extraPrompt = `${intent.preamble}\n\n---\n\n${instruction}`;
+    log?.info(
+      `subsidiary gate: intent injected sub=${sub.name} decision=${intent.result.verdict.decision} ` +
+      `risk=${intent.result.verdict.risk} source=${intent.result.source}`,
+    );
+  } catch (e) {
+    log?.warn(`subsidiary gate: intent injection failed (proceeding without): ${(e as Error).message}`);
+  }
+
   const result = await deps.delegationService.invokeDefinition(
     {
       template_id: null,
@@ -176,7 +198,7 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     },
     {
       args: {},
-      extra_prompt: instruction,
+      extra_prompt: extraPrompt,
       triggered_by: `subsidiary:${sub.name}:${platform}:${userId}`,
       subsidiary_id: sub.id,
     },

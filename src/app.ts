@@ -72,6 +72,7 @@ import { subsidiaryRouter } from "./api/subsidiary.js";
 import { createChildLogger } from "./shared/logger.js";
 import { harnessRulesRouter } from "./api/harness-rules.js";
 import { harnessSessionRouter } from "./api/harness-session.js";
+import { testingRouter } from "./api/testing.js";
 import type { HarnessAuditRepo } from "./db/harness-audit-repo.js";
 import type { RunClaudeFn } from "./subsidiary/guard.js";
 import type { SubsidiaryRepo } from "./db/subsidiary-repo.js";
@@ -121,6 +122,8 @@ export interface AppDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   modelCatalog: ModelCatalogRepo;
+  /** テスト交通整備 (起動テスト/再起動の宣言レジストリ)。 */
+  testingClaims?: import("./db/testing-claims-repo.js").TestingClaimsRepo;
   /** 子会社 Delegation。 揃った時のみ /v1/subsidiaries / /v1/harness-rules を有効化。 */
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
@@ -241,6 +244,9 @@ export function buildApp(deps: AppDeps): Hono {
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
+  if (deps.testingClaims) {
+    app.route("/v1/testing", testingRouter({ claims: deps.testingClaims, sessions: deps.repo }));
+  }
   if (deps.harnessRules) {
     app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
   }

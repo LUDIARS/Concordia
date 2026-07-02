@@ -10,7 +10,8 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
-import { findCodexLog, readLines, readSessionUsage, type Totals } from "../cost/log-usage.js";
+import type { Totals } from "../cost/log-usage.js";
+import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
 
 /** OAuth usage 取得時の任意ロガー (fetchClaudeOAuthUsage の log と同形)。 */
 type UsageLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
@@ -111,7 +112,7 @@ export function renderCostReportMarkdown(
 function aggregate(sessions: SessionRow[]): Totals {
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
   for (const s of sessions) {
-    const t = readSessionUsage(s);
+    const t = cachedReadSessionUsage(s);
     if (!t) continue;
     out.input += t.input;
     out.cached += t.cached;
@@ -126,8 +127,10 @@ function aggregateCodexRate(sessions: SessionRow[]): CostRate {
   let minRemainWeekly: number | null = null;
   let minReset5h: number | null = null;
   let minResetWeekly: number | null = null;
-  for (const s of sessions) {
-    const r = readCodexRate(s);
+  // rate と plan は同じ token_count 行から取れるので、 セッションあたり 1 回だけ読む
+  // (旧実装は plan のためだけに readCodexRate をもう一周していた)。
+  const rates = sessions.map(readCodexRate);
+  for (const r of rates) {
     if (!r) continue;
     const r5 = remain(r.used5h);
     const rw = remain(r.usedWeekly);
@@ -141,36 +144,25 @@ function aggregateCodexRate(sessions: SessionRow[]): CostRate {
     usedWeekly: minRemainWeekly === null ? null : 100 - minRemainWeekly,
     reset5hAt: minReset5h,
     resetWeeklyAt: minResetWeekly,
-    plan: firstString(...sessions.map(readCodexPlan)),
+    plan: firstString(...rates.map((r) => r?.plan ?? null)),
   };
 }
 
 function readCodexRate(s: SessionRow): CostRate | null {
-  const p = findCodexLog(s);
-  if (!p) return null;
-  let latest: CostRate | null = null;
-  for (const line of readLines(p)) {
-    let o: any;
-    try { o = JSON.parse(line); } catch { continue; }
-    if (o?.type !== "event_msg" || o?.payload?.type !== "token_count") continue;
-    latest = {
-      used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),
-      usedWeekly: nnull(o?.payload?.rate_limits?.secondary?.used_percent),
-      reset5hAt: nnEpoch(o?.payload?.rate_limits?.primary?.resets_at),
-      resetWeeklyAt: nnEpoch(o?.payload?.rate_limits?.secondary?.resets_at),
-      plan: firstString(
-        o?.payload?.plan,
-        o?.payload?.rate_limits?.plan,
-        o?.payload?.rate_limits?.tier,
-        o?.payload?.rate_limits?.subscription,
-      ),
-    };
-  }
-  return latest;
-}
-
-function readCodexPlan(s: SessionRow): string | null {
-  return readCodexRate(s)?.plan ?? null;
+  const o = readLatestCodexTokenCountLine(s) as any;
+  if (!o) return null;
+  return {
+    used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),
+    usedWeekly: nnull(o?.payload?.rate_limits?.secondary?.used_percent),
+    reset5hAt: nnEpoch(o?.payload?.rate_limits?.primary?.resets_at),
+    resetWeeklyAt: nnEpoch(o?.payload?.rate_limits?.secondary?.resets_at),
+    plan: firstString(
+      o?.payload?.plan,
+      o?.payload?.rate_limits?.plan,
+      o?.payload?.rate_limits?.tier,
+      o?.payload?.rate_limits?.subscription,
+    ),
+  };
 }
 
 function firstString(...values: unknown[]): string | null {

@@ -69,7 +69,31 @@ export async function registerGuildCommands(token: string, applicationId: string
   await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body });
 }
 
+/** guild の slash commands を全解除する (子会社 guild にコマンドを出さないため)。 */
+export async function clearGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {
+  const rest = new REST({ version: "10" }).setToken(token);
+  await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body: [] });
+}
+
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
+  // 子会社 guild では Discord コマンドを一切許可しない (依頼は受付チャンネルの
+  // メッセージ → ガードゲート経由のみ)。 登録解除 (clearGuildCommands) が済むまでの
+  // 残存コマンドや、 過去に登録済みの guild からの実行もここで確実に弾く (二段防御)。
+  if (deps.subsidiaryId) {
+    deps.log.warn(
+      `discord interaction rejected (subsidiary) subsidiary=${deps.subsidiaryId} ` +
+      `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
+    );
+    if (interaction.isAutocomplete()) {
+      await interaction.respond([]).catch(() => { /* best-effort */ });
+    } else if (interaction.isRepliable()) {
+      await interaction.reply({
+        content: "このサーバでは Discord コマンドは利用できません。依頼は受付チャンネルへメッセージでどうぞ。",
+        ephemeral: true,
+      }).catch(() => { /* best-effort */ });
+    }
+    return;
+  }
   if (interaction.isChatInputCommand()) {
     deps.log.info(
       `discord command received name=${interaction.commandName} guild=${interaction.guildId ?? "-"} ` +

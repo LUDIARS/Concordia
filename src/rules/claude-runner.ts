@@ -81,12 +81,18 @@ export async function runClaude(
     if (opts.model) args.push("--model", opts.model);
     if (opts.dangerouslySkipPermissions) args.push("--dangerously-skip-permissions");
 
+    // Windows は claude が .cmd なので cmd.exe を明示して経由する (famulus-select.ts と
+    // 同じ作法)。 shell:true + args 配列は Node が非エスケープ連結する (DEP0190) ため
+    // 使わない — args に将来ユーザ由来値が混ざった時の injection 面にもなる。
+    const isWin = process.platform === "win32";
+    const file = isWin ? env.ComSpec ?? "cmd.exe" : "claude";
+    const cliArgs = isWin ? ["/d", "/s", "/c", "claude", ...args] : args;
+
     let child;
     try {
-      child = spawn("claude", args, {
+      child = spawn(file, cliArgs, {
         env,
         cwd: opts.cwd,
-        shell: process.platform === "win32",
         windowsHide: true,
       });
     } catch (e) {

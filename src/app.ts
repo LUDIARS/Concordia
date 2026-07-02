@@ -5,7 +5,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, utimesSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { ParticipantsRepo } from "./db/participants-repo.js";
@@ -704,14 +704,43 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   // 管理 API: 新コード反映用の self-restart.
-  // 子プロセスとして `npm run dev:backend` を detach spawn → 自分は 300ms 後に process.exit(0).
-  // listen socket は exit で OS が回収. 数 100ms の downtime あり (in-flight request は drop).
   // loopback (127.0.0.1) でしか上がってない前提で、 追加認証は付けない.
-  // test 時は CONCORDIA_RESTART_DRY_RUN=1 で spawn/exit を skip.
+  // test 時は CONCORDIA_RESTART_DRY_RUN=1 で restart 副作用を skip.
+  //
+  // dev:backend / Excubitor 管理の標準形は `node --watch` 配下で動く。 watch 配下で
+  // 旧実装のように `npm run dev:backend` を detached spawn すると、 旧 watch supervisor
+  // が生き残ったまま新ツリーが立ち **supervisor が二重化** する。 以後ファイル変更の
+  // たびに旧側の watch も子を再起動し、 port 11111 を取り合って EADDRINUSE クラッシュ
+  // ループになる (2026-07-02 障害の根本原因)。
+  // → watch 配下では新ツリーを作らず、 entry ファイルの mtime を touch して watcher
+  //   自身に再起動させる (supervisor ツリーは 1 本のまま)。
+  // watch 検出は Node watch 子プロセスの実測シグナル 2 点 (IPC channel が付く +
+  // WATCH_REPORT_DEPENDENCIES が入る) の AND。 どちらも watch 以外では現れない。
   app.post("/v1/admin/restart", (c) => {
     if (process.env.CONCORDIA_RESTART_DRY_RUN === "1") {
       return c.json({ ok: true, dry_run: true });
     }
+    const underWatch =
+      typeof process.send === "function" && process.env.WATCH_REPORT_DEPENDENCIES !== undefined;
+    if (underWatch) {
+      const entry = resolve(process.argv[1] ?? "");
+      // fail-fast: entry が実在しなければ touch では再起動できない (§9)。
+      if (!entry || !existsSync(entry)) {
+        return c.json({ ok: false, error: `restart entry not found: ${entry || "(empty argv[1])"}` }, 500);
+      }
+      // レスポンスを先に返してから touch する (watcher は touch 直後に SIGTERM してくる)。
+      setTimeout(() => {
+        const now = new Date();
+        try {
+          utimesSync(entry, now, now);
+        } catch {
+          // watcher 再起動と競合して ENOENT/EPERM になりうる; 次の restart 要求で再試行可
+        }
+      }, 100);
+      return c.json({ ok: true, message: "restarting (watch-mode: entry touched, watcher restarts in-place)" });
+    }
+    // 非 watch (node dist/server.js 等): 従来通り detach spawn → 自分は exit(0)。
+    // supervisor がいないのでツリー二重化は起きない。
     setTimeout(() => {
       // shell:true を避けてアタック面を減らす (CWE-78)。 固定コマンドだが OS shell を
       // 介さず、 Windows では npm.cmd を明示して直接 spawn する。

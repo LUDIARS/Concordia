@@ -74,7 +74,12 @@ npm run dev
 npm run dev:backend
 ```
 
-restart endpoint (`POST /v1/admin/restart`, `app.ts:308`) は `npm run dev:backend` を detached spawn して自分は exit する。 Windows では `shell: true` で `npm.cmd` を OS shell 解決させているので、 PATH に npm がある前提。 テスト時は `CONCORDIA_RESTART_DRY_RUN=1` で実 spawn を skip できる。
+restart endpoint (`POST /v1/admin/restart`) は実行形態で挙動が分かれる:
+
+- **`node --watch` 配下 (dev:backend / Excubitor 管理の標準形)**: entry ファイル (`src/server.ts`) の mtime を touch し、 **watcher 自身に in-place 再起動させる**。 detached spawn はしない — 旧 watch supervisor が生き残ったまま新ツリーを立てると supervisor が二重化し、 以後ファイル変更のたびに port 11111 を取り合う EADDRINUSE クラッシュループになるため (2026-07-02 障害)。 watch 検出は watch 子プロセス固有の IPC channel + `WATCH_REPORT_DEPENDENCIES` env。
+- **非 watch (`node dist/server.js` 等)**: 従来通り `npm run dev:backend` を detached spawn して自分は exit する。 `npm.cmd` を明示指定するので PATH に npm がある前提 (shell 経由はしない)。
+
+テスト時は `CONCORDIA_RESTART_DRY_RUN=1` で restart 副作用を skip できる。
 
 ## トラブルシュート
 

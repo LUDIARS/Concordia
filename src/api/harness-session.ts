@@ -16,7 +16,13 @@ import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { evaluateAction } from "../harness/session-gate.js";
 import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/predicates.js";
-import { classifyPromptIntent, type IntentHarnessRule } from "../harness/prompt-intent.js";
+import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
+import {
+  analyzePromptWithClaudeModel,
+  analyzePromptWithLocalLlm,
+  heuristicPromptAnalysis,
+} from "../harness/local-prompt-analyzer.js";
+import { collectPromptResearch } from "../harness/prompt-research.js";
 import type { RunClaudeFn } from "../subsidiary/guard.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
@@ -63,6 +69,14 @@ const IntentSchema = z.object({
 
 /** per-prompt 意図判定に使う Sonnet モデル (env 上書き可)。 */
 const INTENT_MODEL = process.env.CONCORDIA_HARNESS_INTENT_MODEL || "sonnet";
+
+function promptAnalyzerMode(): string {
+  return (process.env.CONCORDIA_PROMPT_ANALYZER || "local").toLowerCase();
+}
+
+function promptResearchEnabled(): boolean {
+  return process.env.CONCORDIA_PROMPT_RESEARCH === "1";
+}
 
 export interface HarnessSessionApiDeps {
   audit: HarnessAuditRepo;
@@ -172,31 +186,36 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { prompt, project, branch, session_id } = parsed.data;
 
-    if (!deps.runClaude) return c.json({ enabled: false, reason: "intent 判定は未配線 (runClaude 未注入)" });
-
     const rules: IntentHarnessRule[] = deps.rules.list().map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
-    const { verdict, raw } = await classifyPromptIntent(
-      { prompt, project, branch, rules, gates },
-      { model: INTENT_MODEL, runClaude: deps.runClaude },
-    );
+    const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates };
+    const mode = promptAnalyzerMode();
+    const analyzed = mode === "off"
+      ? heuristicPromptAnalysis(intentContext)
+      : (mode === "haiku" || mode === "claude" || mode === "sonnet") && deps.runClaude
+        ? await analyzePromptWithClaudeModel(intentContext, deps.runClaude, { model: mode === "haiku" ? "haiku" : INTENT_MODEL })
+        : await analyzePromptWithLocalLlm(intentContext);
+    const { verdict, raw, analysis, source } = analyzed;
+    const research = promptResearchEnabled()
+      ? await collectPromptResearch(analysis, { prompt, project })
+      : { enabled: false, threshold: 0, query_terms: [], projects: [], anatomia: [], thaleia: [] };
 
     const rec = recordSafe(deps.audit, {
       session_id, project, hook: "intent", event: "start_prompt",
       action: prompt.slice(0, 200), rule: verdict.concerns[0] ?? "",
       decision: verdict.decision as HarnessAuditDecision,
       reason: verdict.advice || verdict.intent,
-      detail: { risk: verdict.risk, concerns: verdict.concerns, intent: verdict.intent, raw: raw.slice(0, 2000) },
+      detail: { risk: verdict.risk, concerns: verdict.concerns, intent: verdict.intent, source, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety, research, raw: raw.slice(0, 2000) },
       ms: Date.now() - t0,
     });
 
     const intentLevel: VgLevel = verdict.decision === "warn" ? "warn" : "info";
     emit(intentLevel, `harness intent ${verdict.decision} (risk=${verdict.risk})`, {
       session_id, project, branch, decision: verdict.decision, risk: verdict.risk,
-      concerns: verdict.concerns, intent: verdict.intent.slice(0, 120), ms: Date.now() - t0,
+      concerns: verdict.concerns, intent: verdict.intent.slice(0, 120), source, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety.level, research_enabled: research.enabled, ms: Date.now() - t0,
     });
 
-    return c.json({ enabled: true, ...verdict, audit_ok: rec.ok, ...(rec.error ? { audit_error: rec.error } : {}) });
+    return c.json({ enabled: true, source, ...verdict, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety, research, audit_ok: rec.ok, ...(rec.error ? { audit_error: rec.error } : {}) });
   });
 
   // 監査ログ取得 (確認経路)。

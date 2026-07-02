@@ -32,7 +32,11 @@ const readJson = async (res: { json: () => Promise<unknown> }): Promise<Record<s
 
 describe("/v1/harness route", () => {
   let ctx: ReturnType<typeof makeApp>;
-  beforeEach(() => { ctx = makeApp(); });
+  beforeEach(() => {
+    process.env.CONCORDIA_PROMPT_ANALYZER = "off";
+    process.env.CONCORDIA_PROMPT_RESEARCH = "0";
+    ctx = makeApp();
+  });
 
   it("health は ok", async () => {
     const res = await ctx.app.request("/v1/harness/health");
@@ -124,21 +128,25 @@ describe("/v1/harness route", () => {
     }
   });
 
-  it("intent は runClaude 未注入なら enabled:false (opt-in)", async () => {
-    const res = await post(ctx.app, "/v1/harness/intent", { prompt: "実装したい", session_id: "i0" });
-    const v = await readJson(res);
-    expect(v.enabled).toBe(false);
-  });
-
-  it("intent は runClaude 注入時に判定し start_prompt を監査記録する", async () => {
-    const fake = makeApp(async () => ({
-      ok: true,
-      stdout: '{"decision":"warn","risk":"high","intent":"全削除","concerns":["破壊専用禁止"],"advice":"やめろ"}',
-      stderr: "",
-    }));
-    const res = await post(fake.app, "/v1/harness/intent", { prompt: "本番DBを全削除したい", project: "concordia", session_id: "i1" });
+  it("intent falls back to heuristic analysis when runClaude is not wired", async () => {
+    const res = await post(ctx.app, "/v1/harness/intent", { prompt: "Add a hook to Concordia", session_id: "i0" });
     const v = await readJson(res);
     expect(v.enabled).toBe(true);
+    expect(v.source).toBe("heuristic");
+    expect(v.search_tags).toContain("hook");
+  });
+
+  it("intent uses runClaude when haiku analyzer mode is selected", async () => {
+    process.env.CONCORDIA_PROMPT_ANALYZER = "haiku";
+    const fake = makeApp(async () => ({
+      ok: true,
+      stdout: '{"decision":"warn","risk":"high","intent":"delete production data","concerns":["destructive_operation"],"advice":"stop"}',
+      stderr: "",
+    }));
+    const res = await post(fake.app, "/v1/harness/intent", { prompt: "Delete the production DB", project: "concordia", session_id: "i1" });
+    const v = await readJson(res);
+    expect(v.enabled).toBe(true);
+    expect(v.source).toBe("haiku");
     expect(v.decision).toBe("warn");
     expect(v.risk).toBe("high");
     expect(v.audit_ok).toBe(true);

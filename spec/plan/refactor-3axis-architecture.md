@@ -13,6 +13,7 @@ tags:
   - modularity
 status: planned
 related:
+  - tasks/README.md
   - ../feature/subsidiary-delegation.md
   - ../feature/delegation.md
   - ../feature/reaction-workflow.md
@@ -180,6 +181,8 @@ CONCORDIA_COST_MODE=embedded|worker|off   (default: embedded → 将来 worker)
 ---
 
 ## 5. フェーズ計画
+
+> 実装タスクへの分解は [`tasks/README.md`](tasks/README.md) (Codex 向け指示書)。
 
 各フェーズは独立にマージ・リリース可能。 **HTTP ルート URL と hook 契約は
 全フェーズで不変** (hook / MCP / web が同じ URL を叩き続けられること)。

@@ -3,6 +3,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
 import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
+import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { collectChannelCostRows, renderChannelCostLines } from "../cost/channel-cost.js";
 
 const MONITOR_MESSAGE_KEY = "monitor_status_message_id";
@@ -55,7 +56,7 @@ export async function upsertMonitorChannelMessage(
   // session_id → channel_id は session_channels テーブル (scope 付き) で引く。
   const channelOf = (sessionId: string): string | null =>
     sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null;
-  const channelRows = collectChannelCostRows(active, channelOf);
+  const channelRows = collectChannelCostRows(active, channelOf, cachedChannelCostReader);
   lines.push("");
   lines.push(...renderChannelCostLines(channelRows));
 

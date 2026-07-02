@@ -18,6 +18,7 @@ import type { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
 import type { CostOneShotCallsRepo, CostOneShotStatus } from "../db/cost-one-shot-calls-repo.js";
 import { collectOrgCostWindows, type OrgCostSubsidiary } from "../cost/org-cost.js";
 import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
+import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { collectChannelCostRows } from "../cost/channel-cost.js";
 import type { CostReport } from "../cost/cost-report.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
@@ -66,7 +67,9 @@ export function costRouter(deps: CostApiDeps): Hono {
     t = mark("listActiveSessionsMs", t);
     const channelOf = (sid: string): string | null =>
       deps.channels.findBySessionId(sid)?.channel_id ?? null;
-    const channels = collectChannelCostRows(active, channelOf);
+    // context/cost も memo + tail/増分読み (旧: findCodexLog 全走査 ×2 + 全行読みで
+    // active 12 セッション ≈ 16 秒のイベントループ停止)。
+    const channels = collectChannelCostRows(active, channelOf, cachedChannelCostReader);
     mark("collectChannelCostRowsMs", t);
     const body = { windows, channels };
     logTiming("/overview", started, {

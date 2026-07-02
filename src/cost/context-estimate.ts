@@ -32,8 +32,13 @@ function isObj(v: unknown): v is Record<string, unknown> {
  * input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
  */
 export function readClaudeContextTokens(path: string): number | null {
+  return claudeContextFromLines(readLines(path));
+}
+
+/** 行配列版 (tail 読みキャッシュから使う純粋関数)。 */
+export function claudeContextFromLines(lines: string[]): number | null {
   let last: number | null = null;
-  for (const line of readLines(path)) {
+  for (const line of lines) {
     let o: unknown;
     try {
       o = JSON.parse(line);
@@ -63,8 +68,13 @@ export function readClaudeContextTokens(path: string): number | null {
  * input_tokens は cached を内包するため cached を足さない (= 二重計上回避)。
  */
 export function readCodexContextTokens(path: string): number | null {
+  return codexContextFromLines(readLines(path));
+}
+
+/** 行配列版 (tail 読みキャッシュから使う純粋関数)。 */
+export function codexContextFromLines(lines: string[]): number | null {
   let last: number | null = null;
-  for (const line of readLines(path)) {
+  for (const line of lines) {
     let o: unknown;
     try {
       o = JSON.parse(line);

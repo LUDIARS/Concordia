@@ -799,6 +799,11 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_session_audit_created
      ON harness_session_audit(created_at DESC)`,
+  // gate はツール実行毎に distinctEditedRepos (session_id + tool + repo) を引く。
+  // session_id 系の索引が無いとテーブル成長に比例してフルスキャンが遅くなるため、
+  // クエリを index-only で捌ける複合索引を張る (recent の session_id 絞りにも効く)。
+  `CREATE INDEX IF NOT EXISTS idx_harness_session_audit_session_tool
+     ON harness_session_audit(session_id, tool, repo)`,
 
   // ─── cost 使用量の時系列サンプル (10 分毎、 セッション別) ───────────────
   // 10 分毎に全 active セッションの「現在のコンテキスト占有」 と「累積消費トークン」 を

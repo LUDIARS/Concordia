@@ -2,6 +2,7 @@ import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
+import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
 import { collectChannelCostRows, renderChannelCostLines } from "../cost/channel-cost.js";
 
 const MONITOR_MESSAGE_KEY = "monitor_status_message_id";
@@ -46,7 +47,8 @@ export async function upsertMonitorChannelMessage(
   // 本社 / 子会社別のコスト (本日 + 週間、 時間帯集計、 本社モニターのみ)。
   if (costSubsidiaries) {
     lines.push("");
-    lines.push(...renderOrgCostLines(collectOrgCostWindows(sessionsRepo, costSubsidiaries)));
+    // /v1/cost/overview と同じ memo 化 reader を共有 (同期 I/O でイベントループを塞がない)。
+    lines.push(...renderOrgCostLines(collectOrgCostWindows(sessionsRepo, costSubsidiaries, Date.now(), cachedSessionWindowReader)));
   }
 
   // Lictor の近況 (current_task 一覧) は出さず、 チャンネルごとの「コンテキストの重さ + コスト」を出す。

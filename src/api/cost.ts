@@ -17,6 +17,7 @@ import type { CostUsageSamplesRepo } from "../db/cost-usage-samples-repo.js";
 import type { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
 import type { CostOneShotCallsRepo, CostOneShotStatus } from "../db/cost-one-shot-calls-repo.js";
 import { collectOrgCostWindows, type OrgCostSubsidiary } from "../cost/org-cost.js";
+import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
 import { collectChannelCostRows } from "../cost/channel-cost.js";
 import type { CostReport } from "../cost/cost-report.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
@@ -49,7 +50,9 @@ export function costRouter(deps: CostApiDeps): Hono {
     const subs = deps.listSubsidiaries();
     let t = mark("listSubsidiariesMs", started);
     let orgProfile: unknown = null;
-    const windows = collectOrgCostWindows(deps.sessions, subs, Date.now(), undefined, {
+    // memo 化 reader: 変化のないログ (終了済みセッション等) の再読みとパス再解決を
+    // 省き、 同期 I/O でイベントループを長時間塞ぐのを防ぐ (実測 26s → ms オーダー)。
+    const windows = collectOrgCostWindows(deps.sessions, subs, Date.now(), cachedSessionWindowReader, {
       onProfile: (profile) => {
         orgProfile = {
           sessions: profile.sessions,

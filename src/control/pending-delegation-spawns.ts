@@ -16,6 +16,8 @@ export interface PendingDelegationSpawn {
   callName: string;
   /** 子会社由来の spawn なら子会社 id。 session.started 時に metadata.subsidiary_id へ焼く。 */
   subsidiaryId: string | null;
+  /** project 限定 spawn ならプロジェクト名。 session.started 時に metadata.project へ焼く。 */
+  project: string | null;
   at: number;
 }
 
@@ -23,7 +25,7 @@ const pending: PendingDelegationSpawn[] = [];
 
 /** spawn 直後に呼ぶ。cwd が空なら記録しない（照合に使えないため）。 */
 export function recordPendingDelegationSpawn(
-  input: { cwd?: string | null; emoji?: string | null; callName: string; subsidiaryId?: string | null },
+  input: { cwd?: string | null; emoji?: string | null; callName: string; subsidiaryId?: string | null; project?: string | null },
   now = Date.now(),
 ): void {
   const cwd = (input.cwd ?? "").trim();
@@ -33,6 +35,7 @@ export function recordPendingDelegationSpawn(
     emoji: (input.emoji ?? "").trim() || null,
     callName: input.callName,
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
+    project: (input.project ?? "").trim() || null,
     at: now,
   });
   prune(now);

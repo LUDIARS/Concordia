@@ -576,8 +576,14 @@ export const api = {
     cwd?: string;
     title?: string;
     mode?: "tab" | "window";
+    /** 子会社セッションとして spawn (metadata.subsidiary_id へ焼かれる) */
+    subsidiary_id?: string | null;
+    /** project 限定 spawn: workspace roots 配下のプロジェクト名。 cwd 固定 + 範囲制限プロンプト注入 */
+    project?: string;
+    /** 自由テキストの初回プロンプト */
+    prompt?: string;
   }) =>
-    post<{ ok: boolean; pid: number | null; command: string[]; injected_prompt?: boolean; run_id?: string }>(
+    post<{ ok: boolean; pid: number | null; command: string[]; injected_prompt?: boolean; run_id?: string; project?: string | null; error?: string }>(
       "/v1/admin/spawn-session",
       body,
     ),

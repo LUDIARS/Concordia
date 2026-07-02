@@ -15,8 +15,6 @@ export interface DiscordConfigSnapshot {
   prQueueChannelId: string;
   errorCategoryId: string;
   errorChannelId: string;
-  /** /spawn を受け付ける専用チャンネル。 空 = spawn 不可 (子会社など)。 */
-  spawnChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
 }
 
@@ -30,7 +28,6 @@ const MONITOR_CHANNEL_KEY = "monitor_channel_id";
 const PR_QUEUE_CHANNEL_KEY = "pr_queue_channel_id";
 const ERROR_CATEGORY_KEY = "error_category_id";
 const ERROR_CHANNEL_KEY = "error_channel_id";
-const SPAWN_CHANNEL_KEY = "spawn_channel_id";
 
 const CATEGORY_NAMES = {
   meta: "meta",
@@ -59,8 +56,6 @@ export interface EnsureLayoutOptions {
   includePrQueue?: boolean;
   /** 「エラー」 カテゴリ + errors チャンネルを作るか。 既定 true。 */
   includeErrors?: boolean;
-  /** /spawn 専用チャンネルを作るか。 既定 true (子会社は false = spawn 不可)。 */
-  includeSpawn?: boolean;
 }
 
 export async function ensureDiscordLayout(
@@ -71,7 +66,6 @@ export async function ensureDiscordLayout(
   const includeMetaChannels = opts.includeMetaChannels ?? true;
   const includePrQueue = opts.includePrQueue ?? true;
   const includeErrors = opts.includeErrors ?? true;
-  const includeSpawn = opts.includeSpawn ?? true;
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
@@ -89,11 +83,6 @@ export async function ensureDiscordLayout(
   const errorCategoryId = includeErrors ? await ensureCategory(guild, repo, ERROR_CATEGORY_KEY, CATEGORY_NAMES.error) : "";
   const errorChannelId = includeErrors
     ? await ensureTextChannel(guild, repo, ERROR_CHANNEL_KEY, "errors", errorCategoryId)
-    : "";
-  // /spawn 専用チャンネル: 「あらかじめ用意されたチャンネル」 でのみ spawn を許可する
-  // ための固定入口。 冪等に自動作成し、 spawn コマンドはこの id 以外を拒否する。
-  const spawnChannelId = includeSpawn
-    ? await ensureTextChannel(guild, repo, SPAWN_CHANNEL_KEY, "spawn", metaCategoryId)
     : "";
 
   const metaChannels: Record<MetaChannelKind, string> = {} as Record<MetaChannelKind, string>;
@@ -128,7 +117,6 @@ export async function ensureDiscordLayout(
     prQueueChannelId,
     errorCategoryId,
     errorChannelId,
-    spawnChannelId,
     metaChannels,
   };
 }

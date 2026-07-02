@@ -151,7 +151,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   const inScope = (guildId: string | null | undefined): boolean => guildId === env.guildId;
   // 子会社は本社のような雑談 (meta) / pr-queue / errors を持たない slim 構成 (ユーザ要望)。
   const layoutOpts = deps.subsidiary
-    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false, includeSpawn: false }
+    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
     : undefined;
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。

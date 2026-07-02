@@ -273,6 +273,8 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       // 子会社由来の spawn は subsidiary_id を焼く。 子会社 Bot はこれで自分のセッションを
       // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
+      // project 限定 spawn は project を焼く (作業範囲の監査 / UI 表示用)。
+      if (claimed?.project) meta.project = claimed.project;
       // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
       // handoff 本文は後段で inject する。
       const relictor = claimPendingRelictor(input.repo_path);

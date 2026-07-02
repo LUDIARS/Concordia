@@ -34,6 +34,8 @@ interface CacheEntry {
 export class DelegationTemplateCache {
   private entry: CacheEntry | null = null;
   private inFlight: Promise<DelegationTemplateLite[]> | null = null;
+  /** clear() 後に旧 in-flight の結果が entry を復活させないための世代番号。 */
+  private generation = 0;
 
   constructor(
     private readonly options: {
@@ -51,7 +53,11 @@ export class DelegationTemplateCache {
     now = this.now(),
   ): Promise<DelegationTemplateCacheResult> {
     const ttlMs = this.options.ttlMs ?? DELEGATION_TEMPLATE_CACHE_TTL_MS;
-    const maxInitialWaitMs = this.options.maxInitialWaitMs ?? 600;
+    // Discord autocomplete の応答猶予は約 3 秒。 旧値 600ms は backend が少しでも
+    // 詰まる (イベントループ渋滞等) と空メニューを返してしまい、 「2 回目の /spawn で
+    // template 候補が出ない」 (worker 再起動直後の cold cache) の原因だった。
+    // 猶予内いっぱい待つ方が UX が良い。
+    const maxInitialWaitMs = this.options.maxInitialWaitMs ?? 2500;
     const entry = this.entry;
     if (entry && now - entry.fetchedAt < ttlMs) {
       return { templates: entry.templates, source: "cache", refreshing: false };
@@ -70,15 +76,18 @@ export class DelegationTemplateCache {
   clear(): void {
     this.entry = null;
     this.inFlight = null;
+    this.generation++;
   }
 
   private refresh(baseUrl: string, log: DelegationTemplateCacheLogger): Promise<DelegationTemplateLite[]> {
     if (this.inFlight) return this.inFlight;
     const timeoutMs = this.options.requestTimeoutMs ?? 5_000;
     const fetcher = this.options.fetcher ?? fetchDelegationTemplates;
+    const gen = this.generation;
     this.inFlight = fetcher(baseUrl, timeoutMs)
       .then((templates) => {
-        this.entry = { templates, fetchedAt: this.now() };
+        // clear() (templates_changed invalidate) より古い結果で entry を復活させない。
+        if (gen === this.generation) this.entry = { templates, fetchedAt: this.now() };
         return templates;
       })
       .catch((err) => {

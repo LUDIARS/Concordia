@@ -70,23 +70,8 @@ const spawnCommand: DiscordCommandSpec = {
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
 
-    // spawn は「あらかじめ用意されたチャンネル」 (#spawn, ensureDiscordLayout が自動作成)
-    // でのみ受け付ける。 spawnChannelId が空 = この guild では spawn 不可 (子会社等)。
-    if (!deps.layout.spawnChannelId) {
-      deps.log.warn(`spawn command rejected: spawn channel not provisioned guild=${interaction.guildId ?? "-"}`);
-      await interaction.reply({ content: "このサーバでは /spawn は利用できません。", ephemeral: true });
-      return;
-    }
-    if (interaction.channelId !== deps.layout.spawnChannelId) {
-      deps.log.warn(
-        `spawn command rejected: wrong channel channel=${interaction.channelId} allowed=${deps.layout.spawnChannelId}`,
-      );
-      await interaction.reply({
-        content: `/spawn は <#${deps.layout.spawnChannelId}> でのみ実行できます。`,
-        ephemeral: true,
-      });
-      return;
-    }
+    // 本社はどのチャンネルからでも spawn 可 (2026-07-02 ユーザ指示でチャンネル限定を撤回)。
+    // 子会社の spawn 禁止は dispatchInteraction の全コマンド拒否で担保している。
 
     // スポーン前のアクティブセッション ID を記録し、新規セッションチャンネルを特定する。
     const knownIds = new Set(deps.sessionChannelsRepo.listActive().map((r) => r.session_id));

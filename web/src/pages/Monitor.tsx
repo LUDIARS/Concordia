@@ -188,10 +188,9 @@ function SubsidiariesSection({ active }: { active: SessionRow[] }) {
           const allow = s.requests_24h?.allow ?? 0;
           const locks = s.lock_count ?? 0;
           return (
-            <Link
+            <div
               key={s.id}
-              to="/subsidiaries"
-              className="block bg-surface border border-border rounded p-3 hover:border-accent transition-colors"
+              className="bg-surface border border-border rounded p-3 hover:border-accent transition-colors"
             >
               <div className="flex items-center gap-2">
                 <span
@@ -201,6 +200,7 @@ function SubsidiariesSection({ active }: { active: SessionRow[] }) {
                 <span className="text-sm font-medium truncate">{s.display_name || s.name}</span>
                 <span className="text-subtle text-xs">/ {s.platform}</span>
                 {!s.enabled && <span className="text-[10px] text-subtle ml-auto">無効</span>}
+                <Link to="/subsidiaries" className="text-[10px] text-accent ml-auto shrink-0">管理 →</Link>
               </div>
 
               <div className="mt-2 flex items-center gap-2 text-xs">
@@ -231,11 +231,75 @@ function SubsidiariesSection({ active }: { active: SessionRow[] }) {
                   </div>
                 )}
               </div>
-            </Link>
+
+              <SubsidiarySpawnForm subsidiaryId={s.id} />
+            </div>
           );
         })}
       </div>
     </section>
+  );
+}
+
+/**
+ * 子会社セッションの spawn フォーム (Monitor 子会社カード内)。
+ * project 名を渡すと backend が workspace roots 配下で cwd を解決し、
+ * 「project 以外の作業禁止」 の制限プロンプトを注入して spawn する (project 必須)。
+ */
+function SubsidiarySpawnForm({ subsidiaryId }: { subsidiaryId: string }) {
+  const [project, setProject] = useState("");
+  const [provider, setProvider] = useState<"claude" | "codex">("claude");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+
+  async function spawn() {
+    if (!project.trim()) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const r = await api.adminSpawn({
+        provider,
+        subsidiary_id: subsidiaryId,
+        project: project.trim(),
+      });
+      setResult(r.ok ? `✅ spawned (pid ${r.pid ?? "?"}) — ${project.trim()} 限定` : `❌ ${r.error ?? "spawn failed"}`);
+      if (r.ok) setProject("");
+    } catch (err) {
+      setResult(`❌ ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-border">
+      <div className="flex items-center gap-1">
+        <input
+          className="foundation-form flex-1 min-w-0 text-xs"
+          placeholder="project (例: Pictor)"
+          value={project}
+          onChange={(e) => setProject(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void spawn(); }}
+        />
+        <select
+          className="foundation-form text-xs"
+          value={provider}
+          onChange={(e) => setProvider(e.target.value as "claude" | "codex")}
+        >
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+        </select>
+        <button
+          onClick={() => void spawn()}
+          disabled={busy || !project.trim()}
+          className="bg-accent text-bg px-2 py-1 rounded text-xs font-medium disabled:opacity-50 shrink-0"
+        >Spawn</button>
+      </div>
+      <div className="text-[10px] text-subtle mt-1">
+        project 配下に cwd 固定 + 範囲外作業を禁止する注入付きで起動
+      </div>
+      {result && <div className="text-[11px] mt-1">{result}</div>}
+    </div>
   );
 }
 

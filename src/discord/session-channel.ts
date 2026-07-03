@@ -22,6 +22,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import type {
   DiscordConfigRepo,
   DiscordSessionChannelsRepo,
+  DiscordSessionChannelRow,
   DiscordSessionStatus,
 } from "../db/discord-repo.js";
 import {
@@ -30,6 +31,7 @@ import {
 } from "./formatter.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
 const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
@@ -94,6 +96,50 @@ export async function onSessionRegistered(
   }
 }
 
+export async function reconcileEndedSessionChannels(
+  deps: SessionChannelDeps & { sessions: SessionsRepo },
+): Promise<{ scanned: number; reconciled: number }> {
+  await deps.guild.channels.fetch().catch(() => null);
+  const rows = deps.repo.listAll();
+  let reconciled = 0;
+  for (const row of rows) {
+    const session = deps.sessions.findSession(row.session_id);
+    if (session?.status !== "ended") continue;
+    if (!needsEndedArchiveReconcile(deps, row)) continue;
+    await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
+    reconciled += 1;
+  }
+  return { scanned: rows.length, reconciled };
+}
+
+async function fetchSessionTextChannel(
+  deps: SessionChannelDeps,
+  channelId: string,
+): Promise<TextChannel | null> {
+  const cached = deps.guild.channels.cache.get(channelId);
+  if (cached?.type === ChannelType.GuildText) return cached as TextChannel;
+  if (cached) return null;
+  try {
+    const fetched = await deps.guild.channels.fetch(channelId);
+    if (fetched?.type === ChannelType.GuildText) return fetched as TextChannel;
+  } catch (e) {
+    deps.log.warn(`session-channel: channel fetch failed ${channelId}: ${(e as Error).message}`);
+  }
+  return null;
+}
+
+function needsEndedArchiveReconcile(
+  deps: SessionChannelDeps,
+  row: DiscordSessionChannelRow,
+): boolean {
+  if (row.status !== "ended" || row.display_state !== "ended") return true;
+  if (row.webhook_id || row.webhook_token) return true;
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return false;
+  const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
+  return ch.parentId !== deps.layout.archiveCategoryId || ch.name !== endedName;
+}
+
 /**
  * session.lost / session.ended に応じた channel 操作.
  *  - ended → channel を archive カテゴリへ移動 + ⚪ prefix (削除しない、 会話ログ保全)
@@ -106,15 +152,15 @@ export async function onSessionStatusChanged(
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
-  if (row.status === input.status) return;
+  if (row.status === input.status && input.status !== "ended") return;
 
   // ended は archive カテゴリへ移動 (削除しない / rename cooldown を経由しない).
   // DB row は status=ended で残す — 会話チャンネルと対応を保持し続ける.
   if (input.status === "ended") {
     deps.repo.setStatus(input.sessionId, "ended");
     deps.repo.setDisplayState(input.sessionId, "ended");
-    const ch = deps.guild.channels.cache.get(row.channel_id);
-    if (ch && ch.type === ChannelType.GuildText) {
+    const ch = await fetchSessionTextChannel(deps, row.channel_id);
+    if (ch) {
       try {
         const endedName = buildSessionChannelName("ended", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
         await ch.edit({
@@ -134,7 +180,7 @@ export async function onSessionStatusChanged(
     }
     // archived channel が webhook budget (1 channel 15 個) を握り続けないよう、
     // ended 時に当該 channel の bot webhook を解放し DB の token も消す。best-effort.
-    if (deps.webhooks) {
+    if (deps.webhooks && (row.webhook_id || row.webhook_token)) {
       try {
         const purged = await deps.webhooks.purgeChannel(row.channel_id);
         deps.repo.clearWebhook(input.sessionId);

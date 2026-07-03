@@ -1,6 +1,7 @@
 import type { TextChannel } from "discord.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type { SessionRow } from "../shared/types.js";
 import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
 import { cachedSessionWindowReader } from "../cost/windowed-usage-cache.js";
 import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
@@ -16,6 +17,8 @@ export interface DiscordDedupStats {
 
 export interface MonitorOptions {
   stats?: DiscordDedupStats;
+  /** Restrict visible sessions for scoped bots such as subsidiary monitors. */
+  sessionFilter?: (session: SessionRow) => boolean;
   /**
    * 本社 / 子会社別コスト (本日トークン) を出すための子会社一覧。 本社モニターのときだけ渡す
    * (子会社モニターに渡すと他子会社の数字が漏れるので渡さない)。 undefined ならコスト節は出さない。
@@ -31,8 +34,10 @@ export async function upsertMonitorChannelMessage(
   configSet: (k: string, v: string) => void,
   opts: MonitorOptions = {},
 ): Promise<void> {
-  const { stats, costSubsidiaries } = opts;
-  const active = sessionsRepo.listSessions({ status: "active" });
+  const { stats, sessionFilter, costSubsidiaries } = opts;
+  const active = sessionsRepo
+    .listSessions({ status: "active" })
+    .filter((session) => sessionFilter?.(session) ?? true);
 
   const lines: string[] = [];
   lines.push("## Concordia Monitor");

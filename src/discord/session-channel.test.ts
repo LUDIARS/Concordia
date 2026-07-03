@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelType } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
-import { onSessionRegistered } from "./session-channel.js";
+import { onSessionRegistered, onSessionStatusChanged, reconcileEndedSessionChannels } from "./session-channel.js";
 
 // onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
 // eager 作成し token を永続化する」ことを検証する。 これで以降の egress は
@@ -96,5 +96,104 @@ describe("onSessionRegistered — spawn と同時に webhook を eager 作成", 
     );
     expect(m.repo.upsert).toHaveBeenCalledTimes(1);
     expect(m.createWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe("onSessionStatusChanged ended archive", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeEndedArchiveMocks() {
+    const row: any = {
+      session_id: "sess-ended-1",
+      channel_id: "chan-ended-1",
+      webhook_id: null,
+      webhook_token: null,
+      status: "ended",
+      display_state: "ended",
+      agent_type: "claude-code",
+      name_body: "task",
+      delegation_emoji: null,
+      last_rename_ts: 0,
+      scope: "sub:child",
+      name_locked: 0,
+      ts: 1,
+    };
+    const channelObj: any = {
+      id: row.channel_id,
+      name: "old-task",
+      parentId: "sessions-cat",
+      type: ChannelType.GuildText,
+      edit: vi.fn(async (patch: any) => {
+        if (patch.name) channelObj.name = patch.name;
+        if (patch.parent) channelObj.parentId = patch.parent;
+        return channelObj;
+      }),
+    };
+    const cache = new Map<string, any>([[row.channel_id, channelObj]]);
+    const guild = {
+      channels: {
+        cache,
+        fetch: vi.fn(async (id?: string) => (id ? (id === row.channel_id ? channelObj : null) : cache)),
+      },
+    };
+    const repo = {
+      findBySessionId: vi.fn((id: string) => (id === row.session_id ? row : null)),
+      listAll: vi.fn(() => [row]),
+      setStatus: vi.fn((id: string, status: string) => {
+        if (id === row.session_id) row.status = status;
+      }),
+      setDisplayState: vi.fn((id: string, state: string) => {
+        if (id === row.session_id) row.display_state = state;
+      }),
+      clearWebhook: vi.fn(),
+    };
+    const sessions = {
+      findSession: vi.fn((id: string) => (id === row.session_id ? { id, status: "ended" } : null)),
+    };
+    const log = { info: vi.fn(), warn: vi.fn() };
+    const layout = { archiveCategoryId: "archive-cat", sessionsCategoryId: "sessions-cat" } as any;
+    return { row, channelObj, guild, repo, sessions, log, layout };
+  }
+
+  it("retries archive even when the channel row is already ended", async () => {
+    const m = makeEndedArchiveMocks();
+
+    await onSessionStatusChanged(
+      { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
+      { sessionId: m.row.session_id, status: "ended" },
+    );
+
+    expect(m.channelObj.edit).toHaveBeenCalledWith(expect.objectContaining({
+      parent: "archive-cat",
+      name: expect.any(String),
+    }));
+  });
+
+  it("reconciles ended sessions whose channels are still outside archive", async () => {
+    const m = makeEndedArchiveMocks();
+
+    const result = await reconcileEndedSessionChannels({
+      guild: m.guild as any,
+      layout: m.layout,
+      repo: m.repo as any,
+      sessions: m.sessions as any,
+      log: m.log,
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("fetches an uncached channel before archiving an ended session", async () => {
+    const m = makeEndedArchiveMocks();
+    m.guild.channels.cache.delete(m.row.channel_id);
+
+    await onSessionStatusChanged(
+      { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
+      { sessionId: m.row.session_id, status: "ended" },
+    );
+
+    expect(m.guild.channels.fetch).toHaveBeenCalledWith(m.row.channel_id);
+    expect(m.channelObj.parentId).toBe("archive-cat");
   });
 });

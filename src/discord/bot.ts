@@ -29,6 +29,7 @@ import {
   onSessionTitleChanged,
   onSessionWorkState,
   pruneStatusCategoryChannels,
+  reconcileEndedSessionChannels,
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
@@ -362,6 +363,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         }
         void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
           .catch((e) => log.warn(`prune failed: ${(e as Error).message}`));
+        void reconcileEndedSessionChannels({ guild, layout: lay, repo: sessionChannelsRepo, sessions: deps.sessionsRepo, log, webhooks: webhooks ?? undefined })
+          .then((r) => {
+            if (r.reconciled > 0) {
+              log.info(`session-channel ended reconcile: scanned=${r.scanned} reconciled=${r.reconciled}`);
+            }
+          })
+          .catch((e) => log.warn(`session-channel ended reconcile failed: ${(e as Error).message}`));
       }, 60 * 1000);
       reconcileTimer.unref?.();
       for (const row of sessionChannelsRepo.listActive()) {
@@ -383,6 +391,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
         .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
         .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
+      void reconcileEndedSessionChannels({ guild, layout, repo: sessionChannelsRepo, sessions: deps.sessionsRepo, log, webhooks: webhooks ?? undefined })
+        .then((r) => log.info(`session-channel ended reconcile on boot: scanned=${r.scanned} reconciled=${r.reconciled}`))
+        .catch((e) => log.warn(`session-channel ended reconcile on boot failed: ${(e as Error).message}`));
       // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
       // ログ保存してから削除する (sessions/archive カテゴリ、 稼働中は保護)。
       // 起動時に 1 回 + 以降 1 時間ごと。

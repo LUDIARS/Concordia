@@ -13,6 +13,7 @@ import {
   type SubsidiaryRequest,
   type DelegationTemplateLite,
 } from "../api.js";
+import { SubsidiaryProjectSpawnForm } from "../components/SubsidiaryProjectSpawnForm.js";
 
 /**
  * 子会社 Delegation ダッシュボード。
@@ -473,6 +474,13 @@ function SubsidiariesSection() {
           <input type="checkbox" checked={!!form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
           有効化 (boot 時に Bot を起動)
         </label>
+
+        {editId && (
+          <div className="border-t border-border pt-2 mt-1">
+            <div className="text-xs text-subtle mb-1">プロジェクト指定 spawn</div>
+            <SubsidiaryProjectSpawnForm subsidiaryId={editId} />
+          </div>
+        )}
 
         {editId && detail && (
           <div className="border-t border-border pt-2 mt-1">

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionRow, DelegationTemplateLite, HostSnapshot, SubsidiarySummary } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
+import { SubsidiaryProjectSpawnForm } from "../components/SubsidiaryProjectSpawnForm.js";
 
 function fmtBytes(b: number | null | undefined): string {
   if (b == null || !isFinite(b)) return "—";
@@ -232,7 +233,7 @@ function SubsidiariesSection({ active }: { active: SessionRow[] }) {
                 )}
               </div>
 
-              <SubsidiarySpawnForm subsidiaryId={s.id} />
+              <SubsidiaryProjectSpawnForm subsidiaryId={s.id} className="mt-2 pt-2 border-t border-border" />
             </div>
           );
         })}

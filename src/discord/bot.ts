@@ -292,6 +292,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           (k, v) => configRepo.set(k, v),
           {
             stats: getEgressDedupStats(),
+            sessionFilter: (session) => ownsSession(session.id),
             // 本社モニターのみ本社/子会社別コストを出す (子会社 Bot では出さない)。
             costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
           },

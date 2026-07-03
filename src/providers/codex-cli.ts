@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentProvider, RecoveryInfo } from "./types.js";
+import { codexSessionIdFromRecord } from "./codex-session-id.js";
 
 export const codexCliProvider: AgentProvider = {
   name: "codex-cli",
@@ -94,7 +95,7 @@ function transcriptHasSessionId(path: string, sessionId: string): boolean {
     if (!line.trim()) continue;
     try {
       const obj = JSON.parse(line);
-      const id = obj?.payload?.id ?? obj?.session_id ?? obj?.id;
+      const id = codexSessionIdFromRecord(obj);
       if (id === sessionId) return true;
     } catch {
       continue;

@@ -127,9 +127,14 @@ async function handleJsonLine(line) {
   }
 
   const meta = obj?.type === "session_meta" ? obj.payload : null;
-  if (meta?.id && !sessionId) {
-    sessionId = meta.id;
-    transcriptPath = inferTranscriptPath(meta);
+  const metaSessionId = typeof meta?.session_id === "string" && meta.session_id
+    ? meta.session_id
+    : typeof meta?.id === "string" && meta.id
+      ? meta.id
+      : null;
+  if (metaSessionId && !sessionId) {
+    sessionId = metaSessionId;
+    transcriptPath = inferTranscriptPath(meta, metaSessionId);
     await postJson("/v1/sessions", {
       id: sessionId,
       provider: "codex-cli",
@@ -155,15 +160,15 @@ async function handleJsonLine(line) {
   if (text) lastAssistantText = text;
 }
 
-function inferTranscriptPath(meta) {
+function inferTranscriptPath(meta, sessionId) {
   if (meta.transcript_path) return meta.transcript_path;
-  if (!meta.timestamp || !meta.id) return null;
+  if (!meta.timestamp || !sessionId) return null;
   const d = new Date(meta.timestamp);
   if (Number.isNaN(d.getTime())) return null;
   const yyyy = String(d.getUTCFullYear());
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   const dd = String(d.getUTCDate()).padStart(2, "0");
-  return `~/.codex/sessions/${yyyy}/${mm}/${dd}/rollout-${meta.timestamp.replace(/[:.]/g, "-")}-${meta.id}.jsonl`;
+  return `~/.codex/sessions/${yyyy}/${mm}/${dd}/rollout-${meta.timestamp.replace(/[:.]/g, "-")}-${sessionId}.jsonl`;
 }
 
 function extractText(obj) {

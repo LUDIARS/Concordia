@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { claudeCodeProvider, encodeCwdForClaude } from "../src/providers/claude-code.js";
 import { codexCliProvider } from "../src/providers/codex-cli.js";
+import { codexSessionIdFromRecord } from "../src/providers/codex-session-id.js";
 
 describe("claudeCodeProvider", () => {
   it("encodes cwd to projects directory name", () => {
@@ -114,5 +115,12 @@ describe("codexCliProvider", () => {
       ["{not json}", JSON.stringify({ payload: { role: "assistant", text: "ok" } })].join("\n"),
     );
     expect(r.last_text_summary).toBe("ok");
+  });
+
+  it("codexSessionIdFromRecord prefers payload.session_id over payload.id", () => {
+    expect(codexSessionIdFromRecord({ type: "session_meta", payload: { session_id: "sid", id: "id" } })).toBe("sid");
+    expect(codexSessionIdFromRecord({ type: "session_meta", payload: { id: "id-only" } })).toBe("id-only");
+    expect(codexSessionIdFromRecord({ session_id: "top" })).toBe("top");
+    expect(codexSessionIdFromRecord(null)).toBeNull();
   });
 });

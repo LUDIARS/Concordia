@@ -42,7 +42,7 @@ import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monit
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
-import { clearGuildCommands, dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { invalidateDelegationTemplateCache } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
@@ -242,10 +242,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       if (env.applicationId) {
         try {
           if (deps.subsidiary) {
-            // 子会社 guild には slash commands を出さない (過去登録があれば解除)。
-            // 依頼は受付チャンネルのメッセージ → ガードゲート経由のみ。
-            await clearGuildCommands(env.token!, env.applicationId, env.guildId!);
-            log.info(`slash commands cleared (subsidiary) guild=${env.guildId}`);
+            // 子会社 guild は安全なセッション内操作だけ登録する。作業依頼 / spawn 系は
+            // 引き続き受付チャンネルのメッセージ → ガードゲート経由に限定する。
+            await registerGuildCommands(env.token!, env.applicationId, env.guildId!, { subsidiary: true });
+            log.info(`slash commands registered (subsidiary allowed-only) guild=${env.guildId}`);
           } else {
             await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
             log.info(`slash commands registered guild=${env.guildId}`);

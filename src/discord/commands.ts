@@ -63,9 +63,27 @@ const COMMANDS: DiscordCommandSpec[] = [
   relictorCommand,
 ];
 
-export async function registerGuildCommands(token: string, applicationId: string, guildId: string): Promise<void> {
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);
+
+export function isSubsidiaryAllowedCommand(name: string): boolean {
+  return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
+}
+
+export function commandNamesForRegistration(opts: { subsidiary?: boolean } = {}): string[] {
+  return COMMANDS
+    .filter((c) => !opts.subsidiary || isSubsidiaryAllowedCommand(c.builder.name))
+    .map((c) => c.builder.name);
+}
+
+export async function registerGuildCommands(
+  token: string,
+  applicationId: string,
+  guildId: string,
+  opts: { subsidiary?: boolean } = {},
+): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);
-  const body = COMMANDS.map((c) => c.builder.toJSON());
+  const allowed = new Set(commandNamesForRegistration(opts));
+  const body = COMMANDS.filter((c) => allowed.has(c.builder.name)).map((c) => c.builder.toJSON());
   await rest.put(Routes.applicationGuildCommands(applicationId, guildId), { body });
 }
 
@@ -76,10 +94,14 @@ export async function clearGuildCommands(token: string, applicationId: string, g
 }
 
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
-  // 子会社 guild では Discord コマンドを一切許可しない (依頼は受付チャンネルの
-  // メッセージ → ガードゲート経由のみ)。 登録解除 (clearGuildCommands) が済むまでの
-  // 残存コマンドや、 過去に登録済みの guild からの実行もここで確実に弾く (二段防御)。
-  if (deps.subsidiaryId) {
+  // 子会社 guild では許可リスト外の Discord コマンドを拒否する。作業依頼 / spawn 系は
+  // 受付チャンネルのメッセージ → ガードゲート経由のみ。過去登録済みの guild からの
+  // 残存コマンド実行もここで確実に弾く (二段防御)。
+  if (
+    deps.subsidiaryId &&
+    "commandName" in interaction &&
+    !isSubsidiaryAllowedCommand(String(interaction.commandName))
+  ) {
     deps.log.warn(
       `discord interaction rejected (subsidiary) subsidiary=${deps.subsidiaryId} ` +
       `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,

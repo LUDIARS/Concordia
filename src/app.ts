@@ -309,6 +309,36 @@ export function buildApp(deps: AppDeps): Hono {
     // (session.started 時に cwd で claim → metadata.subsidiary_id)。 これが無いと
     // 未タグ = 本社所有扱いになり、 自動生成された session チャンネルが本社側に出てしまう。
     const subsidiaryId = typeof body.subsidiary_id === "string" && body.subsidiary_id.trim() ? body.subsidiary_id.trim() : null;
+    const projectName = typeof body.project === "string" ? body.project.trim() : "";
+    let projectCwd: string | null = null;
+    if (projectName) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) {
+        return c.json({ error: `invalid project name: ${projectName}` }, 400);
+      }
+      for (const root of deps.adminState.getWorkspaceRoots()) {
+        const candidate = resolve(root, projectName);
+        if (existsSync(candidate)) {
+          projectCwd = candidate;
+          break;
+        }
+      }
+      if (!projectCwd) {
+        return c.json({ error: `project not found under workspace roots: ${projectName}` }, 404);
+      }
+      if (typeof body.cwd === "string" && body.cwd.trim()) {
+        return c.json({ error: "cwd and project are mutually exclusive (project fixes the cwd)" }, 400);
+      }
+    }
+    const userPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
+    const restriction = projectName
+      ? [
+          `## 作業範囲の制限 (Concordia spawn)`,
+          `このセッションはプロジェクト「${projectName}」専用です。`,
+          `- 作業は cwd (${projectCwd}) 配下のみ。他のリポジトリ / ディレクトリの読み書き・commit・push は禁止。`,
+          `- ${projectName} 以外の作業を指示された場合は、実行せずその旨を報告すること。`,
+        ].join("\n")
+      : "";
+    const adHocPrompt = [restriction, userPrompt].filter(Boolean).join("\n\n");
 
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
@@ -327,7 +357,7 @@ export function buildApp(deps: AppDeps): Hono {
         ...parseRuntimeOptions(tpl.runtime_options_json),
         ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
       };
-      const cwdOverride = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined;
+      const cwdOverride = projectCwd ?? (typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined);
 
       if (injectPrompt) {
         // prompt 注入あり = delegation invoke 本体に委譲 (render + prompt file + env + run 記録 + --model)。
@@ -338,6 +368,8 @@ export function buildApp(deps: AppDeps): Hono {
           triggered_by: "web-spawn",
           spawn: true,
           options: runtimeOptions,
+          extra_prompt: adHocPrompt || undefined,
+          project: projectName || null,
           subsidiary_id: subsidiaryId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
@@ -347,6 +379,7 @@ export function buildApp(deps: AppDeps): Hono {
           command: result.spawn_command,
           run_id: result.run.id,
           injected_prompt: true,
+          project: projectName || null,
         });
       }
 
@@ -381,8 +414,8 @@ export function buildApp(deps: AppDeps): Hono {
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId });
-      return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false });
+      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId, project: projectName || null });
+      return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false, project: projectName || null });
     }
 
     // ── 従来経路: provider 直接指定 ───────────────────────────
@@ -399,42 +432,6 @@ export function buildApp(deps: AppDeps): Hono {
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
-    // ── project 限定 spawn ──────────────────────────────────
-    // body.project があれば workspace roots 配下の実在ディレクトリへ解決し、 cwd を
-    // そこへ固定 + 「このプロジェクト以外の作業禁止」 の制限プロンプトを注入する。
-    // 解決できなければ即 400 (設定不備の無言フォールバック禁止)。
-    const projectName = typeof body.project === "string" ? body.project.trim() : "";
-    let projectCwd: string | null = null;
-    if (projectName) {
-      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) {
-        return c.json({ error: `invalid project name: ${projectName}` }, 400);
-      }
-      for (const root of deps.adminState.getWorkspaceRoots()) {
-        const candidate = resolve(root, projectName);
-        if (existsSync(candidate)) {
-          projectCwd = candidate;
-          break;
-        }
-      }
-      if (!projectCwd) {
-        return c.json({ error: `project not found under workspace roots: ${projectName}` }, 404);
-      }
-      if (typeof body.cwd === "string" && body.cwd.trim()) {
-        return c.json({ error: "cwd and project are mutually exclusive (project fixes the cwd)" }, 400);
-      }
-    }
-    // prompt (自由テキスト初回指示) があれば prompt file に書き、 Lictor 注入用 env を内部設定する。
-    // env 値は Concordia が生成するファイルパスのみ (外部から任意 env は受け取らない = CWE-78 対策)。
-    const userPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
-    const restriction = projectName
-      ? [
-          `## 作業範囲の制限 (Concordia spawn)`,
-          `このセッションはプロジェクト「${projectName}」専用です。`,
-          `- 作業は cwd (${projectCwd}) 配下のみ。他のリポジトリ / ディレクトリの読み書き・commit・push は禁止。`,
-          `- ${projectName} 以外の作業を指示された場合は、着手せずその旨を報告すること。`,
-        ].join("\n")
-      : "";
-    const adHocPrompt = [restriction, userPrompt].filter(Boolean).join("\n\n");
     const spawnEnv: Record<string, string> = { ...resolved.env };
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);

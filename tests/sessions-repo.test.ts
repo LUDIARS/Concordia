@@ -76,6 +76,31 @@ describe("SessionsRepo", () => {
     expect(ev[0].kind).toBe("edit");
   });
 
+  it("latestEventsByKind returns the newest matching event per session", () => {
+    const base = {
+      provider: "claude-code" as const,
+      repo_path: "/x",
+      repo_origin: null,
+      branch: null,
+      host: "h",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: null,
+    };
+    repo.insertSession({ ...base, id: "a" });
+    repo.insertSession({ ...base, id: "b" });
+    repo.appendEvent({ session_id: "a", ts: 10, kind: "prompt", payload: { summary: "old" } });
+    repo.appendEvent({ session_id: "a", ts: 20, kind: "edit", payload: { file: "f" } });
+    repo.appendEvent({ session_id: "a", ts: 30, kind: "prompt", payload: { summary: "new" } });
+    repo.appendEvent({ session_id: "b", ts: 15, kind: "prompt", payload: { summary: "other" } });
+
+    const rows = repo.latestEventsByKind(["a", "b"], "prompt");
+    const payloadBySession = new Map(rows.map((ev) => [ev.session_id, JSON.parse(ev.payload)]));
+    expect(payloadBySession.get("a")).toEqual({ summary: "new" });
+    expect(payloadBySession.get("b")).toEqual({ summary: "other" });
+  });
+
   it("findStaleActive picks only active before cutoff", () => {
     repo.insertSession({
       id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionRow, DelegationTemplateLite, HostSnapshot, SubsidiarySummary } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
-import { SubsidiaryProjectSpawnForm } from "../components/SubsidiaryProjectSpawnForm.js";
+import { DelegationSpawnForm } from "../components/DelegationSpawnForm.js";
 
 function fmtBytes(b: number | null | undefined): string {
   if (b == null || !isFinite(b)) return "—";
@@ -11,12 +11,6 @@ function fmtBytes(b: number | null | undefined): string {
   const mib = b / 1024 ** 2;
   if (mib < 1024) return `${mib.toFixed(0)} MiB`;
   return `${(b / 1024 ** 3).toFixed(2)} GiB`;
-}
-
-function optionValue(value: unknown): string {
-  if (value === undefined || value === null) return "";
-  if (typeof value === "boolean") return value ? "true" : "false";
-  return String(value);
 }
 
 export function Monitor() {
@@ -114,14 +108,11 @@ export function Monitor() {
         </section>
       )}
 
-      <SubsidiariesSection active={data.active} />
+      <OrganizationsSection active={data.active} />
       <MachinesSection />
       <PerformanceSection />
-      <SpawnSessionForm />
 
-      <SessionList title="active" rows={data.active} statByIdx={statByIdx} />
       <SessionList title="lost" rows={data.lost} statByIdx={statByIdx} />
-      <SessionList title="recently ended" rows={data.recent_ended} statByIdx={statByIdx} />
     </div>
   );
 }
@@ -132,20 +123,10 @@ function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-/**
- * 子会社の様子 — 出張先 (別 Discord/Slack) で動く子会社 Bot の稼働状況を Monitor に一覧する。
- * 管理は /subsidiaries に集約されているが、 ここでは「今どの子会社が動いていて、 何件
- * セッションを起こし、 予算をどれだけ使い、 ガードが何件弾いたか」を一目で出す。
- *
- *  - 稼働中セッション数: active セッションを metadata.subsidiary_id で集計 (本社セッションは
- *    subsidiary_id を持たないので自然に除外される)。 親から渡る active は WS で更新されるため
- *    セッション数はライブに反映される。
- *  - 子会社サマリ (running / 予算 / lock / 直近 24h の allow|deny) は WS イベントが無いので
- *    8 秒 poll で取り直す (PC パフォーマンスと同じ方式)。
- * カードクリックで管理ページ (/subsidiaries) へ。
- */
-function SubsidiariesSection({ active }: { active: SessionRow[] }) {
+function OrganizationsSection({ active }: { active: SessionRow[] }) {
   const [subs, setSubs] = useState<SubsidiarySummary[] | null | undefined>(undefined);
+  const [templates, setTemplates] = useState<DelegationTemplateLite[]>([]);
+  const [projects, setProjects] = useState<string[]>([]);
 
   useEffect(() => {
     let stopped = false;
@@ -158,150 +139,181 @@ function SubsidiariesSection({ active }: { active: SessionRow[] }) {
     return () => { stopped = true; clearInterval(id); };
   }, []);
 
-  // subsidiary_id ごとの稼働中セッション数 (本社セッションは subsidiary_id 無しで除外)。
-  const activeBySub = new Map<string, number>();
+  useEffect(() => {
+    api.delegationTemplates()
+      .then((r) => setTemplates(r.templates.filter((t) => !t.call_only)))
+      .catch(() => setTemplates([]));
+    api.workRepos()
+      .then((r) => setProjects(projectNames(r.repos)))
+      .catch(() => setProjects([]));
+  }, []);
+
+  const headOfficeActive: SessionRow[] = [];
+  const activeBySub = new Map<string, SessionRow[]>();
   for (const s of active) {
     const sid = (s.metadata as any)?.subsidiary_id;
-    if (typeof sid === "string" && sid) activeBySub.set(sid, (activeBySub.get(sid) ?? 0) + 1);
+    if (typeof sid === "string" && sid) {
+      const rows = activeBySub.get(sid) ?? [];
+      rows.push(s);
+      activeBySub.set(sid, rows);
+    } else {
+      headOfficeActive.push(s);
+    }
   }
 
-  if (subs === undefined) return null; // 初回ロード中
-  if (subs === null || subs.length === 0) return null; // 未取得 / 未登録は出さない
-
   return (
-    <section>
+    <section className="space-y-3">
       <div className="flex items-center gap-2 mb-2">
         <h2 className="text-base font-semibold">
-          子会社 <span className="text-subtle text-xs ml-2">{subs.length}</span>
+          組織セッション
+          <span className="text-subtle text-xs ml-2">
+            本社 + {subs && subs.length > 0 ? subs.length : 0}
+          </span>
         </h2>
         <Link to="/subsidiaries" className="text-xs text-accent ml-auto">管理 →</Link>
       </div>
+
+      {subs === undefined && (
+        <div className="text-subtle text-xs">子会社を読み込み中...</div>
+      )}
       <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
+        className="grid gap-4 items-start"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 720px), 720px))" }}
       >
-        {subs.map((s) => {
-          const activeCount = activeBySub.get(s.id) ?? 0;
-          const budget = s.daily_token_budget ?? 0;
-          const used = s.usage_today_tokens ?? 0;
-          const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
-          const deny = s.requests_24h?.deny ?? 0;
-          const allow = s.requests_24h?.allow ?? 0;
-          const locks = s.lock_count ?? 0;
-          return (
-            <div
-              key={s.id}
-              className="bg-surface border border-border rounded p-3 hover:border-accent transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className={`w-2 h-2 rounded-full shrink-0 ${s.running ? "bg-ok" : "bg-subtle"}`}
-                  title={s.running ? "Bot 稼働中" : "Bot 停止"}
-                />
-                <span className="text-sm font-medium truncate">{s.display_name || s.name}</span>
-                <span className="text-subtle text-xs">/ {s.platform}</span>
-                {!s.enabled && <span className="text-[10px] text-subtle ml-auto">無効</span>}
-                <Link to="/subsidiaries" className="text-[10px] text-accent ml-auto shrink-0">管理 →</Link>
-              </div>
-
-              <div className="mt-2 flex items-center gap-2 text-xs">
-                <span className={activeCount > 0 ? "text-accent" : "text-subtle"} title="この子会社が今起こしている active セッション数">
-                  セッション {activeCount}
-                </span>
-                {locks > 0 && <span className="text-warn">🔒 {locks}</span>}
-                <span className="ml-auto flex items-center gap-2">
-                  {deny > 0 && <span className="text-danger" title="直近 24h に deny した件数">deny {deny}</span>}
-                  {allow > 0 && <span className="text-subtle" title="直近 24h に allow した件数">allow {allow}</span>}
-                </span>
-              </div>
-
-              {/* 当日トークン予算 */}
-              <div className="mt-2 text-[11px]">
-                <div className="flex items-center gap-1 text-subtle">
-                  <span className={s.budget_blocked ? "text-danger" : ""}>
-                    {s.budget_blocked ? "💸 " : ""}予算 {fmtTokens(used)}/{budget > 0 ? fmtTokens(budget) : "∞"}
-                  </span>
-                  {budget > 0 && <span className="ml-auto">{pct}%</span>}
-                </div>
-                {budget > 0 && (
-                  <div className="mt-1 h-1 bg-muted rounded overflow-hidden">
-                    <div
-                      className={`h-full ${s.budget_blocked || pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-warn" : "bg-accent"}`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                )}
-              </div>
-
-              <SubsidiaryProjectSpawnForm subsidiaryId={s.id} className="mt-2 pt-2 border-t border-border" />
-            </div>
-          );
-        })}
+        <OrganizationCard
+          activeSessions={headOfficeActive}
+          templates={templates}
+          projects={projects}
+        />
+        {(subs ?? []).map((s) => (
+          <OrganizationCard
+            key={s.id}
+            subsidiary={s}
+            activeSessions={activeBySub.get(s.id) ?? []}
+            templates={templates}
+            projects={projects}
+          />
+        ))}
       </div>
     </section>
   );
 }
 
-/**
- * 子会社セッションの spawn フォーム (Monitor 子会社カード内)。
- * project 名を渡すと backend が workspace roots 配下で cwd を解決し、
- * 「project 以外の作業禁止」 の制限プロンプトを注入して spawn する (project 必須)。
- */
-function SubsidiarySpawnForm({ subsidiaryId }: { subsidiaryId: string }) {
-  const [project, setProject] = useState("");
-  const [provider, setProvider] = useState<"claude" | "codex">("claude");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<string | null>(null);
-
-  async function spawn() {
-    if (!project.trim()) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const r = await api.adminSpawn({
-        provider,
-        subsidiary_id: subsidiaryId,
-        project: project.trim(),
-      });
-      setResult(r.ok ? `✅ spawned (pid ${r.pid ?? "?"}) — ${project.trim()} 限定` : `❌ ${r.error ?? "spawn failed"}`);
-      if (r.ok) setProject("");
-    } catch (err) {
-      setResult(`❌ ${(err as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function OrganizationCard({
+  subsidiary,
+  activeSessions,
+  templates,
+  projects,
+}: {
+  subsidiary?: SubsidiarySummary;
+  activeSessions: SessionRow[];
+  templates: DelegationTemplateLite[];
+  projects: string[];
+}) {
+  const isHeadOffice = !subsidiary;
+  const budget = subsidiary?.daily_token_budget ?? 0;
+  const used = subsidiary?.usage_today_tokens ?? 0;
+  const pct = budget > 0 ? Math.min(100, Math.round((used / budget) * 100)) : 0;
+  const deny = subsidiary?.requests_24h?.deny ?? 0;
+  const allow = subsidiary?.requests_24h?.allow ?? 0;
+  const locks = subsidiary?.lock_count ?? 0;
+  const running = subsidiary?.running ?? true;
+  const name = subsidiary ? (subsidiary.display_name || subsidiary.name) : "本社";
+  const platform = subsidiary?.platform ?? "concordia";
   return (
-    <div className="mt-2 pt-2 border-t border-border">
-      <div className="flex items-center gap-1">
-        <input
-          className="foundation-form flex-1 min-w-0 text-xs"
-          placeholder="project (例: Pictor)"
-          value={project}
-          onChange={(e) => setProject(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void spawn(); }}
+    <div className="bg-surface border border-border rounded p-4 md:p-5 hover:border-accent transition-colors w-full md:w-[720px] min-h-[520px] flex flex-col">
+      <div className="flex items-center gap-2">
+        <span
+          className={`w-2.5 h-2.5 rounded-full shrink-0 ${running ? "bg-ok" : "bg-subtle"}`}
+          title={isHeadOffice ? "本社" : running ? "Bot 稼働中" : "Bot 停止"}
         />
-        <select
-          className="foundation-form text-xs"
-          value={provider}
-          onChange={(e) => setProvider(e.target.value as "claude" | "codex")}
-        >
-          <option value="claude">claude</option>
-          <option value="codex">codex</option>
-        </select>
-        <button
-          onClick={() => void spawn()}
-          disabled={busy || !project.trim()}
-          className="bg-accent text-bg px-2 py-1 rounded text-xs font-medium disabled:opacity-50 shrink-0"
-        >Spawn</button>
+        <span className="text-base font-medium truncate">{name}</span>
+        <span className="text-subtle text-xs">/ {platform}</span>
+        {subsidiary && !subsidiary.enabled && <span className="text-[10px] text-subtle ml-auto">無効</span>}
+        {subsidiary && <Link to="/subsidiaries" className="text-[10px] text-accent ml-auto shrink-0">管理 →</Link>}
       </div>
-      <div className="text-[10px] text-subtle mt-1">
-        project 配下に cwd 固定 + 範囲外作業を禁止する注入付きで起動
+
+      <div className="mt-3 flex items-center gap-3 text-sm">
+        <span className={activeSessions.length > 0 ? "text-accent" : "text-subtle"}>
+          active {activeSessions.length}
+        </span>
+        {locks > 0 && <span className="text-warn">🔒 {locks}</span>}
+        {subsidiary && (
+          <span className="ml-auto flex items-center gap-2">
+            {deny > 0 && <span className="text-danger" title="直近 24h に deny した件数">deny {deny}</span>}
+            {allow > 0 && <span className="text-subtle" title="直近 24h に allow した件数">allow {allow}</span>}
+          </span>
+        )}
       </div>
-      {result && <div className="text-[11px] mt-1">{result}</div>}
+
+      {subsidiary && (
+        <div className="mt-2 text-[11px]">
+          <div className="flex items-center gap-1 text-subtle">
+            <span className={subsidiary.budget_blocked ? "text-danger" : ""}>
+              {subsidiary.budget_blocked ? "💸 " : ""}予算 {fmtTokens(used)}/{budget > 0 ? fmtTokens(budget) : "∞"}
+            </span>
+            {budget > 0 && <span className="ml-auto">{pct}%</span>}
+          </div>
+          {budget > 0 && (
+            <div className="mt-1 h-1 bg-muted rounded overflow-hidden">
+              <div
+                className={`h-full ${subsidiary.budget_blocked || pct >= 100 ? "bg-danger" : pct >= 80 ? "bg-warn" : "bg-accent"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      <DelegationSpawnForm
+        subsidiaryId={subsidiary?.id ?? null}
+        className="mt-4 pt-4 border-t border-border"
+        templates={templates}
+        projects={projects}
+      />
+
+      <div className="mt-4 pt-4 border-t border-border flex-1 min-h-[160px]">
+        <div className="text-xs text-subtle mb-2">active sessions</div>
+        <ActiveSessionRows rows={activeSessions} />
+      </div>
     </div>
   );
+}
+
+function ActiveSessionRows({ rows }: { rows: SessionRow[] }) {
+  if (rows.length === 0) return <div className="text-sm text-subtle">none</div>;
+  const sorted = [...rows].sort((a, b) => b.last_seen_at - a.last_seen_at || a.id.localeCompare(b.id));
+  return (
+    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+      {sorted.map((s) => {
+        const role = (s.metadata as any)?.role_label ?? s.provider;
+        const project = (s.metadata as any)?.project;
+        const lastUserMessage = (s as SessionRow & { last_user_message?: string | null }).last_user_message?.trim();
+        return (
+          <Link
+            key={s.id}
+            to={`/sessions/${encodeURIComponent(s.id)}`}
+            className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 rounded px-2 py-2 text-sm hover:bg-muted"
+            title={lastUserMessage || undefined}
+          >
+            <span className={`px-2 py-1 rounded text-xs ${statusBadge(s.status)}`}>{s.status}</span>
+            <span className="font-mono truncate">{project ?? s.branch ?? s.repo_path}</span>
+            <span className="text-subtle text-xs shrink-0">{s.id.slice(0, 8)}</span>
+            <span className="col-start-2 col-span-2 text-xs text-subtle truncate">{role}</span>
+            {lastUserMessage && (
+              <span className="col-span-3 text-[13px] leading-snug text-text bg-muted/60 rounded px-2 py-1 line-clamp-2 break-words">
+                {lastUserMessage}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function projectNames(repos: Array<{ name: string }>): string[] {
+  return [...new Set(repos.map((r) => r.name).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }
 
 /**
@@ -468,245 +480,6 @@ function PerformanceSection() {
         )}
       </div>
     </section>
-  );
-}
-
-/**
- * Spawn a new lictor-wrapped agent via /v1/admin/spawn-session.
- * Windows-only today (the spawner requires wt.exe).
- *
- * 起動は delegation テンプレ選択ベース (provider 直接選択は廃止):
- *   - provider / model / 既定 cwd はテンプレから採用する。
- *     model はテンプレの `--model` 値 (空なら provider CLI の config 既定)。
- *   - 「プロンプトを注入」 ON で、 テンプレを render したプロンプトを起動直後に
- *     自動注入する (= delegation invoke 相当)。 OFF なら provider+model だけの
- *     素のセッション。 注入時のみ input_schema の引数欄を出す。
- *   - title: Lictor の auto-title が起動直後に上書きするので入力しない。
- * 同じパラメータは API (/v1/admin/spawn-session) でも叩ける。
- */
-function SpawnSessionForm() {
-  const [templates, setTemplates] = useState<DelegationTemplateLite[]>([]);
-  const [callName, setCallName] = useState<string>("");
-  const [mode, setMode] = useState<"tab" | "window">("tab");
-  const [injectPrompt, setInjectPrompt] = useState(false);
-  const [args, setArgs] = useState<Record<string, string>>({});
-  const [runtimeOptions, setRuntimeOptions] = useState<Record<string, string>>({});
-  const [cwd, setCwd] = useState("");
-  const [sending, setSending] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
-
-  useEffect(() => {
-    api.delegationTemplates()
-      .then((r) => {
-        const spawnable = r.templates.filter((t) => !t.call_only);
-        setTemplates(spawnable);
-        if (spawnable.length > 0) setCallName((cur) => cur || spawnable[0].call_name);
-      })
-      .catch(() => { /* テンプレ未取得でもフォーム自体は出す */ });
-  }, []);
-
-  const selected = templates.find((t) => t.call_name === callName) ?? null;
-
-  // テンプレ切替時に arg 入力欄を default で初期化、 cwd override はクリア
-  // (空なら backend がテンプレの default_cwd を使う)。
-  useEffect(() => {
-    if (!selected) { setArgs({}); setRuntimeOptions({}); setCwd(""); return; }
-    const init: Record<string, string> = {};
-    for (const s of selected.input_schema) {
-      init[s.name] = s.default !== undefined ? String(s.default) : "";
-    }
-    const optionInit: Record<string, string> = {};
-    const defaultOptions = selected.default_options ?? {};
-    for (const opt of selected.runtime_options ?? []) {
-      optionInit[opt.key] = optionValue(defaultOptions[opt.key]);
-    }
-    setArgs(init);
-    setRuntimeOptions(optionInit);
-    setCwd("");
-  }, [callName]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (sending || !selected) return;
-    setSending(true);
-    setResult(null);
-    try {
-      const body: Parameters<typeof api.adminSpawn>[0] = {
-        template: selected.call_name,
-        inject_prompt: injectPrompt,
-        mode,
-      };
-      if (injectPrompt) {
-        const a: Record<string, unknown> = {};
-        for (const s of selected.input_schema) {
-          const v = args[s.name];
-          if (v === undefined || v === "") continue;
-          if (s.type === "number") a[s.name] = Number(v);
-          else if (s.type === "boolean") a[s.name] = v === "true";
-          else a[s.name] = v;
-        }
-        body.args = a;
-      }
-      const options: Record<string, unknown> = {};
-      for (const opt of selected.runtime_options ?? []) {
-        const v = runtimeOptions[opt.key];
-        if (v === undefined || v === "") continue;
-        if (opt.type === "number") options[opt.key] = Number(v);
-        else if (opt.type === "boolean") options[opt.key] = v === "true";
-        else options[opt.key] = v;
-      }
-      if (Object.keys(options).length > 0) body.options = options;
-      if (cwd.trim()) body.cwd = cwd.trim();
-      const r = await api.adminSpawn(body);
-      setResult({
-        ok: true,
-        msg: `spawned (pid=${r.pid ?? "?"}${r.injected_prompt ? ", prompt 注入" : ""})`,
-      });
-    } catch (err) {
-      setResult({ ok: false, msg: (err as Error).message });
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} className="bg-surface border border-border rounded p-4 space-y-2">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold">新規セッション</h2>
-        <span className="text-xs text-subtle">
-          delegation テンプレを選んで lictor wrapped agent を起動 (provider/model はテンプレ由来)
-        </span>
-      </div>
-      {templates.length === 0 ? (
-        <div className="text-xs text-subtle">
-          有効な delegation テンプレがありません。{" "}
-          <Link to="/delegation" className="text-accent">Delegation</Link> で作成してください。
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={callName}
-              onChange={(e) => setCallName(e.target.value)}
-              disabled={sending}
-              className="foundation-form text-sm"
-              title="delegation テンプレ — provider / model / 既定 cwd を継承"
-            >
-              {templates.map((t) => (
-                <option key={t.id} value={t.call_name}>{t.title} ({t.call_name})</option>
-              ))}
-            </select>
-            <select
-              value={mode}
-              onChange={(e) => setMode(e.target.value as "tab" | "window")}
-              disabled={sending}
-              className="foundation-form text-sm"
-              title="tab = 同じ Windows Terminal 内、 window = 新規ウインドウ"
-            >
-              <option value="tab">tab</option>
-              <option value="window">window</option>
-            </select>
-            <label className="text-xs text-subtle flex items-center gap-1" title="テンプレの prompt を render して起動直後に注入する">
-              <input
-                type="checkbox"
-                checked={injectPrompt}
-                onChange={(e) => setInjectPrompt(e.target.checked)}
-                disabled={sending}
-              />
-              プロンプトを注入
-            </label>
-            <button
-              type="submit"
-              disabled={sending || !selected}
-              className="px-3 py-1.5 bg-accent text-white rounded text-sm disabled:opacity-50"
-            >
-              {sending ? "起動中…" : "起動"}
-            </button>
-          </div>
-          {selected && (
-            <div className="text-xs text-subtle">
-              provider: <code>{selected.target_provider}</code>
-              {" / "}model: <code>{selected.model ?? "(provider 既定)"}</code>
-            </div>
-          )}
-          {selected && (selected.runtime_options ?? []).length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {(selected.runtime_options ?? []).map((opt) => (
-                <label key={opt.key} className="text-xs space-y-1">
-                  <span className="text-subtle">
-                    {opt.label} <span className="font-mono">{opt.key}</span>
-                  </span>
-                  {opt.type === "select" ? (
-                    <select
-                      className="foundation-form w-full text-sm"
-                      value={runtimeOptions[opt.key] ?? ""}
-                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
-                      disabled={sending}
-                    >
-                      <option value="">provider default</option>
-                      {(opt.choices ?? []).map((choice) => (
-                        <option key={choice.value} value={choice.value}>{choice.label}</option>
-                      ))}
-                    </select>
-                  ) : opt.type === "boolean" ? (
-                    <select
-                      className="foundation-form w-full text-sm"
-                      value={runtimeOptions[opt.key] ?? ""}
-                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
-                      disabled={sending}
-                    >
-                      <option value="">provider default</option>
-                      <option value="true">true</option>
-                      <option value="false">false</option>
-                    </select>
-                  ) : (
-                    <input
-                      className="foundation-form w-full text-sm"
-                      value={runtimeOptions[opt.key] ?? ""}
-                      onChange={(e) => setRuntimeOptions({ ...runtimeOptions, [opt.key]: e.target.value })}
-                      disabled={sending}
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
-          )}
-          {injectPrompt && selected && selected.input_schema.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {selected.input_schema.map((s) => (
-                <label key={s.name} className="text-xs space-y-1">
-                  <span className="text-subtle">
-                    {s.name} <span className="font-mono">{s.type}</span>
-                    {s.required && <span className="text-danger"> *</span>}
-                  </span>
-                  <input
-                    className="foundation-form w-full text-sm"
-                    value={args[s.name] ?? ""}
-                    onChange={(e) => setArgs({ ...args, [s.name]: e.target.value })}
-                    disabled={sending}
-                  />
-                </label>
-              ))}
-            </div>
-          )}
-          {injectPrompt && (
-            <label className="text-xs space-y-1 block">
-              <span className="text-subtle">cwd (任意 override — 空ならテンプレ既定)</span>
-              <input
-                className="foundation-form w-full text-sm"
-                value={cwd}
-                onChange={(e) => setCwd(e.target.value)}
-                disabled={sending}
-                placeholder={selected?.default_cwd ?? ""}
-              />
-            </label>
-          )}
-        </>
-      )}
-      {result && (
-        <div className={`text-xs ${result.ok ? "text-ok" : "text-danger"}`}>{result.msg}</div>
-      )}
-    </form>
   );
 }
 

@@ -344,6 +344,28 @@ export class SessionsRepo {
       .all(sessionId, limit) as SessionEventRow[];
   }
 
+  latestEventsByKind(sessionIds: string[], kind: string): SessionEventRow[] {
+    if (sessionIds.length === 0) return [];
+    const placeholders = sessionIds.map(() => "?").join(",");
+    return this.db
+      .prepare(
+        `SELECT e.*
+           FROM session_events e
+          WHERE e.kind = ?
+            AND e.session_id IN (${placeholders})
+            AND e.id = (
+              SELECT e2.id
+                FROM session_events e2
+               WHERE e2.session_id = e.session_id
+                 AND e2.kind = ?
+               ORDER BY e2.ts DESC, e2.id DESC
+               LIMIT 1
+            )
+          ORDER BY e.ts DESC, e.id DESC`,
+      )
+      .all(kind, ...sessionIds, kind) as SessionEventRow[];
+  }
+
   /**
    * 指定 session の指定 kind の最新 ts を返す. 該当無しは null.
    * idle 判定 (kind="prompt" の最終 ts と now の差) に使う.

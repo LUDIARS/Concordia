@@ -9,6 +9,7 @@
 import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { MetricsStore } from "../metrics/store.js";
+import type { SessionRow } from "../shared/types.js";
 import { serializeSession } from "./sessions.js";
 
 export interface MonitorApiDeps {
@@ -30,7 +31,7 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
       repos.set(k, (repos.get(k) ?? 0) + 1);
     }
     return c.json({
-      active: active.map(serializeSession),
+      active: serializeSessionsWithLastUserMessage(deps.repo, active),
       lost: lost.map(serializeSession),
       recent_ended: recentEnded.map(serializeSession),
       repos: [...repos.entries()].map(([key, count]) => ({ key, count })),
@@ -104,4 +105,39 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
   });
 
   return app;
+}
+
+function serializeSessionsWithLastUserMessage(repo: SessionsRepo, sessions: SessionRow[]) {
+  const promptEvents = repo.latestEventsByKind(sessions.map((s) => s.id), "prompt");
+  const messagesBySession = new Map(
+    promptEvents.map((ev) => [ev.session_id, extractPromptText(ev.payload)]),
+  );
+  return sessions.map((s) => ({
+    ...serializeSession(s),
+    last_user_message: messagesBySession.get(s.id) ?? null,
+  }));
+}
+
+function extractPromptText(payloadJson: string): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    return null;
+  }
+  const raw = pickPromptText(parsed);
+  if (!raw) return null;
+  const compact = raw.replace(/\s+/g, " ").trim();
+  if (!compact) return null;
+  return compact.length > 500 ? `${compact.slice(0, 500)}...` : compact;
+}
+
+function pickPromptText(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  for (const key of ["summary", "text", "prompt", "message"]) {
+    if (typeof obj[key] === "string") return obj[key];
+  }
+  return null;
 }

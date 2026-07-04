@@ -6,7 +6,12 @@ import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { PersonasRepo } from "../db/personas-repo.js";
 import { seedPersonas } from "../personas/seeds.js";
-import { DelegationService, renderTemplate, validateArgs } from "./service.js";
+import {
+  DelegationService,
+  renderTemplate,
+  validateArgs,
+  type DelegationDefinition,
+} from "./service.js";
 
 describe("renderTemplate", () => {
   it("substitutes ${var}", async () => {
@@ -46,15 +51,35 @@ describe("renderTemplate", () => {
     ]);
     expect(r.unknown_vars).toEqual(["unknown"]);
   });
+
+  it("treats empty string value as absent — renders to '' and includes in missing for required", async () => {
+    const r = renderTemplate("${req}", { req: "" }, [
+      { name: "req", type: "string", required: true },
+    ]);
+    // Empty string is treated the same as undefined — substitution renders to ""
+    expect(r.rendered).toBe("");
+    // And it's counted as missing for required args
+    expect(r.missing).toContain("req");
+  });
+
+  it("falls back to inline default when value is empty string", async () => {
+    const r = renderTemplate("${opt:default-val}", { opt: "" }, [
+      { name: "opt", type: "string", required: false },
+    ]);
+    // Empty string triggers fallback syntax
+    expect(r.rendered).toBe("default-val");
+  });
 });
 
 describe("validateArgs", () => {
   it("accepts well-typed args", async () => {
-    expect(validateArgs({ s: "x", n: 1, b: true }, [
-      { name: "s", type: "string", required: true },
-      { name: "n", type: "number", required: true },
-      { name: "b", type: "boolean", required: true },
-    ])).toEqual({ ok: true });
+    expect(
+      validateArgs({ s: "x", n: 1, b: true }, [
+        { name: "s", type: "string", required: true },
+        { name: "n", type: "number", required: true },
+        { name: "b", type: "boolean", required: true },
+      ]),
+    ).toEqual({ ok: true });
   });
 
   it("flags wrong types", async () => {
@@ -62,6 +87,27 @@ describe("validateArgs", () => {
       { name: "n", type: "number", required: true },
     ]);
     expect(r.ok).toBe(false);
+  });
+
+  it("flags null value for required arg with no default as missing required", () => {
+    const r = validateArgs({ x: null } as Record<string, unknown>, [
+      { name: "x", type: "string", required: true },
+    ]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0]).toContain("missing required arg: x");
+  });
+
+  it("accepts null value for optional arg without error", () => {
+    const r = validateArgs({ x: null } as Record<string, unknown>, [
+      { name: "x", type: "string", required: false },
+    ]);
+    expect(r.ok).toBe(true);
+  });
+
+  it("accepts entirely missing optional arg", () => {
+    const r = validateArgs({}, [{ name: "x", type: "string", required: false }]);
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -120,7 +166,11 @@ describe("DelegationService.invoke", () => {
   });
 
   it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {
-    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" }, extra_prompt: "追加の指示だよ" });
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      extra_prompt: "追加の指示だよ",
+    });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rendered_prompt).toContain("echo hi");
@@ -130,7 +180,11 @@ describe("DelegationService.invoke", () => {
   });
 
   it("extra_prompt 空文字は追記しない", async () => {
-    const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" }, extra_prompt: "   " });
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      extra_prompt: "   ",
+    });
     if (!r.ok) throw new Error("expected ok");
     expect(r.rendered_prompt).toBe("echo hi");
   });
@@ -158,6 +212,21 @@ describe("DelegationService.invoke", () => {
   it("returns error for missing required args", async () => {
     const r = await svc.invoke({ call_name: "echo", args: {} });
     expect(r.ok).toBe(false);
+  });
+
+  it("returns error for inactive template", async () => {
+    repo.createTemplate({
+      call_name: "inactive-tpl",
+      title: "Inactive",
+      target_provider: "codex",
+      prompt_template: "do ${x}",
+      input_schema: [{ name: "x", type: "string", required: true }],
+      is_active: false,
+    });
+    const r = await svc.invoke({ call_name: "inactive-tpl", args: { x: "ok" } });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain("inactive");
   });
 
   it("passes template.model to spawn as --model args", async () => {
@@ -200,7 +269,10 @@ describe("DelegationService.invoke", () => {
 
     const r1 = await svc.invoke({ call_name: "with-default-options", args: { x: "y" } });
     expect(r1.ok).toBe(true);
-    expect((spawnCalls[0] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="medium"']);
+    expect((spawnCalls[0] as { args?: string[] }).args).toEqual([
+      "-c",
+      'model_reasoning_effort="medium"',
+    ]);
 
     const r2 = await svc.invoke({
       call_name: "with-default-options",
@@ -208,7 +280,10 @@ describe("DelegationService.invoke", () => {
       options: { model_reasoning_effort: "high" },
     });
     expect(r2.ok).toBe(true);
-    expect((spawnCalls[1] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="high"']);
+    expect((spawnCalls[1] as { args?: string[] }).args).toEqual([
+      "-c",
+      'model_reasoning_effort="high"',
+    ]);
   });
 
   it("omits --model args when template has no model", async () => {
@@ -254,6 +329,34 @@ describe("DelegationService.invoke", () => {
     expect(file).not.toContain("- persona: (none)");
   });
 
+  it("persona context differs between no-persona and with-persona invocations", async () => {
+    // Without persona: no 割り当て人格 section
+    const r1 = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r1.ok) throw new Error("expected ok");
+    const file1 = readFileSync(r1.prompt_file_path, "utf8");
+    expect(file1).not.toContain("割り当て人格");
+    expect(file1).toContain("- persona: (none)");
+
+    // With persona: 割り当て人格 section is present
+    const personas = new PersonasRepo(db);
+    seedPersonas(personas);
+    const withPersona = new DelegationService({
+      repo,
+      promptsDir,
+      personas,
+      rng: () => 0,
+      spawn: (req) => {
+        spawnCalls.push(req);
+        return { ok: true, pid: 2, command: ["wt.exe", req.provider] };
+      },
+    });
+    const r2 = await withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r2.ok) throw new Error("expected ok");
+    const file2 = readFileSync(r2.prompt_file_path, "utf8");
+    expect(file2).toContain("割り当て人格");
+    expect(file2).not.toContain("- persona: (none)");
+  });
+
   it("records spawn_failed when spawner returns error", async () => {
     const failing = new DelegationService({
       repo,
@@ -265,5 +368,132 @@ describe("DelegationService.invoke", () => {
     if (!r.ok) return;
     expect(r.run.status).toBe("spawn_failed");
     expect(r.run.error).toContain("wt.exe");
+  });
+
+  it("default_cwd: expands ${var} from args when caller does not provide cwd", async () => {
+    repo.createTemplate({
+      call_name: "cwd-template",
+      title: "CWD Template",
+      target_provider: "codex",
+      prompt_template: "do ${task}",
+      input_schema: [
+        { name: "task", type: "string", required: true },
+        { name: "repo", type: "string", required: false },
+      ],
+      default_cwd: "/repos/${repo}",
+    });
+    const r = await svc.invoke({
+      call_name: "cwd-template",
+      args: { task: "build", repo: "myrepo" },
+    });
+    expect(r.ok).toBe(true);
+    const req = spawnCalls[0] as { cwd?: string };
+    expect(req.cwd).toBe("/repos/myrepo");
+  });
+});
+
+describe("DelegationService.invokeDefinition", () => {
+  let db: ReturnType<typeof makeTestDb>;
+  let repo: DelegationRepo;
+  let promptsDir: string;
+  let svc: DelegationService;
+  const spawnCalls: Array<unknown> = [];
+
+  beforeEach(() => {
+    db = makeTestDb();
+    repo = new DelegationRepo(db);
+    promptsDir = mkdtempSync(join(tmpdir(), "deleg-defn-test-"));
+    spawnCalls.length = 0;
+    svc = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: (req) => {
+        spawnCalls.push(req);
+        return { ok: true, pid: 777, command: ["wt.exe", req.provider] };
+      },
+    });
+  });
+
+  afterEach(() => {
+    rmSync(promptsDir, { recursive: true, force: true });
+  });
+
+  it("invokes a DelegationDefinition directly without global template lookup", async () => {
+    const def: DelegationDefinition = {
+      template_id: null, // subsidiary-owned, not a global template
+      call_name: "custom-task",
+      title: "Custom Task",
+      target_provider: "codex",
+      model: null,
+      prompt_template: "Custom: ${task}",
+      input_schema: JSON.stringify([{ name: "task", type: "string", required: true }]),
+      default_cwd: null,
+      project: null,
+      emoji: "",
+    };
+    const r = await svc.invokeDefinition(def, { args: { task: "do it" }, spawn: false });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.rendered_prompt).toBe("Custom: do it");
+    // subsidiary-owned copy → template_id is null
+    expect(r.run.template_id).toBeNull();
+    expect(r.run.call_name).toBe("custom-task");
+    expect(spawnCalls.length).toBe(0);
+  });
+
+  it("invokeDefinition bypasses is_active check — inactive global template does not block", async () => {
+    // Create an inactive global template
+    repo.createTemplate({
+      call_name: "shared-name",
+      title: "Global (inactive)",
+      target_provider: "codex",
+      prompt_template: "global ${x}",
+      input_schema: [{ name: "x", type: "string", required: true }],
+      is_active: false,
+    });
+    // invokeDefinition uses a provided subsidiary copy directly — no lookup, no is_active check
+    const def: DelegationDefinition = {
+      template_id: null,
+      call_name: "shared-name",
+      title: "Subsidiary copy",
+      target_provider: "codex",
+      model: null,
+      prompt_template: "subsidiary ${x}",
+      input_schema: JSON.stringify([{ name: "x", type: "string", required: true }]),
+      default_cwd: null,
+      project: null,
+      emoji: "",
+    };
+    const r = await svc.invokeDefinition(def, { args: { x: "hello" }, spawn: false });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    // Uses the subsidiary copy's prompt, not the inactive global template
+    expect(r.rendered_prompt).toBe("subsidiary hello");
+  });
+
+  it("invokeDefinition with template_id records that id on the run row", async () => {
+    const globalTpl = repo.createTemplate({
+      call_name: "global-tpl",
+      title: "Global",
+      target_provider: "codex",
+      prompt_template: "global ${x}",
+      input_schema: [{ name: "x", type: "string", required: true }],
+    });
+    const def: DelegationDefinition = {
+      template_id: globalTpl.id, // referencing the global template id
+      call_name: "global-tpl",
+      title: "Global",
+      target_provider: "codex",
+      model: null,
+      prompt_template: "global ${x}",
+      input_schema: JSON.stringify([{ name: "x", type: "string", required: true }]),
+      default_cwd: null,
+      project: null,
+      emoji: "",
+    };
+    const r = await svc.invokeDefinition(def, { args: { x: "val" }, spawn: false });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.run.template_id).toBe(globalTpl.id);
   });
 });

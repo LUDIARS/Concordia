@@ -3,15 +3,13 @@ import { makeTestDb } from "../../tests/helpers/db.js";
 import { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
-import { SubsidiaryBotManager, type BaseDiscordDeps } from "./manager.js";
-import type { DiscordBotHandle } from "../discord/bot.js";
-import type { DiscordEnv } from "../discord/types.js";
+import { SubsidiaryBotManager, type BaseDiscordDeps, type SubsidiaryBotEnv, type SubsidiaryBotHandle } from "./manager.js";
 
 let db: ReturnType<typeof makeTestDb>;
 let subRepo: SubsidiaryRepo;
 
 // 子会社 Bot は本社と同じ token / application_id を使う。 既定では本社 token あり。
-const HEAD_WITH_TOKEN: DiscordEnv = {
+const HEAD_WITH_TOKEN: SubsidiaryBotEnv = {
   enabled: true,
   token: "head-tok",
   guildId: "head-guild",
@@ -21,8 +19,8 @@ const HEAD_WITH_TOKEN: DiscordEnv = {
 };
 
 function makeManager(
-  startBot: (deps: unknown) => Promise<DiscordBotHandle | null>,
-  headOffice: DiscordEnv = HEAD_WITH_TOKEN,
+  startBot: (deps: unknown) => Promise<SubsidiaryBotHandle | null>,
+  headOffice: SubsidiaryBotEnv = HEAD_WITH_TOKEN,
 ) {
   return new SubsidiaryBotManager({
     subsidiaryRepo: subRepo,
@@ -46,7 +44,7 @@ describe("SubsidiaryBotManager", () => {
   it("enabled+guild 設定済み discord 子会社を start し running になる (token は本社共有)", async () => {
     const sub = subRepo.create({ name: "co", platform: "discord", enabled: true, guild_id: "g1" });
     const stop = vi.fn(async () => {});
-    const startBot = vi.fn(async () => ({ stop }) as DiscordBotHandle);
+    const startBot = vi.fn(async () => ({ stop }) as SubsidiaryBotHandle);
     const mgr = makeManager(startBot);
     const r = await mgr.start(sub.id);
     expect(r.status).toBe("started");
@@ -61,14 +59,14 @@ describe("SubsidiaryBotManager", () => {
 
   it("inherits head-office Discord message settings for subsidiary bots", async () => {
     const sub = subRepo.create({ name: "co-settings", platform: "discord", enabled: true, guild_id: "g1" });
-    const startBot = vi.fn(async (_deps: unknown) => ({ stop: async () => {} }) as DiscordBotHandle);
+    const startBot = vi.fn(async (_deps: unknown) => ({ stop: async () => {} }) as SubsidiaryBotHandle);
     const mgr = makeManager(startBot, {
       ...HEAD_WITH_TOKEN,
       permissionRequestsEnabled: true,
       messageOptimizationEnabled: false,
     });
     await mgr.start(sub.id);
-    const deps = startBot.mock.calls[0][0] as { resolveConfig?: () => DiscordEnv };
+    const deps = startBot.mock.calls[0][0] as { resolveConfig?: () => SubsidiaryBotEnv };
     expect(deps.resolveConfig?.()).toMatchObject({
       permissionRequestsEnabled: true,
       messageOptimizationEnabled: false,
@@ -109,7 +107,7 @@ describe("SubsidiaryBotManager", () => {
   it("startAll は enabled の discord 子会社のみ起動する", async () => {
     subRepo.create({ name: "a", platform: "discord", enabled: true, guild_id: "g" });
     subRepo.create({ name: "b", platform: "discord", enabled: false, guild_id: "g" });
-    const startBot = vi.fn(async () => ({ stop: async () => {} }) as DiscordBotHandle);
+    const startBot = vi.fn(async () => ({ stop: async () => {} }) as SubsidiaryBotHandle);
     const mgr = makeManager(startBot);
     await mgr.startAll();
     expect(startBot).toHaveBeenCalledOnce();

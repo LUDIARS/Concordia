@@ -214,6 +214,7 @@ async function main(): Promise<void> {
       const { resolveConfig: _resolveConfig, subsidiary: _subsidiary, ...base } = discordBotDeps;
       return base;
     },
+    startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),
   });
 
   const bot: DiscordBotHandle | null = await startDiscordBot(discordBotDeps);

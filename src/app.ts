@@ -242,7 +242,7 @@ export function buildApp(deps: AppDeps): Hono {
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
-  app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService }));
+  app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService, sessions: deps.repo }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
   if (deps.testingClaims) {
     app.route("/v1/testing", testingRouter({ claims: deps.testingClaims, sessions: deps.repo }));

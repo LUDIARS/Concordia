@@ -107,6 +107,15 @@ export class SessionsRepo {
     return this.db.prepare(sql).all(...args) as SessionRow[];
   }
 
+  listDelegationSessions(limit = 1000): SessionRow[] {
+    return this.db.prepare(
+      `SELECT * FROM sessions
+       WHERE metadata LIKE '%"delegation_call_name"%'
+          OR metadata LIKE '%"delegation_run_id"%'
+       ORDER BY started_at DESC LIMIT ?`,
+    ).all(limit) as SessionRow[];
+  }
+
   updateHeartbeat(id: string, ts: number): void {
     this.db.prepare(`UPDATE sessions SET last_seen_at = ? WHERE id = ?`).run(ts, id);
   }

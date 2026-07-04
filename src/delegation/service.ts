@@ -17,7 +17,10 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
-import { recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
+import {
+  forgetPendingDelegationSpawnByRunId,
+  recordPendingDelegationSpawn,
+} from "../control/pending-delegation-spawns.js";
 import {
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
@@ -323,26 +326,26 @@ export class DelegationService {
           CONCORDIA_DELEGATION_CALL_NAME: input.call_name,
         },
       };
+      // Register before spawn so a fast session.started callback can claim this run.
+      recordPendingDelegationSpawn({
+        cwd,
+        emoji: def.emoji ?? null,
+        callName: input.call_name,
+        runId,
+        subsidiaryId: input.subsidiary_id ?? null,
+        project: input.project ?? null,
+      });
       const result = spawner(req);
       if (result.ok) {
         spawnPid = result.pid;
         spawnCommand = result.command;
         status = "spawned";
-        // この spawn と、 直後に Lictor が独立登録するセッションを cwd で結ぶための
-        // 一時マーカー。 session.started 時に claim してテンプレ絵文字を metadata へ焼く
-        // (Slack ライブカードの先頭アイコンに使う)。
-        recordPendingDelegationSpawn({
-          cwd,
-          emoji: def.emoji ?? null,
-          callName: input.call_name,
-          subsidiaryId: input.subsidiary_id ?? null,
-          project: input.project ?? null,
-        });
         log.info({
           run_id: runId, call_name: input.call_name, provider, cwd,
           spawn_pid: spawnPid, prompt_file: promptPath,
         }, "delegation spawn ok");
       } else {
+        forgetPendingDelegationSpawnByRunId(runId);
         status = "spawn_failed";
         spawnError = result.error;
         log.warn({

@@ -90,6 +90,8 @@ const InvokeSchema = z.object({
   call_name: z.string().regex(CALL_NAME_RE),
   args: z.record(z.unknown()).default({}),
   cwd: z.string().optional(),
+  branch: z.string().optional(),
+  worktree: z.boolean().optional(),
   /** 初回プロンプト末尾に追記する任意の追加指示（render とは別経路）。 */
   extra_prompt: z.string().max(20000).optional(),
   triggered_by: z.string().max(120).optional(),
@@ -267,6 +269,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       call_name: parsed.data.call_name,
       args: parsed.data.args,
       cwd: parsed.data.cwd,
+      branch: parsed.data.branch,
+      worktree: parsed.data.worktree,
       extra_prompt: parsed.data.extra_prompt,
       triggered_by: parsed.data.triggered_by,
       spawn: parsed.data.spawn,
@@ -283,6 +287,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       prompt_file_path: result.prompt_file_path,
       spawn_pid: result.spawn_pid,
       spawn_command: result.spawn_command,
+      spawn_cwd: result.spawn_cwd,
+      spawn_branch: result.spawn_branch,
+      spawn_worktree_path: result.spawn_worktree_path,
+      spawn_worktree_created: result.spawn_worktree_created,
     });
   });
 

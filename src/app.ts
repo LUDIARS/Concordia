@@ -87,6 +87,7 @@ import {
   SPAWN_PROVIDERS,
   type SpawnMode,
 } from "./control/spawner.js";
+import { prepareSpawnTarget } from "./control/spawn-target.js";
 import { resolveDelegationRuntimeArgs, resolveDelegationSpawn } from "./control/provider-preset.js";
 import { resolveLocalModel } from "./control/famulus-select.js";
 import { basename } from "node:path";
@@ -310,6 +311,8 @@ export function buildApp(deps: AppDeps): Hono {
     // 未タグ = 本社所有扱いになり、 自動生成された session チャンネルが本社側に出てしまう。
     const subsidiaryId = typeof body.subsidiary_id === "string" && body.subsidiary_id.trim() ? body.subsidiary_id.trim() : null;
     const projectName = typeof body.project === "string" ? body.project.trim() : "";
+    const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
+    const requestedWorktree = body.worktree;
     let projectCwd: string | null = null;
     if (projectName) {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) {
@@ -365,6 +368,8 @@ export function buildApp(deps: AppDeps): Hono {
           call_name: tpl.call_name,
           args: tplArgs,
           cwd: cwdOverride,
+          branch: requestedBranch,
+          worktree: typeof requestedWorktree === "boolean" ? requestedWorktree : undefined,
           triggered_by: "web-spawn",
           spawn: true,
           options: runtimeOptions,
@@ -380,6 +385,10 @@ export function buildApp(deps: AppDeps): Hono {
           run_id: result.run.id,
           injected_prompt: true,
           project: projectName || null,
+          cwd: result.spawn_cwd,
+          branch: result.spawn_branch,
+          worktree_path: result.spawn_worktree_path,
+          worktree_created: result.spawn_worktree_created,
         });
       }
 
@@ -403,19 +412,35 @@ export function buildApp(deps: AppDeps): Hono {
       const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, runtimeOptions);
       const spawnArgs = [...spawn.args, ...runtimeArgs];
       const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
+      const spawnTarget = await prepareSpawnTarget({
+        cwd: spawnCwd,
+        branch: requestedBranch,
+        worktree: requestedWorktree,
+      });
+      if (!spawnTarget.ok) return c.json({ error: spawnTarget.error }, 400);
       const result = spawnSession({
         provider: spawn.provider,
         mode,
         args: spawnArgs.length > 0 ? spawnArgs : undefined,
-        cwd: spawnCwd,
+        cwd: spawnTarget.cwd,
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: spawn.env,
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({ cwd: spawnCwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId, project: projectName || null });
-      return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: false, project: projectName || null });
+      recordPendingDelegationSpawn({ cwd: spawnTarget.cwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId, project: projectName || null });
+      return c.json({
+        ok: true,
+        pid: result.pid,
+        command: result.command,
+        injected_prompt: false,
+        project: projectName || null,
+        cwd: spawnTarget.cwd ?? null,
+        branch: spawnTarget.branch,
+        worktree_path: spawnTarget.worktree_path,
+        worktree_created: spawnTarget.worktree_created,
+      });
     }
 
     // ── 従来経路: provider 直接指定 ───────────────────────────
@@ -437,11 +462,17 @@ export function buildApp(deps: AppDeps): Hono {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
     const directCwd = projectCwd ?? resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot());
+    const directTarget = await prepareSpawnTarget({
+      cwd: directCwd,
+      branch: requestedBranch,
+      worktree: requestedWorktree,
+    });
+    if (!directTarget.ok) return c.json({ error: directTarget.error }, 400);
     const result = spawnSession({
       provider: resolved.provider,
       mode,
       args: [...resolved.args, ...userArgs],
-      cwd: directCwd,
+      cwd: directTarget.cwd,
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });
@@ -449,9 +480,19 @@ export function buildApp(deps: AppDeps): Hono {
     // 子会社由来の素の provider spawn も subsidiary_id を焼く (本社流入防止)。 本社の通常
     // spawn では pending を積まない (cwd 衝突で他 delegation の claim を奪わないため)。
     if (subsidiaryId) {
-      recordPendingDelegationSpawn({ cwd: directCwd, callName: "spawn", subsidiaryId, project: projectName || null });
+      recordPendingDelegationSpawn({ cwd: directTarget.cwd, callName: "spawn", subsidiaryId, project: projectName || null });
     }
-    return c.json({ ok: true, pid: result.pid, command: result.command, injected_prompt: !!adHocPrompt, project: projectName || null });
+    return c.json({
+      ok: true,
+      pid: result.pid,
+      command: result.command,
+      injected_prompt: !!adHocPrompt,
+      project: projectName || null,
+      cwd: directTarget.cwd ?? null,
+      branch: directTarget.branch,
+      worktree_path: directTarget.worktree_path,
+      worktree_created: directTarget.worktree_created,
+    });
   });
 
   // 管理 API: spawn の既定値を UI に晒す.

@@ -29,6 +29,8 @@ export function DelegationSpawnForm({
   const [provider, setProvider] = useState<SpawnProvider>("claude");
   const [mode, setMode] = useState<WindowMode>("tab");
   const [project, setProject] = useState("");
+  const [branch, setBranch] = useState("");
+  const [useWorktree, setUseWorktree] = useState(true);
   const [injectPrompt, setInjectPrompt] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [args, setArgs] = useState<Record<string, string>>({});
@@ -98,9 +100,14 @@ export function DelegationSpawnForm({
     try {
       const body: Parameters<typeof api.adminSpawn>[0] = { mode };
       const projectName = project.trim();
+      const branchName = branch.trim();
       const promptText = prompt.trim();
       if (subsidiaryId) body.subsidiary_id = subsidiaryId;
       if (projectName) body.project = projectName;
+      if (branchName) {
+        body.branch = branchName;
+        body.worktree = useWorktree;
+      }
 
       if (launchKind === "template" && selected) {
         body.template = selected.call_name;
@@ -120,7 +127,7 @@ export function DelegationSpawnForm({
       setResult({
         ok: !!r.ok,
         text: r.ok
-          ? `spawned${projectName ? ` ${projectName}` : ""} (pid ${r.pid ?? "?"}${r.injected_prompt ? ", prompt" : ""})`
+          ? `spawned${projectName ? ` ${projectName}` : ""}${r.branch ? ` @${r.branch}` : ""} (pid ${r.pid ?? "?"}${r.injected_prompt ? ", prompt" : ""})`
           : (r.error ?? "spawn failed"),
       });
       if (r.ok) setPrompt("");
@@ -187,6 +194,22 @@ export function DelegationSpawnForm({
           <datalist id={projectListId}>
             {projectOptions.map((name) => <option key={name} value={name} />)}
           </datalist>
+          <input
+            className="foundation-form text-xs w-32 min-w-0"
+            placeholder="branch"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            disabled={sending}
+          />
+          <label className="foundation-form text-xs flex items-center gap-1 px-2 w-16">
+            <input
+              type="checkbox"
+              checked={useWorktree}
+              onChange={(e) => setUseWorktree(e.target.checked)}
+              disabled={sending || !branch.trim()}
+            />
+            wt
+          </label>
           <select
             className="foundation-form text-xs w-20"
             value={mode}

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { PersonasRepo } from "../db/personas-repo.js";
@@ -390,6 +391,45 @@ describe("DelegationService.invoke", () => {
     const req = spawnCalls[0] as { cwd?: string };
     expect(req.cwd).toBe("/repos/myrepo");
   });
+
+  it("branch + worktree rewrites the spawned cwd without switching the source repo", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "deleg-wt-repo-"));
+    const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-feat-delegation-wt`);
+    rmSync(worktreeRoot, { recursive: true, force: true });
+    initGitRepo(repoRoot);
+    const sourceBranch = git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+    repo.createTemplate({
+      call_name: "branch-wt",
+      title: "Branch WT",
+      target_provider: "claude",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: repoRoot,
+    });
+
+    try {
+      const r = await svc.invoke({
+        call_name: "branch-wt",
+        args: { task: "build" },
+        branch: "feat/delegation-wt",
+      });
+
+      expect(r.ok).toBe(true);
+      if (!r.ok) return;
+      const req = spawnCalls[0] as { cwd?: string; provider: string };
+      expect(req.provider).toBe("claude");
+      expect(req.cwd).toBe(worktreeRoot);
+      expect(r.spawn_cwd).toBe(worktreeRoot);
+      expect(r.spawn_branch).toBe("feat/delegation-wt");
+      expect(r.spawn_worktree_created).toBe(true);
+      expect(existsSync(join(worktreeRoot, ".git"))).toBe(true);
+      expect(git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(sourceBranch);
+      expect(git(worktreeRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feat/delegation-wt");
+    } finally {
+      rmSync(worktreeRoot, { recursive: true, force: true });
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
 
 describe("DelegationService.invokeDefinition", () => {
@@ -497,3 +537,20 @@ describe("DelegationService.invokeDefinition", () => {
     expect(r.run.template_id).toBe(globalTpl.id);
   });
 });
+
+function initGitRepo(repoRoot: string): void {
+  git(repoRoot, ["init"]);
+  git(repoRoot, ["config", "user.email", "concordia-test@example.invalid"]);
+  git(repoRoot, ["config", "user.name", "Concordia Test"]);
+  writeFileSync(join(repoRoot, "README.md"), "test\n", "utf8");
+  git(repoRoot, ["add", "README.md"]);
+  git(repoRoot, ["commit", "-m", "init"]);
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync(process.platform === "win32" ? "git.exe" : "git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}

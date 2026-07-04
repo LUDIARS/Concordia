@@ -680,7 +680,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "session.event" && ev.kind === "prompt") {
       // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
       const s = deps.sessionsRepo.findSession(ev.session_id);
-      if (!s || !shouldRelaySessionPromptProvider(s.provider)) return;
+      if (!s || s.provider !== "codex-cli") return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
       if (!isActiveRelayTarget(s.status, row?.status ?? null)) return;
       workingIndicator?.noteProgress(ev.session_id);
@@ -708,7 +708,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
               const m = await channel.messages.fetch(ack.messageId);
               await m.react("✅");
             } catch (e) {
-              log.warn(`inject-ack: prompt react failed session=${ev.session_id}: ${(e as Error).message}`);
+              log.warn(`inject-ack: codex react failed session=${ev.session_id}: ${(e as Error).message}`);
             }
           })();
         }
@@ -833,8 +833,4 @@ function eventSessionId(ev: ConcordiaEvent): string | null {
     default:
       return null;
   }
-}
-
-export function shouldRelaySessionPromptProvider(provider: string | null | undefined): boolean {
-  return provider === "codex-cli" || provider === "claude-code";
 }

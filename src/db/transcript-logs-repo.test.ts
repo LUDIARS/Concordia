@@ -30,3 +30,20 @@ describe("TranscriptLogsRepo.maxId", () => {
     expect(repo.listBySession("s1", { since_id: max1 - 1 })).toHaveLength(1);
   });
 });
+
+describe("TranscriptLogsRepo.listBySession tail", () => {
+  it("returns the latest limited frames in chronological order", () => {
+    for (let i = 1; i <= 5; i += 1) add("s1", i);
+    add("s2", 100);
+
+    expect(repo.listBySession("s1", { limit: 2, tail: true }).map((r) => r.seq)).toEqual([4, 5]);
+  });
+
+  it("treats since_id as incremental even when tail is also requested", () => {
+    for (let i = 1; i <= 5; i += 1) add("s1", i);
+    const firstTwo = repo.listBySession("s1", { limit: 2 });
+    const sinceId = firstTwo[firstTwo.length - 1].id;
+
+    expect(repo.listBySession("s1", { since_id: sinceId, limit: 2, tail: true }).map((r) => r.seq)).toEqual([3, 4]);
+  });
+});

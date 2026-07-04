@@ -19,10 +19,8 @@ import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } 
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
-import { repinSession } from "../control/repin-session.js";
-import { type WorkflowAction } from "../platform/reaction-workflow.js";
+import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
-import { runClaude } from "../rules/claude-runner.js";
 import {
   onSessionRegistered,
   onSessionStatusChanged,
@@ -76,6 +74,9 @@ export function shouldPostPermissionRequestToDiscord(env: Pick<DiscordEnv, "perm
   return env.permissionRequestsEnabled;
 }
 
+export type DiscordHeadlessRunner = (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
+export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
+
 export interface DiscordBotDeps {
   db: Database;
   chatRepo: ChatRepo;
@@ -104,6 +105,8 @@ export interface DiscordBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  runHeadless: DiscordHeadlessRunner;
+  repinSession: DiscordRepinSession;
   /**
    * Override for workflow-triggered session injects. In the embedded backend
    * this is the in-process event bus. In the standalone Discord worker it
@@ -202,7 +205,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
-    runHeadless: runClaude,
+    runHeadless: deps.runHeadless,
     emitInject: deps.emitSessionInject ?? ((sessionId, text, source) =>
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) })),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
@@ -503,7 +506,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         workflow: reactionWorkflow,
         sessionChannels: sessionChannelsRepo,
         sessions: deps.sessionsRepo,
-        repin: (sid) => repinSession(deps.sessionsRepo, sid),
+        repin: deps.repinSession,
       },
       reaction,
       user,

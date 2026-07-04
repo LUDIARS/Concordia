@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../commands.js";
 import { callConcordia, requireSessionChannel } from "./_util.js";
-import { ENTER_KEY_TEXT } from "../../control/enter-key.js";
+import { ENTER_KEY_TEXT } from "../../platform/enter-key.js";
 
 /**
  * /enter — wrapped CLI session に「改行 (Enter キー押下) だけ」 を送る.

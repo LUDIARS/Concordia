@@ -34,13 +34,11 @@
 
 import { join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
+import { ENTER_KEY_TEXT } from "./enter-key.js";
 
 // ─── プラグイン契約: Concordia 内部に依存しない自己完結エンジンにするための型 ─────
 // (ユーザカスタマイズ可能な別フォルダプラグインとして切り出すため、 eventBus /
 //  claude-runner / enter-key への直接 import を排し、 すべて deps 注入で受ける。)
-
-/** wrapped CLI で「Enter キー押下」を意味する文字 (CR)。 control/enter-key.ts と同値。 */
-const ENTER_KEY_TEXT = "\r";
 
 /** headless 実行 (runClaude 相当) のオプション。 engine が使うフィールドのみ。 */
 export interface RwfRunOptions {

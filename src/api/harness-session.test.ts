@@ -10,7 +10,7 @@ import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
 import { harnessSessionRouter } from "./harness-session.js";
 
-import type { RunClaudeFn } from "../subsidiary/guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 
 function makeApp(runClaude?: RunClaudeFn) {
   const db = makeTestDb();

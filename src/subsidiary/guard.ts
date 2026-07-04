@@ -12,6 +12,8 @@
  * オーケストレーションは gate.ts が担う (SRP)。
  */
 
+import type { RunClaudeFn } from "../rules/claude-runner.js";
+
 export interface GuardHarnessRule {
   kind: "allow" | "block";
   title: string;
@@ -46,10 +48,6 @@ export interface GuardVerdict {
   lock_user: boolean;
 }
 
-export type RunClaudeFn = (
-  prompt: string,
-  opts: { model?: string; timeoutMs?: number },
-) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
 
 /**
  * ガードプロンプトを組む (純粋関数 / テスト対象)。 依頼文は `<<<UNTRUSTED ...>>>` の

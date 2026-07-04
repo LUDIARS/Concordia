@@ -23,7 +23,7 @@ import {
   heuristicPromptAnalysis,
 } from "../harness/local-prompt-analyzer.js";
 import { collectPromptResearch } from "../harness/prompt-research.js";
-import type { RunClaudeFn } from "../subsidiary/guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 import { vgWrite, type VgLevel } from "../shared/vestigium.js";
 

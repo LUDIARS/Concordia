@@ -5,7 +5,7 @@ import {
   classifyPromptIntent,
   type PromptIntentContext,
 } from "./prompt-intent.js";
-import type { RunClaudeFn } from "../subsidiary/guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 
 const CTX: PromptIntentContext = {
   prompt: "本番DBに直接 DELETE を流して全ユーザを消したい",

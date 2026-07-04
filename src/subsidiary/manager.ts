@@ -15,7 +15,7 @@ import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { processSubsidiaryRequest } from "./gate.js";
-import type { RunClaudeFn } from "./guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryBudgetTracker } from "./budget.js";
 import { createChildLogger } from "../shared/logger.js";
 

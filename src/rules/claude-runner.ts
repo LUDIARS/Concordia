@@ -38,6 +38,11 @@ export interface RunClaudeOptions {
   timeoutMs?: number;
 }
 
+export type RunClaudeFn = (
+  prompt: string,
+  opts: { model?: string; timeoutMs?: number },
+) => Promise<{ ok: boolean; stdout: string; stderr: string }>;
+
 /**
  * `claude -p` を 1 ショット起動して stdout を返す。
  *

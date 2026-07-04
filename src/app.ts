@@ -270,7 +270,7 @@ export function buildApp(deps: AppDeps): Hono {
     "/v1/cost",
     costRouter({
       sessions: deps.repo,
-      channels: deps.discordChannels,
+      resolveSessionChannelId: (sessionId) => deps.discordChannels.findBySessionId(sessionId)?.channel_id ?? null,
       samples: deps.costSamples,
       limitSamples: deps.costLimitSamples,
       oneShots: deps.costOneShots,

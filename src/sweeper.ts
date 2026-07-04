@@ -10,7 +10,6 @@ import { readFileSync, existsSync } from "node:fs";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
-import type { Dispatcher } from "./dispatcher.js";
 import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 import { eventBus } from "./events.js";
@@ -21,7 +20,6 @@ export interface SweeperOptions {
   repo: SessionsRepo;
   tasks: TasksRepo;
   personas: PersonasRepo;
-  dispatcher: Dispatcher;
   intervalMs: number;
   lostAfterSec: number;
   abandonedAfterSec: number;
@@ -74,8 +72,6 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
         });
       }
       // 他 active session に「離脱しました」通知
-      const lostNow = opts.repo.findSession(s.id)!;
-      opts.dispatcher.onSessionLost(lostNow);
       eventBus.emit({ type: "session.lost", session_id: s.id, ts: now });
       log.info(
         { session_id: s.id, last_seen_at: s.last_seen_at, recovered: !!recovered },

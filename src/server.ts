@@ -78,6 +78,7 @@ import { startPrIngestWatcher } from "./pr/ingest.js";
 import { startPrReconciler } from "./pr/reconcile.js";
 import { startPrFullSync } from "./pr/full-sync.js";
 import { startErrorFixDispatcher } from "./control/error-fix.js";
+import { subscribeSessionLostDispatcher } from "./control/session-lost-dispatcher.js";
 import { buildApp } from "./app.js";
 import { attachWsServer } from "./api/ws.js";
 import { eventBus } from "./events.js";
@@ -403,7 +404,6 @@ export async function startBackend(): Promise<BackendHandle> {
     repo,
     tasks,
     personas,
-    dispatcher,
     intervalMs: cfg.sweeperIntervalMs,
     lostAfterSec: cfg.lostAfterSec,
     abandonedAfterSec: cfg.abandonedAfterSec,
@@ -704,6 +704,7 @@ export async function startBackend(): Promise<BackendHandle> {
       });
     }
   });
+  const unsubSessionLostDispatch = subscribeSessionLostDispatcher({ sessions: repo, dispatcher });
 
   // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
   // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
@@ -779,6 +780,7 @@ export async function startBackend(): Promise<BackendHandle> {
       metricsLoop.stop();
       branchWatch.stop();
       unsubTestingRelease();
+      unsubSessionLostDispatch();
       clearInterval(relayOwnerWatch);
       clearInterval(costSampleTimer);
       clearInterval(usageSampleTimer);

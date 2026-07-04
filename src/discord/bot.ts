@@ -68,6 +68,10 @@ const log = {
   },
 };
 
+export function shouldRelaySessionPromptToDiscord(provider: string | null | undefined): boolean {
+  return provider === "codex-cli";
+}
+
 export interface DiscordBotDeps {
   db: Database;
   chatRepo: ChatRepo;
@@ -680,7 +684,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (ev.type === "session.event" && ev.kind === "prompt") {
       // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
       const s = deps.sessionsRepo.findSession(ev.session_id);
-      if (!s || s.provider !== "codex-cli") return;
+      if (!s || !shouldRelaySessionPromptToDiscord(s.provider)) return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
       if (!isActiveRelayTarget(s.status, row?.status ?? null)) return;
       workingIndicator?.noteProgress(ev.session_id);

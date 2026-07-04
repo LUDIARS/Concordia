@@ -6,6 +6,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { collectHostSnapshot } from "./collector.js";
 import { MetricsStore } from "./store.js";
+import { EventLoopLagSampler } from "./event-loop-lag.js";
 
 const log = createChildLogger("metrics");
 
@@ -22,13 +23,18 @@ export function startMetricsLoop(
     return { stop: () => {} };
   }
 
+  const lagSampler = new EventLoopLagSampler();
+  lagSampler.enable();
+
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
     try {
+      const lagSnap = lagSampler.snapshot();
       const snap = await collectHostSnapshot(deps.repo, Date.now());
+      snap.eventLoopLag = lagSnap;
       deps.store.insert(snap);
       deps.store.prune(Date.now() - opts.retentionHours * 3_600_000);
     } catch (err) {
@@ -44,6 +50,7 @@ export function startMetricsLoop(
     stop: () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      lagSampler.disable();
     },
   };
 }

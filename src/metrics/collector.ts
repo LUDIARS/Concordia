@@ -12,6 +12,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { parseLictorPid } from "../control/reaper.js";
 import { listProcesses, sumTreeRss, topByName, type TopProc } from "./process-tree.js";
 import { sampleWsl, sampleDocker, type WslSample, type DockerSample } from "./os-samplers.js";
+import type { LagSnapshot } from "./event-loop-lag.js";
 
 export interface SessionMem {
   session_id: string;
@@ -37,6 +38,8 @@ export interface HostSnapshot {
   wsl: WslSample[];
   docker: DockerSample[];
   sessions: SessionMem[];
+  /** Event-loop lag (ms)。 Phase 3 分離効果の物差し。 */
+  eventLoopLag?: LagSnapshot;
 }
 
 export async function collectHostSnapshot(repo: SessionsRepo, nowMs: number): Promise<HostSnapshot> {

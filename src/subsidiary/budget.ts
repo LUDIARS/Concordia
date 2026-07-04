@@ -14,6 +14,7 @@
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { readSessionUsage } from "../cost/log-usage.js";
 import { localDateIso } from "../cost/usage-tracker.js";
 
@@ -88,18 +89,4 @@ export function localDayRange(nowMs: number): [number, number] {
   const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
   return [start, end];
-}
-
-/** session.metadata (JSON) から subsidiary_id を取り出す (壊れていれば null)。 */
-export function readSubsidiaryId(metadata: string | null): string | null {
-  if (!metadata) return null;
-  try {
-    const o = JSON.parse(metadata) as unknown;
-    if (o && typeof o === "object" && typeof (o as { subsidiary_id?: unknown }).subsidiary_id === "string") {
-      return (o as { subsidiary_id: string }).subsidiary_id;
-    }
-  } catch {
-    // 壊れた metadata は帰属不能として無視。
-  }
-  return null;
 }

@@ -11,7 +11,7 @@ import type { SessionRow } from "../shared/types.js";
 import type { CostUsageSampleInput } from "../db/cost-usage-samples-repo.js";
 import { estimateContextTokens } from "./context-estimate.js";
 import { readSessionUsage } from "./log-usage.js";
-import { readSubsidiaryId } from "../subsidiary/budget.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
 /** JSONL 読取の差し替え点 (テスト用)。 既定は実 reader。 */
 export interface UsageSampleReader {

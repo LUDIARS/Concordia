@@ -13,8 +13,8 @@
  */
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import { localDateIso } from "./usage-tracker.js";
-import { readSubsidiaryId } from "../subsidiary/budget.js";
 import { readSessionWindowedTotals, type SessionWindowReader } from "./windowed-usage.js";
 
 /** コスト行を出す対象子会社の最小フィールド。 */

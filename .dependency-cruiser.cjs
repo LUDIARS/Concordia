@@ -130,10 +130,6 @@ module.exports = {
         path: "^src/cost/",
         pathNot: [
           "\\.test\\.ts$",
-          // V1: cost/org-cost.ts → subsidiary/budget (reads subsidiaryId for org-level cost)
-          "^src/cost/org-cost\\.ts$",
-          // V1 (related): cost/usage-sampler.ts → subsidiary/budget (reads subsidiaryId)
-          "^src/cost/usage-sampler\\.ts$",
         ],
       },
       to: {

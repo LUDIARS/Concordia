@@ -39,6 +39,7 @@ import { seedHarnessRules } from "./subsidiary/harness-seed.js";
 import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
 import { runClaude } from "./rules/claude-runner.js";
+import { repinSession } from "./control/repin-session.js";
 import { AdminState } from "./admin/state.js";
 import { setLictorLauncherResolver, setConcordiaAddress } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
@@ -493,6 +494,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    runHeadless: runClaude,
+    repinSession: (sessionId) => repinSession(repo, sessionId),
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
   };
@@ -512,6 +515,7 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };

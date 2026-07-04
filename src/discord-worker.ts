@@ -30,6 +30,7 @@ import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./d
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
+import { repinSession } from "./control/repin-session.js";
 import { makeDiscordConfigRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus, type ConcordiaEvent } from "./events.js";
@@ -198,6 +199,8 @@ async function main(): Promise<void> {
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    runHeadless: runClaude,
+    repinSession: (sessionId) => repinSession(repo, sessionId),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
     emitSessionInject,
   };

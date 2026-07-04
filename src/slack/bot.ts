@@ -19,7 +19,7 @@ import { formatAuthorName } from "../platform/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
-import { ENTER_KEY_TEXT } from "../control/enter-key.js";
+import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
@@ -48,9 +48,8 @@ import {
   PROMPT_BLOCK,
   type WorkdirOption,
 } from "./delegation-modal.js";
-import { type WorkflowAction } from "../platform/reaction-workflow.js";
+import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
-import { runClaude } from "../rules/claude-runner.js";
 
 const slackLog = createChildLogger("slack");
 const QUESTION_OTHER_MODAL_CALLBACK_ID = "concordia_question_other";
@@ -96,6 +95,7 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
 }
 
 /** 投稿テキストが `:name:` 形式の Slack 絵文字なら unicode に正規化。 それ以外はそのまま。 */
@@ -133,7 +133,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
   // (設定 GUI トグルを bot 再起動なしで反映)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
-    runHeadless: runClaude,
+    runHeadless: deps.runHeadless,
     emitInject: (sessionId, text, source) =>
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),

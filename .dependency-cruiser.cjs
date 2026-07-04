@@ -74,18 +74,8 @@ module.exports = {
         path: "^src/(discord|slack)/",
         pathNot: [
           "\\.test\\.ts$",
-          // V7: discord/bot.ts → rules/claude-runner.ts (direct spawn invocation)
-          // V8: discord/bot.ts → control/repin-session (session pin management)
-          "^src/discord/bot\\.ts$",
-          // V7: slack/bot.ts → rules/claude-runner.ts
-          // V: slack/bot.ts → control/enter-key
-          "^src/slack/bot\\.ts$",
           // V: discord/reply-spawn.ts → rules/claude-runner.ts (reply-triggered spawning)
           "^src/discord/reply-spawn\\.ts$",
-          // V: discord/ingress.ts → control/enter-key (UI control constant)
-          "^src/discord/ingress\\.ts$",
-          // V: discord/commands/enter.ts → control/enter-key
-          "^src/discord/commands/enter\\.ts$",
           // V: discord/commands/goal.ts → control/goal
           "^src/discord/commands/goal\\.ts$",
           // V: discord/commands/spawn.ts → control/token

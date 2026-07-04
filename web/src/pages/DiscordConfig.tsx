@@ -16,6 +16,8 @@ export function DiscordSettingsSection() {
   const [guildId, setGuildId] = useState("");
   const [applicationId, setApplicationId] = useState("");
   const [token, setToken] = useState("");
+  const [permissionRequestsEnabled, setPermissionRequestsEnabled] = useState(false);
+  const [messageOptimizationEnabled, setMessageOptimizationEnabled] = useState(true);
 
   async function refresh() {
     try {
@@ -24,6 +26,8 @@ export function DiscordSettingsSection() {
       setEnabled(s.enabled);
       setGuildId(s.guild_id ?? "");
       setApplicationId(s.application_id ?? "");
+      setPermissionRequestsEnabled(s.permission_requests_enabled);
+      setMessageOptimizationEnabled(s.message_optimization_enabled);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -42,10 +46,14 @@ export function DiscordSettingsSection() {
         enabled,
         guild_id: guildId.trim() === "" ? null : guildId.trim(),
         application_id: applicationId.trim() === "" ? null : applicationId.trim(),
+        permission_requests_enabled: permissionRequestsEnabled,
+        message_optimization_enabled: messageOptimizationEnabled,
         // 空欄は undefined にして据え置き (token を消したい時はクリアボタンを使う)。
         token: token.trim() === "" ? undefined : token.trim(),
       });
       setStatus(r.status);
+      setPermissionRequestsEnabled(r.status.permission_requests_enabled);
+      setMessageOptimizationEnabled(r.status.message_optimization_enabled);
       setToken("");
       setMsg(`保存 + 再接続: ${r.restart.status}${r.restart.error ? ` (${r.restart.error})` : ""}`);
     } catch (e) {
@@ -112,6 +120,18 @@ export function DiscordSettingsSection() {
             <span className="text-subtle text-xs w-28">bot token</span>
             {tokenBadge(status.token_set, status.source.token)}
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-subtle text-xs w-28">permission cards</span>
+            <span className={status.permission_requests_enabled ? "text-ok" : "text-subtle"}>
+              {status.permission_requests_enabled ? "ON" : "OFF"} ({status.source.permission_requests_enabled})
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-subtle text-xs w-28">message optimize</span>
+            <span className={status.message_optimization_enabled ? "text-ok" : "text-subtle"}>
+              {status.message_optimization_enabled ? "ON" : "OFF"} ({status.source.message_optimization_enabled})
+            </span>
+          </div>
         </section>
       )}
 
@@ -121,6 +141,24 @@ export function DiscordSettingsSection() {
         <label className="flex items-center gap-2">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
           <span>Discord 連携を有効化 (enabled)</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={permissionRequestsEnabled}
+            onChange={(e) => setPermissionRequestsEnabled(e.target.checked)}
+          />
+          <span>Post Tool Permission Request cards to Discord</span>
+        </label>
+
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={messageOptimizationEnabled}
+            onChange={(e) => setMessageOptimizationEnabled(e.target.checked)}
+          />
+          <span>Optimize Discord messages: summaries only for transcript relay</span>
         </label>
 
         <div>

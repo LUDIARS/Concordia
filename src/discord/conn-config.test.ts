@@ -35,6 +35,8 @@ describe("discord/conn-config", () => {
     expect(resolved.guildId).toBe("G-DB");
     expect(resolved.applicationId).toBe("A-DB");
     expect(resolved.token).toBe("tok-secret");
+    expect(resolved.permissionRequestsEnabled).toBe(false);
+    expect(resolved.messageOptimizationEnabled).toBe(true);
   });
 
   it("DB values take precedence over env", () => {
@@ -43,13 +45,37 @@ describe("discord/conn-config", () => {
       CONCORDIA_DISCORD_GUILD_ID: "G-ENV",
       CONCORDIA_DISCORD_TOKEN: "tok-env",
       CONCORDIA_DISCORD_APPLICATION_ID: "A-ENV",
+      CONCORDIA_DISCORD_PERMISSION_REQUESTS_ENABLED: "1",
+      CONCORDIA_DISCORD_MESSAGE_OPTIMIZATION_ENABLED: "0",
     } as unknown as NodeJS.ProcessEnv;
 
-    setDiscordConfig(repo, box, { guildId: "G-DB", token: "tok-db" });
+    setDiscordConfig(repo, box, {
+      guildId: "G-DB",
+      token: "tok-db",
+      permissionRequestsEnabled: false,
+      messageOptimizationEnabled: true,
+    });
     const resolved = resolveDiscordConfig(repo, box, env);
     expect(resolved.guildId).toBe("G-DB"); // DB
     expect(resolved.token).toBe("tok-db"); // DB
     expect(resolved.applicationId).toBe("A-ENV"); // env fallback (DB 未設定)
+    expect(resolved.permissionRequestsEnabled).toBe(false); // DB
+    expect(resolved.messageOptimizationEnabled).toBe(true); // DB
+  });
+
+  it("uses env/defaults for Discord message settings when DB is unset", () => {
+    expect(resolveDiscordConfig(repo, box, EMPTY_ENV)).toMatchObject({
+      permissionRequestsEnabled: false,
+      messageOptimizationEnabled: true,
+    });
+    const env = {
+      CONCORDIA_DISCORD_PERMISSION_REQUESTS_ENABLED: "1",
+      CONCORDIA_DISCORD_MESSAGE_OPTIMIZATION_ENABLED: "0",
+    } as unknown as NodeJS.ProcessEnv;
+    expect(resolveDiscordConfig(repo, box, env)).toMatchObject({
+      permissionRequestsEnabled: true,
+      messageOptimizationEnabled: false,
+    });
   });
 
   it("clearing a field (empty string) falls back to env", () => {
@@ -73,6 +99,10 @@ describe("discord/conn-config", () => {
     expect(st.token_set).toBe(true);
     expect(st.source.token).toBe("db");
     expect(st.source.application_id).toBe("none");
+    expect(st.permission_requests_enabled).toBe(false);
+    expect(st.message_optimization_enabled).toBe(true);
+    expect(st.source.permission_requests_enabled).toBe("none");
+    expect(st.source.message_optimization_enabled).toBe("default");
     // token 値が status に漏れていないこと
     expect(JSON.stringify(st)).not.toContain("tok-a");
   });

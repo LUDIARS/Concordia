@@ -173,11 +173,15 @@ export interface DiscordConfigStatus {
   enabled: boolean;
   guild_id: string | null;
   application_id: string | null;
+  permission_requests_enabled: boolean;
+  message_optimization_enabled: boolean;
   token_set: boolean;
   source: {
     enabled: FieldSource;
     guild_id: FieldSource;
     application_id: FieldSource;
+    permission_requests_enabled: FieldSource;
+    message_optimization_enabled: FieldSource;
     token: FieldSource;
   };
 }
@@ -636,6 +640,8 @@ export const api = {
     guild_id?: string | null;
     application_id?: string | null;
     token?: string | null;
+    permission_requests_enabled?: boolean;
+    message_optimization_enabled?: boolean;
   }) =>
     put<{ ok: boolean; status: DiscordConfigStatus; restart: SlackBotActionResult }>(
       "/v1/admin/discord/config",

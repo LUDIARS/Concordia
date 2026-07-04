@@ -823,6 +823,8 @@ export function buildApp(deps: AppDeps): Hono {
       guild_id: z.string().max(64).nullable().optional(),
       application_id: z.string().max(64).nullable().optional(),
       token: z.string().max(256).nullable().optional(),
+      permission_requests_enabled: z.boolean().optional(),
+      message_optimization_enabled: z.boolean().optional(),
     });
 
     app.get("/v1/admin/discord/config", (c) =>
@@ -838,6 +840,8 @@ export function buildApp(deps: AppDeps): Hono {
         guildId: parsed.data.guild_id,
         applicationId: parsed.data.application_id,
         token: parsed.data.token,
+        permissionRequestsEnabled: parsed.data.permission_requests_enabled,
+        messageOptimizationEnabled: parsed.data.message_optimization_enabled,
       });
       const restart = await discordAdmin.restart();
       return c.json({

@@ -87,6 +87,8 @@ export class SubsidiaryBotManager {
         token: h.token,                  // 本社と共有
         guildId: row?.guild_id ?? null,  // 出張先 guild は子会社固有
         applicationId: h.applicationId,  // 本社と共有
+        permissionRequestsEnabled: h.permissionRequestsEnabled,
+        messageOptimizationEnabled: h.messageOptimizationEnabled,
       };
     };
 

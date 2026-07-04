@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { fmtTs, api, type ModelCatalogItem } from "../api.js";
+import { Link } from "react-router-dom";
+import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../api.js";
 import { RuntimeOptionsBuilder } from "../components/RuntimeOptionsBuilder.js";
 
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
@@ -61,6 +62,7 @@ interface RunRow {
   status: "pending" | "spawned" | "spawn_failed";
   error: string | null;
   created_at: number;
+  sessions?: SessionRow[];
 }
 
 interface FormState {
@@ -107,6 +109,42 @@ async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: 
   // Concordia は loopback (既定 127.0.0.1:11111) 限定なので bearer token は不要。
   const headers: Record<string, string> = { "content-type": "application/json" };
   return fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+}
+
+function stringArg(args: Record<string, unknown>, key: string): string | null {
+  const value = args[key];
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function firstLine(text: string | null): string | null {
+  if (!text) return null;
+  return text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
+}
+
+function runSummary(r: RunRow): string {
+  return (
+    firstLine(stringArg(r.args, "context_extra")) ??
+    firstLine(stringArg(r.args, "task")) ??
+    stringArg(r.args, "design_path") ??
+    r.call_name
+  );
+}
+
+function runTarget(r: RunRow): string | null {
+  return stringArg(r.args, "target_repo") ?? stringArg(r.args, "repo_path") ?? stringArg(r.args, "cwd");
+}
+
+function formatDuration(s: SessionRow): string {
+  if (!s.ended_at) return "active";
+  const seconds = Math.max(0, s.ended_at - s.started_at);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `${minutes}m${rest}s`;
+}
+
+function fmtDelegationTs(ts: number): string {
+  return fmtTs(ts > 10_000_000_000 ? Math.floor(ts / 1000) : ts);
 }
 
 export function Delegation() {
@@ -371,6 +409,8 @@ export function Delegation() {
     }
   }
 
+  const outsourcedRuns = runs.filter((r) => r.spawn_pid !== null || (r.sessions?.length ?? 0) > 0);
+
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <header className="space-y-2">
@@ -444,7 +484,7 @@ export function Delegation() {
                 <td className="p-2 text-center">{t.emoji || <span className="text-subtle">—</span>}</td>
                 <td className="p-2 text-center">{t.is_active ? "✓" : "—"}</td>
                 <td className="p-2 text-center">{t.call_only ? "✓" : "—"}</td>
-                <td className="p-2 text-xs text-subtle">{fmtTs(t.updated_at)}</td>
+                <td className="p-2 text-xs text-subtle">{fmtDelegationTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
                   <button className="text-xs" onClick={() => startEdit(t)}>edit</button>
@@ -709,6 +749,72 @@ export function Delegation() {
         </section>
       )}
 
+      <section className="space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">外注(作業委託)</h2>
+          <span className="text-xs text-subtle">{outsourcedRuns.length} tasks</span>
+        </div>
+        {outsourcedRuns.length === 0 ? (
+          <div className="border border-border rounded p-3 text-sm text-subtle">外注タスクはありません</div>
+        ) : (
+          <div className="grid gap-2">
+            {outsourcedRuns.map((r) => {
+              const target = runTarget(r);
+              const linkedSessions = r.sessions ?? [];
+              return (
+                <article key={r.id} className="border border-border rounded bg-surface p-3">
+                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.call_name}</code>
+                        <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.status}</code>
+                        <span className="text-xs text-subtle">{fmtDelegationTs(r.created_at)}</span>
+                      </div>
+                      <div className="text-sm break-words">{runSummary(r)}</div>
+                      {target && <div className="text-xs text-subtle break-all">{target}</div>}
+                    </div>
+                    <div className="text-xs text-subtle lg:text-right shrink-0">
+                      <div>pid {r.spawn_pid ?? "-"}</div>
+                      <div>{r.triggered_by ?? "-"}</div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs font-mono text-subtle break-all">{r.prompt_file_path}</div>
+                  {linkedSessions.length > 0 ? (
+                    <div className="mt-3 border-t border-border divide-y divide-border">
+                      {linkedSessions.map((s) => (
+                        <div key={s.id} className="py-2 grid gap-1 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Link
+                                to={`/sessions/${encodeURIComponent(s.id)}`}
+                                className="font-mono text-xs text-accent hover:underline break-all"
+                              >
+                                {s.id}
+                              </Link>
+                              <span className={`px-1.5 py-0.5 rounded text-xs ${statusBadge(s.status)}`}>{s.status}</span>
+                              <span className="text-xs text-subtle">{s.provider}</span>
+                              <span className="text-xs text-subtle">{formatDuration(s)}</span>
+                            </div>
+                            <div className="text-xs text-subtle break-all">{s.repo_path}</div>
+                            {s.current_task && <div className="text-xs break-words mt-1">{s.current_task}</div>}
+                          </div>
+                          <div className="text-xs text-subtle md:text-right">
+                            <div>{s.branch ?? "-"}</div>
+                            <div>{fmtDelegationTs(s.started_at)}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 border-t border-border pt-2 text-xs text-subtle">紐付いた Cc session はありません</div>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
       <section className="space-y-2">
         <h2 className="text-lg font-semibold">Recent runs</h2>
         <table className="w-full text-sm">
@@ -729,7 +835,7 @@ export function Delegation() {
                 <td className="p-2"><code>{r.status}</code></td>
                 <td className="p-2">{r.spawn_pid ?? "—"}</td>
                 <td className="p-2 text-xs">{r.triggered_by ?? "—"}</td>
-                <td className="p-2 text-xs text-subtle">{fmtTs(r.created_at)}</td>
+                <td className="p-2 text-xs text-subtle">{fmtDelegationTs(r.created_at)}</td>
                 <td className="p-2 text-xs font-mono">{r.prompt_file_path}</td>
               </tr>
             ))}

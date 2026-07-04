@@ -9,9 +9,12 @@ import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
   type DelegationRepo,
+  type DelegationRunRow,
   type DelegationProvider,
   parseRuntimeOptions,
 } from "../db/delegation-repo.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { SessionRow } from "../shared/types.js";
 import type { DelegationService } from "../delegation/service.js";
 import { parsePortable, templateToPortable } from "../delegation/portable.js";
 import { delegationOptionSuggestions } from "../control/provider-preset.js";
@@ -97,6 +100,7 @@ const InvokeSchema = z.object({
 export interface DelegationApiDeps {
   repo: DelegationRepo;
   service: DelegationService;
+  sessions?: SessionsRepo;
 }
 
 export function delegationRouter(deps: DelegationApiDeps): Hono {
@@ -134,12 +138,14 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     };
   }
 
-  function serializeRun(row: Awaited<ReturnType<DelegationRepo["findRun"]>>) {
+  function serializeRun(row: Awaited<ReturnType<DelegationRepo["findRun"]>>, linkedSessions: SessionRow[] = []) {
     if (!row) return row;
+    const args = safeJsonParse(row.args_json, {});
     return {
       ...row,
-      args: safeJsonParse(row.args_json, {}),
+      args,
       spawn_command: row.spawn_command ? safeJsonParse(row.spawn_command, []) : null,
+      sessions: linkedSessions.map(serializeLinkedSession),
     };
   }
 
@@ -173,7 +179,13 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const limitRaw = Number(c.req.query("limit") ?? 100);
     const limit = Math.max(1, Math.min(500, isFinite(limitRaw) ? limitRaw : 100));
     const rows = deps.repo.recentRuns(limit);
-    return c.json({ runs: rows.map(serializeRun) });
+    const sessions = deps.sessions?.listDelegationSessions() ?? [];
+    return c.json({
+      runs: rows.map((row) => {
+        const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
+        return serializeRun(row, linkedSessionsForRun(row, args, sessions));
+      }),
+    });
   });
 
   app.get("/options", (c) => {
@@ -275,6 +287,66 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   });
 
   return app;
+}
+
+function linkedSessionsForRun(
+  row: DelegationRunRow,
+  args: Record<string, unknown>,
+  sessions: SessionRow[],
+): SessionRow[] {
+  const targetRepo = firstString(args, ["target_repo", "repo_path", "cwd"]);
+  const normalizedTarget = targetRepo ? normalizePath(targetRepo) : null;
+  const runCreatedAt = row.created_at;
+  return sessions
+    .filter((session) => {
+      const metadata = parseSessionMetadata(session);
+      const runId = stringValue(metadata.delegation_run_id);
+      if (runId) return runId === row.id;
+
+      if (stringValue(metadata.delegation_call_name) !== row.call_name) return false;
+      if (!normalizedTarget) return false;
+      const sessionRepo = normalizePath(session.repo_path);
+      if (sessionRepo !== normalizedTarget && !sessionRepo.startsWith(`${normalizedTarget}/`)) return false;
+      return Math.abs(session.started_at * 1000 - runCreatedAt) <= 10 * 60 * 1000;
+    })
+    .sort((a, b) => b.started_at - a.started_at);
+}
+
+function serializeLinkedSession(s: SessionRow) {
+  return {
+    id: s.id,
+    provider: s.provider,
+    repo_path: s.repo_path,
+    repo_origin: s.repo_origin,
+    branch: s.branch,
+    host: s.host,
+    started_at: s.started_at,
+    ended_at: s.ended_at,
+    status: s.status,
+    last_seen_at: s.last_seen_at,
+    current_task: s.current_task,
+    metadata: s.metadata ? safeJsonParse<Record<string, unknown> | null>(s.metadata, null) : null,
+  };
+}
+
+function parseSessionMetadata(s: SessionRow): Record<string, unknown> {
+  return s.metadata ? safeJsonParse<Record<string, unknown>>(s.metadata, {}) : {};
+}
+
+function firstString(obj: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = stringValue(obj[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function safeJsonParse<T>(s: string, fallback: T): T {

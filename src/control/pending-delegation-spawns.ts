@@ -14,6 +14,7 @@ export interface PendingDelegationSpawn {
   cwd: string;
   emoji: string | null;
   callName: string;
+  runId: string | null;
   /** 子会社由来の spawn なら子会社 id。 session.started 時に metadata.subsidiary_id へ焼く。 */
   subsidiaryId: string | null;
   /** project 限定 spawn ならプロジェクト名。 session.started 時に metadata.project へ焼く。 */
@@ -23,9 +24,16 @@ export interface PendingDelegationSpawn {
 
 const pending: PendingDelegationSpawn[] = [];
 
-/** spawn 直後に呼ぶ。cwd が空なら記録しない（照合に使えないため）。 */
+/** spawn 前後に呼ぶ。cwd が空なら記録しない（照合に使えないため）。 */
 export function recordPendingDelegationSpawn(
-  input: { cwd?: string | null; emoji?: string | null; callName: string; subsidiaryId?: string | null; project?: string | null },
+  input: {
+    cwd?: string | null;
+    emoji?: string | null;
+    callName: string;
+    runId?: string | null;
+    subsidiaryId?: string | null;
+    project?: string | null;
+  },
   now = Date.now(),
 ): void {
   const cwd = (input.cwd ?? "").trim();
@@ -34,6 +42,7 @@ export function recordPendingDelegationSpawn(
     cwd: normalize(cwd),
     emoji: (input.emoji ?? "").trim() || null,
     callName: input.callName,
+    runId: (input.runId ?? "").trim() || null,
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
     project: (input.project ?? "").trim() || null,
     at: now,
@@ -67,6 +76,14 @@ export function claimPendingDelegationSpawn(repoPath: string | null | undefined,
   if (bestIdx < 0) return null;
   const [claimed] = pending.splice(bestIdx, 1);
   return claimed;
+}
+
+export function forgetPendingDelegationSpawnByRunId(runId: string | null | undefined): void {
+  const rid = (runId ?? "").trim();
+  if (!rid) return;
+  for (let i = pending.length - 1; i >= 0; i--) {
+    if (pending[i].runId === rid) pending.splice(i, 1);
+  }
 }
 
 /** パス区切りを `/` に正規化し末尾スラッシュを除去（Windows の `\` を吸収）。 */

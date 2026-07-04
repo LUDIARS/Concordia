@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   recordPendingDelegationSpawn,
   claimPendingDelegationSpawn,
+  forgetPendingDelegationSpawnByRunId,
   _resetPendingDelegationSpawns,
 } from "./pending-delegation-spawns.js";
 
@@ -70,5 +71,16 @@ describe("pending-delegation-spawns", () => {
   it("subsidiaryId 未設定は null（本社の通常 spawn）", () => {
     recordPendingDelegationSpawn({ cwd: "/a", emoji: "x", callName: "x" }, 1000);
     expect(claimPendingDelegationSpawn("/a", 1001)?.subsidiaryId).toBeNull();
+  });
+
+  it("round-trips runId for delegation run linkage", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", callName: "impl-from-design", runId: "run-123" }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.runId).toBe("run-123");
+  });
+
+  it("forgets pending entries by runId", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", callName: "impl-from-design", runId: "run-123" }, 1000);
+    forgetPendingDelegationSpawnByRunId("run-123");
+    expect(claimPendingDelegationSpawn("/a", 1001)).toBeNull();
   });
 });

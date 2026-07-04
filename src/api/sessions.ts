@@ -270,6 +270,7 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
       if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
       if (claimed?.callName) meta.delegation_call_name = claimed.callName;
+      if (claimed?.runId) meta.delegation_run_id = claimed.runId;
       // 子会社由来の spawn は subsidiary_id を焼く。 子会社 Bot はこれで自分のセッションを
       // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;

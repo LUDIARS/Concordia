@@ -72,6 +72,10 @@ export function shouldRelaySessionPromptToDiscord(provider: string | null | unde
   return provider === "codex-cli";
 }
 
+export function shouldPostPermissionRequestToDiscord(env: Pick<DiscordEnv, "permissionRequestsEnabled">): boolean {
+  return env.permissionRequestsEnabled;
+}
+
 export interface DiscordBotDeps {
   db: Database;
   chatRepo: ChatRepo;
@@ -651,6 +655,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         personasRepo: deps.personasRepo,
         sessionChannelsRepo,
         messageMap,
+        messageOptimizationEnabled: env.messageOptimizationEnabled,
         log,
       }, ev);
       // transcript が動いている = セッションは作業中。進捗ごとに「作業中」を消して
@@ -769,6 +774,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (ev.type === "session.permission_request") {
+      if (!shouldPostPermissionRequestToDiscord(env)) return;
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void postPermissionRequest({ guild, sessionChannelsRepo, permissionActions, log }, ev)
         .catch((e) => log.warn(`permission request post failed session=${ev.target_session_id}: ${(e as Error).message}`));

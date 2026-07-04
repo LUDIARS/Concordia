@@ -40,6 +40,7 @@ export interface EgressDeps {
   personasRepo: PersonasRepo;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
+  messageOptimizationEnabled?: boolean;
   log: { info: (m: string) => void; warn: (m: string) => void };
 }
 
@@ -178,6 +179,8 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   // Per 2026-05-27 ユーザ指示: only relay "人間向けの最終回答" — concretely:
   //   1) kind=text && role=assistant : AI が user に返す本文
   //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
+  // When Discord message optimization is enabled, (1) is suppressed and
+  // only summaries continue to be posted.
   // Everything else (tool-use / tool-result / thinking / raw / user prompts)
   // is dropped here. User prompts are NOT relayed via transcript.frame because
   // a separate `session.event(kind=prompt)` handler in bot.ts already posts
@@ -236,6 +239,11 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +
       `kind=${ev.kind} payload=${previewPayload(ev.payload)}`,
     );
+    return;
+  }
+
+  if (role === "assistant" && deps.messageOptimizationEnabled === true) {
+    deps.log.info(`egress: transcript.frame skipped by message optimization session=${ev.target_session_id} seq=${ev.seq}`);
     return;
   }
 

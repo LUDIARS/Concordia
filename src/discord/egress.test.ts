@@ -102,9 +102,48 @@ describe("handleEvent transcript.frame relay", () => {
     expect(webhooks.getForSession).not.toHaveBeenCalled();
     expect(webhooks.send).not.toHaveBeenCalled();
   });
+
+  it("skips assistant text when Discord message optimization is enabled", async () => {
+    const { deps, webhooks, sessionId } = makeTranscriptRelayDeps("claude-code", {
+      messageOptimizationEnabled: true,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 3,
+      kind: "text",
+      payload: { role: "assistant", text: "intermediate output" },
+      ts: 102,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).not.toHaveBeenCalled();
+    expect(webhooks.send).not.toHaveBeenCalled();
+  });
+
+  it("still relays summaries when Discord message optimization is enabled", async () => {
+    const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("claude-code", {
+      messageOptimizationEnabled: true,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 4,
+      kind: "summary",
+      payload: { text: "compact summary" },
+      ts: 103,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).toHaveBeenCalledWith(sessionId);
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(sent[0].options).toMatchObject({ content: "compact summary", username: "Conversation summary" });
+  });
 });
 
-function makeTranscriptRelayDeps(provider: ProviderName): {
+function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimizationEnabled?: boolean } = {}): {
   deps: EgressDeps;
   webhooks: {
     getForSession: ReturnType<typeof vi.fn>;
@@ -175,6 +214,7 @@ function makeTranscriptRelayDeps(provider: ProviderName): {
     personasRepo: new PersonasRepo(db),
     sessionChannelsRepo,
     messageMap: makeDiscordMessageMapRepo(db),
+    messageOptimizationEnabled: opts.messageOptimizationEnabled,
     log: { info: vi.fn(), warn: vi.fn() },
   };
   return { deps, webhooks, sent, sessionId };

@@ -11,10 +11,17 @@ let db: ReturnType<typeof makeTestDb>;
 let subRepo: SubsidiaryRepo;
 
 // 子会社 Bot は本社と同じ token / application_id を使う。 既定では本社 token あり。
-const HEAD_WITH_TOKEN: DiscordEnv = { enabled: true, token: "head-tok", guildId: "head-guild", applicationId: "app-1" };
+const HEAD_WITH_TOKEN: DiscordEnv = {
+  enabled: true,
+  token: "head-tok",
+  guildId: "head-guild",
+  applicationId: "app-1",
+  permissionRequestsEnabled: false,
+  messageOptimizationEnabled: true,
+};
 
 function makeManager(
-  startBot: () => Promise<DiscordBotHandle | null>,
+  startBot: (deps: unknown) => Promise<DiscordBotHandle | null>,
   headOffice: DiscordEnv = HEAD_WITH_TOKEN,
 ) {
   return new SubsidiaryBotManager({
@@ -52,6 +59,22 @@ describe("SubsidiaryBotManager", () => {
     expect(mgr.isRunning(sub.id)).toBe(false);
   });
 
+  it("inherits head-office Discord message settings for subsidiary bots", async () => {
+    const sub = subRepo.create({ name: "co-settings", platform: "discord", enabled: true, guild_id: "g1" });
+    const startBot = vi.fn(async (_deps: unknown) => ({ stop: async () => {} }) as DiscordBotHandle);
+    const mgr = makeManager(startBot, {
+      ...HEAD_WITH_TOKEN,
+      permissionRequestsEnabled: true,
+      messageOptimizationEnabled: false,
+    });
+    await mgr.start(sub.id);
+    const deps = startBot.mock.calls[0][0] as { resolveConfig?: () => DiscordEnv };
+    expect(deps.resolveConfig?.()).toMatchObject({
+      permissionRequestsEnabled: true,
+      messageOptimizationEnabled: false,
+    });
+  });
+
   it("guild 未設定なら missing_config (本社 token はあっても guild が要る)", async () => {
     const sub = subRepo.create({ name: "co2", platform: "discord", enabled: true });
     const mgr = makeManager(async () => ({ stop: async () => {} }));
@@ -60,7 +83,12 @@ describe("SubsidiaryBotManager", () => {
 
   it("本社 token 未設定なら missing_config (子会社は本社 token を共有する)", async () => {
     const sub = subRepo.create({ name: "co2b", platform: "discord", enabled: true, guild_id: "g1" });
-    const mgr = makeManager(async () => ({ stop: async () => {} }), { enabled: true, token: null, guildId: null, applicationId: null });
+    const mgr = makeManager(async () => ({ stop: async () => {} }), {
+      ...HEAD_WITH_TOKEN,
+      token: null,
+      guildId: null,
+      applicationId: null,
+    });
     expect((await mgr.start(sub.id)).status).toBe("missing_config");
   });
 

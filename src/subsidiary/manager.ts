@@ -7,9 +7,6 @@
  * spec/feature/subsidiary-delegation.md §6。
  */
 
-import type { DiscordBotDeps, DiscordBotHandle } from "../discord/bot.js";
-import { startDiscordBot } from "../discord/bot.js";
-import type { DiscordEnv } from "../discord/types.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
@@ -22,7 +19,34 @@ import { createChildLogger } from "../shared/logger.js";
 const log = createChildLogger("subsidiary/manager");
 
 /** 本社 Discord bot と共有する deps (接続設定と subsidiary だけ差し替える)。 */
-export type BaseDiscordDeps = Omit<DiscordBotDeps, "resolveConfig" | "subsidiary">;
+export type BaseDiscordDeps = object;
+
+export interface SubsidiaryBotEnv {
+  enabled: boolean;
+  token: string | null;
+  guildId: string | null;
+  applicationId: string | null;
+  permissionRequestsEnabled: boolean;
+  messageOptimizationEnabled: boolean;
+}
+
+export interface SubsidiaryBotHandle {
+  stop(): Promise<void>;
+}
+
+export interface SubsidiaryBotStartDeps {
+  resolveConfig: () => SubsidiaryBotEnv;
+  subsidiary: {
+    id: string;
+    intakeChannelId: string | null;
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    isLocked: (userId: string) => boolean;
+  };
+}
+
+export type SubsidiaryBotStarter = (
+  deps: BaseDiscordDeps & SubsidiaryBotStartDeps,
+) => Promise<SubsidiaryBotHandle | null>;
 
 export interface SubsidiaryManagerDeps {
   subsidiaryRepo: SubsidiaryRepo;
@@ -34,14 +58,14 @@ export interface SubsidiaryManagerDeps {
    * bot token** を使い (同一 Bot を複数 guild に招待する形)、 guild_id だけ子会社固有にする。
    * spec/feature/subsidiary-delegation.md §1/§3.1。
    */
-  headOfficeDiscord: () => DiscordEnv;
+  headOfficeDiscord: () => SubsidiaryBotEnv;
   runClaude: RunClaudeFn;
   /** 子会社の日次トークン予算トラッカー (ゲートが受付前に超過判定する)。 */
   budgetTracker: SubsidiaryBudgetTracker;
   /** 子会社 Discord bot のベース deps を live 解決する (本社 bot と同じ共有 repo 群)。 */
   baseDiscordDeps: () => BaseDiscordDeps;
-  /** テスト用 startDiscordBot 上書き (省略時は実 bot 起動)。 */
-  startBot?: (deps: DiscordBotDeps) => Promise<DiscordBotHandle | null>;
+  /** Bot starter port. Composition roots provide the concrete chat adapter. */
+  startBot: SubsidiaryBotStarter;
 }
 
 export interface SubsidiaryStartResult {
@@ -51,7 +75,7 @@ export interface SubsidiaryStartResult {
 }
 
 export class SubsidiaryBotManager {
-  private readonly handles = new Map<string, DiscordBotHandle>();
+  private readonly handles = new Map<string, SubsidiaryBotHandle>();
 
   constructor(private readonly deps: SubsidiaryManagerDeps) {}
 
@@ -79,7 +103,7 @@ export class SubsidiaryBotManager {
       return { ok: false, status: "missing_config", error: "guild_id が未設定 (出張先 Discord サーバの guild id)" };
     }
 
-    const resolveConfig = (): DiscordEnv => {
+    const resolveConfig = (): SubsidiaryBotEnv => {
       const h = this.deps.headOfficeDiscord();
       const row = this.deps.subsidiaryRepo.find(id);
       return {
@@ -110,7 +134,7 @@ export class SubsidiaryBotManager {
       return { replyText: result.replyText };
     };
 
-    const deps: DiscordBotDeps = {
+    const deps: BaseDiscordDeps & SubsidiaryBotStartDeps = {
       ...this.deps.baseDiscordDeps(),
       resolveConfig,
       subsidiary: {
@@ -122,7 +146,7 @@ export class SubsidiaryBotManager {
     };
 
     try {
-      const handle = await (this.deps.startBot ?? startDiscordBot)(deps);
+      const handle = await this.deps.startBot(deps);
       if (!handle) return { ok: true, status: "disabled" };
       this.handles.set(id, handle);
       log.info(`subsidiary bot started: ${sub.name} (${id})`);

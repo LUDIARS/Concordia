@@ -23,8 +23,6 @@ module.exports = {
           "^src/slack/",
           // Test files
           "\\.test\\.ts$",
-          // V4: subsidiary/manager.ts → discord/bot (manager starts the Discord bot)
-          "^src/subsidiary/manager\\.ts$",
           // V5: api/delegation.ts → discord/delegation-template-cache
           "^src/api/delegation\\.ts$",
           // V5: api/slack-admin.ts → slack/config

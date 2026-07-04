@@ -532,6 +532,7 @@ export async function startBackend(): Promise<BackendHandle> {
       const { resolveConfig: _rc, subsidiary: _sub, ...base } = discordBotDeps!;
       return base;
     },
+    startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),
   });
 
   const app = buildApp({

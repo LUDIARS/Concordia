@@ -12,7 +12,6 @@
 
 import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { CostUsageSamplesRepo } from "../db/cost-usage-samples-repo.js";
 import type { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
 import type { CostOneShotCallsRepo, CostOneShotStatus } from "../db/cost-one-shot-calls-repo.js";
@@ -29,7 +28,7 @@ const log = createChildLogger("cost-api");
 
 export interface CostApiDeps {
   sessions: SessionsRepo;
-  channels: DiscordSessionChannelsRepo;
+  resolveSessionChannelId: (sessionId: string) => string | null;
   samples: CostUsageSamplesRepo;
   limitSamples: CostLimitSamplesRepo;
   oneShots: CostOneShotCallsRepo;
@@ -65,11 +64,9 @@ export function costRouter(deps: CostApiDeps): Hono {
     t = mark("collectOrgCostWindowsMs", t);
     const active = deps.sessions.listSessions({ status: "active" });
     t = mark("listActiveSessionsMs", t);
-    const channelOf = (sid: string): string | null =>
-      deps.channels.findBySessionId(sid)?.channel_id ?? null;
     // context/cost も memo + tail/増分読み (旧: findCodexLog 全走査 ×2 + 全行読みで
     // active 12 セッション ≈ 16 秒のイベントループ停止)。
-    const channels = collectChannelCostRows(active, channelOf, cachedChannelCostReader);
+    const channels = collectChannelCostRows(active, deps.resolveSessionChannelId, cachedChannelCostReader);
     mark("collectChannelCostRowsMs", t);
     const body = { windows, channels };
     logTiming("/overview", started, {

@@ -1,5 +1,6 @@
 import { EmbedBuilder } from "discord.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
+export { formatAuthorName } from "../platform/formatter.js";
 
 export type { ChannelDisplayState };
 
@@ -78,13 +79,6 @@ export function chunkForDiscord(text: string, max = DISCORD_MAX_CONTENT): string
     remaining = remaining.slice(cut).trimStart();
   }
   return out;
-}
-
-export function formatAuthorName(displayName: string | null, role: string | null): string {
-  const name = displayName?.trim();
-  const r = role?.trim();
-  if (name && r && name !== r) return `${name} (${r})`;
-  return name ?? r ?? "Concordia";
 }
 
 const COLOR = {

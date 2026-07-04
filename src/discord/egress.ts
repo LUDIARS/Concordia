@@ -10,7 +10,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
-import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
+import { shouldDropForRelay, stripAskMarkerBlocks } from "../platform/egress-filters.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 

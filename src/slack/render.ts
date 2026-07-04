@@ -1,7 +1,7 @@
 // Slack 投稿ペイロードの組み立て + interaction 解析（純粋関数）。
 // 副作用 (Web API 呼び出し) は bot.ts 側。ここはテスト可能なロジックだけ。
 
-import { shouldDropForRelay, stripAskMarkerBlocks } from "../discord/egress-filters.js";
+import { shouldDropForRelay, stripAskMarkerBlocks } from "../platform/egress-filters.js";
 
 /** Slack section text の実用上限に合わせた truncate（block text は 3000 字制限）。 */
 const MAX_TEXT = 2900;

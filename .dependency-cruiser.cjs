@@ -150,10 +150,6 @@ module.exports = {
         path: "^src/slack/",
         pathNot: [
           "\\.test\\.ts$",
-          // V3: slack/render.ts → discord/egress-filters (borrows drop/strip helpers)
-          "^src/slack/render\\.ts$",
-          // V3: slack/bot.ts → discord/formatter (reuses formatAuthorName)
-          "^src/slack/bot\\.ts$",
         ],
       },
       to: {

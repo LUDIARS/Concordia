@@ -15,7 +15,7 @@ import { upsertCostCanvas, type CostCanvasClient } from "./cost-canvas.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
-import { formatAuthorName } from "../discord/formatter.js";
+import { formatAuthorName } from "../platform/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";

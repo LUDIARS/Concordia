@@ -15,7 +15,7 @@
  */
 
 import { extractJson } from "../rules/claude-runner.js";
-import type { RunClaudeFn } from "../subsidiary/guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 
 export interface IntentHarnessRule {
   kind: "allow" | "block";

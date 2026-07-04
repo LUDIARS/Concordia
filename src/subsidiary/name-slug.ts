@@ -16,7 +16,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import type { RunClaudeFn } from "./guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { extractJson } from "../rules/claude-runner.js";
 
 /** 子会社 name の正規 slug 規則 (subsidiary API / repo の正本)。 */

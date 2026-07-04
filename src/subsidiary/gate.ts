@@ -15,7 +15,8 @@ import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationProvider, DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import type { SubsidiaryBudgetStatus } from "./budget.js";
-import { runGuard, type GuardVerdict, type RunClaudeFn } from "./guard.js";
+import { runGuard, type GuardVerdict } from "./guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { buildSubsidiaryIntentInjection } from "./intent-inject.js";
 
 export interface SubsidiaryGateDeps {

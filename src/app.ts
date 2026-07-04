@@ -74,7 +74,7 @@ import { harnessRulesRouter } from "./api/harness-rules.js";
 import { harnessSessionRouter } from "./api/harness-session.js";
 import { testingRouter } from "./api/testing.js";
 import type { HarnessAuditRepo } from "./db/harness-audit-repo.js";
-import type { RunClaudeFn } from "./subsidiary/guard.js";
+import type { RunClaudeFn } from "./rules/claude-runner.js";
 import type { SubsidiaryRepo } from "./db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
 import type { HarnessRulesRepo } from "./db/harness-rules-repo.js";

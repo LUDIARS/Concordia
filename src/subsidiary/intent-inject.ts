@@ -19,7 +19,7 @@ import {
   heuristicPromptAnalysis,
   type PromptAnalyzerResult,
 } from "../harness/local-prompt-analyzer.js";
-import type { RunClaudeFn } from "./guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 
 /** /v1/harness/intent と同じモード切替 (off = heuristic のみ)。 */
 function promptAnalyzerMode(): string {

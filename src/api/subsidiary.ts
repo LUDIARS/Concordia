@@ -14,7 +14,7 @@ import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { ownedToPortable, parsePortable, templateToPortable } from "../delegation/portable.js";
-import type { RunClaudeFn } from "../subsidiary/guard.js";
+import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { NAME_RE, resolveSubsidiaryName } from "../subsidiary/name-slug.js";
 
 const CreateSchema = z.object({

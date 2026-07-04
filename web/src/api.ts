@@ -578,6 +578,8 @@ export const api = {
     args?: Record<string, unknown>;
     options?: Record<string, unknown>;
     cwd?: string;
+    branch?: string;
+    worktree?: boolean;
     title?: string;
     mode?: "tab" | "window";
     /** 子会社セッションとして spawn (metadata.subsidiary_id へ焼かれる) */
@@ -587,7 +589,19 @@ export const api = {
     /** 自由テキストの初回プロンプト */
     prompt?: string;
   }) =>
-    post<{ ok: boolean; pid: number | null; command: string[]; injected_prompt?: boolean; run_id?: string; project?: string | null; error?: string }>(
+    post<{
+      ok: boolean;
+      pid: number | null;
+      command: string[];
+      injected_prompt?: boolean;
+      run_id?: string;
+      project?: string | null;
+      cwd?: string | null;
+      branch?: string | null;
+      worktree_path?: string | null;
+      worktree_created?: boolean;
+      error?: string;
+    }>(
       "/v1/admin/spawn-session",
       body,
     ),

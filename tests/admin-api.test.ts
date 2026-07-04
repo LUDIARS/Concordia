@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { makeTestApp } from "./helpers/test-app.js";
 
 function buildTestApp() {
@@ -52,6 +56,51 @@ describe("admin API", () => {
       args: ["-c", 'model_reasoning_effort="high"'],
     });
   });
+
+  it("POST /v1/admin/spawn-session can launch a template in a branch worktree", async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), "admin-wt-repo-"));
+    const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-feat-admin-wt`);
+    rmSync(worktreeRoot, { recursive: true, force: true });
+    initGitRepo(repoRoot);
+    const spawnCalls: Array<{ provider: string; cwd?: string }> = [];
+    env = makeTestApp({
+      delegationSpawn: (req) => {
+        spawnCalls.push({ provider: req.provider, cwd: req.cwd });
+        return { ok: true, pid: 321, command: ["wt.exe", req.provider, req.cwd ?? ""] };
+      },
+    });
+    env.delegation.createTemplate({
+      call_name: "claude-branch-wt",
+      title: "Claude branch WT",
+      target_provider: "claude",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: repoRoot,
+    });
+
+    try {
+      const r = await env.app.request("/v1/admin/spawn-session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          template: "claude-branch-wt",
+          inject_prompt: true,
+          args: { task: "x" },
+          branch: "feat/admin-wt",
+        }),
+      });
+
+      expect(r.status).toBe(200);
+      const body = (await r.json()) as { cwd: string; branch: string; worktree_created: boolean };
+      expect(body.cwd).toBe(worktreeRoot);
+      expect(body.branch).toBe("feat/admin-wt");
+      expect(body.worktree_created).toBe(true);
+      expect(spawnCalls).toEqual([{ provider: "claude", cwd: worktreeRoot }]);
+    } finally {
+      rmSync(worktreeRoot, { recursive: true, force: true });
+      rmSync(repoRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
 
   it("GET /v1/admin/state exposes snapshot with defaults", async () => {
     const r = await env.app.request("/v1/admin/state");
@@ -153,4 +202,21 @@ async function seedSession(
     metadata: null,
   });
   if (status !== "active") env.repo.setStatus(id, status, now, now);
+}
+
+function initGitRepo(repoRoot: string): void {
+  git(repoRoot, ["init"]);
+  git(repoRoot, ["config", "user.email", "concordia-test@example.invalid"]);
+  git(repoRoot, ["config", "user.name", "Concordia Test"]);
+  writeFileSync(join(repoRoot, "README.md"), "test\n", "utf8");
+  git(repoRoot, ["add", "README.md"]);
+  git(repoRoot, ["commit", "-m", "init"]);
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync(process.platform === "win32" ? "git.exe" : "git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 }

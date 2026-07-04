@@ -26,6 +26,7 @@ import {
   resolveDelegationSpawn,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
+import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
@@ -151,6 +152,10 @@ export interface InvokeInput {
   spawn?: boolean;
   /** Provider-specific one-shot options. These are not stored on the template. */
   options?: DelegationRuntimeOptions;
+  /** Optional git branch for the spawned session. Worktree mode avoids switching the current checkout. */
+  branch?: string;
+  /** When branch is set, defaults to true: create/reuse a linked worktree for the branch. */
+  worktree?: boolean;
   /** 子会社由来の invoke なら子会社 id。 spawn したセッションの metadata.subsidiary_id へ焼く。 */
   subsidiary_id?: string | null;
   /** project 限定 spawn なら session.started 時に metadata.project へ焼く。 */
@@ -164,6 +169,10 @@ export interface InvokeResultOk {
   rendered_prompt: string;
   spawn_pid: number | null;
   spawn_command: string[] | null;
+  spawn_cwd: string | null;
+  spawn_branch: string | null;
+  spawn_worktree_path: string | null;
+  spawn_worktree_created: boolean;
 }
 
 export interface InvokeResultErr {
@@ -250,6 +259,22 @@ export class DelegationService {
       const expanded = substituteVars(def.default_cwd, input.args ?? {}).trim();
       cwd = expanded === "" ? undefined : expanded;
     }
+    const shouldSpawn = input.spawn !== false;
+    let spawnBranch: string | null = null;
+    let spawnWorktreePath: string | null = null;
+    let spawnWorktreeCreated = false;
+    if (shouldSpawn) {
+      const target = await prepareSpawnTarget({
+        cwd,
+        branch: input.branch,
+        worktree: input.worktree,
+      });
+      if (!target.ok) return { ok: false, error: target.error };
+      cwd = target.cwd;
+      spawnBranch = target.branch;
+      spawnWorktreePath = target.worktree_path;
+      spawnWorktreeCreated = target.worktree_created;
+    }
     // local-LLM レーン (gemma4-12、旧 gamma) で model="auto" のとき、Famulus の黒箱
     // 切り替え機にモデルを選ばせる。選択の Sonnet ワンショットは Famulus 内部なので
     // Concordia は LLM-free を維持 (`famulus select` を shell するだけ)。それ以外は素通し。
@@ -270,6 +295,9 @@ export class DelegationService {
       template_id: def.template_id,
       provider,
       cwd,
+      branch: spawnBranch,
+      worktree_path: spawnWorktreePath,
+      worktree_created: spawnWorktreeCreated,
       project: def.project ?? null,
       caller_cwd: input.cwd ?? null,
       template_default_cwd: def.default_cwd ?? null,
@@ -306,7 +334,6 @@ export class DelegationService {
     let spawnCommand: string[] | null = null;
     let status: DelegationRunRow["status"] = "pending";
     let spawnError: string | null = null;
-    const shouldSpawn = input.spawn !== false;
     if (shouldSpawn) {
       const spawner = this.deps.spawn ?? ((req) => spawnSession(req));
       const req: SpawnRequest = {
@@ -380,6 +407,10 @@ export class DelegationService {
       rendered_prompt: renderedPrompt,
       spawn_pid: spawnPid,
       spawn_command: spawnCommand,
+      spawn_cwd: cwd ?? null,
+      spawn_branch: spawnBranch,
+      spawn_worktree_path: spawnWorktreePath,
+      spawn_worktree_created: spawnWorktreeCreated,
     };
   }
 }

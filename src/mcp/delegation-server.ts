@@ -120,16 +120,18 @@ async function main(): Promise<void> {
         call_name: z.string().describe("Template call_name, e.g. 'fix-bug'"),
         args: z.record(z.unknown()).optional().describe("Variable bindings for the template (object)"),
         cwd: z.string().optional().describe("Working directory for the spawned session"),
+        branch: z.string().optional().describe("Git branch for the spawned session"),
+        worktree: z.boolean().optional().describe("When branch is set, defaults to true: use a linked worktree"),
         triggered_by: z.string().optional().describe("Who is initiating (free-form identifier)"),
         options: z.record(z.unknown()).optional().describe("Provider-specific one-shot options, e.g. {\"model_reasoning_effort\":\"high\"} for Codex"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),
       },
     },
-    async ({ call_name, args, cwd, triggered_by, spawn, options }) => {
+    async ({ call_name, args, cwd, branch, worktree, triggered_by, spawn, options }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
-        { call_name, args: args ?? {}, cwd, triggered_by, spawn, options },
+        { call_name, args: args ?? {}, cwd, branch, worktree, triggered_by, spawn, options },
         true,
       );
       if (!r.ok) {

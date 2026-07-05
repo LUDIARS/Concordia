@@ -15,6 +15,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
+import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/event-schema.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -71,7 +72,12 @@ export function attachWsServer(
   const clientSession = new WeakMap<WebSocket, string | null>();
 
   const unsub = eventBus.subscribe((ev) => {
-    const data = JSON.stringify(ev);
+    const eventType = (ev as { type?: unknown }).type;
+    if (!isConcordiaEventType(eventType)) {
+      log.warn({ type: eventType }, "unknown event skipped for ws broadcast");
+      return;
+    }
+    const data = JSON.stringify(toWsEventFrame(ev));
     const target = targetSessionId(ev);
     for (const client of wss.clients) {
       if (client.readyState !== WebSocket.OPEN) continue;
@@ -97,13 +103,11 @@ export function attachWsServer(
         log.warn({ err: (err as Error).message, sessionId }, "incrementWsClients failed");
       }
     }
-    const hello = JSON.stringify({
-      type: "hello",
+    const hello = JSON.stringify(toWsHelloFrame({
       ts: Math.floor(Date.now() / 1000),
-      service: "concordia",
       session_id: sessionId,
       registered,
-    });
+    }));
     try { ws.send(hello); } catch { /* swallow */ }
 
     let alive = true;

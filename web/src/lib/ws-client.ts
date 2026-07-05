@@ -11,8 +11,10 @@
  *   off();
  */
 
-export type ConcordiaEvent =
-  | { type: "hello"; ts: number; service: string }
+type WsFrameVersion = 1;
+
+type ConcordiaEventPayload =
+  | { type: "hello"; ts: number; service: string; session_id?: string | null; registered?: boolean }
   | { type: "session.started";  session_id: string; provider: string; repo_path: string; branch: string | null; ts: number }
   | { type: "session.lost";     session_id: string; ts: number }
   | { type: "session.ended";    session_id: string; ts: number }
@@ -22,13 +24,34 @@ export type ConcordiaEvent =
   | { type: "skill.snapshot";   skill_name: string; repo_path: string; poison_score: number; growth_score: number; ts: number }
   | { type: "report.generated"; session_id: string; ts: number }
   | { type: "rule.changed";     rule_id: string | null; action: "add" | "remove" | "toggle" | "fire" | "skip" | "error"; ts: number }
+  | {
+      type: "delegation.templates_changed";
+      action: "create" | "import" | "patch" | "delete";
+      template_id: string | null;
+      call_name: string | null;
+      ts: number;
+    }
   | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
   | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
   | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }
+  | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }
+  | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }
+  | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }
   | { type: "stat.collected";   session_id: string; stat_id: number; ts: number }
-  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; ts: number }
+  | { type: "pr.changed";       reason: "ingest" | "reconcile" | "full-sync"; ts: number }
+  | { type: "error.reported";   source: string; message: string; detail?: Record<string, unknown>; ts: number }
+  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; ts: number }
   | { type: "transcript.frame"; target_session_id: string; seq: number; kind: string; payload: unknown; ts: number }
-  | { type: "session.permission_request"; target_session_id: string; request_id: string; tool_name: string; tool_input: unknown; ts: number }
+  | {
+      type: "session.permission_request";
+      target_session_id: string;
+      request_id: string;
+      tool_name: string;
+      tool_input: unknown;
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
+      ts: number;
+    }
   | {
       type: "question.posted";
       target_session_id: string;
@@ -36,16 +59,57 @@ export type ConcordiaEvent =
       question: string;
       options: Array<string | { label: string; description?: string }>;
       multi_select?: boolean;
+      requester_platform?: "discord" | "slack";
+      requester_user_id?: string;
       ts: number;
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
   | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
   | { type: "ping";             ts: number };
 
+export type ConcordiaEvent = ConcordiaEventPayload & { v?: WsFrameVersion };
 type Listener = (ev: ConcordiaEvent) => void;
 
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 15_000;
+const KNOWN_WS_TYPES = new Set<string>([
+  "hello",
+  "session.started",
+  "session.lost",
+  "session.ended",
+  "session.event",
+  "chat.posted",
+  "task.enqueued",
+  "skill.snapshot",
+  "report.generated",
+  "rule.changed",
+  "delegation.templates_changed",
+  "persona.assigned",
+  "persona.released",
+  "persona.feedback",
+  "process.started",
+  "process.log",
+  "process.exited",
+  "stat.collected",
+  "pr.changed",
+  "error.reported",
+  "session.inject",
+  "transcript.frame",
+  "session.permission_request",
+  "question.posted",
+  "question.answered",
+  "question.resolved",
+  "ping",
+]);
+
+function normalizeWsFrame(input: unknown): ConcordiaEvent | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const frame = input as { type?: unknown; v?: unknown };
+  if (typeof frame.type !== "string") return null;
+  if (!KNOWN_WS_TYPES.has(frame.type)) return null;
+  if (frame.v !== undefined && frame.v !== 1) return null;
+  return { ...(input as Record<string, unknown>), v: 1 } as ConcordiaEvent;
+}
 
 class ConcordiaWsClient {
   private ws: WebSocket | null = null;
@@ -79,8 +143,8 @@ class ConcordiaWsClient {
     });
     this.ws.addEventListener("message", (e) => {
       let parsed: ConcordiaEvent | null = null;
-      try { parsed = JSON.parse(e.data); } catch { return; }
-      if (!parsed || typeof parsed.type !== "string") return;
+      try { parsed = normalizeWsFrame(JSON.parse(e.data)); } catch { return; }
+      if (!parsed) return;
       for (const l of this.listeners) {
         try { l(parsed); } catch { /* swallow */ }
       }

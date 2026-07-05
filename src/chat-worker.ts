@@ -37,8 +37,9 @@ import { makeDiscordConfigRepo, makeDiscordSessionChannelsRepo } from "./db/disc
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
-import { eventBus, type ConcordiaEvent } from "./events.js";
+import { eventBus } from "./events.js";
 import { startWorkerLease } from "./discord/relay-owner.js";
+import { eventFromWsFrame, parseWsFrame } from "./shared/event-schema.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -79,10 +80,13 @@ function startWsBridge(wsUrl: string, onOpen?: () => void): WsBridge {
     });
     ws.on("message", (raw) => {
       try {
-        const msg = JSON.parse(raw.toString()) as { type?: unknown };
-        if (msg.type === "hello") return;
-        if (typeof msg.type !== "string") return;
-        eventBus.emit(msg as ConcordiaEvent);
+        const parsed = parseWsFrame(JSON.parse(raw.toString()));
+        if (!parsed.ok) {
+          log.warn({ reason: parsed.reason, type: parsed.type, detail: parsed.detail }, "ws event skipped");
+          return;
+        }
+        if (parsed.frame.type === "hello") return;
+        eventBus.emit(eventFromWsFrame(parsed.frame));
       } catch (e) {
         log.warn(`ws event parse failed: ${(e as Error).message}`);
       }

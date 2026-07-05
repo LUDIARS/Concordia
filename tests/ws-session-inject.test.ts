@@ -84,8 +84,9 @@ describe("ws session-targeted broadcast", () => {
         new Promise<void>((r) => wsNone.once("open", r)),
       ]);
 
-      // Drain initial "hello" frame from all sockets concurrently
-      await Promise.all([readerA.next(), readerB.next(), readerNone.next()]);
+      // Drain initial versioned "hello" frame from all sockets concurrently
+      const hellos = await Promise.all([readerA.next(), readerB.next(), readerNone.next()]);
+      expect(hellos.map((m) => JSON.parse(m).v)).toEqual([1, 1, 1]);
 
       eventBus.emit({
         type: "session.inject",
@@ -100,6 +101,7 @@ describe("ws session-targeted broadcast", () => {
       const msgA = JSON.parse(raw);
 
       expect(msgA.type).toBe("session.inject");
+      expect(msgA.v).toBe(1);
       expect(msgA.text).toBe("hello alpha");
 
       // 配送完了後に不在側のバッファを確認
@@ -125,7 +127,7 @@ describe("ws session-targeted broadcast", () => {
         new Promise<void>((r) => ws2.once("open", r)),
       ]);
 
-      // Drain initial "hello" frame from all sockets concurrently
+      // Drain initial versioned "hello" frame from all sockets concurrently
       await Promise.all([reader1.next(), reader2.next()]);
 
       eventBus.emit({ type: "ping", ts: 2 });
@@ -133,10 +135,28 @@ describe("ws session-targeted broadcast", () => {
       // event-driven で両方の受信を待つ
       const [msg1, msg2] = await Promise.all([reader1.next(), reader2.next()]);
 
-      expect(JSON.parse(msg1).type).toBe("ping");
-      expect(JSON.parse(msg2).type).toBe("ping");
+      expect(JSON.parse(msg1)).toMatchObject({ type: "ping", v: 1 });
+      expect(JSON.parse(msg2)).toMatchObject({ type: "ping", v: 1 });
     } finally {
       ws1.close(); ws2.close();
+    }
+  });
+
+  it("skips unknown events and continues broadcasting known ones", async () => {
+    const ws1 = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+    const reader1 = makeWsReader(ws1);
+
+    try {
+      await new Promise<void>((r) => ws1.once("open", r));
+      await reader1.next();
+
+      eventBus.emit({ type: "unknown.event", ts: 3 } as never);
+      eventBus.emit({ type: "ping", ts: 4 });
+
+      const msg = JSON.parse(await reader1.next());
+      expect(msg).toMatchObject({ type: "ping", ts: 4, v: 1 });
+    } finally {
+      ws1.close();
     }
   });
 });

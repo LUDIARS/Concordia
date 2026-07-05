@@ -1,9 +1,9 @@
 /**
- * Standalone Discord relay process.
+ * Standalone chat relay process.
  *
- * Run the backend with CONCORDIA_DISCORD_EMBEDDED=0, then start this worker in
- * a separate process. Backend HTTP/schedulers stay responsive even if Discord
- * gateway relay or session egress becomes busy.
+ * Run the backend with CONCORDIA_CHAT_MODE=worker, then start this worker in a
+ * separate process. Backend HTTP/schedulers stay responsive even if Discord or
+ * Slack relay work becomes busy.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -27,17 +27,20 @@ import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { AdminState } from "./admin/state.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
+import { startSlackBot, type SlackBotDeps } from "./slack/bot.js";
 import { makeChatReadModel } from "./api/chat-read-models.js";
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { repinSession } from "./control/repin-session.js";
 import { makeDiscordConfigRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
+import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
+import { resolveSlackConfig } from "./slack/config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus, type ConcordiaEvent } from "./events.js";
 import { startWorkerLease } from "./discord/relay-owner.js";
 
-const log = createChildLogger("discord-worker");
+const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
 /** 定期 reconcile の間隔 (WS 切断中に取りこぼした session.started の救済)。 */
 const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
@@ -126,6 +129,7 @@ async function main(): Promise<void> {
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const prs = new PrRecordsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  const slackConfig = makeSlackConfigRepo(db);
   const secretBox = loadSecretBox({
     envValue: process.env.CONCORDIA_SECRET_KEY,
     keyFile: join(process.cwd(), "concordia.secret.key"),
@@ -210,6 +214,19 @@ async function main(): Promise<void> {
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
     emitSessionInject,
   };
+  const slackBotDeps: SlackBotDeps = {
+    db,
+    readModel: chatReadModel,
+    slackConfigRepo: slackConfig,
+    concordiaUrl,
+    workspaceRoot: workspaceRootDefault,
+    resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    runHeadless: runClaude,
+    resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
+  };
 
   const subsidiaryManager = new SubsidiaryBotManager({
     subsidiaryRepo,
@@ -227,8 +244,9 @@ async function main(): Promise<void> {
   });
 
   const bot: DiscordBotHandle | null = await startDiscordBot(discordBotDeps);
+  const slackBot = await startSlackBot(slackBotDeps);
   await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
-  log.info("Discord worker started");
+  log.info("chat worker started");
 
   const shutdown = async () => {
     clearInterval(reconcileTimer);
@@ -236,6 +254,7 @@ async function main(): Promise<void> {
     bridge.stop();
     await subsidiaryManager.stopAll().catch(() => {});
     if (bot) await bot.stop().catch(() => {});
+    if (slackBot) await slackBot.stop().catch(() => {});
     closeDb();
   };
   process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
@@ -243,6 +262,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  log.error({ err }, "Discord worker failed");
+  log.error({ err }, "chat worker failed");
   process.exit(1);
 });

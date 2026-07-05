@@ -84,7 +84,7 @@ import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { readWorkerLease, RELAY_CHECK_MS } from "../discord/relay-owner.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
-import { chatEmbeddedEnabled } from "./chat.js";
+import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
 import {
   COST_WORKER_CHECK_MS,
   costEmbeddedEnabled,
@@ -108,6 +108,9 @@ function discordEmbeddedEnabled(): boolean {
 
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!chatEmbeddedEnabled()) return { ok: true, status: "disabled" };
+  if (discordRelayConfigRepo && readWorkerLease(discordRelayConfigRepo)) {
+    return { ok: true, status: "disabled" };
+  }
   if (slackBotHandle) return { ok: true, status: "already_running" };
   if (!slackBotDeps) return { ok: false, status: "error", error: "slack deps not initialized" };
   try {
@@ -142,7 +145,7 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!discordEmbeddedEnabled()) return { ok: true, status: "disabled" };
-  // env 設定漏れで embedded と discord-worker が同一 token で二重起動すると
+  // env 設定漏れで embedded と chat-worker が同一 token で二重起動すると
   // interaction 二重 dispatch / spawn 二重実行になる。 live な worker lease が
   // あれば embedded は起動しない (worker 優先)。
   if (discordRelayConfigRepo && readWorkerLease(discordRelayConfigRepo)) {
@@ -554,7 +557,7 @@ export async function startBackend(): Promise<BackendHandle> {
       stop: stopSlackBotManaged,
       restart: restartSlackBotManaged,
     },
-    chatRoutes: chatEmbeddedEnabled() ? undefined : null,
+    chatRoutes: readChatMode() === "off" ? null : undefined,
     costRoutes: costEmbeddedEnabled() ? undefined : null,
   });
 
@@ -694,21 +697,27 @@ export async function startBackend(): Promise<BackendHandle> {
   {
     if (discordEmbeddedEnabled()) {
       if (readWorkerLease(discordConfig)) {
-        log.info("Discord embedded bot skipped: live discord-worker lease found (worker owns relay)");
+        log.info("Discord embedded bot skipped: live chat-worker lease found (worker owns relay)");
       } else {
         const started = await startDiscordBotManaged();
         if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
       }
     } else {
-      log.info("Discord embedded bot disabled; run `npm run discord:worker` as a separate relay process");
+      log.info("Discord embedded bot disabled; run `npm run chat:worker` as a separate relay process");
     }
   }
   // embedded 稼働中に worker が後から起動した場合も二重化を解消する (worker 優先)。
   const relayOwnerWatch = setInterval(() => {
-    if (!discordBotHandle || !readWorkerLease(discordConfig)) return;
-    log.warn("live discord-worker lease detected; stopping embedded Discord bot to avoid double relay");
-    void stopDiscordBotManaged();
-    void subsidiaryManager.stopAll().catch(() => { /* best-effort: worker 側が引き継ぐ */ });
+    if (!readWorkerLease(discordConfig)) return;
+    if (discordBotHandle) {
+      log.warn("live chat-worker lease detected; stopping embedded Discord bot to avoid double relay");
+      void stopDiscordBotManaged();
+      void subsidiaryManager.stopAll().catch(() => { /* best-effort: worker 側が引き継ぐ */ });
+    }
+    if (slackBotHandle) {
+      log.warn("live chat-worker lease detected; stopping embedded Slack bot to avoid double relay");
+      void stopSlackBotManaged();
+    }
   }, RELAY_CHECK_MS);
   relayOwnerWatch.unref?.();
 
@@ -722,13 +731,17 @@ export async function startBackend(): Promise<BackendHandle> {
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
   {
-    const started = await startSlackBotManaged();
-    if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
+    if (chatEmbeddedEnabled() && readWorkerLease(discordConfig)) {
+      log.info("Slack embedded bot skipped: live chat-worker lease found (worker owns relay)");
+    } else {
+      const started = await startSlackBotManaged();
+      if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
+    }
   }
 
   // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
-  if (discordEmbeddedEnabled()) {
+  if (discordEmbeddedEnabled() && !readWorkerLease(discordConfig)) {
     await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
   }
 

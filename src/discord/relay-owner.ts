@@ -8,8 +8,10 @@ import {
   type WorkerLease,
 } from "../shared/worker-lease.js";
 
-const KEY = "relay_owner_lease";
-const ROLE = "discord-relay";
+const KEY = "chat_worker_lease";
+const ROLE = "chat-relay";
+const LEGACY_KEY = "relay_owner_lease";
+const LEGACY_ROLE = "discord-relay";
 
 export const RELAY_LEASE_TTL_MS = WORKER_LEASE_TTL_MS;
 export const RELAY_HEARTBEAT_MS = WORKER_HEARTBEAT_MS;
@@ -21,6 +23,11 @@ export function readWorkerLease(repo: DiscordConfigRepo, now: number = Date.now(
   return readSharedWorkerLease(repo, {
     key: KEY,
     role: ROLE,
+    now,
+    ttlMs: RELAY_LEASE_TTL_MS,
+  }) ?? readSharedWorkerLease(repo, {
+    key: LEGACY_KEY,
+    role: LEGACY_ROLE,
     now,
     ttlMs: RELAY_LEASE_TTL_MS,
     allowLegacyRole: true,

@@ -46,6 +46,7 @@ import { invalidateDelegationTemplateCache } from "./delegation-template-cache.j
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
+import { parseInjectSource } from "../shared/inject-source.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
@@ -708,7 +709,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       if (!text) return;
       // Discord session channel からの inject は元メッセージがすでに表示済み。
       // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
-      if (source.startsWith("discord:") || source === "discord-enter" || source === "discord-enter-fallback") {
+      if (parseInjectSource(source).platform === "discord" || source === "discord-enter" || source === "discord-enter-fallback") {
         // codex: prompt が受理された = transcript が動いた。 保留中の ✅ を 1 回だけ付ける
         // (takeInjectAck は delete-on-read なので transcript.frame 経路と二重にならない)。
         const ack = takeInjectAck(ev.session_id);
@@ -794,7 +795,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       // にも発言者付きで転記する。Discord 由来は元発言が既に表示済なので転記しない。
       // 制御 inject (/enter 等、source 例 "discord-enter") は ^slack: に一致せず除外。
       const src = ev.source ?? "";
-      if (!src.startsWith("slack:")) return;
+      if (parseInjectSource(src).platform !== "slack") return;
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       const who = ev.author_label?.trim() || "Slack user";
       void (async () => {

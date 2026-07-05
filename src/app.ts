@@ -58,6 +58,7 @@ import { slackAdminRouter, type SlackBotAdmin } from "./api/slack-admin.js";
 import type { SlackConfigRepo } from "./db/slack-config-repo.js";
 import type { SecretBox } from "./shared/secret-box.js";
 import { setDiscordConfig, discordConfigStatus } from "./discord/conn-config.js";
+import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
 import { z } from "zod";
 import { spawnRouter } from "./api/spawn.js";
 import { machinesRouter } from "./api/machines.js";
@@ -197,9 +198,11 @@ export function buildApp(deps: AppDeps): Hono {
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
       transcriptLogs: deps.transcriptLogs,
-      pendingQuestions: deps.pendingQuestions,
-      discordChannels: deps.discordChannels,
-      discordConfig: deps.discordConfig,
+      channelDirectory: makeDiscordChannelDirectory({
+        pendingQuestions: deps.pendingQuestions,
+        sessionChannels: deps.discordChannels,
+        config: deps.discordConfig,
+      }),
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       harnessAudit: deps.harnessAudit,

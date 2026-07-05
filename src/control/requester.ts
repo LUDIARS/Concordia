@@ -14,6 +14,7 @@
  */
 
 import type { SessionEventRow } from "../shared/types.js";
+import { parseInjectSource } from "../shared/inject-source.js";
 
 export interface Requester {
   platform: "discord" | "slack";
@@ -22,15 +23,10 @@ export interface Requester {
 }
 
 /** "discord:<uid>:…" / "slack:<uid>:…" 形式の source から入力者を解析。 制御injectは null。 */
-const SOURCE_RE = /^(discord|slack):([^:]+)/;
-
 export function parseRequesterSource(source: unknown): Requester | null {
-  if (typeof source !== "string") return null;
-  const m = SOURCE_RE.exec(source);
-  if (!m) return null;
-  const userId = m[2].trim();
-  if (!userId) return null;
-  return { platform: m[1] as "discord" | "slack", userId };
+  const parsed = parseInjectSource(source);
+  if (!parsed.platform || !parsed.userId) return null;
+  return { platform: parsed.platform, userId: parsed.userId };
 }
 
 /**

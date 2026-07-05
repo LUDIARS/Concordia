@@ -24,6 +24,7 @@ import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
 import { wrapTablesInCode } from "../shared/message-blocks.js";
+import { parseInjectSource } from "../shared/inject-source.js";
 import {
   buildQuestionBlocks,
   buildSessionBotUsername,
@@ -444,7 +445,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // 一致せず除外。
   async function mirrorForeignInject(ev: Extract<ConcordiaEvent, { type: "session.inject" }>): Promise<void> {
     const src = ev.source ?? "";
-    if (!src.startsWith("discord:")) return;
+    if (parseInjectSource(src).platform !== "discord") return;
     const threadTs = await ensureSessionThread(ev.target_session_id);
     if (!threadTs) return;
     const who = ev.author_label?.trim() || "Discord user";

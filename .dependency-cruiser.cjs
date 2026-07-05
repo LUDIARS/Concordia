@@ -4,7 +4,7 @@ module.exports = {
     /**
      * core-no-chat
      * Core / non-platform modules must not import chat-platform (discord/ slack/) modules.
-     * Composition roots (server.ts, app.ts, discord-worker.ts) are wiring points and excluded.
+     * Composition roots (server.ts, app.ts, chat-worker.ts) are wiring points and excluded.
      */
     {
       name: "core-no-chat",
@@ -17,7 +17,7 @@ module.exports = {
           // Composition roots — wiring points, allowed to import anything
           "^src/server\\.ts$",
           "^src/app\\.ts$",
-          "^src/discord-worker\\.ts$",
+          "^src/chat-worker\\.ts$",
           "^src/bootstrap/core\\.ts$",
           "^src/api/register-chat\\.ts$",
           // Chat modules themselves

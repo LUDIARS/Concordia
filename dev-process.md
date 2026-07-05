@@ -30,6 +30,11 @@ auto_start を **off** にしてある (起動経路は従来どおり手動 `np
       "auto_start": false
     },
     {
+      "name": "chat-worker",
+      "command": "npm run chat:worker",
+      "auto_start": false
+    },
+    {
       "name": "cost-worker",
       "command": "npm run cost:worker",
       "auto_start": false

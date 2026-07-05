@@ -10,8 +10,16 @@ export default defineConfig({
     // プロセスとして残り、 better_sqlite3.node 等のファイルロックをリークしうる
     // (2026-07-02 指示: リーク回避のため fork pool 廃止)。 worker_threads は親プロセスと
     // 運命を共にするため、 プロセスリークが構造的に起きない。
-    // 注: maxThreads を絞ると Windows でスイート途中の segfault が再現したため、
-    // スレッド数は既定に任せる (2026-07-02 実測)。
+    // better-sqlite3 を使う app-level tests が複数 worker の teardown で access violation
+    // になることがあるため、thread pool は維持しつつ 1 worker に固定する。
     pool: "threads",
+    // better-sqlite3 を使う app-level tests が worker isolate teardown で access violation
+    // になることがあるため、thread pool は維持しつつ isolate だけ共有する。
+    isolate: false,
+    poolOptions: {
+      threads: {
+        singleThread: true,
+      },
+    },
   },
 });

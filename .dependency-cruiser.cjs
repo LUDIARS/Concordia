@@ -19,6 +19,7 @@ module.exports = {
           "^src/app\\.ts$",
           "^src/discord-worker\\.ts$",
           "^src/bootstrap/core\\.ts$",
+          "^src/api/register-chat\\.ts$",
           // Chat modules themselves
           "^src/discord/",
           "^src/slack/",

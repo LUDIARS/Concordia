@@ -602,6 +602,8 @@ export async function startBackend(): Promise<BackendHandle> {
       stop: stopSlackBotManaged,
       restart: restartSlackBotManaged,
     },
+    chatRoutes: chatEmbeddedEnabled() ? undefined : null,
+    costRoutes: costEmbeddedEnabled() ? undefined : null,
   });
 
   // ブラックボックス rule engine (決定的). 発火判定は LLM 不使用、 発話文は

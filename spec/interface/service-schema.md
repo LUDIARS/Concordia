@@ -426,3 +426,44 @@ CREATE TABLE process_logs (
 
 `error-watch` / `ewatch` skill は廃止せず温存. AI が `tail -F + grep` の手動ループを
 回す古典経路と、 Concordia 経由の管理経路は併存する (用途が違うので潰さない).
+
+---
+
+## 13. WebSocket event wire contract (v1)
+
+`/ws` sends versioned JSON frames. ConcordiaEvent names and payload fields are
+unchanged from the in-process event bus; the wire envelope adds only `v`.
+
+```jsonc
+{
+  "v": 1,
+  "type": "session.started",
+  "...": "event payload fields"
+}
+```
+
+Compatibility rules:
+
+- `v` is required on new sender output.
+- Receivers must treat a missing `v` as `1` during the compatibility window.
+- Unknown event `type` values are skipped with a warning instead of crashing a
+  worker or client.
+- Unsupported `v` values are skipped with a warning.
+- Senders use the explicit allowlist in `src/shared/event-schema.ts`
+  (`CONCORDIA_EVENT_TYPES`) for events allowed onto `/ws`.
+- Backward-compatible payload additions may stay on `v: 1`. Breaking payload
+  changes require a new version and an overlap period where old and new
+  receivers both work.
+
+The connection greeting is also versioned:
+
+```jsonc
+{
+  "v": 1,
+  "type": "hello",
+  "ts": 1760000000,
+  "service": "concordia",
+  "session_id": "optional-session-id",
+  "registered": true
+}
+```

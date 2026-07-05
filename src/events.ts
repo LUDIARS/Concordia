@@ -4,7 +4,7 @@
  * SSE / WS clients が購読する. dispatcher / sweeper / api handlers が emit する.
  */
 
-export type ConcordiaEvent =
+type ConcordiaEventPayload =
   | { type: "session.started";  session_id: string; provider: string; repo_path: string; branch: string | null; ts: number }
   | { type: "session.lost";     session_id: string; ts: number }
   | { type: "session.ended";    session_id: string; ts: number }
@@ -101,6 +101,22 @@ export type ConcordiaEvent =
   // Discord/Slack 側はボタン除去に使い、古いボタンの再クリックを防ぐ。
   | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
   | { type: "ping";             ts: number };
+
+type ChatEventType =
+  | "chat.posted"
+  | "session.inject"
+  | "transcript.frame"
+  | "session.permission_request"
+  | "question.posted"
+  | "question.answered"
+  | "question.resolved";
+
+type CostEventType = "stat.collected";
+
+export type ChatEvent = Extract<ConcordiaEventPayload, { type: ChatEventType }>;
+export type CostEvent = Extract<ConcordiaEventPayload, { type: CostEventType }>;
+export type CoreEvent = Exclude<ConcordiaEventPayload, ChatEvent | CostEvent>;
+export type ConcordiaEvent = CoreEvent | ChatEvent | CostEvent;
 
 type Listener = (ev: ConcordiaEvent) => void;
 

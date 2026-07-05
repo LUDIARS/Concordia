@@ -1,9 +1,6 @@
 import type { Guild } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
-import { ChatRepo } from "../db/chat-repo.js";
 import { makeDiscordMessageMapRepo, makeDiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import { PersonasRepo } from "../db/personas-repo.js";
-import { SessionsRepo } from "../db/sessions-repo.js";
 import type { ProviderName } from "../shared/types.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import type { DiscordConfigSnapshot } from "./config.js";
@@ -155,19 +152,6 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimiza
 } {
   const db = makeTestDb();
   const sessionId = `s-${provider}`;
-  const sessionsRepo = new SessionsRepo(db);
-  sessionsRepo.insertSession({
-    id: sessionId,
-    provider,
-    repo_path: "/repo",
-    repo_origin: null,
-    branch: null,
-    host: "host",
-    started_at: 1,
-    last_seen_at: 1,
-    transcript_path: null,
-    metadata: JSON.stringify({ role_label: "Claude Code" }),
-  });
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(db);
   sessionChannelsRepo.upsert({
     session_id: sessionId,
@@ -209,9 +193,23 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimiza
       },
     } satisfies DiscordConfigSnapshot,
     webhooks: webhooks as unknown as WebhookPool,
-    chatRepo: new ChatRepo(db),
-    sessionsRepo,
-    personasRepo: new PersonasRepo(db),
+    readModel: {
+      getSessionRelayState: () => ({
+        sessionId,
+        provider,
+        repoPath: "/repo",
+        branch: null,
+        status: "active",
+        currentTask: null,
+        roleLabel: "Claude Code",
+        personaId: null,
+        personaDisplayName: null,
+        personaName: null,
+        delegationEmoji: null,
+        model: null,
+        subsidiaryId: null,
+      }),
+    } as never,
     sessionChannelsRepo,
     messageMap: makeDiscordMessageMapRepo(db),
     messageOptimizationEnabled: opts.messageOptimizationEnabled,

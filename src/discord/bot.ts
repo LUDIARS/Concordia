@@ -1,11 +1,7 @@
-import { ChannelType, Client, Events, GatewayIntentBits, Partials } from "discord.js";
+import { ChannelType, Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
-import type { PrRecordsRepo } from "../db/pr-records-repo.js";
-import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import {
@@ -48,6 +44,8 @@ import { postPermissionRequest, type PermissionActionStore } from "./permission.
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
+import type { ChatPlatform } from "../platform/chat-platform.js";
+import type { ChatReadModel } from "../platform/chat-read-model.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -80,14 +78,11 @@ export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; 
 
 export interface DiscordBotDeps {
   db: Database;
+  readModel: ChatReadModel;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
-  sessionTaskRecordsRepo: SessionTaskRecordsRepo;
   /** Concordia の依頼 (chat-reply / title-suggest 等の pending tasks) の集計に使う. */
-  tasksRepo: TasksRepo;
-  personasRepo: PersonasRepo;
   /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
-  prRecordsRepo: PrRecordsRepo;
   /**
    * 子会社一覧を live 解決する (本社モニターの「本社/子会社別コスト」用)。 本社 Bot のみ
    * 渡され、 子会社 Bot には渡さない (subsidiary モードでは無視 = 他子会社の漏洩防止)。
@@ -138,11 +133,9 @@ export interface DiscordBotDeps {
   };
 }
 
-export interface DiscordBotHandle {
-  stop(): Promise<void>;
-}
+export type DiscordBotHandle = ChatPlatform;
 
-export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotHandle | null> {
+export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatform | null> {
   const env = deps.resolveConfig ? deps.resolveConfig() : readDiscordEnv();
   if (!env.enabled) {
     log.info("discord disabled (enabled != 1); skip");
@@ -189,12 +182,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
   // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
   const ownsSession = (sessionId: string): boolean => {
-    const meta = readMeta(deps.sessionsRepo.findSession(sessionId)?.metadata);
-    const sid = meta.subsidiary_id ?? null;
+    const sid = deps.readModel.getSessionRelayState(sessionId)?.subsidiaryId ?? null;
     return subsidiaryId ? sid === subsidiaryId : !sid;
   };
   const isActiveDiscordSession = (sessionId: string): boolean => {
-    const session = deps.sessionsRepo.findSession(sessionId);
+    const session = deps.readModel.getSessionRelayState(sessionId);
     const row = sessionChannelsRepo.findBySessionId(sessionId);
     return isActiveRelayTarget(session?.status ?? null, row?.status ?? null);
   };
@@ -218,6 +210,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
 
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
+  let activeGuild: Guild | null = null;
   let unsubscribe: (() => void) | null = null;
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
@@ -238,6 +231,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     log.info(`logged in as ${c.user.tag}`);
     try {
       const guild = await c.guilds.fetch(env.guildId!);
+      activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
@@ -275,7 +269,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           const activityCh = guild.channels.cache.get(layout!.activityChannelId);
           return upsertCostChannelMessage(
             costCh,
-            deps.sessionsRepo,
+            deps.readModel,
             (k) => configRepo.get(k),
             (k, v) => configRepo.set(k, v),
             activityCh?.type === ChannelType.GuildText ? activityCh : null,
@@ -299,15 +293,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         }
         await upsertMonitorChannelMessage(
           monitorCh,
-          deps.sessionsRepo,
-          sessionChannelsRepo,
+          deps.readModel.getMonitorSnapshot({
+            subsidiaryId,
+            costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
+            channelForSession: (sessionId) => sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null,
+          }),
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
           {
             stats: getEgressDedupStats(),
-            sessionFilter: (session) => ownsSession(session.id),
             // 本社モニターのみ本社/子会社別コストを出す (子会社 Bot では出さない)。
-            costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
           },
         );
       };
@@ -328,8 +323,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         }
         await upsertPrQueueChannelMessage(
           prQueueCh,
-          deps.prRecordsRepo,
-          sessionChannelsRepo,
+          deps.readModel.getPrQueueSnapshot({
+            channelForSession: (sessionId) => {
+              const ch = sessionChannelsRepo.findBySessionId(sessionId);
+              if (!ch || ch.status === "ended") return null;
+              return ch.channel_id;
+            },
+          }),
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
         );
@@ -361,21 +361,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       const lay = layout;
       reconcileTimer = setInterval(() => {
         // ロスト/終了セッションの状態カードを削除。
-        void reconcileLostStatusCards({ guild, configRepo, sessionsRepo: deps.sessionsRepo, log })
+        void reconcileLostStatusCards({ guild, configRepo, readModel: deps.readModel, log })
           .then((r) => log.info(`status-card reconcile: scanned=${r.scanned} removed=${r.removed}`))
           .catch((e) => log.warn(`status-card reconcile failed: ${(e as Error).message}`));
         // アクティブセッション全件を一律更新。カードが消えていれば再作成する。
         for (const row of sessionChannelsRepo.listActive()) {
           void upsertSessionStatusCard({
             guild, layout: lay, configRepo, sessionChannelsRepo,
-            sessionsRepo: deps.sessionsRepo, sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-            tasksRepo: deps.tasksRepo, personasRepo: deps.personasRepo, log,
+            readModel: deps.readModel, log,
           }, row.session_id, { allowCreate: true })
             .catch((e) => log.warn(`status-card 1min update failed session=${row.session_id}: ${(e as Error).message}`));
         }
         void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
           .catch((e) => log.warn(`prune failed: ${(e as Error).message}`));
-        void reconcileEndedSessionChannels({ guild, layout: lay, repo: sessionChannelsRepo, sessions: deps.sessionsRepo, log, webhooks: webhooks ?? undefined })
+        void reconcileEndedSessionChannels({
+          guild, layout: lay, repo: sessionChannelsRepo,
+          isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
+          log, webhooks: webhooks ?? undefined,
+        })
           .then((r) => {
             if (r.reconciled > 0) {
               log.info(`session-channel ended reconcile: scanned=${r.scanned} reconciled=${r.reconciled}`);
@@ -390,10 +393,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
           layout,
           configRepo,
           sessionChannelsRepo,
-          sessionsRepo: deps.sessionsRepo,
-          sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-          tasksRepo: deps.tasksRepo,
-          personasRepo: deps.personasRepo,
+          readModel: deps.readModel,
           log,
         }, row.session_id);
       }
@@ -403,7 +403,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
         .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
         .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
-      void reconcileEndedSessionChannels({ guild, layout, repo: sessionChannelsRepo, sessions: deps.sessionsRepo, log, webhooks: webhooks ?? undefined })
+      void reconcileEndedSessionChannels({
+        guild,
+        layout,
+        repo: sessionChannelsRepo,
+        isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
+        log,
+        webhooks: webhooks ?? undefined,
+      })
         .then((r) => log.info(`session-channel ended reconcile on boot: scanned=${r.scanned} reconciled=${r.reconciled}`))
         .catch((e) => log.warn(`session-channel ended reconcile on boot failed: ${(e as Error).message}`));
       // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
@@ -576,8 +583,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     if (evSid !== null && !ownsSession(evSid)) return;
 
     if (ev.type === "session.started") {
-      const meta = readMeta(deps.sessionsRepo.findSession(ev.session_id)?.metadata);
-      const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
+      const state = deps.readModel.getSessionRelayState(ev.session_id);
       const sessionId = ev.session_id;
       void (async () => {
         try {
@@ -586,9 +592,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
             {
               sessionId,
               agentType: ev.provider ?? null,
-              delegationEmoji: meta.delegation_emoji ?? null,
-              roleLabel: meta.role_label ?? null,
-              personaDisplayName: persona?.display_name ?? null,
+              delegationEmoji: state?.delegationEmoji ?? null,
+              roleLabel: state?.roleLabel ?? null,
+              personaDisplayName: state?.personaDisplayName ?? null,
             },
           );
           await upsertSessionStatusCard({
@@ -596,10 +602,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
             layout,
             configRepo,
             sessionChannelsRepo,
-            sessionsRepo: deps.sessionsRepo,
-            sessionTaskRecordsRepo: deps.sessionTaskRecordsRepo,
-            tasksRepo: deps.tasksRepo,
-            personasRepo: deps.personasRepo,
+            readModel: deps.readModel,
             log,
           }, sessionId, { allowCreate: true });
           // 状態カード作成後、セッションチャンネルの topic を状態カードリンクにする。
@@ -654,9 +657,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
         guild,
         layout,
         webhooks,
-        chatRepo: deps.chatRepo,
-        sessionsRepo: deps.sessionsRepo,
-        personasRepo: deps.personasRepo,
+        readModel: deps.readModel,
         sessionChannelsRepo,
         messageMap,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
@@ -692,20 +693,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
     }
     if (ev.type === "session.event" && ev.kind === "prompt") {
       // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
-      const s = deps.sessionsRepo.findSession(ev.session_id);
-      if (!s || !shouldRelaySessionPromptToDiscord(s.provider)) return;
+      const prompt = deps.readModel.getSessionPromptEvent(ev.session_id);
+      if (!prompt || !shouldRelaySessionPromptToDiscord(prompt.provider)) return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
-      if (!isActiveRelayTarget(s.status, row?.status ?? null)) return;
+      if (!isActiveRelayTarget(prompt.status, row?.status ?? null)) return;
       workingIndicator?.noteProgress(ev.session_id);
       channelWorkState?.noteProgress(ev.session_id);
-      const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
-      let text = "";
-      let source = "";
-      try {
-        const payload = latest ? JSON.parse(latest.payload) as { summary?: unknown; source?: unknown } : {};
-        if (typeof payload.summary === "string") text = payload.summary.trim();
-        if (typeof payload.source === "string") source = payload.source;
-      } catch {}
+      const text = prompt.text;
+      const source = prompt.source;
       if (!text) return;
       // Discord session channel からの inject は元メッセージがすでに表示済み。
       // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
@@ -751,22 +746,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
       return;
     }
     if (ev.type === "session.event" && ev.kind === "title_renamed") {
-      const s = deps.sessionsRepo.findSession(ev.session_id);
+      const titleEvent = deps.readModel.getSessionTitleEvent(ev.session_id);
       if (!isActiveDiscordSession(ev.session_id)) return;
-      const latest = deps.sessionsRepo.recentEvents(ev.session_id, 1)[0];
-      let title = "";
-      let source: string | undefined;
-      try {
-        const payload = latest ? JSON.parse(latest.payload) as { text?: unknown; source?: unknown } : {};
-        if (typeof payload.text === "string") title = payload.text;
-        if (typeof payload.source === "string") source = payload.source;
-      } catch {}
-      if (s && title) {
+      if (titleEvent) {
         // title-suggestion (AI 自動) はチャンネル名を変えない。手動/リアクション rename のみ反映。
-        const forceRename = source !== "title-suggestion";
+        const forceRename = titleEvent.source !== "title-suggestion";
         void onSessionTitleChanged(
           { guild, layout, repo: sessionChannelsRepo, log },
-          { sessionId: ev.session_id, title, agentType: s.provider, forceRename },
+          { sessionId: ev.session_id, title: titleEvent.title, agentType: titleEvent.provider, forceRename },
         );
       }
       return;
@@ -809,6 +796,65 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   await client.login(env.token);
 
   return {
+    name: "discord",
+    async postToSession(input) {
+      if (!webhooks) return;
+      const client = await webhooks.getForSession(input.sessionId);
+      if (!client) return;
+      await webhooks.send(client, {
+        content: input.text,
+        username: input.authorLabel?.trim() || "Concordia",
+      });
+    },
+    async ensureSessionSurface(sessionId) {
+      if (!activeGuild || !layout) return;
+      const state = deps.readModel.getSessionRelayState(sessionId);
+      await onSessionRegistered(
+        { guild: activeGuild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
+        {
+          sessionId,
+          agentType: state?.provider ?? null,
+          delegationEmoji: state?.delegationEmoji ?? null,
+          roleLabel: state?.roleLabel ?? null,
+          personaDisplayName: state?.personaDisplayName ?? null,
+        },
+      );
+      await upsertSessionStatusCard({
+        guild: activeGuild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        readModel: deps.readModel,
+        log,
+      }, sessionId, { allowCreate: true });
+    },
+    async postQuestion(input) {
+      if (!activeGuild) return;
+      await postQuestion(
+        { guild: activeGuild, sessionChannelsRepo, pendingQuestionsRepo, log },
+        { target_session_id: input.target_session_id, question_id: input.question_id, question: input.question, options: input.options },
+      );
+    },
+    async relayFrame(input) {
+      if (!activeGuild || !layout || !webhooks) return;
+      handleEgressEvent({
+        guild: activeGuild,
+        layout,
+        webhooks,
+        readModel: deps.readModel,
+        sessionChannelsRepo,
+        messageMap,
+        messageOptimizationEnabled: env.messageOptimizationEnabled,
+        log,
+      }, {
+        type: "transcript.frame",
+        target_session_id: input.target_session_id,
+        kind: input.kind as never,
+        payload: input.payload as never,
+        seq: input.seq ?? 0,
+        ts: Math.floor(Date.now() / 1000),
+      });
+    },
     async stop() {
       unsubscribe?.();
       if (costTimer) clearInterval(costTimer);
@@ -823,10 +869,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<DiscordBotH
   };
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; delegation_emoji?: string; subsidiary_id?: string } {
-  if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; delegation_emoji?: string; subsidiary_id?: string }; } catch { return {}; }
-}
 
 /** session-scoped イベントの対象 session id を返す (subsidiary-only 可視のゲート用)。 非該当は null。 */
 function eventSessionId(ev: ConcordiaEvent): string | null {

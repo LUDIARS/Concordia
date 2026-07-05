@@ -1,22 +1,12 @@
 import type { TextChannel } from "discord.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
-import { type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
-import { createChildLogger } from "../shared/logger.js";
-// 集計 + 本文描画は cost/cost-report に集約 (Slack cost Canvas と共通の正本)。
-import {
-  collectCostReport,
-  renderCostReportMarkdown,
-  type CostRate,
-  type CostTimestampFormat,
-} from "../cost/cost-report.js";
-
-const oauthUsageLog = createChildLogger("cost-channel.oauth-usage");
+import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
+import type { CostTimestampFormat } from "../cost/cost-report.js";
+import type { ChatReadModel, CostRateSnapshot } from "../platform/chat-read-model.js";
 
 const COST_MESSAGE_KEY = "cost_status_message_id";
 
-type Rate = CostRate;
+type Rate = CostRateSnapshot;
 
-/** Discord は `<t:..>` トークンでクライアント側ローカル時刻 / 相対表示にする。 */
 const DISCORD_TS_FORMAT: CostTimestampFormat = {
   updated: (nowSec) => `<t:${nowSec}:R>`,
   at: (epochSec) => (epochSec === null ? "-" : `<t:${epochSec}:f> (<t:${epochSec}:R>)`),
@@ -24,15 +14,13 @@ const DISCORD_TS_FORMAT: CostTimestampFormat = {
 
 export async function upsertCostChannelMessage(
   channel: TextChannel,
-  sessionsRepo: SessionsRepo,
+  readModel: ChatReadModel,
   configGet: (k: string) => string | null,
   configSet: (k: string, v: string) => void,
   activityChannel?: TextChannel | null,
 ): Promise<void> {
-  const report = await collectCostReport(sessionsRepo, { oauthLog: oauthUsageLog });
-  const codexRate = report.codexRate;
-  const claudeUsage = report.claudeUsage;
-  const body = renderCostReportMarkdown(report, DISCORD_TS_FORMAT, Math.floor(Date.now() / 1000)).slice(0, 3900);
+  const snapshot = await readModel.getCostSnapshot(DISCORD_TS_FORMAT, Math.floor(Date.now() / 1000));
+  const body = snapshot.markdown.slice(0, 3900);
 
   const msgId = configGet(COST_MESSAGE_KEY);
   try {
@@ -43,8 +31,8 @@ export async function upsertCostChannelMessage(
         activityChannel,
         configGet,
         configSet,
-        codexRate,
-        claudeUsage,
+        codexRate: snapshot.codexRate,
+        claudeUsage: snapshot.claudeUsage,
       });
       return;
     }
@@ -56,8 +44,8 @@ export async function upsertCostChannelMessage(
     activityChannel,
     configGet,
     configSet,
-    codexRate,
-    claudeUsage,
+    codexRate: snapshot.codexRate,
+    claudeUsage: snapshot.claudeUsage,
   });
 }
 
@@ -76,7 +64,7 @@ async function notifyCostActivity(input: {
   const available = codex5h !== null || claude5h !== null;
   const prevAvailability = configGet("cost_activity:available");
   if (prevAvailability === "0" && available) {
-    await activityChannel.send("✅ cost usage is available again.");
+    await activityChannel.send("Cost usage is available again.");
   }
   configSet("cost_activity:available", available ? "1" : "0");
 
@@ -104,7 +92,7 @@ async function notifyHigh5hUsage(
   if (configGet(key) === resetBucket) return;
   configSet(key, resetBucket);
   await activityChannel.send(
-    `⚠️ ${input.provider} 5H cost usage is ${input.used5h.toFixed(1)}%` +
+    `${input.provider} 5H cost usage is ${input.used5h.toFixed(1)}%` +
     (input.reset5hAt ? ` (resets ${ts(input.reset5hAt)})` : ""),
   );
 }

@@ -147,12 +147,10 @@ describe("onSessionStatusChanged ended archive", () => {
       }),
       clearWebhook: vi.fn(),
     };
-    const sessions = {
-      findSession: vi.fn((id: string) => (id === row.session_id ? { id, status: "ended" } : null)),
-    };
+    const isSessionEnded = vi.fn((id: string) => id === row.session_id);
     const log = { info: vi.fn(), warn: vi.fn() };
     const layout = { archiveCategoryId: "archive-cat", sessionsCategoryId: "sessions-cat" } as any;
-    return { row, channelObj, guild, repo, sessions, log, layout };
+    return { row, channelObj, guild, repo, isSessionEnded, log, layout };
   }
 
   it("retries archive even when the channel row is already ended", async () => {
@@ -176,7 +174,7 @@ describe("onSessionStatusChanged ended archive", () => {
       guild: m.guild as any,
       layout: m.layout,
       repo: m.repo as any,
-      sessions: m.sessions as any,
+      isSessionEnded: m.isSessionEnded,
       log: m.log,
     });
 

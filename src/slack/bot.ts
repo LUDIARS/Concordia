@@ -7,9 +7,6 @@
 import type { Database } from "better-sqlite3";
 import { WebClient } from "@slack/web-api";
 import { SocketModeClient } from "@slack/socket-mode";
-import type { ChatRepo } from "../db/chat-repo.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import { upsertCostCanvas, type CostCanvasClient } from "./cost-canvas.js";
 import type { ConcordiaEvent } from "../events.js";
@@ -18,11 +15,12 @@ import { createChildLogger } from "../shared/logger.js";
 import { formatAuthorName } from "../platform/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
+import type { ChatReadModel, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
-import { readSlackEnv, slackEnvReady, readSlackChatMeta, type SlackEnv } from "./types.js";
+import { readSlackEnv, slackEnvReady, type SlackEnv } from "./types.js";
 import { wrapTablesInCode } from "../shared/message-blocks.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import {
@@ -33,7 +31,6 @@ import {
   sanitizeSlackMentions,
   truncateForSlack,
   renderSessionCard,
-  extractMonologue,
   slackReactionToUnicode,
   deriveTitleFromPost,
   parseOtherAnswerActionId,
@@ -70,9 +67,7 @@ const log = {
 
 export interface SlackBotDeps {
   db: Database;
-  chatRepo: ChatRepo;
-  sessionsRepo: SessionsRepo;
-  personasRepo: PersonasRepo;
+  readModel: ChatReadModel;
   /** cost Canvas の canvas_id 永続化に使う key/value repo (slack_config)。 */
   slackConfigRepo: SlackConfigRepo;
   concordiaUrl: string;
@@ -194,16 +189,12 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // ライブカードの状態を session 行 + persona から組む（同期・純粋寄り）。
   // ended の poem は呼び出し側 (renderEndedCard) が埋める。
   function buildCardState(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState {
-    const session = deps.sessionsRepo.findSession(sessionId);
-    const meta = readMeta(session?.metadata);
-    const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
-    const who = formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
-    return {
-      who,
-      emoji: meta.delegation_emoji ?? null,
-      provider: session?.provider ?? null,
-      model: meta.model ?? null,
-      currentTask: session?.current_task ?? null,
+    return deps.readModel.getSessionCardState(sessionId, status, poem) ?? {
+      who: formatAuthorName(null, null),
+      emoji: null,
+      provider: null,
+      model: null,
+      currentTask: null,
       shortId: sessionId.slice(0, 8),
       status,
       poem: poem ?? null,
@@ -230,8 +221,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
   // session.ended: report の独白ポエムを抜いて root カードを「✅ Done + ポエム」に差し替える。
   function renderEndedCard(sessionId: string): void {
-    const report = deps.sessionsRepo.findReport(sessionId);
-    const poem = extractMonologue(report?.summary_md);
+    const poem = deps.readModel.getEndedSessionPoem(sessionId);
     void renderRootCard(sessionId, "ended", poem).catch((e) =>
       log.warn(`ended card update failed session=${sessionId}: ${(e as Error).message}`),
     );
@@ -270,9 +260,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   const autoTitledSessions = new Set<string>();
   async function maybeAutoTitleFromFirstPost(sessionId: string, text: string): Promise<void> {
     if (autoTitledSessions.has(sessionId)) return;
-    const session = deps.sessionsRepo.findSession(sessionId);
+    const session = deps.readModel.getSessionRelayState(sessionId);
     if (!session) return;
-    if ((session.current_task ?? "").trim()) { autoTitledSessions.add(sessionId); return; } // 既に題あり
+    if ((session.currentTask ?? "").trim()) { autoTitledSessions.add(sessionId); return; } // 既に題あり
     const title = deriveTitleFromPost(text);
     if (!title) return;
     autoTitledSessions.add(sessionId); // 二重発火防止（POST 前にマーク）
@@ -295,21 +285,21 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   }
 
   async function handleChatPosted(ev: Extract<ConcordiaEvent, { type: "chat.posted" }>): Promise<void> {
-    const row = deps.chatRepo.findById(ev.message_id);
+    const row = deps.readModel.getChatMessage(ev.message_id);
     if (!row) return;
     // Slack ingress 由来の chat は既に Slack 上に表示済 → 自己ループ防止。
-    if (readSlackChatMeta(row.metadata).source === "slack") {
+    if (row.metadata.source === "slack") {
       log.info(`chat.posted skipped — source=slack (self-loop) message_id=${row.id}`);
       return;
     }
-    const author = row.author_label?.trim() || "Concordia";
-    if (row.session_id) {
-      log.info(`[verbose-slack-egress] chat.posted → thread session=${row.session_id} message_id=${row.id} channel=${row.channel}`);
-      const ts = await postToSessionThread(row.session_id, row.text, author);
+    const author = row.authorLabel?.trim() || "Concordia";
+    if (row.sessionId) {
+      log.info(`[verbose-slack-egress] chat.posted → thread session=${row.sessionId} message_id=${row.id} channel=${row.channel}`);
+      const ts = await postToSessionThread(row.sessionId, row.text, author);
       // リアクション逆引き用に ts → chat_messages.id を登録（👍 ワークフローの入口）。
       if (ts) messageMap.put(channelId, ts, row.id);
       // 最初の投稿なら投稿本文からカードのやる事(📌)を起こす（/rename 相当）。
-      void maybeAutoTitleFromFirstPost(row.session_id, row.text).catch((e) =>
+      void maybeAutoTitleFromFirstPost(row.sessionId, row.text).catch((e) =>
         log.warn(`auto-title (chat.posted): ${(e as Error).message}`),
       );
       return;
@@ -329,12 +319,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       log.info(`[verbose-slack-egress] transcript.frame skipped (non-relayable) session=${ev.target_session_id} kind=${ev.kind}`);
       return;
     }
-    const session = deps.sessionsRepo.findSession(ev.target_session_id);
-    const meta = readMeta(session?.metadata);
-    const persona = frame.role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
+    const session = deps.readModel.getSessionRelayState(ev.target_session_id);
     const author = frame.role === "summary"
       ? "Conversation summary"
-      : formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
+      : formatAuthorName(frame.role === "assistant" ? session?.personaDisplayName ?? null : null, session?.roleLabel ?? null);
     log.info(`[verbose-slack-egress] transcript.frame → thread session=${ev.target_session_id} role=${frame.role}`);
     await postToSessionThread(ev.target_session_id, frame.text, author);
     // assistant 本文の最初の1件で /rename 相当（summary は題材にしない）。
@@ -518,27 +506,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
-        let target: { id: number; text: string; author_label: string; session_id: string | null } | null = null;
+        let target: WorkflowTargetSnapshot | null = null;
         if (event.thread_ts && event.thread_ts !== event.ts) {
           const row = threads.findByThreadTs(channelId, event.thread_ts);
-          if (row) target = deps.chatRepo.latestForSession(row.session_id) ?? null;
+          if (row) target = deps.readModel.getLatestWorkflowTargetForSession(row.session_id);
         } else {
-          target = deps.chatRepo.list({ channel: "consultation", limit: 1 })[0] ?? null;
+          target = deps.readModel.getLatestWorkflowTargetForChannel("consultation");
         }
         if (target != null) {
           // 対象 chat_messages から本文 / session 文脈を解決して runner へ渡す
           // (runner は chat_messages 非依存になったため、 ここで取り出す)。
-          let repoPath: string | null = null;
-          let sessionActive = false;
-          let sessionId: string | null = null;
-          if (target.session_id) {
-            sessionId = target.session_id;
-            const s = deps.sessionsRepo.findSession(target.session_id);
-            if (s) {
-              repoPath = s.repo_path;
-              sessionActive = s.status === "active";
-            }
-          }
           void reactionWorkflow
             .handle(
               {
@@ -546,10 +523,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
                 emoji: wfEmoji,
                 userId: event.user ?? "slack",
                 messageText: target.text,
-                authorLabel: target.author_label,
-                repoPath,
-                sessionActive,
-                sessionId,
+                authorLabel: target.authorLabel,
+                repoPath: target.repoPath,
+                sessionActive: target.sessionActive,
+                sessionId: target.sessionId,
               },
               (action) => {
                 void web.chat
@@ -888,7 +865,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     upsertCostCanvas({
       client: costCanvasClient,
       channelId,
-      sessionsRepo: deps.sessionsRepo,
+      readModel: deps.readModel,
       configGet: (k) => deps.slackConfigRepo.get(k),
       configSet: (k, v) => deps.slackConfigRepo.set(k, v),
       configDelete: (k) => deps.slackConfigRepo.delete(k),
@@ -902,6 +879,33 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   let stopped = false;
   return {
     name: "slack",
+    async postToSession(input) {
+      await postToSessionThread(input.sessionId, input.text, input.authorLabel?.trim() || "Concordia");
+    },
+    async ensureSessionSurface(sessionId) {
+      await ensureSessionThread(sessionId);
+      await renderRootCard(sessionId);
+    },
+    async postQuestion(input) {
+      await handleQuestionPosted({
+        type: "question.posted",
+        target_session_id: input.target_session_id,
+        question_id: input.question_id,
+        question: input.question,
+        options: input.options,
+        ts: Math.floor(Date.now() / 1000),
+      });
+    },
+    async relayFrame(input) {
+      await handleTranscriptFrame({
+        type: "transcript.frame",
+        target_session_id: input.target_session_id,
+        kind: input.kind as never,
+        payload: input.payload as never,
+        seq: input.seq ?? 0,
+        ts: Math.floor(Date.now() / 1000),
+      });
+    },
     async stop() {
       if (stopped) return;
       stopped = true;
@@ -926,8 +930,7 @@ async function injectToSession(deps: SlackBotDeps, sessionId: string, text: stri
       return;
     }
     // Codex は文字列 inject 後に Enter 追送が要る場合がある（Discord ingress と同様）。
-    const session = deps.sessionsRepo.findSession(sessionId);
-    if (session?.provider === "codex-cli") {
+    if (deps.readModel.isCodexSession(sessionId)) {
       try {
         await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
           method: "POST",
@@ -976,10 +979,6 @@ function listWorkdirOptions(roots: string[]): WorkdirOption[] {
   return out;
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string; model?: string; delegation_emoji?: string } {
-  if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string; model?: string; delegation_emoji?: string }; } catch { return {}; }
-}
 
 // ─── Slack イベントの最小型（@slack/* の型に依存しすぎないための薄い shape）──
 function readSlackInputValue(values: unknown, blockId: string, actionId: string): string {

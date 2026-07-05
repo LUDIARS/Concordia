@@ -31,7 +31,6 @@ import {
 } from "./formatter.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
 const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
@@ -97,14 +96,13 @@ export async function onSessionRegistered(
 }
 
 export async function reconcileEndedSessionChannels(
-  deps: SessionChannelDeps & { sessions: SessionsRepo },
+  deps: SessionChannelDeps & { isSessionEnded: (sessionId: string) => boolean },
 ): Promise<{ scanned: number; reconciled: number }> {
   await deps.guild.channels.fetch().catch(() => null);
   const rows = deps.repo.listAll();
   let reconciled = 0;
   for (const row of rows) {
-    const session = deps.sessions.findSession(row.session_id);
-    if (session?.status !== "ended") continue;
+    if (!deps.isSessionEnded(row.session_id)) continue;
     if (!needsEndedArchiveReconcile(deps, row)) continue;
     await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
     reconciled += 1;

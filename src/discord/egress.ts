@@ -1,10 +1,8 @@
 ﻿import fs from "node:fs";
 import path from "node:path";
 import type { Guild } from "discord.js";
-import type { ChatMessageRow, ChatRepo } from "../db/chat-repo.js";
+import type { ChatMessageRelay, ChatReadModel } from "../platform/chat-read-model.js";
 import type { DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
@@ -35,9 +33,7 @@ export interface EgressDeps {
   guild: Guild;
   layout: DiscordConfigSnapshot;
   webhooks: WebhookPool;
-  chatRepo: ChatRepo;
-  sessionsRepo: SessionsRepo;
-  personasRepo: PersonasRepo;
+  readModel: ChatReadModel;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
   messageOptimizationEnabled?: boolean;
@@ -62,7 +58,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   deps.log.info(
     `egress.handleChatPosted entry message_id=${ev.message_id} ev_session_id=${ev.session_id ?? "null"} ev_channel=${ev.channel} ev_author=${ev.author_label}`,
   );
-  const row = deps.chatRepo.findById(ev.message_id);
+  const row = deps.readModel.getChatMessage(ev.message_id);
   if (!row) {
     deps.log.warn(`egress.handleChatPosted row missing message_id=${ev.message_id}`);
     return;
@@ -71,7 +67,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   // されているので、 ここで再 broadcast すると同じテキストが自分の channel に
   // webhook 名義で再出現する自己ループになる. metadata.source==="discord" は
   // ingress が必ず埋める marker (src/discord/ingress.ts L126).
-  const chatMeta = readChatMeta(row.metadata);
+  const chatMeta = row.metadata;
   if (chatMeta.source === "discord") {
     deps.log.info(
       `egress: chat.posted skipped — source=discord (avoid self-loop) ` +
@@ -79,9 +75,9 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     );
     return;
   }
-  const sessionId = row.session_id;
+  const sessionId = row.sessionId;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
-  const session = sessionId ? deps.sessionsRepo.findSession(sessionId) : null;
+  const session = sessionId ? deps.readModel.getSessionRelayState(sessionId) : null;
   if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null)) {
     deps.log.warn(
       `egress.handleChatPosted skipped unrelayable session message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
@@ -90,7 +86,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     );
     return;
   }
-  const metaKind = mapChannelKind(row, ev.channel);
+  const metaKind = mapChannelKind(row.channel, ev.channel);
   const metaChannelId = deps.layout.metaChannels[metaKind] ?? null;
   const forceMeta = row.channel === "chitchat" || row.channel === "consultation" || row.channel === "報告";
   // Lictor が握る送信先を明示してきた場合でも、session-scoped な通常投稿では
@@ -137,7 +133,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     return;
   }
 
-  const author = resolveAuthor(deps, row);
+  const author = resolveAuthor(row);
   const provider = sessionId ? session?.provider ?? null : null;
   if (provider === "codex-cli" && shouldSkipCodexDuplicate(channelId, author, row.text)) {
     dedupStats.skipped_chat_posted += 1;
@@ -160,7 +156,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
 
 async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
   const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-  const session = deps.sessionsRepo.findSession(ev.target_session_id);
+  const session = deps.readModel.getSessionRelayState(ev.target_session_id);
   const sessionStatus = session?.status ?? null;
   const discordStatus = sessionRow?.status ?? null;
   if (!isActiveRelayTarget(sessionStatus, discordStatus)) {
@@ -219,8 +215,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       deps.log.warn(`egress: transcript.frame image no webhook session=${ev.target_session_id}`);
       return;
     }
-    const meta = readMeta(session?.metadata);
-    const author = formatAuthorName(null, meta.role_label ?? null);
+    const author = formatAuthorName(null, session?.roleLabel ?? null);
     const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
     const buf = Buffer.from(p.data, "base64");
     const res = await deps.webhooks.send(client, {
@@ -278,11 +273,9 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
 
-  const meta = readMeta(session?.metadata);
-  const persona = role === "assistant" && meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
   const author = role === "summary"
     ? "Conversation summary"
-    : formatAuthorName(persona?.display_name ?? null, meta.role_label ?? null);
+    : formatAuthorName(role === "assistant" ? session.personaDisplayName : null, session.roleLabel);
   if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, text)) {
     dedupStats.skipped_transcript_frame += 1;
     deps.log.info(`egress: transcript.frame dedup skipped session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
@@ -328,15 +321,15 @@ function previewPayload(payload: unknown): string {
   }
 }
 
-function mapChannelKind(row: ChatMessageRow, evChannel: string): MetaChannelKind {
-  const fromRow = chatChannelToMetaKind(row.channel);
+function mapChannelKind(rowChannel: string, evChannel: string): MetaChannelKind {
+  const fromRow = chatChannelToMetaKind(rowChannel as never);
   if (fromRow) return fromRow;
   if (evChannel === "houkoku" || evChannel === "報告") return "houkoku";
   return "system";
 }
 
-function resolveAuthor(_: EgressDeps, row: ChatMessageRow): string {
-  return row.author_label?.trim() || "Concordia";
+function resolveAuthor(row: ChatMessageRelay): string {
+  return row.authorLabel?.trim() || "Concordia";
 }
 
 function shouldSkipCodexDuplicate(channelId: string, author: string, text: string): boolean {
@@ -354,41 +347,6 @@ function shouldSkipCodexDuplicate(channelId: string, author: string, text: strin
 
 function normalizeDedupText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
-}
-
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
-  if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
-}
-
-/**
- * chat_messages.metadata の parse helper.
- * Discord ingress が埋める `{source: "discord", discord_user_id, discord_message_id}`
- * を読み、 egress 側で自己ループを検知するために使う.
- */
-export function readChatMeta(s: string | null | undefined): {
-  source?: string;
-  discord_user_id?: string;
-  discord_message_id?: string;
-  scope?: string;
-  /** Lictor が握る送信先 channel ID (spec/discord-lictor-relay.md §4.3)。 */
-  discord_channel_id?: string;
-  /** Discord webhook に添付するローカルファイルパス一覧。 */
-  attachment_paths?: string[];
-} {
-  if (!s) return {};
-  try {
-    return JSON.parse(s) as {
-      source?: string;
-      discord_user_id?: string;
-      discord_message_id?: string;
-      scope?: string;
-      discord_channel_id?: string;
-      attachment_paths?: string[];
-    };
-  } catch {
-    return {};
-  }
 }
 
 export function trustedDiscordChannelId(input: {

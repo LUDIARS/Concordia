@@ -11,12 +11,10 @@
  * タイムスタンプは JST の素テキストで描く ({@link SLACK_TS_FORMAT})。
  */
 
-import type { SessionsRepo } from "../db/sessions-repo.js";
 import {
-  collectCostReport,
-  renderCostReportMarkdown,
   type CostTimestampFormat,
 } from "../cost/cost-report.js";
+import type { ChatReadModel } from "../platform/chat-read-model.js";
 
 /** slack_config に canvas_id を保存するキー。 */
 export const COST_CANVAS_KEY = "cost_canvas_id";
@@ -78,7 +76,7 @@ function formatJst(epochSec: number): string {
 export interface UpsertCostCanvasDeps {
   client: CostCanvasClient;
   channelId: string;
-  sessionsRepo: SessionsRepo;
+  readModel: ChatReadModel;
   configGet: (k: string) => string | null;
   configSet: (k: string, v: string) => void;
   configDelete: (k: string) => void;
@@ -94,8 +92,7 @@ export interface UpsertCostCanvasDeps {
 export async function upsertCostCanvas(deps: UpsertCostCanvasDeps): Promise<void> {
   const now = deps.now?.() ?? new Date();
   const nowSec = Math.floor(now.getTime() / 1000);
-  const report = await collectCostReport(deps.sessionsRepo, { oauthLog: deps.log });
-  const markdown = renderCostReportMarkdown(report, SLACK_TS_FORMAT, nowSec);
+  const markdown = (await deps.readModel.getCostSnapshot(SLACK_TS_FORMAT, nowSec)).markdown;
   await applyCostCanvas(markdown, deps);
 }
 

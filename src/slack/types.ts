@@ -1,6 +1,8 @@
 // Slack platform 共通型 + env パース。@slack/* への依存を最小化するための
 // インジェクション境界（discord/types.ts と対になる構成）。
 
+import { readJsonObject } from "../shared/json-object.js";
+
 export interface SlackEnv {
   enabled: boolean;
   /** xoxb- bot token（Web API 呼び出し用）。 */
@@ -38,10 +40,9 @@ export function readSlackChatMeta(s: string | null | undefined): {
   source?: string;
   slack_user_id?: string;
 } {
-  if (!s) return {};
-  try {
-    return JSON.parse(s) as { source?: string; slack_user_id?: string };
-  } catch {
-    return {};
-  }
+  const meta = readJsonObject(s);
+  return {
+    source: typeof meta.source === "string" ? meta.source : undefined,
+    slack_user_id: typeof meta.slack_user_id === "string" ? meta.slack_user_id : undefined,
+  };
 }

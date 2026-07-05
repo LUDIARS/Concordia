@@ -27,6 +27,7 @@ import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { AdminState } from "./admin/state.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
+import { makeChatReadModel } from "./api/chat-read-models.js";
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
@@ -182,15 +183,20 @@ async function main(): Promise<void> {
     concordiaUrl,
   });
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
+  const chatReadModel = makeChatReadModel({
+    chatRepo: chat,
+    sessionsRepo: repo,
+    personasRepo: personas,
+    sessionTaskRecordsRepo: sessionTaskRecords,
+    tasksRepo: tasks,
+    prRecordsRepo: prs,
+  });
 
   const discordBotDeps: DiscordBotDeps = {
     db,
+    readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
-    sessionTaskRecordsRepo: sessionTaskRecords,
-    tasksRepo: tasks,
-    personasRepo: personas,
-    prRecordsRepo: prs,
     listSubsidiaries: () =>
       subsidiaryRepo.list().map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget })),
     concordiaUrl,

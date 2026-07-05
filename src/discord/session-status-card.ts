@@ -1,20 +1,10 @@
 import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
-import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
-import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
-import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { TasksRepo } from "../db/tasks-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
-import { fetchSessionCacheStats, type SessionCacheStats } from "../anatomia/cache-stats-client.js";
-import { lastHumanRequester } from "../control/requester.js";
+import type { ChatReadModel, SessionCacheSnapshot } from "../platform/chat-read-model.js";
 
-/** 「直近のセッション活動」 と判定する閾値 (秒). recentEvents の最新 ts と現在時刻の差で見る. */
 const ACTIVE_WINDOW_SEC = 60;
-/** 「待機」 と判定する閾値 (秒). これを超えるとアイドル扱い. */
 const WAITING_WINDOW_SEC = 5 * 60;
 
 const STATUS_MESSAGE_KEY_PREFIX = "session_status_message_id:";
@@ -22,7 +12,6 @@ const STATUS_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
 const CONTEXT_WARNING_KEY_PREFIX = "session_context85_notified:";
 const CONTEXT_WARNING_THRESHOLD = 0.85;
 
-/** configRepo に保存済みの状態カードチャンネル ID を返す。未作成なら null。 */
 export function getStatusChannelId(
   configRepo: DiscordConfigRepo,
   sessionId: string,
@@ -36,19 +25,11 @@ export interface SessionStatusCardDeps {
   layout: DiscordConfigSnapshot;
   configRepo: DiscordConfigRepo;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
-  sessionsRepo: SessionsRepo;
-  personasRepo: PersonasRepo;
-  sessionTaskRecordsRepo: SessionTaskRecordsRepo;
-  tasksRepo: TasksRepo;
+  readModel: ChatReadModel;
   log: { info: (m: string) => void; warn: (m: string) => void };
 }
 
 export interface UpsertStatusCardOptions {
-  /**
-   * 状態チャンネルが無いとき新規作成してよいか。
-   * 作成は spawn (session.started) 時のみ true。 10 分毎の更新や起動時リフレッシュは
-   * false で、 既存があれば更新・無ければ skip する (削除済みチャンネルを作り直さない)。
-   */
   allowCreate?: boolean;
 }
 
@@ -57,81 +38,31 @@ export async function upsertSessionStatusCard(
   sessionId: string,
   opts: UpsertStatusCardOptions = {},
 ): Promise<void> {
-  const sessionRow = deps.sessionsRepo.findSession(sessionId);
-  if (!sessionRow) return;
   const sessionChannelRow = deps.sessionChannelsRepo.findBySessionId(sessionId);
   if (!sessionChannelRow) return;
+  const snapshot = await deps.readModel.getSessionStatusSnapshot(sessionId, sessionChannelRow.channel_id);
+  if (!snapshot) return;
 
-  const meta = readMeta(sessionRow.metadata);
-  const persona = meta.persona_id ? deps.personasRepo.find(meta.persona_id) : null;
   const statusChannel = await ensureStatusChannel(deps, {
     sessionId,
-    provider: sessionRow.provider,
-    roleLabel: meta.role_label ?? null,
-    personaDisplayName: persona?.display_name ?? null,
+    provider: snapshot.provider,
+    roleLabel: roleLabelFromPersonaText(snapshot.personaText),
+    personaDisplayName: personaDisplayFromPersonaText(snapshot.personaText),
     allowCreate: opts.allowCreate ?? false,
   });
   if (!statusChannel) return;
 
-  const taskRows = deps.sessionTaskRecordsRepo.listBySession(sessionId);
-  const openTasks = taskRows.filter((t) => t.status !== "completed");
-  const inProgress = openTasks.filter((t) => t.status === "in_progress");
-  const pending = openTasks.filter((t) => t.status === "pending");
-  const doneCount = taskRows.filter((t) => t.status === "completed").length;
-
-  // 直近活動の判定: session_events の最新 ts と現在の差で 作業中 / 待機 / アイドル を出す.
-  // last_seen_at は heartbeat なので使わない (内容変化がなくても進むため).
-  const recent = deps.sessionsRepo.recentEvents(sessionId, 1);
-  const lastEventTsSec = recent.length > 0 ? recent[0].ts : null;
-  const ageSec = lastEventTsSec === null ? null : Math.floor(Date.now() / 1000) - lastEventTsSec;
-
-  // Concordia から会話 / 指示 系の未配信 pending task が何件待たされているか.
-  // タスクを送ったのに session が拾ってくれていない、 を見える化する.
-  const concordiaPending = deps.tasksRepo.countUndeliveredForSession(sessionId);
-
-  // Anatomia 共有キャッシュの当セッション取り分 (ヒット率 + 想定コスト)。warm サーバが
-  // 居ない / イベント未発生なら null → カードはこのフィールドを省く (best-effort)。
-  const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
-
-  // コンテキスト占有の概算 (provider ログから)。取れなければ null → カードは省く。
-  const ctx = estimateContextTokens(sessionRow);
-
-  // 当セッションの想定コスト合算 (等価 API 価格)。取れなければ null → カードは省く。
-  const cost = estimateSessionCostUsd(sessionRow);
-
-  const embed = buildSessionStatusEmbed({
-    sessionId,
-    provider: sessionRow.provider,
-    branch: sessionRow.branch,
-    repoPath: sessionRow.repo_path,
-    currentTask: sessionRow.current_task,
-    status: sessionRow.status,
-    ageSec,
-    personaText: personaLabel(meta.role_label ?? null, persona?.display_name ?? null, persona?.name ?? null),
-    sessionChannelId: sessionChannelRow.channel_id,
-    inProgress,
-    pending,
-    doneCount,
-    concordiaPending,
-    cache,
-    contextBadge: formatContextBadge(ctx),
-    contextPct: ctx?.pct ?? null,
-    costBadge: formatCostBadge(cost),
-    goalBadge: formatGoalBadge(readGoalFromMetadata(sessionRow.metadata)),
-  });
-
+  const embed = buildSessionStatusEmbed(snapshot);
   await maybeNotifyHighContextUsage(deps, {
     sessionId,
     statusChannel,
-    contextBadge: formatContextBadge(ctx),
-    contextPct: ctx?.pct ?? null,
+    contextBadge: snapshot.contextBadge,
+    contextPct: snapshot.contextPct,
+    requesterUserId: snapshot.contextWarningRequesterUserId,
   });
 
   const msgKey = `${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`;
   const chKey = `${STATUS_CHANNEL_KEY_PREFIX}${sessionId}`;
-  // Unknown Channel (10003) が来たらチャンネルが Discord 側で削除済みの確定サイン。
-  // warn を出さず info でキャッシュだけ破棄して終了 → 次 tick で allowCreate=true なら再作成。
-  // (warn にすると looksLikeFailure でエラーチャンネルへ転記されノイズになる)
   const handleUnknownChannel = () => {
     deps.configRepo.set(msgKey, "");
     deps.configRepo.set(chKey, "");
@@ -146,24 +77,25 @@ export async function upsertSessionStatusCard(
       await msg.edit({ content: "", embeds: [embed] });
       return;
     } catch (e) {
-      if ((e as { code?: number }).code === 10003) { handleUnknownChannel(); return; }
-      // Unknown Message (10008) 等 → 再作成パスへ fall through
+      if ((e as { code?: number }).code === 10003) {
+        handleUnknownChannel();
+        return;
+      }
     }
   }
 
-  // message id を失った再作成パス: チャンネルに残った古い bot カードを掃除してから
-  // 1 枚だけ送り直す (1 チャンネルにカードが複数並ぶ重複を防ぐ)。
   try {
-    await purgeBotMessages(deps, statusChannel); // Unknown Channel は re-throw
+    await purgeBotMessages(deps, statusChannel);
     const sent = await statusChannel.send({ embeds: [embed] });
     deps.configRepo.set(msgKey, sent.id);
     deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
   } catch (e) {
-    if ((e as { code?: number }).code === 10003) { handleUnknownChannel(); return; }
+    if ((e as { code?: number }).code === 10003) {
+      handleUnknownChannel();
+      return;
+    }
     deps.configRepo.set(msgKey, "");
-    deps.log.warn(
-      `status-card: send failed session=${sessionId} channel=${statusChannel.id}: ${(e as Error).message}`,
-    );
+    deps.log.warn(`status-card: send failed session=${sessionId} channel=${statusChannel.id}: ${(e as Error).message}`);
   }
 }
 
@@ -181,15 +113,10 @@ export interface StatusEmbedInput {
   pending: Array<{ task_text: string }>;
   doneCount: number;
   concordiaPending: number;
-  /** Anatomia 共有キャッシュの当セッション取り分。未取得/イベント無しは null。 */
-  cache?: SessionCacheStats | null;
-  /** コンテキスト占有バッジ (🧠 ctx ~62% (124k))。 推定不可は空。 */
+  cache?: SessionCacheSnapshot | null;
   contextBadge?: string;
-  /** コンテキスト占有率 (0..1)。 null=推定不可。 閾値色付け用。 */
   contextPct?: number | null;
-  /** 想定コスト合算バッジ (💰 ~$1.23)。 推定不可は空。 */
   costBadge?: string;
-  /** ゴールバッジ (🎯 完成まで実装)。 常に既定が入る。 */
   goalBadge?: string;
 }
 
@@ -200,23 +127,13 @@ export interface ContextWarningInput {
   requesterUserId?: string | null;
 }
 
-/** 85% 超過時に status channel へ出す通知文。純粋関数にしてテストしやすくする。 */
 export function buildContextWarningMessage(i: ContextWarningInput): string {
   const mention = i.requesterUserId ? `<@${i.requesterUserId}> ` : "";
   const pct = Math.round(i.contextPct * 100);
-  return `${mention}⚠️ コンテキスト使用量が ${pct}% を超えました (${i.contextBadge})。\n` +
-    "必要なら `/co-compaction` で引き継ぎ型コンパクションするか、区切りのよいところでセッションを分けてください。";
+  return `${mention}笞・・繧ｳ繝ｳ繝・く繧ｹ繝井ｽｿ逕ｨ驥上′ ${pct}% 繧定ｶ・∴縺ｾ縺励◆ (${i.contextBadge})\n` +
+    "蠢・ｦ√↑繧・`/co-compaction` 縺ｧ蠑輔″邯吶℃蝙九さ繝ｳ繝代け繧ｷ繝ｧ繝ｳ縺吶ｋ縺九∝玄蛻・ｊ縺ｮ繧医＞縺ｨ縺薙ｍ縺ｧ繧ｻ繝・す繝ｧ繝ｳ繧貞・縺代※縺上□縺輔＞縲・";
 }
 
-/**
- * 状態カードの Embed を組み立てる純粋関数 (送信副作用なし → 単体テスト可能)。
- *
- * 整理方針:
- *  - 色で状態を即時把握 (🟢作業中=緑 / 🟡待機=黄 / それ以外=グレー)。
- *  - persona をタイトル、 current task を強調行に。 冗長な「Updated」行は footer の
- *    timestamp に集約し、 Repo はフルパスではなくリポ名を field に出す (フルパスは footer)。
- *  - タスクは「N ▶ / N ⏳ / N ✓ ・依頼残 N」の見出し + 開いているものだけ列挙。
- */
 export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const activity = buildActivityLabel(i.status, i.ageSec);
   const statusValue = activity ? `\`${i.status}\` ${activity}` : `\`${i.status}\``;
@@ -229,15 +146,13 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const taskValue = taskLines.length > 0 ? taskLines.join("\n").slice(0, 1000) : "_(no open tasks)_";
   const taskHeader =
     `${i.inProgress.length} ▶ / ${i.pending.length} ⏳ / ${i.doneCount} ✓` +
-    (i.concordiaPending > 0 ? ` ・ 依頼残 ${i.concordiaPending}` : "");
+    (i.concordiaPending > 0 ? ` · 依頼残 ${i.concordiaPending}` : "");
 
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
-  // ゴール (🎯 完成まで実装)。作業モード・確認頻度の表示。
   if (i.goalBadge) descParts.push(i.goalBadge);
-  // コンテキスト占有 (🧠 ctx ~62% (124k)) と想定コスト合算 (💰 ~$1.23) を 1 行に。
-  // コンテキスト閾値超えは ⚠️ を添えて圧縮の目安に。
+
   const usageBadges: string[] = [];
   if (i.contextBadge) {
     usageBadges.push(i.contextPct != null && i.contextPct >= 0.75 ? `⚠️ ${i.contextBadge}` : i.contextBadge);
@@ -261,42 +176,35 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });
 
   return embed
-    .setFooter({ text: `session ${shortId} · ${truncate(i.repoPath, 80)}` })
+    .setFooter({ text: `session ${shortId} ﾂｷ ${truncate(i.repoPath, 80)}` })
     .setTimestamp(new Date());
 }
 
-/**
- * Anatomia 共有キャッシュの当セッション取り分を 1 行に。`~` は想定 (stub-llm) basis。
- * 例: `67% hit (8/12) · 節約 ~$0.14 · コスト ~$0.07`。null は省略。
- */
-function formatCacheField(cache: SessionCacheStats | null | undefined): string | null {
+function formatCacheField(cache: SessionCacheSnapshot | null | undefined): string | null {
   if (!cache || cache.gets === 0) return null;
   const pct = `${Math.round(cache.hitRate * 100)}%`;
   const tilde = cache.basis === "assumed" ? "~" : "";
-  const usd = (v: number) => `${tilde}$${v.toFixed(v < 0.1 ? 4 : 2)}`;
+  const usd = (v: number) => `${tilde}$${v.toFixed(v < 0.05 ? 4 : 2)}`;
   return `${pct} hit (${cache.hits}/${cache.gets}) · 節約 ${usd(cache.savedUsd)} · コスト ${usd(cache.spentUsd)}`;
 }
 
-/** 状態 + 直近活動から Embed のアクセントカラーを決める。 */
 function statusColor(status: string, ageSec: number | null): number {
-  if (status !== "active") return 0x747f8d; // ended / lost → グレー
-  if (ageSec !== null && ageSec <= ACTIVE_WINDOW_SEC) return 0x3ba55d; // 作業中 → 緑
-  if (ageSec !== null && ageSec <= WAITING_WINDOW_SEC) return 0xfaa61a; // 待機 → 黄
-  return 0x747f8d; // アイドル → グレー
+  if (status !== "active") return 0x747f8d;
+  if (ageSec !== null && ageSec <= ACTIVE_WINDOW_SEC) return 0x3ba55d;
+  if (ageSec !== null && ageSec <= WAITING_WINDOW_SEC) return 0xfaa61a;
+  return 0x747f8d;
 }
 
-/** 状態カード channel に残った自分(bot)の過去メッセージを一掃する (重複カード防止)。
- *  Unknown Channel (10003) は呼び出し元で一元処理するため re-throw する。 */
 async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChannel): Promise<void> {
   try {
     const msgs = await channel.messages.fetch({ limit: 10 });
     const selfId = deps.guild.client.user?.id;
     for (const m of msgs.values()) {
       if (selfId && m.author.id !== selfId) continue;
-      try { await m.delete(); } catch { /* best-effort */ }
+      try { await m.delete(); } catch {}
     }
   } catch (e) {
-    if ((e as { code?: number }).code === 10003) throw e; // Unknown Channel → 呼び出し元へ
+    if ((e as { code?: number }).code === 10003) throw e;
     deps.log.warn(`status-card: purge failed channel=${channel.id}: ${(e as Error).message}`);
   }
 }
@@ -308,6 +216,7 @@ async function maybeNotifyHighContextUsage(
     statusChannel: TextChannel;
     contextBadge: string;
     contextPct: number | null;
+    requesterUserId?: string | null;
   },
 ): Promise<void> {
   const key = `${CONTEXT_WARNING_KEY_PREFIX}${input.sessionId}`;
@@ -316,18 +225,15 @@ async function maybeNotifyHighContextUsage(
     return;
   }
   if (deps.configRepo.get(key)) return;
-
-  const requester = lastHumanRequester(deps.sessionsRepo.recentEvents(input.sessionId, 100));
-  const requesterUserId = requester?.platform === "discord" ? requester.userId : null;
   try {
     await input.statusChannel.send({
       content: buildContextWarningMessage({
         sessionId: input.sessionId,
         contextBadge: input.contextBadge,
         contextPct: input.contextPct,
-        requesterUserId,
+        requesterUserId: input.requesterUserId ?? null,
       }),
-      allowedMentions: requesterUserId ? { users: [requesterUserId] } : { users: [] },
+      allowedMentions: input.requesterUserId ? { users: [input.requesterUserId] } : { users: [] },
     });
     deps.configRepo.set(key, String(Date.now()));
   } catch (e) {
@@ -341,21 +247,13 @@ async function ensureStatusChannel(
 ): Promise<TextChannel | null> {
   const key = `${STATUS_CHANNEL_KEY_PREFIX}${input.sessionId}`;
   const base = sessionChannelSlug(input.provider, input.roleLabel).slice(0, 80);
-  // 状態カード channel はセッションごとにユニークにする。 base 名 (例 "claude-anon")
-  // は匿名セッション間で衝突するため、 必ず session id 断片を混ぜる。 これを怠ると
-  // 複数セッションが同名 `<base>-status` を名前一致で共有し、 互いのカードを上書き
-  // し合う (= 投稿が隣にずれて見える混線。 2026-06-03 実害: 3 セッションが 1 channel)。
   const shortId = input.sessionId.replace(/^lictor-/, "").slice(0, 6);
   const name = `${base}-${shortId}-status`.slice(0, 95);
   const cached = deps.configRepo.get(key);
   if (cached) {
     const ch = deps.guild.channels.cache.get(cached);
-    // 名前が現行の期待ユニーク名と一致する時だけ再利用。 旧来の共有 channel
-    // (例 "claude-anon-status") を指している場合は不一致 → 下で自分専用を作り直す
-    // (self-heal)。 取り残された共有 channel は status sweep が orphan として掃除する。
     if (ch && ch.type === ChannelType.GuildText && ch.name === name) return ch;
   }
-
   const existing = deps.guild.channels.cache.find(
     (c) => c.type === ChannelType.GuildText && c.parentId === deps.layout.statusCategoryId && c.name === name,
   );
@@ -363,11 +261,7 @@ async function ensureStatusChannel(
     deps.configRepo.set(key, existing.id);
     return existing;
   }
-
-  // 作成は spawn 時 (allowCreate) のみ。 それ以外 (10分毎更新 / 起動時リフレッシュ) は
-  // 既存が無ければ作り直さず skip する (削除済みチャンネルの再生成・量産を防ぐ)。
   if (!input.allowCreate) return null;
-
   try {
     const created = await deps.guild.channels.create({
       name,
@@ -385,43 +279,12 @@ async function ensureStatusChannel(
   }
 }
 
-function readMeta(s: string | null | undefined): { persona_id?: string; role_label?: string } {
-  if (!s) return {};
-  try { return JSON.parse(s) as { persona_id?: string; role_label?: string }; } catch { return {}; }
-}
-
-function personaLabel(roleLabel: string | null, displayName: string | null, fallbackName: string | null): string {
-  if (roleLabel && displayName) return `${roleLabel} / ${displayName}`;
-  if (roleLabel && fallbackName) return `${roleLabel} / ${fallbackName}`;
-  return roleLabel ?? displayName ?? fallbackName ?? "-";
-}
-
-/**
- * 直近 event ts と session status から「作業中 / 待機 / アイドル」 のラベルを作る.
- *  - session.status が ended / lost なら活動判定はせず、 そのまま表示しない
- *  - active で 60s 以内に event → 🟢 作業中 (Ns ago)
- *  - active で 60s〜300s → 🟡 待機
- *  - active で 300s+ または event 無し → ⚪ アイドル
- */
-function buildActivityLabel(status: string, ageSec: number | null): string {
-  if (status !== "active") return "";
-  if (ageSec === null) return "⚪ アイドル";
-  if (ageSec <= ACTIVE_WINDOW_SEC) return `🟢 作業中 (${ageSec}s ago)`;
-  if (ageSec <= WAITING_WINDOW_SEC) return `🟡 待機 (${Math.floor(ageSec / 60)}m ago)`;
-  return `⚪ アイドル (${Math.floor(ageSec / 60)}m ago)`;
-}
-
-function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 3)}...`;
-}
-
 type StatusCardCleanupDeps = {
   guild: Guild;
   configRepo: DiscordConfigRepo;
   log: { info: (m: string) => void; warn: (m: string) => void };
 };
 
-// End-Session 等で、対応する状態カード (<base>-status チャンネル + config id) を削除する。
 export async function deleteSessionStatusCard(
   deps: StatusCardCleanupDeps,
   sessionId: string,
@@ -436,8 +299,6 @@ export async function deleteSessionStatusCard(
         await ch.delete(`session ${sessionId} status card removed`);
         deps.log.info(`status-card: deleted channel=${channelId} for ${sessionId}`);
       } catch (e) {
-        // Unknown Channel (10003) = Discord 側で既に消えている → 目的達成と同義。
-        // warn にすると looksLikeFailure でエラーチャンネルに転記されるので info に留める。
         const isGone = (e as { code?: number }).code === 10003;
         if (isGone) {
           deps.guild.channels.cache.delete(channelId);
@@ -452,10 +313,8 @@ export async function deleteSessionStatusCard(
   deps.configRepo.set(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`, "");
 }
 
-// lost / ended / abandoned / 消滅した session の状態カードを一掃する (1 時間ごとの整理)。
-// active な session のカードは残す。configRepo の session_status_channel_id:* を走査する。
 export async function reconcileLostStatusCards(
-  deps: StatusCardCleanupDeps & { sessionsRepo: SessionsRepo },
+  deps: StatusCardCleanupDeps & { readModel: ChatReadModel },
 ): Promise<{ scanned: number; removed: number }> {
   let scanned = 0;
   let removed = 0;
@@ -464,11 +323,31 @@ export async function reconcileLostStatusCards(
     if (!value) continue;
     scanned += 1;
     const sessionId = key.slice(STATUS_CHANNEL_KEY_PREFIX.length);
-    const session = deps.sessionsRepo.findSession(sessionId);
-    if (session && session.status === "active") continue; // active は残す
+    if (deps.readModel.isSessionActive(sessionId)) continue;
     await deleteSessionStatusCard(deps, sessionId);
     removed += 1;
   }
   return { scanned, removed };
 }
 
+function buildActivityLabel(status: string, ageSec: number | null): string {
+  if (status !== "active") return "";
+  if (ageSec === null) return "笞ｪ 繧｢繧､繝峨Ν";
+  if (ageSec <= ACTIVE_WINDOW_SEC) return `泙 菴懈･ｭ荳ｭ (${ageSec}s ago)`;
+  if (ageSec <= WAITING_WINDOW_SEC) return `泯 蠕・ｩ・(${Math.floor(ageSec / 60)}m ago)`;
+  return `笞ｪ 繧｢繧､繝峨Ν (${Math.floor(ageSec / 60)}m ago)`;
+}
+
+function truncate(s: string, n: number): string {
+  return s.length <= n ? s : `${s.slice(0, n - 3)}...`;
+}
+
+function roleLabelFromPersonaText(text: string): string | null {
+  if (!text || text === "-") return null;
+  return text.split(" / ")[0] || null;
+}
+
+function personaDisplayFromPersonaText(text: string): string | null {
+  if (!text || text === "-") return null;
+  return text.split(" / ")[1] || null;
+}

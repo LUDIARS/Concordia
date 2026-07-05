@@ -1,92 +1,60 @@
 import { describe, expect, it } from "vitest";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
-import type { SessionRow } from "../shared/types.js";
+import type { MonitorSnapshot } from "../platform/chat-read-model.js";
 
-function session(id: string): SessionRow {
+function channelHarness() {
+  const sent: string[] = [];
+  const config = new Map<string, string>();
+  const channel = {
+    messages: { fetch: async () => { throw new Error("not found"); } },
+    send: async (payload: { content: string }) => {
+      sent.push(payload.content);
+      return { id: "monitor-message" };
+    },
+  };
+  return { sent, config, channel };
+}
+
+function snapshot(activeCount: number, channelCostLines: string[]): MonitorSnapshot {
   return {
-    id,
-    provider: "claude-code",
-    repo_path: `E:/Document/Ars/${id}`,
-    repo_origin: null,
-    branch: "main",
-    host: "test-host",
-    started_at: 1,
-    ended_at: null,
-    status: "active",
-    last_seen_at: 1,
-    current_task: null,
-    transcript_path: null,
-    metadata: null,
-    ws_clients: 0,
+    generatedAt: 100,
+    activeCount,
+    orgCostLines: [],
+    channelCostLines,
   };
 }
 
 describe("upsertMonitorChannelMessage", () => {
-  it("keeps all active channel rows when no monitor scope filter is provided", async () => {
-    const sent: string[] = [];
-    const config = new Map<string, string>();
-    const channel = {
-      messages: { fetch: async () => { throw new Error("not found"); } },
-      send: async (payload: { content: string }) => {
-        sent.push(payload.content);
-        return { id: "monitor-message" };
-      },
-    };
-    const sessionsRepo = {
-      listSessions: () => [session("head-office-session"), session("subsidiary-session")],
-    };
-    const sessionChannelsRepo = {
-      findBySessionId: (sessionId: string) => ({
-        channel_id: sessionId === "subsidiary-session" ? "subsidiary-channel" : "head-office-channel",
-      }),
-    };
+  it("renders all channel rows from the supplied snapshot", async () => {
+    const h = channelHarness();
 
     await upsertMonitorChannelMessage(
-      channel as never,
-      sessionsRepo as never,
-      sessionChannelsRepo as never,
-      (key) => config.get(key) ?? null,
-      (key, value) => { config.set(key, value); },
+      h.channel as never,
+      snapshot(2, ["- <#head-office-channel>", "- <#subsidiary-channel>"]),
+      (key) => h.config.get(key) ?? null,
+      (key, value) => { h.config.set(key, value); },
     );
 
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("Active session count: 2");
-    expect(sent[0]).toContain("<#head-office-channel>");
-    expect(sent[0]).toContain("<#subsidiary-channel>");
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("Active session count: 2");
+    expect(h.sent[0]).toContain("<#head-office-channel>");
+    expect(h.sent[0]).toContain("<#subsidiary-channel>");
   });
 
-  it("filters active channel rows for scoped subsidiary monitors", async () => {
-    const sent: string[] = [];
-    const config = new Map<string, string>();
-    const channel = {
-      messages: { fetch: async () => { throw new Error("not found"); } },
-      send: async (payload: { content: string }) => {
-        sent.push(payload.content);
-        return { id: "monitor-message" };
-      },
-    };
-    const sessionsRepo = {
-      listSessions: () => [session("head-office-session"), session("subsidiary-session")],
-    };
-    const sessionChannelsRepo = {
-      findBySessionId: (sessionId: string) => ({
-        channel_id: sessionId === "subsidiary-session" ? "subsidiary-channel" : "head-office-channel",
-      }),
-    };
+  it("renders scoped snapshots without adding omitted channels back", async () => {
+    const h = channelHarness();
 
     await upsertMonitorChannelMessage(
-      channel as never,
-      sessionsRepo as never,
-      sessionChannelsRepo as never,
-      (key) => config.get(key) ?? null,
-      (key, value) => { config.set(key, value); },
-      { sessionFilter: (row) => row.id === "subsidiary-session" },
+      h.channel as never,
+      snapshot(1, ["- <#subsidiary-channel>"]),
+      (key) => h.config.get(key) ?? null,
+      (key, value) => { h.config.set(key, value); },
     );
 
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toContain("Active session count: 1");
-    expect(sent[0]).toContain("<#subsidiary-channel>");
-    expect(sent[0]).not.toContain("head-office-channel");
-    expect(sent[0]).not.toContain("head-off");
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain("Active session count: 1");
+    expect(h.sent[0]).toContain("<#subsidiary-channel>");
+    expect(h.sent[0]).not.toContain("head-office-channel");
+    expect(h.sent[0]).not.toContain("head-off");
   });
 });

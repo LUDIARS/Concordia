@@ -16,6 +16,7 @@ import {
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { formatAuthorName } from "./formatter.js";
+import { readJsonObject } from "../shared/json-object.js";
 
 const TRIGGERS = new Set(["control", "/control", "コントロール"]);
 
@@ -27,10 +28,8 @@ function activeSessionLines(
   if (sessions.length === 0) return ["(none)"];
   return sessions.map((s) => {
     let role = "-";
-    try {
-      const meta = s.metadata ? JSON.parse(s.metadata) as { role_label?: string } : {};
-      role = meta.role_label ?? "-";
-    } catch {}
+    const meta = readJsonObject(s.metadata);
+    role = typeof meta.role_label === "string" ? meta.role_label : "-";
     const ch = channelsRepo.findBySessionId(s.id);
     const channelLabel = ch ? `<#${ch.channel_id}>` : "(no-channel)";
     return `• ${formatAuthorName(role, null)} • ${channelLabel} (${s.status})`;

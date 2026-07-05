@@ -87,6 +87,7 @@ import { startDiscordBot } from "../discord/bot.js";
 import { initReactionWorkflow } from "../platform/reaction-workflow-loader.js";
 import type { SlackBotDeps } from "../slack/bot.js";
 import { startSlackBot } from "../slack/bot.js";
+import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
@@ -478,18 +479,24 @@ export async function startBackend(): Promise<BackendHandle> {
     enabled: () => process.env.CONCORDIA_AUTO_COMPACTION === "1",
   });
 
+  const chatReadModel = makeChatReadModel({
+    chatRepo: chat,
+    sessionsRepo: repo,
+    personasRepo: personas,
+    sessionTaskRecordsRepo: sessionTaskRecords,
+    tasksRepo: tasks,
+    prRecordsRepo: prs,
+  });
+
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に
   // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
   // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
 
   discordBotDeps = {
     db,
+    readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
-    sessionTaskRecordsRepo: sessionTaskRecords,
-    tasksRepo: tasks,
-    personasRepo: personas,
-    prRecordsRepo: prs,
     // 本社モニターの「本社/子会社別コスト」用。 子会社 Bot は manager が baseDiscordDeps を
     // そのまま使うが、 monitor 側で subsidiary モード時は無視するので渡しても害は無い。
     listSubsidiaries: () =>
@@ -511,9 +518,7 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   slackBotDeps = {
     db,
-    chatRepo: chat,
-    sessionsRepo: repo,
-    personasRepo: personas,
+    readModel: chatReadModel,
     // cost Canvas の canvas_id 永続化 (slack_config key/value)。
     slackConfigRepo: slackConfig,
     concordiaUrl: publicUrl,

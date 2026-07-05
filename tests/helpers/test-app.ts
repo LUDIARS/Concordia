@@ -56,6 +56,7 @@ export interface TestAppOptions {
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   chatRoutes?: boolean;
   costRoutes?: boolean;
+  costOverviewSource?: "live" | "samples";
 }
 
 export interface TestAppEnv {
@@ -149,6 +150,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, adminState,
+    costOverviewSource: opts.costOverviewSource,
     processManager, dispatcher,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },
     config,

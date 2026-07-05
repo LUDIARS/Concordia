@@ -50,18 +50,8 @@ import { collectBoyakiToPersona } from "../personas/boyaki.js";
 import { Dispatcher } from "../dispatcher.js";
 import { ChatResponder } from "../chat/responder.js";
 import { resolveRenderConfig } from "../chat/render-config.js";
-import { CostBudgetRepo } from "../cost/cost-budget-repo.js";
-import { CostUsageTracker } from "../cost/usage-tracker.js";
-import { cachedRecentLogTotals } from "../cost/log-totals-cache.js";
-import { cachedChannelCostReader } from "../cost/channel-cost-cache.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
-import { CostUsageSamplesRepo } from "../db/cost-usage-samples-repo.js";
-import { CostLimitSamplesRepo } from "../db/cost-limit-samples-repo.js";
-import { CostOneShotCallsRepo } from "../db/cost-one-shot-calls-repo.js";
-import { collectUsageSamples } from "../cost/usage-sampler.js";
-import { collectCostReport } from "../cost/cost-report.js";
-import { collectLimitSamples } from "../cost/limit-sampler.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
@@ -95,16 +85,16 @@ import { readWorkerLease, RELAY_CHECK_MS } from "../discord/relay-owner.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled } from "./chat.js";
-import { costEmbeddedEnabled } from "./cost.js";
+import {
+  COST_WORKER_CHECK_MS,
+  costEmbeddedEnabled,
+  createCostRuntime,
+  readCostMode,
+  readCostWorkerLease,
+} from "./cost.js";
 
 const log = createChildLogger("server");
 
-/** コストトラッカーのサンプリング間隔 (ms)。 2 分毎にログ走査して当日消費を更新。 */
-const COST_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
-/** 使用量時系列サンプルの記録間隔 (ms)。 10 分毎 (WebUI /cost グラフ用)。 */
-const USAGE_SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
-/** 使用量サンプルの保持期間 (秒)。 これより古い行は掃除する (60 日)。 */
-const USAGE_SAMPLE_RETENTION_SEC = 60 * 24 * 60 * 60;
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
 /** relay 所有権 lease の確認用 (init で設定)。 worker が生きていれば embedded は退く。 */
@@ -309,73 +299,29 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
   // Concordia 発の命令 (spawn / dispatcher / rule engine / proposer) を止める。
-  const costBudgetRepo = new CostBudgetRepo(db);
-  const costTracker = new CostUsageTracker({
-    repo: costBudgetRepo,
-    getBudget: () => adminState.getDailyTokenBudget(),
-    // 2 分ごとの全 transcript フル再読みを増分読み (mtime/size 不変なら再読みゼロ) に
-    // 置き換える。 旧既定 (enumerateRecentLogTotals) は毎 tick 数十 MB の同期読みで
-    // イベントループを塞いでいた。
-    enumerate: cachedRecentLogTotals,
+  const costRuntime = createCostRuntime({
+    db,
+    sessionsRepo: repo,
+    getDailyTokenBudget: () => adminState.getDailyTokenBudget(),
+    log,
   });
-  const costSamplingEnabled = costEmbeddedEnabled();
-  const isCostBlocked = () => (costSamplingEnabled ? costTracker.isBlocked() : false);
-  // 起動直後に baseline を作る (既存ログの累積を当日へ誤計上しないため即サンプル)。
-  if (costSamplingEnabled) {
-    try {
-      costTracker.sample();
-    } catch (e) {
-      log.warn(`cost tracker initial sample failed: ${(e as Error).message}`);
-    }
-  }
-  const costSampleTimer = costSamplingEnabled
-    ? setInterval(() => {
-        try {
-          costTracker.sample();
-        } catch (e) {
-          log.warn(`cost tracker sample failed: ${(e as Error).message}`);
-        }
-      }, COST_SAMPLE_INTERVAL_MS)
-    : null;
-  costSampleTimer?.unref?.();
+  const costMode = readCostMode();
+  const usageSamplesRepo = costRuntime.usageSamplesRepo;
+  const costLimitSamplesRepo = costRuntime.limitSamplesRepo;
+  const costOneShotsRepo = costRuntime.oneShotsRepo;
+  const isCostBlocked = () => (costMode === "off" ? false : costRuntime.tracker.isBlocked());
 
-  // 10 分毎に全 active セッションの「現在のコンテキスト占有」+「累積消費トークン」を
-  // subsidiary/provider タグ付きで時系列テーブルへ記録する。 WebUI /cost が折れ線グラフに繋ぐ。
-  // (予算トラッカーの 2 分サンプルとは別系統 — あちらは合計の日次バケットのみ。)
-  const usageSamplesRepo = new CostUsageSamplesRepo(db);
-  const costLimitSamplesRepo = new CostLimitSamplesRepo(db);
-  const costOneShotsRepo = new CostOneShotCallsRepo(db);
-  const sampleUsage = (): void => {
-    try {
-      const active = repo.listSessions({ status: "active" });
-      const nowSec = Math.floor(Date.now() / 1000);
-      // overview / モニターと同じ memo reader を共有する (無キャッシュ既定 reader は
-      // codex 1 セッションあたりツリー全走査 + フル読みを 2 回ずつ行っていた)。
-      usageSamplesRepo.insertMany(collectUsageSamples(active, nowSec, cachedChannelCostReader));
-      usageSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
-    } catch (e) {
-      log.warn(`usage sampler failed: ${(e as Error).message}`);
+  if (costEmbeddedEnabled()) {
+    if (readCostWorkerLease(discordConfig)) {
+      log.info("cost embedded sampler skipped: live cost-worker lease found");
+    } else {
+      costRuntime.start();
     }
-  };
-  if (costSamplingEnabled) sampleUsage(); // 起動直後に 1 点打つ
-  const sampleCostLimits = async (): Promise<void> => {
-    try {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const report = await collectCostReport(repo, { oauthLog: log });
-      const previous = costLimitSamplesRepo.listLatestByProvider();
-      costLimitSamplesRepo.insertMany(collectLimitSamples(report, nowSec, previous));
-      costLimitSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
-    } catch (e) {
-      log.warn(`cost limit sampler failed: ${(e as Error).message}`);
-    }
-  };
-  if (costSamplingEnabled) void sampleCostLimits();
-  const usageSampleTimer = costSamplingEnabled ? setInterval(sampleUsage, USAGE_SAMPLE_INTERVAL_MS) : null;
-  usageSampleTimer?.unref?.();
-  const costLimitSampleTimer = costSamplingEnabled
-    ? setInterval(() => { void sampleCostLimits(); }, USAGE_SAMPLE_INTERVAL_MS)
-    : null;
-  costLimitSampleTimer?.unref?.();
+  } else if (costMode === "worker") {
+    log.info("cost embedded sampler disabled; run `npm run cost:worker` as a separate process");
+  } else {
+    log.info("cost sampling disabled by CONCORDIA_COST_MODE=off");
+  }
 
   seedDefaultRules(rules);
   seedPersonas(personas);
@@ -586,7 +532,8 @@ export async function startBackend(): Promise<BackendHandle> {
     subsidiaryManager,
     subsidiaryBudget,
     adminState,
-    costStatus: () => costTracker.status(),
+    costStatus: () => costRuntime.tracker.status(),
+    costOverviewSource: costMode === "worker" ? "samples" : "live",
     processManager,
     dailyScheduler,
     dispatcher,
@@ -765,6 +712,13 @@ export async function startBackend(): Promise<BackendHandle> {
   }, RELAY_CHECK_MS);
   relayOwnerWatch.unref?.();
 
+  const costWorkerWatch = setInterval(() => {
+    if (!costRuntime.isRunning() || !readCostWorkerLease(discordConfig)) return;
+    log.warn("live cost-worker lease detected; stopping embedded cost sampler");
+    costRuntime.stop();
+  }, COST_WORKER_CHECK_MS);
+  costWorkerWatch.unref?.();
+
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
   {
@@ -799,9 +753,8 @@ export async function startBackend(): Promise<BackendHandle> {
       unsubTestingRelease();
       unsubSessionLostDispatch();
       clearInterval(relayOwnerWatch);
-      if (costSampleTimer) clearInterval(costSampleTimer);
-      if (usageSampleTimer) clearInterval(usageSampleTimer);
-      if (costLimitSampleTimer) clearInterval(costLimitSampleTimer);
+      clearInterval(costWorkerWatch);
+      costRuntime.stop();
       unsubLog();
       await stopDiscordBotManaged();
       await stopSlackBotManaged();

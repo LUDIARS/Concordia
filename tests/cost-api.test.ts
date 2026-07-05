@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
 import { CostUsageSamplesRepo } from "../src/db/cost-usage-samples-repo.js";
 import { CostLimitSamplesRepo } from "../src/db/cost-limit-samples-repo.js";
@@ -7,6 +7,9 @@ describe("/v1/cost", () => {
   let env: TestAppEnv;
   beforeEach(() => {
     env = makeTestApp();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("GET /overview は本社/子会社ウィンドウ + チャンネル別を返す", async () => {
@@ -22,6 +25,37 @@ describe("/v1/cost", () => {
     expect(Array.isArray(body.channels)).toBe(true);
     // active セッション s1 が channel 行に乗る (ログ未発見なので context=null/cost=0)。
     expect(body.channels.some((c: any) => c.sessionId === "s1")).toBe(true);
+  });
+
+  it("GET /overview can read worker samples instead of live JSONL readers", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00+09:00"));
+    env = makeTestApp({ costOverviewSource: "samples" });
+    env.repo.insertSession({
+      id: "s1", provider: "claude-code", repo_path: "/x", repo_origin: null, branch: null,
+      host: "h", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null,
+    });
+    env.discordChannels.upsert({ session_id: "s1", channel_id: "ch-1", status: "active" });
+    const samples = new CostUsageSamplesRepo(env.db);
+    const nowSec = Math.floor(Date.now() / 1000);
+    samples.insertMany([
+      { ts: nowSec - 600, session_id: "s1", subsidiary_id: null, provider: "claude-code", context_tokens: 1000, cost_tokens: 100 },
+      { ts: nowSec, session_id: "s1", subsidiary_id: null, provider: "claude-code", context_tokens: 1200, cost_tokens: 800 },
+    ]);
+
+    const res = await env.app.request("/v1/cost/overview");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as any;
+    expect(body.windows.daily.totalTokens).toBe(700);
+    expect(body.windows.daily.headOffice.tokens).toBe(700);
+    expect(body.channels).toEqual([
+      expect.objectContaining({
+        sessionId: "s1",
+        channelId: "ch-1",
+        contextTokens: 1200,
+        costTokens: 800,
+      }),
+    ]);
   });
 
   it("GET /timeseries は記録済みサンプルをバケット集計して返す", async () => {

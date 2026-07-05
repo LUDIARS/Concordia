@@ -54,6 +54,8 @@ export interface TestAppOptions {
   /** Dispatcher の rng (default: () => 1)。 */
   rng?: () => number;
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+  chatRoutes?: boolean;
+  costRoutes?: boolean;
 }
 
 export interface TestAppEnv {
@@ -154,6 +156,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sweeperRunOnce: () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
     publicUrl: "http://127.0.0.1:11111",
+    chatRoutes: opts.chatRoutes === false ? null : undefined,
+    costRoutes: opts.costRoutes === false ? null : undefined,
   };
 
   return {

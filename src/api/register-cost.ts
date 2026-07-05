@@ -19,6 +19,7 @@ export interface CostDeps {
   subsidiary?: SubsidiaryRepo;
   adminState: AdminState;
   costStatus?: () => CostBudgetStatus;
+  costOverviewSource?: "live" | "samples";
 }
 
 export function registerCostRoutes(app: Hono, deps: CostDeps): void {
@@ -31,6 +32,7 @@ export function registerCostRoutes(app: Hono, deps: CostDeps): void {
       samples: deps.costSamples,
       limitSamples: deps.costLimitSamples,
       oneShots: deps.costOneShots,
+      overviewSource: deps.costOverviewSource ?? "live",
       listSubsidiaries: () =>
         deps.subsidiary
           ? deps.subsidiary

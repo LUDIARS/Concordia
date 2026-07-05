@@ -28,6 +28,11 @@ auto_start を **off** にしてある (起動経路は従来どおり手動 `np
       "command": "npm run dev",
       "cwd": "web",
       "auto_start": false
+    },
+    {
+      "name": "cost-worker",
+      "command": "npm run cost:worker",
+      "auto_start": false
     }
   ]
 }

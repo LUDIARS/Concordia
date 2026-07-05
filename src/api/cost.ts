@@ -22,6 +22,7 @@ import { collectChannelCostRows } from "../cost/channel-cost.js";
 import type { CostReport } from "../cost/cost-report.js";
 import { aggregateUsageTimeseries } from "../cost/usage-timeseries.js";
 import { aggregateLimitTimeseries, collectLimitSamples } from "../cost/limit-sampler.js";
+import { collectSampledCostOverview } from "../cost/sample-overview.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("cost-api");
@@ -32,6 +33,7 @@ export interface CostApiDeps {
   samples: CostUsageSamplesRepo;
   limitSamples: CostLimitSamplesRepo;
   oneShots: CostOneShotCallsRepo;
+  overviewSource?: "live" | "samples";
   /** 本社モニターと同じ子会社一覧 (本社=未タグは内部で算出)。 */
   listSubsidiaries: () => OrgCostSubsidiary[];
 }
@@ -49,6 +51,22 @@ export function costRouter(deps: CostApiDeps): Hono {
     };
     const subs = deps.listSubsidiaries();
     let t = mark("listSubsidiariesMs", started);
+    if (deps.overviewSource === "samples") {
+      const body = collectSampledCostOverview({
+        sessions: deps.sessions,
+        samples: deps.samples,
+        subsidiaries: subs,
+        resolveSessionChannelId: deps.resolveSessionChannelId,
+      });
+      mark("collectSampledCostOverviewMs", t);
+      logTiming("/overview", started, {
+        source: "samples",
+        channels: body.channels.length,
+        subsidiaries: subs.length,
+        ...marks,
+      });
+      return c.json(body);
+    }
     let orgProfile: unknown = null;
     // memo 化 reader: 変化のないログ (終了済みセッション等) の再読みとパス再解決を
     // 省き、 同期 I/O でイベントループを長時間塞ぐのを防ぐ (実測 26s → ms オーダー)。

@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
+import { findConflictPeers } from "../../control/conflict-scope.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -27,6 +28,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         repo_path: input.repo_path,
         repo_origin: input.repo_origin ?? null,
         branch: input.branch ?? undefined,
+        target_project: input.target_project ?? undefined,
       });
     } else {
       // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
@@ -59,6 +61,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         last_seen_at: now,
         transcript_path: input.transcript_path ?? null,
         metadata: Object.keys(meta).length ? JSON.stringify(meta) : null,
+        target_project: input.target_project ?? null,
       });
       deps.repo.appendEvent({
         session_id: input.id,
@@ -77,7 +80,13 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     }
 
     const session = deps.repo.findSession(input.id)!;
-    const peers = deps.repo.findActivePeers(input.repo_path, input.id);
+    // 衝突 peer は repo_path 直束ねではなく target_project 宣言 + root 除外を考慮した
+    // conflict-scope で判定する (umbrella ルート cwd の相互ノイズを排除)。
+    const peers = findConflictPeers(
+      session,
+      deps.repo.listSessions({ status: "active" }),
+      deps.resolveWorkspaceRoots?.() ?? [],
+    );
     const lostCandidates = deps.repo.findLostCandidates(input.repo_path, input.host);
     const advisory = buildAdvisory(session, peers);
 

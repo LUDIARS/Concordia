@@ -56,6 +56,8 @@ export const StartSchema = z.object({
   host: z.string().min(1),
   transcript_path: z.string().nullable().optional(),
   metadata: z.record(z.unknown()).optional(),
+  /** 作業衝突監視で使う「実際に扱う個別プロジェクト」の宣言 (conflict-scope.ts)。 */
+  target_project: z.string().nullable().optional(),
 });
 
 export const PatchSchema = z.object({
@@ -63,6 +65,12 @@ export const PatchSchema = z.object({
   branch: z.string().optional(),
   repo_path: z.string().min(1).optional(),
   repo_origin: z.string().nullable().optional(),
+  /**
+   * 作業衝突監視のスコープ宣言。 cwd がワークスペースルート (umbrella) でも、 ここで
+   * 個別プロジェクト (repo path 推奨) を宣言すればそのプロジェクト単位で衝突判定する。
+   * null で宣言解除 (repo_path 判定に戻す)。 (conflict-scope.ts)
+   */
+  target_project: z.string().nullable().optional(),
   /**
    * Shallow merge into session.metadata. Use `null` value to delete a key.
    * Lictor uses this post-spawn to publish `lictor_port` once the sidecar

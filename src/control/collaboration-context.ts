@@ -11,6 +11,7 @@ import { basename } from "node:path";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { readSessionLogs, resolveSessionLogsDir } from "../session-logs/reader.js";
+import { findConflictPeers } from "./conflict-scope.js";
 
 export interface CollaborationContextPacket {
   session_id: string;
@@ -84,7 +85,11 @@ export function buildCollaborationContextPacket(
   deps: BuildCollaborationContextDeps,
 ): CollaborationContextPacket {
   const { repo, session } = deps;
-  const peers = repo.findActivePeers(session.repo_path, session.id);
+  const peers = findConflictPeers(
+    session,
+    repo.listSessions({ status: "active" }),
+    deps.workspaceRoots ?? [],
+  );
   const conflicts = peers.filter((p) => (p.branch ?? null) === (session.branch ?? null));
   const project = basename(session.repo_path) || session.repo_origin?.split(/[\\/]/).pop() || "unknown";
   const branches = branchSummary(peers);

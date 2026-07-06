@@ -26,7 +26,8 @@ const STATEMENTS = [
     current_task    TEXT,
     transcript_path TEXT,
     metadata        TEXT,
-    ws_clients      INTEGER NOT NULL DEFAULT 0
+    ws_clients      INTEGER NOT NULL DEFAULT 0,
+    target_project  TEXT
   )`,
 
   `CREATE INDEX IF NOT EXISTS idx_sessions_repo_path_active ON sessions(repo_path, status)`,
@@ -1030,6 +1031,9 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "subsidiary_delegations", column: "updated_at", ddl: `ALTER TABLE subsidiary_delegations ADD COLUMN updated_at INTEGER NOT NULL DEFAULT 0` },
   // ハーネス監査に操作対象リポ root を残す (max-repos の editedRepos をサーバ側で蓄積する状態源)。
   { table: "harness_session_audit", column: "repo", ddl: `ALTER TABLE harness_session_audit ADD COLUMN repo TEXT NOT NULL DEFAULT ''` },
+  // 作業衝突スコープ: セッションが「実際に扱う個別プロジェクト」を宣言する列。
+  // 未宣言なら repo_path、 repo_path がワークスペースルートなら衝突監視対象外 (conflict-scope.ts)。
+  { table: "sessions", column: "target_project", ddl: `ALTER TABLE sessions ADD COLUMN target_project TEXT` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

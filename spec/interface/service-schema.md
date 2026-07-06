@@ -56,7 +56,8 @@ CREATE TABLE sessions (
   last_seen_at    INTEGER NOT NULL,             -- 最終 heartbeat (event 受信)
   current_task    TEXT,                         -- TodoWrite active item の自由文 / JSON
   transcript_path TEXT,                         -- ~/.claude/projects/.../<id>.jsonl
-  metadata        TEXT                          -- JSON (model, version, etc.)
+  metadata        TEXT,                         -- JSON (model, version, etc.)
+  target_project  TEXT                          -- 衝突監視スコープ宣言 (feature/work-conflict-scope.md)
 );
 CREATE INDEX idx_sessions_repo_active ON sessions(repo_origin, status);
 CREATE INDEX idx_sessions_status      ON sessions(status, last_seen_at);
@@ -112,7 +113,7 @@ base: `http://127.0.0.1:11111`
 | `POST` | `/v1/sessions` | 登録 (start hook 相当)。 同 repo の peers + lost candidates を返す |
 | `GET`  | `/v1/sessions` | 一覧。 query: `?repo_origin=&host=&status=&provider=` |
 | `GET`  | `/v1/sessions/:id` | 詳細 (recent events 含む) |
-| `PATCH`| `/v1/sessions/:id` | `current_task`, `branch` を update |
+| `PATCH`| `/v1/sessions/:id` | `current_task`, `branch`, `target_project` (衝突監視スコープ宣言、null で解除) を update |
 | `POST` | `/v1/sessions/:id/heartbeat` | last_seen_at を更新するだけ |
 | `POST` | `/v1/sessions/:id/event` | event を append |
 | `POST` | `/v1/sessions/:id/resume` | lost session を引き継ぐ |
@@ -161,7 +162,7 @@ base: `http://127.0.0.1:11111`
   ],
   "advisory": {                        // AI に注入する追加コンテキスト
     "active_peer_count": 1,
-    "branch_conflict": true,           // 同 branch で他 session 動作中
+    "branch_conflict": true,           // 同 branch で他 session 動作中 (衝突スコープは target_project 宣言 + root 除外を考慮: feature/work-conflict-scope.md)
     "recommend_worktree": true,        // F6: worktree 自動化推奨
     "worktree_command": "git worktree add ../Foo-sess-2 main"
   }

@@ -27,6 +27,12 @@ export interface SessionRow {
   metadata: string | null; // JSON
   /** 永続 WS client の接続数. > 0 なら sweeper の lost 判定から除外. */
   ws_clients: number;
+  /**
+   * 作業衝突監視で使う「このセッションが実際に扱う個別プロジェクト」の宣言 (repo path 推奨、
+   * 安定識別子でも可)。 cwd がワークスペースルート (umbrella) でも、 宣言があればその
+   * 個別プロジェクト単位で衝突判定する。 null なら repo_path に委ねる (conflict-scope.ts)。
+   */
+  target_project: string | null;
 }
 
 export interface SessionEventRow {

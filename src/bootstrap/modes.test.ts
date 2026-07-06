@@ -10,7 +10,8 @@ describe("bootstrap modes", () => {
 
   it("recognizes off and worker modes", () => {
     expect(readChatMode({ CONCORDIA_CHAT_MODE: "off" } as NodeJS.ProcessEnv)).toBe("off");
-    expect(readChatMode({ CONCORDIA_CHAT_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("worker");
+    // chat の worker 分離は撤去済み: "worker" は embedded に丸められる。
+    expect(readChatMode({ CONCORDIA_CHAT_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("embedded");
     expect(readCostMode({ CONCORDIA_COST_MODE: "off" } as NodeJS.ProcessEnv)).toBe("off");
     expect(readCostMode({ CONCORDIA_COST_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("worker");
   });

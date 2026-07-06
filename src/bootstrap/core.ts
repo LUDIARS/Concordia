@@ -81,7 +81,6 @@ import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
-import { readWorkerLease, RELAY_CHECK_MS } from "../discord/relay-owner.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
@@ -97,8 +96,6 @@ const log = createChildLogger("server");
 
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
-/** relay 所有権 lease の確認用 (init で設定)。 worker が生きていれば embedded は退く。 */
-let discordRelayConfigRepo: import("../db/discord-repo.js").DiscordConfigRepo | null = null;
 let slackBotHandle: ChatPlatform | null = null;
 let slackBotDeps: SlackBotDeps | null = null;
 
@@ -108,9 +105,6 @@ function discordEmbeddedEnabled(): boolean {
 
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!chatEmbeddedEnabled()) return { ok: true, status: "disabled" };
-  if (discordRelayConfigRepo && readWorkerLease(discordRelayConfigRepo)) {
-    return { ok: true, status: "disabled" };
-  }
   if (slackBotHandle) return { ok: true, status: "already_running" };
   if (!slackBotDeps) return { ok: false, status: "error", error: "slack deps not initialized" };
   try {
@@ -145,12 +139,6 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!discordEmbeddedEnabled()) return { ok: true, status: "disabled" };
-  // env 設定漏れで embedded と chat-worker が同一 token で二重起動すると
-  // interaction 二重 dispatch / spawn 二重実行になる。 live な worker lease が
-  // あれば embedded は起動しない (worker 優先)。
-  if (discordRelayConfigRepo && readWorkerLease(discordRelayConfigRepo)) {
-    return { ok: true, status: "disabled" };
-  }
   if (discordBotHandle) return { ok: true, status: "already_running" };
   if (!discordBotDeps) return { ok: false, status: "error", error: "discord deps not initialized" };
   try {
@@ -249,7 +237,6 @@ export async function startBackend(): Promise<BackendHandle> {
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
-  discordRelayConfigRepo = discordConfig;
   // Slack 連携をサービス内 (DB) で設定するための repo + token 暗号化用 secret-box。
   // 鍵は DB の外 (env CONCORDIA_SECRET_KEY、 無ければ cwd の concordia.secret.key) に置く。
   const slackConfig = makeSlackConfigRepo(db);
@@ -696,30 +683,12 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/discord-ui.md
   {
     if (discordEmbeddedEnabled()) {
-      if (readWorkerLease(discordConfig)) {
-        log.info("Discord embedded bot skipped: live chat-worker lease found (worker owns relay)");
-      } else {
-        const started = await startDiscordBotManaged();
-        if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
-      }
+      const started = await startDiscordBotManaged();
+      if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
     } else {
-      log.info("Discord embedded bot disabled; run `npm run chat:worker` as a separate relay process");
+      log.info("Discord embedded bot disabled (CONCORDIA_CHAT_MODE=off / CONCORDIA_DISCORD_EMBEDDED=0)");
     }
   }
-  // embedded 稼働中に worker が後から起動した場合も二重化を解消する (worker 優先)。
-  const relayOwnerWatch = setInterval(() => {
-    if (!readWorkerLease(discordConfig)) return;
-    if (discordBotHandle) {
-      log.warn("live chat-worker lease detected; stopping embedded Discord bot to avoid double relay");
-      void stopDiscordBotManaged();
-      void subsidiaryManager.stopAll().catch(() => { /* best-effort: worker 側が引き継ぐ */ });
-    }
-    if (slackBotHandle) {
-      log.warn("live chat-worker lease detected; stopping embedded Slack bot to avoid double relay");
-      void stopSlackBotManaged();
-    }
-  }, RELAY_CHECK_MS);
-  relayOwnerWatch.unref?.();
 
   const costWorkerWatch = setInterval(() => {
     if (!costRuntime.isRunning() || !readCostWorkerLease(discordConfig)) return;
@@ -731,17 +700,13 @@ export async function startBackend(): Promise<BackendHandle> {
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
   {
-    if (chatEmbeddedEnabled() && readWorkerLease(discordConfig)) {
-      log.info("Slack embedded bot skipped: live chat-worker lease found (worker owns relay)");
-    } else {
-      const started = await startSlackBotManaged();
-      if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
-    }
+    const started = await startSlackBotManaged();
+    if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
   }
 
   // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
-  if (discordEmbeddedEnabled() && !readWorkerLease(discordConfig)) {
+  if (discordEmbeddedEnabled()) {
     await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
   }
 
@@ -765,7 +730,6 @@ export async function startBackend(): Promise<BackendHandle> {
       branchWatch.stop();
       unsubTestingRelease();
       unsubSessionLostDispatch();
-      clearInterval(relayOwnerWatch);
       clearInterval(costWorkerWatch);
       costRuntime.stop();
       unsubLog();

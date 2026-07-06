@@ -107,7 +107,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     }
 
     // persona を排他 assign (Concordia 経由で起動された session のみ. ここを叩いた時点で確定).
-    const assignment = deps.personas.assign(input.id);
+    const assignment = (deps.resolvePersonaInjectEnabled?.() ?? false)
+      ? deps.personas.assign(input.id)
+      : null;
     if (assignment && !assignment.reused) {
       // 新規 assign なら role_label を session metadata に反映 (UI / dispatcher 共有用).
       const meta = parseMeta(session.metadata);
@@ -128,6 +130,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       repo: deps.repo,
       session: freshSession,
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+      ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
     });
 
     // /co-relictor 再起動なら、引き継ぎ資料だけを inject して文脈を復元する。
@@ -186,6 +189,7 @@ app.get("/:id/context", (c) => {
         repo: deps.repo,
         session: s,
         workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+        ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
       }),
     });
   });

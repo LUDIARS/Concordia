@@ -129,6 +129,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       channelDirectory: deps.channelDirectory,
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      resolvePersonaInjectEnabled: () => deps.adminState.getPersonaInjectEnabled(),
+      resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,
     }),
   );

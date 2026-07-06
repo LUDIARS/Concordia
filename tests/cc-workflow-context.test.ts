@@ -2,8 +2,28 @@ import { describe, expect, it } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
 
 describe("Cc workflow context injection", () => {
+  it("defaults cc_workflow to null", async () => {
+    const env = makeTestApp();
+    const response = await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "ccwf-off",
+        provider: "codex-cli",
+        repo_path: "/work/Concordia",
+        branch: "main",
+        host: "host",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as any;
+    expect(body.context_packet.cc_workflow).toBeNull();
+  });
+
   it("returns startup workflow instructions with task API and PR completion policy", async () => {
     const env = makeTestApp();
+    env.adminState.setCcWorkflowEnabled(true);
     const response = await env.app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -30,6 +50,7 @@ describe("Cc workflow context injection", () => {
 
   it("also exposes the same workflow through GET /context", async () => {
     const env = makeTestApp();
+    env.adminState.setCcWorkflowEnabled(true);
     await env.app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },

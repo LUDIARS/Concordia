@@ -70,7 +70,7 @@ export interface CollaborationContextPacket {
     rules: string[];
     interrupt_policy: string;
     completion_policy: string[];
-  };
+  } | null;
   suggested_next_actions: string[];
 }
 
@@ -79,6 +79,7 @@ export interface BuildCollaborationContextDeps {
   session: SessionRow;
   workspaceRoots?: string[];
   maxLogs?: number;
+  ccWorkflowEnabled?: boolean;
 }
 
 export function buildCollaborationContextPacket(
@@ -133,7 +134,7 @@ export function buildCollaborationContextPacket(
         "delegate or split to a worktree when the same branch is crowded",
       ],
     },
-    cc_workflow: buildCcWorkflow(session.id),
+    cc_workflow: deps.ccWorkflowEnabled ? buildCcWorkflow(session.id) : null,
     suggested_next_actions: suggestedNextActions(conflicts.length > 0),
   };
 }

@@ -179,6 +179,38 @@ describe("admin API", () => {
     expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
   });
 
+  it("PUT /v1/admin/persona-inject toggles + GET reflects new value", async () => {
+    const initial = await env.app.request("/v1/admin/persona-inject");
+    expect((await initial.json() as { enabled: boolean }).enabled).toBe(false);
+
+    const put = await env.app.request("/v1/admin/persona-inject", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
+
+    const get = await env.app.request("/v1/admin/persona-inject");
+    expect((await get.json() as { enabled: boolean }).enabled).toBe(true);
+  });
+
+  it("PUT /v1/admin/cc-workflow toggles + GET reflects new value", async () => {
+    const initial = await env.app.request("/v1/admin/cc-workflow");
+    expect((await initial.json() as { enabled: boolean }).enabled).toBe(false);
+
+    const put = await env.app.request("/v1/admin/cc-workflow", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(put.status).toBe(200);
+    expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
+
+    const get = await env.app.request("/v1/admin/cc-workflow");
+    expect((await get.json() as { enabled: boolean }).enabled).toBe(true);
+  });
+
   it("GET /v1/admin/spawn-defaults reports the configured default_cwd", async () => {
     const r = await env.app.request("/v1/admin/spawn-defaults");
     expect(r.status).toBe(200);

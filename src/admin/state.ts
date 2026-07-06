@@ -30,6 +30,8 @@ const KEY_WORKSPACE_ROOT = "admin.workspace_root";
 const KEY_WORKSPACE_ROOTS = "admin.workspace_roots";
 const KEY_GITHUB_ORG = "admin.github_org";
 const KEY_REACTION_WORKFLOW = "admin.reaction_workflow_enabled";
+const KEY_PERSONA_INJECT = "admin.persona_inject_enabled";
+const KEY_CC_WORKFLOW = "admin.cc_workflow_enabled";
 const KEY_REACTION_MAPPINGS = "admin.reaction_emoji_overrides";
 const KEY_LICTOR_MODE = "admin.lictor_mode";
 const KEY_LICTOR_DEV_PATH = "admin.lictor_dev_path";
@@ -51,6 +53,8 @@ export interface AdminStateDefaults {
   githubOrg?: string;
   /** 既定の reaction-workflow ON/OFF (env CONCORDIA_REACTION_WORKFLOW 由来)。 */
   reactionWorkflowEnabled?: boolean;
+  personaInjectEnabled?: boolean;
+  ccWorkflowEnabled?: boolean;
   /** Lictor dev モードのローカルリポ既定パス (例 <workspaceRoot>/Lictor)。 */
   lictorDevPath?: string;
 }
@@ -128,6 +132,22 @@ export class AdminState {
 
   setReactionWorkflowEnabled(value: boolean): void {
     this.setBool(KEY_REACTION_WORKFLOW, value);
+  }
+
+  getPersonaInjectEnabled(): boolean {
+    return this.getBool(KEY_PERSONA_INJECT, this.defaults.personaInjectEnabled ?? false);
+  }
+
+  setPersonaInjectEnabled(value: boolean): void {
+    this.setBool(KEY_PERSONA_INJECT, value);
+  }
+
+  getCcWorkflowEnabled(): boolean {
+    return this.getBool(KEY_CC_WORKFLOW, this.defaults.ccWorkflowEnabled ?? false);
+  }
+
+  setCcWorkflowEnabled(value: boolean): void {
+    this.setBool(KEY_CC_WORKFLOW, value);
   }
 
   // ── リアクション 絵文字→アクション 上書き写像 ─────────────────────────
@@ -227,6 +247,8 @@ export class AdminState {
     workspace_roots: string[];
     github_org: string;
     reaction_workflow_enabled: boolean;
+    persona_inject_enabled: boolean;
+    cc_workflow_enabled: boolean;
     lictor_mode: LictorMode;
     lictor_dev_path: string;
     lictor_prod_exe: string;
@@ -239,6 +261,8 @@ export class AdminState {
       workspace_roots: this.getWorkspaceRoots(),
       github_org: this.getGithubOrg(),
       reaction_workflow_enabled: this.getReactionWorkflowEnabled(),
+      persona_inject_enabled: this.getPersonaInjectEnabled(),
+      cc_workflow_enabled: this.getCcWorkflowEnabled(),
       lictor_mode: this.getLictorMode(),
       lictor_dev_path: this.getLictorDevPath(),
       lictor_prod_exe: this.getLictorProdExe(),

@@ -72,6 +72,30 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     return c.json({ enabled: deps.adminState.getReactionWorkflowEnabled() });
   });
 
+  app.get("/v1/admin/persona-inject", (c) => {
+    return c.json({ enabled: deps.adminState.getPersonaInjectEnabled() });
+  });
+  app.put("/v1/admin/persona-inject", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setPersonaInjectEnabled(body.enabled);
+    return c.json({ enabled: deps.adminState.getPersonaInjectEnabled() });
+  });
+
+  app.get("/v1/admin/cc-workflow", (c) => {
+    return c.json({ enabled: deps.adminState.getCcWorkflowEnabled() });
+  });
+  app.put("/v1/admin/cc-workflow", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setCcWorkflowEnabled(body.enabled);
+    return c.json({ enabled: deps.adminState.getCcWorkflowEnabled() });
+  });
+
   app.get("/v1/admin/reaction-mappings", (c) => {
     const rwf = getRwf();
     const defaults = rwf.defaultReactionEmojiMap();

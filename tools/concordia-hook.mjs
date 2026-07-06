@@ -222,6 +222,7 @@ async function sessionEnd({ sessionId }) {
 
 function formatCcWorkflow(packet) {
   const workflow = packet.cc_workflow;
+  if (!workflow) return "";
   const lines = [
     "",
     "[concordia/cc-workflow]",

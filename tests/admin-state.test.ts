@@ -42,6 +42,8 @@ describe("AdminState", () => {
       workspace_roots: [],
       github_org: "",
       reaction_workflow_enabled: false,
+      persona_inject_enabled: false,
+      cc_workflow_enabled: false,
       lictor_mode: "auto",
       lictor_dev_path: "",
       lictor_prod_exe: "",
@@ -92,6 +94,22 @@ describe("AdminState", () => {
     expect(withDefault.getReactionWorkflowEnabled()).toBe(true);
     withDefault.setReactionWorkflowEnabled(false);
     expect(new AdminState(env.db, { reactionWorkflowEnabled: true }).getReactionWorkflowEnabled()).toBe(false);
+  });
+
+  it("persona_inject_enabled defaults from constructor + round-trips", () => {
+    expect(env.state.getPersonaInjectEnabled()).toBe(false);
+    const withDefault = new AdminState(env.db, { personaInjectEnabled: true });
+    expect(withDefault.getPersonaInjectEnabled()).toBe(true);
+    withDefault.setPersonaInjectEnabled(false);
+    expect(new AdminState(env.db, { personaInjectEnabled: true }).getPersonaInjectEnabled()).toBe(false);
+  });
+
+  it("cc_workflow_enabled defaults from constructor + round-trips", () => {
+    expect(env.state.getCcWorkflowEnabled()).toBe(false);
+    const withDefault = new AdminState(env.db, { ccWorkflowEnabled: true });
+    expect(withDefault.getCcWorkflowEnabled()).toBe(true);
+    withDefault.setCcWorkflowEnabled(false);
+    expect(new AdminState(env.db, { ccWorkflowEnabled: true }).getCcWorkflowEnabled()).toBe(false);
   });
 
   it("reaction emoji overrides upsert / delete / persist", () => {

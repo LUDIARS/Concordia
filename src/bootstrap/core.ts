@@ -187,6 +187,14 @@ function loadDotEnv(file: string): void {
   }
 }
 
+export function readPersonaInjectEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CONCORDIA_PERSONA_INJECT === "1";
+}
+
+export function readCcWorkflowEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CONCORDIA_CC_WORKFLOW === "1";
+}
+
 export interface BackendHandle {
   port: number;
   shutdown: () => Promise<void>;
@@ -265,6 +273,8 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRootDefault ? [workspaceRootDefault] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    personaInjectEnabled: readPersonaInjectEnabled(),
+    ccWorkflowEnabled: readCcWorkflowEnabled(),
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });

@@ -57,6 +57,40 @@ describe("admin API", () => {
     });
   });
 
+  it("POST /v1/admin/spawn-session defaults Codex template spawn to xhigh", async () => {
+    const spawnCalls: Array<{ provider: string; args?: string[] }> = [];
+    env = makeTestApp({
+      delegationSpawn: (req) => {
+        spawnCalls.push({ provider: req.provider, args: req.args });
+        return { ok: true, pid: 123, command: ["wt.exe", req.provider, ...(req.args ?? [])] };
+      },
+    });
+    env.delegation.createTemplate({
+      call_name: "codex-default-effort",
+      title: "Codex default effort",
+      target_provider: "codex",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+    });
+
+    const r = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        template: "codex-default-effort",
+        inject_prompt: true,
+        args: { task: "x" },
+      }),
+    });
+
+    expect(r.status).toBe(200);
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0]).toEqual({
+      provider: "codex",
+      args: ["-c", 'model_reasoning_effort="xhigh"'],
+    });
+  });
+
   it("POST /v1/admin/spawn-session can launch a template in a branch worktree", async () => {
     const repoRoot = mkdtempSync(join(tmpdir(), "admin-wt-repo-"));
     const worktreeRoot = join(dirname(repoRoot), `${repoRoot.split(/[\\/]/).pop()}-feat-admin-wt`);

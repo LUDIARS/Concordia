@@ -83,6 +83,7 @@ describe("GET /v1/delegation/templates runtime options", () => {
     const gpt = await app.request("/v1/delegation/options?provider=codex&model=gpt-5.5");
     const gptJson = (await gpt.json()) as any;
     expect(gptJson.suggestions.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
+    expect(gptJson.suggestions[0].choices.map((choice: any) => choice.value)).toContain("xhigh");
 
     const legacy = await app.request("/v1/delegation/options?provider=codex&model=gpt-3.5-turbo");
     const legacyJson = (await legacy.json()) as any;

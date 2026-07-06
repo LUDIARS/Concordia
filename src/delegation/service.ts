@@ -22,6 +22,7 @@ import {
   recordPendingDelegationSpawn,
 } from "../control/pending-delegation-spawns.js";
 import {
+  resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
   type DelegationRuntimeOptions,
@@ -287,7 +288,10 @@ export class DelegationService {
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
-    const effectiveOptions = { ...parseRuntimeOptions(def.runtime_options_json), ...(input.options ?? {}) };
+    const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(
+      provider,
+      { ...parseRuntimeOptions(def.runtime_options_json), ...(input.options ?? {}) },
+    );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveOptions);
     const spawnArgs = [...spawn.args, ...runtimeArgs];
     log.info({

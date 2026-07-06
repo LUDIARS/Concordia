@@ -243,7 +243,7 @@ describe("DelegationService.invoke", () => {
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[]; provider: string };
     expect(req.provider).toBe("codex");
-    expect(req.args).toEqual(["--model", "gpt-5.5"]);
+    expect(req.args).toEqual(["--model", "gpt-5.5", "-c", 'model_reasoning_effort="xhigh"']);
   });
 
   it("passes one-shot Codex runtime options to spawn args", async () => {
@@ -287,11 +287,11 @@ describe("DelegationService.invoke", () => {
     ]);
   });
 
-  it("omits --model args when template has no model", async () => {
+  it("defaults Codex reasoning effort even when template has no model", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[] };
-    expect(req.args).toBeUndefined();
+    expect(req.args).toEqual(["-c", 'model_reasoning_effort="xhigh"']);
   });
 
   it("injects Concordia context block even without personas", async () => {

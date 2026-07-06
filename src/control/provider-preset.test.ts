@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import {
+  CODEX_DEFAULT_REASONING_EFFORT,
   delegationOptionSuggestions,
   GEMMA4_12_DEFAULT_MODEL,
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
+  resolveEffectiveDelegationRuntimeOptions,
 } from "./provider-preset.js";
 
 describe("resolveDelegationSpawn", () => {
@@ -63,8 +65,19 @@ describe("delegation runtime options", () => {
   it("suggests reasoning effort only for Codex", () => {
     expect(delegationOptionSuggestions("codex").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
+    expect(delegationOptionSuggestions("codex")[0]?.choices?.map((choice) => choice.value)).toContain("xhigh");
     expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo")).toEqual([]);
     expect(delegationOptionSuggestions("claude")).toEqual([]);
+  });
+
+  it("defaults Codex reasoning effort to xhigh when unspecified", () => {
+    expect(resolveEffectiveDelegationRuntimeOptions("codex", {})).toEqual({
+      model_reasoning_effort: CODEX_DEFAULT_REASONING_EFFORT,
+    });
+    expect(resolveDelegationRuntimeArgs("codex", {})).toEqual([
+      "-c",
+      'model_reasoning_effort="xhigh"',
+    ]);
   });
 
   it("passes Codex reasoning effort as one-shot config args", () => {
@@ -78,6 +91,8 @@ describe("delegation runtime options", () => {
     expect(resolveDelegationRuntimeArgs("codex", {
       codex_config: { sandbox_mode: "workspace-write", approval_policy: "never" },
     })).toEqual([
+      "-c",
+      'model_reasoning_effort="xhigh"',
       "-c",
       'sandbox_mode="workspace-write"',
       "-c",

@@ -70,7 +70,9 @@ export interface DelegationOptionSuggestion {
 
 export type DelegationRuntimeOptions = Record<string, unknown>;
 
-const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
+export const CODEX_DEFAULT_REASONING_EFFORT = "xhigh";
+
+const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
@@ -87,6 +89,7 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
         { label: "low", value: "low" },
         { label: "medium", value: "medium" },
         { label: "high", value: "high" },
+        { label: "xhigh (Extra High)", value: "xhigh" },
       ],
     },
   ];
@@ -107,19 +110,38 @@ export function resolveDelegationRuntimeArgs(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
 ): string[] {
-  if (!options || provider !== "codex") return [];
+  if (provider !== "codex") return [];
   const args: string[] = [];
-  const effort = normalizeReasoningEffort(options.model_reasoning_effort ?? options.reasoning_effort);
+  const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(provider, options);
+  const effort = normalizeReasoningEffort(effectiveOptions.model_reasoning_effort ?? effectiveOptions.reasoning_effort);
   if (effort) {
     args.push("-c", `model_reasoning_effort=${tomlScalar(effort)}`);
   }
-  const config = isPlainRecord(options.codex_config) ? options.codex_config : {};
+  const config = isPlainRecord(effectiveOptions.codex_config) ? effectiveOptions.codex_config : {};
   for (const [key, value] of Object.entries(config)) {
+    if (key === "model_reasoning_effort") continue;
     if (!CODEX_CONFIG_KEY_RE.test(key)) continue;
     if (value === undefined || value === null) continue;
     args.push("-c", `${key}=${tomlScalar(value)}`);
   }
   return args;
+}
+
+export function resolveEffectiveDelegationRuntimeOptions(
+  provider: string,
+  options: DelegationRuntimeOptions | null | undefined,
+): DelegationRuntimeOptions {
+  const effectiveOptions = isPlainRecord(options) ? { ...options } : {};
+  if (provider !== "codex") return effectiveOptions;
+
+  const config = isPlainRecord(effectiveOptions.codex_config) ? effectiveOptions.codex_config : {};
+  const effort = normalizeReasoningEffort(
+    effectiveOptions.model_reasoning_effort ??
+    effectiveOptions.reasoning_effort ??
+    config.model_reasoning_effort,
+  );
+  effectiveOptions.model_reasoning_effort = effort ?? CODEX_DEFAULT_REASONING_EFFORT;
+  return effectiveOptions;
 }
 
 function normalizeReasoningEffort(value: unknown): string | null {

@@ -356,6 +356,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // model 指定 → resolveDelegationSpawn で `--model` 引数 / LICTOR_LOCAL_MODEL env に解決。
     const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
     const resolved = resolveDelegationSpawn(provider, modelInput);
+    const runtimeArgs = resolveDelegationRuntimeArgs(
+      provider,
+      isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {},
+    );
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
@@ -373,7 +377,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const result = spawnSession({
       provider: resolved.provider,
       mode,
-      args: [...resolved.args, ...userArgs],
+      args: [...resolved.args, ...runtimeArgs, ...userArgs],
       cwd: directTarget.cwd,
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,

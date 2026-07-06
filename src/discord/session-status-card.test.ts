@@ -28,11 +28,27 @@ function field(embed: ReturnType<typeof buildSessionStatusEmbed>, name: string) 
   return embed.data.fields?.find((f) => f.name.startsWith(name));
 }
 
+const MOJIBAKE_RE = /(?:繧|縺|蠢|笞|譁|荳|蜷|邯|蝙|玄|貞|鬆|譛|謚)/;
+
 describe("buildSessionStatusEmbed", () => {
   it("active かつ直近イベントなら緑、 ended ならグレー", () => {
     expect(buildSessionStatusEmbed(base({ status: "active", ageSec: 5 })).data.color).toBe(0x3ba55d);
     expect(buildSessionStatusEmbed(base({ status: "active", ageSec: 120 })).data.color).toBe(0xfaa61a);
     expect(buildSessionStatusEmbed(base({ status: "ended", ageSec: null })).data.color).toBe(0x747f8d);
+  });
+
+  it("状態ラベルは文字化けせず日本語で表示する", () => {
+    const active = field(buildSessionStatusEmbed(base({ status: "active", ageSec: 5 })), "状態")!.value;
+    expect(active).toContain("🟢 作業中");
+    expect(active).not.toMatch(MOJIBAKE_RE);
+
+    const waiting = field(buildSessionStatusEmbed(base({ status: "active", ageSec: 120 })), "状態")!.value;
+    expect(waiting).toContain("🟡 待機");
+    expect(waiting).not.toMatch(MOJIBAKE_RE);
+
+    const idle = field(buildSessionStatusEmbed(base({ status: "active", ageSec: null })), "状態")!.value;
+    expect(idle).toContain("⚪ アイドル");
+    expect(idle).not.toMatch(MOJIBAKE_RE);
   });
 
   it("title は persona、 persona 無しは provider にフォールバック", () => {
@@ -116,7 +132,11 @@ describe("buildSessionStatusEmbed", () => {
       requesterUserId: "1234567890",
     });
     expect(msg).toContain("<@1234567890>");
+    expect(msg).toContain("⚠️ コンテキスト使用量が 86% を超えました");
+    expect(msg).toContain("必要なら");
+    expect(msg).toContain("引き継ぎ型コンパクション");
     expect(msg).toContain("86%");
     expect(msg).toContain("/co-compaction");
+    expect(msg).not.toMatch(MOJIBAKE_RE);
   });
 });

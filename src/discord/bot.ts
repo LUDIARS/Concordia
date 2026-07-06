@@ -38,6 +38,7 @@ import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { describeInteractionForLog, interactionAgeMs } from "./interaction-diagnostics.js";
 import { invalidateDelegationTemplateCache } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
@@ -554,7 +555,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       permissionActions,
       subsidiaryId,
     }).catch((e) => {
-      log.warn(`interaction handler failed id=${interaction.id}: ${(e as Error).message}`);
+      const age = interactionAgeMs(interaction);
+      log.warn(
+        `interaction handler failed id=${interaction.id} ${describeInteractionForLog(interaction)} ` +
+        `age_ms=${age ?? "-"}: ${(e as Error).message}`,
+      );
     });
   });
 

@@ -25,6 +25,7 @@ import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import { interactionAgeMs } from "./interaction-diagnostics.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -117,9 +118,11 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     return;
   }
   if (interaction.isChatInputCommand()) {
+    const age = interactionAgeMs(interaction);
     deps.log.info(
       `discord command received name=${interaction.commandName} guild=${interaction.guildId ?? "-"} ` +
-      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"}`,
+      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"} ` +
+      `age_ms=${age ?? "-"}`,
     );
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
     if (!cmd) {
@@ -130,9 +133,11 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     return;
   }
   if (interaction.isAutocomplete()) {
+    const age = interactionAgeMs(interaction);
     deps.log.info(
       `discord autocomplete received name=${interaction.commandName} guild=${interaction.guildId ?? "-"} ` +
-      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"}`,
+      `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"} ` +
+      `age_ms=${age ?? "-"}`,
     );
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
     if (cmd?.autocomplete) {

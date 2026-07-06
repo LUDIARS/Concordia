@@ -5,6 +5,8 @@ import { DelegationRepo } from "../src/db/delegation-repo.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { DelegationService } from "../src/delegation/service.js";
 import { delegationRouter } from "../src/api/delegation.js";
+import { eventBus, type ConcordiaEvent } from "../src/events.js";
+import { makeTestApp } from "./helpers/test-app.js";
 
 function makeApp() {
   const db = makeTestDb();
@@ -157,5 +159,161 @@ describe("GET /v1/delegation/runs linked sessions", () => {
     const j = (await r.json()) as any;
     const got = j.runs.find((x: any) => x.id === run.id);
     expect(got.sessions.map((s: any) => s.id)).toEqual(["sess-legacy"]);
+  });
+});
+
+describe("delegation coordination API", () => {
+  it("GET /runs filters by parent_session", async () => {
+    const { app, repo } = makeApp();
+    const common = {
+      template_id: null,
+      call_name: "impl-from-design",
+      target_provider: "codex" as const,
+      args: {},
+      rendered_prompt: "prompt",
+      prompt_file_path: "prompt.md",
+      spawn_pid: null,
+      spawn_command: null,
+      triggered_by: "test",
+      status: "spawned" as const,
+    };
+    const runA = repo.createRun({ ...common, parent_session_id: "parent-a" });
+    repo.createRun({ ...common, parent_session_id: "parent-b" });
+
+    const r = await app.request("/v1/delegation/runs?parent_session=parent-a");
+    const j = (await r.json()) as any;
+    expect(j.runs.map((run: any) => run.id)).toEqual([runA.id]);
+    expect(j.runs[0].parent_session_id).toBe("parent-a");
+  });
+
+  it("POST /runs/:id/status updates run and injects terminal status into parent", async () => {
+    const { app, repo, sessions } = makeApp();
+    sessions.insertSession({
+      id: "parent-1",
+      provider: "codex-cli",
+      repo_path: "C:/work/parent",
+      repo_origin: null,
+      branch: null,
+      host: "host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: null,
+    });
+    const run = repo.createRun({
+      template_id: null,
+      call_name: "impl-from-design",
+      target_provider: "codex",
+      parent_session_id: "parent-1",
+      child_session_id: "child-1",
+      args: {},
+      rendered_prompt: "prompt",
+      prompt_file_path: "prompt.md",
+      spawn_pid: null,
+      spawn_command: null,
+      triggered_by: "test",
+      status: "running",
+    });
+    const events: ConcordiaEvent[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.inject" || ev.type === "delegation.mirror") events.push(ev);
+    });
+    try {
+      const r = await app.request(`/v1/delegation/runs/${run.id}/status`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "completed", detail: "done", result: "PR ready" }),
+      });
+      expect(r.status).toBe(200);
+      expect(repo.findRun(run.id)?.status).toBe("completed");
+      expect(events.some((ev) => ev.type === "session.inject" && ev.target_session_id === "parent-1")).toBe(true);
+      expect(events.some((ev) => ev.type === "delegation.mirror" && ev.target_session_id === "parent-1")).toBe(true);
+      expect(sessions.recentEvents("parent-1", 1)[0].kind).toBe("inject");
+    } finally {
+      unsub();
+    }
+  });
+
+  it("POST /runs/:id/inject emits child inject and mirrors to parent", async () => {
+    const { app, repo, sessions } = makeApp();
+    sessions.insertSession({
+      id: "child-1",
+      provider: "codex-cli",
+      repo_path: "C:/work/child",
+      repo_origin: null,
+      branch: null,
+      host: "host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: null,
+    });
+    const run = repo.createRun({
+      template_id: null,
+      call_name: "impl-from-design",
+      target_provider: "codex",
+      parent_session_id: "parent-1",
+      child_session_id: "child-1",
+      args: {},
+      rendered_prompt: "prompt",
+      prompt_file_path: "prompt.md",
+      spawn_pid: null,
+      spawn_command: null,
+      triggered_by: "test",
+      status: "running",
+    });
+    const events: ConcordiaEvent[] = [];
+    const unsub = eventBus.subscribe((ev) => {
+      if (ev.type === "session.inject" || ev.type === "delegation.mirror") events.push(ev);
+    });
+    try {
+      const r = await app.request(`/v1/delegation/runs/${run.id}/inject`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "please continue" }),
+      });
+      expect(r.status).toBe(200);
+      expect(events.some((ev) => ev.type === "session.inject" && ev.target_session_id === "child-1")).toBe(true);
+      expect(events.some((ev) => ev.type === "delegation.mirror" && ev.target_session_id === "parent-1")).toBe(true);
+      expect(sessions.recentEvents("child-1", 1)[0].kind).toBe("inject");
+    } finally {
+      unsub();
+    }
+  });
+
+  it("session register claims delegation_run_id as child_session_id", async () => {
+    const env = makeTestApp();
+    const run = env.delegation.createRun({
+      template_id: null,
+      call_name: "impl-from-design",
+      target_provider: "codex",
+      parent_session_id: "parent-1",
+      args: {},
+      rendered_prompt: "prompt",
+      prompt_file_path: "prompt.md",
+      spawn_pid: null,
+      spawn_command: null,
+      triggered_by: "test",
+      status: "spawned",
+    });
+    const r = await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "child-1",
+        provider: "codex-cli",
+        repo_path: "C:/work/child",
+        host: "host",
+        metadata: { delegation_run_id: run.id },
+      }),
+    });
+    expect(r.status).toBe(200);
+    expect(env.delegation.findRun(run.id)).toMatchObject({
+      child_session_id: "child-1",
+      status: "running",
+    });
+    const meta = JSON.parse(env.repo.findSession("child-1")!.metadata!);
+    expect(meta.delegation_parent_session_id).toBe("parent-1");
+    expect(meta.delegation_call_name).toBe("impl-from-design");
   });
 });

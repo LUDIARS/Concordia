@@ -9,6 +9,7 @@ import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { shouldDropForRelay, stripAskMarkerBlocks } from "../platform/egress-filters.js";
+import { buildDelegationMirrorText } from "../delegation/coordination.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
@@ -155,14 +156,29 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
 }
 
 async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
-  const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-  const session = deps.readModel.getSessionRelayState(ev.target_session_id);
+  const originalSession = deps.readModel.getSessionRelayState(ev.target_session_id);
+  let sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+  let session = originalSession;
+  let relaySessionId = ev.target_session_id;
+  let mirroredFromChild = false;
+  const directSessionStatus = session?.status ?? null;
+  const directDiscordStatus = sessionRow?.status ?? null;
+  if (!isActiveRelayTarget(directSessionStatus, directDiscordStatus) && originalSession?.delegationParentSessionId) {
+    const parent = deps.readModel.getSessionRelayState(originalSession.delegationParentSessionId);
+    const parentRow = deps.sessionChannelsRepo.findBySessionId(originalSession.delegationParentSessionId);
+    if (isActiveRelayTarget(parent?.status ?? null, parentRow?.status ?? null)) {
+      relaySessionId = originalSession.delegationParentSessionId;
+      session = parent;
+      sessionRow = parentRow;
+      mirroredFromChild = true;
+    }
+  }
   const sessionStatus = session?.status ?? null;
   const discordStatus = sessionRow?.status ?? null;
   if (!isActiveRelayTarget(sessionStatus, discordStatus)) {
     logInactiveTranscriptFrame(deps, ev, {
-      sessionStatus,
-      discordStatus,
+      sessionStatus: directSessionStatus,
+      discordStatus: directDiscordStatus,
       sessionChannelId: sessionRow?.channel_id ?? null,
     });
     return;
@@ -210,9 +226,9 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       deps.log.info(`egress: transcript.frame skipped empty image session=${ev.target_session_id} seq=${ev.seq}`);
       return;
     }
-    const client = await deps.webhooks.getForSession(ev.target_session_id);
+    const client = await deps.webhooks.getForSession(relaySessionId);
     if (!client) {
-      deps.log.warn(`egress: transcript.frame image no webhook session=${ev.target_session_id}`);
+      deps.log.warn(`egress: transcript.frame image no webhook session=${relaySessionId}`);
       return;
     }
     const author = formatAuthorName(null, session?.roleLabel ?? null);
@@ -224,7 +240,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       files: [{ attachment: buf, name: `image.${ext}` }],
     });
     if (res) {
-      deps.log.info(`egress: transcript.frame image relayed ok session=${ev.target_session_id} seq=${ev.seq}`);
+      deps.log.info(`egress: transcript.frame image relayed ok session=${relaySessionId} source_session=${ev.target_session_id} seq=${ev.seq}`);
     } else {
       deps.log.warn(`egress: transcript.frame image relay empty session=${ev.target_session_id} seq=${ev.seq}`);
     }
@@ -267,21 +283,30 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     `role=${role} session_channel=${sessionRow.channel_id} session_status=${sessionStatus} ` +
     `discord_status=${sessionRow.status} webhook_id=${sessionRow.webhook_id ?? "null"}`,
   );
-  const client = await deps.webhooks.getForSession(ev.target_session_id);
+  const client = await deps.webhooks.getForSession(relaySessionId);
   if (!client) {
-    deps.log.warn(`egress: transcript.frame no webhook client session=${ev.target_session_id} seq=${ev.seq}`);
+    deps.log.warn(`egress: transcript.frame no webhook client session=${relaySessionId} source_session=${ev.target_session_id} seq=${ev.seq}`);
     return;
   }
 
-  const author = role === "summary"
-    ? "Conversation summary"
-    : formatAuthorName(role === "assistant" ? session.personaDisplayName : null, session.roleLabel);
-  if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, text)) {
+  const author = mirroredFromChild
+    ? "Cc delegation"
+    : role === "summary"
+      ? "Conversation summary"
+      : formatAuthorName(role === "assistant" ? session.personaDisplayName : null, session.roleLabel);
+  const content = mirroredFromChild && originalSession?.delegationRunId
+    ? buildDelegationMirrorText({
+        runId: originalSession.delegationRunId,
+        childSessionId: ev.target_session_id,
+        text,
+      })
+    : text;
+  if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, content)) {
     dedupStats.skipped_transcript_frame += 1;
     deps.log.info(`egress: transcript.frame dedup skipped session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;
   }
-  const res = await deps.webhooks.send(client, { content: text, username: author });
+  const res = await deps.webhooks.send(client, { content, username: author });
   if (res) {
     deps.log.info(`egress: transcript.frame relayed ok session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;

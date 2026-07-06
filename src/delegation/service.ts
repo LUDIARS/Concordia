@@ -154,6 +154,14 @@ export interface InvokeInput {
   spawn?: boolean;
   /** Provider-specific one-shot options. These are not stored on the template. */
   options?: DelegationRuntimeOptions;
+  /** One-shot provider/model/runtime overrides. These are not stored on the template. */
+  overrides?: {
+    provider?: DelegationProvider;
+    model?: string | null;
+    reasoning_effort?: string;
+  };
+  /** Active parent Concordia session that requested this delegation, when known. */
+  parent_session_id?: string | null;
   /** Optional git branch for the spawned session. Worktree mode avoids switching the current checkout. */
   branch?: string;
   /** When branch is set, defaults to true: create/reuse a linked worktree for the branch. */
@@ -252,7 +260,7 @@ export class DelegationService {
     const renderedPrompt = extra
       ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
       : render.rendered;
-    const provider = def.target_provider;
+    const provider = input.overrides?.provider ?? def.target_provider;
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。
@@ -281,17 +289,21 @@ export class DelegationService {
     // 切り替え機にモデルを選ばせる。選択の Sonnet ワンショットは Famulus 内部なので
     // Concordia は LLM-free を維持 (`famulus select` を shell するだけ)。それ以外は素通し。
     // project ヒントは delegation の project を最優先、 無ければ cwd の basename。
-    let modelInput = def.model;
-    if (provider === "gemma4-12" && (def.model ?? "").trim().toLowerCase() === "auto") {
+    let modelInput = input.overrides?.model !== undefined ? input.overrides.model : def.model;
+    if (provider === "gemma4-12" && (modelInput ?? "").trim().toLowerCase() === "auto") {
       const projectHint = (def.project ?? "").trim() || (cwd ? basename(cwd) : undefined);
-      modelInput = await resolveLocalModel(def.model, { project: projectHint, repo: cwd ?? null });
+      modelInput = await resolveLocalModel(modelInput, { project: projectHint, repo: cwd ?? null });
       log.info({ call_name: def.call_name, project: projectHint, resolved_model: modelInput }, "famulus auto-model resolved");
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
     const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(
       provider,
-      { ...parseRuntimeOptions(def.runtime_options_json), ...(input.options ?? {}) },
+      {
+        ...parseRuntimeOptions(def.runtime_options_json),
+        ...(input.options ?? {}),
+        ...(input.overrides?.reasoning_effort ? { reasoning_effort: input.overrides.reasoning_effort } : {}),
+      },
     );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveOptions);
     const spawnArgs = [...spawn.args, ...runtimeArgs];
@@ -326,6 +338,7 @@ export class DelegationService {
       runId,
       contextBlock,
       persona?.name ?? null,
+      provider,
       spawn.effectiveModel,
     );
     try {
@@ -359,6 +372,10 @@ export class DelegationService {
           ...(spawn.env ?? {}),
           CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
           CONCORDIA_DELEGATION_RUN_ID: runId,
+          ...(input.parent_session_id ? {
+            CONCORDIA_DELEGATION_PARENT_SESSION_ID: input.parent_session_id,
+            CONCORDIA_PARENT_SESSION_ID: input.parent_session_id,
+          } : {}),
           CONCORDIA_DELEGATION_CALL_NAME: input.call_name,
         },
       };
@@ -370,6 +387,7 @@ export class DelegationService {
         runId,
         subsidiaryId: input.subsidiary_id ?? null,
         project: input.project ?? null,
+        parentSessionId: input.parent_session_id ?? null,
       });
       const result = spawner(req);
       if (result.ok) {
@@ -399,6 +417,7 @@ export class DelegationService {
       template_id: def.template_id,
       call_name: def.call_name,
       target_provider: provider,
+      parent_session_id: input.parent_session_id ?? null,
       args: input.args ?? {},
       rendered_prompt: renderedPrompt,
       prompt_file_path: promptPath,
@@ -432,6 +451,7 @@ function renderPromptFile(
   runId: string,
   contextBlock: string,
   personaName: string | null,
+  targetProvider: DelegationProvider,
   effectiveModel: string | null,
 ): string {
   const argsBlock = Object.keys(args).length === 0
@@ -444,7 +464,7 @@ function renderPromptFile(
     `# Delegation: ${def.call_name}`,
     "",
     `- run_id: ${runId}`,
-    `- target_provider: ${def.target_provider}`,
+    `- target_provider: ${targetProvider}`,
     `- model: ${effectiveModel ?? def.model ?? "(provider default)"}`,
     `- project: ${def.project?.trim() || "(none)"}`,
     `- persona: ${personaName ?? "(none)"}`,

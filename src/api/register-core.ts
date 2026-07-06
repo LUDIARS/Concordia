@@ -126,6 +126,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
       transcriptLogs: deps.transcriptLogs,
+      delegation: deps.delegation,
       channelDirectory: deps.channelDirectory,
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),

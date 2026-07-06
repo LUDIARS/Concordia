@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 30;
+export const SCHEMA_VERSION = 31;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -564,6 +564,8 @@ const STATEMENTS = [
     template_id         TEXT,
     call_name           TEXT    NOT NULL,
     target_provider     TEXT    NOT NULL,
+    parent_session_id   TEXT,
+    child_session_id    TEXT,
     args_json           TEXT    NOT NULL DEFAULT '{}',
     rendered_prompt     TEXT    NOT NULL,
     prompt_file_path    TEXT    NOT NULL,
@@ -578,6 +580,10 @@ const STATEMENTS = [
      ON delegation_runs(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
      ON delegation_runs(call_name, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_parent_session
+     ON delegation_runs(parent_session_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_child_session
+     ON delegation_runs(child_session_id)`,
 
   // ─── PR queue (v0.6 — おのおののセッションが作った PR を 1 本のキューに) ──────
   // 各 active session が /v1/stat に報告する open_prs[] から派生 UPSERT (第一情報源)
@@ -1014,6 +1020,16 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "project",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN project TEXT`,
+  },
+  {
+    table: "delegation_runs",
+    column: "parent_session_id",
+    ddl: `ALTER TABLE delegation_runs ADD COLUMN parent_session_id TEXT`,
+  },
+  {
+    table: "delegation_runs",
+    column: "child_session_id",
+    ddl: `ALTER TABLE delegation_runs ADD COLUMN child_session_id TEXT`,
   },
   // subsidiary_delegations を薄い許可リスト → 子会社所有の複製定義へ拡張する差分 column 群。
   // 既存 (旧スキーマの) 行はデフォルト空で埋まり、 applyOwnedDelegationBackfill が

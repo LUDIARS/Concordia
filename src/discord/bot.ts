@@ -590,6 +590,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.started") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       const sessionId = ev.session_id;
+      if (state?.delegationRunId) {
+        log.info(
+          `session.started delegation child: skip Discord session surface session=${sessionId} ` +
+          `run=${state.delegationRunId} parent=${state.delegationParentSessionId ?? "null"}`,
+        );
+        return;
+      }
       void (async () => {
         try {
           await onSessionRegistered(
@@ -655,6 +662,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "pr.changed") {
       // ingest / reconcile で PR キューが動いたら pr-queue チャンネルを即時更新.
       prQueueRefresh?.();
+      return;
+    }
+    if (ev.type === "delegation.mirror") {
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
+      void (async () => {
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        await webhooks.send(client, { content: ev.text.slice(0, 1900), username: "Cc delegation" });
+      })().catch((e) => log.warn(`delegation mirror post failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
@@ -886,6 +902,7 @@ function eventSessionId(ev: ConcordiaEvent): string | null {
     case "transcript.frame":
     case "session.inject":
     case "session.permission_request":
+    case "delegation.mirror":
     case "question.posted":
     case "question.resolved":
       return ev.target_session_id;

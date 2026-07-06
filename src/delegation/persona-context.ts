@@ -90,6 +90,17 @@ export function buildDelegationContext(
     );
   }
 
+  lines.push(
+    "## Delegation status / inject protocol (required)",
+    "",
+    "- The spawn environment includes CONCORDIA_DELEGATION_RUN_ID. When the task is completed or failed, you MUST call:",
+    `  POST ${concordiaUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
+    '  with JSON {"status":"completed","detail":"...","result":"..."} or {"status":"failed","detail":"..."} before ending.',
+    "- If approval or clarification is needed, ask the parent session through the delegation status/inject flow, not directly in Discord.",
+    "- If additional injected instructions arrive, continue from them and keep the same run id.",
+    "",
+  );
+
   lines.push("---", "");
   return lines.join("\n");
 }

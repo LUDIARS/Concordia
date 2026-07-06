@@ -4,6 +4,7 @@ import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -37,7 +38,19 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
       if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
       if (claimed?.callName) meta.delegation_call_name = claimed.callName;
-      if (claimed?.runId) meta.delegation_run_id = claimed.runId;
+      const delegationRunId = resolveDelegationRunIdForSession({
+        metadataRunId: meta.delegation_run_id,
+        pendingRunId: claimed?.runId ?? null,
+      });
+      if (delegationRunId) {
+        meta.delegation_run_id = delegationRunId;
+        const claimedRun = deps.delegation?.claimChildSession(delegationRunId, input.id) ?? null;
+        if (claimedRun?.call_name) meta.delegation_call_name = claimedRun.call_name;
+        const parentSessionId = claimedRun?.parent_session_id ?? claimed?.parentSessionId ?? null;
+        if (parentSessionId) meta.delegation_parent_session_id = parentSessionId;
+      } else if (claimed?.parentSessionId) {
+        meta.delegation_parent_session_id = claimed.parentSessionId;
+      }
       // 子会社由来の spawn は subsidiary_id を焼く。 子会社 Bot はこれで自分のセッションを
       // 判別し (subsidiary-only 可視)、 本社 Bot は subsidiary_id 付きを写さない。
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;

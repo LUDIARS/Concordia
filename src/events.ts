@@ -21,6 +21,14 @@ type ConcordiaEventPayload =
       call_name: string | null;
       ts: number;
     }
+  | {
+      type: "delegation.mirror";
+      target_session_id: string;
+      run_id: string;
+      child_session_id: string | null;
+      text: string;
+      ts: number;
+    }
   | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
   | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
   | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }
@@ -107,6 +115,7 @@ type ChatEventType =
   | "session.inject"
   | "transcript.frame"
   | "session.permission_request"
+  | "delegation.mirror"
   | "question.posted"
   | "question.answered"
   | "question.resolved";

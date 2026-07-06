@@ -43,13 +43,15 @@ export interface DelegationRunRow {
   template_id: string | null;
   call_name: string;
   target_provider: DelegationProvider;
+  parent_session_id: string | null;
+  child_session_id: string | null;
   args_json: string;
   rendered_prompt: string;
   prompt_file_path: string;
   spawn_pid: number | null;
   spawn_command: string | null;   // JSON array
   triggered_by: string | null;
-  status: "pending" | "spawned" | "spawn_failed";
+  status: "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
   error: string | null;
   created_at: number;
 }
@@ -99,6 +101,8 @@ export interface CreateRunInput {
   template_id: string | null;
   call_name: string;
   target_provider: DelegationProvider;
+  parent_session_id?: string | null;
+  child_session_id?: string | null;
   args: Record<string, unknown>;
   rendered_prompt: string;
   prompt_file_path: string;
@@ -239,15 +243,17 @@ export class DelegationRepo {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO delegation_runs(
-        id, template_id, call_name, target_provider, args_json,
+        id, template_id, call_name, target_provider, parent_session_id, child_session_id, args_json,
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
         triggered_by, status, error, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
       input.call_name,
       input.target_provider,
+      input.parent_session_id ?? null,
+      input.child_session_id ?? null,
       JSON.stringify(input.args ?? {}),
       input.rendered_prompt,
       input.prompt_file_path,
@@ -272,6 +278,45 @@ export class DelegationRepo {
     return this.db.prepare(
       `SELECT * FROM delegation_runs ORDER BY created_at DESC LIMIT ?`,
     ).all(limit) as DelegationRunRow[];
+  }
+
+  listRunsByParentSession(parentSessionId: string, limit = 100): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs
+       WHERE parent_session_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    ).all(parentSessionId, limit) as DelegationRunRow[];
+  }
+
+  claimChildSession(runId: string, childSessionId: string): DelegationRunRow | null {
+    const nowStatus = this.findRun(runId)?.status;
+    if (!nowStatus) return null;
+    this.db.prepare(`
+      UPDATE delegation_runs
+         SET child_session_id = COALESCE(child_session_id, ?),
+             status = CASE
+               WHEN status IN ('pending', 'spawned') THEN 'running'
+               ELSE status
+             END
+       WHERE id = ?
+    `).run(childSessionId, runId);
+    return this.findRun(runId);
+  }
+
+  updateRunStatus(
+    runId: string,
+    status: DelegationRunRow["status"],
+    error?: string | null,
+  ): DelegationRunRow | null {
+    const row = this.findRun(runId);
+    if (!row) return null;
+    this.db.prepare(`
+      UPDATE delegation_runs
+         SET status = ?,
+             error = ?
+       WHERE id = ?
+    `).run(status, error !== undefined ? error : row.error, runId);
+    return this.findRun(runId);
   }
 }
 

@@ -20,6 +20,11 @@ import { parsePortable, templateToPortable } from "../delegation/portable.js";
 import { delegationOptionSuggestions } from "../control/provider-preset.js";
 import { eventBus } from "../events.js";
 import { invalidateDelegationTemplateCache } from "../discord/delegation-template-cache.js";
+import {
+  buildDelegationInjectText,
+  buildDelegationStatusNotification,
+  normalizeDelegationStatus,
+} from "../delegation/coordination.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -95,8 +100,24 @@ const InvokeSchema = z.object({
   /** 初回プロンプト末尾に追記する任意の追加指示（render とは別経路）。 */
   extra_prompt: z.string().max(20000).optional(),
   triggered_by: z.string().max(120).optional(),
+  parent_session_id: z.string().max(128).optional(),
   spawn: z.boolean().optional(),
   options: z.record(z.unknown()).optional(),
+  overrides: z.object({
+    model: z.string().max(120).nullable().optional(),
+    provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]).optional(),
+    reasoning_effort: z.string().max(32).optional(),
+  }).optional(),
+});
+
+const StatusSchema = z.object({
+  status: z.enum(["running", "completed", "failed"]),
+  detail: z.string().max(4000).optional(),
+  result: z.string().max(4000).optional(),
+});
+
+const RunInjectSchema = z.object({
+  text: z.string().min(1).max(4000),
 });
 
 export interface DelegationApiDeps {
@@ -180,7 +201,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   app.get("/runs", (c) => {
     const limitRaw = Number(c.req.query("limit") ?? 100);
     const limit = Math.max(1, Math.min(500, isFinite(limitRaw) ? limitRaw : 100));
-    const rows = deps.repo.recentRuns(limit);
+    const parentSession = (c.req.query("parent_session") ?? "").trim();
+    const rows = parentSession
+      ? deps.repo.listRunsByParentSession(parentSession, limit)
+      : deps.repo.recentRuns(limit);
     const sessions = deps.sessions?.listDelegationSessions() ?? [];
     return c.json({
       runs: rows.map((row) => {
@@ -188,6 +212,14 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         return serializeRun(row, linkedSessionsForRun(row, args, sessions));
       }),
     });
+  });
+
+  app.get("/runs/:id", (c) => {
+    const row = deps.repo.findRun(c.req.param("id"));
+    if (!row) return c.json({ error: "not_found" }, 404);
+    const sessions = deps.sessions?.listDelegationSessions() ?? [];
+    const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
+    return c.json({ run: serializeRun(row, linkedSessionsForRun(row, args, sessions)) });
   });
 
   app.get("/options", (c) => {
@@ -275,6 +307,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       triggered_by: parsed.data.triggered_by,
       spawn: parsed.data.spawn,
       options: parsed.data.options,
+      overrides: parsed.data.overrides,
+      parent_session_id: resolveParentSessionId(c.req, parsed.data.parent_session_id),
     });
     if (!result.ok) {
       const status = result.error.startsWith("unknown call_name") ? 404 : 400;
@@ -294,6 +328,86 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     });
   });
 
+  app.post("/runs/:id/status", async (c) => {
+    const id = c.req.param("id");
+    const row = deps.repo.findRun(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = StatusSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const status = normalizeDelegationStatus(parsed.data.status);
+    if (!status) return c.json({ error: "invalid_status" }, 400);
+    const updated = deps.repo.updateRunStatus(
+      id,
+      status,
+      status === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
+    )!;
+    if ((status === "completed" || status === "failed") && updated.parent_session_id) {
+      const text = buildDelegationStatusNotification(updated, parsed.data);
+      deps.sessions?.appendEvent({
+        session_id: updated.parent_session_id,
+        ts: nowSec(),
+        kind: "inject",
+        payload: { text, source: `delegation:${updated.id}:status` },
+      });
+      eventBus.emit({
+        type: "session.inject",
+        target_session_id: updated.parent_session_id,
+        text,
+        source: `delegation:${updated.id}:status`,
+        ts: nowSec(),
+      });
+      eventBus.emit({
+        type: "delegation.mirror",
+        target_session_id: updated.parent_session_id,
+        run_id: updated.id,
+        child_session_id: updated.child_session_id,
+        text,
+        ts: nowSec(),
+      });
+    }
+    return c.json({ ok: true, run: serializeRun(updated) });
+  });
+
+  app.post("/runs/:id/inject", async (c) => {
+    const id = c.req.param("id");
+    const row = deps.repo.findRun(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+    if (!row.child_session_id) return c.json({ error: "child_session_not_claimed" }, 409);
+    if (deps.sessions && !deps.sessions.findSession(row.child_session_id)) {
+      return c.json({ error: "child_session_not_found" }, 404);
+    }
+    const body = await c.req.json().catch(() => null);
+    const parsed = RunInjectSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const text = buildDelegationInjectText({ runId: row.id, text: parsed.data.text });
+    const ts = nowSec();
+    deps.sessions?.appendEvent({
+      session_id: row.child_session_id,
+      ts,
+      kind: "inject",
+      payload: { text, source: `delegation:${row.id}:parent` },
+    });
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: row.child_session_id,
+      text,
+      source: `delegation:${row.id}:parent`,
+      ts,
+    });
+    if (row.parent_session_id) {
+      eventBus.emit({
+        type: "delegation.mirror",
+        target_session_id: row.parent_session_id,
+        run_id: row.id,
+        child_session_id: row.child_session_id,
+        text,
+        ts,
+      });
+    }
+    return c.json({ ok: true, target_session_id: row.child_session_id, ts });
+  });
+
   return app;
 }
 
@@ -307,6 +421,7 @@ function linkedSessionsForRun(
   const runCreatedAt = row.created_at;
   return sessions
     .filter((session) => {
+      if (row.child_session_id && session.id === row.child_session_id) return true;
       const metadata = parseSessionMetadata(session);
       const runId = stringValue(metadata.delegation_run_id);
       if (runId) return runId === row.id;
@@ -359,4 +474,21 @@ function normalizePath(path: string): string {
 
 function safeJsonParse<T>(s: string, fallback: T): T {
   try { return JSON.parse(s) as T; } catch { return fallback; }
+}
+
+function resolveParentSessionId(req: { header: (name: string) => string | undefined }, bodyValue: string | undefined): string | null {
+  const candidates = [
+    bodyValue,
+    req.header("x-concordia-parent-session-id"),
+    req.header("x-concordia-session-id"),
+  ];
+  for (const v of candidates) {
+    const s = (v ?? "").trim();
+    if (s) return s;
+  }
+  return null;
+}
+
+function nowSec(): number {
+  return Math.floor(Date.now() / 1000);
 }

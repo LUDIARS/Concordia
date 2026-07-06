@@ -9,6 +9,7 @@ import type { PersonasRepo } from "../../db/personas-repo.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../../db/transcript-logs-repo.js";
+import type { DelegationRepo } from "../../db/delegation-repo.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system";
 
@@ -59,6 +60,7 @@ export interface SessionsApiDeps {
   processManager: ProcessManager;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
+  delegation?: DelegationRepo;
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
   resolveWorkspaceRoots?: () => string[];

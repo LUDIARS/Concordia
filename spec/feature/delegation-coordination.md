@@ -1,3 +1,26 @@
+---
+type: feature
+title: "Delegation coordination API"
+description: "Parent-child delegation run coordination: parent_session_id/child_session_id linkage, child status updates, parent-to-child inject, parent filtered run listing, invoke overrides, spawn env propagation, and Discord mirroring through the parent session channel."
+service: concordia
+domain: governance
+tags:
+  - delegation
+  - sqlite
+  - rest-api
+  - session-coordination
+  - injection
+  - discord
+  - spawn
+  - lifecycle
+status: implemented
+related:
+  - feature/delegation.md
+  - feature/discord-ui.md
+  - setup/spawn.md
+updated: 2026-07-07
+---
+
 # Delegation 協働管理 — 親↔子 API + Status/Inject + Discord 挙動
 
 親 (active セッション) が delegation で投げた子タスクを、Cc を介して監視・制御する。

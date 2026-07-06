@@ -138,9 +138,38 @@ describe("handleEvent transcript.frame relay", () => {
     expect(webhooks.send).toHaveBeenCalledTimes(1);
     expect(sent[0].options).toMatchObject({ content: "compact summary", username: "Conversation summary" });
   });
+
+  it("mirrors delegation child assistant text into the parent session channel when the child has no channel", async () => {
+    const { deps, webhooks, sent, sessionId, parentSessionId } = makeTranscriptRelayDeps("codex-cli", {
+      noDirectChannel: true,
+      delegationParentSessionId: "parent-1",
+      delegationRunId: "run-1",
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 5,
+      kind: "text",
+      payload: { role: "assistant", text: "child update" },
+      ts: 104,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).toHaveBeenCalledWith(parentSessionId);
+    expect(sent[0].options).toMatchObject({
+      username: "Cc delegation",
+      content: "[delegation:run-1] child s-codex-cli\n\nchild update",
+    });
+  });
 });
 
-function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimizationEnabled?: boolean } = {}): {
+function makeTranscriptRelayDeps(provider: ProviderName, opts: {
+  messageOptimizationEnabled?: boolean;
+  noDirectChannel?: boolean;
+  delegationParentSessionId?: string;
+  delegationRunId?: string;
+} = {}): {
   deps: EgressDeps;
   webhooks: {
     getForSession: ReturnType<typeof vi.fn>;
@@ -149,17 +178,30 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimiza
   };
   sent: Array<{ client: unknown; options: { content?: string; username?: string } }>;
   sessionId: string;
+  parentSessionId: string | null;
 } {
   const db = makeTestDb();
   const sessionId = `s-${provider}`;
+  const parentSessionId = opts.delegationParentSessionId ?? null;
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(db);
-  sessionChannelsRepo.upsert({
-    session_id: sessionId,
-    channel_id: "ch-session",
-    webhook_id: "wh-session",
-    webhook_token: "token",
-    status: "active",
-  });
+  if (!opts.noDirectChannel) {
+    sessionChannelsRepo.upsert({
+      session_id: sessionId,
+      channel_id: "ch-session",
+      webhook_id: "wh-session",
+      webhook_token: "token",
+      status: "active",
+    });
+  }
+  if (parentSessionId) {
+    sessionChannelsRepo.upsert({
+      session_id: parentSessionId,
+      channel_id: "ch-parent",
+      webhook_id: "wh-parent",
+      webhook_token: "token-parent",
+      status: "active",
+    });
+  }
   const client = { id: "wh-session" };
   const sent: Array<{ client: unknown; options: { content?: string; username?: string } }> = [];
   const webhooks = {
@@ -194,18 +236,20 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimiza
     } satisfies DiscordConfigSnapshot,
     webhooks: webhooks as unknown as WebhookPool,
     readModel: {
-      getSessionRelayState: () => ({
-        sessionId,
+      getSessionRelayState: (requestedSessionId: string) => ({
+        sessionId: requestedSessionId,
         provider,
         repoPath: "/repo",
         branch: null,
         status: "active",
         currentTask: null,
-        roleLabel: "Claude Code",
+        roleLabel: requestedSessionId === parentSessionId ? "Parent" : "Claude Code",
         personaId: null,
         personaDisplayName: null,
         personaName: null,
         delegationEmoji: null,
+        delegationRunId: requestedSessionId === sessionId ? opts.delegationRunId ?? null : null,
+        delegationParentSessionId: requestedSessionId === sessionId ? parentSessionId : null,
         model: null,
         subsidiaryId: null,
       }),
@@ -215,7 +259,7 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: { messageOptimiza
     messageOptimizationEnabled: opts.messageOptimizationEnabled,
     log: { info: vi.fn(), warn: vi.fn() },
   };
-  return { deps, webhooks, sent, sessionId };
+  return { deps, webhooks, sent, sessionId, parentSessionId };
 }
 
 async function flushEgress(): Promise<void> {

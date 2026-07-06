@@ -123,15 +123,21 @@ async function main(): Promise<void> {
         branch: z.string().optional().describe("Git branch for the spawned session"),
         worktree: z.boolean().optional().describe("When branch is set, defaults to true: use a linked worktree"),
         triggered_by: z.string().optional().describe("Who is initiating (free-form identifier)"),
+        parent_session_id: z.string().optional().describe("Parent Concordia session id, when the caller is a session"),
         options: z.record(z.unknown()).optional().describe("Provider-specific one-shot options, e.g. {\"model_reasoning_effort\":\"high\"} for Codex"),
+        overrides: z.object({
+          model: z.string().nullable().optional(),
+          provider: z.enum(["claude", "codex", "gemini", "gemma4-12"]).optional(),
+          reasoning_effort: z.string().optional(),
+        }).optional().describe("One-shot model/provider/reasoning overrides"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),
       },
     },
-    async ({ call_name, args, cwd, branch, worktree, triggered_by, spawn, options }) => {
+    async ({ call_name, args, cwd, branch, worktree, triggered_by, parent_session_id, spawn, options, overrides }) => {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
-        { call_name, args: args ?? {}, cwd, branch, worktree, triggered_by, spawn, options },
+        { call_name, args: args ?? {}, cwd, branch, worktree, triggered_by, parent_session_id, spawn, options, overrides },
         true,
       );
       if (!r.ok) {

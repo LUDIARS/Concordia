@@ -19,6 +19,8 @@ export interface PendingDelegationSpawn {
   subsidiaryId: string | null;
   /** project 限定 spawn ならプロジェクト名。 session.started 時に metadata.project へ焼く。 */
   project: string | null;
+  /** Parent session that requested the delegation, when known. */
+  parentSessionId: string | null;
   at: number;
 }
 
@@ -33,6 +35,7 @@ export function recordPendingDelegationSpawn(
     runId?: string | null;
     subsidiaryId?: string | null;
     project?: string | null;
+    parentSessionId?: string | null;
   },
   now = Date.now(),
 ): void {
@@ -45,6 +48,7 @@ export function recordPendingDelegationSpawn(
     runId: (input.runId ?? "").trim() || null,
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
     project: (input.project ?? "").trim() || null,
+    parentSessionId: (input.parentSessionId ?? "").trim() || null,
     at: now,
   });
   prune(now);

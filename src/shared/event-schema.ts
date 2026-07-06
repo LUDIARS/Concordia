@@ -24,6 +24,7 @@ export const CONCORDIA_EVENT_TYPES = [
   "pr.changed",
   "error.reported",
   "session.inject",
+  "delegation.mirror",
   "transcript.frame",
   "session.permission_request",
   "question.posted",
@@ -118,6 +119,14 @@ const eventSchemas = {
     action: z.enum(["create", "import", "patch", "delete"]),
     template_id: nullableString,
     call_name: nullableString,
+    ts: z.number(),
+  }).passthrough(),
+  "delegation.mirror": z.object({
+    type: z.literal("delegation.mirror"),
+    target_session_id: z.string(),
+    run_id: z.string(),
+    child_session_id: nullableString,
+    text: z.string(),
     ts: z.number(),
   }).passthrough(),
   "persona.assigned": z.object({

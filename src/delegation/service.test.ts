@@ -287,6 +287,36 @@ describe("DelegationService.invoke", () => {
     ]);
   });
 
+  it("supports one-shot provider/model/reasoning overrides without changing the template", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      overrides: { provider: "claude", model: "claude-sonnet-5", reasoning_effort: "high" },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const req = spawnCalls[0] as { provider: string; args?: string[] };
+    expect(req.provider).toBe("claude");
+    expect(req.args).toEqual(["--model", "claude-sonnet-5"]);
+    expect(r.run.target_provider).toBe("claude");
+    expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex");
+  });
+
+  it("records parent_session_id and passes run/parent ids to spawned env", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      parent_session_id: "parent-1",
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const req = spawnCalls[0] as { env?: Record<string, string> };
+    expect(r.run.parent_session_id).toBe("parent-1");
+    expect(req.env?.CONCORDIA_DELEGATION_RUN_ID).toBe(r.run.id);
+    expect(req.env?.CONCORDIA_DELEGATION_PARENT_SESSION_ID).toBe("parent-1");
+    expect(req.env?.CONCORDIA_PARENT_SESSION_ID).toBe("parent-1");
+  });
+
   it("defaults Codex reasoning effort even when template has no model", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);

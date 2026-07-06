@@ -50,6 +50,8 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       personaDisplayName: persona?.display_name ?? null,
       personaName: persona?.name ?? null,
       delegationEmoji: stringOrNull(meta.delegation_emoji),
+      delegationRunId: stringOrNull(meta.delegation_run_id),
+      delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
       model: stringOrNull(meta.model),
       subsidiaryId: stringOrNull(meta.subsidiary_id),
     };

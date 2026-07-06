@@ -34,6 +34,8 @@ export interface SessionRelayState {
   personaDisplayName: string | null;
   personaName: string | null;
   delegationEmoji: string | null;
+  delegationRunId: string | null;
+  delegationParentSessionId: string | null;
   model: string | null;
   subsidiaryId: string | null;
 }

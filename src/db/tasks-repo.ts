@@ -6,7 +6,8 @@ export type PendingTaskKind =
   | "review-summary"
   | "peer-log-react"
   | "stat-collect"
-  | "title-suggest";
+  | "title-suggest"
+  | "pr-ci-followup";
 // 廃止: "daily-report" (report 経路が独白を担う) / "session-departed"
 // (離脱告知は中央 Haiku の司会発話に統合)。 2026-06 blackbox-chat 移行。
 

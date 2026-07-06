@@ -592,7 +592,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // PR キュー: stat.collected を購読して open_prs[] を pr_records に派生 UPSERT (方式 A).
   const prIngestWatcher = startPrIngestWatcher({ sessions: repo, stats, personas, prs });
   // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
-  const prReconciler = startPrReconciler({ prs, sessions: repo });
+  const prReconciler = startPrReconciler({ prs, sessions: repo, tasks });
   // PR キュー: gh search で org の open PR を全件発見し未登録分を取り込む (方式 D)。
   // これで「誰も報告していない open PR」も Queue に出る。state/ci/review は reconcile が確定。
   const prFullSync = startPrFullSync({ prs });

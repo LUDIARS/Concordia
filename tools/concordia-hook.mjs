@@ -165,6 +165,9 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
       process.stdout.write(procLines.join("\n") + "\n");
     }
   }
+  if (res?.context_packet?.cc_workflow && !QUIET_STDOUT) {
+    process.stdout.write(formatCcWorkflow(res.context_packet) + "\n");
+  }
   // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
   if (res?.initial_work && !QUIET_STDOUT) {
     const iw = res.initial_work;
@@ -217,6 +220,23 @@ async function sessionEnd({ sessionId }) {
   await dumpPendingTasks(sessionId);
 }
 
+function formatCcWorkflow(packet) {
+  const workflow = packet.cc_workflow;
+  const lines = [
+    "",
+    "[concordia/cc-workflow]",
+    "Use Concordia to make this session's work visible and finishable:",
+  ];
+  for (const rule of workflow.rules ?? []) lines.push(`- ${rule}`);
+  lines.push("- Cc API:");
+  lines.push(`  - update todos: ${workflow.task_api?.update_todos ?? "-"}`);
+  lines.push(`  - list todos: ${workflow.task_api?.list_todos ?? "-"}`);
+  lines.push(`  - pending notices: ${workflow.task_api?.list_pending ?? "-"}`);
+  lines.push(`- Interrupts: ${workflow.interrupt_policy}`);
+  for (const policy of workflow.completion_policy ?? []) lines.push(`- Completion: ${policy}`);
+  return lines.join("\n");
+}
+
 async function dumpPendingTasks(sessionId) {
   const res = await fetchJson(`/v1/sessions/${encodeURIComponent(sessionId)}/pending-tasks`);
   const tasks = res?.tasks ?? [];
@@ -260,6 +280,14 @@ async function dumpPendingTasks(sessionId) {
         `  ★作業内容を 30 文字以内 (日本語可、 OSC タイトル向け) にまとめ、 ` +
           `POST http://127.0.0.1:11111/v1/sessions/${encodeURIComponent(sessionId)}/title-suggestion ` +
           `{ "text": "<タイトル文字列>" } で投稿する。 Concordia がそれを Lictor の /v1/rename に転送して反映する。`,
+      );
+      continue;
+    }
+    if (t.kind === "pr-ci-followup") {
+      lines.push(
+        `#${t.id} pr-ci-followup [${p.ci_status ?? "unknown"}]`,
+        `  PR: ${p.repo_origin ?? "?"}#${p.number ?? "?"} ${p.url ?? ""}`,
+        `  ${p.instructions ?? "Review PR CI status and continue the PR workflow."}`,
       );
       continue;
     }

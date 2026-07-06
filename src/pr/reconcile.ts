@@ -19,6 +19,7 @@ import type {
   PrState,
 } from "../db/pr-records-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { TasksRepo } from "../db/tasks-repo.js";
 import { isOwnerRepo, normalizeRepoOrigin, prUrlFor } from "./normalize.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -50,6 +51,9 @@ interface GhPr {
 export interface PrReconcileDeps {
   prs: PrRecordsRepo;
   sessions: SessionsRepo;
+  tasks?: TasksRepo;
+  fetchPrsForOrigin?: (origin: string) => Promise<GhPr[]>;
+  nowSec?: () => number;
 }
 
 export interface PrReconcileHandle {
@@ -128,6 +132,7 @@ async function resolveOriginFromRepoPath(repoPath: string): Promise<string | nul
 export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
   const enabled = process.env.CONCORDIA_PR_RECONCILE_ENABLED !== "0";
   const minutes = Math.max(2, Number(process.env.CONCORDIA_PR_RECONCILE_MIN ?? "10") || 10);
+  const now = deps.nowSec ?? (() => Math.floor(Date.now() / 1000));
 
   async function runOnce(): Promise<{ scanned: number; updated: number }> {
     if (!enabled) return { scanned: 0, updated: 0 };
@@ -147,14 +152,14 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
     for (const origin of origins.values()) {
       let list: GhPr[];
       try {
-        list = await fetchPrsForOrigin(origin);
+        list = await (deps.fetchPrsForOrigin ?? fetchPrsForOrigin)(origin);
       } catch (e) {
         log.warn(`gh pr list failed for ${origin}: ${(e as Error).message}`);
         continue;
       }
       for (const gh of list) {
         scanned += 1;
-        const existing = deps.prs.findByKey(origin, gh.number);
+        let existing = deps.prs.findByKey(origin, gh.number);
         if (!existing) {
           deps.prs.upsertFromStat({
             repo_origin: origin,
@@ -168,7 +173,9 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
             persona_id: null,
             persona_name: null,
           });
+          existing = deps.prs.findByKey(origin, gh.number);
         }
+        const nextCi = mapCi(gh);
         const changed = deps.prs.reconcile({
           repo_origin: origin,
           number: gh.number,
@@ -177,13 +184,22 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
           head_branch: gh.headRefName ?? null,
           base_branch: gh.baseRefName ?? null,
           state: mapState(gh),
-          ci_status: mapCi(gh),
+          ci_status: nextCi,
           review_state: mapReview(gh),
           additions: gh.additions ?? null,
           deletions: gh.deletions ?? null,
           changed_files: gh.changedFiles ?? null,
           merged_at: isoToSec(gh.mergedAt),
           closed_at: isoToSec(gh.closedAt),
+        });
+        enqueueCiFollowup(deps, existing, {
+          repo_origin: origin,
+          number: gh.number,
+          title: gh.title ?? existing?.title ?? "",
+          url: gh.url ?? existing?.url ?? prUrlFor(origin, gh.number),
+          previous_ci_status: existing?.ci_status ?? "unknown",
+          ci_status: nextCi,
+          nowSec: now(),
         });
         if (changed) updated += 1;
       }
@@ -195,9 +211,10 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
   }
 
   let timer: ReturnType<typeof setInterval> | null = null;
+  let kick: ReturnType<typeof setTimeout> | null = null;
   if (enabled) {
     // 起動直後に 1 回 + 以降 interval. backend boot を遅らせないため初回は遅延実行.
-    const kick = setTimeout(() => {
+    kick = setTimeout(() => {
       void runOnce()
         .then((r) => log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`))
         .catch((e) => log.warn(`reconcile run failed: ${(e as Error).message}`));
@@ -215,8 +232,44 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
 
   return {
     stop: () => {
+      if (kick) clearTimeout(kick);
       if (timer) clearInterval(timer);
     },
     runOnce,
   };
+}
+
+function enqueueCiFollowup(
+  deps: PrReconcileDeps,
+  existing: { author_session_id: string | null; ci_status: PrCiStatus } | null,
+  pr: {
+    repo_origin: string;
+    number: number;
+    title: string;
+    url: string | null;
+    previous_ci_status: PrCiStatus;
+    ci_status: PrCiStatus;
+    nowSec: number;
+  },
+): void {
+  if (!deps.tasks) return;
+  if (!existing?.author_session_id) return;
+  if (pr.previous_ci_status === pr.ci_status) return;
+  if (pr.ci_status !== "success" && pr.ci_status !== "failure") return;
+  const instructions = pr.ci_status === "success"
+    ? "PR CI is green. Ask for the required final tests; merge the PR only after those tests pass."
+    : "PR CI is red. Notify this session, inspect failing checks, and fix the PR before requesting final tests.";
+  deps.tasks.enqueue({
+    session_id: existing.author_session_id,
+    kind: "pr-ci-followup",
+    now: pr.nowSec,
+    payload: {
+      repo_origin: pr.repo_origin,
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      ci_status: pr.ci_status,
+      instructions,
+    },
+  });
 }

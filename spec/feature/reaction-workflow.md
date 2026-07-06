@@ -49,6 +49,7 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 | ⏭️ 📤 🗂️ | 実装タスクを積んで **別セッションへ委ねる** → Memoria に「別セッション対応」タスク登録 | `defer-impl` | headless (cwd = Memoria) | sonnet |
 | 🙄 | **Enter 強制送信** (Lictor が送信を取りこぼした時の救済) | `force-enter` | active へ `session.inject` (`\n` のみ)<br>(非 active はスキップ) | — |
 | 🤝 🫱 | タスクあり → delegation template を選んで **委託実行**、委託後の Lictor プロセスを監視 | `delegate-task` | active へ `session.inject` (委託+監視)<br>(非 active は headless haiku で委託のみ) | haiku |
+| 🔄 🔃 | 「対応マージ後、`<project>`をmain最新にする」から project code を抽出し、対応 PR マージ後に対象プロジェクトを main 最新へ ff 同期 | `sync-project-main-after-merge` | headless (cwd = workspace root) | sonnet |
 
 写像外の絵文字は記録のみで何もしない (`null`)。
 

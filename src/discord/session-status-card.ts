@@ -130,8 +130,8 @@ export interface ContextWarningInput {
 export function buildContextWarningMessage(i: ContextWarningInput): string {
   const mention = i.requesterUserId ? `<@${i.requesterUserId}> ` : "";
   const pct = Math.round(i.contextPct * 100);
-  return `${mention}笞・・繧ｳ繝ｳ繝・く繧ｹ繝井ｽｿ逕ｨ驥上′ ${pct}% 繧定ｶ・∴縺ｾ縺励◆ (${i.contextBadge})\n` +
-    "蠢・ｦ√↑繧・`/co-compaction` 縺ｧ蠑輔″邯吶℃蝙九さ繝ｳ繝代け繧ｷ繝ｧ繝ｳ縺吶ｋ縺九∝玄蛻・ｊ縺ｮ繧医＞縺ｨ縺薙ｍ縺ｧ繧ｻ繝・す繝ｧ繝ｳ繧貞・縺代※縺上□縺輔＞縲・";
+  return `${mention}⚠️ コンテキスト使用量が ${pct}% を超えました (${i.contextBadge})\n` +
+    "必要なら `/co-compaction` で引き継ぎ型コンパクションするか、区切りのよいところでセッションを閉じてください。";
 }
 
 export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
@@ -332,10 +332,10 @@ export async function reconcileLostStatusCards(
 
 function buildActivityLabel(status: string, ageSec: number | null): string {
   if (status !== "active") return "";
-  if (ageSec === null) return "笞ｪ 繧｢繧､繝峨Ν";
-  if (ageSec <= ACTIVE_WINDOW_SEC) return `泙 菴懈･ｭ荳ｭ (${ageSec}s ago)`;
-  if (ageSec <= WAITING_WINDOW_SEC) return `泯 蠕・ｩ・(${Math.floor(ageSec / 60)}m ago)`;
-  return `笞ｪ 繧｢繧､繝峨Ν (${Math.floor(ageSec / 60)}m ago)`;
+  if (ageSec === null) return "⚪ アイドル";
+  if (ageSec <= ACTIVE_WINDOW_SEC) return `🟢 作業中 (${ageSec}s ago)`;
+  if (ageSec <= WAITING_WINDOW_SEC) return `🟡 待機 (${Math.floor(ageSec / 60)}m ago)`;
+  return `⚪ アイドル (${Math.floor(ageSec / 60)}m ago)`;
 }
 
 function truncate(s: string, n: number): string {

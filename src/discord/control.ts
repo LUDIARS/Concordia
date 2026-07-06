@@ -140,8 +140,9 @@ export async function handleControlInteraction(
     }
     if (id.startsWith("ctrl:end-session:confirm:")) {
       const sid = id.slice("ctrl:end-session:confirm:".length);
+      await interaction.deferUpdate();
       const r = await callConcordia(deps.concordiaUrl, "DELETE", `/v1/sessions/${sid}`);
-      await interaction.update({ content: r.ok ? `Ended ${sid}` : `Failed: ${r.error ?? "unknown"}`, components: [] });
+      await interaction.editReply({ content: r.ok ? `Ended ${sid}` : `Failed: ${r.error ?? "unknown"}`, components: [] });
       return;
     }
   }

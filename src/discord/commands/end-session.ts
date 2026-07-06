@@ -5,9 +5,10 @@ import { callConcordia, requireSessionChannel } from "./_util.js";
 const endSessionCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder().setName("end-session").setDescription("End current session"),
   async execute(interaction, deps) {
+    await interaction.deferReply({ ephemeral: true });
     const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
     if (!session) return;
-    await interaction.reply({ content: "Session end requested.", ephemeral: true });
+    await interaction.editReply({ content: "Session end requested." });
     void callConcordia<{ ok: boolean }>(deps.concordiaUrl, "DELETE", `/v1/sessions/${session.sessionId}`);
   },
 };

@@ -56,6 +56,8 @@ describe("classifyReactionWorkflow", () => {
     ["⏩", "resume-work"],
     ["🔀", "merge-pr"],
     ["🚀", "merge-pr"],
+    ["🔄", "sync-project-main-after-merge"],
+    ["🔃", "sync-project-main-after-merge"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -291,6 +293,22 @@ describe("planWorkflow", () => {
     expect(plan.cwd).toBe(baseCtx.repoPath);
     expect(plan.prompt).toContain("gh pr merge");
   });
+
+  it("sync-project-main-after-merge → headless sonnet in workspace root and extracts project from message", () => {
+    const plan = planWorkflow("sync-project-main-after-merge", {
+      ...baseCtx,
+      messageText: "対応マージ後、Anatomiaをmain最新にする。",
+      workspaceRoot: "E:/Document/Ars",
+    });
+    expect(plan.mode).toBe("headless");
+    expect(plan.model).toBe("sonnet");
+    expect(plan.cwd).toBe("E:/Document/Ars");
+    expect(plan.prompt).toContain("対応マージ後、<project>をmain最新にする");
+    expect(plan.prompt).toContain("Anatomia");
+    expect(plan.prompt).toContain("git pull --ff-only");
+    expect(plan.prompt).toContain("サービス再起動や起動テストは行わない");
+    expect(plan.prompt).toContain("worktree/複製フォルダからのサービス起動");
+  });
 });
 
 describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
@@ -338,6 +356,20 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" });
     expect(calls).toHaveLength(1);
     expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/KuzuSurvivors");
+  });
+
+  it("sync-project-main-after-merge(🔄) は workspace root で headless 実行する", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({
+      ...baseInput,
+      emoji: "🔄",
+      messageText: "対応マージ後、Anatomiaをmain最新にする。",
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars");
+    expect(calls[0].opts?.model).toBe("sonnet");
+    expect(calls[0].prompt).toContain("Anatomia");
+    expect(calls[0].prompt).toContain("main 最新");
   });
 
   it("無効 (enabled=false) なら何もしない", async () => {

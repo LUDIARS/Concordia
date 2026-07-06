@@ -94,6 +94,7 @@ export type WorkflowAction =
   | "handoff-document"
   | "resume-work"
   | "merge-pr"
+  | "sync-project-main-after-merge"
   | "add-as-workflow";
 
 /**
@@ -138,6 +139,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
   // 当該リポの open PR を CI green 確認の上 squash merge + ブランチ削除 + main 同期 (merge / rocket)
   "merge-pr": ["🔀", "🚀"],
+  // 対応マージ後、メッセージで指定されたプロジェクトコードを main 最新に同期
+  "sync-project-main-after-merge": ["🔄", "🔃"],
   // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
   "add-as-workflow": ["🛠️", "🛠"],
 };
@@ -245,6 +248,11 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     summary: "投稿内容を起点に『当該リポの open PR を CI green 確認の上で squash merge し、 ブランチ削除 + main 同期まで行え』に変換して渡す。",
     mode: "active へ inject / 非active は headless sonnet (当該リポ)",
   },
+  "sync-project-main-after-merge": {
+    label: "対応マージ後に main 最新化",
+    summary: "投稿内容の『対応マージ後、<project>をmain最新にする』から project code を抽出し、対応 PR がマージ済みであることを確認して対象プロジェクトを main 最新へ ff 同期する。",
+    mode: "headless sonnet (workspace root)",
+  },
   "add-as-workflow": {
     label: "カスタムワークフロー登録",
     summary: "投稿内容 (1行目=絵文字、2行目=ラベル、3行目以降=プロンプト) をカスタムワークフローとして JSON に登録する。",
@@ -320,6 +328,8 @@ export interface WorkflowContext {
   memoriaPath: string;
   /** リアクションを付けたユーザの Discord ID (記録の出所明示用)。 */
   reactorId: string;
+  /** ワークスペースルート。プロジェクトコードから対象リポを探す workflow で使う。 */
+  workspaceRoot?: string;
 }
 
 export type WorkflowMode = "inject" | "headless";
@@ -721,6 +731,31 @@ export function planWorkflow(
       };
     }
 
+    case "sync-project-main-after-merge": {
+      const workspaceRoot = ctx.workspaceRoot ?? "E:/Document/Ars";
+      const prompt =
+        `🔄 このメッセージを起点に、 **対応マージ後に指定プロジェクトを main 最新へ同期**してください。\n` +
+        `対象メッセージは原則として「対応マージ後、<project>をmain最新にする。」という形式です。\n\n` +
+        `手順:\n` +
+        `1. 対象メッセージ本文から project code を抽出する。 例: 「対応マージ後、Anatomiaをmain最新にする。」なら \`Anatomia\`。 ` +
+        `バッククォート、引用符、末尾句読点、空白は除去する。 抽出できなければ実行せず報告する。\n` +
+        `2. project code から対象リポを解決する。 まず \`${workspaceRoot}/<project>\` を見る。 無ければ workspace root 直下を case-insensitive に探す。 ` +
+        `対象が一意に決まらなければ実行せず候補を報告する。\n` +
+        `3. 「対応マージ後」の前提を確認する。 対応 PR が未マージ、 CI 失敗、または対象が不明なら main 更新を実行せず、何が足りないかを報告する。\n` +
+        `4. 対象リポで \`git status --short --branch\` を確認する。 未コミット変更があれば破壊せず停止して報告する。\n` +
+        `5. \`git fetch origin\` → \`git switch main\` → \`git pull --ff-only\` で main を最新化する。 ` +
+        `必要なら削除済みリモート追跡ブランチを prune する。\n` +
+        `6. サービス再起動や起動テストは行わない。 何を更新したか、更新後の HEAD、実行できなかった場合の理由を報告する。\n` +
+        `禁止: \`git reset --hard\`、未コミット変更の破棄、worktree/複製フォルダからのサービス起動。`;
+      return {
+        action,
+        mode: "headless",
+        model: models.sonnet,
+        cwd: workspaceRoot,
+        prompt: head + "\n" + prompt,
+      };
+    }
+
     case "add-as-workflow": {
       const prompt =
         head +
@@ -953,6 +988,7 @@ export class ReactionWorkflowRunner {
       sessionActive: input.sessionActive,
       memoriaPath: this.memoriaPath(),
       reactorId: input.userId,
+      workspaceRoot: this.deps.workspaceRoot,
     };
     const plan = planWorkflow(action, ctx, this.deps.models ?? DEFAULT_WORKFLOW_MODELS);
 

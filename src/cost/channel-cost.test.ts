@@ -23,6 +23,7 @@ function sess(id: string, provider: SessionRow["provider"] = "claude-code"): Ses
     transcript_path: null,
     metadata: null,
     ws_clients: 0,
+    target_project: null,
   };
 }
 

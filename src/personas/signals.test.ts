@@ -31,6 +31,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     transcript_path: null,
     metadata: null,
     ws_clients: 0,
+    target_project: null,
     ...over,
   };
 }

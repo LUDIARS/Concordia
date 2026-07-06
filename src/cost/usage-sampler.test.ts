@@ -6,7 +6,7 @@ function sess(id: string, metadata: string | null = null, provider: SessionRow["
   return {
     id, provider, repo_path: "/x", repo_origin: null, branch: null, host: "h",
     started_at: 0, ended_at: null, status: "active", last_seen_at: 0,
-    current_task: null, transcript_path: null, metadata, ws_clients: 0,
+    current_task: null, transcript_path: null, metadata, ws_clients: 0, target_project: null,
   };
 }
 

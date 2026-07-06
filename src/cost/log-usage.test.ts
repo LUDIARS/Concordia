@@ -15,7 +15,7 @@ function sess(id: string, repo_path: string): SessionRow {
   return {
     id, provider: "claude-code", repo_path, repo_origin: null, branch: null, host: "h",
     started_at: 0, ended_at: null, status: "active", last_seen_at: 0,
-    current_task: null, transcript_path: null, metadata: null, ws_clients: 0,
+    current_task: null, transcript_path: null, metadata: null, ws_clients: 0, target_project: null,
   };
 }
 

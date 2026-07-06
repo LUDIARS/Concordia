@@ -150,6 +150,7 @@ function buildCcWorkflow(sessionId: string): CollaborationContextPacket["cc_work
     rules: [
       "Break the work into visible todos and post task_update through the Concordia API before substantive edits.",
       "Create or switch to a task branch before editing; do not work directly on main.",
+      "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
       "When implementation is complete, push the branch and open a PR.",
       "Keep task_update current as work moves between pending, in_progress, and completed.",
     ],

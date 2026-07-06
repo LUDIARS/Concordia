@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { spawn, execSync } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,7 +11,11 @@ const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http:/
 const codexBin = flags.codexBin ?? process.env.CODEX_BIN ?? "codex";
 const cwd = flags.cwd ?? process.cwd();
 const timeoutMs = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
-const prompt = flags.prompt.length > 0 ? flags.prompt.join(" ") : readStdin();
+const prompt = flags.promptFile
+  ? readPromptFile(flags.promptFile)
+  : flags.prompt.length > 0
+    ? flags.prompt.join(" ")
+    : readStdin();
 const startedAt = Date.now();
 const queuePath = process.env.CONCORDIA_COST_ONESHOT_QUEUE || join(process.cwd(), "logs", "cost-one-shot-queue.jsonl");
 
@@ -20,18 +24,25 @@ if (!prompt.trim()) {
   process.exit(2);
 }
 
+// codex exec は非対話 (approval プロンプト無し)。 承認は無く、 sandbox ポリシーだけが
+// model 生成コマンドの権限を決める。 `--ask-for-approval` は exec には無い引数なので渡さない。
+// 委託で PR (git push / gh = network) を作るには danger-full-access が要る (呼び出し側が指定)。
 const codexArgs = [
   "exec",
   "--json",
   "--color", "never",
-  "--ask-for-approval", flags.approval ?? "never",
   "--sandbox", flags.sandbox ?? "workspace-write",
   "--cd", cwd,
 ];
 if (flags.model) codexArgs.push("--model", flags.model);
+if (flags.reasoning) codexArgs.push("-c", `model_reasoning_effort="${flags.reasoning}"`);
 codexArgs.push("-");
 
-const child = spawn(codexBin, codexArgs, {
+// Windows の npm グローバル codex は shim (codex/.cmd/.ps1) で native .exe を持たず、
+// `spawn("codex", {shell:false})` は解決できず ENOENT になる。 shim が起動する
+// codex.js を node で直接実行して回避する (shell を使わないので -c の quote も壊れない)。
+const codexLaunch = resolveCodexLaunch(codexBin);
+const child = spawn(codexLaunch.file, [...codexLaunch.prefix, ...codexArgs], {
   cwd,
   stdio: ["pipe", "pipe", "pipe"],
   shell: false,
@@ -244,6 +255,36 @@ function readStdin() {
   } catch {
     return "";
   }
+}
+
+function readPromptFile(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    process.stderr.write(`[concordia-codex-worker] failed to read --prompt-file=${path}: ${err.message}\n`);
+    return "";
+  }
+}
+
+/**
+ * codex 実行コマンドを解決する。 明示パス (拡張子付き / 別名) はそのまま。 既定 "codex" は
+ * POSIX ではそのまま、 Windows では npm shim が起動する codex.js を `node` で直接実行する
+ * (Windows の codex.cmd は shell 無し spawn で ENOENT になるため)。
+ * 戻り値: { file, prefix } → spawn(file, [...prefix, ...codexArgs])。
+ */
+function resolveCodexLaunch(codexBin) {
+  if (codexBin && codexBin !== "codex") return { file: codexBin, prefix: [] };
+  if (process.platform !== "win32") return { file: "codex", prefix: [] };
+  try {
+    const first = execSync("where codex", { encoding: "utf8" }).split(/\r?\n/).map((l) => l.trim()).find(Boolean);
+    if (first) {
+      const js = join(dirname(first), "node_modules", "@openai", "codex", "bin", "codex.js");
+      if (existsSync(js)) return { file: process.execPath, prefix: [js] };
+    }
+  } catch {
+    // fall through to bare "codex"
+  }
+  return { file: "codex", prefix: [] };
 }
 
 function parseArgs(argv) {

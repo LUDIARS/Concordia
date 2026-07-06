@@ -17,6 +17,7 @@ import {
   parseInputSchema,
 } from "../db/delegation-repo.js";
 import { spawnSession, type SpawnRequest } from "../control/spawner.js";
+import { spawnCodexExecWorker } from "../control/codex-worker-spawn.js";
 import {
   forgetPendingDelegationSpawnByRunId,
   recordPendingDelegationSpawn,
@@ -339,7 +340,11 @@ export class DelegationService {
     let status: DelegationRunRow["status"] = "pending";
     let spawnError: string | null = null;
     if (shouldSpawn) {
-      const spawner = this.deps.spawn ?? ((req) => spawnSession(req));
+      // Codex 委託は対話 TUI (wt.exe→Lictor) をやめ headless `codex exec` worker で走らせる
+      // (trust/approval プロンプトで詰まらせない)。 それ以外は従来の wt.exe spawn。
+      const spawner =
+        this.deps.spawn ??
+        ((req) => (req.provider === "codex" ? spawnCodexExecWorker(req) : spawnSession(req)));
       const req: SpawnRequest = {
         // 実 spawn は解決後の CLI。 gemma4-12 は Lictor ネイティブ local-agent
         // (`lictor gemma4-12`)、 それ以外は同名 CLI。 記録上の論理 provider とは別。

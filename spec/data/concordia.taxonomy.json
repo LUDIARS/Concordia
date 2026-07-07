@@ -1,7 +1,7 @@
 {
   "version": 1,
   "project": "concordia",
-  "iterations": 2,
+  "iterations": 3,
   "domains": [
     {
       "name": "chat-platforms",
@@ -23,19 +23,53 @@
           ]
         },
         {
+          "name": "chat-rendering",
+          "description": "Shared chat rendering, actionable-message parsing, and platform-neutral chat helpers (src/chat).",
+          "paths": [
+            "(^|/)src/chat/[^/]+$"
+          ]
+        },
+        {
           "name": "reaction-workflow",
           "description": "Emoji-to-action mapping, workflow planning, and runner harness (src/platform, src/triggers).",
           "paths": [
             "(^|/)src/platform/[^/]+$",
             "(^|/)src/triggers/[^/]+$"
           ]
+        }
+      ]
+    },
+    {
+      "name": "agent-delegation",
+      "description": "Agent delegation, persona generation, subsidiary bots, harness sessions, and advisory testing claims that coordinate work beyond a single session.",
+      "modules": [
+        {
+          "name": "personas",
+          "description": "Dynamic persona seeds, signal collection, and persona feedback loops (src/personas).",
+          "paths": [
+            "(^|/)src/personas/[^/]+$"
+          ]
         },
         {
-          "name": "personas-delegation",
-          "description": "Dynamic persona generation from signals and delegation templates (src/personas, src/delegation).",
+          "name": "delegation-coordination",
+          "description": "Delegation templates, parent/child run tracking, portable prompts, and injected coordination messages (src/delegation).",
           "paths": [
-            "(^|/)src/personas/[^/]+$",
             "(^|/)src/delegation/[^/]+$"
+          ]
+        },
+        {
+          "name": "subsidiary-harness",
+          "description": "Subsidiary bot runtime, budget tracking, harness rules, and harness-session API support (src/subsidiary, src/harness).",
+          "paths": [
+            "(^|/)src/subsidiary/[^/]+$",
+            "(^|/)src/harness/[^/]+$"
+          ]
+        },
+        {
+          "name": "testing-claims",
+          "description": "Advisory service-test claims and branch-watch notifications used to avoid restart/test collisions (src/testing).",
+          "paths": [
+            "(^|/)src/testing/[^/]+$"
           ]
         }
       ]
@@ -85,10 +119,9 @@
       "modules": [
         {
           "name": "session-lifecycle",
-          "description": "Session registration, heartbeat, end flow, spawn and reaper control (src/control, src).",
+          "description": "Session registration, heartbeat, end flow, spawn, compaction, and reaper control (src/control).",
           "paths": [
-            "(^|/)src/control/[^/]+$",
-            "(^|/)src/[^/]+$"
+            "(^|/)src/control/[^/]+$"
           ]
         },
         {
@@ -101,9 +134,10 @@
         },
         {
           "name": "session-reports",
-          "description": "LLM summarization plus structured aggregation of session events into reports (src/report).",
+          "description": "LLM summarization plus structured aggregation of session events into reports and session-log artifacts (src/report, src/session-logs).",
           "paths": [
-            "(^|/)src/report/[^/]+$"
+            "(^|/)src/report/[^/]+$",
+            "(^|/)src/session-logs/[^/]+$"
           ]
         },
         {
@@ -111,6 +145,26 @@
           "description": "Heartbeat sweeper, jsonl transcript parsing, and lost-session candidate handling (src/providers, src/work).",
           "paths": [
             "(^|/)src/providers/[^/]+$"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "runtime-orchestration",
+      "description": "Process bootstrap and in-process composition: server entrypoints, route composition, worker modes, event bus, and periodic runtime loops.",
+      "modules": [
+        {
+          "name": "bootstrap-composition",
+          "description": "Core bootstrap composition, chat/cost mode selection, service startup, and shutdown wiring (src/bootstrap).",
+          "paths": [
+            "(^|/)src/bootstrap/[^/]+$"
+          ]
+        },
+        {
+          "name": "server-entrypoints",
+          "description": "Top-level server/app/event modules and worker entrypoints that connect the runtime graph.",
+          "paths": [
+            "(^|/)src/(app|server|events|errors|sweeper|chat-worker|cost-worker|discord-worker)\\.ts$"
           ]
         }
       ]
@@ -203,6 +257,7 @@
           "paths": [
             "(^|/)src/anatomia/[^/]+$",
             "(^|/)src/skills/[^/]+$",
+            "(^|/)src/library/[^/]+$",
             "(^|/)src/model-catalog/[^/]+$"
           ]
         }

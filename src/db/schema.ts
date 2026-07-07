@@ -580,10 +580,10 @@ const STATEMENTS = [
      ON delegation_runs(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
      ON delegation_runs(call_name, created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_parent_session
-     ON delegation_runs(parent_session_id, created_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_child_session
-     ON delegation_runs(child_session_id)`,
+  // NOTE: parent_session_id / child_session_id の index は base schema ではなく
+  // applyMigrations で applyColumnAdditions (列追加) の後に作る (delegationCoordinationIndexes)。
+  // 既存 DB では CREATE TABLE IF NOT EXISTS が no-op で列が無いため、 base で index を
+  // 張ると "no such column: parent_session_id" で起動失敗する。
 
   // ─── PR queue (v0.6 — おのおののセッションが作った PR を 1 本のキューに) ──────
   // 各 active session が /v1/stat に報告する open_prs[] から派生 UPSERT (第一情報源)
@@ -1107,6 +1107,18 @@ function applyOwnedDelegationBackfill(db: Database.Database): void {
   tx();
 }
 
+/**
+ * delegation_runs の parent_session_id / child_session_id は列追加 (applyColumnAdditions)
+ * の後に index を張る。 base schema (STATEMENTS) で張ると既存 DB (列未追加) で
+ * "no such column" になり起動失敗するため、 applyMigrations 内で列追加後に実行する。
+ */
+const DELEGATION_COORDINATION_INDEXES: string[] = [
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_parent_session
+     ON delegation_runs(parent_session_id, created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_child_session
+     ON delegation_runs(child_session_id)`,
+];
+
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -1115,6 +1127,9 @@ export function applyMigrations(db: Database.Database): void {
   });
   tx(STATEMENTS);
   applyColumnAdditions(db);
+  // 列追加 (parent_session_id / child_session_id) の後に index を張る。 base schema で
+  // 先に張ると既存 DB (列未追加) で "no such column" になり起動失敗するため。
+  for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
   applyOwnedDelegationBackfill(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,

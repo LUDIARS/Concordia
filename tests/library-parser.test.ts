@@ -3,7 +3,7 @@ import {
   parseMemoryIndex,
   parseFrontmatter,
   firstHeading,
-} from "../src/library/parser.js";
+} from "@ludiars/memory";
 
 describe("parseMemoryIndex", () => {
   it("extracts title / link / fileName / hook from index lines", () => {

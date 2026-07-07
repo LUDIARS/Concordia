@@ -9,7 +9,7 @@ import {
   removeIndexLine,
   removeIndexLink,
   type ArchiveTarget,
-} from "../src/library/archive.js";
+} from "@ludiars/memory";
 import { makeTestDir } from "./helpers/db.js";
 
 const NOW = 1_700_000_000;

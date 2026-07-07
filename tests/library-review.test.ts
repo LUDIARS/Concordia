@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reviewSnapshot, THRESHOLDS } from "../src/library/review.js";
-import type { LibrarySource, LibraryBlock } from "../src/library/types.js";
+import { reviewSnapshot, THRESHOLDS, type LibrarySource, type LibraryBlock } from "@ludiars/memory";
 
 const NOW = 1_700_000_000;
 

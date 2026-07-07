@@ -65,9 +65,11 @@ export function httpCacheMiddleware(): MiddlewareHandler {
     if (!contentType?.includes("application/json")) return;
 
     const body = await c.res.clone().text();
-    if (Buffer.byteLength(body) > MAX_BODY_BYTES) {
+    const bodyBytes = Buffer.byteLength(body);
+    if (bodyBytes > MAX_BODY_BYTES) {
       const headers = new Headers(c.res.headers);
       headers.set("x-concordia-cache", "skip-size");
+      headers.set("x-concordia-cache-body-bytes", String(bodyBytes));
       c.res = new Response(body, { status: c.res.status, headers });
       return;
     }
@@ -87,6 +89,7 @@ export function httpCacheMiddleware(): MiddlewareHandler {
     const headers = new Headers(c.res.headers);
     headers.set("x-concordia-cache", "miss");
     headers.set("x-concordia-cache-ttl-ms", String(ttlMs));
+    headers.set("x-concordia-cache-body-bytes", String(bodyBytes));
     c.res = new Response(body, { status: c.res.status, headers });
   };
 }
@@ -100,6 +103,7 @@ function cachedResponse(cached: CachedHttpResponse, source: "l1" | "redis"): Res
   if (cached.contentType) headers.set("content-type", cached.contentType);
   headers.set("x-concordia-cache", source);
   headers.set("x-concordia-cache-age-ms", String(Math.max(0, Date.now() - cached.createdAt)));
+  headers.set("x-concordia-cache-body-bytes", String(Buffer.byteLength(cached.body)));
   return new Response(cached.body, { status: cached.status, headers });
 }
 

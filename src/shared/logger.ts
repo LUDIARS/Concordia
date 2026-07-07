@@ -1,11 +1,10 @@
 import pino, { type Logger, type TransportTargetOptions } from "pino";
 
-// dev 時のみ、 logs/concordia.log に追記する file destination を併設して
-// Monitor (tail -F) からの観察を可能にする. NODE_ENV=production / CONCORDIA_LOG_FILE=0
-// で無効化できる.
 const level = process.env.CONCORDIA_LOG_LEVEL ?? "info";
+const logFileMode = process.env.CONCORDIA_LOG_FILE;
+const logFilePath = process.env.CONCORDIA_LOG_FILE_PATH?.trim() || "logs/concordia.log";
 const fileTargetEnabled =
-  process.env.NODE_ENV !== "production" && process.env.CONCORDIA_LOG_FILE !== "0";
+  logFileMode === "1" || (process.env.NODE_ENV !== "production" && logFileMode !== "0");
 
 const targets: TransportTargetOptions[] = [
   process.env.NODE_ENV === "production"
@@ -19,7 +18,7 @@ const targets: TransportTargetOptions[] = [
 if (fileTargetEnabled) {
   targets.push({
     target: "pino/file",
-    options: { destination: "logs/concordia.log", mkdir: true },
+    options: { destination: logFilePath, mkdir: true },
     level,
   });
 }

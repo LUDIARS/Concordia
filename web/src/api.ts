@@ -150,11 +150,19 @@ async function del<T>(path: string): Promise<T> {
 
 type FieldSource = "db" | "env" | "none" | "default";
 
+export interface BotRuntimeStatus {
+  running: boolean;
+  embedded_enabled: boolean;
+  last_status: string | null;
+  last_error: string | null;
+}
+
 export interface SlackConfigStatus {
   enabled: boolean;
   channel_id: string | null;
   bot_token_set: boolean;
   app_token_set: boolean;
+  runtime: BotRuntimeStatus;
   source: {
     enabled: FieldSource;
     channel_id: FieldSource;
@@ -176,6 +184,7 @@ export interface DiscordConfigStatus {
   permission_requests_enabled: boolean;
   message_optimization_enabled: boolean;
   token_set: boolean;
+  runtime: BotRuntimeStatus;
   source: {
     enabled: FieldSource;
     guild_id: FieldSource;

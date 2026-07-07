@@ -14,6 +14,7 @@ import type { SecretBox } from "../shared/secret-box.js";
 import { chatRouter } from "./chat.js";
 import { dailyRouter } from "./daily.js";
 import { monitorRouter } from "./monitor.js";
+import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./slack-admin.js";
 import { streamRouter } from "./stream.js";
 
@@ -21,6 +22,7 @@ export interface DiscordBotAdmin {
   start: () => Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }>;
   stop: () => Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }>;
   restart: () => Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }>;
+  status: () => BotRuntimeStatus;
 }
 
 export interface ChatDeps {
@@ -142,8 +144,13 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
       message_optimization_enabled: z.boolean().optional(),
     });
 
+    const statusPayload = () => ({
+      ...discordConfigStatus(deps.discordConfig!, deps.secretBox!),
+      runtime: deps.discordAdmin!.status(),
+    });
+
     app.get("/v1/admin/discord/config", (c) =>
-      c.json(discordConfigStatus(deps.discordConfig!, deps.secretBox!)),
+      c.json(statusPayload()),
     );
 
     app.put("/v1/admin/discord/config", async (c) => {
@@ -161,7 +168,7 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
       const restart = await deps.discordAdmin!.restart();
       return c.json({
         ok: restart.ok,
-        status: discordConfigStatus(deps.discordConfig!, deps.secretBox!),
+        status: statusPayload(),
         restart,
       });
     });

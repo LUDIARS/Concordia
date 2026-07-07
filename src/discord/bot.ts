@@ -115,6 +115,7 @@ export interface DiscordBotDeps {
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
    */
   resolveConfig?: () => DiscordEnv;
+  onRuntimeState?: (state: { running: boolean; status: string; error?: string }) => void;
   /**
    * 子会社モード。 指定すると:
    *  - config / session-channels を `sub:<id>` scope で namespacing (本社と混ざらない)。
@@ -218,6 +219,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
+  let stopping = false;
+  let gatewayClosed = false;
+  let reconcileRunning = false;
+  const backgroundTimers = new Set<ReturnType<typeof setTimeout>>();
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
   // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
@@ -227,6 +232,66 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 「作業中」インジケータ。ClientReady で guild を捕捉して生成する。
   let workingIndicator: WorkingIndicator | null = null;
   let channelWorkState: ChannelWorkState | null = null;
+  const readPositiveIntEnv = (name: string, fallback: number, min = 1): number => {
+    const raw = Number(process.env[name] ?? "");
+    if (!Number.isFinite(raw) || raw <= 0) return Math.max(min, fallback);
+    return Math.max(min, Math.floor(raw));
+  };
+  const readOptionalIntEnv = (name: string, fallback: number, min = 1): number => {
+    const rawValue = process.env[name];
+    if (rawValue == null || rawValue.trim() === "") return Math.max(0, fallback);
+    const raw = Number(rawValue);
+    if (!Number.isFinite(raw)) return Math.max(0, fallback);
+    if (raw <= 0) return 0;
+    return Math.max(min, Math.floor(raw));
+  };
+  const runWithConcurrency = async <T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> => {
+    let next = 0;
+    const workerCount = Math.min(Math.max(1, limit), items.length);
+    const workers = Array.from({ length: workerCount }, async () => {
+      while (!stopping) {
+        const index = next;
+        next += 1;
+        if (index >= items.length) return;
+        await task(items[index]!);
+      }
+    });
+    await Promise.all(workers);
+  };
+  const scheduleBackground = (label: string, fn: () => Promise<void> | void, delayMs: number): void => {
+    const timer = setTimeout(() => {
+      backgroundTimers.delete(timer);
+      if (stopping) return;
+      Promise.resolve(fn()).catch((e) => log.warn(`${label} failed: ${(e as Error).message}`));
+    }, delayMs);
+    timer.unref?.();
+    backgroundTimers.add(timer);
+  };
+  const clearRuntimeTimers = (): void => {
+    for (const timer of backgroundTimers) clearTimeout(timer);
+    backgroundTimers.clear();
+    if (costTimer) { clearInterval(costTimer); costTimer = null; }
+    if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
+    if (prQueueTimer) { clearInterval(prQueueTimer); prQueueTimer = null; }
+    if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
+    if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
+  };
+  const stopAfterGatewayInstability = (status: string, error: string): void => {
+    if (gatewayClosed || stopping) return;
+    gatewayClosed = true;
+    stopping = true;
+    unsubscribe?.();
+    unsubscribe = null;
+    clearRuntimeTimers();
+    errorMonitor?.stop();
+    errorMonitor = null;
+    const poster = errorPoster;
+    errorPoster = null;
+    if (poster) void poster.stop().catch(() => {});
+    deps.onRuntimeState?.({ running: false, status, error });
+    log.warn(`${status}: ${error}; stopped embedded Discord bot`);
+    try { client.destroy(); } catch (e) { log.warn(`discord client destroy failed: ${(e as Error).message}`); }
+  };
 
   client.once(Events.ClientReady, async (c) => {
     log.info(`logged in as ${c.user.tag}`);
@@ -276,10 +341,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             activityCh?.type === ChannelType.GuildText ? activityCh : null,
           ).catch((e) => log.warn(`cost channel update failed: ${(e as Error).message}`));
         };
-        void refresh();
-        const mins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_COST_REFRESH_MIN ?? "10") || 10);
-        costTimer = setInterval(() => { void refresh(); }, mins * 60 * 1000);
-        costTimer.unref?.();
+        const mins = readOptionalIntEnv("CONCORDIA_DISCORD_COST_REFRESH_MIN", 0, 1);
+        if (mins > 0) {
+          scheduleBackground("cost channel boot refresh", refresh, 1000);
+          costTimer = setInterval(() => { void refresh(); }, mins * 60 * 1000);
+          costTimer.unref?.();
+        } else {
+          log.info("cost channel refresh disabled");
+        }
       } else {
         log.warn(`cost channel unavailable id=${layout.costChannelId}`);
       }
@@ -307,12 +376,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           },
         );
       };
-      void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
-      const monitorMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_MONITOR_REFRESH_MIN ?? "10") || 10);
-      monitorTimer = setInterval(() => {
-        void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
-      }, monitorMins * 60 * 1000);
-      monitorTimer.unref?.();
+      const monitorMins = readOptionalIntEnv("CONCORDIA_DISCORD_MONITOR_REFRESH_MIN", 0, 1);
+      if (monitorMins > 0) {
+        scheduleBackground("monitor channel boot refresh", refreshMonitor, 1000);
+        monitorTimer = setInterval(() => {
+          void refreshMonitor().catch((e) => log.warn(`monitor channel update failed: ${(e as Error).message}`));
+        }, monitorMins * 60 * 1000);
+        monitorTimer.unref?.();
+      } else {
+        log.info("monitor channel refresh disabled");
+      }
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
       const refreshPrQueue = async () => {
         await guild.channels.fetch();
@@ -336,14 +409,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         );
       };
       // pr-queue を持たない構成 (子会社) では定期更新ごと skip する。
-      if (layout.prQueueChannelId) {
+      const prMins = readOptionalIntEnv("CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN", 0, 1);
+      if (layout.prQueueChannelId && prMins > 0) {
         prQueueRefresh = () => { void refreshPrQueue(); };
-        void refreshPrQueue().catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
-        const prMins = Math.max(10, Number(process.env.CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN ?? "15") || 15);
+        scheduleBackground("pr-queue channel boot refresh", refreshPrQueue, 1000);
         prQueueTimer = setInterval(() => {
           void refreshPrQueue().catch((e) => log.warn(`pr-queue channel update failed: ${(e as Error).message}`));
         }, prMins * 60 * 1000);
         prQueueTimer.unref?.();
+      } else if (layout.prQueueChannelId) {
+        log.info("pr-queue channel refresh disabled");
       }
       // errors チャンネル: error.reported を転記する poster + Vestigium 監視を起動.
       // errors を持たない構成 (子会社) では poster/監視を立てない (warn も出さない)。
@@ -360,70 +435,76 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // 状態カードは 3 タイミングのみ更新: spawn=作成 / 10分毎=更新 / Session-End=削除。
       // 10分毎: アクティブな session のカードは更新 (作成はしない)、 非アクティブは削除。
       const lay = layout;
-      reconcileTimer = setInterval(() => {
-        // ロスト/終了セッションの状態カードを削除。
-        void reconcileLostStatusCards({ guild, configRepo, readModel: deps.readModel, log })
-          .then((r) => log.info(`status-card reconcile: scanned=${r.scanned} removed=${r.removed}`))
-          .catch((e) => log.warn(`status-card reconcile failed: ${(e as Error).message}`));
-        // アクティブセッション全件を一律更新。カードが消えていれば再作成する。
-        for (const row of sessionChannelsRepo.listActive()) {
-          void upsertSessionStatusCard({
-            guild, layout: lay, configRepo, sessionChannelsRepo,
-            readModel: deps.readModel, log,
-          }, row.session_id, { allowCreate: true })
-            .catch((e) => log.warn(`status-card 1min update failed session=${row.session_id}: ${(e as Error).message}`));
+      const statusSyncConcurrency = readPositiveIntEnv("CONCORDIA_DISCORD_STATUS_SYNC_CONCURRENCY", 2);
+      const bootSyncDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_BOOT_SYNC_DELAY_MS", 0, 1000);
+      const runStatusReconcile = async (reason: string): Promise<void> => {
+        if (reconcileRunning) {
+          log.info(`status-card ${reason} reconcile skipped; previous run still active`);
+          return;
         }
-        void pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log })
-          .catch((e) => log.warn(`prune failed: ${(e as Error).message}`));
-        void reconcileEndedSessionChannels({
-          guild, layout: lay, repo: sessionChannelsRepo,
-          isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
-          log, webhooks: webhooks ?? undefined,
-        })
-          .then((r) => {
-            if (r.reconciled > 0) {
-              log.info(`session-channel ended reconcile: scanned=${r.scanned} reconciled=${r.reconciled}`);
-            }
-          })
-          .catch((e) => log.warn(`session-channel ended reconcile failed: ${(e as Error).message}`));
-      }, 60 * 1000);
-      reconcileTimer.unref?.();
-      for (const row of sessionChannelsRepo.listActive()) {
-        void upsertSessionStatusCard({
-          guild,
-          layout,
-          configRepo,
-          sessionChannelsRepo,
-          readModel: deps.readModel,
-          log,
-        }, row.session_id);
+        reconcileRunning = true;
+        try {
+          const lost = await reconcileLostStatusCards({ guild, configRepo, readModel: deps.readModel, log });
+          log.info(`status-card ${reason} reconcile: scanned=${lost.scanned} removed=${lost.removed}`);
+          const activeRows = sessionChannelsRepo.listActive();
+          await runWithConcurrency(activeRows, statusSyncConcurrency, async (row) => {
+            await upsertSessionStatusCard({
+              guild, layout: lay, configRepo, sessionChannelsRepo,
+              readModel: deps.readModel, log,
+            }, row.session_id, { allowCreate: true });
+          });
+          const pruned = await pruneStatusCategoryChannels({ guild, layout: lay, repo: sessionChannelsRepo, configRepo, log });
+          if (pruned.deleted > 0) {
+            log.info(`status-category ${reason} sweep: scanned=${pruned.scanned} deleted=${pruned.deleted}`);
+          }
+          const ended = await reconcileEndedSessionChannels({
+            guild, layout: lay, repo: sessionChannelsRepo,
+            isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
+            log, webhooks: webhooks ?? undefined,
+          });
+          if (ended.reconciled > 0) {
+            log.info(`session-channel ended ${reason} reconcile: scanned=${ended.scanned} reconciled=${ended.reconciled}`);
+          }
+        } finally {
+          reconcileRunning = false;
+        }
+      };
+      if (bootSyncDelayMs > 0) {
+        scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
+      } else {
+        log.info("status-card boot reconcile disabled");
       }
-      // 起動時に状態カテゴリの orphan channel を一括掃除 (cost + session channel
-      // + status-card channel 以外). configRepo を渡すのは status-card channel の
-      // ID 一覧を読むため (これ無しだと稼働中 card を消して落ちる)。
-      void pruneStatusCategoryChannels({ guild, layout, repo: sessionChannelsRepo, configRepo, log })
-        .then((r) => log.info(`status-category sweep on boot: scanned=${r.scanned} deleted=${r.deleted}`))
-        .catch((e) => log.warn(`status-category sweep on boot failed: ${(e as Error).message}`));
-      void reconcileEndedSessionChannels({
-        guild,
-        layout,
-        repo: sessionChannelsRepo,
-        isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
-        log,
-        webhooks: webhooks ?? undefined,
-      })
-        .then((r) => log.info(`session-channel ended reconcile on boot: scanned=${r.scanned} reconciled=${r.reconciled}`))
-        .catch((e) => log.warn(`session-channel ended reconcile on boot failed: ${(e as Error).message}`));
+      const reconcileSec = readOptionalIntEnv("CONCORDIA_DISCORD_STATUS_RECONCILE_SEC", 0, 60);
+      if (reconcileSec > 0) {
+        reconcileTimer = setInterval(() => {
+          void runStatusReconcile("periodic").catch((e) => log.warn(`status-card periodic reconcile failed: ${(e as Error).message}`));
+        }, reconcileSec * 1000);
+        reconcileTimer.unref?.();
+      } else {
+        log.info("status-card periodic reconcile disabled");
+      }
       // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
       // ログ保存してから削除する (sessions/archive カテゴリ、 稼働中は保護)。
       // 起動時に 1 回 + 以降 1 時間ごと。
-      const runStaleSweep = () =>
-        void archiveStaleChannels({ guild, layout: layout!, repo: sessionChannelsRepo, log })
-          .then((r) => log.info(`stale-channel sweep: scanned=${r.scanned} archived=${r.archived}`))
-          .catch((e) => log.warn(`stale-channel sweep failed: ${(e as Error).message}`));
-      runStaleSweep();
-      staleChannelTimer = setInterval(runStaleSweep, 60 * 60 * 1000);
-      staleChannelTimer.unref?.();
+      const runStaleSweep = async (): Promise<void> => {
+        const r = await archiveStaleChannels({ guild, layout: layout!, repo: sessionChannelsRepo, log });
+        log.info(`stale-channel sweep: scanned=${r.scanned} archived=${r.archived}`);
+      };
+      const staleBootDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_STALE_BOOT_SWEEP_DELAY_MS", 0, 1000);
+      if (staleBootDelayMs > 0) {
+        scheduleBackground("stale-channel boot sweep", runStaleSweep, staleBootDelayMs);
+      } else {
+        log.info("stale-channel boot sweep disabled");
+      }
+      const staleSweepSec = readOptionalIntEnv("CONCORDIA_DISCORD_STALE_SWEEP_SEC", 0, 60 * 60);
+      if (staleSweepSec > 0) {
+        staleChannelTimer = setInterval(() => {
+          void runStaleSweep().catch((e) => log.warn(`stale-channel sweep failed: ${(e as Error).message}`));
+        }, staleSweepSec * 1000);
+        staleChannelTimer.unref?.();
+      } else {
+        log.info("stale-channel periodic sweep disabled");
+      }
       // 「作業中」インジケータ: session channel に通常 bot メッセージとして出す
       // （webhook ではなく channel.send なので message.delete で確実に消せる）。
       const idleSec = Math.max(15, Number(process.env.CONCORDIA_DISCORD_WORKING_IDLE_SEC ?? "60") || 60);
@@ -465,12 +546,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         },
       });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
+      deps.onRuntimeState?.({ running: true, status: "ready" });
     } catch (e) {
-      log.error(`ready handler failed: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      log.error(`ready handler failed: ${message}`);
+      stopAfterGatewayInstability("ready_handler_failed", message);
     }
   });
 
   client.on(Events.MessageCreate, (msg) => {
+    if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
     if (!inScope(msg.guildId)) return;
     const raw = msg.content ?? "";
@@ -506,6 +591,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   });
 
   client.on(Events.MessageReactionAdd, (reaction, user) => {
+    if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
     void handleReactionAdd(
       {
@@ -524,12 +610,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     });
   });
   client.on(Events.MessageReactionRemove, (reaction, user) => {
+    if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
     void handleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
       log.warn(`reaction remove handler failed: ${(e as Error).message}`);
     });
   });
   client.on(Events.InteractionCreate, (interaction) => {
+    if (gatewayClosed || stopping) return;
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
     // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
     // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を
@@ -565,8 +653,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
+  client.on(Events.ShardError, (e, shardId) => {
+    stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
+  });
+  client.on(Events.ShardDisconnect, (event, shardId) => {
+    stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
+  });
+  client.on(Events.ShardReconnecting, (shardId) => {
+    stopAfterGatewayInstability("gateway_reconnecting", `shard=${shardId}`);
+  });
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
+    if (gatewayClosed || stopping) return;
     if (ev.type === "delegation.templates_changed") {
       invalidateDelegationTemplateCache();
       log.info(
@@ -815,11 +913,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   }
 
   await client.login(env.token);
+  if (gatewayClosed) throw new Error("discord gateway closed during startup");
 
   return {
     name: "discord",
     async postToSession(input) {
-      if (!webhooks) return;
+      if (gatewayClosed || stopping || !webhooks) return;
       const client = await webhooks.getForSession(input.sessionId);
       if (!client) return;
       await webhooks.send(client, {
@@ -828,7 +927,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       });
     },
     async ensureSessionSurface(sessionId) {
-      if (!activeGuild || !layout) return;
+      if (gatewayClosed || stopping || !activeGuild || !layout) return;
       const state = deps.readModel.getSessionRelayState(sessionId);
       await onSessionRegistered(
         { guild: activeGuild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
@@ -850,14 +949,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }, sessionId, { allowCreate: true });
     },
     async postQuestion(input) {
-      if (!activeGuild) return;
+      if (gatewayClosed || stopping || !activeGuild) return;
       await postQuestion(
         { guild: activeGuild, sessionChannelsRepo, pendingQuestionsRepo, log },
         { target_session_id: input.target_session_id, question_id: input.question_id, question: input.question, options: input.options },
       );
     },
     async relayFrame(input) {
-      if (!activeGuild || !layout || !webhooks) return;
+      if (gatewayClosed || stopping || !activeGuild || !layout || !webhooks) return;
       handleEgressEvent({
         guild: activeGuild,
         layout,
@@ -877,15 +976,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       });
     },
     async stop() {
+      stopping = true;
       unsubscribe?.();
-      if (costTimer) clearInterval(costTimer);
-      if (monitorTimer) clearInterval(monitorTimer);
-      if (prQueueTimer) clearInterval(prQueueTimer);
-      if (reconcileTimer) clearInterval(reconcileTimer);
-      if (staleChannelTimer) clearInterval(staleChannelTimer);
+      unsubscribe = null;
+      clearRuntimeTimers();
       errorMonitor?.stop();
+      errorMonitor = null;
       if (errorPoster) { try { await errorPoster.stop(); } catch {} }
+      errorPoster = null;
       try { await client.destroy(); } catch {}
+      deps.onRuntimeState?.({ running: false, status: "stopped" });
     },
   };
 }

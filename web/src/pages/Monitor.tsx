@@ -1,7 +1,14 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtTs, statusBadge } from "../api.js";
-import type { SessionRow, DelegationTemplateLite, HostSnapshot, SubsidiarySummary } from "../api.js";
+import type {
+  SessionRow,
+  DelegationTemplateLite,
+  HostSnapshot,
+  SubsidiarySummary,
+  DiscordConfigStatus,
+  SlackConfigStatus,
+} from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 import { DelegationSpawnForm } from "../components/DelegationSpawnForm.js";
 
@@ -123,10 +130,155 @@ function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
 
+type ConnectionState = "loading" | "running" | "stopped" | "missing" | "disabled" | "error";
+type PlatformConnection = {
+  label: "Discord" | "Slack";
+  state: ConnectionState;
+  detail: string;
+  title?: string;
+};
+
+function shortId(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.length <= 10 ? value : `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+function missingDetail(parts: string[]): string {
+  return `missing ${parts.slice(0, 3).join("/")}${parts.length > 3 ? "+" : ""}`;
+}
+
+function connectionTone(state: ConnectionState): string {
+  switch (state) {
+    case "running":
+      return "border-ok/40 bg-ok/10 text-ok";
+    case "error":
+    case "missing":
+      return "border-danger/40 bg-danger/10 text-danger";
+    case "stopped":
+      return "border-warning/40 bg-warning/10 text-warning";
+    case "disabled":
+    case "loading":
+      return "border-border bg-muted text-subtle";
+  }
+}
+
+function compactError(error: string): string {
+  const trimmed = error.trim();
+  return trimmed.length > 42 ? `${trimmed.slice(0, 39)}...` : trimmed;
+}
+
+function headDiscordConnection(status: DiscordConfigStatus | null | undefined): PlatformConnection {
+  if (status === undefined) return { label: "Discord", state: "loading", detail: "checking" };
+  if (status === null) return { label: "Discord", state: "error", detail: "status unavailable" };
+  if (!status.runtime.embedded_enabled) return { label: "Discord", state: "disabled", detail: "embedded off" };
+  if (!status.enabled) return { label: "Discord", state: "disabled", detail: "disabled" };
+  const missing = [
+    !status.token_set ? "token" : null,
+    !status.guild_id ? "guild" : null,
+  ].filter((v): v is string => !!v);
+  if (missing.length > 0) return { label: "Discord", state: "missing", detail: missingDetail(missing) };
+  if (status.runtime.running) {
+    return { label: "Discord", state: "running", detail: `guild ${shortId(status.guild_id)}` };
+  }
+  if (status.runtime.last_error) {
+    return {
+      label: "Discord",
+      state: "error",
+      detail: compactError(status.runtime.last_error),
+      title: status.runtime.last_error,
+    };
+  }
+  return { label: "Discord", state: "stopped", detail: status.runtime.last_status ?? "not running" };
+}
+
+function headSlackConnection(status: SlackConfigStatus | null | undefined): PlatformConnection {
+  if (status === undefined) return { label: "Slack", state: "loading", detail: "checking" };
+  if (status === null) return { label: "Slack", state: "error", detail: "status unavailable" };
+  if (!status.runtime.embedded_enabled) return { label: "Slack", state: "disabled", detail: "embedded off" };
+  if (!status.enabled) return { label: "Slack", state: "disabled", detail: "disabled" };
+  const missing = [
+    !status.bot_token_set ? "bot token" : null,
+    !status.app_token_set ? "app token" : null,
+    !status.channel_id ? "channel" : null,
+  ].filter((v): v is string => !!v);
+  if (missing.length > 0) return { label: "Slack", state: "missing", detail: missingDetail(missing) };
+  if (status.runtime.running) {
+    return { label: "Slack", state: "running", detail: `channel ${shortId(status.channel_id)}` };
+  }
+  if (status.runtime.last_error) {
+    return {
+      label: "Slack",
+      state: "error",
+      detail: compactError(status.runtime.last_error),
+      title: status.runtime.last_error,
+    };
+  }
+  return { label: "Slack", state: "stopped", detail: status.runtime.last_status ?? "not running" };
+}
+
+function subsidiaryDiscordConnection(
+  subsidiary: SubsidiarySummary,
+  headStatus: DiscordConfigStatus | null | undefined,
+): PlatformConnection {
+  if (subsidiary.platform !== "discord") return { label: "Discord", state: "disabled", detail: "not used" };
+  if (!subsidiary.enabled) return { label: "Discord", state: "disabled", detail: "disabled" };
+  if (headStatus === undefined) return { label: "Discord", state: "loading", detail: "checking head" };
+  if (headStatus && !headStatus.runtime.embedded_enabled) {
+    return { label: "Discord", state: "disabled", detail: "head embedded off" };
+  }
+  const missing = [
+    headStatus === null ? "head status" : null,
+    headStatus && !headStatus.token_set ? "head token" : null,
+    !subsidiary.guild_id ? "guild" : null,
+  ].filter((v): v is string => !!v);
+  if (missing.length > 0) return { label: "Discord", state: "missing", detail: missingDetail(missing) };
+  if (subsidiary.running) {
+    return { label: "Discord", state: "running", detail: `guild ${shortId(subsidiary.guild_id)}` };
+  }
+  return { label: "Discord", state: "stopped", detail: "not running" };
+}
+
+function subsidiarySlackConnection(subsidiary: SubsidiarySummary): PlatformConnection {
+  if (subsidiary.platform !== "slack") return { label: "Slack", state: "disabled", detail: "not used" };
+  if (!subsidiary.enabled) return { label: "Slack", state: "disabled", detail: "disabled" };
+  const missing = [
+    !subsidiary.bot_token_set ? "bot token" : null,
+    !subsidiary.app_token_set ? "app token" : null,
+    !subsidiary.channel_id ? "channel" : null,
+  ].filter((v): v is string => !!v);
+  if (missing.length > 0) return { label: "Slack", state: "missing", detail: missingDetail(missing) };
+  if (subsidiary.running) {
+    return { label: "Slack", state: "running", detail: `channel ${shortId(subsidiary.channel_id)}` };
+  }
+  return { label: "Slack", state: "stopped", detail: "not running" };
+}
+
+function PlatformConnections({ items }: { items: PlatformConnection[] }) {
+  return (
+    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className={`min-w-0 rounded border px-2.5 py-2 text-xs ${connectionTone(item.state)}`}
+          title={item.title ?? item.detail}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold shrink-0">{item.label}</span>
+            <span className="ml-auto uppercase text-[10px] shrink-0">{item.state}</span>
+          </div>
+          <div className="mt-1 truncate text-[11px] opacity-90">{item.detail}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function OrganizationsSection({ active }: { active: SessionRow[] }) {
   const [subs, setSubs] = useState<SubsidiarySummary[] | null | undefined>(undefined);
   const [templates, setTemplates] = useState<DelegationTemplateLite[]>([]);
   const [projects, setProjects] = useState<string[]>([]);
+  const [discordStatus, setDiscordStatus] = useState<DiscordConfigStatus | null | undefined>(undefined);
+  const [slackStatus, setSlackStatus] = useState<SlackConfigStatus | null | undefined>(undefined);
 
   useEffect(() => {
     let stopped = false;
@@ -146,6 +298,21 @@ function OrganizationsSection({ active }: { active: SessionRow[] }) {
     api.workRepos()
       .then((r) => setProjects(projectNames(r.repos)))
       .catch(() => setProjects([]));
+  }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    const tick = () => {
+      void api.discordConfigGet()
+        .then((status) => { if (!stopped) setDiscordStatus(status); })
+        .catch(() => { if (!stopped) setDiscordStatus(null); });
+      void api.slackConfigGet()
+        .then((status) => { if (!stopped) setSlackStatus(status); })
+        .catch(() => { if (!stopped) setSlackStatus(null); });
+    };
+    tick();
+    const id = setInterval(tick, 10000);
+    return () => { stopped = true; clearInterval(id); };
   }, []);
 
   const headOfficeActive: SessionRow[] = [];
@@ -184,6 +351,8 @@ function OrganizationsSection({ active }: { active: SessionRow[] }) {
           activeSessions={headOfficeActive}
           templates={templates}
           projects={projects}
+          headDiscordStatus={discordStatus}
+          headSlackStatus={slackStatus}
         />
         {(subs ?? []).map((s) => (
           <OrganizationCard
@@ -192,6 +361,8 @@ function OrganizationsSection({ active }: { active: SessionRow[] }) {
             activeSessions={activeBySub.get(s.id) ?? []}
             templates={templates}
             projects={projects}
+            headDiscordStatus={discordStatus}
+            headSlackStatus={slackStatus}
           />
         ))}
       </div>
@@ -204,11 +375,15 @@ function OrganizationCard({
   activeSessions,
   templates,
   projects,
+  headDiscordStatus,
+  headSlackStatus,
 }: {
   subsidiary?: SubsidiarySummary;
   activeSessions: SessionRow[];
   templates: DelegationTemplateLite[];
   projects: string[];
+  headDiscordStatus: DiscordConfigStatus | null | undefined;
+  headSlackStatus: SlackConfigStatus | null | undefined;
 }) {
   const isHeadOffice = !subsidiary;
   const budget = subsidiary?.daily_token_budget ?? 0;
@@ -220,6 +395,9 @@ function OrganizationCard({
   const running = subsidiary?.running ?? true;
   const name = subsidiary ? (subsidiary.display_name || subsidiary.name) : "本社";
   const platform = subsidiary?.platform ?? "concordia";
+  const connections = subsidiary
+    ? [subsidiaryDiscordConnection(subsidiary, headDiscordStatus), subsidiarySlackConnection(subsidiary)]
+    : [headDiscordConnection(headDiscordStatus), headSlackConnection(headSlackStatus)];
   return (
     <div className="bg-surface border border-border rounded p-4 md:p-5 hover:border-accent transition-colors w-full md:w-[720px] min-h-[520px] flex flex-col">
       <div className="flex items-center gap-2">
@@ -245,6 +423,8 @@ function OrganizationCard({
           </span>
         )}
       </div>
+
+      <PlatformConnections items={connections} />
 
       {subsidiary && (
         <div className="mt-2 text-[11px]">

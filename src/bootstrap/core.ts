@@ -79,6 +79,7 @@ import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
 import {
@@ -95,77 +96,116 @@ let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
 let slackBotHandle: ChatPlatform | null = null;
 let slackBotDeps: SlackBotDeps | null = null;
+let discordBotLastStatus: string | null = "not_started";
+let discordBotLastError: string | null = null;
+let slackBotLastStatus: string | null = "not_started";
+let slackBotLastError: string | null = null;
 
 function discordEmbeddedEnabled(): boolean {
   return chatEmbeddedEnabled() && process.env.CONCORDIA_DISCORD_EMBEDDED !== "0";
 }
 
+function discordSubsidiaryAutostartEnabled(): boolean {
+  return /^(1|true|yes)$/i.test(process.env.CONCORDIA_DISCORD_SUBSIDIARY_AUTOSTART ?? "");
+}
+
+function rememberDiscordBotResult<const T extends { ok: boolean; status: string; error?: string }>(result: T): T {
+  discordBotLastStatus = result.status;
+  discordBotLastError = result.ok ? null : result.error ?? null;
+  return result;
+}
+
+function rememberSlackBotResult<const T extends { ok: boolean; status: string; error?: string }>(result: T): T {
+  slackBotLastStatus = result.status;
+  slackBotLastError = result.ok ? null : result.error ?? null;
+  return result;
+}
+
+function discordBotRuntimeStatus(): BotRuntimeStatus {
+  return {
+    running: !!discordBotHandle,
+    embedded_enabled: discordEmbeddedEnabled(),
+    last_status: discordBotLastStatus,
+    last_error: discordBotLastError,
+  };
+}
+
+function slackBotRuntimeStatus(): BotRuntimeStatus {
+  return {
+    running: !!slackBotHandle,
+    embedded_enabled: chatEmbeddedEnabled(),
+    last_status: slackBotLastStatus,
+    last_error: slackBotLastError,
+  };
+}
+
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
-  if (!chatEmbeddedEnabled()) return { ok: true, status: "disabled" };
-  if (slackBotHandle) return { ok: true, status: "already_running" };
-  if (!slackBotDeps) return { ok: false, status: "error", error: "slack deps not initialized" };
+  if (!chatEmbeddedEnabled()) return rememberSlackBotResult({ ok: true, status: "disabled" });
+  if (slackBotHandle) return rememberSlackBotResult({ ok: true, status: "already_running" });
+  if (!slackBotDeps) return rememberSlackBotResult({ ok: false, status: "error", error: "slack deps not initialized" });
   try {
     const h = await startSlackBot(slackBotDeps);
-    if (!h) return { ok: true, status: "disabled" };
+    if (!h) return rememberSlackBotResult({ ok: true, status: "disabled" });
     slackBotHandle = h;
-    return { ok: true, status: "started" };
+    return rememberSlackBotResult({ ok: true, status: "started" });
   } catch (e) {
-    return { ok: false, status: "error", error: (e as Error).message };
+    return rememberSlackBotResult({ ok: false, status: "error", error: (e as Error).message });
   }
 }
 
 async function stopSlackBotManaged(): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
-  if (!slackBotHandle) return { ok: true, status: "already_stopped" };
+  if (!slackBotHandle) return rememberSlackBotResult({ ok: true, status: "already_stopped" });
   try {
     await slackBotHandle.stop();
     slackBotHandle = null;
-    return { ok: true, status: "stopped" };
+    return rememberSlackBotResult({ ok: true, status: "stopped" });
   } catch (e) {
-    return { ok: false, status: "error", error: (e as Error).message };
+    return rememberSlackBotResult({ ok: false, status: "error", error: (e as Error).message });
   }
 }
 
 async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }> {
   const stop = await stopSlackBotManaged();
-  if (!stop.ok) return { ok: false, status: "error", error: stop.error };
+  if (!stop.ok) return rememberSlackBotResult({ ok: false, status: "error", error: stop.error });
   const start = await startSlackBotManaged();
-  if (!start.ok) return { ok: false, status: "error", error: start.error };
-  if (start.status === "disabled") return { ok: true, status: "disabled" };
-  return { ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" };
+  if (!start.ok) return rememberSlackBotResult({ ok: false, status: "error", error: start.error });
+  if (start.status === "disabled") return rememberSlackBotResult({ ok: true, status: "disabled" });
+  return rememberSlackBotResult({ ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" });
 }
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
-  if (!discordEmbeddedEnabled()) return { ok: true, status: "disabled" };
-  if (discordBotHandle) return { ok: true, status: "already_running" };
-  if (!discordBotDeps) return { ok: false, status: "error", error: "discord deps not initialized" };
+  if (!discordEmbeddedEnabled()) return rememberDiscordBotResult({ ok: true, status: "disabled" });
+  if (discordBotHandle) return rememberDiscordBotResult({ ok: true, status: "already_running" });
+  if (!discordBotDeps) return rememberDiscordBotResult({ ok: false, status: "error", error: "discord deps not initialized" });
   try {
+    rememberDiscordBotResult({ ok: true, status: "starting" });
     const h = await startDiscordBot(discordBotDeps);
-    if (!h) return { ok: true, status: "disabled" };
+    if (!h) return rememberDiscordBotResult({ ok: true, status: "disabled" });
     discordBotHandle = h;
-    return { ok: true, status: "started" };
+    return rememberDiscordBotResult({ ok: true, status: "started" });
   } catch (e) {
-    return { ok: false, status: "error", error: (e as Error).message };
+    return rememberDiscordBotResult({ ok: false, status: "error", error: (e as Error).message });
   }
 }
 
 async function stopDiscordBotManaged(): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
-  if (!discordBotHandle) return { ok: true, status: "already_stopped" };
+  if (!discordBotHandle) return rememberDiscordBotResult({ ok: true, status: "already_stopped" });
   try {
     await discordBotHandle.stop();
     discordBotHandle = null;
-    return { ok: true, status: "stopped" };
+    return rememberDiscordBotResult({ ok: true, status: "stopped" });
   } catch (e) {
-    return { ok: false, status: "error", error: (e as Error).message };
+    return rememberDiscordBotResult({ ok: false, status: "error", error: (e as Error).message });
   }
 }
 
 async function restartDiscordBotManaged(): Promise<{ ok: boolean; status: "restarted" | "started" | "disabled" | "error"; error?: string }> {
   const stop = await stopDiscordBotManaged();
-  if (!stop.ok) return { ok: false, status: "error", error: stop.error };
+  if (!stop.ok) return rememberDiscordBotResult({ ok: false, status: "error", error: stop.error });
   const start = await startDiscordBotManaged();
-  if (!start.ok) return { ok: false, status: "error", error: start.error };
-  if (start.status === "disabled") return { ok: true, status: "disabled" };
-  return { ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" };
+  if (!start.ok) return rememberDiscordBotResult({ ok: false, status: "error", error: start.error });
+  if (start.status === "disabled") return rememberDiscordBotResult({ ok: true, status: "disabled" });
+  return rememberDiscordBotResult({ ok: true, status: stop.status === "already_stopped" ? "started" : "restarted" });
 }
 
 function loadDotEnv(file: string): void {
@@ -392,6 +432,11 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
+    onRuntimeState: (state) => {
+      discordBotLastStatus = state.status;
+      discordBotLastError = state.error ?? null;
+      if (!state.running) discordBotHandle = null;
+    },
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
   };
@@ -479,6 +524,7 @@ export async function startBackend(): Promise<BackendHandle> {
       start: startDiscordBotManaged,
       stop: stopDiscordBotManaged,
       restart: restartDiscordBotManaged,
+      status: discordBotRuntimeStatus,
     },
     slackConfig,
     secretBox,
@@ -486,6 +532,7 @@ export async function startBackend(): Promise<BackendHandle> {
       start: startSlackBotManaged,
       stop: stopSlackBotManaged,
       restart: restartSlackBotManaged,
+      status: slackBotRuntimeStatus,
     },
     chatRoutes: readChatMode() === "off" ? null : undefined,
     costRoutes: costMode === "off" ? null : undefined,
@@ -667,8 +714,12 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/discord-ui.md
   {
     if (discordEmbeddedEnabled()) {
-      const started = await startDiscordBotManaged();
-      if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+      rememberDiscordBotResult({ ok: true, status: "starting" });
+      void startDiscordBotManaged()
+        .then((started) => {
+          if (!started.ok) log.warn(`Discord bot init failed: ${started.error ?? "unknown"}`);
+        })
+        .catch((e) => log.warn(`Discord bot init failed: ${(e as Error).message}`));
     } else {
       log.info("Discord embedded bot disabled (CONCORDIA_CHAT_MODE=off / CONCORDIA_DISCORD_EMBEDDED=0)");
     }
@@ -680,7 +731,11 @@ export async function startBackend(): Promise<BackendHandle> {
   if (shuttingDown) return;
 
   if (discordEmbeddedEnabled()) {
-    await subsidiaryManager.startAll();
+    if (discordSubsidiaryAutostartEnabled()) {
+      await subsidiaryManager.startAll();
+    } else {
+      log.info("Discord subsidiary autostart disabled (CONCORDIA_DISCORD_SUBSIDIARY_AUTOSTART != 1)");
+    }
   }
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }

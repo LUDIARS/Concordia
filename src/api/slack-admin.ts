@@ -13,11 +13,13 @@ import { z } from "zod";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { setSlackConfig, slackConfigStatus } from "../slack/config.js";
+import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 
 export interface SlackBotAdmin {
   start: () => Promise<{ ok: boolean; status: string; error?: string }>;
   stop: () => Promise<{ ok: boolean; status: string; error?: string }>;
   restart: () => Promise<{ ok: boolean; status: string; error?: string }>;
+  status: () => BotRuntimeStatus;
 }
 
 export interface SlackAdminDeps {
@@ -37,7 +39,12 @@ const PutSchema = z.object({
 export function slackAdminRouter(deps: SlackAdminDeps): Hono {
   const app = new Hono();
 
-  app.get("/config", (c) => c.json(slackConfigStatus(deps.config, deps.secretBox)));
+  const statusPayload = () => ({
+    ...slackConfigStatus(deps.config, deps.secretBox),
+    runtime: deps.admin.status(),
+  });
+
+  app.get("/config", (c) => c.json(statusPayload()));
 
   // 設定保存 → そのまま hot 再接続して「設定時点で有効」にする。
   app.put("/config", async (c) => {
@@ -53,7 +60,7 @@ export function slackAdminRouter(deps: SlackAdminDeps): Hono {
     const restart = await deps.admin.restart();
     return c.json({
       ok: restart.ok,
-      status: slackConfigStatus(deps.config, deps.secretBox),
+      status: statusPayload(),
       restart,
     });
   });

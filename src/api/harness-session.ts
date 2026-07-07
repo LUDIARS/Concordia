@@ -18,6 +18,12 @@ import { evaluateAction } from "../harness/session-gate.js";
 import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/predicates.js";
 import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
 import {
+  HARNESS_BLACKBOX_DOMAINS,
+  type HarnessBlackboxDomain,
+  type HarnessBlackboxMeta,
+  type HarnessBlackboxService,
+} from "../harness/blackbox-engine.js";
+import {
   analyzePromptWithClaudeModel,
   analyzePromptWithLocalLlm,
   heuristicPromptAnalysis,
@@ -67,6 +73,11 @@ const IntentSchema = z.object({
   session_id: z.string().max(128).optional(),
 });
 
+const BlackboxVerdictSchema = z.object({
+  decision_id: z.number().int().positive(),
+  verdict: z.enum(["ok", "ng"]),
+});
+
 /** per-prompt 意図判定に使う Sonnet モデル (env 上書き可)。 */
 const INTENT_MODEL = process.env.CONCORDIA_HARNESS_INTENT_MODEL || "sonnet";
 
@@ -87,6 +98,24 @@ export interface HarnessSessionApiDeps {
    * (opt-in)。 per-action 決定的ゲートは runClaude 不要で常時動く。
    */
   runClaude?: RunClaudeFn;
+  /** Resident Lapilli blackbox engine for harness decisions and review ledger. */
+  blackbox?: HarnessBlackboxService;
+}
+
+function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
+  if (!meta) return undefined;
+  return {
+    domain: meta.domain,
+    decision_id: meta.decision_id,
+    engine_source: meta.engine_source,
+    status: meta.status,
+    rule_id: meta.rule_id,
+    confidence: meta.confidence,
+  };
+}
+
+function parseBlackboxDomain(value: string | undefined): HarnessBlackboxDomain {
+  return value === HARNESS_BLACKBOX_DOMAINS.intent ? HARNESS_BLACKBOX_DOMAINS.intent : HARNESS_BLACKBOX_DOMAINS.gate;
 }
 
 /**
@@ -110,7 +139,13 @@ function recordSafe(
 export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
   const app = new Hono();
 
-  app.get("/health", (c) => c.json({ ok: true, predicates: DEFAULT_PREDICATES.length }));
+  app.get("/health", (c) => c.json({
+    ok: true,
+    predicates: DEFAULT_PREDICATES.length,
+    blackbox: deps.blackbox
+      ? { enabled: true, domains: HARNESS_BLACKBOX_DOMAINS }
+      : { enabled: false },
+  }));
 
   // 操作 1 件を判定する。 deny は hook が操作をブロックする。
   app.post("/gate", async (c) => {
@@ -127,7 +162,25 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const editedRepos = [...deps.audit.distinctEditedRepos(session_id ?? "")];
     if (repo && isEditTool(action.tool) && !editedRepos.includes(repo)) editedRepos.push(repo);
 
-    const verdict = evaluateAction({ ...action, editedRepos } as HarnessAction);
+    const deterministic = evaluateAction({ ...action, editedRepos } as HarnessAction);
+    let verdict = deterministic;
+    let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;
+    let blackboxError: string | undefined;
+    if (deps.blackbox) {
+      try {
+        blackbox = await deps.blackbox.decideGate({
+          action: { ...action, editedRepos } as HarnessAction,
+          editedRepos,
+          verdict: deterministic,
+          session_id,
+          hook: hook ?? "gate",
+        });
+        verdict = blackbox.verdict;
+      } catch (e) {
+        blackboxError = (e as Error).message;
+        hlog.warn({ err: blackboxError, session_id, hook: hook ?? "gate" }, "harness blackbox gate failed");
+      }
+    }
     const event: HarnessAuditEvent = verdict.decision === "deny" ? "block" : "gate";
     // 当たった hit の代表 rule (最悪 decision のもの)。
     const lead = verdict.hits.find((h) => h.decision === verdict.decision);
@@ -136,14 +189,25 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       session_id, project: action.project, hook: hook ?? "gate", event,
       tool: action.tool, action: action.command ?? action.filePath ?? "", repo,
       rule: lead?.rule ?? "", decision: verdict.decision as HarnessAuditDecision,
-      reason: verdict.reason, detail: { hits: verdict.hits, branch: action.branch }, ms: Date.now() - t0,
+      reason: verdict.reason,
+      detail: {
+        hits: verdict.hits,
+        branch: action.branch,
+        deterministic,
+        blackbox: compactBlackboxMeta(blackbox?.meta),
+        ...(blackboxError ? { blackbox_error: blackboxError } : {}),
+      },
+      ms: Date.now() - t0,
     });
 
     const gateLevel: VgLevel = verdict.decision === "deny" ? "warn" : verdict.decision === "warn" ? "info" : "debug";
     emit(gateLevel, `harness gate ${verdict.decision}${lead?.rule ? `: ${lead.rule}` : ""}`, {
       session_id, hook: hook ?? "gate", tool: action.tool, repo, branch: action.branch,
       decision: verdict.decision, rules: verdict.hits.map((h) => h.rule), editedRepos: editedRepos.length,
-      audit_ok: rec.ok, ms: Date.now() - t0,
+      audit_ok: rec.ok,
+      blackbox_source: blackbox?.meta.engine_source,
+      blackbox_decision_id: blackbox?.meta.decision_id,
+      ms: Date.now() - t0,
     });
 
     return c.json({
@@ -152,6 +216,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       reason: verdict.reason,
       hits: verdict.hits,
       audit_ok: rec.ok,
+      ...(blackbox ? { blackbox: blackbox.meta } : {}),
+      ...(blackboxError ? { blackbox_error: blackboxError } : {}),
       ...(rec.error ? { audit_error: rec.error } : {}),
     });
   });
@@ -174,7 +240,11 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
 
     emit("info", "harness supply", { session_id, project, rules: rules.length, gates: gates.length, ms: Date.now() - t0 });
 
-    return c.json({ rules, gates });
+    return c.json({
+      rules,
+      gates,
+      ...(deps.blackbox ? { blackbox: deps.blackbox.snapshot(HARNESS_BLACKBOX_DOMAINS.gate, 25).stats } : {}),
+    });
   });
 
   // per-prompt 意図判定 (Sonnet)。 着手前に自然文ルールへの抵触を助言する advisory 層。
@@ -195,7 +265,19 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       : (mode === "haiku" || mode === "claude" || mode === "sonnet") && deps.runClaude
         ? await analyzePromptWithClaudeModel(intentContext, deps.runClaude, { model: mode === "haiku" ? "haiku" : INTENT_MODEL })
         : await analyzePromptWithLocalLlm(intentContext);
-    const { verdict, raw, analysis, source } = analyzed;
+    const { raw, analysis, source } = analyzed;
+    let verdict = analyzed.verdict;
+    let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideIntent"]>> | undefined;
+    let blackboxError: string | undefined;
+    if (deps.blackbox) {
+      try {
+        blackbox = await deps.blackbox.decideIntent({ prompt, project, branch, source, verdict, analysis });
+        verdict = blackbox.verdict;
+      } catch (e) {
+        blackboxError = (e as Error).message;
+        hlog.warn({ err: blackboxError, session_id, project }, "harness blackbox intent failed");
+      }
+    }
     const research = promptResearchEnabled()
       ? await collectPromptResearch(analysis, { prompt, project })
       : { enabled: false, threshold: 0, query_terms: [], projects: [], anatomia: [], thaleia: [] };
@@ -205,20 +287,64 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       action: prompt.slice(0, 200), rule: verdict.concerns[0] ?? "",
       decision: verdict.decision as HarnessAuditDecision,
       reason: verdict.advice || verdict.intent,
-      detail: { risk: verdict.risk, concerns: verdict.concerns, intent: verdict.intent, source, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety, research, raw: raw.slice(0, 2000) },
+      detail: {
+        risk: verdict.risk,
+        concerns: verdict.concerns,
+        intent: verdict.intent,
+        source,
+        search_tags: analysis.search_tags,
+        target_services: analysis.target_services,
+        safety: analysis.safety,
+        research,
+        blackbox: compactBlackboxMeta(blackbox?.meta),
+        ...(blackboxError ? { blackbox_error: blackboxError } : {}),
+        raw: raw.slice(0, 2000),
+      },
       ms: Date.now() - t0,
     });
 
     const intentLevel: VgLevel = verdict.decision === "warn" ? "warn" : "info";
     emit(intentLevel, `harness intent ${verdict.decision} (risk=${verdict.risk})`, {
       session_id, project, branch, decision: verdict.decision, risk: verdict.risk,
-      concerns: verdict.concerns, intent: verdict.intent.slice(0, 120), source, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety.level, research_enabled: research.enabled, ms: Date.now() - t0,
+      concerns: verdict.concerns, intent: verdict.intent.slice(0, 120), source, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety.level, research_enabled: research.enabled,
+      blackbox_source: blackbox?.meta.engine_source,
+      blackbox_decision_id: blackbox?.meta.decision_id,
+      ms: Date.now() - t0,
     });
 
-    return c.json({ enabled: true, source, ...verdict, search_tags: analysis.search_tags, target_services: analysis.target_services, safety: analysis.safety, research, audit_ok: rec.ok, ...(rec.error ? { audit_error: rec.error } : {}) });
+    return c.json({
+      enabled: true,
+      source,
+      ...verdict,
+      search_tags: analysis.search_tags,
+      target_services: analysis.target_services,
+      safety: analysis.safety,
+      research,
+      audit_ok: rec.ok,
+      ...(blackbox ? { blackbox: blackbox.meta } : {}),
+      ...(blackboxError ? { blackbox_error: blackboxError } : {}),
+      ...(rec.error ? { audit_error: rec.error } : {}),
+    });
   });
 
   // 監査ログ取得 (確認経路)。
+  app.get("/blackbox", (c) => {
+    if (!deps.blackbox) return c.json({ enabled: false });
+    const domain = parseBlackboxDomain(c.req.query("domain"));
+    const limitRaw = Number(c.req.query("limit") ?? 50);
+    const limit = Math.max(1, Math.min(200, isFinite(limitRaw) ? limitRaw : 50));
+    return c.json(deps.blackbox.snapshot(domain, limit));
+  });
+
+  app.post("/blackbox/verdict", async (c) => {
+    if (!deps.blackbox) return c.json({ enabled: false, error: "blackbox_disabled" }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = BlackboxVerdictSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const out = deps.blackbox.recordVerdict(parsed.data.decision_id, parsed.data.verdict);
+    return c.json({ ok: out.ok, rule_updated: out.ruleUpdated ?? null });
+  });
+
   app.get("/audit", (c) => {
     const session_id = c.req.query("session_id") || undefined;
     const decisionRaw = c.req.query("decision");

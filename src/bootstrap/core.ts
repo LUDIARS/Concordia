@@ -35,6 +35,7 @@ import { seedModelCatalog } from "../model-catalog/seed.js";
 import { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
+import { createHarnessBlackbox } from "../harness/blackbox-engine.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
 import { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
@@ -254,6 +255,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
   const harnessAuditRepo = new HarnessAuditRepo(db);
+  const harnessBlackbox = createHarnessBlackbox(db);
   // 子会社の日次トークン予算トラッカー。 subsidiary_id タグ付きセッションの当日消費を
   // ログから直接合算する (グローバル予算と違い delta 累積は不要 = 冪等)。
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
@@ -501,6 +503,7 @@ export async function startBackend(): Promise<BackendHandle> {
     harnessRules: harnessRepo,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
+    harnessBlackbox,
     subsidiaryManager,
     subsidiaryBudget,
     adminState,

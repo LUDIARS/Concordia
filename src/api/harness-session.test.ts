@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
+import { createHarnessBlackbox } from "../harness/blackbox-engine.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
 import { harnessSessionRouter } from "./harness-session.js";
 
@@ -16,10 +17,11 @@ function makeApp(runClaude?: RunClaudeFn) {
   const db = makeTestDb();
   const audit = new HarnessAuditRepo(db);
   const rules = new HarnessRulesRepo(db);
+  const blackbox = createHarnessBlackbox(db);
   seedHarnessRules(rules);
   const app = new Hono();
-  app.route("/v1/harness", harnessSessionRouter({ audit, rules, runClaude }));
-  return { app, audit, rules };
+  app.route("/v1/harness", harnessSessionRouter({ audit, rules, runClaude, blackbox }));
+  return { app, audit, rules, blackbox };
 }
 
 const post = (app: Hono, path: string, body: unknown) =>
@@ -53,11 +55,15 @@ describe("/v1/harness route", () => {
     expect(v.decision).toBe("deny");
     expect(v.blocked).toBe(true);
     expect(v.audit_ok).toBe(true);
+    expect(v.blackbox.enabled).toBe(true);
+    expect(v.blackbox.domain).toBe("concordia.harness.gate");
+    expect(v.blackbox.decision_id).toBeGreaterThan(0);
 
     const audit = ctx.audit.recent({ session_id: "sess-1" });
     expect(audit).toHaveLength(1);
     expect(audit[0].event).toBe("block");
     expect(audit[0].rule).toBe("no-main-push");
+    expect(ctx.blackbox.snapshot("concordia.harness.gate").stats.window).toBe(1);
   });
 
   it("違反なし操作は allow し gate イベントを記録する", async () => {
@@ -78,7 +84,21 @@ describe("/v1/harness route", () => {
     const body = await readJson(res);
     expect(Array.isArray(body.rules)).toBe(true);
     expect(body.rules.length).toBeGreaterThan(0); // seed 済み builtin
+    expect(body.blackbox.domain).toBe("concordia.harness.gate");
     expect(ctx.audit.recent({ event: "inject" })).toHaveLength(1);
+  });
+
+  it("blackbox endpoint exposes resident harness rule and decision state", async () => {
+    await post(ctx.app, "/v1/harness/gate", {
+      action: { tool: "Bash", command: "git push", branch: "main" },
+      session_id: "bb-1",
+    });
+    const res = await ctx.app.request("/v1/harness/blackbox?domain=concordia.harness.gate");
+    const body = await readJson(res);
+    expect(body.enabled).toBe(true);
+    expect(body.domain).toBe("concordia.harness.gate");
+    expect(body.stats.window).toBeGreaterThanOrEqual(1);
+    expect(body.rules.some((r: { description: string }) => r.description.includes("main/master"))).toBe(true);
   });
 
   it("audit エンドポイントで decision フィルタ + summary が取れる", async () => {
@@ -134,6 +154,7 @@ describe("/v1/harness route", () => {
     expect(v.enabled).toBe(true);
     expect(v.source).toBe("heuristic");
     expect(v.search_tags).toContain("hook");
+    expect(v.blackbox.domain).toBe("concordia.harness.intent");
   });
 
   it("intent uses runClaude when haiku analyzer mode is selected", async () => {

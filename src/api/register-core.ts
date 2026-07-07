@@ -52,6 +52,7 @@ import { harnessRulesRouter } from "./harness-rules.js";
 import { harnessSessionRouter } from "./harness-session.js";
 import { testingRouter } from "./testing.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
+import type { HarnessBlackboxService } from "../harness/blackbox-engine.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
@@ -99,6 +100,7 @@ export interface CoreDeps {
   harnessRules?: HarnessRulesRepo;
   harnessAudit?: HarnessAuditRepo;
   harnessRunClaude?: RunClaudeFn;
+  harnessBlackbox?: HarnessBlackboxService;
   subsidiaryManager?: SubsidiaryBotManager;
   subsidiaryBudget?: SubsidiaryBudgetTracker;
   adminState: AdminState;
@@ -174,7 +176,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.harnessAudit && deps.harnessRules) {
     app.route(
       "/v1/harness",
-      harnessSessionRouter({ audit: deps.harnessAudit, rules: deps.harnessRules, runClaude: deps.harnessRunClaude }),
+      harnessSessionRouter({
+        audit: deps.harnessAudit,
+        rules: deps.harnessRules,
+        runClaude: deps.harnessRunClaude,
+        blackbox: deps.harnessBlackbox,
+      }),
     );
   }
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {

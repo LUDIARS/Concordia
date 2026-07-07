@@ -11,6 +11,9 @@
       "pathPattern": "(^|/)src/skills/[^/]+$"
     },
     {
+      "pathPattern": "(^|/)src/library/[^/]+$"
+    },
+    {
       "pathPattern": "(^|/)src/model-catalog/[^/]+$"
     }
   ],

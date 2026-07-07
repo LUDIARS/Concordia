@@ -8,9 +8,6 @@
       "pathPattern": "(^|/)src/control/[^/]+$"
     },
     {
-      "pathPattern": "(^|/)src/[^/]+$"
-    },
-    {
       "pathPattern": "(^|/)src/work/[^/]+$"
     },
     {
@@ -18,6 +15,9 @@
     },
     {
       "pathPattern": "(^|/)src/report/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/session-logs/[^/]+$"
     },
     {
       "pathPattern": "(^|/)src/providers/[^/]+$"

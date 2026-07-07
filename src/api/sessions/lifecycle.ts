@@ -362,7 +362,6 @@ app.delete("/:id", async (c) => {
       {
         repo: deps.repo,
         chat: deps.chat,
-        dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
         harnessAudit: deps.harnessAudit,

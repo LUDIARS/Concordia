@@ -63,9 +63,6 @@ app.post("/:id/event", async (c) => {
         });
       }
     }
-    const session = deps.repo.findSession(id)!;
-    const eventCount = deps.repo.countEvents(id);
-    deps.dispatcher.onEventAppended(session, eventCount);
     eventBus.emit({ type: "session.event", session_id: id, kind: parsed.data.kind, ts });
     return c.json({ ok: true });
   });

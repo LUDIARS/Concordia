@@ -6,7 +6,6 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
-import type { Dispatcher } from "../dispatcher.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { sessionsRouter } from "./sessions.js";
 import { reportsRouter } from "./reports.js";
@@ -105,7 +104,6 @@ export interface CoreDeps {
   adminState: AdminState;
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
-  dispatcher: Dispatcher;
   config: ConcordiaConfig;
   sweeperRunOnce: () => void;
   toolPath: string;
@@ -121,7 +119,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       tasks: deps.tasks,
       chat: deps.chat,
       config: deps.config,
-      dispatcher: deps.dispatcher,
       personas: deps.personas,
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
@@ -449,7 +446,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       {
         repo: deps.repo,
         chat: deps.chat,
-        dispatcher: deps.dispatcher,
         personas: deps.personas,
         config: deps.config,
         harnessAudit: deps.harnessAudit,

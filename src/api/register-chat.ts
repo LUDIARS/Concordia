@@ -6,7 +6,6 @@ import type { DayReportsRepo } from "../db/day-reports-repo.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { Dispatcher } from "../dispatcher.js";
 import type { SchedulerHandle } from "../daily/scheduler.js";
 import type { MetricsStore } from "../metrics/store.js";
 import { setDiscordConfig, discordConfigStatus } from "../discord/conn-config.js";
@@ -28,7 +27,6 @@ export interface ChatDeps {
   repo: SessionsRepo;
   metrics?: MetricsStore;
   chat: ChatRepo;
-  dispatcher: Dispatcher;
   dayReports: DayReportsRepo;
   dailyScheduler: SchedulerHandle;
   adminState: AdminState;
@@ -41,7 +39,7 @@ export interface ChatDeps {
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
   app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
-  app.route("/v1/chat", chatRouter({ chat: deps.chat, dispatcher: deps.dispatcher }));
+  app.route("/v1/chat", chatRouter({ chat: deps.chat }));
   app.route("/v1/stream", streamRouter());
   app.route(
     "/v1/daily-reports",

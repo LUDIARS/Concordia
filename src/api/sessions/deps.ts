@@ -4,7 +4,6 @@ import type { HarnessAuditRepo } from "../../db/harness-audit-repo.js";
 import type { TasksRepo } from "../../db/tasks-repo.js";
 import type { ChatRepo } from "../../db/chat-repo.js";
 import type { ConcordiaConfig } from "../../shared/config.js";
-import type { Dispatcher } from "../../dispatcher.js";
 import type { PersonasRepo } from "../../db/personas-repo.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../../db/session-task-records-repo.js";
@@ -55,7 +54,6 @@ export interface SessionsApiDeps {
   tasks: TasksRepo;
   chat: ChatRepo;
   config: ConcordiaConfig;
-  dispatcher: Dispatcher;
   personas: PersonasRepo;
   processManager: ProcessManager;
   sessionTaskRecords: SessionTaskRecordsRepo;

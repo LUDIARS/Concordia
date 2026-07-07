@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { makeTestDb } from "./helpers/db.js";
-import { SessionsRepo } from "../src/db/sessions-repo.js";
-import { ChatRepo } from "../src/db/chat-repo.js";
-import { PersonasRepo } from "../src/db/personas-repo.js";
-import { seedPersonas } from "../src/personas/seeds.js";
-import { sanitize, buildRenderPrompt, renderChat } from "../src/chat/render.js";
+import { sanitize, buildRenderPrompt, renderChat, type PersonaVoice } from "../src/chat/render.js";
 import { resolveRenderConfig } from "../src/chat/render-config.js";
 import { decideRuleFire } from "../src/rules/decide.js";
-import { ChatResponder, COORDINATOR_VOICE } from "../src/chat/responder.js";
 import type { RuleRow } from "../src/db/rules-repo.js";
+
+const COORDINATOR_VOICE: PersonaVoice = { name: "concordia", display_name: "concordia" };
 
 function rule(partial: Partial<RuleRow>): RuleRow {
   return {
@@ -98,63 +94,3 @@ describe("decideRuleFire (black-box, deterministic)", () => {
   });
 });
 
-describe("ChatResponder (template mode)", () => {
-  function env() {
-    const db = makeTestDb();
-    const sessions = new SessionsRepo(db);
-    const chat = new ChatRepo(db);
-    const personas = new PersonasRepo(db);
-    seedPersonas(personas);
-    const responder = new ChatResponder({
-      chat, personas, sessions,
-      renderConfig: () => ({ renderer: "template", model: "" }),
-    });
-    return { db, sessions, chat, personas, responder };
-  }
-
-  it("posts a coordinator chitchat from a seed", async () => {
-    const e = env();
-    await e.responder.speak({ channel: "chitchat", intent: "chitchat", sessionId: null, context: { seed: "やあ" } });
-    const msgs = e.chat.list({ limit: 10 });
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].text).toBe("やあ");
-    expect(msgs[0].author_label).toBe("concordia");
-  });
-
-  it("uses the assigned persona's display_name as author", async () => {
-    const e = env();
-    e.sessions.insertSession({
-      id: "s1", provider: "claude-code", repo_path: "/x", repo_origin: null, branch: "main",
-      host: "h", started_at: 1, last_seen_at: 1, transcript_path: null, metadata: null,
-    });
-    const a = e.personas.assign("s1");
-    expect(a).not.toBeNull();
-    await e.responder.speak({ channel: "chitchat", intent: "reply", sessionId: "s1", context: { trigger: "hello" } });
-    const msgs = e.chat.list({ limit: 10 });
-    expect(msgs.length).toBe(1);
-    expect(msgs[0].author_label).toBe(a!.persona.display_name || a!.persona.name);
-  });
-
-  it("fans out to dispatcher with the message and depth", async () => {
-    const e = env();
-    const seen: Array<{ id: number; depth: number }> = [];
-    e.responder.attachFanout({ onChatPosted: (m, depth) => seen.push({ id: m.id, depth }) });
-    await e.responder.speak({ channel: "chitchat", intent: "chitchat", sessionId: null, context: { seed: "hi" }, replyDepth: 1 });
-    expect(seen.length).toBe(1);
-    expect(seen[0].depth).toBe(1);
-  });
-
-  it("does nothing when chat is muted", async () => {
-    const db = makeTestDb();
-    const sessions = new SessionsRepo(db);
-    const chat = new ChatRepo(db);
-    const personas = new PersonasRepo(db);
-    const responder = new ChatResponder({
-      chat, personas, sessions,
-      renderConfig: () => ({ renderer: "template", model: "" }),
-      isChatMuted: () => true,
-    });
-    await responder.speak({ channel: "chitchat", intent: "chitchat", sessionId: null, context: { seed: "x" } });
-    expect(chat.list({ limit: 10 }).length).toBe(0);
-  });
-});

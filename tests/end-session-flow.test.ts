@@ -12,8 +12,6 @@ import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
 import { seedPersonas } from "../src/personas/seeds.js";
-import { Dispatcher } from "../src/dispatcher.js";
-import { ChatResponder } from "../src/chat/responder.js";
 import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
@@ -56,14 +54,8 @@ function makeEnv() {
   const personas = new PersonasRepo(db);
   seedPersonas(personas);
   // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
-  const responder = new ChatResponder({
-    chat, personas, sessions: repo,
-    renderConfig: () => ({ renderer: "template", model: "" }),
-  });
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: () => 1 });
-  responder.attachFanout(dispatcher);
   const config = { ...loadConfig({}) };
-  return { db, repo, tasks, chat, personas, dispatcher, config };
+  return { db, repo, tasks, chat, personas, config };
 }
 
 function endedSession(repo: SessionsRepo, id: string, now: number) {
@@ -144,7 +136,7 @@ describe("runSessionEndFlow", () => {
     expect(stillActive).toBeNull();
   });
 
-  it("dispatcher.onSessionEnd は終了セッションへ task を積まない (report 経路が独白を担う)", async () => {
+  it("session end flow does not enqueue peer chat tasks", async () => {
     const now = Math.floor(Date.now() / 1000);
     const ended = endedSession(env.repo, "s4", now);
 

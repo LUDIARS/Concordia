@@ -47,9 +47,6 @@ import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
 import { seedPersonas } from "../personas/seeds.js";
 import { collectBoyakiToPersona } from "../personas/boyaki.js";
-import { Dispatcher } from "../dispatcher.js";
-import { ChatResponder } from "../chat/responder.js";
-import { resolveRenderConfig } from "../chat/render-config.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
 import { startSweeper } from "../sweeper.js";
@@ -68,7 +65,6 @@ import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
 import { startPrFullSync } from "../pr/full-sync.js";
 import { startErrorFixDispatcher } from "../control/error-fix.js";
-import { subscribeSessionLostDispatcher } from "../control/session-lost-dispatcher.js";
 import { buildApp } from "../app.js";
 import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
@@ -328,30 +324,6 @@ export async function startBackend(): Promise<BackendHandle> {
   seedDelegationTemplates(delegationRepo);
   seedModelCatalog(modelCatalog);
   seedHarnessRules(harnessRepo);
-  // 中央チャット描画 (Haiku). 「いつ / 誰が」 は決定的に決め、 発話文だけここで描画する。
-  const renderConfig = () =>
-    resolveRenderConfig({
-      renderer: cfg.chatRenderer,
-      model: cfg.chatModel,
-    });
-  const responder = new ChatResponder({
-    chat,
-    personas,
-    sessions: repo,
-    renderConfig,
-    isChatMuted: () => adminState.getChatMuted(),
-    isCostBlocked,
-  });
-  const dispatcher = new Dispatcher({
-    sessions: repo,
-    tasks,
-    chat,
-    responder,
-    isChatMuted: () => adminState.getChatMuted(),
-    isCostBlocked,
-  });
-  // 循環参照を遅延束縛: responder の投稿後 peer 返信ファンアウトを dispatcher に委ねる。
-  responder.attachFanout(dispatcher);
   const processManager = new ProcessManager({
     repo: processes,
     logsDir: join(process.cwd(), "logs"),
@@ -536,7 +508,6 @@ export async function startBackend(): Promise<BackendHandle> {
     costOverviewSource: costMode === "worker" ? "samples" : "live",
     processManager,
     dailyScheduler,
-    dispatcher,
     config: cfg,
     startedAt: new Date().toISOString(),
     sweeperRunOnce: sweeper.runOnce,
@@ -564,8 +535,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const ruleEngine = startRuleEngine({
     rules,
     sessions: repo,
-    chat,
-    responder,
     // 予算超過 / admin 無効化中は発火を止める。
     rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
   });
@@ -640,35 +609,7 @@ export async function startBackend(): Promise<BackendHandle> {
       }
       return;
     }
-    if (ev.type === "rule.changed" && (ev.action === "add" || ev.action === "remove")) {
-      dispatcher.onLogUpdate({
-        kind: ev.action === "add" ? "rule.add" : "rule.remove",
-        ref: ev.rule_id,
-        summary: `rule "${ev.rule_id ?? "?"}" が ${ev.action} されました.`,
-      });
-      return;
-    }
-    if (ev.type === "session.started") {
-      dispatcher.onLogUpdate({
-        kind: "session.started",
-        source_session_id: ev.session_id,
-        ref: ev.session_id,
-        summary: `新セッション開始: ${ev.session_id.slice(0, 8)} (${ev.provider}, branch=${ev.branch ?? "-"}).`,
-        detail: { repo_path: ev.repo_path, provider: ev.provider, branch: ev.branch },
-      });
-      return;
-    }
-    if (ev.type === "skill.snapshot" && ev.poison_score >= 0.3) {
-      dispatcher.onLogUpdate({
-        kind: "skill.poison-spike",
-        ref: `${ev.skill_name}@${ev.repo_path}`,
-        summary:
-          `skill ${ev.skill_name} の poison_score=${(ev.poison_score * 100).toFixed(0)}% (repo=${ev.repo_path}). 内容を確認推奨.`,
-        detail: { repo_path: ev.repo_path, skill_name: ev.skill_name, poison_score: ev.poison_score },
-      });
-    }
   });
-  const unsubSessionLostDispatch = subscribeSessionLostDispatcher({ sessions: repo, dispatcher });
 
   // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
   // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
@@ -739,7 +680,6 @@ export async function startBackend(): Promise<BackendHandle> {
       metricsLoop.stop();
       branchWatch.stop();
       unsubTestingRelease();
-      unsubSessionLostDispatch();
       clearInterval(costWorkerWatch);
       costRuntime.stop();
       unsubLog();

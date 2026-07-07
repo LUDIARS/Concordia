@@ -5,7 +5,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
-import type { Dispatcher } from "../dispatcher.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -45,7 +44,6 @@ function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
 
 export interface ChatApiDeps {
   chat: ChatRepo;
-  dispatcher: Dispatcher;
 }
 
 export function chatRouter(deps: ChatApiDeps): Hono {
@@ -92,14 +90,6 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       "chat POST inserted",
     );
 
-    deps.dispatcher.onChatPosted({
-      id: msg.id,
-      channel: msg.channel,
-      session_id: msg.session_id,
-      text: msg.text,
-      author_label: msg.author_label,
-      is_actionable: actionable,
-    });
     eventBus.emit({
       type: "chat.posted",
       message_id: msg.id,
@@ -163,14 +153,6 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label, in_reply_to: msg.in_reply_to },
       "chat reply POST inserted",
     );
-    deps.dispatcher.onChatPosted({
-      id: msg.id,
-      channel: msg.channel,
-      session_id: msg.session_id,
-      text: msg.text,
-      author_label: msg.author_label,
-      is_actionable: actionable,
-    });
     eventBus.emit({
       type: "chat.posted",
       message_id: msg.id,

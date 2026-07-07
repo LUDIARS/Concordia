@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
 
 function makeEnv() {
-  return makeTestApp({ rng: () => 0.99 });
+  return makeTestApp();
 }
 
 describe("/v1/chat", () => {
@@ -40,6 +40,37 @@ describe("/v1/chat", () => {
     });
     const j = (await r.json()) as any;
     expect(j.message.is_actionable).toBe(true);
+  });
+
+  it("does not fan out peer chat tasks", async () => {
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "s1", provider: "claude-code", repo_path: "/repo", host: "h",
+      }),
+    });
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "s2", provider: "claude-code", repo_path: "/repo", host: "h",
+      }),
+    });
+
+    const r = await env.app.request("/v1/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        channel: "chitchat",
+        session_id: "s1",
+        text: "hello peer",
+        author_label: "human",
+      }),
+    });
+
+    expect(r.status).toBe(200);
+    expect(env.tasks.pull("s2")).toHaveLength(0);
   });
 
   it("reply attaches in_reply_to", async () => {

@@ -23,7 +23,6 @@
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { Dispatcher } from "../dispatcher.js";
 import { eventBus } from "../events.js";
 import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
@@ -63,7 +62,6 @@ export function withNeedsHumanNotice(
 export interface EndSessionFlowDeps {
   repo: SessionsRepo;
   chat: ChatRepo;
-  dispatcher: Dispatcher;
   personas: PersonasRepo;
   config: ConcordiaConfig;
   /** あればブロック検出に決定論ソース (harness 監査 deny 行) を併用。 */
@@ -95,9 +93,8 @@ export async function runSessionEndFlow(
   try {
     const events = deps.repo.allEvents(id);
     bullets = aggregateBullets(endedSession, events);
-    deps.dispatcher.onSessionEnd(endedSession, bullets);
   } catch (err) {
-    log.warn({ session_id: id, err: (err as Error).message }, "aggregateBullets/onSessionEnd failed");
+    log.warn({ session_id: id, err: (err as Error).message }, "aggregateBullets failed");
   }
 
   // 2. generateReport — claude CLI を叩くので落ちうる. 失敗時は report=null で続行.
@@ -133,14 +130,6 @@ export async function runSessionEndFlow(
           metadata: JSON.stringify({ from_report: true, session_id: id }),
         });
         postedMessageId = msg.id;
-        deps.dispatcher.onChatPosted({
-          id: msg.id,
-          channel: msg.channel,
-          session_id: msg.session_id,
-          text: msg.text,
-          author_label: msg.author_label,
-          is_actionable: false,
-        });
         eventBus.emit({
           type: "chat.posted",
           message_id: msg.id,

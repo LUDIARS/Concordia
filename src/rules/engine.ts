@@ -12,8 +12,6 @@
 
 import type { RulesRepo, RuleRow } from "../db/rules-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { ChatRepo } from "../db/chat-repo.js";
-import type { ChatResponder } from "../chat/responder.js";
 import { decideRuleFire } from "./decide.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -25,8 +23,6 @@ const ENGINE_TICK_MS = 1000;
 export interface EngineDeps {
   rules: RulesRepo;
   sessions: SessionsRepo;
-  chat: ChatRepo;
-  responder: ChatResponder;
   /**
    * Runtime kill-switch. true を返す間は全 fire を skip
    * (admin の rules-enabled=false / コスト予算超過から配線).
@@ -124,17 +120,6 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
       return;
     }
 
-    await deps.responder.speak({
-      channel: decision.channel,
-      intent: decision.intent,
-      sessionId: null, // rule engine は司会 (coordinator) として喋る
-      context: {
-        extra: rule.instructions,
-        recent: recentChatLines(deps.chat),
-      },
-      replyDepth: 0,
-    });
-
     deps.rules.log({
       rule_id: rule.id,
       action: "fire",
@@ -152,12 +137,6 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
     },
     fireOnce,
   };
-}
-
-function recentChatLines(chat: ChatRepo): string[] {
-  return chat
-    .list({ limit: 10 })
-    .map((m) => `[${m.channel}] ${m.author_label}: ${m.text.slice(0, 80)}`);
 }
 
 function matchesEvent(rulePattern: string, evKind: string): boolean {

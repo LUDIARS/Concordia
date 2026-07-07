@@ -4,7 +4,6 @@ import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
 import { SessionDetail } from "./pages/SessionDetail.js";
 import { Chat } from "./pages/Chat.js";
-import { WorldChat } from "./pages/WorldChat.js";
 import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
 import { SessionLogs } from "./pages/SessionLogs.js";
@@ -24,7 +23,6 @@ const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
   { to: "/work", label: "Work" },
   { to: "/prs", label: "PRs" },
-  { to: "/world", label: "World" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
   { to: "/cost", label: "Cost" },
@@ -57,7 +55,6 @@ export function App() {
           <Route path="/work" element={<Work />} />
           <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
-          <Route path="/world" element={<WorldChat />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportView />} />

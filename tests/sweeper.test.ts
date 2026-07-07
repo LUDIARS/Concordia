@@ -4,8 +4,7 @@ import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
 import { startSweeper } from "../src/sweeper.js";
-import { subscribeSessionLostDispatcher } from "../src/control/session-lost-dispatcher.js";
-import type { SessionRow } from "../src/shared/types.js";
+import { eventBus, type ConcordiaEvent } from "../src/events.js";
 
 let cleanup: Array<() => void> = [];
 
@@ -29,8 +28,8 @@ function startSession(repo: SessionsRepo, id: string, lastSeenAt: number): void 
   });
 }
 
-describe("sweeper session.lost dispatch", () => {
-  it("emits lost once and lets the event adapter notify dispatcher once", () => {
+describe("sweeper session.lost event", () => {
+  it("emits lost once", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T00:00:30Z"));
     const now = Math.floor(Date.now() / 1000);
@@ -40,11 +39,8 @@ describe("sweeper session.lost dispatch", () => {
     const personas = new PersonasRepo(db);
     startSession(sessions, "stale-one", now - 100);
 
-    const lostRows: SessionRow[] = [];
-    cleanup.push(subscribeSessionLostDispatcher({
-      sessions,
-      dispatcher: { onSessionLost: (lost) => { lostRows.push(lost); } },
-    }));
+    const events: ConcordiaEvent[] = [];
+    cleanup.push(eventBus.subscribe((ev) => events.push(ev)));
 
     const sweeper = startSweeper({
       repo: sessions,
@@ -61,7 +57,7 @@ describe("sweeper session.lost dispatch", () => {
     sweeper.runOnce();
     sweeper.runOnce();
 
-    expect(lostRows.map((s) => s.id)).toEqual(["stale-one"]);
-    expect(lostRows[0]?.status).toBe("lost");
+    expect(events.filter((ev) => ev.type === "session.lost").map((ev) => ev.session_id)).toEqual(["stale-one"]);
+    expect(sessions.findSession("stale-one")?.status).toBe("lost");
   });
 });

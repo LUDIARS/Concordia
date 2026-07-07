@@ -37,8 +37,6 @@ import { TasksRepo } from "../../src/db/tasks-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
-import { Dispatcher } from "../../src/dispatcher.js";
-import { ChatResponder } from "../../src/chat/responder.js";
 import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
@@ -51,7 +49,7 @@ export interface TestAppOptions {
   db?: Database.Database;
   /** loadConfig({}) ベースの config への上書き (adminToken 等)。 */
   config?: Partial<ConcordiaConfig>;
-  /** Dispatcher の rng (default: () => 1)。 */
+  /** Kept for older tests; dispatcher fanout was removed. */
   rng?: () => number;
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   chatRoutes?: boolean;
@@ -83,7 +81,6 @@ export interface TestAppEnv {
   modelCatalog: ModelCatalogRepo;
   adminState: AdminState;
   processManager: ProcessManager;
-  dispatcher: Dispatcher;
   config: ConcordiaConfig;
   logsDir: string;
 }
@@ -134,13 +131,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });
-  // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
-  const responder = new ChatResponder({
-    chat, personas, sessions: repo,
-    renderConfig: () => ({ renderer: "template", model: "" }),
-  });
-  const dispatcher = new Dispatcher({ sessions: repo, tasks, chat, responder, rng: opts.rng ?? (() => 1) });
-  responder.attachFanout(dispatcher);
   const config: ConcordiaConfig = {
     ...loadConfig({}),
     ...opts.config,
@@ -151,7 +141,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, adminState,
     costOverviewSource: opts.costOverviewSource,
-    processManager, dispatcher,
+    processManager,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },
     config,
     startedAt: new Date().toISOString(),
@@ -167,6 +157,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     db, repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, adminState,
-    processManager, dispatcher, config, logsDir,
+    processManager, config, logsDir,
   };
 }

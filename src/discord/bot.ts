@@ -39,7 +39,10 @@ import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { describeInteractionForLog, interactionAgeMs } from "./interaction-diagnostics.js";
-import { invalidateDelegationTemplateCache } from "./delegation-template-cache.js";
+import {
+  invalidateAndRefreshDelegationTemplateCache,
+  prewarmDelegationTemplateCache,
+} from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -329,6 +332,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       } else {
         log.warn("CONCORDIA_DISCORD_APPLICATION_ID missing; slash commands are not registered");
       }
+      scheduleBackground("delegation template cache prewarm", async () => {
+        const templates = await prewarmDelegationTemplateCache(deps.concordiaUrl, log);
+        log.info(`delegation template cache prewarmed templates=${templates.length}`);
+      }, 100);
       const costCh = guild.channels.cache.get(layout.costChannelId);
       if (costCh && costCh.type === ChannelType.GuildText) {
         const refresh = () => {
@@ -666,11 +673,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (gatewayClosed || stopping) return;
     if (ev.type === "delegation.templates_changed") {
-      invalidateDelegationTemplateCache();
       log.info(
         `delegation template cache invalidated action=${ev.action} ` +
         `call_name=${ev.call_name ?? "-"} template_id=${ev.template_id ?? "-"}`,
       );
+      void invalidateAndRefreshDelegationTemplateCache(deps.concordiaUrl, log)
+        .then((templates) => log.info(`delegation template cache refreshed templates=${templates.length}`))
+        .catch((e) => log.warn(`delegation template cache refresh after invalidate failed: ${(e as Error).message}`));
       return;
     }
     // error.reported は errors チャンネルへ (webhooks/layout 完備前でも poster があれば処理).

@@ -73,6 +73,40 @@ describe("DelegationTemplateCache", () => {
     expect(calls).toBe(2);
   });
 
+  it("keeps stale data available after invalidate while refreshing", async () => {
+    let calls = 0;
+    let resolveRefresh: ((templates: DelegationTemplateLite[]) => void) | null = null;
+    const cache = new DelegationTemplateCache({
+      fetcher: () => {
+        calls += 1;
+        if (calls === 1) return Promise.resolve([template("tpl-1")]);
+        return new Promise<DelegationTemplateLite[]>((resolve) => {
+          resolveRefresh = resolve;
+        });
+      },
+    });
+
+    await cache.get("http://cc", log);
+    cache.invalidate();
+    const stale = await cache.get("http://cc", log);
+
+    expect(stale).toMatchObject({
+      source: "stale",
+      refreshing: true,
+      templates: [{ call_name: "tpl-1" }],
+    });
+    expect(calls).toBe(2);
+
+    if (!resolveRefresh) throw new Error("refresh was not started");
+    resolveRefresh([template("tpl-2")]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(await cache.get("http://cc", log)).toMatchObject({
+      source: "cache",
+      templates: [{ call_name: "tpl-2" }],
+    });
+  });
+
   it("fetches again after clear", async () => {
     let calls = 0;
     const cache = new DelegationTemplateCache({

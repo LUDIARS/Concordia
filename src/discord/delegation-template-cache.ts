@@ -25,6 +25,7 @@ export type DelegationTemplateFetcher = (
 ) => Promise<DelegationTemplateLite[]>;
 
 export const DELEGATION_TEMPLATE_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const DELEGATION_TEMPLATE_CACHE_INITIAL_WAIT_MS = 800;
 
 interface CacheEntry {
   templates: DelegationTemplateLite[];
@@ -34,7 +35,7 @@ interface CacheEntry {
 export class DelegationTemplateCache {
   private entry: CacheEntry | null = null;
   private inFlight: Promise<DelegationTemplateLite[]> | null = null;
-  /** clear() 後に旧 in-flight の結果が entry を復活させないための世代番号。 */
+  /** Prevent older in-flight refreshes from restoring entries after clear/invalidate. */
   private generation = 0;
 
   constructor(
@@ -53,17 +54,15 @@ export class DelegationTemplateCache {
     now = this.now(),
   ): Promise<DelegationTemplateCacheResult> {
     const ttlMs = this.options.ttlMs ?? DELEGATION_TEMPLATE_CACHE_TTL_MS;
-    // Discord autocomplete の応答猶予は約 3 秒。 旧値 600ms は backend が少しでも
-    // 詰まる (イベントループ渋滞等) と空メニューを返してしまい、 「2 回目の /spawn で
-    // template 候補が出ない」 (worker 再起動直後の cold cache) の原因だった。
-    // 猶予内いっぱい待つ方が UX が良い。
-    const maxInitialWaitMs = this.options.maxInitialWaitMs ?? 2500;
+    // Discord autocomplete has a hard response window. On cold cache, wait briefly,
+    // then return an empty list instead of missing the interaction response.
+    const maxInitialWaitMs = this.options.maxInitialWaitMs ?? DELEGATION_TEMPLATE_CACHE_INITIAL_WAIT_MS;
     const entry = this.entry;
     if (entry && now - entry.fetchedAt < ttlMs) {
-      return { templates: entry.templates, source: "cache", refreshing: false };
+      return { templates: entry.templates, source: "cache", refreshing: this.inFlight !== null };
     }
 
-    const refresh = this.refresh(baseUrl, log);
+    const refresh = this.startRefresh(baseUrl, log);
     if (entry) {
       return { templates: entry.templates, source: "stale", refreshing: true };
     }
@@ -73,20 +72,37 @@ export class DelegationTemplateCache {
     return { templates: [], source: "empty", refreshing: true };
   }
 
+  invalidate(): void {
+    this.inFlight = null;
+    this.generation++;
+    if (this.entry) {
+      this.entry = { templates: this.entry.templates, fetchedAt: Number.NEGATIVE_INFINITY };
+    }
+  }
+
+  prewarm(baseUrl: string, log: DelegationTemplateCacheLogger): Promise<DelegationTemplateLite[]> {
+    return this.startRefresh(baseUrl, log);
+  }
+
+  invalidateAndRefresh(baseUrl: string, log: DelegationTemplateCacheLogger): Promise<DelegationTemplateLite[]> {
+    this.invalidate();
+    return this.startRefresh(baseUrl, log);
+  }
+
   clear(): void {
     this.entry = null;
     this.inFlight = null;
     this.generation++;
   }
 
-  private refresh(baseUrl: string, log: DelegationTemplateCacheLogger): Promise<DelegationTemplateLite[]> {
+  private startRefresh(baseUrl: string, log: DelegationTemplateCacheLogger): Promise<DelegationTemplateLite[]> {
     if (this.inFlight) return this.inFlight;
     const timeoutMs = this.options.requestTimeoutMs ?? 5_000;
     const fetcher = this.options.fetcher ?? fetchDelegationTemplates;
     const gen = this.generation;
-    this.inFlight = fetcher(baseUrl, timeoutMs)
+    const next = fetcher(baseUrl, timeoutMs)
       .then((templates) => {
-        // clear() (templates_changed invalidate) より古い結果で entry を復活させない。
+        // Avoid applying stale results after clear()/invalidate().
         if (gen === this.generation) this.entry = { templates, fetchedAt: this.now() };
         return templates;
       })
@@ -95,8 +111,9 @@ export class DelegationTemplateCache {
         return this.entry?.templates ?? [];
       })
       .finally(() => {
-        this.inFlight = null;
+        if (this.inFlight === next) this.inFlight = null;
       });
+    this.inFlight = next;
     return this.inFlight;
   }
 
@@ -108,7 +125,21 @@ export class DelegationTemplateCache {
 export const delegationTemplateCache = new DelegationTemplateCache();
 
 export function invalidateDelegationTemplateCache(): void {
-  delegationTemplateCache.clear();
+  delegationTemplateCache.invalidate();
+}
+
+export function prewarmDelegationTemplateCache(
+  baseUrl: string,
+  log: DelegationTemplateCacheLogger,
+): Promise<DelegationTemplateLite[]> {
+  return delegationTemplateCache.prewarm(baseUrl, log);
+}
+
+export function invalidateAndRefreshDelegationTemplateCache(
+  baseUrl: string,
+  log: DelegationTemplateCacheLogger,
+): Promise<DelegationTemplateLite[]> {
+  return delegationTemplateCache.invalidateAndRefresh(baseUrl, log);
 }
 
 export async function fetchDelegationTemplates(

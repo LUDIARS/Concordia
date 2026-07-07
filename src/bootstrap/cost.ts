@@ -25,6 +25,7 @@ export type CostMode = "embedded" | "worker" | "off";
 const COST_SAMPLE_INTERVAL_MS = 2 * 60 * 1000;
 const USAGE_SAMPLE_INTERVAL_MS = 10 * 60 * 1000;
 const USAGE_SAMPLE_RETENTION_SEC = 60 * 24 * 60 * 60;
+const STARTUP_SAMPLE_DELAY_MS = readPositiveIntEnv("CONCORDIA_COST_STARTUP_SAMPLE_DELAY_MS", 2_000);
 const COST_WORKER_LEASE_KEY = "cost_worker_lease";
 const COST_WORKER_ROLE = "cost-sampler";
 
@@ -98,6 +99,7 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
   let costSampleTimer: ReturnType<typeof setInterval> | null = null;
   let usageSampleTimer: ReturnType<typeof setInterval> | null = null;
   let limitSampleTimer: ReturnType<typeof setInterval> | null = null;
+  let startupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
   const sampleOnce = (): void => {
     try {
@@ -138,21 +140,27 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
     oneShotsRepo,
     start() {
       if (costSampleTimer || usageSampleTimer || limitSampleTimer) return;
-      sampleOnce();
-      sampleUsage();
-      void sampleLimitsOnce();
+      startupSampleTimer = setTimeout(() => {
+        startupSampleTimer = null;
+        sampleOnce();
+        sampleUsage();
+        void sampleLimitsOnce();
+      }, STARTUP_SAMPLE_DELAY_MS);
+      startupSampleTimer.unref?.();
       costSampleTimer = setInterval(sampleOnce, COST_SAMPLE_INTERVAL_MS);
       usageSampleTimer = setInterval(sampleUsage, USAGE_SAMPLE_INTERVAL_MS);
       limitSampleTimer = setInterval(() => { void sampleLimitsOnce(); }, USAGE_SAMPLE_INTERVAL_MS);
       costSampleTimer.unref?.();
       usageSampleTimer.unref?.();
       limitSampleTimer.unref?.();
-      deps.log?.info("cost runtime sampling started");
+      deps.log?.info(`cost runtime sampling started (startup delay ${STARTUP_SAMPLE_DELAY_MS}ms)`);
     },
     stop() {
+      if (startupSampleTimer) clearTimeout(startupSampleTimer);
       if (costSampleTimer) clearInterval(costSampleTimer);
       if (usageSampleTimer) clearInterval(usageSampleTimer);
       if (limitSampleTimer) clearInterval(limitSampleTimer);
+      startupSampleTimer = null;
       costSampleTimer = null;
       usageSampleTimer = null;
       limitSampleTimer = null;
@@ -164,4 +172,11 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
     sampleOnce,
     sampleLimitsOnce,
   };
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }

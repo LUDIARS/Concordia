@@ -16,6 +16,8 @@ import type { SessionRow } from "../shared/types.js";
 
 const execFileAsync = promisify(execFile);
 const GIT_BIN = process.platform === "win32" ? "git.exe" : "git";
+const GIT_TIMEOUT_MS = readPositiveIntEnv("CONCORDIA_REPO_SCAN_GIT_TIMEOUT_MS", 1_500);
+const SCAN_CONCURRENCY = readPositiveIntEnv("CONCORDIA_REPO_SCAN_CONCURRENCY", 4);
 
 export interface RepoWorktree {
   path: string;
@@ -135,7 +137,7 @@ export function parseWorktreeList(stdout: string): RepoWorktree[] {
 
 async function git(path: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync(GIT_BIN, ["-C", path, ...args], {
-    timeout: 8_000,
+    timeout: GIT_TIMEOUT_MS,
     windowsHide: true,
     maxBuffer: 4 * 1024 * 1024,
   });
@@ -214,7 +216,7 @@ export async function scanRepos(rootDir: string, sessionsRepo: SessionsRepo): Pr
   const repoDirs = entries
     .map((name) => ({ name, path: join(rootDir, name) }))
     .filter((d) => existsSync(join(d.path, ".git")));
-  const results = await Promise.all(repoDirs.map((d) => scanOne(d.name, d.path, allSessions)));
+  const results = await mapLimit(repoDirs, SCAN_CONCURRENCY, (d) => scanOne(d.name, d.path, allSessions));
   // active 2+ を最上位 → 最終更新降順 → 名前順 (compareByActivity)。
   results.sort(compareByActivity);
   return results;
@@ -241,4 +243,31 @@ export async function scanReposMulti(
   }
   merged.sort(compareByActivity);
   return merged;
+}
+
+async function mapLimit<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const limit = Math.max(1, Math.floor(concurrency));
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      if (index >= items.length) return;
+      results[index] = await fn(items[index]!);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }

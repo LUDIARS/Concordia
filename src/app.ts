@@ -9,6 +9,7 @@ import { registerCostRoutes, type CostDeps } from "./api/register-cost.js";
 import { registerWebRoutes } from "./api/register-web.js";
 import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
 import { adminAuthMiddleware } from "./shared/admin-auth.js";
+import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
@@ -20,17 +21,20 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
   const requestLog = createChildLogger("http");
+  const slowRequestMs = readPositiveIntEnv("CONCORDIA_HTTP_SLOW_MS", 60);
 
   app.use("*", async (c, next) => {
     const started = Date.now();
     await next();
     const elapsedMs = Date.now() - started;
-    if (c.req.path === "/health" || elapsedMs >= 1000) {
-      const line = `request ${c.req.method} ${c.req.path} status=${c.res.status} duration_ms=${elapsedMs}`;
-      if (elapsedMs >= 1000) requestLog.warn(line);
+    if (c.req.path === "/health" || elapsedMs >= slowRequestMs) {
+      const cache = c.res.headers.get("x-concordia-cache");
+      const line = `request ${c.req.method} ${c.req.path} status=${c.res.status} duration_ms=${elapsedMs}${cache ? ` cache=${cache}` : ""}`;
+      if (elapsedMs >= slowRequestMs) requestLog.warn(line);
       else requestLog.info(line);
     }
   });
+  app.use("*", httpCacheMiddleware());
 
   const adminAuth = adminAuthMiddleware(() => deps.config.adminToken);
   app.use("/v1/admin/*", adminAuth);
@@ -53,4 +57,11 @@ export function buildApp(deps: AppDeps): Hono {
   registerWebRoutes(app);
 
   return app;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }

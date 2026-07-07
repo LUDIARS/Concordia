@@ -24,14 +24,19 @@ export function startMetricsLoop(
   }
 
   const lagSampler = new EventLoopLagSampler();
-  lagSampler.enable();
+  let lagSamplerEnabled = false;
 
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
+  const startDelayMs = readNonNegativeIntEnv("CONCORDIA_METRICS_START_DELAY_MS", 30_000);
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
     try {
+      if (!lagSamplerEnabled) {
+        lagSampler.enable();
+        lagSamplerEnabled = true;
+      }
       const lagSnap = lagSampler.snapshot();
       const snap = await collectHostSnapshot(deps.repo, Date.now());
       snap.eventLoopLag = lagSnap;
@@ -43,14 +48,22 @@ export function startMetricsLoop(
     if (!stopped) timer = setTimeout(() => void tick(), opts.intervalMs);
   };
 
-  void tick();
-  log.info({ intervalMs: opts.intervalMs }, "metrics loop started");
+  timer = setTimeout(() => void tick(), startDelayMs);
+  timer.unref?.();
+  log.info({ intervalMs: opts.intervalMs, startDelayMs }, "metrics loop started");
 
   return {
     stop: () => {
       stopped = true;
       if (timer) clearTimeout(timer);
-      lagSampler.disable();
+      if (lagSamplerEnabled) lagSampler.disable();
     },
   };
+}
+
+function readNonNegativeIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
 }

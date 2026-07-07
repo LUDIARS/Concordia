@@ -1122,6 +1122,7 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  if (shouldSkipMigrations(db)) return;
   const tx = db.transaction((stmts: string[]) => {
     for (const stmt of stmts) db.exec(stmt);
   });
@@ -1134,4 +1135,16 @@ export function applyMigrations(db: Database.Database): void {
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));
+}
+
+function shouldSkipMigrations(db: Database.Database): boolean {
+  if (process.env.CONCORDIA_DB_SKIP_MIGRATIONS_IF_CURRENT === "0") return false;
+  try {
+    const row = db
+      .prepare(`SELECT value FROM schema_meta WHERE key = 'version'`)
+      .get() as { value?: unknown } | undefined;
+    return String(row?.value ?? "") === String(SCHEMA_VERSION);
+  } catch {
+    return false;
+  }
 }

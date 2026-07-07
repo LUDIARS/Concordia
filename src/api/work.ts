@@ -24,7 +24,7 @@ import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TranscriptLogsRepo, TranscriptLogEntry } from "../db/transcript-logs-repo.js";
 import { serializeSession } from "./sessions.js";
-import { scanReposMulti } from "../work/repo-scan.js";
+import { WorkReposCache } from "../work/repo-list-cache.js";
 
 export interface WorkApiDeps {
   sessions: SessionsRepo;
@@ -38,13 +38,17 @@ export interface WorkApiDeps {
 
 export function workRouter(deps: WorkApiDeps): Hono {
   const app = new Hono();
+  const reposCache = new WorkReposCache({ sessions: deps.sessions });
 
   // GET /v1/work/repos — 各作業ルート直下の各リポの branch / worktree / session 一覧。
   app.get("/repos", async (c) => {
     const roots = deps.resolveWorkspaceRoots();
-    const repos = await scanReposMulti(roots, deps.sessions);
+    const forceRefresh = c.req.header("cache-control")?.toLowerCase().includes("no-cache") === true;
+    const result = await reposCache.get(roots, { forceRefresh });
+    c.header("x-concordia-work-repos-cache", result.cache.source);
+    c.header("x-concordia-work-repos-refreshing", result.refreshing ? "1" : "0");
     // root は後方互換のためプライマリ (先頭) を返す。 roots に全ルートを載せる。
-    return c.json({ root: roots[0] ?? "", roots, repos });
+    return c.json(result);
   });
 
   app.get("/conversations", (c) => {
@@ -52,8 +56,10 @@ export function workRouter(deps: WorkApiDeps): Hono {
     const repoPath = (q.repo_path ?? "").trim();
     const repoOrigin = (q.repo_origin ?? "").trim();
     const status = (q.status ?? "").trim();
-    const limitPerSession = clamp(Number(q.limit_per_session ?? "100"), 1, 500, 100);
-    const maxSessions = clamp(Number(q.max_sessions ?? "30"), 1, 100, 30);
+    const defaultLimitPerSession = readPositiveIntEnv("CONCORDIA_WORK_CONVERSATIONS_DEFAULT_LIMIT_PER_SESSION", 40);
+    const defaultMaxSessions = readPositiveIntEnv("CONCORDIA_WORK_CONVERSATIONS_DEFAULT_MAX_SESSIONS", 20);
+    const limitPerSession = clamp(Number(q.limit_per_session ?? String(defaultLimitPerSession)), 1, 500, defaultLimitPerSession);
+    const maxSessions = clamp(Number(q.max_sessions ?? String(defaultMaxSessions)), 1, 100, defaultMaxSessions);
 
     // 1. 母集団 — status filter は repo に依存しないので前段で適用
     let pool = deps.sessions.listSessions(
@@ -113,4 +119,11 @@ function isConversationEntry(e: TranscriptLogEntry): boolean {
 function clamp(n: number, lo: number, hi: number, fallback: number): number {
   if (!Number.isFinite(n)) return fallback;
   return Math.max(lo, Math.min(hi, Math.floor(n)));
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }

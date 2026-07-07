@@ -197,7 +197,12 @@ export interface BackendHandle {
   shutdown: () => Promise<void>;
 }
 
+interface StoppableHandle {
+  stop: () => void;
+}
+
 export async function startBackend(): Promise<BackendHandle> {
+  const bootStarted = Date.now();
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
 
@@ -222,10 +227,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const repo = new SessionsRepo(db);
   // プロセス再起動時は in-memory の WS 接続が全部消えているので、
   // sessions.ws_clients を 0 にリセットして整合性を保つ.
-  const resetCount = repo.resetAllWsClients();
-  if (resetCount > 0) {
-    log.info({ count: resetCount }, "ws_clients reset on boot");
-  }
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
@@ -285,7 +286,6 @@ export async function startBackend(): Promise<BackendHandle> {
   // テスト交通整備: 起動テスト/再起動の宣言レジストリ (/v1/testing) + ブランチ切替
   // 監視 inject。 spec/feature/testing-traffic.md
   const testingClaims = new TestingClaimsRepo(db);
-  const branchWatch = startBranchWatch({ sessions: repo, claims: testingClaims, log });
   // セッション終了/喪失で claim を自動解放 (放置クレームの残留防止)。
   const unsubTestingRelease = eventBus.subscribe((ev) => {
     if (ev.type === "session.ended" || ev.type === "session.lost") {
@@ -321,11 +321,6 @@ export async function startBackend(): Promise<BackendHandle> {
     log.info("cost sampling disabled by CONCORDIA_COST_MODE=off");
   }
 
-  seedDefaultRules(rules);
-  seedPersonas(personas);
-  seedDelegationTemplates(delegationRepo);
-  seedModelCatalog(modelCatalog);
-  seedHarnessRules(harnessRepo);
   const processManager = new ProcessManager({
     repo: processes,
     logsDir: join(process.cwd(), "logs"),
@@ -344,28 +339,9 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。
   // sweeper が行を purge して記録が消えた分も OS 走査で回収する (止血は kill 経路の配線、 これは掃除)。
-  const reaper = startReaper(
-    { repo },
-    {
-      enabled: cfg.reaperEnabled,
-      intervalMs: cfg.reaperIntervalMs,
-      minAgeSec: cfg.reaperMinAgeSec,
-      endedGraceSec: cfg.reaperEndedGraceSec,
-    },
-  );
-
   // PC パフォーマンス監視: ホストのメモリ/CPU + 上位プロセス + WSL/docker + セッション別 RSS を
   // 周期サンプリングして host_metrics に蓄積。 Monitor ページが最新スナップショットを表示する。
   const metricsStore = new MetricsStore(db);
-  const metricsLoop = startMetricsLoop(
-    { repo, store: metricsStore },
-    {
-      enabled: cfg.metricsEnabled,
-      intervalMs: cfg.metricsIntervalMs,
-      retentionHours: cfg.metricsRetentionHours,
-    },
-  );
-
   const toolPath = join(process.cwd(), "tools", "concordia-hook.mjs");
   const publicUrl = `http://${cfg.host}:${cfg.port}`;
 
@@ -376,29 +352,12 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // 毎朝 8 時に Memoria の今日期限タスクを取得し、Lictor セッションを起動して処理させる。
   // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
-  const morningScheduler = startMorningScheduler({ delegationService });
-
   // 1 時間応答が無い (transcript 無更新) active セッションに「残作業を確認して続行 / 判断が
   // 要るなら ask で停止」 を inject する。 ask で人間判断待ちのセッションは踏み潰さないよう除外。
-  const stallNudge = startStalledSessionNudge({
-    repo,
-    enabled: cfg.stallNudgeEnabled,
-    intervalMs: cfg.stallNudgeIntervalMs,
-    idleSec: cfg.stallIdleSec,
-    cooldownSec: cfg.stallNudgeCooldownSec,
-  });
-
   // 自動コンパクション: active セッションのコンテキスト占有 + 区切りを周期監視し、
   // 閾値超え/区切りで引き継ぎ型コンパクションを発火する。安全弁 CONCORDIA_AUTO_COMPACTION=1
   // (既定 OFF)。spec/feature/session-compaction.md
   const compactionIO = makeCompactionIO({ sessions: repo, chat });
-  const autoCompaction = startAutoCompaction({
-    sessions: repo,
-    compact: (sessionId) =>
-      runCompaction({ sessions: repo, transcriptLogs, runClaude, ...compactionIO }, sessionId),
-    enabled: () => process.env.CONCORDIA_AUTO_COMPACTION === "1",
-  });
-
   const chatReadModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: repo,
@@ -529,52 +488,31 @@ export async function startBackend(): Promise<BackendHandle> {
       restart: restartSlackBotManaged,
     },
     chatRoutes: readChatMode() === "off" ? null : undefined,
-    costRoutes: costEmbeddedEnabled() ? undefined : null,
+    costRoutes: costMode === "off" ? null : undefined,
   });
 
   // ブラックボックス rule engine (決定的). 発火判定は LLM 不使用、 発話文は
   // 中央 Haiku レスポンダが描画する。 ルールは外部注入 + 決定的レビュー (api/rules) で増える。
   // 旧 rule proposer (5 分ごとの LLM 自動提案ループ) は撤去した。
-  const ruleEngine = startRuleEngine({
-    rules,
-    sessions: repo,
     // 予算超過 / admin 無効化中は発火を止める。
-    rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
-  });
-
   // 10 分毎に active session に stat-collect を enqueue する scheduler.
   // フラットエージェントチームでの相互状況共有用 (各 session の現況を JSON で蓄積).
   // 同 scheduler が「5 分指示なし」 の idle トリガも兼任 (lastPrompt 起点で 1 stretch 1 回).
-  const statScheduler = startStatScheduler({
-    sessions: repo,
-    stats,
-    tasks,
-  });
-
   // stat 受信時に repo_path 変化を検出して title-suggest を enqueue する watcher.
   // AI が 30 文字以内のサマリを投稿 → endpoint 側で Lictor /v1/rename に転送.
-  const repoChangeWatcher = startRepoChangeWatcher({
-    sessions: repo,
-    tasks,
-  });
-
   // PR キュー: stat.collected を購読して open_prs[] を pr_records に派生 UPSERT (方式 A).
-  const prIngestWatcher = startPrIngestWatcher({ sessions: repo, stats, personas, prs });
   // PR キュー: gh で merged/closed/ci/review を確定する reconcile tick (方式 C).
-  const prReconciler = startPrReconciler({ prs, sessions: repo, tasks });
   // PR キュー: gh search で org の open PR を全件発見し未登録分を取り込む (方式 D)。
   // これで「誰も報告していない open PR」も Queue に出る。state/ci/review は reconcile が確定。
-  const prFullSync = startPrFullSync({ prs });
 
   // エラー自動修正: error.reported を購読し、 常駐 error-fixer Codex に修正依頼を inject.
   // env CONCORDIA_ERROR_AUTOFIX=1 の時だけ稼働 (既定 OFF).
-  const errorFixDispatcher = startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd });
-
   const server = serve({
     fetch: app.fetch,
     hostname: cfg.host,
     port: cfg.port,
   });
+  server.ref?.();
 
   // listen エラー (EADDRINUSE 等) は serve() の後に非同期で http server へ emit される。
   // ハンドラが無いと ws (attachWsServer) が wss へ転送 → 未捕捉 'error' イベントで
@@ -617,21 +555,113 @@ export async function startBackend(): Promise<BackendHandle> {
   // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
   // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
   // 埋もれていた (二重起動時に「起動したのに落ちる」 ように見える原因)。
+  let shuttingDown = false;
+  let postListenStartup: Promise<void> = Promise.resolve();
+  const postListenHandles: StoppableHandle[] = [];
+
+  function trackPostListenHandle<T extends StoppableHandle>(handle: T): T {
+    postListenHandles.push(handle);
+    return handle;
+  }
+
+  function startPostListenBackground(): void {
+    if (shuttingDown) return;
+    trackPostListenHandle(startBranchWatch({ sessions: repo, claims: testingClaims, log }));
+    trackPostListenHandle(
+      startReaper(
+        { repo },
+        {
+          enabled: cfg.reaperEnabled,
+          intervalMs: cfg.reaperIntervalMs,
+          minAgeSec: cfg.reaperMinAgeSec,
+          endedGraceSec: cfg.reaperEndedGraceSec,
+        },
+      ),
+    );
+    trackPostListenHandle(
+      startMetricsLoop(
+        { repo, store: metricsStore },
+        {
+          enabled: cfg.metricsEnabled,
+          intervalMs: cfg.metricsIntervalMs,
+          retentionHours: cfg.metricsRetentionHours,
+        },
+      ),
+    );
+    trackPostListenHandle(startMorningScheduler({ delegationService }));
+    trackPostListenHandle(
+      startStalledSessionNudge({
+        repo,
+        enabled: cfg.stallNudgeEnabled,
+        intervalMs: cfg.stallNudgeIntervalMs,
+        idleSec: cfg.stallIdleSec,
+        cooldownSec: cfg.stallNudgeCooldownSec,
+      }),
+    );
+    trackPostListenHandle(
+      startAutoCompaction({
+        sessions: repo,
+        compact: (sessionId) =>
+          runCompaction({ sessions: repo, transcriptLogs, runClaude, ...compactionIO }, sessionId),
+        enabled: () => process.env.CONCORDIA_AUTO_COMPACTION === "1",
+      }),
+    );
+    trackPostListenHandle(
+      startRuleEngine({
+        rules,
+        sessions: repo,
+        rulesDisabled: () => !adminState.getRulesEnabled() || isCostBlocked(),
+      }),
+    );
+    trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
+    trackPostListenHandle(startRepoChangeWatcher({ sessions: repo, tasks }));
+    trackPostListenHandle(startPrIngestWatcher({ sessions: repo, stats, personas, prs }));
+    trackPostListenHandle(startPrReconciler({ prs, sessions: repo, tasks }));
+    trackPostListenHandle(startPrFullSync({ prs }));
+    trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
+  }
+
   server.on("listening", () => {
-    log.info(
-      {
-        host: cfg.host,
-        port: cfg.port,
-        dbPath,
-        llm: "cli (claude -p)",
-      },
-      "Concordia listening",
+    const bootMs = Date.now() - bootStarted;
+    const payload = {
+      host: cfg.host,
+      port: cfg.port,
+      dbPath,
+      llm: "cli (claude -p)",
+      boot_ms: bootMs,
+    };
+    if (bootMs >= readNonNegativeIntEnv("CONCORDIA_BOOT_WARN_MS", 60)) {
+      log.warn(payload, "Concordia listening");
+    } else {
+      log.info(payload, "Concordia listening");
+    }
+    postListenStartup = runPostListenStartup().catch((e) =>
+      log.warn(`post-listen integrations init failed: ${(e as Error).message}`),
     );
   });
 
   // RWF (Reaction-WorkFlow) プラグインを bots 起動前に読み込む。 外部プラグイン
   // (Concordia-RWF) が在れば動的 import、 無ければ同梱エンジンにフォールバック。
-  await initReactionWorkflow(workspaceRootDefault, log);
+  async function runPostListenStartup(): Promise<void> {
+    const startedAt = Date.now();
+    await delay(readNonNegativeIntEnv("CONCORDIA_POST_LISTEN_STARTUP_DELAY_MS", 250));
+    if (shuttingDown) return;
+
+    seedDefaultRules(rules);
+    seedPersonas(personas);
+    seedDelegationTemplates(delegationRepo);
+    seedModelCatalog(modelCatalog);
+    seedHarnessRules(harnessRepo);
+    if (shuttingDown) return;
+
+    const resetCount = repo.resetAllWsClients();
+    if (resetCount > 0) {
+      log.info({ count: resetCount }, "ws_clients reset after listen");
+    }
+    startPostListenBackground();
+    if (shuttingDown) return;
+    await initReactionWorkflow(workspaceRootDefault, log);
+    if (shuttingDown) return;
 
   // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
   // spec/discord-ui.md
@@ -643,6 +673,17 @@ export async function startBackend(): Promise<BackendHandle> {
       log.info("Discord embedded bot disabled (CONCORDIA_CHAT_MODE=off / CONCORDIA_DISCORD_EMBEDDED=0)");
     }
   }
+  if (shuttingDown) return;
+
+  const slackStarted = await startSlackBotManaged();
+  if (!slackStarted.ok) log.warn(`Slack bot init failed: ${slackStarted.error ?? "unknown"}`);
+  if (shuttingDown) return;
+
+  if (discordEmbeddedEnabled()) {
+    await subsidiaryManager.startAll();
+  }
+  log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
+  }
 
   const costWorkerWatch = setInterval(() => {
     if (!costRuntime.isRunning() || !readCostWorkerLease(discordConfig)) return;
@@ -653,39 +694,28 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
-  {
-    const started = await startSlackBotManaged();
-    if (!started.ok) log.warn(`Slack bot init failed: ${started.error ?? "unknown"}`);
-  }
 
   // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
-  if (discordEmbeddedEnabled()) {
-    await subsidiaryManager.startAll().catch((e) => log.warn(`subsidiary bots init failed: ${(e as Error).message}`));
-  }
 
   return {
     port: cfg.port,
     shutdown: async () => {
+      shuttingDown = true;
       dailyScheduler.stop();
-      morningScheduler.stop();
-      ruleEngine.stop();
-      statScheduler.stop();
-      repoChangeWatcher.stop();
-      prIngestWatcher.stop();
-      prReconciler.stop();
-      prFullSync.stop();
-      errorFixDispatcher.stop();
       sweeper.stop();
-      reaper.stop();
-      stallNudge.stop();
-      autoCompaction.stop();
-      metricsLoop.stop();
-      branchWatch.stop();
+      for (const handle of postListenHandles.splice(0).reverse()) {
+        try {
+          handle.stop();
+        } catch (e) {
+          log.warn(`post-listen handle stop failed: ${(e as Error).message}`);
+        }
+      }
       unsubTestingRelease();
       clearInterval(costWorkerWatch);
       costRuntime.stop();
       unsubLog();
+      await postListenStartup.catch(() => {});
       await stopDiscordBotManaged();
       await stopSlackBotManaged();
       await subsidiaryManager.stopAll();
@@ -695,4 +725,15 @@ export async function startBackend(): Promise<BackendHandle> {
       closeDb();
     },
   };
+}
+
+function readNonNegativeIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

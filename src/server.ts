@@ -9,6 +9,7 @@ export type { BackendHandle } from "./bootstrap/core.js";
 export { startBackend };
 
 const log = createChildLogger("server");
+let activeHandle: Awaited<ReturnType<typeof startBackend>> | null = null;
 
 function isEntrypoint(): boolean {
   const argv1 = process.argv[1] ?? "";
@@ -19,8 +20,15 @@ function isEntrypoint(): boolean {
 }
 
 if (isEntrypoint()) {
-  startBackend().catch((err) => {
-    log.error({ err }, "Concordia failed to start");
-    process.exit(1);
+  process.on("beforeExit", (code) => {
+    log.warn({ code, hasHandle: activeHandle !== null }, "Concordia process beforeExit");
   });
+  startBackend()
+    .then((handle) => {
+      activeHandle = handle;
+    })
+    .catch((err) => {
+      log.error({ err }, "Concordia failed to start");
+      process.exit(1);
+    });
 }

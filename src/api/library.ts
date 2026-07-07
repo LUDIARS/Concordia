@@ -14,19 +14,23 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { join } from "node:path";
-import { resolveLibraryRoots, LibraryRootsError } from "../library/roots.js";
-import { scanLibrary } from "../library/scanner.js";
-import { reviewSnapshot } from "../library/review.js";
-import { analyzeHome } from "../library/contradictions.js";
-import { readBlockContent } from "../library/content.js";
 import {
-  planArchive,
+  LibraryRootsError,
+  analyzeHome,
   applyArchive,
   listArchived,
+  planArchive,
+  readBlockContent,
   restoreArchived,
+  reviewSnapshot,
+  scanLibrary,
+  resolveLibraryRoots,
   type ArchiveTarget,
-} from "../library/archive.js";
-import type { LibrarySnapshot, LibrarySource, LibraryBlock } from "../library/types.js";
+  type LibraryBlock,
+  type LibrarySnapshot,
+  type LibrarySource,
+} from "@ludiars/memory";
+import { runClaude } from "../rules/claude-runner.js";
 
 const ARCHIVE_DIRNAME = "_archive";
 
@@ -106,7 +110,11 @@ export function libraryRouter(deps: LibraryApiDeps): Hono {
     }
     const src = snap.sources.find((s) => s.id === parsed.data.home);
     if (!src) return c.json({ error: "source not found" }, 404);
-    const result = await analyzeHome(src);
+    const result = await analyzeHome(src, {
+      disabled: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
+      model: "haiku",
+      runner: async (prompt, opts) => runClaude(prompt, { model: opts.model }),
+    });
     if (result.error) return c.json({ error: "claude_failed", detail: result.error }, 502);
     return c.json(result);
   });

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { readBlockContent } from "../src/library/content.js";
+import { readBlockContent } from "@ludiars/memory";
 import { libraryRouter } from "../src/api/library.js";
 import { makeTestDir } from "./helpers/db.js";
 import { registerCleanup } from "./helpers/cleanup.js";

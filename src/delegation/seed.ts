@@ -95,10 +95,10 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   // ── Claude (Opus / Sonnet / Fable) への汎用実装委託 ──────────────────
   // target_provider=claude + model 指定 → spawn は `lictor claude --model <id>`。
   // 同じ Claude Code でも上位/中位/高速モデルを選んで委託できるよう既定で 3 本入れる。
-  ...(["opus-4-8", "sonnet-4-6", "fable-5", "haiku-4-5"] as const).map((tier) => {
+  ...(["opus-4-8", "sonnet-5", "fable-5", "haiku-4-5"] as const).map((tier) => {
     const meta = {
       "opus-4-8": { id: "claude-opus-4-8", label: "Opus 4.8", note: "最上位。 設計判断や難所の実装向き。", emoji: "🧙‍♂️" },
-      "sonnet-4-6": { id: "claude-sonnet-4-6", label: "Sonnet 4.6", note: "中位。 一般的な実装の主力。", emoji: "🧑‍💼" },
+      "sonnet-5": { id: "claude-sonnet-5", label: "Sonnet 5", note: "中位。 一般的な実装の主力。", emoji: "🧑‍💼" },
       "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。", emoji: "🦸" },
       "haiku-4-5": { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", note: "超高速・軽量タスク向き。", emoji: "🗣️" },
     }[tier];
@@ -137,7 +137,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "タスク処理",
     description: "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせる。delegate-task リアクションワークフロー (🤝) のデフォルトテンプレート。",
     target_provider: "claude",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     emoji: "🤝",
     prompt_template: [
       "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせること。",
@@ -158,7 +158,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "毎朝タスク処理 (Claude)",
     description: "Memoriaの今日期限タスクを「確認系(人間がやる)」と「実装系(AIがやれる)」に仕分け、確認系は整理して提示し、実装系は1件ずつ着手して、詰まったらask・分割・委譲で止める朝ルーティン。MorningSchedulerが毎朝8時にinvokeする。",
     target_provider: "claude",
-    model: "claude-sonnet-4-6",
+    model: "claude-sonnet-5",
     emoji: "🌅",
     prompt_template: [
       "## 朝タスク処理 — ${date}",
@@ -240,4 +240,6 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   // 旧行があれば deactivate する (削除はせず is_active=0 で残す)。 fresh DB では no-op。
   const legacy = repo.findTemplateByCallName("gamma-impl");
   if (legacy) repo.deactivateTemplate(legacy.id);
+  const legacySonnet = repo.findTemplateByCallName("claude-sonnet-4-6-impl");
+  if (legacySonnet) repo.deactivateTemplate(legacySonnet.id);
 }

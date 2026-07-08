@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,6 +12,8 @@ import {
 import {
   buildConcordiaAddressEnv,
   buildWtArgs,
+  resolveAgentHomeCwd,
+  resolveCastraDefaultCwd,
   resolveSpawnCwd,
   validateCwd,
 } from "../src/control/spawner.js";
@@ -215,6 +217,34 @@ describe("spawn arg builder", () => {
       rmSync(tmp, { recursive: true, force: true });
     });
   });
+
+  describe("resolveAgentHomeCwd", () => {
+    it("uses workspace/Castra for Claude and Codex when it exists", () => {
+      const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
+      const castra = join(root, "Castra");
+      mkdirSync(castra);
+      try {
+        expect(resolveCastraDefaultCwd(root)).toBe(castra);
+        expect(resolveAgentHomeCwd("claude", undefined, root)).toBe(castra);
+        expect(resolveAgentHomeCwd("codex", undefined, root)).toBe(castra);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+
+    it("leaves explicit cwd and non-Claude providers on the existing path", () => {
+      const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
+      const requested = mkdtempSync(join(tmpdir(), "concordia-requested-"));
+      mkdirSync(join(root, "Castra"));
+      try {
+        expect(resolveAgentHomeCwd("claude", requested, root)).toBe(requested);
+        expect(resolveAgentHomeCwd("gemini", undefined, root)).toBe(root);
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(requested, { recursive: true, force: true });
+      }
+    });
+  });
 });
 
 describe("spawn router (Hono)", () => {
@@ -249,6 +279,27 @@ describe("spawn router (Hono)", () => {
     const res = await app.request("/info");
     const body = (await res.json()) as { default_cwd: string };
     expect(body.default_cwd).toBe("D:\\LUDIARS");
+  });
+
+  it("POST /preview uses Castra as Claude/Codex home cwd when available", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "concordia-router-castra-"));
+    const castra = join(workspace, "Castra");
+    mkdirSync(castra);
+    try {
+      const app = spawnRouter({ cwd, resolveDefaultCwd: () => workspace });
+      const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
+      const res = await app.request("/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ provider: "codex", mode: "tab" }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { command: string[] };
+      expect(body.command).toContain("-d");
+      expect(body.command).toContain(castra);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it("POST / without token returns 401 with WWW-Authenticate", async () => {

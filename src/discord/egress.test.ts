@@ -119,6 +119,65 @@ describe("handleEvent transcript.frame relay", () => {
     expect(webhooks.send).not.toHaveBeenCalled();
   });
 
+  it("still relays codex-cli assistant text when Discord message optimization is enabled", async () => {
+    const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("codex-cli", {
+      messageOptimizationEnabled: true,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 4,
+      kind: "text",
+      payload: { role: "assistant", text: "hello from Codex" },
+      ts: 103,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).toHaveBeenCalledWith(sessionId);
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(sent[0].options).toMatchObject({ content: "hello from Codex" });
+  });
+
+  it("skips codex-cli commentary when Discord message optimization is enabled", async () => {
+    const { deps, webhooks, sessionId } = makeTranscriptRelayDeps("codex-cli", {
+      messageOptimizationEnabled: true,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 5,
+      kind: "text",
+      payload: { role: "assistant", text: "working update", phase: "commentary" },
+      ts: 104,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).not.toHaveBeenCalled();
+    expect(webhooks.send).not.toHaveBeenCalled();
+  });
+
+  it("relays codex-cli final_answer when Discord message optimization is enabled", async () => {
+    const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("codex-cli", {
+      messageOptimizationEnabled: true,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 6,
+      kind: "text",
+      payload: { role: "assistant", text: "done", phase: "final_answer" },
+      ts: 105,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).toHaveBeenCalledWith(sessionId);
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(sent[0].options).toMatchObject({ content: "done" });
+  });
+
   it("still relays summaries when Discord message optimization is enabled", async () => {
     const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("claude-code", {
       messageOptimizationEnabled: true,
@@ -127,10 +186,10 @@ describe("handleEvent transcript.frame relay", () => {
     handleEvent(deps, {
       type: "transcript.frame",
       target_session_id: sessionId,
-      seq: 4,
+      seq: 7,
       kind: "summary",
       payload: { text: "compact summary" },
-      ts: 103,
+      ts: 106,
     });
     await flushEgress();
 

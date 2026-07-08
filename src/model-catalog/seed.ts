@@ -11,7 +11,8 @@ import type { CreateModelInput, ModelCatalogRepo } from "../db/model-catalog-rep
 const SEED_MODELS: CreateModelInput[] = [
   // ── Claude (Claude Code) ─────────────────────────────────
   { provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 10 },
-  { provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 20 },
+  { provider: "claude", model_id: "claude-sonnet-5", label: "Sonnet 5", sort_order: 20 },
+  { provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 22 },
   { provider: "claude", model_id: "claude-fable-5", label: "Fable 5", sort_order: 25 },
   { provider: "claude", model_id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", sort_order: 30 },
   // ── Codex ────────────────────────────────────────────────
@@ -25,10 +26,15 @@ const SEED_MODELS: CreateModelInput[] = [
   { provider: "gemma4-12", model_id: "gemma4:12b", label: "Gemma 4 12B (Ollama)", sort_order: 10 },
 ];
 
+const ROLLING_SEED_MODELS: CreateModelInput[] = [
+  { provider: "claude", model_id: "claude-sonnet-5", label: "Sonnet 5", sort_order: 20 },
+];
+
 export function seedModelCatalog(repo: ModelCatalogRepo): void {
-  // 既に 1 件でもあれば seed しない (ユーザが消したモデルを毎 boot で復活させない)。
-  if (repo.list({ includeInactive: true }).length > 0) return;
-  for (const m of SEED_MODELS) {
+  // 既存 catalog には新規公開モデルだけを追加する (ユーザが消した通常 seed を毎 boot で復活させない)。
+  const rows = repo.list({ includeInactive: true });
+  const models = rows.length > 0 ? ROLLING_SEED_MODELS : SEED_MODELS;
+  for (const m of models) {
     repo.upsert(m);
   }
 }

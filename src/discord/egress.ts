@@ -191,16 +191,19 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   // Per 2026-05-27 ユーザ指示: only relay "人間向けの最終回答" — concretely:
   //   1) kind=text && role=assistant : AI が user に返す本文
   //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
-  // When Discord message optimization is enabled, (1) is suppressed and
-  // only summaries continue to be posted.
+  // When Discord message optimization is enabled, (1) is suppressed for
+  // providers that have an alternate optimized message path. Codex carries
+  // `phase` in transcript payloads; commentary is suppressed and final_answer
+  // remains relayable.
   // Everything else (tool-use / tool-result / thinking / raw / user prompts)
   // is dropped here. User prompts are NOT relayed via transcript.frame because
   // a separate `session.event(kind=prompt)` handler in bot.ts already posts
   // them as "CLI User" — keeping both would duplicate every prompt.
   let role: string | null = null;
   let text: string | null = null;
+  let phase: string | null = null;
   if (ev.kind === "text") {
-    const p = ev.payload as { role?: string; text?: string } | null | undefined;
+    const p = ev.payload as { role?: string; text?: string; phase?: string } | null | undefined;
     if (!p || typeof p.text !== "string" || !p.text) {
       deps.log.info(`egress: transcript.frame skipped empty payload session=${ev.target_session_id} seq=${ev.seq}`);
       return;
@@ -211,6 +214,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     }
     role = "assistant";
     text = p.text;
+    phase = typeof p.phase === "string" ? p.phase : null;
   } else if (ev.kind === "summary") {
     const p = ev.payload as { text?: string; summary?: string } | null | undefined;
     const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
@@ -253,8 +257,15 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
 
-  if (role === "assistant" && deps.messageOptimizationEnabled === true) {
-    deps.log.info(`egress: transcript.frame skipped by message optimization session=${ev.target_session_id} seq=${ev.seq}`);
+  if (
+    role === "assistant" &&
+    deps.messageOptimizationEnabled === true &&
+    (session.provider !== "codex-cli" || (phase !== null && phase !== "final_answer"))
+  ) {
+    deps.log.info(
+      `egress: transcript.frame skipped by message optimization ` +
+      `session=${ev.target_session_id} seq=${ev.seq} provider=${session.provider} phase=${phase ?? "null"}`,
+    );
     return;
   }
 

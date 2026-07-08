@@ -218,7 +218,7 @@ describe("admin API", () => {
     // loadConfig({}) → CONCORDIA_SPAWN_DEFAULT_CWD unset.
     // win32 + E:\Document\Ars 存在環境では auto-detect で同パスが返る (LUDIARS 運用機).
     // 他環境では fallback 無しで空文字. どちらも仕様の範囲内.
-    expect(["", "E:\\Document\\Ars"]).toContain(body.default_cwd);
+    expect(["", "E:\\Document\\Ars", "E:\\Document\\Ars\\Castra"]).toContain(body.default_cwd);
     expect(typeof body.platform_supported).toBe("boolean");
   });
 

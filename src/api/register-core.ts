@@ -61,6 +61,8 @@ import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import {
   isSpawnProvider,
+  resolveAgentHomeCwd,
+  resolveCastraDefaultCwd,
   resolveSpawnCwd,
   spawnSession,
   SPAWN_PROVIDERS,
@@ -374,7 +376,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
-    const directCwd = projectCwd ?? resolveSpawnCwd(body.cwd, deps.adminState.getWorkspaceRoot());
+    const directCwd =
+      projectCwd ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
     const directTarget = await prepareSpawnTarget({
       cwd: directCwd,
       branch: requestedBranch,
@@ -413,7 +416,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   app.get("/v1/admin/spawn-defaults", (c) => {
     return c.json({
       // 実際に spawn で使われる既定 cwd = プライマリ workspace ルート (実行時解決)。
-      default_cwd: deps.adminState.getWorkspaceRoot(),
+      default_cwd: resolveCastraDefaultCwd(deps.adminState.getWorkspaceRoot()),
       platform_supported: process.platform === "win32",
     });
   });

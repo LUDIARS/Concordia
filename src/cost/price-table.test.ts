@@ -8,6 +8,7 @@ describe("priceForModel", () => {
     }
   });
   it("Sonnet 4.x は $3/$15、 Haiku 4.5 は $1/$5", () => {
+    expect(priceForModel("claude-sonnet-5")).toEqual({ inputPerMtok: 3, outputPerMtok: 15 });
     expect(priceForModel("claude-sonnet-4-6")).toEqual({ inputPerMtok: 3, outputPerMtok: 15 });
     expect(priceForModel("claude-haiku-4-5")).toEqual({ inputPerMtok: 1, outputPerMtok: 5 });
   });

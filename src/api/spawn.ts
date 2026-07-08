@@ -16,7 +16,8 @@ import { randomUUID } from "node:crypto";
 import {
   buildWtArgs,
   isSpawnProvider,
-  resolveSpawnCwd,
+  resolveAgentHomeCwd,
+  resolveCastraDefaultCwd,
   spawnSession,
   SPAWN_PROVIDERS,
   type SpawnMode,
@@ -74,7 +75,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
     return c.json({
       token_path: spawnTokenPath(cwd),
       platform_supported: process.platform === "win32",
-      default_cwd: deps.resolveDefaultCwd?.() ?? "",
+      default_cwd: resolveCastraDefaultCwd(deps.resolveDefaultCwd?.()),
     });
   });
 
@@ -117,7 +118,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: resolveSpawnCwd(body.cwd, deps.resolveDefaultCwd?.()),
+      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
       title: typeof body.title === "string" ? body.title : undefined,
       // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
       // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
@@ -166,7 +167,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: resolveSpawnCwd(body.cwd, deps.resolveDefaultCwd?.()),
+      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
       title: typeof body.title === "string" ? body.title : undefined,
     });
     return c.json({ command: ["wt.exe", ...args] });

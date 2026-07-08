@@ -6,6 +6,7 @@
 
 import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
+import { join } from "node:path";
 
 export type SpawnMode = "tab" | "window";
 /**
@@ -162,6 +163,37 @@ export function resolveSpawnCwd(
     return undefined;
   }
   return fallback;
+}
+
+export function resolveCastraDefaultCwd(
+  defaultCwd: string | undefined | null,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const explicit = env.CONCORDIA_CASTRA_CWD?.trim();
+  if (explicit) return explicit;
+  const fallback = (defaultCwd ?? "").trim();
+  if (!fallback) return "";
+  const candidate = join(fallback, "Castra");
+  try {
+    if (existsSync(candidate) && statSync(candidate).isDirectory()) return candidate;
+  } catch {
+    // Fall back to the configured workspace root.
+  }
+  return fallback;
+}
+
+export function resolveAgentHomeCwd(
+  provider: SpawnProvider,
+  requested: unknown,
+  defaultCwd: string | undefined | null,
+): string | undefined {
+  if (typeof requested === "string" && requested.trim()) {
+    return resolveSpawnCwd(requested, defaultCwd);
+  }
+  if (provider === "claude" || provider === "codex") {
+    return resolveSpawnCwd(undefined, resolveCastraDefaultCwd(defaultCwd));
+  }
+  return resolveSpawnCwd(undefined, defaultCwd);
 }
 
 /**

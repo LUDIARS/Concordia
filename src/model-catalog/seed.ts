@@ -30,11 +30,22 @@ const ROLLING_SEED_MODELS: CreateModelInput[] = [
   { provider: "claude", model_id: "claude-sonnet-5", label: "Sonnet 5", sort_order: 20 },
 ];
 
+const ROLLING_EXISTING_MODEL_PATCHES: CreateModelInput[] = [
+  { provider: "claude", model_id: "claude-sonnet-4-6", label: "Sonnet 4.6", sort_order: 22 },
+];
+
 export function seedModelCatalog(repo: ModelCatalogRepo): void {
   // 既存 catalog には新規公開モデルだけを追加する (ユーザが消した通常 seed を毎 boot で復活させない)。
   const rows = repo.list({ includeInactive: true });
   const models = rows.length > 0 ? ROLLING_SEED_MODELS : SEED_MODELS;
   for (const m of models) {
     repo.upsert(m);
+  }
+  if (rows.length > 0) {
+    for (const patch of ROLLING_EXISTING_MODEL_PATCHES) {
+      if (rows.some((row) => row.provider === patch.provider && row.model_id === patch.model_id)) {
+        repo.upsert(patch);
+      }
+    }
   }
 }

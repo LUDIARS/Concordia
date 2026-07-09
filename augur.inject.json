@@ -1,0 +1,22 @@
+{
+  "service": "concordia",
+  "include": ["src/**/*.ts", "tools/**/*.mjs"],
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.mjs",
+    "src/testing/**",
+    "web/**",
+    "lib/**"
+  ],
+  "runtime": {
+    "autoImport": false,
+    "entrypoints": ["src/server.ts", "src/cost-worker.ts"]
+  },
+  "rules": {
+    "silent-catch": true,
+    "spawn-watch": true,
+    "interval-guard": true,
+    "listener-guard": true
+  },
+  "importFrom": "@ludiars/log-weaver"
+}

@@ -183,6 +183,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,
         blackbox: deps.harnessBlackbox,
+        // outside-scope 述語のスコープ源: target_project (明示) → repo_path (暗黙) の leaf。
+        sessionScope: (id) => {
+          const s = deps.repo.findSession(id);
+          if (!s) return null;
+          return s.target_project ?? s.repo_path ?? null;
+        },
       }),
     );
   }

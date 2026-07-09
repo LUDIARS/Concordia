@@ -100,6 +100,12 @@ export interface HarnessSessionApiDeps {
   runClaude?: RunClaudeFn;
   /** Resident Lapilli blackbox engine for harness decisions and review ledger. */
   blackbox?: HarnessBlackboxService;
+  /**
+   * session の作業対象スコープを解決する (outside-scope 述語用)。 明示 `target_project` →
+   * 無ければ登録時 `repo_path` の順で返す。 未注入 / 不明なら null (= スコープ強制なし)。
+   * gate ハンドラがこれを {@link HarnessAction.targetProject} に注入する。
+   */
+  sessionScope?: (sessionId: string) => string | null;
 }
 
 function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
@@ -162,14 +168,19 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const editedRepos = [...deps.audit.distinctEditedRepos(session_id ?? "")];
     if (repo && isEditTool(action.tool) && !editedRepos.includes(repo)) editedRepos.push(repo);
 
-    const deterministic = evaluateAction({ ...action, editedRepos } as HarnessAction);
+    // 作業対象スコープ (outside-scope 述語用)。 hook が action.project を明示していればそれを
+    // 優先し、 無ければ session の target_project / repo_path を Concordia 側で解決する
+    // (hook は薄い腕に保つ = セッション状態源は Concordia)。
+    const targetProject = action.project ?? (session_id ? deps.sessionScope?.(session_id) ?? undefined : undefined);
+
+    const deterministic = evaluateAction({ ...action, editedRepos, targetProject } as HarnessAction);
     let verdict = deterministic;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;
     let blackboxError: string | undefined;
     if (deps.blackbox) {
       try {
         blackbox = await deps.blackbox.decideGate({
-          action: { ...action, editedRepos } as HarnessAction,
+          action: { ...action, editedRepos, targetProject } as HarnessAction,
           editedRepos,
           verdict: deterministic,
           session_id,

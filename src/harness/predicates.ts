@@ -29,6 +29,12 @@ export interface HarnessAction {
   branch?: string;
   /** 当該セッションでこれまでに編集したリポ root の集合 (5 リポ警告用)。 */
   editedRepos?: string[];
+  /**
+   * このセッションが宣言した作業対象プロジェクト / リポ (スコープ基準)。 gate ハンドラが
+   * session の `target_project` (明示) → 無ければ登録時 `repo_path` (暗黙) の順で解決して渡す。
+   * これと現在編集中のリポが食い違うとき {@link outsideScope} が警告する。 未解決なら省略。
+   */
+  targetProject?: string;
 }
 
 export interface PredicateHit {
@@ -49,14 +55,19 @@ export function isEditTool(tool: string): boolean {
   return EDIT_TOOLS.has(tool);
 }
 
-export function repoLeaf(value: string): string {
-  const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "").trim();
-  const leaf = normalized.split("/").filter(Boolean).pop() ?? normalized;
-  return leaf.toLowerCase();
-}
-
 function isMainBranch(branch?: string): boolean {
   return !!branch && MAIN_BRANCHES.has(branch.trim());
+}
+
+/** パス / プロジェクト名の末尾要素 (リポ leaf) を小文字で返す。 `/` `\` 両対応。
+ *  undefined 許容 (outsideScope が未宣言 targetProject を渡す) — #299 由来の呼び出し
+ *  (data-sufficiency 等、 string 渡し) とも互換。 */
+export function repoLeaf(pathOrName?: string): string {
+  if (!pathOrName) return "";
+  const trimmed = pathOrName.trim().replace(/[/\\]+$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  const back = trimmed.lastIndexOf("\\");
+  return trimmed.slice(Math.max(slash, back) + 1).toLowerCase();
 }
 
 /**
@@ -118,5 +129,32 @@ export const maxReposWarn: Predicate = (a) => {
   return null;
 };
 
+/**
+ * スコープ外プロジェクトでの編集 (warn)。 セッションが宣言した作業対象
+ * ({@link HarnessAction.targetProject} = target_project 明示 or 登録 repo_path 暗黙) と、
+ * 今まさに編集しようとしているリポの leaf が食い違うとき警告する。
+ *
+ * 「Lictor の作業のはずが別リポを触り始めた」 を着手時点で検知して、 意図しない
+ * スコープ逸脱 (別プロジェクトのブランチ作業の混入) を止める。 ハード deny にすると
+ * 正当な横断作業まで止めるため warn に留める (Cc への通知は gate ハンドラが担う)。
+ *
+ * targetProject / 編集リポが解決できないときは強制しない (「分からないのに違反にしない」)。
+ * targetProject は Anatomia プロジェクト名 or リポパスのどちらでも leaf 比較で吸収する。
+ */
+export const outsideScope: Predicate = (a) => {
+  if (!isEditTool(a.tool)) return null;
+  const target = repoLeaf(a.targetProject);
+  if (!target) return null; // スコープ未宣言 → 強制しない
+  const current = repoLeaf(a.cwd ?? a.filePath);
+  if (!current) return null; // 現在リポ不明 → 強制しない
+  if (current === target) return null;
+  return {
+    rule: "outside-scope",
+    decision: "warn",
+    reason: `作業対象 (${a.targetProject}) 外のリポで編集しています (${current}${a.branch ? ` @ ${a.branch}` : ""})。`,
+    suggestion: "別プロジェクトの作業なら別セッションで行うか、 対象プロジェクトを切り替えてください。",
+  };
+};
+
 /** 既定の述語セット (登録順)。 */
-export const DEFAULT_PREDICATES: Predicate[] = [noMainPush, branchBeforeEdit, maxReposWarn];
+export const DEFAULT_PREDICATES: Predicate[] = [noMainPush, branchBeforeEdit, maxReposWarn, outsideScope];

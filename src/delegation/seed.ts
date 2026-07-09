@@ -12,6 +12,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR + vitest) を守らせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
     prompt_template: [
       "Read the design document at ${design_path}.",
@@ -43,6 +44,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
     prompt_template: [
       "Fix this bug in ${target_repo}:",
@@ -71,6 +73,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
     prompt_template: [
       "Refactor ${target} to achieve: ${goal}.",

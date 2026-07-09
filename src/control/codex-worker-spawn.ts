@@ -90,13 +90,24 @@ export function spawnCodexExecWorker(req: SpawnRequest, opts: CodexWorkerSpawnOp
 
   const nodeBin = opts.nodeBin ?? process.execPath;
   const args = buildCodexWorkerArgs(workerScript, req, promptFile);
+  // 存在しない cwd での spawn は Windows で非同期 ENOENT を投げる。 crash は
+  // child.on('error') で防げるが、 run は「spawned」のまま worker が即死し原因が埋もれる。
+  // 委託 caller が壊れた cwd (例: バックスラッシュを潰した Windows パス
+  // `C:Users\...cc-hook3-wt`) を渡した事故を早期に spawn_failed + 明確なエラーで
+  // surface し、 呼び出し側バグを可視化するため事前に弾く。
+  const spawnCwd = req.cwd || repoRoot;
+  if (!existsSync(spawnCwd)) {
+    const msg = `codex worker cwd does not exist: ${spawnCwd}`;
+    log.warn({ cwd: spawnCwd }, msg);
+    return { ok: false, error: msg };
+  }
   const spawnFn = opts.spawnFn ?? spawn;
   // spawn 失敗は非同期 `error` イベントで届く。 リスナー無しだと uncaughtException
   // として Concordia 本体を巻き込むため、 同期 throw と合わせて必ず捕捉する。
   let child: ReturnType<typeof spawn>;
   try {
     child = spawnFn(nodeBin, args, {
-      cwd: req.cwd || repoRoot,
+      cwd: spawnCwd,
       detached: true,
       // worker は self-register で Concordia に状態を送るので、 親は出力を待たない。
       stdio: "ignore",

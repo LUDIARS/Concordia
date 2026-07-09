@@ -27,6 +27,22 @@ import { claudeContextFromLines, codexContextFromLines } from "./context-estimat
 
 const NEGATIVE_TTL_MS = 60_000;
 const MAX_ENTRIES = 1024;
+/**
+ * dedup 集合 (seen) の上限。 log-totals-cache と同根拠: claude の重複 message.id /
+ * uuid は同一ターンの隣接行でしか現れないので、 この FIFO 窓を超えた重複は無い前提。
+ * 長寿セッションを append-only で読み進める間 seen が無制限に膨らむ (単調 RSS リーク)
+ * のを防ぐため挿入順で最古を捨てる。
+ */
+const SEEN_CAP = 8192;
+
+/** seen に id を足し、 上限超過なら挿入順で最古を 1 件捨てる (メモリ bound)。 */
+function addSeenBounded(seen: Set<string>, id: string): void {
+  seen.add(id);
+  if (seen.size > SEEN_CAP) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) seen.delete(oldest);
+  }
+}
 /** tail 読みの窓。 token_count / assistant usage は数 KB 間隔で出るため十分な余裕を持つ。 */
 const TAIL_BYTES = 256 * 1024;
 
@@ -136,7 +152,7 @@ export function accumulateClaudeCostLines(lines: string[], state: ClaudeCostStat
       null;
     if (dedupId) {
       if (state.seen.has(dedupId)) continue;
-      state.seen.add(dedupId);
+      addSeenBounded(state.seen, dedupId);
     }
     state.total += nn(u.input_tokens) + nn(u.output_tokens);
   }

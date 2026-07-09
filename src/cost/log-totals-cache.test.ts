@@ -1,5 +1,32 @@
 import { describe, expect, it } from "vitest";
-import { makeCachedRecentLogTotals, type LogTotalsCacheIo } from "./log-totals-cache.js";
+import {
+  addSeenBounded,
+  makeCachedRecentLogTotals,
+  SEEN_CAP,
+  type LogTotalsCacheIo,
+} from "./log-totals-cache.js";
+
+describe("addSeenBounded (dedup 集合のメモリ bound)", () => {
+  it("SEEN_CAP を超えたら挿入順で最古を捨て、 size は cap で頭打ち", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < SEEN_CAP + 100; i++) addSeenBounded(seen, `id-${i}`);
+    expect(seen.size).toBe(SEEN_CAP);
+    // 直近 cap 件は残り、 最古 100 件は落ちている。
+    expect(seen.has(`id-${SEEN_CAP + 99}`)).toBe(true);
+    expect(seen.has("id-0")).toBe(false);
+    expect(seen.has("id-99")).toBe(false);
+    expect(seen.has("id-100")).toBe(true);
+  });
+
+  it("隣接する重複はまだ窓内にあるので dedup が効く", () => {
+    const seen = new Set<string>();
+    addSeenBounded(seen, "dup");
+    // 窓を溢れさせない範囲での重複は has で弾ける。
+    expect(seen.has("dup")).toBe(true);
+    for (let i = 0; i < SEEN_CAP - 1; i++) addSeenBounded(seen, `x-${i}`);
+    expect(seen.has("dup")).toBe(true); // まだ窓内
+  });
+});
 
 /** 追記可能な in-memory JSONL ファイル群で io を偽装する。 */
 function makeFakeIo() {

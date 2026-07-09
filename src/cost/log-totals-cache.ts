@@ -25,9 +25,26 @@ import {
 import { readAppendedLines } from "./channel-cost-cache.js";
 
 const MAX_ENTRIES = 4096;
+/**
+ * dedup 集合 (seen) の上限。 claude の重複 message.id / uuid は同一ターンの
+ * ストリーミング partial + final という「隣接行」でしか現れないため、 この窓を
+ * 超えて離れた重複は事実上存在しない。 append-only を延々読み進める長寿ファイルで
+ * seen が無制限に肥大化する (= cost-worker の単調 RSS リーク) のを防ぐため、
+ * 挿入順で最古を捨てる FIFO 窓に上限を設ける。
+ */
+export const SEEN_CAP = 8192;
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+/** seen に id を足し、 上限超過なら挿入順で最古を 1 件捨てる (メモリ bound)。 */
+export function addSeenBounded(seen: Set<string>, id: string): void {
+  seen.add(id);
+  if (seen.size > SEEN_CAP) {
+    const oldest = seen.values().next().value;
+    if (oldest !== undefined) seen.delete(oldest);
+  }
 }
 
 interface BaseState {
@@ -69,7 +86,7 @@ function accumulateClaude(lines: string[], st: ClaudeState): void {
       null;
     if (dedupId) {
       if (st.seen.has(dedupId)) continue;
-      st.seen.add(dedupId);
+      addSeenBounded(st.seen, dedupId);
     }
     st.cached += nn(u.cache_read_input_tokens) + nn(u.cache_creation_input_tokens);
     st.total += nn(u.input_tokens) + nn(u.output_tokens);

@@ -11,6 +11,7 @@ import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { maybeSpawnFromReply } from "./reply-spawn.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
+const ACCEPTED_INJECT_REACTION = "✅";
 const COMMAND_LIST_TEXT = [
   "使用可能コマンド一覧",
   "- session channel では通常メッセージ送信 = inject",
@@ -173,10 +174,15 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
         try { await msg.reply({ content: `inject failed (${res.status})`, allowedMentions: { repliedUser: false } }); } catch {}
         return;
       }
+      const session = deps.sessionsRepo.findSession(sessionRow.session_id);
+      const isCodexSession = session?.provider === "codex-cli";
+      let acceptedReactionApplied = false;
+      if (isCodexSession) {
+        acceptedReactionApplied = await reactToAcceptedInject(deps, msg, sessionRow.session_id);
+      }
       // Codex は環境によって文字列 inject 後に Enter だけ追送しないと確定しない場合がある。
       // Discord session channel 経由の通常投稿では best-effort で改行 inject を追加する。
-      const session = deps.sessionsRepo.findSession(sessionRow.session_id);
-      if (session?.provider === "codex-cli") {
+      if (isCodexSession) {
         try {
           await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
             method: "POST",
@@ -192,7 +198,9 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       // ここでは対象メッセージを保留登録するだけにする (bot の transcript.frame /
       // prompt ハンドラが takeInjectAck で取り出して付ける)。 Enter が送られず
       // 宙に浮いたケースでは transcript が動かないので ✅ が付かない = 見分けられる。
-      recordInjectAck(sessionRow.session_id, msg.channelId, msg.id);
+      if (!acceptedReactionApplied) {
+        recordInjectAck(sessionRow.session_id, msg.channelId, msg.id);
+      }
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
     } catch (e) {
       deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
@@ -302,6 +310,16 @@ function resolveRouteChannelId(msg: Message): string {
     return msg.channel.parentId ?? msg.channelId;
   }
   return msg.channelId;
+}
+
+async function reactToAcceptedInject(deps: IngressDeps, msg: Message, sessionId: string): Promise<boolean> {
+  try {
+    await msg.react(ACCEPTED_INJECT_REACTION);
+    return true;
+  } catch (e) {
+    deps.log.warn(`ingress: accepted react failed session=${sessionId} channel=${msg.channelId}: ${(e as Error).message}`);
+    return false;
+  }
 }
 
 /**

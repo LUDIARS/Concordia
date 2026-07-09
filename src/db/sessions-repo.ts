@@ -362,6 +362,14 @@ export class SessionsRepo {
       .all(sessionId, limit) as SessionEventRow[];
   }
 
+  eventsByKind(sessionId: string, kind: string): SessionEventRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM session_events WHERE session_id = ? AND kind = ? ORDER BY ts DESC`,
+      )
+      .all(sessionId, kind) as SessionEventRow[];
+  }
+
   latestEventsByKind(sessionIds: string[], kind: string): SessionEventRow[] {
     if (sessionIds.length === 0) return [];
     const placeholders = sessionIds.map(() => "?").join(",");

@@ -53,6 +53,7 @@ import { startBranchWatch } from "../testing/branch-watch.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { startIdleNudge } from "../control/idle-nudge.js";
 import { startAutoCompaction } from "../control/auto-compaction.js";
 import { runCompaction, makeCompactionIO } from "../control/compaction.js";
 import { MetricsStore } from "../metrics/store.js";
@@ -643,6 +644,22 @@ export async function startBackend(): Promise<BackendHandle> {
         intervalMs: cfg.stallNudgeIntervalMs,
         idleSec: cfg.stallIdleSec,
         cooldownSec: cfg.stallNudgeCooldownSec,
+      }),
+    );
+    trackPostListenHandle(
+      startIdleNudge({
+        repo,
+        seconds: cfg.idleNudgeSec,
+        postToSession: async (input) => {
+          const posts: Array<Promise<void>> = [];
+          if (discordBotHandle) posts.push(discordBotHandle.postToSession(input));
+          if (slackBotHandle) posts.push(slackBotHandle.postToSession(input));
+          await Promise.all(posts);
+        },
+        log: {
+          info: (message) => log.info(message),
+          warn: (message) => log.warn(message),
+        },
       }),
     );
     trackPostListenHandle(

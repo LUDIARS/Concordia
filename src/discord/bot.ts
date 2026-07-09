@@ -667,7 +667,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
   });
   client.on(Events.ShardReconnecting, (shardId) => {
-    stopAfterGatewayInstability("gateway_reconnecting", `shard=${shardId}`);
+    // ShardReconnecting は discord.js が自力で resume する通常のライフサイクル
+    // イベント。 ここで teardown すると一瞬のネットワーク揺らぎで bot が恒久停止
+    // する (復帰経路なし) ため、 ログのみ残して resume に任せる。
+    log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
   });
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
@@ -870,7 +873,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
         promptRelayLast.set(ev.session_id, { text, at: now });
         log.info(`prompt relay: sent session=${ev.session_id} event_ts=${ev.ts}`);
-      })();
+      })().catch((e) => log.warn(`prompt relay failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.event" && ev.kind === "title_renamed") {
@@ -917,7 +920,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const client = await webhooks.getForSession(ev.target_session_id);
         if (!client) return;
         await webhooks.send(client, { content: ev.text.slice(0, 1900), username: `🔁 Slack / ${who}` });
-      })();
+      })().catch((e) => log.warn(`slack inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`));
     }
   }
 

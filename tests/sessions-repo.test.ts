@@ -126,4 +126,26 @@ describe("SessionsRepo", () => {
     expect(repo.abandonLost(20)).toBe(1);
     expect(repo.findSession("a")?.status).toBe("abandoned");
   });
+
+  it("purgeStale deletes stale lost rows but never rows with a live WS client", () => {
+    const base = {
+      provider: "claude-code" as const, repo_path: "/x", repo_origin: null,
+      branch: null, host: "h", started_at: 0, last_seen_at: 10,
+      transcript_path: null, metadata: null,
+    };
+    // 生きた WS を持つ lost セッション: purge すると reaper の保護が消え、
+    // 動作中の process tree が「記録なき孤児」として kill される — 消してはいけない。
+    repo.insertSession({ ...base, id: "alive" });
+    expect(repo.incrementWsClients("alive")).toBe(1);
+    // incrementWsClients は last_seen_at を現在時刻へ進めるため、 setStatus で
+    // cutoff より古い last_seen に戻し「stale だが WS は生きている」状態を作る。
+    repo.setStatus("alive", "lost", 10);
+    // WS が居ない stale lost は従来どおり purge 対象。
+    repo.insertSession({ ...base, id: "dead" });
+    repo.setStatus("dead", "lost", 10);
+
+    expect(repo.purgeStale(100)).toBe(1);
+    expect(repo.findSession("alive")).not.toBeNull();
+    expect(repo.findSession("dead")).toBeNull();
+  });
 });

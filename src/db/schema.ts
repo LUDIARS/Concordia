@@ -1122,6 +1122,10 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // 同一 DB ファイルを本体と cost-worker の 2 プロセスが開く (WAL でも writer は 1 つ)。
+  // 競合時に即 SQLITE_BUSY で throw させず 5s まで待つことを明示する。 better-sqlite3 は
+  // 同期 API なのでこの待ちはイベントループを塞ぐ — 値を大きくしすぎないこと。
+  db.pragma("busy_timeout = 5000");
   if (shouldSkipMigrations(db)) return;
   const tx = db.transaction((stmts: string[]) => {
     for (const stmt of stmts) db.exec(stmt);

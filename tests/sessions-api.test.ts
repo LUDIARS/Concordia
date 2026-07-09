@@ -244,4 +244,65 @@ describe("sessions API", () => {
       expect(r2.status).toBe(404);
     });
   });
+
+  // lost に落ちた健全セッションが生きた traffic で active に戻ること (revive)。
+  // 従来は SessionStart しか復帰経路がなく、 lost 固定 → purge → reaper 誤 kill の
+  // 連鎖が起きていた (spec/plan/problems/cc-stability-problems.md B-1)。
+  describe("lost session revival", () => {
+    async function startLostSession(env: ReturnType<typeof makeTestApp>, id: string) {
+      await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id, provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      env.repo.setStatus(id, "lost", 10);
+      expect(env.repo.findSession(id)?.status).toBe("lost");
+    }
+
+    it("POST /event revives a lost session to active and records a revive event", async () => {
+      const env = makeTestApp();
+      await startLostSession(env, "rv1");
+      const r = await env.app.request("/v1/sessions/rv1/event", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ kind: "prompt", payload: { summary: "still here" } }),
+      });
+      expect(r.status).toBe(200);
+      expect(env.repo.findSession("rv1")?.status).toBe("active");
+      const kinds = env.repo.recentEvents("rv1", 10).map((e) => e.kind);
+      expect(kinds).toContain("revive");
+    });
+
+    it("POST /heartbeat revives a lost session to active", async () => {
+      const env = makeTestApp();
+      await startLostSession(env, "rv2");
+      const r = await env.app.request("/v1/sessions/rv2/heartbeat", { method: "POST" });
+      expect(r.status).toBe(200);
+      expect(env.repo.findSession("rv2")?.status).toBe("active");
+    });
+
+    it("PATCH revives a lost session to active", async () => {
+      const env = makeTestApp();
+      await startLostSession(env, "rv3");
+      const r = await env.app.request("/v1/sessions/rv3", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ current_task: "working" }),
+      });
+      expect(r.status).toBe(200);
+      expect(env.repo.findSession("rv3")?.status).toBe("active");
+    });
+
+    it("ended sessions are NOT revived by traffic", async () => {
+      const env = makeTestApp();
+      await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "rv4", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      env.repo.setStatus("rv4", "ended", 10, 10);
+      await env.app.request("/v1/sessions/rv4/heartbeat", { method: "POST" });
+      expect(env.repo.findSession("rv4")?.status).toBe("ended");
+    });
+  });
 });

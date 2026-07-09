@@ -1,6 +1,17 @@
 {
-  "extends": "../../tsconfig.base.json",
+  "$comment": "vendored package — 元は LUDIARS umbrella の ../../tsconfig.base.json を extends していたが、 Concordia 単体 clone にはその base が存在せず vitest (esbuild) が tsconfig 解決で落ちるため standalone 化した。",
   "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2023"],
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"]

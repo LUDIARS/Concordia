@@ -55,7 +55,7 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
-> 注: `.env.example` の `CONCORDIA_LOST_AFTER_SEC` コメントは「default 5 分」 だが、 実コードの既定は **1800 秒 (30 分)**。 Stop hook が turn 毎に発火する制約で idle ≠ 終了のため延長された (`config.ts:67` のコメント)。
+> 注: `CONCORDIA_LOST_AFTER_SEC` の既定は **1800 秒 (30 分)** (`.env.example` も同値に統一済み)。 Stop hook が turn 毎にしか発火せず idle ≠ 終了のため、 これより短くすると健全な作業中セッションが lost 化しやすい。 過去に `.env.example` が 300 (5 分) を配布していた時期があるので、 運用中の実 env が 300 のままになっていないか確認すること。
 
 ### 信頼境界 (trust boundary)
 

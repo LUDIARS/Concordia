@@ -1,5 +1,6 @@
 import type { CostTimestampFormat } from "../cost/cost-report.js";
 import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
+import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 
 export type ChatPlatformName = "discord" | "slack";
 
@@ -86,6 +87,7 @@ export interface SessionStatusSnapshot {
   provider: string;
   branch: string | null;
   repoPath: string;
+  targetProject: string | null;
   currentTask: string | null;
   status: string;
   ageSec: number | null;
@@ -96,6 +98,7 @@ export interface SessionStatusSnapshot {
   doneCount: number;
   concordiaPending: number;
   cache: SessionCacheSnapshot | null;
+  sufficiency: ProjectSufficiency | null;
   contextBadge: string;
   contextPct: number | null;
   costBadge: string;

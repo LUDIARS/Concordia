@@ -206,6 +206,7 @@ export function serializeSession(s: SessionRow) {
     provider: s.provider,
     repo_path: s.repo_path,
     repo_origin: s.repo_origin,
+    target_project: s.target_project ?? null,
     branch: s.branch,
     host: s.host,
     started_at: s.started_at,

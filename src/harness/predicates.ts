@@ -48,6 +48,13 @@ const MAIN_BRANCHES = new Set(["main", "master"]);
 export function isEditTool(tool: string): boolean {
   return EDIT_TOOLS.has(tool);
 }
+
+export function repoLeaf(value: string): string {
+  const normalized = value.replace(/\\/g, "/").replace(/\/+$/, "").trim();
+  const leaf = normalized.split("/").filter(Boolean).pop() ?? normalized;
+  return leaf.toLowerCase();
+}
+
 function isMainBranch(branch?: string): boolean {
   return !!branch && MAIN_BRANCHES.has(branch.trim());
 }

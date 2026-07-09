@@ -8,6 +8,7 @@ import type {
   SubsidiarySummary,
   DiscordConfigStatus,
   SlackConfigStatus,
+  ProjectSufficiency,
 } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
 import { DelegationSpawnForm } from "../components/DelegationSpawnForm.js";
@@ -141,6 +142,29 @@ type PlatformConnection = {
 function shortId(value: string | null | undefined): string {
   if (!value) return "";
   return value.length <= 10 ? value : `${value.slice(0, 4)}...${value.slice(-4)}`;
+}
+
+function anatomiaBadge(sufficiency: ProjectSufficiency | undefined): string {
+  if (!sufficiency?.anatomia.present) return "An —";
+  return `An ✓ fn=${sufficiency.anatomia.functions ?? 0} dom=${sufficiency.anatomia.domains ?? 0}`;
+}
+
+function thaleiaBadge(sufficiency: ProjectSufficiency | undefined): string {
+  if (!sufficiency?.thaleia.present) return "Th —";
+  return `Th ✓ ${sufficiency.thaleia.implementedSpecs ?? 0}/${sufficiency.thaleia.specs ?? 0} gap=${sufficiency.thaleia.gapCount ?? 0}`;
+}
+
+function SufficiencyBadges({ sufficiency }: { sufficiency?: ProjectSufficiency }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1 text-[11px]">
+      <span className={`rounded px-1.5 py-0.5 ${sufficiency?.anatomia.present ? "bg-ok/10 text-ok" : "bg-muted text-subtle"}`}>
+        {anatomiaBadge(sufficiency)}
+      </span>
+      <span className={`rounded px-1.5 py-0.5 ${sufficiency?.thaleia.present ? "bg-accent/10 text-accent" : "bg-muted text-subtle"}`}>
+        {thaleiaBadge(sufficiency)}
+      </span>
+    </span>
+  );
 }
 
 function missingDetail(parts: string[]): string {
@@ -468,6 +492,7 @@ function ActiveSessionRows({ rows }: { rows: SessionRow[] }) {
       {sorted.map((s) => {
         const role = (s.metadata as any)?.role_label ?? s.provider;
         const project = (s.metadata as any)?.project;
+        const targetProject = s.target_project?.trim();
         const lastUserMessage = (s as SessionRow & { last_user_message?: string | null }).last_user_message?.trim();
         return (
           <Link
@@ -480,6 +505,14 @@ function ActiveSessionRows({ rows }: { rows: SessionRow[] }) {
             <span className="font-mono truncate">{project ?? s.branch ?? s.repo_path}</span>
             <span className="text-subtle text-xs shrink-0">{s.id.slice(0, 8)}</span>
             <span className="col-start-2 col-span-2 text-xs text-subtle truncate">{role}</span>
+            {targetProject && (
+              <span className="col-start-2 col-span-2 text-xs text-subtle truncate">
+                target {targetProject}
+              </span>
+            )}
+            <span className="col-start-2 col-span-2">
+              <SufficiencyBadges sufficiency={s.sufficiency} />
+            </span>
             {lastUserMessage && (
               <span className="col-span-3 text-[13px] leading-snug text-text bg-muted/60 rounded px-2 py-1 line-clamp-2 break-words">
                 {lastUserMessage}
@@ -723,6 +756,12 @@ function SessionCard({
           {s.branch ?? "(no branch)"}
         </span>
         <span className="ml-2 text-subtle">@ {s.host}</span>
+      </div>
+      {s.target_project && (
+        <div className="mt-1 text-xs text-subtle truncate">target {s.target_project}</div>
+      )}
+      <div className="mt-2">
+        <SufficiencyBadges sufficiency={s.sufficiency} />
       </div>
       <div className="mt-2 flex items-center gap-2 text-xs">
         <span className="text-accent">{role}</span>

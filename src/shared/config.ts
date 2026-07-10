@@ -75,6 +75,12 @@ export interface ConcordiaConfig {
   stallNudgeCooldownSec: number;
   /** Seconds after final_answer/summary before notifying requesters. <=0 disables. */
   idleNudgeSec: number;
+  /** Seconds after final_answer/summary before goal-and-go resumes an opted-in session. */
+  goalAndGoIdleSec: number;
+  /** Maximum autonomous continuations before a human turn resets the budget. */
+  goalAndGoMaxContinuations: number;
+  /** Maximum autonomous runtime in seconds before requiring human activity. */
+  goalAndGoMaxRuntimeSec: number;
   /** ホストメトリクス採取の有効/無効。 env `CONCORDIA_METRICS_ENABLED` (既定 ON)。 */
   metricsEnabled: boolean;
   /** メトリクス採取間隔 (ms)。 env `CONCORDIA_METRICS_INTERVAL_MS` (既定 30 秒)。 */
@@ -231,6 +237,9 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
       env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
     ),
     idleNudgeSec: readIntegerEnv(env.CONCORDIA_IDLE_NUDGE_SEC, 120),
+    goalAndGoIdleSec: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_IDLE_SEC, 300),
+    goalAndGoMaxContinuations: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_MAX_CONTINUATIONS, 6),
+    goalAndGoMaxRuntimeSec: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_MAX_RUNTIME_SEC, 7200),
     metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
     metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
     metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),

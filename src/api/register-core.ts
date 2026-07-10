@@ -1,5 +1,4 @@
 import type { Hono } from "hono";
-import { spawn } from "node:child_process";
 import { existsSync, utimesSync } from "node:fs";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -69,13 +68,21 @@ import {
   type SpawnMode,
 } from "../control/spawner.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
-import { resolveDelegationRuntimeArgs, resolveDelegationSpawn } from "../control/provider-preset.js";
+import {
+  goalAndGoRequested,
+  resolveDelegationRuntimeArgs,
+  resolveDelegationRuntimeEnv,
+  resolveDelegationSpawn,
+} from "../control/provider-preset.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import { basename } from "node:path";
 import { stopSessionByLictorPid } from "../control/stop-session.js";
 import { reapOrphans } from "../control/reaper.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
+import { startDetachedBackendRestart } from "../control/backend-restart.js";
+
+const restartLog = createChildLogger("api/backend-restart");
 
 export interface CoreDeps {
   repo: SessionsRepo;
@@ -343,11 +350,18 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         cwdProvided: Boolean(tplCwd?.trim()),
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
-        env: spawn.env,
+        env: { ...(spawn.env ?? {}), ...resolveDelegationRuntimeEnv(tpl.target_provider, runtimeOptions) },
       });
       if (!result.ok) return c.json({ error: result.error }, 400);
       // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({ cwd: spawnTarget.cwd, emoji: tpl.emoji ?? null, callName: tpl.call_name, subsidiaryId, project: projectName || null });
+      recordPendingDelegationSpawn({
+        cwd: spawnTarget.cwd,
+        emoji: tpl.emoji ?? null,
+        callName: tpl.call_name,
+        subsidiaryId,
+        project: projectName || null,
+        goalAndGo: goalAndGoRequested(runtimeOptions),
+      });
       return c.json({
         ok: true,
         pid: result.pid,
@@ -372,14 +386,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // model 指定 → resolveDelegationSpawn で `--model` 引数 / LICTOR_LOCAL_MODEL env に解決。
     const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
     const resolved = resolveDelegationSpawn(provider, modelInput);
-    const runtimeArgs = resolveDelegationRuntimeArgs(
-      provider,
-      isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {},
-    );
+    const directOptions = isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {};
+    const runtimeArgs = resolveDelegationRuntimeArgs(provider, directOptions);
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
-    const spawnEnv: Record<string, string> = { ...resolved.env };
+    const spawnEnv: Record<string, string> = {
+      ...resolved.env,
+      ...resolveDelegationRuntimeEnv(provider, directOptions),
+    };
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
@@ -405,8 +420,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (!result.ok) return c.json({ error: result.error }, 400);
     // 子会社由来の素の provider spawn も subsidiary_id を焼く (本社流入防止)。 本社の通常
     // spawn では pending を積まない (cwd 衝突で他 delegation の claim を奪わないため)。
-    if (subsidiaryId) {
-      recordPendingDelegationSpawn({ cwd: directTarget.cwd, callName: "spawn", subsidiaryId, project: projectName || null });
+    if (subsidiaryId || goalAndGoRequested(directOptions)) {
+      recordPendingDelegationSpawn({
+        cwd: directTarget.cwd,
+        callName: "spawn",
+        subsidiaryId,
+        project: projectName || null,
+        goalAndGo: goalAndGoRequested(directOptions),
+      });
     }
     return c.json({
       ok: true,
@@ -673,16 +694,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // 非 watch (node dist/server.js 等): 従来通り detach spawn → 自分は exit(0)。
     // supervisor がいないのでツリー二重化は起きない。
     setTimeout(() => {
-      // shell:true を避けてアタック面を減らす (CWE-78)。 固定コマンドだが OS shell を
-      // 介さず、 Windows では npm.cmd を明示して直接 spawn する。
-      const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm";
-      const child = spawn(npmCmd, ["run", "dev:backend"], {
+      startDetachedBackendRestart({
         cwd: process.cwd(),
-        detached: true,
-        stdio: "ignore",
+        log: { error: (message) => restartLog.error(message) },
       });
-      child.unref();
-      setTimeout(() => process.exit(0), 200);
     }, 100);
     return c.json({ ok: true, message: "restarting (child spawning, parent will exit in ~300ms)" });
   });

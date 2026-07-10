@@ -99,7 +99,7 @@ describe("GET /v1/delegation/templates runtime options", () => {
     const claude = j.templates.find((t: any) => t.call_name === "claude-job");
     expect(codex.runtime_options.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
     expect(codex.default_options).toEqual({ model_reasoning_effort: "high" });
-    expect(claude.runtime_options).toEqual([]);
+    expect(claude.runtime_options.map((opt: any) => opt.key)).toEqual(["goal_and_go"]);
   });
 
   it("returns model-specific option suggestions", async () => {
@@ -111,7 +111,7 @@ describe("GET /v1/delegation/templates runtime options", () => {
 
     const legacy = await app.request("/v1/delegation/options?provider=codex&model=gpt-3.5-turbo");
     const legacyJson = (await legacy.json()) as any;
-    expect(legacyJson.suggestions).toEqual([]);
+    expect(legacyJson.suggestions.map((opt: any) => opt.key)).toEqual(["goal_and_go"]);
   });
 });
 

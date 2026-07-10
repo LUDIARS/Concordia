@@ -64,6 +64,15 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
       // project 限定 spawn は project を焼く (作業範囲の監査 / UI 表示用)。
       if (claimed?.project) meta.project = claimed.project;
+      if (claimed?.goalAndGo) {
+        meta.goal_and_go = {
+          enabled: true,
+          continuation_count: 0,
+          started_at: null,
+          last_continued_at: null,
+          stopped_reason: null,
+        };
+      }
       // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
       // handoff 本文は後段で inject する。
       const relictor = claimPendingRelictor(input.repo_path);

@@ -88,6 +88,15 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.parentSessionId).toBe("parent-123");
   });
 
+  it("round-trips the goal-and-go opt-in", () => {
+    recordPendingDelegationSpawn({
+      cwd: "/a",
+      callName: "impl-from-design",
+      goalAndGo: true,
+    }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.goalAndGo).toBe(true);
+  });
+
   it("forgets pending entries by runId", () => {
     recordPendingDelegationSpawn({ cwd: "/a", callName: "impl-from-design", runId: "run-123" }, 1000);
     forgetPendingDelegationSpawnByRunId("run-123");

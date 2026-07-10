@@ -3,6 +3,7 @@ import {
   CODEX_DEFAULT_REASONING_EFFORT,
   delegationOptionSuggestions,
   GEMMA4_12_DEFAULT_MODEL,
+  resolveDelegationRuntimeEnv,
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
   resolveEffectiveDelegationRuntimeOptions,
@@ -66,8 +67,15 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("codex").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex")[0]?.choices?.map((choice) => choice.value)).toContain("xhigh");
-    expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo")).toEqual([]);
-    expect(delegationOptionSuggestions("claude")).toEqual([]);
+    expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo").map((s) => s.key)).toEqual(["goal_and_go"]);
+    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["goal_and_go"]);
+  });
+
+  it("passes goal-and-go opt-in to spawned Lictor for every provider", () => {
+    expect(resolveDelegationRuntimeEnv("codex", { goal_and_go: true })).toEqual({
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
+    });
+    expect(resolveDelegationRuntimeEnv("claude", {})).toEqual({});
   });
 
   it("defaults Codex reasoning effort to xhigh when unspecified", () => {

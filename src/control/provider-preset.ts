@@ -76,10 +76,9 @@ const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xh
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
-  if (provider !== "codex") return [];
-  if (!supportsCodexReasoningEffort(model)) return [];
-  return [
-    {
+  const suggestions: DelegationOptionSuggestion[] = [];
+  if (provider === "codex" && supportsCodexReasoningEffort(model)) {
+    suggestions.push({
       key: "model_reasoning_effort",
       label: "Reasoning effort",
       type: "select",
@@ -91,8 +90,29 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
         { label: "high", value: "high" },
         { label: "xhigh (Extra High)", value: "xhigh" },
       ],
-    },
-  ];
+    });
+  }
+  suggestions.push({
+    key: "goal_and_go",
+    label: "ゴールアンドゴー (自走継続)",
+    type: "boolean",
+    description: "最終回答後に人間入力がなければ、上限付きで同じセッションの残作業を自走継続します。",
+  });
+  return suggestions;
+}
+
+export function goalAndGoRequested(options: DelegationRuntimeOptions | null | undefined): boolean {
+  return isPlainRecord(options) && options.goal_and_go === true;
+}
+
+/** Spawned Lictor can also preserve the opt-in when it builds registration metadata. */
+export function resolveDelegationRuntimeEnv(
+  _provider: string,
+  options: DelegationRuntimeOptions | null | undefined,
+): Record<string, string> {
+  return goalAndGoRequested(options)
+    ? { CONCORDIA_DELEGATION_GOAL_AND_GO: "1" }
+    : {};
 }
 
 function supportsCodexReasoningEffort(model: string | null | undefined): boolean {

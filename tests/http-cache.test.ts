@@ -53,6 +53,25 @@ describe("Concordia HTTP cache", () => {
     expect(((await second.json()) as any).active).toHaveLength(1);
   });
 
+  it("isolates the in-process layer between app instances", async () => {
+    const firstEnv = makeTestApp();
+    seedSession(firstEnv.repo, "first");
+    const first = await firstEnv.app.request("/v1/monitor");
+    expect(first.headers.get("x-concordia-cache")).toBe("miss");
+
+    const secondEnv = makeTestApp();
+    seedSession(secondEnv.repo, "second-1");
+    seedSession(secondEnv.repo, "second-2");
+    const second = await secondEnv.app.request("/v1/monitor");
+
+    expect(second.headers.get("x-concordia-cache")).toBe("miss");
+    expect(((await second.json()) as any).active).toHaveLength(2);
+
+    const firstAgain = await firstEnv.app.request("/v1/monitor");
+    expect(firstAgain.headers.get("x-concordia-cache")).toBe("l1");
+    expect(((await firstAgain.json()) as any).active).toHaveLength(1);
+  });
+
   it("honors request cache-control bypass", async () => {
     const env = makeTestApp();
     seedSession(env.repo, "s1");

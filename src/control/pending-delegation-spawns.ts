@@ -21,6 +21,8 @@ export interface PendingDelegationSpawn {
   project: string | null;
   /** Parent session that requested the delegation, when known. */
   parentSessionId: string | null;
+  /** Whether the spawned session opted in to goal-and-go autonomous continuation. */
+  goalAndGo: boolean;
   at: number;
 }
 
@@ -36,6 +38,7 @@ export function recordPendingDelegationSpawn(
     subsidiaryId?: string | null;
     project?: string | null;
     parentSessionId?: string | null;
+    goalAndGo?: boolean;
   },
   now = Date.now(),
 ): void {
@@ -49,6 +52,7 @@ export function recordPendingDelegationSpawn(
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
     project: (input.project ?? "").trim() || null,
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
+    goalAndGo: input.goalAndGo === true,
     at: now,
   });
   prune(now);

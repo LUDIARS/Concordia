@@ -54,6 +54,7 @@ import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
+import { startGoalAndGo } from "../control/goal-and-go.js";
 import { startAutoCompaction } from "../control/auto-compaction.js";
 import { runCompaction, makeCompactionIO } from "../control/compaction.js";
 import { MetricsStore } from "../metrics/store.js";
@@ -84,6 +85,10 @@ import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
 import {
+  recordDiscordBotStop,
+  type DiscordRestartPolicyState,
+} from "./discord-restart-policy.js";
+import {
   COST_WORKER_CHECK_MS,
   costEmbeddedEnabled,
   createCostRuntime,
@@ -101,6 +106,8 @@ let discordBotLastStatus: string | null = "not_started";
 let discordBotLastError: string | null = null;
 let slackBotLastStatus: string | null = "not_started";
 let slackBotLastError: string | null = null;
+let discordBotRestartTimer: ReturnType<typeof setTimeout> | null = null;
+const discordBotRestartPolicy: DiscordRestartPolicyState = { stops: [] };
 
 function discordEmbeddedEnabled(): boolean {
   return chatEmbeddedEnabled() && process.env.CONCORDIA_DISCORD_EMBEDDED !== "0";
@@ -140,6 +147,50 @@ function slackBotRuntimeStatus(): BotRuntimeStatus {
   };
 }
 
+function clearDiscordBotAutoRestart(): void {
+  if (!discordBotRestartTimer) return;
+  clearTimeout(discordBotRestartTimer);
+  discordBotRestartTimer = null;
+}
+
+function scheduleDiscordBotAutoRestart(status: string, error?: string): void {
+  if (!discordEmbeddedEnabled()) return;
+  if (status === "stopped" || status === "disabled") return;
+  if (discordBotRestartTimer) return;
+
+  const windowMs = readPositiveIntEnv("CONCORDIA_DISCORD_AUTO_RESTART_WINDOW_MS", 10 * 60 * 1000);
+  const limit = readPositiveIntEnv("CONCORDIA_DISCORD_AUTO_RESTART_LIMIT", 5);
+  const decision = recordDiscordBotStop(discordBotRestartPolicy, {
+    nowMs: Date.now(),
+    windowMs,
+    limit,
+  });
+  const detail = error ? `${status}: ${error}` : status;
+  if (!decision.shouldRestart) {
+    const message =
+      `Discord bot auto restart suppressed after ${decision.recentStops} stops ` +
+      `within ${Math.round(windowMs / 1000)}s; last=${detail}`;
+    log.error(message);
+    rememberDiscordBotResult({ ok: false, status: "error", error: message });
+    return;
+  }
+
+  const delayMs = readPositiveIntEnv("CONCORDIA_DISCORD_AUTO_RESTART_DELAY_MS", 5_000);
+  log.warn(
+    `Discord bot stopped (${detail}); auto restart scheduled in ${delayMs}ms ` +
+    `(${decision.recentStops}/${limit} stops in window)`,
+  );
+  discordBotRestartTimer = setTimeout(() => {
+    discordBotRestartTimer = null;
+    void startDiscordBotManaged()
+      .then((result) => {
+        if (!result.ok) scheduleDiscordBotAutoRestart("restart_failed", result.error);
+      })
+      .catch((e) => scheduleDiscordBotAutoRestart("restart_exception", (e as Error).message));
+  }, delayMs);
+  discordBotRestartTimer.unref?.();
+}
+
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!chatEmbeddedEnabled()) return rememberSlackBotResult({ ok: true, status: "disabled" });
   if (slackBotHandle) return rememberSlackBotResult({ ok: true, status: "already_running" });
@@ -175,6 +226,7 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 }
 
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
+  clearDiscordBotAutoRestart();
   if (!discordEmbeddedEnabled()) return rememberDiscordBotResult({ ok: true, status: "disabled" });
   if (discordBotHandle) return rememberDiscordBotResult({ ok: true, status: "already_running" });
   if (!discordBotDeps) return rememberDiscordBotResult({ ok: false, status: "error", error: "discord deps not initialized" });
@@ -190,6 +242,7 @@ async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started
 }
 
 async function stopDiscordBotManaged(): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
+  clearDiscordBotAutoRestart();
   if (!discordBotHandle) return rememberDiscordBotResult({ ok: true, status: "already_stopped" });
   try {
     await discordBotHandle.stop();
@@ -436,7 +489,12 @@ export async function startBackend(): Promise<BackendHandle> {
     onRuntimeState: (state) => {
       discordBotLastStatus = state.status;
       discordBotLastError = state.error ?? null;
-      if (!state.running) discordBotHandle = null;
+      if (state.running) {
+        if (state.status === "ready") clearDiscordBotAutoRestart();
+        return;
+      }
+      discordBotHandle = null;
+      scheduleDiscordBotAutoRestart(state.status, state.error);
     },
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
@@ -663,6 +721,18 @@ export async function startBackend(): Promise<BackendHandle> {
       }),
     );
     trackPostListenHandle(
+      startGoalAndGo({
+        repo,
+        seconds: cfg.goalAndGoIdleSec,
+        maxContinuations: cfg.goalAndGoMaxContinuations,
+        maxRuntimeSec: cfg.goalAndGoMaxRuntimeSec,
+        log: {
+          info: (message) => log.info(message),
+          warn: (message) => log.warn(message),
+        },
+      }),
+    );
+    trackPostListenHandle(
       startAutoCompaction({
         sessions: repo,
         compact: (sessionId) =>
@@ -787,6 +857,7 @@ export async function startBackend(): Promise<BackendHandle> {
       clearInterval(costWorkerWatch);
       costRuntime.stop();
       unsubLog();
+      clearDiscordBotAutoRestart();
       await postListenStartup.catch(() => {});
       await stopDiscordBotManaged();
       await stopSlackBotManaged();
@@ -804,6 +875,13 @@ function readNonNegativeIntEnv(name: string, fallback: number): number {
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function delay(ms: number): Promise<void> {

@@ -16,10 +16,12 @@ interface L1Entry {
 
 const log = createChildLogger("http-cache");
 const l1 = new Map<string, L1Entry>();
+let nextL1Namespace = 0;
 const MAX_L1_ENTRIES = readPositiveIntEnv("CONCORDIA_HTTP_CACHE_L1_MAX_ENTRIES", 500);
 const MAX_BODY_BYTES = readPositiveIntEnv("CONCORDIA_HTTP_CACHE_MAX_BYTES", 2 * 1024 * 1024);
 
 export function httpCacheMiddleware(): MiddlewareHandler {
+  const l1Namespace = `app:${nextL1Namespace++}:`;
   return async (c, next) => {
     if (!httpCacheEnabled()) {
       await next();
@@ -42,17 +44,18 @@ export function httpCacheMiddleware(): MiddlewareHandler {
     }
 
     const key = redisCacheKey(`http:v1:${url.pathname}${url.search}`);
+    const localKey = `${l1Namespace}${key}`;
     const now = Date.now();
-    const local = l1.get(key);
+    const local = l1.get(localKey);
     if (local && local.expiresAt > now) {
       return cachedResponse(local.response, "l1");
     }
-    if (local) l1.delete(key);
+    if (local) l1.delete(localKey);
 
     if (httpCacheRedisReadEnabled()) {
       const fromRedis = await readRedisJson<CachedHttpResponse>(key);
       if (fromRedis) {
-        l1.set(key, { response: fromRedis, expiresAt: now + ttlMs });
+        l1.set(localKey, { response: fromRedis, expiresAt: now + ttlMs });
         trimL1();
         return cachedResponse(fromRedis, "redis");
       }
@@ -80,7 +83,7 @@ export function httpCacheMiddleware(): MiddlewareHandler {
       contentType,
       createdAt: now,
     };
-    l1.set(key, { response: payload, expiresAt: now + ttlMs });
+    l1.set(localKey, { response: payload, expiresAt: now + ttlMs });
     trimL1();
     void writeRedisJson(key, payload, ttlMs).catch((err: unknown) => {
       log.warn({ err: err instanceof Error ? err.message : String(err) }, "http cache redis write failed");

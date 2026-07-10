@@ -3,6 +3,7 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { readGoalAndGoStatus, setGoalAndGoEnabled } from "../../control/goal-and-go.js";
 
 export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/title", async (c) => {
@@ -77,5 +78,31 @@ app.post("/:id/goal", async (c) => {
     deps.repo.setMetadata(id, mergeGoalIntoMetadata(s.metadata, goal));
     deps.repo.appendEvent({ session_id: id, ts: nowSec(), kind: "goal", payload: { goal } });
     return c.json({ ok: true, goal });
+  });
+
+app.get("/:id/goal-and-go", (c) => {
+    const session = deps.repo.findSession(c.req.param("id"));
+    if (!session) return c.json({ error: "not_found" }, 404);
+    return c.json({ goal_and_go: readGoalAndGoStatus(session.metadata) });
+  });
+
+app.post("/:id/goal-and-go", async (c) => {
+    const id = c.req.param("id");
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    const metadata = setGoalAndGoEnabled(session.metadata, body.enabled);
+    deps.repo.setMetadata(id, metadata);
+    const status = readGoalAndGoStatus(metadata);
+    deps.repo.appendEvent({
+      session_id: id,
+      ts: nowSec(),
+      kind: "goal_and_go",
+      payload: { enabled: status.enabled },
+    });
+    return c.json({ ok: true, goal_and_go: status });
   });
 }

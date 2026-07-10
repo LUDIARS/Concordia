@@ -25,7 +25,9 @@ import {
 import {
   resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
+  resolveDelegationRuntimeEnv,
   resolveDelegationSpawn,
+  goalAndGoRequested,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
@@ -370,6 +372,7 @@ export class DelegationService {
         env: {
           // spawn 解決由来の env (gemma4-12 の LICTOR_LOCAL_MODEL 等) を先に展開。
           ...(spawn.env ?? {}),
+          ...resolveDelegationRuntimeEnv(provider, effectiveOptions),
           CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
           CONCORDIA_DELEGATION_RUN_ID: runId,
           ...(input.parent_session_id ? {
@@ -388,6 +391,7 @@ export class DelegationService {
         subsidiaryId: input.subsidiary_id ?? null,
         project: input.project ?? null,
         parentSessionId: input.parent_session_id ?? null,
+        goalAndGo: goalAndGoRequested(effectiveOptions),
       });
       const result = spawner(req);
       if (result.ok) {

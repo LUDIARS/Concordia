@@ -119,6 +119,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
       cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
+      cwdProvided: typeof body.cwd === "string" && body.cwd.trim().length > 0,
       title: typeof body.title === "string" ? body.title : undefined,
       // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
       // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。

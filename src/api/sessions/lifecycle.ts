@@ -3,6 +3,10 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
+import {
+  pickSpawnProjectIdentificationInject,
+  SPAWN_PROJECT_IDENTIFICATION_SOURCE,
+} from "../../control/spawn-project-identification.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 
@@ -15,6 +19,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     const now = nowSec();
     // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;
+    // Cc spawn の一意 metadata がある新規セッションだけに、project 特定用の初回
+    // inject を送る。既存セッションの再登録では二重送信しない。
+    let spawnProjectIdentificationText: string | null = null;
 
     const existing = deps.repo.findSession(input.id);
     if (existing) {
@@ -36,6 +43,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
       const claimed = claimPendingDelegationSpawn(input.repo_path);
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
+      spawnProjectIdentificationText = pickSpawnProjectIdentificationInject(meta);
       if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
       if (claimed?.callName) meta.delegation_call_name = claimed.callName;
       const delegationRunId = resolveDelegationRunIdForSession({
@@ -145,6 +153,29 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
       ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
     });
+
+    if (spawnProjectIdentificationText) {
+      deps.repo.appendEvent({
+        session_id: input.id,
+        ts: nowSec(),
+        kind: "inject",
+        payload: {
+          text: spawnProjectIdentificationText,
+          source: SPAWN_PROJECT_IDENTIFICATION_SOURCE,
+        },
+      });
+      // Lictor opens its session-scoped WS immediately after register returns.
+      // Delay mirrors relictor handoff delivery and avoids racing that attach.
+      setTimeout(() => {
+        eventBus.emit({
+          type: "session.inject",
+          target_session_id: input.id,
+          text: spawnProjectIdentificationText!,
+          source: SPAWN_PROJECT_IDENTIFICATION_SOURCE,
+          ts: nowSec(),
+        });
+      }, 1500).unref?.();
+    }
 
     // /co-relictor 再起動なら、引き継ぎ資料だけを inject して文脈を復元する。
     if (relictorHandoff) {

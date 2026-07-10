@@ -340,6 +340,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         mode,
         args: spawnArgs.length > 0 ? spawnArgs : undefined,
         cwd: spawnTarget.cwd,
+        cwdProvided: Boolean(tplCwd?.trim()),
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: spawn.env,
@@ -395,6 +396,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       mode,
       args: [...resolved.args, ...runtimeArgs, ...userArgs],
       cwd: directTarget.cwd,
+      cwdProvided:
+        Boolean(projectCwd?.trim()) ||
+        (typeof body.cwd === "string" && body.cwd.trim().length > 0),
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
     });

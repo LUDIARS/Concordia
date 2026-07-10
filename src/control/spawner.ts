@@ -5,6 +5,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -33,6 +34,12 @@ export interface SpawnRequest {
   provider: SpawnProvider;
   args?: string[];
   cwd?: string;
+  /**
+   * true when the caller intentionally selected a project cwd. false means
+   * Concordia supplied only a launcher/default cwd and the project is still
+   * unknown. When omitted, the presence of `cwd` is treated as intentional.
+   */
+  cwdProvided?: boolean;
   mode?: SpawnMode;
   title?: string;
   env?: Record<string, string>;
@@ -50,6 +57,28 @@ export interface SpawnResultErr {
 }
 
 export type SpawnResult = SpawnResultOk | SpawnResultErr;
+
+/** Lictor forwards these values into session registration metadata. */
+export const CONCORDIA_SPAWN_ID_ENV = "CONCORDIA_SPAWN_ID";
+export const CONCORDIA_SPAWN_CWD_MODE_ENV = "CONCORDIA_SPAWN_CWD_MODE";
+export type SpawnCwdMode = "provided" | "omitted";
+
+/**
+ * Stamp every Cc-originated interactive spawn with an unforgeable correlation
+ * id plus the caller's cwd intent. Values supplied through req.env are
+ * overwritten by spawnSession, so external callers cannot impersonate a
+ * different pending spawn.
+ */
+export function buildSpawnIdentityEnv(
+  req: Pick<SpawnRequest, "cwd" | "cwdProvided">,
+  spawnId: string = randomUUID(),
+): Record<string, string> {
+  const cwdProvided = req.cwdProvided ?? Boolean(req.cwd?.trim());
+  return {
+    [CONCORDIA_SPAWN_ID_ENV]: spawnId,
+    [CONCORDIA_SPAWN_CWD_MODE_ENV]: cwdProvided ? "provided" : "omitted",
+  };
+}
 
 /**
  * Lictor の起動コマンド (launcher) を解決する関数。 既定は PATH 上の `lictor`。
@@ -250,6 +279,7 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...sanitizeSpawnEnv(req.env),
+    ...buildSpawnIdentityEnv(req),
     ...currentConcordiaAddressEnv(),
   };
   // spawn の失敗 (ENOENT / EACCES / EMFILE 等) は非同期の `error` イベントで届く。

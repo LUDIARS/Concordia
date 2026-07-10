@@ -2,7 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resolveSpawnCwd, sanitizeSpawnEnv } from "./spawner.js";
+import {
+  buildSpawnIdentityEnv,
+  CONCORDIA_SPAWN_CWD_MODE_ENV,
+  CONCORDIA_SPAWN_ID_ENV,
+  resolveSpawnCwd,
+  sanitizeSpawnEnv,
+} from "./spawner.js";
 
 describe("resolveSpawnCwd", () => {
   let dir: string;
@@ -63,5 +69,26 @@ describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
   it("undefined / 非文字列値は空または無視", () => {
     expect(sanitizeSpawnEnv(undefined)).toEqual({});
     expect(sanitizeSpawnEnv({ LICTOR_X: 1 as unknown as string })).toEqual({});
+  });
+});
+
+describe("buildSpawnIdentityEnv", () => {
+  it("marks an intentional cwd as provided", () => {
+    expect(buildSpawnIdentityEnv({ cwd: "E:/Document/Ars/Lictor" }, "spawn-1")).toEqual({
+      [CONCORDIA_SPAWN_ID_ENV]: "spawn-1",
+      [CONCORDIA_SPAWN_CWD_MODE_ENV]: "provided",
+    });
+  });
+
+  it("keeps default launcher cwd distinct from a caller-provided cwd", () => {
+    expect(
+      buildSpawnIdentityEnv(
+        { cwd: "E:/Document/Ars/Castra", cwdProvided: false },
+        "spawn-2",
+      ),
+    ).toEqual({
+      [CONCORDIA_SPAWN_ID_ENV]: "spawn-2",
+      [CONCORDIA_SPAWN_CWD_MODE_ENV]: "omitted",
+    });
   });
 });

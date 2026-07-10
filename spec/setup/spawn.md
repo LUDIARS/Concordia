@@ -19,7 +19,7 @@ related:
   - ../feature/delegation.md
   - discord.md
   - config-reference.md
-updated: 2026-06-30
+updated: 2026-07-10
 ---
 
 # セッション管制 (spawn) の設定 (spawn)
@@ -62,6 +62,19 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 4. 空 → フォールバック無し (Concordia 自身の cwd で spawn)
 
 > 既定 cwd は workspace ルート先頭が source of truth。 別パスに恒久的に変えたいときは設定 GUI で workspace root を変更する (env `CONCORDIA_SPAWN_DEFAULT_CWD` は最終フォールバックの一段でしかない)。 Concordia への委託は cwd 明示が安全 (memory: feedback_delegation_cwd_needed)。
+
+### spawn 後の project 特定 Inject
+
+Concordia が interactive session を spawn するときは、Lictor 子プロセスへ一意な
+`CONCORDIA_SPAWN_ID` と `CONCORDIA_SPAWN_CWD_MODE` (`provided` / `omitted`) を渡す。
+Lictor はこの二項目を session 登録 metadata に返し、Concordia は新規登録された当該
+session だけへ、次の `session.inject` を必ず送る。
+
+- cwd 指定あり: `ルートディレクトリのスキルを確認しに行って`
+- cwd 指定なし（launcher/default cwd のみ）: `次のユーザプロンプトでプロジェクトを特定できない場合は、プロジェクトを特定する質問をユーザに行う`
+
+照合は cwd と時刻の推測ではなく spawn ID で行うため、同一 cwd で複数 session を並走
+起動しても別 session に指示を送らない。既存 session の再登録時には再 Inject しない。
 
 ## MCP delegation 経由の spawn
 

@@ -73,6 +73,8 @@ export interface ConcordiaConfig {
   stallIdleSec: number;
   /** 一度 nudge したら次まで空ける秒数。 env `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 stallIdleSec と同じ)。 */
   stallNudgeCooldownSec: number;
+  /** Seconds after final_answer/summary before notifying requesters. <=0 disables. */
+  idleNudgeSec: number;
   /** ホストメトリクス採取の有効/無効。 env `CONCORDIA_METRICS_ENABLED` (既定 ON)。 */
   metricsEnabled: boolean;
   /** メトリクス採取間隔 (ms)。 env `CONCORDIA_METRICS_INTERVAL_MS` (既定 30 秒)。 */
@@ -228,6 +230,7 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     stallNudgeCooldownSec: Number(
       env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
     ),
+    idleNudgeSec: readIntegerEnv(env.CONCORDIA_IDLE_NUDGE_SEC, 120),
     metricsEnabled: (env.CONCORDIA_METRICS_ENABLED ?? "1") !== "0",
     metricsIntervalMs: Number(env.CONCORDIA_METRICS_INTERVAL_MS ?? "30000"),
     metricsRetentionHours: Number(env.CONCORDIA_METRICS_RETENTION_HOURS ?? "24"),
@@ -246,4 +249,10 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
  */
 export function defaultDbPath(): string {
   return join(process.cwd(), "concordia.db");
+}
+
+function readIntegerEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
 }

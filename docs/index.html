@@ -79,7 +79,7 @@
         <tr><td><b>セッション登録</b></td><td>start hook で repo/host/cwd/branch を登録、同 repo の active peers と lost candidates を返す</td><td><code>POST /v1/sessions</code></td></tr>
         <tr><td><b>進捗共有</b></td><td>UserPromptSubmit / PostToolUse / PreCompact で current_task と event を蓄積</td><td><code>POST /v1/sessions/:id/event</code></td></tr>
         <tr><td><b>終了レポート</b></td><td>Stop hook で LLM サマライズ + 構造化集計（event count / file diff / Todo 完遂率）を生成</td><td><code>DELETE /v1/sessions/:id</code></td></tr>
-        <tr><td><b>ロスト検知 + 復元</b></td><td>5 分 heartbeat 無し → <code>lost</code>、transcript から最終 tool_use / response を抽出</td><td>sweeper + providers</td></tr>
+        <tr><td><b>ロスト検知 + 復元</b></td><td>30 分 heartbeat 無し (WS 接続も無し) → <code>lost</code>、transcript から最終 tool_use / response を抽出</td><td>sweeper + providers</td></tr>
         <tr><td><b>worktree 自動化</b></td><td>同 repo + 同 branch を検出 → SessionStart の additionalContext で worktree 指示を AI に注入（lock しない）</td><td>advisory</td></tr>
         <tr><td><b>persona / role</b></td><td>活動シグナルからセッション人格を合成、tool/file から role を推論</td><td><code>/v1/personas</code></td></tr>
         <tr><td><b>delegation</b></td><td>テンプレートを render し sub-session を spawn（Codex / Claude / Gemini）</td><td><code>/v1/delegation</code></td></tr>

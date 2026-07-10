@@ -59,7 +59,7 @@ Concordia は repo・session・event を 1 つの SQLite に集約し、 各エ�
 | **F1. セッション登録** | start hook で repo/host/cwd/branch を登録、 同 repo の他 active session 一覧と lost candidates を返す | `POST /v1/sessions` |
 | **F2. 進捗共有** | UserPromptSubmit / PostToolUse / PreCompact で current_task と event を蓄積 | `POST /v1/sessions/:id/event`, `PATCH /v1/sessions/:id` |
 | **F3. 終了レポート** | Stop hook で蓄積 events から (a) **LLM サマライズ** と (b) **構造化集計** (event count / file diff / TodoWrite 完遂率) を両方生成 | `DELETE /v1/sessions/:id`, `GET /v1/reports/:session_id` |
-| **F4. ロスト検知 + jsonl 復元** | 5 分間 heartbeat 無し → `status=lost`、 `~/.claude/projects/<encoded-cwd>/<session_id>.jsonl` を読みに行き、 最後の tool_use / response を構造化抽出 | sweeper + jsonl reader |
+| **F4. ロスト検知 + jsonl 復元** | 30 分間 heartbeat 無し (WS 永続接続も無し) → `status=lost`、 `~/.claude/projects/<encoded-cwd>/<session_id>.jsonl` を読みに行き、 最後の tool_use / response を構造化抽出 | sweeper + jsonl reader |
 | **F5. ロスト引継ぎ** | SessionStart 時に lost candidate を提示、 引き継ぐ場合は前 session の current_task を継承 | `POST /v1/sessions/:id/resume` |
 | **F6. 並列 worktree 自動化** | 同 repo + 同 branch で active session 検出 → SessionStart の `additionalContext` で **`git worktree add` 指示**を AI に注入 (lock はしない、 自律解決を促すだけ) | worktree manager |
 | **F7. Web monitor** | 全 repo / 全 host の active session を一覧、 詳細 timeline、 report markdown プレビュー | frontend |

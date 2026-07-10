@@ -62,6 +62,33 @@ describe("DelegationRepo / templates", () => {
       .toEqual(["active", "inactive"]);
   });
 
+  it("listTemplates orders by sort_order then call_name", () => {
+    repo.createTemplate({
+      call_name: "b",
+      title: "B",
+      target_provider: "codex",
+      prompt_template: "x",
+      sort_order: 20,
+    });
+    const c = repo.createTemplate({
+      call_name: "c",
+      title: "C",
+      target_provider: "codex",
+      prompt_template: "x",
+      sort_order: 10,
+    });
+    repo.createTemplate({
+      call_name: "a",
+      title: "A",
+      target_provider: "codex",
+      prompt_template: "x",
+      sort_order: 20,
+    });
+    expect(repo.listTemplates().map((t) => t.call_name)).toEqual(["c", "a", "b"]);
+    expect(repo.updateTemplate(c.id, { sort_order: 30 })?.sort_order).toBe(30);
+    expect(repo.listTemplates().map((t) => t.call_name)).toEqual(["a", "b", "c"]);
+  });
+
   it("updateTemplate patches fields", () => {
     const t = repo.createTemplate({
       call_name: "u",

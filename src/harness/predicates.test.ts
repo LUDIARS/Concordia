@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { noMainPush, branchBeforeEdit, maxReposWarn, MAX_REPOS, type HarnessAction } from "./predicates.js";
+import { noMainPush, branchBeforeEdit, maxReposWarn, outsideScope, repoLeaf, MAX_REPOS, type HarnessAction } from "./predicates.js";
 
 const base: HarnessAction = { tool: "Bash" };
 
@@ -61,5 +61,49 @@ describe("maxReposWarn", () => {
 
   it("editedRepos 無しは対象外", () => {
     expect(maxReposWarn(base)).toBeNull();
+  });
+});
+
+describe("repoLeaf", () => {
+  it("Windows / POSIX 両方のパス末尾を小文字で返す", () => {
+    expect(repoLeaf("E:\\Document\\Ars\\Lictor")).toBe("lictor");
+    expect(repoLeaf("/home/x/Concordia")).toBe("concordia");
+    expect(repoLeaf("/home/x/Concordia/")).toBe("concordia"); // 末尾スラッシュを無視
+    expect(repoLeaf("Lictor")).toBe("lictor"); // プロジェクト名そのまま
+    expect(repoLeaf(undefined)).toBe("");
+  });
+});
+
+describe("outsideScope", () => {
+  it("作業対象 (target) 外のリポ編集を warn", () => {
+    const hit = outsideScope({
+      tool: "Edit",
+      filePath: "E:\\Document\\Ars\\Memoria\\a.ts",
+      cwd: "E:\\Document\\Ars\\Memoria",
+      targetProject: "Lictor",
+      branch: "feat/x",
+    });
+    expect(hit?.decision).toBe("warn");
+    expect(hit?.rule).toBe("outside-scope");
+  });
+
+  it("対象リポと一致すれば素通し (パス vs プロジェクト名を leaf 比較で吸収)", () => {
+    expect(
+      outsideScope({ tool: "Edit", cwd: "E:\\Document\\Ars\\Lictor", targetProject: "Lictor" }),
+    ).toBeNull();
+    expect(
+      outsideScope({ tool: "Edit", cwd: "E:\\Document\\Ars\\Lictor", targetProject: "E:\\Document\\Ars\\Lictor" }),
+    ).toBeNull();
+  });
+
+  it("targetProject 未宣言 / 現在リポ不明なら強制しない", () => {
+    expect(outsideScope({ tool: "Edit", cwd: "/x/Memoria" })).toBeNull();
+    expect(outsideScope({ tool: "Edit", targetProject: "Lictor" })).toBeNull();
+  });
+
+  it("編集ツール以外 (Bash 等) は対象外", () => {
+    expect(
+      outsideScope({ tool: "Bash", command: "ls", cwd: "/x/Memoria", targetProject: "Lictor" }),
+    ).toBeNull();
   });
 });

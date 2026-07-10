@@ -34,7 +34,7 @@ updated: 2026-06-30
 | **provider** | AI agent の種別。 `claude-code` / `gemini-cli` / `codex-cli` / `local-llm` (Lictor ネイティブ local-agent) / `unknown` |
 | **repo_origin** | git remote origin URL (例: `https://github.com/LUDIARS/Foo`)。 識別キー |
 | **host** | ユーザの PC hostname (multi-PC 想定) |
-| **lost** | heartbeat 5 分以上途絶 = lost にマーク。 24h で `abandoned` |
+| **lost** | heartbeat 30 分以上途絶 (かつ WS 永続接続なし) = lost にマーク。 24h で `abandoned` |
 | **transcript** | provider 固有の session 記録ファイル (Claude Code なら jsonl) |
 
 ---

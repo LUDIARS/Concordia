@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -553,6 +553,7 @@ const STATEMENTS = [
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
+    sort_order        INTEGER NOT NULL DEFAULT 1000,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
   )`,
@@ -960,6 +961,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "call_only",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN call_only INTEGER NOT NULL DEFAULT 0`,
   },
+  {
+    table: "delegation_templates",
+    column: "sort_order",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 1000`,
+  },
   // ask マーカー / AskUserQuestion の複数選択フラグ + 複数選択回答の記録。
   {
     table: "discord_pending_questions",
@@ -1122,6 +1128,10 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  // 同一 DB ファイルを本体と cost-worker の 2 プロセスが開く (WAL でも writer は 1 つ)。
+  // 競合時に即 SQLITE_BUSY で throw させず 5s まで待つことを明示する。 better-sqlite3 は
+  // 同期 API なのでこの待ちはイベントループを塞ぐ — 値を大きくしすぎないこと。
+  db.pragma("busy_timeout = 5000");
   if (shouldSkipMigrations(db)) return;
   const tx = db.transaction((stmts: string[]) => {
     for (const stmt of stmts) db.exec(stmt);

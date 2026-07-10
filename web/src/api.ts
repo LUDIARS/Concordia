@@ -48,6 +48,7 @@ export interface DelegationTemplateLite {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  sort_order: number;
   default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
 }
@@ -70,6 +71,7 @@ export interface SessionRow {
   provider: string;
   repo_path: string;
   repo_origin: string | null;
+  target_project?: string | null;
   branch: string | null;
   host: string;
   started_at: number;
@@ -78,6 +80,24 @@ export interface SessionRow {
   last_seen_at: number;
   current_task: string | null;
   metadata: Record<string, any> | null;
+  sufficiency?: ProjectSufficiency;
+}
+
+export interface ProjectSufficiency {
+  project: string;
+  anatomia: {
+    present: boolean;
+    functions?: number;
+    domains?: number;
+    links?: number;
+  };
+  thaleia: {
+    present: boolean;
+    generatedAt?: string;
+    specs?: number;
+    implementedSpecs?: number;
+    gapCount?: number;
+  };
 }
 
 export interface SessionEvent {
@@ -985,6 +1005,7 @@ export interface PortableDelegation {
   default_cwd?: string | null;
   project?: string | null;
   emoji?: string;
+  sort_order?: number;
 }
 export interface SubsidiaryLock {
   id: number;

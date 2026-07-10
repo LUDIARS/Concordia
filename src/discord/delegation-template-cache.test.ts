@@ -97,8 +97,11 @@ describe("DelegationTemplateCache", () => {
     });
     expect(calls).toBe(2);
 
-    if (!resolveRefresh) throw new Error("refresh was not started");
-    resolveRefresh([template("tpl-2")]);
+    // TS の CFA は closure 内での代入を追跡できず resolveRefresh を null と推論する
+    // (narrowing 後 never 化して呼び出せない) ため、 明示 assertion で読み出す。
+    const doResolve = resolveRefresh as ((templates: DelegationTemplateLite[]) => void) | null;
+    if (!doResolve) throw new Error("refresh was not started");
+    doResolve([template("tpl-2")]);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(await cache.get("http://cc", log)).toMatchObject({

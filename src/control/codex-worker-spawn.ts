@@ -14,7 +14,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+
+import { reportError } from "../errors.js";
+import { createChildLogger } from "../shared/logger.js";
 import type { SpawnRequest, SpawnResult } from "./spawner.js";
+
+const log = createChildLogger("codex-worker-spawn");
 
 /** SpawnRequest.args から `--model <v>` の値を取り出す (pure)。 */
 export function extractModelArg(args: readonly string[] | undefined): string | null {
@@ -85,14 +90,40 @@ export function spawnCodexExecWorker(req: SpawnRequest, opts: CodexWorkerSpawnOp
 
   const nodeBin = opts.nodeBin ?? process.execPath;
   const args = buildCodexWorkerArgs(workerScript, req, promptFile);
+  // 存在しない cwd での spawn は Windows で非同期 ENOENT を投げる。 crash は
+  // child.on('error') で防げるが、 run は「spawned」のまま worker が即死し原因が埋もれる。
+  // 委託 caller が壊れた cwd (例: バックスラッシュを潰した Windows パス
+  // `C:Users\...cc-hook3-wt`) を渡した事故を早期に spawn_failed + 明確なエラーで
+  // surface し、 呼び出し側バグを可視化するため事前に弾く。
+  const spawnCwd = req.cwd || repoRoot;
+  if (!existsSync(spawnCwd)) {
+    const msg = `codex worker cwd does not exist: ${spawnCwd}`;
+    log.warn({ cwd: spawnCwd }, msg);
+    return { ok: false, error: msg };
+  }
   const spawnFn = opts.spawnFn ?? spawn;
-  const child = spawnFn(nodeBin, args, {
-    cwd: req.cwd || repoRoot,
-    detached: true,
-    // worker は self-register で Concordia に状態を送るので、 親は出力を待たない。
-    stdio: "ignore",
-    env: { ...process.env, ...(req.env ?? {}) },
-    windowsHide: true,
+  // spawn 失敗は非同期 `error` イベントで届く。 リスナー無しだと uncaughtException
+  // として Concordia 本体を巻き込むため、 同期 throw と合わせて必ず捕捉する。
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawnFn(nodeBin, args, {
+      cwd: spawnCwd,
+      detached: true,
+      // worker は self-register で Concordia に状態を送るので、 親は出力を待たない。
+      stdio: "ignore",
+      env: { ...process.env, ...(req.env ?? {}) },
+      windowsHide: true,
+    });
+  } catch (err) {
+    const msg = `codex worker spawn failed: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("codex-worker-spawn", msg, { cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  child.on("error", (err) => {
+    const msg = `codex worker spawn error: ${err.message}`;
+    log.error({ err }, msg);
+    reportError("codex-worker-spawn", msg, { cwd: req.cwd });
   });
   try {
     child.unref();

@@ -14,6 +14,7 @@ import { collectCostReport, renderCostReportMarkdown, type CostTimestampFormat }
 import { readGoalFromMetadata, formatGoalBadge } from "../control/goal.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { fetchSessionCacheStats } from "../anatomia/cache-stats-client.js";
+import { probeProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatAuthorName } from "../platform/formatter.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
@@ -119,6 +120,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       const lastEventTsSec = recent.length > 0 ? recent[0].ts : null;
       const ageSec = lastEventTsSec === null ? null : Math.floor(Date.now() / 1000) - lastEventTsSec;
       const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
+      const sufficiency = await probeProjectSufficiency(session.target_project ?? session.repo_path).catch(() => null);
       const ctx = estimateContextTokens(session);
       const cost = estimateSessionCostUsd(session);
       const requester = lastHumanRequester(deps.sessionsRepo.recentEvents(sessionId, 100));
@@ -127,6 +129,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         provider: session.provider,
         branch: session.branch,
         repoPath: session.repo_path,
+        targetProject: session.target_project,
         currentTask: session.current_task,
         status: session.status,
         ageSec,
@@ -141,6 +144,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         doneCount: taskRows.filter((t) => t.status === "completed").length,
         concordiaPending: deps.tasksRepo.countUndeliveredForSession(sessionId),
         cache,
+        sufficiency,
         contextBadge: formatContextBadge(ctx),
         contextPct: ctx?.pct ?? null,
         costBadge: formatCostBadge(cost),

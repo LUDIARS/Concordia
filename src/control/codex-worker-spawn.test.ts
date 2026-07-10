@@ -68,11 +68,12 @@ describe("codex worker spawn (pure)", () => {
   });
 
   it("spawns node with the worker argv (injected spawn)", () => {
-    const fakeChild = { pid: 4321, unref: vi.fn() };
+    const fakeChild = { pid: 4321, unref: vi.fn(), on: vi.fn() };
     const spawnFn = vi.fn(() => fakeChild) as unknown as typeof import("node:child_process").spawn;
     const req: SpawnRequest = {
       provider: "codex",
-      cwd: "/wt",
+      // 存在チェックを通すため実在ディレクトリを使う。
+      cwd: process.cwd(),
       args: ["--model", "gpt-5.5"],
       env: { CONCORDIA_DELEGATION_PROMPT_FILE: __filename },
     };
@@ -90,5 +91,53 @@ describe("codex worker spawn (pure)", () => {
     }
     expect(spawnFn).toHaveBeenCalledOnce();
     expect(fakeChild.unref).toHaveBeenCalledOnce();
+  });
+
+  it("attaches an error listener so async spawn failure cannot crash the process", async () => {
+    const { EventEmitter } = await import("node:events");
+    const fakeChild = Object.assign(new EventEmitter(), { pid: 99, unref: vi.fn() });
+    const spawnFn = vi.fn(() => fakeChild) as unknown as typeof import("node:child_process").spawn;
+    const req: SpawnRequest = {
+      provider: "codex",
+      cwd: process.cwd(),
+      args: [],
+      env: { CONCORDIA_DELEGATION_PROMPT_FILE: __filename },
+    };
+    const r = spawnCodexExecWorker(req, { workerScript: __filename, nodeBin: "node", spawnFn });
+    expect(r.ok).toBe(true);
+    expect(fakeChild.listenerCount("error")).toBeGreaterThan(0);
+    // リスナーが居るので emit してもプロセスは落ちない (居なければ throw する)
+    expect(() => fakeChild.emit("error", new Error("spawn ENOENT"))).not.toThrow();
+  });
+
+  it("returns ok:false when spawn throws synchronously", () => {
+    const spawnFn = vi.fn(() => {
+      throw new Error("EMFILE");
+    }) as unknown as typeof import("node:child_process").spawn;
+    const req: SpawnRequest = {
+      provider: "codex",
+      cwd: process.cwd(),
+      args: [],
+      env: { CONCORDIA_DELEGATION_PROMPT_FILE: __filename },
+    };
+    const r = spawnCodexExecWorker(req, { workerScript: __filename, nodeBin: "node", spawnFn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/EMFILE/);
+  });
+
+  it("errors (does not spawn) when cwd does not exist — surfaces corrupted-cwd delegations", () => {
+    const spawnFn = vi.fn() as unknown as typeof import("node:child_process").spawn;
+    const req: SpawnRequest = {
+      provider: "codex",
+      // 委託 caller がバックスラッシュを潰した壊れた Windows パスを渡した事故を模す。
+      cwd: "C:/no/such/dir-cc-hook3-wt",
+      args: [],
+      env: { CONCORDIA_DELEGATION_PROMPT_FILE: __filename },
+    };
+    const r = spawnCodexExecWorker(req, { workerScript: __filename, nodeBin: "node", spawnFn });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/cwd does not exist/);
+    // 壊れた cwd では spawn 自体を呼ばない (非同期 ENOENT を発生させない)。
+    expect(spawnFn).not.toHaveBeenCalled();
   });
 });

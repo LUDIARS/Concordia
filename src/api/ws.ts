@@ -16,6 +16,7 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/event-schema.js";
+import { reviveIfLost } from "./sessions/shared.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -99,6 +100,12 @@ export function attachWsServer(
         const after = sessionsRepo.incrementWsClients(sessionId);
         registered = after > 0;
         log.debug({ sessionId, ws_clients: after }, "ws session registered");
+        // agent-client の WS 再接続は生存の証拠。 backend 再起動 (resetAllWsClients)
+        // や一時切断で lost に落ちた健全セッションをここで active へ戻す。
+        if (registered) {
+          const session = sessionsRepo.findSession(sessionId);
+          if (session) reviveIfLost(sessionsRepo, session, Math.floor(Date.now() / 1000));
+        }
       } catch (err) {
         log.warn({ err: (err as Error).message, sessionId }, "incrementWsClients failed");
       }

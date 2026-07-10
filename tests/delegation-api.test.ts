@@ -61,6 +61,28 @@ describe("POST /v1/delegation/templates (空欄許容)", () => {
 });
 
 describe("GET /v1/delegation/templates runtime options", () => {
+  it("orders templates by sort_order and allows patching order", async () => {
+    const { app } = makeApp();
+    await postTemplate(app, { target_provider: "codex", call_name: "b", title: "B", sort_order: 20 });
+    const a = await postTemplate(app, { target_provider: "codex", call_name: "a", title: "A", sort_order: 30 });
+    const aJson = (await a.json()) as any;
+
+    let r = await app.request("/v1/delegation/templates");
+    let j = (await r.json()) as any;
+    expect(j.templates.map((t: any) => t.call_name)).toEqual(["b", "a"]);
+    expect(j.templates.find((t: any) => t.call_name === "a").sort_order).toBe(30);
+
+    const patch = await app.request(`/v1/delegation/templates/${aJson.template.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sort_order: 10 }),
+    });
+    expect(patch.status).toBe(200);
+    r = await app.request("/v1/delegation/templates");
+    j = (await r.json()) as any;
+    expect(j.templates.map((t: any) => t.call_name)).toEqual(["a", "b"]);
+  });
+
   it("returns provider-specific runtime option suggestions", async () => {
     const { app } = makeApp();
     await postTemplate(app, {

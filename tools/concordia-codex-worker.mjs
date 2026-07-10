@@ -158,6 +158,10 @@ async function handleJsonLine(line) {
         originator: meta.originator ?? "codex-exec",
         cli_version: meta.cli_version ?? null,
         model_provider: meta.model_provider ?? null,
+        // delegation spawn 由来なら run 識別子を載せる。Concordia が run↔子セッションを
+        // 決定的に紐付け (claimChildSession が child_session_id を焼く) → 親からの
+        // inject / 外注リストの紐付けが機能する。未設定 (直 codex exec) なら載らない。
+        ...delegationSessionMetadata(),
       },
     });
     await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, {
@@ -285,6 +289,23 @@ function resolveCodexLaunch(codexBin) {
     // fall through to bare "codex"
   }
   return { file: "codex", prefix: [] };
+}
+
+/**
+ * delegation spawn 由来の env から session 登録 metadata に載せる識別子を組む (pure)。
+ * Concordia の delegation/service.ts が spawn 時に注入する env と対。値は trim して
+ * 空なら落とす。これが載ると Concordia (lifecycle.ts) が run↔子セッションを決定的に
+ * 紐付け、child_session_id を焼く → 親 inject / 外注リスト紐付けが機能する。
+ */
+function delegationSessionMetadata(env = process.env) {
+  const meta = {};
+  const runId = (env.CONCORDIA_DELEGATION_RUN_ID ?? "").trim();
+  const callName = (env.CONCORDIA_DELEGATION_CALL_NAME ?? "").trim();
+  const parent = (env.CONCORDIA_DELEGATION_PARENT_SESSION_ID ?? "").trim();
+  if (runId) meta.delegation_run_id = runId;
+  if (callName) meta.delegation_call_name = callName;
+  if (parent) meta.delegation_parent_session_id = parent;
+  return meta;
 }
 
 function parseArgs(argv) {

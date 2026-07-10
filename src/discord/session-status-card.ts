@@ -3,6 +3,7 @@ import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discor
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
 import type { ChatReadModel, SessionCacheSnapshot } from "../platform/chat-read-model.js";
+import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 
 const ACTIVE_WINDOW_SEC = 60;
 const WAITING_WINDOW_SEC = 5 * 60;
@@ -104,6 +105,7 @@ export interface StatusEmbedInput {
   provider: string;
   branch: string | null;
   repoPath: string;
+  targetProject?: string | null;
   currentTask: string | null;
   status: string;
   ageSec: number | null;
@@ -114,6 +116,7 @@ export interface StatusEmbedInput {
   doneCount: number;
   concordiaPending: number;
   cache?: SessionCacheSnapshot | null;
+  sufficiency?: ProjectSufficiency | null;
   contextBadge?: string;
   contextPct?: number | null;
   costBadge?: string;
@@ -169,15 +172,29 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
       { name: "Agent", value: `\`${i.provider}\``, inline: true },
       { name: "Branch", value: `\`${i.branch ?? "-"}\``, inline: true },
       { name: "Repo", value: `\`${repoName}\``, inline: true },
+      { name: "作業対象", value: `\`${i.targetProject ?? "-"}\``, inline: true },
       { name: `タスク (${taskHeader})`, value: taskValue, inline: false },
     );
 
   const cacheLine = formatCacheField(i.cache);
   if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });
+  const sufficiencyLine = formatSufficiencyField(i.sufficiency);
+  if (sufficiencyLine) embed.addFields({ name: "Anatomia/Thaleia 充足", value: sufficiencyLine, inline: false });
 
   return embed
     .setFooter({ text: `session ${shortId} ﾂｷ ${truncate(i.repoPath, 80)}` })
     .setTimestamp(new Date());
+}
+
+function formatSufficiencyField(sufficiency: ProjectSufficiency | null | undefined): string | null {
+  if (!sufficiency) return null;
+  const an = sufficiency.anatomia.present
+    ? `An ✓ fn=${sufficiency.anatomia.functions ?? 0} dom=${sufficiency.anatomia.domains ?? 0}`
+    : "An —";
+  const th = sufficiency.thaleia.present
+    ? `Th ✓ ${sufficiency.thaleia.implementedSpecs ?? 0}/${sufficiency.thaleia.specs ?? 0} gap=${sufficiency.thaleia.gapCount ?? 0}`
+    : "Th —";
+  return `\`${sufficiency.project}\` · ${an} · ${th}`;
 }
 
 function formatCacheField(cache: SessionCacheSnapshot | null | undefined): string | null {

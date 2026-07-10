@@ -8,6 +8,11 @@ import { spawn } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { reportError } from "../errors.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("spawner");
+
 export type SpawnMode = "tab" | "window";
 /**
  * 起動可能な provider. Lictor の PROVIDERS に対応する名前と 1:1 で揃える.
@@ -247,11 +252,28 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
     ...sanitizeSpawnEnv(req.env),
     ...currentConcordiaAddressEnv(),
   };
-  const child = spawn("wt.exe", args, {
-    detached: true,
-    stdio: "ignore",
-    env,
-    windowsHide: false,
+  // spawn の失敗 (ENOENT / EACCES / EMFILE 等) は非同期の `error` イベントで届く。
+  // リスナーが無いと uncaughtException として Concordia 本体を巻き込むため、
+  // 同期 throw と合わせて必ず捕捉する (spawn 自体は成功扱いで返っているので
+  // ここでは報告のみ — セッション登録が来ないことで spawn 失敗は観測できる)。
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn("wt.exe", args, {
+      detached: true,
+      stdio: "ignore",
+      env,
+      windowsHide: false,
+    });
+  } catch (err) {
+    const msg = `wt.exe spawn failed: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  child.on("error", (err) => {
+    const msg = `wt.exe spawn error: ${err.message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
   });
   try {
     child.unref();

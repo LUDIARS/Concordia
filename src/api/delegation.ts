@@ -54,6 +54,7 @@ const CreateTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
 });
 
 const PatchTemplateSchema = z.object({
@@ -69,6 +70,7 @@ const PatchTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
 });
 
 /** title 等を call_name スラッグへ。 [a-z][a-z0-9_-]{0,63} に収まらなければ空文字を返す。 */
@@ -268,6 +270,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       default_cwd: p.default_cwd ?? null,
       project: p.project ?? null,
       emoji: p.emoji,
+      sort_order: p.sort_order,
     });
     invalidateTemplates("import", row);
     return c.json({ template: serializeTemplate(row) }, 201);

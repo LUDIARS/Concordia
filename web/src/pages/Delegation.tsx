@@ -42,6 +42,7 @@ interface Template {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  sort_order: number;
   default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
   created_at: number;
@@ -79,6 +80,7 @@ interface FormState {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  sort_order: string;
 }
 
 const EMPTY_FORM: FormState = {
@@ -95,6 +97,7 @@ const EMPTY_FORM: FormState = {
   is_active: true,
   emoji: "",
   call_only: false,
+  sort_order: "1000",
 };
 
 type FormMode = { kind: "create" } | { kind: "edit"; templateId: string };
@@ -257,6 +260,7 @@ export function Delegation() {
       is_active: t.is_active,
       emoji: t.emoji ?? "",
       call_only: t.call_only ?? false,
+      sort_order: String(t.sort_order ?? 1000),
     });
     setFormError(null);
   }
@@ -293,6 +297,7 @@ export function Delegation() {
         is_active: form.is_active,
         emoji: form.emoji,
         call_only: form.call_only,
+        sort_order: Number(form.sort_order) || 0,
       };
       const path = mode?.kind === "edit"
         ? `/v1/delegation/templates/${mode.templateId}`
@@ -347,6 +352,28 @@ export function Delegation() {
     try {
       const r = await mutate("DELETE", `/v1/delegation/templates/${id}`, undefined);
       if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      await refresh();
+    } catch (err) {
+      setFormError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function moveTemplate(index: number, direction: -1 | 1) {
+    const next = index + direction;
+    if (next < 0 || next >= templates.length) return;
+    const reordered = templates.slice();
+    [reordered[index], reordered[next]] = [reordered[next], reordered[index]];
+    setBusy(true);
+    setFormError(null);
+    try {
+      for (let i = 0; i < reordered.length; i++) {
+        const sort_order = (i + 1) * 10;
+        if (reordered[i].sort_order === sort_order) continue;
+        const r = await mutate("PATCH", `/v1/delegation/templates/${reordered[i].id}`, { sort_order });
+        if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+      }
       await refresh();
     } catch (err) {
       setFormError((err as Error).message);
@@ -465,6 +492,7 @@ export function Delegation() {
             <tr>
               <th className="text-left p-2">call_name</th>
               <th className="text-left p-2">title</th>
+              <th className="text-right p-2">order</th>
               <th className="text-left p-2">provider</th>
               <th className="text-left p-2">model</th>
               <th className="text-center p-2">emoji</th>
@@ -475,10 +503,11 @@ export function Delegation() {
             </tr>
           </thead>
           <tbody>
-            {templates.map((t) => (
+            {templates.map((t, i) => (
               <tr key={t.id} className="border-t border-border">
                 <td className="p-2 font-mono">{t.call_name}</td>
                 <td className="p-2">{t.title}</td>
+                <td className="p-2 text-right text-xs text-subtle">{t.sort_order}</td>
                 <td className="p-2"><code>{t.target_provider}</code></td>
                 <td className="p-2 text-xs">{t.model ? <code>{t.model}</code> : <span className="text-subtle">—</span>}</td>
                 <td className="p-2 text-center">{t.emoji || <span className="text-subtle">—</span>}</td>
@@ -486,6 +515,8 @@ export function Delegation() {
                 <td className="p-2 text-center">{t.call_only ? "✓" : "—"}</td>
                 <td className="p-2 text-xs text-subtle">{fmtDelegationTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
+                  <button className="text-xs" disabled={busy || i === 0} title="Move up" onClick={() => moveTemplate(i, -1)}>↑</button>
+                  <button className="text-xs" disabled={busy || i === templates.length - 1} title="Move down" onClick={() => moveTemplate(i, 1)}>↓</button>
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
                   <button className="text-xs" onClick={() => startEdit(t)}>edit</button>
                   <button className="text-xs" title="可搬 JSON をクリップボードにコピー" onClick={() => copyJson(t)}>📋JSON</button>
@@ -619,6 +650,15 @@ export function Delegation() {
                 value={form.project}
                 onChange={(e) => setForm({ ...form, project: e.target.value })}
                 placeholder="Pictor"
+              />
+            </label>
+            <label className="text-sm space-y-1">
+              <span className="text-subtle">sort_order</span>
+              <input
+                className="foundation-form w-full"
+                type="number"
+                value={form.sort_order}
+                onChange={(e) => setForm({ ...form, sort_order: e.target.value })}
               />
             </label>
             <label className="text-sm space-y-1 col-span-2">

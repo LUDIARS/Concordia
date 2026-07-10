@@ -6,13 +6,68 @@
 
 import type { DelegationRepo, CreateTemplateInput } from "../db/delegation-repo.js";
 
+const CLAUDE_TEMPLATE_SORT_ORDER = {
+  "fable-5": 10,
+  "opus-4-8": 30,
+  "sonnet-5": 40,
+  "haiku-4-5": 60,
+} as const;
+
+function codex56Template(
+  name: "sol" | "terra" | "luna",
+  label: "Sol" | "Terra" | "Luna",
+  emoji: string,
+  sort_order: number,
+  reasoning: "medium" | "high" | "xhigh",
+): CreateTemplateInput {
+  return {
+    call_name: `codex-5-6-${name}`,
+    title: `Implementation delegation (GPT-5.6 ${label})`,
+    description: `Delegate implementation work to Codex GPT-5.6 ${label}.`,
+    target_provider: "codex",
+    model: `gpt-5.6-${name}`,
+    runtime_options: { model_reasoning_effort: reasoning },
+    emoji,
+    sort_order,
+    prompt_template: [
+      "Implement the following in ${target_repo}:",
+      "",
+      "${task}",
+      "",
+      "${context_extra:}", "",
+      "Requirements:",
+      "- Create a feature branch (feat/<short-slug>) off origin/main.",
+      "- Implement as specified; don't add scope.",
+      "- Add or update tests; all relevant tests must pass.",
+      "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+      "",
+      "Report the PR URL when done.",
+    ].join("\n"),
+    input_schema: [
+      { name: "task", type: "string", required: true, description: "What to implement" },
+      { name: "target_repo", type: "string", required: true, description: "Absolute path of the target repository" },
+      { name: "context_extra", type: "string", required: false, description: "Optional extra context to prepend" },
+    ],
+    default_cwd: "${target_repo}",
+    is_active: true,
+  };
+}
+
+const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
+  codex56Template("sol", "Sol", "☀️", 20, "high"),
+  codex56Template("terra", "Terra", "🌏", 50, "xhigh"),
+  codex56Template("luna", "Luna", "🌙", 70, "medium"),
+];
+
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "impl-from-design",
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR + vitest) を守らせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
+    sort_order: 100,
     prompt_template: [
       "Read the design document at ${design_path}.",
       "",
@@ -43,7 +98,9 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
+    sort_order: 110,
     prompt_template: [
       "Fix this bug in ${target_repo}:",
       "",
@@ -71,7 +128,9 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
     target_provider: "codex",
+    model: "gpt-5.6-sol",
     call_only: true,
+    sort_order: 120,
     prompt_template: [
       "Refactor ${target} to achieve: ${goal}.",
       "",
@@ -109,6 +168,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       target_provider: "claude" as const,
       model: meta.id,
       emoji: meta.emoji,
+      sort_order: CLAUDE_TEMPLATE_SORT_ORDER[tier],
       prompt_template: [
         "Implement the following in ${target_repo}:",
         "",
@@ -132,12 +192,14 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       is_active: true,
     };
   }),
+  ...CODEX_56_TEMPLATES,
   {
     call_name: "task-process",
     title: "タスク処理",
     description: "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせる。delegate-task リアクションワークフロー (🤝) のデフォルトテンプレート。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    sort_order: 130,
     emoji: "🤝",
     prompt_template: [
       "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせること。",
@@ -159,6 +221,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "Memoriaの今日期限タスクを「確認系(人間がやる)」と「実装系(AIがやれる)」に仕分け、確認系は整理して提示し、実装系は1件ずつ着手して、詰まったらask・分割・委譲で止める朝ルーティン。MorningSchedulerが毎朝8時にinvokeする。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    sort_order: 140,
     emoji: "🌅",
     prompt_template: [
       "## 朝タスク処理 — ${date}",
@@ -203,6 +266,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "ローカル LLM 実装委託 (gemma4-12 / auto)",
     description: "ローカル LLM (Famulus 経由、Ollama 上の Gemma 4 等) に実装を委託する。API 課金ゼロ・ローカル完結。model='auto' で対象プロジェクトに合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) が自動選択する。長いエージェントループは精度・速度が落ちるので小さく区切ったタスク向き。",
     target_provider: "gemma4-12",
+    sort_order: 150,
     emoji: "🇬",
     // model="auto" → invoke 時に `famulus select --project <repo basename>` で自動選択
     // (service.ts / app.ts が resolveLocalModel で解決)。固定したいなら Ollama タグを直書き。

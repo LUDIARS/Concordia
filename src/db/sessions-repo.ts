@@ -319,11 +319,16 @@ export class SessionsRepo {
     return Number(r.changes ?? 0);
   }
 
-  /** lost / abandoned で last_seen_at が cutoff より古いセッションを完全削除 (events / reports / pending_tasks も) */
+  /**
+   * lost / abandoned で last_seen_at が cutoff より古いセッションを完全削除 (events / reports / pending_tasks も)。
+   * ws_clients > 0 (= agent-client の WS が生きている) の行は除外する — 行を消すと
+   * reaper の保護が消え、 生きている lictor/claude の process tree が「記録なき孤児」
+   * として tree-kill されるため (findStaleActive と同じ生存シグナルを尊重する)。
+   */
   purgeStale(cutoff: number): number {
     const ids = this.db
       .prepare(
-        `SELECT id FROM sessions WHERE status IN ('lost', 'abandoned') AND last_seen_at < ?`,
+        `SELECT id FROM sessions WHERE status IN ('lost', 'abandoned') AND last_seen_at < ? AND ws_clients = 0`,
       )
       .all(cutoff) as Array<{ id: string }>;
     if (ids.length === 0) return 0;
@@ -355,6 +360,14 @@ export class SessionsRepo {
         `SELECT * FROM session_events WHERE session_id = ? ORDER BY ts DESC LIMIT ?`,
       )
       .all(sessionId, limit) as SessionEventRow[];
+  }
+
+  eventsByKind(sessionId: string, kind: string): SessionEventRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM session_events WHERE session_id = ? AND kind = ? ORDER BY ts DESC`,
+      )
+      .all(sessionId, kind) as SessionEventRow[];
   }
 
   latestEventsByKind(sessionIds: string[], kind: string): SessionEventRow[] {

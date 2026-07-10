@@ -5,21 +5,26 @@ import type { SpawnRequest } from "../src/control/spawner.js";
 
 const EXPECTED_SEED_CALLS = [
   "claude-fable-5-impl",
-  "claude-haiku-4-5-impl",
+  "codex-5-6-sol",
   "claude-opus-4-8-impl",
   "claude-sonnet-5-impl",
-  "fix-bug",
-  "gemma4-12-impl",
+  "codex-5-6-terra",
+  "claude-haiku-4-5-impl",
+  "codex-5-6-luna",
   "impl-from-design",
-  "morning-tasks",
+  "fix-bug",
   "refactor",
   "task-process",
+  "morning-tasks",
+  "gemma4-12-impl",
 ] as const;
 
 interface Template {
   id: string;
   call_name: string;
   target_provider: string;
+  emoji: string;
+  sort_order: number;
   default_cwd: string | null;
   input_schema: Array<{ name: string; type: "string" | "number" | "boolean"; required: boolean }>;
 }
@@ -31,6 +36,10 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 30, 40, 50, 60, 70, 100, 110, 120, 130, 140, 150]);
+    expect(json.templates.find((t) => t.call_name === "codex-5-6-sol")?.emoji).toBe("☀️");
+    expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
+    expect(json.templates.find((t) => t.call_name === "codex-5-6-luna")?.emoji).toBe("🌙");
   });
 
   it("invokes every active seed delegation through the public API", async () => {

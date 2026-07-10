@@ -10,6 +10,8 @@ import { Hono } from "hono";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { MetricsStore } from "../metrics/store.js";
 import type { SessionRow } from "../shared/types.js";
+import { probeProjectSufficiency, type ProjectSufficiency } from "../harness/data-sufficiency.js";
+import { repoLeaf } from "../harness/predicates.js";
 import { serializeSession } from "./sessions.js";
 
 export interface MonitorApiDeps {
@@ -21,7 +23,7 @@ export interface MonitorApiDeps {
 export function monitorRouter(deps: MonitorApiDeps): Hono {
   const app = new Hono();
 
-  app.get("/", (c) => {
+  app.get("/", async (c) => {
     const active = deps.repo.listSessions({ status: "active" });
     const lost = deps.repo.listSessions({ status: "lost" });
     const recentEnded = deps.repo.listSessions({ status: "ended" }).slice(0, 20);
@@ -31,7 +33,7 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
       repos.set(k, (repos.get(k) ?? 0) + 1);
     }
     return c.json({
-      active: serializeSessionsWithLastUserMessage(deps.repo, active),
+      active: await serializeSessionsWithLastUserMessage(deps.repo, active),
       lost: lost.map(serializeSession),
       recent_ended: recentEnded.map(serializeSession),
       repos: [...repos.entries()].map(([key, count]) => ({ key, count })),
@@ -107,15 +109,37 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
   return app;
 }
 
-function serializeSessionsWithLastUserMessage(repo: SessionsRepo, sessions: SessionRow[]) {
+async function serializeSessionsWithLastUserMessage(repo: SessionsRepo, sessions: SessionRow[]) {
   const promptEvents = repo.latestEventsByKind(sessions.map((s) => s.id), "prompt");
   const messagesBySession = new Map(
     promptEvents.map((ev) => [ev.session_id, extractPromptText(ev.payload)]),
   );
+  const sufficiencyByProject = await probeSufficiencyByProject(sessions);
   return sessions.map((s) => ({
     ...serializeSession(s),
     last_user_message: messagesBySession.get(s.id) ?? null,
+    sufficiency: sufficiencyByProject.get(repoLeaf(s.target_project ?? s.repo_path)),
   }));
+}
+
+async function probeSufficiencyByProject(sessions: SessionRow[]): Promise<Map<string, ProjectSufficiency>> {
+  const projects = new Map<string, string>();
+  for (const session of sessions) {
+    const project = session.target_project ?? session.repo_path;
+    const key = repoLeaf(project);
+    if (!projects.has(key)) projects.set(key, project);
+  }
+  const entries = await Promise.all(
+    [...projects.entries()].map(async ([key, project]) => {
+      const value = await probeProjectSufficiency(project).catch(() => ({
+        project: key,
+        anatomia: { present: false },
+        thaleia: { present: false },
+      } satisfies ProjectSufficiency));
+      return [key, value] as const;
+    }),
+  );
+  return new Map(entries);
 }
 
 function extractPromptText(payloadJson: string): string | null {

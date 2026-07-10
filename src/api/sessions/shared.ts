@@ -206,6 +206,7 @@ export function serializeSession(s: SessionRow) {
     provider: s.provider,
     repo_path: s.repo_path,
     repo_origin: s.repo_origin,
+    target_project: s.target_project ?? null,
     branch: s.branch,
     host: s.host,
     started_at: s.started_at,
@@ -254,6 +255,34 @@ export async function proxyGet(c: { json: (body: any, status: any) => Response }
 
 export function nowSec(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * 生きた traffic (event / heartbeat / patch) を送ってきた lost セッションを active へ戻す。
+ * lost への遷移は sweeper 側 (WS 切断 + last_seen 停滞) で起きるが、 従来は SessionStart
+ * しか active へ戻す経路がなく、 一度 lost になった健全セッションが「lost のまま固定 →
+ * purgeStale で行 DELETE → reaper が孤児と誤認して生きている process tree を kill」 という
+ * 連鎖で殺されていた。 traffic があれば生きている証拠なので、 ここで復帰させて連鎖を断つ。
+ * (ended / abandoned は意図的な状態なので対象外。 lost のみ復帰させる。)
+ */
+export function reviveIfLost(
+  repo: {
+    setStatus: (id: string, status: "active", ts: number) => void;
+    appendEvent: (ev: { session_id: string; ts: number; kind: string; payload: Record<string, unknown> }) => void;
+  },
+  session: Pick<SessionRow, "id" | "status">,
+  ts: number,
+): boolean {
+  if (session.status !== "lost") return false;
+  repo.setStatus(session.id, "active", ts);
+  repo.appendEvent({
+    session_id: session.id,
+    ts,
+    kind: "revive",
+    payload: { from: "lost", to: "active", reason: "live traffic received" },
+  });
+  log.info({ session_id: session.id }, "lost session revived by live traffic");
+  return true;
 }
 
 export function logInactiveTranscriptPost(

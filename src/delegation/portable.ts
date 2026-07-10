@@ -48,6 +48,7 @@ export const PortableDelegationSchema = z.object({
   default_cwd: z.string().max(1000).nullable().optional(),
   project: z.string().max(200).nullable().optional(),
   emoji: z.string().max(8).optional(),
+  sort_order: z.number().int().optional(),
 });
 
 export type PortableDelegation = z.infer<typeof PortableDelegationSchema>;
@@ -67,6 +68,7 @@ export interface PortableDelegationOut {
   default_cwd: string | null;
   project: string | null;
   emoji: string;
+  sort_order: number;
 }
 
 export function templateToPortable(row: DelegationTemplateRow): PortableDelegationOut {
@@ -84,6 +86,7 @@ export function templateToPortable(row: DelegationTemplateRow): PortableDelegati
     default_cwd: row.default_cwd,
     project: row.project,
     emoji: row.emoji,
+    sort_order: row.sort_order,
   };
 }
 
@@ -102,6 +105,7 @@ export function ownedToPortable(row: SubsidiaryDelegationRow): PortableDelegatio
     default_cwd: row.default_cwd,
     project: row.project,
     emoji: row.emoji,
+    sort_order: 1000,
   };
 }
 

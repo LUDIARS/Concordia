@@ -43,7 +43,15 @@ if (process.env.CONCORDIA_DISABLE === "1") process.exit(0);
 
 const URL_BASE = (process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
 const PROVIDER = process.env.CONCORDIA_PROVIDER ?? "claude-code";
-const TIMEOUT_MS = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
+// 非数値 env だと NaN → setTimeout(fn, NaN) は 0ms 発火で全 fetch が即 abort し
+// 報告が無音で全滅するため、 数値検証して既定値へフォールバックする。
+const TIMEOUT_MS = (() => {
+  const n = Number(process.env.CONCORDIA_TIMEOUT_MS ?? "1500");
+  return Number.isFinite(n) && n > 0 ? n : 1500;
+})();
+// git サブプロセスの上限。 credential プロンプト / stale index.lock 等で git が
+// 詰まると SessionStart hook ごと無期限ブロックする (= Cc が起動できない) のを防ぐ。
+const GIT_TIMEOUT_MS = 3000;
 
 const event = process.argv[2] ?? "noop";
 const flags = parseFlags(process.argv.slice(3));
@@ -399,7 +407,13 @@ async function postJson(path, body) {
   });
 }
 
+// backend 不達の short-circuit。 hook 1 回の起動内で fetch は直列に最大 4〜9 本
+// 走るため、 backend 停止中に各 1.5s ずつタイムアウトすると毎ターン数秒の
+// フリーズに見える。 最初の接続失敗 / timeout 以降は即 null を返して抜ける。
+let serverUnreachable = false;
+
 async function fetchJson(path, init = {}) {
+  if (serverUnreachable) return null;
   const url = `${URL_BASE}${path}`;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
@@ -408,6 +422,7 @@ async function fetchJson(path, init = {}) {
     if (!res.ok) return null;
     return await res.json().catch(() => null);
   } catch {
+    serverUnreachable = true;
     return null;
   } finally {
     clearTimeout(t);
@@ -417,14 +432,14 @@ async function fetchJson(path, init = {}) {
 function tryGitRemote(cwd) {
   try {
     return execSync("git config --get remote.origin.url", {
-      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: GIT_TIMEOUT_MS,
     }).trim() || null;
   } catch { return null; }
 }
 function tryGitBranch(cwd) {
   try {
     return execSync("git rev-parse --abbrev-ref HEAD", {
-      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+      cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: GIT_TIMEOUT_MS,
     }).trim() || null;
   } catch { return null; }
 }

@@ -42,40 +42,51 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   let stopped = false;
 
   // event-driven rules
+  // eventBus.emit の try/catch は同期 throw しか捕捉しない (async listener の
+  // rejection は escape して unhandledRejection になる) ため、 body 全体を
+  // try/catch で包み rejection を一切漏らさない。
   unsubEvent = eventBus.subscribe(async (ev) => {
-    if (stopped) return;
-    if (ev.type === "ping") return;
-    const eventKind = ev.type;
-    const candidates = deps.rules
-      .list({ enabled: true, trigger_type: "event" })
-      .filter((r) => !r.event_kind || r.event_kind === eventKind || matchesEvent(r.event_kind, eventKind));
-    if (candidates.length === 0) return;
-    // 強制ルール: 深夜帯 (23:00–翌05:00) は event rule の発火も 1/10 に間引く.
-    const freq = actionFrequencyMultiplier();
-    if (freq < 1 && Math.random() >= freq) {
-      for (const r of candidates) {
-        deps.rules.log({ rule_id: r.id, action: "skip", actor: "engine", detail: "quiet hours throttle" });
+    try {
+      if (stopped) return;
+      if (ev.type === "ping") return;
+      const eventKind = ev.type;
+      const candidates = deps.rules
+        .list({ enabled: true, trigger_type: "event" })
+        .filter((r) => !r.event_kind || r.event_kind === eventKind || matchesEvent(r.event_kind, eventKind));
+      if (candidates.length === 0) return;
+      // 強制ルール: 深夜帯 (23:00–翌05:00) は event rule の発火も 1/10 に間引く.
+      const freq = actionFrequencyMultiplier();
+      if (freq < 1 && Math.random() >= freq) {
+        for (const r of candidates) {
+          deps.rules.log({ rule_id: r.id, action: "skip", actor: "engine", detail: "quiet hours throttle" });
+        }
+        return;
       }
-      return;
-    }
-    for (const r of candidates) {
-      await tryFire(r, `event:${eventKind}`);
+      for (const r of candidates) {
+        await tryFire(r, `event:${eventKind}`);
+      }
+    } catch (err) {
+      log.warn({ err: (err as Error).message, event: ev.type }, "event rule pass failed");
     }
   });
 
-  // tick timer
+  // tick timer (sweeper.ts と同じく tick 全体をガードし rejection を漏らさない)
   timer = setInterval(async () => {
-    if (stopped) return;
-    const now = Math.floor(Date.now() / 1000);
-    // 深夜帯は tick の発火間隔を 1/freq 倍に伸ばす (= 行動頻度 1/10).
-    const freq = actionFrequencyMultiplier();
-    const ticks = deps.rules.list({ enabled: true, trigger_type: "tick" });
-    for (const r of ticks) {
-      if (!r.tick_sec) continue;
-      const elapsed = r.last_fired_at ? now - r.last_fired_at : Infinity;
-      if (elapsed >= r.tick_sec / freq) {
-        await tryFire(r, "tick");
+    try {
+      if (stopped) return;
+      const now = Math.floor(Date.now() / 1000);
+      // 深夜帯は tick の発火間隔を 1/freq 倍に伸ばす (= 行動頻度 1/10).
+      const freq = actionFrequencyMultiplier();
+      const ticks = deps.rules.list({ enabled: true, trigger_type: "tick" });
+      for (const r of ticks) {
+        if (!r.tick_sec) continue;
+        const elapsed = r.last_fired_at ? now - r.last_fired_at : Infinity;
+        if (elapsed >= r.tick_sec / freq) {
+          await tryFire(r, "tick");
+        }
       }
+    } catch (err) {
+      log.warn({ err: (err as Error).message }, "tick rule pass failed");
     }
   }, ENGINE_TICK_MS);
 

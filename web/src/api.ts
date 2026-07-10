@@ -48,6 +48,7 @@ export interface DelegationTemplateLite {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  sort_order: number;
   default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
 }
@@ -1004,6 +1005,7 @@ export interface PortableDelegation {
   default_cwd?: string | null;
   project?: string | null;
   emoji?: string;
+  sort_order?: number;
 }
 export interface SubsidiaryLock {
   id: number;

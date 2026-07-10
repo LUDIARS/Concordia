@@ -34,6 +34,7 @@ export interface DelegationTemplateRow {
   emoji: string;
   /** 1 = LLM 委託専用テンプレ。 Discord/Slack の spawn ドロップダウンに出さない */
   call_only: number;
+  sort_order: number;
   created_at: number;
   updated_at: number;
 }
@@ -78,6 +79,7 @@ export interface CreateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  sort_order?: number;
 }
 
 export interface UpdateTemplateInput {
@@ -93,6 +95,7 @@ export interface UpdateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  sort_order?: number;
 }
 
 export interface CreateRunInput {
@@ -134,6 +137,7 @@ export class DelegationRepo {
         is_active: input.is_active,
         emoji: input.emoji,
         call_only: input.call_only,
+        sort_order: input.sort_order,
       }) ?? existing;
     }
     return this.createTemplate(input);
@@ -146,8 +150,8 @@ export class DelegationRepo {
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model, runtime_options_json,
         prompt_template, input_schema, default_cwd, project, is_active,
-        emoji, call_only, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        emoji, call_only, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -163,6 +167,7 @@ export class DelegationRepo {
       input.is_active === false ? 0 : 1,
       input.emoji ?? "",
       input.call_only ? 1 : 0,
+      input.sort_order ?? 1000,
       now,
       now,
     );
@@ -187,6 +192,7 @@ export class DelegationRepo {
         is_active = ?,
         emoji = ?,
         call_only = ?,
+        sort_order = ?,
         updated_at = ?
       WHERE id = ?
     `).run(
@@ -202,6 +208,7 @@ export class DelegationRepo {
       patch.is_active === undefined ? cur.is_active : (patch.is_active ? 1 : 0),
       patch.emoji !== undefined ? patch.emoji : cur.emoji,
       patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,
+      patch.sort_order !== undefined ? patch.sort_order : cur.sort_order,
       now,
       id,
     );
@@ -231,8 +238,8 @@ export class DelegationRepo {
 
   listTemplates(options: { includeInactive?: boolean } = {}): DelegationTemplateRow[] {
     const sql = options.includeInactive
-      ? `SELECT * FROM delegation_templates ORDER BY call_name ASC`
-      : `SELECT * FROM delegation_templates WHERE is_active = 1 ORDER BY call_name ASC`;
+      ? `SELECT * FROM delegation_templates ORDER BY sort_order ASC, call_name ASC`
+      : `SELECT * FROM delegation_templates WHERE is_active = 1 ORDER BY sort_order ASC, call_name ASC`;
     return this.db.prepare(sql).all() as DelegationTemplateRow[];
   }
 

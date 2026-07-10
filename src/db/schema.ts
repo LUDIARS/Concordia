@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 31;
+export const SCHEMA_VERSION = 32;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -553,6 +553,7 @@ const STATEMENTS = [
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
+    sort_order        INTEGER NOT NULL DEFAULT 1000,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
   )`,
@@ -959,6 +960,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "call_only",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN call_only INTEGER NOT NULL DEFAULT 0`,
+  },
+  {
+    table: "delegation_templates",
+    column: "sort_order",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 1000`,
   },
   // ask マーカー / AskUserQuestion の複数選択フラグ + 複数選択回答の記録。
   {

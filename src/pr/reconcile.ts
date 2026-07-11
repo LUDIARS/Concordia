@@ -54,6 +54,17 @@ export interface PrReconcileDeps {
   tasks?: TasksRepo;
   fetchPrsForOrigin?: (origin: string) => Promise<GhPr[]>;
   nowSec?: () => number;
+  /**
+   * base=develop の PR が merged になっているのを観測したときの通知先 (確認フローの入口)。
+   * 同じ merge を毎周期観測するので **冪等な実装** であること。
+   * spec/feature/develop-confirm-flow.md §5。
+   */
+  onDevelopMerge?: (event: {
+    repo_origin: string;
+    pr_number: number;
+    pr_title: string;
+    pr_url: string | null;
+  }) => void | Promise<void>;
 }
 
 export interface PrReconcileHandle {
@@ -201,6 +212,18 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
           ci_status: nextCi,
           nowSec: now(),
         });
+        // develop に入った変更は確認待ちに積む。 「今回初めて merged を観測した」に絞らず
+        // 毎回投げる — 通知先が冪等なので、 Concordia の再起動を跨いでも取りこぼさない方を採る。
+        if (mapState(gh) === "merged" && gh.baseRefName === "develop" && deps.onDevelopMerge) {
+          void Promise.resolve(
+            deps.onDevelopMerge({
+              repo_origin: origin,
+              pr_number: gh.number,
+              pr_title: gh.title ?? existing?.title ?? "",
+              pr_url: gh.url ?? existing?.url ?? prUrlFor(origin, gh.number),
+            }),
+          ).catch((e) => log.warn(`develop merge intake failed: ${(e as Error).message}`));
+        }
         if (changed) updated += 1;
       }
     }

@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 33;
+export const SCHEMA_VERSION = 34;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -594,6 +594,29 @@ const STATEMENTS = [
   // + GitHub reconcile tick (merged/closed/ci/review を確定) で状態を維持する.
   // 「キュー」 = review_state / state で優先度順に並べ、 レビュー/マージ待ちを上に出す.
   // 1 PR = 1 行. UNIQUE(repo_origin, number) で同一 PR の重複登録を防ぐ.
+  // develop へ入った変更 1 件 = 確認 1 件。 ユーザが Discord で確認を開始/完了するまで残る。
+  // 完了しても行は消さない (何をいつ確認したかの記録)。 spec/feature/develop-confirm-flow.md §4。
+  `CREATE TABLE IF NOT EXISTS confirm_runs (
+    id               TEXT    PRIMARY KEY,
+    repo_origin      TEXT    NOT NULL,           -- owner/repo (例 LUDIARS/Concordia)
+    repo_name        TEXT    NOT NULL,           -- ローカルクローンのディレクトリ名
+    service_code     TEXT,                       -- Excubitor のサービスコード (null = 起動を伴わない)
+    pr_number        INTEGER NOT NULL,
+    pr_title         TEXT    NOT NULL DEFAULT '',
+    pr_url           TEXT,
+    develop_sha      TEXT,                       -- マージ後の develop HEAD (判明していれば)
+    status           TEXT    NOT NULL,           -- pending | confirming | confirmed | rejected | failed
+    memoria_task_id  INTEGER,                    -- Memoria に積んだ確認タスク (null = 連携失敗)
+    error            TEXT,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    UNIQUE(repo_origin, pr_number)
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_confirm_runs_status
+     ON confirm_runs(status, created_at)`,
+  `CREATE INDEX IF NOT EXISTS idx_confirm_runs_service
+     ON confirm_runs(service_code, status)`,
+
   `CREATE TABLE IF NOT EXISTS pr_records (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     repo_origin        TEXT NOT NULL,                 -- 正規化した owner/repo (例 LUDIARS/Concordia)

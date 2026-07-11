@@ -17,6 +17,8 @@ import { processesRouter } from "./processes.js";
 import { statRouter } from "./stat.js";
 import { workRouter } from "./work.js";
 import { prsRouter } from "./prs.js";
+import { confirmRouter } from "./confirm.js";
+import type { ConfirmService } from "../release/confirm-service.js";
 import type { ProcessManager } from "../processes/manager.js";
 import type { ProcessesRepo } from "../db/processes-repo.js";
 import type { SkillsRepo } from "../db/skills-repo.js";
@@ -104,6 +106,8 @@ export interface CoreDeps {
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
+  /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
+  confirmService?: ConfirmService;
   /** delegation 実行キュー (同時実行上限 + 待ち行列)。 未注入なら /v1/delegation/queue は 503。 */
   delegationQueue?: DelegationQueue;
   modelCatalog: ModelCatalogRepo;
@@ -166,6 +170,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
+  if (deps.confirmService) {
+    app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
+  }
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
   app.route(
     "/v1/spawn",

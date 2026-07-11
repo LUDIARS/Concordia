@@ -21,6 +21,7 @@ import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
+import confirmCommand from "./commands/confirm.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
@@ -62,6 +63,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   compactionCommand,
   goalCommand,
   relictorCommand,
+  confirmCommand,
 ];
 
 const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);

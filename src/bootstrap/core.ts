@@ -68,6 +68,12 @@ import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
+import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
+import { ExcubitorClient } from "../excubitor/client.js";
+import { MemoriaClient } from "../memoria/client.js";
+import { ConfirmService } from "../release/confirm-service.js";
+import { ServiceMap } from "../release/service-map.js";
+import { intakeDevelopMerge } from "../release/confirm-intake.js";
 import { startPrFullSync } from "../pr/full-sync.js";
 import { startErrorFixDispatcher } from "../control/error-fix.js";
 import { buildApp } from "../app.js";
@@ -389,6 +395,21 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   delegationService.setQueue(delegationQueue);
 
+  // 確認フロー (develop に入った変更をユーザが動作確認 → main へ反映)。
+  // 起動・停止は必ず Excubitor 経由 (catalog 登録済みサービスのみ)。
+  // spec/feature/develop-confirm-flow.md。
+  const confirmRuns = new ConfirmRunsRepo(db);
+  const excubitorClient = new ExcubitorClient();
+  const memoriaClient = new MemoriaClient();
+  const serviceMap = new ServiceMap({ excubitor: excubitorClient });
+  const resolveServiceCode = (repoName: string) => serviceMap.resolve(repoName);
+  const confirmService = new ConfirmService({
+    repo: confirmRuns,
+    excubitor: excubitorClient,
+    memoria: memoriaClient,
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+  });
+
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
   // spawn する Lictor が必ず spawning Concordia を指すよう、 自分の listen アドレスを
@@ -602,6 +623,7 @@ export async function startBackend(): Promise<BackendHandle> {
     participants,
     delegation: delegationRepo,
     delegationService,
+    confirmService,
     delegationQueue,
     modelCatalog,
     testingClaims,
@@ -793,7 +815,16 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
     trackPostListenHandle(startRepoChangeWatcher({ sessions: repo, tasks }));
     trackPostListenHandle(startPrIngestWatcher({ sessions: repo, stats, personas, prs }));
-    trackPostListenHandle(startPrReconciler({ prs, sessions: repo, tasks }));
+    trackPostListenHandle(startPrReconciler({
+      prs,
+      sessions: repo,
+      tasks,
+      // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
+      onDevelopMerge: (event) => intakeDevelopMerge(
+        { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+        event,
+      ).then(() => undefined),
+    }));
     trackPostListenHandle(startPrFullSync({ prs }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
   }

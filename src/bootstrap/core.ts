@@ -29,6 +29,8 @@ import {
 } from "../db/discord-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { DelegationService } from "../delegation/service.js";
+import { DelegationQueue } from "../delegation/queue.js";
+import { DEFAULT_DESK_CHANNEL_NAME } from "../discord/config.js";
 import { seedDelegationTemplates } from "../delegation/seed.js";
 import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "../model-catalog/seed.js";
@@ -100,6 +102,12 @@ const log = createChildLogger("server");
 
 let discordBotHandle: DiscordBotHandle | null = null;
 let discordBotDeps: DiscordBotDeps | null = null;
+/**
+ * 本社内 desk (mode='desk' の窓口) を本社 Bot 起動のたびに DB から解決する。 desk は
+ * API から後付けで作られるので、 起動時に固定せず start ごとに引き直す (= Bot を
+ * restart すれば新しい desk が受付を始める)。
+ */
+let resolveHeadOfficeDesk: () => DiscordBotDeps["desk"] = () => undefined;
 let slackBotHandle: ChatPlatform | null = null;
 let slackBotDeps: SlackBotDeps | null = null;
 let discordBotLastStatus: string | null = "not_started";
@@ -232,7 +240,7 @@ async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started
   if (!discordBotDeps) return rememberDiscordBotResult({ ok: false, status: "error", error: "discord deps not initialized" });
   try {
     rememberDiscordBotResult({ ok: true, status: "starting" });
-    const h = await startDiscordBot(discordBotDeps);
+    const h = await startDiscordBot({ ...discordBotDeps, desk: resolveHeadOfficeDesk() });
     if (!h) return rememberDiscordBotResult({ ok: true, status: "disabled" });
     discordBotHandle = h;
     return rememberDiscordBotResult({ ok: true, status: "started" });
@@ -371,6 +379,16 @@ export async function startBackend(): Promise<BackendHandle> {
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
+  // delegation 実行キュー: 同時実行上限を超えた invoke は spawn せず queued で待たせ、
+  // スロットが空き次第 FIFO で起動する。 service ⇄ queue は相互依存なので setQueue で繋ぐ。
+  const delegationQueue = new DelegationQueue({
+    repo: delegationRepo,
+    sessions: repo,
+    resolveMaxConcurrency: () => adminState.getDelegationMaxConcurrency(),
+    spawnQueued: (run) => delegationService.spawnQueuedRun(run),
+  });
+  delegationService.setQueue(delegationQueue);
+
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
   // spawn する Lictor が必ず spawning Concordia を指すよう、 自分の listen アドレスを
@@ -537,6 +555,30 @@ export async function startBackend(): Promise<BackendHandle> {
     startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),
   });
 
+  // 本社内 desk (軽量窓口): 専用 Bot を立てず、 本社 Bot に「タスク依頼」チャンネルを
+  // 1 本作らせて同じガードゲートに通す。 有効な desk は先頭 1 件のみ配線する — 本社 guild に
+  // 依頼チャンネルを何本も生やすと、 どこに投げれば動くのかが人間側で分からなくなるため。
+  resolveHeadOfficeDesk = () => {
+    const desks = subsidiaryRepo.listEnabledDesks();
+    const desk = desks[0];
+    if (!desk) return undefined;
+    if (desks.length > 1) {
+      log.warn(
+        { desk: desk.name, ignored: desks.slice(1).map((d) => d.name) },
+        "複数の desk が有効です。 本社 Bot は先頭の 1 件だけを受付に配線します",
+      );
+    }
+    const processor = subsidiaryManager.processorFor(desk.id);
+    return {
+      id: desk.id,
+      channelName: desk.display_name?.trim() || DEFAULT_DESK_CHANNEL_NAME,
+      channelId: desk.channel_id,
+      process: processor.process,
+      isLocked: processor.isLocked,
+      onChannelResolved: (channelId: string) => subsidiaryRepo.update(desk.id, { channel_id: channelId }),
+    };
+  };
+
   const app = buildApp({
     repo,
     metrics: metricsStore,
@@ -560,6 +602,7 @@ export async function startBackend(): Promise<BackendHandle> {
     participants,
     delegation: delegationRepo,
     delegationService,
+    delegationQueue,
     modelCatalog,
     testingClaims,
     subsidiary: subsidiaryRepo,
@@ -824,6 +867,9 @@ export async function startBackend(): Promise<BackendHandle> {
       log.info("Discord subsidiary autostart disabled (CONCORDIA_DISCORD_SUBSIDIARY_AUTOSTART != 1)");
     }
   }
+  // 実行キュー: 再起動前に queued のまま残った run を拾い直し、 以後は定期 drain で流す。
+  delegationQueue.start();
+  void delegationQueue.drain().catch((e) => log.warn(`delegation queue initial drain failed: ${(e as Error).message}`));
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
 
@@ -846,6 +892,7 @@ export async function startBackend(): Promise<BackendHandle> {
       shuttingDown = true;
       dailyScheduler.stop();
       sweeper.stop();
+      delegationQueue.stop();
       for (const handle of postListenHandles.splice(0).reverse()) {
         try {
           handle.stop();

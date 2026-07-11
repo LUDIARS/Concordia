@@ -134,6 +134,24 @@ export async function ensureIntakeChannel(
   return ensureTextChannel(guild, repo, "intake_channel_id", "受付", parentId);
 }
 
+/**
+ * 本社サーバ内の軽量窓口 (desk) の依頼チャンネルを確保する (無ければ作る・冪等)。
+ * 子会社の受付チャンネルと違い本社 guild 内に作るので、 窓口ごとに config key と
+ * チャンネル名を分ける (既定名「タスク依頼」)。 spec/feature/subsidiary-delegation.md §9。
+ */
+/** 本社内 desk の依頼チャンネル名の既定 (窓口名が空のとき使う)。 */
+export const DEFAULT_DESK_CHANNEL_NAME = "タスク依頼";
+
+export async function ensureDeskChannel(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  deskId: string,
+  channelName: string,
+  parentId: string,
+): Promise<string> {
+  return ensureTextChannel(guild, repo, `desk_channel_id:${deskId}`, channelName, parentId);
+}
+
 async function ensureCategory(guild: Guild, repo: DiscordConfigRepo, key: string, name: string): Promise<string> {
   const cached = repo.get(key);
   if (cached) {

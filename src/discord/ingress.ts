@@ -47,10 +47,12 @@ export interface IngressDeps {
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
-   * 子会社モード。 intake チャンネルの新規メッセージはガードゲートに通し (process)、
-   * ロック済みユーザは他チャンネルでも遮断する。 spec/feature/subsidiary-delegation.md §3.1。
+   * 依頼窓口 (子会社の受付チャンネル / 本社内 desk のタスク依頼チャンネル)。 窓口チャンネルの
+   * 新規メッセージはガードゲートに通し (process)、 ロック済みユーザは他チャンネルでも遮断する。
+   * 子会社と desk はここでは区別しない — ゲートの通し方は同じ。
+   * spec/feature/subsidiary-delegation.md §3.1 / §9。
    */
-  subsidiary?: {
+  intake?: {
     intakeChannelId: string | null;
     process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
     isLocked: (userId: string) => boolean;
@@ -103,23 +105,23 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
   );
 
-  // 子会社モード: 受付チャンネルの新規依頼はガードゲートへ。 他チャンネルでもロック済みは遮断。
-  if (deps.subsidiary) {
-    const sub = deps.subsidiary;
-    if (sub.intakeChannelId && routeChannelId === sub.intakeChannelId) {
+  // 窓口: 依頼チャンネルの新規メッセージはガードゲートへ。 他チャンネルでもロック済みは遮断。
+  if (deps.intake) {
+    const intake = deps.intake;
+    if (intake.intakeChannelId && routeChannelId === intake.intakeChannelId) {
       const userLabel = msg.member?.nickname?.trim() || msg.author.username;
-      deps.log.info(`ingress: subsidiary intake request channel=${msg.channelId} user=${msg.author.id}`);
+      deps.log.info(`ingress: intake request channel=${msg.channelId} user=${msg.author.id}`);
       try {
-        const result = await sub.process(msg.author.id, userLabel, text.slice(0, 8000));
+        const result = await intake.process(msg.author.id, userLabel, text.slice(0, 8000));
         await msg.reply({ content: result.replyText, allowedMentions: { parse: [], repliedUser: false } });
       } catch (e) {
-        deps.log.warn(`ingress: subsidiary gate failed channel=${msg.channelId}: ${(e as Error).message}`);
+        deps.log.warn(`ingress: intake gate failed channel=${msg.channelId}: ${(e as Error).message}`);
         try { await msg.reply({ content: `⚠️ 内部エラーで処理できませんでした: ${(e as Error).message}`, allowedMentions: { parse: [], repliedUser: false } }); } catch {}
       }
       return;
     }
-    if (sub.isLocked(msg.author.id)) {
-      deps.log.info(`ingress: subsidiary locked user=${msg.author.id} channel=${msg.channelId}; blocked`);
+    if (intake.isLocked(msg.author.id)) {
+      deps.log.info(`ingress: locked user=${msg.author.id} channel=${msg.channelId}; blocked`);
       try { await msg.reply({ content: "🔒 ロック中のため処理できません。", allowedMentions: { parse: [], repliedUser: false } }); } catch {}
       return;
     }

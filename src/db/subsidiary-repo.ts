@@ -10,12 +10,23 @@ import { randomUUID } from "node:crypto";
 
 export type SubsidiaryPlatform = "discord" | "slack";
 
+/**
+ * 窓口の種別。
+ *  - subsidiary: 別サーバ (出張先) の子会社。 専用 Bot を guild に接続する。
+ *  - desk:       本社サーバ内に依頼チャンネルを 1 本置くだけの軽量窓口。 Bot は起動せず、
+ *                本社 Bot がそのチャンネルの依頼を同じガードゲートへ流す。
+ * ガード / ハーネスルール / ロック / 監査 / 日次予算 / 所有 delegation は両者で共通。
+ * spec/feature/subsidiary-delegation.md §9。
+ */
+export type SubsidiaryMode = "subsidiary" | "desk";
+
 export interface SubsidiaryRow {
   id: string;
   name: string;
   display_name: string;
   description: string;
   platform: SubsidiaryPlatform;
+  mode: SubsidiaryMode;
   enabled: number;
   guild_id: string | null;
   application_id: string | null;
@@ -101,6 +112,7 @@ export interface CreateSubsidiaryInput {
   display_name?: string;
   description?: string;
   platform?: SubsidiaryPlatform;
+  mode?: SubsidiaryMode;
   enabled?: boolean;
   guild_id?: string | null;
   application_id?: string | null;
@@ -116,6 +128,7 @@ export interface UpdateSubsidiaryInput {
   display_name?: string;
   description?: string;
   platform?: SubsidiaryPlatform;
+  mode?: SubsidiaryMode;
   enabled?: boolean;
   guild_id?: string | null;
   application_id?: string | null;
@@ -138,16 +151,17 @@ export class SubsidiaryRepo {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO subsidiaries(
-        id, name, display_name, description, platform, enabled,
+        id, name, display_name, description, platform, mode, enabled,
         guild_id, application_id, channel_id, bot_token_enc, app_token_enc,
         guard_model, guard_scope, daily_token_budget, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
       input.display_name ?? "",
       input.description ?? "",
       input.platform ?? "discord",
+      input.mode ?? "subsidiary",
       input.enabled ? 1 : 0,
       input.guild_id ?? null,
       input.application_id ?? null,
@@ -171,6 +185,7 @@ export class SubsidiaryRepo {
         display_name   = ?,
         description    = ?,
         platform       = ?,
+        mode           = ?,
         enabled        = ?,
         guild_id       = ?,
         application_id = ?,
@@ -186,6 +201,7 @@ export class SubsidiaryRepo {
       patch.display_name ?? cur.display_name,
       patch.description ?? cur.description,
       patch.platform ?? cur.platform,
+      patch.mode ?? cur.mode,
       patch.enabled === undefined ? cur.enabled : (patch.enabled ? 1 : 0),
       patch.guild_id !== undefined ? patch.guild_id : cur.guild_id,
       patch.application_id !== undefined ? patch.application_id : cur.application_id,
@@ -225,6 +241,20 @@ export class SubsidiaryRepo {
 
   listEnabled(): SubsidiaryRow[] {
     return this.db.prepare(`SELECT * FROM subsidiaries WHERE enabled = 1 ORDER BY name ASC`).all() as SubsidiaryRow[];
+  }
+
+  /** 専用 Bot を起動する子会社だけ (desk は本社 Bot に相乗りするので Bot を持たない)。 */
+  listEnabledBots(): SubsidiaryRow[] {
+    return this.db.prepare(
+      `SELECT * FROM subsidiaries WHERE enabled = 1 AND mode = 'subsidiary' ORDER BY name ASC`,
+    ).all() as SubsidiaryRow[];
+  }
+
+  /** 本社サーバ内の軽量窓口 (desk) だけ。 本社 Bot が起動時にこれを受付チャンネルへ配線する。 */
+  listEnabledDesks(): SubsidiaryRow[] {
+    return this.db.prepare(
+      `SELECT * FROM subsidiaries WHERE enabled = 1 AND mode = 'desk' ORDER BY name ASC`,
+    ).all() as SubsidiaryRow[];
   }
 
   // ── 所有 delegation (子会社が複製所有する定義) ──────────────

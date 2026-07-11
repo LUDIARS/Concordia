@@ -185,6 +185,26 @@ export interface InvokeResultOk {
   spawn_branch: string | null;
   spawn_worktree_path: string | null;
   spawn_worktree_created: boolean;
+  /** true = 同時実行上限に達していたため spawn せずキューに入れた (status='queued')。 */
+  queued: boolean;
+  /** queued のときの待ち順 (1 始まり)。 それ以外は null。 */
+  queue_position: number | null;
+}
+
+/**
+ * 実行キュー (delegation/queue.ts) のうち service が使う口だけを切り出したもの。
+ * queue → service (spawnQueuedRun) の逆向き依存があるため、 型の循環を避けて薄く持つ。
+ */
+export interface DelegationQueuePort {
+  enabled(): boolean;
+  hasCapacity(): boolean;
+  position(runId: string): number | null;
+}
+
+/** queued run を後から起動するために保存しておく入力一式。 */
+interface QueuePayload {
+  def: DelegationDefinition;
+  input: InvokeInput;
 }
 
 export interface InvokeResultErr {
@@ -210,7 +230,18 @@ export interface DelegationServiceDeps {
 }
 
 export class DelegationService {
+  private queue: DelegationQueuePort | null = null;
+
   constructor(private readonly deps: DelegationServiceDeps) {}
+
+  /**
+   * 実行キューを後付けで繋ぐ。 queue は spawn のために service を呼び、 service は
+   * 空きスロット判定のために queue を呼ぶ相互依存なので、 合成は composition root で
+   * 「service を作る → queue を作る → setQueue」 の順に行う。
+   */
+  setQueue(queue: DelegationQueuePort | null): void {
+    this.queue = queue;
+  }
 
   private get promptsDir(): string {
     return this.deps.promptsDir ?? join(process.cwd(), "delegation-prompts");
@@ -262,6 +293,135 @@ export class DelegationService {
     const renderedPrompt = extra
       ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
       : render.rendered;
+    const runId = randomUUID();
+    const promptPath = join(this.promptsDir, `${runId}.md`);
+    const shouldSpawn = input.spawn !== false;
+
+    // 同時実行上限に達していれば spawn せずキューに入れる。 worktree 作成・prompt file
+    // 書き出しといった副作用は起動時 (launch) までまとめて遅延させる — 待たせている間に
+    // worktree だけ先に生えている、 という中途半端な状態を作らないため。
+    if (shouldSpawn && this.queue?.enabled() && !this.queue.hasCapacity()) {
+      const payload: QueuePayload = { def, input };
+      const run = this.deps.repo.createRun({
+        id: runId,
+        template_id: def.template_id,
+        call_name: def.call_name,
+        target_provider: input.overrides?.provider ?? def.target_provider,
+        parent_session_id: input.parent_session_id ?? null,
+        args: input.args ?? {},
+        rendered_prompt: renderedPrompt,
+        prompt_file_path: promptPath,
+        spawn_pid: null,
+        spawn_command: null,
+        triggered_by: input.triggered_by ?? null,
+        status: "queued",
+        queue_payload_json: JSON.stringify(payload),
+      });
+      const position = this.queue.position(run.id);
+      log.info({ run_id: run.id, call_name: def.call_name, queue_position: position }, "delegation queued (at concurrency limit)");
+      return {
+        ok: true,
+        run,
+        prompt_file_path: promptPath,
+        rendered_prompt: renderedPrompt,
+        spawn_pid: null,
+        spawn_command: null,
+        spawn_cwd: null,
+        spawn_branch: null,
+        spawn_worktree_path: null,
+        spawn_worktree_created: false,
+        queued: true,
+        queue_position: position,
+      };
+    }
+
+    const launch = await this.launch(runId, def, input, renderedPrompt, shouldSpawn);
+    if (!launch.ok) return { ok: false, error: launch.error };
+
+    const run = this.deps.repo.createRun({
+      id: runId,
+      template_id: def.template_id,
+      call_name: def.call_name,
+      target_provider: launch.provider,
+      parent_session_id: input.parent_session_id ?? null,
+      args: input.args ?? {},
+      rendered_prompt: renderedPrompt,
+      prompt_file_path: promptPath,
+      spawn_pid: launch.spawn_pid,
+      spawn_command: launch.spawn_command,
+      triggered_by: input.triggered_by ?? null,
+      status: launch.status,
+      error: launch.error_message,
+    });
+
+    return {
+      ok: true,
+      run,
+      prompt_file_path: promptPath,
+      rendered_prompt: renderedPrompt,
+      spawn_pid: launch.spawn_pid,
+      spawn_command: launch.spawn_command,
+      spawn_cwd: launch.cwd ?? null,
+      spawn_branch: launch.branch,
+      spawn_worktree_path: launch.worktree_path,
+      spawn_worktree_created: launch.worktree_created,
+      queued: false,
+      queue_position: null,
+    };
+  }
+
+  /**
+   * キュー待ちだった run を起動する (DelegationQueue から呼ばれる)。 payload から
+   * 起動入力を復元し、 invoke 時と同じ launch を通してから run に結果を焼き戻す。
+   */
+  async spawnQueuedRun(run: DelegationRunRow): Promise<void> {
+    if (!run.queue_payload_json) {
+      this.deps.repo.markRunSpawned(run.id, {
+        status: "spawn_failed", spawn_pid: null, spawn_command: null,
+        error: "queue payload missing (起動入力が失われているため再実行できません)",
+      });
+      return;
+    }
+    let payload: QueuePayload;
+    try {
+      payload = JSON.parse(run.queue_payload_json) as QueuePayload;
+    } catch (e) {
+      this.deps.repo.markRunSpawned(run.id, {
+        status: "spawn_failed", spawn_pid: null, spawn_command: null,
+        error: `queue payload broken: ${(e as Error).message}`,
+      });
+      return;
+    }
+    const launch = await this.launch(run.id, payload.def, payload.input, run.rendered_prompt, true);
+    if (!launch.ok) {
+      this.deps.repo.markRunSpawned(run.id, {
+        status: "spawn_failed", spawn_pid: null, spawn_command: null, error: launch.error,
+      });
+      return;
+    }
+    this.deps.repo.markRunSpawned(run.id, {
+      status: launch.status,
+      spawn_pid: launch.spawn_pid,
+      spawn_command: launch.spawn_command,
+      error: launch.error_message,
+    });
+  }
+
+  /**
+   * 起動の副作用一式: cwd/branch/worktree 解決 → model 解決 → prompt file 書き出し →
+   * spawn。 invoke 直起動と キュー払い出し の両方がここを通る (spawn=false なら
+   * prompt file までで止める)。
+   *
+   * ok:false = run 行を作る前の失敗 (worktree 準備 / prompt file 書き出し)。
+   * ok:true + status='spawn_failed' = spawn 自体の失敗 (run 行に残す)。
+   */
+  private async launch(
+    runId: string,
+    def: DelegationDefinition,
+    input: InvokeInput,
+    renderedPrompt: string,
+    shouldSpawn: boolean,
+  ): Promise<LaunchResult> {
     const provider = input.overrides?.provider ?? def.target_provider;
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
@@ -271,7 +431,6 @@ export class DelegationService {
       const expanded = substituteVars(def.default_cwd, input.args ?? {}).trim();
       cwd = expanded === "" ? undefined : expanded;
     }
-    const shouldSpawn = input.spawn !== false;
     let spawnBranch: string | null = null;
     let spawnWorktreePath: string | null = null;
     let spawnWorktreeCreated = false;
@@ -324,13 +483,12 @@ export class DelegationService {
       option_keys: Object.keys(effectiveOptions),
     }, "delegation invoke received");
 
-    // 1) write prompt to file (pre-allocate run id so file name == row id)
+    // 1) write prompt to file (run id は invoke 側で確保済み = file 名 == 行 id)
     // 起動セッションは Concordia 協調セッションなので、 文脈説明 + 暫定 persona 全文を
     // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
     const persona = this.deps.personas?.pickForDelegation(this.deps.rng) ?? null;
     const contextBlock = buildDelegationContext(persona, this.deps.concordiaUrl);
     mkdirSync(this.promptsDir, { recursive: true });
-    const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const promptBody = renderPromptFile(
       def,
@@ -415,37 +573,36 @@ export class DelegationService {
       log.info({ run_id: runId, call_name: input.call_name }, "delegation render-only (spawn=false)");
     }
 
-    // 3) record run (pass pre-allocated runId so prompt_file_path matches run.id)
-    const run = this.deps.repo.createRun({
-      id: runId,
-      template_id: def.template_id,
-      call_name: def.call_name,
-      target_provider: provider,
-      parent_session_id: input.parent_session_id ?? null,
-      args: input.args ?? {},
-      rendered_prompt: renderedPrompt,
-      prompt_file_path: promptPath,
-      spawn_pid: spawnPid,
-      spawn_command: spawnCommand,
-      triggered_by: input.triggered_by ?? null,
-      status,
-      error: spawnError,
-    });
-
     return {
       ok: true,
-      run,
-      prompt_file_path: promptPath,
-      rendered_prompt: renderedPrompt,
+      provider,
+      status,
       spawn_pid: spawnPid,
       spawn_command: spawnCommand,
-      spawn_cwd: cwd ?? null,
-      spawn_branch: spawnBranch,
-      spawn_worktree_path: spawnWorktreePath,
-      spawn_worktree_created: spawnWorktreeCreated,
+      error_message: spawnError,
+      cwd: cwd ?? null,
+      branch: spawnBranch,
+      worktree_path: spawnWorktreePath,
+      worktree_created: spawnWorktreeCreated,
     };
   }
 }
+
+/** launch (副作用フェーズ) の結果。 ok:false は run 行を作る前に落ちたケース。 */
+type LaunchResult =
+  | {
+      ok: true;
+      provider: DelegationProvider;
+      status: DelegationRunRow["status"];
+      spawn_pid: number | null;
+      spawn_command: string[] | null;
+      error_message: string | null;
+      cwd: string | null;
+      branch: string | null;
+      worktree_path: string | null;
+      worktree_created: boolean;
+    }
+  | { ok: false; error: string };
 
 function renderPromptFile(
   def: DelegationDefinition,

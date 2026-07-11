@@ -48,6 +48,7 @@ describe("AdminState", () => {
       lictor_dev_path: "",
       lictor_prod_exe: "",
       daily_token_budget: 0,
+      delegation_max_concurrency: 4,
     });
   });
 

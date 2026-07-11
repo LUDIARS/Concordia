@@ -42,6 +42,7 @@ import { tasksRouter } from "./tasks.js";
 import { delegationRouter } from "./delegation.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
+import type { DelegationQueue } from "../delegation/queue.js";
 import { substituteVars } from "../delegation/service.js";
 import { recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./model-catalog.js";
@@ -103,6 +104,8 @@ export interface CoreDeps {
   participants: ParticipantsRepo;
   delegation: DelegationRepo;
   delegationService: DelegationService;
+  /** delegation 実行キュー (同時実行上限 + 待ち行列)。 未注入なら /v1/delegation/queue は 503。 */
+  delegationQueue?: DelegationQueue;
   modelCatalog: ModelCatalogRepo;
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
@@ -174,7 +177,21 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
-  app.route("/v1/delegation", delegationRouter({ repo: deps.delegation, service: deps.delegationService, sessions: deps.repo }));
+  app.route("/v1/delegation", delegationRouter({
+    repo: deps.delegation,
+    service: deps.delegationService,
+    sessions: deps.repo,
+    queue: deps.delegationQueue
+      ? {
+          maxConcurrency: () => deps.delegationQueue!.maxConcurrency(),
+          activeCount: () => deps.delegationQueue!.activeCount(),
+          queuedCount: () => deps.delegationQueue!.queuedCount(),
+          position: (runId) => deps.delegationQueue!.position(runId),
+          drain: () => deps.delegationQueue!.drain(),
+        }
+      : undefined,
+    adminState: deps.adminState,
+  }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
   if (deps.testingClaims) {
     app.route("/v1/testing", testingRouter({ claims: deps.testingClaims, sessions: deps.repo }));

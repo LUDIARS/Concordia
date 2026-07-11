@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 32;
+export const SCHEMA_VERSION = 33;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -581,6 +581,9 @@ const STATEMENTS = [
      ON delegation_runs(created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
      ON delegation_runs(call_name, created_at DESC)`,
+  // 実行キュー: queued を FIFO で拾い、 spawned/running のスロット数を数える経路が使う。
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_status
+     ON delegation_runs(status, created_at)`,
   // NOTE: parent_session_id / child_session_id の index は base schema ではなく
   // applyMigrations で applyColumnAdditions (列追加) の後に作る (delegationCoordinationIndexes)。
   // 既存 DB では CREATE TABLE IF NOT EXISTS が no-op で列が無いため、 base で index を
@@ -1056,6 +1059,21 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   // 作業衝突スコープ: セッションが「実際に扱う個別プロジェクト」を宣言する列。
   // 未宣言なら repo_path、 repo_path がワークスペースルートなら衝突監視対象外 (conflict-scope.ts)。
   { table: "sessions", column: "target_project", ddl: `ALTER TABLE sessions ADD COLUMN target_project TEXT` },
+  // 窓口の種別。 'subsidiary' = 別サーバへ出張する子会社 (専用 Bot を起動)、
+  // 'desk' = 本社 Discord 内に依頼チャンネルを 1 本置くだけの軽量窓口 (Bot を起動しない)。
+  // 既存行はすべて子会社なので DEFAULT 'subsidiary'。 spec/feature/subsidiary-delegation.md §9。
+  {
+    table: "subsidiaries",
+    column: "mode",
+    ddl: `ALTER TABLE subsidiaries ADD COLUMN mode TEXT NOT NULL DEFAULT 'subsidiary'`,
+  },
+  // 実行キュー待ち (status='queued') の run を後から spawn するための入力一式 (JSON)。
+  // spawn 済み run では null。 spec/feature/delegation-coordination.md §6。
+  {
+    table: "delegation_runs",
+    column: "queue_payload_json",
+    ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_payload_json TEXT`,
+  },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

@@ -77,9 +77,32 @@ invoke で **各パラメータをモデル含め上書き可**:
   - 設計判断: 投稿先は対象セッションの session channel。子 (channel を持たない外注) 宛は
     **親の session channel にミラー投稿**する (人間が親スレッド上で協働を追える)。
 
-## 6. 並列タスク
+## 6. 並列タスク / 実行キュー
 
-- §2 の invoke を並列に複数投げるだけ。各 run は §3/§4 で独立追跡。
+- §2 の invoke を並列に複数投げる。各 run は §3/§4 で独立追跡。
+- **同時実行上限 (キュー)**: 無制限に spawn すると Concordia ホストのリソースが枯れるため、
+  同時に走る run の数に上限を設ける (既定 4、 `0` で無制限 = キュー無効)。
+  上限は AdminState (`admin.delegation_max_concurrency`) に永続化し、
+  `GET/PATCH /v1/delegation/queue` で参照・変更する (引き上げ時はその場で払い出す)。
+  - 上限超過の invoke は **spawn せず `status='queued'`** で待つ。 render 済みプロンプトは
+    run 行に持ち、 起動入力一式は `queue_payload_json` に退避する。
+  - **副作用 (worktree 作成 / prompt file 書き出し) は起動時まで遅延**する。 待たせている間に
+    worktree だけ生えている中途半端な状態を作らないため。
+  - 払い出しは **FIFO** (`created_at`、 同一 ms は挿入順)。 契機は ①子の完了報告
+    (`POST /runs/:id/status` が terminal) ②20 秒ごとの定期 drain ③起動時 (再起動を跨いで
+    queued のまま残った run を拾い直す)。
+  - 適用範囲は **全 invoke 経路** (Discord 窓口 / Web UI / 朝スケジューラ / MCP)。
+    `spawn:false` (render のみ) はキューを通らない。
+- **スロットの数え方 (stale 扱い)**: 子が status を報告せずに死ぬと run は `running` のまま
+  残る。 これをそのまま数えるとキューが二度と流れないので、 次の run は active から外す:
+  - 子セッションが紐付いていて、 そのセッションが既に active でない
+  - 紐付いた子セッションが無いまま TTL (既定 6h) を超えた
+
+  外すのは **スロット計上のみ**で、 status は書き換えない。 「本当に失敗したのか報告を
+  怠っただけか」 を Concordia は判別できず、 勝手に `failed` へ倒すと監査ログに嘘が残るため。
+- **run は完了しても消さない**。 `delegation_runs` は purge 対象外 (セッションは `purgeStale`
+  で消えるが、 外注の履歴 = 誰に何をいつ委託したか は残す)。 Web UI は 進行中 / 完了・履歴 を
+  分けて表示する。
 - 任意 (将来): `POST /v1/delegation/invoke-batch { items: [...] }`。
 
 ## 7. 子エージェントへの instruction (persona-context 追記)

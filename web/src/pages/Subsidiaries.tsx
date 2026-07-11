@@ -278,6 +278,7 @@ const EMPTY_FORM: SubsidiaryInput = {
   display_name: "",
   description: "",
   platform: "discord",
+  mode: "subsidiary",
   enabled: false,
   guild_id: "",
   channel_id: "",
@@ -312,6 +313,7 @@ function SubsidiariesSection() {
       display_name: r.subsidiary.display_name,
       description: r.subsidiary.description,
       platform: r.subsidiary.platform,
+      mode: r.subsidiary.mode,
       enabled: r.subsidiary.enabled,
       guild_id: r.subsidiary.guild_id ?? "",
       channel_id: r.subsidiary.channel_id ?? "",
@@ -413,14 +415,15 @@ function SubsidiariesSection() {
       <div className="flex flex-col gap-2 mb-5">
         {subs.map((s) => (
           <div key={s.id} className="border border-border rounded-md p-2 flex items-center gap-3">
-            <span className={`w-2 h-2 rounded-full ${s.running ? "bg-green-400" : "bg-subtle"}`} />
+            <span className={`w-2 h-2 rounded-full ${s.mode === "desk" ? (s.enabled ? "bg-blue-400" : "bg-subtle") : (s.running ? "bg-green-400" : "bg-subtle")}`} />
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium">
                 {s.display_name || s.name} <span className="text-subtle text-xs">/ {s.platform}</span>
+                <span className="ml-2 text-[10px] text-subtle">{s.mode === "desk" ? "本社内窓口" : "子会社"}</span>
                 {!s.enabled && <span className="ml-2 text-[10px] text-subtle">無効</span>}
               </div>
               <div className="text-xs text-subtle truncate">
-                guild={s.guild_id ?? "-"} · 受付={s.channel_id ?? "auto"} · deleg={(s.delegations?.length ?? 0)} · lock={s.lock_count ?? 0}
+                {s.mode === "desk" ? "guild=本社" : `guild=${s.guild_id ?? "-"}`} · 受付={s.channel_id ?? "auto"} · deleg={(s.delegations?.length ?? 0)} · lock={s.lock_count ?? 0}
                 {" · "}
                 <span className={s.budget_blocked ? "text-red-400" : ""}>
                   {s.budget_blocked ? "💸 " : ""}予算 {fmtTokens(s.usage_today_tokens ?? 0)}/{s.daily_token_budget ? fmtTokens(s.daily_token_budget) : "∞"}
@@ -429,10 +432,15 @@ function SubsidiariesSection() {
             </div>
             <div className="flex gap-2 shrink-0 text-xs">
               <button className="underline" onClick={() => openDetail(s.id)}>編集</button>
-              <button className="underline" onClick={() => lifecycle(s.id, s.running ? "restart" : "start")}>
-                {s.running ? "再起動" : "起動"}
-              </button>
-              {s.running && <button className="underline" onClick={() => lifecycle(s.id, "stop")}>停止</button>}
+              {/* desk は専用 Bot を持たない (本社 Bot が受付する) ので起動/停止は出さない。 */}
+              {s.mode !== "desk" && (
+                <>
+                  <button className="underline" onClick={() => lifecycle(s.id, s.running ? "restart" : "start")}>
+                    {s.running ? "再起動" : "起動"}
+                  </button>
+                  {s.running && <button className="underline" onClick={() => lifecycle(s.id, "stop")}>停止</button>}
+                </>
+              )}
             </div>
           </div>
         ))}
@@ -471,8 +479,21 @@ function SubsidiariesSection() {
           <textarea className="foundation-form" rows={2} value={form.guard_scope ?? ""} onChange={(e) => setForm({ ...form, guard_scope: e.target.value })} />
         </div>
         <label className="flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={form.mode === "desk"}
+            onChange={(e) => setForm({ ...form, mode: e.target.checked ? "desk" : "subsidiary" })}
+          />
+          本社内の窓口として作る (専用 Bot を立てず、 本社サーバに「タスク依頼」チャンネルを 1 本作る)
+        </label>
+        <p className="text-[10px] text-subtle -mt-1">
+          子会社が要るか迷うケースはこちら。 ガード・ハーネスルール・ロック・監査・日次予算・所有 delegation は
+          子会社と同じ仕組みが効く。 違いは <b>出張先 guild へ Bot を接続しない</b>ことだけ (guild_id は不要)。
+          反映には本社 Bot の再起動が要る。
+        </p>
+        <label className="flex items-center gap-2 text-xs">
           <input type="checkbox" checked={!!form.enabled} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
-          有効化 (boot 時に Bot を起動)
+          {form.mode === "desk" ? "有効化 (本社 Bot が受付を開く)" : "有効化 (boot 時に Bot を起動)"}
         </label>
 
         {editId && (

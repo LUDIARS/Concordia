@@ -1030,12 +1030,16 @@ export interface SubsidiaryRequest {
   run_id: string | null;
   created_at: number;
 }
+/** subsidiary = 別サーバへ出張 (専用 Bot) / desk = 本社サーバ内の軽量窓口 (Bot 無し)。 */
+export type SubsidiaryMode = "subsidiary" | "desk";
+
 export interface SubsidiarySummary {
   id: string;
   name: string;
   display_name: string;
   description: string;
   platform: "discord" | "slack";
+  mode: SubsidiaryMode;
   enabled: boolean;
   guild_id: string | null;
   application_id: string | null;
@@ -1059,6 +1063,7 @@ export interface SubsidiaryInput {
   display_name?: string;
   description?: string;
   platform?: "discord" | "slack";
+  mode?: SubsidiaryMode;
   enabled?: boolean;
   guild_id?: string | null;
   application_id?: string | null;

@@ -52,10 +52,19 @@ export interface DelegationRunRow {
   spawn_pid: number | null;
   spawn_command: string | null;   // JSON array
   triggered_by: string | null;
-  status: "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
+  /**
+   * queued = 同時実行上限に達していたため spawn を保留した状態 (queue_payload_json に
+   * 起動入力一式を持ち、 スロットが空き次第 FIFO で spawn される)。
+   */
+  status: "queued" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
   error: string | null;
+  /** queued の間だけ入る起動入力 (JSON)。 spawn 後は null に落とす。 */
+  queue_payload_json: string | null;
   created_at: number;
 }
+
+/** spawn 中/実行中とみなす status (= 同時実行スロットを 1 つ占有する)。 */
+export const DELEGATION_ACTIVE_STATUSES: readonly DelegationRunRow["status"][] = ["spawned", "running"];
 
 export interface InputSchemaItem {
   name: string;
@@ -113,6 +122,16 @@ export interface CreateRunInput {
   spawn_command: string[] | null;
   triggered_by: string | null;
   status: DelegationRunRow["status"];
+  error?: string | null;
+  /** status='queued' で作るときの起動入力 (JSON)。 */
+  queue_payload_json?: string | null;
+}
+
+/** spawn 試行後に run へ焼き戻す結果 (キュー払い出し時も同じ形)。 */
+export interface RunSpawnOutcome {
+  status: DelegationRunRow["status"];
+  spawn_pid: number | null;
+  spawn_command: string[] | null;
   error?: string | null;
 }
 
@@ -252,8 +271,8 @@ export class DelegationRepo {
       INSERT INTO delegation_runs(
         id, template_id, call_name, target_provider, parent_session_id, child_session_id, args_json,
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
-        triggered_by, status, error, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        triggered_by, status, error, queue_payload_json, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -269,9 +288,55 @@ export class DelegationRepo {
       input.triggered_by,
       input.status,
       input.error ?? null,
+      input.queue_payload_json ?? null,
       now,
     );
     return this.findRun(id)!;
+  }
+
+  // ── 実行キュー ────────────────────────────────────────────
+
+  /**
+   * 待機中 (queued) の run を投入順 (FIFO) に返す。 created_at は ms なので同一 ms に
+   * 複数投入されうる (キューが効くのは高負荷時 = まさに同時投入時) 。 その並びが UUID 順に
+   * なって追い越しが起きないよう、 同時刻は挿入順 (rowid) で解く。
+   */
+  listQueuedRuns(limit = 200): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs WHERE status = 'queued' ORDER BY created_at ASC, rowid ASC LIMIT ?`,
+    ).all(limit) as DelegationRunRow[];
+  }
+
+  /** spawn 済み / 実行中の run (= 同時実行スロットの候補)。 stale 判定は呼び出し側 (queue.ts)。 */
+  listActiveRuns(): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs WHERE status IN ('spawned', 'running') ORDER BY created_at ASC`,
+    ).all() as DelegationRunRow[];
+  }
+
+  /**
+   * queued run の spawn 試行結果を焼き戻す。 payload は spawn 後に用済みなので落とす
+   * (spawn_failed も再試行しないので落とす — 再実行は新しい run として起こす)。
+   */
+  markRunSpawned(runId: string, outcome: RunSpawnOutcome): DelegationRunRow | null {
+    const row = this.findRun(runId);
+    if (!row) return null;
+    this.db.prepare(`
+      UPDATE delegation_runs
+         SET status = ?,
+             spawn_pid = ?,
+             spawn_command = ?,
+             error = ?,
+             queue_payload_json = NULL
+       WHERE id = ?
+    `).run(
+      outcome.status,
+      outcome.spawn_pid,
+      outcome.spawn_command ? JSON.stringify(outcome.spawn_command) : null,
+      outcome.error ?? null,
+      runId,
+    );
+    return this.findRun(runId);
   }
 
   findRun(id: string): DelegationRunRow | null {

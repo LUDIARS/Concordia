@@ -11,7 +11,7 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
-import { ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } from "./config.js";
+import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
@@ -136,6 +136,23 @@ export interface DiscordBotDeps {
     /** 当該ユーザがロック済みか。 */
     isLocked: (userId: string) => boolean;
   };
+  /**
+   * 本社内の軽量窓口 (desk)。 子会社と違い **本社 Bot にそのまま相乗り**する:
+   * scope / 可視範囲 / レイアウトは本社のままで、 「タスク依頼」チャンネルを 1 本作り、
+   * そこへの投稿だけを子会社と同じガードゲートに通す。 Bot は新たに接続しない。
+   * spec/feature/subsidiary-delegation.md §9。
+   */
+  desk?: {
+    id: string;
+    /** 依頼チャンネル名 (既定「タスク依頼」)。 */
+    channelName: string;
+    /** 手動指定の channel_id (あれば自動作成せずこれを使う)。 */
+    channelId: string | null;
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    isLocked: (userId: string) => boolean;
+    /** 自動作成で解決した channel id を永続化するための通知。 */
+    onChannelResolved?: (channelId: string) => void;
+  };
 }
 
 export type DiscordBotHandle = ChatPlatform;
@@ -167,6 +184,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
   let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;
+  // 本社内 desk の依頼チャンネル。 子会社の受付と同じく手動 id 優先 → 無ければ ClientReady で自動作成。
+  let deskChannelId: string | null = deps.desk?.channelId ?? null;
 
   const client = new Client({
     intents: [
@@ -312,6 +331,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           }
         } catch (e) {
           log.warn(`subsidiary intake channel ensure failed guild=${guild.id}: ${(e as Error).message}`);
+        }
+      }
+      // 本社内 desk: 「タスク依頼」チャンネルを本社 guild に自動作成する。
+      if (deps.desk) {
+        try {
+          if (!deskChannelId) {
+            deskChannelId = await ensureDeskChannel(
+              guild, configRepo, deps.desk.id, deps.desk.channelName, layout.metaCategoryId,
+            );
+            deps.desk.onChannelResolved?.(deskChannelId);
+            log.info(`desk channel ensured id=${deskChannelId} name=${deps.desk.channelName} guild=${guild.id}`);
+          }
+        } catch (e) {
+          log.warn(`desk channel ensure failed guild=${guild.id}: ${(e as Error).message}`);
         }
       }
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
@@ -583,15 +616,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       messageMap,
       workflow: reactionWorkflow,
       resolveReactionMappings: deps.resolveReactionMappings,
-      // 子会社モード: intake チャンネルの依頼をガードゲートに通し、 ロック済みユーザを遮断する。
-      subsidiary: deps.subsidiary
-        ? {
-            // 自動作成 (or 手動 override) で解決した受付チャンネル id を使う。
-            intakeChannelId: subsidiaryIntakeChannelId,
-            process: deps.subsidiary.process,
-            isLocked: deps.subsidiary.isLocked,
-          }
-        : undefined,
+      // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
+      // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
+      // (子会社 Bot に desk は配線されない)。
+      intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
@@ -1002,6 +1030,32 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
 }
 
+
+/**
+ * この Bot が見張る依頼窓口 (ingress の intake) を解決する。 子会社 Bot は自分の受付
+ * チャンネル、 本社 Bot は desk のタスク依頼チャンネル。 どちらも無ければ窓口なし。
+ */
+function resolveIntake(
+  deps: DiscordBotDeps,
+  subsidiaryIntakeChannelId: string | null,
+  deskChannelId: string | null,
+): { intakeChannelId: string | null; process: (u: string, l: string, i: string) => Promise<{ replyText: string }>; isLocked: (u: string) => boolean } | undefined {
+  if (deps.subsidiary) {
+    return {
+      intakeChannelId: subsidiaryIntakeChannelId,
+      process: deps.subsidiary.process,
+      isLocked: deps.subsidiary.isLocked,
+    };
+  }
+  if (deps.desk) {
+    return {
+      intakeChannelId: deskChannelId,
+      process: deps.desk.process,
+      isLocked: deps.desk.isLocked,
+    };
+  }
+  return undefined;
+}
 
 /** session-scoped イベントの対象 session id を返す (subsidiary-only 可視のゲート用)。 非該当は null。 */
 function eventSessionId(ev: ConcordiaEvent): string | null {

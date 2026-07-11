@@ -70,7 +70,7 @@ export interface SubsidiaryManagerDeps {
 
 export interface SubsidiaryStartResult {
   ok: boolean;
-  status: "started" | "already_running" | "disabled" | "unsupported_platform" | "missing_config" | "error";
+  status: "started" | "already_running" | "disabled" | "unsupported_platform" | "missing_config" | "no_bot" | "error";
   error?: string;
 }
 
@@ -79,12 +79,49 @@ export class SubsidiaryBotManager {
 
   constructor(private readonly deps: SubsidiaryManagerDeps) {}
 
+  /**
+   * 依頼 1 件をガード→記録→delegation まで通す処理系を作る (窓口の種別に依らず共通)。
+   * 子会社 Bot は自分の start() で、 本社内 desk は本社 Bot の配線 (bootstrap) から使う。
+   */
+  processorFor(id: string): {
+    process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
+    isLocked: (userId: string) => boolean;
+  } {
+    const process = async (userId: string, userLabel: string, instruction: string): Promise<{ replyText: string }> => {
+      const row = this.deps.subsidiaryRepo.find(id);
+      if (!row) return { replyText: "⚠️ 窓口の設定が見つかりません。" };
+      const result = await processSubsidiaryRequest(
+        {
+          subsidiaryRepo: this.deps.subsidiaryRepo,
+          harnessRepo: this.deps.harnessRepo,
+          delegationRepo: this.deps.delegationRepo,
+          delegationService: this.deps.delegationService,
+          runClaude: this.deps.runClaude,
+          budget: this.deps.budgetTracker,
+          log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
+        },
+        { subsidiary: row, platform: "discord", userId, userLabel, instruction },
+      );
+      return { replyText: result.replyText };
+    };
+    return {
+      process,
+      isLocked: (userId: string) => this.deps.subsidiaryRepo.isLocked(id, "discord", userId),
+    };
+  }
+
   /** 単一の子会社 Bot を起動する。 既に動いていれば already_running。 */
   async start(id: string): Promise<SubsidiaryStartResult> {
     if (this.handles.has(id)) return { ok: true, status: "already_running" };
     const sub = this.deps.subsidiaryRepo.find(id);
     if (!sub) return { ok: false, status: "error", error: "subsidiary not found" };
     if (!sub.enabled) return { ok: true, status: "disabled" };
+
+    // 本社内 desk は専用 Bot を持たない (本社 Bot が受付チャンネルを見る)。 起動要求は
+    // 無言で成功扱いにせず、 「Bot は無い」 と明示して返す (無言フォールバック禁止)。
+    if (sub.mode === "desk") {
+      return { ok: false, status: "no_bot", error: "本社内窓口 (desk) は専用 Bot を持ちません (本社 Bot が受付します)" };
+    }
 
     if (sub.platform !== "discord") {
       // Slack 子会社は Discord と同型 (per-channel 疑似カテゴリ) で計画中。 現状は明示的に
@@ -116,23 +153,7 @@ export class SubsidiaryBotManager {
       };
     };
 
-    const process = async (userId: string, userLabel: string, instruction: string): Promise<{ replyText: string }> => {
-      const row = this.deps.subsidiaryRepo.find(id);
-      if (!row) return { replyText: "⚠️ 子会社設定が見つかりません。" };
-      const result = await processSubsidiaryRequest(
-        {
-          subsidiaryRepo: this.deps.subsidiaryRepo,
-          harnessRepo: this.deps.harnessRepo,
-          delegationRepo: this.deps.delegationRepo,
-          delegationService: this.deps.delegationService,
-          runClaude: this.deps.runClaude,
-          budget: this.deps.budgetTracker,
-          log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
-        },
-        { subsidiary: row, platform: "discord", userId, userLabel, instruction },
-      );
-      return { replyText: result.replyText };
-    };
+    const processor = this.processorFor(id);
 
     const deps: BaseDiscordDeps & SubsidiaryBotStartDeps = {
       ...this.deps.baseDiscordDeps(),
@@ -140,8 +161,8 @@ export class SubsidiaryBotManager {
       subsidiary: {
         id: sub.id,
         intakeChannelId: sub.channel_id,
-        process,
-        isLocked: (userId: string) => this.deps.subsidiaryRepo.isLocked(id, "discord", userId),
+        process: processor.process,
+        isLocked: processor.isLocked,
       },
     };
 
@@ -176,7 +197,8 @@ export class SubsidiaryBotManager {
 
   /** enabled な全子会社 Bot を起動 (boot 時)。 失敗は warn してスキップ (他は止めない)。 */
   async startAll(): Promise<void> {
-    for (const sub of this.deps.subsidiaryRepo.listEnabled()) {
+    // desk (本社内窓口) は Bot を持たないので対象外。
+    for (const sub of this.deps.subsidiaryRepo.listEnabledBots()) {
       const r = await this.start(sub.id);
       if (!r.ok) log.warn(`subsidiary ${sub.name} start skipped: ${r.status} ${r.error ?? ""}`);
     }

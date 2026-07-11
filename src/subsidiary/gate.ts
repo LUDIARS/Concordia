@@ -46,6 +46,10 @@ export interface GateResult {
   verdict?: GuardVerdict;
   runId?: string | null;
   callName?: string | null;
+  /** allow だが同時実行上限で待ち行列に入った (まだ起動していない)。 */
+  queued?: boolean;
+  /** queued のときの待ち順 (1 始まり)。 */
+  queuePosition?: number | null;
   /** 出張先へ返す日本語文面。 */
   replyText: string;
 }
@@ -221,9 +225,19 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     instruction, decision: "allow", reason: verdict.reason, violations: verdict.violations,
     matched_call_name: callName, run_id: result.run.id, guard_model: sub.guard_model, guard_raw: raw,
   });
-  log?.info(`subsidiary gate: allow user=${userId} sub=${sub.name} call=${callName} run=${result.run.id}`);
+  log?.info(
+    `subsidiary gate: allow user=${userId} sub=${sub.name} call=${callName} run=${result.run.id} ` +
+    `queued=${result.queued ? 1 : 0}`,
+  );
+  // 同時実行上限に達していれば spawn されず待ち行列に入る。 「起動します」 と答えると
+  // 実際には動いていないのに動いた事になるので、 待ち状態はそのまま伝える。
+  const replyText = result.queued
+    ? `🕒 承認しました (${callName})。 同時実行の上限に達しているため、 順番待ちに入れました` +
+      `${result.queue_position ? ` (${result.queue_position} 番目)` : ""}。 空き次第 自動で起動します。`
+    : `✅ 承認しました (${callName})。 作業セッションを起動します。`;
   return {
     outcome: "allowed", reason: verdict.reason, verdict, callName, runId: result.run.id,
-    replyText: `✅ 承認しました (${callName})。 作業セッションを起動します。`,
+    queued: result.queued, queuePosition: result.queue_position,
+    replyText,
   };
 }

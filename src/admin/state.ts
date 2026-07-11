@@ -37,6 +37,10 @@ const KEY_LICTOR_MODE = "admin.lictor_mode";
 const KEY_LICTOR_DEV_PATH = "admin.lictor_dev_path";
 const KEY_LICTOR_PROD_EXE = "admin.lictor_prod_exe";
 const KEY_DAILY_TOKEN_BUDGET = "admin.daily_token_budget";
+const KEY_DELEGATION_MAX_CONCURRENCY = "admin.delegation_max_concurrency";
+
+/** delegation 同時実行上限の既定値 (delegation/queue.ts の DEFAULT_MAX_CONCURRENCY と対)。 */
+const DEFAULT_DELEGATION_MAX_CONCURRENCY = 4;
 
 /** Lictor 起動モード。 auto = 従来どおり PATH 上の `lictor` を起動。 */
 export type LictorMode = "auto" | "dev" | "prod";
@@ -240,6 +244,26 @@ export class AdminState {
     this.setRaw(KEY_DAILY_TOKEN_BUDGET, String(Math.max(0, Math.floor(value))));
   }
 
+  // ── delegation 実行キュー ─────────────────────────────────────────────
+
+  /**
+   * delegation の同時実行上限 (0 = 無制限 = キュー無効)。 未設定なら既定 4。
+   * 超過分の invoke は spawn されず status='queued' で待つ (delegation/queue.ts)。
+   */
+  getDelegationMaxConcurrency(): number {
+    const raw = this.getRaw(KEY_DELEGATION_MAX_CONCURRENCY);
+    if (raw === null) return DEFAULT_DELEGATION_MAX_CONCURRENCY;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  }
+
+  setDelegationMaxConcurrency(value: number): void {
+    if (!Number.isFinite(value)) {
+      throw new Error("delegation_max_concurrency must be a finite number");
+    }
+    this.setRaw(KEY_DELEGATION_MAX_CONCURRENCY, String(Math.max(0, Math.floor(value))));
+  }
+
   snapshot(): {
     chat_muted: boolean;
     rules_enabled: boolean;
@@ -253,6 +277,7 @@ export class AdminState {
     lictor_dev_path: string;
     lictor_prod_exe: string;
     daily_token_budget: number;
+    delegation_max_concurrency: number;
   } {
     return {
       chat_muted: this.getChatMuted(),
@@ -267,6 +292,7 @@ export class AdminState {
       lictor_dev_path: this.getLictorDevPath(),
       lictor_prod_exe: this.getLictorProdExe(),
       daily_token_budget: this.getDailyTokenBudget(),
+      delegation_max_concurrency: this.getDelegationMaxConcurrency(),
     };
   }
 

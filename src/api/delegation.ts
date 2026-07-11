@@ -126,7 +126,25 @@ export interface DelegationApiDeps {
   repo: DelegationRepo;
   service: DelegationService;
   sessions?: SessionsRepo;
+  /** 実行キュー (未注入ならキュー機能は生えない)。 */
+  queue?: {
+    maxConcurrency: () => number;
+    activeCount: () => number;
+    queuedCount: () => number;
+    position: (runId: string) => number | null;
+    drain: () => Promise<void>;
+  };
+  /** 同時実行上限の永続化先 (AdminState)。 */
+  adminState?: {
+    getDelegationMaxConcurrency: () => number;
+    setDelegationMaxConcurrency: (value: number) => void;
+  };
 }
+
+const QueueSettingsSchema = z.object({
+  /** 0 = 無制限 (キュー無効)。 */
+  max_concurrency: z.number().int().min(0).max(64),
+});
 
 export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
@@ -170,6 +188,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       ...row,
       args,
       spawn_command: row.spawn_command ? safeJsonParse(row.spawn_command, []) : null,
+      // queued の待ち順 (1 始まり)。 それ以外は null。 起動入力 (payload) は内部専用なので返さない。
+      queue_position: row.status === "queued" ? (deps.queue?.position(row.id) ?? null) : null,
+      queue_payload_json: undefined,
       sessions: linkedSessions.map(serializeLinkedSession),
     };
   }
@@ -213,6 +234,31 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
         return serializeRun(row, linkedSessionsForRun(row, args, sessions));
       }),
+    });
+  });
+
+  // 実行キューの状態と同時実行上限。 上限は 0 で無制限 (キュー無効)。
+  app.get("/queue", (c) => {
+    if (!deps.queue) return c.json({ error: "queue_not_configured" }, 503);
+    return c.json({
+      max_concurrency: deps.queue.maxConcurrency(),
+      active: deps.queue.activeCount(),
+      queued: deps.queue.queuedCount(),
+    });
+  });
+
+  app.patch("/queue", async (c) => {
+    if (!deps.queue || !deps.adminState) return c.json({ error: "queue_not_configured" }, 503);
+    const body = await c.req.json().catch(() => null);
+    const parsed = QueueSettingsSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", details: parsed.error.issues }, 400);
+    deps.adminState.setDelegationMaxConcurrency(parsed.data.max_concurrency);
+    // 上限を引き上げた/外した直後に待ち行列が動くよう、 その場で払い出す。
+    await deps.queue.drain();
+    return c.json({
+      max_concurrency: deps.queue.maxConcurrency(),
+      active: deps.queue.activeCount(),
+      queued: deps.queue.queuedCount(),
     });
   });
 
@@ -368,6 +414,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         text,
         ts: nowSec(),
       });
+    }
+    // 終了報告でスロットが 1 つ空く → 待たせている run を即起動する (定期 drain を待たない)。
+    if (updated.status === "completed" || updated.status === "failed") {
+      void deps.queue?.drain();
     }
     return c.json({ ok: true, run: serializeRun(updated) });
   });

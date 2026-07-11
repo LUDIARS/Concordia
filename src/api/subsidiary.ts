@@ -24,6 +24,9 @@ const CreateSchema = z.object({
   display_name: z.string().max(120).optional(),
   description: z.string().max(2000).optional(),
   platform: z.enum(["discord", "slack"]).optional(),
+  // subsidiary = 別サーバへ出張する子会社 (専用 Bot を起動) / desk = 本社サーバ内の
+  // 軽量窓口 (Bot を起動せず、 本社 Bot が「タスク依頼」チャンネルを受け付ける)。
+  mode: z.enum(["subsidiary", "desk"]).optional(),
   enabled: z.boolean().optional(),
   guild_id: z.string().max(64).nullable().optional(),
   application_id: z.string().max(64).nullable().optional(),

@@ -60,10 +60,19 @@ interface RunRow {
   spawn_pid: number | null;
   spawn_command: string[] | null;
   triggered_by: string | null;
-  status: "pending" | "spawned" | "spawn_failed";
+  status: "queued" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
   error: string | null;
+  /** queued の待ち順 (1 始まり)。 それ以外は null。 */
+  queue_position: number | null;
   created_at: number;
   sessions?: SessionRow[];
+}
+
+/** 実行キューの状態 (GET /v1/delegation/queue)。 */
+interface QueueState {
+  max_concurrency: number;
+  active: number;
+  queued: number;
 }
 
 interface FormState {
@@ -124,6 +133,62 @@ function firstLine(text: string | null): string | null {
   return text.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? null;
 }
 
+/** 外注 1 件のカード (進行中 / 完了履歴 で同じ見た目を使う)。 */
+function OutsourcedRunCard({ run: r }: { run: RunRow }) {
+  const target = runTarget(r);
+  const linkedSessions = r.sessions ?? [];
+  return (
+    <article className="border border-border rounded bg-surface p-3">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.call_name}</code>
+            <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.status}</code>
+            <span className="text-xs text-subtle">{fmtDelegationTs(r.created_at)}</span>
+          </div>
+          <div className="text-sm break-words">{runSummary(r)}</div>
+          {target && <div className="text-xs text-subtle break-all">{target}</div>}
+          {r.error && <div className="text-xs text-red-400 break-words">{r.error}</div>}
+        </div>
+        <div className="text-xs text-subtle lg:text-right shrink-0">
+          <div>pid {r.spawn_pid ?? "-"}</div>
+          <div>{r.triggered_by ?? "-"}</div>
+        </div>
+      </div>
+      <div className="mt-2 text-xs font-mono text-subtle break-all">{r.prompt_file_path}</div>
+      {linkedSessions.length > 0 ? (
+        <div className="mt-3 border-t border-border divide-y divide-border">
+          {linkedSessions.map((s) => (
+            <div key={s.id} className="py-2 grid gap-1 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    to={`/sessions/${encodeURIComponent(s.id)}`}
+                    className="font-mono text-xs text-accent hover:underline break-all"
+                  >
+                    {s.id}
+                  </Link>
+                  <span className={`px-1.5 py-0.5 rounded text-xs ${statusBadge(s.status)}`}>{s.status}</span>
+                  <span className="text-xs text-subtle">{s.provider}</span>
+                  <span className="text-xs text-subtle">{formatDuration(s)}</span>
+                </div>
+                <div className="text-xs text-subtle break-all">{s.repo_path}</div>
+                {s.current_task && <div className="text-xs break-words mt-1">{s.current_task}</div>}
+              </div>
+              <div className="text-xs text-subtle md:text-right">
+                <div>{s.branch ?? "-"}</div>
+                <div>{fmtDelegationTs(s.started_at)}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-3 border-t border-border pt-2 text-xs text-subtle">紐付いた Cc session はありません</div>
+      )}
+    </article>
+  );
+}
+
 function runSummary(r: RunRow): string {
   return (
     firstLine(stringArg(r.args, "context_extra")) ??
@@ -167,19 +232,37 @@ export function Delegation() {
   const [invokeResult, setInvokeResult] = useState<unknown>(null);
   // 可搬 JSON の貼付欄 (null = 非表示)。
   const [importText, setImportText] = useState<string | null>(null);
+  // 実行キュー (同時実行上限 + 待ち行列)。
+  const [queue, setQueue] = useState<QueueState | null>(null);
+  const [queueLimitDraft, setQueueLimitDraft] = useState("");
 
   async function refresh() {
     try {
       const path = includeInactive ? "/v1/delegation/templates/all" : "/v1/delegation/templates";
       const t = await getJson<{ templates: Template[] }>(path);
       setTemplates(t.templates);
-      const r = await getJson<{ runs: RunRow[] }>("/v1/delegation/runs?limit=50");
+      // 外注は完了しても残す方針なので、 履歴が直近 50 件で切れないよう多めに取る。
+      const r = await getJson<{ runs: RunRow[] }>("/v1/delegation/runs?limit=200");
       setRuns(r.runs);
       const m = await api.modelCatalogList();
       setModels(m.models);
+      const q = await getJson<QueueState>("/v1/delegation/queue");
+      setQueue(q);
+      setQueueLimitDraft(String(q.max_concurrency));
     } catch (err) {
       setFormError((err as Error).message);
     }
+  }
+
+  /** 同時実行上限を保存する。 引き上げ/解除ならサーバ側が待ち行列をその場で流す。 */
+  async function saveQueueLimit() {
+    const n = Math.max(0, Math.floor(Number(queueLimitDraft) || 0));
+    const res = await mutate("PATCH", "/v1/delegation/queue", { max_concurrency: n });
+    if (!res.ok) {
+      setFormError(`キュー設定の保存に失敗: ${res.status} ${res.statusText}`);
+      return;
+    }
+    await refresh();
   }
 
   useEffect(() => { refresh(); }, [includeInactive]);
@@ -437,6 +520,15 @@ export function Delegation() {
   }
 
   const outsourcedRuns = runs.filter((r) => r.spawn_pid !== null || (r.sessions?.length ?? 0) > 0);
+  // まだ spawn されていない待ち行列 (上の外注一覧には spawn_pid が無いので出てこない)。
+  const queuedRuns = runs
+    .filter((r) => r.status === "queued")
+    .sort((a, b) => (a.queue_position ?? 0) - (b.queue_position ?? 0));
+  // 外注は「終わっても残す」。 進行中と完了済み (履歴) を分けて、 完了分が新着に押し流されて
+  // 見えなくなるのを防ぐ。 run 行自体は DB から消さない (セッションと違い purge 対象外)。
+  const FINISHED: RunRow["status"][] = ["completed", "failed", "spawn_failed"];
+  const activeOutsourced = outsourcedRuns.filter((r) => !FINISHED.includes(r.status));
+  const finishedOutsourced = outsourcedRuns.filter((r) => FINISHED.includes(r.status));
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -794,64 +886,65 @@ export function Delegation() {
           <h2 className="text-lg font-semibold">外注(作業委託)</h2>
           <span className="text-xs text-subtle">{outsourcedRuns.length} tasks</span>
         </div>
+
+        {/* 実行キュー: 同時実行上限を超えた invoke は起動せず queued で待ち、 空き次第 FIFO で走る。 */}
+        {queue && (
+          <div className="border border-border rounded p-3 flex flex-wrap items-center gap-3 text-sm">
+            <span className="font-medium">実行キュー</span>
+            <span className="text-subtle text-xs">
+              実行中 {queue.active}
+              {queue.max_concurrency > 0 ? ` / ${queue.max_concurrency}` : " / 無制限"}
+              {" · "}待ち {queue.queued}
+            </span>
+            <label className="flex items-center gap-1 text-xs ml-auto">
+              <span className="text-subtle">同時実行上限 (0=無制限)</span>
+              <input
+                className="foundation-form w-20"
+                type="number"
+                min={0}
+                max={64}
+                value={queueLimitDraft}
+                onChange={(e) => setQueueLimitDraft(e.target.value)}
+              />
+              <button className="border border-border rounded px-2 py-1" onClick={saveQueueLimit}>保存</button>
+            </label>
+          </div>
+        )}
+
+        {queuedRuns.length > 0 && (
+          <div className="border border-border rounded p-3 space-y-1">
+            <div className="text-sm font-medium">順番待ち ({queuedRuns.length})</div>
+            {queuedRuns.map((r) => (
+              <div key={r.id} className="text-xs text-subtle flex gap-2">
+                <span className="font-mono">{r.queue_position ?? "-"}.</span>
+                <span className="text-fg">{r.call_name}</span>
+                <span className="truncate">{runSummary(r)}</span>
+                <span className="ml-auto shrink-0">{fmtTs(r.created_at)}</span>
+              </div>
+            ))}
+          </div>
+        )}
         {outsourcedRuns.length === 0 ? (
           <div className="border border-border rounded p-3 text-sm text-subtle">外注タスクはありません</div>
         ) : (
-          <div className="grid gap-2">
-            {outsourcedRuns.map((r) => {
-              const target = runTarget(r);
-              const linkedSessions = r.sessions ?? [];
-              return (
-                <article key={r.id} className="border border-border rounded bg-surface p-3">
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.call_name}</code>
-                        <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.status}</code>
-                        <span className="text-xs text-subtle">{fmtDelegationTs(r.created_at)}</span>
-                      </div>
-                      <div className="text-sm break-words">{runSummary(r)}</div>
-                      {target && <div className="text-xs text-subtle break-all">{target}</div>}
-                    </div>
-                    <div className="text-xs text-subtle lg:text-right shrink-0">
-                      <div>pid {r.spawn_pid ?? "-"}</div>
-                      <div>{r.triggered_by ?? "-"}</div>
-                    </div>
-                  </div>
-                  <div className="mt-2 text-xs font-mono text-subtle break-all">{r.prompt_file_path}</div>
-                  {linkedSessions.length > 0 ? (
-                    <div className="mt-3 border-t border-border divide-y divide-border">
-                      {linkedSessions.map((s) => (
-                        <div key={s.id} className="py-2 grid gap-1 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <Link
-                                to={`/sessions/${encodeURIComponent(s.id)}`}
-                                className="font-mono text-xs text-accent hover:underline break-all"
-                              >
-                                {s.id}
-                              </Link>
-                              <span className={`px-1.5 py-0.5 rounded text-xs ${statusBadge(s.status)}`}>{s.status}</span>
-                              <span className="text-xs text-subtle">{s.provider}</span>
-                              <span className="text-xs text-subtle">{formatDuration(s)}</span>
-                            </div>
-                            <div className="text-xs text-subtle break-all">{s.repo_path}</div>
-                            {s.current_task && <div className="text-xs break-words mt-1">{s.current_task}</div>}
-                          </div>
-                          <div className="text-xs text-subtle md:text-right">
-                            <div>{s.branch ?? "-"}</div>
-                            <div>{fmtDelegationTs(s.started_at)}</div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="mt-3 border-t border-border pt-2 text-xs text-subtle">紐付いた Cc session はありません</div>
-                  )}
-                </article>
-              );
-            })}
-          </div>
+          <>
+            <div className="grid gap-2">
+              {activeOutsourced.map((r) => <OutsourcedRunCard key={r.id} run={r} />)}
+              {activeOutsourced.length === 0 && (
+                <div className="border border-border rounded p-3 text-sm text-subtle">進行中の外注はありません</div>
+              )}
+            </div>
+
+            {/* 完了した外注も残す (run 行は purge されない)。 何を誰にいつ委託したかの履歴。 */}
+            {finishedOutsourced.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-medium text-subtle">完了・履歴 ({finishedOutsourced.length})</div>
+                <div className="grid gap-2 opacity-80">
+                  {finishedOutsourced.map((r) => <OutsourcedRunCard key={r.id} run={r} />)}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </section>
 

@@ -15,6 +15,7 @@ status: planned
 related:
   - tasks/README.md
   - process-isolation-v2.md
+  - p4-structural-hardening-2026-07-13.md
   - ../feature/subsidiary-delegation.md
   - ../feature/delegation.md
   - ../feature/reaction-workflow.md

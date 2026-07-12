@@ -17,7 +17,8 @@ import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
-import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
+import { injectSession } from "../platform/session-inject.js";
+import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { makeSlackSessionThreadsRepo } from "./session-threads-repo.js";
 import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, type SlackEnv } from "./types.js";
@@ -505,16 +506,22 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
       // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
       // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
-      const wfEmoji = slackEmojiTextToUnicode(text);
-      const workflowEmoji = getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.());
+      const reactionRoute = classifyReactionIngress({
+        text,
+        normalize: slackEmojiTextToUnicode,
+        classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
+        isStandaloneEmoji: getRwf().isStandaloneEmoji,
+        isNamedEmoji: (value) => /^:[a-z0-9_+'-]+:$/i.test(value),
+      });
+      const wfEmoji = reactionRoute.kind === "prompt" ? text : reactionRoute.emoji;
       if (
-        (workflowEmoji || getRwf().isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) &&
+        reactionRoute.kind !== "prompt" &&
         (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user))
       ) {
         log.info(`emoji workflow ignored unauthorized user=${event.user ?? "-"}`);
         return;
       }
-      if (workflowEmoji) {
+      if (reactionRoute.kind === "workflow") {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
         let target: WorkflowTargetSnapshot | null = null;
@@ -559,7 +566,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           return;
         }
         // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
-      } else if (getRwf().isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) {
+      } else if (reactionRoute.kind === "unsupported-emoji") {
         // 単発絵文字 (unicode or :name:) だが該当アクション無し → 却下、 プロンプトも通さない
         // (Discord ingress と同じ挙動)。
         log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
@@ -935,29 +942,20 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 // ─── ingress helpers（Concordia HTTP — Discord ingress と同じ宛先）────────────
 
 async function injectToSession(deps: SlackBotDeps, sessionId: string, text: string, source: string, authorLabel?: string): Promise<void> {
-  try {
-    const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ text: text.slice(0, 4000), source, ...(authorLabel ? { author_label: authorLabel } : {}) }),
-    });
-    if (!res.ok) {
-      log.warn(`ingress inject failed status=${res.status} session=${sessionId}`);
-      return;
-    }
-    // Codex は文字列 inject 後に Enter 追送が要る場合がある（Discord ingress と同様）。
-    if (deps.readModel.isCodexSession(sessionId)) {
-      try {
-        await fetch(`${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "slack-enter-fallback" }),
-        });
-      } catch { /* non-fatal */ }
-    }
+  const result = await injectSession({
+    concordiaUrl: deps.concordiaUrl,
+    sessionId,
+    text,
+    source,
+    authorLabel,
+    enterFallbackSource: deps.readModel.isCodexSession(sessionId) ? "slack-enter-fallback" : undefined,
+  });
+  if (result.ok) {
     log.info(`ingress inject ok session=${sessionId}`);
-  } catch (e) {
-    log.warn(`ingress inject network error session=${sessionId}: ${(e as Error).message}`);
+  } else if (result.kind === "http") {
+    log.warn(`ingress inject failed status=${result.status} session=${sessionId}`);
+  } else {
+    log.warn(`ingress inject network error session=${sessionId}: ${result.message}`);
   }
 }
 

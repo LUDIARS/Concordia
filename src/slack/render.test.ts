@@ -150,6 +150,14 @@ describe("extractRelayableFrame", () => {
     const r = extractRelayableFrame("text", { role: "assistant", text: "hello" });
     expect(r).toEqual({ role: "assistant", text: "hello" });
   });
+
+  it("does not relay Codex commentary", () => {
+    expect(extractRelayableFrame("text", {
+      role: "assistant",
+      phase: "commentary",
+      text: "working",
+    })).toBeNull();
+  });
   it("kind=text & role=user は中継しない", () => {
     expect(extractRelayableFrame("text", { role: "user", text: "hi" })).toBeNull();
   });

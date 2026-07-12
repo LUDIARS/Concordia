@@ -5,7 +5,8 @@ import type { DiscordConfigRepo, DiscordMessageMapRepo, DiscordSessionChannelsRe
 import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
-import { ENTER_KEY_TEXT } from "../platform/enter-key.js";
+import { injectSession } from "../platform/session-inject.js";
+import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { maybeSpawnFromReply } from "./reply-spawn.js";
@@ -144,13 +145,18 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
   if (deps.workflow) {
-    if (getRwf().isStandaloneEmoji(text) && !deps.isWorkflowUserAllowed?.(msg.author.id)) {
+    const reactionRoute = classifyReactionIngress({
+      text,
+      classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
+      isStandaloneEmoji: getRwf().isStandaloneEmoji,
+    });
+    if (reactionRoute.kind !== "prompt" && !deps.isWorkflowUserAllowed?.(msg.author.id)) {
       deps.log.info(`ingress: workflow emoji ignored unauthorized user=${msg.author.id}`);
       return;
     }
-    if (getRwf().classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
-      if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
-    } else if (getRwf().isStandaloneEmoji(text)) {
+    if (reactionRoute.kind === "workflow") {
+      if (await tryEmojiWorkflow(deps, msg, reactionRoute.emoji, routeChannelId)) return;
+    } else if (reactionRoute.kind === "unsupported-emoji") {
       deps.log.info(`ingress: standalone emoji "${text.trim()}" has no workflow action → reject (prompt not forwarded)`);
       return;
     }
@@ -179,39 +185,32 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       // Session channel の通常発言は /inject と等価に扱う。
       // author_label を付けて Concordia に participants 登録 + 相手PFミラーの発言者明示に使う。
       const injectAuthor = msg.member?.nickname?.trim() || msg.author.username;
-      const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          text: text.slice(0, 4000),
-          source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}`,
-          author_label: injectAuthor,
-        }),
-      });
-      if (!res.ok) {
-        deps.log.warn(`ingress: inject failed status=${res.status} session=${sessionRow.session_id} channel=${msg.channelId}`);
-        try { await msg.reply({ content: `inject failed (${res.status})`, allowedMentions: { repliedUser: false } }); } catch {}
-        return;
-      }
       const session = deps.sessionsRepo.findSession(sessionRow.session_id);
       const isCodexSession = session?.provider === "codex-cli";
+      const result = await injectSession({
+        concordiaUrl: deps.concordiaUrl,
+        sessionId: sessionRow.session_id,
+        text,
+        source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}`,
+        authorLabel: injectAuthor,
+        enterFallbackSource: isCodexSession ? "discord-enter-fallback" : undefined,
+      });
+      if (!result.ok) {
+        if (result.kind === "http") {
+          deps.log.warn(`ingress: inject failed status=${result.status} session=${sessionRow.session_id} channel=${msg.channelId}`);
+          try { await msg.reply({ content: `inject failed (${result.status})`, allowedMentions: { repliedUser: false } }); } catch {}
+        } else {
+          deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${result.message}`);
+          try { await msg.reply({ content: `network error: ${result.message}`, allowedMentions: { repliedUser: false } }); } catch {}
+        }
+        return;
+      }
       let acceptedReactionApplied = false;
       if (isCodexSession) {
         acceptedReactionApplied = await reactToAcceptedInject(deps, msg, sessionRow.session_id);
       }
       // Codex は環境によって文字列 inject 後に Enter だけ追送しないと確定しない場合がある。
       // Discord session channel 経由の通常投稿では best-effort で改行 inject を追加する。
-      if (isCodexSession) {
-        try {
-          await fetch(`${deps.concordiaUrl}/v1/sessions/${sessionRow.session_id}/inject`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ text: ENTER_KEY_TEXT, source: "discord-enter-fallback" }),
-          });
-        } catch {
-          // Enter fallback failure is non-fatal for main inject path.
-        }
-      }
       // ✅ リアクションは「届いた」時点では付けない。 transcript が動いた
       // (= セッションが実際に読み込んで処理を始めた) タイミングで付けるため、
       // ここでは対象メッセージを保留登録するだけにする (bot の transcript.frame /

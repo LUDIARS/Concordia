@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
+    "@ludiars/aop-metrics": "file:lib/aop-metrics",
     "@ludiars/blackbox": "file:lib/blackbox",
     "@ludiars/memory": "file:lib/memory",
     "@ludiars/vestigium": "file:lib/vestigium",

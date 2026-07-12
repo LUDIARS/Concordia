@@ -68,5 +68,7 @@ bash.exe.stackdump
 review/
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
-/lib/
+/lib/*
+!/lib/aop-metrics/
+!/lib/aop-metrics/**
 /plugins/

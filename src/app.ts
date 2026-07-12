@@ -11,6 +11,7 @@ import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
 import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
+import { installApiInstrumentation } from "./instrumentation.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -20,6 +21,7 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
 
 export function buildApp(deps: AppDeps): Hono {
   const app = new Hono();
+  installApiInstrumentation(app);
   const requestLog = createChildLogger("http");
   const perfLog = createChildLogger("perf");
   const slowRequestMs = readPositiveIntEnv("CONCORDIA_HTTP_SLOW_MS", 60);

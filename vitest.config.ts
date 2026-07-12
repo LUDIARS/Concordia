@@ -1,10 +1,15 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     env: {
       CONCORDIA_DISABLE_CLAUDE: "1",
     },
+    exclude: [
+      ...configDefaults.exclude,
+      "lib/aop-metrics/src/**/*.test.ts",
+      "lib/blackbox/src/**/*.test.ts",
+    ],
     setupFiles: ["./tests/helpers/setup.ts"],
     // 子プロセス fork の worker pool は使わない。 fork worker はクラッシュ時に孤児
     // プロセスとして残り、 better_sqlite3.node 等のファイルロックをリークしうる

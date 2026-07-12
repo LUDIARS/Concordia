@@ -50,6 +50,7 @@ import { parseInjectSource } from "../shared/inject-source.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
+import { instrumentDiscord } from "../instrumentation.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -231,6 +232,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     customMappings: deps.resolveReactionMappings,
     log,
   });
+  const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
+  const measuredHandleReactionAdd = instrumentDiscord("reactionAdd", handleReactionAdd);
+  const measuredHandleReactionRemove = instrumentDiscord("reactionRemove", handleReactionRemove);
+  const measuredDispatchInteraction = instrumentDiscord("dispatchInteraction", dispatchInteraction);
 
   let layout: DiscordConfigSnapshot | null = null;
   let webhooks: WebhookPool | null = null;
@@ -315,7 +320,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     try { client.destroy(); } catch (e) { log.warn(`discord client destroy failed: ${(e as Error).message}`); }
   };
 
-  client.once(Events.ClientReady, async (c) => {
+  client.once(Events.ClientReady, instrumentDiscord("ready", async (c) => {
     log.info(`logged in as ${c.user.tag}`);
     try {
       const guild = await c.guilds.fetch(env.guildId!);
@@ -393,7 +398,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.warn(`cost channel unavailable id=${layout.costChannelId}`);
       }
       // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
-      const refreshMonitor = async () => {
+      const refreshMonitor = instrumentDiscord("monitorRefresh", async () => {
         await guild.channels.fetch();
         layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
         const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
@@ -415,7 +420,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             // 本社モニターのみ本社/子会社別コストを出す (子会社 Bot では出さない)。
           },
         );
-      };
+      });
       const monitorMins = readOptionalIntEnv("CONCORDIA_DISCORD_MONITOR_REFRESH_MIN", 0, 1);
       if (monitorMins > 0) {
         scheduleBackground("monitor channel boot refresh", refreshMonitor, 1000);
@@ -427,7 +432,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info("monitor channel refresh disabled");
       }
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
-      const refreshPrQueue = async () => {
+      const refreshPrQueue = instrumentDiscord("prQueueRefresh", async () => {
         await guild.channels.fetch();
         layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
         const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
@@ -447,7 +452,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
         );
-      };
+      });
       // pr-queue を持たない構成 (子会社) では定期更新ごと skip する。
       const prMins = readOptionalIntEnv("CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN", 0, 1);
       if (layout.prQueueChannelId && prMins > 0) {
@@ -477,7 +482,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const lay = layout;
       const statusSyncConcurrency = readPositiveIntEnv("CONCORDIA_DISCORD_STATUS_SYNC_CONCURRENCY", 2);
       const bootSyncDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_BOOT_SYNC_DELAY_MS", 0, 1000);
-      const runStatusReconcile = async (reason: string): Promise<void> => {
+      const runStatusReconcile = instrumentDiscord("statusReconcile", async (reason: string): Promise<void> => {
         if (reconcileRunning) {
           log.info(`status-card ${reason} reconcile skipped; previous run still active`);
           return;
@@ -508,7 +513,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         } finally {
           reconcileRunning = false;
         }
-      };
+      });
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
       } else {
@@ -526,10 +531,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // カテゴリ 50 チャンネル上限対策: 最終更新が 48h より前のチャンネルを
       // ログ保存してから削除する (sessions/archive カテゴリ、 稼働中は保護)。
       // 起動時に 1 回 + 以降 1 時間ごと。
-      const runStaleSweep = async (): Promise<void> => {
+      const runStaleSweep = instrumentDiscord("staleChannelSweep", async (): Promise<void> => {
         const r = await archiveStaleChannels({ guild, layout: layout!, repo: sessionChannelsRepo, log });
         log.info(`stale-channel sweep: scanned=${r.scanned} archived=${r.archived}`);
-      };
+      });
       const staleBootDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_STALE_BOOT_SWEEP_DELAY_MS", 0, 1000);
       if (staleBootDelayMs > 0) {
         scheduleBackground("stale-channel boot sweep", runStaleSweep, staleBootDelayMs);
@@ -592,9 +597,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log.error(`ready handler failed: ${message}`);
       stopAfterGatewayInstability("ready_handler_failed", message);
     }
-  });
+  }));
 
-  client.on(Events.MessageCreate, (msg) => {
+  client.on(Events.MessageCreate, instrumentDiscord("messageCreate", (msg) => {
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
     if (!inScope(msg.guildId)) return;
@@ -605,7 +610,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       `message observed guild=${msg.guildId ?? "-"} channel=${msg.channelId} author=${msg.author?.id ?? "-"} ` +
       `bot=${msg.author?.bot ? 1 : 0} len=${raw.length} text="${preview}"`,
     );
-    void handleIngressMessage({
+    void measuredHandleIngressMessage({
       configRepo,
       sessionChannelsRepo,
       sessionsRepo: deps.sessionsRepo,
@@ -623,12 +628,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
-  });
+  }));
 
-  client.on(Events.MessageReactionAdd, (reaction, user) => {
+  client.on(Events.MessageReactionAdd, instrumentDiscord("reactionAddEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
-    void handleReactionAdd(
+    void measuredHandleReactionAdd(
       {
         reactionsRepo,
         messageMap,
@@ -643,15 +648,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ).catch((e) => {
       log.warn(`reaction add handler failed: ${(e as Error).message}`);
     });
-  });
-  client.on(Events.MessageReactionRemove, (reaction, user) => {
+  }));
+  client.on(Events.MessageReactionRemove, instrumentDiscord("reactionRemoveEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
-    void handleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
+    void measuredHandleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
       log.warn(`reaction remove handler failed: ${(e as Error).message}`);
     });
-  });
-  client.on(Events.InteractionCreate, (interaction) => {
+  }));
+  client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
     // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
@@ -667,7 +672,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }
       return;
     }
-    void dispatchInteraction(interaction, {
+    void measuredDispatchInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
       sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo,
@@ -684,7 +689,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         `age_ms=${age ?? "-"}: ${(e as Error).message}`,
       );
     });
-  });
+  }));
 
   client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));

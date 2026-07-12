@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 35;
+export const SCHEMA_VERSION = 36;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -529,6 +529,21 @@ const STATEMENTS = [
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   )`,
+
+  // chat-worker v2: core 停止中の副作用 HTTP を at-least-once で再送する durable outbox。
+  // Authorization 等の secret header は保存せず、再送時にプロセス env から再構築する。
+  `CREATE TABLE IF NOT EXISTS chat_mutation_outbox (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    method      TEXT NOT NULL,
+    path        TEXT NOT NULL,
+    body_json   TEXT,
+    attempts    INTEGER NOT NULL DEFAULT 0,
+    last_error  TEXT,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_chat_mutation_outbox_created
+     ON chat_mutation_outbox(created_at, id)`,
 
   // ─── participants (人間入力者の identity レジストリ) ──────────────────────
   // platform handle ↔ 表示名 ↔ canonical 人物 の最小マッピング。発言者明示の

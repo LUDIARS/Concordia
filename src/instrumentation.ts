@@ -72,6 +72,26 @@ export function instrumentDiscord<Fn extends AnyFunction>(target: DiscordMetricT
   return metrics.wrapFunction(DISCORD_TARGETS[target], fn, { kind: "discord" });
 }
 
+export function recordDiscordInteractionAck(result: {
+  acknowledged: boolean;
+  within_3s: boolean;
+  duration_ms: number;
+}): void {
+  if (!ENABLED) return;
+  metrics.record({
+    kind: "discord",
+    target: "discord.interaction.ack",
+    tags: {
+      process_mode: process.env.CONCORDIA_CHAT_PROCESS_ROLE ?? "embedded",
+      acknowledged: result.acknowledged,
+      within_3s: result.within_3s,
+    },
+    durationMs: result.duration_ms,
+    status: result.within_3s ? "ok" : "error",
+    errorName: result.within_3s ? undefined : "InteractionAckDeadline",
+  });
+}
+
 export function instrumentConcordiaFunction<Fn extends AnyFunction>(
   target: string,
   fn: Fn,

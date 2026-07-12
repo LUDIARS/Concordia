@@ -54,7 +54,8 @@ import { WorkingIndicator } from "../platform/working-indicator.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
-import { instrumentDiscord } from "../instrumentation.js";
+import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentation.js";
+import { startInteractionAckProbe } from "./interaction-ack.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -683,6 +684,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   }));
   client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
+    startInteractionAckProbe(interaction, recordDiscordInteractionAck);
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
     // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
     // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を

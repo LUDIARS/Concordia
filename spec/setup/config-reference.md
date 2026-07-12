@@ -190,6 +190,17 @@ MCP サーバ (別プロセス) が読む env:
 
 サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
+Concordia の分離 worker:
+
+| キー | 既定値 | 意味 |
+|------|--------|------|
+| `CONCORDIA_CHAT_MODE` | `embedded` | `worker` で core 内 Discord/Slack を止め、`npm run chat:worker` が SQLite read-model + 非同期 WS events を所有。lease 消失時は embedded mode なら自動復帰。`off` で無効。 |
+| `CONCORDIA_WORKFLOW_MODE` | `embedded` | `worker` で delegation invoke を producer-only SQLite queue にし、`npm run workflow:worker` が消化。lease 消失時は embedded mode なら自動復帰。 |
+| `CONCORDIA_COST_MODE` | `embedded` | `worker` で `npm run cost:worker` が cost sampling を所有。`off` で無効。 |
+
+chat-worker は core 停止中の副作用 HTTP を `chat_mutation_outbox` に保存し、復旧後に
+at-least-once 再送する。認証 token は outbox に保存せず、再送時に env から付与する。
+
 `tools/concordia-hook.mjs`:
 
 | キー | 既定値 | 意味 |

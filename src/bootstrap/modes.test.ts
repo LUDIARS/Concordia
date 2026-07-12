@@ -1,23 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
 import { costEmbeddedEnabled, readCostMode } from "./cost.js";
+import { readWorkflowMode, workflowEmbeddedEnabled } from "./workflow.js";
 
 describe("bootstrap modes", () => {
   it("defaults chat and cost to embedded", () => {
     expect(readChatMode({} as NodeJS.ProcessEnv)).toBe("embedded");
     expect(readCostMode({} as NodeJS.ProcessEnv)).toBe("embedded");
+    expect(readWorkflowMode({} as NodeJS.ProcessEnv)).toBe("embedded");
   });
 
   it("recognizes off and worker modes", () => {
     expect(readChatMode({ CONCORDIA_CHAT_MODE: "off" } as NodeJS.ProcessEnv)).toBe("off");
-    // chat の worker 分離は撤去済み: "worker" は embedded に丸められる。
-    expect(readChatMode({ CONCORDIA_CHAT_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("embedded");
+    expect(readChatMode({ CONCORDIA_CHAT_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("worker");
     expect(readCostMode({ CONCORDIA_COST_MODE: "off" } as NodeJS.ProcessEnv)).toBe("off");
     expect(readCostMode({ CONCORDIA_COST_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("worker");
+    expect(readWorkflowMode({ CONCORDIA_WORKFLOW_MODE: "worker" } as NodeJS.ProcessEnv)).toBe("worker");
   });
 
   it("enables embedded runtimes only in embedded mode", () => {
     expect(chatEmbeddedEnabled({ CONCORDIA_CHAT_MODE: "off" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(chatEmbeddedEnabled({ CONCORDIA_CHAT_MODE: "worker" } as NodeJS.ProcessEnv)).toBe(false);
     expect(costEmbeddedEnabled({ CONCORDIA_COST_MODE: "worker" } as NodeJS.ProcessEnv)).toBe(false);
+    expect(workflowEmbeddedEnabled({ CONCORDIA_WORKFLOW_MODE: "worker" } as NodeJS.ProcessEnv)).toBe(false);
   });
 });

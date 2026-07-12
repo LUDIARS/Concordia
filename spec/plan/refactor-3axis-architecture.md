@@ -283,6 +283,10 @@ sessions.ts / server.ts / app.ts / 両 bot がそれぞれ 400 行未満。
 > 転換した後継計画 [`process-isolation-v2.md`](process-isolation-v2.md) で、
 > 再挑戦の設計条件 (C1〜C5) と数値化された rollback 基準を定義した。
 > Phase 3 の残り (3-2 / 3-3) は以後そちらを正本とする。
+>
+> **実装追記 (2026-07-12)**: 後継計画 S1〜S4 のコード実装を完了。chat-worker v2 は
+> SQLite read-model 直読・非同期 WS event・durable mutation outbox により、v1 の同期往復を
+> 対話経路から除去した。`CONCORDIA_CHAT_MODE=worker` の本番切替は ack 成功率比較後に行う。
 
 1. **cost-worker 切り出し**: `bootstrap/cost.ts` を `src/cost-worker.ts`
    エントリで起動可能に。 JSONL 走査・sampler は worker 内のみ。 コアは

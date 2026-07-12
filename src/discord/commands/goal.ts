@@ -29,6 +29,7 @@ const goalCommand: DiscordCommandSpec = {
   async execute(interaction, deps) {
     const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
     if (!session) return;
+    await interaction.deferReply({ ephemeral: true });
     const mode = interaction.options.getString("mode") ?? undefined;
     const text = interaction.options.getString("text") ?? undefined;
 
@@ -40,10 +41,10 @@ const goalCommand: DiscordCommandSpec = {
         `/v1/sessions/${session.sessionId}/goal`,
       );
       if ("error" in res) {
-        await interaction.reply({ content: `⚠️ 取得失敗: ${res.error}`, ephemeral: true });
+        await interaction.editReply({ content: `⚠️ 取得失敗: ${res.error}` });
         return;
       }
-      await interaction.reply({ content: `🎯 現在のゴール: ${describeGoal(res.goal)}`, ephemeral: true });
+      await interaction.editReply({ content: `🎯 現在のゴール: ${describeGoal(res.goal)}` });
       return;
     }
 
@@ -54,10 +55,10 @@ const goalCommand: DiscordCommandSpec = {
       { mode, text },
     );
     if ("error" in res) {
-      await interaction.reply({ content: `⚠️ 設定失敗: ${res.error}`, ephemeral: true });
+      await interaction.editReply({ content: `⚠️ 設定失敗: ${res.error}` });
       return;
     }
-    await interaction.reply({ content: `🎯 ゴールを設定しました: ${describeGoal(res.goal)}` });
+    await interaction.editReply({ content: `🎯 ゴールを設定しました: ${describeGoal(res.goal)}` });
   },
 };
 

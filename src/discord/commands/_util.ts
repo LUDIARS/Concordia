@@ -27,7 +27,8 @@ export async function callConcordia<T>(
 ): Promise<T | { error: string }> {
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (token) headers.authorization = `Bearer ${token}`;
+    const effectiveToken = token ?? process.env.CONCORDIA_ADMIN_TOKEN;
+    if (effectiveToken) headers.authorization = `Bearer ${effectiveToken}`;
     const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,

@@ -42,6 +42,8 @@ export interface DelegationQueueDeps {
   spawnQueued: (run: DelegationRunRow) => Promise<void>;
   staleMs?: number;
   now?: () => number;
+  /** Producer process uses this to persist every invocation for a separate worker. */
+  producerOnly?: () => boolean;
 }
 
 export class DelegationQueue {
@@ -65,7 +67,7 @@ export class DelegationQueue {
 
   /** 上限が 0 (無制限) ならキューは働かない。 */
   enabled(): boolean {
-    return this.maxConcurrency() > 0;
+    return this.deps.producerOnly?.() === true || this.maxConcurrency() > 0;
   }
 
   /** スロットを占有している run (stale を除く)。 */
@@ -80,6 +82,7 @@ export class DelegationQueue {
 
   /** 今すぐ spawn してよいか (= 空きスロットがあるか)。 */
   hasCapacity(): boolean {
+    if (this.deps.producerOnly?.()) return false;
     const max = this.maxConcurrency();
     if (max === 0) return true;
     return this.activeCount() < max;
@@ -98,6 +101,7 @@ export class DelegationQueue {
 
   /** 空きスロットの分だけ queued run を FIFO で起動する。 多重呼び出しは 1 本に畳む。 */
   async drain(): Promise<void> {
+    if (this.deps.producerOnly?.()) return;
     if (this.draining) return;
     this.draining = true;
     try {

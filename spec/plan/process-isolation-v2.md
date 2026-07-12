@@ -10,7 +10,7 @@ tags:
   - stability
   - chat-worker
   - task-workflow
-status: draft
+status: active
 related:
   - refactor-3axis-architecture.md
   - ../interface/service-schema.md
@@ -143,6 +143,15 @@ worker と core の接続は次の 3 種のみ許可する:
 | S3 | 計測基盤: interaction ack 成功率の計測を embedded bot に仕込む (C5 の比較基準づくり) | なし | S |
 | S4 | chat-worker v2: C1〜C5 準拠で再分離。`CHAT_MODE=worker` フラグ併用 → 数値判定 | S3、3軸計画 T2-4 (read-model 整備) | L |
 | S5 | event 契約の名前空間分割と版付け (3軸計画 T3-3) — S4 と並走可 | S4 着手 | M |
+
+### 実装進捗 (2026-07-12)
+
+- ✅ S1: 共通 loop bulkhead、`/health.halted_loops`、lag cooldown 通知、WS socket error、gateway restart。
+- ✅ S2: `workflow-worker.ts`。既存 `delegation_runs(status=queued)` を producer/consumer 境界に再利用し、独立 lease + embedded fallback を実装。
+- ✅ S3: Discord interaction の replied/deferred を 3 秒まで観測し、`discord.interaction.ack` metric に `process_mode` / `within_3s` を記録。
+- ✅ S4 実装: `chat-worker.ts` は SQLite read-model を直接保持し、WS は版付き非同期 event のみ。独立 lease、5 分 reconcile、core mutation durable outbox、embedded fallback を実装。
+- ⏳ S4 rollout 判定: 本番相当で embedded/worker の ack 成功率と event-loop lag p99 を比較し、C5 の前進/rollback 判定を行う。実 DB の破壊操作と同様、この切替は人間の最終確認後。
+- ⬜ S5: event 名の namespace 再編は未着手 (wire version `v=1` と zod validation は既存実装を利用)。
 
 - S1 は即着手可。S2 はタスクワークフロー実装と同時に行う (後付けにしない)。
 - **S4 だけが「再挑戦」であり、S3 の計測なしには始めない。**

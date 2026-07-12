@@ -13,6 +13,7 @@ tags:
 status: active
 related:
   - refactor-3axis-architecture.md
+  - p4-structural-hardening-2026-07-13.md
   - ../interface/service-schema.md
 updated: 2026-07-12
 ---

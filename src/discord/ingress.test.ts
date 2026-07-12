@@ -88,6 +88,13 @@ describe("discord ingress chat routing", () => {
     await handleMessage(makeDeps("codex-cli"), msg);
     expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledOnce();
   });
+
+  it("keeps reply-spawn frozen by default", async () => {
+    const deps = makeDeps("claude-code");
+    const msg = makeMessage({ reference: { messageId: "parent" } });
+    await handleMessage(deps, msg);
+    expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("reply-spawn disabled"));
+  });
 });
 
 function stubSuccessfulFetch() {

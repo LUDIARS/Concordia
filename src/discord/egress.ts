@@ -8,7 +8,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
-import { shouldDropForRelay, stripAskMarkerBlocks } from "../platform/egress-filters.js";
+import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 import { buildDelegationMirrorText } from "../delegation/coordination.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
@@ -257,37 +257,19 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
 
-  if (
-    role === "assistant" &&
-    deps.messageOptimizationEnabled === true &&
-    (session.provider !== "codex-cli" || (phase !== null && phase !== "final_answer"))
-  ) {
+  const relayable = extractRelayableTextFrame(ev.kind, ev.payload, {
+    messageOptimizationEnabled: deps.messageOptimizationEnabled,
+    provider: session.provider,
+  });
+  if (!relayable) {
     deps.log.info(
-      `egress: transcript.frame skipped by message optimization ` +
-      `session=${ev.target_session_id} seq=${ev.seq} provider=${session.provider} phase=${phase ?? "null"}`,
+      `egress: transcript.frame dropped by shared relay policy ` +
+      `session=${ev.target_session_id} seq=${ev.seq} role=${role} phase=${phase ?? "null"}`,
     );
     return;
   }
-
-  // Lictor の ask マーカー (```ask + JSON) は質問カードとして別途投稿される。
-  // 生 JSON ブロックを本文から除去し、 残りが空なら frame ごと relay しない。
-  if (role === "assistant") {
-    const stripped = stripAskMarkerBlocks(text);
-    if (stripped !== text) {
-      if (!stripped) {
-        deps.log.info(`egress: transcript.frame dropped ask-marker-only session=${ev.target_session_id} seq=${ev.seq}`);
-        return;
-      }
-      text = stripped;
-    }
-  }
-
-  // text/summary 本文ベースの drop ルール (egress-filters.ts). Codex の
-  // guardian JSON 等、 人間向けでないペイロードを除外する。
-  if (shouldDropForRelay(text)) {
-    deps.log.info(`egress: transcript.frame dropped by content filter session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
-    return;
-  }
+  role = relayable.role;
+  text = relayable.text;
 
   deps.log.info(
     `egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +

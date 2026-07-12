@@ -1,7 +1,7 @@
 // Slack 投稿ペイロードの組み立て + interaction 解析（純粋関数）。
 // 副作用 (Web API 呼び出し) は bot.ts 側。ここはテスト可能なロジックだけ。
 
-import { shouldDropForRelay, stripAskMarkerBlocks } from "../platform/egress-filters.js";
+import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 
 /** Slack section text の実用上限に合わせた truncate（block text は 3000 字制限）。 */
 const MAX_TEXT = 2900;
@@ -193,29 +193,7 @@ export function extractRelayableFrame(
   kind: string,
   payload: unknown,
 ): { role: "assistant" | "summary"; text: string } | null {
-  let role: "assistant" | "summary";
-  let text: string;
-  if (kind === "text") {
-    const p = payload as { role?: string; text?: string } | null | undefined;
-    if (!p || typeof p.text !== "string" || !p.text) return null;
-    if (p.role !== "assistant") return null;
-    role = "assistant";
-    // Lictor の ask マーカー (```ask + JSON) は Slack 側で buildQuestionBlocks が対応するため
-    // 生 JSON ブロックを除去する。ブロックだけなら frame ごと skip。
-    const stripped = stripAskMarkerBlocks(p.text);
-    if (!stripped) return null;
-    text = stripped;
-  } else if (kind === "summary") {
-    const p = payload as { text?: string; summary?: string } | null | undefined;
-    const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
-    if (!candidate) return null;
-    role = "summary";
-    text = candidate;
-  } else {
-    return null;
-  }
-  if (shouldDropForRelay(text)) return null;
-  return { role, text };
+  return extractRelayableTextFrame(kind, payload);
 }
 
 /**

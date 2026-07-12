@@ -42,6 +42,9 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` | lost 判定を早めたい/遅くしたいとき。 |
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` | 放置判定の閾値。 |
 | `CONCORDIA_PURGE_AFTER_DAYS` | `90` | event 保持期間。 |
+| `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` | `90` | transcript frame 保持期間。 |
+| `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `90` | rule log 保持期間。 |
+| `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `90` | session stat 保持期間。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` | 判定周期。 |
 
 ## 手順

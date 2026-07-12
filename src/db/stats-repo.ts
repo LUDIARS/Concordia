@@ -87,7 +87,7 @@ export class StatsRepo {
     return row?.ts ?? null;
   }
 
-  /** ts より古い stat を全削除し、 削除件数を返す (将来の retention 用). */
+  /** ts より古い stat を全削除し、削除件数を返す。 */
   purgeOlderThan(cutoffTs: number): number {
     const r = this.db.prepare(`DELETE FROM session_stats WHERE ts < ?`).run(cutoffTs);
     return Number(r.changes ?? 0);

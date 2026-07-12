@@ -178,6 +178,12 @@ export class RulesRepo {
       .prepare(`SELECT * FROM rules_log ORDER BY ts DESC LIMIT ?`)
       .all(limit) as RuleLogRow[];
   }
+
+  /** cutoff より古い監査ログを削除する。rule 定義本体は保持する。 */
+  purgeLogsOlderThan(cutoffTs: number): number {
+    const result = this.db.prepare(`DELETE FROM rules_log WHERE ts < ?`).run(cutoffTs);
+    return Number(result.changes ?? 0);
+  }
 }
 
 /**

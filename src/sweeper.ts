@@ -10,6 +10,9 @@ import { readFileSync, existsSync } from "node:fs";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { PersonasRepo } from "./db/personas-repo.js";
+import type { RulesRepo } from "./db/rules-repo.js";
+import type { StatsRepo } from "./db/stats-repo.js";
+import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 import { eventBus } from "./events.js";
@@ -20,12 +23,18 @@ export interface SweeperOptions {
   repo: SessionsRepo;
   tasks: TasksRepo;
   personas: PersonasRepo;
+  transcriptLogs: Pick<TranscriptLogsRepo, "purgeOlderThan">;
+  rules: Pick<RulesRepo, "purgeLogsOlderThan">;
+  stats: Pick<StatsRepo, "purgeOlderThan">;
   intervalMs: number;
   lostAfterSec: number;
   abandonedAfterSec: number;
   /** lost/abandoned 状態で last_seen_at がこの秒数以上古い session を DELETE する閾値. default 30 分. */
   lostPurgeAfterSec: number;
   purgeAfterDays: number;
+  transcriptRetentionDays: number;
+  rulesLogRetentionDays: number;
+  sessionStatsRetentionDays: number;
 }
 
 export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce: () => void } {
@@ -98,6 +107,18 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     const purged = opts.repo.purgeEventsOlderThan(eventPurgeCutoff);
     if (purged > 0) {
       log.info({ purged }, "old events purged");
+    }
+
+    const transcriptPurged = opts.transcriptLogs.purgeOlderThan(
+      now - opts.transcriptRetentionDays * 86400,
+    );
+    const rulesPurged = opts.rules.purgeLogsOlderThan(now - opts.rulesLogRetentionDays * 86400);
+    const statsPurged = opts.stats.purgeOlderThan(now - opts.sessionStatsRetentionDays * 86400);
+    if (transcriptPurged + rulesPurged + statsPurged > 0) {
+      log.info(
+        { transcriptPurged, rulesPurged, statsPurged },
+        "old transcript, rule, and session stat rows purged",
+      );
     }
 
     // 4. expired pending_tasks を purge

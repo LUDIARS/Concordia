@@ -159,15 +159,10 @@ export class TranscriptLogsRepo {
     return row.n;
   }
 
-  /**
-   * Storage 管理用: 古い frame を削除する.
-   * 現状は呼ばれていない (purge 戦略未定) — 将来の sweeper / 定期 job で使う想定.
-   */
-  deleteOlderThan(session_id: string, olderThanTs: number): number {
-    const result = this.db
-      .prepare(`DELETE FROM transcript_logs WHERE session_id = ? AND ts < ?`)
-      .run(session_id, olderThanTs);
-    return result.changes;
+  /** Storage 管理用: 全 session の cutoff より古い frame を削除する. */
+  purgeOlderThan(cutoffTs: number): number {
+    const result = this.db.prepare(`DELETE FROM transcript_logs WHERE ts < ?`).run(cutoffTs);
+    return Number(result.changes ?? 0);
   }
 }
 

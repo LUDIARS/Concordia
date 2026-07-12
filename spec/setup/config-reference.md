@@ -50,7 +50,11 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` (24h) | lost からこの秒数で `abandoned`。 |
 | `CONCORDIA_LOST_PURGE_AFTER_SEC` | `1800` | lost を purge するまでの猶予秒。 |
 | `CONCORDIA_PURGE_AFTER_DAYS` | `90` | session_events の auto-purge 期間 (日)。 |
+| `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | transcript_logs の保持期間 (日)。 |
+| `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | rules_log の保持期間 (日)。 |
+| `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | session_stats の保持期間 (日)。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
+| `CONCORDIA_DB_APPLY_EXCUBITOR_DROP` | 未設定 | `.bak` 作成済みの場合だけ `1` にし、旧 Excubitor テーブルの one-shot DROP + VACUUM を許可する。通常は設定しない。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |

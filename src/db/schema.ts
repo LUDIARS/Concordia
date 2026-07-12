@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 34;
+export const SCHEMA_VERSION = 35;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -253,157 +253,6 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_process_logs_name_ts ON process_logs(process_name, ts DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_process_logs_level ON process_logs(process_name, level, ts DESC)`,
-
-  // ─── observability (Excubitor 由来、 v0.3 で集約) ─────────
-  // ホスト・サービスカタログ・インスタンス監視・エラー検知・自動修正の一式.
-  // Postgres + UUID/JSONB/TIMESTAMPTZ から SQLite 用に dialect 変換.
-  //   - UUID         → text PK (app 側で crypto.randomUUID)
-  //   - JSONB        → text (JSON string)
-  //   - BOOLEAN      → integer 0/1
-  //   - TIMESTAMPTZ  → integer (epoch ms), default unixepoch() * 1000
-  //   - TEXT[]       → text (JSON array string)
-  //   - BIGSERIAL    → integer PK AUTOINCREMENT
-  // Excubitor 側の table 名衝突 (process_logs) は service_instance_logs に rename.
-  `CREATE TABLE IF NOT EXISTS hosts (
-    id                TEXT    PRIMARY KEY,
-    name              TEXT    NOT NULL,
-    hostname          TEXT    NOT NULL,
-    agent_version     TEXT,
-    last_heartbeat_at INTEGER,
-    is_active         INTEGER NOT NULL DEFAULT 1,
-    created_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    updated_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_hosts_active ON hosts(is_active) WHERE is_active = 1`,
-
-  `CREATE TABLE IF NOT EXISTS services (
-    id               TEXT    PRIMARY KEY,
-    code             TEXT    NOT NULL UNIQUE,
-    name             TEXT    NOT NULL,
-    catalog_snapshot TEXT    NOT NULL,
-    is_active        INTEGER NOT NULL DEFAULT 1,
-    created_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    updated_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_services_active ON services(is_active) WHERE is_active = 1`,
-
-  `CREATE TABLE IF NOT EXISTS service_instances (
-    id              TEXT    PRIMARY KEY,
-    service_id      TEXT    NOT NULL REFERENCES services(id),
-    host_id         TEXT    REFERENCES hosts(id),
-    pid             INTEGER,
-    docker_id       TEXT,
-    state           TEXT    NOT NULL DEFAULT 'unknown',
-    last_seen_at    INTEGER,
-    started_at      INTEGER,
-    exit_code       INTEGER,
-    git_branch      TEXT,
-    git_hash        TEXT,
-    git_dirty       INTEGER,
-    package_version TEXT,
-    port            INTEGER,
-    extra           TEXT,
-    created_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    updated_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_si_service ON service_instances(service_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_si_host    ON service_instances(host_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_si_state   ON service_instances(state)`,
-
-  `CREATE TABLE IF NOT EXISTS liveness_history (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    service_instance_id TEXT    NOT NULL REFERENCES service_instances(id),
-    probed_at           INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    ok                  INTEGER NOT NULL,
-    latency_ms          INTEGER,
-    detail              TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_lh_si_probed ON liveness_history(service_instance_id, probed_at DESC)`,
-
-  // Excubitor の process_logs → service_instance_logs に rename. Concordia 既存の
-  // process_logs (managed processes 由来) と区別.
-  `CREATE TABLE IF NOT EXISTS service_instance_logs (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    service_instance_id TEXT    NOT NULL REFERENCES service_instances(id),
-    ts                  INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    level               TEXT,
-    line                TEXT    NOT NULL
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_sil_si_ts ON service_instance_logs(service_instance_id, ts DESC)`,
-
-  `CREATE TABLE IF NOT EXISTS error_rules (
-    id            TEXT    PRIMARY KEY,
-    name          TEXT    NOT NULL,
-    pattern       TEXT    NOT NULL,
-    pattern_type  TEXT    NOT NULL DEFAULT 'regex',
-    severity      TEXT    NOT NULL DEFAULT 'error',
-    service_codes TEXT,                                 -- JSON array (was TEXT[])
-    is_active     INTEGER NOT NULL DEFAULT 1,
-    created_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    updated_at    INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_er_active ON error_rules(is_active) WHERE is_active = 1`,
-
-  `CREATE TABLE IF NOT EXISTS error_tasks (
-    id                  TEXT    PRIMARY KEY,
-    rule_id             TEXT    REFERENCES error_rules(id),
-    service_instance_id TEXT    REFERENCES service_instances(id),
-    severity            TEXT    NOT NULL DEFAULT 'error',
-    summary             TEXT    NOT NULL,
-    log_excerpt         TEXT,
-    occurrence_count    INTEGER NOT NULL DEFAULT 1,
-    first_seen_at       INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    last_seen_at        INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    state               TEXT    NOT NULL DEFAULT 'open',
-    snooze_until        INTEGER,
-    triaged_by          TEXT,
-    triaged_at          INTEGER,
-    note                TEXT,
-    auto_fix_state      TEXT,
-    auto_fix_attempts   INTEGER NOT NULL DEFAULT 0,
-    auto_fix_run_id     TEXT,
-    created_at          INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    updated_at          INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_et_state ON error_tasks(state) WHERE state IN ('open', 'ack', 'snoozed')`,
-  `CREATE INDEX IF NOT EXISTS idx_et_si    ON error_tasks(service_instance_id, last_seen_at DESC)`,
-
-  `CREATE TABLE IF NOT EXISTS auto_fix_runs (
-    id              TEXT    PRIMARY KEY,
-    error_task_id   TEXT    NOT NULL REFERENCES error_tasks(id),
-    service_code    TEXT    NOT NULL,
-    agent           TEXT    NOT NULL DEFAULT 'claude-code',
-    state           TEXT    NOT NULL DEFAULT 'pending',
-    triggered_by    TEXT,
-    prompt          TEXT,
-    started_at      INTEGER,
-    finished_at     INTEGER,
-    exit_code       INTEGER,
-    stdout_tail     TEXT,
-    stderr_tail     TEXT,
-    branch          TEXT,
-    commit_hash     TEXT,
-    pr_url          TEXT,
-    verify_result   TEXT,
-    error_message   TEXT,
-    action_type     TEXT    NOT NULL DEFAULT 'fix',
-    created_at      INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_afr_task        ON auto_fix_runs(error_task_id)`,
-  `CREATE INDEX IF NOT EXISTS idx_afr_state       ON auto_fix_runs(state)`,
-  `CREATE INDEX IF NOT EXISTS idx_afr_action_type ON auto_fix_runs(action_type)`,
-
-  `CREATE TABLE IF NOT EXISTS audit_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts          INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-    actor       TEXT,
-    action      TEXT    NOT NULL,
-    target_type TEXT,
-    target_id   TEXT,
-    payload     TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_audit_ts       ON audit_log(ts DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_audit_actor_ts ON audit_log(actor, ts DESC)`,
 
   // ─── session stats (v0.4 — 10 分 poll 集計) ───────────
   // 各 active session が自身の現況 (repos / branches / 未マージ / Todo 等) を JSON で
@@ -1166,6 +1015,56 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
      ON delegation_runs(child_session_id)`,
 ];
 
+/**
+ * Excubitor へ移管済みで Concordia から参照されない旧 observability tables。
+ * foreign key の子から親へ落とす順序を固定し、途中失敗後の再実行も安全にする。
+ */
+const OBSOLETE_EXCUBITOR_TABLES = [
+  "auto_fix_runs",
+  "error_tasks",
+  "error_rules",
+  "service_instance_logs",
+  "liveness_history",
+  "service_instances",
+  "services",
+  "hosts",
+  "audit_log",
+] as const;
+
+const DESTRUCTIVE_MIGRATION_ENV = "CONCORDIA_DB_APPLY_EXCUBITOR_DROP";
+
+function applyExcubitorTableRemoval(db: Database.Database): void {
+  const existing = new Set(
+    (
+      db
+        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
+        .all() as Array<{ name: string }>
+    ).map((row) => row.name),
+  );
+  const obsolete = OBSOLETE_EXCUBITOR_TABLES.filter((table) => existing.has(table));
+  if (obsolete.length === 0) return;
+
+  if (process.env[DESTRUCTIVE_MIGRATION_ENV] !== "1") {
+    throw new Error(
+      `Concordia DB still contains Excubitor-owned tables (${obsolete.join(", ")}). ` +
+        `Stop Concordia and its workers, back up concordia.db to a .bak file, then restart once with ` +
+        `${DESTRUCTIVE_MIGRATION_ENV}=1. The startup migration will DROP the obsolete tables and VACUUM; ` +
+        `do not run the SQL manually.`,
+    );
+  }
+
+  const drop = db.transaction(() => {
+    for (const table of OBSOLETE_EXCUBITOR_TABLES) {
+      db.exec(`DROP TABLE IF EXISTS ${table}`);
+    }
+  });
+  drop();
+
+  // VACUUM は transaction 内で実行できない。別プロセスが DB を開いていれば
+  // SQLITE_BUSY で起動を失敗させ、停止・バックアップ手順を省略した運用を見逃さない。
+  db.exec("VACUUM");
+}
+
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -1183,6 +1082,7 @@ export function applyMigrations(db: Database.Database): void {
   // 先に張ると既存 DB (列未追加) で "no such column" になり起動失敗するため。
   for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
   applyOwnedDelegationBackfill(db);
+  applyExcubitorTableRemoval(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));

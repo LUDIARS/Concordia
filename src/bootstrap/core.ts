@@ -464,11 +464,26 @@ export async function startBackend(): Promise<BackendHandle> {
     repo,
     tasks,
     personas,
+    transcriptLogs,
+    rules,
+    stats,
     intervalMs: cfg.sweeperIntervalMs,
     lostAfterSec: cfg.lostAfterSec,
     abandonedAfterSec: cfg.abandonedAfterSec,
     lostPurgeAfterSec: cfg.lostPurgeAfterSec,
     purgeAfterDays: cfg.purgeAfterDays,
+    transcriptRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
+    rulesLogRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_RULES_LOG_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
+    sessionStatsRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_SESSION_STATS_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
   });
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。

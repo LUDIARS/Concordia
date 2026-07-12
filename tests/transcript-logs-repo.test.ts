@@ -23,7 +23,9 @@ describe("TranscriptLogsRepo", () => {
     expect(env.repo.countBySession("s1")).toBe(1);
   });
 
-  it("同 (session_id, seq) の重複 insert は no-op で false を返す (冪等)", () => {
+  it("同 (session_id, seq) の重複 insert は no-op だが冪等成功として true を返す", () => {
+    // Lictor sink の at-least-once 再送 (timeout 後の同 seq 再POST) を
+    // requirePersisted な書き手が成功として扱えるようにする (2026-07-12 実障害)。
     env.repo.insert({ session_id: "s1", seq: 0, ts: 1000, kind: "text", payload: { a: 1 } });
     const second = env.repo.insert({
       session_id: "s1",
@@ -32,7 +34,7 @@ describe("TranscriptLogsRepo", () => {
       kind: "text",
       payload: { a: 2 },
     });
-    expect(second).toBe(false);
+    expect(second).toBe(true);
     expect(env.repo.countBySession("s1")).toBe(1);
     // 元の payload が残っている (上書きしない)
     const entries = env.repo.listBySession("s1");

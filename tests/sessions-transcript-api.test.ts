@@ -106,13 +106,20 @@ describe("sessions API — transcript", () => {
       expect(j.persisted).toBe(true);
     });
 
-    it("同 seq の重複 POST は persisted=false を返す (冪等)", async () => {
+    it("同 seq の重複 POST は persisted=true を返す (冪等成功・行は増えない)", async () => {
+      // Lictor sink は timeout 後に同 seq で再送する (at-least-once)。 重複を
+      // persisted=false で返すと requirePersisted な書き手が死ぬ (2026-07-12 実障害)。
       await startSession();
       await postFrame("t1", 0, "text", { role: "user", text: "first" });
       const r = await postFrame("t1", 0, "text", { role: "user", text: "second" });
       const j = (await r.json()) as { ok: boolean; persisted: boolean };
       expect(j.ok).toBe(true);
-      expect(j.persisted).toBe(false);
+      expect(j.persisted).toBe(true);
+      // 先勝ちで 1 行のまま (上書きされない)。
+      const tr = await app.request("/v1/sessions/t1/transcript");
+      const tj = (await tr.json()) as { total: number; entries: Array<{ payload: { text: string } }> };
+      expect(tj.total).toBe(1);
+      expect(tj.entries[0].payload).toEqual({ role: "user", text: "first" });
     });
 
     it("GET /v1/sessions/:id/transcript は ts ASC で全件返し total + next_since_id を含む", async () => {

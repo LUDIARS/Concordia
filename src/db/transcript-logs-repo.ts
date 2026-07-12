@@ -38,10 +38,12 @@ export class TranscriptLogsRepo {
    * Insert one transcript frame.
    *
    * UNIQUE(session_id, seq) 違反 (= 重複 POST) は黙って ignore する.
-   * Lictor の transcript-tail はネットワーク失敗時 same seq で再送する設計
-   * (現状は fire-and-forget なので再送しないが、 将来導入されても安全).
-   *
-   * 戻り値: 実際に行が増えたら true (新規)、 重複で skip されたら false.
+   * Lictor の transcript sink は timeout / ネットワーク失敗時に same seq で
+   * 再送する (at-least-once)。 再送の 1 回目が実はサーバに届いていた場合、
+   * 2 回目は重複になる — これは呼び出し側から見れば「永続化は完了している」
+   * 正常系なので、 戻り値は「新規挿入か」ではなく **「行が存在するか」** を返す
+   * (冪等成功)。 重複を false で返すと、 requirePersisted な書き手 (codex
+   * bootstrap の session binding) が再送のたびに失敗する (2026-07-12 実障害)。
    */
   insert(input: {
     session_id: string;
@@ -62,7 +64,13 @@ export class TranscriptLogsRepo {
         input.kind,
         JSON.stringify(input.payload ?? null),
       );
-    return result.changes > 0;
+    if (result.changes > 0) return true;
+    // IGNORE された = ほぼ確実に UNIQUE(session_id, seq) 重複。 既存行が
+    // あることを確認できれば冪等成功として true を返す。
+    const row = this.db
+      .prepare(`SELECT 1 AS x FROM transcript_logs WHERE session_id = ? AND seq = ?`)
+      .get(input.session_id, input.seq);
+    return row !== undefined;
   }
 
   /**

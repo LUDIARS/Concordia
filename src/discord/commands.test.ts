@@ -12,6 +12,8 @@ describe("Discord command registration", () => {
     const names = commandNamesForRegistration();
     expect(names).toContain("spawn");
     expect(names).toContain("ch_name");
+    expect(names).toContain("ex-run");
+    expect(names).toContain("ex-reboot");
     expect(names.length).toBeGreaterThan(1);
   });
 });

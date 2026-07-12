@@ -22,6 +22,7 @@ import compactionCommand from "./commands/compaction.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import confirmCommand from "./commands/confirm.js";
+import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
@@ -64,6 +65,8 @@ const COMMANDS: DiscordCommandSpec[] = [
   goalCommand,
   relictorCommand,
   confirmCommand,
+  exRunCommand,
+  exRebootCommand,
 ];
 
 const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);

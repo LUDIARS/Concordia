@@ -51,6 +51,7 @@ import { parseInjectSource } from "../shared/inject-source.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
+import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
 import { instrumentDiscord } from "../instrumentation.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
@@ -375,6 +376,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const templates = await prewarmDelegationTemplateCache(deps.concordiaUrl, log);
         log.info(`delegation template cache prewarmed templates=${templates.length}`);
       }, 100);
+      void excubitorProjectCache
+        .get(excubitorBaseUrl(), { info: (m) => log.info(m), warn: (m) => log.warn(m) })
+        .catch((e) => log.warn(`excubitor project cache warmup failed: ${(e as Error).message}`));
       const costCh = guild.channels.cache.get(layout.costChannelId);
       if (costCh && costCh.type === ChannelType.GuildText) {
         const refresh = () => {

@@ -74,6 +74,10 @@ export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
 }
 
+export function isSubsidiaryAllowedInteraction(interaction: Interaction): boolean {
+  return "commandName" in interaction && isSubsidiaryAllowedCommand(String(interaction.commandName));
+}
+
 export function commandNamesForRegistration(opts: { subsidiary?: boolean } = {}): string[] {
   return COMMANDS
     .filter((c) => !opts.subsidiary || isSubsidiaryAllowedCommand(c.builder.name))
@@ -102,11 +106,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   // 子会社 guild では許可リスト外の Discord コマンドを拒否する。作業依頼 / spawn 系は
   // 受付チャンネルのメッセージ → ガードゲート経由のみ。過去登録済みの guild からの
   // 残存コマンド実行もここで確実に弾く (二段防御)。
-  if (
-    deps.subsidiaryId &&
-    "commandName" in interaction &&
-    !isSubsidiaryAllowedCommand(String(interaction.commandName))
-  ) {
+  if (deps.subsidiaryId && !isSubsidiaryAllowedInteraction(interaction)) {
     deps.log.warn(
       `discord interaction rejected (subsidiary) subsidiary=${deps.subsidiaryId} ` +
       `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,

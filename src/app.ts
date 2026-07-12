@@ -81,6 +81,16 @@ export function buildApp(deps: AppDeps): Hono {
   const adminAuth = adminAuthMiddleware(() => deps.config.adminToken);
   app.use("/v1/admin/*", adminAuth);
   app.use("/v1/sweeper/run", adminAuth);
+  app.use("/v1/sessions/:id/inject", adminAuth);
+  app.use("/v1/delegation/invoke", adminAuth);
+  app.use("/v1/processes/*", async (c, next) => {
+    if (c.req.method === "GET") return next();
+    return adminAuth(c, next);
+  });
+  app.use("/v1/sessions/:id", async (c, next) => {
+    if (c.req.method !== "DELETE") return next();
+    return adminAuth(c, next);
+  });
 
   app.get("/health", (c) =>
     c.json({ ok: true, service: "concordia", version: "0.1.0", started_at: deps.startedAt }),

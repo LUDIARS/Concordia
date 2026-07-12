@@ -92,6 +92,8 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /** Exact Slack user ID allowlist check for permission-skipping reaction workflows. */
+  isReactionWorkflowUserAllowed?: (userId: string) => boolean;
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
 }
 
@@ -504,7 +506,15 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
       // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
       const wfEmoji = slackEmojiTextToUnicode(text);
-      if (getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.())) {
+      const workflowEmoji = getRwf().classifyReactionWorkflow(wfEmoji, deps.resolveReactionMappings?.());
+      if (
+        (workflowEmoji || getRwf().isStandaloneEmoji(wfEmoji) || /^:[a-z0-9_+'-]+:$/i.test(text)) &&
+        (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user))
+      ) {
+        log.info(`emoji workflow ignored unauthorized user=${event.user ?? "-"}`);
+        return;
+      }
+      if (workflowEmoji) {
         // 対象 chat_messages: thread 返信ならその session の直近、 チャンネル直下なら
         // consultation メタチャットの直近メッセージ。
         let target: WorkflowTargetSnapshot | null = null;
@@ -801,6 +811,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (!reactionWorkflow) return;
       if (!event || event.item?.type !== "message") return;
       if (botUserId && event.user === botUserId) return; // bot 自身のリアクションは無視
+      if (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user)) {
+        log.info(`reaction_added ignored unauthorized user=${event.user ?? "-"}`);
+        return;
+      }
       const ch = event.item.channel;
       const ts = event.item.ts;
       if (ch !== channelId || !ts) return;

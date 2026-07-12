@@ -249,6 +249,7 @@ MCP サーバ (別プロセス) が読む env:
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
+| reaction-workflow 発火ユーザ | 空 (全拒否) | env `CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS` / `CONCORDIA_REACTION_WORKFLOW_SLACK_USERS` | プラットフォーム user ID のカンマ/空白/`;` 区切り allowlist。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |

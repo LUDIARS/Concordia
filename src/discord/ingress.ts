@@ -45,6 +45,8 @@ export interface IngressDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
+  /** Exact Discord user ID allowlist check for reaction-workflow execution. */
+  isWorkflowUserAllowed?: (userId: string) => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
@@ -58,6 +60,8 @@ export interface IngressDeps {
     process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
     isLocked: (userId: string) => boolean;
   };
+  /** True only for a subsidiary guild; head-office desk intake remains false. */
+  subsidiary?: boolean;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -85,6 +89,14 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   }
 
   if (isControlTrigger(text)) {
+    if (deps.subsidiary) {
+      deps.log.warn(`ingress: control panel rejected in subsidiary guild=${msg.guildId} user=${msg.author.id}`);
+      await msg.reply({
+        content: "このサーバではコントロールパネルを利用できません。依頼は受付チャンネルへメッセージでどうぞ。",
+        allowedMentions: { parse: [], repliedUser: false },
+      }).catch(() => { /* best-effort */ });
+      return;
+    }
     await postControlPanel(msg.channel, deps.sessionsRepo, deps.sessionChannelsRepo);
     deps.log.info(`ingress: control panel posted (channel=${msg.channelId})`);
     return;
@@ -132,6 +144,10 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
   if (deps.workflow) {
+    if (getRwf().isStandaloneEmoji(text) && !deps.isWorkflowUserAllowed?.(msg.author.id)) {
+      deps.log.info(`ingress: workflow emoji ignored unauthorized user=${msg.author.id}`);
+      return;
+    }
     if (getRwf().classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
       if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
     } else if (getRwf().isStandaloneEmoji(text)) {

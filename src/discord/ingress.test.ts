@@ -74,6 +74,20 @@ describe("discord ingress chat routing", () => {
     } as unknown as IngressDeps["configRepo"];
     expect(resolveMetaKind(configRepo, "boyaki-1")).toBe("boyaki");
   });
+
+  it("rejects the control trigger in subsidiary guilds", async () => {
+    const deps = { ...makeDeps("codex-cli"), subsidiary: true };
+    const msg = makeMessage({ content: "control" });
+    await handleMessage(deps, msg);
+    expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("利用できません") }));
+  });
+
+  it("keeps the control trigger available in the head-office guild", async () => {
+    const msg = makeMessage({ content: "control" });
+    await handleMessage(makeDeps("codex-cli"), msg);
+    expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledOnce();
+  });
 });
 
 function stubSuccessfulFetch() {
@@ -90,6 +104,7 @@ function makeDeps(provider: string): IngressDeps {
     } as unknown as IngressDeps["sessionChannelsRepo"],
     sessionsRepo: {
       findSession: vi.fn(() => ({ id: "s1", provider, status: "active", repo_path: "/repo" })),
+      listSessions: vi.fn(() => []),
     } as unknown as IngressDeps["sessionsRepo"],
     concordiaUrl: "http://concordia.test",
     log: { info: vi.fn(), warn: vi.fn() },

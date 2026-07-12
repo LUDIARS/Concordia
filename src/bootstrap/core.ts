@@ -90,6 +90,7 @@ import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import { isReactionUserAllowed } from "../shared/reaction-workflow-auth.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
@@ -320,12 +321,12 @@ export async function startBackend(): Promise<BackendHandle> {
   if (!isLoopbackHost(cfg.host)) {
     log.warn(
       { host: cfg.host },
-      "Concordia is binding to a non-loopback host — admin API (/v1/admin/*, /v1/sweeper/run) would be reachable beyond localhost",
+      "Concordia is binding to a non-loopback host — admin and mutation APIs (/v1/admin/*, /v1/sweeper/run, session inject/delete, delegation invoke) would be reachable beyond localhost",
     );
     if (!cfg.adminToken) {
       throw new Error(
         `CONCORDIA_HOST=${cfg.host} is non-loopback but CONCORDIA_ADMIN_TOKEN is unset. ` +
-          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin endpoints, or bind to 127.0.0.1.`,
+          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin and mutation endpoints, or bind to 127.0.0.1.`,
       );
     }
   }
@@ -545,6 +546,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS, userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -574,6 +577,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS, userId),
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),

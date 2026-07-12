@@ -23,7 +23,7 @@ describe("admin-auth helpers", () => {
   });
 });
 
-describe("admin auth middleware on /v1/admin/* and /v1/sweeper/run", () => {
+describe("admin auth middleware on admin and dangerous mutation routes", () => {
   it("token 未設定なら無認証で通る (loopback 信頼境界)", async () => {
     const app = makeApp("");
     const r = await app.request("/v1/sweeper/run", { method: "POST" });
@@ -71,5 +71,19 @@ describe("admin auth middleware on /v1/admin/* and /v1/sweeper/run", () => {
     const app = makeApp("s3cr3t");
     const r = await app.request("/health");
     expect(r.status).toBe(200);
+  });
+
+  it.each([
+    ["POST", "/v1/sessions/missing/inject"],
+    ["POST", "/v1/delegation/invoke"],
+    ["DELETE", "/v1/sessions/missing"],
+  ] as const)("requires the admin token for %s %s", async (method, path) => {
+    const protectedApp = makeApp("s3cr3t");
+    const denied = await protectedApp.request(path, { method });
+    expect(denied.status).toBe(401);
+
+    const loopbackApp = makeApp("");
+    const local = await loopbackApp.request(path, { method });
+    expect(local.status).not.toBe(401);
   });
 });

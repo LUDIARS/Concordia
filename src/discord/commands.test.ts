@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { commandNamesForRegistration, isSubsidiaryAllowedCommand } from "./commands.js";
+import { describe, expect, it, vi } from "vitest";
+import {
+  commandNamesForRegistration,
+  dispatchInteraction,
+  isSubsidiaryAllowedCommand,
+  isSubsidiaryAllowedInteraction,
+} from "./commands.js";
 
 describe("Discord command registration", () => {
   it("registers only safe session commands for subsidiary guilds", () => {
@@ -17,4 +22,24 @@ describe("Discord command registration", () => {
     expect(names).not.toContain("skill");
     expect(names.length).toBeGreaterThan(1);
   });
+
+  it.each(["ctrl:spawn:codex", "ctrl:end-session"]) (
+    "rejects subsidiary control interaction %s before dispatch",
+    async (customId) => {
+      const reply = vi.fn(async () => undefined);
+      const interaction = {
+        type: 3,
+        customId,
+        isAutocomplete: () => false,
+        isRepliable: () => true,
+        reply,
+      };
+      await dispatchInteraction(interaction as never, {
+        subsidiaryId: "sub-1",
+        log: { info: vi.fn(), warn: vi.fn() },
+      } as never);
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+      expect(isSubsidiaryAllowedInteraction(interaction as never)).toBe(false);
+    },
+  );
 });

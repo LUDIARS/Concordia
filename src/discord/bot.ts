@@ -114,6 +114,8 @@ export interface DiscordBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /** Exact Discord user ID allowlist check for permission-skipping reaction workflows. */
+  isReactionWorkflowUserAllowed?: (userId: string) => boolean;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -639,11 +641,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       chatRepo: deps.chatRepo,
       messageMap,
       workflow: reactionWorkflow,
+      isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
       resolveReactionMappings: deps.resolveReactionMappings,
       // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
       // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
       // (子会社 Bot に desk は配線されない)。
       intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
+      subsidiary: Boolean(deps.subsidiary),
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
@@ -658,6 +662,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         messageMap,
         log,
         workflow: reactionWorkflow,
+        isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         sessionChannels: sessionChannelsRepo,
         sessions: deps.sessionsRepo,
         repin: deps.repinSession,

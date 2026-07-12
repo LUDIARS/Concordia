@@ -701,6 +701,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log,
       permissionActions,
       subsidiaryId,
+      resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(

@@ -9,7 +9,6 @@ import {
 import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import spawnCommand from "./commands/spawn.js";
-import skillCommand from "./commands/skill.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
@@ -39,6 +38,7 @@ export interface DiscordCommandDeps {
   log: { info: (m: string) => void; warn: (m: string) => void };
   logsDir?: string;
   permissionActions?: PermissionActionStore;
+  resolveWorkspaceRoots?: () => string[];
   /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
   subsidiaryId?: string | null;
 }
@@ -52,7 +52,6 @@ export interface DiscordCommandSpec {
 // User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
-  skillCommand,
   statCommand,
   prsCommand,
   endSessionCommand,

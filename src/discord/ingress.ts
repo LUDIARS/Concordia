@@ -15,14 +15,15 @@ const ACCEPTED_INJECT_REACTION = "✅";
 const COMMAND_LIST_TEXT = [
   "使用可能コマンド一覧",
   "- session channel では通常メッセージ送信 = inject",
-  "- /inject: 明示的に inject したい場合のみ",
   "- /spawn: 新規セッション起動",
-  "- /skill: スキル実行",
-  "- /keys: キーシーケンス送信",
-  "- /answer: pending question へ回答",
   "- /stat: 現在ステータス表示",
-  "- /chitchat: chitchat へ投稿",
-  "- /consultation: consultation へ投稿",
+  "- /prs: PR キュー表示",
+  "- /mmtask: Memoria タスク検索",
+  "- /projects: プロジェクトコード一覧",
+  "- /co-goal / /co-compaction / /co-relictor: セッション制御",
+  "- /ch_name / /co-clean: Discord surface 管理",
+  "- /confirm: develop 確認フロー",
+  "- /ex-run / /ex-reboot: Excubitor 経由のサービス操作",
   "- /end-session: セッション終了",
   "- control / /control / コントロール: コントロールパネル表示",
 ].join("\n");
@@ -290,12 +291,9 @@ async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: st
         await fetch(`${deps.concordiaUrl}/v1/chat`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            channel: "報告",
-            text: result.spawnPrompt.slice(0, 2000),
-            author_label: "Concordia (spawn)",
-            discord_channel_id: msg.channelId,
-          }),
+          body: JSON.stringify(
+            buildReplySpawnChatPayload(sessionId, result.spawnPrompt, msg.channelId),
+          ),
         });
       } catch { /* best-effort */ }
     }
@@ -410,9 +408,23 @@ function resolveEmojiTargetChatId(deps: IngressDeps, msg: Message, routeChannelI
   return null;
 }
 
-function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {
+export function buildReplySpawnChatPayload(
+  sessionId: string,
+  spawnPrompt: string,
+  discordChannelId: string,
+): Record<string, unknown> {
+  return {
+    channel: "報告",
+    session_id: sessionId,
+    text: spawnPrompt.slice(0, 2000),
+    author_label: "Concordia (spawn)",
+    discord_channel_id: discordChannelId,
+  };
+}
+
+export function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {
   const map = configRepo.all();
-  for (const k of ["chitchat", "consultation", "houkoku", "system"] as const) {
+  for (const k of ["chitchat", "consultation", "houkoku", "boyaki", "system"] as const) {
     if (map[`${k}_channel_id`] === channelId) return k;
   }
   return null;

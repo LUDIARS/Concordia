@@ -1,6 +1,11 @@
 import { ChannelType, type Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleMessage, type IngressDeps } from "./ingress.js";
+import {
+  buildReplySpawnChatPayload,
+  handleMessage,
+  resolveMetaKind,
+  type IngressDeps,
+} from "./ingress.js";
 import { clearInjectAcks, takeInjectAck } from "./inject-ack.js";
 
 describe("discord ingress inject acceptance reactions", () => {
@@ -50,6 +55,24 @@ describe("discord ingress inject acceptance reactions", () => {
     expect(react).toHaveBeenCalledWith("✅");
     expect(takeInjectAck("s1")).toMatchObject({ channelId: "chan1", messageId: "msg1" });
     expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining("accepted react failed"));
+  });
+});
+
+describe("discord ingress chat routing", () => {
+  it("binds reply-spawn visibility posts to the source session", () => {
+    expect(buildReplySpawnChatPayload("s1", "do the work", "chan1")).toMatchObject({
+      channel: "報告",
+      session_id: "s1",
+      text: "do the work",
+      discord_channel_id: "chan1",
+    });
+  });
+
+  it("recognizes the configured boyaki meta channel", () => {
+    const configRepo = {
+      all: vi.fn(() => ({ boyaki_channel_id: "boyaki-1" })),
+    } as unknown as IngressDeps["configRepo"];
+    expect(resolveMetaKind(configRepo, "boyaki-1")).toBe("boyaki");
   });
 });
 

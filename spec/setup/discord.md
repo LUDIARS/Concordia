@@ -123,7 +123,6 @@ bot が要求する Gateway intents (`src/discord/bot.ts:73`):
 |---------|------|
 | `/spawn provider [cwd]` | 新 session を spawn (`provider` = claude/codex/gemini)。 bot が in-process で `.spawn.token` を読み `/v1/spawn` を Bearer 認証で叩く ([spawn.md](spawn.md))。 |
 | `/enter` | 対象 session に改行 (Enter キー) だけを inject (`/v1/sessions/:id/inject`)。 |
-| `/skill name` | session に skill を渡す。 |
 | `/stat` | 現在の Concordia stat を表示。 |
 | `/end-session` | 対象 session を終了。 |
 

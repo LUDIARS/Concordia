@@ -48,6 +48,7 @@ import {
 } from "./delegation-modal.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
+import { buildSlackConsultationBody } from "./ingress-chat.js";
 
 const slackLog = createChildLogger("slack");
 const QUESTION_OTHER_MODAL_CALLBACK_ID = "concordia_question_other";
@@ -564,7 +565,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         return;
       }
       // チャンネル直下の発言 = consultation メタチャットへ。
-      await postChat(deps, text, event.user ?? "slack-user");
+      const relaySessionId = deps.readModel.getLatestWorkflowTargetForChannel("consultation")?.sessionId ?? null;
+      await postChat(deps, text, event.user ?? "slack-user", relaySessionId);
     } catch (e) {
       log.warn(`ingress message handler: ${(e as Error).message}`);
     }
@@ -945,17 +947,17 @@ async function injectToSession(deps: SlackBotDeps, sessionId: string, text: stri
   }
 }
 
-async function postChat(deps: SlackBotDeps, text: string, userId: string): Promise<void> {
+async function postChat(
+  deps: SlackBotDeps,
+  text: string,
+  userId: string,
+  sessionId: string | null,
+): Promise<void> {
   try {
     const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        channel: "consultation",
-        text: text.slice(0, 2000),
-        author_label: userId,
-        metadata: { source: "slack", slack_user_id: userId },
-      }),
+      body: JSON.stringify(buildSlackConsultationBody(text, userId, sessionId)),
     });
     if (!res.ok) log.warn(`ingress /v1/chat returned ${res.status}`);
   } catch (e) {

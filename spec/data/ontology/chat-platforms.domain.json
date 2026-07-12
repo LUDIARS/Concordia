@@ -18,9 +18,6 @@
     },
     {
       "pathPattern": "(^|/)src/platform/[^/]+$"
-    },
-    {
-      "pathPattern": "(^|/)src/triggers/[^/]+$"
     }
   ],
   "cardTemplate": "Summarise the \"chat-platforms\" domain: Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch and synthetic personas."

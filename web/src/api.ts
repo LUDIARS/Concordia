@@ -597,6 +597,11 @@ export const api = {
         last_seen_at: number;
       }>;
     }>("/v1/machines"),
+  projectCodes: () =>
+    get<{
+      source_path: string;
+      categories: Array<{ name: string; entries: Array<[string, string]> }>;
+    }>("/v1/project-codes"),
   adminSpawn: (body: {
     provider?: SpawnProvider;
     /** delegation テンプレ call_name 起動。 指定時は provider/model/既定 cwd をテンプレから採用 */
@@ -643,11 +648,6 @@ export const api = {
       `/v1/delegation/options?${params.toString()}`,
     );
   },
-  // 1 つの delegation テンプレを可搬 JSON で書き出す/貼付して作成する (コピー/貼付)。
-  delegationTemplateExport: (idOrCallName: string) =>
-    get<{ delegation: PortableDelegation }>(`/v1/delegation/templates/${encodeURIComponent(idOrCallName)}/export`),
-  delegationTemplateImport: (body: PortableDelegation) =>
-    post<{ template: DelegationTemplateLite }>("/v1/delegation/templates/import", body),
   // ── model catalog (delegation テンプレ / spawn が選べるモデル候補) ──
   modelCatalogList: (includeInactive = false) =>
     get<{ models: ModelCatalogItem[] }>(`/v1/model-catalog${includeInactive ? "?all=1" : ""}`),
@@ -667,8 +667,6 @@ export const api = {
   }) => patch<{ model: ModelCatalogItem }>(`/v1/model-catalog/${encodeURIComponent(id)}`, body),
   modelCatalogDelete: (id: string) =>
     del<{ ok: boolean }>(`/v1/model-catalog/${encodeURIComponent(id)}`),
-  adminSpawnDefaults: () =>
-    get<{ default_cwd: string; platform_supported: boolean }>("/v1/admin/spawn-defaults"),
   adminStop: (id: string) =>
     post<{ ok: boolean; pid: number }>(`/v1/admin/stop-session/${encodeURIComponent(id)}`, {}),
   discordBotStart: () =>
@@ -729,18 +727,6 @@ export const api = {
       `/v1/sessions/${encodeURIComponent(id)}/pending-question/${encodeURIComponent(String(questionId))}/resolve`,
       {},
     ),
-  fsList: (id: string, path: string) => {
-    const qs = new URLSearchParams({ path }).toString();
-    return get<{ path: string; entries: Array<{ name: string; is_dir: boolean; size: number | null }>; truncated: boolean }>(
-      `/v1/sessions/${encodeURIComponent(id)}/fs/list?${qs}`,
-    );
-  },
-  fsRead: (id: string, path: string) => {
-    const qs = new URLSearchParams({ path }).toString();
-    return get<{ path: string; bytes: number; truncated: boolean; content: string }>(
-      `/v1/sessions/${encodeURIComponent(id)}/fs/read?${qs}`,
-    );
-  },
   sessionTranscript: (
     id: string,
     opts: { since_id?: number; limit?: number; tail?: boolean } = {},
@@ -756,29 +742,6 @@ export const api = {
       entries: Array<{ id: number; seq: number; ts: number; kind: string; payload: unknown }>;
       next_since_id: number;
     }>(`/v1/sessions/${encodeURIComponent(id)}/transcript${qstr ? `?${qstr}` : ""}`);
-  },
-  workConversations: (opts: {
-    repo_path?: string;
-    repo_origin?: string;
-    status?: "active" | "ended" | "lost" | "abandoned";
-    limit_per_session?: number;
-    max_sessions?: number;
-  } = {}) => {
-    const qs = new URLSearchParams();
-    if (opts.repo_path) qs.set("repo_path", opts.repo_path);
-    if (opts.repo_origin) qs.set("repo_origin", opts.repo_origin);
-    if (opts.status) qs.set("status", opts.status);
-    if (opts.limit_per_session !== undefined) qs.set("limit_per_session", String(opts.limit_per_session));
-    if (opts.max_sessions !== undefined) qs.set("max_sessions", String(opts.max_sessions));
-    const tail = qs.toString();
-    return get<{
-      filter: { repo_path: string | null; repo_origin: string | null; status: string | null };
-      available_repos: Array<{ repo_path: string; repo_origin: string | null; session_count: number }>;
-      sessions: Array<{
-        session: SessionRow;
-        conversation: Array<{ id: number; seq: number; ts: number; kind: string; payload: unknown }>;
-      }>;
-    }>(`/v1/work/conversations${tail ? `?${tail}` : ""}`);
   },
   chatList: (channel?: string, limit = 50) =>
     get<{ messages: ChatMessage[] }>(
@@ -846,17 +809,6 @@ export const api = {
       latest: { id: number; ts: number; payload: Record<string, unknown> } | null;
       history: Array<{ id: number; ts: number; payload: Record<string, unknown> }>;
     }>(`/v1/stat/${encodeURIComponent(id)}`),
-  conflicts: (params: { repo: string; branch?: string; exclude_session?: string }) => {
-    const q = new URLSearchParams({ repo: params.repo });
-    if (params.branch) q.set("branch", params.branch);
-    if (params.exclude_session) q.set("exclude_session", params.exclude_session);
-    return get<{
-      repo: string;
-      branch: string | null;
-      conflicts: SessionRow[];
-      branches: Array<{ branch: string; count: number }>;
-    }>(`/v1/monitor/conflicts?${q.toString()}`);
-  },
   library: () => get<LibrarySnapshot>("/v1/library"),
   libraryContent: (sourceId: string, path: string, archived = false) =>
     get<{ path: string; content: string; truncated: boolean; size_bytes: number }>(

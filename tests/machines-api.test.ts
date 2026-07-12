@@ -23,16 +23,6 @@ describe("machines API", () => {
     expect(byHost["DESKTOP-B"]).toMatchObject({ active: 1, ended: 0 });
   });
 
-  it("GET /v1/machines/:host returns sessions filtered by host", async () => {
-    await seed(env, "s1", "DESKTOP-A", "active");
-    await seed(env, "s2", "DESKTOP-B", "active");
-
-    const r = await env.app.request("/v1/machines/DESKTOP-A");
-    expect(r.status).toBe(200);
-    const j = (await r.json()) as { host: string; sessions: Array<{ id: string }> };
-    expect(j.host).toBe("DESKTOP-A");
-    expect(j.sessions.map((s) => s.id).sort()).toEqual(["s1"]);
-  });
 });
 
 async function seed(

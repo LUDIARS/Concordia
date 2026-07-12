@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { PROJECT_CATEGORIES } from "../project-codes.js";
+import { api } from "../api.js";
+import { useLiveQuery } from "../hooks/useWsEvent.js";
 
 interface SetupResponse {
   service: string;
@@ -20,6 +21,7 @@ export function Setup() {
   const [provider, setProvider] = useState("claude-code");
   const [placement, setPlacement] = useState<"user-level" | "per-repo">("user-level");
   const [repoPath, setRepoPath] = useState("");
+  const projectCodes = useLiveQuery(() => api.projectCodes(), [], "project-codes");
 
   useEffect(() => {
     const params = new URLSearchParams({ provider });
@@ -189,7 +191,7 @@ Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType 
           Discord: <code className="text-accent">/projects</code> でも確認できます。
         </p>
         <div className="space-y-3">
-          {PROJECT_CATEGORIES.map((cat) => (
+          {(projectCodes.data?.categories ?? []).map((cat) => (
             <div key={cat.name}>
               <div className="text-xs font-medium text-subtle mb-1">{cat.name}</div>
               <div className="flex flex-col gap-0.5">
@@ -203,6 +205,9 @@ Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType 
             </div>
           ))}
         </div>
+        {projectCodes.error && (
+          <p className="text-danger text-[11px] mt-3">load error: {projectCodes.error.message}</p>
+        )}
         <p className="text-subtle text-[11px] mt-3">
           正本: <code>LUDIARS/PROJECT-CODES.md</code>
         </p>

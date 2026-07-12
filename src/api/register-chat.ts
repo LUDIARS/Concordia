@@ -16,7 +16,6 @@ import { dailyRouter } from "./daily.js";
 import { monitorRouter } from "./monitor.js";
 import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./slack-admin.js";
-import { streamRouter } from "./stream.js";
 
 export interface DiscordBotAdmin {
   start: () => Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }>;
@@ -42,7 +41,6 @@ export interface ChatDeps {
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
   app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat }));
-  app.route("/v1/stream", streamRouter());
   app.route(
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),

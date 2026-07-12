@@ -71,7 +71,7 @@ export function Monitor() {
                 key={r.key}
                 className={`px-2 py-1 border rounded text-xs ${
                   conflict
-                    ? "bg-warning/10 border-warning text-warning"
+                    ? "bg-warn/10 border-warn text-warn"
                     : "bg-muted border-border"
                 }`}
                 title={conflict ? "複数 active session が同一 repo で作業中" : undefined}
@@ -93,7 +93,7 @@ export function Monitor() {
             {conflictRepos.map((r) => (
               <div
                 key={r.key}
-                className="bg-warning/5 border border-warning/40 rounded p-3 text-sm"
+                className="bg-warn/5 border border-warn/40 rounded p-3 text-sm"
               >
                 <div className="font-mono text-xs text-subtle mb-2">{r.key}</div>
                 <div className="flex flex-wrap gap-2">
@@ -179,7 +179,7 @@ function connectionTone(state: ConnectionState): string {
     case "missing":
       return "border-danger/40 bg-danger/10 text-danger";
     case "stopped":
-      return "border-warning/40 bg-warning/10 text-warning";
+      return "border-warn/40 bg-warn/10 text-warn";
     case "disabled":
     case "loading":
       return "border-border bg-muted text-subtle";
@@ -613,7 +613,7 @@ function PerformanceSection() {
           <div className="text-xs text-subtle">メモリ</div>
           <div className="text-lg font-semibold">{fmtBytes(snap.host.usedMem)} <span className="text-subtle text-sm">/ {fmtBytes(snap.host.totalMem)} ({memPct}%)</span></div>
           <div className="mt-1 h-1.5 bg-muted rounded overflow-hidden">
-            <div className={`h-full ${memPct >= 85 ? "bg-danger" : memPct >= 70 ? "bg-warning" : "bg-accent"}`} style={{ width: `${memPct}%` }} />
+            <div className={`h-full ${memPct >= 85 ? "bg-danger" : memPct >= 70 ? "bg-warn" : "bg-accent"}`} style={{ width: `${memPct}%` }} />
           </div>
         </div>
         <div className="bg-surface border border-border rounded p-3">

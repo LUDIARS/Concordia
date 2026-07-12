@@ -393,7 +393,7 @@ CREATE TABLE process_logs (
 
 ### 12.5 eventBus (process.* 拡張)
 
-`/ws` と `/v1/stream` には既存 wiring のまま流れる:
+`/ws` には既存 wiring のまま流れる:
 
 ```ts
 | { type: "process.started"; process_name: string; pid: number; cwd: string; command: string; ts }

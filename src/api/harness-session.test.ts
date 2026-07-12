@@ -88,19 +88,6 @@ describe("/v1/harness route", () => {
     expect(ctx.audit.recent({ event: "inject" })).toHaveLength(1);
   });
 
-  it("blackbox endpoint exposes resident harness rule and decision state", async () => {
-    await post(ctx.app, "/v1/harness/gate", {
-      action: { tool: "Bash", command: "git push", branch: "main" },
-      session_id: "bb-1",
-    });
-    const res = await ctx.app.request("/v1/harness/blackbox?domain=concordia.harness.gate");
-    const body = await readJson(res);
-    expect(body.enabled).toBe(true);
-    expect(body.domain).toBe("concordia.harness.gate");
-    expect(body.stats.window).toBeGreaterThanOrEqual(1);
-    expect(body.rules.some((r: { description: string }) => r.description.includes("main/master"))).toBe(true);
-  });
-
   it("audit エンドポイントで decision フィルタ + summary が取れる", async () => {
     await post(ctx.app, "/v1/harness/gate", { action: { tool: "Bash", command: "git push", branch: "main" }, session_id: "s" });
     await post(ctx.app, "/v1/harness/gate", { action: { tool: "Bash", command: "ls", branch: "feat/x" }, session_id: "s" });

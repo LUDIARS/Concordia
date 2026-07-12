@@ -14,6 +14,7 @@ describe("Discord command registration", () => {
     expect(names).toContain("ch_name");
     expect(names).toContain("ex-run");
     expect(names).toContain("ex-reboot");
+    expect(names).not.toContain("skill");
     expect(names.length).toBeGreaterThan(1);
   });
 });

@@ -22,14 +22,13 @@ export function readWorkerLease(
     role: string;
     now?: number;
     ttlMs?: number;
-    allowLegacyRole?: boolean;
   },
 ): WorkerLease | null {
   const raw = repo.get(opts.key);
   if (!raw) return null;
   try {
     const o = JSON.parse(raw) as Partial<WorkerLease>;
-    const roleOk = o.role === opts.role || (opts.allowLegacyRole === true && o.role === undefined);
+    const roleOk = o.role === opts.role;
     const now = opts.now ?? Date.now();
     const ttlMs = opts.ttlMs ?? WORKER_LEASE_TTL_MS;
     if (

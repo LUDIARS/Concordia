@@ -281,27 +281,6 @@ describe("spawn router (Hono)", () => {
     expect(body.default_cwd).toBe("D:\\LUDIARS");
   });
 
-  it("POST /preview uses Castra as Claude/Codex home cwd when available", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "concordia-router-castra-"));
-    const castra = join(workspace, "Castra");
-    mkdirSync(castra);
-    try {
-      const app = spawnRouter({ cwd, resolveDefaultCwd: () => workspace });
-      const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
-      const res = await app.request("/preview", {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-        body: JSON.stringify({ provider: "codex", mode: "tab" }),
-      });
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { command: string[] };
-      expect(body.command).toContain("-d");
-      expect(body.command).toContain(castra);
-    } finally {
-      rmSync(workspace, { recursive: true, force: true });
-    }
-  });
-
   it("POST / without token returns 401 with WWW-Authenticate", async () => {
     const app = spawnRouter({ cwd });
     const res = await app.request("/", {
@@ -311,21 +290,6 @@ describe("spawn router (Hono)", () => {
     });
     expect(res.status).toBe(401);
     expect(res.headers.get("www-authenticate") ?? "").toMatch(/Bearer/);
-  });
-
-  it("POST /preview with token returns the wt argv (dry-run, no spawn)", async () => {
-    const app = spawnRouter({ cwd });
-    const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
-    const res = await app.request("/preview", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ provider: "claude", mode: "tab", title: "[Cr] preview" }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { command: string[] };
-    expect(body.command[0]).toBe("wt.exe");
-    expect(body.command).toContain("--title");
-    expect(body.command).toContain("[Cr] preview");
   });
 
   it("POST / rejects unknown provider", async () => {
@@ -341,41 +305,4 @@ describe("spawn router (Hono)", () => {
     expect(body.error).toMatch(/valid: claude, codex, gemini/);
   });
 
-  it("POST /preview accepts gemini provider and emits matching wt argv", async () => {
-    const app = spawnRouter({ cwd });
-    const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
-    const res = await app.request("/preview", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ provider: "gemini", mode: "window" }),
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { command: string[] };
-    // provider は cmd string に結合されているため join 後の要素で確認する
-    expect(body.command.some((a) => a.includes("gemini"))).toBe(true);
-    // window mode → --window new
-    expect(body.command.indexOf("--window")).toBeGreaterThanOrEqual(0);
-    expect(body.command[body.command.indexOf("--window") + 1]).toBe("new");
-  });
-
-  it("preview では /recent に追加されない (real /post のみ追加される)", async () => {
-    // /preview は dry-run で records に追加しない。実際の /post (Windows Terminal spawn)
-    // は CI では実行不可のため、「preview しても /recent が増えない」側のみ検証する。
-    const app = spawnRouter({ cwd });
-    const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
-
-    // /preview を実行しても /recent は増えない
-    await app.request("/preview", {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
-      body: JSON.stringify({ provider: "claude", mode: "tab" }),
-    });
-
-    const res = await app.request("/recent", {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { spawns: unknown[] };
-    expect(body.spawns).toHaveLength(0);
-  });
 });

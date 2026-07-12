@@ -38,13 +38,6 @@ export async function writeRedisJson(key: string, value: unknown, ttlMs: number)
   });
 }
 
-export async function deleteRedisKey(key: string): Promise<void> {
-  if (!redisEnabled()) return;
-  await redisCommand(["DEL", key], redisWriteTimeoutMs()).catch((err: unknown) => {
-    noteRedisFailure(err);
-  });
-}
-
 async function redisCommand(args: string[], timeoutMs: number): Promise<RespValue> {
   if (!redisEnabled()) throw new Error("redis disabled");
   if (Date.now() < disabledUntil) throw new Error("redis temporarily unavailable");

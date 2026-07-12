@@ -112,6 +112,7 @@ function ActiveReposPanel({ session }: { session: SessionRow }) {
     ["stat.collected"],
     session.id,
   );
+  const projectCodes = useLiveQuery(() => api.projectCodes(), [], "project-codes");
 
   const repos = collectRepos(session, stat.data?.latest?.payload);
   return (
@@ -125,7 +126,7 @@ function ActiveReposPanel({ session }: { session: SessionRow }) {
       ) : (
         <div className="flex flex-wrap gap-2">
           {repos.map((r) => {
-            const code = projectCodeFor(r.path);
+            const code = projectCodeFor(r.path, projectCodes.data?.categories ?? []);
             return (
               <span
                 key={r.path + "::" + (r.branch ?? "")}

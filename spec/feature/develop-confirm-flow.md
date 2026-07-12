@@ -4,8 +4,8 @@ title: "Develop confirm flow"
 description: "実装完了 → develop へ squash マージ → 確認タスク発行 → ユーザが Discord コマンドで develop 版を起動して確認 → OK なら main へ反映して再起動、までを自動化するリリース動線。"
 service: concordia
 domain: governance
-status: planned
-updated: 2026-07-11
+status: implemented
+updated: 2026-07-12
 tags:
   - release
   - delegation

@@ -36,7 +36,7 @@ updated: 2026-07-02
 ```
 spec/
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
-├── feature/     # 機能（Discord 連携 / 委託 / multi-provider）
+├── feature/     # 機能（Discord 連携 / 委託 / multi-provider / FAQ）
 ├── interface/   # API・schema 正本（service-schema.md）
 ├── plan/        # 中長期計画（3軸分離リファクタリング）
 ├── setup/       # 起動・設定（用途別ガイド + hook 連携手順）
@@ -55,6 +55,7 @@ spec/
 | [discord-session-direct-inject.md](feature/discord-session-direct-inject.md) | Discord からセッションへ直接注入 |
 | [delegation.md](feature/delegation.md) | エージェント間タスク委託テンプレ |
 | [multi-provider.md](feature/multi-provider.md) | Provider 抽象（Claude/Gemini/Codex） |
+| [faq.md](feature/faq.md) | よくある疑問・紛らわしい構成の Q&A |
 
 ## interface
 - [service-schema.md](interface/service-schema.md) — DB schema / REST・WS・MCP API の正本。

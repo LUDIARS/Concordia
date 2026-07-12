@@ -1,10 +1,8 @@
-import { afterEach, describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { applyMigrations, SCHEMA_VERSION } from "../src/db/schema.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
-  afterEach(() => vi.unstubAllEnvs());
-
   it("creates tables and indexes", () => {
     const db = makeRawTestDb();
     applyMigrations(db);
@@ -54,7 +52,7 @@ describe("schema", () => {
     applyMigrations(db);
   });
 
-  it("requires an explicit backup acknowledgement before removing Excubitor tables", () => {
+  it("leaves obsolete Excubitor tables to the external maintenance command", () => {
     const db = makeRawTestDb();
     db.exec(`
       CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -70,12 +68,6 @@ describe("schema", () => {
       CREATE TABLE audit_log (id INTEGER PRIMARY KEY);
     `);
 
-    expect(() => applyMigrations(db)).toThrow(/back up concordia\.db/i);
-    expect(
-      db.prepare(`SELECT name FROM sqlite_master WHERE name = 'liveness_history'`).get(),
-    ).toBeTruthy();
-
-    vi.stubEnv("CONCORDIA_DB_APPLY_EXCUBITOR_DROP", "1");
     applyMigrations(db);
     const obsolete = db
       .prepare(
@@ -86,7 +78,7 @@ describe("schema", () => {
          )`,
       )
       .all();
-    expect(obsolete).toEqual([]);
+    expect(obsolete).toHaveLength(9);
     expect(
       db.prepare(`SELECT value FROM schema_meta WHERE key = 'version'`).get(),
     ).toEqual({ value: String(SCHEMA_VERSION) });

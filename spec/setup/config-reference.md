@@ -54,12 +54,25 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | rules_log の保持期間 (日)。 |
 | `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | session_stats の保持期間 (日)。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
-| `CONCORDIA_DB_APPLY_EXCUBITOR_DROP` | 未設定 | `.bak` 作成済みの場合だけ `1` にし、旧 Excubitor テーブルの one-shot DROP + VACUUM を許可する。通常は設定しない。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
 > 注: `CONCORDIA_LOST_AFTER_SEC` の既定は **1800 秒 (30 分)** (`.env.example` も同値に統一済み)。 Stop hook が turn 毎にしか発火せず idle ≠ 終了のため、 これより短くすると健全な作業中セッションが lost 化しやすい。 過去に `.env.example` が 300 (5 分) を配布していた時期があるので、 運用中の実 env が 300 のままになっていないか確認すること。
+
+### 旧 Excubitor テーブルの外部削除
+
+通常起動は破壊的 DB 操作を行わず、削除用 env も読まない。全 Concordia プロセスと worker を停止後、まず dry-run で対象を確認する。
+
+```powershell
+npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db
+```
+
+適用時は未使用のバックアップパスと、停止済みであることの明示確認を必須とする。CLI はバックアップの `integrity_check` が成功してから旧テーブルを DROP し、VACUUM する。
+
+```powershell
+npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db --backup E:\path\to\concordia.db.pre-excubitor-drop.bak --apply --confirm-services-stopped
+```
 
 ### 信頼境界 (trust boundary)
 

@@ -1030,56 +1030,6 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
      ON delegation_runs(child_session_id)`,
 ];
 
-/**
- * Excubitor へ移管済みで Concordia から参照されない旧 observability tables。
- * foreign key の子から親へ落とす順序を固定し、途中失敗後の再実行も安全にする。
- */
-const OBSOLETE_EXCUBITOR_TABLES = [
-  "auto_fix_runs",
-  "error_tasks",
-  "error_rules",
-  "service_instance_logs",
-  "liveness_history",
-  "service_instances",
-  "services",
-  "hosts",
-  "audit_log",
-] as const;
-
-const DESTRUCTIVE_MIGRATION_ENV = "CONCORDIA_DB_APPLY_EXCUBITOR_DROP";
-
-function applyExcubitorTableRemoval(db: Database.Database): void {
-  const existing = new Set(
-    (
-      db
-        .prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`)
-        .all() as Array<{ name: string }>
-    ).map((row) => row.name),
-  );
-  const obsolete = OBSOLETE_EXCUBITOR_TABLES.filter((table) => existing.has(table));
-  if (obsolete.length === 0) return;
-
-  if (process.env[DESTRUCTIVE_MIGRATION_ENV] !== "1") {
-    throw new Error(
-      `Concordia DB still contains Excubitor-owned tables (${obsolete.join(", ")}). ` +
-        `Stop Concordia and its workers, back up concordia.db to a .bak file, then restart once with ` +
-        `${DESTRUCTIVE_MIGRATION_ENV}=1. The startup migration will DROP the obsolete tables and VACUUM; ` +
-        `do not run the SQL manually.`,
-    );
-  }
-
-  const drop = db.transaction(() => {
-    for (const table of OBSOLETE_EXCUBITOR_TABLES) {
-      db.exec(`DROP TABLE IF EXISTS ${table}`);
-    }
-  });
-  drop();
-
-  // VACUUM は transaction 内で実行できない。別プロセスが DB を開いていれば
-  // SQLITE_BUSY で起動を失敗させ、停止・バックアップ手順を省略した運用を見逃さない。
-  db.exec("VACUUM");
-}
-
 export function applyMigrations(db: Database.Database): void {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
@@ -1097,7 +1047,6 @@ export function applyMigrations(db: Database.Database): void {
   // 先に張ると既存 DB (列未追加) で "no such column" になり起動失敗するため。
   for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
   applyOwnedDelegationBackfill(db);
-  applyExcubitorTableRemoval(db);
   db.prepare(
     `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
   ).run(String(SCHEMA_VERSION));

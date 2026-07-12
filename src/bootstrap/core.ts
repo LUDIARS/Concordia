@@ -64,6 +64,7 @@ import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startMorningScheduler } from "../morning/scheduler.js";
+import { startCronScheduler } from "../scheduler/cron-scheduler.js";
 import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
@@ -764,6 +765,7 @@ export async function startBackend(): Promise<BackendHandle> {
       ),
     );
     trackPostListenHandle(startMorningScheduler({ delegationService }));
+    trackPostListenHandle(startCronScheduler({ delegationService }));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

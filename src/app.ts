@@ -12,6 +12,7 @@ import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
+import { listHaltedLoops } from "./shared/loop-bulkhead.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -93,7 +94,13 @@ export function buildApp(deps: AppDeps): Hono {
   });
 
   app.get("/health", (c) =>
-    c.json({ ok: true, service: "concordia", version: "0.1.0", started_at: deps.startedAt }),
+    c.json({
+      ok: true,
+      service: "concordia",
+      version: "0.1.0",
+      started_at: deps.startedAt,
+      halted_loops: listHaltedLoops(),
+    }),
   );
 
   registerCoreRoutes(app, {

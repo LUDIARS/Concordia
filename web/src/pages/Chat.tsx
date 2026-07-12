@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { api, fmtTs } from "../api.js";
 import type { ChatMessage, DelegationTemplateLite, SessionRow } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
+import { runMutation } from "../lib/mutation.js";
 
 const CHANNELS = ["chitchat", "consultation", "報告", "ぼやき"] as const;
 type Channel = (typeof CHANNELS)[number];
@@ -81,21 +82,18 @@ export function Chat() {
   );
   const [input, setInput] = useState("");
   const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
   const { resolve: resolveEmoji } = useSessionEmoji();
 
   const send = async () => {
     if (!input.trim() || posting) return;
-    setPosting(true);
-    try {
-      await api.chatPost({
-        channel,
-        text: input.trim(),
-        author_label: "human",
-      });
-      setInput("");
-    } finally {
-      setPosting(false);
-    }
+    await runMutation({
+      setBusy: setPosting,
+      setError: setPostError,
+      action: () => api.chatPost({ channel, text: input.trim(), author_label: "human" }),
+      onSuccess: () => setInput(""),
+      errorPrefix: "投稿失敗: ",
+    });
   };
 
   // 1 番上が最新。 API が新→古で返すのでそのまま使う。
@@ -124,6 +122,7 @@ export function Chat() {
       </div>
 
       {error && <div className="text-danger text-sm">load error: {error.message}</div>}
+      {postError && <div className="text-danger text-sm">{postError}</div>}
 
       <div className="bg-surface border border-border rounded p-3 h-[60vh] overflow-y-auto space-y-2">
         {messages.length === 0 && (

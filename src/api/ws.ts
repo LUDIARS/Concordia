@@ -21,6 +21,14 @@ import { reviveIfLost } from "./sessions/shared.js";
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
 
+export function attachWsSocketErrorHandler(
+  ws: Pick<WebSocket, "on">,
+  report: (error: Error) => void = (error) =>
+    log.warn({ err: error.message }, "ws client socket error"),
+): void {
+  ws.on("error", (error) => report(error));
+}
+
 /**
  * Events with a `target_session_id` are session-scoped — only the WS clients
  * whose `?session=<id>` matches receive them. Used by `session.inject` to
@@ -118,6 +126,7 @@ export function attachWsServer(
     try { ws.send(hello); } catch { /* swallow */ }
 
     let alive = true;
+    attachWsSocketErrorHandler(ws);
     ws.on("pong", () => { alive = true; });
     const ping = setInterval(() => {
       if (!alive) {

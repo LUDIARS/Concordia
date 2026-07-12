@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { fmtTs } from "../api.js";
 import { useLiveQuery } from "../hooks/useWsEvent.js";
+import { requireOk, runMutation } from "../lib/mutation.js";
 
 interface RuleForm {
   id: string;
@@ -110,29 +112,37 @@ export function Rules() {
   };
 
   const toggle = async (id: string) => {
-    setBusy(id);
-    await fetch(`/v1/rules/${encodeURIComponent(id)}/toggle`, { method: "POST" });
-    refetch();
-    setBusy(null);
+    await runMutation({
+      setBusy: (value) => setBusy(value ? id : null),
+      setError: setFormError,
+      action: async () => requireOk(await fetch(`/v1/rules/${encodeURIComponent(id)}/toggle`, { method: "POST" })),
+      onSuccess: refetch,
+      errorPrefix: "toggle 失敗: ",
+    });
   };
 
   const remove = async (id: string) => {
-    if (!confirm(`rule "${id}" を削除しますか?`)) return;
-    setBusy(id);
     const reason = prompt("削除理由 (任意):") ?? "";
-    await fetch(`/v1/rules/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ reason }),
+    await runMutation({
+      confirmMessage: `rule "${id}" を削除しますか?`,
+      setBusy: (value) => setBusy(value ? id : null),
+      setError: setFormError,
+      action: async () => requireOk(await fetch(`/v1/rules/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason }),
+      })),
+      onSuccess: refetch,
+      errorPrefix: "削除失敗: ",
     });
-    refetch();
-    setBusy(null);
   };
 
   const aiAssist = async () => {
-    setAiAssisting(true);
-    setFormError(null);
-    try {
+    await runMutation({
+      setBusy: setAiAssisting,
+      setError: setFormError,
+      errorPrefix: "AI 補完失敗: ",
+      action: async () => {
       const partial: any = {};
       if (form.id) partial.id = form.id;
       if (form.description) partial.description = form.description;
@@ -147,11 +157,7 @@ export function Rules() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ partial }),
       });
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setFormError(`AI 補完失敗: ${(j as any).error ?? r.status}`);
-        return;
-      }
+      await requireOk(r);
       const j = await r.json();
       const rule = j.rule ?? {};
       // ユーザが既に埋めた値は上書きしない (空のスロットだけ AI 候補で埋める)
@@ -171,9 +177,8 @@ export function Rules() {
         instructions: prev.instructions || (rule.instructions ?? ""),
         enabled: prev.enabled,
       }));
-    } finally {
-      setAiAssisting(false);
-    }
+      },
+    });
   };
 
   const submitForm = async () => {
@@ -186,8 +191,10 @@ export function Rules() {
       setFormError("id は必須です");
       return;
     }
-    setFormSubmitting(true);
-    try {
+    await runMutation({
+      setBusy: setFormSubmitting,
+      setError: setFormError,
+      action: async () => {
       const isEdit = mode?.kind === "edit";
       const body: any = {
         description: form.description || null,
@@ -219,16 +226,13 @@ export function Rules() {
           body: JSON.stringify(body),
         });
       }
-      if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        setFormError((j as any).error ?? `${r.status}`);
-        return;
-      }
-      cancelForm();
-      refetch();
-    } finally {
-      setFormSubmitting(false);
-    }
+      await requireOk(r);
+      },
+      onSuccess: () => {
+        cancelForm();
+        refetch();
+      },
+    });
   };
 
   if (error) return <div className="text-danger">load error: {error.message}</div>;
@@ -256,10 +260,12 @@ export function Rules() {
           )}
         </header>
 
+        {formError && !mode && <div className="text-danger text-sm">{formError}</div>}
+
         <div className="bg-surface border border-border rounded p-3 text-xs text-subtle">
           runtime kill switch (チャット mute / ルール有効化 / Discord bot) と
           ワークスペース・リアクションWF・Lictor 設定は
-          <a href="#/settings" className="text-accent"> 設定</a> ページに移動しました。
+          <Link to="/settings" className="text-accent"> 設定</Link> ページに移動しました。
         </div>
 
         {mode && (

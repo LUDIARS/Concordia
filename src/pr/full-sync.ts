@@ -20,6 +20,7 @@ import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { isOwnerRepo, prUrlFor } from "./normalize.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 
 const execFileAsync = promisify(execFile);
 const log = createChildLogger("pr-full-sync");
@@ -115,26 +116,25 @@ export function startPrFullSync(deps: PrFullSyncDeps): PrFullSyncHandle {
     return { found: prs.length, inserted };
   }
 
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let supervised: SupervisedIntervalHandle | null = null;
   if (enabled) {
-    const kick = setTimeout(() => {
-      void runOnce()
-        .then((r) => log.info(`full-sync: found=${r.found} inserted=${r.inserted}`))
-        .catch((e) => log.warn(`full-sync run failed: ${(e as Error).message}`));
-    }, 20_000);
-    kick.unref?.();
-    timer = setInterval(() => {
-      void runOnce()
-        .then((r) => log.info(`full-sync: found=${r.found} inserted=${r.inserted}`))
-        .catch((e) => log.warn(`full-sync run failed: ${(e as Error).message}`));
-    }, minutes * 60 * 1000);
-    timer.unref?.();
+    supervised = startSupervisedInterval("pr-full-sync", async () => {
+      const r = await runOnce();
+      log.info(`full-sync: found=${r.found} inserted=${r.inserted}`);
+    }, {
+      intervalMs: minutes * 60 * 1000,
+      initialDelayMs: 20_000,
+      log: { warn: (message) => log.warn(message) },
+    });
   } else {
     log.info("CONCORDIA_PR_FULL_SYNC_ENABLED=0; full-sync disabled");
   }
 
   return {
-    stop: () => { if (timer) clearInterval(timer); },
+    stop: () => {
+      supervised?.stop();
+      supervised = null;
+    },
     runOnce,
   };
 }

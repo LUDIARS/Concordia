@@ -24,6 +24,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { StatsRepo } from "../db/stats-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("stat-scheduler");
 
@@ -53,7 +54,6 @@ export interface StatSchedulerHandle {
 export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle {
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
   const tickMs = deps.tickMs ?? SCHEDULER_TICK_MS;
-  let timer: NodeJS.Timeout | null = null;
   let stopped = false;
 
   function runOnce(): number {
@@ -120,21 +120,16 @@ export function startStatScheduler(deps: StatSchedulerDeps): StatSchedulerHandle
     });
   }
 
-  function tick(): void {
-    try {
-      runOnce();
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "tick failed");
-    }
-  }
-
-  timer = setInterval(tick, tickMs);
+  const supervised = startSupervisedInterval("stat-scheduler", runOnce, {
+    intervalMs: tickMs,
+    log: { warn: (message) => log.warn(message) },
+  });
   log.info({ tickMs, intervalSec: STAT_POLL_INTERVAL_SEC }, "stat scheduler started");
 
   return {
     stop: () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      supervised.stop();
       log.info("stat scheduler stopped");
     },
     runOnce,

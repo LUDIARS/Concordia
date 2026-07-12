@@ -15,6 +15,7 @@ import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type Disco
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
+import { shouldRestartDiscordBot } from "./gateway-policy.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import {
@@ -719,16 +720,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
   client.on(Events.ShardError, (e, shardId) => {
-    stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
+    if (shouldRestartDiscordBot("error")) {
+      stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
+    }
   });
   client.on(Events.ShardDisconnect, (event, shardId) => {
-    stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
+    if (shouldRestartDiscordBot("disconnect")) {
+      stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
+    }
   });
   client.on(Events.ShardReconnecting, (shardId) => {
     // ShardReconnecting は discord.js が自力で resume する通常のライフサイクル
     // イベント。 ここで teardown すると一瞬のネットワーク揺らぎで bot が恒久停止
     // する (復帰経路なし) ため、 ログのみ残して resume に任せる。
-    log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
+    if (!shouldRestartDiscordBot("reconnecting")) {
+      log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
+    }
   });
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {

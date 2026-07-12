@@ -233,6 +233,10 @@ MCP サーバ (別プロセス) が読む env:
 | `CONCORDIA_ERROR_AUTOFIX_CWD` | spawn default cwd | `control/error-fix.ts:81` | auto-fix を回す working directory。 |
 | `CONCORDIA_ERROR_WATCH_LOGS_ROOT` | 未設定 | `discord/error-monitor.ts:25` | Discord エラー監視が tail するログのルート。 未設定なら監視 off。 |
 | `CONCORDIA_ERROR_WATCH_INTERVAL_SEC` | `30` (最小 10) | `discord/error-monitor.ts:26` | エラー監視の tail 間隔 (秒)。 |
+| `CONCORDIA_LOOP_MAX_CONSECUTIVE_FAILURES` | `5` | `shared/loop-bulkhead.ts` | 周期ループを個別停止するまでの連続失敗数。停止状態は `/health.halted_loops` と `error.reported` に出る。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_MS` | `200` | `metrics/loop.ts` | event-loop lag p99 の通知閾値 (ms)。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES` | `3` | `metrics/loop.ts` | lag 通知までに必要な連続超過サンプル数。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_COOLDOWN_MS` | `600000` | `metrics/loop.ts` | lag 通知の cooldown (ms)。 |
 | `CONCORDIA_WORKSPACE_ROOT` | spawn default cwd を流用 | `shared/config.ts` | プライマリ workspace ルート (リアクションワークフロー / Work 走査の基点、 Memoria / Lictor の基点)。 未設定時は `CONCORDIA_SPAWN_DEFAULT_CWD` の解決値。 **設定 GUI (Rules ページ) / `/v1/admin/workspace-root(s)` から上書き可** (schema_meta 永続化、 bot restart で反映)。 |
 | `CONCORDIA_WORKSPACE_ROOTS` | 未設定 (= `CONCORDIA_WORKSPACE_ROOT` のみ) | `shared/config.ts` | `;` 区切りの追加 workspace ルート列。 プライマリ + これらを正規化重複除去した集合が走査対象。 Work ページは全ルート直下の git リポを横断走査、 Memoria は実在する `<root>/Memoria` を採用。 |
 | `CONCORDIA_GITHUB_ORG` | `LUDIARS` 運用パス存在時のみ `LUDIARS`、 他は空 | `shared/config.ts` | リポが属する GitHub Organization (PR / repo 操作の owner 解決)。 **設定 GUI / `/v1/admin/github-org` から上書き可** (schema_meta 永続化)。 |

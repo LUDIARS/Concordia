@@ -7,6 +7,9 @@ import { createChildLogger } from "../shared/logger.js";
 import { collectHostSnapshot } from "./collector.js";
 import { MetricsStore } from "./store.js";
 import { EventLoopLagSampler } from "./event-loop-lag.js";
+import type { LagSnapshot } from "./event-loop-lag.js";
+import { EventLoopLagAlert } from "./lag-alert.js";
+import { createLoopBulkhead } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("metrics");
 
@@ -15,7 +18,7 @@ export interface MetricsLoopHandle {
 }
 
 export function startMetricsLoop(
-  deps: { repo: SessionsRepo; store: MetricsStore },
+  deps: { repo: SessionsRepo; store: MetricsStore; notifyLag?: (snapshot: LagSnapshot) => Promise<void> | void },
   opts: { enabled: boolean; intervalMs: number; retentionHours: number },
 ): MetricsLoopHandle {
   if (!opts.enabled) {
@@ -29,23 +32,36 @@ export function startMetricsLoop(
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   const startDelayMs = readNonNegativeIntEnv("CONCORDIA_METRICS_START_DELAY_MS", 30_000);
+  const lagAlert = new EventLoopLagAlert({
+    thresholdMs: readPositiveIntEnv("CONCORDIA_EVENT_LOOP_LAG_ALERT_MS", 200),
+    consecutiveSamples: readPositiveIntEnv("CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES", 3),
+    cooldownMs: readPositiveIntEnv("CONCORDIA_EVENT_LOOP_LAG_ALERT_COOLDOWN_MS", 10 * 60_000),
+    notify: deps.notifyLag ?? (() => undefined),
+  });
+  const bulkhead = createLoopBulkhead("metrics", {
+    log: { warn: (message) => log.warn(message) },
+    onHalt: () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      if (lagSamplerEnabled) lagSampler.disable();
+    },
+  });
 
   const tick = async (): Promise<void> => {
     if (stopped) return;
-    try {
+    await bulkhead.run(async () => {
       if (!lagSamplerEnabled) {
         lagSampler.enable();
         lagSamplerEnabled = true;
       }
       const lagSnap = lagSampler.snapshot();
+      lagAlert.observe(lagSnap);
       const snap = await collectHostSnapshot(deps.repo, Date.now());
       snap.eventLoopLag = lagSnap;
       deps.store.insert(snap);
       deps.store.prune(Date.now() - opts.retentionHours * 3_600_000);
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "metrics tick failed");
-    }
-    if (!stopped) timer = setTimeout(() => void tick(), opts.intervalMs);
+    });
+    if (!stopped && !bulkhead.isHalted()) timer = setTimeout(() => void tick(), opts.intervalMs);
   };
 
   timer = setTimeout(() => void tick(), startDelayMs);
@@ -59,6 +75,13 @@ export function startMetricsLoop(
       if (lagSamplerEnabled) lagSampler.disable();
     },
   };
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function readNonNegativeIntEnv(name: string, fallback: number): number {

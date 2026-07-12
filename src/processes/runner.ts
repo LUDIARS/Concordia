@@ -60,6 +60,10 @@ export interface RunnerHandle {
   snapshot: () => LogEntry[];
 }
 
+export function windowsTreeKillArgs(pid: number): string[] {
+  return ["/PID", String(pid), "/T", "/F"];
+}
+
 export function spawnProcess(input: RunnerInput): RunnerHandle {
   const errorPatterns = (input.error_patterns ?? DEFAULT_ERROR_PATTERNS).map(
     (p) => new RegExp(p, "i"),
@@ -185,14 +189,37 @@ export function spawnProcess(input: RunnerInput): RunnerHandle {
           return;
         }
         let killed = false;
-        const onExit = () => { if (!killed) { killed = true; resolve(); } };
+        let fallback: NodeJS.Timeout | null = null;
+        let hardDeadline: NodeJS.Timeout | null = null;
+        const onExit = () => {
+          if (killed) return;
+          killed = true;
+          if (fallback) clearTimeout(fallback);
+          if (hardDeadline) clearTimeout(hardDeadline);
+          resolve();
+        };
         child.once("close", onExit);
-        try { child.kill("SIGTERM"); } catch { /* swallow */ }
-        setTimeout(() => {
+        if (process.platform === "win32" && child.pid) {
+          const killer = spawn("taskkill", windowsTreeKillArgs(child.pid), {
+            shell: false,
+            windowsHide: true,
+            stdio: "ignore",
+          });
+          killer.once("error", (error) => {
+            log.warn({ err: error.message, name: input.name, pid: child.pid }, "taskkill tree failed");
+            try { child.kill("SIGKILL"); } catch { /* swallow */ }
+          });
+        } else {
+          try { child.kill("SIGTERM"); } catch { /* swallow */ }
+        }
+        fallback = setTimeout(() => {
           if (!killed) {
             try { child.kill("SIGKILL"); } catch { /* swallow */ }
           }
         }, timeoutMs);
+        hardDeadline = setTimeout(onExit, timeoutMs + 1000);
+        fallback.unref?.();
+        hardDeadline.unref?.();
       }),
   };
 }

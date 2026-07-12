@@ -16,6 +16,7 @@ import { decideRuleFire } from "./decide.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { actionFrequencyMultiplier } from "../shared/quiet-hours.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("rule-engine");
 const ENGINE_TICK_MS = 1000;
@@ -38,7 +39,6 @@ export interface EngineHandle {
 export function startRuleEngine(deps: EngineDeps): EngineHandle {
   let running = false;
   let unsubEvent: (() => void) | null = null;
-  let timer: NodeJS.Timeout | null = null;
   let stopped = false;
 
   // event-driven rules
@@ -71,8 +71,7 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   });
 
   // tick timer (sweeper.ts と同じく tick 全体をガードし rejection を漏らさない)
-  timer = setInterval(async () => {
-    try {
+  const supervised = startSupervisedInterval("rule-engine", async () => {
       if (stopped) return;
       const now = Math.floor(Date.now() / 1000);
       // 深夜帯は tick の発火間隔を 1/freq 倍に伸ばす (= 行動頻度 1/10).
@@ -85,10 +84,10 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
           await tryFire(r, "tick");
         }
       }
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "tick rule pass failed");
-    }
-  }, ENGINE_TICK_MS);
+  }, {
+    intervalMs: ENGINE_TICK_MS,
+    log: { warn: (message) => log.warn(message) },
+  });
 
   log.info({ tickMs: ENGINE_TICK_MS }, "rule engine started (deterministic / haiku-rendered)");
 
@@ -142,7 +141,7 @@ export function startRuleEngine(deps: EngineDeps): EngineHandle {
   return {
     stop: () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      supervised.stop();
       if (unsubEvent) unsubEvent();
       log.info("rule engine stopped");
     },

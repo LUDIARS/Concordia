@@ -91,6 +91,7 @@ import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import { isReactionUserAllowed } from "../shared/reaction-workflow-auth.js";
+import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
@@ -315,6 +316,15 @@ export async function startBackend(): Promise<BackendHandle> {
   const bootStarted = Date.now();
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
+  configureLoopHaltNotifier((state) => {
+    eventBus.emit({
+      type: "error.reported",
+      source: "loop-bulkhead",
+      message: `Background loop halted: ${state.name}`,
+      detail: { ...state },
+      ts: Math.floor(Date.now() / 1000),
+    });
+  });
 
   // 信頼境界の強制: 非 loopback bind (0.0.0.0 / LAN IP 等) は admin API を localhost の
   // 外へ晒す。 warn を出し、 admin token 未設定なら起動拒否する (CWE-306 / CWE-1188)。
@@ -778,7 +788,19 @@ export async function startBackend(): Promise<BackendHandle> {
     );
     trackPostListenHandle(
       startMetricsLoop(
-        { repo, store: metricsStore },
+        {
+          repo,
+          store: metricsStore,
+          notifyLag: (snapshot) => {
+            eventBus.emit({
+              type: "error.reported",
+              source: "event-loop-lag",
+              message: `Event-loop lag p99 ${snapshot.p99}ms exceeded threshold`,
+              detail: { ...snapshot },
+              ts: Math.floor(Date.now() / 1000),
+            });
+          },
+        },
         {
           enabled: cfg.metricsEnabled,
           intervalMs: cfg.metricsIntervalMs,

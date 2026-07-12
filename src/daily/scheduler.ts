@@ -11,6 +11,7 @@ import type { DayReportsRepo } from "../db/day-reports-repo.js";
 import { generateDayReport } from "./generator.js";
 import { dayRange } from "./aggregator.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("daily-scheduler");
 const TICK_MS = 30 * 60 * 1000;
@@ -27,7 +28,6 @@ export interface SchedulerHandle {
 }
 
 export function startDailyScheduler(deps: SchedulerDeps): SchedulerHandle {
-  let timer: NodeJS.Timeout | null = null;
   let stopped = false;
 
   const todayIso = (): string => dayRange(new Date()).iso;
@@ -67,14 +67,17 @@ export function startDailyScheduler(deps: SchedulerDeps): SchedulerHandle {
   }
 
   // 起動 5 秒後 + 30 分ごと
-  setTimeout(() => { void tick(); }, 5000);
-  timer = setInterval(() => { void tick(); }, TICK_MS);
+  const supervised = startSupervisedInterval("daily-scheduler", tick, {
+    intervalMs: TICK_MS,
+    initialDelayMs: 5_000,
+    log: { warn: (message) => log.warn(message) },
+  });
 
   log.info({ tickMs: TICK_MS }, "daily report scheduler started");
   return {
     stop: () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      supervised.stop();
     },
     runOnce,
   };

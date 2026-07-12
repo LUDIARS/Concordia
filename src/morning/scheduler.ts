@@ -9,6 +9,7 @@
 
 import type { DelegationService } from "../delegation/service.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("morning-scheduler");
 const TICK_MS = 30 * 60 * 1000;
@@ -86,7 +87,6 @@ export function startMorningScheduler(
 ): MorningSchedulerHandle {
   let stopped = false;
   let lastFiredDate: string | null = null;
-  let timer: NodeJS.Timeout | null = null;
 
   const memoriaBase =
     deps.memoriaBaseUrl ??
@@ -135,15 +135,18 @@ export function startMorningScheduler(
     await runOnce();
   }
 
-  setTimeout(() => { void tick(); }, 5000);
-  timer = setInterval(() => { void tick(); }, TICK_MS);
+  const supervised = startSupervisedInterval("morning-scheduler", tick, {
+    intervalMs: TICK_MS,
+    initialDelayMs: 5_000,
+    log: { warn: (message) => log.warn(message) },
+  });
 
   log.info({ tickMs: TICK_MS, targetHour: TARGET_HOUR }, "morning task scheduler started");
 
   return {
     stop: () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      supervised.stop();
     },
     runOnce,
   };

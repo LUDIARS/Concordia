@@ -23,6 +23,7 @@ import type { TasksRepo } from "../db/tasks-repo.js";
 import { isOwnerRepo, normalizeRepoOrigin, prUrlFor } from "./normalize.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 
 const execFileAsync = promisify(execFile);
 const log = createChildLogger("pr-reconcile");
@@ -233,30 +234,25 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
     return { scanned, updated };
   }
 
-  let timer: ReturnType<typeof setInterval> | null = null;
-  let kick: ReturnType<typeof setTimeout> | null = null;
+  let supervised: SupervisedIntervalHandle | null = null;
   if (enabled) {
     // 起動直後に 1 回 + 以降 interval. backend boot を遅らせないため初回は遅延実行.
-    kick = setTimeout(() => {
-      void runOnce()
-        .then((r) => log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`))
-        .catch((e) => log.warn(`reconcile run failed: ${(e as Error).message}`));
-    }, 15_000);
-    kick.unref?.();
-    timer = setInterval(() => {
-      void runOnce()
-        .then((r) => log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`))
-        .catch((e) => log.warn(`reconcile run failed: ${(e as Error).message}`));
-    }, minutes * 60 * 1000);
-    timer.unref?.();
+    supervised = startSupervisedInterval("pr-reconcile", async () => {
+      const r = await runOnce();
+      log.info(`reconcile: scanned=${r.scanned} updated=${r.updated}`);
+    }, {
+      intervalMs: minutes * 60 * 1000,
+      initialDelayMs: 15_000,
+      log: { warn: (message) => log.warn(message) },
+    });
   } else {
     log.info("CONCORDIA_PR_RECONCILE_ENABLED=0; reconcile disabled");
   }
 
   return {
     stop: () => {
-      if (kick) clearTimeout(kick);
-      if (timer) clearInterval(timer);
+      supervised?.stop();
+      supervised = null;
     },
     runOnce,
   };

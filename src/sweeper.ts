@@ -16,6 +16,7 @@ import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 import { eventBus } from "./events.js";
+import { createLoopBulkhead } from "./shared/loop-bulkhead.js";
 
 const log = createChildLogger("sweeper");
 
@@ -39,13 +40,16 @@ export interface SweeperOptions {
 
 export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce: () => void } {
   let timer: NodeJS.Timeout | null = null;
+  const bulkhead = createLoopBulkhead("sweeper", {
+    log: { warn: (message) => log.warn(message) },
+    onHalt: () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    },
+  });
 
-  function tick(): void {
-    try {
-      runOnce();
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "sweeper tick failed");
-    }
+  async function tick(): Promise<void> {
+    await bulkhead.run(runOnce);
   }
 
   function runOnce(): void {
@@ -136,7 +140,7 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     }
   }
 
-  timer = setInterval(tick, opts.intervalMs);
+  timer = setInterval(() => void tick(), opts.intervalMs);
   log.info({ intervalMs: opts.intervalMs }, "sweeper started");
 
   return {

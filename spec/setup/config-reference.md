@@ -50,12 +50,29 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` (24h) | lost からこの秒数で `abandoned`。 |
 | `CONCORDIA_LOST_PURGE_AFTER_SEC` | `1800` | lost を purge するまでの猶予秒。 |
 | `CONCORDIA_PURGE_AFTER_DAYS` | `90` | session_events の auto-purge 期間 (日)。 |
+| `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | transcript_logs の保持期間 (日)。 |
+| `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | rules_log の保持期間 (日)。 |
+| `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | session_stats の保持期間 (日)。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
 > 注: `CONCORDIA_LOST_AFTER_SEC` の既定は **1800 秒 (30 分)** (`.env.example` も同値に統一済み)。 Stop hook が turn 毎にしか発火せず idle ≠ 終了のため、 これより短くすると健全な作業中セッションが lost 化しやすい。 過去に `.env.example` が 300 (5 分) を配布していた時期があるので、 運用中の実 env が 300 のままになっていないか確認すること。
+
+### 旧 Excubitor テーブルの外部削除
+
+通常起動は破壊的 DB 操作を行わず、削除用 env も読まない。全 Concordia プロセスと worker を停止後、まず dry-run で対象を確認する。
+
+```powershell
+npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db
+```
+
+適用時は未使用のバックアップパスと、停止済みであることの明示確認を必須とする。CLI はバックアップの `integrity_check` が成功してから旧テーブルを DROP し、VACUUM する。
+
+```powershell
+npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db --backup E:\path\to\concordia.db.pre-excubitor-drop.bak --apply --confirm-services-stopped
+```
 
 ### 信頼境界 (trust boundary)
 
@@ -186,6 +203,17 @@ MCP サーバ (別プロセス) が読む env:
 
 サービス本体ではなく、 各 AI セッションが起動する hook / worker スクリプトが読む env。 詳細は [`setup/hooks-claude-code.md`](hooks-claude-code.md) / [`setup/hooks-codex-cli.md`](hooks-codex-cli.md)。
 
+Concordia の分離 worker:
+
+| キー | 既定値 | 意味 |
+|------|--------|------|
+| `CONCORDIA_CHAT_MODE` | `embedded` | `worker` で core 内 Discord/Slack を止め、`npm run chat:worker` が SQLite read-model + 非同期 WS events を所有。lease 消失時は embedded mode なら自動復帰。`off` で無効。 |
+| `CONCORDIA_WORKFLOW_MODE` | `embedded` | `worker` で delegation invoke を producer-only SQLite queue にし、`npm run workflow:worker` が消化。lease 消失時は embedded mode なら自動復帰。 |
+| `CONCORDIA_COST_MODE` | `embedded` | `worker` で `npm run cost:worker` が cost sampling を所有。`off` で無効。 |
+
+chat-worker は core 停止中の副作用 HTTP を `chat_mutation_outbox` に保存し、復旧後に
+at-least-once 再送する。認証 token は outbox に保存せず、再送時に env から付与する。
+
 `tools/concordia-hook.mjs`:
 
 | キー | 既定値 | 意味 |
@@ -229,6 +257,10 @@ MCP サーバ (別プロセス) が読む env:
 | `CONCORDIA_ERROR_AUTOFIX_CWD` | spawn default cwd | `control/error-fix.ts:81` | auto-fix を回す working directory。 |
 | `CONCORDIA_ERROR_WATCH_LOGS_ROOT` | 未設定 | `discord/error-monitor.ts:25` | Discord エラー監視が tail するログのルート。 未設定なら監視 off。 |
 | `CONCORDIA_ERROR_WATCH_INTERVAL_SEC` | `30` (最小 10) | `discord/error-monitor.ts:26` | エラー監視の tail 間隔 (秒)。 |
+| `CONCORDIA_LOOP_MAX_CONSECUTIVE_FAILURES` | `5` | `shared/loop-bulkhead.ts` | 周期ループを個別停止するまでの連続失敗数。停止状態は `/health.halted_loops` と `error.reported` に出る。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_MS` | `200` | `metrics/loop.ts` | event-loop lag p99 の通知閾値 (ms)。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES` | `3` | `metrics/loop.ts` | lag 通知までに必要な連続超過サンプル数。 |
+| `CONCORDIA_EVENT_LOOP_LAG_ALERT_COOLDOWN_MS` | `600000` | `metrics/loop.ts` | lag 通知の cooldown (ms)。 |
 | `CONCORDIA_WORKSPACE_ROOT` | spawn default cwd を流用 | `shared/config.ts` | プライマリ workspace ルート (リアクションワークフロー / Work 走査の基点、 Memoria / Lictor の基点)。 未設定時は `CONCORDIA_SPAWN_DEFAULT_CWD` の解決値。 **設定 GUI (Rules ページ) / `/v1/admin/workspace-root(s)` から上書き可** (schema_meta 永続化、 bot restart で反映)。 |
 | `CONCORDIA_WORKSPACE_ROOTS` | 未設定 (= `CONCORDIA_WORKSPACE_ROOT` のみ) | `shared/config.ts` | `;` 区切りの追加 workspace ルート列。 プライマリ + これらを正規化重複除去した集合が走査対象。 Work ページは全ルート直下の git リポを横断走査、 Memoria は実在する `<root>/Memoria` を採用。 |
 | `CONCORDIA_GITHUB_ORG` | `LUDIARS` 運用パス存在時のみ `LUDIARS`、 他は空 | `shared/config.ts` | リポが属する GitHub Organization (PR / repo 操作の owner 解決)。 **設定 GUI / `/v1/admin/github-org` から上書き可** (schema_meta 永続化)。 |
@@ -245,6 +277,7 @@ MCP サーバ (別プロセス) が読む env:
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
+| reaction-workflow 発火ユーザ | 空 (全拒否) | env `CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS` / `CONCORDIA_REACTION_WORKFLOW_SLACK_USERS` | プラットフォーム user ID のカンマ/空白/`;` 区切り allowlist。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |

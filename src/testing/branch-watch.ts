@@ -12,6 +12,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { injectTestingNotice } from "./notify.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const POLL_MS = 30_000;
 const NOTIFY_COOLDOWN_MS = 60 * 60 * 1000;
@@ -81,11 +82,13 @@ export function startBranchWatch(deps: BranchWatchDeps): { stop(): void } {
     }
   };
 
-  const timer = setInterval(tick, deps.intervalMs ?? POLL_MS);
-  timer.unref?.();
+  const supervised = startSupervisedInterval("branch-watch", tick, {
+    intervalMs: deps.intervalMs ?? POLL_MS,
+    log: { warn: (message) => deps.log?.warn(message) },
+  });
   return {
     stop() {
-      clearInterval(timer);
+      supervised.stop();
     },
   };
 }

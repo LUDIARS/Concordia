@@ -6,8 +6,6 @@ import {
   mergeGoalIntoMetadata,
   describeGoal,
   formatGoalBadge,
-  goalDrivesAutoContinue,
-  goalRequiresStepConfirm,
   DEFAULT_GOAL,
 } from "./goal.js";
 
@@ -66,15 +64,5 @@ describe("describeGoal / formatGoalBadge", () => {
     expect(describeGoal({ mode: "scoped", text: "月内 #441" })).toBe("範囲限定: 月内 #441");
     expect(describeGoal({ mode: "watch" })).toBe("様子見 (確認しながら)");
     expect(formatGoalBadge({ mode: "complete" })).toBe("🎯 完成まで実装");
-  });
-});
-
-describe("predicates", () => {
-  it("goal mode だけでは自動継続しない", () => {
-    expect(goalDrivesAutoContinue("complete")).toBe(false);
-    expect(goalDrivesAutoContinue("scoped")).toBe(false);
-    expect(goalDrivesAutoContinue("watch")).toBe(false);
-    expect(goalRequiresStepConfirm("watch")).toBe(true);
-    expect(goalRequiresStepConfirm("complete")).toBe(false);
   });
 });

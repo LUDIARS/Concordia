@@ -40,7 +40,7 @@ import type { SecretBox } from "../shared/secret-box.js";
 import type { ChannelDirectory } from "./sessions/deps.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
-import { tasksRouter } from "./tasks.js";
+import { projectCodesRouter } from "./project-codes.js";
 import { delegationRouter } from "./delegation.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
@@ -150,11 +150,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       harnessAudit: deps.harnessAudit,
     }),
   );
-  app.route("/v1/tasks", tasksRouter({ records: deps.sessionTaskRecords }));
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
   app.route(
     "/v1/personas",
-    personasRouter({ personas: deps.personas, sessions: deps.repo, chat: deps.chat, config: deps.config }),
+    personasRouter({ personas: deps.personas }),
   );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
   app.route(
@@ -184,6 +183,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
+  app.route(
+    "/v1/project-codes",
+    projectCodesRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+  );
   app.route("/v1/delegation", delegationRouter({
     repo: deps.delegation,
     service: deps.delegationService,

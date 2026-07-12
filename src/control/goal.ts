@@ -107,14 +107,3 @@ export function describeGoal(goal: Goal): string {
 export function formatGoalBadge(goal: Goal): string {
   return `🎯 ${describeGoal(goal)}`;
 }
-
-/** Goal は表示・分類用。自動継続は stall nudge / delegation 側の明示判断で行う。 */
-export function goalDrivesAutoContinue(mode: GoalMode): boolean {
-  void mode;
-  return false;
-}
-
-/** watch は各ステップ前に確認を取る。 */
-export function goalRequiresStepConfirm(mode: GoalMode): boolean {
-  return mode === "watch";
-}

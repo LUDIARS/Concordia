@@ -68,6 +68,21 @@ describe("DelegationQueue", () => {
     expect(queue.hasCapacity()).toBe(true);
   });
 
+  it("producer-only mode は上限 0 でも全実行を worker queue に渡し、自身では drain しない", async () => {
+    const queue = new DelegationQueue({
+      repo,
+      sessions,
+      resolveMaxConcurrency: () => 0,
+      spawnQueued: async () => undefined,
+      producerOnly: () => true,
+    });
+    expect(queue.enabled()).toBe(true);
+    expect(queue.hasCapacity()).toBe(false);
+    makeRun(repo, "queued", { queue_payload_json: "{}" });
+    await queue.drain();
+    expect(spawned).toEqual([]);
+  });
+
   it("子セッションが終了済みの run はスロットを占有しない (status は書き換えない)", () => {
     const queue = makeQueue(1);
     const run = makeRun(repo, "running", { child_session_id: "s1" });

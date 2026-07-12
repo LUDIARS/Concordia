@@ -393,7 +393,7 @@ CREATE TABLE process_logs (
 
 ### 12.5 eventBus (process.* 拡張)
 
-`/ws` と `/v1/stream` には既存 wiring のまま流れる:
+`/ws` には既存 wiring のまま流れる:
 
 ```ts
 | { type: "process.started"; process_name: string; pid: number; cwd: string; command: string; ts }
@@ -468,3 +468,17 @@ The connection greeting is also versioned:
   "registered": true
 }
 ```
+
+---
+
+## 14. Worker ownership contracts
+
+- `chat-worker`: `chat_worker_lease` (`role=chat-relay`) を `discord_config` に heartbeat。
+  SQLite WAL の read-model を直接読み、`/ws` v1 は非同期 event 入力にだけ使う。core mutation が
+  transport error の場合は `chat_mutation_outbox` に method/path/body のみを保存し、復旧後に再送する。
+  token/header は永続化しない。
+- `workflow-worker`: `workflow_worker_lease` (`role=delegation-workflow`) を heartbeat。
+  core は live lease または `CONCORDIA_WORKFLOW_MODE=worker` 中、delegation invoke を
+  `delegation_runs.status='queued'` として producer-only 永続化し、worker が FIFO drain する。
+- lease TTL は共通 `shared/worker-lease.ts` の 90 秒。embedded mode は lease 消失を検知すると
+  15 秒周期の監視で自動復帰する。二重所有中は worker lease を優先する。

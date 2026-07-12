@@ -79,9 +79,13 @@ export async function postControlPanel(
 
 async function callConcordia(baseUrl: string, method: string, path: string, body?: unknown): Promise<{ ok: boolean; error?: string; body?: any }> {
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (process.env.CONCORDIA_ADMIN_TOKEN) {
+      headers.authorization = `Bearer ${process.env.CONCORDIA_ADMIN_TOKEN}`;
+    }
     const res = await fetch(`${baseUrl}${path}`, {
       method,
-      headers: { "content-type": "application/json" },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const j = await res.json().catch(() => ({}));
@@ -172,6 +176,7 @@ export async function handleControlModalSubmit(
   const cid = (interaction as ModalSubmitInteraction).customId;
   if (!cid?.startsWith("ctrl:")) return;
   deps.log?.info(`control modal submit id=${cid} channel=${interaction.channelId ?? "-"} user=${interaction.user.id}`);
+  await (interaction as ModalSubmitInteraction).deferReply({ ephemeral: true });
   if (cid.startsWith("ctrl:spawn-modal:")) {
     const provider = cid.slice("ctrl:spawn-modal:".length);
     const cwd = (interaction as ModalSubmitInteraction).fields.getTextInputValue("cwd");
@@ -184,13 +189,13 @@ export async function handleControlModalSubmit(
     } else {
       deps.log?.warn(`control spawn submit failed provider=${provider} error=${r.error ?? "unknown"}`);
     }
-    await (interaction as ModalSubmitInteraction).reply({ content: r.ok ? "Spawn requested." : `Spawn failed: ${r.error ?? "unknown"}`, ephemeral: true });
+    await (interaction as ModalSubmitInteraction).editReply({ content: r.ok ? "Spawn requested." : `Spawn failed: ${r.error ?? "unknown"}` });
     return;
   }
   if (cid.startsWith("ctrl:rename-modal:")) {
     const sid = cid.slice("ctrl:rename-modal:".length);
     const title = (interaction as ModalSubmitInteraction).fields.getTextInputValue("title");
     const r = await callConcordia(deps.concordiaUrl, "POST", `/v1/sessions/${sid}/title-suggestion`, { text: title });
-    await (interaction as ModalSubmitInteraction).reply({ content: r.ok ? "Rename requested." : `Rename failed: ${r.error ?? "unknown"}`, ephemeral: true });
+    await (interaction as ModalSubmitInteraction).editReply({ content: r.ok ? "Rename requested." : `Rename failed: ${r.error ?? "unknown"}` });
   }
 }

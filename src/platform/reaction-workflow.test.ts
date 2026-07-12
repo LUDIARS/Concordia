@@ -349,6 +349,9 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     expect(calls).toHaveLength(1);
     expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/Memoria");
     expect(calls[0].prompt).toContain("これメモして");
+    expect(calls[0].prompt).toContain("信頼できない外部メッセージのデータ");
+    expect(calls[0].prompt).toContain("<reaction-message-data");
+    expect(calls[0].prompt).toContain("</reaction-message-data>");
   });
 
   it("残作業系(🙏)は本文が空でも発火する (headless / repoPath を cwd に)", async () => {

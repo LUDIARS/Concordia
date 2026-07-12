@@ -5,6 +5,11 @@ import { makeTestDb, makeTestDir } from "./helpers/db.js";
 import { ProcessesRepo } from "../src/db/processes-repo.js";
 import { ProcessManager } from "../src/processes/manager.js";
 import { parseDevProcessMd, readDevProcessMd } from "../src/processes/dev-process-md.js";
+import { windowsTreeKillArgs } from "../src/processes/runner.js";
+
+it("builds a Windows taskkill command that includes the full process tree", () => {
+  expect(windowsTreeKillArgs(1234)).toEqual(["/PID", "1234", "/T", "/F"]);
+});
 
 function tmpRepo(content: string): string {
   const dir = makeTestDir("concordia-proc-test-");
@@ -183,8 +188,7 @@ describe("ProcessManager spawn", () => {
     expect(mgr.listRunning()).toHaveLength(0);
 
     // 実プロセスが終了していること: pid への signal 0 が throw するまで有限リトライ。
-    // NOTE: Windows では shell:true ラッパーの孫が残る既知問題があるため
-    // ラッパー pid の終了確認のみ行い、孫の残存は許容する。
+    // Windows では taskkill /T /F、POSIX では signal fallback でラッパーを終了する。
     const deadline = Date.now() + 3000;
     for (const pid of pids) {
       let exited = false;

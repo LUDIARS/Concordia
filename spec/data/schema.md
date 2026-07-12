@@ -43,8 +43,8 @@ API/機能視点は [`../interface/service-schema.md`](../interface/service-sche
 | `session_events` | start/prompt/edit/end 等の離散イベント | id / session_id / ts / kind / payload。INDEX: session×ts / kind×ts |
 | `session_reports` | セッション終了レポート | session_id PK / generated_at / summary_md / bullets / duration_sec |
 | `session_task_records` | TodoWrite 永続化（残作業判定） | session_id / task_text / status / first_seen / last_updated / completed_at / handled_by_session。UNIQUE(session_id, task_text) |
-| `session_stats` | 10 分 poll の現況 JSON（他 session も参照可） | session_id / ts / payload(JSON) |
-| `transcript_logs` | Lictor transcript-tail の frame 全件 | session_id / seq / ts / kind / payload。UNIQUE(session_id, seq)（冪等） |
+| `session_stats` | 10 分 poll の現況 JSON（他 session も参照可、既定90日保持） | session_id / ts / payload(JSON) |
+| `transcript_logs` | Lictor transcript-tail の frame（既定90日保持） | session_id / seq / ts / kind / payload。UNIQUE(session_id, seq)（冪等） |
 
 ## chat / tasks
 | テーブル | 用途 | 主要列 |
@@ -61,7 +61,7 @@ API/機能視点は [`../interface/service-schema.md`](../interface/service-sche
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `rules` | tick/event トリガのルール | id PK / trigger_type / tick_sec / event_kind / conditions(JSON) / instructions / target / cooldown_sec / enabled |
-| `rules_log` | ルールの add/remove/fire/skip/error 履歴 | id / ts / rule_id / action / actor |
+| `rules_log` | ルールの add/remove/fire/skip/error 履歴（既定90日保持） | id / ts / rule_id / action / actor |
 
 ## レポート / ペルソナ
 | テーブル | 用途 | 主要列 |
@@ -77,18 +77,12 @@ API/機能視点は [`../interface/service-schema.md`](../interface/service-sche
 | `processes` | Concordia が spawn/監視するプロセス | name PK / cwd / command / repo_path / pid / status / log_path / metadata |
 | `process_logs` | プロセス出力ログ（pull 用） | process_name / ts / stream / level / line |
 
-## observability（Excubitor 由来・v0.3 集約）
-| テーブル | 用途 | 主要列 |
-|---|---|---|
-| `hosts` | 監視対象ホスト | id PK / name / hostname / agent_version / last_heartbeat_at / is_active |
-| `services` | サービスカタログ | id PK / code UNIQUE / name / catalog_snapshot / is_active |
-| `service_instances` | サービス実体（host 上のプロセス） | id PK / service_id→services / host_id→hosts / pid / state / git_branch / git_hash / port |
-| `liveness_history` | 死活プローブ履歴 | service_instance_id→ / probed_at / ok / latency_ms |
-| `service_instance_logs` | インスタンスログ（旧 Excubitor process_logs） | service_instance_id→ / ts / level / line |
-| `error_rules` | エラー検知ルール（regex 等） | id PK / pattern / pattern_type / severity / service_codes(JSON) / is_active |
-| `error_tasks` | 検知エラーの起票 | id PK / rule_id→ / service_instance_id→ / severity / summary / state / auto_fix_state |
-| `auto_fix_runs` | 自動修正の実行履歴 | id PK / error_task_id→ / agent / state / prompt / branch / pr_url / action_type |
-| `audit_log` | 監査ログ | id / ts / actor / action / target_type / target_id / payload |
+## observability の移管
+
+ホスト・サービス監視、liveness、エラー検知、自動修正、監査ログの権威ソースは
+Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migration で削除する。
+既存DBではサービスと worker を停止して `.bak` を作成後、
+`CONCORDIA_DB_APPLY_EXCUBITOR_DROP=1` を付けた起動で DROP + VACUUM を実行する。
 
 ## Discord 連携
 | テーブル | 用途 | 主要列 |

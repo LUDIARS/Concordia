@@ -77,13 +77,14 @@ export function httpCacheMiddleware(): MiddlewareHandler {
       return;
     }
 
+    const storedAt = Date.now();
     const payload: CachedHttpResponse = {
       status: c.res.status,
       body,
       contentType,
-      createdAt: now,
+      createdAt: storedAt,
     };
-    l1.set(localKey, { response: payload, expiresAt: now + ttlMs });
+    l1.set(localKey, { response: payload, expiresAt: storedAt + ttlMs });
     trimL1();
     void writeRedisJson(key, payload, ttlMs).catch((err: unknown) => {
       log.warn({ err: err instanceof Error ? err.message : String(err) }, "http cache redis write failed");

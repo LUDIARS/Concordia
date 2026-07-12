@@ -70,7 +70,7 @@ Concordia は repo・session・event を 1 つの SQLite に集約し、 各エ�
 - **provider 中立**: `sessions.provider` 列で agent 種別を識別、 v0.1 は Claude Code のみ実装、 Gemini / Codex は stub
 - **個人データ非保管**: session 内容は session_events に蓄積し 90 日で GC、 transcript path はパス参照のみ保持 (本体コピーしない)
 - **ローカル運用**: loopback (127.0.0.1) bind、 認証なし。 tailnet 越え対応は将来 (`tailscale serve` 同様)
-- **LUDIARS スタック準拠**: TypeScript + Node 22 + Hono + better-sqlite3 + Drizzle (or 直 SQL)、 frontend は React 19 + Vite + Foundation UI
+- **LUDIARS スタック準拠**: TypeScript + Node 22 + Hono + better-sqlite3（repository 層の直 SQL）、frontend は React 19 + Vite + Foundation UI
 
 ---
 

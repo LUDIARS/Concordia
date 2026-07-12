@@ -9,7 +9,6 @@ import {
 import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import spawnCommand from "./commands/spawn.js";
-import skillCommand from "./commands/skill.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
 import endSessionCommand from "./commands/end-session.js";
@@ -39,6 +38,7 @@ export interface DiscordCommandDeps {
   log: { info: (m: string) => void; warn: (m: string) => void };
   logsDir?: string;
   permissionActions?: PermissionActionStore;
+  resolveWorkspaceRoots?: () => string[];
   /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
   subsidiaryId?: string | null;
 }
@@ -52,7 +52,6 @@ export interface DiscordCommandSpec {
 // User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
-  skillCommand,
   statCommand,
   prsCommand,
   endSessionCommand,
@@ -73,6 +72,10 @@ const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
+}
+
+export function isSubsidiaryAllowedInteraction(interaction: Interaction): boolean {
+  return "commandName" in interaction && isSubsidiaryAllowedCommand(String(interaction.commandName));
 }
 
 export function commandNamesForRegistration(opts: { subsidiary?: boolean } = {}): string[] {
@@ -103,11 +106,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   // 子会社 guild では許可リスト外の Discord コマンドを拒否する。作業依頼 / spawn 系は
   // 受付チャンネルのメッセージ → ガードゲート経由のみ。過去登録済みの guild からの
   // 残存コマンド実行もここで確実に弾く (二段防御)。
-  if (
-    deps.subsidiaryId &&
-    "commandName" in interaction &&
-    !isSubsidiaryAllowedCommand(String(interaction.commandName))
-  ) {
+  if (deps.subsidiaryId && !isSubsidiaryAllowedInteraction(interaction)) {
     deps.log.warn(
       `discord interaction rejected (subsidiary) subsidiary=${deps.subsidiaryId} ` +
       `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,

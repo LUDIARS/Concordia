@@ -95,8 +95,6 @@ MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節�
    - Web UI: `POST /v1/admin/spawn-session` (token 不要)
    - 外部 / bot: `GET /v1/spawn/info` で token パスを得て読み、 `POST /v1/spawn` に Bearer 付与
    - Discord: `/spawn provider [cwd]` (bot が in-process で token を直読み)
-4. spawn 履歴は `GET /v1/spawn/recent` (直近 50 件、 in-memory)。
-
 ## 注意点
 
 - **Windows 専用**: `wt.exe` 起動なので非 Windows では spawn できない (`GET /v1/spawn/info` の `platform_supported` が false)。

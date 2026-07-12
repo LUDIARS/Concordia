@@ -90,9 +90,16 @@ import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import { isReactionUserAllowed } from "../shared/reaction-workflow-auth.js";
+import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
-import { chatEmbeddedEnabled, readChatMode } from "./chat.js";
+import {
+  CHAT_WORKER_CHECK_MS,
+  chatEmbeddedEnabled,
+  readChatMode,
+  readChatWorkerLease,
+} from "./chat.js";
 import {
   recordDiscordBotStop,
   type DiscordRestartPolicyState,
@@ -104,10 +111,17 @@ import {
   readCostMode,
   readCostWorkerLease,
 } from "./cost.js";
+import {
+  WORKFLOW_WORKER_CHECK_MS,
+  readWorkflowMode,
+  readWorkflowWorkerLease,
+  workflowEmbeddedEnabled,
+} from "./workflow.js";
 
 const log = createChildLogger("server");
 
 let discordBotHandle: DiscordBotHandle | null = null;
+let hasLiveChatWorkerLease: () => boolean = () => false;
 let discordBotDeps: DiscordBotDeps | null = null;
 /**
  * 本社内 desk (mode='desk' の窓口) を本社 Bot 起動のたびに DB から解決する。 desk は
@@ -208,6 +222,7 @@ function scheduleDiscordBotAutoRestart(status: string, error?: string): void {
 
 async function startSlackBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   if (!chatEmbeddedEnabled()) return rememberSlackBotResult({ ok: true, status: "disabled" });
+  if (hasLiveChatWorkerLease()) return rememberSlackBotResult({ ok: true, status: "disabled" });
   if (slackBotHandle) return rememberSlackBotResult({ ok: true, status: "already_running" });
   if (!slackBotDeps) return rememberSlackBotResult({ ok: false, status: "error", error: "slack deps not initialized" });
   try {
@@ -243,6 +258,7 @@ async function restartSlackBotManaged(): Promise<{ ok: boolean; status: "restart
 async function startDiscordBotManaged(): Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }> {
   clearDiscordBotAutoRestart();
   if (!discordEmbeddedEnabled()) return rememberDiscordBotResult({ ok: true, status: "disabled" });
+  if (hasLiveChatWorkerLease()) return rememberDiscordBotResult({ ok: true, status: "disabled" });
   if (discordBotHandle) return rememberDiscordBotResult({ ok: true, status: "already_running" });
   if (!discordBotDeps) return rememberDiscordBotResult({ ok: false, status: "error", error: "discord deps not initialized" });
   try {
@@ -314,18 +330,27 @@ export async function startBackend(): Promise<BackendHandle> {
   const bootStarted = Date.now();
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
+  configureLoopHaltNotifier((state) => {
+    eventBus.emit({
+      type: "error.reported",
+      source: "loop-bulkhead",
+      message: `Background loop halted: ${state.name}`,
+      detail: { ...state },
+      ts: Math.floor(Date.now() / 1000),
+    });
+  });
 
   // 信頼境界の強制: 非 loopback bind (0.0.0.0 / LAN IP 等) は admin API を localhost の
   // 外へ晒す。 warn を出し、 admin token 未設定なら起動拒否する (CWE-306 / CWE-1188)。
   if (!isLoopbackHost(cfg.host)) {
     log.warn(
       { host: cfg.host },
-      "Concordia is binding to a non-loopback host — admin API (/v1/admin/*, /v1/sweeper/run) would be reachable beyond localhost",
+      "Concordia is binding to a non-loopback host — admin and mutation APIs (/v1/admin/*, /v1/sweeper/run, session inject/delete, delegation invoke) would be reachable beyond localhost",
     );
     if (!cfg.adminToken) {
       throw new Error(
         `CONCORDIA_HOST=${cfg.host} is non-loopback but CONCORDIA_ADMIN_TOKEN is unset. ` +
-          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin endpoints, or bind to 127.0.0.1.`,
+          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin and mutation endpoints, or bind to 127.0.0.1.`,
       );
     }
   }
@@ -352,6 +377,9 @@ export async function startBackend(): Promise<BackendHandle> {
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
+  hasLiveChatWorkerLease = () => readChatWorkerLease(discordConfig) !== null;
+  const workflowMode = readWorkflowMode();
+  const hasLiveWorkflowWorkerLease = () => readWorkflowWorkerLease(discordConfig) !== null;
   // Slack 連携をサービス内 (DB) で設定するための repo + token 暗号化用 secret-box。
   // 鍵は DB の外 (env CONCORDIA_SECRET_KEY、 無ければ cwd の concordia.secret.key) に置く。
   const slackConfig = makeSlackConfigRepo(db);
@@ -393,6 +421,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessions: repo,
     resolveMaxConcurrency: () => adminState.getDelegationMaxConcurrency(),
     spawnQueued: (run) => delegationService.spawnQueuedRun(run),
+    producerOnly: () => workflowMode === "worker" || hasLiveWorkflowWorkerLease(),
   });
   delegationService.setQueue(delegationQueue);
 
@@ -464,11 +493,26 @@ export async function startBackend(): Promise<BackendHandle> {
     repo,
     tasks,
     personas,
+    transcriptLogs,
+    rules,
+    stats,
     intervalMs: cfg.sweeperIntervalMs,
     lostAfterSec: cfg.lostAfterSec,
     abandonedAfterSec: cfg.abandonedAfterSec,
     lostPurgeAfterSec: cfg.lostPurgeAfterSec,
     purgeAfterDays: cfg.purgeAfterDays,
+    transcriptRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
+    rulesLogRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_RULES_LOG_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
+    sessionStatsRetentionDays: readPositiveIntEnv(
+      "CONCORDIA_SESSION_STATS_RETENTION_DAYS",
+      cfg.purgeAfterDays,
+    ),
   });
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。
@@ -530,6 +574,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS, userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -559,6 +605,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS, userId),
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
@@ -758,7 +806,19 @@ export async function startBackend(): Promise<BackendHandle> {
     );
     trackPostListenHandle(
       startMetricsLoop(
-        { repo, store: metricsStore },
+        {
+          repo,
+          store: metricsStore,
+          notifyLag: (snapshot) => {
+            eventBus.emit({
+              type: "error.reported",
+              source: "event-loop-lag",
+              message: `Event-loop lag p99 ${snapshot.p99}ms exceeded threshold`,
+              detail: { ...snapshot },
+              ts: Math.floor(Date.now() / 1000),
+            });
+          },
+        },
         {
           enabled: cfg.metricsEnabled,
           intervalMs: cfg.metricsIntervalMs,
@@ -907,8 +967,14 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   }
   // 実行キュー: 再起動前に queued のまま残った run を拾い直し、 以後は定期 drain で流す。
-  delegationQueue.start();
-  void delegationQueue.drain().catch((e) => log.warn(`delegation queue initial drain failed: ${(e as Error).message}`));
+  if (workflowEmbeddedEnabled() && !hasLiveWorkflowWorkerLease()) {
+    delegationQueue.start();
+    void delegationQueue.drain().catch((e) => log.warn(`delegation queue initial drain failed: ${(e as Error).message}`));
+  } else if (workflowMode === "worker") {
+    log.info("delegation workflow execution delegated to workflow-worker");
+  } else {
+    log.info("delegation embedded queue skipped: live workflow-worker lease found");
+  }
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
 
@@ -918,6 +984,53 @@ export async function startBackend(): Promise<BackendHandle> {
     costRuntime.stop();
   }, COST_WORKER_CHECK_MS);
   costWorkerWatch.unref?.();
+
+  let embeddedChatYielded = chatEmbeddedEnabled() && hasLiveChatWorkerLease();
+  const chatWorkerWatch = setInterval(() => {
+    if (!chatEmbeddedEnabled()) return;
+    const workerActive = hasLiveChatWorkerLease();
+    if (workerActive) {
+      if (!discordBotHandle && !slackBotHandle && !embeddedChatYielded) return;
+      embeddedChatYielded = true;
+      log.warn("live chat-worker lease detected; stopping embedded chat relays");
+      void Promise.all([
+        stopDiscordBotManaged(),
+        stopSlackBotManaged(),
+        subsidiaryManager.stopAll().then(() => ({ ok: true })),
+      ]).catch((error) => log.warn(`embedded chat relay stop failed: ${(error as Error).message}`));
+      return;
+    }
+    if (!embeddedChatYielded) return;
+    embeddedChatYielded = false;
+    log.warn("chat-worker lease expired; restoring embedded chat relays");
+    void Promise.all([
+      startDiscordBotManaged(),
+      startSlackBotManaged(),
+      discordSubsidiaryAutostartEnabled() ? subsidiaryManager.startAll().then(() => ({ ok: true })) : Promise.resolve({ ok: true }),
+    ]).catch((error) => log.warn(`embedded chat relay restore failed: ${(error as Error).message}`));
+  }, CHAT_WORKER_CHECK_MS);
+  chatWorkerWatch.unref?.();
+
+  let embeddedWorkflowYielded = workflowEmbeddedEnabled() && hasLiveWorkflowWorkerLease();
+  const workflowWorkerWatch = setInterval(() => {
+    if (!workflowEmbeddedEnabled()) return;
+    const workerActive = hasLiveWorkflowWorkerLease();
+    if (workerActive && !embeddedWorkflowYielded) {
+      embeddedWorkflowYielded = true;
+      delegationQueue.stop();
+      log.warn("live workflow-worker lease detected; stopping embedded delegation queue");
+      return;
+    }
+    if (!workerActive && embeddedWorkflowYielded) {
+      embeddedWorkflowYielded = false;
+      delegationQueue.start();
+      void delegationQueue.drain().catch((error) =>
+        log.warn(`delegation queue fallback drain failed: ${(error as Error).message}`),
+      );
+      log.warn("workflow-worker lease expired; restoring embedded delegation queue");
+    }
+  }, WORKFLOW_WORKER_CHECK_MS);
+  workflowWorkerWatch.unref?.();
 
   // Slack-UI bot（Discord と並ぶ ChatPlatform）。CONCORDIA_SLACK_ENABLED が
   // 無ければ完全 no-op。spec/feature/slack-platform.md
@@ -941,6 +1054,8 @@ export async function startBackend(): Promise<BackendHandle> {
       }
       unsubTestingRelease();
       clearInterval(costWorkerWatch);
+      clearInterval(chatWorkerWatch);
+      clearInterval(workflowWorkerWatch);
       costRuntime.stop();
       unsubLog();
       clearDiscordBotAutoRestart();

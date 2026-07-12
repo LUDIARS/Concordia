@@ -29,6 +29,7 @@ import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("stall-nudge");
 
@@ -216,7 +217,7 @@ export function startStalledSessionNudge(
   const cooldownMs = cooldownSec * 1000;
   /** per-session の最終 nudge 時刻 (epoch-ms)。 */
   const lastNudge = new Map<string, number>();
-  let timer: NodeJS.Timeout | null = null;
+  let supervised: SupervisedIntervalHandle | null = null;
 
   function runOnce(): string[] {
     if (!enabled) return [];
@@ -269,14 +270,10 @@ export function startStalledSessionNudge(
   }
 
   if (enabled) {
-    timer = setInterval(() => {
-      try {
-        runOnce();
-      } catch (err) {
-        log.warn({ err: (err as Error).message }, "stall-nudge tick failed");
-      }
-    }, intervalMs);
-    timer.unref?.();
+    supervised = startSupervisedInterval("stalled-session-nudge", runOnce, {
+      intervalMs,
+      log: { warn: (message) => log.warn(message) },
+    });
     log.info({ intervalMs, idleSec, cooldownSec }, "stalled-session nudge started");
   } else {
     log.info("stalled-session nudge disabled");
@@ -284,8 +281,8 @@ export function startStalledSessionNudge(
 
   return {
     stop: () => {
-      if (timer) clearInterval(timer);
-      timer = null;
+      supervised?.stop();
+      supervised = null;
     },
     runOnce,
   };

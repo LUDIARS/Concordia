@@ -1,6 +1,11 @@
 import { ChannelType, type Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { handleMessage, type IngressDeps } from "./ingress.js";
+import {
+  buildReplySpawnChatPayload,
+  handleMessage,
+  resolveMetaKind,
+  type IngressDeps,
+} from "./ingress.js";
 import { clearInjectAcks, takeInjectAck } from "./inject-ack.js";
 
 describe("discord ingress inject acceptance reactions", () => {
@@ -53,6 +58,38 @@ describe("discord ingress inject acceptance reactions", () => {
   });
 });
 
+describe("discord ingress chat routing", () => {
+  it("binds reply-spawn visibility posts to the source session", () => {
+    expect(buildReplySpawnChatPayload("s1", "do the work", "chan1")).toMatchObject({
+      channel: "報告",
+      session_id: "s1",
+      text: "do the work",
+      discord_channel_id: "chan1",
+    });
+  });
+
+  it("recognizes the configured boyaki meta channel", () => {
+    const configRepo = {
+      all: vi.fn(() => ({ boyaki_channel_id: "boyaki-1" })),
+    } as unknown as IngressDeps["configRepo"];
+    expect(resolveMetaKind(configRepo, "boyaki-1")).toBe("boyaki");
+  });
+
+  it("rejects the control trigger in subsidiary guilds", async () => {
+    const deps = { ...makeDeps("codex-cli"), subsidiary: true };
+    const msg = makeMessage({ content: "control" });
+    await handleMessage(deps, msg);
+    expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("利用できません") }));
+  });
+
+  it("keeps the control trigger available in the head-office guild", async () => {
+    const msg = makeMessage({ content: "control" });
+    await handleMessage(makeDeps("codex-cli"), msg);
+    expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledOnce();
+  });
+});
+
 function stubSuccessfulFetch() {
   const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
@@ -67,6 +104,7 @@ function makeDeps(provider: string): IngressDeps {
     } as unknown as IngressDeps["sessionChannelsRepo"],
     sessionsRepo: {
       findSession: vi.fn(() => ({ id: "s1", provider, status: "active", repo_path: "/repo" })),
+      listSessions: vi.fn(() => []),
     } as unknown as IngressDeps["sessionsRepo"],
     concordiaUrl: "http://concordia.test",
     log: { info: vi.fn(), warn: vi.fn() },

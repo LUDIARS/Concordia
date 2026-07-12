@@ -14,6 +14,8 @@ describe("schema", () => {
     expect(names).toContain("session_events");
     expect(names).toContain("session_reports");
     expect(names).toContain("schema_meta");
+    expect(names).not.toContain("liveness_history");
+    expect(names).not.toContain("service_instance_logs");
 
     const v = db.prepare(`SELECT value FROM schema_meta WHERE key = 'version'`).get() as { value: string };
     expect(Number(v.value)).toBe(SCHEMA_VERSION);
@@ -48,5 +50,39 @@ describe("schema", () => {
 
     // 2回目もエラー無く通る (column 重複 ALTER しない)
     applyMigrations(db);
+  });
+
+  it("leaves obsolete Excubitor tables to the external maintenance command", () => {
+    const db = makeRawTestDb();
+    db.exec(`
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO schema_meta(key, value) VALUES('version', '34');
+      CREATE TABLE hosts (id TEXT PRIMARY KEY);
+      CREATE TABLE services (id TEXT PRIMARY KEY);
+      CREATE TABLE service_instances (id TEXT PRIMARY KEY);
+      CREATE TABLE liveness_history (id INTEGER PRIMARY KEY);
+      CREATE TABLE service_instance_logs (id INTEGER PRIMARY KEY);
+      CREATE TABLE error_rules (id TEXT PRIMARY KEY);
+      CREATE TABLE error_tasks (id TEXT PRIMARY KEY);
+      CREATE TABLE auto_fix_runs (id TEXT PRIMARY KEY);
+      CREATE TABLE audit_log (id INTEGER PRIMARY KEY);
+    `);
+
+    applyMigrations(db);
+    const obsolete = db
+      .prepare(
+        `SELECT name FROM sqlite_master
+         WHERE type = 'table' AND name IN (
+           'hosts', 'services', 'service_instances', 'liveness_history',
+           'service_instance_logs', 'error_rules', 'error_tasks', 'auto_fix_runs', 'audit_log'
+         )`,
+      )
+      .all();
+    expect(obsolete).toHaveLength(9);
+    expect(
+      db.prepare(`SELECT value FROM schema_meta WHERE key = 'version'`).get(),
+    ).toEqual({ value: String(SCHEMA_VERSION) });
+
+    expect(() => applyMigrations(db)).not.toThrow();
   });
 });

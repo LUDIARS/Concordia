@@ -31,10 +31,9 @@
         },
         {
           "name": "reaction-workflow",
-          "description": "Emoji-to-action mapping, workflow planning, and runner harness (src/platform, src/triggers).",
+          "description": "Emoji-to-action mapping, workflow planning, and runner harness (src/platform).",
           "paths": [
-            "(^|/)src/platform/[^/]+$",
-            "(^|/)src/triggers/[^/]+$"
+            "(^|/)src/platform/[^/]+$"
           ]
         }
       ]

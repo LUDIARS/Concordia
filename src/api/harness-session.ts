@@ -19,7 +19,6 @@ import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/p
 import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
 import {
   HARNESS_BLACKBOX_DOMAINS,
-  type HarnessBlackboxDomain,
   type HarnessBlackboxMeta,
   type HarnessBlackboxService,
 } from "../harness/blackbox-engine.js";
@@ -118,10 +117,6 @@ function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<stri
     rule_id: meta.rule_id,
     confidence: meta.confidence,
   };
-}
-
-function parseBlackboxDomain(value: string | undefined): HarnessBlackboxDomain {
-  return value === HARNESS_BLACKBOX_DOMAINS.intent ? HARNESS_BLACKBOX_DOMAINS.intent : HARNESS_BLACKBOX_DOMAINS.gate;
 }
 
 /**
@@ -338,15 +333,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     });
   });
 
-  // 監査ログ取得 (確認経路)。
-  app.get("/blackbox", (c) => {
-    if (!deps.blackbox) return c.json({ enabled: false });
-    const domain = parseBlackboxDomain(c.req.query("domain"));
-    const limitRaw = Number(c.req.query("limit") ?? 50);
-    const limit = Math.max(1, Math.min(200, isFinite(limitRaw) ? limitRaw : 50));
-    return c.json(deps.blackbox.snapshot(domain, limit));
-  });
-
   app.post("/blackbox/verdict", async (c) => {
     if (!deps.blackbox) return c.json({ enabled: false, error: "blackbox_disabled" }, 503);
     const body = await c.req.json().catch(() => null);
@@ -370,18 +356,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       audit: deps.audit.recent({ session_id, decision, event, limit }),
       summary: deps.audit.summary(),
     });
-  });
-
-  // hook が override (warn を理由添えて続行) を記録する経路。
-  app.post("/override", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const session_id = typeof body?.session_id === "string" ? body.session_id : undefined;
-    const reason = typeof body?.reason === "string" ? body.reason.slice(0, 2000) : "";
-    const rec = recordSafe(deps.audit, {
-      session_id, hook: "gate", event: "override", decision: "warn",
-      tool: typeof body?.tool === "string" ? body.tool : "", reason,
-    });
-    return c.json({ ok: rec.ok, ...(rec.error ? { audit_error: rec.error } : {}) });
   });
 
   return app;

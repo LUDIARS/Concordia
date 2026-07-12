@@ -4,7 +4,7 @@
  * eventBus に乗った全 ConcordiaEvent を JSON で接続中の各 client に流す.
  * 認証なし (loopback 想定). client 側で reconnect / dedup を担当する.
  *
- * 既存 SSE (/v1/stream) と並行運用. WS は frontend SPA の即応用 / AI agent の
+ * WebSocket は frontend SPA の即応用 / AI agent の
  * 永続クライアント (= active 判定の主軸) として使われる. URL に `?session=<id>`
  * を付けて接続すると Concordia は sessions.ws_clients をインクリメントし、
  * 切断時にデクリメントする. これにより sweeper の lost 判定から除外される.
@@ -20,6 +20,14 @@ import { reviveIfLost } from "./sessions/shared.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
+
+export function attachWsSocketErrorHandler(
+  ws: Pick<WebSocket, "on">,
+  report: (error: Error) => void = (error) =>
+    log.warn({ err: error.message }, "ws client socket error"),
+): void {
+  ws.on("error", (error) => report(error));
+}
 
 /**
  * Events with a `target_session_id` are session-scoped — only the WS clients
@@ -118,6 +126,7 @@ export function attachWsServer(
     try { ws.send(hello); } catch { /* swallow */ }
 
     let alive = true;
+    attachWsSocketErrorHandler(ws);
     ws.on("pong", () => { alive = true; });
     const ping = setInterval(() => {
       if (!alive) {

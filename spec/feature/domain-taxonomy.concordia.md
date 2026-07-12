@@ -32,7 +32,7 @@ Bidirectional chat-platform integration that surfaces session state and accepts 
 - **discord** - Discord bot, control UI, session channels, and command handlers (src/discord, src/discord/commands).  `paths: (^|/)src/discord/[^/]+$, (^|/)src/discord/commands/[^/]+$`
 - **slack** - Slack bot, message/thread mapping, and session mirroring repos (src/slack).  `paths: (^|/)src/slack/[^/]+$`
 - **chat-rendering** - Shared chat rendering, actionable-message parsing, and platform-neutral chat helpers (src/chat).  `paths: (^|/)src/chat/[^/]+$`
-- **reaction-workflow** - Emoji-to-action mapping, workflow planning, and runner harness (src/platform, src/triggers).  `paths: (^|/)src/platform/[^/]+$, (^|/)src/triggers/[^/]+$`
+- **reaction-workflow** - Emoji-to-action mapping, workflow planning, and runner harness (src/platform).  `paths: (^|/)src/platform/[^/]+$`
 
 ## agent-delegation
 

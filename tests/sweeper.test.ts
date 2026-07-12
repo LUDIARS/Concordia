@@ -3,6 +3,9 @@ import { makeTestDb } from "./helpers/db.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { PersonasRepo } from "../src/db/personas-repo.js";
+import { RulesRepo } from "../src/db/rules-repo.js";
+import { StatsRepo } from "../src/db/stats-repo.js";
+import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
 import { startSweeper } from "../src/sweeper.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
 
@@ -37,6 +40,9 @@ describe("sweeper session.lost event", () => {
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
     const personas = new PersonasRepo(db);
+    const transcriptLogs = new TranscriptLogsRepo(db);
+    const rules = new RulesRepo(db);
+    const stats = new StatsRepo(db);
     startSession(sessions, "stale-one", now - 100);
 
     const events: ConcordiaEvent[] = [];
@@ -46,11 +52,17 @@ describe("sweeper session.lost event", () => {
       repo: sessions,
       tasks,
       personas,
+      transcriptLogs,
+      rules,
+      stats,
       intervalMs: 60_000,
       lostAfterSec: 10,
       abandonedAfterSec: 3_600,
       lostPurgeAfterSec: 3_600,
       purgeAfterDays: 30,
+      transcriptRetentionDays: 90,
+      rulesLogRetentionDays: 90,
+      sessionStatsRetentionDays: 90,
     });
     cleanup.push(sweeper.stop);
 
@@ -59,5 +71,53 @@ describe("sweeper session.lost event", () => {
 
     expect(events.filter((ev) => ev.type === "session.lost").map((ev) => ev.session_id)).toEqual(["stale-one"]);
     expect(sessions.findSession("stale-one")?.status).toBe("lost");
+  });
+
+  it("purges old transcript, rule log, and session stat rows in one pass", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));
+    const now = Math.floor(Date.now() / 1000);
+    const oldTs = now - 91 * 86400;
+    const recentTs = now - 89 * 86400;
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const tasks = new TasksRepo(db);
+    const personas = new PersonasRepo(db);
+    const transcriptLogs = new TranscriptLogsRepo(db);
+    const rules = new RulesRepo(db);
+    const stats = new StatsRepo(db);
+
+    transcriptLogs.insert({ session_id: "old", seq: 0, ts: oldTs, kind: "text", payload: {} });
+    transcriptLogs.insert({ session_id: "recent", seq: 0, ts: recentTs, kind: "text", payload: {} });
+    db.prepare(`INSERT INTO rules_log(ts, rule_id, action, actor) VALUES (?, NULL, 'fire', 'engine')`).run(oldTs);
+    db.prepare(`INSERT INTO rules_log(ts, rule_id, action, actor) VALUES (?, NULL, 'fire', 'engine')`).run(recentTs);
+    stats.insert({ session_id: "old", ts: oldTs, payload: {} });
+    stats.insert({ session_id: "recent", ts: recentTs, payload: {} });
+
+    const sweeper = startSweeper({
+      repo: sessions,
+      tasks,
+      personas,
+      transcriptLogs,
+      rules,
+      stats,
+      intervalMs: 60_000,
+      lostAfterSec: 1_800,
+      abandonedAfterSec: 86_400,
+      lostPurgeAfterSec: 1_800,
+      purgeAfterDays: 90,
+      transcriptRetentionDays: 90,
+      rulesLogRetentionDays: 90,
+      sessionStatsRetentionDays: 90,
+    });
+    cleanup.push(sweeper.stop);
+
+    sweeper.runOnce();
+
+    expect(transcriptLogs.countBySession("old")).toBe(0);
+    expect(transcriptLogs.countBySession("recent")).toBe(1);
+    expect(rules.recentLogs()).toHaveLength(1);
+    expect(stats.history("old")).toHaveLength(0);
+    expect(stats.history("recent")).toHaveLength(1);
   });
 });

@@ -148,11 +148,15 @@ MessageReactionAdd (discord.js)
 | env | 既定 | 意味 |
 |---|---|---|
 | `CONCORDIA_REACTION_WORKFLOW` | `0` (OFF) | `1` で実処理を起動。 OFF の間は記録のみ。 |
+| `CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS` | 空 (全拒否) | 実処理を発火できる Discord user ID。カンマ/空白/`;` 区切り。 |
+| `CONCORDIA_REACTION_WORKFLOW_SLACK_USERS` | 空 (全拒否) | 実処理を発火できる Slack user ID。カンマ/空白/`;` 区切り。 |
 | `CONCORDIA_REACTION_MODEL_HAIKU` | `haiku` | memoria-note / repo-memory に使うモデル別名。 |
 | `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task / enumerate-remaining / memoria-remaining / status-check に使うモデル別名。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | headless 1 回の timeout。 |
 
-error-autofix と同じく既定 OFF。 dedup + fire-and-forget で記録経路を壊さない。
+error-autofix と同じく既定 OFF。ON にしてもプラットフォーム別 allowlist が空なら誰も発火できない。
+対象メッセージ本文は「信頼できない外部データ」の区切り枠に入れてプロンプトへ渡す。
+dedup + fire-and-forget で記録経路を壊さない。
 
 **安全弁・写像は設定 GUI から編集可 (再起動なしで反映)**:
 - 安全弁 ON/OFF は AdminState (`schema_meta`) に永続化され、 runner が handle() ごとに live 評価する。

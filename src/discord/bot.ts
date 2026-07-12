@@ -15,6 +15,7 @@ import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type Disco
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
+import { shouldRestartDiscordBot } from "./gateway-policy.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import {
@@ -53,7 +54,8 @@ import { WorkingIndicator } from "../platform/working-indicator.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
-import { instrumentDiscord } from "../instrumentation.js";
+import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentation.js";
+import { startInteractionAckProbe } from "./interaction-ack.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -114,6 +116,8 @@ export interface DiscordBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /** Exact Discord user ID allowlist check for permission-skipping reaction workflows. */
+  isReactionWorkflowUserAllowed?: (userId: string) => boolean;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -639,11 +643,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       chatRepo: deps.chatRepo,
       messageMap,
       workflow: reactionWorkflow,
+      isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
       resolveReactionMappings: deps.resolveReactionMappings,
       // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
       // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
       // (子会社 Bot に desk は配線されない)。
       intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
+      subsidiary: Boolean(deps.subsidiary),
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
@@ -658,6 +664,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         messageMap,
         log,
         workflow: reactionWorkflow,
+        isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         sessionChannels: sessionChannelsRepo,
         sessions: deps.sessionsRepo,
         repin: deps.repinSession,
@@ -677,6 +684,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   }));
   client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
+    startInteractionAckProbe(interaction, recordDiscordInteractionAck);
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
     // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
     // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を
@@ -701,6 +709,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log,
       permissionActions,
       subsidiaryId,
+      resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(
@@ -713,16 +722,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
   client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
   client.on(Events.ShardError, (e, shardId) => {
-    stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
+    if (shouldRestartDiscordBot("error")) {
+      stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
+    }
   });
   client.on(Events.ShardDisconnect, (event, shardId) => {
-    stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
+    if (shouldRestartDiscordBot("disconnect")) {
+      stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
+    }
   });
   client.on(Events.ShardReconnecting, (shardId) => {
     // ShardReconnecting は discord.js が自力で resume する通常のライフサイクル
     // イベント。 ここで teardown すると一瞬のネットワーク揺らぎで bot が恒久停止
     // する (復帰経路なし) ため、 ログのみ残して resume に任せる。
-    log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
+    if (!shouldRestartDiscordBot("reconnecting")) {
+      log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
+    }
   });
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {

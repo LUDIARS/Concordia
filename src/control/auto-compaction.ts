@@ -8,6 +8,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("auto-compaction");
 
@@ -110,13 +111,13 @@ export function startAutoCompaction(deps: AutoCompactionDeps): AutoCompactionHan
     return compacted;
   }
 
-  const timer = setInterval(() => {
-    void runOnce().catch((e) => log.warn(`auto-compaction tick failed: ${(e as Error).message}`));
-  }, intervalMs);
-  timer.unref?.();
+  const supervised = startSupervisedInterval("auto-compaction", async () => { await runOnce(); }, {
+    intervalMs,
+    log: { warn: (message) => log.warn(message) },
+  });
 
   return {
-    stop: () => clearInterval(timer),
+    stop: supervised.stop,
     runOnce,
   };
 }

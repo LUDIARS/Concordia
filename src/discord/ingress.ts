@@ -15,14 +15,15 @@ const ACCEPTED_INJECT_REACTION = "✅";
 const COMMAND_LIST_TEXT = [
   "使用可能コマンド一覧",
   "- session channel では通常メッセージ送信 = inject",
-  "- /inject: 明示的に inject したい場合のみ",
   "- /spawn: 新規セッション起動",
-  "- /skill: スキル実行",
-  "- /keys: キーシーケンス送信",
-  "- /answer: pending question へ回答",
   "- /stat: 現在ステータス表示",
-  "- /chitchat: chitchat へ投稿",
-  "- /consultation: consultation へ投稿",
+  "- /prs: PR キュー表示",
+  "- /mmtask: Memoria タスク検索",
+  "- /projects: プロジェクトコード一覧",
+  "- /co-goal / /co-compaction / /co-relictor: セッション制御",
+  "- /ch_name / /co-clean: Discord surface 管理",
+  "- /confirm: develop 確認フロー",
+  "- /ex-run / /ex-reboot: Excubitor 経由のサービス操作",
   "- /end-session: セッション終了",
   "- control / /control / コントロール: コントロールパネル表示",
 ].join("\n");
@@ -44,6 +45,8 @@ export interface IngressDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
+  /** Exact Discord user ID allowlist check for reaction-workflow execution. */
+  isWorkflowUserAllowed?: (userId: string) => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
@@ -57,6 +60,8 @@ export interface IngressDeps {
     process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
     isLocked: (userId: string) => boolean;
   };
+  /** True only for a subsidiary guild; head-office desk intake remains false. */
+  subsidiary?: boolean;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -84,6 +89,14 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   }
 
   if (isControlTrigger(text)) {
+    if (deps.subsidiary) {
+      deps.log.warn(`ingress: control panel rejected in subsidiary guild=${msg.guildId} user=${msg.author.id}`);
+      await msg.reply({
+        content: "このサーバではコントロールパネルを利用できません。依頼は受付チャンネルへメッセージでどうぞ。",
+        allowedMentions: { parse: [], repliedUser: false },
+      }).catch(() => { /* best-effort */ });
+      return;
+    }
     await postControlPanel(msg.channel, deps.sessionsRepo, deps.sessionChannelsRepo);
     deps.log.info(`ingress: control panel posted (channel=${msg.channelId})`);
     return;
@@ -131,6 +144,10 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
   if (deps.workflow) {
+    if (getRwf().isStandaloneEmoji(text) && !deps.isWorkflowUserAllowed?.(msg.author.id)) {
+      deps.log.info(`ingress: workflow emoji ignored unauthorized user=${msg.author.id}`);
+      return;
+    }
     if (getRwf().classifyReactionWorkflow(text, deps.resolveReactionMappings?.())) {
       if (await tryEmojiWorkflow(deps, msg, text, routeChannelId)) return;
     } else if (getRwf().isStandaloneEmoji(text)) {
@@ -290,12 +307,9 @@ async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: st
         await fetch(`${deps.concordiaUrl}/v1/chat`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            channel: "報告",
-            text: result.spawnPrompt.slice(0, 2000),
-            author_label: "Concordia (spawn)",
-            discord_channel_id: msg.channelId,
-          }),
+          body: JSON.stringify(
+            buildReplySpawnChatPayload(sessionId, result.spawnPrompt, msg.channelId),
+          ),
         });
       } catch { /* best-effort */ }
     }
@@ -410,9 +424,23 @@ function resolveEmojiTargetChatId(deps: IngressDeps, msg: Message, routeChannelI
   return null;
 }
 
-function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {
+export function buildReplySpawnChatPayload(
+  sessionId: string,
+  spawnPrompt: string,
+  discordChannelId: string,
+): Record<string, unknown> {
+  return {
+    channel: "報告",
+    session_id: sessionId,
+    text: spawnPrompt.slice(0, 2000),
+    author_label: "Concordia (spawn)",
+    discord_channel_id: discordChannelId,
+  };
+}
+
+export function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {
   const map = configRepo.all();
-  for (const k of ["chitchat", "consultation", "houkoku", "system"] as const) {
+  for (const k of ["chitchat", "consultation", "houkoku", "boyaki", "system"] as const) {
     if (map[`${k}_channel_id`] === channelId) return k;
   }
   return null;

@@ -55,6 +55,8 @@ export interface ReactionsDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
+  /** Workflow execution is deny-by-default and requires an exact platform user ID match. */
+  isWorkflowUserAllowed?: (userId: string) => boolean;
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
   sessionChannels?: DiscordSessionChannelsRepo;
   sessions?: SessionLookup;
@@ -127,7 +129,7 @@ export async function handleReactionAdd(
 
   // ワークフロー: message-map に依存せず、 どのメッセージでも発火させる (fire-and-forget)。
   // 発火が確定したら、 トリガー元メッセージへ「受付」リプライを返して発生を可視化する。
-  if (deps.workflow) {
+  if (deps.workflow && deps.isWorkflowUserAllowed?.(user.id)) {
     void deps.workflow
       .handle(
         { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
@@ -147,6 +149,8 @@ export async function handleReactionAdd(
         },
       )
       .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));
+  } else if (deps.workflow) {
+    deps.log.info(`reactions: workflow ignored unauthorized user=${user.id}`);
   }
 
   // chat_message_reactions 記録: Concordia 投稿 (= message-map に在る) ものだけ。

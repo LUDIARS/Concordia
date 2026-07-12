@@ -15,16 +15,6 @@ export interface ProcessesApiDeps {
   repo: ProcessesRepo;
 }
 
-const StartSchema = z.object({
-  name: z.string().min(1).max(64).regex(/^[a-zA-Z0-9_.-]+$/),
-  command: z.string().min(1),
-  cwd: z.string().min(1),
-  env: z.record(z.string()).optional(),
-  error_patterns: z.array(z.string()).optional(),
-  repo_path: z.string().nullable().optional(),
-  repo_origin: z.string().nullable().optional(),
-});
-
 const StartFromRepoSchema = z.object({
   repo_path: z.string().min(1),
   repo_origin: z.string().nullable().optional(),
@@ -46,25 +36,6 @@ export function processesRouter(deps: ProcessesApiDeps): Hono {
         live: deps.manager.isRunning(row.name),
       })),
     });
-  });
-
-  // POST /v1/processes  — ad-hoc 起動
-  app.post("/", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    const parsed = StartSchema.safeParse(body);
-    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const r = deps.manager.startOne({
-      name: parsed.data.name,
-      command: parsed.data.command,
-      cwd: parsed.data.cwd,
-      env: parsed.data.env,
-      error_patterns: parsed.data.error_patterns,
-      repo_path: parsed.data.repo_path ?? null,
-      repo_origin: parsed.data.repo_origin ?? null,
-    });
-    if (!r.ok) return c.json({ ok: false, reason: r.reason }, 409);
-    const row = deps.repo.find(parsed.data.name);
-    return c.json({ ok: true, pid: r.pid, process: row ? serializeProcess(row) : null });
   });
 
   // POST /v1/processes/start-from-repo  — dev-process.md auto-start
@@ -94,38 +65,6 @@ export function processesRouter(deps: ProcessesApiDeps): Hono {
     const r = await deps.manager.stopOne(name);
     if (!r.ok) return c.json({ ok: false, reason: r.reason }, 409);
     return c.json({ ok: true });
-  });
-
-  // POST /v1/processes/stop-all
-  // 走行中の全 managed processes を SIGTERM で一括停止 (5s 後 SIGKILL fallback).
-  // PC リソース解放 / セッション終了時のクリーンアップ用. body は任意:
-  //   { repo_path?: string }  指定された repo に紐づくものだけ停止
-  //   { timeout_ms?: number } 個別 SIGTERM → SIGKILL までの猶予 (既定 5000)
-  app.post("/stop-all", async (c) => {
-    const body = await c.req.json().catch(() => ({}));
-    const repoPath = typeof body?.repo_path === "string" ? body.repo_path : null;
-    const timeoutMs = Number.isFinite(body?.timeout_ms) ? Number(body.timeout_ms) : 5000;
-
-    const targets = deps.manager.listRunning()
-      .map((h) => h.name)
-      .filter((name) => {
-        if (!repoPath) return true;
-        const row = deps.repo.find(name);
-        return row?.repo_path === repoPath;
-      });
-
-    const results = await Promise.all(
-      targets.map(async (name) => {
-        const r = await deps.manager.stopOne(name, timeoutMs);
-        return { name, ok: r.ok, reason: r.reason };
-      }),
-    );
-
-    return c.json({
-      requested: targets.length,
-      stopped: results.filter((r) => r.ok).map((r) => r.name),
-      failed: results.filter((r) => !r.ok),
-    });
   });
 
   // GET /v1/processes/:name/logs?since_ts=&level=&limit=
@@ -213,14 +152,6 @@ export function processesRouter(deps: ProcessesApiDeps): Hono {
         await stream.sleep(1000);
       }
     });
-  });
-
-  // DELETE /v1/processes/:name  — 停止 + DB / ログ行削除
-  app.delete("/:name", async (c) => {
-    const name = c.req.param("name");
-    if (!deps.repo.find(name)) return c.json({ error: "not_found" }, 404);
-    await deps.manager.remove(name);
-    return c.json({ ok: true });
   });
 
   return app;

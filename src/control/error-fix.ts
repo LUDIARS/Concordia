@@ -18,6 +18,7 @@ import type { SessionRow } from "../shared/types.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
 import { spawnSession } from "./spawner.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("error-fix");
 
@@ -144,14 +145,16 @@ export function startErrorFixDispatcher(deps: ErrorFixDispatcherDeps): ErrorFixD
 
   const unsub = eventBus.subscribe(handle);
   // queue 滞留分を定期的に流す (rate-limit / fixer 起動待ちを吸収).
-  const timer = setInterval(tryInject, 30 * 1000);
-  timer.unref?.();
+  const supervised = startSupervisedInterval("error-fix-dispatcher", tryInject, {
+    intervalMs: 30 * 1000,
+    log: { warn: (message) => log.warn(message) },
+  });
   log.info(`error auto-fix enabled (fixer cwd=${fixerCwd})`);
 
   return {
     stop: () => {
       unsub();
-      clearInterval(timer);
+      supervised.stop();
     },
     handle,
   };

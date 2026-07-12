@@ -2,13 +2,17 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
-import {
-  ensureDevelopClones,
-  findMainRepositories,
-  parseArgs,
-  runGit,
-} from "../tools/ensure-develop-clones.mjs";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
+const toolUrl = pathToFileURL(join(process.cwd(), "tools", "ensure-develop-clones.mjs")).href;
+let ensureDevelopClones;
+let findMainRepositories;
+let parseArgs;
+let runGit;
+
+beforeAll(async () => {
+  const module = await import(/* @vite-ignore */ toolUrl);
+  ({ ensureDevelopClones, findMainRepositories, parseArgs, runGit } = module);
+});
 
 const temporaryRoots = [];
 

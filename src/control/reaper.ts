@@ -23,6 +23,7 @@ import { spawn } from "node:child_process";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { stopSessionByLictorPid } from "./stop-session.js";
 import { createChildLogger } from "../shared/logger.js";
+import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("reaper");
 
@@ -255,35 +256,27 @@ export function startReaper(
     return { stop: () => {}, runOnce };
   }
 
-  let timer: NodeJS.Timeout | null = null;
   const tick = async (): Promise<void> => {
-    try {
-      const r = await runOnce();
-      if (r.killed.length > 0 || r.failed.length > 0) {
-        log.info(
-          { scanned: r.scanned, orphans: r.orphans.length, killed: r.killed.length, failed: r.failed.length },
-          "reaped orphan processes",
-        );
-      }
-    } catch (err) {
-      log.warn({ err: (err as Error).message }, "reaper tick failed");
+    const r = await runOnce();
+    if (r.killed.length > 0 || r.failed.length > 0) {
+      log.info(
+        { scanned: r.scanned, orphans: r.orphans.length, killed: r.killed.length, failed: r.failed.length },
+        "reaped orphan processes",
+      );
     }
   };
 
-  timer = setInterval(() => void tick(), opts.intervalMs);
-  timer.unref?.();
+  const supervised = startSupervisedInterval("reaper", tick, {
+    intervalMs: opts.intervalMs,
+    initialDelayMs: 0,
+    log: { warn: (message) => log.warn(message) },
+  });
   log.info(
     { intervalMs: opts.intervalMs, minAgeSec: opts.minAgeSec, endedGraceSec: opts.endedGraceSec },
     "reaper started",
   );
-  // 起動直後に 1 回 (溜まった孤児を即回収)。
-  void tick();
-
   return {
-    stop: () => {
-      if (timer) clearInterval(timer);
-      timer = null;
-    },
+    stop: supervised.stop,
     runOnce,
   };
 }

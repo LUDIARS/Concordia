@@ -61,6 +61,21 @@ describe("delegation queue × service", () => {
     expect(spawnCalls).toBe(1);
   });
 
+  it("producer-only mode は空きスロットがあっても spawn せず永続キューへ渡す", async () => {
+    const producerQueue = new DelegationQueue({
+      repo,
+      sessions: { findSession: () => null },
+      resolveMaxConcurrency: () => 0,
+      spawnQueued: (run) => service.spawnQueuedRun(run),
+      producerOnly: () => true,
+    });
+    service.setQueue(producerQueue);
+    const result = await service.invoke({ call_name: "impl-from-design", args: { task: "worker" } });
+    expect(result.ok && result.queued).toBe(true);
+    expect(spawnCalls).toBe(0);
+    if (result.ok) expect(result.run.status).toBe("queued");
+  });
+
   it("上限に達していたら spawn せず queued にする (prompt file も作らない)", async () => {
     await service.invoke({ call_name: "impl-from-design", args: { task: "A" } });
     const r = await service.invoke({ call_name: "impl-from-design", args: { task: "B" } });

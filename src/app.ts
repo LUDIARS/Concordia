@@ -12,6 +12,7 @@ import { adminAuthMiddleware } from "./shared/admin-auth.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
+import { listHaltedLoops } from "./shared/loop-bulkhead.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -81,9 +82,25 @@ export function buildApp(deps: AppDeps): Hono {
   const adminAuth = adminAuthMiddleware(() => deps.config.adminToken);
   app.use("/v1/admin/*", adminAuth);
   app.use("/v1/sweeper/run", adminAuth);
+  app.use("/v1/sessions/:id/inject", adminAuth);
+  app.use("/v1/delegation/invoke", adminAuth);
+  app.use("/v1/processes/*", async (c, next) => {
+    if (c.req.method === "GET") return next();
+    return adminAuth(c, next);
+  });
+  app.use("/v1/sessions/:id", async (c, next) => {
+    if (c.req.method !== "DELETE") return next();
+    return adminAuth(c, next);
+  });
 
   app.get("/health", (c) =>
-    c.json({ ok: true, service: "concordia", version: "0.1.0", started_at: deps.startedAt }),
+    c.json({
+      ok: true,
+      service: "concordia",
+      version: "0.1.0",
+      started_at: deps.startedAt,
+      halted_loops: listHaltedLoops(),
+    }),
   );
 
   registerCoreRoutes(app, {

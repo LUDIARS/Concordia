@@ -7,14 +7,12 @@
  * absolute path of the token file so callers can locate it without knowing
  * Concordia's cwd in advance.
  *
- * Concurrency is bounded by Windows Terminal itself; Concordia keeps the
- * last 50 spawn records in memory for debugging via `GET /v1/spawn/recent`.
+ * Concurrency is bounded by Windows Terminal itself.
  */
 
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
-  buildWtArgs,
   isSpawnProvider,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
@@ -51,21 +49,10 @@ export interface SpawnApiDeps {
   isCostBlocked?: () => boolean;
 }
 
-export interface SpawnRecord {
-  id: string;
-  ts: string;
-  request: SpawnRequest;
-  command: string[];
-  pid: number | null;
-}
-
-const RECENT_CAP = 50;
-
 export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
   const app = new Hono();
   const cwd = deps.cwd ?? process.cwd();
   const expectedToken = ensureSpawnToken(cwd);
-  const records: SpawnRecord[] = [];
 
   log.info({ tokenPath: spawnTokenPath(cwd) }, "spawn endpoint enabled");
 
@@ -129,49 +116,9 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
     if (!result.ok) {
       return c.json({ error: result.error }, 400);
     }
-    const record: SpawnRecord = {
-      id: randomUUID(),
-      ts: new Date().toISOString(),
-      request,
-      command: result.command,
-      pid: result.pid,
-    };
-    records.push(record);
-    if (records.length > RECENT_CAP) records.splice(0, records.length - RECENT_CAP);
-    log.info({ id: record.id, provider, mode, pid: record.pid }, "spawn launched");
-    return c.json({ ok: true, id: record.id, pid: record.pid, command: result.command });
-  });
-
-  app.get("/recent", (c) => {
-    return c.json({ spawns: records.slice() });
-  });
-
-  // Dry-run for the same payload shape — useful for UI previews.
-  app.post("/preview", async (c) => {
-    let body: Record<string, unknown>;
-    try {
-      body = await c.req.json<Record<string, unknown>>();
-    } catch {
-      return c.json({ error: "invalid JSON" }, 400);
-    }
-    const provider = (body.provider as string) ?? "claude";
-    if (!isSpawnProvider(provider)) {
-      return c.json(
-        { error: `unknown provider: ${provider} (valid: ${SPAWN_PROVIDERS.join(", ")})` },
-        400,
-      );
-    }
-    const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
-    const args = buildWtArgs({
-      provider,
-      mode,
-      args: Array.isArray(body.args)
-        ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
-        : undefined,
-      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
-      title: typeof body.title === "string" ? body.title : undefined,
-    });
-    return c.json({ command: ["wt.exe", ...args] });
+    const id = randomUUID();
+    log.info({ id, provider, mode, pid: result.pid }, "spawn launched");
+    return c.json({ ok: true, id, pid: result.pid, command: result.command });
   });
 
   return app;

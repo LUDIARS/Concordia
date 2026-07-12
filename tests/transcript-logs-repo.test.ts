@@ -102,12 +102,14 @@ describe("TranscriptLogsRepo", () => {
     expect(list[0].payload).toEqual(complex);
   });
 
-  it("deleteOlderThan で古い frame を削除できる (purge 用)", () => {
+  it("purgeOlderThan で全 session の古い frame を削除できる", () => {
     env.repo.insert({ session_id: "s1", seq: 0, ts: 1000, kind: "text", payload: { i: 0 } });
     env.repo.insert({ session_id: "s1", seq: 1, ts: 2000, kind: "text", payload: { i: 1 } });
     env.repo.insert({ session_id: "s1", seq: 2, ts: 3000, kind: "text", payload: { i: 2 } });
-    const removed = env.repo.deleteOlderThan("s1", 2500);
-    expect(removed).toBe(2);
+    env.repo.insert({ session_id: "s2", seq: 0, ts: 1000, kind: "text", payload: { i: 3 } });
+    const removed = env.repo.purgeOlderThan(2500);
+    expect(removed).toBe(3);
     expect(env.repo.countBySession("s1")).toBe(1);
+    expect(env.repo.countBySession("s2")).toBe(0);
   });
 });

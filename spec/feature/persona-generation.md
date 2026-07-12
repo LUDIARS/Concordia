@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Persona 動的生成 (投稿者シグナル → 人格)"
-description: "投稿者の活動シグナル (ツール使用・ファイル種別・チャット発言) を収集し、Claude CLI を用いて人格を動的生成してセッションに割り当てる機能。固定 seed 割り当てと並走する追加経路として設計され、`POST /v1/personas/generate` エンドポイントと SQLite への冪等 upsert (SCHEMA_VERSION 19) で構成される。"
+description: "投稿者の活動シグナルから人格を動的生成する旧設計。consumer の無かった手動生成 API は 2026-07-12 に撤去済み。"
 service: concordia
 domain: session-coordination
 tags:
@@ -38,12 +38,12 @@ updated: 2026-06-30
 | 人格合成 (LLM + heuristic) | `src/personas/generate.ts` — `generatePersonaDraft(signals)` |
 | skill_template 描画 (seed と共通) | `src/personas/skill-template.ts` — `buildSkillTemplate(p)` |
 | DB upsert + 排他 assign | `src/db/personas-repo.ts` — `createGenerated(draft, session_id)` |
-| API | `POST /v1/personas/generate` (`src/api/personas.ts`) |
+| API | 手動生成 API は consumer 不在のため撤去済み |
 
 ### データフロー
 
 ```
-POST /v1/personas/generate { session_id }
+（旧）`POST /v1/personas/generate { session_id }` — 2026-07-12 撤去
   → sessions.findSession + recentEvents(200)
   → collectSignals()  ── chat / events / session メタ → PersonaSignals
   → generatePersonaDraft()  ── claude CLI (fallback: heuristic) → PersonaDraft

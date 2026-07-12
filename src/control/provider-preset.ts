@@ -72,24 +72,36 @@ export type DelegationRuntimeOptions = Record<string, unknown>;
 
 export const CODEX_DEFAULT_REASONING_EFFORT = "xhigh";
 
-const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh"]);
+const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "ultra"]);
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
   const suggestions: DelegationOptionSuggestion[] = [];
   if (provider === "codex" && supportsCodexReasoningEffort(model)) {
+    const choices: DelegationOptionChoice[] = [
+      { label: "minimal", value: "minimal" },
+      { label: "low", value: "low" },
+      { label: "medium", value: "medium" },
+      { label: "high", value: "high" },
+      { label: "xhigh (Extra High)", value: "xhigh" },
+    ];
+    if (isSolModel(model)) {
+      choices.push({ label: "ultra (Sol 限定)", value: "ultra" });
+    }
     suggestions.push({
       key: "model_reasoning_effort",
       label: "Reasoning effort",
       type: "select",
       description: "Codex/GPT only. Passed as a one-shot Codex config override.",
-      choices: [
-        { label: "minimal", value: "minimal" },
-        { label: "low", value: "low" },
-        { label: "medium", value: "medium" },
-        { label: "high", value: "high" },
-        { label: "xhigh (Extra High)", value: "xhigh" },
-      ],
+      choices,
+    });
+  }
+  if (provider === "claude") {
+    suggestions.push({
+      key: "fast_mode",
+      label: "Fast mode",
+      type: "boolean",
+      description: "Claude Code の /fast 相当を起動セッションに引き継ぐ (CONCORDIA_DELEGATION_FAST_MODE env)。",
     });
   }
   suggestions.push({
@@ -107,12 +119,18 @@ export function goalAndGoRequested(options: DelegationRuntimeOptions | null | un
 
 /** Spawned Lictor can also preserve the opt-in when it builds registration metadata. */
 export function resolveDelegationRuntimeEnv(
-  _provider: string,
+  provider: string,
   options: DelegationRuntimeOptions | null | undefined,
 ): Record<string, string> {
-  return goalAndGoRequested(options)
-    ? { CONCORDIA_DELEGATION_GOAL_AND_GO: "1" }
-    : {};
+  const o = isPlainRecord(options) ? options : {};
+  const env: Record<string, string> = {};
+  if (provider === "claude" && o.fast_mode === true) {
+    env.CONCORDIA_DELEGATION_FAST_MODE = "1";
+  }
+  if (goalAndGoRequested(options)) {
+    env.CONCORDIA_DELEGATION_GOAL_AND_GO = "1";
+  }
+  return env;
 }
 
 function supportsCodexReasoningEffort(model: string | null | undefined): boolean {
@@ -124,6 +142,12 @@ function supportsCodexReasoningEffort(model: string | null | undefined): boolean
     normalized.startsWith("o4") ||
     normalized.includes("codex")
   );
+}
+
+/** GPT-5.6 Sol (model_id 末尾 `-sol`) かどうか。ultra effort は Sol 限定。 */
+function isSolModel(model: string | null | undefined): boolean {
+  const normalized = (model ?? "").trim().toLowerCase();
+  return normalized === "sol" || normalized.endsWith("-sol");
 }
 
 export function resolveDelegationRuntimeArgs(

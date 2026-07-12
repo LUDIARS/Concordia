@@ -68,7 +68,13 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex")[0]?.choices?.map((choice) => choice.value)).toContain("xhigh");
     expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo").map((s) => s.key)).toEqual(["goal_and_go"]);
-    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["goal_and_go"]);
+    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["fast_mode", "goal_and_go"]);
+  });
+
+  it("suggests ultra reasoning effort only for the Sol model", () => {
+    expect(delegationOptionSuggestions("codex", "gpt-5.6-sol")[0]?.choices?.map((c) => c.value)).toContain("ultra");
+    expect(delegationOptionSuggestions("codex", "gpt-5.6-terra")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
+    expect(delegationOptionSuggestions("codex", "gpt-5.5")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
   });
 
   it("passes goal-and-go opt-in to spawned Lictor for every provider", () => {
@@ -76,6 +82,17 @@ describe("delegation runtime options", () => {
       CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
     expect(resolveDelegationRuntimeEnv("claude", {})).toEqual({});
+  });
+
+  it("resolveDelegationRuntimeEnv passes fast_mode through as CONCORDIA_DELEGATION_FAST_MODE for Claude only", () => {
+    expect(resolveDelegationRuntimeEnv("claude", { fast_mode: true })).toEqual({
+      CONCORDIA_DELEGATION_FAST_MODE: "1",
+    });
+    expect(resolveDelegationRuntimeEnv("codex", { fast_mode: true })).toEqual({});
+    expect(resolveDelegationRuntimeEnv("claude", { fast_mode: true, goal_and_go: true })).toEqual({
+      CONCORDIA_DELEGATION_FAST_MODE: "1",
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
+    });
   });
 
   it("defaults Codex reasoning effort to xhigh when unspecified", () => {

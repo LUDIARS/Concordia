@@ -28,6 +28,7 @@ import {
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
+import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
 import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
@@ -88,6 +89,11 @@ export interface DiscordBotDeps {
   readModel: ChatReadModel;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
+  /**
+   * channel 作成前に届いた transcript frame の埋め戻し (transcript-replay) に使う。
+   * 省略時は replay をスキップ (standalone worker 等、 repo を持たない構成)。
+   */
+  transcriptLogs?: TranscriptReplaySource & { maxId(sessionId: string): number };
   /** Concordia の依頼 (chat-reply / title-suggest 等の pending tasks) の集計に使う. */
   /** PR キューの自動更新メッセージ / pr.changed 再描画に使う. */
   /**
@@ -765,6 +771,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               personaDisplayName: state?.personaDisplayName ?? null,
             },
           );
+          // channel 作成前に届いて「永続化のみ」になった frame を埋め戻す。
+          // watermark (maxId) は channel 行作成後に取る — これ以降の frame は
+          // relay gate を通ってライブ配信されるので replay 対象から外れる。
+          if (deps.transcriptLogs) {
+            const upToId = deps.transcriptLogs.maxId(sessionId);
+            replayPersistedTranscript(
+              { transcriptLogs: deps.transcriptLogs, log },
+              sessionId,
+              upToId,
+            );
+          }
           await upsertSessionStatusCard({
             guild,
             layout,

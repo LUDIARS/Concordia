@@ -514,6 +514,8 @@ export async function startBackend(): Promise<BackendHandle> {
     readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
+    // channel 作成前に届いた transcript frame の埋め戻し (transcript-replay)。
+    transcriptLogs,
     // 本社モニターの「本社/子会社別コスト」用。 子会社 Bot は manager が baseDiscordDeps を
     // そのまま使うが、 monitor 側で subsidiary モード時は無視するので渡しても害は無い。
     listSubsidiaries: () =>

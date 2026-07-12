@@ -4,7 +4,7 @@ title: "P4 structural hardening — shared platform paths, web decomposition, YA
 description: "FIXLIST-2026-07-12 P4-1〜P4-6 の実装判断と受入基準。追加マイクロサービス化を避け、既存worker境界、platform共通化、Web責務分割、設定縮退を完了する。"
 service: concordia
 domain: architecture
-status: active
+status: implemented
 updated: 2026-07-13
 related:
   - process-isolation-v2.md
@@ -50,3 +50,19 @@ related:
 - URL/API contract changes.
 - production worker rollout or DB maintenance execution.
 - visual redesign of the Web UI.
+
+## 5. Completion audit (2026-07-13)
+
+- P4-1: no additional service split. `platform-no-adapters` now prevents transport-neutral policy from importing Discord/Slack. Existing `core-no-chat`, `slack-no-discord`, `cost-no-chat`, and `chat-no-core-runner` rules retain the other ownership boundaries.
+- P4-2: `platform/session-inject.ts`, `reaction-ingress.ts`, and `transcript-relay.ts` are used by both adapters. Codex `commentary` frames are filtered consistently.
+- P4-3: all six composition files and every extracted replacement module are below 500 lines. Feature state, panels, and shared controls have named modules.
+- P4-4: Redis is explicit opt-in; 23 per-route HTTP TTL env reads were removed; reply-spawn is explicit opt-in; persona injection remains default-off.
+- P4-5 audit: `workflow-worker.ts` owns the durable `delegation_runs(status=queued)` consumer under a worker lease. Core becomes producer-only while the lease is live and restores embedded consumption after lease loss.
+- P4-6 C1–C5 audit:
+  - C1: interaction defer/ack remains inside the chat process and is measured within three seconds.
+  - C2: chat worker reads the SQLite WAL read model directly.
+  - C3: core mutations use the durable outbox; chat lease loss restores embedded bots.
+  - C4: shared worker lease and five-minute reconciliation are reused.
+  - C5: `process_mode` and `within_3s` ACK dimensions plus event-loop lag remain the rollout/rollback evidence.
+
+Production rollout is intentionally not performed by this branch. `embedded` remains the default for chat, workflow, and cost modes.

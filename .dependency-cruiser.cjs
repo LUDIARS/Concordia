@@ -148,6 +148,23 @@ module.exports = {
     },
 
     /**
+     * platform-no-adapters
+     * Transport-neutral chat policy must not depend on either concrete adapter.
+     */
+    {
+      name: "platform-no-adapters",
+      severity: "error",
+      comment: "Platform policy must not import Discord or Slack adapters",
+      from: {
+        path: "^src/platform/",
+        pathNot: ["\\.test\\.ts$"],
+      },
+      to: {
+        path: "^src/(discord|slack)/",
+      },
+    },
+
+    /**
      * no-circular
      * Circular dependencies are forbidden — they cause module-init ordering issues
      * and obscure the dependency structure.

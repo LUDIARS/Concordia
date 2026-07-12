@@ -15,6 +15,7 @@ import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session
 
 /** OAuth usage 取得時の任意ロガー (fetchClaudeOAuthUsage の log と同形)。 */
 type UsageLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
+type PerfLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
 
 /** Codex の rate-limit (used%) とリセット時刻。 Claude は OAuth usage 側で持つ。 */
 export interface CostRate {
@@ -47,17 +48,42 @@ export interface CostTimestampFormat {
  */
 export async function collectCostReport(
   sessionsRepo: SessionsRepo,
-  opts?: { oauthLog?: UsageLogger },
+  opts?: { oauthLog?: UsageLogger; perfLog?: PerfLogger; allowFullScan?: boolean },
 ): Promise<CostReport> {
+  const totalStartedAt = Date.now();
+  const logStep = (name: string, startedAt: number, extra = ""): void => {
+    const duration = Date.now() - startedAt;
+    const msg = `cost-report ${name} duration_ms=${duration}${extra}`;
+    if (duration >= 1000) opts?.perfLog?.warn(msg);
+    else opts?.perfLog?.info?.(msg);
+  };
+  let startedAt = Date.now();
   const active = sessionsRepo.listSessions({ status: "active" });
+  logStep("list-active-sessions", startedAt, ` sessions=${active.length}`);
+  await yieldToEventLoop();
+  startedAt = Date.now();
   const codex = active.filter((s) => s.provider === "codex-cli");
   const claude = active.filter((s) => s.provider === "claude-code");
-  const codexTotals = aggregate(codex);
-  const claudeTotals = aggregate(claude);
-  const codexRate = aggregateCodexRate(codex);
+  logStep("split-sessions", startedAt, ` codex=${codex.length} claude=${claude.length}`);
+  await yieldToEventLoop();
+  startedAt = Date.now();
+  const allowFullScan = opts?.allowFullScan !== false;
+  const codexTotals = aggregate(codex, allowFullScan);
+  logStep("aggregate-codex", startedAt, ` sessions=${codex.length}`);
+  await yieldToEventLoop();
+  startedAt = Date.now();
+  const claudeTotals = aggregate(claude, allowFullScan);
+  logStep("aggregate-claude", startedAt, ` sessions=${claude.length}`);
+  await yieldToEventLoop();
+  startedAt = Date.now();
+  const codexRate = aggregateCodexRate(codex, allowFullScan);
+  logStep("aggregate-codex-rate", startedAt, ` sessions=${codex.length}`);
+  await yieldToEventLoop();
   // Claude Code は JSONL に rate-limit を書かないので、 claude.ai OAuth の
   // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.
   const claudeUsage = await fetchClaudeOAuthUsage(opts?.oauthLog ? { log: opts.oauthLog } : {});
+  logStep("fetch-claude-oauth-usage", startedAt, ` available=${claudeUsage ? 1 : 0}`);
+  opts?.perfLog?.info?.(`cost-report total duration_ms=${Date.now() - totalStartedAt}`);
   return { codexTotals, claudeTotals, codexRate, claudeUsage };
 }
 
@@ -109,10 +135,11 @@ export function renderCostReportMarkdown(
   return lines.join("\n");
 }
 
-function aggregate(sessions: SessionRow[]): Totals {
+function aggregate(sessions: SessionRow[], allowFullScan: boolean): Totals {
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
+  if (!allowFullScan) return out;
   for (const s of sessions) {
-    const t = cachedReadSessionUsage(s);
+    const t = cachedReadSessionUsage(s, { allowFullScan });
     if (!t) continue;
     out.input += t.input;
     out.cached += t.cached;
@@ -122,14 +149,23 @@ function aggregate(sessions: SessionRow[]): Totals {
   return out;
 }
 
-function aggregateCodexRate(sessions: SessionRow[]): CostRate {
+function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean): CostRate {
   let minRemain5h: number | null = null;
   let minRemainWeekly: number | null = null;
   let minReset5h: number | null = null;
   let minResetWeekly: number | null = null;
+  if (!allowFullScan) {
+    return {
+      used5h: null,
+      usedWeekly: null,
+      reset5hAt: null,
+      resetWeeklyAt: null,
+      plan: null,
+    };
+  }
   // rate と plan は同じ token_count 行から取れるので、 セッションあたり 1 回だけ読む
   // (旧実装は plan のためだけに readCodexRate をもう一周していた)。
-  const rates = sessions.map(readCodexRate);
+  const rates = sessions.map((s) => readCodexRate(s, allowFullScan));
   for (const r of rates) {
     if (!r) continue;
     const r5 = remain(r.used5h);
@@ -148,8 +184,8 @@ function aggregateCodexRate(sessions: SessionRow[]): CostRate {
   };
 }
 
-function readCodexRate(s: SessionRow): CostRate | null {
-  const o = readLatestCodexTokenCountLine(s) as any;
+function readCodexRate(s: SessionRow, allowFullScan: boolean): CostRate | null {
+  const o = readLatestCodexTokenCountLine(s, { allowFullScan }) as any;
   if (!o) return null;
   return {
     used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),
@@ -159,6 +195,7 @@ function readCodexRate(s: SessionRow): CostRate | null {
     plan: firstString(
       o?.payload?.plan,
       o?.payload?.rate_limits?.plan,
+      o?.payload?.rate_limits?.plan_type,
       o?.payload?.rate_limits?.tier,
       o?.payload?.rate_limits?.subscription,
     ),
@@ -191,4 +228,8 @@ function pct(v: number | null): string {
 
 function fmtNum(n: number): string {
   return new Intl.NumberFormat("en-US").format(n);
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setImmediate(resolve));
 }

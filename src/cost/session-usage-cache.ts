@@ -49,6 +49,10 @@ function capMap<K, V>(m: Map<K, V>): void {
 
 const pathCache = new Map<string, PathEntry>();
 
+export interface SessionUsageReadOptions {
+  allowFullScan?: boolean;
+}
+
 function statFile(path: string): Snap | null {
   try {
     const st = statSync(path);
@@ -140,14 +144,15 @@ function codexTotalsFromLines(lines: string[]): Totals | null {
 }
 
 /** readSessionUsage 互換の memo 版 (cost-report の aggregate 用)。 */
-export function cachedReadSessionUsage(s: SessionRow): Totals | null {
+export function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadOptions = {}): Totals | null {
   const r = resolveSessionLogPath(s);
   if (!r) return null;
   if (s.provider === "codex-cli") {
     const e = codexTotalsMemo.get(s.id);
     if (e && e.path === r.path && e.mtimeMs === r.snap.mtimeMs && e.size === r.snap.size) return e.value;
     const tail = readTailLines(r.path);
-    const value = (tail ? codexTotalsFromLines(tail) : null) ?? readCodexUsage(r.path);
+    const fromTail = tail ? codexTotalsFromLines(tail) : null;
+    const value = fromTail ?? (options.allowFullScan === false ? e?.value ?? null : readCodexUsage(r.path));
     codexTotalsMemo.set(s.id, { path: r.path, mtimeMs: r.snap.mtimeMs, size: r.snap.size, value });
     capMap(codexTotalsMemo);
     return value;
@@ -184,7 +189,7 @@ export function cachedReadSessionUsage(s: SessionRow): Totals | null {
  * codex の最新 token_count 行 (rate_limits 込みの生 JSON) を tail 優先で返す。
  * cost-report の rate 読みが使う。 tail に無い長寿ファイルのみ全読みフォールバック。
  */
-export function readLatestCodexTokenCountLine(s: SessionRow): Record<string, unknown> | null {
+export function readLatestCodexTokenCountLine(s: SessionRow, options: SessionUsageReadOptions = {}): Record<string, unknown> | null {
   const r = resolveSessionLogPath(s);
   if (!r) return null;
   const scan = (lines: string[]): Record<string, unknown> | null => {
@@ -202,5 +207,6 @@ export function readLatestCodexTokenCountLine(s: SessionRow): Record<string, unk
   const tail = readTailLines(r.path);
   const fromTail = tail ? scan(tail) : null;
   if (fromTail) return fromTail;
+  if (options.allowFullScan === false) return null;
   return scan(readLines(r.path));
 }

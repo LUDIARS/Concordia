@@ -498,6 +498,10 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    perfLog: createChildLogger("cost-report"),
+    // worker モードは cost-worker が別途 host_metrics/DB へサンプリング済みなので、
+    // embedded 側の cost snapshot はログ JSONL のフルスキャンをせず軽量表示に倒す。
+    costSnapshotAllowFullScan: costMode !== "worker",
   });
 
   // observability (サービス監視 / catalog / auto-fix) は Excubitor (port 17332) に

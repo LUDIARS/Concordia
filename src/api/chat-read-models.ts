@@ -30,6 +30,8 @@ export interface ChatReadModelDeps {
   tasksRepo: TasksRepo;
   prRecordsRepo: PrRecordsRepo;
   oauthLog?: { warn: (m: string) => void; info?: (m: string) => void };
+  perfLog?: { warn: (m: string) => void; info?: (m: string) => void };
+  costSnapshotAllowFullScan?: boolean;
 }
 
 export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
@@ -200,7 +202,11 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       return { content: truncateForDiscord(body) } satisfies PrQueueSnapshot;
     },
     async getCostSnapshot(format: CostTimestampFormat, nowSec: number): Promise<CostSnapshot> {
-      const report = await collectCostReport(deps.sessionsRepo, { oauthLog: deps.oauthLog });
+      const report = await collectCostReport(deps.sessionsRepo, {
+        oauthLog: deps.oauthLog,
+        perfLog: deps.perfLog ?? deps.oauthLog,
+        allowFullScan: deps.costSnapshotAllowFullScan,
+      });
       return {
         markdown: renderCostReportMarkdown(report, format, nowSec),
         codexRate: {

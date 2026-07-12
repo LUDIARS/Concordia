@@ -14,6 +14,7 @@ tags:
 status: planned
 related:
   - tasks/README.md
+  - process-isolation-v2.md
   - ../feature/subsidiary-delegation.md
   - ../feature/delegation.md
   - ../feature/reaction-workflow.md
@@ -272,6 +273,16 @@ src/bootstrap/
 sessions.ts / server.ts / app.ts / 両 bot がそれぞれ 400 行未満。
 
 ### Phase 3 — プロセス分離 (安定化の本丸)
+
+> **更新 (2026-07-12)**: 3-1 (cost-worker) は完了。 3-2 (chat-worker) は
+> **一度実装したが撤収した** (`bootstrap/chat.ts` 参照 — WS bridge 越しの
+> interaction 遅延で不安定)。 失敗要因は「負荷分散フォーカスの分割線が
+> Discord interaction の対話経路 (3 秒 ack) を横断したこと」であり、
+> 実装品質ではなく分割線の選定にある。 **これは再挑戦しない理由にはならない。**
+> フォーカスを「負荷分散」から「**影響半径 (blast radius) の最小化**」へ
+> 転換した後継計画 [`process-isolation-v2.md`](process-isolation-v2.md) で、
+> 再挑戦の設計条件 (C1〜C5) と数値化された rollback 基準を定義した。
+> Phase 3 の残り (3-2 / 3-3) は以後そちらを正本とする。
 
 1. **cost-worker 切り出し**: `bootstrap/cost.ts` を `src/cost-worker.ts`
    エントリで起動可能に。 JSONL 走査・sampler は worker 内のみ。 コアは

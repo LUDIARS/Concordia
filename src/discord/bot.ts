@@ -24,6 +24,7 @@ import {
   onSessionWorkState,
   pruneStatusCategoryChannels,
   reconcileEndedSessionChannels,
+  reconcileLostSessionChannels,
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
@@ -491,6 +492,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         try {
           const lost = await reconcileLostStatusCards({ guild, configRepo, readModel: deps.readModel, log });
           log.info(`status-card ${reason} reconcile: scanned=${lost.scanned} removed=${lost.removed}`);
+          const lostChannels = await reconcileLostSessionChannels({
+            guild, layout: lay, repo: sessionChannelsRepo,
+            isSessionLost: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "lost",
+            log,
+          });
+          if (lostChannels.reconciled > 0) {
+            log.info(`session-channel lost ${reason} reconcile: scanned=${lostChannels.scanned} reconciled=${lostChannels.reconciled}`);
+          }
           const activeRows = sessionChannelsRepo.listActive();
           await runWithConcurrency(activeRows, statusSyncConcurrency, async (row) => {
             await upsertSessionStatusCard({

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelType } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
-import { onSessionRegistered, onSessionStatusChanged, reconcileEndedSessionChannels } from "./session-channel.js";
+import { onSessionRegistered, onSessionStatusChanged, reconcileEndedSessionChannels, reconcileLostSessionChannels } from "./session-channel.js";
 
 // onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
 // eager 作成し token を永続化する」ことを検証する。 これで以降の egress は
@@ -192,6 +192,109 @@ describe("onSessionStatusChanged ended archive", () => {
     );
 
     expect(m.guild.channels.fetch).toHaveBeenCalledWith(m.row.channel_id);
+    expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+});
+
+describe("onSessionStatusChanged lost archive", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeLostArchiveMocks(status: "active" | "lost" = "active") {
+    const row: any = {
+      session_id: "sess-lost-1",
+      channel_id: "chan-lost-1",
+      webhook_id: null,
+      webhook_token: null,
+      status,
+      display_state: status,
+      agent_type: "codex-cli",
+      name_body: "task",
+      delegation_emoji: null,
+      last_rename_ts: 0,
+      scope: "sub:child",
+      name_locked: 0,
+      ts: 1,
+    };
+    const channelObj: any = {
+      id: row.channel_id,
+      name: "old-task",
+      parentId: "sessions-cat",
+      type: ChannelType.GuildText,
+      edit: vi.fn(async (patch: any) => {
+        if (patch.name) channelObj.name = patch.name;
+        if (patch.parent) channelObj.parentId = patch.parent;
+        return channelObj;
+      }),
+    };
+    const cache = new Map<string, any>([[row.channel_id, channelObj]]);
+    const guild = {
+      channels: {
+        cache,
+        fetch: vi.fn(async (id?: string) => (id ? (id === row.channel_id ? channelObj : null) : cache)),
+      },
+    };
+    const repo = {
+      findBySessionId: vi.fn((id: string) => (id === row.session_id ? row : null)),
+      listAll: vi.fn(() => [row]),
+      setStatus: vi.fn((id: string, nextStatus: string) => {
+        if (id === row.session_id) row.status = nextStatus;
+      }),
+      setDisplayState: vi.fn((id: string, state: string) => {
+        if (id === row.session_id) row.display_state = state;
+      }),
+      tryClaimRename: vi.fn(() => true),
+    };
+    const log = { info: vi.fn(), warn: vi.fn() };
+    const layout = { archiveCategoryId: "archive-cat", sessionsCategoryId: "sessions-cat" } as any;
+    return { row, channelObj, guild, repo, log, layout };
+  }
+
+  it("moves a lost session channel to archive without rename cooldown", async () => {
+    const m = makeLostArchiveMocks();
+
+    await onSessionStatusChanged(
+      { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
+      { sessionId: m.row.session_id, status: "lost" },
+    );
+
+    expect(m.repo.tryClaimRename).not.toHaveBeenCalled();
+    expect(m.row.status).toBe("lost");
+    expect(m.row.display_state).toBe("lost");
+    expect(m.channelObj.edit).toHaveBeenCalledWith(expect.objectContaining({
+      parent: "archive-cat",
+      name: expect.any(String),
+    }));
+    expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("reconciles active channel rows whose session is already lost", async () => {
+    const m = makeLostArchiveMocks("active");
+
+    const result = await reconcileLostSessionChannels({
+      guild: m.guild as any,
+      layout: m.layout,
+      repo: m.repo as any,
+      isSessionLost: (sessionId) => sessionId === m.row.session_id,
+      log: m.log,
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(m.row.status).toBe("lost");
+    expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("retries archive when a lost channel row is still outside archive", async () => {
+    const m = makeLostArchiveMocks("lost");
+
+    const result = await reconcileLostSessionChannels({
+      guild: m.guild as any,
+      layout: m.layout,
+      repo: m.repo as any,
+      isSessionLost: () => false,
+      log: m.log,
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1 });
     expect(m.channelObj.parentId).toBe("archive-cat");
   });
 });

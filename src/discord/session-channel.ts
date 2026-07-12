@@ -110,6 +110,21 @@ export async function reconcileEndedSessionChannels(
   return { scanned: rows.length, reconciled };
 }
 
+export async function reconcileLostSessionChannels(
+  deps: SessionChannelDeps & { isSessionLost: (sessionId: string) => boolean },
+): Promise<{ scanned: number; reconciled: number }> {
+  await deps.guild.channels.fetch().catch(() => null);
+  const rows = deps.repo.listAll();
+  let reconciled = 0;
+  for (const row of rows) {
+    if (row.status !== "lost" && !deps.isSessionLost(row.session_id)) continue;
+    if (!needsLostArchiveReconcile(deps, row)) continue;
+    await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "lost" });
+    reconciled += 1;
+  }
+  return { scanned: rows.length, reconciled };
+}
+
 async function fetchSessionTextChannel(
   deps: SessionChannelDeps,
   channelId: string,
@@ -138,10 +153,21 @@ function needsEndedArchiveReconcile(
   return ch.parentId !== deps.layout.archiveCategoryId || ch.name !== endedName;
 }
 
+function needsLostArchiveReconcile(
+  deps: SessionChannelDeps,
+  row: DiscordSessionChannelRow,
+): boolean {
+  if (row.status !== "lost" || row.display_state !== "lost") return true;
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return false;
+  const lostName = buildSessionChannelName("lost", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
+  return ch.parentId !== deps.layout.archiveCategoryId || ch.name !== lostName;
+}
+
 /**
  * session.lost / session.ended に応じた channel 操作.
  *  - ended → channel を archive カテゴリへ移動 + ⚪ prefix (削除しない、 会話ログ保全)
- *  - lost  → emoji だけ更新 (状態カテゴリに留める)
+ *  - lost  → channel を archive カテゴリへ移動 + 🟥 prefix (削除しない、 会話ログ保全)
  *  - active への復帰 → emoji 更新 (状態カテゴリにいる前提)
  */
 export async function onSessionStatusChanged(
@@ -150,7 +176,7 @@ export async function onSessionStatusChanged(
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
-  if (row.status === input.status && input.status !== "ended") return;
+  if (row.status === input.status && input.status === "active") return;
 
   // ended は archive カテゴリへ移動 (削除しない / rename cooldown を経由しない).
   // DB row は status=ended で残す — 会話チャンネルと対応を保持し続ける.
@@ -192,8 +218,35 @@ export async function onSessionStatusChanged(
     return;
   }
 
-  // それ以外 (active <-> lost) は emoji rename のみ. sessions カテゴリに留める.
-  const newDisplayState: ChannelDisplayState = input.status; // "active" or "lost"
+  // lost は archive カテゴリへ移動 (削除しない / rename cooldown を経由しない).
+  if (input.status === "lost") {
+    deps.repo.setStatus(input.sessionId, "lost");
+    deps.repo.setDisplayState(input.sessionId, "lost");
+    const ch = await fetchSessionTextChannel(deps, row.channel_id);
+    if (ch) {
+      try {
+        const lostName = buildSessionChannelName("lost", row.agent_type, row.name_body ?? "session", row.delegation_emoji);
+        if (ch.parentId !== deps.layout.archiveCategoryId || ch.name !== lostName) {
+          await ch.edit({
+            name: lostName,
+            parent: deps.layout.archiveCategoryId,
+            reason: `session ${input.sessionId} lost -> archive`,
+          });
+          deps.log.info(
+            `session-channel: archived #${lostName} (${row.channel_id}) for lost ${input.sessionId}`,
+          );
+        }
+      } catch (e) {
+        deps.log.warn(
+          `session-channel: lost archive move failed for ${input.sessionId}: ${(e as Error).message}`,
+        );
+      }
+    }
+    return;
+  }
+
+  // active への復帰は emoji rename + sessions カテゴリへ戻す.
+  const newDisplayState: ChannelDisplayState = input.status; // "active"
   deps.repo.setStatus(input.sessionId, input.status);
   deps.repo.setDisplayState(input.sessionId, newDisplayState);
 

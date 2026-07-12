@@ -88,7 +88,7 @@ Concordia は repo・session・event を 1 つの SQLite に集約し、 各エ�
 hook を持たない CLI 用に、 `tools/concordia-hook.mjs` の汎用 wrapper script
 (任意の event を curl-like に送る) を同梱する。
 
-詳細は [`spec/multi-provider.md`](spec/multi-provider.md) 参照。
+詳細は [`spec/feature/multi-provider.md`](spec/feature/multi-provider.md) 参照。
 
 ---
 

@@ -150,7 +150,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   const app = new Hono();
 
   function invalidateTemplates(
-    action: "create" | "import" | "patch" | "delete",
+    action: "create" | "import" | "duplicate" | "patch" | "delete",
     row: Awaited<ReturnType<DelegationRepo["findTemplate"]>> | null,
   ): void {
     invalidateDelegationTemplateCache();
@@ -319,6 +319,33 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       sort_order: p.sort_order,
     });
     invalidateTemplates("import", row);
+    return c.json({ template: serializeTemplate(row) }, 201);
+  });
+
+  // 既存テンプレを複製して新規テンプレとして保存する (export→import のワンステップ版)。
+  // call_name は元テンプレと衝突するため resolveCallName が自動で -2, -3, … を採番する。
+  app.post("/templates/:id/duplicate", async (c) => {
+    const id = c.req.param("id");
+    const source = deps.repo.findTemplate(id);
+    if (!source) return c.json({ error: "not_found" }, 404);
+    const p = templateToPortable(source);
+    const call_name = resolveCallName(deps.repo, p.call_name, p.title);
+    const title = `${(p.title ?? "").trim() || call_name} copy`;
+    const row = deps.repo.createTemplate({
+      call_name,
+      title,
+      description: p.description,
+      target_provider: p.target_provider,
+      model: p.model ?? null,
+      runtime_options: p.runtime_options,
+      prompt_template: p.prompt_template ?? "",
+      input_schema: p.input_schema,
+      default_cwd: p.default_cwd ?? null,
+      project: p.project ?? null,
+      emoji: p.emoji,
+      sort_order: p.sort_order,
+    });
+    invalidateTemplates("duplicate", row);
     return c.json({ template: serializeTemplate(row) }, 201);
   });
 

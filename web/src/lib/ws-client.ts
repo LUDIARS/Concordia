@@ -26,7 +26,7 @@ type ConcordiaEventPayload =
   | { type: "rule.changed";     rule_id: string | null; action: "add" | "remove" | "toggle" | "fire" | "skip" | "error"; ts: number }
   | {
       type: "delegation.templates_changed";
-      action: "create" | "import" | "patch" | "delete";
+      action: "create" | "import" | "duplicate" | "patch" | "delete";
       template_id: string | null;
       call_name: string | null;
       ts: number;

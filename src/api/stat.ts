@@ -81,6 +81,10 @@ export function statRouter(deps: StatApiDeps): Hono {
     const parsed = PostStatSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
 
+    if (session.status === "active") {
+      deps.sessions.updateHeartbeat(sessionId, Math.floor(Date.now() / 1000));
+    }
+
     const row = deps.stats.insert({
       session_id: sessionId,
       ts: parsed.data.ts,

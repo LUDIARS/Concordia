@@ -17,7 +17,12 @@ export function registerEventsRoutes(app: Hono, deps: SessionsApiDeps): void {
 
 app.get("/:id/pending-tasks", (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    // Lictor はこの endpoint を短間隔でポーリングするので、通常の /event 投稿が
+    // 途絶えている無入力中セッションでも heartbeat が更新される (= 誤って lost 判定
+    // されない) ようにここでも updateHeartbeat する。
+    if (session.status === "active") deps.repo.updateHeartbeat(id, nowSec());
     const list = deps.tasks.pull(id, 20);
     return c.json({
       tasks: list.map((t) => ({

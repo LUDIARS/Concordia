@@ -13,6 +13,7 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const ts = nowSec();
+    if (session.status === "active") deps.repo.updateHeartbeat(id, ts);
     const discordRow = deps.channelDirectory.findSessionChannel(id);
     const activeRelayTarget = session.status === "active" && discordRow?.status === "active";
 

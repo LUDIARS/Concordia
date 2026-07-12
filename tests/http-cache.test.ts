@@ -5,6 +5,7 @@ import { makeTestApp } from "./helpers/test-app.js";
 
 const OLD_HTTP_CACHE = process.env.CONCORDIA_HTTP_CACHE_ENABLED;
 const OLD_REDIS = process.env.CONCORDIA_REDIS_ENABLED;
+const OLD_MONITOR_TTL = process.env.CONCORDIA_HTTP_CACHE_MONITOR_TTL_MS;
 
 function seedSession(repo: SessionsRepo, id: string): void {
   repo.insertSession({
@@ -34,6 +35,8 @@ describe("Concordia HTTP cache", () => {
     else process.env.CONCORDIA_HTTP_CACHE_ENABLED = OLD_HTTP_CACHE;
     if (OLD_REDIS === undefined) delete process.env.CONCORDIA_REDIS_ENABLED;
     else process.env.CONCORDIA_REDIS_ENABLED = OLD_REDIS;
+    if (OLD_MONITOR_TTL === undefined) delete process.env.CONCORDIA_HTTP_CACHE_MONITOR_TTL_MS;
+    else process.env.CONCORDIA_HTTP_CACHE_MONITOR_TTL_MS = OLD_MONITOR_TTL;
   });
 
   it("serves configured GET endpoints from the in-process layer before Redis", async () => {
@@ -84,5 +87,12 @@ describe("Concordia HTTP cache", () => {
     expect(bypass.status).toBe(200);
     expect(bypass.headers.get("x-concordia-cache")).toBe("bypass");
     expect(((await bypass.json()) as any).active).toHaveLength(2);
+  });
+
+  it("uses the fixed route policy instead of per-route TTL env knobs", async () => {
+    process.env.CONCORDIA_HTTP_CACHE_MONITOR_TTL_MS = "99999";
+    const env = makeTestApp();
+    const response = await env.app.request("/v1/monitor");
+    expect(response.headers.get("x-concordia-cache-ttl-ms")).toBe("500");
   });
 });

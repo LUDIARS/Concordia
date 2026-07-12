@@ -103,11 +103,9 @@ async function redisCommand(args: string[], timeoutMs: number): Promise<RespValu
   });
 }
 
-function redisEnabled(): boolean {
-  const raw = process.env.CONCORDIA_REDIS_ENABLED;
-  if (raw && /^(0|false|no)$/i.test(raw)) return false;
-  if (raw && /^(1|true|yes)$/i.test(raw)) return true;
-  return process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
+export function redisEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.CONCORDIA_REDIS_ENABLED;
+  return raw != null && /^(1|true|yes)$/i.test(raw);
 }
 
 function redisUrl(): URL {

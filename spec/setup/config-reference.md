@@ -54,6 +54,9 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | rules_log の保持期間 (日)。 |
 | `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | session_stats の保持期間 (日)。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
+| `CONCORDIA_HTTP_CACHE_ENABLED` | 有効 | GET応答の小さなL1 cache。ルート別TTLはコード上の固定ポリシーとし、個別envは持たない。 |
+| `CONCORDIA_REDIS_ENABLED` | 無効 | `1` のときだけ共有cache用Redisへ接続する。Redis不在環境では未設定のままにする。 |
+| `CONCORDIA_REPLY_SPAWN_ENABLED` | 無効 | `1` のときだけDiscord返信ごとのHaiku判定と新規session起動を有効にする。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |

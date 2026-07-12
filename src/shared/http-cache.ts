@@ -135,37 +135,31 @@ function cacheTtlMs(pathname: string): number | null {
   if (pathname.includes("/fs/")) return null;
 
   if (pathname.startsWith("/v1/work/repos")) return null;
-  if (pathname.startsWith("/v1/work/conversations")) return ttlEnv("CONCORDIA_HTTP_CACHE_WORK_CONVERSATIONS_TTL_MS", 750);
-  if (pathname.startsWith("/v1/library")) return ttlEnv("CONCORDIA_HTTP_CACHE_LIBRARY_TTL_MS", 10_000);
-  if (pathname.startsWith("/v1/cost/timeseries")) return ttlEnv("CONCORDIA_HTTP_CACHE_COST_TIMESERIES_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/cost/limit-timeseries")) return ttlEnv("CONCORDIA_HTTP_CACHE_COST_LIMIT_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/cost/overview")) return ttlEnv("CONCORDIA_HTTP_CACHE_COST_OVERVIEW_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/cost/one-shots")) return ttlEnv("CONCORDIA_HTTP_CACHE_COST_ONE_SHOTS_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/monitor")) return ttlEnv("CONCORDIA_HTTP_CACHE_MONITOR_TTL_MS", 500);
-  if (pathname.startsWith("/v1/prs")) return ttlEnv("CONCORDIA_HTTP_CACHE_PRS_TTL_MS", 2_000);
-  if (pathname.startsWith("/v1/session-logs")) return ttlEnv("CONCORDIA_HTTP_CACHE_SESSION_LOGS_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/delegation/templates")) return ttlEnv("CONCORDIA_HTTP_CACHE_DELEGATION_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/delegation/options")) return ttlEnv("CONCORDIA_HTTP_CACHE_DELEGATION_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/model-catalog")) return ttlEnv("CONCORDIA_HTTP_CACHE_MODEL_CATALOG_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/skills")) return ttlEnv("CONCORDIA_HTTP_CACHE_SKILLS_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/chat")) return ttlEnv("CONCORDIA_HTTP_CACHE_CHAT_TTL_MS", 500);
-  if (pathname.startsWith("/v1/personas")) return ttlEnv("CONCORDIA_HTTP_CACHE_PERSONAS_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/reports")) return ttlEnv("CONCORDIA_HTTP_CACHE_REPORTS_TTL_MS", 2_000);
-  if (pathname.startsWith("/v1/stat")) return ttlEnv("CONCORDIA_HTTP_CACHE_STAT_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/machines")) return ttlEnv("CONCORDIA_HTTP_CACHE_MACHINES_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/tasks")) return ttlEnv("CONCORDIA_HTTP_CACHE_TASKS_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/subsidiaries")) return ttlEnv("CONCORDIA_HTTP_CACHE_SUBSIDIARIES_TTL_MS", 1_000);
-  if (pathname.startsWith("/v1/harness-rules")) return ttlEnv("CONCORDIA_HTTP_CACHE_HARNESS_RULES_TTL_MS", 5_000);
-  if (pathname.startsWith("/v1/harness/audit")) return ttlEnv("CONCORDIA_HTTP_CACHE_HARNESS_AUDIT_TTL_MS", 1_000);
-  if (pathname === "/v1/sessions") return ttlEnv("CONCORDIA_HTTP_CACHE_SESSIONS_TTL_MS", 500);
+  if (pathname.startsWith("/v1/work/conversations")) return 750;
+  if (pathname.startsWith("/v1/library")) return 10_000;
+  if (pathname.startsWith("/v1/cost/timeseries")) return 5_000;
+  if (pathname.startsWith("/v1/cost/limit-timeseries")) return 5_000;
+  if (pathname.startsWith("/v1/cost/overview")) return 1_000;
+  if (pathname.startsWith("/v1/cost/one-shots")) return 1_000;
+  if (pathname.startsWith("/v1/monitor")) return 500;
+  if (pathname.startsWith("/v1/prs")) return 2_000;
+  if (pathname.startsWith("/v1/session-logs")) return 5_000;
+  if (pathname.startsWith("/v1/delegation/templates")) return 5_000;
+  if (pathname.startsWith("/v1/delegation/options")) return 5_000;
+  if (pathname.startsWith("/v1/model-catalog")) return 5_000;
+  if (pathname.startsWith("/v1/skills")) return 5_000;
+  if (pathname.startsWith("/v1/chat")) return 500;
+  if (pathname.startsWith("/v1/personas")) return 1_000;
+  if (pathname.startsWith("/v1/reports")) return 2_000;
+  if (pathname.startsWith("/v1/stat")) return 1_000;
+  if (pathname.startsWith("/v1/machines")) return 1_000;
+  if (pathname.startsWith("/v1/tasks")) return 1_000;
+  if (pathname.startsWith("/v1/subsidiaries")) return 1_000;
+  if (pathname.startsWith("/v1/harness-rules")) return 5_000;
+  if (pathname.startsWith("/v1/harness/audit")) return 1_000;
+  if (pathname === "/v1/sessions") return 500;
   if (pathname.startsWith("/v1/sessions/")) return null;
   return null;
-}
-
-function ttlEnv(name: string, fallback: number): number | null {
-  const raw = process.env[name];
-  if (raw && /^(0|false|no)$/i.test(raw)) return null;
-  return readPositiveIntEnv(name, fallback);
 }
 
 function trimL1(): void {

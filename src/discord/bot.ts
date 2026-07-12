@@ -650,6 +650,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // (子会社 Bot に desk は配線されない)。
       intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
       subsidiary: Boolean(deps.subsidiary),
+      replySpawnEnabled: process.env.CONCORDIA_REPLY_SPAWN_ENABLED === "1",
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });

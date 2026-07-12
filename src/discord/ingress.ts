@@ -63,6 +63,8 @@ export interface IngressDeps {
   };
   /** True only for a subsidiary guild; head-office desk intake remains false. */
   subsidiary?: boolean;
+  /** Expensive reply classification is frozen unless explicitly enabled. */
+  replySpawnEnabled?: boolean;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -262,6 +264,10 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
  * 補足扱い (spawn なし) のときは AI は反応しない (Discord にも何も返さない)。
  */
 async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: string): Promise<void> {
+  if (deps.replySpawnEnabled !== true) {
+    deps.log.info(`ingress: session reply ignored; reply-spawn disabled session=${sessionId}`);
+    return;
+  }
   const replyText = msg.content.trim();
   // 返信先メッセージ本文 (元の作業内容)。 取得失敗は空文字で続行 (返信本文だけで判定)。
   let repliedToText = "";

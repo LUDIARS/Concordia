@@ -10,6 +10,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
+import { fetchCodexRateLimits } from "./codex-rate-limits.js";
 import type { Totals } from "../cost/log-usage.js";
 import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
 
@@ -17,14 +18,10 @@ import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session
 type UsageLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
 type PerfLogger = { warn: (msg: string) => void; info?: (msg: string) => void };
 
-/** Codex の rate-limit (used%) とリセット時刻。 Claude は OAuth usage 側で持つ。 */
-export interface CostRate {
-  used5h: number | null;
-  usedWeekly: number | null;
-  reset5hAt: number | null;
-  resetWeeklyAt: number | null;
-  plan: string | null;
-}
+// CostRate は取得側 (codex-rate-limits) と共有するため cost-rate.ts へ分離。
+// 既存 import 互換のためここから再エクスポートする。
+export type { CostRate } from "./cost-rate.js";
+import type { CostRate } from "./cost-rate.js";
 
 /** cost 本文を描くのに必要な集計済みデータ一式。 */
 export interface CostReport {
@@ -48,7 +45,13 @@ export interface CostTimestampFormat {
  */
 export async function collectCostReport(
   sessionsRepo: SessionsRepo,
-  opts?: { oauthLog?: UsageLogger; perfLog?: PerfLogger; allowFullScan?: boolean },
+  opts?: {
+    oauthLog?: UsageLogger;
+    perfLog?: PerfLogger;
+    allowFullScan?: boolean;
+    /** テスト用: codex rate-limit fetcher の差し替え (既定 fetchCodexRateLimits)。 */
+    codexRateFetcher?: () => Promise<CostRate | null>;
+  },
 ): Promise<CostReport> {
   const totalStartedAt = Date.now();
   const logStep = (name: string, startedAt: number, extra = ""): void => {
@@ -76,8 +79,13 @@ export async function collectCostReport(
   logStep("aggregate-claude", startedAt, ` sessions=${claude.length}`);
   await yieldToEventLoop();
   startedAt = Date.now();
-  const codexRate = aggregateCodexRate(codex, allowFullScan);
-  logStep("aggregate-codex-rate", startedAt, ` sessions=${codex.length}`);
+  // rate 枠は `codex app-server` の account/rateLimits/read でセッション非依存に取る
+  // (2026-07-13〜)。 取得失敗時のみ旧経路 (active セッションの rollout token_count 行)
+  // へフォールバックする。
+  const fetchRate = opts?.codexRateFetcher ?? (() => fetchCodexRateLimits({ log: opts?.oauthLog }));
+  const apiRate = await fetchRate();
+  const codexRate = apiRate ?? aggregateCodexRate(codex, allowFullScan);
+  logStep("codex-rate", startedAt, ` source=${apiRate ? "app-server" : `sessions(${codex.length})`}`);
   await yieldToEventLoop();
   // Claude Code は JSONL に rate-limit を書かないので、 claude.ai OAuth の
   // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.

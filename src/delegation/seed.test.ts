@@ -46,5 +46,18 @@ describe("seedDelegationTemplates", () => {
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
     expect(tpl?.prompt_template).toContain("service-map.json");
+    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\reviews\\<repo>\\${date}\\");
+    expect(tpl?.prompt_template).toContain("Castra で `git add` / `git commit` / `git push` を行わず");
+    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\Review\\");
+  });
+
+  it("keeps the legacy daily review local-only during migration", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const tpl = repo.findTemplateByCallName("ludiars-review-daily");
+    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\reviews\\<repo>\\${date}\\");
+    expect(tpl?.prompt_template).toContain("Castra で `git add` / `git commit` / `git push` を行わず");
+    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\Review\\");
   });
 });

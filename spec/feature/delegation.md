@@ -210,6 +210,11 @@ cron-jobs.ts) がある。 Codex × Claude Opus の独立差分レビュー + �
 (テンプレ側に本文を二重管理しない)。 旧 `ludiars-review-daily` (5:07) は新方式の安定確認
 まで並走し、 その後停止する (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2)。
 
+両日次レビューは Morning Tasks と同じ Timer Delegation としてローカル起動する。
+レビュー記録の保存先は Castra checkout 内の `E:\Document\Ars\reviews\<repo>\` に固定し、
+`reviews/` は Castra の ignore 対象とする。Delegation は Castra で
+`git add` / `git commit` / `git push` を行わず、既存の追跡済み `Review/` も変更しない。
+
 ## 10. v0.1 で やらないこと
 
 - Lictor / Codex CLI 側の prompt auto-inject (next PR)

@@ -1,4 +1,17 @@
-import type { Predicate } from "./predicates.js";
+interface TestIsolationAction {
+  tool: string;
+  command?: string;
+  isWorktree?: boolean;
+}
+
+interface TestIsolationHit {
+  rule: string;
+  decision: "deny";
+  reason: string;
+  suggestion: string;
+}
+
+type TestIsolationPredicate = (action: TestIsolationAction) => TestIsolationHit | null;
 
 const SERVICE_START = [
   /(?:^|[;&|]\s*)start-[\w-]+\.bat(?:\s|$)/i,
@@ -20,7 +33,7 @@ export function isOperationalTestCommand(command: string): boolean {
   return isServiceStartCommand(command) || OP_TEST.some((pattern) => pattern.test(command));
 }
 
-export const noServiceStartInSession: Predicate = (action) => {
+export const noServiceStartInSession: TestIsolationPredicate = (action) => {
   if (action.tool !== "Bash" || !action.command || !isServiceStartCommand(action.command)) return null;
   return {
     rule: "no-service-start-in-session",
@@ -30,7 +43,7 @@ export const noServiceStartInSession: Predicate = (action) => {
   };
 };
 
-export const noOpTestInWorktree: Predicate = (action) => {
+export const noOpTestInWorktree: TestIsolationPredicate = (action) => {
   if (action.isWorktree !== true || action.tool !== "Bash" || !action.command) return null;
   if (!isOperationalTestCommand(action.command)) return null;
   return {

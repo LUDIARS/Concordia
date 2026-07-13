@@ -41,6 +41,7 @@ import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
 import type { SpawnRequest } from "../../src/control/spawner.js";
+import { TaskMdStore } from "../../src/taskflow/md-store.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
@@ -111,6 +112,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   seedDelegationTemplates(delegation);
   const modelCatalog = new ModelCatalogRepo(db);
   const adminState = new AdminState(db);
+  // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
+  const taskStore = new TaskMdStore(() => []);
 
   // 副作用の隔離: logsDir / spawn token / delegation prompt を全て tmpdir に向ける。
   // CONCORDIA_SPAWN_TOKEN_PATH を設定しないと buildApp (spawnRouter) が
@@ -140,6 +143,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, adminState,
+    taskStore,
+    onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,
     processManager,
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },

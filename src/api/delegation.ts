@@ -8,9 +8,11 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
+  DELEGATION_CATEGORIES,
   type DelegationRepo,
   type DelegationRunRow,
   type DelegationProvider,
+  type DelegationCategory,
   parseRuntimeOptions,
 } from "../db/delegation-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -54,6 +56,7 @@ const CreateTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -70,6 +73,7 @@ const PatchTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -196,14 +200,33 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   }
 
   // ── GET endpoints (no auth) ───────────────────────────────
+  // ?category=employee|freelancer|parttimer で雇用形態カテゴリを絞り込める (省略時は全件)。
+  // 不正な値は無言で全件へフォールバックせず 400 を返す (設定不備の無言フォールバック禁止)。
+  function categoryFilter(c: { req: { query: (k: string) => string | undefined } }):
+    | { ok: true; category: DelegationCategory | null }
+    | { ok: false } {
+    const raw = (c.req.query("category") ?? "").trim();
+    if (!raw) return { ok: true, category: null };
+    if ((DELEGATION_CATEGORIES as readonly string[]).includes(raw)) {
+      return { ok: true, category: raw as DelegationCategory };
+    }
+    return { ok: false };
+  }
+
   app.get("/templates", (c) => {
+    const filter = categoryFilter(c);
+    if (!filter.ok) return c.json({ error: "invalid_category", allowed: DELEGATION_CATEGORIES }, 400);
     const rows = deps.repo.listTemplates({ includeInactive: false });
-    return c.json({ templates: rows.map(serializeTemplate) });
+    const filtered = filter.category ? rows.filter((r) => r.category === filter.category) : rows;
+    return c.json({ templates: filtered.map(serializeTemplate) });
   });
 
   app.get("/templates/all", (c) => {
+    const filter = categoryFilter(c);
+    if (!filter.ok) return c.json({ error: "invalid_category", allowed: DELEGATION_CATEGORIES }, 400);
     const rows = deps.repo.listTemplates({ includeInactive: true });
-    return c.json({ templates: rows.map(serializeTemplate) });
+    const filtered = filter.category ? rows.filter((r) => r.category === filter.category) : rows;
+    return c.json({ templates: filtered.map(serializeTemplate) });
   });
 
   app.get("/templates/:identifier", (c) => {
@@ -316,6 +339,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       default_cwd: p.default_cwd ?? null,
       project: p.project ?? null,
       emoji: p.emoji,
+      category: p.category,
       sort_order: p.sort_order,
     });
     invalidateTemplates("import", row);
@@ -343,6 +367,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       default_cwd: p.default_cwd ?? null,
       project: p.project ?? null,
       emoji: p.emoji,
+      category: p.category,
       sort_order: p.sort_order,
     });
     invalidateTemplates("duplicate", row);

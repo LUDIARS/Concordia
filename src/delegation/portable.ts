@@ -12,7 +12,9 @@
 import { z } from "zod";
 import {
   DELEGATION_PROVIDERS,
+  DELEGATION_CATEGORIES,
   type DelegationProvider,
+  type DelegationCategory,
   type DelegationTemplateRow,
   parseInputSchema,
   parseRuntimeOptions,
@@ -48,6 +50,7 @@ export const PortableDelegationSchema = z.object({
   default_cwd: z.string().max(1000).nullable().optional(),
   project: z.string().max(200).nullable().optional(),
   emoji: z.string().max(8).optional(),
+  category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
 
@@ -68,6 +71,8 @@ export interface PortableDelegationOut {
   default_cwd: string | null;
   project: string | null;
   emoji: string;
+  /** 雇用形態カテゴリ。 子会社所有の複製 (subsidiary_delegations) は列を持たないため省略される */
+  category?: DelegationCategory;
   sort_order: number;
 }
 
@@ -86,6 +91,7 @@ export function templateToPortable(row: DelegationTemplateRow): PortableDelegati
     default_cwd: row.default_cwd,
     project: row.project,
     emoji: row.emoji,
+    category: row.category,
     sort_order: row.sort_order,
   };
 }

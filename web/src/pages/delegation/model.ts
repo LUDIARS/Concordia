@@ -6,6 +6,15 @@ import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
 export type Provider = "claude" | "codex" | "gemini" | "gemma4-12";
 
+// 雇用形態カテゴリ (サーバ側正本: src/db/delegation-repo.ts DELEGATION_CATEGORIES)。
+export type Category = "employee" | "freelancer" | "parttimer";
+export const CATEGORIES: readonly Category[] = ["employee", "freelancer", "parttimer"];
+export const CATEGORY_LABELS: Readonly<Record<Category, string>> = {
+  employee: "従業員",
+  freelancer: "フリーランサー",
+  parttimer: "パートタイマー",
+};
+
 export interface InputSchemaItem {
   name: string;
   type: "string" | "number" | "boolean";
@@ -42,6 +51,7 @@ export interface Template {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  category: Category;
   sort_order: number;
   default_options?: Record<string, unknown>;
   runtime_options?: DelegationOptionSuggestion[];
@@ -89,6 +99,7 @@ export interface FormState {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  category: Category;
   sort_order: string;
 }
 
@@ -106,6 +117,7 @@ export const EMPTY_FORM: FormState = {
   is_active: true,
   emoji: "",
   call_only: false,
+  category: "employee",
   sort_order: "1000",
 };
 

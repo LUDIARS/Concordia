@@ -28,6 +28,7 @@ function codex56Template(
     model: `gpt-5.6-${name}`,
     runtime_options: { model_reasoning_effort: reasoning },
     emoji,
+    category: "employee",
     sort_order,
     prompt_template: [
       "Implement the following in ${target_repo}:",
@@ -67,6 +68,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
+    category: "freelancer",
     sort_order: 100,
     prompt_template: [
       "Read the design document at ${design_path}.",
@@ -100,6 +102,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
+    category: "freelancer",
     sort_order: 110,
     prompt_template: [
       "Fix this bug in ${target_repo}:",
@@ -130,6 +133,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
+    category: "freelancer",
     sort_order: 120,
     prompt_template: [
       "Refactor ${target} to achieve: ${goal}.",
@@ -168,6 +172,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       target_provider: "claude" as const,
       model: meta.id,
       emoji: meta.emoji,
+      category: "employee" as const,
       sort_order: CLAUDE_TEMPLATE_SORT_ORDER[tier],
       prompt_template: [
         "Implement the following in ${target_repo}:",
@@ -199,6 +204,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "Memoriaから残タスクを確認して実行する。どのプロジェクトの作業をするかはユーザーに質問形式で問い合わせる。delegate-task リアクションワークフロー (🤝) のデフォルトテンプレート。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    category: "employee",
     sort_order: 130,
     emoji: "🤝",
     prompt_template: [
@@ -221,6 +227,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "Memoriaの今日期限タスクを「確認系(人間がやる)」と「実装系(AIがやれる)」に仕分け、確認系は整理して提示し、実装系は1件ずつ着手して、詰まったらask・分割・委譲で止める朝ルーティン。MorningSchedulerが毎朝8時にinvokeする。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    category: "parttimer",
     sort_order: 140,
     emoji: "🌅",
     prompt_template: [
@@ -266,6 +273,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     title: "ローカル LLM 実装委託 (gemma4-12 / auto)",
     description: "ローカル LLM (Famulus 経由、Ollama 上の Gemma 4 等) に実装を委託する。API 課金ゼロ・ローカル完結。model='auto' で対象プロジェクトに合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) が自動選択する。長いエージェントループは精度・速度が落ちるので小さく区切ったタスク向き。",
     target_provider: "gemma4-12",
+    category: "employee",
     sort_order: 150,
     emoji: "🇬",
     // model="auto" → invoke 時に `famulus select --project <repo basename>` で自動選択
@@ -303,6 +311,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "LUDIARS 全 active リポを AIFormat に沿ってレビューし、spec/ が実装に追随できているか (FORMAT_SPEC.md §10) も確認する。安全範囲の自動修正は自分で行わず daily-review-autofix (Codex) に委託する。Concordia の内部 cron スケジューラが毎日5:07 JSTにinvokeする。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    category: "parttimer",
     emoji: "📋",
     prompt_template: [
       "## LUDIARS 全リポ日次レビュー — ${date}",
@@ -341,6 +350,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "ludiars-review-daily が見つけた安全範囲の指摘 (lint/typo/unused_import/dead_code/gitignore/toc/spec_gen) をまとめて Codex に適用させ、1 PR にする。call_only (人間向けドロップダウンには出さない)。",
     target_provider: "codex",
     call_only: true,
+    category: "freelancer",
     emoji: "🛠️",
     prompt_template: [
       "Apply the following safe auto-fixes in ${target_repo} (${repo_name}):",
@@ -365,6 +375,46 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  // ── 毎朝 5:10 のデイリー突合レビュー (Codex × Opus 独立レビュー + 突合) ──
+  // cron-jobs.ts が毎日 5:10 JST に invoke する。 対象は LUDIARS/service-map.json の
+  // daily_review=true リポ (Tier 1)。 プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md
+  // (二重管理しない — 本テンプレはオーケストレーション手順のみ持つ)。
+  // 旧 ludiars-review-daily は新運用の安定確認まで並走し、 その後停止する
+  // (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2)。
+  {
+    call_name: "daily-review-reconciliation",
+    title: "デイリー突合レビュー (Codex × Opus)",
+    description: "service-map.json の Tier 1 リポについて、前回レビュー HEAD からの累積 diff を Codex と Claude Opus に独立レビューさせ、所見を突合して Castra に保存する。High 一致は GitHub Issue 化。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。cron が毎朝 5:10 JST に invoke する。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "⚖️",
+    prompt_template: [
+      "## デイリー突合レビュー — ${date}",
+      "",
+      "あなたはオーケストレータ。レビュー本文は書かず、Codex と Claude Opus の 2 レビュアーを回して所見を突合する。",
+      "",
+      "### 正本 (最初に必ず読む)",
+      "- 手順・プロンプト・突合ルール: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md`",
+      "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
+      "",
+      "### 手順",
+      "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
+      "2. 前回 HEAD == 現 HEAD のリポはスキップし「変更なし」と記録する。",
+      "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-4-8` を起動する (互いの所見は見せない)。",
+      "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定 → 両者一致の High 以上は対象リポへ GitHub Issue 作成。",
+      "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` を現 HEAD へ更新、Castra へ commit + push する。",
+      "6. 新規指摘より先に open な指摘 Issue の解消確認 (resolved_checks) を行い、未対応 High は放置日数付きでレポート先頭に出す。",
+      "7. 最終サマリ (対象数 / 変更なし数 / 一致・不一致所見数 / Issue 化件数 / unreviewed) を報告する。",
+      "",
+      "自分でコード修正はしない。レビュアーの JSON が契約 (§2) を破ったら 1 回だけ再問い合わせ、それでも破れば該当リポを failed として記録し他リポを続行する。",
+    ].join("\n"),
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: "E:\\Document\\Ars",
+    is_active: true,
+  },
   // ── タスク種別別 Delegation Caller (実装委託の claude-*-impl とは別軸) ──
   {
     call_name: "design-hard-fable5",
@@ -372,6 +422,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "難所の設計判断や複雑な課題解決を Fable 5 に委託する。複数案を比較しトレードオフを明示、結論は spec/plan/ 形式の設計書として出力する (実装はしない)。",
     target_provider: "claude",
     model: "claude-fable-5",
+    category: "freelancer",
     emoji: "🧩",
     prompt_template: [
       "Work through the following hard design problem in ${target_repo}:",
@@ -400,6 +451,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "現状分析・改善提案・影響範囲の整理を Opus 4.8 に委託する。実装はせず、分析結果を spec/faq/ (kind: design) 形式のドキュメントとして出力する。",
     target_provider: "claude",
     model: "claude-opus-4-8",
+    category: "freelancer",
     emoji: "🔬",
     prompt_template: [
       "Analyze the following in ${target_repo} and propose an approach:",
@@ -428,6 +480,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     description: "PR / diff / ファイル群のレビューを Sonnet 5 に委託する。AIFormat の考え方 (指摘は重大度付き、該当箇所は file:line) で所見を返す。git 操作・修正はしない。",
     target_provider: "claude",
     model: "claude-sonnet-5",
+    category: "freelancer",
     emoji: "🔍",
     prompt_template: [
       "Review the following in ${target_repo}:",

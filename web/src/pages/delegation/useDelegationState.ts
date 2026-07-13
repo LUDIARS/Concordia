@@ -132,6 +132,7 @@ export function useDelegationState() {
       is_active: t.is_active,
       emoji: t.emoji ?? "",
       call_only: t.call_only ?? false,
+      category: t.category ?? "employee",
       sort_order: String(t.sort_order ?? 1000),
     });
     setFormError(null);
@@ -169,6 +170,7 @@ export function useDelegationState() {
         is_active: form.is_active,
         emoji: form.emoji,
         call_only: form.call_only,
+        category: form.category,
         sort_order: Number(form.sort_order) || 0,
       };
       const path = mode?.kind === "edit"

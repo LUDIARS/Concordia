@@ -30,8 +30,18 @@ export const CRON_JOBS: CronJobDefinition[] = [
     name: "ludiars-review-daily",
     // 毎日 5:07 JST。 旧 Windows Task Scheduler / claude.ai リモートルーティンの
     // 起動時刻慣行 (5:07) を踏襲。
+    // 新方式 (daily-review-reconciliation) の安定確認後に停止予定
+    // (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2 — 移行完了までは並走)。
     cron: "7 5 * * *",
     call_name: "ludiars-review-daily",
+    buildArgs: () => ({ date: todayIso() }),
+  },
+  {
+    name: "daily-review-reconciliation",
+    // 毎日 5:10 JST。 Codex × Opus の独立差分レビュー + 突合 (Tier 1 リポのみ)。
+    // 対象・手順の正本は LUDIARS/service-map.json + LUDIARS/docs/REVIEW-PROMPTS.md。
+    cron: "10 5 * * *",
+    call_name: "daily-review-reconciliation",
     buildArgs: () => ({ date: todayIso() }),
   },
 ];

@@ -15,6 +15,20 @@ import { randomUUID } from "node:crypto";
 export type DelegationProvider = "claude" | "codex" | "gemini" | "gemma4-12";
 export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "gemini", "gemma4-12"];
 
+// Delegation の雇用形態カテゴリ (spec/feature/delegation.md §2)。
+//   employee   = 従業員: セッションワーカー。spawn で対話セッションとして起動する汎用実装レーン
+//   freelancer = フリーランサー: caller (delegation_invoke / call_only) で呼び出す特化型指示タスク
+//   parttimer  = パートタイマー: スケジューラ (cron / morning) が時限起動するタスク
+// zod / UI / portable はこの定数を単一情報源として参照する (DELEGATION_PROVIDERS と同パターン)。
+export type DelegationCategory = "employee" | "freelancer" | "parttimer";
+export const DELEGATION_CATEGORIES: readonly DelegationCategory[] = ["employee", "freelancer", "parttimer"];
+export const DELEGATION_CATEGORY_LABELS: Readonly<Record<DelegationCategory, string>> = {
+  employee: "従業員",
+  freelancer: "フリーランサー",
+  parttimer: "パートタイマー",
+};
+export const DEFAULT_DELEGATION_CATEGORY: DelegationCategory = "employee";
+
 export interface DelegationTemplateRow {
   id: string;
   call_name: string;
@@ -34,6 +48,8 @@ export interface DelegationTemplateRow {
   emoji: string;
   /** 1 = LLM 委託専用テンプレ。 Discord/Slack の spawn ドロップダウンに出さない */
   call_only: number;
+  /** 雇用形態カテゴリ (employee | freelancer | parttimer)。 既定 employee */
+  category: DelegationCategory;
   sort_order: number;
   created_at: number;
   updated_at: number;
@@ -88,6 +104,7 @@ export interface CreateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  category?: DelegationCategory;
   sort_order?: number;
 }
 
@@ -104,6 +121,7 @@ export interface UpdateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  category?: DelegationCategory;
   sort_order?: number;
 }
 
@@ -156,6 +174,7 @@ export class DelegationRepo {
         is_active: input.is_active,
         emoji: input.emoji,
         call_only: input.call_only,
+        category: input.category,
         sort_order: input.sort_order,
       }) ?? existing;
     }
@@ -169,8 +188,8 @@ export class DelegationRepo {
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model, runtime_options_json,
         prompt_template, input_schema, default_cwd, project, is_active,
-        emoji, call_only, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        emoji, call_only, category, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -186,6 +205,7 @@ export class DelegationRepo {
       input.is_active === false ? 0 : 1,
       input.emoji ?? "",
       input.call_only ? 1 : 0,
+      input.category ?? DEFAULT_DELEGATION_CATEGORY,
       input.sort_order ?? 1000,
       now,
       now,
@@ -211,6 +231,7 @@ export class DelegationRepo {
         is_active = ?,
         emoji = ?,
         call_only = ?,
+        category = ?,
         sort_order = ?,
         updated_at = ?
       WHERE id = ?
@@ -227,6 +248,7 @@ export class DelegationRepo {
       patch.is_active === undefined ? cur.is_active : (patch.is_active ? 1 : 0),
       patch.emoji !== undefined ? patch.emoji : cur.emoji,
       patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,
+      patch.category !== undefined ? patch.category : cur.category,
       patch.sort_order !== undefined ? patch.sort_order : cur.sort_order,
       now,
       id,

@@ -60,6 +60,52 @@ describe("POST /v1/delegation/templates (空欄許容)", () => {
   });
 });
 
+describe("delegation category (雇用形態カテゴリ)", () => {
+  let app: Hono;
+  beforeEach(() => { app = makeApp().app; });
+
+  it("create は category を受理し、 省略時は employee になる", async () => {
+    const withCat = await postTemplate(app, { target_provider: "claude", call_name: "pt", category: "parttimer" });
+    expect(withCat.status).toBe(201);
+    expect(((await withCat.json()) as any).template.category).toBe("parttimer");
+
+    const noCat = await postTemplate(app, { target_provider: "codex", call_name: "emp" });
+    expect(((await noCat.json()) as any).template.category).toBe("employee");
+  });
+
+  it("create は不正な category を 400 で拒否する", async () => {
+    const r = await postTemplate(app, { target_provider: "codex", call_name: "bad", category: "intern" });
+    expect(r.status).toBe(400);
+  });
+
+  it("PATCH で category を変更できる", async () => {
+    const created = (await (await postTemplate(app, { target_provider: "codex", call_name: "mv" })).json()) as any;
+    const r = await app.request(`/v1/delegation/templates/${created.template.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ category: "freelancer" }),
+    });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as any).template.category).toBe("freelancer");
+  });
+
+  it("GET /templates?category= で絞り込み、 不正値は 400", async () => {
+    await postTemplate(app, { target_provider: "codex", call_name: "a-emp" });
+    await postTemplate(app, { target_provider: "claude", call_name: "b-pt", category: "parttimer" });
+
+    const filtered = await app.request("/v1/delegation/templates?category=parttimer");
+    expect(filtered.status).toBe(200);
+    const j = (await filtered.json()) as any;
+    expect(j.templates.map((t: any) => t.call_name)).toEqual(["b-pt"]);
+
+    const all = (await (await app.request("/v1/delegation/templates")).json()) as any;
+    expect(all.templates.length).toBe(2);
+
+    const bad = await app.request("/v1/delegation/templates?category=intern");
+    expect(bad.status).toBe(400);
+  });
+});
+
 describe("GET /v1/delegation/templates runtime options", () => {
   it("orders templates by sort_order and allows patching order", async () => {
     const { app } = makeApp();

@@ -51,6 +51,7 @@ delegation_templates
   default_cwd (NULLABLE TEXT)
   project (NULLABLE TEXT)  -- 対象プロジェクト名 (cwd と別。 famulus auto-model のヒント等)
   is_active (INTEGER 0/1)
+  category (TEXT NOT NULL DEFAULT 'employee')  -- 雇用形態カテゴリ (§2.1)
   created_at, updated_at (epoch ms)
 
 delegation_runs
@@ -68,6 +69,22 @@ delegation_runs
   error (TEXT NULL)
   created_at
 ```
+
+### 2.1 category (雇用形態カテゴリ)
+
+delegation を「どう起動されるか」で 3 分類する。 単一情報源は
+`src/db/delegation-repo.ts` の `DELEGATION_CATEGORIES` (zod / UI / portable が参照)。
+
+| 値 | 表示名 | 意味 | 例 |
+|----|--------|------|-----|
+| `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `claude-*-impl`, `codex-5-6-*`, `task-process` |
+| `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-sonnet5` |
+| `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily`, `daily-review-reconciliation` |
+
+- 既定は `employee` (既存 DB の行は列追加 migration で employee に埋まる。 seed テンプレは boot upsert で正しい値に上書き)。
+- `GET /v1/delegation/templates?category=<値>` で絞り込み可 (不正値は 400)。
+- category は表示・分類のためのメタデータで、 spawn 経路の挙動は変えない
+  (spawn 可否の制御は従来どおり `call_only`)。
 
 ## 3. テンプレ render
 
@@ -186,6 +203,12 @@ delegation テンプレ選択ベースで起動する:
 `target_provider=claude` のテンプレは spawn 時に `lictor claude --model <id>` で起動する
 (`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
 1 PR 集約 等) を含める。 旧 `gamma-impl` (target=gamma) は seed 時に deactivate される。
+
+時限起動 (parttimer) の seed には `daily-review-reconciliation` (毎朝 5:10 JST、
+cron-jobs.ts) がある。 Codex × Claude Opus の独立差分レビュー + 突合。 対象は
+`LUDIARS/service-map.json` の Tier 1、 プロンプト正本は `LUDIARS/docs/REVIEW-PROMPTS.md`
+(テンプレ側に本文を二重管理しない)。 旧 `ludiars-review-daily` (5:07) は新方式の安定確認
+まで並走し、 その後停止する (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2)。
 
 ## 10. v0.1 で やらないこと
 

@@ -86,6 +86,7 @@ describe("startCronScheduler", () => {
   it("keeps the default job list explicit (regression guard)", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily", cron: "7 5 * * *", call_name: "ludiars-review-daily" },
+      { name: "daily-review-reconciliation", cron: "10 5 * * *", call_name: "daily-review-reconciliation" },
     ]);
   });
 });

@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../api.js";
 import { RuntimeOptionsBuilder } from "../components/RuntimeOptionsBuilder.js";
-import { EMPTY_FORM, type Provider } from "./delegation/model.js";
+import { CATEGORIES, CATEGORY_LABELS, EMPTY_FORM, type Category, type Provider } from "./delegation/model.js";
 import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/RunCards.js";
 import { useDelegationState } from "./delegation/useDelegationState.js";
 
 export function Delegation() {
   const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced } = useDelegationState();
+  // カテゴリ表示絞り込み ("" = 全カテゴリ)。 表示だけの絞り込みで、 並び替え (↑↓) は
+  // 全体の sort_order を書き換えるため絞り込み中は無効化する。
+  const [categoryFilter, setCategoryFilter] = useState<Category | "">("");
+  const visibleTemplates = categoryFilter ? templates.filter((t) => t.category === categoryFilter) : templates;
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <header className="space-y-2">
@@ -29,6 +33,17 @@ export function Delegation() {
             />
             include inactive
           </label>
+          <select
+            className="foundation-form text-sm"
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value as Category | "")}
+            title="雇用形態カテゴリで絞り込み"
+          >
+            <option value="">全カテゴリ</option>
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+            ))}
+          </select>
           <button
             onClick={startCreate}
             className="ml-auto bg-accent text-bg px-3 py-1.5 rounded text-sm font-medium"
@@ -63,6 +78,7 @@ export function Delegation() {
               <th className="text-left p-2">call_name</th>
               <th className="text-left p-2">title</th>
               <th className="text-right p-2">order</th>
+              <th className="text-left p-2" title="従業員=spawn / フリーランサー=caller / パートタイマー=時限起動">category</th>
               <th className="text-left p-2">provider</th>
               <th className="text-left p-2">model</th>
               <th className="text-center p-2">emoji</th>
@@ -73,11 +89,12 @@ export function Delegation() {
             </tr>
           </thead>
           <tbody>
-            {templates.map((t, i) => (
+            {visibleTemplates.map((t, i) => (
               <tr key={t.id} className="border-t border-border">
                 <td className="p-2 font-mono">{t.call_name}</td>
                 <td className="p-2">{t.title}</td>
                 <td className="p-2 text-right text-xs text-subtle">{t.sort_order}</td>
+                <td className="p-2 text-xs">{CATEGORY_LABELS[t.category] ?? t.category}</td>
                 <td className="p-2"><code>{t.target_provider}</code></td>
                 <td className="p-2 text-xs">{t.model ? <code>{t.model}</code> : <span className="text-subtle">—</span>}</td>
                 <td className="p-2 text-center">{t.emoji || <span className="text-subtle">—</span>}</td>
@@ -85,8 +102,8 @@ export function Delegation() {
                 <td className="p-2 text-center">{t.call_only ? "✓" : "—"}</td>
                 <td className="p-2 text-xs text-subtle">{fmtDelegationTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
-                  <button className="text-xs" disabled={busy || i === 0} title="Move up" onClick={() => moveTemplate(i, -1)}>↑</button>
-                  <button className="text-xs" disabled={busy || i === templates.length - 1} title="Move down" onClick={() => moveTemplate(i, 1)}>↓</button>
+                  <button className="text-xs" disabled={busy || categoryFilter !== "" || i === 0} title={categoryFilter ? "絞り込み中は並び替え不可" : "Move up"} onClick={() => moveTemplate(i, -1)}>↑</button>
+                  <button className="text-xs" disabled={busy || categoryFilter !== "" || i === templates.length - 1} title={categoryFilter ? "絞り込み中は並び替え不可" : "Move down"} onClick={() => moveTemplate(i, 1)}>↓</button>
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
                   <button className="text-xs" onClick={() => startEdit(t)}>edit</button>
                   <button className="text-xs" title="可搬 JSON をクリップボードにコピー" onClick={() => copyJson(t)}>📋JSON</button>
@@ -221,6 +238,18 @@ export function Delegation() {
                 onChange={(e) => setForm({ ...form, project: e.target.value })}
                 placeholder="Pictor"
               />
+            </label>
+            <label className="text-sm space-y-1">
+              <span className="text-subtle">category (雇用形態)</span>
+              <select
+                className="foundation-form w-full"
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as Category })}
+              >
+                <option value="employee">従業員 — セッションワーカー (spawn で起動)</option>
+                <option value="freelancer">フリーランサー — caller で呼び出す特化型タスク</option>
+                <option value="parttimer">パートタイマー — 時限起動するタスク</option>
+              </select>
             </label>
             <label className="text-sm space-y-1">
               <span className="text-subtle">sort_order</span>

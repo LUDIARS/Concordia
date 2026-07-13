@@ -26,6 +26,31 @@ describe("DelegationRepo / templates", () => {
     expect(found?.id).toBe(created.id);
   });
 
+  it("defaults category to employee and round-trips an explicit category", () => {
+    const defaulted = repo.createTemplate({
+      call_name: "cat-default",
+      title: "t",
+      target_provider: "codex",
+      prompt_template: "p",
+    });
+    expect(defaulted.category).toBe("employee");
+
+    const explicit = repo.createTemplate({
+      call_name: "cat-parttimer",
+      title: "t",
+      target_provider: "claude",
+      prompt_template: "p",
+      category: "parttimer",
+    });
+    expect(explicit.category).toBe("parttimer");
+
+    const patched = repo.updateTemplate(explicit.id, { category: "freelancer" });
+    expect(patched?.category).toBe("freelancer");
+    // category を渡さない patch では既存値を維持する
+    const untouched = repo.updateTemplate(explicit.id, { title: "t2" });
+    expect(untouched?.category).toBe("freelancer");
+  });
+
   it("upsertTemplate replaces existing by call_name", () => {
     const a = repo.upsertTemplate({
       call_name: "foo",

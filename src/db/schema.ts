@@ -402,6 +402,7 @@ const STATEMENTS = [
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
+    category          TEXT    NOT NULL DEFAULT 'employee',  -- employee | freelancer | parttimer (delegation-repo.ts DELEGATION_CATEGORIES が正本)
     sort_order        INTEGER NOT NULL DEFAULT 1000,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
@@ -916,6 +917,13 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "delegation_templates",
     column: "project",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN project TEXT`,
+  },
+  // delegation の雇用形態カテゴリ (employee=従業員 / freelancer=フリーランサー / parttimer=パートタイマー)。
+  // 既存行は employee で埋める (spawn がテンプレの既定用途のため)。 seed テンプレは boot upsert で正しい値に上書きされる。
+  {
+    table: "delegation_templates",
+    column: "category",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN category TEXT NOT NULL DEFAULT 'employee'`,
   },
   {
     table: "delegation_runs",

@@ -26,6 +26,7 @@ const outPath = join(repoRoot, "spec-index.jsonl");
 function collectMdFiles(dir) {
   const results = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name === "tasks" && dir === specDir) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...collectMdFiles(full));

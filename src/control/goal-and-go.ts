@@ -213,6 +213,12 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
 
   const unsubscribe = eventBus.subscribe((event) => {
     if (!globallyEnabled) return;
+    if (event.type === "taskflow.continue_requested") {
+      const session = opts.repo.findSession(event.target_session_id);
+      if (session) opts.repo.patchSession(event.target_session_id, { current_task: event.text });
+      continueSession(event.target_session_id);
+      return;
+    }
     handleGoalAndGoEvent(event, {
       arm: (sessionId) => {
         if (isEligible(sessionId)) idle.arm(sessionId);

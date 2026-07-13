@@ -84,6 +84,9 @@ import { reapOrphans } from "../control/reaper.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { startDetachedBackendRestart } from "../control/backend-restart.js";
+import type { TaskMdStore } from "../taskflow/md-store.js";
+import { taskflowRouter } from "./taskflow.js";
+import type { DelegationRunRow } from "../db/delegation-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -127,6 +130,8 @@ export interface CoreDeps {
   toolPath: string;
   publicUrl: string;
   secretBox?: SecretBox;
+  taskStore: TaskMdStore;
+  onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
 }
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
@@ -169,6 +174,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
+  app.route("/v1/taskflow", taskflowRouter({ store: deps.taskStore }));
   if (deps.confirmService) {
     app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
   }
@@ -201,6 +207,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         }
       : undefined,
     adminState: deps.adminState,
+    taskStore: deps.taskStore,
+    onTaskflowCompleted: deps.onTaskflowCompleted,
   }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
   if (deps.testingClaims) {
@@ -223,6 +231,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           if (!s) return null;
           return s.target_project ?? s.repo_path ?? null;
         },
+        sessionContext: (id) => {
+          const s = deps.repo.findSession(id);
+          if (!s) return null;
+          let metadata: Record<string, unknown> = {};
+          try { metadata = s.metadata ? JSON.parse(s.metadata) as Record<string, unknown> : {}; } catch { /* allow unknown */ }
+          const model = typeof metadata.model === "string" ? metadata.model : s.provider;
+          return {
+            model: `${s.provider}/${model}`,
+            implUnlocked: metadata.impl_unlocked === true,
+            isWorktree: typeof metadata.is_worktree === "boolean" ? metadata.is_worktree : undefined,
+          };
+        },
+        strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),
+        mentionUserId: () => deps.adminState.getMentionUserId(),
       }),
     );
   }
@@ -680,6 +702,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
 
   app.get("/v1/admin/state", (c) => {
     return c.json(deps.adminState.snapshot());
+  });
+  app.put("/v1/admin/harness-strong-impl-models", async (c) => {
+    const body = await c.req.json().catch(() => null) as { models?: unknown } | null;
+    if (!body || !Array.isArray(body.models) || body.models.some((model) => typeof model !== "string")) {
+      return c.json({ error: "models_must_be_string_array" }, 400);
+    }
+    deps.adminState.setHarnessStrongImplModels(body.models as string[]);
+    return c.json({ models: deps.adminState.getHarnessStrongImplModels() });
+  });
+  app.put("/v1/admin/mention-user-id", async (c) => {
+    const body = await c.req.json().catch(() => null) as { user_id?: unknown } | null;
+    if (!body || (body.user_id !== null && typeof body.user_id !== "string")) return c.json({ error: "invalid_user_id" }, 400);
+    deps.adminState.setMentionUserId(body.user_id as string | null);
+    return c.json({ user_id: deps.adminState.getMentionUserId() });
   });
 
   // 管理 API: 新コード反映用の self-restart.

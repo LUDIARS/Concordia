@@ -862,6 +862,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((e) => log.warn(`delegation mirror post failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
+    if (ev.type === "taskflow.user_decision") {
+      if (!isActiveDiscordSession(ev.target_session_id)) return;
+      void (async () => {
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        const mention = ev.mention_user_id ? `<@${ev.mention_user_id}> ` : "";
+        await webhooks.send(client, {
+          content: `${mention}${ev.text}`.slice(0, 1900),
+          username: "Cc taskflow",
+          allowedMentions: ev.mention_user_id ? { users: [ev.mention_user_id] } : { parse: [] },
+        });
+      })().catch((e) => log.warn(`taskflow decision post failed: ${(e as Error).message}`));
+      return;
+    }
     if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
       handleEgressEvent({
         guild,

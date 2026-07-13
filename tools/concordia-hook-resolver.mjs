@@ -79,3 +79,16 @@ export function resolveEditTarget(ctx) {
   if (!ti || typeof ti !== "object") return null;
   return ti.file_path ?? ti.path ?? ti.command ?? null;
 }
+
+/** git-dir と common-dir が異なる cwd は linked worktree。git 失敗時は undefined。 */
+export function resolveIsWorktree(cwd, execGit) {
+  if (!cwd || typeof execGit !== "function") return undefined;
+  try {
+    const gitDir = String(execGit("git rev-parse --git-dir", cwd)).trim().replace(/\\/g, "/");
+    const commonDir = String(execGit("git rev-parse --git-common-dir", cwd)).trim().replace(/\\/g, "/");
+    if (!gitDir || !commonDir) return undefined;
+    return gitDir !== commonDir;
+  } catch {
+    return undefined;
+  }
+}

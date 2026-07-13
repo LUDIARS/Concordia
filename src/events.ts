@@ -29,6 +29,17 @@ type ConcordiaEventPayload =
       text: string;
       ts: number;
     }
+  | {
+      type: "taskflow.user_decision";
+      kind: "confirm-queued" | "no-tasks" | "pr-decision" | "impl-unlock" | "question";
+      target_session_id: string;
+      text: string;
+      mention_user_id: string | null;
+      ts: number;
+    }
+  | { type: "taskflow.completion_detected"; session_id: string; pr_number: number | null; outcome: string; decision_id?: number; ts: number }
+  | { type: "taskflow.residual_checked"; session_id: string; outcome: "next-task" | "decompose" | "none"; pending_count: number; ts: number }
+  | { type: "taskflow.continue_requested"; target_session_id: string; text: string; ts: number }
   | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
   | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
   | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }
@@ -116,6 +127,8 @@ type ChatEventType =
   | "transcript.frame"
   | "session.permission_request"
   | "delegation.mirror"
+  | "taskflow.user_decision"
+  | "taskflow.continue_requested"
   | "question.posted"
   | "question.answered"
   | "question.resolved";

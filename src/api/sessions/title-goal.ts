@@ -6,6 +6,13 @@ import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, genera
 import { readGoalAndGoStatus, setGoalAndGoEnabled } from "../../control/goal-and-go.js";
 
 export function registerTitleGoalRoutes(app: Hono, deps: SessionsApiDeps): void {
+  app.post("/:id/impl-unlock", (c) => {
+    const id = c.req.param("id");
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    deps.repo.mergeMetadata(id, { impl_unlocked: true });
+    return c.json({ ok: true, session_id: id, impl_unlocked: true });
+  });
   app.post("/:id/title", async (c) => {
     const id = c.req.param("id");
     if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);

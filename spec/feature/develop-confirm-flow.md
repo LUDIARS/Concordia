@@ -5,11 +5,13 @@ description: "実装完了 → develop へ squash マージ → 確認タスク�
 service: concordia
 domain: governance
 status: implemented
-updated: 2026-07-12
+updated: 2026-07-13
 tags:
   - release
   - delegation
   - discord
+related:
+  - feature/task-workflow.md
 ---
 
 # Develop confirm flow

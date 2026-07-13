@@ -17,6 +17,7 @@ status: implemented
 related:
   - feature/delegation.md
   - feature/discord-ui.md
+  - feature/task-workflow.md
   - setup/spawn.md
 updated: 2026-07-07
 ---

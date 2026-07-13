@@ -11,7 +11,9 @@ tags:
   - autonomous
   - safety
 status: implemented
-updated: 2026-07-10
+updated: 2026-07-13
+related:
+  - feature/task-workflow.md
 ---
 
 # ゴールアンドゴー (goal-and-go 自走継続)

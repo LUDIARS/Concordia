@@ -67,6 +67,7 @@ export function makeDiscordConfigRepo(db: Database, scope = ""): DiscordConfigRe
 // ─── discord_session_channels ────────────────────────────────────────────
 
 export type DiscordSessionStatus = "active" | "lost" | "ended";
+export type DiscordChannelKind = "channel" | "thread";
 
 /**
  * チャンネル名先頭絵文字の「表示状態」。
@@ -78,6 +79,7 @@ export type ChannelDisplayState = "working" | "active" | "lost" | "ended";
 export interface DiscordSessionChannelRow {
   session_id: string;
   channel_id: string;
+  channel_kind: DiscordChannelKind;
   webhook_id: string | null;
   webhook_token: string | null;
   status: DiscordSessionStatus;
@@ -98,6 +100,7 @@ export interface DiscordSessionChannelsRepo {
   upsert(input: {
     session_id: string;
     channel_id: string;
+    channel_kind?: DiscordChannelKind;
     webhook_id?: string | null;
     webhook_token?: string | null;
     status?: DiscordSessionStatus;
@@ -163,10 +166,12 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
     upsert(input) {
       db.prepare(
         `INSERT INTO discord_session_channels
-           (session_id, channel_id, webhook_id, webhook_token, status,
+           (session_id, channel_id, channel_kind, webhook_id, webhook_token, status,
             display_state, agent_type, name_body, delegation_emoji, last_rename_ts, scope, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
+           channel_id      = excluded.channel_id,
+           channel_kind    = excluded.channel_kind,
            webhook_id       = COALESCE(excluded.webhook_id,       discord_session_channels.webhook_id),
            webhook_token    = COALESCE(excluded.webhook_token,    discord_session_channels.webhook_token),
            status           = excluded.status,
@@ -178,6 +183,7 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
       ).run(
         input.session_id,
         input.channel_id,
+        input.channel_kind ?? "channel",
         input.webhook_id ?? null,
         input.webhook_token ?? null,
         input.status ?? "active",

@@ -88,7 +88,7 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `discord_config` | bot 設定 key/value（guild/category/meta channel） | key PK / value |
-| `discord_session_channels` | session ↔ Discord channel + 状態 | session_id PK / channel_id / webhook_id / webhook_token / status(active/lost/ended) / last_rename_ts |
+| `discord_session_channels` | session ↔ Discord channel/thread + 状態 | session_id PK / channel_id / channel_kind(channel/thread) / webhook_id / webhook_token / status(active/lost/ended) / last_rename_ts |
 | `discord_message_map` | Discord message id ↔ chat_messages.id | discord_message_id PK / chat_message_id / ts |
 | `chat_message_reactions` | reaction(fine/bad/raw) | message_id / discord_user_id / kind。UNIQUE(message_id, user, kind) |
 | `discord_pending_questions` | Discord 経由の AskUserQuestion 待ち | session_id / question / options_json / discord_message_id / answer_index |

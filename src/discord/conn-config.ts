@@ -98,6 +98,9 @@ export function resolveDiscordConfig(
     messageOptimizationEnabled: dbMessageOptimization !== null
       ? dbMessageOptimization === "1"
       : base.messageOptimizationEnabled,
+    // Phase 1 feature flag is intentionally env-only. It controls a Discord layout
+    // migration and must not be toggled accidentally from the ordinary connection UI.
+    forumMode: base.forumMode,
   };
 }
 

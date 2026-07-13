@@ -5,9 +5,9 @@
 // bot 再起動後も同じ webhook を再利用できる. token が無ければ channel を
 // fetch → create する.
 
-import type { Guild, TextChannel, WebhookMessageCreateOptions } from "discord.js";
+import type { Guild, WebhookMessageCreateOptions } from "discord.js";
 import { ChannelType, WebhookClient } from "discord.js";
-import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type { DiscordSessionChannelRow, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { formatForChunkedPost } from "../shared/message-blocks.js";
 
@@ -55,6 +55,8 @@ async function webhookRetryAfterMs(res: Response): Promise<number> {
 export class WebhookPool {
   private cache = new Map<string, WebhookClient>(); // channel_id → WebhookClient
   private webhookChannels = new Map<string, string>(); // webhook_id → channel_id
+  private sessionClients = new Map<string, WebhookClient>(); // forum thread session → targeted client
+  private threadTargets = new WeakMap<WebhookClient, string>(); // targeted client → thread_id
   private sendQueues = new Map<string, Promise<void>>(); // webhook_id → serialized sends
   // channel_id → 進行中の webhook 取得 promise.
   // 主経路はセッション登録時 (onSessionRegistered) の eager 作成なので、 通常は
@@ -91,23 +93,44 @@ export class WebhookPool {
       whLog.warn({ sessionId }, "webhook-pool.getForSession no session-channel row");
       return null;
     }
+    const target = await this.resolveSessionWebhookTarget(row);
+    if (!target) return null;
     if (row.webhook_id && row.webhook_token) {
-      const cached = this.cache.get(row.channel_id);
-      if (cached) {
-        whLog.info({ sessionId, channel_id: row.channel_id }, "webhook-pool.getForSession cache hit");
+      const sessionClient = this.sessionClients.get(sessionId);
+      if (sessionClient) return sessionClient;
+      const cached = this.cache.get(target.webhookChannelId);
+      if (cached && !target.threadId) {
+        whLog.info({ sessionId, channel_id: target.webhookChannelId }, "webhook-pool.getForSession cache hit");
         return cached;
       }
       const client = new WebhookClient({ id: row.webhook_id, token: row.webhook_token });
-      this.cache.set(row.channel_id, client);
-      this.webhookChannels.set(row.webhook_id, row.channel_id);
-      whLog.info({ sessionId, channel_id: row.channel_id, webhook_id: row.webhook_id }, "webhook-pool.getForSession new client from DB token");
+      this.webhookChannels.set(row.webhook_id, target.webhookChannelId);
+      if (target.threadId) {
+        this.sessionClients.set(sessionId, client);
+        this.threadTargets.set(client, target.threadId);
+      } else {
+        this.cache.set(target.webhookChannelId, client);
+      }
+      whLog.info({ sessionId, channel_id: target.webhookChannelId, thread_id: target.threadId ?? null, webhook_id: row.webhook_id }, "webhook-pool.getForSession new client from DB token");
       return client;
     }
-    // webhook が未作成 → channel に作る (in-flight 集約 + 既存再利用).
-    // 作成できたら session 行にも token を永続化する.
-    return this.ensureWebhookForChannel(row.channel_id, (id, token) => {
-      this.repo.setWebhook(sessionId, id, token);
-    }, sessionId);
+    // Forum thread は親 forum に共有 webhook を 1 本だけ作り、送信 client に thread_id
+    // を束縛する。従来 channel はその channel 自身を webhook target にする。
+    const base = await this.ensureWebhookForChannel(target.webhookChannelId, undefined, sessionId);
+    if (!base) return null;
+    const token = webhookToken(base);
+    if (!token) return null;
+    this.repo.setWebhook(sessionId, base.id, token);
+    if (!target.threadId) return base;
+    const client = new WebhookClient({ id: base.id, token });
+    this.sessionClients.set(sessionId, client);
+    this.threadTargets.set(client, target.threadId);
+    return client;
+  }
+
+  /** Ended forum thread の session-scoped client 参照を解放する。親 webhook は共有なので残す。 */
+  releaseSession(sessionId: string): void {
+    this.sessionClients.delete(sessionId);
   }
 
   /** session に紐づかない meta channel 用. */
@@ -128,10 +151,10 @@ export class WebhookPool {
       if (mappedChannelId === channelId) this.webhookChannels.delete(webhookId);
     }
     const ch = this.guild.channels.cache.get(channelId) ?? null;
-    if (!ch || ch.type !== ChannelType.GuildText) return 0;
+    if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildForum)) return 0;
     let deleted = 0;
     try {
-      const hooks = await (ch as TextChannel).fetchWebhooks();
+      const hooks = await this.guild.channels.fetchWebhooks(channelId);
       for (const w of hooks.values()) {
         if (w.name !== WEBHOOK_NAME || w.owner?.id !== this.guild.client.user?.id) continue;
         try {
@@ -168,15 +191,15 @@ export class WebhookPool {
 
     const p = (async (): Promise<WebhookClient | null> => {
       const ch = this.guild.channels.cache.get(channelId) ?? null;
-      if (!ch || ch.type !== ChannelType.GuildText) {
+      if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildForum)) {
         whLog.warn({ sessionId, channel_id: channelId, ch_type: ch?.type ?? null }, "webhook-pool.ensure channel not text");
         return null;
       }
       try {
-        const found = (await (ch as TextChannel).fetchWebhooks()).find(
+        const found = (await this.guild.channels.fetchWebhooks(channelId)).find(
           (w) => w.name === WEBHOOK_NAME && w.owner?.id === this.guild.client.user?.id,
         );
-        const wh = found ?? (await (ch as TextChannel).createWebhook({ name: WEBHOOK_NAME }));
+        const wh = found ?? (await this.guild.channels.createWebhook({ channel: channelId, name: WEBHOOK_NAME }));
         if (!wh.token) {
           whLog.warn({ sessionId, channel_id: channelId, webhook_id: wh.id }, "webhook-pool.ensure webhook has no token");
           return null;
@@ -206,8 +229,10 @@ export class WebhookPool {
     client: WebhookClient,
     options: WebhookMessageCreateOptions,
   ): Promise<{ id: string } | null> {
+    const threadId = options.threadId ?? this.threadTargets.get(client);
+    const targetedOptions = threadId ? { ...options, threadId } : options;
     const previous = this.sendQueues.get(client.id) ?? Promise.resolve();
-    const run = previous.catch(() => undefined).then(() => this.sendNow(client, options));
+    const run = previous.catch(() => undefined).then(() => this.sendNow(client, targetedOptions));
     const tail = run.then(() => undefined, () => undefined);
     this.sendQueues.set(client.id, tail);
     tail.finally(() => {
@@ -261,7 +286,8 @@ export class WebhookPool {
     if (!token) throw new Error("Discord webhook token unavailable");
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const res = await fetch(`https://discord.com/api/v10/webhooks/${client.id}/${token}?wait=true`, {
+      const threadQuery = options.threadId ? `&thread_id=${encodeURIComponent(options.threadId)}` : "";
+      const res = await fetch(`https://discord.com/api/v10/webhooks/${client.id}/${token}?wait=true${threadQuery}`, {
         method: "POST",
         signal: webhookSendAbortSignal(),
         headers: { "content-type": "application/json" },
@@ -272,6 +298,8 @@ export class WebhookPool {
           allowed_mentions: options.allowedMentions,
           embeds: options.embeds,
           components: options.components,
+          thread_name: options.threadName,
+          applied_tags: options.appliedTags,
         }),
       });
       if (res.status === 429 && attempt < 2) {
@@ -307,16 +335,38 @@ export class WebhookPool {
   ): Promise<{ id: string }> {
     const channelId = this.webhookChannels.get(client.id);
     if (!channelId) throw new Error("Discord webhook fallback channel unavailable");
-    const ch = this.guild.channels.cache.get(channelId) ?? null;
-    if (!ch || ch.type !== ChannelType.GuildText) throw new Error("Discord webhook fallback channel is not text");
+    const targetId = options.threadId ?? channelId;
+    const ch = this.guild.channels.cache.get(targetId) ?? await this.guild.channels.fetch(targetId).catch(() => null);
+    if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.PublicThread)) {
+      throw new Error("Discord webhook fallback target is not sendable text");
+    }
     const author = typeof options.username === "string" && options.username.trim() ? options.username.trim() : null;
     const content = author ? `**${author}**\n${options.content}` : options.content;
-    const msg = await (ch as TextChannel).send({
+    const msg = await ch.send({
       content,
       allowedMentions: options.allowedMentions,
       embeds: options.embeds,
       components: options.components,
     });
     return { id: msg.id };
+  }
+
+  private async resolveSessionWebhookTarget(
+    row: DiscordSessionChannelRow,
+  ): Promise<{ webhookChannelId: string; threadId?: string } | null> {
+    if (row.channel_kind !== "thread") return { webhookChannelId: row.channel_id };
+    const thread = this.guild.channels.cache.get(row.channel_id)
+      ?? await this.guild.channels.fetch(row.channel_id).catch(() => null);
+    if (!thread || thread.type !== ChannelType.PublicThread || !thread.parentId) {
+      whLog.warn({ sessionId: row.session_id, thread_id: row.channel_id }, "webhook-pool forum thread unavailable");
+      return null;
+    }
+    const parent = this.guild.channels.cache.get(thread.parentId)
+      ?? await this.guild.channels.fetch(thread.parentId).catch(() => null);
+    if (!parent || parent.type !== ChannelType.GuildForum) {
+      whLog.warn({ sessionId: row.session_id, thread_id: row.channel_id, parent_id: thread.parentId }, "webhook-pool thread parent is not forum");
+      return null;
+    }
+    return { webhookChannelId: parent.id, threadId: thread.id };
   }
 }

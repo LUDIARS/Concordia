@@ -31,6 +31,14 @@ import {
 } from "./formatter.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
+import {
+  createForumSessionThread,
+  fetchForumSessionThread,
+  hasForumSessionState,
+  updateForumSessionStarter,
+  updateForumSessionState,
+  updateForumSessionTitle,
+} from "./forum-session.js";
 
 /** session-status-card.ts と key を揃える (循環 import 回避のためここで再定義). */
 const STATUS_CARD_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
@@ -49,15 +57,54 @@ export interface SessionChannelDeps {
 /** session.registered → channel 作成 + 🟢 prefix + active マーク. */
 export async function onSessionRegistered(
   deps: SessionChannelDeps,
-  input: { sessionId: string; agentType: string | null; delegationEmoji?: string | null; roleLabel: string | null; personaDisplayName: string | null },
+  input: {
+    sessionId: string;
+    agentType: string | null;
+    delegationEmoji?: string | null;
+    roleLabel: string | null;
+    personaDisplayName: string | null;
+    repoPath?: string | null;
+    branch?: string | null;
+    currentTask?: string | null;
+    projectCode?: string | null;
+  },
 ): Promise<void> {
   const existing = deps.repo.findBySessionId(input.sessionId);
-  if (existing) return; // 既知 (再 register など)
+  if (existing) {
+    if (existing.status !== "active") {
+      await onSessionStatusChanged(deps, { sessionId: input.sessionId, status: "active" });
+    }
+    return; // 既知 (再 register など)
+  }
 
   // 名前 = 🟢<エージェント絵文字>-<role>。作業内容は title_renamed で後から body に載る。
   const nameBody = roleSlug(input.roleLabel ?? "anon");
   const name = buildSessionChannelName("active", input.agentType, nameBody, input.delegationEmoji);
   try {
+    if (deps.layout.forumMode) {
+      const repoPath = input.repoPath?.trim() || "unknown";
+      const created = await createForumSessionThread(deps.guild, deps.layout.sessionForumId, {
+        sessionId: input.sessionId,
+        repoPath,
+        branch: input.branch ?? null,
+        projectCode: input.projectCode?.trim() || "Session",
+        summary: input.currentTask,
+        fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
+      });
+      deps.repo.upsert({
+        session_id: input.sessionId,
+        channel_id: created.id,
+        channel_kind: "thread",
+        status: "active",
+        display_state: "active",
+        agent_type: input.agentType ?? null,
+        name_body: nameBody,
+        delegation_emoji: input.delegationEmoji ?? null,
+      });
+      deps.log.info(`session-forum: created ${created.name} for ${input.sessionId}`);
+      await ensureEagerWebhook(deps, input.sessionId);
+      return;
+    }
     const created = await deps.guild.channels.create({
       name,
       type: ChannelType.GuildText,
@@ -69,6 +116,7 @@ export async function onSessionRegistered(
     deps.repo.upsert({
       session_id: input.sessionId,
       channel_id: created.id,
+      channel_kind: "channel",
       status: "active",
       display_state: "active",
       agent_type: input.agentType ?? null,
@@ -82,17 +130,20 @@ export async function onSessionRegistered(
     // 初回 egress 時の遅延作成 (= cache miss 並行到来による thundering-herd 対策の
     // in-flight / 既存再利用ロジック。 バグの温床) を実質踏まなくなる。 ここで
     // 失敗しても getForSession 側の遅延作成が fallback として残るので best-effort。
-    if (deps.webhooks) {
-      const wh = await deps.webhooks.getForSession(input.sessionId);
-      deps.log.info(
-        wh
-          ? `session-channel: webhook ready (eager) for ${input.sessionId}`
-          : `session-channel: eager webhook create failed for ${input.sessionId} (will retry lazily)`,
-      );
-    }
+    await ensureEagerWebhook(deps, input.sessionId);
   } catch (e) {
     deps.log.warn(`session-channel: create failed for ${input.sessionId}: ${(e as Error).message}`);
   }
+}
+
+async function ensureEagerWebhook(deps: SessionChannelDeps, sessionId: string): Promise<void> {
+  if (!deps.webhooks) return;
+  const wh = await deps.webhooks.getForSession(sessionId);
+  deps.log.info(
+    wh
+      ? `session-channel: webhook ready (eager) for ${sessionId}`
+      : `session-channel: eager webhook create failed for ${sessionId} (will retry lazily)`,
+  );
 }
 
 export async function reconcileEndedSessionChannels(
@@ -145,6 +196,11 @@ function needsEndedArchiveReconcile(
   deps: SessionChannelDeps,
   row: DiscordSessionChannelRow,
 ): boolean {
+  if (row.channel_kind === "thread") {
+    if (row.status !== "ended" || row.display_state !== "ended") return true;
+    const thread = deps.guild.channels.cache.get(row.channel_id);
+    return thread?.type === ChannelType.PublicThread ? thread.archived !== true : true;
+  }
   if (row.status !== "ended" || row.display_state !== "ended") return true;
   if (row.webhook_id || row.webhook_token) return true;
   const ch = deps.guild.channels.cache.get(row.channel_id);
@@ -157,6 +213,13 @@ function needsLostArchiveReconcile(
   deps: SessionChannelDeps,
   row: DiscordSessionChannelRow,
 ): boolean {
+  if (row.channel_kind === "thread") {
+    if (row.status !== "lost" || row.display_state !== "lost") return true;
+    const thread = deps.guild.channels.cache.get(row.channel_id);
+    return thread?.type === ChannelType.PublicThread && thread.parent?.type === ChannelType.GuildForum
+      ? !hasForumSessionState(thread, "lost")
+      : true;
+  }
   if (row.status !== "lost" || row.display_state !== "lost") return true;
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return false;
@@ -177,6 +240,26 @@ export async function onSessionStatusChanged(
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
   if (row.status === input.status && input.status === "active") return;
+
+  if (row.channel_kind === "thread") {
+    const displayState: ChannelDisplayState = input.status === "active" ? "active" : input.status;
+    deps.repo.setStatus(input.sessionId, input.status);
+    deps.repo.setDisplayState(input.sessionId, displayState);
+    try {
+      const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+      if (!thread) {
+        deps.log.warn(`session-forum: thread ${row.channel_id} not found for ${input.sessionId}`);
+        return;
+      }
+      await updateForumSessionState(thread, displayState);
+      deps.log.info(`session-forum: ${input.sessionId} state=${displayState}`);
+    } catch (e) {
+      deps.log.warn(`session-forum: state update failed for ${input.sessionId}: ${(e as Error).message}`);
+    } finally {
+      if (input.status === "ended") deps.webhooks?.releaseSession(input.sessionId);
+    }
+    return;
+  }
 
   // ended は archive カテゴリへ移動 (削除しない / rename cooldown を経由しない).
   // DB row は status=ended で残す — 会話チャンネルと対応を保持し続ける.
@@ -439,10 +522,28 @@ async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number
  */
 export async function onSessionTitleChanged(
   deps: SessionChannelDeps,
-  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean },
+  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean; projectCode?: string | null },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
+  if (row.channel_kind === "thread") {
+    if (row.name_locked === 1) return;
+    try {
+      const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+      if (!thread) return;
+      const newBody = titleToChannelBase(input.title);
+      const nextName = await updateForumSessionTitle(
+        thread,
+        input.projectCode?.trim() || "Session",
+        input.title,
+      );
+      deps.repo.setDisplayState(input.sessionId, row.display_state, input.agentType, newBody);
+      deps.log.info(`session-forum: title updated for ${input.sessionId} name=${nextName}`);
+    } catch (e) {
+      deps.log.warn(`session-forum: title update failed for ${input.sessionId}: ${(e as Error).message}`);
+    }
+    return;
+  }
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return;
   // /ch_name で名前を固定している場合は title (= 処理内容) でリネームしない。
@@ -491,10 +592,22 @@ export async function onSessionWorkState(
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row || row.status !== "active") return;
-  const ch = deps.guild.channels.cache.get(row.channel_id);
-  if (!ch || ch.type !== ChannelType.GuildText) return;
   const desired: ChannelDisplayState = input.working ? "working" : "active";
   if ((row.display_state ?? "active") === desired) return; // 既にその状態
+  if (row.channel_kind === "thread") {
+    try {
+      const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+      if (!thread) return;
+      await updateForumSessionState(thread, desired);
+      deps.repo.setDisplayState(input.sessionId, desired);
+      deps.log.info(`session-forum: ${input.sessionId} work-state=${desired}`);
+    } catch (e) {
+      deps.log.warn(`session-forum: work-state update failed for ${input.sessionId}: ${(e as Error).message}`);
+    }
+    return;
+  }
+  const ch = deps.guild.channels.cache.get(row.channel_id);
+  if (!ch || ch.type !== ChannelType.GuildText) return;
   // rename rate limit guard — cooldown 内は skip (= 次の状態変化/title で収束)。
   if (!deps.repo.tryClaimRename(input.sessionId, RENAME_COOLDOWN_SEC)) {
     deps.log.info(
@@ -527,6 +640,21 @@ export async function onSessionChannelNameLocked(
 ): Promise<{ ok: boolean; name?: string; reason?: string }> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return { ok: false, reason: "not_a_session_channel" };
+  if (row.channel_kind === "thread") {
+    const body = titleToChannelBase(input.name);
+    try {
+      const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+      if (!thread) return { ok: false, reason: "channel_missing" };
+      deps.repo.setNameLock(input.sessionId, body);
+      const projectPrefix = /^\[[^\]]+]\s*/.exec(thread.name)?.[0] ?? "";
+      const lockedName = `${projectPrefix}${input.name.trim() || "session"}`.slice(0, 100);
+      await thread.setName(lockedName, `session ${input.sessionId} name locked via /ch_name`);
+      return { ok: true, name: thread.name };
+    } catch (e) {
+      deps.log.warn(`session-forum: name-lock failed for ${input.sessionId}: ${(e as Error).message}`);
+      return { ok: true, name: input.name.slice(0, 100), reason: "rename_deferred" };
+    }
+  }
   const ch = deps.guild.channels.cache.get(row.channel_id);
   if (!ch || ch.type !== ChannelType.GuildText) return { ok: false, reason: "channel_missing" };
 
@@ -547,6 +675,23 @@ export async function onSessionChannelNameLocked(
     deps.log.warn(`session-channel: name-lock rename failed for ${input.sessionId}: ${(e as Error).message}`);
     return { ok: true, name: newName, reason: "rename_deferred" };
   }
+}
+
+/** Forum thread の初回メッセージを repo / branch / 状態カードの正本へ同期する。 */
+export async function updateSessionSurfaceMetadata(
+  deps: SessionChannelDeps,
+  input: {
+    sessionId: string;
+    repoPath: string;
+    branch: string | null;
+    statusCardChannelId?: string | null;
+  },
+): Promise<void> {
+  const row = deps.repo.findBySessionId(input.sessionId);
+  if (!row || row.channel_kind !== "thread") return;
+  const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+  if (!thread) return;
+  await updateForumSessionStarter(deps.guild, thread, input);
 }
 
 function titleToChannelBase(title: string): string {

@@ -8,7 +8,6 @@ import {
   type ButtonInteraction,
   type Guild,
   type Interaction,
-  type TextChannel,
 } from "discord.js";
 import type { DiscordCommandDeps } from "./commands.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
@@ -167,7 +166,7 @@ export async function postPermissionRequest(
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   if (!row || row.status !== "active") return;
   const channel = await input.guild.channels.fetch(row.channel_id);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
+  if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
 
   const token = makeToken(input.permissionActions, {
     sessionId: ev.target_session_id,
@@ -177,7 +176,7 @@ export async function postPermissionRequest(
   const mentionId = ev.requester_platform === "discord" && ev.requester_user_id
     ? ev.requester_user_id
     : null;
-  await (channel as TextChannel).send(mentionId
+  await channel.send(mentionId
     ? {
         content: `Cc: <@${mentionId}> tool permission request`,
         embeds: [buildPermissionEmbed(ev)],

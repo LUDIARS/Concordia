@@ -24,6 +24,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     let spawnProjectIdentificationText: string | null = null;
 
     const existing = deps.repo.findSession(input.id);
+    const resumed = !!existing && existing.status !== "active";
+    const branchChanged = !!existing
+      && input.branch != null
+      && existing.branch !== input.branch;
     if (existing) {
       // 既存セッションが lost / ended なら "再開" として active 化.
       // repo_path / repo_origin / branch は cwd 移動や checkout で変わり得るので毎回上書きする.
@@ -38,6 +42,19 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         branch: input.branch ?? undefined,
         target_project: input.target_project ?? undefined,
       });
+      if (branchChanged) {
+        eventBus.emit({ type: "session.event", session_id: input.id, kind: "branch_changed", ts: now });
+      }
+      if (resumed) {
+        eventBus.emit({
+          type: "session.started",
+          session_id: input.id,
+          provider: input.provider,
+          repo_path: input.repo_path,
+          branch: input.branch ?? existing.branch,
+          ts: now,
+        });
+      }
     } else {
       // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
       // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
@@ -285,14 +302,19 @@ app.patch("/:id", async (c) => {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     // Split off `metadata` — patchSession() only handles the column fields.
     const { metadata, ...columnPatch } = parsed.data;
+    const patchTs = nowSec();
+    const didChangeBranch = parsed.data.branch !== undefined && parsed.data.branch !== session.branch;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);
-    deps.repo.updateHeartbeat(id, nowSec());
-    reviveIfLost(deps.repo, session, nowSec());
+    deps.repo.updateHeartbeat(id, patchTs);
+    reviveIfLost(deps.repo, session, patchTs);
+    if (didChangeBranch) {
+      eventBus.emit({ type: "session.event", session_id: id, kind: "branch_changed", ts: patchTs });
+    }
     if (parsed.data.current_task !== undefined) {
       deps.repo.appendEvent({
         session_id: id,
-        ts: nowSec(),
+        ts: patchTs,
         kind: "task_update",
         payload: { current_task: parsed.data.current_task },
       });

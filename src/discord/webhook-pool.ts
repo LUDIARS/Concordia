@@ -154,7 +154,7 @@ export class WebhookPool {
     if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.GuildForum)) return 0;
     let deleted = 0;
     try {
-      const hooks = await this.guild.channels.fetchWebhooks(channelId);
+      const hooks = await ch.fetchWebhooks();
       for (const w of hooks.values()) {
         if (w.name !== WEBHOOK_NAME || w.owner?.id !== this.guild.client.user?.id) continue;
         try {
@@ -196,10 +196,10 @@ export class WebhookPool {
         return null;
       }
       try {
-        const found = (await this.guild.channels.fetchWebhooks(channelId)).find(
+        const found = (await ch.fetchWebhooks()).find(
           (w) => w.name === WEBHOOK_NAME && w.owner?.id === this.guild.client.user?.id,
         );
-        const wh = found ?? (await this.guild.channels.createWebhook({ channel: channelId, name: WEBHOOK_NAME }));
+        const wh = found ?? (await ch.createWebhook({ name: WEBHOOK_NAME }));
         if (!wh.token) {
           whLog.warn({ sessionId, channel_id: channelId, webhook_id: wh.id }, "webhook-pool.ensure webhook has no token");
           return null;

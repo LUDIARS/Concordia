@@ -65,7 +65,10 @@ bash.exe.stackdump
 .anatomia/
 
 # ローカル review/ は中央 Review/<repo>/ に集約する (per-repo review/ は追跡しない)
-review/
+review/*
+# 例外: 複数エージェントが分担して着手する要対応リストは、担当の引き継ぎに要るので追跡する
+# (ディレクトリごと除外すると git が中を走査せず否定が効かないので review/* と書く)
+!review/FIXLIST-*.md
 
 # ローカル依存ライブラリ (git submodule update --init でセットアップ)
 /lib/*

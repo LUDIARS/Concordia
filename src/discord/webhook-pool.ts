@@ -56,6 +56,7 @@ export class WebhookPool {
   private cache = new Map<string, WebhookClient>(); // channel_id → WebhookClient
   private webhookChannels = new Map<string, string>(); // webhook_id → channel_id
   private sessionClients = new Map<string, WebhookClient>(); // forum thread session → targeted client
+  private sessionInflight = new Map<string, Promise<WebhookClient | null>>();
   private threadTargets = new WeakMap<WebhookClient, string>(); // targeted client → thread_id
   private sendQueues = new Map<string, Promise<void>>(); // webhook_id → serialized sends
   // channel_id → 進行中の webhook 取得 promise.
@@ -78,6 +79,20 @@ export class WebhookPool {
    * 失敗時 (channel が無い等) は null.
    */
   async getForSession(sessionId: string): Promise<WebhookClient | null> {
+    const existing = this.sessionInflight.get(sessionId);
+    if (existing) return existing;
+    const pending = this.resolveSessionWebhook(sessionId);
+    this.sessionInflight.set(sessionId, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.sessionInflight.get(sessionId) === pending) {
+        this.sessionInflight.delete(sessionId);
+      }
+    }
+  }
+
+  private async resolveSessionWebhook(sessionId: string): Promise<WebhookClient | null> {
     const row = this.repo.findBySessionId(sessionId);
     whLog.info(
       {

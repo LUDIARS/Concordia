@@ -88,7 +88,7 @@ export async function onSessionRegistered(
         repoPath,
         branch: input.branch ?? null,
         projectCode: input.projectCode?.trim() || "Session",
-        summary: input.currentTask,
+        summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
       });
       deps.repo.upsert({

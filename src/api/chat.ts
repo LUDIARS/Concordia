@@ -7,9 +7,6 @@ import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
 import { eventBus } from "../events.js";
-import { createChildLogger } from "../shared/logger.js";
-
-const log = createChildLogger("chat-api");
 
 const PostSchema = z.object({
   channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
@@ -52,30 +49,11 @@ export function chatRouter(deps: ChatApiDeps): Hono {
   app.post("/", async (c) => {
     const body = await c.req.json().catch(() => null);
     const parsed = PostSchema.safeParse(body);
-    if (!parsed.success) {
-      log.info(
-        { body_keys: body && typeof body === "object" ? Object.keys(body) : null, err: parsed.error.message },
-        "chat POST reject (invalid body)",
-      );
-      return c.json({ error: parsed.error.message }, 400);
-    }
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
 
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
     const metadataJson = buildMeta(parsed.data, scope);
-    log.info(
-      {
-        channel: parsed.data.channel,
-        session_id: parsed.data.session_id ?? null,
-        author_label: parsed.data.author_label,
-        text_head: parsed.data.text.slice(0, 80),
-        text_len: parsed.data.text.length,
-        in_reply_to: parsed.data.in_reply_to ?? null,
-        actionable,
-        scope,
-      },
-      "chat POST received",
-    );
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,
@@ -85,10 +63,6 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       is_actionable: actionable,
       metadata: metadataJson,
     });
-    log.info(
-      { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label },
-      "chat POST inserted",
-    );
 
     eventBus.emit({
       type: "chat.posted",
@@ -126,20 +100,6 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
     const metadataJson = buildMeta(parsed.data, scope);
-    log.info(
-      {
-        reply_target_id: target.id,
-        reply_target_session_id: target.session_id,
-        channel: parsed.data.channel,
-        session_id: parsed.data.session_id ?? null,
-        author_label: parsed.data.author_label,
-        text_head: parsed.data.text.slice(0, 80),
-        text_len: parsed.data.text.length,
-        actionable,
-        scope,
-      },
-      "chat reply POST received",
-    );
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,
@@ -149,10 +109,6 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       is_actionable: actionable,
       metadata: metadataJson,
     });
-    log.info(
-      { message_id: msg.id, session_id: msg.session_id, channel: msg.channel, author_label: msg.author_label, in_reply_to: msg.in_reply_to },
-      "chat reply POST inserted",
-    );
     eventBus.emit({
       type: "chat.posted",
       message_id: msg.id,

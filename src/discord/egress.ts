@@ -38,7 +38,7 @@ export interface EgressDeps {
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
   messageOptimizationEnabled?: boolean;
-  log: { info: (m: string) => void; warn: (m: string) => void };
+  log: { warn: (m: string) => void };
 }
 
 export function handleEvent(deps: EgressDeps, ev: ConcordiaEvent): void {
@@ -56,9 +56,6 @@ export function handleEvent(deps: EgressDeps, ev: ConcordiaEvent): void {
 }
 
 async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "chat.posted" }>): Promise<void> {
-  deps.log.info(
-    `egress.handleChatPosted entry message_id=${ev.message_id} ev_session_id=${ev.session_id ?? "null"} ev_channel=${ev.channel} ev_author=${ev.author_label}`,
-  );
   const row = deps.readModel.getChatMessage(ev.message_id);
   if (!row) {
     deps.log.warn(`egress.handleChatPosted row missing message_id=${ev.message_id}`);
@@ -69,13 +66,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   // webhook 名義で再出現する自己ループになる. metadata.source==="discord" は
   // ingress が必ず埋める marker (src/discord/ingress.ts L126).
   const chatMeta = row.metadata;
-  if (chatMeta.source === "discord") {
-    deps.log.info(
-      `egress: chat.posted skipped — source=discord (avoid self-loop) ` +
-      `message_id=${row.id} discord_user_id=${chatMeta.discord_user_id ?? "null"}`,
-    );
-    return;
-  }
+  if (chatMeta.source === "discord") return;
   const sessionId = row.sessionId;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
   const session = sessionId ? deps.readModel.getSessionRelayState(sessionId) : null;
@@ -111,13 +102,6 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     : forceMeta
       ? metaChannelId
       : (sessionRow ? sessionRow.channel_id : metaChannelId);
-  deps.log.info(
-    `egress.handleChatPosted routing message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
-    `session_channel=${sessionRow?.channel_id ?? "null"} session_status=${sessionRow?.status ?? "null"} ` +
-    `meta_kind=${metaKind} meta_channel=${metaChannelId ?? "null"} chosen=${channelId ?? "null"} ` +
-    `explicit=${explicitChannelId ?? "null"} trusted_explicit=${trustedExplicitChannelId ?? "null"} ` +
-    `policy=${trustedExplicitChannelId ? "explicit" : forceMeta ? "force-meta" : (sessionRow ? "session" : "meta")}`,
-  );
   if (!channelId) {
     deps.log.warn(`egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
     return;
@@ -137,7 +121,6 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const provider = sessionId ? session?.provider ?? null : null;
   if (provider === "codex-cli" && shouldSkipCodexDuplicate(channelId, author, row.text)) {
     dedupStats.skipped_chat_posted += 1;
-    deps.log.info(`egress: chat.posted dedup skipped message_id=${row.id} channel=${channelId}`);
     return;
   }
   const attachFiles = buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
@@ -148,7 +131,6 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   });
   if (res) {
     deps.messageMap.put(res.id, row.id);
-    deps.log.info(`egress: chat.posted relayed ok message_id=${row.id} discord_message_id=${res.id} channel=${channelId} attachments=${attachFiles.length}`);
     return;
   }
   deps.log.warn(`egress: chat.posted relay returned empty response message_id=${row.id} channel=${channelId}`);
@@ -200,35 +182,21 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   // them as "CLI User" — keeping both would duplicate every prompt.
   let role: string | null = null;
   let text: string | null = null;
-  let phase: string | null = null;
   if (ev.kind === "text") {
     const p = ev.payload as { role?: string; text?: string; phase?: string } | null | undefined;
-    if (!p || typeof p.text !== "string" || !p.text) {
-      deps.log.info(`egress: transcript.frame skipped empty payload session=${ev.target_session_id} seq=${ev.seq}`);
-      return;
-    }
-    if (p.role !== "assistant") {
-      deps.log.info(`egress: transcript.frame skipped role=${String(p.role)} session=${ev.target_session_id} seq=${ev.seq}`);
-      return;
-    }
+    if (!p || typeof p.text !== "string" || !p.text) return;
+    if (p.role !== "assistant") return;
     role = "assistant";
     text = p.text;
-    phase = typeof p.phase === "string" ? p.phase : null;
   } else if (ev.kind === "summary") {
     const p = ev.payload as { text?: string; summary?: string } | null | undefined;
     const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
-    if (!candidate) {
-      deps.log.info(`egress: transcript.frame skipped empty summary session=${ev.target_session_id} seq=${ev.seq}`);
-      return;
-    }
+    if (!candidate) return;
     role = "summary";
     text = candidate;
   } else if (ev.kind === "image") {
     const p = ev.payload as { media_type?: string; data?: string } | null | undefined;
-    if (!p?.data) {
-      deps.log.info(`egress: transcript.frame skipped empty image session=${ev.target_session_id} seq=${ev.seq}`);
-      return;
-    }
+    if (!p?.data) return;
     const client = await deps.webhooks.getForSession(relaySessionId);
     if (!client) {
       deps.log.warn(`egress: transcript.frame image no webhook session=${relaySessionId}`);
@@ -242,17 +210,11 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       username: author,
       files: [{ attachment: buf, name: `image.${ext}` }],
     });
-    if (res) {
-      deps.log.info(`egress: transcript.frame image relayed ok session=${relaySessionId} source_session=${ev.target_session_id} seq=${ev.seq}`);
-    } else {
+    if (!res) {
       deps.log.warn(`egress: transcript.frame image relay empty session=${ev.target_session_id} seq=${ev.seq}`);
     }
     return;
   } else {
-    deps.log.info(
-      `egress: transcript.frame skipped non-text session=${ev.target_session_id} seq=${ev.seq} ` +
-      `kind=${ev.kind} payload=${previewPayload(ev.payload)}`,
-    );
     return;
   }
 
@@ -260,21 +222,10 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     messageOptimizationEnabled: deps.messageOptimizationEnabled,
     provider: session.provider,
   });
-  if (!relayable) {
-    deps.log.info(
-      `egress: transcript.frame dropped by shared relay policy ` +
-      `session=${ev.target_session_id} seq=${ev.seq} role=${role} phase=${phase ?? "null"}`,
-    );
-    return;
-  }
+  if (!relayable) return;
   role = relayable.role;
   text = relayable.text;
 
-  deps.log.info(
-    `egress.handleTranscriptFrame routing target_session_id=${ev.target_session_id} seq=${ev.seq} ` +
-    `role=${role} session_channel=${sessionRow.channel_id} session_status=${sessionStatus} ` +
-    `discord_status=${sessionRow.status} webhook_id=${sessionRow.webhook_id ?? "null"}`,
-  );
   const client = await deps.webhooks.getForSession(relaySessionId);
   if (!client) {
     deps.log.warn(`egress: transcript.frame no webhook client session=${relaySessionId} source_session=${ev.target_session_id} seq=${ev.seq}`);
@@ -295,15 +246,10 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     : text;
   if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, content)) {
     dedupStats.skipped_transcript_frame += 1;
-    deps.log.info(`egress: transcript.frame dedup skipped session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;
   }
   const res = await deps.webhooks.send(client, { content, username: author });
-  if (res) {
-    deps.log.info(`egress: transcript.frame relayed ok session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
-    return;
-  }
-  deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+  if (!res) deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
 }
 
 function logInactiveTranscriptFrame(
@@ -324,18 +270,6 @@ function logInactiveTranscriptFrame(
     `session_status=${status.sessionStatus ?? "null"} discord_status=${status.discordStatus ?? "null"} ` +
     `session_channel=${status.sessionChannelId ?? "null"} suppressed=${suppressed}`,
   );
-}
-
-function previewPayload(payload: unknown): string {
-  try {
-    const raw = JSON.stringify(payload);
-    if (!raw) return "null";
-    const limit = Number(process.env.CONCORDIA_DISCORD_TRANSCRIPT_LOG_MAX ?? "1200");
-    const max = Number.isFinite(limit) && limit > 0 ? limit : 1200;
-    return raw.length > max ? `${raw.slice(0, max)}...` : raw;
-  } catch {
-    return "[unserializable]";
-  }
 }
 
 function mapChannelKind(rowChannel: string, evChannel: string): MetaChannelKind {

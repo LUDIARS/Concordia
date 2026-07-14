@@ -319,7 +319,7 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: {
     sessionChannelsRepo,
     messageMap: makeDiscordMessageMapRepo(db),
     messageOptimizationEnabled: opts.messageOptimizationEnabled,
-    log: { info: vi.fn(), warn: vi.fn() },
+    log: { warn: vi.fn() },
   };
   return { deps, webhooks, sent, sessionId, parentSessionId };
 }

@@ -127,7 +127,6 @@ Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`�
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_WORKING_IDLE_SEC` | `60` (最小 15) | `discord/bot.ts:273` | 「作業中」インジケータを消す無進捗秒数。 |
 | `CONCORDIA_DISCORD_WORK_IDLE_SEC` | `600` (最小 60) | `discord/bot.ts:300` | channel work-state を idle に戻す無進捗秒数。 |
-| `CONCORDIA_DISCORD_TRANSCRIPT_LOG_MAX` | `1200` | `discord/egress.ts:216` | transcript ログ転送の最大件数。 |
 
 ---
 
@@ -199,6 +198,8 @@ MCP サーバ (別プロセス) が読む env:
 | `CONCORDIA_LOG_LEVEL` | `info` | pino のログレベル。 |
 | `CONCORDIA_LOG_FILE` | 未設定 (`0` で無効) | dev 時 `logs/concordia.log` への file 追記を `0` で止める。 |
 | `NODE_ENV` | 未設定 | `production` で pretty 出力と file target を無効化。 |
+
+定常ログは、起動・停止・設定反映・reconcile の結果を `info`、処理失敗・状態不整合・rate limit を `warn/error` とする。投稿本文、正常系の API 受信/DB insert、message ごとの routing・skip・成功、webhook cache hit は記録しない。一時診断ログを追加する場合は追跡 Issue と撤去条件を併記する。
 
 ---
 

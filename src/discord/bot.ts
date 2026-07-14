@@ -72,9 +72,6 @@ import {
   updateForumSessionState,
 } from "./forum-session.js";
 
-// pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
-// deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
-// 一律にファイルに記録される.
 const discordLog = createChildLogger("discord");
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
 // (cost channel unavailable 等の非失敗 warn はノイズになるので looksLikeFailure で除外)
@@ -648,13 +645,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
     if (!inScope(msg.guildId)) return;
-    const raw = msg.content ?? "";
-    const compact = raw.replace(/\s+/g, " ").trim();
-    const preview = compact.length > 200 ? `${compact.slice(0, 200)}...` : compact;
-    log.info(
-      `message observed guild=${msg.guildId ?? "-"} channel=${msg.channelId} author=${msg.author?.id ?? "-"} ` +
-      `bot=${msg.author?.bot ? 1 : 0} len=${raw.length} text="${preview}"`,
-    );
     void measuredHandleIngressMessage({
       configRepo,
       sessionChannelsRepo,

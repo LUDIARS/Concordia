@@ -94,16 +94,6 @@ export class WebhookPool {
 
   private async resolveSessionWebhook(sessionId: string): Promise<WebhookClient | null> {
     const row = this.repo.findBySessionId(sessionId);
-    whLog.info(
-      {
-        sessionId,
-        row_channel_id: row?.channel_id ?? null,
-        row_webhook_id: row?.webhook_id ?? null,
-        row_has_token: row?.webhook_token ? true : false,
-        cache_size: this.cache.size,
-      },
-      "webhook-pool.getForSession lookup",
-    );
     if (!row) {
       whLog.warn({ sessionId }, "webhook-pool.getForSession no session-channel row");
       return null;
@@ -114,10 +104,7 @@ export class WebhookPool {
       const sessionClient = this.sessionClients.get(sessionId);
       if (sessionClient) return sessionClient;
       const cached = this.cache.get(target.webhookChannelId);
-      if (cached && !target.threadId) {
-        whLog.info({ sessionId, channel_id: target.webhookChannelId }, "webhook-pool.getForSession cache hit");
-        return cached;
-      }
+      if (cached && !target.threadId) return cached;
       const client = new WebhookClient({ id: row.webhook_id, token: row.webhook_token });
       this.webhookChannels.set(row.webhook_id, target.webhookChannelId);
       if (target.threadId) {
@@ -126,7 +113,6 @@ export class WebhookPool {
       } else {
         this.cache.set(target.webhookChannelId, client);
       }
-      whLog.info({ sessionId, channel_id: target.webhookChannelId, thread_id: target.threadId ?? null, webhook_id: row.webhook_id }, "webhook-pool.getForSession new client from DB token");
       return client;
     }
     // Forum thread は親 forum に共有 webhook を 1 本だけ作り、送信 client に thread_id
@@ -223,10 +209,6 @@ export class WebhookPool {
         const client = new WebhookClient({ id: wh.id, token: wh.token });
         this.cache.set(channelId, client);
         this.webhookChannels.set(wh.id, channelId);
-        whLog.info(
-          { sessionId, channel_id: channelId, webhook_id: wh.id, reused: !!found },
-          "webhook-pool.ensure webhook ready",
-        );
         return client;
       } catch (err) {
         whLog.warn({ sessionId, channel_id: channelId, err: (err as Error).message }, "webhook-pool.ensure createWebhook threw");

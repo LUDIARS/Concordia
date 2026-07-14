@@ -15,6 +15,10 @@ export interface TaskFrontmatter {
   status: TaskStatus;
   created: string;
   source_session?: string;
+  assignee?: string;
+  owner?: string;
+  delegation_run_id?: string;
+  pr_number?: string | number | null;
   memoria_task_id: string | number | null;
   actio_task_id?: string | number | null;
   memory_links?: string[];

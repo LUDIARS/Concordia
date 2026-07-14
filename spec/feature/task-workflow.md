@@ -268,11 +268,15 @@ delegation run は §5 の status API が正なので、 本節は **status を�
 | config | 追加なし (task md は各リポ `spec/tasks/`。 走査は既存 `src/work/repo-scan.ts` を再利用) |
 | AdminState | `harness.strong_impl_models` / `admin.mention_user_id` |
 | harness_rules seed | 「着手前に `spec/tasks/` へ md 分解保存」「動作テストは confirm キューのみ」(§4.2) |
-| API | `POST /v1/sessions/:id/impl-unlock`、 `GET /v1/taskflow/tasks` (md 一覧の read-only)、 invoke `memory_links` |
+| API | `POST /v1/sessions/:id/impl-unlock`、 `GET /v1/taskflow/tasks` (md 一覧の read-only)、 `GET /v1/taskflow/overview` (担当・状態・PR・CI の統合一覧)、 invoke `memory_links` |
 | DB | 追加テーブル無し (task md が正本。 confirm_runs / delegation_runs は既存のまま) |
 | events | `taskflow.completion_detected` / `taskflow.residual_checked` (監査用) |
 | blackbox | domain `concordia.workflow.completion` / `concordia.workflow.residual` |
 | module | 新設 `src/taskflow/` (md-store / reconcile / backend / decompose-inject / completion / residual / goal-machine)。 既存 `workflow-worker` (delegation キュー消費) とは別物 |
+
+`overview` は task md を正本とし、`assignee` / `owner` / `source_session` /
+`delegation_run_id` / `pr_number` を明示指定として扱う。未指定値は sessions、delegation_runs、
+pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_status` を表示する。
 
 ## 13. 実装フェーズ
 

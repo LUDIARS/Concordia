@@ -126,6 +126,41 @@ export interface MonitorPayload {
   repos: Array<{ key: string; count: number }>;
 }
 
+export type TaskflowTaskStatus = "pending" | "delegated" | "done" | "cancelled";
+export type TaskflowCiStatus = "unknown" | "pending" | "success" | "failure";
+
+export interface TaskflowOverviewTask {
+  path: string;
+  repo_path: string;
+  title: string;
+  task: string;
+  project: string;
+  kind: string;
+  status: TaskflowTaskStatus;
+  created: string;
+  assignee: string | null;
+  source_session: string | null;
+  session_status: SessionRow["status"] | null;
+  delegation_run_id: string | null;
+  delegation_status: string | null;
+  pr: { number: number; title: string; url: string | null; state: string } | null;
+  ci_status: TaskflowCiStatus;
+}
+
+export interface TaskflowOverviewResult {
+  generated_at: number;
+  counts: {
+    total: number;
+    pending: number;
+    delegated: number;
+    done: number;
+    cancelled: number;
+    ci_failure: number;
+    ci_pending: number;
+  };
+  tasks: TaskflowOverviewTask[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${path}`);
@@ -573,6 +608,7 @@ export const api = {
     return get<LimitTimeseries>(`/v1/cost/limit-timeseries${qs ? "?" + qs : ""}`);
   },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
+  taskflowOverview: () => get<TaskflowOverviewResult>("/v1/taskflow/overview"),
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>
     get<{ session: SessionRow; events: SessionEvent[] }>(`/v1/sessions/${encodeURIComponent(id)}`),

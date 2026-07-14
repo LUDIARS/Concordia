@@ -175,7 +175,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs }));
-  app.route("/v1/taskflow", taskflowRouter({ store: deps.taskStore }));
+  app.route("/v1/taskflow", taskflowRouter({
+    store: deps.taskStore,
+    sessions: deps.repo,
+    delegation: deps.delegation,
+    prs: deps.prs,
+  }));
   if (deps.confirmService) {
     app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
   }

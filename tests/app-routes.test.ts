@@ -19,6 +19,7 @@ describe("app route registration modes", () => {
       "GET /v1/sessions",
       "GET /v1/chat",
       "GET /v1/monitor",
+      "GET /v1/taskflow/overview",
       "GET /v1/cost/overview",
       "GET /v1/admin/cost-budget",
       "POST /v1/admin/discord/start",

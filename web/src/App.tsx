@@ -18,10 +18,12 @@ import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
 import { CostFeed } from "./pages/CostFeed.js";
+import { Taskflow } from "./pages/Taskflow.js";
 
 const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
   { to: "/work", label: "Work" },
+  { to: "/taskflow", label: "Taskflow" },
   { to: "/prs", label: "PRs" },
   { to: "/chat", label: "Chat" },
   { to: "/personas", label: "Personas" },
@@ -53,6 +55,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Monitor />} />
           <Route path="/work" element={<Work />} />
+          <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
           <Route path="/chat" element={<Chat />} />

@@ -1,10 +1,13 @@
-import type { Guild } from "discord.js";
+import type { ForumChannel, Guild, GuildForumTagData } from "discord.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
 
 export interface DiscordConfigSnapshot {
   guildId: string;
+  forumMode: boolean;
+  sessionForumId: string;
+  taskWorkflowForumId: string;
   metaCategoryId: string;
   sessionsCategoryId: string;
   statusCategoryId: string;
@@ -19,6 +22,8 @@ export interface DiscordConfigSnapshot {
 }
 
 const META_CATEGORY_KEY = "meta_category_id";
+const SESSION_FORUM_KEY = "session_forum_id";
+const TASK_WORKFLOW_FORUM_KEY = "task_workflow_forum_id";
 const SESSIONS_CATEGORY_KEY = "sessions_category_id";
 const STATUS_CATEGORY_KEY = "status_category_id";
 const ARCHIVE_CATEGORY_KEY = "archive_category_id";
@@ -37,6 +42,17 @@ const CATEGORY_NAMES = {
   error: "エラー",
 } as const;
 
+const FORUM_NAMES = {
+  session: "Session",
+  taskWorkflow: "TaskWorkflow",
+} as const;
+
+export const SESSION_STATE_TAG_NAMES = {
+  working: "作業中",
+  active: "待機",
+  lost: "lost",
+} as const;
+
 const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
   chitchat: "雑談",
   consultation: "相談",
@@ -50,6 +66,8 @@ const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
  * 持たず、 受付 + セッション系だけの slim 構成にする (ユーザ要望)。 省略時は全部作る (本社)。
  */
 export interface EnsureLayoutOptions {
+  /** Session / TaskWorkflow forum を使うか。既定 false。 */
+  forumMode?: boolean;
   /** meta カテゴリ配下の雑談系チャンネル (雑談/相談/houkoku/ぼやき/system) を作るか。 既定 true。 */
   includeMetaChannels?: boolean;
   /** pr-queue チャンネルを作るか。 既定 true。 */
@@ -66,12 +84,25 @@ export async function ensureDiscordLayout(
   const includeMetaChannels = opts.includeMetaChannels ?? true;
   const includePrQueue = opts.includePrQueue ?? true;
   const includeErrors = opts.includeErrors ?? true;
+  const forumMode = opts.forumMode ?? false;
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
-  const sessionsCategoryId = await ensureCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
+  // Forum mode では legacy sessions/archive カテゴリを新規生成しない。既存 channel の
+  // 余生と stale sweep のため、存在する場合だけ id を解決して snapshot に残す。
+  const sessionsCategoryId = forumMode
+    ? findExistingCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions)
+    : await ensureCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
   const statusCategoryId = await ensureCategory(guild, repo, STATUS_CATEGORY_KEY, CATEGORY_NAMES.status);
-  const archiveCategoryId = await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
+  const archiveCategoryId = forumMode
+    ? findExistingCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive)
+    : await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
+  const sessionForumId = forumMode
+    ? await ensureForum(guild, repo, SESSION_FORUM_KEY, FORUM_NAMES.session, Object.values(SESSION_STATE_TAG_NAMES))
+    : "";
+  const taskWorkflowForumId = forumMode
+    ? await ensureForum(guild, repo, TASK_WORKFLOW_FORUM_KEY, FORUM_NAMES.taskWorkflow)
+    : "";
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
@@ -107,6 +138,9 @@ export async function ensureDiscordLayout(
   repo.set("guild_id", guild.id);
   return {
     guildId: guild.id,
+    forumMode,
+    sessionForumId,
+    taskWorkflowForumId,
     metaCategoryId,
     sessionsCategoryId,
     statusCategoryId,
@@ -119,6 +153,63 @@ export async function ensureDiscordLayout(
     errorChannelId,
     metaChannels,
   };
+}
+
+function findExistingCategory(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  key: string,
+  name: string,
+): string {
+  const cached = repo.get(key);
+  if (cached) {
+    const ch = guild.channels.cache.get(cached);
+    if (ch?.type === ChannelType.GuildCategory) return cached;
+  }
+  const existing = guild.channels.cache.find((c) => c.type === ChannelType.GuildCategory && c.name === name);
+  if (!existing) return "";
+  repo.set(key, existing.id);
+  return existing.id;
+}
+
+async function ensureForum(
+  guild: Guild,
+  repo: DiscordConfigRepo,
+  key: string,
+  name: string,
+  requiredTagNames: readonly string[] = [],
+): Promise<string> {
+  const cached = repo.get(key);
+  let forum = cached ? guild.channels.cache.get(cached) : null;
+  if (forum?.type !== ChannelType.GuildForum) {
+    forum = guild.channels.cache.find((c) => c.type === ChannelType.GuildForum && c.name === name) ?? null;
+  }
+  if (!forum) {
+    forum = await guild.channels.create({ name, type: ChannelType.GuildForum });
+  }
+  repo.set(key, forum.id);
+  await ensureForumTags(forum as ForumChannel, requiredTagNames);
+  return forum.id;
+}
+
+async function ensureForumTags(forum: ForumChannel, requiredTagNames: readonly string[]): Promise<void> {
+  const missing = requiredTagNames.filter((name) => !forum.availableTags.some((tag) => tag.name === name));
+  if (missing.length === 0) return;
+  if (forum.availableTags.length + missing.length > 20) {
+    throw new Error(
+      `Discord forum ${forum.name} has no room for required tags: ${missing.join(", ")}`,
+    );
+  }
+  const tags: GuildForumTagData[] = [
+    ...forum.availableTags.map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      moderated: tag.moderated,
+      emoji: tag.emoji ?? undefined,
+    })),
+    ...missing.map((tagName) => ({ name: tagName, moderated: false })),
+  ];
+  await forum.setAvailableTags(tags, "Concordia forum layout sync");
 }
 
 /**

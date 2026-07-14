@@ -122,6 +122,7 @@ Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`�
 | `CONCORDIA_DISCORD_TOKEN` | 空 | `discord/types.ts:36` | Bot token。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_GUILD_ID` | 空 | `discord/types.ts:37` | 招待先 guild (server) ID。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_APPLICATION_ID` | 空 | `discord/types.ts:38` | slash command 登録に使う Application ID。 未設定だと bot は起動するが slash command が未登録 (warn ログ)。 |
+| `CONCORDIA_DISCORD_FORUM_MODE` | 空 (`1` で有効) | `discord/types.ts` | Phase 1 の Session / TaskWorkflow フォーラムレイアウトを有効化。未設定時は従来カテゴリ運用。 |
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
 | `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |

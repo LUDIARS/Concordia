@@ -78,8 +78,8 @@ export async function postQuestion(
   const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
   if (!row) return;
   const channel = await input.guild.channels.fetch(row.channel_id);
-  if (!channel || channel.type !== ChannelType.GuildText) return;
-  const tc = channel as TextChannel;
+  if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
+  const tc = channel;
   const options = normalizeOptions(ev.options);
   const embed = buildQuestionEmbed(ev.question_id, ev.question, options);
   const components: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];
@@ -179,8 +179,8 @@ export async function resolveQuestionMessage(
   if (!ch) return;
   try {
     const channel = await input.guild.channels.fetch(ch.channel_id);
-    if (!channel || channel.type !== ChannelType.GuildText) return;
-    const msg = await (channel as TextChannel).messages.fetch(row.discord_message_id);
+    if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
+    const msg = await channel.messages.fetch(row.discord_message_id);
     await msg.edit({ components: [] });
   } catch (e) {
     input.log.warn(`resolveQuestionMessage failed qid=${ev.question_id}: ${(e as Error).message}`);

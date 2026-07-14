@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 36;
+export const SCHEMA_VERSION = 37;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -315,6 +315,7 @@ const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS discord_session_channels (
     session_id      TEXT PRIMARY KEY,
     channel_id      TEXT NOT NULL,
+    channel_kind    TEXT NOT NULL DEFAULT 'channel',
     webhook_id      TEXT,
     webhook_token   TEXT,
     status          TEXT NOT NULL DEFAULT 'active',
@@ -905,6 +906,13 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "discord_session_channels",
     column: "name_locked",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN name_locked INTEGER NOT NULL DEFAULT 0`,
+  },
+  // Discord forum mode: channel_id は従来の text channel に加えて forum thread id を保持する。
+  // 既存行はすべて channel として扱い、フラグ OFF の旧経路と完全互換にする。
+  {
+    table: "discord_session_channels",
+    column: "channel_kind",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN channel_kind TEXT NOT NULL DEFAULT 'channel'`,
   },
   // 子会社の日次トークン予算 (0 = 無制限)。 子会社ごとにコスト上限を設け、 超過で受付を止める。
   {

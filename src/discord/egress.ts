@@ -122,13 +122,12 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     deps.log.warn(`egress.handleChatPosted no channel resolved message_id=${row.id} row_session_id=${sessionId ?? "null"}`);
     return;
   }
-  // 明示 channel 指定時は session webhook ではなく channel webhook を使う。
-  // session-scoped 投稿では上で session channel との一致を検証済み。
-  const client = trustedExplicitChannelId
-    ? await deps.webhooks.getForChannel(channelId)
-    : sessionRow && sessionId
-      ? await deps.webhooks.getForSession(sessionId)
-      : await deps.webhooks.getForChannel(channelId);
+  // Forum thread は親 forum の共有 webhook + thread_id が必要なので、明示指定でも
+  // session surface と一致する場合は session 経路を使う。meta の明示指定だけ channel 経路。
+  const isSessionSurface = !!sessionRow && !!sessionId && channelId === sessionRow.channel_id;
+  const client = isSessionSurface
+    ? await deps.webhooks.getForSession(sessionId)
+    : await deps.webhooks.getForChannel(channelId);
   if (!client) {
     deps.log.warn(`egress.handleChatPosted no webhook client message_id=${row.id} channel=${channelId} sessionRow=${sessionRow ? "yes" : "no"}`);
     return;

@@ -115,7 +115,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     return;
   }
 
-  const routeChannelId = resolveRouteChannelId(msg);
+  const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
   deps.log.info(
     `ingress: routing channel=${msg.channelId} route_channel=${routeChannelId} ` +
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
@@ -322,12 +322,15 @@ async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: st
   deps.log.info(`ingress: session reply → reply-spawn spawned=${result.spawned} reason=${result.reason}`);
 }
 
-function resolveRouteChannelId(msg: Message): string {
+function resolveRouteChannelId(msg: Message, sessions: DiscordSessionChannelsRepo): string {
   if (
     msg.channel.type === ChannelType.PublicThread ||
     msg.channel.type === ChannelType.PrivateThread ||
     msg.channel.type === ChannelType.AnnouncementThread
   ) {
+    // Forum mode stores the thread id itself in discord_session_channels. Legacy
+    // text-channel child threads still route through their parent channel.
+    if (sessions.findByChannelId(msg.channelId)?.channel_kind === "thread") return msg.channelId;
     return msg.channel.parentId ?? msg.channelId;
   }
   return msg.channelId;

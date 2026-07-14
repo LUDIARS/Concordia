@@ -28,6 +28,7 @@ export interface SubsidiaryBotEnv {
   applicationId: string | null;
   permissionRequestsEnabled: boolean;
   messageOptimizationEnabled: boolean;
+  forumMode?: boolean;
 }
 
 export interface SubsidiaryBotHandle {
@@ -150,6 +151,7 @@ export class SubsidiaryBotManager {
         applicationId: h.applicationId,  // 本社と共有
         permissionRequestsEnabled: h.permissionRequestsEnabled,
         messageOptimizationEnabled: h.messageOptimizationEnabled,
+        forumMode: h.forumMode,
       };
     };
 

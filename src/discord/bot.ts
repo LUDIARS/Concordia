@@ -11,7 +11,7 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
-import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot } from "./config.js";
+import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
@@ -23,6 +23,7 @@ import {
   onSessionStatusChanged,
   onSessionTitleChanged,
   onSessionWorkState,
+  updateSessionSurfaceMetadata,
   pruneStatusCategoryChannels,
   reconcileEndedSessionChannels,
   reconcileLostSessionChannels,
@@ -56,6 +57,7 @@ import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
 import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentation.js";
 import { startInteractionAckProbe } from "./interaction-ack.js";
+import { createForumProjectCodeResolver } from "./forum-project-code.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -191,9 +193,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 全ハンドラ入口で捨てる (guildId が無い DM 等も対象外)。
   const inScope = (guildId: string | null | undefined): boolean => guildId === env.guildId;
   // 子会社は本社のような雑談 (meta) / pr-queue / errors を持たない slim 構成 (ユーザ要望)。
-  const layoutOpts = deps.subsidiary
-    ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
-    : undefined;
+  const layoutOpts: EnsureLayoutOptions = {
+    ...(deps.subsidiary
+      ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
+      : {}),
+    // 子会社展開は task #12。Phase 1 (#1-#6) では本社 guild だけを切り替える。
+    forumMode: env.forumMode === true && !deps.subsidiary,
+  };
+  const workspaceRoots = deps.resolveWorkspaceRoots?.()
+    ?? [deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd()];
+  const resolveProjectCode = layoutOpts.forumMode === true
+    ? createForumProjectCodeResolver(workspaceRoots, log)
+    : (_repoPath: string) => "";
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
   let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;
@@ -583,7 +594,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           const row = sessionChannelsRepo.findBySessionId(sessionId);
           if (!row || row.status !== "active") return null;
           const ch = guild.channels.cache.get(row.channel_id);
-          if (!ch || ch.type !== ChannelType.GuildText) return null;
+          if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.PublicThread)) return null;
           const m = await ch.send("🔄 **作業中…**");
           return m.id;
         },
@@ -591,7 +602,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           const row = sessionChannelsRepo.findBySessionId(sessionId);
           if (!row) return;
           const ch = guild.channels.cache.get(row.channel_id);
-          if (!ch || ch.type !== ChannelType.GuildText) return;
+          if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.PublicThread)) return;
           try {
             const m = await ch.messages.fetch(messageId);
             await m.delete();
@@ -785,6 +796,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               delegationEmoji: state?.delegationEmoji ?? null,
               roleLabel: state?.roleLabel ?? null,
               personaDisplayName: state?.personaDisplayName ?? null,
+              repoPath: state?.repoPath ?? ev.repo_path,
+              branch: state?.branch ?? ev.branch,
+              currentTask: state?.currentTask ?? null,
+              projectCode: resolveProjectCode(state?.repoPath ?? ev.repo_path),
             },
           );
           // channel 作成前に届いて「永続化のみ」になった frame を埋め戻す。
@@ -811,6 +826,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           if (statusChannelId) {
             const sessionRow = sessionChannelsRepo.findBySessionId(sessionId);
             if (sessionRow) {
+              await updateSessionSurfaceMetadata(
+                { guild, layout, repo: sessionChannelsRepo, log },
+                {
+                  sessionId,
+                  repoPath: state?.repoPath ?? ev.repo_path,
+                  branch: state?.branch ?? ev.branch,
+                  statusCardChannelId: statusChannelId,
+                },
+              ).catch((e: unknown) => log.warn(`session-forum: starter update failed ${sessionId}: ${(e as Error).message}`));
               const ch = guild.channels.cache.get(sessionRow.channel_id);
               if (ch && ch.type === ChannelType.GuildText) {
                 await ch.edit({
@@ -904,7 +928,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           void (async () => {
             try {
               const channel = guild.channels.cache.get(ack.channelId);
-              if (!channel || channel.type !== ChannelType.GuildText) return;
+              if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
               const m = await channel.messages.fetch(ack.messageId);
               await m.react("✅");
             } catch (e) {
@@ -936,7 +960,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           void (async () => {
             try {
               const channel = guild.channels.cache.get(ack.channelId);
-              if (!channel || channel.type !== ChannelType.GuildText) return;
+              if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
               const m = await channel.messages.fetch(ack.messageId);
               await m.react("✅");
             } catch (e) {
@@ -977,9 +1001,29 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const forceRename = titleEvent.source !== "title-suggestion";
         void onSessionTitleChanged(
           { guild, layout, repo: sessionChannelsRepo, log },
-          { sessionId: ev.session_id, title: titleEvent.title, agentType: titleEvent.provider, forceRename },
+          {
+            sessionId: ev.session_id,
+            title: titleEvent.title,
+            agentType: titleEvent.provider,
+            forceRename,
+            projectCode: resolveProjectCode(deps.readModel.getSessionRelayState(ev.session_id)?.repoPath ?? ""),
+          },
         );
       }
+      return;
+    }
+    if (ev.type === "session.event" && ev.kind === "branch_changed") {
+      const state = deps.readModel.getSessionRelayState(ev.session_id);
+      if (!state) return;
+      void updateSessionSurfaceMetadata(
+        { guild, layout, repo: sessionChannelsRepo, log },
+        {
+          sessionId: ev.session_id,
+          repoPath: state.repoPath,
+          branch: state.branch,
+          statusCardChannelId: getStatusChannelId(configRepo, ev.session_id),
+        },
+      ).catch((e) => log.warn(`session-forum: branch update failed ${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     // task_update での状態カード即時更新は撤去 (更新は 10 分毎の定期 tick のみ)。
@@ -1042,6 +1086,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           delegationEmoji: state?.delegationEmoji ?? null,
           roleLabel: state?.roleLabel ?? null,
           personaDisplayName: state?.personaDisplayName ?? null,
+          repoPath: state?.repoPath ?? null,
+          branch: state?.branch ?? null,
+          currentTask: state?.currentTask ?? null,
+          projectCode: state?.repoPath ? resolveProjectCode(state.repoPath) : null,
         },
       );
       await upsertSessionStatusCard({
@@ -1052,6 +1100,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         readModel: deps.readModel,
         log,
       }, sessionId, { allowCreate: true });
+      if (state) {
+        await updateSessionSurfaceMetadata(
+          { guild: activeGuild, layout, repo: sessionChannelsRepo, log },
+          {
+            sessionId,
+            repoPath: state.repoPath,
+            branch: state.branch,
+            statusCardChannelId: getStatusChannelId(configRepo, sessionId),
+          },
+        ).catch((e) => log.warn(`session-forum: starter update failed ${sessionId}: ${(e as Error).message}`));
+      }
     },
     async postQuestion(input) {
       if (gatewayClosed || stopping || !activeGuild) return;

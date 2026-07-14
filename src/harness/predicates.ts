@@ -35,6 +35,12 @@ export interface HarnessAction {
    * これと現在編集中のリポが食い違うとき {@link outsideScope} が警告する。 未解決なら省略。
    */
   targetProject?: string;
+  /** cwd が linked worktree と解決できた場合 true。未解決なら省略。 */
+  isWorktree?: boolean;
+  /** session 登録情報由来の provider/model 識別子。未解決なら省略。 */
+  sessionModel?: string;
+  /** 人間承認により当該 session の強推論モデル実装ゲートを解除済み。 */
+  implUnlocked?: boolean;
 }
 
 export interface PredicateHit {
@@ -157,4 +163,13 @@ export const outsideScope: Predicate = (a) => {
 };
 
 /** 既定の述語セット (登録順)。 */
-export const DEFAULT_PREDICATES: Predicate[] = [noMainPush, branchBeforeEdit, maxReposWarn, outsideScope];
+import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js";
+
+export const DEFAULT_PREDICATES: Predicate[] = [
+  noMainPush,
+  noServiceStartInSession,
+  noOpTestInWorktree,
+  branchBeforeEdit,
+  maxReposWarn,
+  outsideScope,
+];

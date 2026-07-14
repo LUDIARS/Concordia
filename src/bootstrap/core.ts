@@ -72,6 +72,11 @@ import { startPrReconciler } from "../pr/reconcile.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { MemoriaClient } from "../memoria/client.js";
+import { TaskMdStore } from "../taskflow/md-store.js";
+import { MemoriaBackend } from "../taskflow/backend.js";
+import { startTaskReconciler } from "../taskflow/reconcile.js";
+import { TaskflowRuntime } from "../taskflow/runtime.js";
+import { notifyUserDecision } from "../taskflow/notify.js";
 import { ConfirmService } from "../release/confirm-service.js";
 import { ServiceMap } from "../release/service-map.js";
 import { intakeDevelopMerge } from "../release/confirm-intake.js";
@@ -431,6 +436,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
   const memoriaClient = new MemoriaClient();
+  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots());
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
   const resolveServiceCode = (repoName: string) => serviceMap.resolve(repoName);
   const confirmService = new ConfirmService({
@@ -438,6 +444,15 @@ export async function startBackend(): Promise<BackendHandle> {
     excubitor: excubitorClient,
     memoria: memoriaClient,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+  });
+  const taskflowRuntime = new TaskflowRuntime({
+    db,
+    sessions: repo,
+    delegation: delegationRepo,
+    prs,
+    store: taskStore,
+    confirm: { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+    mentionUserId: () => adminState.getMentionUserId(),
   });
 
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
@@ -707,6 +722,8 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     slackConfig,
     secretBox,
+    taskStore,
+    onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
     slackAdmin: {
       start: startSlackBotManaged,
       stop: stopSlackBotManaged,
@@ -888,10 +905,23 @@ export async function startBackend(): Promise<BackendHandle> {
       sessions: repo,
       tasks,
       // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
-      onDevelopMerge: (event) => intakeDevelopMerge(
-        { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
-        event,
-      ).then(() => undefined),
+      onDevelopMerge: async (event) => {
+        const result = await intakeDevelopMerge(
+          { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+          event,
+        );
+        if (result.created) {
+          const pr = prs.findByKey(event.repo_origin, event.pr_number);
+          if (pr?.author_session_id) {
+            notifyUserDecision({
+              kind: "confirm-queued",
+              targetSessionId: pr.author_session_id,
+              mentionUserId: adminState.getMentionUserId(),
+              text: `確認テストがキューに入りました。/confirm start ${result.row.service_code ?? result.row.repo_name} で開始してください。`,
+            });
+          }
+        }
+      },
     }));
     trackPostListenHandle(startPrFullSync({ prs }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
@@ -975,6 +1005,8 @@ export async function startBackend(): Promise<BackendHandle> {
   } else {
     log.info("delegation embedded queue skipped: live workflow-worker lease found");
   }
+  trackPostListenHandle(startTaskReconciler({ store: taskStore, backend: new MemoriaBackend(memoriaClient) }));
+  trackPostListenHandle(taskflowRuntime.start());
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
 

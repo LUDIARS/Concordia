@@ -75,6 +75,11 @@ export function buildDelegationContext(
     "  Codex はコミットを忘れがちなので、 「動いた/直した」 で止めず必ずコミットまで行います。",
     "- ブランチ運用 (作業ブランチで作業 → push → PR) は委託プロンプト / Cc workflow の completion",
     "  ルールに従います。 コミットメッセージは『何を・なぜ』が分かる粒度で書きます。",
+    "- 起動後は最新の origin base から新規 worktree を作成して実装します。base は origin/develop があれば",
+    "  develop、無ければ main とし、PR base も同じにします。",
+    "- worktree ではサービス起動・動作テストをしません。起動を伴わない単体テスト (vitest 等) は可。",
+    "  動作テストは Concordia の confirm キューが安定ブランチで行います。",
+    "- 実装完了の責務は commit + PR + delegation status 報告までです。マージと確認テストはスコープ外です。",
     "",
   ];
 

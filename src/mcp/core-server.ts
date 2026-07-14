@@ -353,6 +353,7 @@ export function buildCoreServer(): McpServer {
         cwd: z.string().max(4096).optional(),
         project: z.string().max(256).optional(),
         branch: z.string().max(256).optional(),
+        isWorktree: z.boolean().optional().describe("true when cwd is a linked git worktree"),
         session_id: z.string().max(128).optional(),
         hook: z.string().max(64).optional(),
       },

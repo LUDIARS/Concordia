@@ -30,6 +30,7 @@ import {
   pickActiveSessionId,
   resolvePromptText,
   resolveEditTarget,
+  resolveIsWorktree,
 } from "./concordia-hook-resolver.mjs";
 
 // ホワイトリスト方式: 既定は無効, CONCORDIA_HOOK=1 が console から渡された
@@ -134,6 +135,9 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
   if (!sessionId) return;
   const repoOrigin = tryGitRemote(cwd);
   const branch = tryGitBranch(cwd);
+  const isWorktree = resolveIsWorktree(cwd, (command, gitCwd) => execSync(command, {
+    cwd: gitCwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: GIT_TIMEOUT_MS,
+  }));
   const body = {
     id: sessionId,
     provider: PROVIDER,
@@ -142,6 +146,7 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
     branch,
     host: hostname(),
     transcript_path: transcriptPath,
+    ...(isWorktree === undefined ? {} : { metadata: { is_worktree: isWorktree } }),
   };
   const res = await postJson("/v1/sessions", body);
   // hook stdout は Claude Code が `additionalContext` として AI に流す.

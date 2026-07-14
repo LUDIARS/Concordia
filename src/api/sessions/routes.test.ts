@@ -32,6 +32,7 @@ describe("sessionsRouter route table", () => {
       "POST /:id/goal",
       "POST /:id/goal-and-go",
       "POST /:id/heartbeat",
+      "POST /:id/impl-unlock",
       "POST /:id/inject",
       "POST /:id/pending-question",
       "POST /:id/pending-question/:qid/resolve",

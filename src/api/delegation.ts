@@ -5,6 +5,8 @@
 
 import { Hono } from "hono";
 import { z } from "zod";
+import type { TaskMdStore } from "../taskflow/md-store.js";
+import { injectDecompositionWhenMissing } from "../taskflow/decompose-inject.js";
 import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
@@ -105,6 +107,7 @@ const InvokeSchema = z.object({
   worktree: z.boolean().optional(),
   /** 初回プロンプト末尾に追記する任意の追加指示（render とは別経路）。 */
   extra_prompt: z.string().max(20000).optional(),
+  memory_links: z.array(z.string().max(500)).max(20).optional(),
   triggered_by: z.string().max(120).optional(),
   parent_session_id: z.string().max(128).optional(),
   spawn: z.boolean().optional(),
@@ -143,6 +146,8 @@ export interface DelegationApiDeps {
     getDelegationMaxConcurrency: () => number;
     setDelegationMaxConcurrency: (value: number) => void;
   };
+  taskStore?: TaskMdStore;
+  onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
 }
 
 const QueueSettingsSchema = z.object({
@@ -405,6 +410,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       branch: parsed.data.branch,
       worktree: parsed.data.worktree,
       extra_prompt: parsed.data.extra_prompt,
+      memory_links: parsed.data.memory_links,
       triggered_by: parsed.data.triggered_by,
       spawn: parsed.data.spawn,
       options: parsed.data.options,
@@ -471,6 +477,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (updated.status === "completed" || updated.status === "failed") {
       void deps.queue?.drain();
     }
+    if (updated.status === "completed" && deps.sessions && deps.taskStore) {
+      void injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore });
+    }
+    if (updated.status === "completed") void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated) });
   });
 

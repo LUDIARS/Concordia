@@ -16,6 +16,8 @@ import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { evaluateAction } from "../harness/session-gate.js";
 import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/predicates.js";
+import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
+import { notifyUserDecision } from "../taskflow/notify.js";
 import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
 import {
   HARNESS_BLACKBOX_DOMAINS,
@@ -51,6 +53,7 @@ const ActionSchema = z.object({
   project: z.string().max(256).optional(),
   branch: z.string().max(256).optional(),
   editedRepos: z.array(z.string().max(4096)).max(200).optional(),
+  isWorktree: z.boolean().optional(),
 });
 
 const GateSchema = z.object({
@@ -105,6 +108,9 @@ export interface HarnessSessionApiDeps {
    * gate ハンドラがこれを {@link HarnessAction.targetProject} に注入する。
    */
   sessionScope?: (sessionId: string) => string | null;
+  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean } | null;
+  strongImplModels?: () => string[];
+  mentionUserId?: () => string | null;
 }
 
 function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
@@ -168,14 +174,26 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // (hook は薄い腕に保つ = セッション状態源は Concordia)。
     const targetProject = action.project ?? (session_id ? deps.sessionScope?.(session_id) ?? undefined : undefined);
 
-    const deterministic = evaluateAction({ ...action, editedRepos, targetProject } as HarnessAction);
+    const sessionContext = session_id ? deps.sessionContext?.(session_id) ?? null : null;
+    const enrichedAction: HarnessAction = {
+      ...action,
+      editedRepos,
+      targetProject,
+      sessionModel: sessionContext?.model,
+      implUnlocked: sessionContext?.implUnlocked,
+      isWorktree: action.isWorktree ?? sessionContext?.isWorktree,
+    };
+    const predicates = deps.strongImplModels
+      ? [...DEFAULT_PREDICATES, makeStrongModelImplPredicate(deps.strongImplModels())]
+      : DEFAULT_PREDICATES;
+    const deterministic = evaluateAction(enrichedAction, predicates);
     let verdict = deterministic;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;
     let blackboxError: string | undefined;
     if (deps.blackbox) {
       try {
         blackbox = await deps.blackbox.decideGate({
-          action: { ...action, editedRepos, targetProject } as HarnessAction,
+          action: enrichedAction,
           editedRepos,
           verdict: deterministic,
           session_id,
@@ -190,6 +208,14 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const event: HarnessAuditEvent = verdict.decision === "deny" ? "block" : "gate";
     // 当たった hit の代表 rule (最悪 decision のもの)。
     const lead = verdict.hits.find((h) => h.decision === verdict.decision);
+    if (lead?.rule === "strong-model-impl" && session_id) {
+      notifyUserDecision({
+        kind: "impl-unlock",
+        targetSessionId: session_id,
+        mentionUserId: deps.mentionUserId?.(),
+        text: "強推論モデルによる直接実装をブロックしました。delegation に委託するか、承認後に impl-unlock してください。",
+      });
+    }
 
     const rec = recordSafe(deps.audit, {
       session_id, project: action.project, hook: hook ?? "gate", event,

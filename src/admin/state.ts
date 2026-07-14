@@ -38,6 +38,8 @@ const KEY_LICTOR_DEV_PATH = "admin.lictor_dev_path";
 const KEY_LICTOR_PROD_EXE = "admin.lictor_prod_exe";
 const KEY_DAILY_TOKEN_BUDGET = "admin.daily_token_budget";
 const KEY_DELEGATION_MAX_CONCURRENCY = "admin.delegation_max_concurrency";
+const KEY_HARNESS_STRONG_IMPL_MODELS = "harness.strong_impl_models";
+const KEY_MENTION_USER_ID = "admin.mention_user_id";
 
 /** delegation 同時実行上限の既定値 (delegation/queue.ts の DEFAULT_MAX_CONCURRENCY と対)。 */
 const DEFAULT_DELEGATION_MAX_CONCURRENCY = 4;
@@ -264,6 +266,29 @@ export class AdminState {
     this.setRaw(KEY_DELEGATION_MAX_CONCURRENCY, String(Math.max(0, Math.floor(value))));
   }
 
+  getHarnessStrongImplModels(): string[] {
+    const raw = this.getRaw(KEY_HARNESS_STRONG_IMPL_MODELS);
+    if (raw === null) return ["fable", "sol-ultra"];
+    try {
+      const value = JSON.parse(raw) as unknown;
+      if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+    } catch { /* invalid persisted values fall back to defaults */ }
+    return ["fable", "sol-ultra"];
+  }
+
+  setHarnessStrongImplModels(models: string[]): void {
+    this.setRaw(KEY_HARNESS_STRONG_IMPL_MODELS, JSON.stringify(models.map((model) => model.trim()).filter(Boolean)));
+  }
+
+  getMentionUserId(): string | null {
+    const value = this.getRaw(KEY_MENTION_USER_ID)?.trim();
+    return value || null;
+  }
+
+  setMentionUserId(value: string | null): void {
+    this.setRaw(KEY_MENTION_USER_ID, value?.trim() ?? "");
+  }
+
   snapshot(): {
     chat_muted: boolean;
     rules_enabled: boolean;
@@ -278,6 +303,8 @@ export class AdminState {
     lictor_prod_exe: string;
     daily_token_budget: number;
     delegation_max_concurrency: number;
+    harness_strong_impl_models: string[];
+    mention_user_id: string | null;
   } {
     return {
       chat_muted: this.getChatMuted(),
@@ -293,6 +320,8 @@ export class AdminState {
       lictor_prod_exe: this.getLictorProdExe(),
       daily_token_budget: this.getDailyTokenBudget(),
       delegation_max_concurrency: this.getDelegationMaxConcurrency(),
+      harness_strong_impl_models: this.getHarnessStrongImplModels(),
+      mention_user_id: this.getMentionUserId(),
     };
   }
 

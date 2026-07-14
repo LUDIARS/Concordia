@@ -151,6 +151,8 @@ export interface InvokeInput {
   cwd?: string;
   /** render 後の prompt 末尾に追記する任意の追加指示（テンプレ render とは別経路）。 */
   extra_prompt?: string;
+  /** prompt 末尾にリンクとして列挙する参照メモリ。内容は読み込まない。 */
+  memory_links?: string[];
   triggered_by?: string;
   /** false で spawn せず render + 記録のみ */
   spawn?: boolean;
@@ -290,9 +292,13 @@ export class DelegationService {
     // 初回注入プロンプト (任意) を render 結果の末尾に追記する。テンプレ render とは
     // 別経路で、 人間が起動時に渡す追加指示。 prompt file + run.rendered_prompt 両方に載る。
     const extra = (input.extra_prompt ?? "").trim();
-    const renderedPrompt = extra
+    const withExtra = extra
       ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
       : render.rendered;
+    const memoryLinks = (input.memory_links ?? []).map((link) => link.trim()).filter(Boolean);
+    const renderedPrompt = memoryLinks.length > 0
+      ? `${withExtra}\n\n## 参照メモリ (必要な分だけ読むこと)\n\n${memoryLinks.map((link) => `- ${link}`).join("\n")}`
+      : withExtra;
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const shouldSpawn = input.spawn !== false;

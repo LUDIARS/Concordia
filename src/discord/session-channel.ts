@@ -67,6 +67,8 @@ export async function onSessionRegistered(
     branch?: string | null;
     currentTask?: string | null;
     projectCode?: string | null;
+    surfaceLabel?: "Session" | "TaskWorkflow";
+    delegationRunId?: string | null;
   },
 ): Promise<void> {
   const existing = deps.repo.findBySessionId(input.sessionId);
@@ -90,6 +92,8 @@ export async function onSessionRegistered(
         projectCode: input.projectCode?.trim() || "Session",
         summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
+        surfaceLabel: input.surfaceLabel,
+        delegationRunId: input.delegationRunId,
       });
       const starter = await created.fetchStarterMessage();
       deps.repo.upsert({
@@ -687,6 +691,8 @@ export async function updateSessionSurfaceMetadata(
     repoPath: string;
     branch: string | null;
     statusCardChannelId?: string | null;
+    surfaceLabel?: "Session" | "TaskWorkflow";
+    delegationRunId?: string | null;
   },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);

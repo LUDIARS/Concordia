@@ -67,7 +67,7 @@ const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
  * 持たず、 受付 + セッション系だけの slim 構成にする (ユーザ要望)。 省略時は全部作る (本社)。
  */
 export interface EnsureLayoutOptions {
-  /** Session / TaskWorkflow forum を使うか。既定 false。 */
+  /** Session / TaskWorkflow forum を使うか。Phase 3 以降の既定は true。 */
   forumMode?: boolean;
   /** meta カテゴリ配下の雑談系チャンネル (雑談/相談/houkoku/ぼやき/system) を作るか。 既定 true。 */
   includeMetaChannels?: boolean;
@@ -85,19 +85,15 @@ export async function ensureDiscordLayout(
   const includeMetaChannels = opts.includeMetaChannels ?? true;
   const includePrQueue = opts.includePrQueue ?? true;
   const includeErrors = opts.includeErrors ?? true;
-  const forumMode = opts.forumMode ?? false;
+  const forumMode = opts.forumMode ?? true;
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
   // Forum mode では legacy sessions/archive カテゴリを新規生成しない。既存 channel の
   // 余生と stale sweep のため、存在する場合だけ id を解決して snapshot に残す。
-  const sessionsCategoryId = forumMode
-    ? findExistingCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions)
-    : await ensureCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
+  const sessionsCategoryId = findExistingCategory(guild, repo, SESSIONS_CATEGORY_KEY, CATEGORY_NAMES.sessions);
   const statusCategoryId = await ensureCategory(guild, repo, STATUS_CATEGORY_KEY, CATEGORY_NAMES.status);
-  const archiveCategoryId = forumMode
-    ? findExistingCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive)
-    : await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
+  const archiveCategoryId = findExistingCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
   const sessionForumId = forumMode
     ? await ensureForum(
         guild,
@@ -108,7 +104,13 @@ export async function ensureDiscordLayout(
       )
     : "";
   const taskWorkflowForumId = forumMode
-    ? await ensureForum(guild, repo, TASK_WORKFLOW_FORUM_KEY, FORUM_NAMES.taskWorkflow)
+    ? await ensureForum(
+        guild,
+        repo,
+        TASK_WORKFLOW_FORUM_KEY,
+        FORUM_NAMES.taskWorkflow,
+        Object.values(SESSION_STATE_TAG_NAMES),
+      )
     : "";
   const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);

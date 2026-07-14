@@ -56,7 +56,6 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
 | `CONCORDIA_HTTP_CACHE_ENABLED` | 有効 | GET応答の小さなL1 cache。ルート別TTLはコード上の固定ポリシーとし、個別envは持たない。 |
 | `CONCORDIA_REDIS_ENABLED` | 無効 | `1` のときだけ共有cache用Redisへ接続する。Redis不在環境では未設定のままにする。 |
-| `CONCORDIA_REPLY_SPAWN_ENABLED` | 無効 | `1` のときだけDiscord返信ごとのHaiku判定と新規session起動を有効にする。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (Win + `E:\Document\Ars` 存在時は自動採用) | `/v1/spawn` / `/v1/admin/spawn-session` で `cwd` 省略時の既定。 解決順は [spawn ガイド](spawn.md) 参照。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
@@ -122,7 +121,7 @@ Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`�
 | `CONCORDIA_DISCORD_TOKEN` | 空 | `discord/types.ts:36` | Bot token。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_GUILD_ID` | 空 | `discord/types.ts:37` | 招待先 guild (server) ID。 未設定なら起動 skip。 |
 | `CONCORDIA_DISCORD_APPLICATION_ID` | 空 | `discord/types.ts:38` | slash command 登録に使う Application ID。 未設定だと bot は起動するが slash command が未登録 (warn ログ)。 |
-| `CONCORDIA_DISCORD_FORUM_MODE` | 空 (`1` で有効) | `discord/types.ts` | Phase 1 の Session / TaskWorkflow フォーラムレイアウトを有効化。未設定時は従来カテゴリ運用。 |
+| `CONCORDIA_DISCORD_FORUM_MODE` | 有効 (`0` で一時停止) | `discord/types.ts` | Phase 3 の Session / TaskWorkflow フォーラムレイアウト。未設定時は有効。既存カテゴリは自動作成せず、明示的な `0` は移行時のロールバック専用。 |
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
 | `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |

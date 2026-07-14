@@ -68,6 +68,7 @@ import {
 import {
   fetchForumSessionThread,
   postForumSessionMetadata,
+  resolveForumSessionSurface,
   updateForumSessionState,
 } from "./forum-session.js";
 
@@ -209,8 +210,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ...(deps.subsidiary
       ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
       : {}),
-    // 子会社展開は task #12。Phase 1 (#1-#6) では本社 guild だけを切り替える。
-    forumMode: env.forumMode === true && !deps.subsidiary,
+    forumMode: env.forumMode !== false,
   };
   const workspaceRoots = deps.resolveWorkspaceRoots?.()
     ?? [deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd()];
@@ -672,7 +672,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // (子会社 Bot に desk は配線されない)。
       intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
       subsidiary: Boolean(deps.subsidiary),
-      replySpawnEnabled: process.env.CONCORDIA_REPLY_SPAWN_ENABLED === "1",
     }, msg).catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
@@ -808,10 +807,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const sessionId = ev.session_id;
       const delegationRun = state?.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
       const forumSpawn = parseForumSpawnTrigger(delegationRun?.triggered_by);
-      if (state?.delegationRunId && (!forumSpawn || forumSpawn.guildId !== guild.id)) {
+      if (delegationRun && !layout.forumMode && (!forumSpawn || forumSpawn.guildId !== guild.id)) {
         log.info(
-          `session.started delegation child: skip Discord session surface session=${sessionId} ` +
-          `run=${state.delegationRunId} parent=${state.delegationParentSessionId ?? "null"}`,
+          `session.started delegation child: legacy layout has no TaskWorkflow surface session=${sessionId} ` +
+          `run=${delegationRun.id} parent=${state?.delegationParentSessionId ?? "null"}`,
         );
         return;
       }
@@ -848,20 +847,27 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               log.info(`forum-spawn session already bound session=${sessionId} thread=${existing.channel_id}`);
             }
           } else {
+            const surface = resolveForumSessionSurface(layout, delegationRun?.id);
+            const surfaceLayout = { ...layout, sessionForumId: surface.forumId };
             await onSessionRegistered(
-              { guild, layout, repo: sessionChannelsRepo, log, webhooks },
+              { guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks },
               {
                 sessionId,
                 agentType: ev.provider ?? null,
                 delegationEmoji: state?.delegationEmoji ?? null,
-                roleLabel: state?.roleLabel ?? null,
+                roleLabel: delegationRun?.call_name ?? state?.roleLabel ?? null,
                 personaDisplayName: state?.personaDisplayName ?? null,
                 repoPath,
                 branch,
-                currentTask: state?.currentTask ?? null,
+                currentTask: state?.currentTask ?? delegationRun?.call_name ?? null,
                 projectCode: projectResolver.codeForRepo(repoPath),
+                surfaceLabel: surface.label,
+                delegationRunId: surface.delegationRunId,
               },
             );
+            if (delegationRun) {
+              log.info(`task-workflow bound session=${sessionId} run=${delegationRun.id}`);
+            }
           }
           // channel 作成前に届いて「永続化のみ」になった frame を埋め戻す。
           // watermark (maxId) は channel 行作成後に取る — これ以降の frame は
@@ -894,6 +900,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                   repoPath,
                   branch,
                   statusCardChannelId: statusChannelId,
+                  surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
+                  delegationRunId: delegationRun?.id ?? null,
                 },
               ).catch((e: unknown) => log.warn(`session-forum: starter update failed ${sessionId}: ${(e as Error).message}`));
               const ch = guild.channels.cache.get(sessionRow.channel_id);
@@ -1076,6 +1084,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.event" && ev.kind === "branch_changed") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       if (!state) return;
+      const delegationRun = state.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
       void updateSessionSurfaceMetadata(
         { guild, layout, repo: sessionChannelsRepo, log },
         {
@@ -1083,6 +1092,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           repoPath: state.repoPath,
           branch: state.branch,
           statusCardChannelId: getStatusChannelId(configRepo, ev.session_id),
+          surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
+          delegationRunId: delegationRun?.id ?? null,
         },
       ).catch((e) => log.warn(`session-forum: branch update failed ${ev.session_id}: ${(e as Error).message}`));
       return;
@@ -1162,6 +1173,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log,
       }, sessionId, { allowCreate: true });
       if (state) {
+        const delegationRun = state.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
         await updateSessionSurfaceMetadata(
           { guild: activeGuild, layout, repo: sessionChannelsRepo, log },
           {
@@ -1169,6 +1181,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             repoPath: state.repoPath,
             branch: state.branch,
             statusCardChannelId: getStatusChannelId(configRepo, sessionId),
+            surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
+            delegationRunId: delegationRun?.id ?? null,
           },
         ).catch((e) => log.warn(`session-forum: starter update failed ${sessionId}: ${(e as Error).message}`));
       }

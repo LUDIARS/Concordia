@@ -9,7 +9,6 @@ import { injectSession } from "../platform/session-inject.js";
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
-import { maybeSpawnFromReply } from "./reply-spawn.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const ACCEPTED_INJECT_REACTION = "✅";
@@ -63,8 +62,6 @@ export interface IngressDeps {
   };
   /** True only for a subsidiary guild; head-office desk intake remains false. */
   subsidiary?: boolean;
-  /** Expensive reply classification is frozen unless explicitly enabled. */
-  replySpawnEnabled?: boolean;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -170,13 +167,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       `ingress: session channel matched route_channel=${routeChannelId} ` +
       `session=${sessionRow.session_id} status=${sessionRow.status}`,
     );
-    // 返信 (message reference あり) は走っているセッションへは inject しない。
-    // 基本は「情報補足」で AI は反応せず、 モデル指定/作業指示を含む時だけ Haiku 判定で
-    // 新規セッションを立てる (reply-spawn)。 通常 (非返信) メッセージは従来どおり inject。
-    if (msg.reference?.messageId) {
-      await handleSessionReply(deps, msg, sessionRow.session_id);
-      return;
-    }
     if (sessionRow.status !== "active") {
       try {
         await msg.reply({ content: `This session is ${sessionRow.status}; inject is disabled.`, allowedMentions: { repliedUser: false } });
@@ -256,70 +246,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   } catch (e) {
     deps.log.warn(`ingress: /v1/chat failed discord_channel=${msg.channelId}: ${(e as Error).message}`);
   }
-}
-
-/**
- * session channel への返信を処理する。 走っているセッションへは inject せず、
- * Haiku 判定でモデル指定/作業指示を含む時だけ新規セッションを spawn する。
- * 補足扱い (spawn なし) のときは AI は反応しない (Discord にも何も返さない)。
- */
-async function handleSessionReply(deps: IngressDeps, msg: Message, sessionId: string): Promise<void> {
-  if (deps.replySpawnEnabled !== true) {
-    deps.log.info(`ingress: session reply ignored; reply-spawn disabled session=${sessionId}`);
-    return;
-  }
-  const replyText = msg.content.trim();
-  // 返信先メッセージ本文 (元の作業内容)。 取得失敗は空文字で続行 (返信本文だけで判定)。
-  let repliedToText = "";
-  try {
-    const ref = await msg.fetchReference();
-    repliedToText = ref?.content?.trim() ?? "";
-  } catch {
-    // 参照先が削除済 / 取得不可 → 空のまま。
-  }
-  const repoPath = deps.sessionsRepo.findSession(sessionId)?.repo_path ?? null;
-  const concordiaUrl = deps.concordiaUrl;
-  const result = await maybeSpawnFromReply(
-    {
-      log: deps.log,
-      spawn: async (body) => {
-        try {
-          const res = await fetch(`${concordiaUrl}/v1/admin/spawn-session`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify(body),
-          });
-          if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-          return { ok: true };
-        } catch (e) {
-          return { ok: false, error: (e as Error).message };
-        }
-      },
-    },
-    { replyText, repliedToText, repoPath },
-  );
-  // 起動した時だけ可視化する。 補足扱いは「AI 一切反応しない」ため無言。
-  if (result.spawned) {
-    try {
-      await msg.reply({
-        content: `🆕 返信内容で新規セッションを起動しました${result.model ? ` (model: ${result.model})` : ""}。`,
-        allowedMentions: { repliedUser: false },
-      });
-    } catch { /* best-effort */ }
-    // spawn した作業内容を session channel へ投稿して可視化する。
-    if (result.spawnPrompt) {
-      try {
-        await fetch(`${deps.concordiaUrl}/v1/chat`, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(
-            buildReplySpawnChatPayload(sessionId, result.spawnPrompt, msg.channelId),
-          ),
-        });
-      } catch { /* best-effort */ }
-    }
-  }
-  deps.log.info(`ingress: session reply → reply-spawn spawned=${result.spawned} reason=${result.reason}`);
 }
 
 function resolveRouteChannelId(msg: Message, sessions: DiscordSessionChannelsRepo): string {
@@ -430,20 +356,6 @@ function resolveEmojiTargetChatId(deps: IngressDeps, msg: Message, routeChannelI
     if (m) return m.id;
   }
   return null;
-}
-
-export function buildReplySpawnChatPayload(
-  sessionId: string,
-  spawnPrompt: string,
-  discordChannelId: string,
-): Record<string, unknown> {
-  return {
-    channel: "報告",
-    session_id: sessionId,
-    text: spawnPrompt.slice(0, 2000),
-    author_label: "Concordia (spawn)",
-    discord_channel_id: discordChannelId,
-  };
 }
 
 export function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {

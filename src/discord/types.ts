@@ -44,7 +44,7 @@ export function readDiscordEnv(env: NodeJS.ProcessEnv = process.env): DiscordEnv
     applicationId: env.CONCORDIA_DISCORD_APPLICATION_ID?.trim() || null,
     permissionRequestsEnabled: envFlag(env.CONCORDIA_DISCORD_PERMISSION_REQUESTS_ENABLED, false),
     messageOptimizationEnabled: envFlag(env.CONCORDIA_DISCORD_MESSAGE_OPTIMIZATION_ENABLED, true),
-    forumMode: envFlag(env.CONCORDIA_DISCORD_FORUM_MODE, false),
+    forumMode: envFlag(env.CONCORDIA_DISCORD_FORUM_MODE, true),
   };
 }
 

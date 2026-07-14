@@ -93,12 +93,14 @@
 
 ## 移行計画
 
-1. **Phase 1 (両対応)**: `CONCORDIA_DISCORD_FORUM_MODE=1` フラグでフォーラム
+1. **Phase 1 (両対応・完了)**: `CONCORDIA_DISCORD_FORUM_MODE=1` フラグでフォーラム
    レイアウトを有効化。 新規セッションはスレッド、 既存カテゴリのチャンネルは
    そのまま余生 (ended で archive カテゴリへ、 stale sweep で消滅)。
-2. **Phase 2 (spawn-by-post)**: threadCreate ハンドラ + inject。 /spawn 併存。
-3. **Phase 3 (cutover)**: フラグ既定 ON。 カテゴリ自動生成コード撤去、
-   sessions/archive カテゴリを手動整理。 子会社へ展開。
+2. **Phase 2 (spawn-by-post・完了)**: threadCreate ハンドラ + inject。 /spawn 併存。
+3. **Phase 3 (cutover・2026-07-14 実装)**: フラグ既定 ON。 カテゴリ自動生成コード撤去、
+   子会社へ展開。既存 sessions/archive カテゴリは Discord 上で内容を確認して手動整理する。
+   `/spawn` と spawn テンプレ UI は廃止せず恒久併存し、reply-spawn は撤去してスレッド内返信を
+   既存セッションへの通常 inject に統一する。
 
 ## 実装タスク分解 (Phase 1-2)
 

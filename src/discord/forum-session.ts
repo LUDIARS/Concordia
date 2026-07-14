@@ -5,13 +5,30 @@ import {
   type PublicThreadChannel,
 } from "discord.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
-import { SESSION_STATE_TAG_NAMES } from "./config.js";
+import { SESSION_STATE_TAG_NAMES, type DiscordConfigSnapshot } from "./config.js";
+
+export interface ForumSessionSurface {
+  forumId: string;
+  label: "Session" | "TaskWorkflow";
+  delegationRunId: string | null;
+}
+
+export function resolveForumSessionSurface(
+  layout: Pick<DiscordConfigSnapshot, "sessionForumId" | "taskWorkflowForumId">,
+  delegationRunId: string | null | undefined,
+): ForumSessionSurface {
+  return delegationRunId
+    ? { forumId: layout.taskWorkflowForumId, label: "TaskWorkflow", delegationRunId }
+    : { forumId: layout.sessionForumId, label: "Session", delegationRunId: null };
+}
 
 export interface ForumSessionMetadata {
   sessionId: string;
   repoPath: string;
   branch: string | null;
   statusCardChannelId?: string | null;
+  surfaceLabel?: "Session" | "TaskWorkflow";
+  delegationRunId?: string | null;
 }
 
 export interface CreateForumSessionInput extends ForumSessionMetadata {
@@ -140,10 +157,12 @@ export function buildForumStarterContent(guildId: string, input: ForumSessionMet
   const statusLink = input.statusCardChannelId
     ? `https://discord.com/channels/${guildId}/${input.statusCardChannelId}`
     : "準備中";
-  return [
-    `**Session** \`${input.sessionId}\``,
+  const lines = [
+    `**${input.surfaceLabel ?? "Session"}** \`${input.sessionId}\``,
     `**Repo** \`${repoName}\` — \`${input.repoPath}\``,
     `**Branch** \`${input.branch ?? "-"}\``,
     `**状態カード** ${statusLink}`,
-  ].join("\n");
+  ];
+  if (input.delegationRunId) lines.splice(1, 0, `**Delegation run** \`${input.delegationRunId}\``);
+  return lines.join("\n");
 }

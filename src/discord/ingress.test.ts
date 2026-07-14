@@ -1,11 +1,6 @@
 import { ChannelType, type Message } from "discord.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  buildReplySpawnChatPayload,
-  handleMessage,
-  resolveMetaKind,
-  type IngressDeps,
-} from "./ingress.js";
+import { handleMessage, resolveMetaKind, type IngressDeps } from "./ingress.js";
 import { clearInjectAcks, takeInjectAck } from "./inject-ack.js";
 
 describe("discord ingress inject acceptance reactions", () => {
@@ -59,15 +54,6 @@ describe("discord ingress inject acceptance reactions", () => {
 });
 
 describe("discord ingress chat routing", () => {
-  it("binds reply-spawn visibility posts to the source session", () => {
-    expect(buildReplySpawnChatPayload("s1", "do the work", "chan1")).toMatchObject({
-      channel: "報告",
-      session_id: "s1",
-      text: "do the work",
-      discord_channel_id: "chan1",
-    });
-  });
-
   it("recognizes the configured boyaki meta channel", () => {
     const configRepo = {
       all: vi.fn(() => ({ boyaki_channel_id: "boyaki-1" })),
@@ -89,16 +75,19 @@ describe("discord ingress chat routing", () => {
     expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledOnce();
   });
 
-  it("keeps reply-spawn frozen by default", async () => {
+  it("injects replies into the existing session", async () => {
+    const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");
     const msg = makeMessage({ reference: { messageId: "parent" } });
     await handleMessage(deps, msg);
-    expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("reply-spawn disabled"));
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][0]).toBe("http://concordia.test/v1/sessions/s1/inject");
+    expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("inject ok"));
   });
 });
 
 function stubSuccessfulFetch() {
-  const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }));
+  const fetchMock = vi.fn(async (..._args: unknown[]) => ({ ok: true, status: 200 }));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }

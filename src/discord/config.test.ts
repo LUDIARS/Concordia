@@ -6,7 +6,14 @@ import type { DiscordConfigRepo } from "../db/discord-repo.js";
 
 /** ensureDiscordLayout 用の最小 fake Guild / repo。 channels.create を記録する。 */
 function makeFakeGuild() {
-  const channels = new Map<string, { id: string; name: string; type: ChannelType; parentId: string | null }>();
+  const channels = new Map<string, {
+    id: string;
+    name: string;
+    type: ChannelType;
+    parentId: string | null;
+    availableTags?: Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>;
+    setAvailableTags?: (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => Promise<void>;
+  }>();
   let counter = 0;
   const created: Array<{ name: string; type: ChannelType }> = [];
   const guild = {
@@ -21,7 +28,22 @@ function makeFakeGuild() {
       },
       create: async ({ name, type, parent }: { name: string; type: ChannelType; parent?: string }) => {
         const id = `ch-${counter++}`;
-        const ch = { id, name, type, parentId: parent ?? null, edit: async () => {} };
+        const ch = {
+          id,
+          name,
+          type,
+          parentId: parent ?? null,
+          availableTags: [] as Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>,
+          setAvailableTags: async (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => {
+            ch.availableTags = tags.map((tag, index) => ({
+              id: tag.id ?? `${id}-tag-${index}`,
+              name: tag.name,
+              moderated: tag.moderated ?? false,
+              emoji: undefined,
+            }));
+          },
+          edit: async () => {},
+        };
         channels.set(id, ch);
         created.push({ name, type });
         return ch;
@@ -48,11 +70,16 @@ describe("ensureDiscordLayout", () => {
     expect(snap.errorChannelId).not.toBe("");
     expect(snap.errorCategoryId).not.toBe("");
     expect(Object.keys(snap.metaChannels).length).toBeGreaterThan(0);
+    expect(snap.forumMode).toBe(true);
+    expect(snap.sessionForumId).not.toBe("");
+    expect(snap.taskWorkflowForumId).not.toBe("");
 
     const names = created.map((c) => c.name);
     expect(names).toContain("pr-queue");
     expect(names).toContain("errors");
     expect(names).toContain("雑談");
+    expect(names).not.toContain("sessions");
+    expect(names).not.toContain("archive");
   });
 
   it("slim (子会社) は雑談 meta / pr-queue / errors を作らず空 id を返す", async () => {
@@ -77,5 +104,7 @@ describe("ensureDiscordLayout", () => {
     expect(names).not.toContain("雑談");
     // セッション系 (コスト / monitor) は子会社でも作る。
     expect(names).toContain("concordia-monitor");
+    expect(names).toContain("Session");
+    expect(names).toContain("TaskWorkflow");
   });
 });

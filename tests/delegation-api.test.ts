@@ -145,7 +145,7 @@ describe("GET /v1/delegation/templates runtime options", () => {
     const claude = j.templates.find((t: any) => t.call_name === "claude-job");
     expect(codex.runtime_options.map((opt: any) => opt.key)).toContain("model_reasoning_effort");
     expect(codex.default_options).toEqual({ model_reasoning_effort: "high" });
-    expect(claude.runtime_options.map((opt: any) => opt.key)).toEqual(["fast_mode", "goal_and_go"]);
+    expect(claude.runtime_options.map((opt: any) => opt.key)).toEqual(["effort", "fast_mode", "goal_and_go"]);
   });
 
   it("returns model-specific option suggestions", async () => {

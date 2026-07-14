@@ -28,6 +28,7 @@ import {
   resolveDelegationRuntimeEnv,
   resolveDelegationSpawn,
   goalAndGoRequested,
+  normalizeProviderEffort,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
@@ -35,6 +36,13 @@ import { resolveLocalModel } from "../control/famulus-select.js";
 import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { createChildLogger } from "../shared/logger.js";
+import {
+  baselineEffort,
+  classifyEffortTask,
+  supportsAutomaticEffort,
+  type EffortTaskBucket,
+} from "./effort-policy.js";
+import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
 
 const log = createChildLogger("delegation/service");
 
@@ -229,6 +237,8 @@ export interface DelegationServiceDeps {
   concordiaUrl?: string;
   /** persona 選択の rng 上書き (テスト用)。 */
   rng?: () => number;
+  /** Growth blackbox used for provider-independent effort selection. */
+  effortBlackbox?: DelegationEffortBlackbox;
 }
 
 export class DelegationService {
@@ -358,6 +368,11 @@ export class DelegationService {
       triggered_by: input.triggered_by ?? null,
       status: launch.status,
       error: launch.error_message,
+      effort_level: launch.effort_level,
+      effort_source: launch.effort_source,
+      effort_bucket: launch.effort_bucket,
+      effective_model: launch.effective_model,
+      effort_decision_id: launch.effort_decision_id,
     });
 
     return {
@@ -410,7 +425,17 @@ export class DelegationService {
       spawn_pid: launch.spawn_pid,
       spawn_command: launch.spawn_command,
       error: launch.error_message,
+      effort_level: launch.effort_level,
+      effort_source: launch.effort_source,
+      effort_bucket: launch.effort_bucket,
+      effective_model: launch.effective_model,
+      effort_decision_id: launch.effort_decision_id,
     });
+  }
+
+  recordEffortOutcome(run: DelegationRunRow, status: "completed" | "failed"): void {
+    if (!this.deps.effortBlackbox || run.effort_decision_id == null) return;
+    this.deps.effortBlackbox.recordOutcome(run.effort_decision_id, status);
   }
 
   /**
@@ -464,12 +489,57 @@ export class DelegationService {
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
+    const templateOptions = parseRuntimeOptions(def.runtime_options_json);
+    const oneShotOptions = input.options ?? {};
+    const requestedEffort = findRequestedEffort(provider, templateOptions, oneShotOptions, input.overrides);
+    let effortLevel: string | null = null;
+    let effortSource: string | null = null;
+    let effortBucket: EffortTaskBucket | null = null;
+    let effortDecisionId: number | null = null;
+    let effortConfidence: number | null = null;
+    if (supportsAutomaticEffort(provider)) {
+      effortBucket = classifyEffortTask(renderedPrompt);
+      if (requestedEffort && !isAutoEffort(requestedEffort.value)) {
+        const normalized = normalizeProviderEffort(provider, requestedEffort.value);
+        if (!normalized) {
+          return { ok: false, error: `invalid ${provider} effort: ${String(requestedEffort.value)}` };
+        }
+        effortLevel = normalized;
+        effortSource = requestedEffort.source;
+      } else {
+        const decision = this.deps.effortBlackbox && shouldSpawn
+          ? await this.deps.effortBlackbox.decide({
+              provider,
+              model: spawn.effectiveModel,
+              prompt: renderedPrompt,
+              callName: def.call_name,
+              project: def.project ?? null,
+            })
+          : {
+              level: baselineEffort(effortBucket),
+              bucket: effortBucket,
+              source: "auto-baseline" as const,
+              decision_id: null,
+              confidence: null,
+            };
+        effortLevel = decision.level;
+        effortSource = decision.source;
+        effortDecisionId = decision.decision_id;
+        effortConfidence = decision.confidence;
+      }
+    }
+    const effortOptions = effortLevel
+      ? provider === "codex"
+        ? { model_reasoning_effort: effortLevel }
+        : { effort: effortLevel }
+      : {};
     const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(
       provider,
       {
-        ...parseRuntimeOptions(def.runtime_options_json),
-        ...(input.options ?? {}),
+        ...templateOptions,
+        ...oneShotOptions,
         ...(input.overrides?.reasoning_effort ? { reasoning_effort: input.overrides.reasoning_effort } : {}),
+        ...effortOptions,
       },
     );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveOptions);
@@ -487,6 +557,11 @@ export class DelegationService {
       template_default_cwd: def.default_cwd ?? null,
       triggered_by: input.triggered_by ?? null,
       option_keys: Object.keys(effectiveOptions),
+      effort_level: effortLevel,
+      effort_source: effortSource,
+      effort_bucket: effortBucket,
+      effort_decision_id: effortDecisionId,
+      effort_confidence: effortConfidence,
     }, "delegation invoke received");
 
     // 1) write prompt to file (run id は invoke 側で確保済み = file 名 == 行 id)
@@ -590,6 +665,11 @@ export class DelegationService {
       branch: spawnBranch,
       worktree_path: spawnWorktreePath,
       worktree_created: spawnWorktreeCreated,
+      effort_level: effortLevel,
+      effort_source: effortSource,
+      effort_bucket: effortBucket,
+      effective_model: spawn.effectiveModel,
+      effort_decision_id: effortDecisionId,
     };
   }
 }
@@ -607,8 +687,40 @@ type LaunchResult =
       branch: string | null;
       worktree_path: string | null;
       worktree_created: boolean;
+      effort_level: string | null;
+      effort_source: string | null;
+      effort_bucket: EffortTaskBucket | null;
+      effective_model: string | null;
+      effort_decision_id: number | null;
     }
   | { ok: false; error: string };
+
+type ExplicitEffortSource = "override" | "one-shot" | "template";
+
+function findRequestedEffort(
+  provider: DelegationProvider,
+  templateOptions: DelegationRuntimeOptions,
+  oneShotOptions: DelegationRuntimeOptions,
+  overrides: InvokeInput["overrides"],
+): { value: unknown; source: ExplicitEffortSource } | null {
+  if (overrides?.reasoning_effort !== undefined) {
+    return { value: overrides.reasoning_effort, source: "override" };
+  }
+  const keys = provider === "codex"
+    ? ["model_reasoning_effort", "reasoning_effort", "effort"]
+    : ["effort", "reasoning_effort"];
+  for (const key of keys) {
+    if (oneShotOptions[key] !== undefined) return { value: oneShotOptions[key], source: "one-shot" };
+  }
+  for (const key of keys) {
+    if (templateOptions[key] !== undefined) return { value: templateOptions[key], source: "template" };
+  }
+  return null;
+}
+
+function isAutoEffort(value: unknown): boolean {
+  return typeof value === "string" && value.trim().toLowerCase() === "auto";
+}
 
 function renderPromptFile(
   def: DelegationDefinition,

@@ -29,6 +29,7 @@ import {
 } from "../db/discord-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { DelegationService } from "../delegation/service.js";
+import { DelegationEffortBlackbox } from "../delegation/effort-blackbox.js";
 import { DelegationQueue } from "../delegation/queue.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "../discord/config.js";
 import { seedDelegationTemplates } from "../delegation/seed.js";
@@ -408,6 +409,7 @@ export async function startBackend(): Promise<BackendHandle> {
     repo: delegationRepo,
     personas,
     concordiaUrl: publicUrlForDelegation,
+    effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
   });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {

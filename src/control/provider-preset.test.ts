@@ -63,12 +63,13 @@ describe("resolveDelegationSpawn", () => {
 });
 
 describe("delegation runtime options", () => {
-  it("suggests reasoning effort only for Codex", () => {
+  it("suggests automatic effort for Codex and Claude", () => {
     expect(delegationOptionSuggestions("codex").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex")[0]?.choices?.map((choice) => choice.value)).toContain("xhigh");
     expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo").map((s) => s.key)).toEqual(["goal_and_go"]);
-    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["fast_mode", "goal_and_go"]);
+    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["effort", "fast_mode", "goal_and_go"]);
+    expect(delegationOptionSuggestions("claude")[0]?.choices?.map((choice) => choice.value)).toContain("auto");
   });
 
   it("suggests ultra reasoning effort only for the Sol model", () => {
@@ -110,6 +111,11 @@ describe("delegation runtime options", () => {
       "-c",
       'model_reasoning_effort="high"',
     ]);
+  });
+
+  it("passes Claude effort as one-shot CLI args", () => {
+    expect(resolveDelegationRuntimeArgs("claude", { effort: "high" })).toEqual(["--effort", "high"]);
+    expect(resolveDelegationRuntimeArgs("claude", { effort: "auto" })).toEqual([]);
   });
 
   it("passes extra Codex config options and ignores unsupported providers", () => {

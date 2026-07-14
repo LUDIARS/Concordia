@@ -8,6 +8,8 @@ import { SessionsRepo } from "./db/sessions-repo.js";
 import { PersonasRepo } from "./db/personas-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
+import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
+import { runClaude } from "./rules/claude-runner.js";
 import { DelegationQueue } from "./delegation/queue.js";
 import { AdminState } from "./admin/state.js";
 import { makeDiscordConfigRepo } from "./db/discord-repo.js";
@@ -57,7 +59,12 @@ async function main(): Promise<void> {
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
 
   const concordiaUrl = `http://${cfg.host}:${cfg.port}`;
-  const service = new DelegationService({ repo: delegationRepo, personas, concordiaUrl });
+  const service = new DelegationService({
+    repo: delegationRepo,
+    personas,
+    concordiaUrl,
+    effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+  });
   const queue = new DelegationQueue({
     repo: delegationRepo,
     sessions,

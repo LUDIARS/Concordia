@@ -13,6 +13,7 @@ import {
   validateArgs,
   type DelegationDefinition,
 } from "./service.js";
+import { DelegationEffortBlackbox } from "./effort-blackbox.js";
 
 describe("renderTemplate", () => {
   it("substitutes ${var}", async () => {
@@ -243,7 +244,7 @@ describe("DelegationService.invoke", () => {
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[]; provider: string };
     expect(req.provider).toBe("codex");
-    expect(req.args).toEqual(["--model", "gpt-5.5", "-c", 'model_reasoning_effort="xhigh"']);
+    expect(req.args).toEqual(["--model", "gpt-5.5", "-c", 'model_reasoning_effort="low"']);
   });
 
   it("passes one-shot Codex runtime options to spawn args", async () => {
@@ -256,6 +257,19 @@ describe("DelegationService.invoke", () => {
     const req = spawnCalls[0] as { args?: string[]; provider: string };
     expect(req.provider).toBe("codex");
     expect(req.args).toEqual(["-c", 'model_reasoning_effort="high"']);
+    if (!r.ok) return;
+    expect(r.run.effort_level).toBe("high");
+    expect(r.run.effort_source).toBe("one-shot");
+  });
+
+  it("rejects an invalid explicit effort instead of silently defaulting", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      options: { model_reasoning_effort: "impossible" },
+    });
+    expect(r).toMatchObject({ ok: false, error: "invalid codex effort: impossible" });
+    expect(spawnCalls).toEqual([]);
   });
 
   it("uses template default runtime options and lets invoke override them", async () => {
@@ -297,8 +311,10 @@ describe("DelegationService.invoke", () => {
     if (!r.ok) return;
     const req = spawnCalls[0] as { provider: string; args?: string[] };
     expect(req.provider).toBe("claude");
-    expect(req.args).toEqual(["--model", "claude-sonnet-5"]);
+    expect(req.args).toEqual(["--model", "claude-sonnet-5", "--effort", "high"]);
     expect(r.run.target_provider).toBe("claude");
+    expect(r.run.effort_level).toBe("high");
+    expect(r.run.effort_source).toBe("override");
     expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex");
   });
 
@@ -317,11 +333,37 @@ describe("DelegationService.invoke", () => {
     expect(req.env?.CONCORDIA_PARENT_SESSION_ID).toBe("parent-1");
   });
 
-  it("defaults Codex reasoning effort even when template has no model", async () => {
+  it("automatically selects and records Codex effort when unspecified", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[] };
-    expect(req.args).toEqual(["-c", 'model_reasoning_effort="xhigh"']);
+    expect(req.args).toEqual(["-c", 'model_reasoning_effort="low"']);
+    if (!r.ok) return;
+    expect(r.run.effort_level).toBe("low");
+    expect(r.run.effort_source).toBe("auto-baseline");
+    expect(r.run.effort_bucket).toBe("routine");
+  });
+
+  it("uses the growth blackbox when configured", async () => {
+    const blackboxService = new DelegationService({
+      repo,
+      promptsDir,
+      effortBlackbox: new DelegationEffortBlackbox(db, async () => ({
+        ok: true,
+        stdout: '{"effort":"high","confidence":0.9,"rationale":"uncertain task"}',
+        stderr: "",
+      })),
+      spawn: (req) => {
+        spawnCalls.push(req);
+        return { ok: true, pid: 3, command: ["stub", req.provider] };
+      },
+    });
+    const r = await blackboxService.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r.ok) throw new Error("expected ok");
+    expect((spawnCalls[0] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="high"']);
+    expect(r.run.effort_source).toBe("blackbox-llm");
+    expect(r.run.effort_decision_id).toEqual(expect.any(Number));
+    blackboxService.recordEffortOutcome(r.run, "completed");
   });
 
   it("injects Concordia context block even without personas", async () => {

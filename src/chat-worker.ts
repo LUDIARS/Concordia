@@ -18,6 +18,7 @@ import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { PrRecordsRepo } from "./db/pr-records-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
+import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { SubsidiaryRepo } from "./db/subsidiary-repo.js";
 import { HarnessRulesRepo } from "./db/harness-rules-repo.js";
 import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
@@ -187,7 +188,12 @@ async function main(): Promise<void> {
   const delegationRepo = new DelegationRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
-  const delegationService = new DelegationService({ repo: delegationRepo, personas, concordiaUrl });
+  const delegationService = new DelegationService({
+    repo: delegationRepo,
+    personas,
+    concordiaUrl,
+    effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+  });
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: sessions });
   const readModel = makeChatReadModel({
     chatRepo: chat,

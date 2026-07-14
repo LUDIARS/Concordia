@@ -199,4 +199,22 @@ describe("DelegationRepo / runs", () => {
     expect(runs.length).toBe(2);
     expect(runs[0]?.call_name).toBe("b");
   });
+
+  it("records terminal effort outcomes for later policy decisions", () => {
+    const run = repo.createRun({
+      template_id: null, call_name: "learn", target_provider: "claude",
+      args: {}, rendered_prompt: "implement api", prompt_file_path: "/learn",
+      spawn_pid: 1, spawn_command: ["claude"], triggered_by: null, status: "spawned",
+      effort_level: "medium", effort_source: "auto-baseline", effort_bucket: "implementation",
+      effective_model: "sonnet",
+    });
+    const completed = repo.updateRunStatus(run.id, "completed");
+    expect(completed?.finished_at).toEqual(expect.any(Number));
+    expect(completed).toMatchObject({
+      effort_level: "medium",
+      effort_source: "auto-baseline",
+      effort_bucket: "implementation",
+      effective_model: "sonnet",
+    });
+  });
 });

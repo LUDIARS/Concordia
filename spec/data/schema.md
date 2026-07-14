@@ -97,7 +97,7 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `delegation_templates` | 委託テンプレ | id PK / call_name UNIQUE / target_provider / prompt_template / input_schema / default_cwd |
-| `delegation_runs` | 委託実行履歴 | id PK / template_id / call_name / target_provider / args_json / rendered_prompt / prompt_file_path / spawn_pid / status |
+| `delegation_runs` | 委託実行履歴 | id PK / template_id / call_name / target_provider / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / finished_at |
 
 > マイグレーションは `CREATE TABLE IF NOT EXISTS` + 冪等 ALTER（PRAGMA table_info で
 > 存在チェックしてから column 追加）。詳細は schema.ts 後半。

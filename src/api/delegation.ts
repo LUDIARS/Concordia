@@ -505,6 +505,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       status,
       status === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
     )!;
+    if ((status === "completed" || status === "failed") && row.status !== "completed" && row.status !== "failed") {
+      deps.service.recordEffortOutcome(updated, status);
+    }
     if ((status === "completed" || status === "failed") && updated.parent_session_id) {
       const text = buildDelegationStatusNotification(updated, parsed.data);
       deps.sessions?.appendEvent({

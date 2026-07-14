@@ -428,6 +428,12 @@ const STATEMENTS = [
     triggered_by        TEXT,
     status              TEXT    NOT NULL,
     error               TEXT,
+    effort_level        TEXT,
+    effort_source       TEXT,
+    effort_bucket       TEXT,
+    effective_model     TEXT,
+    effort_decision_id  INTEGER,
+    finished_at         INTEGER,
     created_at          INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_created
@@ -992,6 +998,12 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "queue_payload_json",
     ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_payload_json TEXT`,
   },
+  { table: "delegation_runs", column: "effort_level", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_level TEXT` },
+  { table: "delegation_runs", column: "effort_source", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_source TEXT` },
+  { table: "delegation_runs", column: "effort_bucket", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_bucket TEXT` },
+  { table: "delegation_runs", column: "effective_model", ddl: `ALTER TABLE delegation_runs ADD COLUMN effective_model TEXT` },
+  { table: "delegation_runs", column: "effort_decision_id", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_decision_id INTEGER` },
+  { table: "delegation_runs", column: "finished_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN finished_at INTEGER` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {
@@ -1059,6 +1071,8 @@ const DELEGATION_COORDINATION_INDEXES: string[] = [
      ON delegation_runs(parent_session_id, created_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_child_session
      ON delegation_runs(child_session_id)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_effort_history
+     ON delegation_runs(target_provider, effective_model, effort_bucket, status, created_at DESC)`,
 ];
 
 export function applyMigrations(db: Database.Database): void {

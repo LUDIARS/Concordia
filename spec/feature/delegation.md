@@ -65,8 +65,11 @@ delegation_runs
   spawn_pid (INTEGER NULL — spawn 失敗時 NULL)
   spawn_command (TEXT, JSON 配列)
   triggered_by (TEXT, free-form caller identifier)
-  status ("pending" | "spawned" | "spawn_failed")
+  status ("pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed")
   error (TEXT NULL)
+  effort_level, effort_source, effort_bucket, effective_model
+  effort_decision_id (INTEGER NULL, `@ludiars/blackbox` decision ledger id)
+  finished_at (epoch ms NULL)
   created_at
 ```
 
@@ -108,6 +111,25 @@ delegation を「どう起動されるか」で 3 分類する。 単一情報�
    - (Lictor 側の自動 inject は v0.2 — 今は呼び出し元が出力された path を見て手動 paste)
 5. delegation_runs に upsert
 6. response: `{ run_id, rendered_prompt, prompt_file_path, spawn_pid, spawn_command }`
+
+### 4.1 reasoning effort の成長型自動選択
+
+Codex / Claude の delegation は、effort の明示指定がない場合に domain
+`concordia.delegation.effort` の `@ludiars/blackbox` で起動前に1回だけ判定する。
+
+優先順位は `overrides.reasoning_effort` → invoke の `options` → template の
+`runtime_options` → blackbox 自動選択。明示値は学習判定を迂回する。自動値は provider
+共通の `low | medium | high | xhigh` で、Codex は
+`-c model_reasoning_effort=<value>`、Claude は `--effort <value>` へ変換する。
+
+live rule がない間は Haiku の one-shot 判定を教師に candidate rule を蓄積し、同じ
+provider / effective model / call name / project / task bucket の判断が安定すると trial / auto rule へ昇格する。
+run の `completed` は decision verdict `ok`、`failed` は `ng` として返し、誤った rule は
+自己修復させる。LLM 判定が失敗した場合だけ task bucket ごとの決定的 fallback
+（routine=low / implementation=medium / complex=xhigh）を使い、その回から rule は提案しない。
+
+各 run には選択値・由来（`blackbox-rule` / `blackbox-llm` / `blackbox-fallback` または
+明示指定元）・bucket・decision id を焼き込み、API から監査可能にする。
 
 呼び出し側 (Claude / MCP / CLI) は spawn 後の Codex 端末に prompt を渡す責任を持つ
 (v0.1 は手動。 ユーザが新規 tab で `cat <prompt_file_path>` などして貼る運用)。

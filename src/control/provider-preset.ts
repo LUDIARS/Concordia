@@ -73,12 +73,14 @@ export type DelegationRuntimeOptions = Record<string, unknown>;
 export const CODEX_DEFAULT_REASONING_EFFORT = "xhigh";
 
 const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "ultra"]);
+const CLAUDE_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
 const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
   const suggestions: DelegationOptionSuggestion[] = [];
   if (provider === "codex" && supportsCodexReasoningEffort(model)) {
     const choices: DelegationOptionChoice[] = [
+      { label: "auto (learned)", value: "auto" },
       { label: "minimal", value: "minimal" },
       { label: "low", value: "low" },
       { label: "medium", value: "medium" },
@@ -97,6 +99,20 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
     });
   }
   if (provider === "claude") {
+    suggestions.push({
+      key: "effort",
+      label: "Effort",
+      type: "select",
+      description: "Claude Code effort. Auto learns from prior delegation outcomes.",
+      choices: [
+        { label: "auto (learned)", value: "auto" },
+        { label: "low", value: "low" },
+        { label: "medium", value: "medium" },
+        { label: "high", value: "high" },
+        { label: "xhigh", value: "xhigh" },
+        { label: "max", value: "max" },
+      ],
+    });
     suggestions.push({
       key: "fast_mode",
       label: "Fast mode",
@@ -154,10 +170,18 @@ export function resolveDelegationRuntimeArgs(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
 ): string[] {
+  if (provider === "claude") {
+    const o = isPlainRecord(options) ? options : {};
+    const effort = normalizeProviderEffort(provider, o.effort ?? o.reasoning_effort);
+    return effort ? ["--effort", effort] : [];
+  }
   if (provider !== "codex") return [];
   const args: string[] = [];
   const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(provider, options);
-  const effort = normalizeReasoningEffort(effectiveOptions.model_reasoning_effort ?? effectiveOptions.reasoning_effort);
+  const effort = normalizeProviderEffort(
+    provider,
+    effectiveOptions.model_reasoning_effort ?? effectiveOptions.reasoning_effort,
+  );
   if (effort) {
     args.push("-c", `model_reasoning_effort=${tomlScalar(effort)}`);
   }
@@ -192,6 +216,15 @@ function normalizeReasoningEffort(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
+}
+
+export function normalizeProviderEffort(provider: string, value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "auto") return null;
+  if (provider === "codex") return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
+  if (provider === "claude") return CLAUDE_REASONING_EFFORTS.has(normalized) ? normalized : null;
+  return null;
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

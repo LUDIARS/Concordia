@@ -242,8 +242,10 @@ delegation run は §5 の status API が正なので、 本節は **status を�
 - **既存で充足**: 役割別テンプレ (調査=Sonnet / 実装=Codex / 高度=Fable)、
   invoke `overrides.reasoning_effort` (codex `-c model_reasoning_effort=` 透過)、
   local レーンの `famulus select` (model="auto" 黒箱選択)。
-- **差分 (Phase 4)**: `famulus select` にタスク難易度からの effort 出力を追加し
-  (Famulus 側改修)、 Cc は `resolveDelegationSpawn` へ透過する。 実装テンプレの既定を auto に寄せる。
+- **実装済み**: Codex / Claude の effort は Famulus を経由せず、Cc の成長型 blackbox
+  domain `concordia.delegation.effort` がタスク prompt ごとに判定する。未学習時は Haiku
+  one-shot、学習後は昇格 rule で即決し、delegation の completed / failed を verdict として
+  自己修復する。明示 `overrides.reasoning_effort` / options / template 設定は常に優先する。
 
 ## 10. メンション方針
 
@@ -285,7 +287,7 @@ pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_st
 | 1 | ハーネス隔離: 述語 2 種 (§4.1) + 強推論ゲート (§8) + persona-context 追記 (§3.3) + invoke `memory_links` (§3.2) | Cc 1 PR + AIFormat 1 PR (HARNESS.md §4.2) |
 | 2 | タスク md 基盤: md-store / reconciler / TaskBackend(Memoria) / 分解 inject / メンション経路 / harness_rules seed 追記 (§2, §4.2, §10) | Cc 1 PR |
 | 3 | 黒箱 + キュー接続: completion / residual domain + ゴール機械判断 + confirm 事前通知 + goal-and-go 接続 (§5-§7) | Cc 1 PR |
-| 4 | Actio adapter + famulus effort 出力 (§2.2, §9) | 別途 (Actio/Famulus 側と協調) |
+| 4 | Actio adapter (§2.2)。effort blackbox (§9) は Cc 側で実装済み | Actio は別途 / effort は Cc 1 PR |
 
 ## 14. 受け入れ基準
 

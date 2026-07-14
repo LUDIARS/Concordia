@@ -57,7 +57,7 @@ describe("admin API", () => {
     });
   });
 
-  it("POST /v1/admin/spawn-session defaults Codex template spawn to xhigh", async () => {
+  it("POST /v1/admin/spawn-session automatically selects Codex effort", async () => {
     const spawnCalls: Array<{ provider: string; args?: string[] }> = [];
     env = makeTestApp({
       delegationSpawn: (req) => {
@@ -87,7 +87,7 @@ describe("admin API", () => {
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toEqual({
       provider: "codex",
-      args: ["-c", 'model_reasoning_effort="xhigh"'],
+      args: ["-c", 'model_reasoning_effort="low"'],
     });
   });
 

@@ -78,6 +78,12 @@ export interface DelegationRunRow {
   error: string | null;
   /** queued の間だけ入る起動入力 (JSON)。 spawn 後は null に落とす。 */
   queue_payload_json: string | null;
+  effort_level?: string | null;
+  effort_source?: string | null;
+  effort_bucket?: string | null;
+  effective_model?: string | null;
+  effort_decision_id?: number | null;
+  finished_at?: number | null;
   created_at: number;
 }
 
@@ -147,6 +153,12 @@ export interface CreateRunInput {
   error?: string | null;
   /** status='queued' で作るときの起動入力 (JSON)。 */
   queue_payload_json?: string | null;
+  effort_level?: string | null;
+  effort_source?: string | null;
+  effort_bucket?: string | null;
+  effective_model?: string | null;
+  effort_decision_id?: number | null;
+  finished_at?: number | null;
 }
 
 /** spawn 試行後に run へ焼き戻す結果 (キュー払い出し時も同じ形)。 */
@@ -155,6 +167,11 @@ export interface RunSpawnOutcome {
   spawn_pid: number | null;
   spawn_command: string[] | null;
   error?: string | null;
+  effort_level?: string | null;
+  effort_source?: string | null;
+  effort_bucket?: string | null;
+  effective_model?: string | null;
+  effort_decision_id?: number | null;
 }
 
 export class DelegationRepo {
@@ -301,8 +318,9 @@ export class DelegationRepo {
       INSERT INTO delegation_runs(
         id, template_id, call_name, target_provider, parent_session_id, child_session_id, args_json,
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
-        triggered_by, status, error, queue_payload_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        triggered_by, status, error, queue_payload_json, effort_level, effort_source,
+        effort_bucket, effective_model, effort_decision_id, finished_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -319,6 +337,12 @@ export class DelegationRepo {
       input.status,
       input.error ?? null,
       input.queue_payload_json ?? null,
+      input.effort_level ?? null,
+      input.effort_source ?? null,
+      input.effort_bucket ?? null,
+      input.effective_model ?? null,
+      input.effort_decision_id ?? null,
+      input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
       now,
     );
     return this.findRun(id)!;
@@ -357,6 +381,12 @@ export class DelegationRepo {
              spawn_pid = ?,
              spawn_command = ?,
              error = ?,
+             effort_level = COALESCE(?, effort_level),
+             effort_source = COALESCE(?, effort_source),
+             effort_bucket = COALESCE(?, effort_bucket),
+             effective_model = COALESCE(?, effective_model),
+             effort_decision_id = COALESCE(?, effort_decision_id),
+             finished_at = CASE WHEN ? IN ('spawn_failed', 'completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
              queue_payload_json = NULL
        WHERE id = ?
     `).run(
@@ -364,6 +394,13 @@ export class DelegationRepo {
       outcome.spawn_pid,
       outcome.spawn_command ? JSON.stringify(outcome.spawn_command) : null,
       outcome.error ?? null,
+      outcome.effort_level ?? null,
+      outcome.effort_source ?? null,
+      outcome.effort_bucket ?? null,
+      outcome.effective_model ?? null,
+      outcome.effort_decision_id ?? null,
+      outcome.status,
+      Date.now(),
       runId,
     );
     return this.findRun(runId);
@@ -422,11 +459,16 @@ export class DelegationRepo {
     this.db.prepare(`
       UPDATE delegation_runs
          SET status = ?,
-             error = ?
+             error = ?,
+             finished_at = CASE WHEN ? IN ('completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END
        WHERE id = ?
-    `).run(status, error !== undefined ? error : row.error, runId);
+    `).run(status, error !== undefined ? error : row.error, status, Date.now(), runId);
     return this.findRun(runId);
   }
+}
+
+function isTerminalStatus(status: DelegationRunRow["status"]): boolean {
+  return status === "spawn_failed" || status === "completed" || status === "failed";
 }
 
 export function parseInputSchema(json: string): InputSchemaItem[] {

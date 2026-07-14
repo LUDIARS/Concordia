@@ -37,8 +37,9 @@ describe("discord_session_channels repo", () => {
 
   it("upsert + find by session/channel + setStatus", () => {
     const repo = makeDiscordSessionChannelsRepo(db);
-    repo.upsert({ session_id: "s1", channel_id: "c1" });
+    repo.upsert({ session_id: "s1", channel_id: "c1", surface_message_id: "m1" });
     expect(repo.findBySessionId("s1")?.channel_id).toBe("c1");
+    expect(repo.findBySessionId("s1")?.surface_message_id).toBe("m1");
     expect(repo.findByChannelId("c1")?.session_id).toBe("s1");
     repo.setStatus("s1", "lost");
     expect(repo.findBySessionId("s1")?.status).toBe("lost");

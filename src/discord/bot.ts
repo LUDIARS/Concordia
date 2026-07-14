@@ -2,6 +2,7 @@ import { ChannelType, Client, Events, GatewayIntentBits, Partials, type Guild } 
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import { DelegationRepo } from "../db/delegation-repo.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import {
@@ -44,6 +45,7 @@ import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands } from "./commands.js";
 import { describeInteractionForLog, interactionAgeMs } from "./interaction-diagnostics.js";
 import {
+  delegationTemplateCache,
   invalidateAndRefreshDelegationTemplateCache,
   prewarmDelegationTemplateCache,
 } from "./delegation-template-cache.js";
@@ -57,7 +59,17 @@ import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
 import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentation.js";
 import { startInteractionAckProbe } from "./interaction-ack.js";
-import { createForumProjectCodeResolver } from "./forum-project-code.js";
+import { createForumProjectResolver } from "./forum-project-code.js";
+import {
+  handleForumSpawnThread,
+  parseForumSpawnTrigger,
+  type ForumSpawnThread,
+} from "./forum-spawn.js";
+import {
+  fetchForumSessionThread,
+  postForumSessionMetadata,
+  updateForumSessionState,
+} from "./forum-session.js";
 
 // pino 経由で logs/concordia.log にも残る. egress / session-channel に渡す
 // deps.log もこの object 経由になるので、 過剰ログを仕込んだ場所の出力が
@@ -202,9 +214,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   const workspaceRoots = deps.resolveWorkspaceRoots?.()
     ?? [deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd()];
-  const resolveProjectCode = layoutOpts.forumMode === true
-    ? createForumProjectCodeResolver(workspaceRoots, log)
-    : (_repoPath: string) => "";
+  const projectResolver = createForumProjectResolver(workspaceRoots, log);
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
   let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;
@@ -227,6 +237,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
+  const delegationRepo = new DelegationRepo(deps.db);
   // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
   // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
   const ownsSession = (sessionId: string): boolean => {
@@ -667,6 +678,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     });
   }));
 
+  client.on(Events.ThreadCreate, instrumentDiscord("threadCreate", (thread, newlyCreated) => {
+    if (gatewayClosed || stopping || !newlyCreated || !layout?.forumMode) return;
+    if (!inScope(thread.guildId)) return;
+    void handleForumSpawnThread({
+      sessionForumId: layout.sessionForumId,
+      botUserId: client.user?.id ?? "",
+      concordiaUrl: deps.concordiaUrl,
+      templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
+      resolveProjectTarget: projectResolver.targetFromPost,
+      hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
+      log,
+    }, thread as unknown as ForumSpawnThread).catch((error) => {
+      log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
+    });
+  }));
+
   client.on(Events.MessageReactionAdd, instrumentDiscord("reactionAddEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
@@ -779,7 +806,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.started") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       const sessionId = ev.session_id;
-      if (state?.delegationRunId) {
+      const delegationRun = state?.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
+      const forumSpawn = parseForumSpawnTrigger(delegationRun?.triggered_by);
+      if (state?.delegationRunId && (!forumSpawn || forumSpawn.guildId !== guild.id)) {
         log.info(
           `session.started delegation child: skip Discord session surface session=${sessionId} ` +
           `run=${state.delegationRunId} parent=${state.delegationParentSessionId ?? "null"}`,
@@ -788,20 +817,52 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }
       void (async () => {
         try {
-          await onSessionRegistered(
-            { guild, layout, repo: sessionChannelsRepo, log, webhooks },
-            {
-              sessionId,
-              agentType: ev.provider ?? null,
-              delegationEmoji: state?.delegationEmoji ?? null,
-              roleLabel: state?.roleLabel ?? null,
-              personaDisplayName: state?.personaDisplayName ?? null,
-              repoPath: state?.repoPath ?? ev.repo_path,
-              branch: state?.branch ?? ev.branch,
-              currentTask: state?.currentTask ?? null,
-              projectCode: resolveProjectCode(state?.repoPath ?? ev.repo_path),
-            },
-          );
+          const repoPath = state?.repoPath ?? ev.repo_path;
+          const branch = state?.branch ?? ev.branch;
+          if (forumSpawn) {
+            const existing = sessionChannelsRepo.findBySessionId(sessionId);
+            if (!existing) {
+              const thread = await fetchForumSessionThread(guild, forumSpawn.threadId);
+              if (!thread || thread.parentId !== layout.sessionForumId) {
+                throw new Error(`spawn source thread is unavailable: ${forumSpawn.threadId}`);
+              }
+              const surfaceMessageId = await postForumSessionMetadata(guild, thread, {
+                sessionId,
+                repoPath,
+                branch,
+              });
+              sessionChannelsRepo.upsert({
+                session_id: sessionId,
+                channel_id: thread.id,
+                channel_kind: "thread",
+                status: "active",
+                display_state: "active",
+                agent_type: ev.provider ?? null,
+                name_body: state?.currentTask ?? state?.roleLabel ?? "session",
+                delegation_emoji: state?.delegationEmoji ?? null,
+                surface_message_id: surfaceMessageId,
+              });
+              await updateForumSessionState(thread, "active");
+              log.info(`forum-spawn bound session=${sessionId} thread=${thread.id} run=${state?.delegationRunId}`);
+            } else {
+              log.info(`forum-spawn session already bound session=${sessionId} thread=${existing.channel_id}`);
+            }
+          } else {
+            await onSessionRegistered(
+              { guild, layout, repo: sessionChannelsRepo, log, webhooks },
+              {
+                sessionId,
+                agentType: ev.provider ?? null,
+                delegationEmoji: state?.delegationEmoji ?? null,
+                roleLabel: state?.roleLabel ?? null,
+                personaDisplayName: state?.personaDisplayName ?? null,
+                repoPath,
+                branch,
+                currentTask: state?.currentTask ?? null,
+                projectCode: projectResolver.codeForRepo(repoPath),
+              },
+            );
+          }
           // channel 作成前に届いて「永続化のみ」になった frame を埋め戻す。
           // watermark (maxId) は channel 行作成後に取る — これ以降の frame は
           // relay gate を通ってライブ配信されるので replay 対象から外れる。
@@ -830,8 +891,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 { guild, layout, repo: sessionChannelsRepo, log },
                 {
                   sessionId,
-                  repoPath: state?.repoPath ?? ev.repo_path,
-                  branch: state?.branch ?? ev.branch,
+                  repoPath,
+                  branch,
                   statusCardChannelId: statusChannelId,
                 },
               ).catch((e: unknown) => log.warn(`session-forum: starter update failed ${sessionId}: ${(e as Error).message}`));
@@ -1006,7 +1067,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             title: titleEvent.title,
             agentType: titleEvent.provider,
             forceRename,
-            projectCode: resolveProjectCode(deps.readModel.getSessionRelayState(ev.session_id)?.repoPath ?? ""),
+            projectCode: projectResolver.codeForRepo(deps.readModel.getSessionRelayState(ev.session_id)?.repoPath ?? ""),
           },
         );
       }
@@ -1089,7 +1150,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           repoPath: state?.repoPath ?? null,
           branch: state?.branch ?? null,
           currentTask: state?.currentTask ?? null,
-          projectCode: state?.repoPath ? resolveProjectCode(state.repoPath) : null,
+          projectCode: state?.repoPath ? projectResolver.codeForRepo(state.repoPath) : null,
         },
       );
       await upsertSessionStatusCard({

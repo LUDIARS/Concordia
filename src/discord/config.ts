@@ -2,6 +2,7 @@ import type { ForumChannel, Guild, GuildForumTagData } from "discord.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
+import { SESSION_WORK_TAG_NAMES } from "./forum-template-tags.js";
 
 export interface DiscordConfigSnapshot {
   guildId: string;
@@ -98,7 +99,13 @@ export async function ensureDiscordLayout(
     ? findExistingCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive)
     : await ensureCategory(guild, repo, ARCHIVE_CATEGORY_KEY, CATEGORY_NAMES.archive);
   const sessionForumId = forumMode
-    ? await ensureForum(guild, repo, SESSION_FORUM_KEY, FORUM_NAMES.session, Object.values(SESSION_STATE_TAG_NAMES))
+    ? await ensureForum(
+        guild,
+        repo,
+        SESSION_FORUM_KEY,
+        FORUM_NAMES.session,
+        [...SESSION_WORK_TAG_NAMES, ...Object.values(SESSION_STATE_TAG_NAMES)],
+      )
     : "";
   const taskWorkflowForumId = forumMode
     ? await ensureForum(guild, repo, TASK_WORKFLOW_FORUM_KEY, FORUM_NAMES.taskWorkflow)

@@ -87,6 +87,7 @@ export interface DiscordSessionChannelRow {
   agent_type: string | null;
   name_body: string | null;
   delegation_emoji: string | null;
+  surface_message_id: string | null;
   last_rename_ts: number;
   scope: string;
   /** 1 = /ch_name で名前を固定 (title_renamed による name_body 上書きを抑止)。 */
@@ -108,6 +109,7 @@ export interface DiscordSessionChannelsRepo {
     agent_type?: string | null;
     name_body?: string | null;
     delegation_emoji?: string | null;
+    surface_message_id?: string | null;
   }): void;
   setWebhook(sessionId: string, webhookId: string, webhookToken: string): void;
   /** session 行の webhook_id / webhook_token を NULL に戻す (webhook 削除時)。 */
@@ -167,8 +169,8 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
       db.prepare(
         `INSERT INTO discord_session_channels
            (session_id, channel_id, channel_kind, webhook_id, webhook_token, status,
-            display_state, agent_type, name_body, delegation_emoji, last_rename_ts, scope, ts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+             display_state, agent_type, name_body, delegation_emoji, surface_message_id, last_rename_ts, scope, ts)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
          ON CONFLICT(session_id) DO UPDATE SET
            webhook_id       = COALESCE(excluded.webhook_id,       discord_session_channels.webhook_id),
            webhook_token    = COALESCE(excluded.webhook_token,    discord_session_channels.webhook_token),
@@ -177,6 +179,7 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
            agent_type       = COALESCE(excluded.agent_type,       discord_session_channels.agent_type),
            name_body        = COALESCE(excluded.name_body,        discord_session_channels.name_body),
            delegation_emoji = COALESCE(excluded.delegation_emoji, discord_session_channels.delegation_emoji),
+           surface_message_id = COALESCE(excluded.surface_message_id, discord_session_channels.surface_message_id),
            ts               = excluded.ts`,
       ).run(
         input.session_id,
@@ -189,6 +192,7 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
         input.agent_type ?? null,
         input.name_body ?? null,
         input.delegation_emoji ?? null,
+        input.surface_message_id ?? null,
         scope,
         nowSec(),
       );

@@ -38,6 +38,7 @@ const DISCORD_TARGETS = {
   ready: "discord.client.ready",
   eventBusRoute: "discord.event_bus.route_event",
   messageCreate: "discord.gateway.message_create",
+  threadCreate: "discord.gateway.thread_create",
   ingressMessage: "discord.ingress.handle_message",
   reactionAddEvent: "discord.gateway.reaction_add",
   reactionAdd: "discord.reactions.handle_add",

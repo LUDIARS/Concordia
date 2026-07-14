@@ -91,6 +91,7 @@ export async function onSessionRegistered(
         summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
       });
+      const starter = await created.fetchStarterMessage();
       deps.repo.upsert({
         session_id: input.sessionId,
         channel_id: created.id,
@@ -100,6 +101,7 @@ export async function onSessionRegistered(
         agent_type: input.agentType ?? null,
         name_body: nameBody,
         delegation_emoji: input.delegationEmoji ?? null,
+        surface_message_id: starter?.id ?? null,
       });
       deps.log.info(`session-forum: created ${created.name} for ${input.sessionId}`);
       await ensureEagerWebhook(deps, input.sessionId);
@@ -691,7 +693,7 @@ export async function updateSessionSurfaceMetadata(
   if (!row || row.channel_kind !== "thread") return;
   const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
   if (!thread) return;
-  await updateForumSessionStarter(deps.guild, thread, input);
+  await updateForumSessionStarter(deps.guild, thread, input, row.surface_message_id);
 }
 
 function titleToChannelBase(title: string): string {

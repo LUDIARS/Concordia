@@ -7,7 +7,7 @@ import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/Run
 import { useDelegationState } from "./delegation/useDelegationState.js";
 
 export function Delegation() {
-  const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced } = useDelegationState();
+  const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced } = useDelegationState();
   // カテゴリ表示絞り込み ("" = 全カテゴリ)。 表示だけの絞り込みで、 並び替え (↑↓) は
   // 全体の sort_order を書き換えるため絞り込み中は無効化する。
   const [categoryFilter, setCategoryFilter] = useState<Category | "">("");
@@ -53,7 +53,14 @@ export function Delegation() {
             className="border border-border px-3 py-1.5 rounded text-sm"
             title="可搬 JSON を貼り付けてテンプレを作成"
           >貼付で作成</button>
+          <button
+            onClick={syncForumTags}
+            disabled={busy}
+            className="border border-border px-3 py-1.5 rounded text-sm disabled:opacity-50"
+            title="forum_tag が有効なテンプレを Discord Session フォーラムへ同期"
+          >フォーラムタグ更新</button>
         </div>
+        {forumTagSyncMessage && <div className="text-xs text-subtle">{forumTagSyncMessage}</div>}
 
         {importText !== null && (
           <div className="mb-3 rounded border border-border bg-surface p-3 space-y-2">
@@ -84,6 +91,7 @@ export function Delegation() {
               <th className="text-center p-2">emoji</th>
               <th className="text-center p-2">active</th>
               <th className="text-center p-2" title="call_only=true はスポーン選択肢に出ない">call only</th>
+              <th className="text-center p-2" title="Session フォーラムの spawn-by-post タグ">forum</th>
               <th className="text-left p-2">updated</th>
               <th className="text-right p-2">actions</th>
             </tr>
@@ -100,6 +108,7 @@ export function Delegation() {
                 <td className="p-2 text-center">{t.emoji || <span className="text-subtle">—</span>}</td>
                 <td className="p-2 text-center">{t.is_active ? "✓" : "—"}</td>
                 <td className="p-2 text-center">{t.call_only ? "✓" : "—"}</td>
+                <td className="p-2 text-center">{t.forum_tag ? "✓" : "—"}</td>
                 <td className="p-2 text-xs text-subtle">{fmtDelegationTs(t.updated_at)}</td>
                 <td className="p-2 text-right space-x-2">
                   <button className="text-xs" disabled={busy || categoryFilter !== "" || i === 0} title={categoryFilter ? "絞り込み中は並び替え不可" : "Move up"} onClick={() => moveTemplate(i, -1)}>↑</button>
@@ -306,6 +315,14 @@ export function Delegation() {
                   onChange={(e) => setForm({ ...form, call_only: e.target.checked })}
                 />
                 <span>call_only</span>
+              </label>
+              <label className="flex items-center gap-2" title="Session フォーラムから投稿で起動できるテンプレ (最大10)">
+                <input
+                  type="checkbox"
+                  checked={form.forum_tag}
+                  onChange={(e) => setForm({ ...form, forum_tag: e.target.checked })}
+                />
+                <span>forum_tag</span>
               </label>
             </div>
           </div>

@@ -28,6 +28,15 @@ describe("schema", () => {
     expect(cols.some((c) => c.name === "display_name")).toBe(true);
   });
 
+  it("forum migration columns exist on a fresh DB", () => {
+    const db = makeRawTestDb();
+    applyMigrations(db);
+    const templateColumns = db.prepare(`PRAGMA table_info(delegation_templates)`).all() as Array<{ name: string }>;
+    const sessionColumns = db.prepare(`PRAGMA table_info(discord_session_channels)`).all() as Array<{ name: string }>;
+    expect(templateColumns.some((column) => column.name === "forum_tag")).toBe(true);
+    expect(sessionColumns.some((column) => column.name === "surface_message_id")).toBe(true);
+  });
+
   it("applyMigrations is idempotent and adds display_name to legacy personas", () => {
     const db = makeRawTestDb();
     // legacy schema: personas に display_name が無い状態

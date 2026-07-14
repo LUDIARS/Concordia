@@ -65,10 +65,22 @@ export async function updateForumSessionStarter(
   guild: Guild,
   thread: ForumSessionThread,
   metadata: ForumSessionMetadata,
+  surfaceMessageId?: string | null,
 ): Promise<void> {
-  const starter = await thread.fetchStarterMessage();
-  if (!starter) throw new Error(`Forum starter message is unavailable: ${thread.id}`);
-  await starter.edit({ content: buildForumStarterContent(guild.id, metadata) });
+  const message = surfaceMessageId
+    ? await thread.messages.fetch(surfaceMessageId)
+    : await thread.fetchStarterMessage();
+  if (!message) throw new Error(`Forum session metadata message is unavailable: ${thread.id}`);
+  await message.edit({ content: buildForumStarterContent(guild.id, metadata) });
+}
+
+export async function postForumSessionMetadata(
+  guild: Guild,
+  thread: ForumSessionThread,
+  metadata: ForumSessionMetadata,
+): Promise<string> {
+  const message = await thread.send({ content: buildForumStarterContent(guild.id, metadata) });
+  return message.id;
 }
 
 export async function updateForumSessionTitle(

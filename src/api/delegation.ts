@@ -24,6 +24,7 @@ import { parsePortable, templateToPortable } from "../delegation/portable.js";
 import { delegationOptionSuggestions } from "../control/provider-preset.js";
 import { eventBus } from "../events.js";
 import { invalidateDelegationTemplateCache } from "../discord/delegation-template-cache.js";
+import { validateForumTemplateTags, type ForumTemplateTagSource } from "../discord/forum-template-tags.js";
 import {
   buildDelegationInjectText,
   buildDelegationStatusNotification,
@@ -58,6 +59,7 @@ const CreateTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  forum_tag: z.boolean().optional(),
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
@@ -75,6 +77,7 @@ const PatchTemplateSchema = z.object({
   is_active: z.boolean().optional(),
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
+  forum_tag: z.boolean().optional(),
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
@@ -148,6 +151,7 @@ export interface DelegationApiDeps {
   };
   taskStore?: TaskMdStore;
   onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
+  syncForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
 
 const QueueSettingsSchema = z.object({
@@ -185,6 +189,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       input_schema: safeJsonParse(row.input_schema, []),
       is_active: row.is_active === 1,
       call_only: row.call_only === 1,
+      forum_tag: row.forum_tag === 1,
       default_options: parseRuntimeOptions(row.runtime_options_json),
       runtime_options: delegationOptionSuggestions(row.target_provider, row.model),
     };
@@ -202,6 +207,14 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       queue_payload_json: undefined,
       sessions: linkedSessions.map(serializeLinkedSession),
     };
+  }
+
+  function validateForumTagCandidate(candidate: ForumTemplateTagSource, replacingId?: string): string | null {
+    const existing = deps.repo
+      .listTemplates({ includeInactive: true })
+      .filter((row) => row.id !== replacingId);
+    const validation = validateForumTemplateTags([...existing, candidate]);
+    return validation.ok ? null : validation.error ?? "invalid forum_tag template";
   }
 
   // ── GET endpoints (no auth) ───────────────────────────────
@@ -313,6 +326,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     // prompt_template 空はそのまま空文字で保存 (invoke 時に context だけ載る)。
     const call_name = resolveCallName(deps.repo, parsed.data.call_name, parsed.data.title);
     const title = (parsed.data.title ?? "").trim() || call_name;
+    const candidate = {
+      id: "new",
+      call_name,
+      title,
+      is_active: parsed.data.is_active === false ? 0 : 1,
+      forum_tag: parsed.data.forum_tag === true ? 1 : 0,
+      input_schema: parsed.data.input_schema ?? [],
+    } satisfies ForumTemplateTagSource;
+    const forumTagError = validateForumTagCandidate(candidate);
+    if (forumTagError) return c.json({ error: "invalid_forum_tag", detail: forumTagError }, 400);
     const row = deps.repo.createTemplate({
       ...parsed.data,
       call_name,
@@ -332,6 +355,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const p = parsed.data;
     const call_name = resolveCallName(deps.repo, p.call_name, p.title);
     const title = (p.title ?? "").trim() || call_name;
+    const candidate = {
+      id: "new",
+      call_name,
+      title,
+      is_active: 1,
+      forum_tag: p.forum_tag === true ? 1 : 0,
+      input_schema: p.input_schema ?? [],
+    } satisfies ForumTemplateTagSource;
+    const forumTagError = validateForumTagCandidate(candidate);
+    if (forumTagError) return c.json({ error: "invalid_forum_tag", detail: forumTagError }, 400);
     const row = deps.repo.createTemplate({
       call_name,
       title,
@@ -344,6 +377,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       default_cwd: p.default_cwd ?? null,
       project: p.project ?? null,
       emoji: p.emoji,
+      forum_tag: p.forum_tag,
       category: p.category,
       sort_order: p.sort_order,
     });
@@ -372,6 +406,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       default_cwd: p.default_cwd ?? null,
       project: p.project ?? null,
       emoji: p.emoji,
+      forum_tag: false,
       category: p.category,
       sort_order: p.sort_order,
     });
@@ -381,10 +416,21 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
 
   app.patch("/templates/:id", async (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findTemplate(id)) return c.json({ error: "not_found" }, 404);
+    const current = deps.repo.findTemplate(id);
+    if (!current) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = PatchTemplateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const candidate = {
+      id,
+      call_name: current.call_name,
+      title: parsed.data.title ?? current.title,
+      is_active: parsed.data.is_active === undefined ? current.is_active : (parsed.data.is_active ? 1 : 0),
+      forum_tag: parsed.data.forum_tag === undefined ? current.forum_tag : (parsed.data.forum_tag ? 1 : 0),
+      input_schema: parsed.data.input_schema ?? current.input_schema,
+    } satisfies ForumTemplateTagSource;
+    const forumTagError = validateForumTagCandidate(candidate, id);
+    if (forumTagError) return c.json({ error: "invalid_forum_tag", detail: forumTagError }, 400);
     const row = deps.repo.updateTemplate(id, parsed.data);
     invalidateTemplates("patch", row);
     return c.json({ template: serializeTemplate(row) });
@@ -397,6 +443,16 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!ok) return c.json({ error: "not_found" }, 404);
     invalidateTemplates("delete", row);
     return c.json({ ok: true });
+  });
+
+  app.post("/forum-tags/sync", async (c) => {
+    if (!deps.syncForumTags) return c.json({ error: "discord_forum_sync_unavailable" }, 503);
+    try {
+      const result = await deps.syncForumTags(deps.repo.listTemplates({ includeInactive: true }));
+      return c.json({ ok: true, ...result });
+    } catch (error) {
+      return c.json({ error: "discord_forum_sync_failed", detail: (error as Error).message }, 400);
+    }
   });
 
   app.post("/invoke", async (c) => {

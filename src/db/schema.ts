@@ -316,6 +316,7 @@ const STATEMENTS = [
     session_id      TEXT PRIMARY KEY,
     channel_id      TEXT NOT NULL,
     channel_kind    TEXT NOT NULL DEFAULT 'channel',
+    surface_message_id TEXT,
     webhook_id      TEXT,
     webhook_token   TEXT,
     status          TEXT NOT NULL DEFAULT 'active',
@@ -403,6 +404,7 @@ const STATEMENTS = [
     is_active         INTEGER NOT NULL DEFAULT 1,
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
+    forum_tag         INTEGER NOT NULL DEFAULT 0,
     category          TEXT    NOT NULL DEFAULT 'employee',  -- employee | freelancer | parttimer (delegation-repo.ts DELEGATION_CATEGORIES が正本)
     sort_order        INTEGER NOT NULL DEFAULT 1000,
     created_at        INTEGER NOT NULL,
@@ -430,6 +432,8 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_created
      ON delegation_runs(created_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_runs_triggered_by
+     ON delegation_runs(triggered_by)`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_call_name
      ON delegation_runs(call_name, created_at DESC)`,
   // 実行キュー: queued を FIFO で拾い、 spawned/running のスロット数を数える経路が使う。
@@ -853,6 +857,12 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "call_only",
     ddl: `ALTER TABLE delegation_templates ADD COLUMN call_only INTEGER NOT NULL DEFAULT 0`,
   },
+  // Session forum の spawn-by-post で選択可能なテンプレ。Discord 反映は明示 sync のみ。
+  {
+    table: "delegation_templates",
+    column: "forum_tag",
+    ddl: `ALTER TABLE delegation_templates ADD COLUMN forum_tag INTEGER NOT NULL DEFAULT 0`,
+  },
   {
     table: "delegation_templates",
     column: "sort_order",
@@ -913,6 +923,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "discord_session_channels",
     column: "channel_kind",
     ddl: `ALTER TABLE discord_session_channels ADD COLUMN channel_kind TEXT NOT NULL DEFAULT 'channel'`,
+  },
+  {
+    table: "discord_session_channels",
+    column: "surface_message_id",
+    ddl: `ALTER TABLE discord_session_channels ADD COLUMN surface_message_id TEXT`,
   },
   // 子会社の日次トークン予算 (0 = 無制限)。 子会社ごとにコスト上限を設け、 超過で受付を止める。
   {

@@ -132,6 +132,7 @@ export interface CoreDeps {
   secretBox?: SecretBox;
   taskStore: TaskMdStore;
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
+  syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
@@ -209,6 +210,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     adminState: deps.adminState,
     taskStore: deps.taskStore,
     onTaskflowCompleted: deps.onTaskflowCompleted,
+    syncForumTags: deps.syncDiscordForumTags,
   }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
   if (deps.testingClaims) {

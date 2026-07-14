@@ -51,6 +51,7 @@ export interface Template {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  forum_tag: boolean;
   category: Category;
   sort_order: number;
   default_options?: Record<string, unknown>;
@@ -99,6 +100,7 @@ export interface FormState {
   is_active: boolean;
   emoji: string;
   call_only: boolean;
+  forum_tag: boolean;
   category: Category;
   sort_order: string;
 }
@@ -117,6 +119,7 @@ export const EMPTY_FORM: FormState = {
   is_active: true,
   emoji: "",
   call_only: false,
+  forum_tag: false,
   category: "employee",
   sort_order: "1000",
 };

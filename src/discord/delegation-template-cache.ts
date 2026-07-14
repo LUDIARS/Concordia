@@ -4,6 +4,15 @@ export interface DelegationTemplateLite {
   is_active: boolean;
   call_only: boolean;
   emoji: string;
+  forum_tag?: boolean;
+  input_schema?: Array<{
+    name: string;
+    type: "string" | "number" | "boolean";
+    required: boolean;
+    default?: string | number | boolean;
+  }>;
+  default_cwd?: string | null;
+  project?: string | null;
 }
 
 export interface DelegationTemplateCacheLogger {

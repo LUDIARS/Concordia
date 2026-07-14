@@ -13,6 +13,7 @@ export function useDelegationState() {
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [formRuntimeOptions, setFormRuntimeOptions] = useState<DelegationOptionSuggestion[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+  const [forumTagSyncMessage, setForumTagSyncMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [invokeFor, setInvokeFor] = useState<Template | null>(null);
   const [invokeArgs, setInvokeArgs] = useState<Record<string, string>>({});
@@ -132,6 +133,7 @@ export function useDelegationState() {
       is_active: t.is_active,
       emoji: t.emoji ?? "",
       call_only: t.call_only ?? false,
+      forum_tag: t.forum_tag ?? false,
       category: t.category ?? "employee",
       sort_order: String(t.sort_order ?? 1000),
     });
@@ -170,6 +172,7 @@ export function useDelegationState() {
         is_active: form.is_active,
         emoji: form.emoji,
         call_only: form.call_only,
+        forum_tag: form.forum_tag,
         category: form.category,
         sort_order: Number(form.sort_order) || 0,
       };
@@ -256,6 +259,21 @@ export function useDelegationState() {
     }
   }
 
+  async function syncForumTags() {
+    setBusy(true);
+    setForumTagSyncMessage(null);
+    try {
+      const r = await mutate("POST", "/v1/delegation/forum-tags/sync", {});
+      const data = await r.json() as { tags?: string[]; detail?: string; error?: string };
+      if (!r.ok) throw new Error(data.detail ?? data.error ?? `HTTP ${r.status}`);
+      setForumTagSyncMessage(`同期済み: ${(data.tags ?? []).join(" / ")}`);
+    } catch (err) {
+      setForumTagSyncMessage(`同期失敗: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function openInvoke(t: Template) {
     setInvokeFor(t);
     const init: Record<string, string> = {};
@@ -321,5 +339,5 @@ export function useDelegationState() {
   const activeOutsourced = outsourcedRuns.filter((r) => !FINISHED.includes(r.status));
   const finishedOutsourced = outsourcedRuns.filter((r) => FINISHED.includes(r.status));
 
-  return { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced };
+  return { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced };
 }

@@ -48,6 +48,8 @@ export interface DelegationTemplateRow {
   emoji: string;
   /** 1 = LLM 委託専用テンプレ。 Discord/Slack の spawn ドロップダウンに出さない */
   call_only: number;
+  /** 1 = Session forum の spawn-by-post 用タグとして公開する */
+  forum_tag: number;
   /** 雇用形態カテゴリ (employee | freelancer | parttimer)。 既定 employee */
   category: DelegationCategory;
   sort_order: number;
@@ -104,6 +106,7 @@ export interface CreateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  forum_tag?: boolean;
   category?: DelegationCategory;
   sort_order?: number;
 }
@@ -121,6 +124,7 @@ export interface UpdateTemplateInput {
   is_active?: boolean;
   emoji?: string;
   call_only?: boolean;
+  forum_tag?: boolean;
   category?: DelegationCategory;
   sort_order?: number;
 }
@@ -174,6 +178,7 @@ export class DelegationRepo {
         is_active: input.is_active,
         emoji: input.emoji,
         call_only: input.call_only,
+        forum_tag: input.forum_tag,
         category: input.category,
         sort_order: input.sort_order,
       }) ?? existing;
@@ -188,8 +193,8 @@ export class DelegationRepo {
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model, runtime_options_json,
         prompt_template, input_schema, default_cwd, project, is_active,
-        emoji, call_only, category, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        emoji, call_only, forum_tag, category, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -205,6 +210,7 @@ export class DelegationRepo {
       input.is_active === false ? 0 : 1,
       input.emoji ?? "",
       input.call_only ? 1 : 0,
+      input.forum_tag ? 1 : 0,
       input.category ?? DEFAULT_DELEGATION_CATEGORY,
       input.sort_order ?? 1000,
       now,
@@ -231,6 +237,7 @@ export class DelegationRepo {
         is_active = ?,
         emoji = ?,
         call_only = ?,
+        forum_tag = ?,
         category = ?,
         sort_order = ?,
         updated_at = ?
@@ -248,6 +255,7 @@ export class DelegationRepo {
       patch.is_active === undefined ? cur.is_active : (patch.is_active ? 1 : 0),
       patch.emoji !== undefined ? patch.emoji : cur.emoji,
       patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,
+      patch.forum_tag !== undefined ? (patch.forum_tag ? 1 : 0) : cur.forum_tag,
       patch.category !== undefined ? patch.category : cur.category,
       patch.sort_order !== undefined ? patch.sort_order : cur.sort_order,
       now,
@@ -365,6 +373,13 @@ export class DelegationRepo {
     const row = this.db.prepare(`SELECT * FROM delegation_runs WHERE id = ?`).get(id) as
       | DelegationRunRow
       | undefined;
+    return row ?? null;
+  }
+
+  findRunByTriggeredBy(triggeredBy: string): DelegationRunRow | null {
+    const row = this.db
+      .prepare(`SELECT * FROM delegation_runs WHERE triggered_by = ? ORDER BY created_at DESC LIMIT 1`)
+      .get(triggeredBy) as DelegationRunRow | undefined;
     return row ?? null;
   }
 

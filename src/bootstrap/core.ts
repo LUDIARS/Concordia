@@ -94,6 +94,7 @@ import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
+import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import { isReactionUserAllowed } from "../shared/reaction-workflow-auth.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
@@ -724,6 +725,14 @@ export async function startBackend(): Promise<BackendHandle> {
     secretBox,
     taskStore,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
+    syncDiscordForumTags: (templates) => {
+      const config = resolveDiscordConfig(discordConfig, secretBox);
+      return syncSessionForumTemplateTags({
+        token: config.token ?? "",
+        forumId: discordConfig.get("session_forum_id") ?? "",
+        templates,
+      });
+    },
     slackAdmin: {
       start: startSlackBotManaged,
       stop: stopSlackBotManaged,

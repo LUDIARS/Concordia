@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { SessionsRepo } from "../db/sessions-repo.js";
@@ -26,6 +26,14 @@ function makeDeps() {
 }
 
 describe("startPrReconciler PR CI follow-up tasks", () => {
+  beforeAll(() => {
+    vi.stubEnv("CONCORDIA_PR_RECONCILE_ENABLED", "1");
+  });
+
+  afterAll(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("enqueues a test request when a session-authored PR turns green", async () => {
     const deps = makeDeps();
     deps.prs.upsertFromStat({

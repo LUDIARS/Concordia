@@ -23,12 +23,12 @@ jobs:
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: true
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -41,7 +41,7 @@ jobs:
         # 再実行するため、devDeps (typescript/@types) は prune せず残す。
         # copy 方式では node_modules は pack に含まれないので prune は不要。
         run: |
-          cd lib/vestigium && npm install --ignore-scripts && npm run build && cd ../..
+          cd lib/vestigium && npm ci --ignore-scripts && npm run build && cd ../..
 
       - name: Install deps (backend)
         run: npm ci

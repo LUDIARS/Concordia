@@ -14,4 +14,4 @@ on:
 
 jobs:
   harness:
-    uses: LUDIARS/AIFormat/.github/workflows/harness-checks.yml@main
+    uses: LUDIARS/AIFormat/.github/workflows/harness-checks.yml@b67d1063dbc857ab619b01ba35f7b979b07691ba

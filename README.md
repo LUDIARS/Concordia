@@ -102,6 +102,13 @@ cd Concordia
 npm install
 ```
 
+Machine-specific non-secret settings are optional. Copy the tracked example when local
+server or Web host overrides are needed; `concordia.config.json` is ignored by Git.
+
+```bash
+cp concordia.config.example.json concordia.config.json
+```
+
 ### 2. 起動
 
 ```bash

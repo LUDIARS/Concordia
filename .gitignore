@@ -37,6 +37,7 @@ coverage/
 .nyc_output/
 
 # local data
+/concordia.config.json
 *.sqlite
 *.sqlite-journal
 *.db

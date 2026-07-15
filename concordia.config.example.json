@@ -1,0 +1,13 @@
+{
+  "$comment": "Local non-secret Concordia settings. Copy this file to concordia.config.json and keep machine-specific values out of Git.",
+  "server": {
+    "$comment": "Backend bind host and port. CONCORDIA_HOST and CONCORDIA_PORT may override these values.",
+    "host": "127.0.0.1",
+    "port": 11111
+  },
+  "web": {
+    "$comment": "Vite port and external host names. localhost and 127.0.0.1 are always allowed.",
+    "port": 10101,
+    "allowedHosts": []
+  }
+}

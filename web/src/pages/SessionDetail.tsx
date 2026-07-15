@@ -4,9 +4,10 @@ import { api, fmtTs, statusBadge } from "../api.js";
 import type { SessionEvent, SessionRow } from "../api.js";
 import { useLiveQuery, useWsEvent } from "../hooks/useWsEvent.js";
 import { projectCodeFor, repoBasename } from "../project-codes.js";
-import { ActiveReposPanel, ConversationPanel, InjectForm } from "./session-detail/ConversationPanels.js";
-import { LatestStatPanel, ActionButtonRow, EventLogToggle, TranscriptPanel } from "./session-detail/SessionControls.js";
+import { ActiveReposPanel, InjectForm } from "./session-detail/ConversationPanels.js";
+import { LatestStatPanel, ActionButtonRow, EventLogToggle } from "./session-detail/SessionControls.js";
 import { PermissionModal, AskUserQuestionModal } from "./session-detail/SessionModals.js";
+import { SessionActivityPanel } from "./session-detail/SessionActivityPanel.js";
 
 
 /**
@@ -44,7 +45,7 @@ export function SessionDetail() {
   const isActive = s.status === "active";
 
   return (
-    <div className="space-y-4 max-w-4xl">
+    <div className="space-y-4 max-w-6xl">
       <Link to="/" className="text-sm text-subtle hover:text-accent">
         ← back
       </Link>
@@ -78,11 +79,8 @@ export function SessionDetail() {
       {/* 2. 作業リポジトリのコード一覧 */}
       <ActiveReposPanel session={s} />
 
-      {/* 3. 直近の会話 5 件 */}
-      <ConversationPanel sessionId={s.id} />
-
-      {/* 4. テキスト入力 (active 時のみ) */}
-      {isActive && <InjectForm sessionId={s.id} />}
+      {/* Discord relay の要約経路とは独立した、保存済み transcript の全文表示。 */}
+      <SessionActivityPanel sessionId={s.id} />
 
       {/* 5. 直近 stat */}
       <LatestStatPanel sessionId={s.id} />
@@ -93,8 +91,12 @@ export function SessionDetail() {
       {/* 7. event log (toggle) */}
       <EventLogToggle events={data.events} />
 
-      {/* 8. transcript log (toggle, raw) — active 時のみ意味があるが ended でも履歴は読める */}
-      <TranscriptPanel sessionId={s.id} />
+      {/* 指示入力は会話を読みながら使えるよう画面下部に固定する。 */}
+      {isActive && (
+        <div className="sticky bottom-0 z-10 bg-bg/95 pt-2 pb-1 backdrop-blur">
+          <InjectForm sessionId={s.id} />
+        </div>
+      )}
 
       {/* permission modal — active 時のみ */}
       {isActive && <PermissionModal sessionId={s.id} />}

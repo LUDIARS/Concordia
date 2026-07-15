@@ -235,6 +235,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
   const delegationRepo = new DelegationRepo(deps.db);
+  const resolveLayoutOpts = (): EnsureLayoutOptions => ({
+    ...layoutOpts,
+    sessionForumTemplates: delegationRepo.listTemplates(),
+  });
   // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
   // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
   const ownsSession = (sessionId: string): boolean => {
@@ -357,7 +361,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const guild = await c.guilds.fetch(env.guildId!);
       activeGuild = guild;
       await guild.channels.fetch();
-      layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
+      layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
         try {
@@ -434,7 +438,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
       const refreshMonitor = instrumentDiscord("monitorRefresh", async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
+        layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
         const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
         if (!monitorCh || monitorCh.type !== ChannelType.GuildText) {
           log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
@@ -468,7 +472,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
       const refreshPrQueue = instrumentDiscord("prQueueRefresh", async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo, layoutOpts);
+        layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
         const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
         if (!prQueueCh || prQueueCh.type !== ChannelType.GuildText) {
           log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);

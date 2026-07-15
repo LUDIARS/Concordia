@@ -35,6 +35,47 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("ludiars-review-daily")?.category).toBe("parttimer");
   });
 
+  it("seeds argument-free launch templates for Session forum posts", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const claude = repo.findTemplateByCallName("forum-claude-session");
+    const codex = repo.findTemplateByCallName("forum-codex-session");
+
+    expect(claude).toMatchObject({
+      title: "Claude起動",
+      target_provider: "claude",
+      is_active: 1,
+      forum_tag: 1,
+    });
+    expect(codex).toMatchObject({
+      title: "Codex起動",
+      target_provider: "codex",
+      is_active: 1,
+      forum_tag: 1,
+    });
+    expect(JSON.parse(claude?.input_schema ?? "null")).toEqual([]);
+    expect(JSON.parse(codex?.input_schema ?? "null")).toEqual([]);
+  });
+
+  it("keeps custom forum templates and does not add default tags to their limit", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    repo.createTemplate({
+      call_name: "custom-forum",
+      title: "Custom forum",
+      target_provider: "claude",
+      prompt_template: "Handle the forum post",
+      input_schema: [],
+      forum_tag: true,
+    });
+
+    seedDelegationTemplates(repo);
+
+    expect(repo.findTemplateByCallName("custom-forum")?.forum_tag).toBe(1);
+    expect(repo.findTemplateByCallName("forum-claude-session")?.forum_tag).toBe(0);
+    expect(repo.findTemplateByCallName("forum-codex-session")?.forum_tag).toBe(0);
+  });
+
   it("seeds the daily-review-reconciliation parttimer template", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

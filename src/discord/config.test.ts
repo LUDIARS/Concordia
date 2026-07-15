@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ChannelType } from "discord.js";
 import type { Guild } from "discord.js";
-import { ensureDiscordLayout } from "./config.js";
+import { ensureDiscordLayout, SESSION_FORUM_TOPIC } from "./config.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 
 /** ensureDiscordLayout 用の最小 fake Guild / repo。 channels.create を記録する。 */
@@ -11,11 +11,13 @@ function makeFakeGuild() {
     name: string;
     type: ChannelType;
     parentId: string | null;
+    topic: string | null;
     availableTags?: Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>;
     setAvailableTags?: (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => Promise<void>;
+    edit?: (patch: { topic?: string }) => Promise<void>;
   }>();
   let counter = 0;
-  const created: Array<{ name: string; type: ChannelType }> = [];
+  const created: Array<{ name: string; type: ChannelType; topic: string | null }> = [];
   const guild = {
     id: "guild-1",
     channels: {
@@ -26,13 +28,14 @@ function makeFakeGuild() {
           return undefined;
         },
       },
-      create: async ({ name, type, parent }: { name: string; type: ChannelType; parent?: string }) => {
+      create: async ({ name, type, parent, topic }: { name: string; type: ChannelType; parent?: string; topic?: string }) => {
         const id = `ch-${counter++}`;
         const ch = {
           id,
           name,
           type,
           parentId: parent ?? null,
+          topic: topic ?? null,
           availableTags: [] as Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>,
           setAvailableTags: async (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => {
             ch.availableTags = tags.map((tag, index) => ({
@@ -42,15 +45,17 @@ function makeFakeGuild() {
               emoji: undefined,
             }));
           },
-          edit: async () => {},
+          edit: async (patch: { topic?: string }) => {
+            if (patch.topic !== undefined) ch.topic = patch.topic;
+          },
         };
         channels.set(id, ch);
-        created.push({ name, type });
+        created.push({ name, type, topic: topic ?? null });
         return ch;
       },
     },
   } as unknown as Guild;
-  return { guild, created };
+  return { guild, created, channels };
 }
 
 function makeFakeRepo(): DiscordConfigRepo {
@@ -106,5 +111,27 @@ describe("ensureDiscordLayout", () => {
     expect(names).toContain("concordia-monitor");
     expect(names).toContain("Session");
     expect(names).toContain("TaskWorkflow");
+  });
+
+  it("Session forum に起動テンプレタグと spawn の流れを自動設定する", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const snap = await ensureDiscordLayout(guild, makeFakeRepo(), {
+      sessionForumTemplates: [{
+        id: "forum-claude",
+        call_name: "forum-claude-session",
+        title: "Claude起動",
+        is_active: 1,
+        forum_tag: 1,
+        input_schema: [],
+      }],
+    });
+
+    const forum = channels.get(snap.sessionForumId);
+    expect(forum?.availableTags?.map((tag) => tag.name)).toContain("Claude起動");
+    expect(forum?.topic).toBe(SESSION_FORUM_TOPIC);
+    expect(SESSION_FORUM_TOPIC).toContain("起動テンプレタグを1つ");
+    expect(SESSION_FORUM_TOPIC).toContain("[project code]");
+    expect(SESSION_FORUM_TOPIC).toContain("Ccがセッションをspawn");
+    expect(SESSION_FORUM_TOPIC).toContain("同じスレッド");
   });
 });

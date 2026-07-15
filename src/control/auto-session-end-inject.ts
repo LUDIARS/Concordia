@@ -8,8 +8,8 @@
  * 保存や memory 更新が行われていなかった (2026-05-27 報告).
  *
  * 修正: status 変更前に `session.inject` event を emit して Lictor の WS
- * 経由で wrapped session に slash command (Claude) または自然言語 (Codex /
- * Gemini) を流し込む. Lictor 側の `onInject` が provider-別 submit 戦略で
+ * 経由で wrapped session に slash command (Claude)、 skill invocation (Codex)、
+ * または自然言語 (その他 provider) を流し込む. Lictor 側の `onInject` が provider-別 submit 戦略で
  * pty に書き出すので、 ここでは provider に応じた text を選んで emit する
  * だけでよい.
  *
@@ -25,7 +25,8 @@ export const AUTO_SESSION_END_INJECT_SOURCE = "auto:session-end";
 /**
  * provider に応じて wrapped session に流し込む文字列を選ぶ.
  * - Claude Code: `/session-end` slash command (`.claude/commands/session-end.md`)
- * - Codex / Gemini: 自然言語 (Lictor が inject する `session-end` skill が拾う)
+ * - Codex: `$session-end` skill invocation (`~/.codex/skills/session-end/SKILL.md`)
+ * - Gemini / unknown: 自然言語
  *
  * provider 名は session.provider の値. unknown は安全側に倒して
  * 自然言語にする (slash command でない方が誤発火が少ない).
@@ -34,6 +35,9 @@ export const AUTO_SESSION_END_INJECT_SOURCE = "auto:session-end";
 export function pickSessionEndInjectText(provider: string): string {
   if (provider === "claude-code" || provider === "claude") {
     return "/session-end";
+  }
+  if (provider === "codex-cli" || provider === "codex") {
+    return "$session-end";
   }
   return "session-end してください";
 }

@@ -33,8 +33,12 @@ describe("pickSessionEndInjectText", () => {
     expect(pickSessionEndInjectText("claude")).toBe("/session-end");
   });
 
-  it("returns natural language for codex / gemini / unknown", () => {
-    expect(pickSessionEndInjectText("codex-cli")).toBe("session-end してください");
+  it("returns the canonical skill invocation for Codex (canonical + short form)", () => {
+    expect(pickSessionEndInjectText("codex-cli")).toBe("$session-end");
+    expect(pickSessionEndInjectText("codex")).toBe("$session-end");
+  });
+
+  it("returns natural language for gemini / unknown", () => {
     expect(pickSessionEndInjectText("gemini-cli")).toBe("session-end してください");
     expect(pickSessionEndInjectText("unknown")).toBe("session-end してください");
     expect(pickSessionEndInjectText("future")).toBe("session-end してください");
@@ -67,13 +71,13 @@ describe("emitAutoSessionEndInject", () => {
     expect(ev!.source).toBe(AUTO_SESSION_END_INJECT_SOURCE);
   });
 
-  it("emits natural-language text for codex-cli", () => {
+  it("emits the canonical skill invocation for codex-cli", () => {
     emitAutoSessionEndInject(fakeSession({ id: "s-x", provider: "codex-cli" }));
     const ev = received.find(
       (e): e is { type: string; text: string } =>
         !!e && typeof e === "object" && (e as Record<string, unknown>).type === "session.inject",
     );
-    expect(ev?.text).toBe("session-end してください");
+    expect(ev?.text).toBe("$session-end");
   });
 
   it("does not emit when session.status is not active", () => {

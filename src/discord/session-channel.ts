@@ -65,6 +65,9 @@ export async function onSessionRegistered(
     personaDisplayName: string | null;
     repoPath?: string | null;
     branch?: string | null;
+    model?: string | null;
+    effortLevel?: string | null;
+    fastMode?: boolean | null;
     currentTask?: string | null;
     projectCode?: string | null;
     surfaceLabel?: "Session" | "TaskWorkflow";
@@ -89,6 +92,9 @@ export async function onSessionRegistered(
         sessionId: input.sessionId,
         repoPath,
         branch: input.branch ?? null,
+        model: input.model ?? null,
+        effortLevel: input.effortLevel ?? null,
+        fastMode: input.fastMode ?? null,
         projectCode: input.projectCode?.trim() || "Session",
         summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
@@ -690,6 +696,9 @@ export async function updateSessionSurfaceMetadata(
     sessionId: string;
     repoPath: string;
     branch: string | null;
+    model?: string | null;
+    effortLevel?: string | null;
+    fastMode?: boolean | null;
     statusCardChannelId?: string | null;
     surfaceLabel?: "Session" | "TaskWorkflow";
     delegationRunId?: string | null;

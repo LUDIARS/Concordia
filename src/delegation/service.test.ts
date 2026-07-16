@@ -305,16 +305,20 @@ describe("DelegationService.invoke", () => {
     const r = await svc.invoke({
       call_name: "echo",
       args: { msg: "hi" },
+      options: { fast_mode: true },
       overrides: { provider: "claude", model: "claude-sonnet-5", reasoning_effort: "high" },
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const req = spawnCalls[0] as { provider: string; args?: string[] };
+    const req = spawnCalls[0] as { provider: string; args?: string[]; env?: Record<string, string> };
     expect(req.provider).toBe("claude");
     expect(req.args).toEqual(["--model", "claude-sonnet-5", "--effort", "high"]);
     expect(r.run.target_provider).toBe("claude");
     expect(r.run.effort_level).toBe("high");
     expect(r.run.effort_source).toBe("override");
+    expect(r.run.effective_model).toBe("claude-sonnet-5");
+    expect(r.run.fast_mode).toBe(1);
+    expect(req.env?.CONCORDIA_DELEGATION_FAST_MODE).toBe("1");
     expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex");
   });
 
@@ -494,6 +498,10 @@ describe("DelegationService.invoke", () => {
       expect(r.spawn_cwd).toBe(worktreeRoot);
       expect(r.spawn_branch).toBe("feat/delegation-wt");
       expect(r.spawn_worktree_created).toBe(true);
+      expect(r.run.spawn_cwd).toBe(worktreeRoot);
+      expect(r.run.spawn_branch).toBe("feat/delegation-wt");
+      expect(r.run.spawn_worktree_path).toBe(worktreeRoot);
+      expect(r.run.spawn_worktree_created).toBe(1);
       expect(existsSync(join(worktreeRoot, ".git"))).toBe(true);
       expect(git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(sourceBranch);
       expect(git(worktreeRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feat/delegation-wt");

@@ -207,6 +207,11 @@ describe("DelegationRepo / runs", () => {
       spawn_pid: 1, spawn_command: ["claude"], triggered_by: null, status: "spawned",
       effort_level: "medium", effort_source: "auto-baseline", effort_bucket: "implementation",
       effective_model: "sonnet",
+      fast_mode: true,
+      spawn_cwd: "/work/Concordia",
+      spawn_branch: "fix/runtime-card",
+      spawn_worktree_path: "/work/Concordia-wt",
+      spawn_worktree_created: true,
     });
     const completed = repo.updateRunStatus(run.id, "completed");
     expect(completed?.finished_at).toEqual(expect.any(Number));
@@ -215,6 +220,11 @@ describe("DelegationRepo / runs", () => {
       effort_source: "auto-baseline",
       effort_bucket: "implementation",
       effective_model: "sonnet",
+      fast_mode: 1,
+      spawn_cwd: "/work/Concordia",
+      spawn_branch: "fix/runtime-card",
+      spawn_worktree_path: "/work/Concordia-wt",
+      spawn_worktree_created: 1,
     });
   });
 });

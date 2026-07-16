@@ -16,8 +16,20 @@ export function OutsourcedRunCard({ run: r }: { run: RunRow }) {
             <code className="text-xs px-1.5 py-0.5 rounded bg-bg">{r.status}</code>
             <span className="text-xs text-subtle">{fmtDelegationTs(r.created_at)}</span>
           </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-subtle">
+            <span>model <code>{r.effective_model ?? "-"}</code></span>
+            <span>effort <code>{r.effort_level ?? "-"}</code></span>
+            <span>fast <code>{r.fast_mode === 1 ? "ON" : "OFF"}</code></span>
+            <span>作業ブランチ <code>{formatWorkingBranch(r.spawn_branch)}</code></span>
+          </div>
           <div className="text-sm break-words">{runSummary(r)}</div>
           {target && <div className="text-xs text-subtle break-all">{target}</div>}
+          {r.spawn_cwd && <div className="text-xs text-subtle break-all">cwd {r.spawn_cwd}</div>}
+          {r.spawn_worktree_path && (
+            <div className="text-xs text-subtle break-all">
+              worktree {r.spawn_worktree_path}{r.spawn_worktree_created === 1 ? " (created)" : ""}
+            </div>
+          )}
           {r.error && <div className="text-xs text-red-400 break-words">{r.error}</div>}
         </div>
         <div className="text-xs text-subtle lg:text-right shrink-0">
@@ -70,6 +82,12 @@ export function runSummary(r: RunRow): string {
 
 function runTarget(r: RunRow): string | null {
   return stringArg(r.args, "target_repo") ?? stringArg(r.args, "repo_path") ?? stringArg(r.args, "cwd");
+}
+
+function formatWorkingBranch(branch: string | null): string {
+  if (!branch) return "-";
+  const lower = branch.toLowerCase();
+  return lower === "main" || lower === "master" ? `root ${branch}` : `non-root ${branch}`;
 }
 
 function formatDuration(s: SessionRow): string {

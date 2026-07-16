@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import { SESSION_STATE_TAG_NAMES, type DiscordConfigSnapshot } from "./config.js";
+import { formatFastMode, formatWorkingBranch, type RuntimeMetadata } from "./runtime-metadata.js";
 
 export interface ForumSessionSurface {
   forumId: string;
@@ -22,10 +23,9 @@ export function resolveForumSessionSurface(
     : { forumId: layout.sessionForumId, label: "Session", delegationRunId: null };
 }
 
-export interface ForumSessionMetadata {
+export interface ForumSessionMetadata extends RuntimeMetadata {
   sessionId: string;
   repoPath: string;
-  branch: string | null;
   statusCardChannelId?: string | null;
   surfaceLabel?: "Session" | "TaskWorkflow";
   delegationRunId?: string | null;
@@ -160,7 +160,8 @@ export function buildForumStarterContent(guildId: string, input: ForumSessionMet
   const lines = [
     `**${input.surfaceLabel ?? "Session"}** \`${input.sessionId}\``,
     `**Repo** \`${repoName}\` — \`${input.repoPath}\``,
-    `**Branch** \`${input.branch ?? "-"}\``,
+    `**作業ブランチ** ${formatWorkingBranch(input.branch)}`,
+    `**Runtime** model \`${input.model ?? "-"}\` · effort \`${input.effortLevel ?? "-"}\` · fast ${formatFastMode(input.fastMode)}`,
     `**状態カード** ${statusLink}`,
   ];
   if (input.delegationRunId) lines.splice(1, 0, `**Delegation run** \`${input.delegationRunId}\``);

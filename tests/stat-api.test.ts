@@ -139,4 +139,17 @@ describe("/v1/monitor/conflicts (同一ブランチでない限り衝突しな�
     const r = await env.app.request("/v1/monitor/conflicts");
     expect(r.status).toBe(400);
   });
+
+  it("does not treat the umbrella workspace root as a work target or conflict scope", async () => {
+    env.adminState.setWorkspaceRoot("E:/Document/Ars");
+    startSession(env.repo, "root-a", { branch: "main", repo_path: "E:\\Document\\Ars" });
+    startSession(env.repo, "root-b", { branch: "fix/other", repo_path: "E:/Document/Ars/" });
+
+    const r = await env.app.request("/v1/monitor/conflicts?repo=E%3A%2FDocument%2FArs&branch=main");
+    expect(r.status).toBe(200);
+    const body = await r.json() as any;
+    expect(body.workspace_root).toBe(true);
+    expect(body.conflicts).toEqual([]);
+    expect(body.branches).toEqual([]);
+  });
 });

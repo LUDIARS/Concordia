@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
+import { delegationTerminalUpdate, parseCodexSessionEvent } from "./concordia-codex-worker-events.mjs";
 
 const flags = parseArgs(process.argv.slice(2));
 const concordiaUrl = (flags.concordiaUrl ?? process.env.CONCORDIA_URL ?? "http://127.0.0.1:11111").replace(/\/+$/, "");
@@ -108,6 +109,14 @@ child.on("close", async (code) => {
     });
     await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/heartbeat`, {});
   }
+  const runId = (process.env.CONCORDIA_DELEGATION_RUN_ID ?? "").trim();
+  if (runId) {
+    const terminal = delegationTerminalUpdate(code, Boolean(sessionId), stderr);
+    await postJsonChecked(`/v1/delegation/runs/${encodeURIComponent(runId)}/status`, {
+      status: terminal.status,
+      ...(terminal.error ? { detail: terminal.error } : {}),
+    }, 3);
+  }
   if (!oneShotRecorded) {
     oneShotRecorded = true;
     await postOneShot({
@@ -137,33 +146,38 @@ async function handleJsonLine(line) {
     return;
   }
 
-  const meta = obj?.type === "session_meta" ? obj.payload : null;
-  const metaSessionId = typeof meta?.session_id === "string" && meta.session_id
-    ? meta.session_id
-    : typeof meta?.id === "string" && meta.id
-      ? meta.id
-      : null;
-  if (metaSessionId && !sessionId) {
-    sessionId = metaSessionId;
-    transcriptPath = inferTranscriptPath(meta, metaSessionId);
-    await postJson("/v1/sessions", {
-      id: sessionId,
+  const started = parseCodexSessionEvent(obj);
+  if (started && !sessionId) {
+    const candidateSessionId = started.sessionId;
+    const meta = started.meta;
+    const candidateTranscriptPath = inferTranscriptPath(meta, candidateSessionId);
+    const registered = await postJsonChecked("/v1/sessions", {
+      id: candidateSessionId,
       provider: "codex-cli",
       repo_path: meta.cwd ?? cwd,
       repo_origin: null,
       branch: null,
       host: hostname(),
-      transcript_path: transcriptPath,
+      transcript_path: candidateTranscriptPath,
       metadata: {
         originator: meta.originator ?? "codex-exec",
         cli_version: meta.cli_version ?? null,
         model_provider: meta.model_provider ?? null,
+        model: flags.model ?? null,
+        effort: flags.reasoning ?? null,
+        fast_mode: false,
         // delegation spawn 由来なら run 識別子を載せる。Concordia が run↔子セッションを
         // 決定的に紐付け (claimChildSession が child_session_id を焼く) → 親からの
         // inject / 外注リストの紐付けが機能する。未設定 (直 codex exec) なら載らない。
         ...delegationSessionMetadata(),
       },
-    });
+    }, 3);
+    if (!registered) {
+      process.stderr.write(`[concordia-codex-worker] failed to register session ${candidateSessionId}\n`);
+      return;
+    }
+    sessionId = candidateSessionId;
+    transcriptPath = candidateTranscriptPath;
     await postJson(`/v1/sessions/${encodeURIComponent(sessionId)}/event`, {
       kind: "prompt",
       payload: { summary: prompt.slice(0, 200), length: prompt.length },
@@ -230,22 +244,25 @@ async function postOneShot(payload) {
   if (!ok) await queueOneShot(payload);
 }
 
-async function postJsonChecked(path, body) {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(`${concordiaUrl}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: ctrl.signal,
-    });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
+async function postJsonChecked(path, body, attempts = 1) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${concordiaUrl}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctrl.signal,
+      });
+      if (res.ok) return true;
+    } catch {
+      // Critical registration/status calls retry below; one-shot calls use one attempt.
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  return false;
 }
 
 async function queueOneShot(payload) {

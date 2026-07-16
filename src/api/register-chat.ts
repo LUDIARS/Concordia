@@ -39,7 +39,11 @@ export interface ChatDeps {
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
-  app.route("/v1/monitor", monitorRouter({ repo: deps.repo, metrics: deps.metrics }));
+  app.route("/v1/monitor", monitorRouter({
+    repo: deps.repo,
+    metrics: deps.metrics,
+    resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+  }));
   app.route("/v1/chat", chatRouter({ chat: deps.chat }));
   app.route(
     "/v1/daily-reports",

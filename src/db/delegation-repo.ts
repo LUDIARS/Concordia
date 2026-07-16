@@ -82,6 +82,11 @@ export interface DelegationRunRow {
   effort_source?: string | null;
   effort_bucket?: string | null;
   effective_model?: string | null;
+  fast_mode?: number;
+  spawn_cwd?: string | null;
+  spawn_branch?: string | null;
+  spawn_worktree_path?: string | null;
+  spawn_worktree_created?: number;
   effort_decision_id?: number | null;
   finished_at?: number | null;
   created_at: number;
@@ -157,6 +162,11 @@ export interface CreateRunInput {
   effort_source?: string | null;
   effort_bucket?: string | null;
   effective_model?: string | null;
+  fast_mode?: boolean;
+  spawn_cwd?: string | null;
+  spawn_branch?: string | null;
+  spawn_worktree_path?: string | null;
+  spawn_worktree_created?: boolean;
   effort_decision_id?: number | null;
   finished_at?: number | null;
 }
@@ -171,6 +181,11 @@ export interface RunSpawnOutcome {
   effort_source?: string | null;
   effort_bucket?: string | null;
   effective_model?: string | null;
+  fast_mode?: boolean;
+  spawn_cwd?: string | null;
+  spawn_branch?: string | null;
+  spawn_worktree_path?: string | null;
+  spawn_worktree_created?: boolean;
   effort_decision_id?: number | null;
 }
 
@@ -319,8 +334,9 @@ export class DelegationRepo {
         id, template_id, call_name, target_provider, parent_session_id, child_session_id, args_json,
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
-        effort_bucket, effective_model, effort_decision_id, finished_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
+        spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -341,6 +357,11 @@ export class DelegationRepo {
       input.effort_source ?? null,
       input.effort_bucket ?? null,
       input.effective_model ?? null,
+      input.fast_mode ? 1 : 0,
+      input.spawn_cwd ?? null,
+      input.spawn_branch ?? null,
+      input.spawn_worktree_path ?? null,
+      input.spawn_worktree_created ? 1 : 0,
       input.effort_decision_id ?? null,
       input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
       now,
@@ -385,6 +406,11 @@ export class DelegationRepo {
              effort_source = COALESCE(?, effort_source),
              effort_bucket = COALESCE(?, effort_bucket),
              effective_model = COALESCE(?, effective_model),
+             fast_mode = COALESCE(?, fast_mode),
+             spawn_cwd = COALESCE(?, spawn_cwd),
+             spawn_branch = COALESCE(?, spawn_branch),
+             spawn_worktree_path = COALESCE(?, spawn_worktree_path),
+             spawn_worktree_created = COALESCE(?, spawn_worktree_created),
              effort_decision_id = COALESCE(?, effort_decision_id),
              finished_at = CASE WHEN ? IN ('spawn_failed', 'completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
              queue_payload_json = NULL
@@ -398,6 +424,11 @@ export class DelegationRepo {
       outcome.effort_source ?? null,
       outcome.effort_bucket ?? null,
       outcome.effective_model ?? null,
+      outcome.fast_mode === undefined ? null : (outcome.fast_mode ? 1 : 0),
+      outcome.spawn_cwd ?? null,
+      outcome.spawn_branch ?? null,
+      outcome.spawn_worktree_path ?? null,
+      outcome.spawn_worktree_created === undefined ? null : (outcome.spawn_worktree_created ? 1 : 0),
       outcome.effort_decision_id ?? null,
       outcome.status,
       Date.now(),

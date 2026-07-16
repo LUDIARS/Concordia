@@ -73,6 +73,14 @@ export interface RunRow {
   triggered_by: string | null;
   status: "queued" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
   error: string | null;
+  effort_level: string | null;
+  effort_source: string | null;
+  effective_model: string | null;
+  fast_mode: number;
+  spawn_cwd: string | null;
+  spawn_branch: string | null;
+  spawn_worktree_path: string | null;
+  spawn_worktree_created: number;
   /** queued の待ち順 (1 始まり)。 それ以外は null。 */
   queue_position: number | null;
   created_at: number;

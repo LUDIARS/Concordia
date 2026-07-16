@@ -4,6 +4,7 @@ import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
+import type { DelegationRepo } from "../db/delegation-repo.js";
 import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
 import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
 import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
@@ -29,6 +30,7 @@ export interface ChatReadModelDeps {
   sessionTaskRecordsRepo: SessionTaskRecordsRepo;
   tasksRepo: TasksRepo;
   prRecordsRepo: PrRecordsRepo;
+  delegationRepo: DelegationRepo;
   oauthLog?: { warn: (m: string) => void; info?: (m: string) => void };
   perfLog?: { warn: (m: string) => void; info?: (m: string) => void };
   costSnapshotAllowFullScan?: boolean;
@@ -39,13 +41,15 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     const session = deps.sessionsRepo.findSession(sessionId);
     if (!session) return null;
     const meta = readSessionMeta(session.metadata);
+    const delegationRunId = stringOrNull(meta.delegation_run_id);
+    const delegationRun = delegationRunId ? deps.delegationRepo.findRun(delegationRunId) : null;
     const personaId = stringOrNull(meta.persona_id);
     const persona = personaId ? deps.personasRepo.find(personaId) : null;
     return {
       sessionId,
       provider: session.provider,
       repoPath: session.repo_path,
-      branch: session.branch,
+      branch: session.branch ?? delegationRun?.spawn_branch ?? null,
       status: session.status,
       currentTask: session.current_task,
       roleLabel: stringOrNull(meta.role_label),
@@ -53,9 +57,11 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       personaDisplayName: persona?.display_name ?? null,
       personaName: persona?.name ?? null,
       delegationEmoji: stringOrNull(meta.delegation_emoji),
-      delegationRunId: stringOrNull(meta.delegation_run_id),
+      delegationRunId,
       delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
-      model: stringOrNull(meta.model),
+      model: delegationRun?.effective_model ?? stringOrNull(meta.model),
+      effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
+      fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
       subsidiaryId: stringOrNull(meta.subsidiary_id),
     };
   };
@@ -129,7 +135,10 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       return {
         sessionId,
         provider: session.provider,
-        branch: session.branch,
+        model: state.model,
+        effortLevel: state.effortLevel,
+        fastMode: state.fastMode,
+        branch: state.branch,
         repoPath: session.repo_path,
         targetProject: session.target_project,
         currentTask: session.current_task,
@@ -272,6 +281,10 @@ function readObject(raw: string | null | undefined): Record<string, unknown> {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function booleanOrNull(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
 }
 
 function stringOrUndefined(value: unknown): string | undefined {

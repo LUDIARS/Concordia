@@ -14,7 +14,7 @@ function makeFakeGuild() {
     topic: string | null;
     availableTags?: Array<{ id: string; name: string; moderated: boolean; emoji: undefined }>;
     setAvailableTags?: (tags: Array<{ id?: string; name: string; moderated?: boolean }>) => Promise<void>;
-    edit?: (patch: { topic?: string }) => Promise<void>;
+    edit?: (patch: { topic?: string; parent?: string | null }) => Promise<void>;
   }>();
   let counter = 0;
   const created: Array<{ name: string; type: ChannelType; topic: string | null }> = [];
@@ -45,8 +45,9 @@ function makeFakeGuild() {
               emoji: undefined,
             }));
           },
-          edit: async (patch: { topic?: string }) => {
+          edit: async (patch: { topic?: string; parent?: string | null }) => {
             if (patch.topic !== undefined) ch.topic = patch.topic;
+            if (patch.parent !== undefined) ch.parentId = patch.parent;
           },
         };
         channels.set(id, ch);
@@ -68,7 +69,7 @@ function makeFakeRepo(): DiscordConfigRepo {
 
 describe("ensureDiscordLayout", () => {
   it("既定 (本社) は雑談 meta / pr-queue / errors を全部作る", async () => {
-    const { guild, created } = makeFakeGuild();
+    const { guild, created, channels } = makeFakeGuild();
     const snap = await ensureDiscordLayout(guild, makeFakeRepo());
 
     expect(snap.prQueueChannelId).not.toBe("");
@@ -85,6 +86,20 @@ describe("ensureDiscordLayout", () => {
     expect(names).toContain("雑談");
     expect(names).not.toContain("sessions");
     expect(names).not.toContain("archive");
+    expect(channels.get(snap.costChannelId)?.parentId).toBeNull();
+    expect(channels.get(snap.activityChannelId)?.parentId).toBe(snap.statusCategoryId);
+  });
+
+  it("既存のコストチャンネルをカテゴリ外へ移動する", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const repo = makeFakeRepo();
+    const first = await ensureDiscordLayout(guild, repo);
+    const cost = channels.get(first.costChannelId)!;
+    cost.parentId = first.statusCategoryId;
+
+    const second = await ensureDiscordLayout(guild, repo);
+    expect(second.costChannelId).toBe(first.costChannelId);
+    expect(cost.parentId).toBeNull();
   });
 
   it("slim (子会社) は雑談 meta / pr-queue / errors を作らず空 id を返す", async () => {

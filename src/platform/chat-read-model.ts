@@ -38,6 +38,8 @@ export interface SessionRelayState {
   delegationRunId: string | null;
   delegationParentSessionId: string | null;
   model: string | null;
+  effortLevel: string | null;
+  fastMode: boolean | null;
   subsidiaryId: string | null;
 }
 
@@ -85,6 +87,9 @@ export interface SessionCacheSnapshot {
 export interface SessionStatusSnapshot {
   sessionId: string;
   provider: string;
+  model: string | null;
+  effortLevel: string | null;
+  fastMode: boolean | null;
   branch: string | null;
   repoPath: string;
   targetProject: string | null;

@@ -202,6 +202,7 @@ async function main(): Promise<void> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    delegationRepo,
   });
 
   const discordDeps: DiscordBotDeps = {

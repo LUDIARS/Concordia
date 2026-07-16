@@ -134,7 +134,8 @@ export async function ensureDiscordLayout(
         Object.values(SESSION_STATE_TAG_NAMES),
       )
     : "";
-  const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", statusCategoryId);
+  // コストはカテゴリ外のルートチャンネル。既存配置も ensure 時にルートへ戻す。
+  const costChannelId = await ensureTextChannel(guild, repo, COST_CHANNEL_KEY, "コスト", null);
   const activityChannelId = await ensureTextChannel(guild, repo, ACTIVITY_CHANNEL_KEY, "activity", statusCategoryId);
   const monitorChannelId = await ensureTextChannel(guild, repo, MONITOR_CHANNEL_KEY, "concordia-monitor", statusCategoryId);
   // pr-queue / errors / 雑談系 (meta) は子会社では作らない (空 id を返し、 消費側はガードで skip)。
@@ -300,21 +301,31 @@ async function ensureTextChannel(
   repo: DiscordConfigRepo,
   key: string,
   name: string,
-  parentId: string,
+  parentId: string | null,
 ): Promise<string> {
   const cached = repo.get(key);
   if (cached) {
     const ch = guild.channels.cache.get(cached);
-    if (ch && (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)) return cached;
+    if (ch && (ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)) {
+      if (ch.parentId !== parentId) await ch.edit({ parent: parentId, reason: `${name} channel category sync` });
+      return cached;
+    }
   }
   const existing = guild.channels.cache.find(
-    (c) => c.type === ChannelType.GuildText && c.name === name && c.parentId === parentId,
+    (c) => c.type === ChannelType.GuildText && c.name === name,
   );
   if (existing) {
+    if (existing.parentId !== parentId && existing.type === ChannelType.GuildText) {
+      await existing.edit({ parent: parentId, reason: `${name} channel category sync` });
+    }
     repo.set(key, existing.id);
     return existing.id;
   }
-  const created = await guild.channels.create({ name, type: ChannelType.GuildText, parent: parentId });
+  const created = await guild.channels.create({
+    name,
+    type: ChannelType.GuildText,
+    ...(parentId ? { parent: parentId } : {}),
+  });
   repo.set(key, created.id);
   return created.id;
 }

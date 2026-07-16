@@ -4,6 +4,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
 import type { ChatReadModel, SessionCacheSnapshot } from "../platform/chat-read-model.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
+import { formatFastMode, formatWorkingBranch } from "./runtime-metadata.js";
 
 const ACTIVE_WINDOW_SEC = 60;
 const WAITING_WINDOW_SEC = 5 * 60;
@@ -103,6 +104,9 @@ export async function upsertSessionStatusCard(
 export interface StatusEmbedInput {
   sessionId: string;
   provider: string;
+  model?: string | null;
+  effortLevel?: string | null;
+  fastMode?: boolean | null;
   branch: string | null;
   repoPath: string;
   targetProject?: string | null;
@@ -170,7 +174,10 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
     .addFields(
       { name: "状態", value: statusValue, inline: true },
       { name: "Agent", value: `\`${i.provider}\``, inline: true },
-      { name: "Branch", value: `\`${i.branch ?? "-"}\``, inline: true },
+      { name: "作業ブランチ", value: formatWorkingBranch(i.branch), inline: true },
+      { name: "Model", value: `\`${i.model ?? "-"}\``, inline: true },
+      { name: "Effort", value: `\`${i.effortLevel ?? "-"}\``, inline: true },
+      { name: "Fast mode", value: formatFastMode(i.fastMode), inline: true },
       { name: "Repo", value: `\`${repoName}\``, inline: true },
       { name: "作業対象", value: `\`${i.targetProject ?? "-"}\``, inline: true },
       { name: `タスク (${taskHeader})`, value: taskValue, inline: false },

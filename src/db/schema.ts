@@ -432,6 +432,11 @@ const STATEMENTS = [
     effort_source       TEXT,
     effort_bucket       TEXT,
     effective_model     TEXT,
+    fast_mode           INTEGER NOT NULL DEFAULT 0,
+    spawn_cwd           TEXT,
+    spawn_branch        TEXT,
+    spawn_worktree_path TEXT,
+    spawn_worktree_created INTEGER NOT NULL DEFAULT 0,
     effort_decision_id  INTEGER,
     finished_at         INTEGER,
     created_at          INTEGER NOT NULL
@@ -1002,6 +1007,11 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "delegation_runs", column: "effort_source", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_source TEXT` },
   { table: "delegation_runs", column: "effort_bucket", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_bucket TEXT` },
   { table: "delegation_runs", column: "effective_model", ddl: `ALTER TABLE delegation_runs ADD COLUMN effective_model TEXT` },
+  { table: "delegation_runs", column: "fast_mode", ddl: `ALTER TABLE delegation_runs ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0` },
+  { table: "delegation_runs", column: "spawn_cwd", ddl: `ALTER TABLE delegation_runs ADD COLUMN spawn_cwd TEXT` },
+  { table: "delegation_runs", column: "spawn_branch", ddl: `ALTER TABLE delegation_runs ADD COLUMN spawn_branch TEXT` },
+  { table: "delegation_runs", column: "spawn_worktree_path", ddl: `ALTER TABLE delegation_runs ADD COLUMN spawn_worktree_path TEXT` },
+  { table: "delegation_runs", column: "spawn_worktree_created", ddl: `ALTER TABLE delegation_runs ADD COLUMN spawn_worktree_created INTEGER NOT NULL DEFAULT 0` },
   { table: "delegation_runs", column: "effort_decision_id", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_decision_id INTEGER` },
   { table: "delegation_runs", column: "finished_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN finished_at INTEGER` },
 ];

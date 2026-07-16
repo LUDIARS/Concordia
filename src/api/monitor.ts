@@ -13,9 +13,12 @@ import type { SessionRow } from "../shared/types.js";
 import { probeProjectSufficiency, type ProjectSufficiency } from "../harness/data-sufficiency.js";
 import { repoLeaf } from "../harness/predicates.js";
 import { serializeSession } from "./sessions.js";
+import { isWorkspaceRootRepo } from "../control/conflict-scope.js";
 
 export interface MonitorApiDeps {
   repo: SessionsRepo;
+  /** umbrella workspace roots are containers, not work targets. */
+  resolveWorkspaceRoots?: () => string[];
   /** ホストメトリクスの読み出し (省略時は metrics 機能無効として 503)。 */
   metrics?: MetricsStore;
 }
@@ -60,6 +63,16 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
     const exclude = (c.req.query("exclude_session") ?? "").trim();
     if (!repo) return c.json({ error: "repo query param required" }, 400);
     const callerBranch: string | null = branchQuery === "" ? null : branchQuery;
+    const workspaceRoot = isWorkspaceRootRepo(repo, deps.resolveWorkspaceRoots?.() ?? []);
+    if (workspaceRoot) {
+      return c.json({
+        repo,
+        branch: callerBranch,
+        workspace_root: true,
+        conflicts: [],
+        branches: [],
+      });
+    }
 
     const all = deps.repo.listSessions({ status: "active" });
 
@@ -83,6 +96,7 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
     return c.json({
       repo,
       branch: callerBranch,
+      workspace_root: false,
       conflicts: matching.map(serializeSession),
       branches: [...byBranch.entries()].map(([branch, count]) => ({ branch, count })),
     });

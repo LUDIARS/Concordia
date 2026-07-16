@@ -11,12 +11,16 @@ describe("forum session surfaces", () => {
       sessionId: "session-1",
       repoPath: "E:/Document/Ars/Concordia",
       branch: "codex/forum-phase3",
+      model: "gpt-5.6-sol",
+      effortLevel: "high",
+      fastMode: false,
       surfaceLabel: "TaskWorkflow",
       delegationRunId: "run-1",
     });
     expect(content).toContain("**TaskWorkflow** `session-1`");
     expect(content).toContain("**Delegation run** `run-1`");
-    expect(content).toContain("**Branch** `codex/forum-phase3`");
+    expect(content).toContain("**作業ブランチ** 🟠 non-root `codex/forum-phase3`");
+    expect(content).toContain("model `gpt-5.6-sol` · effort `high` · fast OFF");
   });
 
   it("keeps forum titles within the Discord limit", () => {

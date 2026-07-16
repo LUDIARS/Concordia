@@ -372,6 +372,11 @@ export class DelegationService {
       effort_source: launch.effort_source,
       effort_bucket: launch.effort_bucket,
       effective_model: launch.effective_model,
+      fast_mode: launch.fast_mode,
+      spawn_cwd: launch.cwd,
+      spawn_branch: launch.branch,
+      spawn_worktree_path: launch.worktree_path,
+      spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
     });
 
@@ -429,6 +434,11 @@ export class DelegationService {
       effort_source: launch.effort_source,
       effort_bucket: launch.effort_bucket,
       effective_model: launch.effective_model,
+      fast_mode: launch.fast_mode,
+      spawn_cwd: launch.cwd,
+      spawn_branch: launch.branch,
+      spawn_worktree_path: launch.worktree_path,
+      spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
     });
   }
@@ -669,6 +679,7 @@ export class DelegationService {
       effort_source: effortSource,
       effort_bucket: effortBucket,
       effective_model: spawn.effectiveModel,
+      fast_mode: effectiveOptions.fast_mode === true,
       effort_decision_id: effortDecisionId,
     };
   }
@@ -691,6 +702,7 @@ type LaunchResult =
       effort_source: string | null;
       effort_bucket: EffortTaskBucket | null;
       effective_model: string | null;
+      fast_mode: boolean;
       effort_decision_id: number | null;
     }
   | { ok: false; error: string };

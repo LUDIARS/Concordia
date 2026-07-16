@@ -9,6 +9,9 @@ function base(overrides: Partial<StatusEmbedInput> = {}): StatusEmbedInput {
   return {
     sessionId: "lictor-abc123def456",
     provider: "claude-code",
+    model: "claude-opus-4-8",
+    effortLevel: "high",
+    fastMode: true,
     branch: "feat/x",
     repoPath: "E:/Document/Ars/Concordia",
     currentTask: null,
@@ -61,6 +64,18 @@ describe("buildSessionStatusEmbed", () => {
     expect(field(e, "Repo")?.value).toBe("`Concordia`");
     expect(e.data.footer?.text).toContain("E:/Document/Ars/Concordia");
     expect(e.data.footer?.text).toContain("session abc123de"); // lictor- 除去 + 8 桁
+  });
+
+  it("runtimeと非root作業ブランチを明示する", () => {
+    const e = buildSessionStatusEmbed(base());
+    expect(field(e, "作業ブランチ")?.value).toBe("🟠 non-root `feat/x`");
+    expect(field(e, "Model")?.value).toBe("`claude-opus-4-8`");
+    expect(field(e, "Effort")?.value).toBe("`high`");
+    expect(field(e, "Fast mode")?.value).toBe("⚡ ON");
+
+    const root = buildSessionStatusEmbed(base({ branch: "main", fastMode: false }));
+    expect(field(root, "作業ブランチ")?.value).toBe("root `main`");
+    expect(field(root, "Fast mode")?.value).toBe("OFF");
   });
 
   it("current task は description に太字 + チャンネルメンション", () => {

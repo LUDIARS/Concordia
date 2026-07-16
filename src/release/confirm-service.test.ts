@@ -104,14 +104,17 @@ describe("ConfirmService", () => {
     expect(repo.findByPr("LUDIARS/Concordia", 1)!.status).toBe("failed");
   });
 
-  it("start: ビルド失敗ならサービスに触らない", async () => {
+  it("start: ビルド失敗ならサービスに触れず pending のまま再試行可能にする", async () => {
     vi.spyOn(build, "buildClone").mockResolvedValue({ ok: false, ran: true, error: "tsc error" });
     const { client, calls } = makeExcubitor();
     const r = await makeService(client).start("concordia");
 
     expect(r.ok).toBe(false);
     expect(calls).toEqual([]);   // main を止めていない
-    expect(repo.findByPr("LUDIARS/Concordia", 1)!.status).toBe("failed");
+    const row = repo.findByPr("LUDIARS/Concordia", 1)!;
+    expect(row.status).toBe("pending");
+    expect(row.error).toContain("ビルドに失敗: tsc error");
+    expect(repo.listOpenForService("concordia")).toHaveLength(1);
   });
 
   it("ok: main へ ff 反映 → develop を止めて main を起動 → confirmed", async () => {

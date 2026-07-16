@@ -8,12 +8,9 @@
  * spec/feature/develop-confirm-flow.md §9。
  */
 
-import { execFile } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
+import { runNpm } from "./npm-runner.js";
 
 /** npm ci + build は重い (依存インストールを含む)。 */
 const BUILD_TIMEOUT_MS = 15 * 60_000;
@@ -24,6 +21,8 @@ export interface BuildResult {
   ran: boolean;
   error?: string;
 }
+
+export type BuildNpmRunner = (cwd: string, args: readonly string[], timeoutMs: number) => Promise<unknown>;
 
 /** package.json に build script があるか。 */
 export function hasBuildScript(repoPath: string): boolean {
@@ -37,22 +36,15 @@ export function hasBuildScript(repoPath: string): boolean {
   }
 }
 
-export async function buildClone(repoPath: string): Promise<BuildResult> {
+export async function buildClone(repoPath: string, npmRunner: BuildNpmRunner = runNpm): Promise<BuildResult> {
   if (!hasBuildScript(repoPath)) return { ok: true, ran: false };
   try {
-    await run(repoPath, ["ci"]);
-    await run(repoPath, ["run", "build"]);
+    await npmRunner(repoPath, ["ci"], BUILD_TIMEOUT_MS);
+    await npmRunner(repoPath, ["run", "build"], BUILD_TIMEOUT_MS);
     return { ok: true, ran: true };
   } catch (e) {
     const err = e as { stderr?: string; message?: string };
     const detail = (err.stderr || err.message || "build failed").trim();
     return { ok: false, ran: true, error: detail.slice(-1500) };
   }
-}
-
-function run(cwd: string, args: string[]): Promise<unknown> {
-  // Windows では npm は npm.cmd。 shell: true にすると引数のエスケープ事故が出るので
-  // 実行ファイル名側で吸収する。
-  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
-  return execFileAsync(npm, args, { cwd, timeout: BUILD_TIMEOUT_MS, windowsHide: true });
 }

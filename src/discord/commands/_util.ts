@@ -37,9 +37,12 @@ export async function callConcordia<T>(
     const text = await res.text();
     const json = text ? (JSON.parse(text) as T | { error: string }) : ({} as T);
     if (!res.ok) {
-      const msg = typeof (json as { error?: unknown }).error === "string"
-        ? (json as { error: string }).error
-        : `HTTP ${res.status}`;
+      const errorBody = json as { error?: unknown; message?: unknown };
+      const msg = typeof errorBody.error === "string"
+        ? errorBody.error
+        : typeof errorBody.message === "string"
+          ? errorBody.message
+          : `HTTP ${res.status}`;
       return { error: msg };
     }
     return json;

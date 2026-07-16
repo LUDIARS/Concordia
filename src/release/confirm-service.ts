@@ -75,7 +75,7 @@ export class ConfirmService {
     for (const run of runs) this.deps.repo.setDevelopSha(run.id, developSha);
 
     const built = await buildClone(paths.develop);
-    if (!built.ok) return this.fail(runs, `ビルドに失敗: ${built.error}`);
+    if (!built.ok) return this.retryableFailure(runs, `ビルドに失敗: ${built.error}`);
 
     // 排他切替: main を止めてから develop を起動する。
     await this.deps.excubitor.control(serviceCode, "stop");
@@ -195,6 +195,13 @@ export class ConfirmService {
   private fail(runs: ConfirmRunRow[], message: string): ConfirmActionResult {
     for (const run of runs) this.deps.repo.setStatus(run.id, "failed", message);
     log.warn({ runs: runs.length, message }, "confirm failed");
+    return { ok: false, message: `⚠️ ${message}`, runs };
+  }
+
+  /** サービス切替前の失敗は pending を保ち、原因を残したまま再試行可能にする。 */
+  private retryableFailure(runs: ConfirmRunRow[], message: string): ConfirmActionResult {
+    for (const run of runs) this.deps.repo.setStatus(run.id, "pending", message);
+    log.warn({ runs: runs.length, message }, "confirm attempt failed; retry remains pending");
     return { ok: false, message: `⚠️ ${message}`, runs };
   }
 }

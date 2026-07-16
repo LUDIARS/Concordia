@@ -109,8 +109,9 @@ main 反映までを Concordia が自動でやり、 人間は Discord で 2 回
 `/confirm start <service>`:
 1. testing claim
 2. `git -C <develop clone> fetch origin && git reset --hard origin/develop`
-3. ビルド (`npm ci && npm run build` 等。 サービスの `runtime` に応じて Excubitor の
-   `command` を使う。 ビルドコマンドは catalog の `build_command` を見る。 無ければスキップ)
+3. ビルド (`npm ci && npm run build`)。 Windows では `npm.cmd` を直接 spawn せず、
+   `ComSpec /d /s /c npm.cmd` を構造化 argv で実行する。 ビルドに失敗した場合はサービスを
+   切り替えず、理由を記録した `pending` のままにして `/confirm start` を再試行可能にする。
 4. Excubitor: `POST /api/v1/services/<code>/control {action:"stop"}` (main 版)
 5. Excubitor: `POST /api/v1/services/<code>-develop/control {action:"start"}`
 6. liveness 確認 (`GET /api/v1/services/<code>-develop/liveness`)。 **起動できなければ**

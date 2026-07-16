@@ -75,4 +75,24 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
     description: "セッション内または worktree でサービス起動・動作テストを行わない。動作テストは Concordia の confirm キューのみで行う。",
     sort_order: 70,
   });
+
+  // spec/feature/task-workflow.md §1.1 (2026-07-17 neco 指示) の作業ブランチ規約。
+  repo.ensureBuiltin({
+    kind: "block",
+    title: "作業ブランチ + worktree 必須",
+    description:
+      "実装作業は main / develop の直編集・直コミットで行わない。作業内容を解析して作業ブランチを確定し、" +
+      "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (task md) に積み、コミット → PR 作成まで行う。" +
+      "レビューとテストは作業完了後に非同期で実施してよい (PR 作成を直列待ちにしない)。",
+    sort_order: 80,
+  });
+
+  repo.ensureBuiltin({
+    kind: "block",
+    title: "オートマージ禁止",
+    description:
+      "PR の自動マージ (gh pr merge --auto、GitHub auto-merge の有効化、CI 通過時の無人マージ設定など) はブロックする。" +
+      "マージは人間の明示操作、または confirm フローを経た明示マージのみ。タスクワークフローの流路では例外を作らない。",
+    sort_order: 90,
+  });
 }

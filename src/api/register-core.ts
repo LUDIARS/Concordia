@@ -549,10 +549,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       },
       ended,
     );
-    const killResult = stopSessionByLictorPid(meta.lictor_pid);
-    // agent-client (別ツリー) も登録 pid があれば落とす (best-effort)。
+    const killResult = await stopSessionByLictorPid(meta.lictor_pid);
+    // agent-client (別ツリー) も登録 pid があれば落とす (best-effort、 結果は待たない)。
     if (typeof meta.agent_client_pid === "number") {
-      stopSessionByLictorPid(meta.agent_client_pid);
+      void stopSessionByLictorPid(meta.agent_client_pid);
     }
     if (!killResult.ok) {
       return c.json({

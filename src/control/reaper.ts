@@ -230,7 +230,7 @@ export async function reapOrphans(
   const failed: Array<{ proc: OrphanProc; error: string }> = [];
   if (!opts.dryRun) {
     for (const o of orphans) {
-      const r = stopSessionByLictorPid(o.pid);
+      const r = await stopSessionByLictorPid(o.pid);
       if (r.ok) killed.push(o);
       else failed.push({ proc: o, error: r.error });
     }

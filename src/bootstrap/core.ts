@@ -115,6 +115,7 @@ import {
 import {
   COST_WORKER_CHECK_MS,
   costEmbeddedEnabled,
+  createCostLeaseWatchTick,
   createCostRuntime,
   readCostMode,
   readCostWorkerLease,
@@ -1045,11 +1046,24 @@ export async function startBackend(): Promise<BackendHandle> {
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
 
-  const costWorkerWatch = setInterval(() => {
-    if (!costRuntime.isRunning() || !readCostWorkerLease(discordConfig)) return;
-    log.warn("live cost-worker lease detected; stopping embedded cost sampler");
-    costRuntime.stop();
-  }, COST_WORKER_CHECK_MS);
+  const costWorkerWatch = setInterval(
+    createCostLeaseWatchTick({
+      mode: costMode,
+      runtime: costRuntime,
+      readLease: () => readCostWorkerLease(discordConfig),
+      log,
+      reportWorkerDown: (lastLease) => {
+        eventBus.emit({
+          type: "error.reported",
+          source: "cost-worker-lease",
+          message: "cost-worker lease expired; cost sampling is down (worker mode has no auto-fallback)",
+          detail: lastLease ? { pid: lastLease.pid, last_heartbeat_ms: lastLease.ts } : {},
+          ts: Math.floor(Date.now() / 1000),
+        });
+      },
+    }),
+    COST_WORKER_CHECK_MS,
+  );
   costWorkerWatch.unref?.();
 
   let embeddedChatYielded = chatEmbeddedEnabled() && hasLiveChatWorkerLease();

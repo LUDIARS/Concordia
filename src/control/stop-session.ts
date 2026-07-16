@@ -14,7 +14,7 @@
  * mark the session ended on a soft failure.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 
 export interface StopOk { ok: true; method: "taskkill" | "signal" }
 export interface StopErr { ok: false; error: string }
@@ -31,30 +31,40 @@ export function isPidAlive(pid: number): boolean {
   }
 }
 
-export function stopSessionByLictorPid(pid: number): StopResult {
+/**
+ * 非同期で kill を発行する。 Windows の taskkill はプロセスツリーが大きい /
+ * ハングしていると数秒かかることがあり、 旧実装の spawnSync は HTTP ハンドラや
+ * reaper tick の上でイベントループごと停止させていた (2026-07-16 障害調査)。
+ * 返す Promise は reject しない (エラーは StopErr で表現)。
+ */
+export function stopSessionByLictorPid(pid: number): Promise<StopResult> {
   if (!Number.isInteger(pid) || pid <= 0) {
-    return { ok: false, error: `invalid pid: ${pid}` };
+    return Promise.resolve({ ok: false, error: `invalid pid: ${pid}` });
   }
   if (process.platform === "win32") {
-    const r = spawnSync("taskkill", ["/F", "/T", "/PID", String(pid)], {
-      windowsHide: true,
-      encoding: "utf8",
+    return new Promise((resolve) => {
+      const child = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
+      child.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
+      child.on("error", (err) => resolve({ ok: false, error: err.message }));
+      child.on("close", (code) => {
+        if (code === 0) resolve({ ok: true, method: "taskkill" });
+        else resolve({ ok: false, error: stderr.trim() || stdout.trim() || `taskkill exit ${code}` });
+      });
     });
-    if (r.status === 0) return { ok: true, method: "taskkill" };
-    const stderr = (r.stderr ?? "").trim();
-    const stdout = (r.stdout ?? "").trim();
-    return { ok: false, error: stderr || stdout || `taskkill exit ${r.status}` };
   }
   try {
     process.kill(-pid, "SIGTERM");
-    return { ok: true, method: "signal" };
-  } catch (err) {
+    return Promise.resolve({ ok: true, method: "signal" });
+  } catch {
     // EPERM / ESRCH (process gone) — try direct PID as a fallback.
     try {
       process.kill(pid, "SIGTERM");
-      return { ok: true, method: "signal" };
+      return Promise.resolve({ ok: true, method: "signal" });
     } catch (err2) {
-      return { ok: false, error: (err2 as Error).message };
+      return Promise.resolve({ ok: false, error: (err2 as Error).message });
     }
   }
 }

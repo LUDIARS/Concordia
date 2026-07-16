@@ -453,16 +453,18 @@ app.delete("/:id", async (c) => {
       // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
       if (lictorPid != null || agentClientPid != null) {
         setTimeout(() => {
-          if (lictorPid != null && isPidAlive(lictorPid)) {
-            const r = stopSessionByLictorPid(lictorPid);
-            if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
-            else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
-          }
-          if (agentClientPid != null && isPidAlive(agentClientPid)) {
-            const r = stopSessionByLictorPid(agentClientPid);
-            if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
-            else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
-          }
+          void (async () => {
+            if (lictorPid != null && isPidAlive(lictorPid)) {
+              const r = await stopSessionByLictorPid(lictorPid);
+              if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
+              else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
+            }
+            if (agentClientPid != null && isPidAlive(agentClientPid)) {
+              const r = await stopSessionByLictorPid(agentClientPid);
+              if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
+              else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
+            }
+          })();
         }, FORCE_EXIT_GRACE_MS).unref?.();
       }
     };

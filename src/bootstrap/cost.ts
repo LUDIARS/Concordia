@@ -65,6 +65,54 @@ export function startCostWorkerLease(
   });
 }
 
+export interface CostLeaseWatchDeps {
+  mode: CostMode;
+  runtime: Pick<CostRuntime, "isRunning" | "start" | "stop">;
+  readLease: () => WorkerLease | null;
+  log: { info: (msg: string) => void; warn: (msg: string) => void };
+  /** worker モードで lease 失効を検知したときの通知。 1 停止につき 1 回だけ呼ぶ。 */
+  reportWorkerDown: (lastLease: WorkerLease | null) => void;
+}
+
+/**
+ * cost-worker lease の周期 watch tick。
+ *
+ * chat/workflow の worker watch と対称にする:
+ * - lease が生きていれば embedded サンプラを止める (worker に譲る)。
+ * - lease が失効したら、 embedded モードは自前サンプラを再開、
+ *   worker モードは自動フォールバック先が無いので warn + reportWorkerDown で
+ *   人間/errors チャンネルに可視化する (2026-07-15 に worker が黙って死に、
+ *   cost 計測が数日止まっていた実害への対処)。
+ */
+export function createCostLeaseWatchTick(deps: CostLeaseWatchDeps): () => void {
+  let workerDownReported = false;
+  let lastLease: WorkerLease | null = null;
+  return () => {
+    const lease = deps.readLease();
+    if (lease) {
+      lastLease = lease;
+      workerDownReported = false;
+      if (deps.runtime.isRunning()) {
+        deps.log.warn("live cost-worker lease detected; stopping embedded cost sampler");
+        deps.runtime.stop();
+      }
+      return;
+    }
+    if (deps.mode === "embedded") {
+      if (!deps.runtime.isRunning()) {
+        deps.log.warn("cost-worker lease expired; restoring embedded cost sampler");
+        deps.runtime.start();
+      }
+      return;
+    }
+    if (deps.mode === "worker" && !workerDownReported) {
+      workerDownReported = true;
+      deps.log.warn("cost-worker lease expired; cost sampling is down (worker mode has no auto-fallback)");
+      deps.reportWorkerDown(lastLease);
+    }
+  };
+}
+
 export interface CostRuntimeDeps {
   db: Database.Database;
   sessionsRepo: SessionsRepo;

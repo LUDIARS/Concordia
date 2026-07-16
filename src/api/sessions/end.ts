@@ -62,7 +62,7 @@ app.post("/:id/relictor", async (c) => {
     const lictorPid = parseLictorPid(session.metadata);
     if (lictorPid != null) {
       setTimeout(() => {
-        if (isPidAlive(lictorPid)) stopSessionByLictorPid(lictorPid);
+        if (isPidAlive(lictorPid)) void stopSessionByLictorPid(lictorPid);
       }, FORCE_EXIT_GRACE_MS).unref?.();
     }
     log.info({ session_id: id, repo: session.repo_path }, "relictor: spawned replacement + ended old");

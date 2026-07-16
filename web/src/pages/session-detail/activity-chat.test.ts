@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toActivityMessage } from "./activity-chat.js";
+import { isCollapsibleActivityFrame, toActivityMessage } from "./activity-chat.js";
 
 describe("toActivityMessage", () => {
   it("keeps the complete assistant message without summary optimization or truncation", () => {
@@ -42,5 +42,33 @@ describe("toActivityMessage", () => {
     expect(message.tone).toBe("summary");
     expect(message.detail).toBe("詳細ログと併記");
     expect(message.text).toBe("conversation summary");
+  });
+
+  it.each(["event_msg", "response_item"])(
+    "collapses raw %s provider frames as internal events",
+    (type) => {
+      expect(isCollapsibleActivityFrame({
+        seq: 4,
+        ts: 4,
+        kind: "raw",
+        payload: { type, keys: ["timestamp", "type", "payload"] },
+      })).toBe(true);
+    },
+  );
+
+  it("keeps commentary progress updates in the user-facing timeline", () => {
+    const frame = {
+      seq: 5,
+      ts: 5,
+      kind: "text",
+      payload: { role: "assistant", phase: "commentary", text: "テストを実行しています。" },
+    };
+
+    expect(isCollapsibleActivityFrame(frame)).toBe(false);
+    expect(toActivityMessage(frame)).toMatchObject({
+      detail: "作業更新",
+      text: "テストを実行しています。",
+      tone: "assistant",
+    });
   });
 });

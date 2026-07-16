@@ -10,6 +10,17 @@ export interface ActivityMessage {
   imageDataUrl: string | null;
 }
 
+const USER_FACING_ACTIVITY_KINDS = new Set(["text", "summary", "image"]);
+
+/**
+ * Keep user-facing messages in the main timeline. Provider protocol frames and
+ * tool payloads remain available as diagnostics, but belong in a collapsed
+ * technical-events group so they do not bury progress updates.
+ */
+export function isCollapsibleActivityFrame(frame: TranscriptFrame): boolean {
+  return !USER_FACING_ACTIVITY_KINDS.has(frame.kind);
+}
+
 export function toActivityMessage(frame: TranscriptFrame): ActivityMessage {
   const payload = asRecord(frame.payload);
   if (frame.kind === "text") {

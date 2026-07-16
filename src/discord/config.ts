@@ -2,7 +2,11 @@ import type { ForumChannel, Guild, GuildForumTagData } from "discord.js";
 import { ChannelType } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
-import { SESSION_WORK_TAG_NAMES } from "./forum-template-tags.js";
+import {
+  SESSION_WORK_TAG_NAMES,
+  desiredSessionForumTagNames,
+  type ForumTemplateTagSource,
+} from "./forum-template-tags.js";
 
 export interface DiscordConfigSnapshot {
   guildId: string;
@@ -48,6 +52,17 @@ const FORUM_NAMES = {
   taskWorkflow: "TaskWorkflow",
 } as const;
 
+export const SESSION_FORUM_TOPIC = [
+  "新規投稿からCcセッションを起動します。",
+  "1. 起動テンプレタグを1つ選ぶ（Claude起動 / Codex起動など）。",
+  "2. タイトルを「[project code] 作業概要」にし、本文へ依頼内容・完了条件を書く。",
+  "3. 投稿するとCcがセッションをspawnし、起動後は状態・会話・結果を同じスレッドへ紐付ける。",
+  "タグなし・複数タグでは起動しません。対象projectが不明な場合は起動後に確認します。",
+].join("\n");
+
+const TASK_WORKFLOW_FORUM_TOPIC =
+  "Delegation runごとの進行・状態・結果を1スレッドに集約します。Sessionフォーラムの新規投稿から直接作る場所ではありません。";
+
 export const SESSION_STATE_TAG_NAMES = {
   working: "作業中",
   active: "待機",
@@ -75,6 +90,8 @@ export interface EnsureLayoutOptions {
   includePrQueue?: boolean;
   /** 「エラー」 カテゴリ + errors チャンネルを作るか。 既定 true。 */
   includeErrors?: boolean;
+  /** Bot 起動時に Session forum へ不足分を補う delegation template tags。 */
+  sessionForumTemplates?: readonly ForumTemplateTagSource[];
 }
 
 export async function ensureDiscordLayout(
@@ -86,6 +103,9 @@ export async function ensureDiscordLayout(
   const includePrQueue = opts.includePrQueue ?? true;
   const includeErrors = opts.includeErrors ?? true;
   const forumMode = opts.forumMode ?? true;
+  const sessionForumTagNames = opts.sessionForumTemplates
+    ? desiredSessionForumTagNames(opts.sessionForumTemplates)
+    : [...SESSION_WORK_TAG_NAMES, ...Object.values(SESSION_STATE_TAG_NAMES)];
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
@@ -100,7 +120,8 @@ export async function ensureDiscordLayout(
         repo,
         SESSION_FORUM_KEY,
         FORUM_NAMES.session,
-        [...SESSION_WORK_TAG_NAMES, ...Object.values(SESSION_STATE_TAG_NAMES)],
+        SESSION_FORUM_TOPIC,
+        sessionForumTagNames,
       )
     : "";
   const taskWorkflowForumId = forumMode
@@ -109,6 +130,7 @@ export async function ensureDiscordLayout(
         repo,
         TASK_WORKFLOW_FORUM_KEY,
         FORUM_NAMES.taskWorkflow,
+        TASK_WORKFLOW_FORUM_TOPIC,
         Object.values(SESSION_STATE_TAG_NAMES),
       )
     : "";
@@ -186,6 +208,7 @@ async function ensureForum(
   repo: DiscordConfigRepo,
   key: string,
   name: string,
+  topic: string,
   requiredTagNames: readonly string[] = [],
 ): Promise<string> {
   const cached = repo.get(key);
@@ -194,10 +217,14 @@ async function ensureForum(
     forum = guild.channels.cache.find((c) => c.type === ChannelType.GuildForum && c.name === name) ?? null;
   }
   if (!forum) {
-    forum = await guild.channels.create({ name, type: ChannelType.GuildForum });
+    forum = await guild.channels.create({ name, type: ChannelType.GuildForum, topic });
   }
   repo.set(key, forum.id);
-  await ensureForumTags(forum as ForumChannel, requiredTagNames);
+  const forumChannel = forum as ForumChannel;
+  if (forumChannel.topic !== topic) {
+    await forumChannel.edit({ topic, reason: "Concordia forum details sync" });
+  }
+  await ensureForumTags(forumChannel, requiredTagNames);
   return forum.id;
 }
 

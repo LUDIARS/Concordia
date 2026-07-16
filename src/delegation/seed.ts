@@ -60,6 +60,46 @@ const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
   codex56Template("luna", "Luna", "🌙", 70, "medium"),
 ];
 
+const FORUM_SESSION_PROMPT = [
+  "Discord Session フォーラムの投稿から起動されたセッションです。",
+  "追加の初回指示に含まれる Title と本文を依頼の正本として扱ってください。",
+  "対象プロジェクトと作業範囲を最初に確認し、不明な場合は実装前にユーザーへ確認してください。",
+].join("\n");
+
+/** Forum 投稿本文は extra_prompt で渡るため、引数なしで安全に invoke できる既定テンプレ。 */
+const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
+  {
+    call_name: "forum-claude-session",
+    title: "Claude起動",
+    description: "Discord Session フォーラムの投稿から Claude セッションを起動する既定テンプレート。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    prompt_template: FORUM_SESSION_PROMPT,
+    input_schema: [],
+    is_active: true,
+    forum_tag: true,
+    category: "employee",
+    sort_order: 80,
+    emoji: "🟣",
+  },
+  {
+    call_name: "forum-codex-session",
+    title: "Codex起動",
+    description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
+    target_provider: "codex",
+    model: "gpt-5.6-sol",
+    runtime_options: { model_reasoning_effort: "high" },
+    prompt_template: FORUM_SESSION_PROMPT,
+    input_schema: [],
+    is_active: true,
+    forum_tag: true,
+    category: "employee",
+    sort_order: 90,
+    emoji: "🟢",
+  },
+];
+const FORUM_SESSION_CALL_NAMES = new Set(FORUM_SESSION_TEMPLATES.map((template) => template.call_name));
+
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "impl-from-design",
@@ -510,6 +550,16 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
 export function seedDelegationTemplates(repo: DelegationRepo): void {
   for (const tpl of SEED_TEMPLATES) {
     repo.upsertTemplate(tpl);
+  }
+  // 既存のカスタム forum templates を尊重し、合計上限 10 を seed で超えない。
+  // カスタムが無い環境だけ既定2件を公開し、必ず forum spawn の入口を用意する。
+  const hasCustomForumTemplate = repo.listTemplates().some((template) => (
+    Boolean(template.is_active)
+    && Boolean(template.forum_tag)
+    && !FORUM_SESSION_CALL_NAMES.has(template.call_name)
+  ));
+  for (const template of FORUM_SESSION_TEMPLATES) {
+    repo.upsertTemplate({ ...template, forum_tag: !hasCustomForumTemplate });
   }
   // 旧 seed `gamma-impl` (target_provider=gamma) の置換。 新 seed は別 call_name
   // (gemma4-12-impl) で upsert されるため、 既存 DB には旧行が残る。 重複を避けるため

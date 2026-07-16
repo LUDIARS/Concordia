@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { api, fmtTs } from "../../api.js";
 import { useWsEvent } from "../../hooks/useWsEvent.js";
-import { toActivityMessage, type ActivityTone } from "./activity-chat.js";
+import {
+  isCollapsibleActivityFrame,
+  toActivityMessage,
+  type ActivityTone,
+} from "./activity-chat.js";
 import { extractClaudeUuid, ForkFromButton, mergeBySeq, type TranscriptFrame } from "./shared.js";
 
 const ACTIVITY_FRAME_LIMIT = 1_000;
@@ -59,6 +63,9 @@ export function SessionActivityPanel({ sessionId }: { sessionId: string }) {
     element.scrollTop = element.scrollHeight;
   }, [frames.length]);
 
+  const userFacingFrames = frames.filter((frame) => !isCollapsibleActivityFrame(frame));
+  const internalFrames = frames.filter(isCollapsibleActivityFrame);
+
   return (
     <section className="bg-surface border border-border rounded p-3 flex flex-col h-[65vh] min-h-[32rem] max-h-[56rem]">
       <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -81,41 +88,62 @@ export function SessionActivityPanel({ sessionId }: { sessionId: string }) {
           }}
           className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1"
         >
-          {frames.map((frame) => {
-            const message = toActivityMessage(frame);
-            const claudeUuid = extractClaudeUuid(frame.payload);
-            return (
-              <div
-                key={frame.seq}
-                className={`rounded-xl border px-4 py-3 ${activityToneClass(message.tone)}`}
-              >
-                <div className="flex items-center gap-2 text-xs text-subtle flex-wrap">
-                  <span className="font-semibold text-text">{message.author}</span>
-                  {message.detail && <span className="font-mono opacity-80">{message.detail}</span>}
-                  <span>#{frame.seq}</span>
-                  {claudeUuid && <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />}
-                  <span className="ml-auto">{fmtTs(frame.ts)}</span>
-                </div>
-                {message.imageDataUrl && (
-                  <img
-                    src={message.imageDataUrl}
-                    alt={`transcript image frame ${frame.seq}`}
-                    className="mt-3 max-h-[32rem] max-w-full rounded border border-border object-contain"
-                  />
-                )}
-                {message.text && (
-                  <pre className={`mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed ${
-                    message.tone === "user" || message.tone === "assistant" ? "font-sans" : "font-mono"
-                  }`}>
-                    {message.text}
-                  </pre>
-                )}
+          {userFacingFrames.map((frame) => (
+            <ActivityFrameCard key={frame.seq} frame={frame} sessionId={sessionId} />
+          ))}
+          {internalFrames.length > 0 && (
+            <details className="rounded-xl border border-border bg-muted/30 px-4 py-3">
+              <summary className="cursor-pointer select-none text-sm font-medium text-subtle">
+                内部イベント（event_msg / response_item 等） {internalFrames.length}件
+              </summary>
+              <div className="mt-3 space-y-2 border-t border-border pt-3">
+                {internalFrames.map((frame) => (
+                  <ActivityFrameCard key={frame.seq} frame={frame} sessionId={sessionId} compact />
+                ))}
               </div>
-            );
-          })}
+            </details>
+          )}
         </div>
       )}
     </section>
+  );
+}
+
+function ActivityFrameCard({
+  frame,
+  sessionId,
+  compact = false,
+}: {
+  frame: TranscriptFrame;
+  sessionId: string;
+  compact?: boolean;
+}) {
+  const message = toActivityMessage(frame);
+  const claudeUuid = extractClaudeUuid(frame.payload);
+  return (
+    <div className={`rounded-xl border ${compact ? "px-3 py-2" : "px-4 py-3"} ${activityToneClass(message.tone)}`}>
+      <div className="flex items-center gap-2 text-xs text-subtle flex-wrap">
+        <span className="font-semibold text-text">{message.author}</span>
+        {message.detail && <span className="font-mono opacity-80">{message.detail}</span>}
+        <span>#{frame.seq}</span>
+        {claudeUuid && <ForkFromButton sessionId={sessionId} claudeUuid={claudeUuid} />}
+        <span className="ml-auto">{fmtTs(frame.ts)}</span>
+      </div>
+      {message.imageDataUrl && (
+        <img
+          src={message.imageDataUrl}
+          alt={`transcript image frame ${frame.seq}`}
+          className="mt-3 max-h-[32rem] max-w-full rounded border border-border object-contain"
+        />
+      )}
+      {message.text && (
+        <pre className={`mt-2 whitespace-pre-wrap break-words text-sm leading-relaxed ${
+          message.tone === "user" || message.tone === "assistant" ? "font-sans" : "font-mono"
+        }`}>
+          {message.text}
+        </pre>
+      )}
+    </div>
   );
 }
 

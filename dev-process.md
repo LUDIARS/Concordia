@@ -48,4 +48,4 @@ auto_start を **off** にしてある (起動経路は従来どおり手動 `np
 }
 ```
 
-詳細: `spec/service-schema.md` §12.
+詳細: `spec/interface/service-schema.md` §12.

@@ -10,10 +10,23 @@ import { seedPersonas } from "../personas/seeds.js";
 import {
   DelegationService,
   renderTemplate,
+  resolveDelegationSpawner,
   validateArgs,
   type DelegationDefinition,
 } from "./service.js";
 import { DelegationEffortBlackbox } from "./effort-blackbox.js";
+import { spawnSession } from "../control/spawner.js";
+
+describe("resolveDelegationSpawner", () => {
+  it("uses the normal Lictor session spawner for Codex Delegation by default", () => {
+    expect(resolveDelegationSpawner()).toBe(spawnSession);
+  });
+
+  it("preserves an explicitly injected test spawner", () => {
+    const injected = () => ({ ok: true as const, pid: 1, command: ["test"] });
+    expect(resolveDelegationSpawner(injected)).toBe(injected);
+  });
+});
 
 describe("renderTemplate", () => {
   it("substitutes ${var}", async () => {

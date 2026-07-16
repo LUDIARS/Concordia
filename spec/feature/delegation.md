@@ -108,7 +108,7 @@ delegation を「どう起動されるか」で 3 分類する。 単一情報�
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
-   - (Lictor 側の自動 inject は v0.2 — 今は呼び出し元が出力された path を見て手動 paste)
+   - 全 provider を Lictor の通常セッション経路で起動する。Codex は Lictor の App Server transport が thread 束縛、prompt 投入、transcript 永続化を担い、Concordia の headless worker は使用しない
 5. delegation_runs に upsert
 6. response: `{ run_id, rendered_prompt, prompt_file_path, spawn_pid, spawn_command }`
 

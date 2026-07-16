@@ -19,7 +19,7 @@
 | # | 問題 | 対象 | 状態 |
 |---|------|------|------|
 | A-1 | `unhandledRejection` / `uncaughtException` ハンドラが存在せず、未処理 rejection 1 発で本体が死ぬ | `src/server.ts` | ✅ `installProcessSafetyNet()` を追加。 ログ + `error.reported` へ流し、 プロセスは維持 |
-| A-2 | Cc / Codex worker の `spawn()` に `error` リスナーが無く、 `wt.exe`/lictor 不在で uncaughtException | `src/control/spawner.ts`, `src/control/codex-worker-spawn.ts` | ✅ try/catch + `child.on("error")` を追加、 `error.reported` へ通知 |
+| A-2 | Cc / 旧Codex headless worker の `spawn()` に `error` リスナーが無く、 `wt.exe`/lictor 不在で uncaughtException | `src/control/spawner.ts` | ✅ try/catch + `child.on("error")` を追加、 `error.reported` へ通知。旧headless Delegation adapter は 2026-07-16 に撤去 |
 | A-3 | rules engine の async イベント購読 / async `setInterval` が未ガードで、 DB throw が rejection として escape | `src/rules/engine.ts` | ✅ body 全体を try/catch でガード (sweeper と同パターンに統一) |
 | A-4 | Discord relay の `void (async () => {…})()` 2 箇所に `.catch` 漏れ (429 / Unknown Webhook で本体巻き添え) | `src/discord/bot.ts` (prompt relay / Slack inject mirror) | ✅ `.catch` を追加。 ★ `no-floating-promises` の lint 化は 🔲 |
 | A-5 | SQLite `busy_timeout` が暗黙値のみ + 本体と cost-worker の 2 プロセス書き込み競合 | `src/db/schema.ts` | ✅ `busy_timeout = 5000` を明示。 ★ lease handoff 窓の二重書き込み解消は 🔲 |

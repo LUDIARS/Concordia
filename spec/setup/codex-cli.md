@@ -25,6 +25,10 @@ Concordia can track Codex CLI sessions through `codex exec --json`.
 
 ## One-shot worker
 
+この worker は明示的な手動 one-shot 用であり、Delegation の既定起動経路には使用しない。
+Codex Delegation は Lictor の通常セッションとして起動し、App Server transport 経由で
+prompt 投入と transcript 永続化を行う。
+
 ```bash
 node tools/concordia-codex-worker.mjs --cd=/path/to/repo --model=gpt-5.5 "Fix the failing test"
 ```

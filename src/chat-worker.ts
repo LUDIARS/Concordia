@@ -33,7 +33,7 @@ import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { repinSession } from "./control/repin-session.js";
-import { makeDiscordConfigRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
+import { makeDiscordConfigRepo, makeDiscordPendingQuestionsRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
@@ -187,6 +187,7 @@ async function main(): Promise<void> {
     log,
   });
   const channels = makeDiscordSessionChannelsRepo(db);
+  const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const reconcileMissedSessions = (): void => {
     const known = new Set(channels.listActive().map((row) => row.session_id));
     for (const session of sessions.listSessions({ status: "active" })) {
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
     delegationRepo,
   });
 

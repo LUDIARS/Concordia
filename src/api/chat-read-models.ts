@@ -19,7 +19,7 @@ import { probeProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatAuthorName } from "../platform/formatter.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
-import type { ChatReadModel, ChatMessageMetadata, ChatMessageRelay, CostSnapshot, MonitorSnapshot, PrQueueSnapshot, SessionCardState, SessionRelayState, SessionStatusSnapshot, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
+import type { ChatReadModel, ChatMessageMetadata, ChatMessageRelay, CostSnapshot, MonitorSnapshot, PrQueueSnapshot, SessionCardState, SessionRelayState, SessionStatusSnapshot, SlackSessionIndexEntry, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 
 const PR_QUEUE_CONTENT_LIMIT = 2000;
 
@@ -34,6 +34,7 @@ export interface ChatReadModelDeps {
   oauthLog?: { warn: (m: string) => void; info?: (m: string) => void };
   perfLog?: { warn: (m: string) => void; info?: (m: string) => void };
   costSnapshotAllowFullScan?: boolean;
+  hasPendingQuestion?: (sessionId: string) => boolean;
 }
 
 export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
@@ -116,6 +117,20 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     getEndedSessionPoem(sessionId) {
       const report = deps.sessionsRepo.findReport(sessionId);
       return extractMonologue(report?.summary_md);
+    },
+    listSlackSessionIndex() {
+      return deps.sessionsRepo.listSessions({}).map((session) => {
+        const state = relayState(session.id);
+        return {
+          sessionId: session.id,
+          provider: session.provider,
+          status: session.status,
+          currentTask: session.current_task,
+          persona: state ? personaLabel(state.roleLabel, state.personaDisplayName, state.personaName) : null,
+          updatedAt: session.last_seen_at,
+          waiting: deps.hasPendingQuestion?.(session.id) ?? false,
+        } satisfies SlackSessionIndexEntry;
+      });
     },
     async getSessionStatusSnapshot(sessionId, sessionChannelId) {
       const session = deps.sessionsRepo.findSession(sessionId);

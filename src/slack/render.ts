@@ -11,7 +11,7 @@ export function truncateForSlack(text: string, max = MAX_TEXT): string {
   return t.length > max ? `${t.slice(0, max - 1)}…` : t;
 }
 
-// ─── ライブセッションカード（thread root の本文を状態で書き換える）──────────
+// ─── ライブセッションカード（session channel header の本文を状態で書き換える）─
 // 親メッセージ自体を「使用 AI / 現在の作業内容 / 状態」の生きたカードにする。
 // active 中は current_task の更新ごとに、終了時は独白ポエム + ✅Done に差し替える。
 // spec/feature/slack-platform.md §ライブセッションカード。
@@ -53,7 +53,7 @@ export interface SessionCardPayload {
 }
 
 /**
- * thread root メッセージを組む（純粋）。Block Kit の section/fields でテーブル形式に整形する。
+ * session channel の header メッセージを組む（純粋）。Block Kit の section/fields で整形する。
  *  - active: Engine × Session ID の 2 カラムフィールド + 📌 作業内容 + 返信ヒント
  *  - ended : ✅ Done 行 + 独白ポエム（divider で区切る）
  * `text` は通知文字列 / blocks 非対応時のフォールバック。
@@ -83,7 +83,7 @@ export function renderSessionCard(state: SessionCardState): SessionCardPayload {
   // ペルソナ名・絵文字は buildSessionBotUsername() 経由で Slack の username フィールドへ。
   // body は Engine × Session ID のテーブル + 📌 作業内容 + 返信ヒント。
   return {
-    text: `\`${engine}\`\n📌 ${headline}\n_(このスレッドに返信すると ${state.who} に inject されます)_`,
+    text: `\`${engine}\`\n📌 ${headline}\n_(このチャンネルへ投稿すると ${state.who} に送信されます)_`,
     blocks: [
       {
         type: "section",
@@ -101,7 +101,7 @@ export function renderSessionCard(state: SessionCardState): SessionCardPayload {
         elements: [
           {
             type: "mrkdwn",
-            text: `_(このスレッドに返信すると ${state.who} に inject されます)_`,
+            text: `_(このチャンネルへ投稿すると ${state.who} に送信されます)_`,
           },
         ],
       },
@@ -110,7 +110,7 @@ export function renderSessionCard(state: SessionCardState): SessionCardPayload {
 }
 
 /**
- * スレッドへの最初の投稿本文から、カードの 📌（やる事）に使う短いタイトルを
+ * session channel への最初の投稿本文から、カードの 📌（やる事）に使う短いタイトルを
  * 直接生成する（LLM 非使用・純粋）。先頭の非空行を採り、Markdown 装飾 / 箇条書き
  * 記号を削いで 1 行・最大 max 字に整える。実体が無ければ null（タイトル不設定）。
  */

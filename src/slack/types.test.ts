@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readSlackEnv, slackEnvReady, readSlackChatMeta } from "./types.js";
+import { readSlackEnv, slackEnvReady, readSlackChatMeta, parseSlackArchiveDelayMin } from "./types.js";
 
 describe("readSlackEnv / slackEnvReady", () => {
   it("ENABLED=1 + 3 値揃いで ready", () => {
@@ -20,6 +20,18 @@ describe("readSlackEnv / slackEnvReady", () => {
   it("token 欠落は not ready", () => {
     const env = readSlackEnv({ CONCORDIA_SLACK_ENABLED: "1", CONCORDIA_SLACK_CHANNEL_ID: "C1" } as NodeJS.ProcessEnv);
     expect(slackEnvReady(env)).toBe(false);
+  });
+});
+
+describe("parseSlackArchiveDelayMin", () => {
+  it("accepts zero and finite non-negative values", () => {
+    expect(parseSlackArchiveDelayMin("0")).toEqual({ value: 0, invalid: false });
+    expect(parseSlackArchiveDelayMin("12.5")).toEqual({ value: 12.5, invalid: false });
+  });
+
+  it("marks invalid values and restores the 30 minute default", () => {
+    expect(parseSlackArchiveDelayMin("-1")).toEqual({ value: 30, invalid: true });
+    expect(parseSlackArchiveDelayMin("wat")).toEqual({ value: 30, invalid: true });
   });
 });
 

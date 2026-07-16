@@ -1,7 +1,7 @@
 ---
 type: setup
-title: "Slack bot を動かすための設定 (slack)"
-description: "Concordia のセッション出力を Slack に転送し、スレッド返信で inject・ボタンで質問回答・slash コマンドでセッション操作するための Slack bot セットアップガイド。Socket Mode (outbound WebSocket) を使い、公開 inbound URL 不要で loopback 専用設計のまま動作する。DB への暗号化保存と hot 再接続によるサービス再起動不要な設定変更に対応。"
+title: "Slack bot を動かすための設定 (Hub + session channel)"
+description: "Concordia の Hub と公開 Bot-only session channel、Sessions Canvas、終了後 archive を Slack Socket Mode で運用するセットアップガイド。"
 service: concordia
 domain: chat-platforms
 tags:
@@ -17,7 +17,7 @@ status: implemented
 related:
   - ../feature/slack-platform.md
   - ../feature/reaction-workflow.md
-updated: 2026-06-30
+updated: 2026-07-16
 ---
 
 
@@ -25,7 +25,7 @@ updated: 2026-06-30
 
 ## 目的
 
-Concordia のセッション出力を Slack に流し、スレッド返信で inject、ボタンで質問回答、
+Concordia のセッション出力を公開 Bot-only session channel に流し、top-level 投稿で inject、ボタンで質問回答、
 slash でセッション操作する。bot は Concordia backend と **同一プロセス内**で動く
 (`startBackend()` → `startSlackBotManaged()`)。設計詳細は
 [`spec/feature/slack-platform.md`](../feature/slack-platform.md)。
@@ -44,8 +44,9 @@ URL を持てないため、Events API(Request URL 方式)ではなく Socket Mo
 | `CONCORDIA_SLACK_ENABLED` | ◯ (`1`) | これが `1` のときだけ bot 起動。 |
 | `CONCORDIA_SLACK_BOT_TOKEN` | ◯ | Bot User OAuth Token (`xoxb-…`)。Web API 呼び出し用。 |
 | `CONCORDIA_SLACK_APP_TOKEN` | ◯ | App-Level Token (`xapp-…`)。Socket Mode 接続用。 |
-| `CONCORDIA_SLACK_CHANNEL_ID` | ◯ | 運用チャンネル ID (`C…`)。この中で thread-per-session 多重化。 |
+| `CONCORDIA_SLACK_CHANNEL_ID` | ◯ | Hub channel ID (`C…`)。consultation / slash / Cost・Sessions Canvas の配置先。 |
 | `CONCORDIA_SLACK_WORKING_IDLE_SEC` | × | 「作業中」表示を消す無進捗秒数 (既定 60、最小 15)。 |
+| `CONCORDIA_SLACK_ARCHIVE_DELAY_MIN` | × | session 終了から archive までの分数 (既定 30、`0` は即時)。非負の有限数のみ。 |
 
 4 つの必須キーが揃わないと起動 skip (warn)(`slackEnvReady()` / `src/slack/types.ts`)。
 
@@ -85,15 +86,16 @@ curl -s -X PUT http://127.0.0.1:11111/v1/admin/slack/config \
 1. **Create New App → From scratch**(名前 + ワークスペース選択)。
 2. **OAuth & Permissions → Bot Token Scopes** に付与:
    - `chat:write` — 出力投稿 / 作業中 / 質問・ボタン除去・削除 / ライブカード更新 (`chat.postMessage/update/delete`)
-   - `channels:history` — 公開チャンネルの発言受信(ingress = thread 返信 → inject)
+   - `channels:manage` — public session channel の作成・archive・topic/purpose 更新
+   - `channels:read` — Hub / mapped public channel の参照と name collision recovery
+   - `channels:history` — 公開チャンネルの top-level 発言受信
    - `reactions:read` — リアクション受信(👍=実装着手 等のリアクション制御)
-   - `canvases:write` — 「コスト」Canvas の作成・更新(`conversations.canvases.create` / `canvases.edit`)
+   - `canvases:write` — Cost / `Cc Sessions` Canvas の作成・更新
    - `commands` — `/concordia` slash コマンド
-   - ※プライベートチャンネル運用なら `channels:history` の代わりに `groups:history`
 3. **Socket Mode → Enable**。**Basic Information → App-Level Tokens** で
    `connections:write` スコープのトークンを発行 → `xapp-…`(= `CONCORDIA_SLACK_APP_TOKEN`)。
 4. **Event Subscriptions → Enable** → **Subscribe to bot events** に `message.channels`
-   と `reaction_added` を追加(プライベートなら `message.groups`)。Socket Mode なので Request URL は不要。
+   と `reaction_added` を追加。Socket Mode なので Request URL は不要。
 5. **Interactivity & Shortcuts → Enable**(質問ボタン用)。Request URL は不要。
 6. **Slash Commands → Create New Command** で `/concordia` を 1 個登録(Request URL 不要)。
    これ 1 個で `stat / prs / spawn / end / help` のサブコマンドを捌く。
@@ -143,16 +145,16 @@ oauth_config:
   scopes:
     bot:
       - chat:write
+      - channels:manage      # public session channel の作成・archive
       - channels:history
       - channels:read
       - reactions:read        # 👍=実装着手 等のリアクション制御
       - canvases:write        # 「コスト」Canvas の作成・更新
       - commands
-      # プライベートチャンネル運用なら channels:history を groups:history に置換
 settings:
   event_subscriptions:
     bot_events:
-      - message.channels      # プライベートなら message.groups
+      - message.channels      # Hub + public session channel の top-level ingress
       - reaction_added        # リアクション制御の入口
   interactivity:
     is_enabled: true
@@ -164,7 +166,7 @@ settings:
 manifest で**作れないもの**は手動で残す:
 - **App-Level Token** (`xapp-…`, scope `connections:write`) を Basic Information → App-Level Tokens で発行(手順 3)。
 - **Install App** で `xoxb-…` を取得(手順 7)。
-- bot を運用チャンネルに `/invite`。
+- bot を Hub channel に `/invite`。session channel は Bot が作成者として自動参加する。
 
 ## `/co-spawn` で委託テンプレ起動 (slash → モーダル)
 
@@ -232,11 +234,12 @@ bot を再接続(Slack タブ保存 / `/restart` / プロセス再起動)すれ�
 Grid 環境で本当に Workflow Builder ステップにしたい時だけ、 Org 管理者に Org レベル有効化を依頼し、
 Functions GUI で `spawn_session`(input: provider/cwd、 output: result)を作る。
 
-## チャンネルの用意
+## Hub channel の用意
 
-- 運用チャンネルを 1 つ作る(例 `#concordia`)。
+- Hub channel を 1 つ作る(例 `#concordia`)。
 - **bot をチャンネルに招待**(`/invite @<botname>`)。招待しないと発言の受信も投稿もできない。
 - チャンネル ID (`C…`) を取得(チャンネル名クリック → 最下部、またはリンク末尾)。
+- session channel は `cc-run-<short-id>-<slug>` で Bot が public channel として作る。人間は自動 invite しない。
 
 ## `.env`(`E:\Document\Ars\Concordia\.env`)
 
@@ -247,6 +250,7 @@ CONCORDIA_SLACK_APP_TOKEN=xapp-...
 CONCORDIA_SLACK_CHANNEL_ID=C0XXXXXXX
 # 任意
 CONCORDIA_SLACK_WORKING_IDLE_SEC=60
+CONCORDIA_SLACK_ARCHIVE_DELAY_MIN=30
 ```
 
 `.env` は `tsx --env-file-if-exists=.env` 経由で読まれる(Discord と同じ)。
@@ -263,16 +267,18 @@ Slack platform connected (channel=C…, bot=U…)
 
 ## 使い方
 
-- **セッション出力**: 運用チャンネル内に session ごとの thread が立ち、AI 応答が流れる。
-  作業中は thread 最下部に「🔄 作業中…」(進捗で消えて落ち着くと再掲、idle で除去)。
-- **スレッド親 = ライブカード**: thread root は「使用 AI / 現在の作業内容」を表示し続け、
+- **セッション出力**: session ごとの public channel が立ち、AI 応答は top-level に流れる。
+  作業中は channel top-level に「🔄 作業中…」(進捗で消えて落ち着くと再掲、idle で除去)。
+- **channel header = ライブカード**: 最初の message は「使用 AI / 現在の作業内容」を表示し続け、
   作業が進むと更新される。セッション終了で `✅ Done` + サマリーポエムに差し替わる。
-- **指示を送る**: そのセッションの **thread に返信** → inject。
+- **指示を送る**: mapped session channel に **top-level 投稿** → inject。thread reply は routing せず ignore。
+- **Sessions Canvas**: Hub の `Cc Sessions` から active / waiting / completed / failed channel を辿る。
+- **終了後**: `CONCORDIA_SLACK_ARCHIVE_DELAY_MIN` の猶予後に channel を archive。失敗時は次回 sweep で再試行。
 - **👍 リアクションで指示**(`CONCORDIA_REACTION_WORKFLOW=1` の時): Concordia の投稿に
   リアクションを付けると処理が走る。👍/🆗=提案をそのまま実装着手、📝/✅=タスク登録、
   👀=メモ、😄/😡=作業メモリ記録。詳細は [`spec/feature/reaction-workflow.md`](../feature/reaction-workflow.md)。
-- **チャンネル直下の発言** → `consultation` メタチャットへ。
-- **質問 (AskUserQuestion)**: thread にボタンが出る → 押して回答。ローカル(端末)で
+- **Hub の top-level 発言** → `consultation` メタチャットへ。
+- **質問 (AskUserQuestion)**: session channel top-level にボタンが出る → 押して回答。ローカル(端末)で
   答えた場合はボタンが自動失効(再クリックは弾かれる)。
 - **slash**:
   - `/co-spawn` — 新規セッション起動(引数なしで provider/cwd フォーム、引数で即起動)
@@ -287,16 +293,18 @@ Slack platform connected (channel=C…, bot=U…)
 ## トラブルシュート
 
 - **`… skip` で起動しない**: 4 つの必須キーのいずれか欠落。`CONCORDIA_SLACK_*` を確認。
-- **発言が inject されない / 出力が出ない**: bot をチャンネルに**招待**したか、`channels:history`
-  と `message.channels` イベントが有効か、`CONCORDIA_SLACK_CHANNEL_ID` が運用チャンネルと
+- **発言が inject されない / 出力が出ない**: bot を Hub に**招待**したか、`channels:history`
+  と `message.channels` イベントが有効か、`CONCORDIA_SLACK_CHANNEL_ID` が Hub と
   一致しているか。
+- **session channel が作られない**: `channels:manage` を付与して app を再インストールしたか。
+  ログの `missing_scope` / `restricted_action` を確認。thread 方式への fallback は行わない。
 - **質問ボタンが効かない**: **Interactivity** が Enable か。
 - **`/concordia` が出てこない**: Slash Command を登録後、アプリを**再インストール**したか。
 - **`auth.test failed`**: `CONCORDIA_SLACK_BOT_TOKEN`(`xoxb-`)が不正。
 
-## まだ非対象(設計上やらない / 必要時に別途)
+## 非対象
 
-- per-session チャンネル自動作成(thread 方式で代替、channel 乱立回避)。
+- private session channel / 人間の自動 invite / sidebar section 自動管理。
 - cost / monitor / pr-queue / status-card ダッシュボードの全移植(`stat`/`prs` slash で代替)。
 - slash `skill`(Lictor sidecar の port proxy が要るため。Discord も同様)。
 

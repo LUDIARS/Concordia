@@ -585,6 +585,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
     delegationRepo,
     perfLog: createChildLogger("cost-report"),
     // worker モードは cost-worker が別途 host_metrics/DB へサンプリング済みなので、

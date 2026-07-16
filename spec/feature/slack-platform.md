@@ -1,14 +1,13 @@
 ---
 type: feature
-title: "Slack platform（Discord と並ぶ ChatPlatform / v0.1）"
-description: "Concordia を Slack でも運用できるようにする ChatPlatform 実装。Socket Mode で接続し、thread-per-session 多重化・inject・ボタン回答・working indicator・slash コマンド・ライブセッションカード・リアクション Workflow・cost Canvas を v0.1〜v0.6 で段階実装。"
+title: "Slack platform（Hub + session-per-channel）"
+description: "Concordia の Slack ChatPlatform。Hub channel と公開 Bot-only session channel、top-level ingress/egress、質問回答、Sessions/Cost Canvas、終了後 archive を提供する。"
 service: concordia
 domain: chat-platforms
 tags:
   - slack
   - websocket
   - typescript
-  - webhook
   - event-driven
   - relay
   - lifecycle
@@ -17,144 +16,159 @@ status: implemented
 related:
   - ../setup/slack.md
   - ./reaction-workflow.md
-updated: 2026-06-30
+  - ../plan/tasks/slack-session-channels.md
+updated: 2026-07-16
 ---
 
+# Slack platform（Hub + session-per-channel）
 
-# Slack platform（Discord と並ぶ ChatPlatform / v0.1）
+## 目的と接続方式
 
-## 目的
-Concordia を Discord だけでなく Slack でも「運用」できるようにする。運用の中核
-＝**セッション出力の監視 / スレッド返信での inject / 質問へのボタン回答**。
+Slack は Discord と対等な `ChatPlatform` adapter である。出力は in-process `eventBus`、
+入力は Concordia HTTP API（`/v1/sessions/:id/inject`、`/v1/chat`、
+`/v1/sessions/:id/answer-question`）へ接続する。
 
-## 抽象（[`../../src/platform/chat-platform.ts`](../../src/platform/chat-platform.ts)）
-`ChatPlatform` は「Concordia を運用できるチャット基盤」の共通契約（name / stop）。
-abstraction の本体は既に platform 非依存な 2 つ:
-- **出力の共通源** = `eventBus`（複数購読対応）
-- **入力の共通宛先** = Concordia HTTP API（`/v1/sessions/:id/inject` `/v1/chat`
-  `/v1/sessions/:id/answer-question`）
+Concordia は loopback-only のため、Slack との接続には公開 Request URL を要しない
+Socket Mode を使う。必須設定は Bot token、App token、Hub channel ID である。
 
-Discord (`src/discord/bot.ts`) と Slack (`src/slack/bot.ts`) はこの契約を満たす
-coequal な実装で、どちらも eventBus を独立に購読する。server.ts が両者を対称に
-起動/停止する（`CONCORDIA_DISCORD_ENABLED` / `CONCORDIA_SLACK_ENABLED`）。
+## Hub channel
 
-## 接続方式: Socket Mode
-Concordia は loopback-only（11111）で inbound URL を持てないため、Events API では
-なく **Socket Mode**（outbound WebSocket）で接続する。必要 token:
-- `CONCORDIA_SLACK_BOT_TOKEN`（xoxb-, Web API）
-- `CONCORDIA_SLACK_APP_TOKEN`（xapp-, Socket Mode, `connections:write`）
-- `CONCORDIA_SLACK_CHANNEL_ID`（運用チャンネル C…）
+`CONCORDIA_SLACK_CHANNEL_ID` は Cc の Hub channel ID である。既存 channel を削除・rename
+せず、次の機能を維持する。
 
-必要スコープ（目安）: `chat:write` `channels:history`（or groups）`channels:read`。
-Socket Mode + Interactivity + Event Subscriptions（`message.channels`）を ON。
+- session 非紐付けの chitchat / consultation / 報告
+- slash command と delegation modal
+- Cost Canvas
+- `Cc Sessions` Canvas
 
-## 多重化: thread-per-session（v0.1）
-per-session チャンネルは作らず、設定した 1 チャンネル内で session ごとに thread を
-切る。マッピングは `slack_session_threads`（[`../../src/slack/session-threads-repo.ts`](../../src/slack/session-threads-repo.ts)、
-schema.ts が table の正本）。
+session の transcript 全文は Hub に relay しない。
 
-- **egress**: `chat.posted` / `transcript.frame`（中継条件は Discord egress と同義＝
-  assistant text / summary のみ、guardian JSON は drop）を、その session の thread に
-  投稿。thread が無ければ root メッセージを 1 つ立てて作る（in-flight ロックで二重
-  作成を防止）。session 非紐付けの chat はチャンネル直下へ。
-- **ingress**: thread への返信 = その session への inject。チャンネル直下の発言 =
-  `consultation` メタチャットへ。bot 自身の投稿・編集・subtype 付きは無視。
-- **question**: `question.posted` を Block Kit ボタンで thread に投稿。`action_id` は
-  `cc_answer:<questionId>:<index>`。クリック → `/v1/sessions/:id/answer-question`
-  → 回答済み表示に update（ボタン除去）。
+## public Bot-only session channel
 
-## 自己ループ防止
-Slack ingress 由来の chat は `metadata.source="slack"` を刻む。egress はこれを見て
-Slack 由来 chat を Slack に再投稿しない（Discord egress の `source="discord"` と同型）。
+`session.started` または `ChatPlatform.ensureSessionSurface` で public channel を作る。
 
-## v0.2 追加（2026-06-02）
-- **作業中インジケータ**: session thread の最下部に「🔄 作業中…」を出し、進捗で消して
-  落ち着いたら出し直し、idle で除去。Discord と同じ platform 非依存コントローラ
-  ([`../../src/platform/working-indicator.ts`](../../src/platform/working-indicator.ts)) を
-  流用し post/remove を Slack thread 用に差すだけ。idle は `CONCORDIA_SLACK_WORKING_IDLE_SEC`（既定60s）。
-- **slash コマンド（読み取り系）**: Socket Mode の `slash_commands` で `/concordia stat|prs|help`
-  ([`../../src/slack/slash.ts`](../../src/slack/slash.ts))。Slack app の Slash Commands に
-  `/concordia` を 1 個登録（Socket Mode なので request URL 不要、`commands` scope）。応答は
-  ephemeral。宛先は Discord コマンドと同じ Concordia HTTP（`/v1/stat`・`/v1/prs/digest`）。
+```text
+cc-run-<session-id先頭8文字>-<slug>
+```
 
-## v0.3 追加（2026-06-02）
-- **slash 副作用系**: `/concordia spawn <claude|codex> [cwd]`（→ `/v1/admin/spawn-session`）/
-  `/concordia end <session_id 先頭8桁>`（`GET /v1/sessions?status=active` で先頭一致 1 件に解決 →
-  `DELETE /v1/sessions/:id`、複数一致はより長い prefix を要求）。`skill` は Lictor sidecar の
-  port proxy が要るため対象外（Discord 同様）。
-- **質問ボタンのローカル失効**: `question_id → 投稿 ts` を in-memory 保持し、`question.answered` /
-  `question.resolved`（ローカル回答 → Lictor 通知）受信時に `chat.update` でボタン除去。
-  再起動で map が消えても Concordia 側 `markResolvedLocally` で再クリックは弾かれる。
+- `conversations.create({ is_private: false })` を Bot token で呼ぶ。
+- channel 名は lowercase ASCII / digit / hyphen のみ、80文字以内。
+- slug は current task/title 由来、空なら `session`。
+- `name_taken` は session ID 12文字、次に session ID 由来の決定的 suffix で再試行する。
+- Bot は作成者として在籍する。人間を自動 invite しない。
+- channel ID が routing の正本で、channel name は表示用である。
+- purpose は完全な session ID、topic は短縮 ID / persona / provider / task / 状態を保持する。
 
-## v0.4 追加（2026-06-10）— ライブセッションカード + 👍 リアクション制御
+channel の最初のメッセージは session header card である。`header_ts` を保存し、persona、
+task/title、終了、report の更新時に同じ message を `chat.update` する。active card は
+「このチャンネルへ投稿すると session に送信」と案内し、ended card は `Done` と report
+冒頭を表示する。session 終了時に channel rename はしない。
 
-### ライブセッションカード（thread root を生きた状態カードにする）
-thread root メッセージ（= セッション = 投稿）の本文を、セッション状態で**書き換える**。
-- **生成タイミング**: `session.started` で即 thread root（active カード）を立てる
-  （`ensureSessionThread`）。これが無いと最初の relay 発言まで Slack に何も出ず
-  「起動したのに無反応」に見える。終了時のポエム上書きも親カードの存在が前提。
-- **active**: `▶ *<persona/role>* · \`<provider · model>\`` + `📌 <current_task>` + 返信ヒント。
-- 再描画トリガ: `persona.assigned`（担当確定）/ `session.event` kind `task_update`・`title_renamed`
-  （現在の作業内容が変わった）。`chat.update(thread_ts)` で同一メッセージを更新。
-- **ended**: `session.ended` で即 `✅ *Done* — <who>` 化、`report.generated` で report 冒頭の
-  **独白ポエム**（`extractMonologue`）を後追いで差し替え。report が無くても既定文で Done 化。
-- 進捗の細粒度表示は従来通り thread 最下部の「🔄 作業中…」(working-indicator) が担い、
-  root カードは「使用 AI / 現在の作業 / 完了」の俯瞰に専念（更新頻度を抑え rate-limit 回避）。
-- レンダリングは純粋関数 `renderSessionCard(state)` / `extractMonologue()`（`src/slack/render.ts`）。
-  state は `buildCardState(sessionId, status)` が session 行 + persona から組む。
+## 永続化
 
-### 👍 リアクション制御（reaction-workflow の Slack 移植）
-運用チャンネルの Concordia 投稿に付いた**リアクションを「指示」**として処理に流す。
-意味論は Discord と共通（[`reaction-workflow.md`](./reaction-workflow.md)）。👍/🆗=実装着手、
-📝/✅=タスク登録、👀=メモ、😄/😡=作業メモリ記録。
-- `reaction_added`（Socket Mode）→ `slack_message_map` で `(channel_id, ts)` → `chat_messages.id`
-  逆引き → `slackReactionToUnicode()` で絵文字名を unicode 化 → 共通ランナー `ReactionWorkflowRunner`。
-- `slack_message_map` は egress（`chat.posted` 投稿成功時）に `ts → chat_messages.id` を記録。
-- 安全弁 `CONCORDIA_REACTION_WORKFLOW=1` の時だけ処理（Discord と共有の env）。OFF なら無処理。
-- スコープ追加: `reactions:read` + bot event `reaction_added`（[`../setup/slack.md`](../setup/slack.md) の manifest 参照）。
+新規 routing の正本は `slack_session_channels` である。
 
-## v0.5 追加（2026-06-11）— カード絵文字 / 初回投稿リネーム / ルート選択
+| column | meaning |
+|---|---|
+| `session_id` | primary key |
+| `channel_id` | unique Slack channel ID |
+| `channel_name` | display / recovery 用 channel name |
+| `header_ts` | header card message ts |
+| `created_at` | epoch seconds |
+| `archive_due_at` | archive 予定時刻、未予定は null |
+| `archived_at` | archive 成功時刻、未完了は null |
 
-- **delegation 絵文字をカード先頭アイコンに**: `/co-spawn` で起動した delegation セッション
-  は、 spawn と Lictor の独立セッション登録が分離しているため、 spawn 時に `(cwd, emoji)` を
-  プロセス内レジストリ ([`../../src/control/pending-delegation-spawns.ts`](../../src/control/pending-delegation-spawns.ts))
-  に積み、 `session.started` 時に `repo_path` で claim → session metadata の `delegation_emoji`
-  に焼く。`renderSessionCard` は emoji があれば見出しの `▶` をそれに差し替える。
-- **最初のスレッド投稿で /rename 相当**: `current_task` が空（= カードがセッション id 先頭 8 桁に
-  フォールバック）のとき、 その session への最初の relay 投稿本文から短いタイトルを `deriveTitleFromPost`
-  で起こし、 `POST /v1/sessions/:id/title` する。`/title` は `current_task` も更新するよう修正済
-  （従来は `title_renamed` イベントのみで Slack カードに反映されなかった）。
-- **作業ディレクトリ選択 = ワークスペースルート**: `/co-spawn` モーダルの候補はルート直下の各リポ
-  ではなく、 設定済みワークスペースルートそのもの（`E:/Document/Ars` 等）を列挙する。
-- **egress 診断ログ**: 中継経路を実機で切り分けられるよう `[verbose-slack-egress]` prefix で
-  thread 解決・投稿成否・auto-title 結果を info 記録（安定後に撤去予定）。
+同一 session の二重作成は in-flight lock と DB unique constraint で防ぐ。Slack API 成功後の
+DB 永続化失敗は error log に出し、process 内に未永続 channel/header を保持して再永続化を
+優先する。別 channel を無言で量産しない。
 
-## v0.6 追加（2026-06-11）— 勝手に作業しないガード + cost Canvas
+旧 `slack_session_threads` table は rollback / 履歴互換用に残すが、新規 routing では参照しない。
+migration は `CREATE TABLE/INDEX IF NOT EXISTS` により冪等である。
 
-- **「勝手に作業しない」ガード**: Concordia 連携セッション (`src/skills/concordia.md`) と
-  delegation で spawn したエージェント (`src/delegation/persona-context.ts`) の両方に、
-  「明確な指示・承認がないまま実作業 (コード変更 / 作成・削除 / コミット / 外部送信) を
-  始めない」原則を明記。 調査・読み取りは可、 変更を伴う一歩は GO を待つ。 報告ファーストと対。
-- **cost Canvas**: Discord の cost チャンネルと**同じ集計・同じ本文**を Slack の「コスト」
-  Canvas に毎回反映する。 集計と本文描画は [`../../src/cost/cost-report.ts`](../../src/cost/cost-report.ts)
-  に集約し、 Discord (`discord/cost-channel.ts`) と共有 (タイムスタンプ表現だけ platform で差し替え:
-  Discord は `<t:..>` トークン、 Slack は JST 素テキスト)。
-  - **親 (= Canvas) の id を持っておいてあとから編集**: 初回は `conversations.canvases.create`
-    でチャンネル Canvas を作り、 返った `canvas_id` を `slack_config` (`cost_canvas_id`) に保存。
-    以後は `canvases.edit`（`operation: replace`）で同じ Canvas を上書きする
-    （Discord cost-channel の `cost_status_message_id` と同じ「id を持って edit」方式）。
-  - edit が失敗（Canvas 削除 / id 失効）したら保存 id を捨て、 次サイクルで作り直す。
-  - 更新間隔は `CONCORDIA_SLACK_COST_REFRESH_MIN`（既定 10 分 / 下限 10 分）。 実装は
-    [`../../src/slack/cost-canvas.ts`](../../src/slack/cost-canvas.ts)、 タイマー配線は `slack/bot.ts`。
+## egress
 
-## 非対象（設計上やらない / 必要時に別途）
-- **per-session チャンネル自動作成**: thread-per-session で routing 要件は充足済。Slack に
-  channel を乱立させると workspace を汚し `conversations.create`/招待スコープも要るため見送り。
-- **monitor / pr-queue / status-card ダッシュボード移植**: Discord 固有の作り込み。
-  Slack では `/concordia stat`・`/concordia prs`（slash）+ thread root で実用上代替できるため、
-  Block Kit 定期更新の全移植はコスト大・価値中につき見送り。 cost のみ Canvas で移植済 (v0.6)。
+session 紐付け出力は mapped session channel のトップレベルへ投稿し、`thread_ts` を渡さない。
+
+- `chat.posted`
+- relay 対象の `transcript.frame`
+- `question.posted` の Block Kit
+- working indicator
+- session channel 内 reaction workflow の ack / result
+- Discord 由来 human inject の mirror
+
+session 非紐付け chat は Hub のトップレベルへ投稿する。通常 relay は mention sanitizer を通し、
+user mention / `@channel` / `@here` を生成しない。
+
+## ingress と質問回答
+
+Socket Mode の `message.channels` を channel ID で分類する。
+
+- mapped session channel の top-level human message → 対応 session へ inject
+- Hub の top-level human message → 従来どおり consultation chat
+- 未知 channel → ignore
+- Bot 自身、subtype 付き edit/system message → ignore
+- `thread_ts` を持つ reply → ignore し、理由を info log に残す
+
+質問は session channel のトップレベルに出す。interaction は `body.channel.id` を
+`slack_session_channels.channel_id` から逆引きして session を解決し、質問 message 自身の `ts`
+を更新する。thread root / `thread_ts` には依存しない。
+
+## archive lifecycle
+
+`session.ended` は次の順で処理する。
+
+1. header card を `Done` に更新
+2. `archive_due_at` を `CONCORDIA_SLACK_ARCHIVE_DELAY_MIN` 後に設定
+3. Sessions Canvas 更新を予約
+4. 単一 archive sweeper が期限到来後に `conversations.archive` を実行
+5. 成功後だけ `archived_at` を記録し、Sessions Canvas を更新
+
+猶予の既定値は30分。有限の非負数のみ受理し、`0` は即時 archive、無効値は警告して30分へ
+戻す。起動時にも期限超過行を sweep する。権限不足・一時障害では `archived_at` を書かず、
+次回 sweep / restart で再試行する。`ChatPlatform.stop()` は archive timer、Canvas debounce、
+event listener、Cost Canvas timer、Socket Mode 接続を解放する。
+
+## Sessions Canvas
+
+Hub に `Cc Sessions` Canvas を1つ作り、IDを `slack_config.sessions_canvas_id` に保存する。
+保存 ID が失効した場合は削除して再作成する。更新 burst は debounce し、edit は直列化する。
+
+表示 section:
+
+- Active: DB status `active` かつ未質問待ち
+- Waiting: DB の未回答 question がある `active`
+- Recently completed: DB status `ended`（新しい順、最大20件）
+- Failed / abandoned: DB status `lost` / `abandoned`
+
+各行は channel link、short session ID、persona/provider、current task、updated time を表示する。
+分類不能な状態は推測せず掲載しない。更新契機は session start/end、persona、task/title、
+question posted/answered/resolved、report、archive success である。Canvas 更新のために Hub へ
+chat message を連投しない。
+
+## slash / delegation / reaction / Cost Canvas
+
+既存の `/concordia`、`/co-*` slash、delegation modal、custom function は Hub で維持する。
+reaction workflow は Hub と mapped session channel の両方を受け、session channel の結果は
+top-level に出す。Cost Canvas は従来どおり Hub に1つ置き、`cost_canvas_id` を保存して edit する。
+
+## 権限と fail-visible
+
+Bot scope は少なくとも `channels:manage`、`channels:read`、`channels:history`、`chat:write`、
+`reactions:read`、`canvases:write`、`commands` を使う。`missing_scope` / `restricted_action` は
+channel provisioning 時に明示的な error log を出す。旧 thread-per-session へ silently fallback
+しない。
+
+## 非対象
+
+- private session channel
+- human member の自動招待
+- User Group / shared sidebar section 管理
+- per-user notification 設定変更
+- Discord / chat-worker / delegation の一般 refactor
 
 ## テスト
-純粋ロジック（`render` / `types` / `slash` / `session-threads-repo` / `working-indicator`）を
-単体テスト。Socket Mode の live 接続・Web API 呼び出しは薄い shell に隔離し、best-effort
-（接続失敗で本体運用に影響しない）。
+
+repository、name collision、concurrent ensure、top-level egress、Hub/session ingress、thread ignore、
+question channel mapping、archive retry/restart、Sessions Canvas classify/debounce/recreate、stop cleanup を
+Vitest で検証する。live Slack 接続試験は stable checkout で Concordia testing claim と Excubitor
+を使う場合に限る。

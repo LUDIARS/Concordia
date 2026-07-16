@@ -13,6 +13,8 @@ describe("schema", () => {
     expect(names).toContain("sessions");
     expect(names).toContain("session_events");
     expect(names).toContain("session_reports");
+    expect(names).toContain("slack_session_channels");
+    expect(names).toContain("slack_session_threads");
     expect(names).toContain("schema_meta");
     expect(names).not.toContain("liveness_history");
     expect(names).not.toContain("service_instance_logs");

@@ -79,6 +79,8 @@ export function resolveSlackConfig(
     channelId: dbChannel ?? base.channelId,
     botToken: dbBot ?? base.botToken,
     appToken: dbApp ?? base.appToken,
+    archiveDelayMin: base.archiveDelayMin,
+    archiveDelayInvalid: base.archiveDelayInvalid,
   };
 }
 

@@ -9,21 +9,37 @@ export interface SlackEnv {
   botToken: string | null;
   /** xapp- app-level token（Socket Mode 接続用）。 */
   appToken: string | null;
-  /**
-   * セッション入出力 + メタチャットを集約する単一チャンネル ID（C…）。
-   * v0.1 は per-session チャンネルを作らず、この 1 チャンネル内で
-   * thread-per-session 方式で多重化する（spec/feature/slack-platform.md）。
-   */
+  /** Hub channel ID。session 非紐付け chat、slash、Cost/Sessions Canvas の配置先。 */
   channelId: string | null;
+  /** session.ended から public channel を archive するまでの猶予。 */
+  archiveDelayMin: number;
+  /** env 値が無効で既定値へ戻ったことを起動時ログへ出すための marker。 */
+  archiveDelayInvalid: boolean;
 }
 
+export const DEFAULT_SLACK_ARCHIVE_DELAY_MIN = 30;
+
 export function readSlackEnv(env: NodeJS.ProcessEnv = process.env): SlackEnv {
+  const archive = parseSlackArchiveDelayMin(env.CONCORDIA_SLACK_ARCHIVE_DELAY_MIN);
   return {
     enabled: String(env.CONCORDIA_SLACK_ENABLED ?? "").trim() === "1",
     botToken: env.CONCORDIA_SLACK_BOT_TOKEN?.trim() || null,
     appToken: env.CONCORDIA_SLACK_APP_TOKEN?.trim() || null,
     channelId: env.CONCORDIA_SLACK_CHANNEL_ID?.trim() || null,
+    archiveDelayMin: archive.value,
+    archiveDelayInvalid: archive.invalid,
   };
+}
+
+export function parseSlackArchiveDelayMin(raw: string | undefined): { value: number; invalid: boolean } {
+  if (raw === undefined || raw.trim() === "") {
+    return { value: DEFAULT_SLACK_ARCHIVE_DELAY_MIN, invalid: false };
+  }
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) {
+    return { value: DEFAULT_SLACK_ARCHIVE_DELAY_MIN, invalid: true };
+  }
+  return { value, invalid: false };
 }
 
 /** start に必要な設定が全て揃っているか（揃わなければ bot は no-op 起動）。 */

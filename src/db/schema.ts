@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 37;
+export const SCHEMA_VERSION = 38;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -512,11 +512,8 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_pr_records_author ON pr_records(author_session_id, updated_at DESC)`,
   `CREATE INDEX IF NOT EXISTS idx_pr_records_repo ON pr_records(repo_origin, state)`,
 
-  // ─── Slack platform (v0.1 — Discord と並ぶ ChatPlatform) ──────────────────
-  // per-session チャンネルを作らず、設定した 1 チャンネル内で thread-per-session
-  // で多重化する。session_id ↔ (channel_id, thread_ts) の対応を保持し、egress は
-  // この thread に投稿、ingress は thread 返信を session inject に逆引きする。
-  // spec/feature/slack-platform.md が正本。
+  // ─── Slack platform (legacy thread mapping; rollback/history compatibility) ──
+  // 新規 routing は slack_session_channels を正本とする。旧 thread 行は drop せず保持する。
   `CREATE TABLE IF NOT EXISTS slack_session_threads (
     session_id   TEXT PRIMARY KEY,
     channel_id   TEXT NOT NULL,
@@ -526,6 +523,20 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_slack_session_threads_thread
      ON slack_session_threads(channel_id, thread_ts)`,
+
+  // 公開 Bot-only session channel の正本。channel_id から ingress を逆引きし、
+  // header card と終了後 archive の時刻を永続化する。
+  `CREATE TABLE IF NOT EXISTS slack_session_channels (
+    session_id      TEXT PRIMARY KEY,
+    channel_id      TEXT NOT NULL UNIQUE,
+    channel_name    TEXT NOT NULL,
+    header_ts       TEXT,
+    created_at      INTEGER NOT NULL,
+    archive_due_at INTEGER,
+    archived_at    INTEGER
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_slack_session_channels_archive_due
+     ON slack_session_channels(archive_due_at, archived_at)`,
 
   // Slack message ts → chat_messages.id の解決表 (discord_message_map と対の構成)。
   // egress で Concordia 投稿の ts を記録し、reaction_added 受信時に元 chat を逆引きして

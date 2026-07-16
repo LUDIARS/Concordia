@@ -13,15 +13,15 @@ import {
 } from "./render.js";
 
 describe("renderSessionCard", () => {
-  it("active: text に engine + current_task + 返信ヒントを含む（フォールバック文字列）", () => {
+  it("active: text に engine + current_task + channel 投稿ヒントを含む（フォールバック文字列）", () => {
     const { text } = renderSessionCard({
       who: "テスト魂", provider: "claude-code", model: "opus",
       currentTask: "Slack ライブカード実装", shortId: "abcd1234", status: "active",
     });
     expect(text).toContain("claude-code · opus");
     expect(text).toContain("📌 Slack ライブカード実装");
-    expect(text).toContain("inject");
-    expect(text).toContain("テスト魂"); // 返信ヒント行にのみ残る
+    expect(text).toContain("このチャンネルへ投稿すると");
+    expect(text).toContain("テスト魂"); // 投稿ヒント行にのみ残る
   });
   it("active: blocks に Engine/Session の 2 カラムフィールドを含む", () => {
     const { blocks } = renderSessionCard({

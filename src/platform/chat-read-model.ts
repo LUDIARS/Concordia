@@ -43,6 +43,16 @@ export interface SessionRelayState {
   subsidiaryId: string | null;
 }
 
+export interface SlackSessionIndexEntry {
+  sessionId: string;
+  provider: string;
+  status: string;
+  currentTask: string | null;
+  persona: string | null;
+  updatedAt: number;
+  waiting: boolean;
+}
+
 export interface SessionCardState {
   who: string;
   emoji: string | null;
@@ -160,6 +170,8 @@ export interface ChatReadModel {
   getSessionRelayState(sessionId: string): SessionRelayState | null;
   getSessionCardState(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState | null;
   getEndedSessionPoem(sessionId: string): string | null;
+  /** Slack Sessions Canvas 用の権威 DB snapshot。古い test adapter は未実装でもよい。 */
+  listSlackSessionIndex?(): SlackSessionIndexEntry[];
   getSessionStatusSnapshot(sessionId: string, sessionChannelId: string): Promise<SessionStatusSnapshot | null>;
   getSessionPromptEvent(sessionId: string): SessionPromptRelayEvent | null;
   getSessionTitleEvent(sessionId: string): SessionTitleRelayEvent | null;

@@ -39,7 +39,8 @@ import { resolveSlackConfig } from "./slack/config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus } from "./events.js";
 import { eventFromWsFrame, parseWsFrame } from "./shared/event-schema.js";
-import { isReactionUserAllowed } from "./shared/reaction-workflow-auth.js";
+import { isReactionUserAllowed, normalizeReactionUserIds } from "./shared/reaction-workflow-auth.js";
+import { getReactionWorkflowReadiness } from "./shared/reaction-workflow-readiness.js";
 import { readChatWorkerLease, startChatWorkerLease } from "./bootstrap/chat.js";
 import { ChatMutationOutboxRepo } from "./db/chat-mutation-outbox-repo.js";
 import { installChatMutationOutbox } from "./platform/chat-mutation-outbox.js";
@@ -150,8 +151,30 @@ async function main(): Promise<void> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRoot ? [workspaceRoot] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    reactionWorkflowDiscordUserIds: normalizeReactionUserIds(
+      process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS,
+    ),
+    reactionWorkflowSlackUserIds: normalizeReactionUserIds(
+      process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS,
+    ),
     lictorDevPath: workspaceRoot ? join(workspaceRoot, "Lictor") : "",
   });
+  const reactionWorkflowReadiness = getReactionWorkflowReadiness({
+    enabled: adminState.getReactionWorkflowEnabled(),
+    discordUserIds: adminState.getReactionWorkflowDiscordUserIds(),
+    slackUserIds: adminState.getReactionWorkflowSlackUserIds(),
+  });
+  if (reactionWorkflowReadiness.issues.length > 0) {
+    log.warn(
+      {
+        readiness: reactionWorkflowReadiness.status,
+        issues: reactionWorkflowReadiness.issues,
+        discord_user_count: reactionWorkflowReadiness.platforms.discord.authorized_user_count,
+        slack_user_count: reactionWorkflowReadiness.platforms.slack.authorized_user_count,
+      },
+      "reaction-workflow is enabled with an empty platform allowlist",
+    );
+  }
   await initReactionWorkflow(workspaceRoot, log);
 
   const backendHost = isLoopbackHost(cfg.host) ? cfg.host : "127.0.0.1";
@@ -222,7 +245,7 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS, userId),
+      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(sessions, sessionId),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
@@ -239,7 +262,7 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS, userId),
+      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
     runHeadless: runClaude,
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };

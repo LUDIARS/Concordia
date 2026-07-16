@@ -161,6 +161,10 @@ dedup + fire-and-forget で記録経路を壊さない。
 **安全弁・写像は設定 GUI から編集可 (再起動なしで反映)**:
 - 安全弁 ON/OFF は AdminState (`schema_meta`) に永続化され、 runner が handle() ごとに live 評価する。
   `GET/PUT /v1/admin/reaction-workflow` / 設定ページ「リアクションWF」。 env はあくまで初期既定。
+- Discord / Slack の発火 allowlist も AdminState にプラットフォーム別に永続化する。PUT は
+  `discord_user_ids` / `slack_user_ids` の配列を受け取り、各項目は完全一致で照合する。GET/PUT 応答は
+  ID を返さず、`readiness.status`、合計件数、プラットフォーム別件数だけを返す。ON かつ合計 0 件は
+  `no_authorized_users` であり、設定変更時と起動時に警告ログを出す。空設定は常に全拒否のまま。
 - 絵文字→アクション写像はユーザが追加・上書きできる (既定は組み込み構成)。
   `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、
   `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で
@@ -188,6 +192,8 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 ## 5. 実装ファイル
 
 - `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック。
+- `src/shared/reaction-workflow-auth.ts` / `reaction-workflow-readiness.ts` — ID 完全一致の認可と、ID を露出しない稼働可視性。
+- `src/admin/state.ts` / `src/api/register-chat.ts` — allowlist の永続化、更新 API、readiness 応答。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
 - `src/discord/ingress.ts` / `src/slack/bot.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
@@ -195,7 +201,7 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 - `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
 - `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。
-- `src/server.ts` — `workspaceRoot` / `reactionWorkflowEnabled` を Discord/Slack 双方の deps に渡す。
+- `src/bootstrap/core.ts` / `src/chat-worker.ts` — AdminState の enabled / allowlist を Discord/Slack 双方へ live 注入する。
 - `src/platform/reaction-workflow.test.ts` — 写像 / plan の単体テスト。
 
 ## 6. 既知の制約 / TODO

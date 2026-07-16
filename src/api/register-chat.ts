@@ -10,12 +10,24 @@ import type { SchedulerHandle } from "../daily/scheduler.js";
 import type { MetricsStore } from "../metrics/store.js";
 import { setDiscordConfig, discordConfigStatus } from "../discord/conn-config.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
+import { createChildLogger } from "../shared/logger.js";
+import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { chatRouter } from "./chat.js";
 import { dailyRouter } from "./daily.js";
 import { monitorRouter } from "./monitor.js";
 import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./slack-admin.js";
+
+const reactionWorkflowLog = createChildLogger("reaction-workflow-config");
+const ReactionWorkflowUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  discord_user_ids: z.array(z.string().trim().min(1).max(128)).max(1_000).optional(),
+  slack_user_ids: z.array(z.string().trim().min(1).max(128)).max(1_000).optional(),
+}).strict().refine(
+  (value) => value.enabled !== undefined || value.discord_user_ids !== undefined || value.slack_user_ids !== undefined,
+  { message: "at least one reaction-workflow setting is required" },
+);
 
 export interface DiscordBotAdmin {
   start: () => Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }>;
@@ -62,16 +74,48 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     return c.json({ muted: deps.adminState.getChatMuted() });
   });
 
-  app.get("/v1/admin/reaction-workflow", (c) => {
-    return c.json({ enabled: deps.adminState.getReactionWorkflowEnabled() });
-  });
+  const reactionWorkflowStatus = () => {
+    const enabled = deps.adminState.getReactionWorkflowEnabled();
+    return {
+      enabled,
+      readiness: getReactionWorkflowReadiness({
+        enabled,
+        discordUserIds: deps.adminState.getReactionWorkflowDiscordUserIds(),
+        slackUserIds: deps.adminState.getReactionWorkflowSlackUserIds(),
+      }),
+    };
+  };
+
+  app.get("/v1/admin/reaction-workflow", (c) => c.json(reactionWorkflowStatus()));
   app.put("/v1/admin/reaction-workflow", async (c) => {
     const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.enabled !== "boolean") {
-      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    const parsed = ReactionWorkflowUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
     }
-    deps.adminState.setReactionWorkflowEnabled(body.enabled);
-    return c.json({ enabled: deps.adminState.getReactionWorkflowEnabled() });
+    if (parsed.data.enabled !== undefined) {
+      deps.adminState.setReactionWorkflowEnabled(parsed.data.enabled);
+    }
+    if (parsed.data.discord_user_ids !== undefined) {
+      deps.adminState.setReactionWorkflowDiscordUserIds(parsed.data.discord_user_ids);
+    }
+    if (parsed.data.slack_user_ids !== undefined) {
+      deps.adminState.setReactionWorkflowSlackUserIds(parsed.data.slack_user_ids);
+    }
+
+    const status = reactionWorkflowStatus();
+    if (status.readiness.issues.length > 0) {
+      reactionWorkflowLog.warn(
+        {
+          readiness: status.readiness.status,
+          issues: status.readiness.issues,
+          discord_user_count: status.readiness.platforms.discord.authorized_user_count,
+          slack_user_count: status.readiness.platforms.slack.authorized_user_count,
+        },
+        "reaction-workflow is enabled with an empty platform allowlist",
+      );
+    }
+    return c.json(status);
   });
 
   app.get("/v1/admin/persona-inject", (c) => {

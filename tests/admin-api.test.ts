@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeTestApp } from "./helpers/test-app.js";
+import { isReactionUserAllowed } from "../src/shared/reaction-workflow-auth.js";
 
 function buildTestApp() {
   return makeTestApp();
@@ -177,6 +178,59 @@ describe("admin API", () => {
     });
     expect(put.status).toBe(200);
     expect((await put.json() as { enabled: boolean }).enabled).toBe(true);
+  });
+
+  it("GET /v1/admin/reaction-workflow exposes enabled-empty readiness without IDs", async () => {
+    env.adminState.setReactionWorkflowEnabled(true);
+
+    const response = await env.app.request("/v1/admin/reaction-workflow");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      enabled: true,
+      readiness: {
+        status: "no_authorized_users",
+        authorized_user_count: 0,
+        platforms: {
+          discord: { authorized_user_count: 0 },
+          slack: { authorized_user_count: 0 },
+        },
+        issues: ["discord_no_authorized_users", "slack_no_authorized_users"],
+      },
+    });
+  });
+
+  it("PUT /v1/admin/reaction-workflow configures exact allowlists without returning IDs", async () => {
+    const response = await env.app.request("/v1/admin/reaction-workflow", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        discord_user_ids: ["discord-operator", "discord-operator"],
+        slack_user_ids: ["slack-operator"],
+      }),
+    });
+    expect(response.status).toBe(200);
+    const body = await response.json() as {
+      enabled: boolean;
+      readiness: { status: string; authorized_user_count: number };
+    };
+    expect(body.enabled).toBe(true);
+    expect(body.readiness.status).toBe("ready");
+    expect(body.readiness.authorized_user_count).toBe(2);
+    expect(JSON.stringify(body)).not.toContain("operator");
+
+    const configured = env.adminState.getReactionWorkflowDiscordUserIds();
+    expect(isReactionUserAllowed(configured, "discord-operator")).toBe(true);
+    expect(isReactionUserAllowed(configured, "discord-operator-extra")).toBe(false);
+  });
+
+  it("PUT /v1/admin/reaction-workflow rejects malformed allowlists", async () => {
+    const response = await env.app.request("/v1/admin/reaction-workflow", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ discord_user_ids: "discord-operator" }),
+    });
+    expect(response.status).toBe(400);
   });
 
   it("PUT /v1/admin/persona-inject toggles + GET reflects new value", async () => {

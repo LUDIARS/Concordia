@@ -97,7 +97,8 @@ import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
-import { isReactionUserAllowed } from "../shared/reaction-workflow-auth.js";
+import { isReactionUserAllowed, normalizeReactionUserIds } from "../shared/reaction-workflow-auth.js";
+import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
@@ -417,11 +418,33 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRootDefault ? [workspaceRootDefault] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
+    reactionWorkflowDiscordUserIds: normalizeReactionUserIds(
+      process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS,
+    ),
+    reactionWorkflowSlackUserIds: normalizeReactionUserIds(
+      process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS,
+    ),
     personaInjectEnabled: readPersonaInjectEnabled(),
     ccWorkflowEnabled: readCcWorkflowEnabled(),
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
+  const reactionWorkflowReadiness = getReactionWorkflowReadiness({
+    enabled: adminState.getReactionWorkflowEnabled(),
+    discordUserIds: adminState.getReactionWorkflowDiscordUserIds(),
+    slackUserIds: adminState.getReactionWorkflowSlackUserIds(),
+  });
+  if (reactionWorkflowReadiness.issues.length > 0) {
+    log.warn(
+      {
+        readiness: reactionWorkflowReadiness.status,
+        issues: reactionWorkflowReadiness.issues,
+        discord_user_count: reactionWorkflowReadiness.platforms.discord.authorized_user_count,
+        slack_user_count: reactionWorkflowReadiness.platforms.slack.authorized_user_count,
+      },
+      "reaction-workflow is enabled with an empty platform allowlist",
+    );
+  }
   // delegation 実行キュー: 同時実行上限を超えた invoke は spawn せず queued で待たせ、
   // スロットが空き次第 FIFO で起動する。 service ⇄ queue は相互依存なので setQueue で繋ぐ。
   const delegationQueue = new DelegationQueue({
@@ -594,7 +617,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS, userId),
+      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -625,7 +648,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS, userId),
+      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),

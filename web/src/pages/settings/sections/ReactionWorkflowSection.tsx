@@ -4,7 +4,6 @@
 // AdminTogglesPanel から移設。reaction-workflow / workspace / Lictor は新規。
 
 import { useEffect, useState } from "react";
-import { api } from "../../../api.js";
 
 import { ToggleRow, putJson } from "./common.js";
 
@@ -18,13 +17,29 @@ interface ReactionMappings {
   action_help?: Record<string, ActionHelp>;
 }
 
+interface ReactionWorkflowStatus {
+  enabled: boolean;
+  readiness: {
+    status: "disabled" | "ready" | "no_authorized_users";
+    authorized_user_count: number;
+    platforms: {
+      discord: { authorized_user_count: number };
+      slack: { authorized_user_count: number };
+    };
+    issues: Array<"discord_no_authorized_users" | "slack_no_authorized_users">;
+  };
+}
+
 export function ReactionWorkflowSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [readiness, setReadiness] = useState<ReactionWorkflowStatus["readiness"] | null>(null);
   const [maps, setMaps] = useState<ReactionMappings | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [newEmoji, setNewEmoji] = useState("");
   const [newAction, setNewAction] = useState("");
+  const [discordUserIds, setDiscordUserIds] = useState("");
+  const [slackUserIds, setSlackUserIds] = useState("");
 
   useEffect(() => { void refresh(); }, []);
 
@@ -34,7 +49,9 @@ export function ReactionWorkflowSection() {
         fetch("/v1/admin/reaction-workflow").then((r) => r.json()),
         fetch("/v1/admin/reaction-mappings").then((r) => r.json()),
       ]);
-      setEnabled((s as { enabled: boolean }).enabled);
+      const status = s as ReactionWorkflowStatus;
+      setEnabled(status.enabled);
+      setReadiness(status.readiness);
       setMaps(m as ReactionMappings);
       if (!newAction && (m as ReactionMappings).actions?.length) setNewAction((m as ReactionMappings).actions[0]);
       setError(null);
@@ -45,6 +62,20 @@ export function ReactionWorkflowSection() {
     setBusy("toggle"); setError(null);
     try { await putJson("/v1/admin/reaction-workflow", { enabled: v }); await refresh(); }
     catch (err) { setError((err as Error).message); } finally { setBusy(null); }
+  }
+
+  async function saveAllowlist(platform: "discord" | "slack") {
+    const raw = platform === "discord" ? discordUserIds : slackUserIds;
+    const userIds = [...new Set(raw.split(/[\s,;]+/).map((value) => value.trim()).filter(Boolean))];
+    setBusy(`${platform}-users`); setError(null);
+    try {
+      await putJson("/v1/admin/reaction-workflow", {
+        [platform === "discord" ? "discord_user_ids" : "slack_user_ids"]: userIds,
+      });
+      if (platform === "discord") setDiscordUserIds("");
+      else setSlackUserIds("");
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
   async function addMapping() {
@@ -106,6 +137,68 @@ export function ReactionWorkflowSection() {
         busy={busy === "toggle"}
         onLabel="停止中" offLabel="稼働中" onAction="稼働させる" offAction="停止する"
       />
+
+      {readiness?.status === "no_authorized_users" && (
+        <div className="border border-danger bg-danger/10 text-danger rounded p-3 text-xs">
+          <div className="font-semibold">実行可能ユーザーなし</div>
+          <div className="mt-1">
+            ワークフローは ON ですが Discord / Slack の許可ユーザーが空のため、すべての発火を拒否します。
+          </div>
+        </div>
+      )}
+
+      {readiness?.status === "ready" && readiness.issues.length > 0 && (
+        <div className="border border-accent bg-accent/10 text-accent rounded p-3 text-xs">
+          <div className="font-semibold">一部 platform に実行可能ユーザーがいません</div>
+          <div className="mt-1">
+            {readiness.issues.includes("discord_no_authorized_users") && "Discord allowlist が空です。 "}
+            {readiness.issues.includes("slack_no_authorized_users") && "Slack allowlist が空です。"}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
+        <div>
+          <div className="text-sm font-medium">発火ユーザー allowlist</div>
+          <div className="text-xs text-subtle mt-0.5">
+            ID は完全一致で照合し、空は全拒否です。API は保存済みIDを返さず、件数だけ表示します。
+          </div>
+        </div>
+
+        {(["discord", "slack"] as const).map((platform) => {
+          const isDiscord = platform === "discord";
+          const value = isDiscord ? discordUserIds : slackUserIds;
+          const count = readiness?.platforms[platform].authorized_user_count ?? 0;
+          return (
+            <div key={platform} className="bg-surface border border-border rounded p-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium">{isDiscord ? "Discord" : "Slack"}</span>
+                <span className={count > 0 ? "text-xs text-accent" : "text-xs text-danger"}>
+                  設定済み {count} 件
+                </span>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={value}
+                  onChange={(event) => isDiscord
+                    ? setDiscordUserIds(event.target.value)
+                    : setSlackUserIds(event.target.value)}
+                  placeholder="置換する user ID（カンマ/空白区切り）"
+                  disabled={busy === `${platform}-users`}
+                  className="bg-muted border border-border rounded px-2 py-1 text-sm min-w-72 flex-1"
+                />
+                <button
+                  disabled={busy === `${platform}-users`}
+                  onClick={() => void saveAllowlist(platform)}
+                  className="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
+                >置換保存</button>
+              </div>
+              <div className="text-[11px] text-subtle">空欄のまま置換保存すると、この platform は全拒否になります。</div>
+            </div>
+          );
+        })}
+      </div>
 
       <details className="bg-muted/40 border border-border rounded p-3">
         <summary className="text-sm font-medium cursor-pointer">コマンド (ワークフロー) ヘルプ — 各アクションが何をするか</summary>

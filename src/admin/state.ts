@@ -23,6 +23,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { normalizeReactionUserIds } from "../shared/reaction-workflow-auth.js";
 
 const KEY_CHAT_MUTED = "admin.chat_muted";
 const KEY_RULES_ENABLED = "admin.rules_enabled";
@@ -30,6 +31,8 @@ const KEY_WORKSPACE_ROOT = "admin.workspace_root";
 const KEY_WORKSPACE_ROOTS = "admin.workspace_roots";
 const KEY_GITHUB_ORG = "admin.github_org";
 const KEY_REACTION_WORKFLOW = "admin.reaction_workflow_enabled";
+const KEY_REACTION_WORKFLOW_DISCORD_USERS = "admin.reaction_workflow_discord_users";
+const KEY_REACTION_WORKFLOW_SLACK_USERS = "admin.reaction_workflow_slack_users";
 const KEY_PERSONA_INJECT = "admin.persona_inject_enabled";
 const KEY_CC_WORKFLOW = "admin.cc_workflow_enabled";
 const KEY_REACTION_MAPPINGS = "admin.reaction_emoji_overrides";
@@ -59,6 +62,10 @@ export interface AdminStateDefaults {
   githubOrg?: string;
   /** 既定の reaction-workflow ON/OFF (env CONCORDIA_REACTION_WORKFLOW 由来)。 */
   reactionWorkflowEnabled?: boolean;
+  /** 未永続化時の Discord 発火ユーザ allowlist (env 由来)。 */
+  reactionWorkflowDiscordUserIds?: string[];
+  /** 未永続化時の Slack 発火ユーザ allowlist (env 由来)。 */
+  reactionWorkflowSlackUserIds?: string[];
   personaInjectEnabled?: boolean;
   ccWorkflowEnabled?: boolean;
   /** Lictor dev モードのローカルリポ既定パス (例 <workspaceRoot>/Lictor)。 */
@@ -138,6 +145,28 @@ export class AdminState {
 
   setReactionWorkflowEnabled(value: boolean): void {
     this.setBool(KEY_REACTION_WORKFLOW, value);
+  }
+
+  getReactionWorkflowDiscordUserIds(): string[] {
+    return this.getReactionWorkflowUserIds(
+      KEY_REACTION_WORKFLOW_DISCORD_USERS,
+      this.defaults.reactionWorkflowDiscordUserIds,
+    );
+  }
+
+  setReactionWorkflowDiscordUserIds(userIds: readonly string[]): void {
+    this.setReactionWorkflowUserIds(KEY_REACTION_WORKFLOW_DISCORD_USERS, userIds);
+  }
+
+  getReactionWorkflowSlackUserIds(): string[] {
+    return this.getReactionWorkflowUserIds(
+      KEY_REACTION_WORKFLOW_SLACK_USERS,
+      this.defaults.reactionWorkflowSlackUserIds,
+    );
+  }
+
+  setReactionWorkflowSlackUserIds(userIds: readonly string[]): void {
+    this.setReactionWorkflowUserIds(KEY_REACTION_WORKFLOW_SLACK_USERS, userIds);
   }
 
   getPersonaInjectEnabled(): boolean {
@@ -349,6 +378,17 @@ export class AdminState {
   private setBool(key: string, value: boolean): void {
     this.setRaw(key, value ? "1" : "0");
   }
+
+  private getReactionWorkflowUserIds(key: string, fallback: readonly string[] | undefined): string[] {
+    const raw = this.getRaw(key);
+    if (raw === null) return normalizeReactionUserIds(fallback);
+    const parsed = parseStringArrayJson(raw);
+    return parsed === null ? normalizeReactionUserIds(fallback) : normalizeReactionUserIds(parsed);
+  }
+
+  private setReactionWorkflowUserIds(key: string, userIds: readonly string[]): void {
+    this.setRaw(key, JSON.stringify(normalizeReactionUserIds(userIds)));
+  }
 }
 
 /** schema_meta に入った JSON 配列文字列を string[] に復元 (壊れた値は [])。 */
@@ -375,4 +415,16 @@ function cleanRoots(roots: readonly string[]): string[] {
     out.push(t);
   }
   return out;
+}
+
+function parseStringArrayJson(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.every((value) => typeof value === "string")) {
+      return parsed;
+    }
+  } catch {
+    // Corrupt persisted values fall back to constructor defaults.
+  }
+  return null;
 }

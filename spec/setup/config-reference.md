@@ -274,14 +274,15 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 > 複数ルートは `/v1/admin/workspace-roots` (GET/PUT、 `{ workspace_roots: string[] }`) で編集、
 > 単一 `/v1/admin/workspace-root` (後方互換) は配列キーを `[value]` に上書きする。 先頭がプライマリ。
 
-### 設定 GUI 専用 (env なし、 schema_meta 永続化)
+### AdminState runtime 設定 (schema_meta 永続化)
 
-以下は env を持たず、 設定ページ (Rules 由来の runtime 制御を含む) / `/v1/admin/*` からのみ設定する。
+以下は設定ページ (Rules 由来の runtime 制御を含む) / `/v1/admin/*` から設定する。
+表の既定欄に env がある項目は、未永続化時だけその値を初期既定として使う。
 
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
-| reaction-workflow 発火ユーザ | 空 (全拒否) | env `CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS` / `CONCORDIA_REACTION_WORKFLOW_SLACK_USERS` | プラットフォーム user ID のカンマ/空白/`;` 区切り allowlist。 |
+| reaction-workflow 発火ユーザ | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。GET はIDを露出せず readiness と件数のみ返す。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
@@ -289,6 +290,11 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `daily_token_budget` | `0` (無効) | `/v1/admin/cost-budget` | 日次トークン上限。 当日 (local 日) の消費合計が上限に達したら Concordia 発の命令 (新規 `spawn` / dispatcher 発話 / リアクションWF / rule engine・proposer) を止める。 消費量は `~/.claude/projects` と `~/.codex/sessions` の全ログを 2 分毎に走査し、 ファイル単位の累積トークンの増分を当日バケットに足し込む (= **登録外の外部バッチ・別ツール起動も合算**)。 GET は `today_tokens` / `blocked` も返す。 |
 
 > PATH に `lictor` が無く spawn に失敗する環境は `lictor_mode=dev/prod` + パス指定で解決する。
+
+`GET /v1/admin/reaction-workflow` の `readiness.status` は `disabled` / `ready` /
+`no_authorized_users`。ON かつ全 platform 合計 0 件は `no_authorized_users` として起動時・設定変更時に
+警告される。platform 別の件数と issue code も返すが user ID 自体は返さない。空設定は allow-all へ
+フォールバックせず、常に全拒否。
 
 ---
 

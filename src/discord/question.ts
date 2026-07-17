@@ -13,6 +13,7 @@ import {
   type TextChannel,
 } from "discord.js";
 import type { DiscordCommandDeps } from "./commands.js";
+import type { AnswerQuestionBody } from "../platform/answer-question.js";
 import type {
   DiscordPendingQuestionsRepo,
   DiscordSessionChannelsRepo,
@@ -187,11 +188,63 @@ export async function resolveQuestionMessage(
   }
 }
 
-/** answer-question POST 用の body 形。単一 / 複数 / 自由文 のいずれか。 */
-type AnswerBody =
-  | { question_id: number; answer_index: number }
-  | { question_id: number; answer_indices: number[] }
-  | { question_id: number; other_text: string };
+/** answer-question 用の body 形。単一 / 複数 / 自由文 のいずれか (control 側と共有)。 */
+type AnswerBody = AnswerQuestionBody;
+
+/** dispatch 内で使う正規化済み回答結果。 */
+export type AnswerDispatchResult = { ok: true; answerText: string } | { ok: false; error: string };
+
+const ANSWER_HTTP_RETRIES = 2;
+const ANSWER_HTTP_RETRY_DELAY_MS = 300;
+
+/**
+ * 回答を確定させる。embedded (deps.answerQuestion あり) は in-process 直呼び、
+ * worker (無し) は HTTP。**どちらの経路でも throw しない** — 2026-07-13 の
+ * 「interaction handler failed: fetch failed」(self-fetch が backlog 溢れで落ちて
+ * 例外が escape、ユーザに何も返らない) の再発防止。HTTP は 5xx/接続失敗のみ
+ * リトライし、4xx (already_answered 等) は意味のあるエラーなので即返す。
+ */
+export async function sendAnswerForQuestion(
+  deps: Pick<DiscordCommandDeps, "answerQuestion" | "concordiaUrl">,
+  sessionId: string,
+  body: AnswerBody,
+  opts: { retries?: number; retryDelayMs?: number } = {},
+): Promise<AnswerDispatchResult> {
+  if (deps.answerQuestion) {
+    try {
+      const r = await deps.answerQuestion(sessionId, body);
+      return r.ok ? { ok: true, answerText: r.answer_text } : { ok: false, error: r.error };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+  const retries = opts.retries ?? ANSWER_HTTP_RETRIES;
+  const retryDelayMs = opts.retryDelayMs ?? ANSWER_HTTP_RETRY_DELAY_MS;
+  const url = `${deps.concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/answer-question`;
+  let lastError = "unknown";
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0 && retryDelayMs > 0) {
+      await new Promise((r) => setTimeout(r, retryDelayMs * attempt));
+    }
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json().catch(() => ({}))) as { error?: unknown; answer_text?: unknown };
+      if (res.ok) {
+        return { ok: true, answerText: typeof json.answer_text === "string" ? json.answer_text : "" };
+      }
+      const err = typeof json.error === "string" ? json.error : `HTTP ${res.status}`;
+      if (res.status < 500) return { ok: false, error: err }; // 意味的エラーはリトライ無意味
+      lastError = err;
+    } catch (e) {
+      lastError = `concordia unreachable: ${(e as Error).message}`;
+    }
+  }
+  return { ok: false, error: lastError };
+}
 
 export async function dispatchQuestionInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
   // 「その他」ボタン → Modal を開くだけ。HTTP なし・同期処理のみなので defer 不要。
@@ -235,22 +288,16 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
       return;
     }
     await interaction.deferReply({ ephemeral: true });
-    const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${row.session_id}/answer-question`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ question_id: questionId, other_text: text } satisfies AnswerBody),
-    });
-    const json = await res.json().catch(() => ({} as { error?: unknown; answer_text?: unknown }));
-    if (!res.ok) {
-      const err = typeof (json as { error?: unknown }).error === "string"
-        ? (json as { error: string }).error
-        : `HTTP ${res.status}`;
-      await interaction.editReply({ content: `Answer failed: ${err}` });
+    const result = await sendAnswerForQuestion(
+      deps,
+      row.session_id,
+      { question_id: questionId, other_text: text } satisfies AnswerBody,
+    );
+    if (!result.ok) {
+      await interaction.editReply({ content: `Answer failed: ${result.error}` });
       return;
     }
-    const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
-      ? (json as { answer_text: string }).answer_text
-      : "";
+    const answerText = result.answerText;
     if (interaction.message) {
       // 自由入力の回答もカードに残す (#3)。
       await interaction.message.edit(answeredCardEdit(interaction.message.embeds?.[0], answerText)).catch(() => {});
@@ -291,24 +338,13 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     return;
   }
   await interaction.deferUpdate();
-  const res = await fetch(`${deps.concordiaUrl}/v1/sessions/${row.session_id}/answer-question`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => ({} as { error?: unknown }));
-  if (!res.ok) {
-    const err = typeof (json as { error?: unknown }).error === "string"
-      ? (json as { error: string }).error
-      : `HTTP ${res.status}`;
-    await interaction.followUp({ content: `Answer failed: ${err}`, ephemeral: true });
+  const result = await sendAnswerForQuestion(deps, row.session_id, body);
+  if (!result.ok) {
+    await interaction.followUp({ content: `Answer failed: ${result.error}`, ephemeral: true });
     return;
   }
   // 選択結果をチャンネルに残す (#3): カードに「✅ 回答」を追記して可視化する。
-  const answerText = typeof (json as { answer_text?: unknown }).answer_text === "string"
-    ? (json as { answer_text: string }).answer_text
-    : "";
-  await interaction.editReply(answeredCardEdit(interaction.message?.embeds?.[0], answerText));
+  await interaction.editReply(answeredCardEdit(interaction.message?.embeds?.[0], result.answerText));
 }
 
 /**

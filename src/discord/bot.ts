@@ -42,7 +42,7 @@ import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monit
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
-import { dispatchInteraction, registerGuildCommands } from "./commands.js";
+import { dispatchInteraction, registerGuildCommands, type DiscordCommandDeps } from "./commands.js";
 import { describeInteractionForLog, interactionAgeMs } from "./interaction-diagnostics.js";
 import {
   delegationTemplateCache,
@@ -138,6 +138,12 @@ export interface DiscordBotDeps {
    * posts to the backend API so the session WS receives the inject.
    */
   emitSessionInject?: (sessionId: string, text: string, source: string) => void;
+  /**
+   * AskUserQuestion 回答の in-process 直呼び。embedded backend は
+   * control/answer-question.ts を注入し、self-fetch (自プロセスへの HTTP) を回避する。
+   * standalone chat-worker は未指定のまま → HTTP + リトライにフォールバック。
+   */
+  answerQuestion?: DiscordCommandDeps["answerQuestion"];
   /**
    * 実効接続設定を解決する関数 (DB+env)。 start のたびに呼ぶので、 設定変更後の
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
@@ -736,6 +742,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo,
       pendingQuestionsRepo,
+      answerQuestion: deps.answerQuestion,
       guild: interaction.guild!,
       layout,
       log,

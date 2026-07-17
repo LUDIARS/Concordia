@@ -3,6 +3,7 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { answerPendingQuestion, type AnswerQuestionBody } from "../../control/answer-question.js";
 
 export function registerQaRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/permission-request", async (c) => {
@@ -105,58 +106,25 @@ app.post("/:id/pending-question", async (c) => {
 
 app.post("/:id/answer-question", async (c) => {
     const id = c.req.param("id");
-    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
     const body = await c.req.json().catch(() => null);
     const parsed = AnswerQuestionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const row = deps.channelDirectory.findById(parsed.data.question_id);
-    if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
-    if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
-    const options = row.options;
-
-    // 回答 3 形態を answer_text に正規化する (Lictor はこの text をそのまま pty へ注入):
-    //   - other_text : 自由文をそのまま
-    //   - answer_indices : 各 label を ", " 結合 (複数選択)
-    //   - answer_index : 単一 label
-    let answerText: string;
-    let answerIndex = -1; // picker fallback 用 (Other は -1)
-    if (parsed.data.other_text !== undefined) {
-      answerText = parsed.data.other_text;
-      deps.channelDirectory.markAnsweredOther(row.id, answerText);
-    } else if (parsed.data.answer_indices !== undefined) {
-      const idxs = parsed.data.answer_indices;
-      const labels = idxs.map((i) => options[i]?.label);
-      if (labels.some((l) => !l)) return c.json({ error: "answer_index_out_of_range" }, 400);
-      answerText = labels.join(", ");
-      answerIndex = idxs[0];
-      deps.channelDirectory.markAnsweredMulti(row.id, idxs, answerText);
-    } else {
-      const single = parsed.data.answer_index!;
-      const label = options[single]?.label;
-      if (!label) return c.json({ error: "answer_index_out_of_range" }, 400);
-      answerText = label;
-      answerIndex = single;
-      deps.channelDirectory.markAnswered(row.id, single, answerText);
-    }
-
-    const ts = nowSec();
-    eventBus.emit({
-      type: "question.answered",
-      target_session_id: id,
-      question_id: row.id,
-      answer_index: answerIndex,
-      answer_text: answerText,
-      ts,
-    });
-    deps.repo.appendEvent({
-      session_id: id,
-      ts,
-      kind: "question_answered",
-      payload: { question_id: row.id, answer_index: answerIndex, answer_text: answerText },
-    });
+    // 回答確定の実体は control/answer-question.ts (embedded Discord bot と共有)。
+    const normalized: AnswerQuestionBody =
+      parsed.data.other_text !== undefined
+        ? { question_id: parsed.data.question_id, other_text: parsed.data.other_text }
+        : parsed.data.answer_indices !== undefined
+          ? { question_id: parsed.data.question_id, answer_indices: parsed.data.answer_indices }
+          : { question_id: parsed.data.question_id, answer_index: parsed.data.answer_index! };
+    const result = answerPendingQuestion(
+      { sessions: deps.repo, questions: deps.channelDirectory, now: nowSec },
+      id,
+      normalized,
+    );
+    if (!result.ok) return c.json({ error: result.error }, result.status);
     // 旧「起動時ブランチ選択」の回答処理は廃止 (起動フローはゴール起点に刷新)。
     // 通常の AskUserQuestion 回答として answer_text を返すだけ。
-    return c.json({ ok: true, answer_text: answerText });
+    return c.json({ ok: true, answer_text: result.answer_text });
   });
 
 app.post("/:id/pending-question/:qid/resolve", (c) => {

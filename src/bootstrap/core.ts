@@ -40,6 +40,7 @@ import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { createHarnessBlackbox } from "../harness/blackbox-engine.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
+import { answerPendingQuestion, questionStoreFromRepo } from "../control/answer-question.js";
 import { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import { runClaude } from "../rules/claude-runner.js";
@@ -609,6 +610,14 @@ export async function startBackend(): Promise<BackendHandle> {
     listSubsidiaries: () =>
       subsidiaryRepo.list().map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget })),
     concordiaUrl: publicUrl,
+    // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
+    // 「fetch failed」でユーザに何も返らない事故になるため使わない)。
+    answerQuestion: (sessionId, body) =>
+      answerPendingQuestion(
+        { sessions: repo, questions: questionStoreFromRepo(pendingQuestions) },
+        sessionId,
+        body,
+      ),
     // リアクションワークフロー: ローカルクローン親 (Memoria 解決用) + 安全弁。
     // workspaceRoot は設定 GUI (AdminState) で上書き可能。 bot start のたびに live 値を読む。
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,

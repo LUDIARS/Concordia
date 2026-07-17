@@ -26,6 +26,7 @@ import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { AnswerQuestionFn } from "../platform/answer-question.js";
 import { interactionAgeMs } from "./interaction-diagnostics.js";
 
 export interface DiscordCommandDeps {
@@ -33,6 +34,12 @@ export interface DiscordCommandDeps {
   sessionsRepo: SessionsRepo;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   pendingQuestionsRepo: DiscordPendingQuestionsRepo;
+  /**
+   * AskUserQuestion 回答の in-process 直呼び (embedded backend が注入)。
+   * standalone chat-worker では未指定 → question.ts が HTTP + リトライへフォールバック。
+   * self-fetch (自プロセスへの HTTP) は backlog 溢れ時に落ちるため embedded では使わない。
+   */
+  answerQuestion?: AnswerQuestionFn;
   guild: Guild;
   layout: DiscordConfigSnapshot;
   log: { info: (m: string) => void; warn: (m: string) => void };

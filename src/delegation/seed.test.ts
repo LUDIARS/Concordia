@@ -87,9 +87,44 @@ describe("seedDelegationTemplates", () => {
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
     expect(tpl?.prompt_template).toContain("service-map.json");
-    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\reviews\\<repo>\\${date}\\");
-    expect(tpl?.prompt_template).toContain("Castra で `git add` / `git commit` / `git push` を行わず");
-    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\Review\\");
+    // 配置フォルダは Review/ が正本 (2026-07-17 neco 指示)。git 操作はしない。
+    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
+    expect(tpl?.prompt_template).toContain("`git add` / `git commit` / `git push` は行わない");
+    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
+  });
+
+  it("codex Sol defaults to high + fast and Sol Ultra is explicit (2026-07-17)", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const sol = repo.findTemplateByCallName("codex-5-6-sol");
+    expect(JSON.parse(sol?.runtime_options_json ?? "null")).toMatchObject({
+      model_reasoning_effort: "high",
+      fast_mode: true,
+    });
+
+    const ultra = repo.findTemplateByCallName("codex-5-6-sol-ultra");
+    expect(ultra?.is_active).toBe(1);
+    expect(ultra?.model).toBe("gpt-5.6-sol");
+    expect(JSON.parse(ultra?.runtime_options_json ?? "null")).toMatchObject({
+      model_reasoning_effort: "ultra",
+    });
+  });
+
+  it("review launch is consolidated into review-duo (Opus x Sol xhigh)", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const duo = repo.findTemplateByCallName("review-duo");
+    expect(duo?.is_active).toBe(1);
+    expect(duo?.prompt_template).toContain("claude-opus-4-8");
+    expect(duo?.prompt_template).toContain("gpt-5.6-sol");
+    expect(duo?.prompt_template).toContain("xhigh");
+    expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
+    expect(duo?.prompt_template).toContain("worktree の生成・ブランチ切り替えは行わない");
+    expect(duo?.prompt_template).toContain("追加指示 (inject)");
+
+    expect(repo.findTemplateByCallName("review-sonnet5")?.is_active).toBe(0);
   });
 
   it("keeps the legacy daily review local-only during migration", () => {
@@ -97,8 +132,7 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     const tpl = repo.findTemplateByCallName("ludiars-review-daily");
-    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\reviews\\<repo>\\${date}\\");
-    expect(tpl?.prompt_template).toContain("Castra で `git add` / `git commit` / `git push` を行わず");
-    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\Review\\");
+    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
+    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
   });
 });

@@ -13,23 +13,31 @@ const CLAUDE_TEMPLATE_SORT_ORDER = {
   "haiku-4-5": 60,
 } as const;
 
-function codex56Template(
-  name: "sol" | "terra" | "luna",
-  label: "Sol" | "Terra" | "Luna",
-  emoji: string,
-  sort_order: number,
-  reasoning: "medium" | "high" | "xhigh",
-): CreateTemplateInput {
+function codex56Template(opts: {
+  /** call_name = `codex-5-6-${callSuffix}`。 model は `gpt-5.6-${modelName}`。 */
+  callSuffix: string;
+  modelName: "sol" | "terra" | "luna";
+  label: string;
+  emoji: string;
+  sort_order: number;
+  /** codex の model_reasoning_effort。 ultra は Sol の最上位推論。 */
+  reasoning: "medium" | "high" | "xhigh" | "ultra";
+  /** fast モード (出力高速化)。 Sol の既定は high + fast (2026-07-17 neco 指示)。 */
+  fastMode?: boolean;
+}): CreateTemplateInput {
   return {
-    call_name: `codex-5-6-${name}`,
-    title: `Implementation delegation (GPT-5.6 ${label})`,
-    description: `Delegate implementation work to Codex GPT-5.6 ${label}.`,
+    call_name: `codex-5-6-${opts.callSuffix}`,
+    title: `Implementation delegation (GPT-5.6 ${opts.label})`,
+    description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
     target_provider: "codex",
-    model: `gpt-5.6-${name}`,
-    runtime_options: { model_reasoning_effort: reasoning },
-    emoji,
+    model: `gpt-5.6-${opts.modelName}`,
+    runtime_options: {
+      model_reasoning_effort: opts.reasoning,
+      ...(opts.fastMode ? { fast_mode: true } : {}),
+    },
+    emoji: opts.emoji,
     category: "employee",
-    sort_order,
+    sort_order: opts.sort_order,
     prompt_template: [
       "Implement the following in ${target_repo}:",
       "",
@@ -55,9 +63,12 @@ function codex56Template(
 }
 
 const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
-  codex56Template("sol", "Sol", "☀️", 20, "high"),
-  codex56Template("terra", "Terra", "🌏", 50, "xhigh"),
-  codex56Template("luna", "Luna", "🌙", 70, "medium"),
+  // Sol の既定は high + fast (2026-07-17 neco 指示)。
+  codex56Template({ callSuffix: "sol", modelName: "sol", label: "Sol", emoji: "☀️", sort_order: 20, reasoning: "high", fastMode: true }),
+  // 最上位推論が要る難所用に Sol Ultra を明示的に用意する (同指示)。
+  codex56Template({ callSuffix: "sol-ultra", modelName: "sol", label: "Sol Ultra", emoji: "🌞", sort_order: 25, reasoning: "ultra" }),
+  codex56Template({ callSuffix: "terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 50, reasoning: "xhigh" }),
+  codex56Template({ callSuffix: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 70, reasoning: "medium" }),
 ];
 
 const FORUM_SESSION_PROMPT = [
@@ -348,7 +359,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "ludiars-review-daily",
     title: "日次レビュー (Claude)",
-    description: "LUDIARS 全 active リポを AIFormat に沿ってレビューし、spec/ が実装に追随できているか (FORMAT_SPEC.md §10) も確認する。安全範囲の自動修正は自分で行わず daily-review-autofix (Codex) に委託する。Morning Tasks と同じ Timer Delegation が毎日5:07 JSTにinvokeし、記録は Castra checkout のローカル reviews/ にのみ保存する。",
+    description: "LUDIARS 全 active リポを AIFormat に沿ってレビューし、spec/ が実装に追随できているか (FORMAT_SPEC.md §10) も確認する。安全範囲の自動修正は自分で行わず daily-review-autofix (Codex) に委託する。Morning Tasks と同じ Timer Delegation が毎日5:07 JSTにinvokeし、記録は E:DocumentArsReview に保存する (配置フォルダの正本)。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
@@ -357,8 +368,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "## LUDIARS 全リポ日次レビュー — ${date}",
       "",
       "AIFormat (`E:\\Document\\Ars\\AIFormat\\REVIEW_*.md`、 spec 追随は `FORMAT_SPEC.md` §10) に沿って",
-      "LUDIARS 全 active リポをレビューし、レビュー記録をローカル専用の `E:\\Document\\Ars\\reviews\\<repo>\\${date}\\` に保存する。",
-      "この reviews/ は Castra の ignore 対象であり、Castra へ commit / push してはならない。",
+      "LUDIARS 全 active リポをレビューし、レビュー記録をローカル専用の `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存する。",
+      "Review/ への書き込みはローカルのみ。Castra で git add / commit / push はしない。",
       "",
       "### 手順",
       "1. `E:\\Document\\Ars\\` 配下で origin が `github.com/LUDIARS/` のリポを列挙する (worktree / 複製は1件にまとめる)。",
@@ -373,7 +384,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "   MCP tool `delegation_invoke` (server: concordia-delegation) を呼び、",
       "   call_name=\"daily-review-autofix\" に `target_repo` / `repo_name` / `date` / `fixes` (指摘一覧テキスト) を渡して",
       "   Codex に autofix を委託する (自分は git 操作をしない)。",
-      "6. レビュー記録 (REVIEW*.md 6本 + AUTOFIX.md + latest.json) を `E:\\Document\\Ars\\reviews\\<repo>\\${date}\\` に書く。",
+      "6. レビュー記録 (REVIEW*.md 6本 + AUTOFIX.md + latest.json) を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に書く。",
       "   Castra で `git add` / `git commit` / `git push` を行わず、既存の追跡済み `Review/` も変更しない。",
       "7. 完了したら対象リポ数・重大指摘・autofix 委託件数をサマリとして報告する。",
       "",
@@ -403,13 +414,13 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "- spec/ ファイルは新規生成のみ許可。既存ファイルは上書きしない。",
       "- Create branch chore/review-fix-${date} off origin/main.",
       "- Make 1 PR (squash mergeable). PR body: 適用した修正一覧 + ローカル記録",
-      "  `E:\\Document\\Ars\\reviews\\${repo_name}\\${date}\\AUTOFIX.md` の参照 (リモートリンクにはしない)。",
+      "  `E:\\Document\\Ars\\Review\\${repo_name}\\${date}\\AUTOFIX.md` の参照 (リモートリンクにはしない)。",
       "",
       "Report the PR URL when done.",
     ].join("\n"),
     input_schema: [
       { name: "target_repo", type: "string" as const, required: true, description: "Absolute path of the target repository" },
-      { name: "repo_name", type: "string" as const, required: true, description: "リポ名 (reviews/<repo_name>/ と一致させる)" },
+      { name: "repo_name", type: "string" as const, required: true, description: "リポ名 (Review/<repo_name>/ と一致させる)" },
       { name: "date", type: "string" as const, required: true, description: "レビュー実施日 (YYYY-MM-DD)" },
       { name: "fixes", type: "string" as const, required: true, description: "適用する安全範囲の指摘一覧 (file:line + 概要)" },
     ],
@@ -425,7 +436,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "daily-review-reconciliation",
     title: "デイリー突合レビュー (Codex × Opus)",
-    description: "service-map.json の Tier 1 リポについて、前回レビュー HEAD からの累積 diff を Codex と Claude Opus に独立レビューさせ、所見を突合して Castra checkout のローカル reviews/ に保存する。High 一致は GitHub Issue 化。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。Timer Delegation が毎朝 5:10 JST に invoke する。",
+    description: "service-map.json の Tier 1 リポについて、前回レビュー HEAD からの累積 diff を Codex と Claude Opus に独立レビューさせ、所見を突合して E:DocumentArsReview に保存する。High 一致は GitHub Issue 化。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。Timer Delegation が毎朝 5:10 JST に invoke する。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
@@ -440,12 +451,12 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
       "",
       "### 手順",
-      "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\reviews\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
+      "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
       "2. 前回 HEAD == 現 HEAD のリポはスキップし「変更なし」と記録する。",
       "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-4-8` を起動する (互いの所見は見せない)。",
       "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定 → 両者一致の High 以上は対象リポへ GitHub Issue 作成。",
-      "5. 結果を `E:\\Document\\Ars\\reviews\\<repo>\\${date}\\` に保存し `latest.json` の `head` を現 HEAD へ更新する。",
-      "   reviews/ は Castra の ignore 対象。Castra で `git add` / `git commit` / `git push` を行わず、既存の追跡済み `Review/` も変更しない。",
+      "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` を現 HEAD へ更新する。",
+      "   Review/ への書き込みはローカルのみ。Castra で `git add` / `git commit` / `git push` は行わない。",
       "6. 新規指摘より先に open な指摘 Issue の解消確認 (resolved_checks) を行い、未対応 High は放置日数付きでレポート先頭に出す。",
       "7. 最終サマリ (対象数 / 変更なし数 / 一致・不一致所見数 / Issue 化件数 / unreviewed) を報告する。",
       "",
@@ -516,30 +527,60 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  // レビュー起動は review-duo に一本化 (2026-07-17 neco 指示)。旧テンプレは無効化して残す。
   {
     call_name: "review-sonnet5",
-    title: "レビュー委託 (Sonnet 5)",
-    description: "PR / diff / ファイル群のレビューを Sonnet 5 に委託する。AIFormat の考え方 (指摘は重大度付き、該当箇所は file:line) で所見を返す。git 操作・修正はしない。",
+    title: "レビュー委託 (Sonnet 5) [旧・review-duo に統合]",
+    description: "旧レビュー起動。review-duo (Opus × Sol xhigh 突合) に一本化したため無効。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "freelancer",
     emoji: "🔍",
+    prompt_template: "review-duo を使用してください。",
+    input_schema: [],
+    default_cwd: "${target_repo}",
+    is_active: false,
+  },
+  // ── 既定のレビュー起動 (1 本だけ): Opus × Sol xhigh の突合 ──
+  {
+    call_name: "review-duo",
+    title: "レビュー (Opus × Sol xhigh 突合)",
+    description: "対象を Claude Opus 4.8 と Codex GPT-5.6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "freelancer",
+    emoji: "⚖️",
+    sort_order: 105,
     prompt_template: [
-      "Review the following in ${target_repo}:",
+      "## 突合レビュー — ${target_repo}",
       "",
-      "${target}",
+      "あなたはオーケストレータ。レビュー本文は自分で書かず、2 レビュアーを独立に走らせて所見を突合する。",
+      "",
+      "対象: ${target}",
       "",
       "${context_extra:}", "",
-      "Requirements:",
-      "- 指摘は Critical/High/Medium/Low の重大度を付け、該当箇所は file:line で示す (推測禁止)。",
-      "- 修正は行わない。所見をまとめて報告するだけ。",
+      "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
+      "- Reviewer A: `claude -p --model claude-opus-4-8`",
+      "- Reviewer B: `codex exec` — model gpt-5.6-sol, `model_reasoning_effort=\"${sol_effort:xhigh}\"`",
+      "- 互いの所見は見せない (独立レビュー)。",
+      "",
+      "### レビュー作法 (遵守)",
+      "- worktree の生成・ブランチ切り替えは行わない。main 最新 (または指示されたブランチ/worktree) の上で読む。",
+      "- コードの修正・git 操作 (add/commit/push) はしない。",
+      "- 指摘は Critical/High/Medium/Low の重大度 + file:line (推測禁止)。",
       "- AIFormat (`E:\\Document\\Ars\\AIFormat\\REVIEW.md`) の評価の決定ルールに準拠する。",
       "",
-      "完了したらレビュー所見をレポートする。",
+      "### 出力",
+      "- 両者の所見を file:line で突合し、一致 / 片方のみ を整理する。",
+      "- 結果一式を `E:\\Document\\Ars\\Review\\<リポ名>\\<YYYY-MM-DD>\\` に保存する (レビューの配置フォルダは Review が正本)。",
+      "- 最終サマリ (一致 High / 不一致 / 総件数 / 保存先) を報告する。",
+      "",
+      "起動後にユーザから追加指示 (inject) が来たら、モデル構成・対象範囲・深さをその指示に合わせて調整して続行する。",
     ].join("\n"),
     input_schema: [
-      { name: "target", type: "string" as const, required: true, description: "レビュー対象 (PR URL / diff / ファイルパス等)" },
+      { name: "target", type: "string" as const, required: true, description: "レビュー対象 (PR URL / diff / リポ全体 等)" },
       { name: "target_repo", type: "string" as const, required: true, description: "Absolute path of the target repository" },
+      { name: "sol_effort", type: "string" as const, required: false, description: "Codex Sol の reasoning effort (既定 xhigh)" },
       { name: "context_extra", type: "string" as const, required: false, description: "Optional extra context to prepend" },
     ],
     default_cwd: "${target_repo}",

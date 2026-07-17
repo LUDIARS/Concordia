@@ -23,11 +23,16 @@ describe("schema", () => {
     expect(Number(v.value)).toBe(SCHEMA_VERSION);
   });
 
-  it("personas table has display_name column on fresh DB", () => {
+  it("does not create persona tables on fresh DB (persona 機構撤去済み)", () => {
     const db = makeRawTestDb();
     applyMigrations(db);
-    const cols = db.prepare(`PRAGMA table_info(personas)`).all() as Array<{ name: string }>;
-    expect(cols.some((c) => c.name === "display_name")).toBe(true);
+    const tables = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type='table' ORDER BY name`)
+      .all() as Array<{ name: string }>;
+    const names = tables.map((t) => t.name);
+    expect(names).not.toContain("personas");
+    expect(names).not.toContain("persona_assignments");
+    expect(names).not.toContain("persona_feedback_log");
   });
 
   it("forum migration columns exist on a fresh DB", () => {
@@ -39,9 +44,9 @@ describe("schema", () => {
     expect(sessionColumns.some((column) => column.name === "surface_message_id")).toBe(true);
   });
 
-  it("applyMigrations is idempotent and adds display_name to legacy personas", () => {
+  it("leaves orphan persona tables in legacy DB untouched (孤児テーブル放置)", () => {
     const db = makeRawTestDb();
-    // legacy schema: personas に display_name が無い状態
+    // legacy DB: 旧 persona 機構のテーブルが残っている状態
     db.exec(`CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
     db.exec(`CREATE TABLE personas (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
@@ -52,14 +57,12 @@ describe("schema", () => {
     db.prepare(`INSERT INTO personas (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)`)
       .run("legacy", "旧人格", 1, 1);
 
+    // 撤去後の migration がエラー無く通り、孤児テーブルは drop されない
     applyMigrations(db);
+    const row = db.prepare(`SELECT name FROM personas WHERE id = 'legacy'`).get() as { name: string };
+    expect(row.name).toBe("旧人格");
 
-    const cols = db.prepare(`PRAGMA table_info(personas)`).all() as Array<{ name: string }>;
-    expect(cols.some((c) => c.name === "display_name")).toBe(true);
-    const row = db.prepare(`SELECT display_name FROM personas WHERE id = 'legacy'`).get() as { display_name: string };
-    expect(row.display_name).toBe("");
-
-    // 2回目もエラー無く通る (column 重複 ALTER しない)
+    // 2回目もエラー無く通る
     applyMigrations(db);
   });
 

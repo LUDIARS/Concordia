@@ -43,7 +43,7 @@ export const FORBIDDEN_RULE_PATTERNS: Array<{ pattern: RegExp; reason: string }>
   },
   {
     pattern: /汎用雑談|general[-_ ]?chitchat|small[-_ ]?talk[-_ ]?random/i,
-    reason: "ロール無関係な汎用雑談 rule は禁止 (persona の役割に紐づけること)",
+    reason: "ロール無関係な汎用雑談 rule は禁止 (セッションの役割に紐づけること)",
   },
 ];
 

@@ -31,9 +31,6 @@ export interface SessionRelayState {
   status: string;
   currentTask: string | null;
   roleLabel: string | null;
-  personaId: string | null;
-  personaDisplayName: string | null;
-  personaName: string | null;
   delegationEmoji: string | null;
   delegationRunId: string | null;
   delegationParentSessionId: string | null;
@@ -48,7 +45,7 @@ export interface SlackSessionIndexEntry {
   provider: string;
   status: string;
   currentTask: string | null;
-  persona: string | null;
+  roleLabel: string | null;
   updatedAt: number;
   waiting: boolean;
 }
@@ -106,7 +103,7 @@ export interface SessionStatusSnapshot {
   currentTask: string | null;
   status: string;
   ageSec: number | null;
-  personaText: string;
+  roleLabel: string | null;
   sessionChannelId: string;
   inProgress: SessionStatusTask[];
   pending: Array<{ task_text: string }>;

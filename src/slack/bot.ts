@@ -166,7 +166,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     log.warn(`auth.test failed: ${(e as Error).message}`);
   }
 
-  // ライブカードの状態を session 行 + persona から組む（同期・純粋寄り）。
+  // ライブカードの状態を session 行から組む（同期・純粋寄り）。
   // ended の poem は呼び出し側 (renderEndedCard) が埋める。
   function buildCardState(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState {
     return deps.readModel.getSessionCardState(sessionId, status, poem) ?? {
@@ -198,7 +198,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     log,
   });
 
-  // session channel の先頭 header を現在の状態で再描画する。persona / task / title 更新時に呼ぶ。
+  // session channel の先頭 header を現在の状態で再描画する。task / title 更新時に呼ぶ。
   async function renderHeaderCard(sessionId: string, status: "active" | "ended" = "active", poem?: string | null): Promise<void> {
     const row = channels.findBySessionId(sessionId);
     if (!row) return;
@@ -315,7 +315,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     const session = deps.readModel.getSessionRelayState(ev.target_session_id);
     const author = frame.role === "summary"
       ? "Conversation summary"
-      : formatAuthorName(frame.role === "assistant" ? session?.personaDisplayName ?? null : null, session?.roleLabel ?? null);
+      : formatAuthorName(null, session?.roleLabel ?? null);
     log.info(`[verbose-slack-egress] transcript.frame → channel session=${ev.target_session_id} role=${frame.role}`);
     await postToSessionChannel(ev.target_session_id, frame.text, author);
     // assistant 本文の最初の1件で /rename 相当（summary は題材にしない）。
@@ -493,9 +493,6 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       working.noteProgress(ev.session_id);
     } else if (ev.type === "session.event" && (ev.kind === "title_renamed" || ev.kind === "task_update")) {
       void renderHeaderCard(ev.session_id).catch((e) => log.warn(`session header reflect: ${(e as Error).message}`));
-      sessionsCanvas.schedule();
-    } else if (ev.type === "persona.assigned") {
-      void renderHeaderCard(ev.session_id).catch((e) => log.warn(`session header persona: ${(e as Error).message}`));
       sessionsCanvas.schedule();
     } else if (ev.type === "report.generated") {
       void renderEndedCard(ev.session_id).catch((e) => log.warn(`ended header report: ${(e as Error).message}`));

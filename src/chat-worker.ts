@@ -12,7 +12,6 @@ import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
 import { ChatRepo } from "./db/chat-repo.js";
-import { PersonasRepo } from "./db/personas-repo.js";
 import { TasksRepo } from "./db/tasks-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { PrRecordsRepo } from "./db/pr-records-repo.js";
@@ -130,7 +129,6 @@ async function main(): Promise<void> {
   const db = openDb(cfg.dbPath);
   const sessions = new SessionsRepo(db);
   const chat = new ChatRepo(db);
-  const personas = new PersonasRepo(db);
   const tasks = new TasksRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const prs = new PrRecordsRepo(db);
@@ -214,7 +212,6 @@ async function main(): Promise<void> {
   const harnessRepo = new HarnessRulesRepo(db);
   const delegationService = new DelegationService({
     repo: delegationRepo,
-    personas,
     concordiaUrl,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
   });
@@ -222,7 +219,6 @@ async function main(): Promise<void> {
   const readModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: sessions,
-    personasRepo: personas,
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,

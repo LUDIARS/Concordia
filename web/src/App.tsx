@@ -12,7 +12,6 @@ import { Library } from "./pages/Library.js";
 import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
 import { Rules } from "./pages/Rules.js";
-import { Personas } from "./pages/Personas.js";
 import { Delegation } from "./pages/Delegation.js";
 import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
@@ -26,7 +25,6 @@ const NAV: NavItem[] = [
   { to: "/taskflow", label: "Taskflow" },
   { to: "/prs", label: "PRs" },
   { to: "/chat", label: "Chat" },
-  { to: "/personas", label: "Personas" },
   { to: "/cost", label: "Cost" },
   { to: "/reports", label: "Reports" },
   { to: "/session-logs", label: "作業ログ" },
@@ -64,7 +62,6 @@ export function App() {
           <Route path="/session-logs" element={<SessionLogs />} />
           <Route path="/skills" element={<Skills />} />
           <Route path="/rules" element={<Rules />} />
-          <Route path="/personas" element={<Personas />} />
           <Route path="/cost" element={<CostFeed />} />
           <Route path="/ws-cleanup" element={<WsCleanup />} />
           <Route path="/library" element={<Library />} />

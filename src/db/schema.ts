@@ -174,54 +174,6 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_day_reports_generated ON day_reports(generated_at DESC)`,
 
-  // ─── persona system (v0.1.5) ─────────────────────────
-  // Concordia 経由で起動された AI セッションに人格を排他的に割当てる.
-  // ユーザの skill / memory / FS には書かない. すべてここで完結.
-  // generated=1 は「投稿者(セッション)の活動シグナルから動的生成された人格」.
-  // seed (固定10体, generated=0) と区別し、 assign() のランダム自由枠から除外する
-  // (生成人格は origin_session_id のセッション専用で、 他セッションに配られない).
-  `CREATE TABLE IF NOT EXISTS personas (
-    id                TEXT PRIMARY KEY,
-    name              TEXT NOT NULL,
-    description       TEXT NOT NULL DEFAULT '',
-    traits            TEXT NOT NULL DEFAULT '[]',
-    speech_style      TEXT NOT NULL DEFAULT '',
-    skill_template    TEXT NOT NULL DEFAULT '',
-    learned_notes     TEXT NOT NULL DEFAULT '[]',
-    display_name      TEXT NOT NULL DEFAULT '',
-    generated         INTEGER NOT NULL DEFAULT 0,
-    origin_session_id TEXT,
-    created_at        INTEGER NOT NULL,
-    updated_at        INTEGER NOT NULL
-  )`,
-
-  `CREATE TABLE IF NOT EXISTS persona_assignments (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    persona_id  TEXT NOT NULL,
-    session_id  TEXT NOT NULL,
-    assigned_at INTEGER NOT NULL,
-    released_at INTEGER
-  )`,
-  // 排他: 1 persona が同時に複数 active session に割当たらないよう partial unique.
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_pa_active_persona
-     ON persona_assignments(persona_id) WHERE released_at IS NULL`,
-  `CREATE UNIQUE INDEX IF NOT EXISTS idx_pa_active_session
-     ON persona_assignments(session_id) WHERE released_at IS NULL`,
-  `CREATE INDEX IF NOT EXISTS idx_pa_session ON persona_assignments(session_id, assigned_at DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_pa_persona ON persona_assignments(persona_id, assigned_at DESC)`,
-
-  `CREATE TABLE IF NOT EXISTS persona_feedback_log (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    persona_id  TEXT NOT NULL,
-    session_id  TEXT,
-    ts          INTEGER NOT NULL,
-    kind        TEXT NOT NULL,
-    delta       TEXT NOT NULL,
-    detail      TEXT
-  )`,
-  `CREATE INDEX IF NOT EXISTS idx_pfb_persona ON persona_feedback_log(persona_id, ts DESC)`,
-  `CREATE INDEX IF NOT EXISTS idx_pfb_session ON persona_feedback_log(session_id, ts DESC)`,
-
   // ─── managed processes (v0.2) ────────────────────────
   // Concordia が spawn / 監視するシェルプロセス. dev-process.md 由来 + API 直叩き.
   `CREATE TABLE IF NOT EXISTS processes (
@@ -311,7 +263,7 @@ const STATEMENTS = [
   // session ↔ Discord channel の対応表 + 状態.
   //   status: 'active' (🟢) / 'lost' (🟥) / 'ended' (⚪)
   //   last_rename_ts: Discord の channel rename rate limit (実測 5-10min) を尊重するための guard.
-  //   webhook_id/token: 投稿用 webhook (persona name で per-message 上書き).
+  //   webhook_id/token: 投稿用 webhook (表示名で per-message 上書き).
   `CREATE TABLE IF NOT EXISTS discord_session_channels (
     session_id      TEXT PRIMARY KEY,
     channel_id      TEXT NOT NULL,
@@ -496,8 +448,8 @@ const STATEMENTS = [
     ci_status          TEXT NOT NULL DEFAULT 'unknown', -- unknown | pending | success | failure
     review_state       TEXT NOT NULL DEFAULT 'none',  -- none | needs_review | reviewing | approved | changes_requested
     author_session_id  TEXT,                          -- 誰 (どの session) が作ったか
-    persona_id         TEXT,
-    persona_name       TEXT,                          -- author_label 慣習に合わせた表示名 snapshot
+    persona_id         TEXT,                          -- 旧 persona 機構の遺構 (常に NULL。SQLite 列 drop 回避のため残置)
+    persona_name       TEXT,                          -- 同上
     additions          INTEGER,
     deletions          INTEGER,
     changed_files      INTEGER,
@@ -818,22 +770,6 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     table: "cost_limit_samples",
     column: "plan",
     ddl: `ALTER TABLE cost_limit_samples ADD COLUMN plan TEXT`,
-  },
-  {
-    table: "personas",
-    column: "display_name",
-    ddl: `ALTER TABLE personas ADD COLUMN display_name TEXT NOT NULL DEFAULT ''`,
-  },
-  // 動的生成人格フラグ + 出自セッション (v0.x — persona dynamic generation).
-  {
-    table: "personas",
-    column: "generated",
-    ddl: `ALTER TABLE personas ADD COLUMN generated INTEGER NOT NULL DEFAULT 0`,
-  },
-  {
-    table: "personas",
-    column: "origin_session_id",
-    ddl: `ALTER TABLE personas ADD COLUMN origin_session_id TEXT`,
   },
   // 永続 WS クライアント方式: 接続生存で active を維持するためのカウンタ.
   // sweeper は ws_clients > 0 の session を「作業中」 と見なして lost 化しない.

@@ -4,7 +4,6 @@ import type { HarnessAuditRepo } from "../../db/harness-audit-repo.js";
 import type { TasksRepo } from "../../db/tasks-repo.js";
 import type { ChatRepo } from "../../db/chat-repo.js";
 import type { ConcordiaConfig } from "../../shared/config.js";
-import type { PersonasRepo } from "../../db/personas-repo.js";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../../db/transcript-logs-repo.js";
@@ -54,7 +53,6 @@ export interface SessionsApiDeps {
   tasks: TasksRepo;
   chat: ChatRepo;
   config: ConcordiaConfig;
-  personas: PersonasRepo;
   processManager: ProcessManager;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
@@ -62,7 +60,6 @@ export interface SessionsApiDeps {
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
   resolveWorkspaceRoots?: () => string[];
-  resolvePersonaInjectEnabled?: () => boolean;
   resolveCcWorkflowEnabled?: () => boolean;
   /** session-end ??????????????????????????????????????? (??????*/
   harnessAudit?: HarnessAuditRepo;

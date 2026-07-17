@@ -17,7 +17,7 @@ function base(overrides: Partial<StatusEmbedInput> = {}): StatusEmbedInput {
     currentTask: null,
     status: "active",
     ageSec: 10,
-    personaText: "アーキテクト先生 / 構橋 慧",
+    roleLabel: "アーキテクト先生",
     sessionChannelId: "999",
     inProgress: [],
     pending: [],
@@ -54,9 +54,9 @@ describe("buildSessionStatusEmbed", () => {
     expect(idle).not.toMatch(MOJIBAKE_RE);
   });
 
-  it("title は persona、 persona 無しは provider にフォールバック", () => {
-    expect(buildSessionStatusEmbed(base()).data.title).toBe("アーキテクト先生 / 構橋 慧");
-    expect(buildSessionStatusEmbed(base({ personaText: "-" })).data.title).toBe("claude-code");
+  it("title は roleLabel、 無しは provider にフォールバック", () => {
+    expect(buildSessionStatusEmbed(base()).data.title).toBe("アーキテクト先生");
+    expect(buildSessionStatusEmbed(base({ roleLabel: null })).data.title).toBe("claude-code");
   });
 
   it("Repo field はフルパスでなくリポ名、 footer にフルパス", () => {

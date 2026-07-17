@@ -46,7 +46,7 @@ export type RunClaudeFn = (
 /**
  * `claude -p` を 1 ショット起動して stdout を返す。
  *
- * - 引数 1 つ (prompt のみ) の旧シグネチャは互換維持 (rules / report / persona 等)。
+ * - 引数 1 つ (prompt のみ) の旧シグネチャは互換維持 (rules / report 等)。
  * - opts で `--model` / cwd / 権限スキップ / timeout を上書きできる
  *   (reaction-workflow が agentic 記録に使う)。
  */

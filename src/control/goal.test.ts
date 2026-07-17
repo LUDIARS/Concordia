@@ -44,12 +44,12 @@ describe("readGoalFromMetadata / mergeGoalIntoMetadata", () => {
   it("未設定/壊れは既定", () => {
     expect(readGoalFromMetadata(null)).toEqual(DEFAULT_GOAL);
     expect(readGoalFromMetadata("{bad")).toEqual(DEFAULT_GOAL);
-    expect(readGoalFromMetadata('{"persona_id":"p1"}')).toEqual(DEFAULT_GOAL);
+    expect(readGoalFromMetadata('{"role_label":"係"}')).toEqual(DEFAULT_GOAL);
   });
   it("merge は既存キーを保持し goal を載せ、 read で往復する", () => {
-    const merged = mergeGoalIntoMetadata('{"persona_id":"p1","role_label":"係"}', { mode: "scoped", text: "#441" });
+    const merged = mergeGoalIntoMetadata('{"role_label":"係","delegation_emoji":"🚀"}', { mode: "scoped", text: "#441" });
     const o = JSON.parse(merged);
-    expect(o.persona_id).toBe("p1");
+    expect(o.delegation_emoji).toBe("🚀");
     expect(o.role_label).toBe("係");
     expect(readGoalFromMetadata(merged)).toEqual({ mode: "scoped", text: "#441" });
   });

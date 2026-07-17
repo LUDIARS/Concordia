@@ -7,7 +7,7 @@ import {
   pickSpawnProjectIdentificationInject,
   SPAWN_PROJECT_IDENTIFICATION_SOURCE,
 } from "../../control/spawn-project-identification.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, serializePersonaForResponse, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -153,25 +153,6 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       };
     }
 
-    // persona を排他 assign (Concordia 経由で起動された session のみ. ここを叩いた時点で確定).
-    const assignment = (deps.resolvePersonaInjectEnabled?.() ?? false)
-      ? deps.personas.assign(input.id)
-      : null;
-    if (assignment && !assignment.reused) {
-      // 新規 assign なら role_label を session metadata に反映 (UI / dispatcher 共有用).
-      const meta = parseMeta(session.metadata);
-      meta.role_label = assignment.persona.name;
-      meta.persona_id = assignment.persona.id;
-      deps.repo.setMetadata(input.id, JSON.stringify(meta));
-      eventBus.emit({
-        type: "persona.assigned",
-        session_id: input.id,
-        persona_id: assignment.persona.id,
-        persona_name: assignment.persona.name,
-        ts: nowSec(),
-      });
-    }
-
     const freshSession = deps.repo.findSession(input.id)!;
     const contextPacket = buildCollaborationContextPacket({
       repo: deps.repo,
@@ -228,8 +209,6 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       peers: peers.map(serializeSession),
       lost_candidates: lostCandidates.map(serializeSession),
       advisory,
-      persona: assignment ? serializePersonaForResponse(assignment.persona) : null,
-      persona_reused: assignment ? assignment.reused : false,
       processes: processStartup,
       process_stream_url: `ws://127.0.0.1:${deps.config.port}/ws`,
       goal: readGoalFromMetadata(freshSession.metadata),
@@ -272,18 +251,13 @@ app.get("/:id", (c) => {
       // synthetic session を返す (詳細ページが描画でき transcript パネルが読める).
       const span = deps.transcriptLogs.tsSpan(id);
       if (span) {
-        return c.json({ session: syntheticPurgedSession(id, span), persona: null, events: [] });
+        return c.json({ session: syntheticPurgedSession(id, span), events: [] });
       }
       return c.json({ error: "not_found" }, 404);
     }
     const events = deps.repo.recentEvents(s.id, 200);
-    // persona (active assignment があれば) を同梱. statusline / UI が 1 リクエストで
-    // ロール名 + 人物名を取れるように.
-    const assignment = deps.personas.findActiveBySession(s.id);
-    const persona = assignment ? deps.personas.find(assignment.persona_id) : null;
     return c.json({
       session: serializeSession(s),
-      persona: persona ? serializePersonaForResponse(persona) : null,
       events: events.map((e) => ({
         id: e.id,
         ts: e.ts,
@@ -428,7 +402,6 @@ app.delete("/:id", async (c) => {
       {
         repo: deps.repo,
         chat: deps.chat,
-        personas: deps.personas,
         config: deps.config,
         harnessAudit: deps.harnessAudit,
       },

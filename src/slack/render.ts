@@ -17,7 +17,7 @@ export function truncateForSlack(text: string, max = MAX_TEXT): string {
 // spec/feature/slack-platform.md §ライブセッションカード。
 
 export interface SessionCardState {
-  /** 表示名（persona / role を解決済みの文字列）。 */
+  /** 表示名（role を解決済みの文字列）。 */
   who: string;
   /**
    * 見出しの先頭アイコン。delegation テンプレで設定した絵文字を spawn 時に

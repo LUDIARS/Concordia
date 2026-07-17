@@ -33,7 +33,6 @@ const KEY_GITHUB_ORG = "admin.github_org";
 const KEY_REACTION_WORKFLOW = "admin.reaction_workflow_enabled";
 const KEY_REACTION_WORKFLOW_DISCORD_USERS = "admin.reaction_workflow_discord_users";
 const KEY_REACTION_WORKFLOW_SLACK_USERS = "admin.reaction_workflow_slack_users";
-const KEY_PERSONA_INJECT = "admin.persona_inject_enabled";
 const KEY_CC_WORKFLOW = "admin.cc_workflow_enabled";
 const KEY_REACTION_MAPPINGS = "admin.reaction_emoji_overrides";
 const KEY_LICTOR_MODE = "admin.lictor_mode";
@@ -66,7 +65,6 @@ export interface AdminStateDefaults {
   reactionWorkflowDiscordUserIds?: string[];
   /** 未永続化時の Slack 発火ユーザ allowlist (env 由来)。 */
   reactionWorkflowSlackUserIds?: string[];
-  personaInjectEnabled?: boolean;
   ccWorkflowEnabled?: boolean;
   /** Lictor dev モードのローカルリポ既定パス (例 <workspaceRoot>/Lictor)。 */
   lictorDevPath?: string;
@@ -167,14 +165,6 @@ export class AdminState {
 
   setReactionWorkflowSlackUserIds(userIds: readonly string[]): void {
     this.setReactionWorkflowUserIds(KEY_REACTION_WORKFLOW_SLACK_USERS, userIds);
-  }
-
-  getPersonaInjectEnabled(): boolean {
-    return this.getBool(KEY_PERSONA_INJECT, this.defaults.personaInjectEnabled ?? false);
-  }
-
-  setPersonaInjectEnabled(value: boolean): void {
-    this.setBool(KEY_PERSONA_INJECT, value);
   }
 
   getCcWorkflowEnabled(): boolean {
@@ -325,7 +315,6 @@ export class AdminState {
     workspace_roots: string[];
     github_org: string;
     reaction_workflow_enabled: boolean;
-    persona_inject_enabled: boolean;
     cc_workflow_enabled: boolean;
     lictor_mode: LictorMode;
     lictor_dev_path: string;
@@ -342,7 +331,6 @@ export class AdminState {
       workspace_roots: this.getWorkspaceRoots(),
       github_org: this.getGithubOrg(),
       reaction_workflow_enabled: this.getReactionWorkflowEnabled(),
-      persona_inject_enabled: this.getPersonaInjectEnabled(),
       cc_workflow_enabled: this.getCcWorkflowEnabled(),
       lictor_mode: this.getLictorMode(),
       lictor_dev_path: this.getLictorDevPath(),

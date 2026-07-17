@@ -2,16 +2,14 @@
  * runSessionEndFlow の動作確認.
  *
  * CONCORDIA_DISABLE_CLAUDE=1 を立てて claude CLI を呼ばず fallback template 経路
- * を通す. これで AI narrative が無い環境でも report 生成 + 独白投稿 + persona
- * release が一連で動くことを確認できる.
+ * を通す. これで AI narrative が無い環境でも report 生成 + 独白投稿が
+ * 一連で動くことを確認できる.
  */
 
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
-import { PersonasRepo } from "../src/db/personas-repo.js";
-import { seedPersonas } from "../src/personas/seeds.js";
 import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
@@ -51,11 +49,9 @@ function makeEnv() {
   const repo = new SessionsRepo(db);
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);
-  const personas = new PersonasRepo(db);
-  seedPersonas(personas);
   // template renderer = LLM 非使用 (テストで実 API/CLI を叩かない).
   const config = { ...loadConfig({}) };
-  return { db, repo, tasks, chat, personas, config };
+  return { db, repo, tasks, chat, config };
 }
 
 function endedSession(repo: SessionsRepo, id: string, now: number) {
@@ -121,19 +117,6 @@ describe("runSessionEndFlow", () => {
     const posted = events.find((ev) => ev.type === "chat.posted" && ev.message_id === m!.id);
     expect(posted).toMatchObject({ type: "chat.posted", session_id: "s2" });
     expect(m!.channel).toBe("報告");
-  });
-
-  it("persona が assign されていれば release される", async () => {
-    const now = Math.floor(Date.now() / 1000);
-    // assignment を作る
-    const ended = endedSession(env.repo, "s3", now);
-    const assignment = env.personas.assign("s3");
-    expect(assignment).not.toBeNull();
-
-    await runSessionEndFlow(env, ended);
-
-    const stillActive = env.personas.findActiveBySession("s3");
-    expect(stillActive).toBeNull();
   });
 
   it("session end flow does not enqueue peer chat tasks", async () => {

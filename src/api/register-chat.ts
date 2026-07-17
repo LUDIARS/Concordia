@@ -118,18 +118,6 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     return c.json(status);
   });
 
-  app.get("/v1/admin/persona-inject", (c) => {
-    return c.json({ enabled: deps.adminState.getPersonaInjectEnabled() });
-  });
-  app.put("/v1/admin/persona-inject", async (c) => {
-    const body = await c.req.json().catch(() => null);
-    if (!body || typeof body.enabled !== "boolean") {
-      return c.json({ error: "body.enabled (boolean) required" }, 400);
-    }
-    deps.adminState.setPersonaInjectEnabled(body.enabled);
-    return c.json({ enabled: deps.adminState.getPersonaInjectEnabled() });
-  });
-
   app.get("/v1/admin/cc-workflow", (c) => {
     return c.json({ enabled: deps.adminState.getCcWorkflowEnabled() });
   });

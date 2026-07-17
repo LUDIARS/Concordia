@@ -42,7 +42,6 @@ describe("AdminState", () => {
       workspace_roots: [],
       github_org: "",
       reaction_workflow_enabled: false,
-      persona_inject_enabled: false,
       cc_workflow_enabled: false,
       lictor_mode: "auto",
       lictor_dev_path: "",
@@ -116,14 +115,6 @@ describe("AdminState", () => {
     });
     expect(persisted.getReactionWorkflowDiscordUserIds()).toEqual(["discord-operator"]);
     expect(persisted.getReactionWorkflowSlackUserIds()).toEqual([]);
-  });
-
-  it("persona_inject_enabled defaults from constructor + round-trips", () => {
-    expect(env.state.getPersonaInjectEnabled()).toBe(false);
-    const withDefault = new AdminState(env.db, { personaInjectEnabled: true });
-    expect(withDefault.getPersonaInjectEnabled()).toBe(true);
-    withDefault.setPersonaInjectEnabled(false);
-    expect(new AdminState(env.db, { personaInjectEnabled: true }).getPersonaInjectEnabled()).toBe(false);
   });
 
   it("cc_workflow_enabled defaults from constructor + round-trips", () => {

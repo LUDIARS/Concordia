@@ -5,8 +5,6 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
-import { PersonasRepo } from "../db/personas-repo.js";
-import { seedPersonas } from "../personas/seeds.js";
 import {
   DelegationService,
   renderTemplate,
@@ -383,7 +381,7 @@ describe("DelegationService.invoke", () => {
     blackboxService.recordEffortOutcome(r.run, "completed");
   });
 
-  it("injects Concordia context block even without personas", async () => {
+  it("injects Concordia context block into the prompt file", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     if (!r.ok) throw new Error("expected ok");
     const file = readFileSync(r.prompt_file_path, "utf8");
@@ -392,59 +390,9 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("これから何をするか");
     // 「勝手に作業しない」 ガードが含まれる
     expect(file).toContain("勝手に作業しない");
-    // persona 無しなので「割り当て人格」セクションは出ない
+    // persona 機構は撤去済み: 人格ブロック / persona 行は出ない
     expect(file).not.toContain("割り当て人格");
-  });
-
-  it("injects a persona block + persona name in metadata when personas provided", async () => {
-    const personas = new PersonasRepo(db);
-    seedPersonas(personas);
-    const withPersona = new DelegationService({
-      repo,
-      promptsDir,
-      personas,
-      rng: () => 0, // 先頭 seed (アーキテクト先生) を決定的に選ぶ
-      spawn: (req) => {
-        spawnCalls.push(req);
-        return { ok: true, pid: 1, command: ["wt.exe", req.provider] };
-      },
-    });
-    const r = await withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
-    if (!r.ok) throw new Error("expected ok");
-    const file = readFileSync(r.prompt_file_path, "utf8");
-    expect(file).toContain("割り当て人格");
-    expect(file).toContain("Persona:");
-    // metadata 行に (none) ではなく実 persona 名が出る
-    expect(file).toMatch(/- persona: .+/);
-    expect(file).not.toContain("- persona: (none)");
-  });
-
-  it("persona context differs between no-persona and with-persona invocations", async () => {
-    // Without persona: no 割り当て人格 section
-    const r1 = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
-    if (!r1.ok) throw new Error("expected ok");
-    const file1 = readFileSync(r1.prompt_file_path, "utf8");
-    expect(file1).not.toContain("割り当て人格");
-    expect(file1).toContain("- persona: (none)");
-
-    // With persona: 割り当て人格 section is present
-    const personas = new PersonasRepo(db);
-    seedPersonas(personas);
-    const withPersona = new DelegationService({
-      repo,
-      promptsDir,
-      personas,
-      rng: () => 0,
-      spawn: (req) => {
-        spawnCalls.push(req);
-        return { ok: true, pid: 2, command: ["wt.exe", req.provider] };
-      },
-    });
-    const r2 = await withPersona.invoke({ call_name: "echo", args: { msg: "hi" } });
-    if (!r2.ok) throw new Error("expected ok");
-    const file2 = readFileSync(r2.prompt_file_path, "utf8");
-    expect(file2).toContain("割り当て人格");
-    expect(file2).not.toContain("- persona: (none)");
+    expect(file).not.toContain("- persona:");
   });
 
   it("records spawn_failed when spawner returns error", async () => {

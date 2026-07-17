@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "./helpers/db.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
-import { PersonasRepo } from "../src/db/personas-repo.js";
 import { RulesRepo } from "../src/db/rules-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
@@ -39,7 +38,6 @@ describe("sweeper session.lost event", () => {
     const db = makeTestDb();
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
-    const personas = new PersonasRepo(db);
     const transcriptLogs = new TranscriptLogsRepo(db);
     const rules = new RulesRepo(db);
     const stats = new StatsRepo(db);
@@ -51,7 +49,6 @@ describe("sweeper session.lost event", () => {
     const sweeper = startSweeper({
       repo: sessions,
       tasks,
-      personas,
       transcriptLogs,
       rules,
       stats,
@@ -82,7 +79,6 @@ describe("sweeper session.lost event", () => {
     const db = makeTestDb();
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
-    const personas = new PersonasRepo(db);
     const transcriptLogs = new TranscriptLogsRepo(db);
     const rules = new RulesRepo(db);
     const stats = new StatsRepo(db);
@@ -97,7 +93,6 @@ describe("sweeper session.lost event", () => {
     const sweeper = startSweeper({
       repo: sessions,
       tasks,
-      personas,
       transcriptLogs,
       rules,
       stats,

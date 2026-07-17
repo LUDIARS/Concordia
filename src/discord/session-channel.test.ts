@@ -62,7 +62,7 @@ function makeMocks() {
 function register(m: ReturnType<typeof makeMocks>) {
   return onSessionRegistered(
     { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log, webhooks: m.webhooks },
-    { sessionId: SESSION_ID, agentType: "claude", roleLabel: null, personaDisplayName: null },
+    { sessionId: SESSION_ID, agentType: "claude", roleLabel: null },
   );
 }
 
@@ -92,7 +92,7 @@ describe("onSessionRegistered — spawn と同時に webhook を eager 作成", 
     const m = makeMocks();
     await onSessionRegistered(
       { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
-      { sessionId: SESSION_ID, agentType: "claude", roleLabel: null, personaDisplayName: null },
+      { sessionId: SESSION_ID, agentType: "claude", roleLabel: null },
     );
     expect(m.repo.upsert).toHaveBeenCalledTimes(1);
     expect(m.createWebhook).not.toHaveBeenCalled();

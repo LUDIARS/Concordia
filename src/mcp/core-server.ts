@@ -116,7 +116,7 @@ export function buildCoreServer(): McpServer {
     "concordia_list_sessions",
     {
       description:
-        "List Concordia sessions, optionally filtered by status / provider / repo_origin / host. Returns serialized session rows including session_id, status, repo_path, branch, current_task, persona, started_at, last_seen_at.",
+        "List Concordia sessions, optionally filtered by status / provider / repo_origin / host. Returns serialized session rows including session_id, status, repo_path, branch, current_task, started_at, last_seen_at.",
       inputSchema: {
         status: z.enum(["active", "lost", "ended"]).optional().describe("Filter by lifecycle status"),
         provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "local-llm", "unknown"]).optional(),
@@ -139,7 +139,7 @@ export function buildCoreServer(): McpServer {
     "concordia_get_session",
     {
       description:
-        "Return a single session's detail: session row, current persona, and up to 200 most recent session_events. Use this when you need to read another session's recent activity (tool uses, file edits, prompts).",
+        "Return a single session's detail: session row and up to 200 most recent session_events. Use this when you need to read another session's recent activity (tool uses, file edits, prompts).",
       inputSchema: {
         session_id: z.string().describe("The session id, e.g. 'lictor-<uuid>' or a claude session id"),
       },

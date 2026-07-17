@@ -25,7 +25,6 @@ import {
 } from "../../src/db/discord-repo.js";
 import { ModelCatalogRepo } from "../../src/db/model-catalog-repo.js";
 import { makeParticipantsRepo } from "../../src/db/participants-repo.js";
-import { PersonasRepo } from "../../src/db/personas-repo.js";
 import { PrRecordsRepo } from "../../src/db/pr-records-repo.js";
 import { ProcessesRepo } from "../../src/db/processes-repo.js";
 import { RulesRepo } from "../../src/db/rules-repo.js";
@@ -37,7 +36,6 @@ import { TasksRepo } from "../../src/db/tasks-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
-import { seedPersonas } from "../../src/personas/seeds.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
 import type { SpawnRequest } from "../../src/control/spawner.js";
@@ -67,7 +65,6 @@ export interface TestAppEnv {
   skills: SkillsRepo;
   rules: RulesRepo;
   dayReports: DayReportsRepo;
-  personas: PersonasRepo;
   processes: ProcessesRepo;
   stats: StatsRepo;
   prs: PrRecordsRepo;
@@ -94,8 +91,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
   const dayReports = new DayReportsRepo(db);
-  const personas = new PersonasRepo(db);
-  seedPersonas(personas);
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const prs = new PrRecordsRepo(db);
@@ -128,7 +123,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   const delegationService = new DelegationService({
     repo: delegation,
-    personas,
     promptsDir: join(logsDir, "delegation-prompts"),
     spawn: opts.delegationSpawn ?? (() => ({ ok: true, pid: null, command: [] })),
   });
@@ -140,7 +134,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   };
 
   const deps: AppDeps = {
-    repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
+    repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, adminState,
     taskStore,
@@ -159,7 +153,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   return {
     app: buildApp(deps),
-    db, repo, tasks, chat, skills, rules, dayReports, personas, processes, stats, prs,
+    db, repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, adminState,
     processManager, config, logsDir,

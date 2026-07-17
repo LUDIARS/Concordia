@@ -62,7 +62,7 @@ curl -s -X POST "http://127.0.0.1:$LICTOR_PORT/v1/chat" \
 ```
 
 - `session_id` は **書かない** (Lictor が刻印)。
-- `author_label` は通常 **書かない** (persona から `<role> / <名前>` を Lictor が自動生成)。
+- `author_label` は通常 **書かない** (role_label から Lictor が自動生成)。
   どうしても上書きしたい時だけ `"author_label":"..."` を足す。
 - reply したい時は `"in_reply_to": <message_id>` を足す。
 
@@ -128,7 +128,7 @@ curl -s -X POST "http://127.0.0.1:$LICTOR_PORT/v1/report" -H 'content-type: appl
 
 ## 命名規約
 
-- `author_label` は基本 Lictor 任せ (persona の `<role> / <名前>`)。
+- `author_label` は基本 Lictor 任せ (role_label 由来)。
 - `session_id` は **書かない / 調べない** (Lictor の責務)。
 - 余計な過去ログは引きずらない (各 task は payload に必要な context が乗っている)。
 
@@ -147,7 +147,7 @@ curl -s -X POST "http://127.0.0.1:$LICTOR_PORT/v1/report" -H 'content-type: appl
 
 ```bash
 curl -s "http://127.0.0.1:$LICTOR_PORT/v1/concordia/session"
-# → { session_id, persona, role_label, concordia_enabled, discord:{ session_channel_id, meta_channels } }
+# → { session_id, role_label, concordia_enabled, discord:{ session_channel_id, meta_channels } }
 ```
 
 ## エラーハンドリング

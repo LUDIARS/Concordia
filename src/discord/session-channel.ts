@@ -62,7 +62,6 @@ export async function onSessionRegistered(
     agentType: string | null;
     delegationEmoji?: string | null;
     roleLabel: string | null;
-    personaDisplayName: string | null;
     repoPath?: string | null;
     branch?: string | null;
     model?: string | null;
@@ -97,7 +96,7 @@ export async function onSessionRegistered(
         fastMode: input.fastMode ?? null,
         projectCode: input.projectCode?.trim() || "Session",
         summary: input.currentTask ?? null,
-        fallbackLabel: input.roleLabel ?? input.personaDisplayName ?? input.agentType ?? "session",
+        fallbackLabel: input.roleLabel ?? input.agentType ?? "session",
         surfaceLabel: input.surfaceLabel,
         delegationRunId: input.delegationRunId,
       });
@@ -121,9 +120,7 @@ export async function onSessionRegistered(
       name,
       type: ChannelType.GuildText,
       parent: deps.layout.sessionsCategoryId,
-      topic: input.personaDisplayName
-        ? `${input.personaDisplayName} — session ${input.sessionId}`
-        : `session ${input.sessionId}`,
+      topic: `session ${input.sessionId}`,
     });
     deps.repo.upsert({
       session_id: input.sessionId,

@@ -48,8 +48,7 @@ export async function upsertSessionStatusCard(
   const statusChannel = await ensureStatusChannel(deps, {
     sessionId,
     provider: snapshot.provider,
-    roleLabel: roleLabelFromPersonaText(snapshot.personaText),
-    personaDisplayName: personaDisplayFromPersonaText(snapshot.personaText),
+    roleLabel: snapshot.roleLabel,
     allowCreate: opts.allowCreate ?? false,
   });
   if (!statusChannel) return;
@@ -113,7 +112,7 @@ export interface StatusEmbedInput {
   currentTask: string | null;
   status: string;
   ageSec: number | null;
-  personaText: string;
+  roleLabel: string | null;
   sessionChannelId: string;
   inProgress: Array<{ active_form: string | null; task_text: string }>;
   pending: Array<{ task_text: string }>;
@@ -169,7 +168,7 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
 
   const embed = new EmbedBuilder()
     .setColor(statusColor(i.status, i.ageSec))
-    .setTitle((i.personaText && i.personaText !== "-" ? i.personaText : i.provider).slice(0, 250))
+    .setTitle((i.roleLabel && i.roleLabel !== "-" ? i.roleLabel : i.provider).slice(0, 250))
     .setDescription(descParts.join("\n"))
     .addFields(
       { name: "状態", value: statusValue, inline: true },
@@ -267,7 +266,7 @@ async function maybeNotifyHighContextUsage(
 
 async function ensureStatusChannel(
   deps: SessionStatusCardDeps,
-  input: { sessionId: string; provider: string; roleLabel: string | null; personaDisplayName: string | null; allowCreate: boolean },
+  input: { sessionId: string; provider: string; roleLabel: string | null; allowCreate: boolean },
 ): Promise<TextChannel | null> {
   const key = `${STATUS_CHANNEL_KEY_PREFIX}${input.sessionId}`;
   const base = sessionChannelSlug(input.provider, input.roleLabel).slice(0, 80);
@@ -291,9 +290,7 @@ async function ensureStatusChannel(
       name,
       type: ChannelType.GuildText,
       parent: deps.layout.statusCategoryId,
-      topic: input.personaDisplayName
-        ? `${input.personaDisplayName} | session ${input.sessionId}`
-        : `session ${input.sessionId}`,
+      topic: `session ${input.sessionId}`,
     });
     deps.configRepo.set(key, created.id);
     return created;
@@ -364,14 +361,4 @@ function buildActivityLabel(status: string, ageSec: number | null): string {
 
 function truncate(s: string, n: number): string {
   return s.length <= n ? s : `${s.slice(0, n - 3)}...`;
-}
-
-function roleLabelFromPersonaText(text: string): string | null {
-  if (!text || text === "-") return null;
-  return text.split(" / ")[0] || null;
-}
-
-function personaDisplayFromPersonaText(text: string): string | null {
-  if (!text || text === "-") return null;
-  return text.split(" / ")[1] || null;
 }

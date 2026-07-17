@@ -16,7 +16,6 @@ import { ChatRepo } from "../db/chat-repo.js";
 import { SkillsRepo } from "../db/skills-repo.js";
 import { RulesRepo, seedDefaultRules } from "../db/rules-repo.js";
 import { DayReportsRepo } from "../db/day-reports-repo.js";
-import { PersonasRepo } from "../db/personas-repo.js";
 import { ProcessesRepo } from "../db/processes-repo.js";
 import { StatsRepo } from "../db/stats-repo.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
@@ -50,8 +49,6 @@ import { setLictorLauncherResolver, setConcordiaAddress } from "../control/spawn
 import { resolveLictorLauncher } from "../control/lictor-launcher.js";
 import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
-import { seedPersonas } from "../personas/seeds.js";
-import { collectBoyakiToPersona } from "../personas/boyaki.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
 import { startSweeper } from "../sweeper.js";
@@ -319,10 +316,6 @@ function loadDotEnv(file: string): void {
   }
 }
 
-export function readPersonaInjectEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.CONCORDIA_PERSONA_INJECT === "1";
-}
-
 export function readCcWorkflowEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.CONCORDIA_CC_WORKFLOW === "1";
 }
@@ -376,7 +369,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
   const dayReports = new DayReportsRepo(db);
-  const personas = new PersonasRepo(db);
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const prs = new PrRecordsRepo(db);
@@ -410,7 +402,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const publicUrlForDelegation = `http://${cfg.host}:${cfg.port}`;
   const delegationService = new DelegationService({
     repo: delegationRepo,
-    personas,
     concordiaUrl: publicUrlForDelegation,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
   });
@@ -426,7 +417,6 @@ export async function startBackend(): Promise<BackendHandle> {
     reactionWorkflowSlackUserIds: normalizeReactionUserIds(
       process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS,
     ),
-    personaInjectEnabled: readPersonaInjectEnabled(),
     ccWorkflowEnabled: readCcWorkflowEnabled(),
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
@@ -535,7 +525,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const sweeper = startSweeper({
     repo,
     tasks,
-    personas,
     transcriptLogs,
     rules,
     stats,
@@ -582,7 +571,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const chatReadModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: repo,
-    personasRepo: personas,
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
@@ -716,7 +704,6 @@ export async function startBackend(): Promise<BackendHandle> {
     skills,
     rules,
     dayReports,
-    personas,
     processes,
     stats,
     prs,
@@ -826,21 +813,6 @@ export async function startBackend(): Promise<BackendHandle> {
   // serve() は Http2Server | http.Server union を返すが Concordia は HTTP/1.1 で起動するので http.Server.
   const ws = attachWsServer(server as unknown as HttpServer, "/ws", repo);
 
-  // 動作ログ的な event を 1 active peer に exclusive 通知 (peer-log-react task).
-  // dispatcher 側で 60s cooldown + round-robin で 1 peer 選択 → pending_tasks の delivered_at で排他成立.
-  const unsubLog = eventBus.subscribe((ev) => {
-    // ぼやき投稿は投稿者セッションの persona 情報 (feedback log) に収集する.
-    if (ev.type === "chat.posted") {
-      if (ev.channel === "ぼやき") {
-        collectBoyakiToPersona(
-          { personas, chat },
-          { message_id: ev.message_id, session_id: ev.session_id ?? null },
-        );
-      }
-      return;
-    }
-  });
-
   // 実際に bind 成功した時だけ "listening" を出す。 以前は serve() 直後に無条件で
   // log していたため、 EADDRINUSE で落ちる時も「listening」 が先に出てエラーが
   // 埋もれていた (二重起動時に「起動したのに落ちる」 ように見える原因)。
@@ -945,7 +917,7 @@ export async function startBackend(): Promise<BackendHandle> {
     );
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
     trackPostListenHandle(startRepoChangeWatcher({ sessions: repo, tasks }));
-    trackPostListenHandle(startPrIngestWatcher({ sessions: repo, stats, personas, prs }));
+    trackPostListenHandle(startPrIngestWatcher({ sessions: repo, stats, prs }));
     trackPostListenHandle(startPrReconciler({
       prs,
       sessions: repo,
@@ -1000,7 +972,6 @@ export async function startBackend(): Promise<BackendHandle> {
     if (shuttingDown) return;
 
     seedDefaultRules(rules);
-    seedPersonas(personas);
     seedDelegationTemplates(delegationRepo);
     seedModelCatalog(modelCatalog);
     seedHarnessRules(harnessRepo);
@@ -1148,7 +1119,6 @@ export async function startBackend(): Promise<BackendHandle> {
       clearInterval(chatWorkerWatch);
       clearInterval(workflowWorkerWatch);
       costRuntime.stop();
-      unsubLog();
       clearDiscordBotAutoRestart();
       await postListenStartup.catch(() => {});
       await stopDiscordBotManaged();

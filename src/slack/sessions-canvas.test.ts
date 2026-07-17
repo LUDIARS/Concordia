@@ -3,10 +3,10 @@ import { SessionsCanvasController, renderSessionsCanvas } from "./sessions-canva
 import type { SlackSessionIndexEntry } from "../platform/chat-read-model.js";
 
 const rows: SlackSessionIndexEntry[] = [
-  { sessionId: "active123", provider: "codex", status: "active", currentTask: "build", persona: "雑用係", updatedAt: 4, waiting: false },
-  { sessionId: "waiting1", provider: "claude", status: "active", currentTask: "answer", persona: "相談役", updatedAt: 3, waiting: true },
-  { sessionId: "ended12", provider: "codex", status: "ended", currentTask: "done", persona: "実装", updatedAt: 2, waiting: false },
-  { sessionId: "lost1234", provider: "gemini", status: "lost", currentTask: null, persona: null, updatedAt: 1, waiting: false },
+  { sessionId: "active123", provider: "codex", status: "active", currentTask: "build", roleLabel: "雑用係", updatedAt: 4, waiting: false },
+  { sessionId: "waiting1", provider: "claude", status: "active", currentTask: "answer", roleLabel: "相談役", updatedAt: 3, waiting: true },
+  { sessionId: "ended12", provider: "codex", status: "ended", currentTask: "done", roleLabel: "実装", updatedAt: 2, waiting: false },
+  { sessionId: "lost1234", provider: "gemini", status: "lost", currentTask: null, roleLabel: null, updatedAt: 1, waiting: false },
 ];
 
 describe("Sessions Canvas", () => {

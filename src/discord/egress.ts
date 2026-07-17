@@ -236,7 +236,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     ? "Cc delegation"
     : role === "summary"
       ? "Conversation summary"
-      : formatAuthorName(role === "assistant" ? session.personaDisplayName : null, session.roleLabel);
+      : formatAuthorName(null, session.roleLabel);
   const content = mirroredFromChild && originalSession?.delegationRunId
     ? buildDelegationMirrorText({
         runId: originalSession.delegationRunId,

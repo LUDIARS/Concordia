@@ -31,9 +31,6 @@ type ConcordiaEventPayload =
       call_name: string | null;
       ts: number;
     }
-  | { type: "persona.assigned"; session_id: string; persona_id: string; persona_name: string; ts: number }
-  | { type: "persona.released"; session_id: string; persona_id: string; ts: number }
-  | { type: "persona.feedback"; persona_id: string; session_id: string | null; kind: string; ts: number }
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }
   | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }
   | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }
@@ -84,9 +81,6 @@ const KNOWN_WS_TYPES = new Set<string>([
   "report.generated",
   "rule.changed",
   "delegation.templates_changed",
-  "persona.assigned",
-  "persona.released",
-  "persona.feedback",
   "process.started",
   "process.log",
   "process.exited",

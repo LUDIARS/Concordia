@@ -16,7 +16,8 @@ describe("taskflow overview", () => {
       now: 123,
     });
     expect(overview.tasks[0]).toMatchObject({
-      assignee: "Reviewer Cat",
+      // pr.persona_name (遺構カラム) は使わず、session metadata の role_label を採る
+      assignee: "Implementer Cat",
       source_session: "session-1",
       session_status: "active",
       delegation_run_id: "run-1",
@@ -63,7 +64,7 @@ function session(): SessionRow {
     id: "session-1", provider: "codex-cli", repo_path: "E:/repo", repo_origin: "LUDIARS/repo",
     branch: "codex/task", host: "host", started_at: 1, ended_at: null, status: "active",
     last_seen_at: 2, current_task: "One task", transcript_path: null,
-    metadata: JSON.stringify({ persona_display_name: "Implementer Cat" }), ws_clients: 1, target_project: null,
+    metadata: JSON.stringify({ role_label: "Implementer Cat" }), ws_clients: 1, target_project: null,
   };
 }
 

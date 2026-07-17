@@ -149,7 +149,6 @@ function cacheTtlMs(pathname: string): number | null {
   if (pathname.startsWith("/v1/model-catalog")) return 5_000;
   if (pathname.startsWith("/v1/skills")) return 5_000;
   if (pathname.startsWith("/v1/chat")) return 500;
-  if (pathname.startsWith("/v1/personas")) return 1_000;
   if (pathname.startsWith("/v1/reports")) return 2_000;
   if (pathname.startsWith("/v1/stat")) return 1_000;
   if (pathname.startsWith("/v1/machines")) return 1_000;

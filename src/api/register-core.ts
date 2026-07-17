@@ -23,7 +23,6 @@ import type { ProcessManager } from "../processes/manager.js";
 import type { ProcessesRepo } from "../db/processes-repo.js";
 import type { SkillsRepo } from "../db/skills-repo.js";
 import type { RulesRepo } from "../db/rules-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import type { StatsRepo } from "../db/stats-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
@@ -35,7 +34,6 @@ import type {
 } from "../db/discord-repo.js";
 import type { AdminState } from "../admin/state.js";
 import type { CostBudgetStatus } from "../cost/usage-tracker.js";
-import { personasRouter } from "./personas.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import type { ChannelDirectory } from "./sessions/deps.js";
 import { spawnRouter } from "./spawn.js";
@@ -96,7 +94,6 @@ export interface CoreDeps {
   chat: ChatRepo;
   skills: SkillsRepo;
   rules: RulesRepo;
-  personas: PersonasRepo;
   processes: ProcessesRepo;
   stats: StatsRepo;
   prs: PrRecordsRepo;
@@ -143,7 +140,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       tasks: deps.tasks,
       chat: deps.chat,
       config: deps.config,
-      personas: deps.personas,
       processManager: deps.processManager,
       sessionTaskRecords: deps.sessionTaskRecords,
       transcriptLogs: deps.transcriptLogs,
@@ -151,16 +147,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       channelDirectory: deps.channelDirectory,
       participants: deps.participants,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
-      resolvePersonaInjectEnabled: () => deps.adminState.getPersonaInjectEnabled(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,
     }),
   );
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
-  app.route(
-    "/v1/personas",
-    personasRouter({ personas: deps.personas }),
-  );
   app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
   app.route(
     "/v1/session-logs",
@@ -511,7 +502,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // 管理 API: 既存 lictor-wrapped セッションを kill.
   // 1. session row から metadata.lictor_pid を取得
   // 2. session を ended に遷移 + end event append (stopped_by: admin)
-  // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿 / persona release) を実行
+  // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿) を実行
   // 4. 独白後に platform 別 process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
   //    DELETE /v1/sessions/:id と同じ helper (control/end-session-flow.ts) を経由する.
   app.post("/v1/admin/stop-session/:id", async (c) => {
@@ -543,7 +534,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       {
         repo: deps.repo,
         chat: deps.chat,
-        personas: deps.personas,
         config: deps.config,
         harnessAudit: deps.harnessAudit,
       },

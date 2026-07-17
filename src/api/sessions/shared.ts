@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { SessionRow } from "../../shared/types.js";
-import type { PersonaRow } from "../../db/personas-repo.js";
 import { fetchFromLictor } from "../../control/lictor-proxy.js";
 import type { SpawnProvider } from "../../control/spawner.js";
 import { createChildLogger } from "../../shared/logger.js";
@@ -163,24 +162,6 @@ export const ForkSchema = z.object({
   /** Window vs tab — passed through to wt.exe spawner. */
   mode: z.enum(["tab", "window"]).optional(),
 });
-
-
-export function serializePersonaForResponse(p: PersonaRow) {
-  let traits: unknown = [];
-  let learned: unknown = [];
-  try { traits = JSON.parse(p.traits); } catch { traits = []; }
-  try { learned = JSON.parse(p.learned_notes); } catch { learned = []; }
-  return {
-    id: p.id,
-    name: p.name,
-    display_name: p.display_name ?? "",
-    description: p.description,
-    traits,
-    speech_style: p.speech_style,
-    skill_template: p.skill_template,
-    learned_notes: learned,
-  };
-}
 
 
 export function buildAdvisory(session: SessionRow, peers: SessionRow[]) {

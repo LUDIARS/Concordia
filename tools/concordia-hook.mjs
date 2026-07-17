@@ -181,7 +181,6 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
   if (res?.context_packet?.cc_workflow && !QUIET_STDOUT) {
     process.stdout.write(formatCcWorkflow(res.context_packet) + "\n");
   }
-  // persona 注入 (Concordia 経由の起動時のみ. ユーザの skill / memory には書かない).
   if (res?.initial_work && !QUIET_STDOUT) {
     const iw = res.initial_work;
     const lines = [
@@ -197,15 +196,6 @@ async function sessionStart({ sessionId, cwd, transcriptPath }) {
       for (const o of options) lines.push(`  - ${o.label ?? String(o)}`);
     }
     process.stdout.write(lines.join("\n") + "\n");
-  }
-  if (res?.persona && res.persona.skill_template && !QUIET_STDOUT) {
-    const reused = res.persona_reused ? " (再開: 既存 assign)" : "";
-    process.stdout.write(
-      `\n[concordia/persona] あなたに付与された人格: **${res.persona.name}**${reused}\n` +
-      `------- persona skill (session 限定 / FS 書込みなし) -------\n` +
-      String(res.persona.skill_template) + "\n" +
-      `------- end persona skill -------\n`,
-    );
   }
 }
 

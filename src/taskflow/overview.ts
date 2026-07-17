@@ -140,10 +140,7 @@ function resolveAssignee(
   const explicit = stringValue(fm.assignee) ?? stringValue(fm.owner);
   if (explicit) return explicit;
   const metadata = parseMetadata(session?.metadata);
-  return pr?.persona_name
-    ?? stringValue(metadata.persona_display_name)
-    ?? stringValue(metadata.persona_name)
-    ?? stringValue(metadata.role_label)
+  return stringValue(metadata.role_label)
     ?? stringValue(metadata.delegation_call_name)
     ?? run?.call_name
     ?? session?.provider

@@ -1,6 +1,5 @@
 import type { ChatRepo, ChatMessageRow } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
@@ -26,7 +25,6 @@ const PR_QUEUE_CONTENT_LIMIT = 2000;
 export interface ChatReadModelDeps {
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
-  personasRepo: PersonasRepo;
   sessionTaskRecordsRepo: SessionTaskRecordsRepo;
   tasksRepo: TasksRepo;
   prRecordsRepo: PrRecordsRepo;
@@ -44,8 +42,6 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     const meta = readSessionMeta(session.metadata);
     const delegationRunId = stringOrNull(meta.delegation_run_id);
     const delegationRun = delegationRunId ? deps.delegationRepo.findRun(delegationRunId) : null;
-    const personaId = stringOrNull(meta.persona_id);
-    const persona = personaId ? deps.personasRepo.find(personaId) : null;
     return {
       sessionId,
       provider: session.provider,
@@ -54,9 +50,6 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       status: session.status,
       currentTask: session.current_task,
       roleLabel: stringOrNull(meta.role_label),
-      personaId,
-      personaDisplayName: persona?.display_name ?? null,
-      personaName: persona?.name ?? null,
       delegationEmoji: stringOrNull(meta.delegation_emoji),
       delegationRunId,
       delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
@@ -104,7 +97,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       const state = relayState(sessionId);
       if (!state) return null;
       return {
-        who: formatAuthorName(state.personaDisplayName, state.roleLabel),
+        who: formatAuthorName(null, state.roleLabel),
         emoji: state.delegationEmoji,
         provider: state.provider,
         model: state.model,
@@ -126,7 +119,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
           provider: session.provider,
           status: session.status,
           currentTask: session.current_task,
-          persona: state ? personaLabel(state.roleLabel, state.personaDisplayName, state.personaName) : null,
+          roleLabel: state?.roleLabel ?? null,
           updatedAt: session.last_seen_at,
           waiting: deps.hasPendingQuestion?.(session.id) ?? false,
         } satisfies SlackSessionIndexEntry;
@@ -159,7 +152,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         currentTask: session.current_task,
         status: session.status,
         ageSec,
-        personaText: personaLabel(state.roleLabel, state.personaDisplayName, state.personaName),
+        roleLabel: state.roleLabel,
         sessionChannelId,
         inProgress: openTasks
           .filter((t) => t.status === "in_progress")
@@ -309,12 +302,6 @@ function stringOrUndefined(value: unknown): string | undefined {
 function sessionOwnedBy(metadata: string | null, subsidiaryId: string | null): boolean {
   const sid = stringOrNull(readSessionMeta(metadata).subsidiary_id);
   return subsidiaryId ? sid === subsidiaryId : !sid;
-}
-
-function personaLabel(roleLabel: string | null, displayName: string | null, fallbackName: string | null): string {
-  if (roleLabel && displayName) return `${roleLabel} / ${displayName}`;
-  if (roleLabel && fallbackName) return `${roleLabel} / ${fallbackName}`;
-  return roleLabel ?? displayName ?? fallbackName ?? "-";
 }
 
 function mentionFor(channelId: string | null): string | null {

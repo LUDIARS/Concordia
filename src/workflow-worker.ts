@@ -5,7 +5,6 @@ import { loadConfig } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
-import { PersonasRepo } from "./db/personas-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
@@ -40,7 +39,6 @@ async function main(): Promise<void> {
   const cfg = loadConfig();
   const db = openDb(cfg.dbPath);
   const sessions = new SessionsRepo(db);
-  const personas = new PersonasRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const configRepo = makeDiscordConfigRepo(db);
   const existingLease = readWorkflowWorkerLease(configRepo);
@@ -61,7 +59,6 @@ async function main(): Promise<void> {
   const concordiaUrl = `http://${cfg.host}:${cfg.port}`;
   const service = new DelegationService({
     repo: delegationRepo,
-    personas,
     concordiaUrl,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
   });

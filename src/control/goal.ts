@@ -74,7 +74,7 @@ function normalizeGoal(g: Goal): Goal {
 
 /**
  * 既存 metadata JSON に goal をマージして新しい JSON 文字列を返す (純粋 RMW)。
- * persona_id / role_label など既存キーは保持する。 壊れた metadata は破棄して再構築。
+ * role_label など既存キーは保持する。 壊れた metadata は破棄して再構築。
  */
 export function mergeGoalIntoMetadata(metadata: string | null | undefined, goal: Goal): string {
   let base: Record<string, unknown> = {};

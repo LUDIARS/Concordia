@@ -24,8 +24,6 @@ export function Monitor() {
       "session.ended",
       "session.lost",
       "session.event",
-      "persona.assigned",
-      "persona.released",
     ],
   );
 

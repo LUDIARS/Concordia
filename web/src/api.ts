@@ -323,6 +323,7 @@ export interface PrItem {
   ci_status: "unknown" | "pending" | "success" | "failure";
   review_state: "none" | "needs_review" | "reviewing" | "approved" | "changes_requested";
   author_session_id: string | null;
+  /** 旧 persona 機構の遺構カラム (常に null。過去行にのみ値が残る)。 */
   persona_name: string | null;
   additions: number | null;
   deletions: number | null;
@@ -372,36 +373,6 @@ export interface RepoStatus {
   updated_at: number | null;
   sessions: RepoSessionRef[];
   error: string | null;
-}
-
-export interface Persona {
-  id: string;
-  name: string;
-  description: string;
-  traits: string[];
-  speech_style: string;
-  skill_template: string;
-  learned_notes: string[];
-  created_at: number;
-  updated_at: number;
-  is_active?: boolean;
-}
-
-export interface PersonaActiveItem {
-  assignment_id: number;
-  session_id: string;
-  assigned_at: number;
-  persona: Persona;
-}
-
-export interface PersonaFeedback {
-  id: number;
-  persona_id: string;
-  session_id: string | null;
-  ts: number;
-  kind: "session-end" | "chat-update" | "manual" | "system";
-  delta: string;
-  detail: any;
 }
 
 export interface HostSnapshot {
@@ -822,14 +793,6 @@ export const api = {
     get<{ session_id: string; summary_md: string; bullets: any; duration_sec: number }>(
       `/v1/reports/${encodeURIComponent(id)}`,
     ),
-  personasList: () => get<{ personas: Persona[] }>("/v1/personas"),
-  personasActive: () => get<{ active: PersonaActiveItem[] }>("/v1/personas/active"),
-  personaDetail: (id: string) =>
-    get<{ persona: Persona; feedback: PersonaFeedback[]; assignments: Array<{ id: number; session_id: string; assigned_at: number; released_at: number | null }> }>(
-      `/v1/personas/${encodeURIComponent(id)}`,
-    ),
-  personasFeedbackRecent: (limit = 50) =>
-    get<{ feedback: PersonaFeedback[] }>(`/v1/personas/feedback/recent?limit=${limit}`),
   statList: () =>
     get<{
       items: Array<{

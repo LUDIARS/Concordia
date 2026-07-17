@@ -68,11 +68,11 @@ export function renderSessionsCanvas(
     }
     for (const row of limited) {
       const channelId = channelForSession(row.sessionId)!;
-      const persona = oneLine(row.persona || "-");
+      const role = oneLine(row.roleLabel || "-");
       const task = oneLine(row.currentTask || "-");
       const updated = new Date(row.updatedAt * 1000).toISOString().replace("T", " ").slice(0, 16) + " UTC";
       output.push(
-        `- <#${channelId}> · \`${row.sessionId.slice(0, 8)}\` · ${persona} / ${oneLine(row.provider)} · ${task} · ${updated}`,
+        `- <#${channelId}> · \`${row.sessionId.slice(0, 8)}\` · ${role} / ${oneLine(row.provider)} · ${task} · ${updated}`,
       );
     }
   }

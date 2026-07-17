@@ -7,7 +7,6 @@
  *   2. generateReport → upsertReport  (per-session レポート、 claude CLI で narrative)
  *   3. report 冒頭の独白を #報告 channel に投稿 + chat-reply task ばらまき
  *   4. eventBus.emit session.ended + report.generated
- *   5. persona feedback + release
  *
  * 呼び出し側は事前に「ステータスを ended にする」「end event を append する」
  * のは自分でやる (停止契機の payload が異なる ため). この helper は
@@ -21,10 +20,8 @@
  */
 
 import type { ChatRepo } from "../db/chat-repo.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus } from "../events.js";
-import { applySessionEndFeedback } from "../personas/feedback.js";
 import { aggregateBullets, generateReport } from "../report/generator.js";
 import { lastHumanRequester } from "./requester.js";
 import type { SummaryFlags } from "../report/summary-flags.js";
@@ -62,7 +59,6 @@ export function withNeedsHumanNotice(
 export interface EndSessionFlowDeps {
   repo: SessionsRepo;
   chat: ChatRepo;
-  personas: PersonasRepo;
   config: ConcordiaConfig;
   /** あればブロック検出に決定論ソース (harness 監査 deny 行) を併用。 */
   harnessAudit?: HarnessAuditRepo;
@@ -76,7 +72,7 @@ export interface SessionEndFlowResult {
 }
 
 /**
- * 終了済 (status=ended) session に対して reporting + persona release を実行する.
+ * 終了済 (status=ended) session に対して reporting を実行する.
  * 呼び出し前提:
  *   - `deps.repo.findSession(id)` が ended 済 row を返すこと
  *   - 呼び出し側で end event を append 済 (deps.repo.allEvents が拾える)
@@ -149,30 +145,6 @@ export async function runSessionEndFlow(
   eventBus.emit({ type: "session.ended", session_id: id, ts: now });
   if (report) {
     eventBus.emit({ type: "report.generated", session_id: id, ts: now });
-  }
-
-  // 5. persona feedback + release
-  try {
-    const assignment = deps.personas.findActiveBySession(id);
-    if (assignment) {
-      const persona = deps.personas.find(assignment.persona_id);
-      if (persona) {
-        await applySessionEndFeedback(
-          { personas: deps.personas, chat: deps.chat },
-          endedSession,
-          persona,
-        );
-      }
-      deps.personas.release(id);
-      eventBus.emit({
-        type: "persona.released",
-        session_id: id,
-        persona_id: assignment.persona_id,
-        ts: now,
-      });
-    }
-  } catch (err) {
-    log.warn({ session_id: id, err: (err as Error).message }, "persona feedback/release failed");
   }
 
   return { report, postedMessageId };

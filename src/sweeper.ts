@@ -9,7 +9,6 @@
 import { readFileSync, existsSync } from "node:fs";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
-import type { PersonasRepo } from "./db/personas-repo.js";
 import type { RulesRepo } from "./db/rules-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
@@ -23,7 +22,6 @@ const log = createChildLogger("sweeper");
 export interface SweeperOptions {
   repo: SessionsRepo;
   tasks: TasksRepo;
-  personas: PersonasRepo;
   transcriptLogs: Pick<TranscriptLogsRepo, "purgeOlderThan">;
   rules: Pick<RulesRepo, "purgeLogsOlderThan">;
   stats: Pick<StatsRepo, "purgeOlderThan">;
@@ -72,16 +70,6 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
           ts: now,
           kind: "recovered",
           payload: recovered,
-        });
-      }
-      // persona は active を維持できないので release (人格 1 人 1 active session の保証).
-      const released = opts.personas.release(s.id);
-      if (released) {
-        eventBus.emit({
-          type: "persona.released",
-          session_id: s.id,
-          persona_id: released.persona_id,
-          ts: now,
         });
       }
       // 他 active session に「離脱しました」通知

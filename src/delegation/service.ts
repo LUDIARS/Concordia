@@ -32,7 +32,6 @@ import {
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
-import type { PersonasRepo } from "../db/personas-repo.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
@@ -230,12 +229,8 @@ export interface DelegationServiceDeps {
   spawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   /** prompt file の出力先 dir (default = process.cwd()/delegation-prompts) */
   promptsDir?: string;
-  /** persona 注入用 (省略時は persona ブロックを付けない)。 */
-  personas?: PersonasRepo;
   /** delegation context に載せる協調 API URL。 */
   concordiaUrl?: string;
-  /** persona 選択の rng 上書き (テスト用)。 */
-  rng?: () => number;
   /** Growth blackbox used for provider-independent effort selection. */
   effortBlackbox?: DelegationEffortBlackbox;
 }
@@ -584,10 +579,9 @@ export class DelegationService {
     }, "delegation invoke received");
 
     // 1) write prompt to file (run id は invoke 側で確保済み = file 名 == 行 id)
-    // 起動セッションは Concordia 協調セッションなので、 文脈説明 + 暫定 persona 全文を
+    // 起動セッションは Concordia 協調セッションなので、 文脈説明を
     // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
-    const persona = this.deps.personas?.pickForDelegation(this.deps.rng) ?? null;
-    const contextBlock = buildDelegationContext(persona, this.deps.concordiaUrl);
+    const contextBlock = buildDelegationContext(this.deps.concordiaUrl);
     mkdirSync(this.promptsDir, { recursive: true });
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const promptBody = renderPromptFile(
@@ -597,7 +591,6 @@ export class DelegationService {
       effectiveOptions,
       runId,
       contextBlock,
-      persona?.name ?? null,
       provider,
       spawn.effectiveModel,
     );
@@ -746,7 +739,6 @@ function renderPromptFile(
   options: Record<string, unknown>,
   runId: string,
   contextBlock: string,
-  personaName: string | null,
   targetProvider: DelegationProvider,
   effectiveModel: string | null,
 ): string {
@@ -763,10 +755,9 @@ function renderPromptFile(
     `- target_provider: ${targetProvider}`,
     `- model: ${effectiveModel ?? def.model ?? "(provider default)"}`,
     `- project: ${def.project?.trim() || "(none)"}`,
-    `- persona: ${personaName ?? "(none)"}`,
     `- template_title: ${def.title}`,
     "",
-    // Concordia 文脈 + 暫定 persona 全文 (起動後の振る舞い指示を含む)。
+    // Concordia 文脈 (起動後の振る舞い指示を含む)。
     contextBlock,
     "## Args",
     "",

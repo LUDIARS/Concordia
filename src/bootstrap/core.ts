@@ -39,6 +39,8 @@ import { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import { createHarnessBlackbox } from "../harness/blackbox-engine.js";
 import { seedHarnessRules } from "../subsidiary/harness-seed.js";
+import { InjectManualsRepo } from "../db/inject-manuals-repo.js";
+import { seedInjectManuals } from "../control/inject-manual-seed.js";
 import { answerPendingQuestion, questionStoreFromRepo } from "../control/answer-question.js";
 import { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
@@ -396,6 +398,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const harnessRepo = new HarnessRulesRepo(db);
   const harnessAuditRepo = new HarnessAuditRepo(db);
   const harnessBlackbox = createHarnessBlackbox(db);
+  const injectManualsRepo = new InjectManualsRepo(db);
   // 子会社の日次トークン予算トラッカー。 subsidiary_id タグ付きセッションの当日消費を
   // ログから直接合算する (グローバル予算と違い delta 累積は不要 = 冪等)。
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
@@ -404,6 +407,8 @@ export async function startBackend(): Promise<BackendHandle> {
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+    // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
+    injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
   });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
@@ -724,6 +729,7 @@ export async function startBackend(): Promise<BackendHandle> {
     testingClaims,
     subsidiary: subsidiaryRepo,
     harnessRules: harnessRepo,
+    injectManuals: injectManualsRepo,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
     harnessBlackbox,
@@ -975,6 +981,7 @@ export async function startBackend(): Promise<BackendHandle> {
     seedDelegationTemplates(delegationRepo);
     seedModelCatalog(modelCatalog);
     seedHarnessRules(harnessRepo);
+    seedInjectManuals(injectManualsRepo);
     if (shuttingDown) return;
 
     const resetCount = repo.resetAllWsClients();

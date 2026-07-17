@@ -33,6 +33,7 @@ import {
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import { buildDelegationContext } from "./persona-context.js";
+import { resolveManualKind } from "./manual-kind.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
   baselineEffort,
@@ -233,6 +234,11 @@ export interface DelegationServiceDeps {
   concordiaUrl?: string;
   /** Growth blackbox used for provider-independent effort selection. */
   effortBlackbox?: DelegationEffortBlackbox;
+  /**
+   * kind 別 Inject マニュアルの解決 (inject_manuals から引く)。 未注入なら差し込まない。
+   * kind は resolveManualKind (manual-kind.ts) がテンプレから解決する。
+   */
+  injectManual?: (kind: string) => string | null;
 }
 
 type DelegationSpawner = NonNullable<DelegationServiceDeps["spawn"]>;
@@ -581,7 +587,13 @@ export class DelegationService {
     // 1) write prompt to file (run id は invoke 側で確保済み = file 名 == 行 id)
     // 起動セッションは Concordia 協調セッションなので、 文脈説明を
     // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
-    const contextBlock = buildDelegationContext(this.deps.concordiaUrl);
+    // kind 別 Inject マニュアル (inject_manuals) をテンプレから解決して差し込む。
+    const manualKind = resolveManualKind({ call_name: def.call_name, title: def.title });
+    const manualContent = this.deps.injectManual?.(manualKind) ?? null;
+    const contextBlock = buildDelegationContext(
+      this.deps.concordiaUrl,
+      manualContent ? { kind: manualKind, content: manualContent } : null,
+    );
     try {
       await mkdir(this.promptsDir, { recursive: true });
     } catch (err) {

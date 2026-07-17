@@ -23,6 +23,8 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../../src/db/discord-repo.js";
+import { InjectManualsRepo } from "../../src/db/inject-manuals-repo.js";
+import { seedInjectManuals } from "../../src/control/inject-manual-seed.js";
 import { ModelCatalogRepo } from "../../src/db/model-catalog-repo.js";
 import { makeParticipantsRepo } from "../../src/db/participants-repo.js";
 import { PrRecordsRepo } from "../../src/db/pr-records-repo.js";
@@ -77,6 +79,7 @@ export interface TestAppEnv {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   modelCatalog: ModelCatalogRepo;
+  injectManuals: InjectManualsRepo;
   adminState: AdminState;
   processManager: ProcessManager;
   config: ConcordiaConfig;
@@ -106,6 +109,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const delegation = new DelegationRepo(db);
   seedDelegationTemplates(delegation);
   const modelCatalog = new ModelCatalogRepo(db);
+  const injectManuals = new InjectManualsRepo(db);
+  seedInjectManuals(injectManuals);
   const adminState = new AdminState(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
   const taskStore = new TaskMdStore(() => []);
@@ -136,7 +141,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const deps: AppDeps = {
     repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
-    participants, delegation, delegationService, modelCatalog, adminState,
+    participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     taskStore,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,
@@ -155,7 +160,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     app: buildApp(deps),
     db, repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
-    participants, delegation, delegationService, modelCatalog, adminState,
+    participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     processManager, config, logsDir,
   };
 }

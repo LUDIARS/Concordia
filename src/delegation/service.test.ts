@@ -202,6 +202,39 @@ describe("DelegationService.invoke", () => {
     expect(r.rendered_prompt).toBe("echo hi");
   });
 
+  it("injectManual dep: kind 別マニュアルが prompt file の協調コンテキストに差し込まれる", async () => {
+    const requestedKinds: string[] = [];
+    const svcWithManual = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      injectManual: (kind) => {
+        requestedKinds.push(kind);
+        return kind === "実装" ? "実装マニュアル本文 (worktree を生成してから作業)" : null;
+      },
+    });
+    // call_name "echo" は review/design/test を含まない → 実装
+    const r = await svcWithManual.invoke({ call_name: "echo", args: { msg: "hi" } });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(requestedKinds).toEqual(["実装"]);
+    const file = readFileSync(r.prompt_file_path, "utf8");
+    expect(file).toContain("## 作業マニュアル (kind: 実装)");
+    expect(file).toContain("実装マニュアル本文 (worktree を生成してから作業)");
+  });
+
+  it("injectManual が null を返す kind ではマニュアル節を差し込まない", async () => {
+    const svcWithManual = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      injectManual: () => null,
+    });
+    const r = await svcWithManual.invoke({ call_name: "echo", args: { msg: "hi" } });
+    if (!r.ok) throw new Error("expected ok");
+    expect(readFileSync(r.prompt_file_path, "utf8")).not.toContain("## 作業マニュアル");
+  });
+
   it("file name matches run.id", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "x" } });
     if (!r.ok) throw new Error("expected ok");

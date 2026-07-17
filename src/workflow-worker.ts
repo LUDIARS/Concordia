@@ -8,6 +8,7 @@ import { SessionsRepo } from "./db/sessions-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
+import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { DelegationQueue } from "./delegation/queue.js";
 import { AdminState } from "./admin/state.js";
@@ -57,10 +58,14 @@ async function main(): Promise<void> {
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
 
   const concordiaUrl = `http://${cfg.host}:${cfg.port}`;
+  // キュー払い出しの launch でも main プロセスと同じ kind 別マニュアルを差し込む
+  // (seed は main プロセスの boot が担う。 ここは read-only)。
+  const injectManualsRepo = new InjectManualsRepo(db);
   const service = new DelegationService({
     repo: delegationRepo,
     concordiaUrl,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+    injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
   });
   const queue = new DelegationQueue({
     repo: delegationRepo,

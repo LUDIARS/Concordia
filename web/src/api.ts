@@ -838,6 +838,11 @@ export const api = {
   harnessRuleDelete: (id: string) =>
     del<{ ok: boolean; error?: string }>(`/v1/harness-rules/${encodeURIComponent(id)}`),
 
+  // ── kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル) ──
+  injectManualsList: () => get<{ manuals: InjectManual[] }>("/v1/admin/inject-manuals"),
+  injectManualUpdate: (kind: string, content: string) =>
+    put<{ manual: InjectManual }>(`/v1/admin/inject-manuals/${encodeURIComponent(kind)}`, { content }),
+
   // ── ハーネス監査ログ (ローカルセッション強制ゲートの裏取り) ──
   harnessAudit: (
     params: { session_id?: string; decision?: HarnessAuditDecision; event?: HarnessAuditEvent; limit?: number } = {},
@@ -886,6 +891,13 @@ export const api = {
   subsidiaryUnlock: (id: string, platform: string, userId: string) =>
     del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}/locks/${encodeURIComponent(platform)}/${encodeURIComponent(userId)}`),
 };
+
+/** kind 別 Inject マニュアル (GET/PUT /v1/admin/inject-manuals)。 */
+export interface InjectManual {
+  kind: string;
+  content: string;
+  updated_at: number;
+}
 
 export interface HarnessRule {
   id: string;

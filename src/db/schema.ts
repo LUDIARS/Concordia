@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 38;
+export const SCHEMA_VERSION = 39;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -675,6 +675,16 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_harness_rules_order
      ON harness_rules(enabled, sort_order)`,
+
+  // kind 別 Inject マニュアル。 delegation invoke の協調コンテキストへ差し込む
+  // 「作業マニュアル」を kind ごとに 1 行で持つ (WebUI /manuals から編集)。
+  // kind 語彙 = 設計相談 | 実装 | レビュー | テスト | 雑用 (spec/feature/task-workflow.md §2.1)。
+  // boot 時に既定内容を冪等 seed する (既存行の content は上書きしない = ユーザ編集尊重)。
+  `CREATE TABLE IF NOT EXISTS inject_manuals (
+    kind        TEXT PRIMARY KEY,
+    content     TEXT NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )`,
 
   // ローカルセッションのハーネス強制ゲートの監査ログ。 子会社 (subsidiary_requests) と
   // 同じ思想だが、 対象は外部依頼ではなく「自セッションの操作 (編集/コマンド)」。 すべての

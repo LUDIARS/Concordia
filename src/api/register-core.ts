@@ -50,6 +50,8 @@ import { subsidiaryRouter } from "./subsidiary.js";
 import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
 import { harnessSessionRouter } from "./harness-session.js";
+import { injectManualsRouter } from "./inject-manuals.js";
+import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { testingRouter } from "./testing.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { HarnessBlackboxService } from "../harness/blackbox-engine.js";
@@ -114,6 +116,8 @@ export interface CoreDeps {
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
+  /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
+  injectManuals?: InjectManualsRepo;
   harnessAudit?: HarnessAuditRepo;
   harnessRunClaude?: RunClaudeFn;
   harnessBlackbox?: HarnessBlackboxService;
@@ -214,6 +218,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   if (deps.harnessRules) {
     app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
+  }
+  // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
+  // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
+  if (deps.injectManuals) {
+    app.route("/v1/admin/inject-manuals", injectManualsRouter({ repo: deps.injectManuals }));
   }
   if (deps.harnessAudit && deps.harnessRules) {
     app.route(

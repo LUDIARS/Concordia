@@ -6,13 +6,22 @@
  * 協調作法が効くようにする。 spec/delegation.md §4。
  */
 
+/** 協調コンテキストへ差し込む kind 別の作業マニュアル (inject_manuals 由来)。 */
+export interface DelegationManual {
+  kind: string;
+  content: string;
+}
+
 /**
  * delegation prompt の冒頭に差し込む context ブロックを組み立てる。
  *
  * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:11111)
+ * @param manual        kind 別作業マニュアル。 渡されたら先頭付近に
+ *                      「## 作業マニュアル (kind: …)」節として差し込む。
  */
 export function buildDelegationContext(
   concordiaUrl = "http://127.0.0.1:11111",
+  manual?: DelegationManual | null,
 ): string {
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",
@@ -24,6 +33,20 @@ export function buildDelegationContext(
     `- 協調 API は \`${concordiaUrl}\` (loopback)。 \`concordia\` skill が hook 経由で連携を案内します。`,
     "- 他セッションの状況は `GET /v1/stat`、 雑談は chitchat channel で共有されます。",
     "",
+  ];
+
+  // kind 別作業マニュアル (WebUI /manuals で調整可)。 kind ごとに作業手順が違う
+  // (例: レビューは worktree 生成・ブランチ切替不要) ため、 固定文言より先に置く。
+  if (manual && manual.content.trim()) {
+    lines.push(
+      `## 作業マニュアル (kind: ${manual.kind})`,
+      "",
+      manual.content.trim(),
+      "",
+    );
+  }
+
+  lines.push(
     "### 起動後の振る舞い (重要)",
     "",
     "- 委託プロンプトを読んだら、 **着手する前に「これから何をするか」を 1〜3 行で報告**して",
@@ -52,7 +75,7 @@ export function buildDelegationContext(
     "  動作テストは Concordia の confirm キューが安定ブランチで行います。",
     "- 実装完了の責務は commit + PR + delegation status 報告までです。マージと確認テストはスコープ外です。",
     "",
-  ];
+  );
 
   lines.push(
     "## Delegation status / inject protocol (required)",

@@ -139,9 +139,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
 
     // dev-process.md 由来のプロセスを auto-start (既に running なら skip).
     // FS / spawn を伴うので失敗は飲み込んで session 登録は完了させる.
-    let processStartup: ReturnType<ProcessManager["startFromRepo"]> | null = null;
+    let processStartup: Awaited<ReturnType<ProcessManager["startFromRepo"]>> | null = null;
     try {
-      processStartup = deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
+      processStartup = await deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
     } catch (err) {
       processStartup = {
         started: [],
@@ -154,7 +154,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     }
 
     const freshSession = deps.repo.findSession(input.id)!;
-    const contextPacket = buildCollaborationContextPacket({
+    const contextPacket = await buildCollaborationContextPacket({
       repo: deps.repo,
       session: freshSession,
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
@@ -229,12 +229,12 @@ app.get("/", (c) => {
     return c.json({ sessions: list.map(serializeSession) });
   });
 
-app.get("/:id/context", (c) => {
+app.get("/:id/context", async (c) => {
     const id = c.req.param("id");
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
     return c.json({
-      context_packet: buildCollaborationContextPacket({
+      context_packet: await buildCollaborationContextPacket({
         repo: deps.repo,
         session: s,
         workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],

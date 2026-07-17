@@ -17,9 +17,11 @@
  *  - パス解決 (ツリー走査) は session id 単位で memo。 解決先が消えたときだけ再解決、
  *    未解決は NEGATIVE_TTL_MS の負キャッシュ。
  *  - すべて (path, mtime, size) 一致なら再読みゼロ。
+ *
+ * I/O は fs/promises (完全非同期)。 同期 fs 禁止。
  */
 
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { open, stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import type { ChannelCostReader } from "./channel-cost.js";
 import { findClaudeLog, findCodexLog, nn, readCodexUsage, readLines } from "./log-usage.js";
@@ -51,27 +53,26 @@ function isObj(v: unknown): v is Record<string, unknown> {
 }
 
 /** 末尾 maxBytes を読み、 先頭の欠け行を捨てた完全な行配列を返す。 読めなければ null。 */
-export function readTailLines(path: string, maxBytes = TAIL_BYTES): string[] | null {
-  let fd: number | null = null;
+export async function readTailLines(path: string, maxBytes = TAIL_BYTES): Promise<string[] | null> {
   try {
-    fd = openSync(path, "r");
-    const size = statSync(path).size;
-    const start = Math.max(0, size - maxBytes);
-    const buf = Buffer.alloc(size - start);
-    const n = readSync(fd, buf, 0, buf.length, start);
-    let text = buf.subarray(0, n).toString("utf8");
-    if (start > 0) {
-      const nl = text.indexOf("\n");
-      if (nl < 0) return [];
-      text = text.slice(nl + 1); // 先頭の欠け行 (途中から読んだ行) を捨てる
+    const fh = await open(path, "r");
+    try {
+      const size = (await fh.stat()).size;
+      const start = Math.max(0, size - maxBytes);
+      const buf = Buffer.alloc(size - start);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+      let text = buf.subarray(0, bytesRead).toString("utf8");
+      if (start > 0) {
+        const nl = text.indexOf("\n");
+        if (nl < 0) return [];
+        text = text.slice(nl + 1); // 先頭の欠け行 (途中から読んだ行) を捨てる
+      }
+      return text.split("\n").filter((l) => l.trim().length > 0);
+    } finally {
+      await fh.close();
     }
-    return text.split("\n").filter((l) => l.trim().length > 0);
   } catch {
     return null;
-  } finally {
-    if (fd !== null) {
-      try { closeSync(fd); } catch { /* best-effort */ }
-    }
   }
 }
 
@@ -79,31 +80,30 @@ export function readTailLines(path: string, maxBytes = TAIL_BYTES): string[] | n
  * offset (行境界) から末尾までを読み、 完全な行の配列と「消費した末尾 offset
  * (最後の改行の直後)」 を返す。 追記途中の書きかけ行は消費しない (次回に回す)。
  */
-export function readAppendedLines(
+export async function readAppendedLines(
   path: string,
   offset: number,
-): { lines: string[]; nextOffset: number } | null {
-  let fd: number | null = null;
+): Promise<{ lines: string[]; nextOffset: number } | null> {
   try {
-    const size = statSync(path).size;
+    const size = (await stat(path)).size;
     if (size <= offset) return { lines: [], nextOffset: offset };
-    fd = openSync(path, "r");
-    const buf = Buffer.alloc(size - offset);
-    const n = readSync(fd, buf, 0, buf.length, offset);
-    const chunk = buf.subarray(0, n);
-    const lastNl = chunk.lastIndexOf(0x0a);
-    if (lastNl < 0) return { lines: [], nextOffset: offset };
-    const text = chunk.subarray(0, lastNl + 1).toString("utf8");
-    return {
-      lines: text.split("\n").filter((l) => l.trim().length > 0),
-      nextOffset: offset + lastNl + 1,
-    };
+    const fh = await open(path, "r");
+    try {
+      const buf = Buffer.alloc(size - offset);
+      const { bytesRead } = await fh.read(buf, 0, buf.length, offset);
+      const chunk = buf.subarray(0, bytesRead);
+      const lastNl = chunk.lastIndexOf(0x0a);
+      if (lastNl < 0) return { lines: [], nextOffset: offset };
+      const text = chunk.subarray(0, lastNl + 1).toString("utf8");
+      return {
+        lines: text.split("\n").filter((l) => l.trim().length > 0),
+        nextOffset: offset + lastNl + 1,
+      };
+    } finally {
+      await fh.close();
+    }
   } catch {
     return null;
-  } finally {
-    if (fd !== null) {
-      try { closeSync(fd); } catch { /* best-effort */ }
-    }
   }
 }
 
@@ -181,23 +181,23 @@ function capMap<K, V>(m: Map<K, V>): void {
 }
 
 export interface ChannelCostCacheIo {
-  resolveLogPath: (s: SessionRow) => string | null;
-  statFile: (path: string) => Snap | null;
-  readTail: (path: string) => string[] | null;
-  readFull: (path: string) => string[];
-  readAppended: (path: string, offset: number) => { lines: string[]; nextOffset: number } | null;
+  resolveLogPath: (s: SessionRow) => Promise<string | null>;
+  statFile: (path: string) => Promise<Snap | null>;
+  readTail: (path: string) => Promise<string[] | null>;
+  readFull: (path: string) => Promise<string[]>;
+  readAppended: (path: string, offset: number) => Promise<{ lines: string[]; nextOffset: number } | null>;
   now: () => number;
 }
 
 const defaultIo: ChannelCostCacheIo = {
-  resolveLogPath: (s) => {
+  resolveLogPath: async (s) => {
     if (s.provider === "claude-code") return findClaudeLog(s);
     if (s.provider === "codex-cli") return findCodexLog(s);
     return null;
   },
-  statFile: (path) => {
+  statFile: async (path) => {
     try {
-      const st = statSync(path);
+      const st = await stat(path);
       return { mtimeMs: st.mtimeMs, size: st.size };
     } catch {
       return null;
@@ -216,63 +216,63 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
   const codexCostMemo = new Map<string, MemoEntry>();
   const claudeCostState = new Map<string, ClaudeCostState & Snap>();
 
-  const resolve = (s: SessionRow): { path: string; snap: Snap } | null => {
+  const resolve = async (s: SessionRow): Promise<{ path: string; snap: Snap } | null> => {
     let pe = pathCache.get(s.id);
-    let snap = pe?.path ? io.statFile(pe.path) : null;
+    let snap = pe?.path ? await io.statFile(pe.path) : null;
     const negativeExpired = pe && pe.path === null && io.now() - pe.resolvedAt > NEGATIVE_TTL_MS;
     if (!pe || negativeExpired || (pe.path !== null && snap === null)) {
-      pe = { path: io.resolveLogPath(s), resolvedAt: io.now() };
+      pe = { path: await io.resolveLogPath(s), resolvedAt: io.now() };
       pathCache.set(s.id, pe);
       capMap(pathCache);
-      snap = pe.path ? io.statFile(pe.path) : null;
+      snap = pe.path ? await io.statFile(pe.path) : null;
     }
     return pe.path && snap ? { path: pe.path, snap } : null;
   };
 
-  const memoized = (
+  const memoized = async (
     memo: Map<string, MemoEntry>,
     s: SessionRow,
-    compute: (path: string) => number | null,
-  ): number | null => {
-    const r = resolve(s);
+    compute: (path: string) => Promise<number | null>,
+  ): Promise<number | null> => {
+    const r = await resolve(s);
     if (!r) return null;
     const e = memo.get(s.id);
     if (e && e.path === r.path && e.mtimeMs === r.snap.mtimeMs && e.size === r.snap.size) return e.value;
-    const value = compute(r.path);
+    const value = await compute(r.path);
     memo.set(s.id, { path: r.path, mtimeMs: r.snap.mtimeMs, size: r.snap.size, value });
     capMap(memo);
     return value;
   };
 
   return {
-    context: (s) => {
+    context: async (s) => {
       if (s.provider !== "claude-code" && s.provider !== "codex-cli") return null;
-      return memoized(contextMemo, s, (path) => {
+      return memoized(contextMemo, s, async (path) => {
         // 「最後の該当エントリ」 だけで決まる値なので tail 読みで足りる。
         // tail 窓に該当エントリが無い長寿ファイルだけ全読みへフォールバック。
-        const tail = io.readTail(path);
+        const tail = await io.readTail(path);
         const fromTail = tail
           ? (s.provider === "claude-code" ? claudeContextFromLines(tail) : codexContextFromLines(tail))
           : null;
         if (fromTail !== null) return fromTail;
-        const full = io.readFull(path);
+        const full = await io.readFull(path);
         return s.provider === "claude-code" ? claudeContextFromLines(full) : codexContextFromLines(full);
       });
     },
-    cost: (s) => {
+    cost: async (s) => {
       if (s.provider === "codex-cli") {
         // codex の累積は token_count スナップショット (単調増加) の最新値 = tail で決まる。
-        const v = memoized(codexCostMemo, s, (path) => {
-          const tail = io.readTail(path);
+        const v = await memoized(codexCostMemo, s, async (path) => {
+          const tail = await io.readTail(path);
           const fromTail = tail ? codexTotalFromLines(tail) : null;
           if (fromTail !== null) return fromTail;
-          return readCodexUsage(path)?.total ?? null;
+          return (await readCodexUsage(path))?.total ?? null;
         });
         return v ?? 0;
       }
       if (s.provider !== "claude-code") return 0;
       // claude の累積は全行合算が要るが、 append-only なので増分パースで合算を進める。
-      const r = resolve(s);
+      const r = await resolve(s);
       if (!r) return 0;
       let st = claudeCostState.get(s.id);
       if (st && (st.path !== r.path || r.snap.size < st.offset)) st = undefined; // ローテート/縮小 → 作り直し
@@ -282,7 +282,7 @@ export function makeCachedChannelCostReader(io: ChannelCostCacheIo = defaultIo):
         capMap(claudeCostState);
       }
       if (st.mtimeMs === r.snap.mtimeMs && st.size === r.snap.size) return st.total;
-      const appended = io.readAppended(r.path, st.offset);
+      const appended = await io.readAppended(r.path, st.offset);
       if (appended) {
         accumulateClaudeCostLines(appended.lines, st);
         st.offset = appended.nextOffset;

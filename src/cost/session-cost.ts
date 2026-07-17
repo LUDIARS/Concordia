@@ -51,14 +51,14 @@ function usd(perMtok: number, tokens: number): number {
  * dedup は message.id (fallback 行 uuid)。 readClaudeUsage と同方針だが、
  * こちらは model と cache 5m/1h 内訳が要るので独自に走査する。
  */
-export function readClaudeCost(path: string): SessionCostEstimate {
+export async function readClaudeCost(path: string): Promise<SessionCostEstimate> {
   const seen = new Set<string>();
   const models = new Set<string>();
   let total = 0;
   let pricedTokens = 0;
   let unpricedTokens = 0;
 
-  for (const line of readLines(path)) {
+  for (const line of await readLines(path)) {
     let o: unknown;
     try {
       o = JSON.parse(line);
@@ -113,16 +113,16 @@ export function readClaudeCost(path: string): SessionCostEstimate {
  *  - claude-code: per-message 金額化。
  *  - codex-cli: 単価不明のため全トークンを unpriced 計上 (usd=0)。
  */
-export function estimateSessionCostUsd(s: SessionRow): SessionCostEstimate | null {
+export async function estimateSessionCostUsd(s: SessionRow): Promise<SessionCostEstimate | null> {
   if (s.provider === "claude-code") {
-    const p = findClaudeLog(s);
+    const p = await findClaudeLog(s);
     if (!p) return null;
     return readClaudeCost(p);
   }
   if (s.provider === "codex-cli") {
-    const p = findCodexLog(s);
+    const p = await findCodexLog(s);
     if (!p) return null;
-    const totals = readSessionUsage(s);
+    const totals = await readSessionUsage(s);
     if (!totals) return { usd: 0, pricedTokens: 0, unpricedTokens: 0, models: [] };
     return { usd: 0, pricedTokens: 0, unpricedTokens: totals.total, models: [] };
   }
@@ -153,8 +153,8 @@ export interface SessionUsageSummary {
   cost: SessionCostEstimate | null;
 }
 
-export function summarizeSessionUsage(s: SessionRow): SessionUsageSummary {
-  return { context: estimateContextTokens(s), cost: estimateSessionCostUsd(s) };
+export async function summarizeSessionUsage(s: SessionRow): Promise<SessionUsageSummary> {
+  return { context: await estimateContextTokens(s), cost: await estimateSessionCostUsd(s) };
 }
 
 /**

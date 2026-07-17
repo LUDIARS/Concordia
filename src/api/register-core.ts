@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { existsSync, utimesSync } from "node:fs";
+import { access, utimes } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
@@ -123,7 +123,7 @@ export interface CoreDeps {
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
   config: ConcordiaConfig;
-  sweeperRunOnce: () => void;
+  sweeperRunOnce: () => Promise<void>;
   toolPath: string;
   publicUrl: string;
   secretBox?: SecretBox;
@@ -254,8 +254,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
   // env 解決の singleton を使うので AppDeps への配線は不要。
-  app.post("/v1/sweeper/run", (c) => {
-    deps.sweeperRunOnce();
+  app.post("/v1/sweeper/run", async (c) => {
+    await deps.sweeperRunOnce();
     return c.json({ ok: true });
   });
 
@@ -291,7 +291,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
       for (const root of deps.adminState.getWorkspaceRoots()) {
         const candidate = resolve(root, projectName);
-        if (existsSync(candidate)) {
+        if (await access(candidate).then(() => true, () => false)) {
           projectCwd = candidate;
           break;
         }
@@ -443,7 +443,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ...resolveDelegationRuntimeEnv(provider, directOptions),
     };
     if (adHocPrompt) {
-      spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = deps.delegationService.writeAdHocPrompt(adHocPrompt);
+      spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
     const directCwd =
       projectCwd ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
@@ -728,7 +728,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   //   自身に再起動させる (supervisor ツリーは 1 本のまま)。
   // watch 検出は Node watch 子プロセスの実測シグナル 2 点 (IPC channel が付く +
   // WATCH_REPORT_DEPENDENCIES が入る) の AND。 どちらも watch 以外では現れない。
-  app.post("/v1/admin/restart", (c) => {
+  app.post("/v1/admin/restart", async (c) => {
     if (process.env.CONCORDIA_RESTART_DRY_RUN === "1") {
       return c.json({ ok: true, dry_run: true });
     }
@@ -737,17 +737,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (underWatch) {
       const entry = resolve(process.argv[1] ?? "");
       // fail-fast: entry が実在しなければ touch では再起動できない (§9)。
-      if (!entry || !existsSync(entry)) {
+      if (!entry || !(await access(entry).then(() => true, () => false))) {
         return c.json({ ok: false, error: `restart entry not found: ${entry || "(empty argv[1])"}` }, 500);
       }
       // レスポンスを先に返してから touch する (watcher は touch 直後に SIGTERM してくる)。
       setTimeout(() => {
         const now = new Date();
-        try {
-          utimesSync(entry, now, now);
-        } catch {
-          // watcher 再起動と競合して ENOENT/EPERM になりうる; 次の restart 要求で再試行可
-        }
+        // watcher 再起動と競合して ENOENT/EPERM になりうる; 次の restart 要求で再試行可
+        void utimes(entry, now, now).catch(() => {});
       }, 100);
       return c.json({ ok: true, message: "restarting (watch-mode: entry touched, watcher restarts in-place)" });
     }

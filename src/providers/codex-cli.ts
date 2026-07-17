@@ -1,4 +1,4 @@
-import { closeSync, existsSync, openSync, readSync, readdirSync } from "node:fs";
+import { open, readdir, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { AgentProvider, RecoveryInfo } from "./types.js";
@@ -7,6 +7,15 @@ import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("providers:codex-cli");
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export const codexCliProvider: AgentProvider = {
   name: "codex-cli",
 
@@ -14,12 +23,12 @@ export const codexCliProvider: AgentProvider = {
     return env.CODEX_SESSION_ID ?? env.CONCORDIA_SESSION_ID ?? null;
   },
 
-  transcriptPath(sessionId) {
+  async transcriptPath(sessionId) {
     if (!sessionId) return null;
     return findCodexTranscript(sessionId);
   },
 
-  parseTranscript(content): RecoveryInfo {
+  async parseTranscript(content): Promise<RecoveryInfo> {
     const lines = content.split(/\r?\n/).filter((l) => l.trim());
     const out: RecoveryInfo = {
       jsonl_lines: lines.length,
@@ -67,8 +76,14 @@ export const codexCliProvider: AgentProvider = {
 const HEAD_READ_BYTES = 64 * 1024;
 /** 判定に使う先頭行数 (旧実装と同じ)。 */
 const HEAD_LINES = 20;
-/** 見つからなかった sessionId の再スキャン抑止 TTL (ms)。 */
+/** 負キャッシュの初期 TTL (ms)。 miss を重ねるたび ×2 で伸ばす (指数バックオフ)。 */
 export const MISS_CACHE_TTL_MS = 60_000;
+/**
+ * 負キャッシュ TTL の上限 (ms)。 永遠に見つからない sessionId (lictor-* 等、
+ * codex rollout が存在しない id) が 60 秒毎に 8 秒級の全ツリー再スキャンを
+ * 誘発し続けるのを止める — 最大 30 分に一度まで抑える。
+ */
+export const MISS_CACHE_MAX_TTL_MS = 30 * 60_000;
 /** 1 スキャンで辿るディレクトリ数の上限 (暴走防止, 旧実装と同値)。 */
 const MAX_DIRS_PER_SCAN = 10_000;
 /** これ以上かかったスキャンは warn を出す (ms)。 */
@@ -76,13 +91,16 @@ const SLOW_SCAN_WARN_MS = 500;
 
 /** sessionId → 発見済み transcript path。 rollout の path は不変なので永続キャッシュ。 */
 const foundPathCache = new Map<string, string>();
-/** sessionId → 次に再スキャンしてよい epoch-ms (負キャッシュ)。 */
-const missCache = new Map<string, number>();
+/** sessionId → 負キャッシュ (次に再スキャンしてよい epoch-ms と現在の TTL)。 */
+const missCache = new Map<string, { retryAfter: number; ttlMs: number }>();
+/** 同一 sessionId の並行スキャンを 1 本に合流させる in-flight map。 */
+const inflightScans = new Map<string, Promise<string | null>>();
 
 /** テスト用: キャッシュを全クリアする。 */
 export function resetCodexTranscriptCache(): void {
   foundPathCache.clear();
   missCache.clear();
+  inflightScans.clear();
 }
 
 export interface FindCodexTranscriptOptions {
@@ -92,21 +110,37 @@ export interface FindCodexTranscriptOptions {
   now?: () => number;
 }
 
-export function findCodexTranscript(
+export async function findCodexTranscript(
   sessionId: string,
   opts: FindCodexTranscriptOptions = {},
-): string | null {
+): Promise<string | null> {
   const now = opts.now ?? Date.now;
   const cached = foundPathCache.get(sessionId);
   if (cached) {
-    if (existsSync(cached)) return cached;
+    if (await pathExists(cached)) return cached;
     foundPathCache.delete(sessionId);
   }
-  const retryAfter = missCache.get(sessionId);
-  if (retryAfter !== undefined && now() < retryAfter) return null;
+  const miss = missCache.get(sessionId);
+  if (miss !== undefined && now() < miss.retryAfter) return null;
 
+  // 同一 sessionId のスキャンが走行中なら合流する (スキャンは秒オーダーの I/O)。
+  const inflight = inflightScans.get(sessionId);
+  if (inflight) return inflight;
+
+  const scan = scanCodexTranscript(sessionId, opts, now).finally(() => {
+    inflightScans.delete(sessionId);
+  });
+  inflightScans.set(sessionId, scan);
+  return scan;
+}
+
+async function scanCodexTranscript(
+  sessionId: string,
+  opts: FindCodexTranscriptOptions,
+  now: () => number,
+): Promise<string | null> {
   const root = opts.root ?? join(homedir(), ".codex", "sessions");
-  if (!existsSync(root)) return null;
+  if (!(await pathExists(root))) return null;
 
   const startedAt = now();
   let visited = 0;
@@ -120,7 +154,7 @@ export function findCodexTranscript(
     visited++;
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -134,7 +168,7 @@ export function findCodexTranscript(
     for (const name of files) {
       filesChecked++;
       const p = join(dir, name);
-      if (transcriptHeadHasSessionId(p, sessionId)) {
+      if (await transcriptHeadHasSessionId(p, sessionId)) {
         found = p;
         break;
       }
@@ -156,15 +190,18 @@ export function findCodexTranscript(
     missCache.delete(sessionId);
     return found;
   }
-  missCache.set(sessionId, now() + MISS_CACHE_TTL_MS);
+  // 指数バックオフ: miss を重ねるたび TTL を倍にする (上限 MISS_CACHE_MAX_TTL_MS)。
+  const prev = missCache.get(sessionId);
+  const ttlMs = prev ? Math.min(prev.ttlMs * 2, MISS_CACHE_MAX_TTL_MS) : MISS_CACHE_TTL_MS;
+  missCache.set(sessionId, { retryAfter: now() + ttlMs, ttlMs });
   return null;
 }
 
 /** ファイル先頭チャンクのみ読み、 先頭 N 行に sessionId record があるか判定する。 */
-function transcriptHeadHasSessionId(path: string, sessionId: string): boolean {
+async function transcriptHeadHasSessionId(path: string, sessionId: string): Promise<boolean> {
   let head: string;
   try {
-    head = readHead(path, HEAD_READ_BYTES);
+    head = await readHead(path, HEAD_READ_BYTES);
   } catch {
     return false;
   }
@@ -183,14 +220,14 @@ function transcriptHeadHasSessionId(path: string, sessionId: string): boolean {
   return false;
 }
 
-function readHead(path: string, maxBytes: number): string {
-  const fd = openSync(path, "r");
+async function readHead(path: string, maxBytes: number): Promise<string> {
+  const fh = await open(path, "r");
   try {
     const buf = Buffer.allocUnsafe(maxBytes);
-    const read = readSync(fd, buf, 0, maxBytes, 0);
-    return buf.toString("utf8", 0, read);
+    const { bytesRead } = await fh.read(buf, 0, maxBytes, 0);
+    return buf.toString("utf8", 0, bytesRead);
   } finally {
-    closeSync(fd);
+    await fh.close();
   }
 }
 

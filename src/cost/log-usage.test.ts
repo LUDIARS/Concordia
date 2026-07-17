@@ -26,7 +26,7 @@ function sess(id: string, repo_path: string): SessionRow {
 }
 
 describe("findClaudeLog encoding", () => {
-  it("Windows ドライブパスを Claude Code と同じ <encoded> に変換して発見する (隣接特殊文字を潰さない)", () => {
+  it("Windows ドライブパスを Claude Code と同じ <encoded> に変換して発見する (隣接特殊文字を潰さない)", async () => {
     // E:/Document/Ars → E--Document-Ars (`:/` が `--`、 collapse しない)。
     const dir = join(CLAUDE_PROJECTS_ROOT, "E--Document-Ars");
     if (!existsSync(dir)) {
@@ -37,8 +37,8 @@ describe("findClaudeLog encoding", () => {
     const p = join(dir, `${id}.jsonl`);
     writeFileSync(p, JSON.stringify({ message: { usage: { input_tokens: 1 } } }), "utf8");
     madeFiles.push(p);
-    expect(findClaudeLog(sess(id, "E:/Document/Ars"))).toBe(p);
+    expect(await findClaudeLog(sess(id, "E:/Document/Ars"))).toBe(p);
     // バックスラッシュ表記でも同じ encoded に落ちる。
-    expect(findClaudeLog(sess(id, "E:\\Document\\Ars"))).toBe(p);
+    expect(await findClaudeLog(sess(id, "E:\\Document\\Ars"))).toBe(p);
   });
 });

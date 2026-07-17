@@ -27,33 +27,36 @@ export interface ChannelCostRow {
   costTokens: number;
 }
 
-/** JSONL 読取の差し替え点 (テスト用)。 既定は log-usage.ts の実 reader。 */
+/** JSONL 読取の差し替え点 (テスト用)。 既定は log-usage.ts の実 reader。 完全非同期契約。 */
 export interface ChannelCostReader {
-  context: (s: SessionRow) => number | null;
-  cost: (s: SessionRow) => number;
+  context: (s: SessionRow) => Promise<number | null>;
+  cost: (s: SessionRow) => Promise<number>;
 }
 
 const defaultReader: ChannelCostReader = {
-  context: (s) => estimateContextTokens(s)?.tokens ?? null,
-  cost: (s) => readSessionUsage(s)?.total ?? 0,
+  context: async (s) => (await estimateContextTokens(s))?.tokens ?? null,
+  cost: async (s) => (await readSessionUsage(s))?.total ?? 0,
 };
 
 /**
  * active セッション群を channel に紐付け、 context/cost を読んで「重い順」に並べる。
  * 並び順: コンテキスト降順 (null は末尾) → 同点はコスト降順。
  */
-export function collectChannelCostRows(
+export async function collectChannelCostRows(
   sessions: SessionRow[],
   channelOf: (sessionId: string) => string | null,
   reader: ChannelCostReader = defaultReader,
-): ChannelCostRow[] {
-  const rows: ChannelCostRow[] = sessions.map((s) => ({
-    sessionId: s.id,
-    channelId: channelOf(s.id),
-    provider: s.provider,
-    contextTokens: reader.context(s),
-    costTokens: reader.cost(s),
-  }));
+): Promise<ChannelCostRow[]> {
+  const rows: ChannelCostRow[] = [];
+  for (const s of sessions) {
+    rows.push({
+      sessionId: s.id,
+      channelId: channelOf(s.id),
+      provider: s.provider,
+      contextTokens: await reader.context(s),
+      costTokens: await reader.cost(s),
+    });
+  }
   rows.sort(
     (a, b) => (b.contextTokens ?? -1) - (a.contextTokens ?? -1) || b.costTokens - a.costTokens,
   );

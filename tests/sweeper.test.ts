@@ -31,7 +31,7 @@ function startSession(repo: SessionsRepo, id: string, lastSeenAt: number): void 
 }
 
 describe("sweeper session.lost event", () => {
-  it("emits lost once", () => {
+  it("emits lost once", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T00:00:30Z"));
     const now = Math.floor(Date.now() / 1000);
@@ -63,14 +63,14 @@ describe("sweeper session.lost event", () => {
     });
     cleanup.push(sweeper.stop);
 
-    sweeper.runOnce();
-    sweeper.runOnce();
+    await sweeper.runOnce();
+    await sweeper.runOnce();
 
     expect(events.filter((ev) => ev.type === "session.lost").map((ev) => ev.session_id)).toEqual(["stale-one"]);
     expect(sessions.findSession("stale-one")?.status).toBe("lost");
   });
 
-  it("purges old transcript, rule log, and session stat rows in one pass", () => {
+  it("purges old transcript, rule log, and session stat rows in one pass", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));
     const now = Math.floor(Date.now() / 1000);
@@ -107,7 +107,7 @@ describe("sweeper session.lost event", () => {
     });
     cleanup.push(sweeper.stop);
 
-    sweeper.runOnce();
+    await sweeper.runOnce();
 
     expect(transcriptLogs.countBySession("old")).toBe(0);
     expect(transcriptLogs.countBySession("recent")).toBe(1);

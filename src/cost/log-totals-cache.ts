@@ -15,7 +15,7 @@
  *  - 縮小/ローテート (size < offset) を検知したら state を捨てて 0 から読み直す。
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import {
   CLAUDE_PROJECTS_ROOT,
   CODEX_SESSIONS_ROOT,
@@ -110,27 +110,27 @@ function accumulateCodex(lines: string[], st: CodexState): void {
 }
 
 export interface LogTotalsCacheIo {
-  statFile: (path: string) => { mtimeMs: number; size: number } | null;
-  readAppended: (path: string, offset: number) => { lines: string[]; nextOffset: number } | null;
+  statFile: (path: string) => Promise<{ mtimeMs: number; size: number } | null>;
+  readAppended: (path: string, offset: number) => Promise<{ lines: string[]; nextOffset: number } | null>;
   /** 走査対象の列挙 (テスト差し替え用)。 既定は claude/codex 両ルート。 */
-  enumeratePaths: (maxAgeMs: number, now: number) => Array<{ path: string; kind: "claude" | "codex" }>;
+  enumeratePaths: (maxAgeMs: number, now: number) => Promise<Array<{ path: string; kind: "claude" | "codex" }>>;
 }
 
 const defaultIo: LogTotalsCacheIo = {
-  statFile: (path) => {
+  statFile: async (path) => {
     try {
-      const st = statSync(path);
+      const st = await stat(path);
       return { mtimeMs: st.mtimeMs, size: st.size };
     } catch {
       return null;
     }
   },
   readAppended: (path, offset) => readAppendedLines(path, offset),
-  enumeratePaths: (maxAgeMs, now) => {
+  enumeratePaths: async (maxAgeMs, now) => {
     const cutoff = now - maxAgeMs;
     const out: Array<{ path: string; kind: "claude" | "codex" }> = [];
-    collectRecent(CLAUDE_PROJECTS_ROOT, 3, cutoff, (p) => out.push({ path: p, kind: "claude" }));
-    collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, (p) => out.push({ path: p, kind: "codex" }));
+    await collectRecent(CLAUDE_PROJECTS_ROOT, 3, cutoff, (p) => { out.push({ path: p, kind: "claude" }); });
+    await collectRecent(CODEX_SESSIONS_ROOT, 5, cutoff, (p) => { out.push({ path: p, kind: "codex" }); });
     return out;
   },
 };
@@ -138,13 +138,13 @@ const defaultIo: LogTotalsCacheIo = {
 /** enumerateRecentLogTotals 互換の memo 化列挙関数を作る (io はテスト差し替え用)。 */
 export function makeCachedRecentLogTotals(
   io: LogTotalsCacheIo = defaultIo,
-): (maxAgeMs: number, now: number) => Array<{ path: string; total: number }> {
+): (maxAgeMs: number, now: number) => Promise<Array<{ path: string; total: number }>> {
   const states = new Map<string, FileState>();
 
-  return (maxAgeMs, now) => {
+  return async (maxAgeMs, now) => {
     const out: Array<{ path: string; total: number }> = [];
-    for (const { path, kind } of io.enumeratePaths(maxAgeMs, now)) {
-      const snap = io.statFile(path);
+    for (const { path, kind } of await io.enumeratePaths(maxAgeMs, now)) {
+      const snap = await io.statFile(path);
       if (!snap) continue;
       let st = states.get(path);
       if (st && (st.kind !== kind || snap.size < st.offset)) st = undefined; // ローテート/縮小 → 読み直し
@@ -159,7 +159,7 @@ export function makeCachedRecentLogTotals(
         }
       }
       if (st.mtimeMs !== snap.mtimeMs || st.size !== snap.size) {
-        const appended = io.readAppended(path, st.offset);
+        const appended = await io.readAppended(path, st.offset);
         if (appended) {
           if (st.kind === "claude") accumulateClaude(appended.lines, st);
           else accumulateCodex(appended.lines, st);

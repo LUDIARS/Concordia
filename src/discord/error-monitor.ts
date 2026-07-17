@@ -18,7 +18,7 @@ const log = createChildLogger("error-monitor");
 export interface ErrorMonitorHandle {
   stop: () => void;
   /** テスト/手動用: 1 周回す. */
-  runOnce: () => void;
+  runOnce: () => Promise<void>;
 }
 
 export function startVestigiumErrorWatch(): ErrorMonitorHandle {
@@ -27,16 +27,16 @@ export function startVestigiumErrorWatch(): ErrorMonitorHandle {
 
   if (!root) {
     log.info("CONCORDIA_ERROR_WATCH_LOGS_ROOT unset; vestigium error watch disabled");
-    return { stop: () => {}, runOnce: () => {} };
+    return { stop: () => {}, runOnce: async () => {} };
   }
 
   // service code -> 最後に転記した ts (ms). 初回観測時に now で初期化して履歴を捨てる.
   const watermark = new Map<string, number>();
 
-  function runOnce(): void {
+  async function runOnce(): Promise<void> {
     let services: string[];
     try {
-      services = listVestigiumServices(root!);
+      services = await listVestigiumServices(root!);
     } catch (e) {
       log.warn(`listVestigiumServices failed: ${(e as Error).message}`);
       return;
@@ -52,7 +52,7 @@ export function startVestigiumErrorWatch(): ErrorMonitorHandle {
       }
       let recs;
       try {
-        recs = recent({ logPath, limit: 200, level: ["error", "fatal"], since: last + 1 });
+        recs = await recent({ logPath, limit: 200, level: ["error", "fatal"], since: last + 1 });
       } catch (e) {
         log.warn(`recent(${service}) failed: ${(e as Error).message}`);
         continue;
@@ -69,7 +69,7 @@ export function startVestigiumErrorWatch(): ErrorMonitorHandle {
   }
 
   log.info(`vestigium error watch enabled root=${root} interval=${intervalSec}s`);
-  const timer = setInterval(runOnce, intervalSec * 1000);
+  const timer = setInterval(() => { void runOnce(); }, intervalSec * 1000);
   timer.unref?.();
 
   return {

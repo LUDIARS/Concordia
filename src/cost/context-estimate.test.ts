@@ -22,43 +22,43 @@ afterEach(() => {
 });
 
 describe("readClaudeContextTokens", () => {
-  it("最後の assistant usage スナップショット (input+両cache) を返す", () => {
+  it("最後の assistant usage スナップショット (input+両cache) を返す", async () => {
     const p = fixture([
       { message: { id: "m1", usage: { input_tokens: 10, cache_read_input_tokens: 100, output_tokens: 5 } } },
       { message: { id: "m2", usage: { input_tokens: 20, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200, output_tokens: 8 } } },
     ]);
     // 最後の行: 20 + 1000 + 200 = 1220
-    expect(readClaudeContextTokens(p)).toBe(1220);
+    expect(await readClaudeContextTokens(p)).toBe(1220);
   });
-  it("usage が無ければ null", () => {
-    expect(readClaudeContextTokens(fixture([{ message: { role: "user" } }]))).toBeNull();
+  it("usage が無ければ null", async () => {
+    expect(await readClaudeContextTokens(fixture([{ message: { role: "user" } }]))).toBeNull();
   });
 });
 
 describe("readCodexContextTokens", () => {
-  it("最後の token_count の last_token_usage.input_tokens (= 最終要求の入力) を返す", () => {
+  it("最後の token_count の last_token_usage.input_tokens (= 最終要求の入力) を返す", async () => {
     // codex の input_tokens は cached を内包するので足さない。 total_token_usage はセッション累積
     // なので使わず last_token_usage を見る (= /clear や圧縮で現在コンテキストが落ちるのを反映)。
     const p = fixture([
       { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 9999, total_tokens: 9999 }, last_token_usage: { input_tokens: 50, cached_input_tokens: 40 } } } },
       { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 99999, total_tokens: 99999 }, last_token_usage: { input_tokens: 1200, cached_input_tokens: 900 } } } },
     ]);
-    expect(readCodexContextTokens(p)).toBe(1200);
+    expect(await readCodexContextTokens(p)).toBe(1200);
   });
-  it("last_token_usage が無ければ null", () => {
+  it("last_token_usage が無ければ null", async () => {
     const p = fixture([
       { type: "event_msg", payload: { type: "token_count", info: { total_token_usage: { input_tokens: 5 } } } },
     ]);
-    expect(readCodexContextTokens(p)).toBeNull();
+    expect(await readCodexContextTokens(p)).toBeNull();
   });
 });
 
 describe("toEstimate / formatContextBadge", () => {
-  it("pct を 0..1 に丸める", () => {
+  it("pct を 0..1 に丸める", async () => {
     expect(toEstimate(100000, 200000).pct).toBe(0.5);
     expect(toEstimate(500000, 200000).pct).toBe(1);
   });
-  it("badge を整形する", () => {
+  it("badge を整形する", async () => {
     expect(formatContextBadge(toEstimate(124000, 200000))).toBe("🧠 ctx ~62% (124k)");
     expect(formatContextBadge(null)).toBe("");
   });

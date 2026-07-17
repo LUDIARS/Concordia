@@ -95,7 +95,7 @@ function makeReadModel(): ChatReadModel {
     getSessionStatusSnapshot: async () => null,
     getSessionPromptEvent: () => null,
     getSessionTitleEvent: () => null,
-    getMonitorSnapshot: () => ({ generatedAt: 0, activeCount: 0, orgCostLines: [], channelCostLines: [] }),
+    getMonitorSnapshot: async () => ({ generatedAt: 0, activeCount: 0, orgCostLines: [], channelCostLines: [] }),
     getPrQueueSnapshot: () => ({ content: "" }),
     getCostSnapshot: async () => ({ markdown: "# Cost", codexRate: { used5h: null, reset5hAt: null }, claudeUsage: null }),
     isSessionActive: () => true,

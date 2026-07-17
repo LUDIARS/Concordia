@@ -157,8 +157,8 @@ describe("DelegationService.invoke", () => {
     rmSync(promptsDir, { recursive: true, force: true });
   });
 
-  it("writeAdHocPrompt writes the raw prompt to a file and returns its path", () => {
-    const path = svc.writeAdHocPrompt("自由テキストの初回指示\n2行目");
+  it("writeAdHocPrompt writes the raw prompt to a file and returns its path", async () => {
+    const path = await svc.writeAdHocPrompt("自由テキストの初回指示\n2行目");
     expect(path.startsWith(promptsDir)).toBe(true);
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, "utf8")).toBe("自由テキストの初回指示\n2行目");

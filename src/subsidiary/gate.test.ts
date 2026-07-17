@@ -132,7 +132,7 @@ describe("processSubsidiaryRequest", () => {
   it("予算超過 → ガードを呼ばず budget_exceeded で deny 記録 (ロックはしない)", async () => {
     const { deps, invoke } = makeDeps("(should not be called)");
     deps.budget = {
-      status: () => ({ todayTokens: 120_000, budget: 100_000, blocked: true, dateIso: "2026-06-26" }),
+      status: async () => ({ todayTokens: 120_000, budget: 100_000, blocked: true, dateIso: "2026-06-26" }),
     };
     const r = await processSubsidiaryRequest(deps, {
       subsidiary: sub, platform: "discord", userId: "u1", userLabel: "alice", instruction: "直して",
@@ -151,7 +151,7 @@ describe("processSubsidiaryRequest", () => {
       '{"decision":"allow","reason":"ok","matched_call_name":"fix-content","violations":[],"lock_user":false}',
     );
     deps.budget = {
-      status: () => ({ todayTokens: 10_000, budget: 100_000, blocked: false, dateIso: "2026-06-26" }),
+      status: async () => ({ todayTokens: 10_000, budget: 100_000, blocked: false, dateIso: "2026-06-26" }),
     };
     const r = await processSubsidiaryRequest(deps, {
       subsidiary: sub, platform: "discord", userId: "u1", userLabel: "alice", instruction: "README誤字直して",

@@ -24,21 +24,21 @@
  * running していなければ動かない、 でも spawn の責任分界が明確になる).
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 
 const DEFAULT_BASE = "http://127.0.0.1:11111";
 
-function loadToken(): string | null {
+async function loadToken(): Promise<string | null> {
   const path = process.env.CONCORDIA_SPAWN_TOKEN_PATH;
-  if (!path || !existsSync(path)) return null;
+  if (!path) return null;
   try {
-    const t = readFileSync(path, "utf8").trim();
+    const t = (await readFile(path, "utf8")).trim();
     return /^[a-f0-9]{64}$/.test(t) ? t : null;
   } catch {
-    return null;
+    return null; // 不在 (旧 existsSync ガード) / 読取失敗はどちらも null。
   }
 }
 
@@ -52,7 +52,7 @@ async function callConcordia(
   const url = `${base.replace(/\/$/, "")}${path}`;
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (requireAuth) {
-    const tok = loadToken();
+    const tok = await loadToken();
     if (!tok) {
       return {
         ok: false,

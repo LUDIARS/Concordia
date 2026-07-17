@@ -11,7 +11,7 @@
  * に置き換える。 根拠は channel-cost-cache / log-totals-cache と同じ append-only 性。
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import {
   findClaudeLog,
@@ -53,9 +53,9 @@ export interface SessionUsageReadOptions {
   allowFullScan?: boolean;
 }
 
-function statFile(path: string): Snap | null {
+async function statFile(path: string): Promise<Snap | null> {
   try {
-    const st = statSync(path);
+    const st = await stat(path);
     return { mtimeMs: st.mtimeMs, size: st.size };
   } catch {
     return null;
@@ -66,20 +66,20 @@ function statFile(path: string): Snap | null {
  * セッションのログパスを memo 付きで解決する (cost-report 系の共有入口)。
  * 解決先が消えたときだけ再走査し、 未解決は NEGATIVE_TTL_MS の負キャッシュ。
  */
-export function resolveSessionLogPath(s: SessionRow): { path: string; snap: Snap } | null {
+export async function resolveSessionLogPath(s: SessionRow): Promise<{ path: string; snap: Snap } | null> {
   let pe = pathCache.get(s.id);
-  let snap = pe?.path ? statFile(pe.path) : null;
+  let snap = pe?.path ? await statFile(pe.path) : null;
   const negativeExpired = pe && pe.path === null && Date.now() - pe.resolvedAt > NEGATIVE_TTL_MS;
   if (!pe || negativeExpired || (pe.path !== null && snap === null)) {
     const resolved = s.provider === "claude-code"
-      ? findClaudeLog(s)
+      ? await findClaudeLog(s)
       : s.provider === "codex-cli"
-        ? findCodexLog(s)
+        ? await findCodexLog(s)
         : null;
     pe = { path: resolved, resolvedAt: Date.now() };
     pathCache.set(s.id, pe);
     capMap(pathCache);
-    snap = pe.path ? statFile(pe.path) : null;
+    snap = pe.path ? await statFile(pe.path) : null;
   }
   return pe.path && snap ? { path: pe.path, snap } : null;
 }
@@ -144,15 +144,15 @@ function codexTotalsFromLines(lines: string[]): Totals | null {
 }
 
 /** readSessionUsage 互換の memo 版 (cost-report の aggregate 用)。 */
-export function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadOptions = {}): Totals | null {
-  const r = resolveSessionLogPath(s);
+export async function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadOptions = {}): Promise<Totals | null> {
+  const r = await resolveSessionLogPath(s);
   if (!r) return null;
   if (s.provider === "codex-cli") {
     const e = codexTotalsMemo.get(s.id);
     if (e && e.path === r.path && e.mtimeMs === r.snap.mtimeMs && e.size === r.snap.size) return e.value;
-    const tail = readTailLines(r.path);
+    const tail = await readTailLines(r.path);
     const fromTail = tail ? codexTotalsFromLines(tail) : null;
-    const value = fromTail ?? (options.allowFullScan === false ? e?.value ?? null : readCodexUsage(r.path));
+    const value = fromTail ?? (options.allowFullScan === false ? e?.value ?? null : await readCodexUsage(r.path));
     codexTotalsMemo.set(s.id, { path: r.path, mtimeMs: r.snap.mtimeMs, size: r.snap.size, value });
     capMap(codexTotalsMemo);
     return value;
@@ -173,7 +173,7 @@ export function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadO
     capMap(claudeTotalsState);
   }
   if (st.mtimeMs !== r.snap.mtimeMs || st.size !== r.snap.size) {
-    const appended = readAppendedLines(r.path, st.offset);
+    const appended = await readAppendedLines(r.path, st.offset);
     if (appended) {
       accumulateClaudeTotals(appended.lines, st);
       st.offset = appended.nextOffset;
@@ -189,8 +189,8 @@ export function cachedReadSessionUsage(s: SessionRow, options: SessionUsageReadO
  * codex の最新 token_count 行 (rate_limits 込みの生 JSON) を tail 優先で返す。
  * cost-report の rate 読みが使う。 tail に無い長寿ファイルのみ全読みフォールバック。
  */
-export function readLatestCodexTokenCountLine(s: SessionRow, options: SessionUsageReadOptions = {}): Record<string, unknown> | null {
-  const r = resolveSessionLogPath(s);
+export async function readLatestCodexTokenCountLine(s: SessionRow, options: SessionUsageReadOptions = {}): Promise<Record<string, unknown> | null> {
+  const r = await resolveSessionLogPath(s);
   if (!r) return null;
   const scan = (lines: string[]): Record<string, unknown> | null => {
     let latest: Record<string, unknown> | null = null;
@@ -204,9 +204,9 @@ export function readLatestCodexTokenCountLine(s: SessionRow, options: SessionUsa
     }
     return latest;
   };
-  const tail = readTailLines(r.path);
+  const tail = await readTailLines(r.path);
   const fromTail = tail ? scan(tail) : null;
   if (fromTail) return fromTail;
   if (options.allowFullScan === false) return null;
-  return scan(readLines(r.path));
+  return scan(await readLines(r.path));
 }

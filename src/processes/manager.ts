@@ -13,7 +13,8 @@
  *   repo     — 永続化 (processes / process_logs)
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { ProcessesRepo } from "../db/processes-repo.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -68,15 +69,15 @@ export class ProcessManager {
    * repo_path / dev-process.md を見て auto_start のプロセスをまとめて起動.
    * 既に running なら skip. parse 警告は warnings として返す.
    */
-  startFromRepo(repoPath: string, repoOrigin: string | null = null): {
+  async startFromRepo(repoPath: string, repoOrigin: string | null = null): Promise<{
     started: string[];
     skipped: string[];
     failed: { name: string; reason: string }[];
     warnings: string[];
     marker_only: boolean;
     devProcessMdPath: string | null;
-  } {
-    const file = readDevProcessMd(repoPath);
+  }> {
+    const file = await readDevProcessMd(repoPath);
     const result = {
       started: [] as string[],
       skipped: [] as string[],
@@ -98,7 +99,7 @@ export class ProcessManager {
         continue;
       }
       const cwd = resolveCwd(repoPath, def.cwd);
-      const r = this.startOne({
+      const r = await this.startOne({
         name: def.name,
         command: def.command,
         cwd,
@@ -113,11 +114,11 @@ export class ProcessManager {
     return result;
   }
 
-  startOne(input: StartOneInput): StartOneResult {
+  async startOne(input: StartOneInput): Promise<StartOneResult> {
     if (this.handles.has(input.name)) {
       return { ok: false, reason: "already_running" };
     }
-    if (!existsSync(input.cwd)) {
+    if (!(await access(input.cwd).then(() => true, () => false))) {
       return { ok: false, reason: `cwd_not_found: ${input.cwd}` };
     }
     const logPath = join(this.deps.logsDir, `${safeFileName(input.name)}.log`);

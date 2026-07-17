@@ -23,7 +23,7 @@
  */
 
 import path from 'node:path';
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { load } from 'js-yaml';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -41,8 +41,8 @@ interface ServiceEntry {
   log_path: string;
 }
 
-function loadCatalog(catalogPath: string): ServiceEntry[] {
-  const raw = readFileSync(catalogPath, 'utf8');
+async function loadCatalog(catalogPath: string): Promise<ServiceEntry[]> {
+  const raw = await readFile(catalogPath, 'utf8');
   const parsed = load(raw) as { services?: Array<Record<string, unknown>> } | null;
   if (!parsed?.services) return [];
   const out: ServiceEntry[] = [];
@@ -71,9 +71,9 @@ async function main(): Promise<void> {
   const catalogPath = process.env.VESTIGIUM_CATALOG_PATH
     ?? path.resolve(process.cwd(), 'catalog/services.yaml');
 
-  const reloadCatalog = (): ServiceEntry[] => {
+  const reloadCatalog = async (): Promise<ServiceEntry[]> => {
     try {
-      return loadCatalog(catalogPath);
+      return await loadCatalog(catalogPath);
     } catch (err) {
       process.stderr.write(`[vestigium-mcp] catalog load failed: ${(err as Error).message}\n`);
       return [];
@@ -92,13 +92,13 @@ async function main(): Promise<void> {
       inputSchema: {},
     },
     async () => {
-      const catalog = reloadCatalog();
-      const services = catalog.map((s) => ({
+      const catalog = await reloadCatalog();
+      const services = await Promise.all(catalog.map(async (s) => ({
         code: s.code,
         name: s.name,
         log_path: s.log_path,
-        last_seen_at: lastSeenAt(s.log_path),
-      }));
+        last_seen_at: await lastSeenAt(s.log_path),
+      })));
       return {
         content: [{ type: 'text', text: JSON.stringify({ services }, null, 2) }],
       };
@@ -116,7 +116,7 @@ async function main(): Promise<void> {
       },
     },
     async ({ service, lines, since_ms }) => {
-      const catalog = reloadCatalog();
+      const catalog = await reloadCatalog();
       const svc = findService(catalog, service);
       if (!svc) {
         return {
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
           content: [{ type: 'text', text: `service "${service}" not found in catalog (or has no log_path)` }],
         };
       }
-      const recs = recent({
+      const recs = await recent({
         logPath: svc.log_path,
         limit: lines ?? 200,
         since: since_ms,
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
       },
     },
     async ({ services, pattern, limit, since_ms }) => {
-      const catalog = reloadCatalog();
+      const catalog = await reloadCatalog();
       const targets = services
         .map((code) => findService(catalog, code))
         .filter((s): s is ServiceEntry => s !== undefined)
@@ -161,7 +161,7 @@ async function main(): Promise<void> {
           content: [{ type: 'text', text: 'no matching services with log_path found' }],
         };
       }
-      const hits = search({
+      const hits = await search({
         logPaths: targets,
         pattern,
         limit: limit ?? 200,
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
       },
     },
     async ({ services, limit }) => {
-      const catalog = reloadCatalog();
+      const catalog = await reloadCatalog();
       const targets = services && services.length > 0
         ? catalog.filter((s) => services.includes(s.code))
         : catalog;
@@ -200,7 +200,7 @@ async function main(): Promise<void> {
       }
       const all: VestigiumRecord[] = [];
       for (const t of targets) {
-        const recs = recent({
+        const recs = await recent({
           logPath: t.log_path,
           limit: 1000,
           level: ['error', 'fatal'],

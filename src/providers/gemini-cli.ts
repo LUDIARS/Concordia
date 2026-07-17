@@ -12,11 +12,11 @@ export const geminiCliProvider: AgentProvider = {
     return env.GEMINI_SESSION_ID ?? env.CONCORDIA_SESSION_ID ?? null;
   },
 
-  transcriptPath() {
+  async transcriptPath() {
     return null; // v0.2 で実装
   },
 
-  parseTranscript(): RecoveryInfo {
+  async parseTranscript(): Promise<RecoveryInfo> {
     return {
       jsonl_lines: 0,
       last_message_role: "system",

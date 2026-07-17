@@ -25,8 +25,8 @@ export interface UsageWindow {
   endSec: number;
 }
 
-/** ウィンドウ key → 合算トークンの map を返す関数型 (テスト差し替え用)。 */
-export type SessionWindowReader = (s: SessionRow, windows: UsageWindow[]) => Record<string, number>;
+/** ウィンドウ key → 合算トークンの map を返す関数型 (テスト差し替え用)。 完全非同期契約。 */
+export type SessionWindowReader = (s: SessionRow, windows: UsageWindow[]) => Promise<Record<string, number>>;
 
 /** ISO 文字列 / epoch(秒 or ミリ秒) を epoch 秒へ。 取れなければ null。 */
 function toSec(v: unknown): number | null {
@@ -51,15 +51,15 @@ function emptyResult(windows: UsageWindow[]): Record<string, number> {
 }
 
 /** セッション 1 本のログを読み、 各ウィンドウ内の消費トークンを返す。 */
-export function readSessionWindowedTotals(s: SessionRow, windows: UsageWindow[]): Record<string, number> {
+export async function readSessionWindowedTotals(s: SessionRow, windows: UsageWindow[]): Promise<Record<string, number>> {
   if (windows.length === 0) return emptyResult(windows);
   if (s.provider === "claude-code") {
-    const p = findClaudeLog(s);
-    return p ? accumulateClaudeUsageWindows(readLines(p), windows) : emptyResult(windows);
+    const p = await findClaudeLog(s);
+    return p ? accumulateClaudeUsageWindows(await readLines(p), windows) : emptyResult(windows);
   }
   if (s.provider === "codex-cli") {
-    const p = findCodexLog(s);
-    return p ? accumulateCodexUsageWindows(readLines(p), windows) : emptyResult(windows);
+    const p = await findCodexLog(s);
+    return p ? accumulateCodexUsageWindows(await readLines(p), windows) : emptyResult(windows);
   }
   return emptyResult(windows);
 }

@@ -123,7 +123,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     dedupStats.skipped_chat_posted += 1;
     return;
   }
-  const attachFiles = buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
+  const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
   const res = await deps.webhooks.send(client, {
     content: row.text,
     username: author,
@@ -328,11 +328,11 @@ export function isActiveRelayTarget(
   return sessionStatus === "active" && discordStatus === "active";
 }
 
-function buildAttachFiles(
+async function buildAttachFiles(
   rawPaths: string[] | undefined,
   messageId: number,
   log: { warn: (m: string) => void },
-): Array<{ attachment: Buffer; name: string }> {
+): Promise<Array<{ attachment: Buffer; name: string }>> {
   if (!rawPaths?.length) return [];
   const out: Array<{ attachment: Buffer; name: string }> = [];
   for (const p of rawPaths) {
@@ -343,7 +343,7 @@ function buildAttachFiles(
     }
     let stat: fs.Stats;
     try {
-      stat = fs.statSync(absPath);
+      stat = await fs.promises.stat(absPath);
     } catch {
       log.warn(`egress: attachment not found message_id=${messageId} path=${absPath}`);
       continue;
@@ -353,7 +353,7 @@ function buildAttachFiles(
       continue;
     }
     try {
-      const buf = fs.readFileSync(absPath);
+      const buf = await fs.promises.readFile(absPath);
       out.push({ attachment: buf, name: path.basename(absPath) });
     } catch (err) {
       log.warn(`egress: attachment read failed message_id=${messageId} path=${absPath}: ${(err as Error).message}`);

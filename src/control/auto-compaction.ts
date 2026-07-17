@@ -88,7 +88,7 @@ export function startAutoCompaction(deps: AutoCompactionDeps): AutoCompactionHan
     if (!deps.enabled()) return [];
     const compacted: string[] = [];
     for (const s of deps.sessions.findAllActive()) {
-      const est = estimateContextTokens(s);
+      const est = await estimateContextTokens(s);
       const meta = readMeta(s.metadata);
       const decision = shouldAutoCompact({
         contextPct: est?.pct ?? null,

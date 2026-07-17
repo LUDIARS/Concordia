@@ -26,9 +26,9 @@ export function sessionLogsRouter(deps: SessionLogsApiDeps): Hono {
 
   // GET /v1/session-logs?project=&q=&limit= — 一覧 + プロジェクト facet。
   // facet (projects) は全件から算出するので、 project/q で絞っても安定して出る。
-  app.get("/", (c) => {
-    const dir = resolveSessionLogsDir(deps.resolveWorkspaceRoots());
-    const all = dir ? readSessionLogs(dir) : [];
+  app.get("/", async (c) => {
+    const dir = await resolveSessionLogsDir(deps.resolveWorkspaceRoots());
+    const all = dir ? await readSessionLogs(dir) : [];
 
     const counts = new Map<string, number>();
     for (const e of all) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
@@ -54,11 +54,11 @@ export function sessionLogsRouter(deps: SessionLogsApiDeps): Hono {
   });
 
   // GET /v1/session-logs/:id — 1 件の本文込み詳細。
-  app.get("/:id", (c) => {
+  app.get("/:id", async (c) => {
     const id = c.req.param("id");
-    const dir = resolveSessionLogsDir(deps.resolveWorkspaceRoots());
+    const dir = await resolveSessionLogsDir(deps.resolveWorkspaceRoots());
     if (!dir) return c.json({ error: "no_session_logs_dir" }, 404);
-    const full = readSessionLogFull(dir, id);
+    const full = await readSessionLogFull(dir, id);
     if (!full) return c.json({ error: "not_found" }, 404);
     return c.json(full);
   });

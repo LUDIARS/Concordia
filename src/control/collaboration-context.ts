@@ -82,9 +82,9 @@ export interface BuildCollaborationContextDeps {
   ccWorkflowEnabled?: boolean;
 }
 
-export function buildCollaborationContextPacket(
+export async function buildCollaborationContextPacket(
   deps: BuildCollaborationContextDeps,
-): CollaborationContextPacket {
+): Promise<CollaborationContextPacket> {
   const { repo, session } = deps;
   const peers = findConflictPeers(
     session,
@@ -117,7 +117,7 @@ export function buildCollaborationContextPacket(
         : "no same-branch active peer detected",
       command,
     },
-    relevant_session_logs: relevantLogs(deps.workspaceRoots ?? [], project, deps.maxLogs ?? 5),
+    relevant_session_logs: await relevantLogs(deps.workspaceRoots ?? [], project, deps.maxLogs ?? 5),
     harness: {
       context: "POST /v1/harness/context",
       gate: "POST /v1/harness/gate",
@@ -187,10 +187,10 @@ function branchSummary(peers: SessionRow[]): Array<{ branch: string; count: numb
     .sort((a, b) => b.count - a.count || a.branch.localeCompare(b.branch));
 }
 
-function relevantLogs(workspaceRoots: string[], project: string, max: number): CollaborationContextPacket["relevant_session_logs"] {
-  const dir = resolveSessionLogsDir(workspaceRoots);
+async function relevantLogs(workspaceRoots: string[], project: string, max: number): Promise<CollaborationContextPacket["relevant_session_logs"]> {
+  const dir = await resolveSessionLogsDir(workspaceRoots);
   if (!dir) return [];
-  return readSessionLogs(dir)
+  return (await readSessionLogs(dir))
     .filter((entry) => entry.projects.includes(project))
     .slice(0, max)
     .map((entry) => ({

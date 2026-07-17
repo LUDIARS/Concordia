@@ -452,7 +452,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
         await upsertMonitorChannelMessage(
           monitorCh,
-          deps.readModel.getMonitorSnapshot({
+          await deps.readModel.getMonitorSnapshot({
             subsidiaryId,
             costSubsidiaries: deps.subsidiary ? undefined : deps.listSubsidiaries?.(),
             channelForSession: (sessionId) => sessionChannelsRepo.findBySessionId(sessionId)?.channel_id ?? null,

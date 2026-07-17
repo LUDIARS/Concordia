@@ -39,12 +39,12 @@ describe("fmtTokensCompact", () => {
 
 describe("collectChannelCostRows", () => {
   const reader: ChannelCostReader = {
-    context: (s) => (s.id === "c" ? null : ({ a: 50000, b: 120000 }[s.id] ?? 0)),
-    cost: (s) => ({ a: 2_000_000, b: 500_000, c: 9_000 }[s.id] ?? 0),
+    context: async (s) => (s.id === "c" ? null : ({ a: 50000, b: 120000 }[s.id] ?? 0)),
+    cost: async (s) => ({ a: 2_000_000, b: 500_000, c: 9_000 }[s.id] ?? 0),
   };
 
-  it("コンテキスト降順 (null は末尾)、 同点はコスト降順で並べる", () => {
-    const rows = collectChannelCostRows(
+  it("コンテキスト降順 (null は末尾)、 同点はコスト降順で並べる", async () => {
+    const rows = await collectChannelCostRows(
       [sess("a"), sess("b"), sess("c")],
       (id) => (id === "c" ? null : `chan-${id}`),
       reader,
@@ -55,12 +55,12 @@ describe("collectChannelCostRows", () => {
     expect(rows[2].contextTokens).toBeNull();
   });
 
-  it("同コンテキストはコスト降順でタイブレーク", () => {
+  it("同コンテキストはコスト降順でタイブレーク", async () => {
     const r2: ChannelCostReader = {
-      context: () => 1000,
-      cost: (s) => (s.id === "hi" ? 999 : 111),
+      context: async () => 1000,
+      cost: async (s) => (s.id === "hi" ? 999 : 111),
     };
-    const rows = collectChannelCostRows([sess("lo"), sess("hi")], () => null, r2);
+    const rows = await collectChannelCostRows([sess("lo"), sess("hi")], () => null, r2);
     expect(rows.map((r) => r.sessionId)).toEqual(["hi", "lo"]);
   });
 });

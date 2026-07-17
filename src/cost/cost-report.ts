@@ -71,11 +71,11 @@ export async function collectCostReport(
   await yieldToEventLoop();
   startedAt = Date.now();
   const allowFullScan = opts?.allowFullScan !== false;
-  const codexTotals = aggregate(codex, allowFullScan);
+  const codexTotals = await aggregate(codex, allowFullScan);
   logStep("aggregate-codex", startedAt, ` sessions=${codex.length}`);
   await yieldToEventLoop();
   startedAt = Date.now();
-  const claudeTotals = aggregate(claude, allowFullScan);
+  const claudeTotals = await aggregate(claude, allowFullScan);
   logStep("aggregate-claude", startedAt, ` sessions=${claude.length}`);
   await yieldToEventLoop();
   startedAt = Date.now();
@@ -84,7 +84,7 @@ export async function collectCostReport(
   // へフォールバックする。
   const fetchRate = opts?.codexRateFetcher ?? (() => fetchCodexRateLimits({ log: opts?.oauthLog }));
   const apiRate = await fetchRate();
-  const codexRate = apiRate ?? aggregateCodexRate(codex, allowFullScan);
+  const codexRate = apiRate ?? (await aggregateCodexRate(codex, allowFullScan));
   logStep("codex-rate", startedAt, ` source=${apiRate ? "app-server" : `sessions(${codex.length})`}`);
   await yieldToEventLoop();
   // Claude Code は JSONL に rate-limit を書かないので、 claude.ai OAuth の
@@ -143,11 +143,11 @@ export function renderCostReportMarkdown(
   return lines.join("\n");
 }
 
-function aggregate(sessions: SessionRow[], allowFullScan: boolean): Totals {
+async function aggregate(sessions: SessionRow[], allowFullScan: boolean): Promise<Totals> {
   const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
   if (!allowFullScan) return out;
   for (const s of sessions) {
-    const t = cachedReadSessionUsage(s, { allowFullScan });
+    const t = await cachedReadSessionUsage(s, { allowFullScan });
     if (!t) continue;
     out.input += t.input;
     out.cached += t.cached;
@@ -157,7 +157,7 @@ function aggregate(sessions: SessionRow[], allowFullScan: boolean): Totals {
   return out;
 }
 
-function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean): CostRate {
+async function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean): Promise<CostRate> {
   let minRemain5h: number | null = null;
   let minRemainWeekly: number | null = null;
   let minReset5h: number | null = null;
@@ -173,7 +173,7 @@ function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean): Cos
   }
   // rate と plan は同じ token_count 行から取れるので、 セッションあたり 1 回だけ読む
   // (旧実装は plan のためだけに readCodexRate をもう一周していた)。
-  const rates = sessions.map((s) => readCodexRate(s, allowFullScan));
+  const rates = await Promise.all(sessions.map((s) => readCodexRate(s, allowFullScan)));
   for (const r of rates) {
     if (!r) continue;
     const r5 = remain(r.used5h);
@@ -192,8 +192,8 @@ function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean): Cos
   };
 }
 
-function readCodexRate(s: SessionRow, allowFullScan: boolean): CostRate | null {
-  const o = readLatestCodexTokenCountLine(s, { allowFullScan }) as any;
+async function readCodexRate(s: SessionRow, allowFullScan: boolean): Promise<CostRate | null> {
+  const o = (await readLatestCodexTokenCountLine(s, { allowFullScan })) as any;
   if (!o) return null;
   return {
     used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),

@@ -4,7 +4,7 @@
  * ため Concordia 内で再実装している (drift 注意 — spec 変更時は両方更新)。
  */
 
-import fs from 'node:fs';
+import { open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 
 export interface VestigiumRecord {
@@ -51,35 +51,43 @@ export function parseRecord(line: string): VestigiumRecord | null {
 }
 
 /** logsDir 配下 (= log_path の親) で <code>/ サブディレクトリを列挙 */
-export function listVestigiumServices(logsRoot: string): string[] {
-  if (!fs.existsSync(logsRoot)) return [];
-  return fs.readdirSync(logsRoot, { withFileTypes: true })
-    .filter((e) => e.isDirectory())
-    .map((e) => e.name)
-    .sort();
+export async function listVestigiumServices(logsRoot: string): Promise<string[]> {
+  try {
+    return (await readdir(logsRoot, { withFileTypes: true }))
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 /** ある service の log_path 配下の YYYY-MM-DD.jsonl を新しい順 */
-export function listFiles(logPath: string): string[] {
-  if (!fs.existsSync(logPath)) return [];
-  return fs.readdirSync(logPath)
-    .filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
-    .sort()
-    .reverse()
-    .map((f) => path.join(logPath, f));
+export async function listFiles(logPath: string): Promise<string[]> {
+  try {
+    return (await readdir(logPath))
+      .filter((f) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))
+      .sort()
+      .reverse()
+      .map((f) => path.join(logPath, f));
+  } catch {
+    return [];
+  }
 }
 
 /** 末尾 256KB から行単位に読む簡易 reverse reader */
-function readTailLines(file: string, maxBytes = 256 * 1024): string[] {
-  const stat = fs.statSync(file);
-  const readBytes = Math.min(stat.size, maxBytes);
-  const offset = stat.size - readBytes;
-  const buffer = Buffer.alloc(readBytes);
-  const fd = fs.openSync(file, 'r');
+async function readTailLines(file: string, maxBytes = 256 * 1024): Promise<string[]> {
+  const fh = await open(file, 'r');
+  let buffer: Buffer;
+  let offset: number;
   try {
-    fs.readSync(fd, buffer, 0, readBytes, offset);
+    const stat = await fh.stat();
+    const readBytes = Math.min(stat.size, maxBytes);
+    offset = stat.size - readBytes;
+    buffer = Buffer.alloc(readBytes);
+    await fh.read(buffer, 0, readBytes, offset);
   } finally {
-    fs.closeSync(fd);
+    await fh.close();
   }
   const lines = buffer.toString('utf8').split('\n');
   if (offset > 0 && lines.length > 0) lines.shift();
@@ -93,11 +101,11 @@ export interface RecentOpts {
   since?: number;
 }
 
-export function recent(opts: RecentOpts): VestigiumRecord[] {
+export async function recent(opts: RecentOpts): Promise<VestigiumRecord[]> {
   const limit = opts.limit ?? 200;
   const result: VestigiumRecord[] = [];
-  for (const file of listFiles(opts.logPath)) {
-    for (const line of readTailLines(file)) {
+  for (const file of await listFiles(opts.logPath)) {
+    for (const line of await readTailLines(file)) {
       const rec = parseRecord(line);
       if (!rec) continue;
       if (opts.level && !opts.level.includes(rec.level)) continue;
@@ -116,12 +124,12 @@ export interface SearchOpts {
   since?: number;
 }
 
-export function search(opts: SearchOpts): VestigiumRecord[] {
+export async function search(opts: SearchOpts): Promise<VestigiumRecord[]> {
   const re = typeof opts.pattern === 'string' ? new RegExp(opts.pattern, 'i') : opts.pattern;
   const limit = opts.limit ?? 200;
   const all: VestigiumRecord[] = [];
   for (const target of opts.logPaths) {
-    const hits = recent({ logPath: target.logPath, limit: 5000, since: opts.since })
+    const hits = (await recent({ logPath: target.logPath, limit: 5000, since: opts.since }))
       .filter((r) => re.test(r.msg));
     for (const h of hits) all.push(h);
   }
@@ -129,10 +137,10 @@ export function search(opts: SearchOpts): VestigiumRecord[] {
   return all.slice(0, limit);
 }
 
-export function lastSeenAt(logPath: string): number | null {
-  const files = listFiles(logPath);
+export async function lastSeenAt(logPath: string): Promise<number | null> {
+  const files = await listFiles(logPath);
   if (files.length === 0) return null;
-  const last = readTailLines(files[0]!).find((l) => parseRecord(l) !== null);
+  const last = (await readTailLines(files[0]!)).find((l) => parseRecord(l) !== null);
   if (!last) return null;
   return parseRecord(last)?.ts ?? null;
 }

@@ -4,7 +4,7 @@
  * spec/delegation.md §3-4.
  */
 
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { basename, join } from "node:path";
 import {
@@ -268,10 +268,10 @@ export class DelegationService {
    * 呼び出し側は `CONCORDIA_DELEGATION_PROMPT_FILE` に渡して素の provider spawn に注入する
    * (Lictor が起動直後に paste+submit する)。 /spawn の prompt 欄 / 返信由来 spawn が使う。
    */
-  writeAdHocPrompt(prompt: string): string {
-    mkdirSync(this.promptsDir, { recursive: true });
+  async writeAdHocPrompt(prompt: string): Promise<string> {
+    await mkdir(this.promptsDir, { recursive: true });
     const path = join(this.promptsDir, `${randomUUID()}.md`);
-    writeFileSync(path, prompt, "utf8");
+    await writeFile(path, prompt, "utf8");
     return path;
   }
 
@@ -582,7 +582,11 @@ export class DelegationService {
     // 起動セッションは Concordia 協調セッションなので、 文脈説明を
     // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
     const contextBlock = buildDelegationContext(this.deps.concordiaUrl);
-    mkdirSync(this.promptsDir, { recursive: true });
+    try {
+      await mkdir(this.promptsDir, { recursive: true });
+    } catch (err) {
+      return { ok: false, error: `failed to create prompts dir: ${(err as Error).message}` };
+    }
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const promptBody = renderPromptFile(
       def,
@@ -595,7 +599,7 @@ export class DelegationService {
       spawn.effectiveModel,
     );
     try {
-      writeFileSync(promptPath, promptBody, "utf8");
+      await writeFile(promptPath, promptBody, "utf8");
     } catch (err) {
       return { ok: false, error: `failed to write prompt file: ${(err as Error).message}` };
     }

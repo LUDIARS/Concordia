@@ -20,7 +20,7 @@
  *    ツリー走査で探し直すのを防ぐ。
  */
 
-import { statSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import { findClaudeLog, findCodexLog, readLines } from "./log-usage.js";
 import {
@@ -81,50 +81,50 @@ export interface CachedWindowReaderStats {
  * 注入可能 (既定は実 I/O)。 返り値の reader は collectOrgCostWindows にそのまま渡せる。
  */
 export function makeCachedSessionWindowReader(deps?: {
-  resolveLogPath?: (s: SessionRow) => string | null;
-  statFile?: (path: string) => { mtimeMs: number; size: number } | null;
-  readLogLines?: (path: string) => string[];
+  resolveLogPath?: (s: SessionRow) => Promise<string | null>;
+  statFile?: (path: string) => Promise<{ mtimeMs: number; size: number } | null>;
+  readLogLines?: (path: string) => Promise<string[]>;
   now?: () => number;
   onStats?: (stats: CachedWindowReaderStats) => void;
 }): SessionWindowReader {
   const resolveLogPath =
     deps?.resolveLogPath ??
-    ((s: SessionRow): string | null => {
+    (async (s: SessionRow): Promise<string | null> => {
       if (s.provider === "claude-code") return findClaudeLog(s);
       if (s.provider === "codex-cli") return findCodexLog(s);
       return null;
     });
   const statFile =
     deps?.statFile ??
-    ((path: string): { mtimeMs: number; size: number } | null => {
+    (async (path: string): Promise<{ mtimeMs: number; size: number } | null> => {
       try {
-        const st = statSync(path);
+        const st = await stat(path);
         return { mtimeMs: st.mtimeMs, size: st.size };
       } catch {
         return null;
       }
     });
-  const readLogLines = deps?.readLogLines ?? ((path: string): string[] => readLines(path));
+  const readLogLines = deps?.readLogLines ?? ((path: string): Promise<string[]> => readLines(path));
   const now = deps?.now ?? Date.now;
   const stats: CachedWindowReaderStats = { hits: 0, misses: 0, pathResolves: 0 };
 
   const pathCache = new Map<string, PathEntry>();
   const totalsCache = new Map<string, TotalsEntry>();
 
-  return (s: SessionRow, windows: UsageWindow[]): Record<string, number> => {
+  return async (s: SessionRow, windows: UsageWindow[]): Promise<Record<string, number>> => {
     if (windows.length === 0) return emptyResult(windows);
     if (s.provider !== "claude-code" && s.provider !== "codex-cli") return emptyResult(windows);
 
     // 1. ログパス解決 (cache 付き)。 解決済みでもファイルが消えていたら解決し直す。
     let pe = pathCache.get(s.id);
-    let st = pe?.path ? statFile(pe.path) : null;
+    let st = pe?.path ? await statFile(pe.path) : null;
     const negativeExpired = pe && pe.path === null && now() - pe.resolvedAt > NEGATIVE_TTL_MS;
     if (!pe || negativeExpired || (pe.path !== null && st === null)) {
       stats.pathResolves++;
-      pe = { path: resolveLogPath(s), resolvedAt: now() };
+      pe = { path: await resolveLogPath(s), resolvedAt: now() };
       pathCache.set(s.id, pe);
       capMap(pathCache);
-      st = pe.path ? statFile(pe.path) : null;
+      st = pe.path ? await statFile(pe.path) : null;
     }
     if (!pe.path || !st) {
       deps?.onStats?.(stats);
@@ -147,7 +147,7 @@ export function makeCachedSessionWindowReader(deps?: {
     }
 
     stats.misses++;
-    const lines = readLogLines(pe.path);
+    const lines = await readLogLines(pe.path);
     const totals =
       s.provider === "claude-code"
         ? accumulateClaudeUsageWindows(lines, windows)

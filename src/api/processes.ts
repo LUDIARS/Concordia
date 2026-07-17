@@ -43,7 +43,7 @@ export function processesRouter(deps: ProcessesApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = StartFromRepoSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-    const result = deps.manager.startFromRepo(parsed.data.repo_path, parsed.data.repo_origin ?? null);
+    const result = await deps.manager.startFromRepo(parsed.data.repo_path, parsed.data.repo_origin ?? null);
     return c.json(result);
   });
 

@@ -23,7 +23,7 @@
  * fire-and-forget: WS 未接続なら inject は silent drop。 status 変更は行わない。
  */
 
-import { openSync, readSync, closeSync, statSync, existsSync } from "node:fs";
+import { open, stat } from "node:fs/promises";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
@@ -51,54 +51,53 @@ export interface StalledSessionNudgeOptions {
   /** epoch-ms を返す注入可能クロック (テスト用)。 既定 Date.now。 */
   now?: () => number;
   /** transcript の mtime(epoch-ms) を返す seam (テスト用)。 既定 fs。 */
-  transcriptMtimeMs?: (s: SessionRow) => number | null;
+  transcriptMtimeMs?: (s: SessionRow) => Promise<number | null>;
   /** transcript 末尾テキストを返す seam (テスト用)。 既定 fs。 */
-  readTranscriptTail?: (s: SessionRow) => string | null;
+  readTranscriptTail?: (s: SessionRow) => Promise<string | null>;
 }
 
 export interface StalledSessionNudgeHandle {
   stop: () => void;
   /** 1 周分の走査を即実行 (テスト・手動用)。 nudge した session id を返す。 */
-  runOnce: () => string[];
+  runOnce: () => Promise<string[]>;
 }
 
 /** session の transcript ファイルパスを解決する (sweeper.tryRecover と同じ規約)。 */
-export function resolveTranscriptPath(s: SessionRow): string | null {
+export async function resolveTranscriptPath(s: SessionRow): Promise<string | null> {
   if (s.transcript_path) return s.transcript_path;
   const p = getProvider(s.provider);
   if (!p) return null;
   return p.transcriptPath(s.id, s.repo_path);
 }
 
-function defaultMtimeMs(s: SessionRow): number | null {
-  const path = resolveTranscriptPath(s);
-  if (!path || !existsSync(path)) return null;
+async function defaultMtimeMs(s: SessionRow): Promise<number | null> {
+  const path = await resolveTranscriptPath(s);
+  if (!path) return null;
   try {
-    return statSync(path).mtimeMs;
+    return (await stat(path)).mtimeMs;
   } catch {
     return null;
   }
 }
 
-function defaultReadTail(s: SessionRow): string | null {
-  const path = resolveTranscriptPath(s);
-  if (!path || !existsSync(path)) return null;
-  let fd: number | null = null;
+async function defaultReadTail(s: SessionRow): Promise<string | null> {
+  const path = await resolveTranscriptPath(s);
+  if (!path) return null;
   try {
-    const size = statSync(path).size;
-    const start = Math.max(0, size - TAIL_BYTES);
-    const len = size - start;
-    if (len <= 0) return "";
-    const buf = Buffer.allocUnsafe(len);
-    fd = openSync(path, "r");
-    readSync(fd, buf, 0, len, start);
-    return buf.toString("utf8");
+    const fh = await open(path, "r");
+    try {
+      const size = (await fh.stat()).size;
+      const start = Math.max(0, size - TAIL_BYTES);
+      const len = size - start;
+      if (len <= 0) return "";
+      const buf = Buffer.allocUnsafe(len);
+      await fh.read(buf, 0, len, start);
+      return buf.toString("utf8");
+    } finally {
+      await fh.close();
+    }
   } catch {
     return null;
-  } finally {
-    if (fd !== null) {
-      try { closeSync(fd); } catch { /* ignore */ }
-    }
   }
 }
 
@@ -219,7 +218,7 @@ export function startStalledSessionNudge(
   const lastNudge = new Map<string, number>();
   let supervised: SupervisedIntervalHandle | null = null;
 
-  function runOnce(): string[] {
+  async function runOnce(): Promise<string[]> {
     if (!enabled) return [];
     const nowMs = now();
     const active = opts.repo.findAllActive();
@@ -231,7 +230,7 @@ export function startStalledSessionNudge(
 
     const nudged: string[] = [];
     for (const s of active) {
-      const mtime = mtimeOf(s);
+      const mtime = await mtimeOf(s);
       if (mtime == null) continue; // transcript 不明 (idle 計測不能) はスキップ。
       const idleMs = nowMs - mtime;
       // 安い判定 (idle / cooldown) を先に。 awaiting は transcript 読みが要るので候補だけ評価。
@@ -247,7 +246,7 @@ export function startStalledSessionNudge(
       ) {
         continue;
       }
-      const awaiting = isAwaitingHumanInput(readTail(s));
+      const awaiting = isAwaitingHumanInput(await readTail(s));
       if (awaiting) {
         log.debug({ session_id: s.id }, "skip nudge: awaiting human input (ask)");
         continue;

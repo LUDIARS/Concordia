@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe("readClaudeCost", () => {
-  it("model 別単価で input/output/cache を金額化する (cache 5m/1h 内訳を区別)", () => {
+  it("model 別単価で input/output/cache を金額化する (cache 5m/1h 内訳を区別)", async () => {
     const p = fixture([
       {
         message: {
@@ -39,7 +39,7 @@ describe("readClaudeCost", () => {
         },
       },
     ]);
-    const est = readClaudeCost(p);
+    const est = await readClaudeCost(p);
     // input 5 + output 25 + cache_read 5*0.1 + cache_write_5m 5*1.25 = 36.75
     expect(est.usd).toBeCloseTo(36.75, 6);
     expect(est.pricedTokens).toBe(4_000_000);
@@ -47,7 +47,7 @@ describe("readClaudeCost", () => {
     expect(est.models).toEqual(["claude-opus-4-8"]);
   });
 
-  it("cache_creation 内訳が無ければ全量 5m 扱い", () => {
+  it("cache_creation 内訳が無ければ全量 5m 扱い", async () => {
     const p = fixture([
       {
         message: {
@@ -58,21 +58,21 @@ describe("readClaudeCost", () => {
       },
     ]);
     // haiku in $1/Mtok × 1.25 (5m write) = 1.25
-    expect(readClaudeCost(p).usd).toBeCloseTo(1.25, 6);
+    expect((await readClaudeCost(p)).usd).toBeCloseTo(1.25, 6);
   });
 
-  it("message.id で dedup する", () => {
+  it("message.id で dedup する", async () => {
     const row = {
       message: { id: "dup", model: "claude-opus-4-8", usage: { input_tokens: 1_000_000, output_tokens: 0 } },
     };
-    expect(readClaudeCost(fixture([row, row])).usd).toBeCloseTo(5, 6);
+    expect((await readClaudeCost(fixture([row, row]))).usd).toBeCloseTo(5, 6);
   });
 
-  it("単価不明 model は未価格トークンに計上し USD に混ぜない", () => {
+  it("単価不明 model は未価格トークンに計上し USD に混ぜない", async () => {
     const p = fixture([
       { message: { id: "m1", model: "gpt-5-codex", usage: { input_tokens: 500, output_tokens: 500 } } },
     ]);
-    const est = readClaudeCost(p);
+    const est = await readClaudeCost(p);
     expect(est.usd).toBe(0);
     expect(est.pricedTokens).toBe(0);
     expect(est.unpricedTokens).toBe(1000);
@@ -81,21 +81,21 @@ describe("readClaudeCost", () => {
 
 describe("formatCostBadge", () => {
   const base: SessionCostEstimate = { usd: 0, pricedTokens: 0, unpricedTokens: 0, models: [] };
-  it("$1 以上は 2 桁、 未満は 4 桁", () => {
+  it("$1 以上は 2 桁、 未満は 4 桁", async () => {
     expect(formatCostBadge({ ...base, usd: 1.2345, pricedTokens: 10 })).toBe("💰 ~$1.23");
     expect(formatCostBadge({ ...base, usd: 0.01234, pricedTokens: 10 })).toBe("💰 ~$0.0123");
   });
-  it("未価格トークンは併記する", () => {
+  it("未価格トークンは併記する", async () => {
     expect(formatCostBadge({ ...base, unpricedTokens: 45000 })).toBe("💰 +45k tok (未価格)");
   });
-  it("何も無ければ空文字", () => {
+  it("何も無ければ空文字", async () => {
     expect(formatCostBadge(null)).toBe("");
     expect(formatCostBadge(base)).toBe("");
   });
 });
 
 describe("renderUsageMarkdown", () => {
-  it("コスト + コンテキストを markdown 化する", () => {
+  it("コスト + コンテキストを markdown 化する", async () => {
     const lines = renderUsageMarkdown({
       context: toEstimate(124000, 200000),
       cost: { usd: 1.23, pricedTokens: 10, unpricedTokens: 0, models: ["claude-opus-4-8"] },
@@ -104,7 +104,7 @@ describe("renderUsageMarkdown", () => {
     expect(lines).toContain("- 想定コスト (等価API): ~$1.23 (claude-opus-4-8)");
     expect(lines).toContain("- コンテキスト占有: ~62% (124k / 200k)");
   });
-  it("両方 null なら空配列", () => {
+  it("両方 null なら空配列", async () => {
     expect(renderUsageMarkdown({ context: null, cost: null })).toEqual([]);
   });
 });

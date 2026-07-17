@@ -21,7 +21,7 @@
  *   プレースホルダ表示にフォールバックさせる.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -73,11 +73,7 @@ export async function fetchClaudeOAuthUsage(opts: {
   const path = opts.credentialsPath ?? join(homedir(), ".claude", ".credentials.json");
   let token: string;
   try {
-    if (!existsSync(path)) {
-      opts.log?.warn?.(`anthropic-oauth-usage: credentials not found at ${path}`);
-      return null;
-    }
-    const raw = readFileSync(path, "utf8");
+    const raw = await readFile(path, "utf8");
     const parsed = JSON.parse(raw);
     const access = parsed?.claudeAiOauth?.accessToken;
     if (typeof access !== "string" || !access.trim()) {

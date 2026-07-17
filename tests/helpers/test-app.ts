@@ -144,7 +144,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },
     config,
     startedAt: new Date().toISOString(),
-    sweeperRunOnce: () => {},
+    sweeperRunOnce: async () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
     publicUrl: "http://127.0.0.1:11111",
     chatRoutes: opts.chatRoutes === false ? null : undefined,

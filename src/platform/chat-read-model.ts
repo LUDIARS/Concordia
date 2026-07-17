@@ -172,7 +172,7 @@ export interface ChatReadModel {
   getSessionStatusSnapshot(sessionId: string, sessionChannelId: string): Promise<SessionStatusSnapshot | null>;
   getSessionPromptEvent(sessionId: string): SessionPromptRelayEvent | null;
   getSessionTitleEvent(sessionId: string): SessionTitleRelayEvent | null;
-  getMonitorSnapshot(options: MonitorSnapshotOptions): MonitorSnapshot;
+  getMonitorSnapshot(options: MonitorSnapshotOptions): Promise<MonitorSnapshot>;
   getPrQueueSnapshot(options: PrQueueSnapshotOptions): PrQueueSnapshot;
   getCostSnapshot(format: CostTimestampFormat, nowSec: number): Promise<CostSnapshot>;
   isSessionActive(sessionId: string): boolean;

@@ -18,16 +18,16 @@ function fakeRepo(rows: SessionRow[]): SessionsRepo {
 
 /** session id -> {d, w} を返す reader を作る (JSONL を読まずテスト)。 */
 function reader(map: Record<string, { d: number; w: number }>) {
-  return (s: SessionRow, _windows: UsageWindow[]): Record<string, number> => {
+  return async (s: SessionRow, _windows: UsageWindow[]): Promise<Record<string, number>> => {
     const v = map[s.id] ?? { d: 0, w: 0 };
     return { d: v.d, w: v.w };
   };
 }
 
-describe("collectOrgCostWindows", () => {
-  it("本社/子会社別に 本日・週間 を時間帯集計する", () => {
+describe("collectOrgCostWindows", async () => {
+  it("本社/子会社別に 本日・週間 を時間帯集計する", async () => {
     const repo = fakeRepo([sess("a", null), sess("b", "sub-1"), sess("c", "sub-1"), sess("d", "sub-2")]);
-    const r = collectOrgCostWindows(repo, [
+    const r = await collectOrgCostWindows(repo, [
       { id: "sub-1", name: "支社A", daily_token_budget: 1000 },
       { id: "sub-2", name: "支社B", daily_token_budget: 0 },
     ], NOW, reader({
@@ -48,9 +48,9 @@ describe("collectOrgCostWindows", () => {
     expect(r.weekly.totalTokens).toBe(2250);
   });
 
-  it("本日は予算/超過を持つ、 週間は予算概念なし", () => {
+  it("本日は予算/超過を持つ、 週間は予算概念なし", async () => {
     const repo = fakeRepo([sess("a", "sub-1")]);
-    const r = collectOrgCostWindows(repo, [{ id: "sub-1", name: "A", daily_token_budget: 1000 }], NOW,
+    const r = await collectOrgCostWindows(repo, [{ id: "sub-1", name: "A", daily_token_budget: 1000 }], NOW,
       reader({ a: { d: 1200, w: 5000 } }));
     expect(r.daily.subsidiaries[0].blocked).toBe(true);
     expect(r.daily.subsidiaries[0].budget).toBe(1000);
@@ -58,32 +58,32 @@ describe("collectOrgCostWindows", () => {
     expect(r.weekly.subsidiaries[0].budget).toBe(0);
   });
 
-  it("未知の subsidiary_id は本社に混ぜず total のみ反映", () => {
+  it("未知の subsidiary_id は本社に混ぜず total のみ反映", async () => {
     const repo = fakeRepo([sess("a", null), sess("b", "gone")]);
-    const r = collectOrgCostWindows(repo, [], NOW, reader({ a: { d: 100, w: 100 }, b: { d: 70, w: 70 } }));
+    const r = await collectOrgCostWindows(repo, [], NOW, reader({ a: { d: 100, w: 100 }, b: { d: 70, w: 70 } }));
     expect(r.daily.headOffice.tokens).toBe(100);
     expect(r.daily.totalTokens).toBe(170);
     expect(r.daily.subsidiaries).toHaveLength(0);
   });
 
-  it("ラベル: 本日=当日、 週間=6日前〜当日", () => {
+  it("ラベル: 本日=当日、 週間=6日前〜当日", async () => {
     const repo = fakeRepo([]);
-    const r = collectOrgCostWindows(repo, [], NOW, reader({}));
+    const r = await collectOrgCostWindows(repo, [], NOW, reader({}));
     expect(r.daily.label).toBe("2026-06-29");
     expect(r.weekly.label).toBe("2026-06-23〜2026-06-29");
   });
 
-  it("d/w とも 0 のセッションはスキップ", () => {
+  it("d/w とも 0 のセッションはスキップ", async () => {
     const repo = fakeRepo([sess("a", null), sess("z", null)]);
-    const r = collectOrgCostWindows(repo, [], NOW, reader({ a: { d: 0, w: 0 }, z: { d: 5, w: 5 } }));
+    const r = await collectOrgCostWindows(repo, [], NOW, reader({ a: { d: 0, w: 0 }, z: { d: 5, w: 5 } }));
     expect(r.daily.headOffice.tokens).toBe(5);
   });
 });
 
-describe("renderOrgCostLines", () => {
-  it("本日 / 週間 の 2 ブロックを出す (予算/超過/予算なし)", () => {
+describe("renderOrgCostLines", async () => {
+  it("本日 / 週間 の 2 ブロックを出す (予算/超過/予算なし)", async () => {
     const repo = fakeRepo([sess("a", null), sess("b", "sub-1"), sess("c", "sub-2")]);
-    const r = collectOrgCostWindows(repo, [
+    const r = await collectOrgCostWindows(repo, [
       { id: "sub-1", name: "支社A", daily_token_budget: 1000 },
       { id: "sub-2", name: "支社B", daily_token_budget: 0 },
     ], NOW, reader({ a: { d: 1234567, w: 2000000 }, b: { d: 1200, w: 1200 }, c: { d: 5, w: 5 } }));
@@ -97,8 +97,8 @@ describe("renderOrgCostLines", () => {
   });
 });
 
-describe("fmtTokens", () => {
-  it("3桁区切り / 負は0", () => {
+describe("fmtTokens", async () => {
+  it("3桁区切り / 負は0", async () => {
     expect(fmtTokens(1234567)).toBe("1,234,567");
     expect(fmtTokens(-5)).toBe("0");
   });

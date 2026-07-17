@@ -21,7 +21,7 @@
  * ```
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface ProcessDef {
@@ -127,15 +127,15 @@ function normalizeProcessDef(raw: unknown, warnings: string[]): ProcessDef | nul
 /**
  * `<repoPath>/dev-process.md` を読んでパース. 存在しなければ exists=false.
  */
-export function readDevProcessMd(repoPath: string): DevProcessFile {
+export async function readDevProcessMd(repoPath: string): Promise<DevProcessFile> {
   const path = join(repoPath, "dev-process.md");
-  if (!existsSync(path)) {
-    return { exists: false, processes: [], warnings: [], path: null };
-  }
   let content: string;
   try {
-    content = readFileSync(path, "utf8");
+    content = await readFile(path, "utf8");
   } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return { exists: false, processes: [], warnings: [], path: null };
+    }
     return {
       exists: true,
       processes: [],

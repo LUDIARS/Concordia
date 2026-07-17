@@ -31,8 +31,8 @@ function isObj(v: unknown): v is Record<string, unknown> {
  * Claude JSONL の最後の assistant usage から「送信プロンプト総量」を拾う。
  * input_tokens + cache_read_input_tokens + cache_creation_input_tokens。
  */
-export function readClaudeContextTokens(path: string): number | null {
-  return claudeContextFromLines(readLines(path));
+export async function readClaudeContextTokens(path: string): Promise<number | null> {
+  return claudeContextFromLines(await readLines(path));
 }
 
 /** 行配列版 (tail 読みキャッシュから使う純粋関数)。 */
@@ -67,8 +67,8 @@ export function claudeContextFromLines(lines: string[]): number | null {
  * total_token_usage はセッション累積 (毎ターン増え続ける) なので占有率には使わない。 また codex の
  * input_tokens は cached を内包するため cached を足さない (= 二重計上回避)。
  */
-export function readCodexContextTokens(path: string): number | null {
-  return codexContextFromLines(readLines(path));
+export async function readCodexContextTokens(path: string): Promise<number | null> {
+  return codexContextFromLines(await readLines(path));
 }
 
 /** 行配列版 (tail 読みキャッシュから使う純粋関数)。 */
@@ -101,14 +101,14 @@ export function toEstimate(tokens: number, windowTokens = DEFAULT_CONTEXT_WINDOW
 }
 
 /** セッションのコンテキスト占有を概算する。 ログが取れなければ null。 */
-export function estimateContextTokens(s: SessionRow, windowTokens = DEFAULT_CONTEXT_WINDOW): ContextEstimate | null {
+export async function estimateContextTokens(s: SessionRow, windowTokens = DEFAULT_CONTEXT_WINDOW): Promise<ContextEstimate | null> {
   let tokens: number | null = null;
   if (s.provider === "codex-cli") {
-    const p = findCodexLog(s);
-    tokens = p ? readCodexContextTokens(p) : null;
+    const p = await findCodexLog(s);
+    tokens = p ? await readCodexContextTokens(p) : null;
   } else if (s.provider === "claude-code") {
-    const p = findClaudeLog(s);
-    tokens = p ? readClaudeContextTokens(p) : null;
+    const p = await findClaudeLog(s);
+    tokens = p ? await readClaudeContextTokens(p) : null;
   }
   if (tokens === null) return null;
   return toEstimate(tokens, windowTokens);

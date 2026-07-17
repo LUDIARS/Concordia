@@ -6,7 +6,7 @@
  * - 古い session_events を auto-purge
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { open } from "node:fs/promises";
 import type { SessionsRepo } from "./db/sessions-repo.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { RulesRepo } from "./db/rules-repo.js";
@@ -36,7 +36,7 @@ export interface SweeperOptions {
   sessionStatsRetentionDays: number;
 }
 
-export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce: () => void } {
+export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce: () => Promise<void> } {
   let timer: NodeJS.Timeout | null = null;
   const bulkhead = createLoopBulkhead("sweeper", {
     log: { warn: (message) => log.warn(message) },
@@ -50,7 +50,7 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     await bulkhead.run(runOnce);
   }
 
-  function runOnce(): void {
+  async function runOnce(): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
 
     // 1. active → lost
@@ -63,7 +63,7 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
         kind: "lost",
         payload: { last_seen_at: s.last_seen_at },
       });
-      const recovered = tryRecover(s.id, s.provider, s.repo_path, s.transcript_path);
+      const recovered = await tryRecover(s.id, s.provider, s.repo_path, s.transcript_path);
       if (recovered) {
         opts.repo.appendEvent({
           session_id: s.id,
@@ -140,21 +140,55 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
   };
 }
 
-function tryRecover(
+/**
+ * recovery 用に transcript を読む上限バイト数。 parseTranscript は末尾から走査する
+ * ため末尾チャンクで足りる (巨大 transcript の全量読みは 2026-07-16 障害の主因)。
+ * 上限以下のファイルは全量 = 旧実装と同一結果。 超える場合のみ末尾のみ読み、
+ * jsonl_lines が下限値になる (recovery 情報としては許容)。
+ */
+const RECOVERY_READ_CAP_BYTES = 4 * 1024 * 1024;
+
+async function tryRecover(
   sessionId: string,
   provider: string,
   cwd: string,
   transcriptPath: string | null,
-): unknown | null {
+): Promise<unknown | null> {
   const p = getProvider(provider);
   if (!p) return null;
-  const path = transcriptPath ?? p.transcriptPath(sessionId, cwd);
-  if (!path || !existsSync(path)) return null;
+  const path = transcriptPath ?? (await p.transcriptPath(sessionId, cwd));
+  if (!path) return null;
   try {
-    const content = readFileSync(path, "utf8");
-    return p.parseTranscript(content);
+    const content = await readTailCapped(path, RECOVERY_READ_CAP_BYTES);
+    if (content === null) return null;
+    return await p.parseTranscript(content);
   } catch (err) {
     log.warn({ err: (err as Error).message, path }, "recovery failed");
     return null;
+  }
+}
+
+/** 末尾 maxBytes までを読む (それ以下なら全量)。 読めなければ null。 */
+async function readTailCapped(path: string, maxBytes: number): Promise<string | null> {
+  let fh;
+  try {
+    fh = await open(path, "r");
+  } catch {
+    return null; // 旧 existsSync ガード相当 (無ければ黙って null)。
+  }
+  try {
+    const size = (await fh.stat()).size;
+    const start = Math.max(0, size - maxBytes);
+    const buf = Buffer.allocUnsafe(size - start);
+    const { bytesRead } = await fh.read(buf, 0, buf.length, start);
+    let text = buf.toString("utf8", 0, bytesRead);
+    if (start > 0) {
+      // 途中から読んだ先頭の欠け行を捨てる (行境界に揃える)。
+      const nl = text.indexOf("\n");
+      text = nl >= 0 ? text.slice(nl + 1) : "";
+    }
+    return text;
+  } finally {
+    await fh.close();
   }
 }

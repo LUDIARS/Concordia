@@ -26,7 +26,7 @@ export interface SubsidiaryGateDeps {
   delegationService: DelegationService;
   runClaude: RunClaudeFn;
   /** 子会社の日次トークン予算判定 (省略時は予算チェックを行わない = 無制限)。 */
-  budget?: { status: (sub: { id: string; daily_token_budget: number }) => SubsidiaryBudgetStatus };
+  budget?: { status: (sub: { id: string; daily_token_budget: number }) => Promise<SubsidiaryBudgetStatus> };
   log?: { info: (m: string) => void; warn: (m: string) => void };
 }
 
@@ -80,7 +80,7 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
   // 1.5) コスト予算超過チェック。 ロックは無いが当日のトークン予算を使い切っていれば
   //      ガード (= Sonnet 呼び出しで更にトークンを使う) より前で止める。 ユーザの責ではない
   //      のでロックはしない。 予算未設定 (0) や budget 未注入なら素通り。
-  const budgetStatus = deps.budget?.status(sub);
+  const budgetStatus = await deps.budget?.status(sub);
   if (budgetStatus?.blocked) {
     deps.subsidiaryRepo.recordRequest({
       subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,

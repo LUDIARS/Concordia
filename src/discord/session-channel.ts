@@ -515,12 +515,12 @@ async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number
     if (batch.size < 100) break;
   }
   collected.reverse(); // 古い順
-  fs.mkdirSync(baseDir, { recursive: true });
+  await fs.promises.mkdir(baseDir, { recursive: true });
   const safe = ch.name.replace(/[^\w.\-ぁ-んァ-ヶ一-龠]/g, "_").slice(0, 60);
   const day = new Date(lastTs).toISOString().slice(0, 10);
   const file = path.join(baseDir, `${safe}-${ch.id}-${day}.md`);
   const header = `# ${ch.name} (${ch.id})\n# archived ${new Date().toISOString()} / messages ${collected.length}\n\n`;
-  fs.writeFileSync(file, header + collected.join("\n") + "\n", "utf8");
+  await fs.promises.writeFile(file, header + collected.join("\n") + "\n", "utf8");
   return true;
 }
 

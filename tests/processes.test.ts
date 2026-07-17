@@ -73,17 +73,17 @@ describe("dev-process.md parser", () => {
     expect(out.warnings.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("readDevProcessMd: existence + parse", () => {
+  it("readDevProcessMd: existence + parse", async () => {
     const dir = tmpRepo("# marker only");
-    const out = readDevProcessMd(dir);
+    const out = await readDevProcessMd(dir);
     expect(out.exists).toBe(true);
     expect(out.processes).toEqual([]);
     expect(out.path).toBe(join(dir, "dev-process.md"));
   });
 
-  it("readDevProcessMd: no file = exists false", () => {
+  it("readDevProcessMd: no file = exists false", async () => {
     const dir = makeTestDir("concordia-no-md-");
-    const out = readDevProcessMd(dir);
+    const out = await readDevProcessMd(dir);
     expect(out.exists).toBe(false);
   });
 });
@@ -120,7 +120,7 @@ describe("ProcessManager spawn", () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
     // 短命コマンド: cross-platform に node -e で固定行を吐く
-    const r = mgr.startOne({
+    const r = await mgr.startOne({
       name: "echo1",
       command: `node -e "console.log('hello-runner')"`,
       cwd: process.cwd(),
@@ -148,21 +148,21 @@ describe("ProcessManager spawn", () => {
     expect(stdoutLines.some((l) => l.includes("hello-runner"))).toBe(true);
   }, 20000);
 
-  it("startFromRepo skips when no dev-process.md", () => {
+  it("startFromRepo skips when no dev-process.md", async () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
     const dir = makeTestDir("concordia-empty-");
-    const r = mgr.startFromRepo(dir, null);
+    const r = await mgr.startFromRepo(dir, null);
     expect(r.started).toEqual([]);
     expect(r.failed).toEqual([]);
     expect(r.devProcessMdPath).toBeNull();
   });
 
-  it("startFromRepo treats marker-only file as no-op", () => {
+  it("startFromRepo treats marker-only file as no-op", async () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
     const dir = tmpRepo("# Dev marker, no fence");
-    const r = mgr.startFromRepo(dir, null);
+    const r = await mgr.startFromRepo(dir, null);
     expect(r.started).toEqual([]);
     expect(r.marker_only).toBe(true);
   });
@@ -170,10 +170,10 @@ describe("ProcessManager spawn", () => {
   it("stopAll terminates every running process", async () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
-    const r1 = mgr.startOne({
+    const r1 = await mgr.startOne({
       name: "ka", command: `node -e "setTimeout(()=>{},5000)"`, cwd: process.cwd(),
     });
-    const r2 = mgr.startOne({
+    const r2 = await mgr.startOne({
       name: "kb", command: `node -e "setTimeout(()=>{},5000)"`, cwd: process.cwd(),
     });
     expect(r1.ok && r2.ok).toBe(true);
@@ -205,17 +205,17 @@ describe("ProcessManager spawn", () => {
     }
   }, 20000);
 
-  it("ad-hoc startOne refuses duplicate names", () => {
+  it("ad-hoc startOne refuses duplicate names", async () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
     // sleep 相当: node -e + setTimeout で 1.5s 走らせる
-    const r1 = mgr.startOne({
+    const r1 = await mgr.startOne({
       name: "dup",
       command: `node -e "setTimeout(()=>{},1500)"`,
       cwd: process.cwd(),
     });
     expect(r1.ok).toBe(true);
-    const r2 = mgr.startOne({
+    const r2 = await mgr.startOne({
       name: "dup",
       command: `node -e "setTimeout(()=>{},1500)"`,
       cwd: process.cwd(),

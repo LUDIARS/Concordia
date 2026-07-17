@@ -8,9 +8,20 @@
  * ここでは「1 ファイル = 1 エントリ」として頑健に扱い、 プロジェクト分類は本文全体から
  * 行う。
  */
-import { readdirSync, readFileSync, statSync, existsSync } from "node:fs";
+import type { Stats } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { extractProjects } from "./project-dictionary.js";
+
+/** path が存在するか (async existsSync 代替)。 */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** 一覧用のメタ情報 (本文は含まない)。 */
 export interface SessionLogMeta {
@@ -94,35 +105,40 @@ export function parseSessionLog(
  * 解決順: env `CONCORDIA_SESSION_LOGS_DIR` → `<root>/session-logs` (先頭の実在するもの)。
  * いずれも無ければ null (= ログ無し、 設定不備ではないので空一覧で扱う)。
  */
-export function resolveSessionLogsDir(roots: string[]): string | null {
+export async function resolveSessionLogsDir(roots: string[]): Promise<string | null> {
   const override = (process.env.CONCORDIA_SESSION_LOGS_DIR ?? "").trim();
-  if (override) return existsSync(override) ? override : null;
+  if (override) return (await pathExists(override)) ? override : null;
   for (const root of roots) {
     if (!root) continue;
     const dir = join(root, "session-logs");
-    if (existsSync(dir)) return dir;
+    if (await pathExists(dir)) return dir;
   }
   return null;
 }
 
 /** ディレクトリ内の全 session-log を新しい順 (date desc, seq desc, mtime desc) で読む。 */
-export function readSessionLogs(dir: string): SessionLogMeta[] {
-  if (!existsSync(dir)) return [];
+export async function readSessionLogs(dir: string): Promise<SessionLogMeta[]> {
+  let names: string[];
+  try {
+    names = await readdir(dir);
+  } catch {
+    return [];
+  }
   const out: SessionLogMeta[] = [];
-  for (const name of readdirSync(dir)) {
+  for (const name of names) {
     if (!name.toLowerCase().endsWith(".md")) continue;
     const id = name.slice(0, -3);
     const full = join(dir, name);
-    let st: ReturnType<typeof statSync>;
+    let st: Stats;
     try {
-      st = statSync(full);
+      st = await stat(full);
     } catch {
       continue;
     }
     if (!st.isFile()) continue;
     let content = "";
     try {
-      content = readFileSync(full, "utf-8");
+      content = await readFile(full, "utf-8");
     } catch {
       continue;
     }
@@ -136,21 +152,25 @@ export function readSessionLogs(dir: string): SessionLogMeta[] {
 }
 
 /** 1 件の本文込み詳細を読む。 path traversal を弾く。 見つからなければ null。 */
-export function readSessionLogFull(dir: string, id: string): SessionLogFull | null {
+export async function readSessionLogFull(dir: string, id: string): Promise<SessionLogFull | null> {
   // id はファイル名のみ (スラッシュ・`..` 不可)。 念のため解決後の包含も検証する。
   if (!/^[\w.-]+$/.test(id) || id.includes("..")) return null;
   const full = resolve(dir, `${id}.md`);
   const base = resolve(dir);
   if (full !== join(base, `${id}.md`) && !full.startsWith(base + sep)) return null;
-  if (!existsSync(full)) return null;
-  let st: ReturnType<typeof statSync>;
+  let st: Stats;
   try {
-    st = statSync(full);
+    st = await stat(full);
   } catch {
     return null;
   }
   if (!st.isFile()) return null;
-  const content = readFileSync(full, "utf-8");
+  let content: string;
+  try {
+    content = await readFile(full, "utf-8");
+  } catch {
+    return null;
+  }
   const meta = parseSessionLog(id, content, Math.floor(st.mtimeMs / 1000), st.size);
   return { ...meta, content_md: content };
 }

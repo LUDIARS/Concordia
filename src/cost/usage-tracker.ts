@@ -33,12 +33,12 @@ export interface CostUsageTrackerDeps {
   /** 時刻プロバイダ (テスト差し替え用)。 既定 Date.now。 */
   now?: () => number;
   /** ログ列挙関数 (テスト差し替え用)。 既定 enumerateRecentLogTotals。 */
-  enumerate?: (maxAgeMs: number, now: number) => Array<{ path: string; total: number }>;
+  enumerate?: (maxAgeMs: number, now: number) => Promise<Array<{ path: string; total: number }>>;
 }
 
 export class CostUsageTracker {
   private readonly now: () => number;
-  private readonly enumerate: (maxAgeMs: number, now: number) => Array<{ path: string; total: number }>;
+  private readonly enumerate: (maxAgeMs: number, now: number) => Promise<Array<{ path: string; total: number }>>;
 
   constructor(private readonly deps: CostUsageTrackerDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -46,10 +46,10 @@ export class CostUsageTracker {
   }
 
   /** 最近のログを走査し、 増分を当日バケットへ加算する (tick から呼ぶ)。 */
-  sample(): void {
+  async sample(): Promise<void> {
     const now = this.now();
     const dateIso = localDateIso(now);
-    const files = this.enumerate(LOG_WINDOW_MS, now);
+    const files = await this.enumerate(LOG_WINDOW_MS, now);
     for (const f of files) {
       const last = this.deps.repo.getLogLastTotal(f.path);
       if (last === null) {

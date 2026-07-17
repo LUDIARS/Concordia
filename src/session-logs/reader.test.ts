@@ -54,33 +54,33 @@ describe("parseSessionLog", () => {
 });
 
 describe("readSessionLogs / readSessionLogFull / resolveSessionLogsDir", () => {
-  it("reads a dir newest-first and rejects path traversal", () => {
+  it("reads a dir newest-first and rejects path traversal", async () => {
     const dir = mkdtempSync(join(tmpdir(), "sesslog-"));
     try {
       writeFileSync(join(dir, "2026-06-01.md"), "# old\n## a\nPictor Pictor", "utf-8");
       writeFileSync(join(dir, "2026-06-02.md"), "# new\n## b\nMemoria Memoria", "utf-8");
       writeFileSync(join(dir, "notes.txt"), "ignored", "utf-8");
 
-      const list = readSessionLogs(dir);
+      const list = await readSessionLogs(dir);
       expect(list.map((e) => e.id)).toEqual(["2026-06-02", "2026-06-01"]);
 
-      const full = readSessionLogFull(dir, "2026-06-02");
+      const full = await readSessionLogFull(dir, "2026-06-02");
       expect(full?.content_md).toContain("Memoria");
 
-      expect(readSessionLogFull(dir, "../secret")).toBeNull();
-      expect(readSessionLogFull(dir, "missing")).toBeNull();
+      expect(await readSessionLogFull(dir, "../secret")).toBeNull();
+      expect(await readSessionLogFull(dir, "missing")).toBeNull();
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("resolveSessionLogsDir finds <root>/session-logs and returns null otherwise", () => {
+  it("resolveSessionLogsDir finds <root>/session-logs and returns null otherwise", async () => {
     const root = mkdtempSync(join(tmpdir(), "ws-"));
     try {
-      expect(resolveSessionLogsDir([root])).toBeNull();
+      expect(await resolveSessionLogsDir([root])).toBeNull();
       const dir = join(root, "session-logs");
       mkdirSync(dir);
-      expect(resolveSessionLogsDir([root])).toBe(dir);
+      expect(await resolveSessionLogsDir([root])).toBe(dir);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

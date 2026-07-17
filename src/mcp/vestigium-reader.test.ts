@@ -28,52 +28,52 @@ afterEach(() => {
 });
 
 describe('vestigium-reader', () => {
-  it('parseRecord accepts valid entries', () => {
+  it('parseRecord accepts valid entries', async () => {
     const r = parseRecord(JSON.stringify({
       ts: 1, level: 'info', service: 'svc', channel: 'app', msg: 'hi',
     }));
     expect(r?.msg).toBe('hi');
   });
 
-  it('parseRecord rejects malformed entries', () => {
+  it('parseRecord rejects malformed entries', async () => {
     expect(parseRecord('not-json')).toBeNull();
     expect(parseRecord('{"foo":1}')).toBeNull();
   });
 
-  it('listFiles returns YYYY-MM-DD files in reverse order', () => {
+  it('listFiles returns YYYY-MM-DD files in reverse order', async () => {
     const d = makeLogPath();
     writeJsonl(d, '2026-01-01', [{ ts: 1, level: 'info', service: 'x', msg: 'a' }]);
     writeJsonl(d, '2026-01-02', [{ ts: 2, level: 'info', service: 'x', msg: 'b' }]);
     fs.writeFileSync(path.join(d, 'random.txt'), 'ignored');
-    const files = listFiles(d);
+    const files = await listFiles(d);
     expect(files.length).toBe(2);
     expect(files[0]).toMatch(/2026-01-02\.jsonl$/);
     expect(files[1]).toMatch(/2026-01-01\.jsonl$/);
   });
 
-  it('recent returns latest first with limit', () => {
+  it('recent returns latest first with limit', async () => {
     const d = makeLogPath();
     writeJsonl(d, '2026-01-01', [
       { ts: 1, level: 'info', service: 'x', channel: 'app', msg: 'one' },
       { ts: 2, level: 'info', service: 'x', channel: 'app', msg: 'two' },
       { ts: 3, level: 'info', service: 'x', channel: 'app', msg: 'three' },
     ]);
-    const r = recent({ logPath: d, limit: 2 });
+    const r = await recent({ logPath: d, limit: 2 });
     expect(r.map((x) => x.msg)).toEqual(['three', 'two']);
   });
 
-  it('recent filters by level', () => {
+  it('recent filters by level', async () => {
     const d = makeLogPath();
     writeJsonl(d, '2026-01-01', [
       { ts: 1, level: 'info', service: 'x', channel: 'app', msg: 'a' },
       { ts: 2, level: 'error', service: 'x', channel: 'app', msg: 'b' },
       { ts: 3, level: 'warn', service: 'x', channel: 'app', msg: 'c' },
     ]);
-    const r = recent({ logPath: d, level: ['error', 'fatal'], limit: 10 });
+    const r = await recent({ logPath: d, level: ['error', 'fatal'], limit: 10 });
     expect(r.map((x) => x.msg)).toEqual(['b']);
   });
 
-  it('search filters cross-service by regex', () => {
+  it('search filters cross-service by regex', async () => {
     const a = makeLogPath();
     const b = makeLogPath();
     writeJsonl(a, '2026-01-01', [
@@ -84,7 +84,7 @@ describe('vestigium-reader', () => {
       { ts: 3, level: 'info', service: 'b', channel: 'app', msg: 'cherry' },
       { ts: 4, level: 'info', service: 'b', channel: 'app', msg: 'apple pie' },
     ]);
-    const hits = search({
+    const hits = await search({
       logPaths: [{ code: 'a', logPath: a }, { code: 'b', logPath: b }],
       pattern: 'apple',
     });
@@ -92,17 +92,17 @@ describe('vestigium-reader', () => {
     expect(hits.every((h) => /apple/i.test(h.msg))).toBe(true);
   });
 
-  it('lastSeenAt returns the latest ts', () => {
+  it('lastSeenAt returns the latest ts', async () => {
     const d = makeLogPath();
     writeJsonl(d, '2026-01-01', [
       { ts: 1000, level: 'info', service: 'x', channel: 'app', msg: 'old' },
       { ts: 2000, level: 'info', service: 'x', channel: 'app', msg: 'new' },
     ]);
-    expect(lastSeenAt(d)).toBe(2000);
+    expect(await lastSeenAt(d)).toBe(2000);
   });
 
-  it('lastSeenAt returns null when no files', () => {
+  it('lastSeenAt returns null when no files', async () => {
     const d = makeLogPath();
-    expect(lastSeenAt(d)).toBeNull();
+    expect(await lastSeenAt(d)).toBeNull();
   });
 });

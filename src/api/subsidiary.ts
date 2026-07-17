@@ -98,9 +98,9 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
   const app = new Hono();
 
   /** token を伏せて返す (set 済みかだけ)。 当日のコスト消費 / 予算 / block も載せる。 */
-  function serialize(row: SubsidiaryRow) {
+  async function serialize(row: SubsidiaryRow) {
     const { bot_token_enc, app_token_enc, ...rest } = row;
-    const usage = deps.budget?.status(row);
+    const usage = await deps.budget?.status(row);
     return {
       ...rest,
       enabled: row.enabled === 1,
@@ -119,23 +119,23 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     return v ? deps.secretBox.encrypt(v) : null;
   }
 
-  app.get("/", (c) => {
+  app.get("/", async (c) => {
     // Monitor の子会社カードが「直近 24h でガードが何件 allow/deny したか」を出すための集計。
     const since24h = Date.now() - 24 * 60 * 60 * 1000;
-    const rows = deps.repo.list().map((r) => ({
-      ...serialize(r),
+    const rows = await Promise.all(deps.repo.list().map(async (r) => ({
+      ...(await serialize(r)),
       delegations: deps.repo.listDelegations(r.id).map(serializeOwnedDelegation),
       lock_count: deps.repo.listLocks(r.id).length,
       requests_24h: deps.repo.countRequestsSince(r.id, since24h),
-    }));
+    })));
     return c.json({ subsidiaries: rows });
   });
 
-  app.get("/:id", (c) => {
+  app.get("/:id", async (c) => {
     const row = deps.repo.find(c.req.param("id"));
     if (!row) return c.json({ error: "not_found" }, 404);
     return c.json({
-      subsidiary: serialize(row),
+      subsidiary: await serialize(row),
       delegations: deps.repo.listDelegations(row.id).map(serializeOwnedDelegation),
       locks: deps.repo.listLocks(row.id),
       requests: deps.repo.recentRequests(row.id, 50),
@@ -164,7 +164,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       app_token_enc: encField(app_token) ?? null,
     });
     return c.json(
-      { subsidiary: serialize(row), name_normalized: resolved.normalized, name_source: resolved.source },
+      { subsidiary: await serialize(row), name_normalized: resolved.normalized, name_source: resolved.source },
       201,
     );
   });
@@ -181,7 +181,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       bot_token_enc: encField(bot_token),
       app_token_enc: encField(app_token),
     });
-    return c.json({ subsidiary: row ? serialize(row) : null });
+    return c.json({ subsidiary: row ? await serialize(row) : null });
   });
 
   app.delete("/:id", async (c) => {

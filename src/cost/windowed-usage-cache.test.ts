@@ -26,136 +26,136 @@ function usageLine(id: string, tokens: number): string {
 }
 
 describe("makeCachedSessionWindowReader", () => {
-  it("ファイル不変 (mtime+size 一致) なら再読みせず memo を返す", () => {
+  it("ファイル不変 (mtime+size 一致) なら再読みせず memo を返す", async () => {
     let reads = 0;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => "/log/a.jsonl",
-      statFile: () => ({ mtimeMs: 111, size: 10 }),
-      readLogLines: () => {
+      resolveLogPath: async () => "/log/a.jsonl",
+      statFile: async () => ({ mtimeMs: 111, size: 10 }),
+      readLogLines: async () => {
         reads++;
         return [usageLine("m1", 42)];
       },
     });
     const s = session("s1");
-    expect(reader(s, windows())).toEqual({ d: 42 });
-    expect(reader(s, windows())).toEqual({ d: 42 });
-    expect(reader(s, windows())).toEqual({ d: 42 });
+    expect(await reader(s, windows())).toEqual({ d: 42 });
+    expect(await reader(s, windows())).toEqual({ d: 42 });
+    expect(await reader(s, windows())).toEqual({ d: 42 });
     expect(reads).toBe(1);
   });
 
-  it("end 境界が前進しても start 境界が同じなら memo が効く (append-only 前提)", () => {
+  it("end 境界が前進しても start 境界が同じなら memo が効く (append-only 前提)", async () => {
     let reads = 0;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => "/log/a.jsonl",
-      statFile: () => ({ mtimeMs: 111, size: 10 }),
-      readLogLines: () => {
+      resolveLogPath: async () => "/log/a.jsonl",
+      statFile: async () => ({ mtimeMs: 111, size: 10 }),
+      readLogLines: async () => {
         reads++;
         return [usageLine("m1", 5)];
       },
     });
     const s = session("s1");
-    reader(s, windows(NOW_SEC - 3600, NOW_SEC));
-    reader(s, windows(NOW_SEC - 3600, NOW_SEC + 60)); // now が進んだだけ
+    await reader(s, windows(NOW_SEC - 3600, NOW_SEC));
+    await reader(s, windows(NOW_SEC - 3600, NOW_SEC + 60)); // now が進んだだけ
     expect(reads).toBe(1);
   });
 
-  it("ファイル変化 (mtime/size) で再読みする", () => {
+  it("ファイル変化 (mtime/size) で再読みする", async () => {
     let reads = 0;
     let st = { mtimeMs: 111, size: 10 };
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => "/log/a.jsonl",
-      statFile: () => st,
-      readLogLines: () => {
+      resolveLogPath: async () => "/log/a.jsonl",
+      statFile: async () => st,
+      readLogLines: async () => {
         reads++;
         return [usageLine("m1", 5), ...(reads > 1 ? [usageLine("m2", 7)] : [])];
       },
     });
     const s = session("s1");
-    expect(reader(s, windows())).toEqual({ d: 5 });
+    expect(await reader(s, windows())).toEqual({ d: 5 });
     st = { mtimeMs: 222, size: 20 };
-    expect(reader(s, windows())).toEqual({ d: 12 });
+    expect(await reader(s, windows())).toEqual({ d: 12 });
     expect(reads).toBe(2);
   });
 
-  it("start 境界の変化 (日付ロール) で再計算する", () => {
+  it("start 境界の変化 (日付ロール) で再計算する", async () => {
     let reads = 0;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => "/log/a.jsonl",
-      statFile: () => ({ mtimeMs: 111, size: 10 }),
-      readLogLines: () => {
+      resolveLogPath: async () => "/log/a.jsonl",
+      statFile: async () => ({ mtimeMs: 111, size: 10 }),
+      readLogLines: async () => {
         reads++;
         return [usageLine("m1", 5)];
       },
     });
     const s = session("s1");
-    reader(s, windows(NOW_SEC - 3600, NOW_SEC));
-    reader(s, windows(NOW_SEC - 60, NOW_SEC)); // 窓頭が動いた
+    await reader(s, windows(NOW_SEC - 3600, NOW_SEC));
+    await reader(s, windows(NOW_SEC - 60, NOW_SEC)); // 窓頭が動いた
     expect(reads).toBe(2);
   });
 
-  it("パス解決は session id で cache し、 ファイル消失時のみ再解決する", () => {
+  it("パス解決は session id で cache し、 ファイル消失時のみ再解決する", async () => {
     let resolves = 0;
     let alive = true;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => {
+      resolveLogPath: async () => {
         resolves++;
         return `/log/v${resolves}.jsonl`;
       },
-      statFile: () => (alive ? { mtimeMs: 111, size: 10 } : null),
-      readLogLines: () => [usageLine("m1", 5)],
+      statFile: async () => (alive ? { mtimeMs: 111, size: 10 } : null),
+      readLogLines: async () => [usageLine("m1", 5)],
     });
     const s = session("s1");
-    reader(s, windows());
-    reader(s, windows());
+    await reader(s, windows());
+    await reader(s, windows());
     expect(resolves).toBe(1);
     // 解決先が消えた → 再解決が走る (stat は以後 null のままなので 0 を返す)。
     alive = false;
-    expect(reader(s, windows())).toEqual({ d: 0 });
+    expect(await reader(s, windows())).toEqual({ d: 0 });
     expect(resolves).toBe(2);
   });
 
-  it("未解決 (ログ無し) は TTL 内は再解決しない", () => {
+  it("未解決 (ログ無し) は TTL 内は再解決しない", async () => {
     let resolves = 0;
     let nowMs = 1_000_000;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => {
+      resolveLogPath: async () => {
         resolves++;
         return null;
       },
-      statFile: () => null,
-      readLogLines: () => [],
+      statFile: async () => null,
+      readLogLines: async () => [],
       now: () => nowMs,
     });
     const s = session("s1");
-    expect(reader(s, windows())).toEqual({ d: 0 });
-    expect(reader(s, windows())).toEqual({ d: 0 });
+    expect(await reader(s, windows())).toEqual({ d: 0 });
+    expect(await reader(s, windows())).toEqual({ d: 0 });
     expect(resolves).toBe(1);
     nowMs += 61_000; // NEGATIVE_TTL_MS (60s) 経過
-    reader(s, windows());
+    await reader(s, windows());
     expect(resolves).toBe(2);
   });
 
-  it("未知 provider は I/O せず 0 を返す", () => {
+  it("未知 provider は I/O せず 0 を返す", async () => {
     let resolves = 0;
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => {
+      resolveLogPath: async () => {
         resolves++;
         return "/log/a.jsonl";
       },
     });
-    expect(reader(session("s1", "gemini-cli"), windows())).toEqual({ d: 0 });
+    expect(await reader(session("s1", "gemini-cli"), windows())).toEqual({ d: 0 });
     expect(resolves).toBe(0);
   });
 
-  it("memo はコピーを返す (呼び出し側の破壊が cache を汚さない)", () => {
+  it("memo はコピーを返す (呼び出し側の破壊が cache を汚さない)", async () => {
     const reader = makeCachedSessionWindowReader({
-      resolveLogPath: () => "/log/a.jsonl",
-      statFile: () => ({ mtimeMs: 111, size: 10 }),
-      readLogLines: () => [usageLine("m1", 5)],
+      resolveLogPath: async () => "/log/a.jsonl",
+      statFile: async () => ({ mtimeMs: 111, size: 10 }),
+      readLogLines: async () => [usageLine("m1", 5)],
     });
     const s = session("s1");
-    const first = reader(s, windows());
+    const first = await reader(s, windows());
     first.d = 999;
-    expect(reader(s, windows())).toEqual({ d: 5 });
+    expect(await reader(s, windows())).toEqual({ d: 5 });
   });
 });

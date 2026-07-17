@@ -17,13 +17,13 @@ export const claudeCodeProvider: AgentProvider = {
     return env.CLAUDE_SESSION_ID ?? env.CONCORDIA_SESSION_ID ?? null;
   },
 
-  transcriptPath(sessionId, cwd) {
+  async transcriptPath(sessionId, cwd) {
     if (!sessionId || !cwd) return null;
     const encoded = encodeCwdForClaude(cwd);
     return join(homedir(), ".claude", "projects", encoded, `${sessionId}.jsonl`);
   },
 
-  parseTranscript(content) {
+  async parseTranscript(content) {
     const lines = content.split(/\r?\n/).filter((l) => l.trim());
     const out: RecoveryInfo = {
       jsonl_lines: lines.length,

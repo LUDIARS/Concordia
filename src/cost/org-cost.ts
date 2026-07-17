@@ -90,13 +90,13 @@ function localWeekStartSec(nowMs: number): number {
  * 本社 / 子会社別の本日・週間コストを JSONL 時間帯集計で出す。
  * reader はテスト差し替え用 (既定は実 JSONL を読む readSessionWindowedTotals)。
  */
-export function collectOrgCostWindows(
+export async function collectOrgCostWindows(
   sessionsRepo: SessionsRepo,
   subsidiaries: OrgCostSubsidiary[],
   nowMs: number = Date.now(),
   reader: SessionWindowReader = readSessionWindowedTotals,
   options: OrgCostOptions = {},
-): OrgCostWindows {
+): Promise<OrgCostWindows> {
   const nowSec = Math.floor(nowMs / 1000);
   const todayStartSec = localMidnightSec(nowMs);
   const weekStartSec = localWeekStartSec(nowMs);
@@ -117,7 +117,7 @@ export function collectOrgCostWindows(
 
   for (const s of sessions) {
     const readStarted = Date.now();
-    const t = reader(s, windows);
+    const t = await reader(s, windows);
     const readMs = Date.now() - readStarted;
     profile.readMs += readMs;
     const dd = t.d ?? 0;

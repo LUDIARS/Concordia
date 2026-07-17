@@ -33,8 +33,18 @@
  */
 
 import { join } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
+
+/** path が存在するか (async existsSync 代替)。 */
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ─── プラグイン契約: Concordia 内部に依存しない自己完結エンジンにするための型 ─────
 // (ユーザカスタマイズ可能な別フォルダプラグインとして切り出すため、 eventBus /
@@ -884,7 +894,7 @@ export class ReactionWorkflowRunner {
     return typeof e === "function" ? e() : e;
   }
 
-  private memoriaPath(): string {
+  private async memoriaPath(): Promise<string> {
     if (this.deps.memoriaPath) return this.deps.memoriaPath;
     const roots = this.deps.workspaceRoots?.length
       ? this.deps.workspaceRoots
@@ -893,7 +903,7 @@ export class ReactionWorkflowRunner {
     for (const root of roots) {
       if (!root) continue;
       const candidate = join(root, "Memoria");
-      if (existsSync(candidate)) return candidate;
+      if (await pathExists(candidate)) return candidate;
     }
     return join(roots[0] || this.deps.workspaceRoot, "Memoria");
   }
@@ -905,11 +915,10 @@ export class ReactionWorkflowRunner {
   }
 
   /** カスタムワークフロー JSON を読み込む (エラー時は空配列)。 */
-  private loadCustomWorkflows(): CustomWorkflowEntry[] {
+  private async loadCustomWorkflows(): Promise<CustomWorkflowEntry[]> {
     const p = this.customWorkflowsPath();
-    if (!existsSync(p)) return [];
     try {
-      const raw = readFileSync(p, "utf-8");
+      const raw = await readFile(p, "utf-8");
       const parsed: unknown = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
       return parsed.filter(
@@ -919,13 +928,13 @@ export class ReactionWorkflowRunner {
           typeof (e as CustomWorkflowEntry).prompt === "string",
       );
     } catch {
-      return [];
+      return []; // 不在 (旧 existsSync ガード) / parse 失敗はどちらも空配列。
     }
   }
 
   /** カスタムワークフローで絵文字を照合する。 ヒットすれば headless 実行計画を返す。 */
-  private matchCustomWorkflow(emoji: string): WorkflowPlan | null {
-    const entries = this.loadCustomWorkflows();
+  private async matchCustomWorkflow(emoji: string): Promise<WorkflowPlan | null> {
+    const entries = await this.loadCustomWorkflows();
     const entry = entries.find((e) => e.emoji.trim() === emoji.trim());
     if (!entry) return null;
     return {
@@ -953,7 +962,7 @@ export class ReactionWorkflowRunner {
 
     // 組み込み写像にない絵文字をカスタムワークフロー JSON で照合する。
     if (!action) {
-      const customPlan = this.matchCustomWorkflow(input.emoji);
+      const customPlan = await this.matchCustomWorkflow(input.emoji);
       if (!customPlan) return; // どちらにも該当しない絵文字
       const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;
       const now = this.nowSec();
@@ -997,7 +1006,7 @@ export class ReactionWorkflowRunner {
       authorLabel: input.authorLabel,
       repoPath: input.repoPath,
       sessionActive: input.sessionActive,
-      memoriaPath: this.memoriaPath(),
+      memoriaPath: await this.memoriaPath(),
       reactorId: input.userId,
       workspaceRoot: this.deps.workspaceRoot,
     };

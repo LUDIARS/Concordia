@@ -129,7 +129,7 @@ export interface CostRuntime {
   start(): void;
   stop(): void;
   isRunning(): boolean;
-  sampleOnce(): void;
+  sampleOnce(): Promise<void>;
   sampleLimitsOnce(): Promise<void>;
 }
 
@@ -149,19 +149,19 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
   let limitSampleTimer: ReturnType<typeof setInterval> | null = null;
   let startupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const sampleOnce = (): void => {
+  const sampleOnce = async (): Promise<void> => {
     try {
-      tracker.sample();
+      await tracker.sample();
     } catch (e) {
       deps.log?.warn(`cost tracker sample failed: ${(e as Error).message}`);
     }
   };
 
-  const sampleUsage = (): void => {
+  const sampleUsage = async (): Promise<void> => {
     try {
       const active = deps.sessionsRepo.listSessions({ status: "active" });
       const nowSec = Math.floor(Date.now() / 1000);
-      usageSamplesRepo.insertMany(collectUsageSamples(active, nowSec, cachedChannelCostReader));
+      usageSamplesRepo.insertMany(await collectUsageSamples(active, nowSec, cachedChannelCostReader));
       usageSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
     } catch (e) {
       deps.log?.warn(`usage sampler failed: ${(e as Error).message}`);
@@ -190,13 +190,13 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
       if (costSampleTimer || usageSampleTimer || limitSampleTimer) return;
       startupSampleTimer = setTimeout(() => {
         startupSampleTimer = null;
-        sampleOnce();
-        sampleUsage();
+        void sampleOnce();
+        void sampleUsage();
         void sampleLimitsOnce();
       }, STARTUP_SAMPLE_DELAY_MS);
       startupSampleTimer.unref?.();
-      costSampleTimer = setInterval(sampleOnce, COST_SAMPLE_INTERVAL_MS);
-      usageSampleTimer = setInterval(sampleUsage, USAGE_SAMPLE_INTERVAL_MS);
+      costSampleTimer = setInterval(() => { void sampleOnce(); }, COST_SAMPLE_INTERVAL_MS);
+      usageSampleTimer = setInterval(() => { void sampleUsage(); }, USAGE_SAMPLE_INTERVAL_MS);
       limitSampleTimer = setInterval(() => { void sampleLimitsOnce(); }, USAGE_SAMPLE_INTERVAL_MS);
       costSampleTimer.unref?.();
       usageSampleTimer.unref?.();

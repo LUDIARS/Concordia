@@ -1,5 +1,4 @@
-import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { access, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
@@ -65,7 +64,7 @@ export class TaskMdStore {
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const repoPath = join(root, entry.name);
-        if (!existsSync(join(repoPath, ".git"))) continue;
+        if (!(await access(join(repoPath, ".git")).then(() => true, () => false))) continue;
         const tasksDir = join(repoPath, "spec", "tasks");
         let files: string[];
         try { files = (await readdir(tasksDir)).filter((name) => name.endsWith(".md")); } catch { continue; }

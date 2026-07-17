@@ -38,14 +38,14 @@ export interface SubsidiaryBudgetStatus {
 export interface SubsidiaryBudgetTrackerDeps {
   sessionsRepo: SessionsRepo;
   /** セッション 1 本の累積トークンを読む (テスト差し替え用)。 既定 readSessionUsage。 */
-  readUsage?: (s: SessionRow) => { total: number } | null;
+  readUsage?: (s: SessionRow) => Promise<{ total: number } | null>;
   /** 時刻プロバイダ (テスト差し替え用)。 既定 Date.now。 */
   now?: () => number;
 }
 
 export class SubsidiaryBudgetTracker {
   private readonly now: () => number;
-  private readonly readUsage: (s: SessionRow) => { total: number } | null;
+  private readonly readUsage: (s: SessionRow) => Promise<{ total: number } | null>;
 
   constructor(private readonly deps: SubsidiaryBudgetTrackerDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -53,22 +53,22 @@ export class SubsidiaryBudgetTracker {
   }
 
   /** 当日 (local) にこの子会社が消費した累積トークン。 */
-  todayTokens(subsidiaryId: string, nowMs = this.now()): number {
+  async todayTokens(subsidiaryId: string, nowMs = this.now()): Promise<number> {
     const [start, end] = localDayRange(nowMs);
     const rows = this.deps.sessionsRepo.listSessionsInRange(start, end);
     let total = 0;
     for (const s of rows) {
       if (readSubsidiaryId(s.metadata) !== subsidiaryId) continue;
-      const usage = this.readUsage(s);
+      const usage = await this.readUsage(s);
       if (usage && usage.total > 0) total += usage.total;
     }
     return total;
   }
 
   /** 当日の消費 / 予算 / block 判定を返す。 */
-  status(sub: BudgetSubsidiary, nowMs = this.now()): SubsidiaryBudgetStatus {
+  async status(sub: BudgetSubsidiary, nowMs = this.now()): Promise<SubsidiaryBudgetStatus> {
     const budget = Math.max(0, Math.floor(sub.daily_token_budget || 0));
-    const todayTokens = this.todayTokens(sub.id, nowMs);
+    const todayTokens = await this.todayTokens(sub.id, nowMs);
     return {
       todayTokens,
       budget,
@@ -78,8 +78,8 @@ export class SubsidiaryBudgetTracker {
   }
 
   /** 予算超過でブロック中か (enforcement 用ショートカット)。 */
-  isOverBudget(sub: BudgetSubsidiary, nowMs = this.now()): boolean {
-    return this.status(sub, nowMs).blocked;
+  async isOverBudget(sub: BudgetSubsidiary, nowMs = this.now()): Promise<boolean> {
+    return (await this.status(sub, nowMs)).blocked;
   }
 }
 

@@ -41,7 +41,7 @@ export interface CostApiDeps {
 export function costRouter(deps: CostApiDeps): Hono {
   const app = new Hono();
 
-  app.get("/overview", (c) => {
+  app.get("/overview", async (c) => {
     const started = Date.now();
     const marks: Record<string, number> = {};
     const mark = (name: string, since: number): number => {
@@ -70,7 +70,7 @@ export function costRouter(deps: CostApiDeps): Hono {
     let orgProfile: unknown = null;
     // memo 化 reader: 変化のないログ (終了済みセッション等) の再読みとパス再解決を
     // 省き、 同期 I/O でイベントループを長時間塞ぐのを防ぐ (実測 26s → ms オーダー)。
-    const windows = collectOrgCostWindows(deps.sessions, subs, Date.now(), cachedSessionWindowReader, {
+    const windows = await collectOrgCostWindows(deps.sessions, subs, Date.now(), cachedSessionWindowReader, {
       onProfile: (profile) => {
         orgProfile = {
           sessions: profile.sessions,
@@ -84,7 +84,7 @@ export function costRouter(deps: CostApiDeps): Hono {
     t = mark("listActiveSessionsMs", t);
     // context/cost も memo + tail/増分読み (旧: findCodexLog 全走査 ×2 + 全行読みで
     // active 12 セッション ≈ 16 秒のイベントループ停止)。
-    const channels = collectChannelCostRows(active, deps.resolveSessionChannelId, cachedChannelCostReader);
+    const channels = await collectChannelCostRows(active, deps.resolveSessionChannelId, cachedChannelCostReader);
     mark("collectChannelCostRowsMs", t);
     const body = { windows, channels };
     logTiming("/overview", started, {

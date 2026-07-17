@@ -38,7 +38,7 @@ function fakeRepo(active: SessionRow[]): SessionsRepo {
 const jsonl = (...objs: unknown[]) => objs.map((o) => JSON.stringify(o)).join("\n");
 
 describe("isAwaitingHumanInput", () => {
-  it("末尾の assistant が ask マーカー → awaiting=true", () => {
+  it("末尾の assistant が ask マーカー → awaiting=true", async () => {
     const tail = jsonl(
       { role: "user", content: "やって" },
       { role: "assistant", content: "どちらにしますか？\n```ask\n{\"question\":\"A or B\"}\n```" },
@@ -46,7 +46,7 @@ describe("isAwaitingHumanInput", () => {
     expect(isAwaitingHumanInput(tail)).toBe(true);
   });
 
-  it("ask の後に user 回答が来ている → awaiting=false (回答済み)", () => {
+  it("ask の後に user 回答が来ている → awaiting=false (回答済み)", async () => {
     const tail = jsonl(
       { role: "assistant", content: "```ask\n{\"question\":\"A or B\"}\n```" },
       { role: "user", content: "A で" },
@@ -54,7 +54,7 @@ describe("isAwaitingHumanInput", () => {
     expect(isAwaitingHumanInput(tail)).toBe(false);
   });
 
-  it("普通の assistant 出力 (ask 無し) → awaiting=false", () => {
+  it("普通の assistant 出力 (ask 無し) → awaiting=false", async () => {
     const tail = jsonl(
       { role: "user", content: "やって" },
       { role: "assistant", content: "実装しました。次に進みます。" },
@@ -62,7 +62,7 @@ describe("isAwaitingHumanInput", () => {
     expect(isAwaitingHumanInput(tail)).toBe(false);
   });
 
-  it("content 配列形式の ask マーカーも拾う", () => {
+  it("content 配列形式の ask マーカーも拾う", async () => {
     const tail = jsonl({
       role: "assistant",
       content: [{ type: "text", text: "確認です\n```ask\n{}\n```" }],
@@ -70,11 +70,11 @@ describe("isAwaitingHumanInput", () => {
     expect(isAwaitingHumanInput(tail)).toBe(true);
   });
 
-  it("JSONL でない生テキストでも末尾に ask フェンスがあれば true", () => {
+  it("JSONL でない生テキストでも末尾に ask フェンスがあれば true", async () => {
     expect(isAwaitingHumanInput("質問です\n```ask\n{}\n```")).toBe(true);
   });
 
-  it("空 / null は false", () => {
+  it("空 / null は false", async () => {
     expect(isAwaitingHumanInput(null)).toBe(false);
     expect(isAwaitingHumanInput("")).toBe(false);
   });
@@ -89,25 +89,25 @@ describe("shouldNudge", () => {
     cooldownMs: 3_600_000,
     nowMs: 10_000_000,
   };
-  it("idle 閾値到達 + 非 awaiting + cooldown 無し → true", () => {
+  it("idle 閾値到達 + 非 awaiting + cooldown 無し → true", async () => {
     expect(shouldNudge(base)).toBe(true);
   });
-  it("idle 閾値未満 → false", () => {
+  it("idle 閾値未満 → false", async () => {
     expect(shouldNudge({ ...base, idleMs: 3_599_000 })).toBe(false);
   });
-  it("awaiting → false", () => {
+  it("awaiting → false", async () => {
     expect(shouldNudge({ ...base, awaiting: true })).toBe(false);
   });
-  it("cooldown 内 → false", () => {
+  it("cooldown 内 → false", async () => {
     expect(shouldNudge({ ...base, lastNudgeMs: base.nowMs - 100 })).toBe(false);
   });
-  it("cooldown 経過 → true", () => {
+  it("cooldown 経過 → true", async () => {
     expect(shouldNudge({ ...base, lastNudgeMs: base.nowMs - 3_600_001 })).toBe(true);
   });
 });
 
 describe("buildNudgeText", () => {
-  it("再実装の後押し / ask 停止 / session-end の指示を含む", () => {
+  it("再実装の後押し / ask 停止 / session-end の指示を含む", async () => {
     const t = buildNudgeText("claude-code");
     expect(t).toContain("再実装");
     expect(t).toContain("worktree");
@@ -135,16 +135,16 @@ describe("startStalledSessionNudge.runOnce", () => {
     return received.filter((e) => e.type === "session.inject");
   }
 
-  it("1 時間以上 idle で非 awaiting の session を nudge する", () => {
+  it("1 時間以上 idle で非 awaiting の session を nudge する", async () => {
     const s = fakeSession({ id: "idle-1" });
     const h = startStalledSessionNudge({
       repo: fakeRepo([s]),
       now: () => NOW,
-      transcriptMtimeMs: () => NOW - 3_700_000, // ~61 分前
-      readTranscriptTail: () => jsonl({ role: "assistant", content: "完了。" }),
+      transcriptMtimeMs: async () => NOW - 3_700_000, // ~61 分前
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
       intervalMs: 1_000_000,
     });
-    const nudged = h.runOnce();
+    const nudged = await h.runOnce();
     h.stop();
     expect(nudged).toEqual(["idle-1"]);
     const ev = injects()[0];
@@ -152,88 +152,88 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
   });
 
-  it("goal metadata に関係なく同じ協働復帰 nudge を流す", () => {
+  it("goal metadata に関係なく同じ協働復帰 nudge を流す", async () => {
     const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
     const h = startStalledSessionNudge({
       repo: fakeRepo([s]),
       now: () => NOW,
-      transcriptMtimeMs: () => NOW - 3_700_000,
-      readTranscriptTail: () => jsonl({ role: "assistant", content: "完了。" }),
+      transcriptMtimeMs: async () => NOW - 3_700_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
       intervalMs: 1_000_000,
     });
-    expect(h.runOnce()).toEqual(["watch-1"]);
+    expect(await h.runOnce()).toEqual(["watch-1"]);
     h.stop();
     const ev = injects()[0];
     expect(ev.text).toContain("再実装");
     expect(ev.text).toContain("worktree");
   });
 
-  it("idle が閾値未満なら nudge しない", () => {
+  it("idle が閾値未満なら nudge しない", async () => {
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "fresh" })]),
       now: () => NOW,
-      transcriptMtimeMs: () => NOW - 1_000_000, // ~16 分前
-      readTranscriptTail: () => "",
+      transcriptMtimeMs: async () => NOW - 1_000_000, // ~16 分前
+      readTranscriptTail: async () => "",
       intervalMs: 1_000_000,
     });
-    expect(h.runOnce()).toEqual([]);
+    expect(await h.runOnce()).toEqual([]);
     h.stop();
     expect(injects().length).toBe(0);
   });
 
-  it("ask で人間判断待ちの session は除外する", () => {
+  it("ask で人間判断待ちの session は除外する", async () => {
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "waiting" })]),
       now: () => NOW,
-      transcriptMtimeMs: () => NOW - 7_200_000, // 2h idle
-      readTranscriptTail: () => jsonl({ role: "assistant", content: "```ask\n{}\n```" }),
+      transcriptMtimeMs: async () => NOW - 7_200_000, // 2h idle
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "```ask\n{}\n```" }),
       intervalMs: 1_000_000,
     });
-    expect(h.runOnce()).toEqual([]);
+    expect(await h.runOnce()).toEqual([]);
     h.stop();
     expect(injects().length).toBe(0);
   });
 
-  it("transcript 不明 (mtime null) は計測不能としてスキップ", () => {
+  it("transcript 不明 (mtime null) は計測不能としてスキップ", async () => {
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "no-transcript" })]),
       now: () => NOW,
-      transcriptMtimeMs: () => null,
-      readTranscriptTail: () => null,
+      transcriptMtimeMs: async () => null,
+      readTranscriptTail: async () => null,
       intervalMs: 1_000_000,
     });
-    expect(h.runOnce()).toEqual([]);
+    expect(await h.runOnce()).toEqual([]);
     h.stop();
   });
 
-  it("cooldown 内は再 nudge しない (2 回目は空)", () => {
+  it("cooldown 内は再 nudge しない (2 回目は空)", async () => {
     let clock = NOW;
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "idle-1" })]),
       now: () => clock,
-      transcriptMtimeMs: () => 0, // 常に大きく idle
-      readTranscriptTail: () => jsonl({ role: "assistant", content: "完了。" }),
+      transcriptMtimeMs: async () => 0, // 常に大きく idle
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
       idleSec: 3600,
       cooldownSec: 3600,
       intervalMs: 1_000_000,
     });
-    expect(h.runOnce()).toEqual(["idle-1"]);
+    expect(await h.runOnce()).toEqual(["idle-1"]);
     clock += 60_000; // 1 分後
-    expect(h.runOnce()).toEqual([]); // cooldown 内
+    expect(await h.runOnce()).toEqual([]); // cooldown 内
     clock += 3_600_001; // cooldown 経過
-    expect(h.runOnce()).toEqual(["idle-1"]);
+    expect(await h.runOnce()).toEqual(["idle-1"]);
     h.stop();
   });
 
-  it("enabled=false なら何もしない", () => {
+  it("enabled=false なら何もしない", async () => {
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "idle-1" })]),
       enabled: false,
       now: () => NOW,
-      transcriptMtimeMs: () => 0,
-      readTranscriptTail: () => "",
+      transcriptMtimeMs: async () => 0,
+      readTranscriptTail: async () => "",
     });
-    expect(h.runOnce()).toEqual([]);
+    expect(await h.runOnce()).toEqual([]);
     h.stop();
     expect(injects().length).toBe(0);
   });

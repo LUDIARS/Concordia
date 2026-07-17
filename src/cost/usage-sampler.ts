@@ -13,15 +13,15 @@ import { estimateContextTokens } from "./context-estimate.js";
 import { readSessionUsage } from "./log-usage.js";
 import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 
-/** JSONL 読取の差し替え点 (テスト用)。 既定は実 reader。 */
+/** JSONL 読取の差し替え点 (テスト用)。 既定は実 reader。 完全非同期契約。 */
 export interface UsageSampleReader {
-  context: (s: SessionRow) => number | null;
-  cost: (s: SessionRow) => number;
+  context: (s: SessionRow) => Promise<number | null>;
+  cost: (s: SessionRow) => Promise<number>;
 }
 
 const defaultReader: UsageSampleReader = {
-  context: (s) => estimateContextTokens(s)?.tokens ?? null,
-  cost: (s) => readSessionUsage(s)?.total ?? 0,
+  context: async (s) => (await estimateContextTokens(s))?.tokens ?? null,
+  cost: async (s) => (await readSessionUsage(s))?.total ?? 0,
 };
 
 /**
@@ -29,15 +29,15 @@ const defaultReader: UsageSampleReader = {
  * context も cost も 0/null のセッション (まだ何も使っていない) は記録しない
  * (グラフに無意味な 0 点を撒かない)。
  */
-export function collectUsageSamples(
+export async function collectUsageSamples(
   sessions: SessionRow[],
   nowSec: number,
   reader: UsageSampleReader = defaultReader,
-): CostUsageSampleInput[] {
+): Promise<CostUsageSampleInput[]> {
   const out: CostUsageSampleInput[] = [];
   for (const s of sessions) {
-    const context = reader.context(s);
-    const cost = reader.cost(s);
+    const context = await reader.context(s);
+    const cost = await reader.cost(s);
     if ((context === null || context <= 0) && cost <= 0) continue;
     out.push({
       ts: nowSec,

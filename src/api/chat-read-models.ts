@@ -137,8 +137,8 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       const ageSec = lastEventTsSec === null ? null : Math.floor(Date.now() / 1000) - lastEventTsSec;
       const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
       const sufficiency = await probeProjectSufficiency(session.target_project ?? session.repo_path).catch(() => null);
-      const ctx = estimateContextTokens(session);
-      const cost = estimateSessionCostUsd(session);
+      const ctx = await estimateContextTokens(session);
+      const cost = await estimateSessionCostUsd(session);
       const requester = lastHumanRequester(deps.sessionsRepo.recentEvents(sessionId, 100));
       return {
         sessionId,
@@ -191,19 +191,19 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       if (!title) return null;
       return { sessionId, provider: state.provider, status: state.status, title, source };
     },
-    getMonitorSnapshot(options) {
+    async getMonitorSnapshot(options) {
       const active = deps.sessionsRepo
         .listSessions({ status: "active" })
         .filter((session) => sessionOwnedBy(session.metadata, options.subsidiaryId ?? null));
       const orgCostLines = options.costSubsidiaries
-        ? renderOrgCostLines(collectOrgCostWindows(
+        ? renderOrgCostLines(await collectOrgCostWindows(
           deps.sessionsRepo,
           options.costSubsidiaries as OrgCostSubsidiary[],
           Date.now(),
           cachedSessionWindowReader,
         ))
         : [];
-      const channelRows = collectChannelCostRows(active, options.channelForSession, cachedChannelCostReader);
+      const channelRows = await collectChannelCostRows(active, options.channelForSession, cachedChannelCostReader);
       return {
         generatedAt: Math.floor(Date.now() / 1000),
         activeCount: active.length,

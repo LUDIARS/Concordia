@@ -661,6 +661,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       sessionForumId: layout.sessionForumId,
       botUserId: client.user?.id ?? "",
       concordiaUrl: deps.concordiaUrl,
+      // このスレッドを持つ Bot インスタンス自身の子会社 id (本社なら null)。
+      // /v1/delegation/invoke へ転送し、 spawn したセッションを正しい会社スコープに
+      // 帰属させる (ownsSession の subsidiary-only 可視判定を壊さないため)。
+      subsidiaryId,
       templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
       pickProvider: async () => {
         const [codexRate, claudeUsage] = await Promise.all([

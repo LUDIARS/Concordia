@@ -455,6 +455,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   });
 
   async function handleSessionStarted(sessionId: string): Promise<void> {
+    // 同じ session_id の再開 (再接続/resume) であれば、 session.ended で立った
+    // archive 予約をここで取り消す。 取り消さないと、 再開後もアクティブな
+    // チャンネルが次の sweep で誤って archive されてしまう (継続レビュー指摘)。
+    archiveLifecycle.cancel(sessionId);
     await provisioner.ensure(sessionId);
     sessionsCanvas.schedule();
   }
@@ -515,10 +519,15 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         hubChannelId: channelId,
         botUserId,
         sessionForChannel: (candidate) => channels.findByChannelId(candidate)?.session_id ?? null,
+        // 終了済み session のチャンネル (archive 待ちで残っている間) への投稿を
+        // inject 扱いにしない (継続レビュー指摘: session-channel-routing.ts:28)。
+        isSessionActive: (sessionId) => deps.readModel.isSessionActive(sessionId),
       });
       if (route.kind === "ignore") {
         if (route.reason === "thread_reply") {
           log.info(`Slack thread reply ignored; session routing requires a top-level channel message channel=${event.channel ?? "?"}`);
+        } else if (route.reason === "session_inactive") {
+          log.info(`Slack message ignored; mapped session is no longer active channel=${event.channel ?? "?"}`);
         }
         return;
       }

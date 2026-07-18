@@ -113,6 +113,13 @@ const InvokeSchema = z.object({
   memory_links: z.array(z.string().max(500)).max(20).optional(),
   triggered_by: z.string().max(120).optional(),
   parent_session_id: z.string().max(128).optional(),
+  /**
+   * 子会社 (subsidiary) Bot 由来の invoke なら子会社 id。 spawn したセッションの
+   * metadata.subsidiary_id へ焼き込まれ、 本社/子会社 Bot の可視範囲判定
+   * (ownsSession) に使われる。 discord/commands/spawn.ts (/v1/admin/spawn-session
+   * 経由) と同じ trust boundary (loopback 自己呼び出し) で運ぶ。
+   */
+  subsidiary_id: z.string().max(120).optional().nullable(),
   spawn: z.boolean().optional(),
   options: z.record(z.unknown()).optional(),
   overrides: z.object({
@@ -472,6 +479,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       options: parsed.data.options,
       overrides: parsed.data.overrides,
       parent_session_id: resolveParentSessionId(c.req, parsed.data.parent_session_id),
+      subsidiary_id: parsed.data.subsidiary_id ?? null,
     });
     if (!result.ok) {
       const status = result.error.startsWith("unknown call_name") ? 404 : 400;
@@ -548,8 +556,22 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const row = deps.repo.findRun(id);
     if (!row) return c.json({ error: "not_found" }, 404);
     if (!row.child_session_id) return c.json({ error: "child_session_not_claimed" }, 409);
-    if (deps.sessions && !deps.sessions.findSession(row.child_session_id)) {
-      return c.json({ error: "child_session_not_found" }, 404);
+    if (deps.sessions) {
+      const childSession = deps.sessions.findSession(row.child_session_id);
+      if (!childSession) {
+        return c.json({ error: "child_session_not_found" }, 404);
+      }
+      // eventBus 経由の session.inject は /ws に接続中の WS client (Lictor 側の
+      // pty 書き込み口) にしか届かない (api/ws.ts の target_session_id フィルタ)。
+      // session 行は在っても ws_clients===0 (再接続待ち/未接続) の間は書き込み先が
+      // 無く inject が静かに消えるため、 ここで無条件に ok:true を返さない
+      // (設定不備/未接続の無言フォールバック禁止 — coding-conventions §6)。
+      if (childSession.ws_clients <= 0) {
+        return c.json({
+          error: "child_session_not_connected",
+          detail: "no live pty/ws client is attached to this session; inject would be silently dropped",
+        }, 409);
+      }
     }
     const body = await c.req.json().catch(() => null);
     const parsed = RunInjectSchema.safeParse(body);

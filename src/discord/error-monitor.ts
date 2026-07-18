@@ -32,8 +32,12 @@ export function startVestigiumErrorWatch(): ErrorMonitorHandle {
 
   // service code -> 最後に転記した ts (ms). 初回観測時に now で初期化して履歴を捨てる.
   const watermark = new Map<string, number>();
+  // 実行中の poll を指す (in-flight 排他制御用)。 poll が interval を超えて
+  // 長引いた場合に次の setInterval tick が重複実行され、 watermark 更新前の
+  // 同じレコードを 2 回 reportError してしまうのを防ぐ (継続レビュー指摘)。
+  let runInFlight: Promise<void> | null = null;
 
-  async function runOnce(): Promise<void> {
+  async function runOnceInner(): Promise<void> {
     let services: string[];
     try {
       services = await listVestigiumServices(root!);
@@ -66,6 +70,14 @@ export function startVestigiumErrorWatch(): ErrorMonitorHandle {
       }
       watermark.set(service, maxTs);
     }
+  }
+
+  /** in-flight の poll があればそれを共有し、 新規の重複実行は開始しない。 */
+  function runOnce(): Promise<void> {
+    if (runInFlight) return runInFlight;
+    const task = runOnceInner().finally(() => { runInFlight = null; });
+    runInFlight = task;
+    return task;
   }
 
   log.info(`vestigium error watch enabled root=${root} interval=${intervalSec}s`);

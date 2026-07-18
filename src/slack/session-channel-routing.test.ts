@@ -24,4 +24,25 @@ describe("routeSlackChannelMessage", () => {
     expect(route({ type: "message", channel: "OTHER", user: "U1", ts: "1" }))
       .toEqual({ kind: "ignore", reason: "unknown_channel" });
   });
+
+  it("ignores a message mapped to a session that is no longer active (継続レビュー指摘)", () => {
+    // archive 待ちでチャンネルがまだ残っている終了済み session への投稿は、
+    // session 状態を確認してから inject 扱いにしない限りルーティングしない。
+    const routeWithStatus = (isSessionActive: (sessionId: string) => boolean) =>
+      routeSlackChannelMessage({
+        event: { type: "message", channel: "SESSION", user: "U1", ts: "1" },
+        hubChannelId: "HUB",
+        botUserId: "BOT",
+        sessionForChannel: (channelId) => (channelId === "SESSION" ? "s1" : null),
+        isSessionActive,
+      });
+
+    expect(routeWithStatus(() => false)).toEqual({ kind: "ignore", reason: "session_inactive" });
+    expect(routeWithStatus(() => true)).toEqual({ kind: "session", sessionId: "s1", channelId: "SESSION" });
+  });
+
+  it("keeps routing as session when isSessionActive is not supplied (backward compatibility)", () => {
+    expect(route({ type: "message", channel: "SESSION", user: "U1", ts: "1" }))
+      .toEqual({ kind: "session", sessionId: "s1", channelId: "SESSION" });
+  });
 });

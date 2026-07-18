@@ -44,6 +44,16 @@ export class SlackSessionArchiveLifecycle {
     if (this.deps.delaySeconds === 0) await this.sweep();
   }
 
+  /**
+   * 予約済み archive を取り消す。 session が再開された (session.started が同じ
+   * session_id で再度届いた) ときに呼ぶ想定: session.ended → schedule() で archive
+   * 予約が立った後、 archived_at が付く前に再開されたら、 このキャンセルをしないと
+   * 次の sweep でアクティブなチャンネルが誤って archive されてしまう。
+   */
+  cancel(sessionId: string): void {
+    this.deps.repo.cancelArchive(sessionId);
+  }
+
   sweep(): Promise<void> {
     if (this.sweepInFlight) return this.sweepInFlight;
     const task = this.runSweep().finally(() => { this.sweepInFlight = null; });

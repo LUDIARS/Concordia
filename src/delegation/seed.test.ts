@@ -58,7 +58,12 @@ describe("seedDelegationTemplates", () => {
     expect(JSON.parse(codex?.input_schema ?? "null")).toEqual([]);
   });
 
-  it("keeps custom forum templates and does not add default tags to their limit", () => {
+  it("merges custom forum templates with the default forum tags instead of disabling the defaults", () => {
+    // 継続レビュー指摘: 以前はカスタム forum template が1件でもあると既定2件の
+    // forum_tag が false に上書きされ、 Discord 側の既存タグと不整合を起こしていた。
+    // 既定2件は常に forum spawn の入口として維持し、 カスタムはそれに「追加」される
+    // (合計上限10件の検証は forum-template-tags.ts の validateForumTemplateTags が
+    // sync 時に明示エラーで担当する — ここでは先回りして間引かない)。
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "custom-forum",
@@ -72,8 +77,8 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("custom-forum")?.forum_tag).toBe(1);
-    expect(repo.findTemplateByCallName("forum-claude-session")?.forum_tag).toBe(0);
-    expect(repo.findTemplateByCallName("forum-codex-session")?.forum_tag).toBe(0);
+    expect(repo.findTemplateByCallName("forum-claude-session")?.forum_tag).toBe(1);
+    expect(repo.findTemplateByCallName("forum-codex-session")?.forum_tag).toBe(1);
   });
 
   it("seeds the daily-review-reconciliation parttimer template", () => {

@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { access, utimes } from "node:fs/promises";
 import { resolve } from "node:path";
+import { reportError } from "../errors.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../db/participants-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
@@ -755,10 +756,19 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         return c.json({ ok: false, error: `restart entry not found: ${entry || "(empty argv[1])"}` }, 500);
       }
       // レスポンスを先に返してから touch する (watcher は touch 直後に SIGTERM してくる)。
+      // この時点で HTTP 応答は既に返却済みなので utimes 失敗を呼び出し元へ直接
+      // エラー応答で返すことはできない。 だが黙って握り潰すと「再起動を要求したのに
+      // 実際には touch が失敗して watcher が再起動しない」 サイレント故障になる
+      // (継続レビュー指摘)。 reportError で errors チャンネルへ明示的に報告し、
+      // 少なくとも観測可能にする (§6 無言のフォールバック禁止)。
       setTimeout(() => {
         const now = new Date();
-        // watcher 再起動と競合して ENOENT/EPERM になりうる; 次の restart 要求で再試行可
-        void utimes(entry, now, now).catch(() => {});
+        // watcher 再起動と競合して ENOENT/EPERM になりうる; 次の restart 要求で再試行可。
+        void utimes(entry, now, now).catch((err: unknown) => {
+          const msg = `watch-mode restart touch failed entry=${entry}: ${(err as Error).message}`;
+          restartLog.error(msg);
+          reportError("api/backend-restart", msg, { entry });
+        });
       }, 100);
       return c.json({ ok: true, message: "restarting (watch-mode: entry touched, watcher restarts in-place)" });
     }

@@ -22,6 +22,8 @@ export interface SlackSessionChannelsRepo {
   }): void;
   setHeaderTs(sessionId: string, headerTs: string): void;
   scheduleArchive(sessionId: string, archiveDueAt: number): void;
+  /** 予約済み archive を取り消す (session 再開等、 archive を実行してはいけなくなったとき)。 */
+  cancelArchive(sessionId: string): void;
   listDueForArchive(now: number): SlackSessionChannelRow[];
   markArchived(sessionId: string, archivedAt: number): void;
 }
@@ -70,6 +72,13 @@ export function makeSlackSessionChannelsRepo(
             SET archive_due_at = ?, archived_at = NULL
           WHERE session_id = ?`,
       ).run(archiveDueAt, sessionId);
+    },
+    cancelArchive(sessionId) {
+      db.prepare(
+        `UPDATE slack_session_channels
+            SET archive_due_at = NULL
+          WHERE session_id = ?`,
+      ).run(sessionId);
     },
     listDueForArchive(at) {
       return db.prepare(

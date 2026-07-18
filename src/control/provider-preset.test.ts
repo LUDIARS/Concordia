@@ -131,4 +131,34 @@ describe("delegation runtime options", () => {
     ]);
     expect(resolveDelegationRuntimeArgs("claude", { model_reasoning_effort: "high" })).toEqual([]);
   });
+
+  it("codex_config.network_access=false は転送しない (git push/PR/status callback を壊すため)", () => {
+    expect(resolveDelegationRuntimeArgs("codex", {
+      codex_config: { network_access: false, sandbox_mode: "workspace-write" },
+    })).toEqual([
+      "-c",
+      'model_reasoning_effort="xhigh"',
+      "-c",
+      'sandbox_mode="workspace-write"',
+    ]);
+    // 文字列表現の "false" も同様に無視する。
+    expect(resolveDelegationRuntimeArgs("codex", {
+      codex_config: { network_access: "false" },
+    })).toEqual(["-c", 'model_reasoning_effort="xhigh"']);
+    // true は通常どおり転送してよい (デフォルトの通信可能状態を明示するだけ)。
+    expect(resolveDelegationRuntimeArgs("codex", {
+      codex_config: { network_access: true },
+    })).toEqual(["-c", 'model_reasoning_effort="xhigh"', "-c", "network_access=true"]);
+  });
+
+  it("codex_config.model は転送しない (model はモデル解決の専用経路のみが単一情報源)", () => {
+    expect(resolveDelegationRuntimeArgs("codex", {
+      codex_config: { model: "gpt-4o", sandbox_mode: "workspace-write" },
+    })).toEqual([
+      "-c",
+      'model_reasoning_effort="xhigh"',
+      "-c",
+      'sandbox_mode="workspace-write"',
+    ]);
+  });
 });

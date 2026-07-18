@@ -34,6 +34,13 @@ export interface ForumSpawnDeps {
   sessionForumId: string;
   botUserId: string;
   concordiaUrl: string;
+  /**
+   * このスレッドを処理している Bot インスタンス自身の子会社 (subsidiary) id。
+   * 本社 Bot なら null。 spawn したセッションの metadata.subsidiary_id へ焼き込むために
+   * `/v1/delegation/invoke` へ転送する (未指定だと子会社 Bot 経由の forum spawn が本社
+   * セッションとして誤帰属し、 本社/子会社の可視範囲判定 (ownsSession) が壊れる)。
+   */
+  subsidiaryId?: string | null;
   templates: () => Promise<DelegationTemplateLite[]>;
   /** codex/claude のどちらが空いているかを返す (呼び出し側が週間 rate-limit 残量から判定する)。 */
   pickProvider: () => Promise<ForumSpawnProvider>;
@@ -82,6 +89,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     triggered_by: triggeredBy,
     spawn: true,
     overrides: plan.overrides,
+    subsidiary_id: deps.subsidiaryId ?? null,
   });
   if ("error" in result || !result.ok) {
     const error = "error" in result ? result.error : "delegation invoke failed";

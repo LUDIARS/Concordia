@@ -82,6 +82,73 @@ describe("forum spawn", () => {
     expect(replies[0]).toContain("run-1");
   });
 
+  it("stamps subsidiary_id when the thread belongs to a subsidiary Bot instance", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-sub", status: "queued" },
+      spawn_pid: 44,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const thread: ForumSpawnThread = {
+      id: "thread-sub",
+      guildId: "guild-sub",
+      parentId: "forum-1",
+      ownerId: "human-1",
+      name: "[Cc] Implement Phase 2",
+      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
+      send: async () => undefined,
+    };
+
+    await handleForumSpawnThread({
+      sessionForumId: "forum-1",
+      botUserId: "bot-1",
+      concordiaUrl: "http://127.0.0.1:17320",
+      subsidiaryId: "sub-1",
+      templates: async () => [template("forum-codex-session")],
+      pickProvider: async () => "codex",
+      resolveProjectTarget: () => null,
+      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
+      hasExistingRun: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    }, thread);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: "sub-1" });
+  });
+
+  it("stamps subsidiary_id=null for the headquarters Bot (no subsidiary configured)", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-hq", status: "queued" },
+      spawn_pid: 45,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const thread: ForumSpawnThread = {
+      id: "thread-hq",
+      guildId: "guild-hq",
+      parentId: "forum-1",
+      ownerId: "human-1",
+      name: "[Cc] Implement Phase 2",
+      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
+      send: async () => undefined,
+    };
+
+    await handleForumSpawnThread({
+      sessionForumId: "forum-1",
+      botUserId: "bot-1",
+      concordiaUrl: "http://127.0.0.1:17320",
+      templates: async () => [template("forum-codex-session")],
+      pickProvider: async () => "codex",
+      resolveProjectTarget: () => null,
+      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
+      hasExistingRun: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    }, thread);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: null });
+  });
+
   it("uses the normal spawn project root when the post has no project code", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,

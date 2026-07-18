@@ -109,7 +109,6 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     emoji: "🟢",
   },
 ];
-const FORUM_SESSION_CALL_NAMES = new Set(FORUM_SESSION_TEMPLATES.map((template) => template.call_name));
 
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
@@ -592,15 +591,15 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   for (const tpl of SEED_TEMPLATES) {
     repo.upsertTemplate(tpl);
   }
-  // 既存のカスタム forum templates を尊重し、合計上限 10 を seed で超えない。
-  // カスタムが無い環境だけ既定2件を公開し、必ず forum spawn の入口を用意する。
-  const hasCustomForumTemplate = repo.listTemplates().some((template) => (
-    Boolean(template.is_active)
-    && Boolean(template.forum_tag)
-    && !FORUM_SESSION_CALL_NAMES.has(template.call_name)
-  ));
+  // 既定2件 (forum-claude-session / forum-codex-session) は forum_tag を常に維持し、
+  // 必ず forum spawn の入口を用意する。 カスタム forum template が存在しても既定を
+  // 無効化せずマージする (以前は「カスタムが1件でもあれば既定2件の forum_tag を
+  // false に上書きする」実装だったため、 再起動のたびに既定の Discord タグが消え、
+  // Discord 側の既存タグと不整合を起こしていた)。 合計 10 件の上限は
+  // validateForumTemplateTags (forum-template-tags.ts) が sync 時に明示エラーで
+  // 検出するので、 ここで先回りして黙って間引く必要はない。
   for (const template of FORUM_SESSION_TEMPLATES) {
-    repo.upsertTemplate({ ...template, forum_tag: !hasCustomForumTemplate });
+    repo.upsertTemplate(template);
   }
   // 旧 seed `gamma-impl` (target_provider=gamma) の置換。 新 seed は別 call_name
   // (gemma4-12-impl) で upsert されるため、 既存 DB には旧行が残る。 重複を避けるため

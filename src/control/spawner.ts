@@ -145,6 +145,32 @@ function currentConcordiaAddressEnv(): Record<string, string> {
 }
 
 /**
+ * cmd.exe へ 1 つのコマンドラインとして渡す文字列を組み立てる際に、 引数中の
+ * シェルメタ文字 (`&` `|` `<` `>` `^` `%` `"` `!` 等) がコマンド区切り/
+ * リダイレクト/変数展開として解釈されるのを防ぐエスケープ (CWE-78 対策)。
+ *
+ * cmd.exe には `/C` に渡された文字列全体が単一の引用符ペアで囲まれていると
+ * その外側の引用符を剥がして中身を無引用のコマンドラインとして再解析する
+ * 既知の挙動がある (https://qntm.org/cmd)。 単純に `"arg"` で囲むだけでは
+ * 引数中に `&` 等が残っていればこの再解析で有効なコマンド区切りとして
+ * 実行されてしまうため不十分。 ここでは cross-spawn が Windows shell 経由の
+ * 引数エスケープに使うのと同じアルゴリズムを用いる: 引用符で囲んだ上で
+ * 引用符自身を含む全メタ文字に `^` を前置する。 こうすると cmd.exe の
+ * パーサは終始「無引用」モードのまま `^` エスケープを解決し、 最終的に
+ * 元の引数を安全な二重引用符付きトークンとして子プロセスへ渡す。
+ */
+export function escapeCmdArg(arg: string): string {
+  let out = String(arg);
+  // 末尾のバックスラッシュ列の直後に引用符を置くと、 バックスラッシュが
+  // 引用符のエスケープとして食われてしまうため先に倍化しておく。
+  out = out.replace(/(\\*)"/g, '$1$1\\"');
+  out = out.replace(/(\\*)$/, "$1$1");
+  out = `"${out}"`;
+  out = out.replace(/([()%!^"<>&|;,\s])/g, "^$1");
+  return out;
+}
+
+/**
  * Pure: build the wt.exe argv for a spawn request. Useful for unit tests
  * that don't want to actually launch a window.
  *
@@ -163,8 +189,12 @@ export function buildWtArgs(req: SpawnRequest, launcher: string[] = ["lictor"]):
   // これにより lictor が非ゼロ終了してもcmd.exeは 0 で終了し、
   // Windows Terminal が「プロセスはコード 1 で終了しました」メッセージを
   // 表示してタブを残す挙動を防ぐ (closeOnExit: graceful の既定動作を回避)。
+  // provider/args は外部入力 (spawn API 経由) になり得るため、 結合前に
+  // 各トークンを escapeCmdArg でエスケープしコマンドインジェクションを防ぐ
+  // (CWE-78; 継続 2 日目の critical 指摘対応)。
   const providerParts = [req.provider, ...(req.args ?? [])];
-  out.push("cmd.exe", "/d", "/s", "/c", [...launcher, ...providerParts].join(" ") + " & exit 0");
+  const escapedCommand = [...launcher, ...providerParts].map(escapeCmdArg).join(" ");
+  out.push("cmd.exe", "/d", "/s", "/c", escapedCommand + " & exit 0");
   return out;
 }
 

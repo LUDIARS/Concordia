@@ -30,6 +30,29 @@ describe("SlackSessionArchiveLifecycle", () => {
     expect(repo.findBySessionId("retry")?.archived_at).toBe(101);
   });
 
+  it("cancel() withdraws a pending archive so a resumed session is not archived on the next sweep", async () => {
+    // セッション再開シナリオ: session.ended → schedule() で archive 予約が立つが、
+    // archived_at が付く前に session.started (再開) が来たら cancel() で取り消す。
+    // 取り消さなければ、 次の sweep で「今もアクティブな」 チャンネルが archive される
+    // (継続レビュー指摘: slack/bot.ts:457)。
+    const repo = makeSlackSessionChannelsRepo(makeTestDb(), () => 100);
+    repo.upsert({ session_id: "s1", channel_id: "C1", channel_name: "one" });
+    repo.scheduleArchive("s1", 100);
+    const archive = vi.fn(async () => ({ ok: true }));
+    const lifecycle = new SlackSessionArchiveLifecycle({
+      repo,
+      client: { conversations: { archive } },
+      delaySeconds: 30,
+      now: () => 100,
+    });
+
+    lifecycle.cancel("s1");
+    await lifecycle.sweep();
+
+    expect(archive).not.toHaveBeenCalled();
+    expect(repo.findBySessionId("s1")).toMatchObject({ archive_due_at: null, archived_at: null });
+  });
+
   it("sweeps overdue rows on start and releases its single timer on stop", async () => {
     const repo = makeSlackSessionChannelsRepo(makeTestDb(), () => 100);
     repo.upsert({ session_id: "s1", channel_id: "C1", channel_name: "one" });

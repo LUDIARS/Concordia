@@ -18,6 +18,9 @@
  */
 
 import type { SpawnProvider } from "./spawner.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("control/provider-preset");
 
 /** gemma4-12 の論理 provider 名。 旧名は `gamma` (後方互換エイリアス)。 */
 export const LOCAL_LLM_PROVIDER = "gemma4-12";
@@ -190,9 +193,45 @@ export function resolveDelegationRuntimeArgs(
     if (key === "model_reasoning_effort") continue;
     if (!CODEX_CONFIG_KEY_RE.test(key)) continue;
     if (value === undefined || value === null) continue;
+    // `model` は resolveDelegationSpawn (modelInput → `--model` フラグ) が唯一の
+    // 情報源。 codex_config 経由でも `-c model=...` を素通しすると、 Concordia が
+    // 記録・通知する「要求 model」(spawn.effectiveModel) と実際に codex へ渡る
+    // model の 2 経路が並立し、 値が食い違うケースで「要求と実行が不一致」に
+    // なる (継続レビュー指摘)。 model は常にこの専用経路のみを単一情報源とし、
+    // codex_config 側の重複指定は黙って壊さず転送せず理由をログに残す。
+    if (key === "model") {
+      log.warn(
+        { provider, requested_value: value },
+        "codex_config.model is ignored: model must be set via the dedicated " +
+        "modelInput/--model resolution path, not a duplicate config override",
+      );
+      continue;
+    }
+    // codex サンドボックスの `network_access=false` は全通信を遮断するため、
+    // git push / `gh pr create` / Concordia 自身への run-status コールバック
+    // (POST /v1/delegation/runs/:id/status) まで一律に不可能にしてしまう。
+    // これらは delegation ライフサイクルの前提 (完了報告) であり、 ローカルの
+    // git 操作 (commit/branch/diff) だけを許可する細かい制御は codex 側に無い
+    // (all-or-nothing のサンドボックス設定) ため、 この上書きは黙って壊さず
+    // 転送せず理由をログに残す (fail-fast; §6 無言のフォールバック禁止)。
+    if (key === "network_access" && isNetworkAccessDisabled(value)) {
+      log.warn(
+        { provider, requested_value: value },
+        "codex_config.network_access=false is ignored: it would block " +
+        "git push / PR creation / Concordia's own run-status callback",
+      );
+      continue;
+    }
     args.push("-c", `${key}=${tomlScalar(value)}`);
   }
   return args;
+}
+
+/** `network_access` 値が「無効化」の意図かどうか (boolean / 文字列表現の両対応)。 */
+function isNetworkAccessDisabled(value: unknown): boolean {
+  if (value === false) return true;
+  if (typeof value === "string") return value.trim().toLowerCase() === "false";
+  return false;
 }
 
 export function resolveEffectiveDelegationRuntimeOptions(

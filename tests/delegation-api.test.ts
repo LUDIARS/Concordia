@@ -316,6 +316,9 @@ describe("delegation coordination API", () => {
       transcript_path: null,
       metadata: null,
     });
+    // /runs/:id/inject は接続済み (ws_clients>0) の session にしか成功応答を返さない
+    // (継続レビュー指摘: 未接続だと session.inject が届く相手がおらず静かに消える)。
+    sessions.incrementWsClients("child-1");
     const run = repo.createRun({
       template_id: null,
       call_name: "impl-from-design",

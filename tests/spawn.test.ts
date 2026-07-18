@@ -12,6 +12,7 @@ import {
 import {
   buildConcordiaAddressEnv,
   buildWtArgs,
+  escapeCmdArg,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
   resolveSpawnCwd,
@@ -87,6 +88,9 @@ describe("spawn token", () => {
 });
 
 describe("spawn arg builder", () => {
+  // provider/args トークンは CWE-78 (cmd.exe メタ文字インジェクション) 対策の
+  // escapeCmdArg で個別にエスケープしてから結合される (継続レビュー指摘)。
+  // 期待値も同じ関数で組み立て、 エスケープ形式そのものへの依存を避ける。
   it("default tab mode", () => {
     expect(buildWtArgs({ provider: "claude" })).toEqual([
       "--window",
@@ -96,7 +100,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor claude & exit 0",
+      `${escapeCmdArg("lictor")} ${escapeCmdArg("claude")} & exit 0`,
     ]);
   });
 
@@ -121,7 +125,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor codex --continue --model o3 & exit 0",
+      `${["lictor", "codex", "--continue", "--model", "o3"].map(escapeCmdArg).join(" ")} & exit 0`,
     ]);
   });
 
@@ -134,7 +138,7 @@ describe("spawn arg builder", () => {
       "/d",
       "/s",
       "/c",
-      "lictor gemini & exit 0",
+      `${escapeCmdArg("lictor")} ${escapeCmdArg("gemini")} & exit 0`,
     ]);
   });
 

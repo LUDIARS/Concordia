@@ -125,7 +125,7 @@ async function startHarness(archiveDelayMin = 30) {
     socketClient: socket as unknown as SocketModeClient,
   });
   if (!platform) throw new Error("Slack platform did not start");
-  return { platform, web, socket };
+  return { platform, web, socket, db };
 }
 
 afterEach(() => {
@@ -192,6 +192,27 @@ describe("Slack bot session-per-channel", () => {
 
     eventBus.emit({ type: "session.ended", session_id: "session-1", ts: 100 });
     await vi.waitFor(() => expect(web.conversations.archive).toHaveBeenCalledWith({ channel: "C1" }));
+    await platform.stop();
+  });
+
+  it("cancels the pending archive when a session resumes before it fires (session.started after session.ended)", async () => {
+    // 継続レビュー指摘 (slack/bot.ts:457): archive 予約後にセッションが再開したら
+    // 予約を取り消さないと、 まだ活動中のチャンネルが sweep で誤って archive される。
+    // archiveDelayMin>0 (既定30分) で schedule() が即時 sweep しないようにし、
+    // その間に resume (session.started) が来たケースを再現する。
+    const { platform, web, socket, db } = await startHarness();
+    const { makeSlackSessionChannelsRepo } = await import("./session-channels-repo.js");
+    const channels = makeSlackSessionChannelsRepo(db);
+    await platform.ensureSessionSurface("session-1");
+    void socket; // ハンドラは使わないが harness の型を揃えるため参照だけ保持
+
+    eventBus.emit({ type: "session.ended", session_id: "session-1", ts: 100 });
+    await vi.waitFor(() => expect(channels.findBySessionId("session-1")?.archive_due_at).not.toBeNull());
+
+    eventBus.emit({ type: "session.started", session_id: "session-1", provider: "codex-cli", repo_path: "E:/repo", branch: null, ts: 101 });
+    await vi.waitFor(() => expect(channels.findBySessionId("session-1")?.archive_due_at).toBeNull());
+
+    expect(web.conversations.archive).not.toHaveBeenCalled();
     await platform.stop();
   });
 });

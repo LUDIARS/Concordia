@@ -11,8 +11,8 @@ describe("reaction workflow readiness", () => {
       status: "no_authorized_users",
       authorized_user_count: 0,
       platforms: {
-        discord: { authorized_user_count: 0 },
-        slack: { authorized_user_count: 0 },
+        discord: { authorized_user_count: 0, allow_all: false },
+        slack: { authorized_user_count: 0, allow_all: false },
       },
       issues: ["discord_no_authorized_users", "slack_no_authorized_users"],
     });
@@ -38,5 +38,18 @@ describe("reaction workflow readiness", () => {
       discordUserIds: [],
       slackUserIds: [],
     }).issues).toEqual([]);
+  });
+
+  it("treats the * sentinel as ready without exposing a fake user count", () => {
+    const readiness = getReactionWorkflowReadiness({
+      enabled: true,
+      discordUserIds: ["*"],
+      slackUserIds: [],
+    });
+
+    expect(readiness.status).toBe("ready");
+    expect(readiness.platforms.discord).toEqual({ authorized_user_count: 1, allow_all: true });
+    expect(readiness.platforms.slack).toEqual({ authorized_user_count: 0, allow_all: false });
+    expect(readiness.issues).toEqual(["slack_no_authorized_users"]);
   });
 });

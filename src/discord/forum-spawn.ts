@@ -1,9 +1,24 @@
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
-import { forumTemplateDefaultArgs, forumTemplateTagName } from "./forum-template-tags.js";
+import { forumTemplateDefaultArgs } from "./forum-template-tags.js";
 import { callConcordia } from "./commands/_util.js";
+import type { ForumSpawnProvider } from "../delegation/forum-provider-availability.js";
 
 const FORUM_SPAWN_TRIGGER_PREFIX = "discord-forum";
+
+/**
+ * provider ごとの固定起動プラン。 タグ選択を廃し、 `pickProvider` (週間 rate-limit 枠の
+ * 残量が多い方) だけで call_name と model/effort の overrides を決める。 codex は Terra、
+ * claude は Sonnet-5 を常に high effort で使う (投稿内容による effort 分岐はしない
+ * — neco 2026-07-18 指示)。
+ */
+const FORUM_PROVIDER_PLAN: Record<
+  ForumSpawnProvider,
+  { callName: string; overrides: { model?: string; reasoning_effort: string } }
+> = {
+  codex: { callName: "forum-codex-session", overrides: { model: "gpt-5.6-terra", reasoning_effort: "high" } },
+  claude: { callName: "forum-claude-session", overrides: { reasoning_effort: "high" } },
+};
 
 export interface ForumSpawnThread {
   id: string;
@@ -11,8 +26,6 @@ export interface ForumSpawnThread {
   parentId: string | null;
   ownerId: string | null;
   name: string;
-  appliedTags: string[];
-  parent: { availableTags: Array<{ id: string; name: string }> } | null;
   fetchStarterMessage: () => Promise<{ content: string } | null>;
   send: (options: { content: string; allowedMentions?: { parse: never[] } }) => Promise<unknown>;
 }
@@ -22,6 +35,8 @@ export interface ForumSpawnDeps {
   botUserId: string;
   concordiaUrl: string;
   templates: () => Promise<DelegationTemplateLite[]>;
+  /** codex/claude のどちらが空いているかを返す (呼び出し側が週間 rate-limit 残量から判定する)。 */
+  pickProvider: () => Promise<ForumSpawnProvider>;
   resolveProjectTarget: (title: string, body: string) => ForumProjectTarget | null;
   hasExistingRun: (triggeredBy: string) => boolean;
   log: { info: (message: string) => void; warn: (message: string) => void };
@@ -35,15 +50,13 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     return;
   }
 
-  const templates = (await deps.templates()).filter((template) => template.is_active && template.forum_tag);
-  const selected = selectForumSpawnTemplate(thread.appliedTags, thread.parent?.availableTags ?? [], templates);
-  if (selected.kind === "missing") {
-    const available = templates.map(forumTemplateTagName).join(" / ") || "（現在利用可能なテンプレなし）";
-    await reply(thread, `起動テンプレのタグが必要です。タグを付けて新しい投稿を作成してください。\n利用可能: ${available}`);
-    return;
-  }
-  if (selected.kind === "ambiguous") {
-    await reply(thread, `起動テンプレタグは1つだけ選んでください: ${selected.names.join(" / ")}`);
+  const provider = await deps.pickProvider();
+  const plan = FORUM_PROVIDER_PLAN[provider];
+  const templates = await deps.templates();
+  const template = templates.find((t) => t.call_name === plan.callName && t.is_active);
+  if (!template) {
+    deps.log.warn(`forum-spawn missing/inactive template call_name=${plan.callName}`);
+    await reply(thread, `起動テンプレ \`${plan.callName}\` が見つからないか無効化されています。管理者に連絡してください。`);
     return;
   }
 
@@ -59,41 +72,25 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     run: { id: string; status: string };
     spawn_pid: number | null;
   }>(deps.concordiaUrl, "POST", "/v1/delegation/invoke", {
-    call_name: selected.template.call_name,
-    args: forumTemplateDefaultArgs({ input_schema: selected.template.input_schema ?? [] }),
+    call_name: template.call_name,
+    args: forumTemplateDefaultArgs({ input_schema: template.input_schema ?? [] }),
     cwd: project?.cwd,
     extra_prompt: buildForumSpawnPrompt(thread.name, body),
     triggered_by: triggeredBy,
     spawn: true,
+    overrides: plan.overrides,
   });
   if ("error" in result || !result.ok) {
     const error = "error" in result ? result.error : "delegation invoke failed";
-    deps.log.warn(`forum-spawn failed thread=${thread.id} template=${selected.template.call_name}: ${error}`);
+    deps.log.warn(`forum-spawn failed thread=${thread.id} template=${template.call_name}: ${error}`);
     await reply(thread, `セッション起動に失敗しました: ${error}`);
     return;
   }
   deps.log.info(
-    `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${selected.template.call_name} ` +
-    `project=${project?.project ?? "template-default"}`,
+    `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${template.call_name} ` +
+    `provider=${provider} project=${project?.project ?? "template-default"}`,
   );
-  await reply(thread, `Cc がセッションを起動しました（template: \`${selected.template.call_name}\`, run: \`${result.run.id}\`）。`);
-}
-
-export function selectForumSpawnTemplate(
-  appliedTagIds: readonly string[],
-  availableTags: readonly { id: string; name: string }[],
-  templates: readonly DelegationTemplateLite[],
-):
-  | { kind: "missing" }
-  | { kind: "ambiguous"; names: string[] }
-  | { kind: "selected"; template: DelegationTemplateLite } {
-  const appliedNames = new Set(
-    availableTags.filter((tag) => appliedTagIds.includes(tag.id)).map((tag) => tag.name.toLocaleLowerCase()),
-  );
-  const matches = templates.filter((template) => appliedNames.has(forumTemplateTagName(template).toLocaleLowerCase()));
-  if (matches.length === 0) return { kind: "missing" };
-  if (matches.length > 1) return { kind: "ambiguous", names: matches.map(forumTemplateTagName) };
-  return { kind: "selected", template: matches[0] };
+  await reply(thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
 }
 
 export function buildForumSpawnTrigger(guildId: string, threadId: string): string {

@@ -165,6 +165,10 @@ dedup + fire-and-forget で記録経路を壊さない。
   `discord_user_ids` / `slack_user_ids` の配列を受け取り、各項目は完全一致で照合する。GET/PUT 応答は
   ID を返さず、`readiness.status`、合計件数、プラットフォーム別件数だけを返す。ON かつ合計 0 件は
   `no_authorized_users` であり、設定変更時と起動時に警告ログを出す。空設定は常に全拒否のまま。
+  個別 ID の代わりに `*` (`REACTION_ALLOW_ALL_TOKEN`) を単独で保存すると、そのプラットフォームの
+  全ユーザーを許可する (`isReactionUserAllowed` が完全一致チェックの前に `*` の有無を見る)。
+  readiness はこれを `platforms.<platform>.allow_all: true` として返し、`no_authorized_users` 扱いに
+  しない。設定 GUI には platform ごとに「全員許可にする」ボタンがある。
 - 絵文字→アクション写像はユーザが追加・上書きできる (既定は組み込み構成)。
   `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、
   `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で

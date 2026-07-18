@@ -191,8 +191,8 @@ describe("admin API", () => {
         status: "no_authorized_users",
         authorized_user_count: 0,
         platforms: {
-          discord: { authorized_user_count: 0 },
-          slack: { authorized_user_count: 0 },
+          discord: { authorized_user_count: 0, allow_all: false },
+          slack: { authorized_user_count: 0, allow_all: false },
         },
         issues: ["discord_no_authorized_users", "slack_no_authorized_users"],
       },

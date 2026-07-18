@@ -14,12 +14,25 @@ describe("extractRelayableTextFrame", () => {
     });
   });
 
-  it("drops Codex commentary for every chat adapter", () => {
+  it("relays Codex commentary when message optimization is off (default)", () => {
     expect(extractRelayableTextFrame("text", {
       role: "assistant",
       phase: "commentary",
       text: "working",
-    })).toBeNull();
+    })).toEqual({ role: "assistant", text: "working" });
+  });
+
+  it("drops Codex commentary when message optimization is on, keeping final_answer", () => {
+    expect(extractRelayableTextFrame("text", {
+      role: "assistant",
+      phase: "commentary",
+      text: "working",
+    }, { messageOptimizationEnabled: true, provider: "codex-cli" })).toBeNull();
+    expect(extractRelayableTextFrame("text", {
+      role: "assistant",
+      phase: "final_answer",
+      text: "done",
+    }, { messageOptimizationEnabled: true, provider: "codex-cli" })).toEqual({ role: "assistant", text: "done" });
   });
 
   it("preserves the optimized-message policy for non-Codex providers", () => {

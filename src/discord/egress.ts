@@ -169,13 +169,14 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     return;
   }
 
-  // Per 2026-05-27 ユーザ指示: only relay "人間向けの最終回答" — concretely:
-  //   1) kind=text && role=assistant : AI が user に返す本文
+  // Per 2026-05-27 ユーザ指示 (2026-07-18 neco 指示で範囲を縮小): relay
+  // "人間向けの回答" — concretely:
+  //   1) kind=text && role=assistant : AI が user に返す本文。 message optimization
+  //      が OFF (既定) のときは Codex の commentary phase も含め作業中メッセージを
+  //      全て中継する (中間進捗を Discord で見えるようにする)。 optimization が ON の
+  //      ときだけ「人間向けの最終回答のみ」に絞る (Codex は phase=final_answer のみ、
+  //      他 provider は代替の最適化済み経路に任せて生 text frame を出さない)。
   //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
-  // When Discord message optimization is enabled, (1) is suppressed for
-  // providers that have an alternate optimized message path. Codex carries
-  // `phase` in transcript payloads; commentary is suppressed and final_answer
-  // remains relayable.
   // Everything else (tool-use / tool-result / thinking / raw / user prompts)
   // is dropped here. User prompts are NOT relayed via transcript.frame because
   // a separate `session.event(kind=prompt)` handler in bot.ts already posts

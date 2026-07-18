@@ -282,7 +282,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
-| reaction-workflow 発火ユーザ | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。GET はIDを露出せず readiness と件数のみ返す。 |
+| reaction-workflow 発火ユーザ | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。GET はIDを露出せず readiness と件数のみ返す。 ID の代わりに `*` を単独で保存すると、そのプラットフォームの全ユーザーを許可する (`allow_all`)。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |

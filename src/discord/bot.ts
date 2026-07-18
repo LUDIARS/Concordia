@@ -67,10 +67,13 @@ import {
 } from "./forum-spawn.js";
 import {
   fetchForumSessionThread,
-  postForumSessionMetadata,
   resolveForumSessionSurface,
   updateForumSessionState,
+  updateForumSessionStarter,
 } from "./forum-session.js";
+import { pickAvailableForumProvider } from "../delegation/forum-provider-availability.js";
+import { fetchCodexRateLimits } from "../cost/codex-rate-limits.js";
+import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
 
 const discordLog = createChildLogger("discord");
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
@@ -685,6 +688,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       botUserId: client.user?.id ?? "",
       concordiaUrl: deps.concordiaUrl,
       templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
+      pickProvider: async () => {
+        const [codexRate, claudeUsage] = await Promise.all([
+          fetchCodexRateLimits({ log }),
+          fetchClaudeOAuthUsage({ log }),
+        ]);
+        return pickAvailableForumProvider({ codexRate, claudeUsage });
+      },
       resolveProjectTarget: projectResolver.targetFromPost,
       hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
       log,
@@ -826,7 +836,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               if (!thread || thread.parentId !== layout.sessionForumId) {
                 throw new Error(`spawn source thread is unavailable: ${forumSpawn.threadId}`);
               }
-              const surfaceMessageId = await postForumSessionMetadata(guild, thread, {
+              // starter (=ユーザーの元投稿) をセッション情報カードで上書きし、元の指示内容は
+              // 別メッセージとして再投稿する (neco 2026-07-18 指示)。 surface_message_id は
+              // 意図的に null のまま保存 — 以降の同期 (updateSessionSurfaceMetadata) も
+              // starter 自体を編集する既定経路に統一する。
+              const originalBody = (await thread.fetchStarterMessage())?.content?.trim();
+              await updateForumSessionStarter(guild, thread, {
                 sessionId,
                 repoPath,
                 branch,
@@ -834,6 +849,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 effortLevel: state?.effortLevel ?? null,
                 fastMode: state?.fastMode ?? null,
               });
+              if (originalBody) {
+                await thread.send({ content: originalBody.slice(0, 1900), allowedMentions: { parse: [] } });
+              }
               sessionChannelsRepo.upsert({
                 session_id: sessionId,
                 channel_id: thread.id,
@@ -843,7 +861,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 agent_type: ev.provider ?? null,
                 name_body: state?.currentTask ?? state?.roleLabel ?? "session",
                 delegation_emoji: state?.delegationEmoji ?? null,
-                surface_message_id: surfaceMessageId,
+                surface_message_id: null,
               });
               await updateForumSessionState(thread, "active");
               log.info(`forum-spawn bound session=${sessionId} thread=${thread.id} run=${state?.delegationRunId}`);

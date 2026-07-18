@@ -1,4 +1,4 @@
-import { normalizeReactionUserIds, type ReactionUserAllowlistInput } from "./reaction-workflow-auth.js";
+import { isReactionAllowAll, normalizeReactionUserIds, type ReactionUserAllowlistInput } from "./reaction-workflow-auth.js";
 
 export type ReactionWorkflowReadinessStatus = "disabled" | "ready" | "no_authorized_users";
 export type ReactionWorkflowReadinessIssue =
@@ -9,8 +9,8 @@ export interface ReactionWorkflowReadiness {
   status: ReactionWorkflowReadinessStatus;
   authorized_user_count: number;
   platforms: {
-    discord: { authorized_user_count: number };
-    slack: { authorized_user_count: number };
+    discord: { authorized_user_count: number; allow_all: boolean };
+    slack: { authorized_user_count: number; allow_all: boolean };
   };
   issues: ReactionWorkflowReadinessIssue[];
 }
@@ -23,20 +23,24 @@ export function getReactionWorkflowReadiness(input: {
 }): ReactionWorkflowReadiness {
   const discordCount = normalizeReactionUserIds(input.discordUserIds).length;
   const slackCount = normalizeReactionUserIds(input.slackUserIds).length;
+  const discordAllowAll = isReactionAllowAll(input.discordUserIds);
+  const slackAllowAll = isReactionAllowAll(input.slackUserIds);
+  const discordReady = discordAllowAll || discordCount > 0;
+  const slackReady = slackAllowAll || slackCount > 0;
   const authorizedUserCount = discordCount + slackCount;
   const issues: ReactionWorkflowReadinessIssue[] = [];
 
-  if (input.enabled && discordCount === 0) issues.push("discord_no_authorized_users");
-  if (input.enabled && slackCount === 0) issues.push("slack_no_authorized_users");
+  if (input.enabled && !discordReady) issues.push("discord_no_authorized_users");
+  if (input.enabled && !slackReady) issues.push("slack_no_authorized_users");
 
   return {
     status: input.enabled
-      ? (authorizedUserCount > 0 ? "ready" : "no_authorized_users")
+      ? ((discordReady || slackReady) ? "ready" : "no_authorized_users")
       : "disabled",
     authorized_user_count: authorizedUserCount,
     platforms: {
-      discord: { authorized_user_count: discordCount },
-      slack: { authorized_user_count: slackCount },
+      discord: { authorized_user_count: discordCount, allow_all: discordAllowAll },
+      slack: { authorized_user_count: slackCount, allow_all: slackAllowAll },
     },
     issues,
   };

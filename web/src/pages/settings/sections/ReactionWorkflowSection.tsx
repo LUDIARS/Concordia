@@ -23,8 +23,8 @@ interface ReactionWorkflowStatus {
     status: "disabled" | "ready" | "no_authorized_users";
     authorized_user_count: number;
     platforms: {
-      discord: { authorized_user_count: number };
-      slack: { authorized_user_count: number };
+      discord: { authorized_user_count: number; allow_all: boolean };
+      slack: { authorized_user_count: number; allow_all: boolean };
     };
     issues: Array<"discord_no_authorized_users" | "slack_no_authorized_users">;
   };
@@ -64,9 +64,10 @@ export function ReactionWorkflowSection() {
     catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
-  async function saveAllowlist(platform: "discord" | "slack") {
+  async function saveAllowlist(platform: "discord" | "slack", overrideIds?: string[]) {
     const raw = platform === "discord" ? discordUserIds : slackUserIds;
-    const userIds = [...new Set(raw.split(/[\s,;]+/).map((value) => value.trim()).filter(Boolean))];
+    const userIds = overrideIds
+      ?? [...new Set(raw.split(/[\s,;]+/).map((value) => value.trim()).filter(Boolean))];
     setBusy(`${platform}-users`); setError(null);
     try {
       await putJson("/v1/admin/reaction-workflow", {
@@ -169,13 +170,18 @@ export function ReactionWorkflowSection() {
           const isDiscord = platform === "discord";
           const value = isDiscord ? discordUserIds : slackUserIds;
           const count = readiness?.platforms[platform].authorized_user_count ?? 0;
+          const allowAll = readiness?.platforms[platform].allow_all ?? false;
           return (
             <div key={platform} className="bg-surface border border-border rounded p-2 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-medium">{isDiscord ? "Discord" : "Slack"}</span>
-                <span className={count > 0 ? "text-xs text-accent" : "text-xs text-danger"}>
-                  設定済み {count} 件
-                </span>
+                {allowAll
+                  ? <span className="text-xs text-accent">全員許可中</span>
+                  : (
+                    <span className={count > 0 ? "text-xs text-accent" : "text-xs text-danger"}>
+                      設定済み {count} 件
+                    </span>
+                  )}
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <input
@@ -193,8 +199,15 @@ export function ReactionWorkflowSection() {
                   onClick={() => void saveAllowlist(platform)}
                   className="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
                 >置換保存</button>
+                <button
+                  disabled={busy === `${platform}-users` || allowAll}
+                  onClick={() => void saveAllowlist(platform, ["*"])}
+                  className="px-3 py-1 bg-muted border border-border rounded text-xs disabled:opacity-40"
+                >全員許可にする</button>
               </div>
-              <div className="text-[11px] text-subtle">空欄のまま置換保存すると、この platform は全拒否になります。</div>
+              <div className="text-[11px] text-subtle">
+                空欄のまま置換保存すると、この platform は全拒否になります。「全員許可にする」は個別 ID の代わりに `*` を保存し、この platform の全ユーザーを許可します。
+              </div>
             </div>
           );
         })}

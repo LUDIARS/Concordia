@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isReactionAllowAll,
   isReactionUserAllowed,
   normalizeReactionUserIds,
   parseReactionUserAllowlist,
@@ -24,5 +25,14 @@ describe("reaction workflow user allowlist", () => {
     expect(normalizeReactionUserIds([" u1 ", "u2", "u1"])).toEqual(["u1", "u2"]);
     expect(isReactionUserAllowed(["u1", "u2"], "u2")).toBe(true);
     expect(isReactionUserAllowed(["u1", "u2"], "U2")).toBe(false);
+  });
+
+  it("treats the * sentinel as allow-all for any non-empty user id", () => {
+    expect(isReactionAllowAll("*")).toBe(true);
+    expect(isReactionAllowAll("u1,u2")).toBe(false);
+    expect(isReactionAllowAll(undefined)).toBe(false);
+    expect(isReactionUserAllowed("*", "anyone")).toBe(true);
+    expect(isReactionUserAllowed(["*"], "anyone")).toBe(true);
+    expect(isReactionUserAllowed("*", "")).toBe(false);
   });
 });

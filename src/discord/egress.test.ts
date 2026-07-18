@@ -119,6 +119,26 @@ describe("handleEvent transcript.frame relay", () => {
     expect(webhooks.send).not.toHaveBeenCalled();
   });
 
+  it("relays codex-cli commentary when Discord message optimization is off (default)", async () => {
+    const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("codex-cli", {
+      messageOptimizationEnabled: false,
+    });
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 3,
+      kind: "text",
+      payload: { role: "assistant", text: "working update", phase: "commentary" },
+      ts: 102,
+    });
+    await flushEgress();
+
+    expect(webhooks.getForSession).toHaveBeenCalledWith(sessionId);
+    expect(webhooks.send).toHaveBeenCalledTimes(1);
+    expect(sent[0].options).toMatchObject({ content: "working update" });
+  });
+
   it("still relays codex-cli assistant text when Discord message optimization is enabled", async () => {
     const { deps, webhooks, sent, sessionId } = makeTranscriptRelayDeps("codex-cli", {
       messageOptimizationEnabled: true,

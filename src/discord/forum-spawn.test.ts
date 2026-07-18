@@ -5,14 +5,13 @@ import {
   buildForumSpawnTrigger,
   handleForumSpawnThread,
   parseForumSpawnTrigger,
-  selectForumSpawnTemplate,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
 
-function template(title: string): DelegationTemplateLite {
+function template(callName: string): DelegationTemplateLite {
   return {
-    call_name: title.toLowerCase(),
-    title,
+    call_name: callName,
+    title: callName,
     is_active: true,
     call_only: false,
     emoji: "",
@@ -25,19 +24,6 @@ function template(title: string): DelegationTemplateLite {
 
 describe("forum spawn", () => {
   afterEach(() => vi.unstubAllGlobals());
-
-  it("resolves exactly one applied template tag", () => {
-    const tags = [{ id: "a", name: "Implement" }, { id: "b", name: "Review" }];
-    expect(selectForumSpawnTemplate(["a"], tags, [template("Implement"), template("Review")])).toMatchObject({
-      kind: "selected",
-      template: { call_name: "implement" },
-    });
-    expect(selectForumSpawnTemplate([], tags, [template("Implement")])).toEqual({ kind: "missing" });
-    expect(selectForumSpawnTemplate(["a", "b"], tags, [template("Implement"), template("Review")])).toEqual({
-      kind: "ambiguous",
-      names: ["Implement", "Review"],
-    });
-  });
 
   it("round-trips the persistent thread correlation trigger", () => {
     const trigger = buildForumSpawnTrigger("guild", "thread");
@@ -52,7 +38,7 @@ describe("forum spawn", () => {
     );
   });
 
-  it("invokes the selected template once with a persistent thread trigger", async () => {
+  it("invokes the plan for the picked provider, without needing any tag", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       run: { id: "run-1", status: "queued" },
@@ -66,8 +52,6 @@ describe("forum spawn", () => {
       parentId: "forum-1",
       ownerId: "human-1",
       name: "[Cc] Implement Phase 2",
-      appliedTags: ["tag-1"],
-      parent: { availableTags: [{ id: "tag-1", name: "Implement" }] },
       fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
       send: async ({ content }) => { replies.push(content); },
     };
@@ -76,7 +60,8 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
-      templates: async () => [template("Implement")],
+      templates: async () => [template("forum-codex-session"), template("forum-claude-session")],
+      pickProvider: async () => "codex",
       resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
       hasExistingRun: () => false,
       log: { info: vi.fn(), warn: vi.fn() },
@@ -86,12 +71,43 @@ describe("forum spawn", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:17320/v1/delegation/invoke");
     expect(JSON.parse(String(init.body))).toMatchObject({
-      call_name: "implement",
+      call_name: "forum-codex-session",
       cwd: "E:/Document/Ars/Concordia",
       triggered_by: "discord-forum:guild-1:thread-1",
       spawn: true,
+      overrides: { model: "gpt-5.6-terra", reasoning_effort: "high" },
     });
     expect(replies).toHaveLength(1);
     expect(replies[0]).toContain("run-1");
+  });
+
+  it("replies with an error and does not invoke when the planned template is missing", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const replies: string[] = [];
+    const thread: ForumSpawnThread = {
+      id: "thread-1",
+      guildId: "guild-1",
+      parentId: "forum-1",
+      ownerId: "human-1",
+      name: "[Cc] Implement Phase 2",
+      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
+      send: async ({ content }) => { replies.push(content); },
+    };
+
+    await handleForumSpawnThread({
+      sessionForumId: "forum-1",
+      botUserId: "bot-1",
+      concordiaUrl: "http://127.0.0.1:17320",
+      templates: async () => [],
+      pickProvider: async () => "claude",
+      resolveProjectTarget: () => null,
+      hasExistingRun: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    }, thread);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("forum-claude-session");
   });
 });

@@ -91,15 +91,6 @@ export async function updateForumSessionStarter(
   await message.edit({ content: buildForumStarterContent(guild.id, metadata) });
 }
 
-export async function postForumSessionMetadata(
-  guild: Guild,
-  thread: ForumSessionThread,
-  metadata: ForumSessionMetadata,
-): Promise<string> {
-  const message = await thread.send({ content: buildForumStarterContent(guild.id, metadata) });
-  return message.id;
-}
-
 export async function updateForumSessionTitle(
   thread: ForumSessionThread,
   projectCode: string,

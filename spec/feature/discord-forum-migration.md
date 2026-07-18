@@ -59,12 +59,19 @@
 - 人間が Session フォーラムに**新規投稿** (スレッド作成) → Cc の `threadCreate`
   ハンドラが検知して:
   1. スレッドが Bot 自身の作成でないことを確認 (自作スレッドとの区別は owner id)
-  2. **[決定 1b] delegation テンプレ由来のタグが付いていることを必須とする**。
-     タグ無しの投稿は spawn せず、 案内メッセージ (タグを付けて再投稿) を返す。
-     provider / model / 既定 cwd はタグ = テンプレから解決する
+  2. **[決定 1c、2026-07-18 neco が 1b を上書き] タグ選択は不要**。
+     `pickAvailableForumProvider()` が codex/claude の**週間 rate-limit 枠の残量**
+     (codex: `fetchCodexRateLimits().usedWeekly` / claude: `fetchClaudeOAuthUsage().sevenDay.utilization`)
+     を比較し、 残量が多い方 (空いている方) を選ぶ (同数 or 片方/両方取得失敗なら claude)。 codex なら
+     `forum-codex-session` (model `gpt-5.6-terra`)、 claude なら `forum-claude-session`
+     (model `claude-sonnet-5`) を **常に reasoning_effort=high** で invoke する
+     (投稿内容による effort 分岐はしない)。 詳細: `src/discord/forum-spawn.ts`
+     `FORUM_PROVIDER_PLAN` / `src/delegation/forum-provider-availability.ts`。
   3. プロジェクトコード (タイトル先頭 `[Xx]` / 本文から検出) → cwd 上書き
   4. セッション spawn (既存 delegation invoke / spawnSession を流用)
-  5. **タイトルと本文の両方を inject** (作業サマリ + 作業内容)
+  5. **starter (ユーザーの元投稿) をセッション情報カードで編集/上書きし、 元の指示内容は
+     別メッセージとして再投稿する** (`session.started` バインド時、 `bot.ts`)。 タイトルと
+     本文はこれまで通り extra_prompt として inject 済み
   6. 作成されたセッションをこのスレッドに紐付け (新規スレッドは作らない)
 - **[決定 4a] 既存の `/spawn` コマンド・spawn テンプレ UI は恒久併存**。
   設定を細かくしたいケース (branch / worktree / options 指定等) のコマンド導線
@@ -76,10 +83,12 @@
 フォーラムタグは **フォーラム毎に事前定義 (最大 20 種)・スレッドあたり最大 5 個**
 という Discord 制約があるため、 自由文字列 (ブランチ名) はタグにできない。
 
-- **[決定 1b] delegation テンプレタグ (最大 10 種)**: delegation template に
-  `forum_tag` フラグ (boolean) を追加し、 フラグ ON のテンプレ (**上限 10**、
-  11 個目の ON は API で拒否) を Session フォーラムのタグとして生成する。
-  spawn-by-post はこのタグで起動テンプレを指定する (必須)。
+- **[決定 1b、2026-07-13 → 2026-07-18 に 1c で上書き] delegation テンプレタグ (最大 10 種)**:
+  delegation template に `forum_tag` フラグ (boolean) を追加し、 フラグ ON のテンプレ
+  (**上限 10**、 11 個目の ON は API で拒否) を Session フォーラムのタグとして生成する
+  仕組み自体は残す (WebUI の一覧表示・将来の call spawn 用途)。 ただし
+  **spawn-by-post はもうこのタグを読まない** — 2026-07-18 決定 1c によりタグ選択必須は
+  廃止され、 provider は空き状況で自動選択する (詳細は spawn-by-post 節)。
   - **不足タグは Discord Bot 起動時の layout ensure で自動補完する。** rename / 削除で
     残った旧タグの整理は、 WebUI (delegation 設定画面) の「フォーラムタグ更新」ボタンで
     明示同期する (通常起動を空タグで詰まらせず、破壊的な整理だけ管理者確認を残す)。
@@ -127,3 +136,14 @@
 2. **2a**: ブランチはスレッド初回メッセージ表示 + 変更時 edit (タグ化しない)。
 3. **3a**: TaskWorkflow は 1 delegation run = 1 スレッド。
 4. **4a**: `/spawn` コマンド・spawn テンプレ UI は恒久併存 (詳細設定の導線)。
+
+## 決定事項 (2026-07-18 neco、1b を上書き)
+
+1. **1c**: spawn-by-post のタグ必須は廃止。 投稿内容の解析ではなく **provider の
+   空き状況 (codex/claude それぞれの週間 rate-limit 枠の残量が多い方)** で自動選択する。
+   codex は `gpt-5.6-terra`、 claude は `claude-sonnet-5` を **常に reasoning_effort=high**
+   で使う (effort は投稿内容で変えない — 固定)。
+2. starter (フォーラムスレッドの最初の投稿 = ユーザーの元指示) はセッション確立時に
+   セッション情報カードへ編集/上書きし、 元の指示本文は別メッセージとして再投稿する。
+   以降の repo/branch/model/effort 変更同期も starter を直接編集する経路に統一
+   (`surface_message_id` は forum-spawn セッションでは持たせない)。

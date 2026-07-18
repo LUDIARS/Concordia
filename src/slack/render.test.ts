@@ -151,12 +151,12 @@ describe("extractRelayableFrame", () => {
     expect(r).toEqual({ role: "assistant", text: "hello" });
   });
 
-  it("does not relay Codex commentary", () => {
+  it("relays Codex commentary (message optimization not wired for Slack)", () => {
     expect(extractRelayableFrame("text", {
       role: "assistant",
       phase: "commentary",
       text: "working",
-    })).toBeNull();
+    })).toEqual({ role: "assistant", text: "working" });
   });
   it("kind=text & role=user は中継しない", () => {
     expect(extractRelayableFrame("text", { role: "user", text: "hi" })).toBeNull();

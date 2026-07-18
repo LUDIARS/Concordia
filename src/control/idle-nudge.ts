@@ -2,6 +2,7 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ChatPlatformPost } from "../platform/chat-platform.js";
 import type { SessionEventRow } from "../shared/types.js";
+import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { parseRequesterSource, type Requester } from "./requester.js";
 
 export interface IdleNudgeTimerHandle {
@@ -168,11 +169,7 @@ export function startIdleNudge(opts: StartIdleNudgeOptions): StartIdleNudgeHandl
 }
 
 export function shouldArmIdleNudgeFromFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): boolean {
-  if (ev.kind === "summary") return true;
-  if (ev.kind !== "text") return false;
-  const payload = ev.payload as { role?: unknown; phase?: unknown } | null | undefined;
-  if (payload?.role !== "assistant") return false;
-  return payload.phase === undefined || payload.phase === "final_answer";
+  return isTranscriptCompletion(ev.kind, ev.payload);
 }
 
 export function shouldClearIdleNudgeFromFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): boolean {

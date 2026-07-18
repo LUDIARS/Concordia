@@ -218,6 +218,43 @@ describe("handleEvent transcript.frame relay", () => {
     expect(sent[0].options).toMatchObject({ content: "compact summary", username: "Conversation summary" });
   });
 
+  it("notifies the tag lifecycle only after a completion frame is posted", async () => {
+    const { deps, sessionId } = makeTranscriptRelayDeps("codex-cli");
+    const onTranscriptPosted = vi.fn();
+    deps.onTranscriptPosted = onTranscriptPosted;
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 8,
+      kind: "text",
+      payload: { role: "assistant", text: "done", phase: "final_answer" },
+      ts: 107,
+    });
+    await flushEgress();
+
+    expect(onTranscriptPosted).toHaveBeenCalledWith({ sessionId, completion: true });
+  });
+
+  it("keeps the tag when posting the completion frame fails", async () => {
+    const { deps, webhooks, sessionId } = makeTranscriptRelayDeps("claude-code");
+    const onTranscriptPosted = vi.fn();
+    deps.onTranscriptPosted = onTranscriptPosted;
+    webhooks.send.mockResolvedValueOnce(null);
+
+    handleEvent(deps, {
+      type: "transcript.frame",
+      target_session_id: sessionId,
+      seq: 9,
+      kind: "summary",
+      payload: { text: "compact summary" },
+      ts: 108,
+    });
+    await flushEgress();
+
+    expect(onTranscriptPosted).not.toHaveBeenCalled();
+  });
+
   it("mirrors delegation child assistant text into the parent session channel when the child has no channel", async () => {
     const { deps, webhooks, sent, sessionId, parentSessionId } = makeTranscriptRelayDeps("codex-cli", {
       noDirectChannel: true,

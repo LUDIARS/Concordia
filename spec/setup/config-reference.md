@@ -129,8 +129,6 @@ Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`�
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
 | `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |
-| `CONCORDIA_DISCORD_WORKING_IDLE_SEC` | `60` (最小 15) | `discord/bot.ts:273` | 「作業中」インジケータを消す無進捗秒数。 |
-| `CONCORDIA_DISCORD_WORK_IDLE_SEC` | `600` (最小 60) | `discord/bot.ts:300` | channel work-state を idle に戻す無進捗秒数。 |
 
 ---
 

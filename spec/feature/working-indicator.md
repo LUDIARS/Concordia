@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "「作業中」インジケータ"
-description: "セッションが指令を受けて transcript が動いている間、Discord / Slack session channel の最後のメッセージとして「作業中」を表示し、進捗時に削除・再投稿する platform 非依存状態機械。"
+description: "DiscordはForum状態タグ、Slackは末尾メッセージでセッションの作業状態を示す。"
 service: concordia
 domain: chat-platforms
 tags:
@@ -11,52 +11,32 @@ tags:
   - state-machine
   - lifecycle
   - relay
-  - webhook
-  - notification
 status: implemented
-updated: 2026-07-16
+updated: 2026-07-18
 ---
-
 
 # 「作業中」インジケータ
 
-## 目的
-セッションが指令を受けて transcript が動いている間、チャンネルの**最後のメッセージ**
-として「🔄 作業中…」を出し続け、進捗があったら消す。これで「まだ動いているのか／
-止まった・入力待ちなのか」をリモート（Discord / Slack）で一目で判別できる。
+## Discord
 
-ユーザ指示:
-> 指令を受け付けて transcript が動いている間は「作業中」というメッセージを必ず
-> 最後に投稿し、進捗があった際は消すようにする。
+Discord Forumでは「🔄 作業中…」メッセージを投稿しない。指令またはtranscript進捗を
+受けた時点でForum状態タグを `作業中` にし、`summary` または `final_answer` がWebhookへ
+正常に投稿された後で `待機` に戻す。
 
-## 振る舞い（[`../../src/platform/working-indicator.ts`](../../src/platform/working-indicator.ts)）
-`WorkingIndicator` は per-session の状態機械。post/remove はプラットフォーム依存の
-コールバック注入（Discord/Slack 双方から使える）。
+- 投稿処理中は `作業中` を維持する。
+- Webhook投稿が失敗した場合は `作業中` を維持する。
+- Codexのcommentaryは完了扱いにしない。
+- Claude互換providerのphaseなしassistant frameは最終回答として扱う。
+- `session.lost` / `session.ended` はsession状態側のタグ処理を優先する。
+- per-sessionのタグ更新を直列化し、短い応答でも付与・解除の順序を保証する。
 
-- **進捗（`noteProgress`）**: transcript.frame / セッション chat / prompt 受領で発火。
-  既存の「作業中」を**即削除**（最下部でなくなったため）→ `repostDelayMs`（既定 1.5s）
-  落ち着いてから最下部に再投稿。連続進捗中は削除のみ繰り返しタイマをリセットするので
-  フリッカらず、ストリーミングが一段落した時に最下部へ出る。
-- **idle 除去**: `idleMs`（既定 60s、Discord は `CONCORDIA_DISCORD_WORKING_IDLE_SEC`、
-  Slack は `CONCORDIA_SLACK_WORKING_IDLE_SEC`）無進捗で除去。
-  = 作業が止まった／入力待ち。
-- **clear**: `session.ended` / `session.lost` で即除去。
-- per-session に操作を promise チェーンで直列化し、delete/post の取り違えを防ぐ。
+実装: `src/discord/channel-work-state.ts`、`src/discord/egress.ts`、
+`src/platform/transcript-completion.ts`
 
-## Discord 配線（[`../../src/discord/bot.ts`](../../src/discord/bot.ts)）
-- 投稿は **webhook ではなく通常 bot メッセージ**（`channel.send`）。`message.delete` で
-  確実に消せるため。session channel が active のときのみ。
-- `routeEvent` で: `transcript.frame` / `chat.posted(session)` / `session.event(prompt)`
-  → `noteProgress`、`session.ended` / `session.lost` → `clear`。
-- bot 自身の投稿なので ingress は `author.bot` で無視し、自己ループしない。
+## Slack
 
-## Slack 配線（[`../../src/slack/bot.ts`](../../src/slack/bot.ts)）
+Slackは従来どおり `WorkingIndicator` を使い、mapped public session channelの末尾へ
+「🔄 作業中…」を投稿する。進捗で削除・再投稿し、無進捗タイムアウトまたは
+`session.lost` / `session.ended` で削除する。
 
-- mapped public session channel のトップレベルへ `chat.postMessage` し、`thread_ts` は渡さない。
-- `chat.delete` は `slack_session_channels` の channel ID を使う。
-- `transcript.frame` / session `chat.posted` / prompt で `noteProgress`、ended / lost で `clear`。
-- Bot 自身の message は ingress classifier が無視する。
-
-## 既知の制約 / フォローアップ
-
-- 「作業中」テキストは固定。将来 current_task を併記する余地あり。
+実装: `src/platform/working-indicator.ts`、`src/slack/bot.ts`

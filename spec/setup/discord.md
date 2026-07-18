@@ -45,8 +45,6 @@ bot は **opt-in**。 `CONCORDIA_DISCORD_ENABLED=1` でない限り完全 no-op 
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | × | cost channel 更新間隔 (分、 既定 10 / 最小 10)。 |
 | `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | × | monitor (サービス状態) channel 更新間隔 (分、 既定 10 / 最小 10)。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | × | PR キュー channel 更新間隔 (分、 既定 15 / 最小 10)。 |
-| `CONCORDIA_DISCORD_WORKING_IDLE_SEC` | × | 「作業中」表示を消す無進捗秒数 (既定 60 / 最小 15)。 |
-| `CONCORDIA_DISCORD_WORK_IDLE_SEC` | × | channel work-state を idle に戻す無進捗秒数 (既定 600 / 最小 60)。 |
 
 > 上の refresh / idle 系はすべて任意で、 各 channel の更新頻度・インジケータ消灯を微調整する。 全キーの正本は [`config-reference.md` §3](config-reference.md#3-discord-bot)。
 

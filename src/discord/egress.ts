@@ -10,6 +10,7 @@ import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 import { buildDelegationMirrorText } from "../delegation/coordination.js";
+import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
@@ -38,6 +39,8 @@ export interface EgressDeps {
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
   messageOptimizationEnabled?: boolean;
+  /** A transcript frame reached Discord (or was deduplicated against an already-posted copy). */
+  onTranscriptPosted?: (input: { sessionId: string; completion: boolean }) => void;
   log: { warn: (m: string) => void };
 }
 
@@ -247,10 +250,21 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     : text;
   if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, content)) {
     dedupStats.skipped_transcript_frame += 1;
+    deps.onTranscriptPosted?.({
+      sessionId: relaySessionId,
+      completion: isTranscriptCompletion(ev.kind, ev.payload),
+    });
     return;
   }
   const res = await deps.webhooks.send(client, { content, username: author });
-  if (!res) deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+  if (!res) {
+    deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+    return;
+  }
+  deps.onTranscriptPosted?.({
+    sessionId: relaySessionId,
+    completion: isTranscriptCompletion(ev.kind, ev.payload),
+  });
 }
 
 function logInactiveTranscriptFrame(

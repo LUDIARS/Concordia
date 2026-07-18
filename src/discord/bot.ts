@@ -53,7 +53,6 @@ import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
-import { WorkingIndicator } from "../platform/working-indicator.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
@@ -303,9 +302,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let errorPoster: ErrorChannelPoster | null = null;
   let errorMonitor: ErrorMonitorHandle | null = null;
   const promptRelayLast = new Map<string, { text: string; at: number }>();
-  // 「作業中」インジケータ。ClientReady で guild を捕捉して生成する。
-  let workingIndicator: WorkingIndicator | null = null;
   let channelWorkState: ChannelWorkState | null = null;
+  const onTranscriptPosted = (input: { sessionId: string; completion: boolean }): void => {
+    if (input.completion) channelWorkState?.noteCompletion(input.sessionId);
+    else channelWorkState?.noteProgress(input.sessionId);
+  };
   const readPositiveIntEnv = (name: string, fallback: number, min = 1): number => {
     const raw = Number(process.env[name] ?? "");
     if (!Number.isFinite(raw) || raw <= 0) return Math.max(min, fallback);
@@ -608,45 +609,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       } else {
         log.info("stale-channel periodic sweep disabled");
       }
-      // 「作業中」インジケータ: session channel に通常 bot メッセージとして出す
-      // （webhook ではなく channel.send なので message.delete で確実に消せる）。
-      const idleSec = Math.max(15, Number(process.env.CONCORDIA_DISCORD_WORKING_IDLE_SEC ?? "60") || 60);
-      workingIndicator = new WorkingIndicator({
-        idleMs: idleSec * 1000,
-        log: (m) => log.info(`working-indicator: ${m}`),
-        post: async (sessionId) => {
-          const row = sessionChannelsRepo.findBySessionId(sessionId);
-          if (!row || row.status !== "active") return null;
-          const ch = guild.channels.cache.get(row.channel_id);
-          if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.PublicThread)) return null;
-          const m = await ch.send("🔄 **作業中…**");
-          return m.id;
-        },
-        remove: async (sessionId, messageId) => {
-          const row = sessionChannelsRepo.findBySessionId(sessionId);
-          if (!row) return;
-          const ch = guild.channels.cache.get(row.channel_id);
-          if (!ch || (ch.type !== ChannelType.GuildText && ch.type !== ChannelType.PublicThread)) return;
-          try {
-            const m = await ch.messages.fetch(messageId);
-            await m.delete();
-          } catch {
-            // 既に消えている / 取得失敗は無視（best-effort）。
-          }
-        },
-      });
-      // 作業状態をチャンネル名の状態絵文字 (作業中⚙️ ⟷ 緑🟢) に反映するトラッカー。
-      // idle 復帰は Discord の rename レート制限 (2回/10分) に合わせ 600 秒。
-      const workIdleSec = Math.max(60, Number(process.env.CONCORDIA_DISCORD_WORK_IDLE_SEC ?? "600") || 600);
+      // Discord は「作業中」メッセージを投稿せず、Forum の状態タグだけで表す。
+      // summary / final_answer が実際に投稿されるまでタグを保持する。
       channelWorkState = new ChannelWorkState({
-        idleMs: workIdleSec * 1000,
         log: (m) => log.info(`channel-work-state: ${m}`),
-        setWorking: (sessionId, working) => {
-          void onSessionWorkState(
+        setWorking: (sessionId, working) =>
+          onSessionWorkState(
             { guild, layout: layout!, repo: sessionChannelsRepo, log },
             { sessionId, working },
-          ).catch((e) => log.warn(`work-state rename failed session=${sessionId}: ${(e as Error).message}`));
-        },
+          ),
       });
       unsubscribe = eventBus.subscribe((ev) => routeEvent(ev, guild));
       deps.onRuntimeState?.({ running: true, status: "ready" });
@@ -952,7 +923,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "session.lost") {
-      workingIndicator?.clear(ev.session_id);
       channelWorkState?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       // lost = wrapper の heartbeat が止まった (端末を閉じた等で実質終了)。 状態カードは
@@ -964,7 +934,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "session.ended") {
-      workingIndicator?.clear(ev.session_id);
       channelWorkState?.clear(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
@@ -1010,15 +979,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sessionChannelsRepo,
         messageMap,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
+        onTranscriptPosted,
         log,
       }, ev);
-      // transcript が動いている = セッションは作業中。進捗ごとに「作業中」を消して
-      // 落ち着いたら最下部へ出し直す（idle で除去）。session に紐づくものだけ。
-      const progressSession =
-        ev.type === "transcript.frame" ? ev.target_session_id : ev.session_id ?? null;
-      if (progressSession && isActiveDiscordSession(progressSession)) {
-        workingIndicator?.noteProgress(progressSession);
-        channelWorkState?.noteProgress(progressSession);
+      // final frame の送信中も「作業中」を維持する。解除は egress が実際の投稿成功を
+      // 通知した後だけ行う。chat.posted は出力の別経路なので作業開始シグナルにしない。
+      if (ev.type === "transcript.frame" && isActiveDiscordSession(ev.target_session_id)) {
+        channelWorkState?.noteProgress(ev.target_session_id);
       }
       // 指示 (Discord inject) → transcript が動いた最初のタイミングで ✅ を付ける。
       // takeInjectAck は delete-on-read なので、 後続フレームや codex prompt 経路と
@@ -1041,13 +1008,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "session.event" && ev.kind === "prompt") {
-      // 指令を受け付けた = 作業開始。出力が来る前から「作業中」を出す。
+      // 指令を受け付けた = 作業開始。出力が来る前から「作業中」タグを付ける。
       const prompt = deps.readModel.getSessionPromptEvent(ev.session_id);
-      if (!prompt || !shouldRelaySessionPromptToDiscord(prompt.provider)) return;
+      if (!prompt) return;
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
       if (!isActiveRelayTarget(prompt.status, row?.status ?? null)) return;
-      workingIndicator?.noteProgress(ev.session_id);
       channelWorkState?.noteProgress(ev.session_id);
+      if (!shouldRelaySessionPromptToDiscord(prompt.provider)) return;
       const text = prompt.text;
       const source = prompt.source;
       if (!text) return;
@@ -1244,6 +1211,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sessionChannelsRepo,
         messageMap,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
+        onTranscriptPosted,
         log,
       }, {
         type: "transcript.frame",

@@ -65,6 +65,16 @@ describe("loadConfig adminToken", () => {
   });
 });
 
+describe("loadConfig reaper lost grace", () => {
+  it("defaults to five minutes", () => {
+    expect(loadConfig({} as NodeJS.ProcessEnv).reaperLostGraceSec).toBe(300);
+  });
+
+  it("reads CONCORDIA_REAPER_LOST_GRACE_SEC", () => {
+    expect(loadConfig({ CONCORDIA_REAPER_LOST_GRACE_SEC: "900" } as NodeJS.ProcessEnv).reaperLostGraceSec).toBe(900);
+  });
+});
+
 describe("isLoopbackHost", () => {
   it("loopback とみなすもの", () => {
     for (const h of ["", "127.0.0.1", "127.1.2.3", "::1", "[::1]", "localhost", "LOCALHOST", "  127.0.0.1  "]) {

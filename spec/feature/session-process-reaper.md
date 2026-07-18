@@ -68,8 +68,10 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
   孤児と判定。lictor は `pid ∈ live lictor_pids` か、 agent-client は
   `--session <id> ∈ live session ids` か、で live を判定。
 - **誤爆防止 (live work を絶対殺さない):**
-  - live = status `active` または `lost` (lost は復帰しうるので殺さない)。
-    回収対象は ended/abandoned/purged(行なし) のみ。
+  - generic orphan判定では従来どおりactive/lostをlive扱いにする。
+  - lost rowは専用判定で、`CONCORDIA_REAPER_LOST_GRACE_SEC`経過後もlost、
+    `ws_clients=0`、metadataのPIDとOS上の`lictor.mjs` PIDが一致する場合だけtree-killする。
+    kill直前にrowを再取得し、active復帰・WS再接続・PID差替えがあれば見送る。
   - 起動から `reaperMinAgeSec` (既定 180s) 未満は見送り (pid 登録レース回避)。
   - **session-end 進行中の保護 (安全弁):** `ended_at` から `reaperEndedGraceSec`
     (既定 300s = 5 分) 以内の ended session は live 扱いで殺さない
@@ -88,6 +90,7 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
 - `CONCORDIA_REAPER_INTERVAL_MS` (既定 `300000`)
 - `CONCORDIA_REAPER_MIN_AGE_SEC` (既定 `180`)
 - `CONCORDIA_REAPER_ENDED_GRACE_SEC` (既定 `300` = 5 分。 `0` で無効 = ended を即回収)
+- `CONCORDIA_REAPER_LOST_GRACE_SEC` (既定 `300` = 5 分。lost復帰猶予後にLictor treeを回収)
 
 ## Phase 2: agent-client の明示 kill (実装済)
 agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に

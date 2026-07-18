@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   classifyKind,
   extractSessionId,
@@ -8,8 +8,10 @@ import {
   liveSetsFromRepo,
   parseLictorPid,
   parseAgentClientPid,
+  reapOrphans,
   type RunningAgentProc,
 } from "../src/control/reaper.js";
+import { reapLostLictorProcesses } from "../src/control/lost-session-process-reaper.js";
 import type { SessionsRepo } from "../src/db/sessions-repo.js";
 
 describe("classifyKind", () => {
@@ -136,5 +138,121 @@ describe("liveSetsFromRepo (session-end 進行中の保護 = 安全弁)", () => 
   it("graceSec=0 (無効) なら ended は一切保護しない", () => {
     const { sessionIds } = liveSetsFromRepo(makeRepo(rows), { nowSec: now, graceSec: 0 });
     expect(sessionIds.has("ending-fresh")).toBe(false);
+  });
+});
+
+describe("lost Lictor process cleanup", () => {
+  type Row = {
+    id: string;
+    status: "active" | "lost";
+    metadata: string | null;
+    last_seen_at: number;
+    ws_clients: number;
+  };
+  const nowSec = 10_000;
+  const process = (pid: number): RunningAgentProc => ({
+    pid,
+    kind: "lictor",
+    sessionId: null,
+    ageSec: 2_000,
+    cmd: `node lictor.mjs pid=${pid}`,
+  });
+  const makeRepo = (rows: Row[], findSession?: (id: string) => Row | undefined): SessionsRepo =>
+    ({
+      listSessions: ({ status }: { status?: string }) => rows.filter((row) => row.status === status),
+      findSession: findSession ?? ((id: string) => rows.find((row) => row.id === id)),
+    }) as unknown as SessionsRepo;
+
+  it("kills only a lost, disconnected Lictor after the recovery grace", async () => {
+    const rows: Row[] = [
+      { id: "lost-old", status: "lost", metadata: '{"lictor_pid":101}', last_seen_at: nowSec - 600, ws_clients: 0 },
+      { id: "lost-fresh", status: "lost", metadata: '{"lictor_pid":102}', last_seen_at: nowSec - 60, ws_clients: 0 },
+      { id: "lost-connected", status: "lost", metadata: '{"lictor_pid":103}', last_seen_at: nowSec - 600, ws_clients: 1 },
+      { id: "active", status: "active", metadata: '{"lictor_pid":104}', last_seen_at: nowSec - 600, ws_clients: 0 },
+    ];
+    const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+
+    const result = await reapLostLictorProcesses(
+      { repo: makeRepo(rows), processes: [process(101), process(102), process(103), process(104)], stopProcess },
+      { dryRun: false, nowSec, graceSec: 300, minProcessAgeSec: 180 },
+    );
+
+    expect(result.candidates.map((candidate) => candidate.sessionId)).toEqual(["lost-old"]);
+    expect(result.killed.map((candidate) => candidate.pid)).toEqual([101]);
+    expect(stopProcess).toHaveBeenCalledExactlyOnceWith(101);
+  });
+
+  it("skips kill when the session revives after process scan", async () => {
+    const lost: Row = {
+      id: "revived",
+      status: "lost",
+      metadata: '{"lictor_pid":201}',
+      last_seen_at: nowSec - 600,
+      ws_clients: 0,
+    };
+    const active: Row = { ...lost, status: "active", last_seen_at: nowSec, ws_clients: 1 };
+    const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+
+    const result = await reapLostLictorProcesses(
+      { repo: makeRepo([lost], () => active), processes: [process(201)], stopProcess },
+      { dryRun: false, nowSec, graceSec: 300, minProcessAgeSec: 180 },
+    );
+
+    expect(result.candidates).toHaveLength(1);
+    expect(result.skipped.map((candidate) => candidate.pid)).toEqual([201]);
+    expect(stopProcess).not.toHaveBeenCalled();
+  });
+
+  it("protects a PID referenced by an active session", async () => {
+    const rows: Row[] = [
+      { id: "lost-old-pid", status: "lost", metadata: '{"lictor_pid":251}', last_seen_at: nowSec - 600, ws_clients: 0 },
+      { id: "active-reused-pid", status: "active", metadata: '{"lictor_pid":251}', last_seen_at: nowSec, ws_clients: 1 },
+    ];
+    const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+
+    const result = await reapLostLictorProcesses(
+      { repo: makeRepo(rows), processes: [process(251)], stopProcess },
+      { dryRun: false, nowSec, graceSec: 300, minProcessAgeSec: 180 },
+    );
+
+    expect(result.candidates).toHaveLength(0);
+    expect(stopProcess).not.toHaveBeenCalled();
+  });
+
+  it("fails safe when the destructive grace setting is invalid", async () => {
+    const lost: Row = {
+      id: "lost-invalid-config",
+      status: "lost",
+      metadata: '{"lictor_pid":275}',
+      last_seen_at: nowSec - 600,
+      ws_clients: 0,
+    };
+    const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+
+    const result = await reapLostLictorProcesses(
+      { repo: makeRepo([lost]), processes: [process(275)], stopProcess },
+      { dryRun: false, nowSec, graceSec: Number.NaN, minProcessAgeSec: 180 },
+    );
+
+    expect(result.candidates).toHaveLength(0);
+    expect(stopProcess).not.toHaveBeenCalled();
+  });
+
+  it("is wired into the periodic/admin reaper result", async () => {
+    const lost: Row = {
+      id: "lost-wired",
+      status: "lost",
+      metadata: '{"lictor_pid":301}',
+      last_seen_at: nowSec - 600,
+      ws_clients: 0,
+    };
+    const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+    const result = await reapOrphans(
+      { repo: makeRepo([lost]), scanProcesses: async () => [process(301)], stopProcess },
+      { dryRun: false, minAgeSec: 180, endedGraceSec: 300, lostGraceSec: 300, nowSec },
+    );
+
+    expect(result.lost.killed.map((candidate) => candidate.pid)).toEqual([301]);
+    expect(result.orphans).toHaveLength(0);
   });
 });

@@ -209,18 +209,6 @@ loopback bind に依存する (= 非 localhost からは呼べない)。
 
 ---
 
-## 開発ステータス
-
-**v0.1 scaffold (2026-05-02)** — 着手中。
-
-| Phase | 内容 |
-|-------|------|
-| **v0.1** | Claude Code provider only / 基本 API / Web monitor / hook wrapper / lost 検知 + jsonl recovery |
-| **v0.2** | Gemini CLI provider, Codex CLI provider, worktree 自動化、 LLM report generation (Anthropic SDK) |
-| **v0.3** | Tailscale 越え (loopback → tailnet)、 multi-host 集約、 session lock オプション |
-
----
-
 ## 開発規約
 
 テスト配置: 単一モジュールの unit テストは co-located (`src/**/x.test.ts`)、サーバ横断の API・統合テストは `tests/`。共有 helper は `tests/helpers/`。

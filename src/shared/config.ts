@@ -66,6 +66,8 @@ export interface ConcordiaConfig {
    * env `CONCORDIA_REAPER_ENDED_GRACE_SEC` (既定 300 = 5 分)。 0 で無効。
    */
   reaperEndedGraceSec: number;
+  /** lost化からLictor treeを回収するまでの復帰猶予。env、既定300秒。 */
+  reaperLostGraceSec: number;
   /** 停止セッションの続行 nudge の有効/無効。 env `CONCORDIA_STALL_NUDGE_ENABLED` (既定 ON)。 */
   stallNudgeEnabled: boolean;
   /** 停止 nudge の走査間隔 (ms)。 env `CONCORDIA_STALL_NUDGE_INTERVAL_MS` (既定 10 分)。 */
@@ -231,6 +233,7 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     reaperIntervalMs: Number(env.CONCORDIA_REAPER_INTERVAL_MS ?? "300000"),
     reaperMinAgeSec: Number(env.CONCORDIA_REAPER_MIN_AGE_SEC ?? "180"),
     reaperEndedGraceSec: Number(env.CONCORDIA_REAPER_ENDED_GRACE_SEC ?? "300"),
+    reaperLostGraceSec: Number(env.CONCORDIA_REAPER_LOST_GRACE_SEC ?? "300"),
     stallNudgeEnabled: (env.CONCORDIA_STALL_NUDGE_ENABLED ?? "1") !== "0",
     stallNudgeIntervalMs: Number(env.CONCORDIA_STALL_NUDGE_INTERVAL_MS ?? "600000"),
     stallIdleSec: Number(env.CONCORDIA_STALL_IDLE_SEC ?? "3600"),

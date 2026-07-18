@@ -844,6 +844,7 @@ export async function startBackend(): Promise<BackendHandle> {
           intervalMs: cfg.reaperIntervalMs,
           minAgeSec: cfg.reaperMinAgeSec,
           endedGraceSec: cfg.reaperEndedGraceSec,
+          lostGraceSec: cfg.reaperLostGraceSec,
         },
       ),
     );

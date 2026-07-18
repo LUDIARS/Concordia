@@ -8,9 +8,10 @@
  *
  * 判定の安全側設計 (live work を絶対に殺さない):
  *  - lictor proc: pid が status active/lost の session.metadata.lictor_pid に含まれなければ孤児。
+ *  - lost session: 復帰猶予後もlost・WS未接続で、metadata PIDとOS上のlictor.mjsが一致すれば回収。
  *  - agent-client: `--session <id>` の id が status active/lost の session に無ければ孤児。
  *  - いずれも起動から minAgeSec 未満は見送る (登録レース回避: 起動直後で pid 未登録の可能性)。
- *  - active / lost は live 扱い (lost は復帰しうるので殺さない)。ended/abandoned/purged(行なし)のみ回収。
+ *  - generic orphan判定ではactive/lostをlive扱い。lostは専用判定で復帰猶予後だけ回収。
  *  - **session-end 進行中の保護 (安全弁):** ended になっても、 ended_at から endedGraceSec
  *    (既定 5 分) 以内は live 扱いで殺さない。 DELETE /v1/sessions/:id で status=ended に
  *    した直後から AI 側 session-end スキル (log 保存 / memory 更新 / Memoria 登録) が走り、
@@ -22,6 +23,12 @@
 import { spawn } from "node:child_process";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { stopSessionByLictorPid } from "./stop-session.js";
+import {
+  reapLostLictorProcesses,
+  type LostLictorReapResult,
+} from "./lost-session-process-reaper.js";
+import { parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
+export { parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
@@ -150,26 +157,6 @@ export function liveSetsFromRepo(
   return { lictorPids, sessionIds };
 }
 
-/** session.metadata (JSON 文字列) から lictor_pid を取り出す (pure)。 */
-export function parseLictorPid(metadata: string | null): number | null {
-  return parseMetaPid(metadata, "lictor_pid");
-}
-
-/** session.metadata から agent_client_pid を取り出す (pure)。 agent-client が起動時に自己登録する。 */
-export function parseAgentClientPid(metadata: string | null): number | null {
-  return parseMetaPid(metadata, "agent_client_pid");
-}
-
-function parseMetaPid(metadata: string | null, key: string): number | null {
-  if (!metadata) return null;
-  try {
-    const m = JSON.parse(metadata) as Record<string, unknown>;
-    return typeof m[key] === "number" ? (m[key] as number) : null;
-  } catch {
-    return null;
-  }
-}
-
 // ─── OS 走査 ───────────────────────────────────────
 
 /** OS から Lictor/agent-client プロセスを列挙する。 失敗時は空配列。 */
@@ -191,6 +178,8 @@ export async function scanAgentProcesses(): Promise<RunningAgentProc[]> {
 
 /** ended セッションの保護猶予 (秒) の既定値 = 5 分。 */
 export const DEFAULT_ENDED_GRACE_SEC = 300;
+/** lost セッションがlive trafficで復帰するための猶予 (秒) の既定値 = 5 分。 */
+export const DEFAULT_LOST_GRACE_SEC = 300;
 
 export interface ReapOptions {
   dryRun: boolean;
@@ -202,12 +191,15 @@ export interface ReapOptions {
    * 0 で無効 (旧挙動: ended は即回収対象)。
    */
   endedGraceSec?: number;
+  /** lost化からこの秒数は復帰猶予としてLictor treeを保護する。既定5分。 */
+  lostGraceSec?: number;
   /** 現在時刻 (秒)。 テスト注入用。 省略時は実時刻。 */
   nowSec?: number;
 }
 
 export interface ReapResult {
   scanned: number;
+  lost: LostLictorReapResult;
   orphans: OrphanProc[];
   killed: OrphanProc[];
   failed: Array<{ proc: OrphanProc; error: string }>;
@@ -215,14 +207,29 @@ export interface ReapResult {
 
 /** 1 回の回収。 dryRun 時は kill せず孤児一覧だけ返す。 */
 export async function reapOrphans(
-  deps: { repo: SessionsRepo },
+  deps: {
+    repo: SessionsRepo;
+    scanProcesses?: () => Promise<RunningAgentProc[]>;
+    stopProcess?: typeof stopSessionByLictorPid;
+  },
   opts: ReapOptions,
 ): Promise<ReapResult> {
-  const procs = await scanAgentProcesses();
+  const procs = await (deps.scanProcesses ?? scanAgentProcesses)();
+  const nowSec = opts.nowSec ?? nowSecReal();
+  const stopProcess = deps.stopProcess ?? stopSessionByLictorPid;
+  const lost = await reapLostLictorProcesses(
+    { repo: deps.repo, processes: procs, stopProcess },
+    {
+      dryRun: opts.dryRun,
+      nowSec,
+      graceSec: opts.lostGraceSec ?? DEFAULT_LOST_GRACE_SEC,
+      minProcessAgeSec: opts.minAgeSec,
+    },
+  );
   const graceSec = opts.endedGraceSec ?? DEFAULT_ENDED_GRACE_SEC;
   const { lictorPids, sessionIds } = liveSetsFromRepo(
     deps.repo,
-    graceSec > 0 ? { nowSec: opts.nowSec ?? nowSecReal(), graceSec } : undefined,
+    graceSec > 0 ? { nowSec, graceSec } : undefined,
   );
   const orphans = classifyOrphans(procs, lictorPids, sessionIds, opts.minAgeSec);
 
@@ -230,12 +237,12 @@ export async function reapOrphans(
   const failed: Array<{ proc: OrphanProc; error: string }> = [];
   if (!opts.dryRun) {
     for (const o of orphans) {
-      const r = await stopSessionByLictorPid(o.pid);
+      const r = await stopProcess(o.pid);
       if (r.ok) killed.push(o);
       else failed.push({ proc: o, error: r.error });
     }
   }
-  return { scanned: procs.length, orphans, killed, failed };
+  return { scanned: procs.length, lost, orphans, killed, failed };
 }
 
 export interface ReaperHandle {
@@ -246,10 +253,21 @@ export interface ReaperHandle {
 /** 周期 reaper を起動する。 */
 export function startReaper(
   deps: { repo: SessionsRepo },
-  opts: { enabled: boolean; intervalMs: number; minAgeSec: number; endedGraceSec: number },
+  opts: {
+    enabled: boolean;
+    intervalMs: number;
+    minAgeSec: number;
+    endedGraceSec: number;
+    lostGraceSec: number;
+  },
 ): ReaperHandle {
   const runOnce = () =>
-    reapOrphans(deps, { dryRun: false, minAgeSec: opts.minAgeSec, endedGraceSec: opts.endedGraceSec });
+    reapOrphans(deps, {
+      dryRun: false,
+      minAgeSec: opts.minAgeSec,
+      endedGraceSec: opts.endedGraceSec,
+      lostGraceSec: opts.lostGraceSec,
+    });
 
   if (!opts.enabled) {
     log.info("reaper disabled (CONCORDIA_REAPER_ENABLED=0)");
@@ -258,10 +276,19 @@ export function startReaper(
 
   const tick = async (): Promise<void> => {
     const r = await runOnce();
-    if (r.killed.length > 0 || r.failed.length > 0) {
+    if (r.killed.length > 0 || r.failed.length > 0 || r.lost.killed.length > 0 || r.lost.failed.length > 0) {
       log.info(
-        { scanned: r.scanned, orphans: r.orphans.length, killed: r.killed.length, failed: r.failed.length },
-        "reaped orphan processes",
+        {
+          scanned: r.scanned,
+          lostCandidates: r.lost.candidates.length,
+          lostKilled: r.lost.killed.length,
+          lostSkipped: r.lost.skipped.length,
+          lostFailed: r.lost.failed.length,
+          orphans: r.orphans.length,
+          killed: r.killed.length,
+          failed: r.failed.length,
+        },
+        "reaped lost session and orphan processes",
       );
     }
   };
@@ -272,7 +299,12 @@ export function startReaper(
     log: { warn: (message) => log.warn(message) },
   });
   log.info(
-    { intervalMs: opts.intervalMs, minAgeSec: opts.minAgeSec, endedGraceSec: opts.endedGraceSec },
+    {
+      intervalMs: opts.intervalMs,
+      minAgeSec: opts.minAgeSec,
+      endedGraceSec: opts.endedGraceSec,
+      lostGraceSec: opts.lostGraceSec,
+    },
     "reaper started",
   );
   return {

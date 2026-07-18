@@ -1,3 +1,4 @@
+import { ChannelType } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import endSessionCommand from "../src/discord/commands/end-session.js";
 import { handleControlInteraction } from "../src/discord/control.js";
@@ -48,6 +49,42 @@ describe("discord end-session interactions", () => {
       "http://127.0.0.1:11111/v1/sessions/session-1",
       expect.objectContaining({ method: "DELETE" }),
     );
+  });
+
+  it("/end-session closes its forum post instead of deleting it", async () => {
+    const editThread = vi.fn(async () => undefined);
+    const deleteThread = vi.fn(async () => undefined);
+    const interaction = {
+      channelId: "thread-1",
+      channel: {
+        id: "thread-1",
+        type: ChannelType.PublicThread,
+        parent: {
+          type: ChannelType.GuildForum,
+          availableTags: [{ id: "active-tag", name: "作業中" }],
+        },
+        appliedTags: ["active-tag"],
+        archived: false,
+        edit: editThread,
+        delete: deleteThread,
+      },
+      deferred: false,
+      replied: false,
+      deferReply: vi.fn(async () => undefined),
+      editReply: vi.fn(async () => undefined),
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "{\"ok\":true}" })));
+
+    await endSessionCommand.execute(interaction as any, {
+      concordiaUrl: "http://127.0.0.1:11111",
+      sessionChannelsRepo: {
+        findByChannelId: () => ({ session_id: "session-1", channel_id: "thread-1" }),
+      },
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as any);
+
+    expect(editThread).toHaveBeenCalledWith(expect.objectContaining({ archived: true }));
+    expect(deleteThread).not.toHaveBeenCalled();
   });
 
   it("control end-session confirm defers before DELETE completes", async () => {

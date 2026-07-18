@@ -63,6 +63,7 @@ import { createForumProjectResolver } from "./forum-project-code.js";
 import {
   handleForumSpawnThread,
   parseForumSpawnTrigger,
+  type ForumSpawnDeps,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
 import {
@@ -125,6 +126,8 @@ export interface DiscordBotDeps {
   resolveWorkspaceRoot?: () => string;
   /** 複数ワークスペースルートを bot start 時に live 解決する (Memoria は実在ルートを採用)。 */
   resolveWorkspaceRoots?: () => string[];
+  /** Forum投稿spawnにも通常spawnと同じ provider別 cwd 解決を適用する。 */
+  resolveSessionSpawnCwd?: ForumSpawnDeps["resolveSpawnCwd"];
   /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
   /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
@@ -696,6 +699,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         return pickAvailableForumProvider({ codexRate, claudeUsage });
       },
       resolveProjectTarget: projectResolver.targetFromPost,
+      resolveSpawnCwd: (provider, requested) =>
+        deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
       hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
       log,
     }, thread as unknown as ForumSpawnThread).catch((error) => {

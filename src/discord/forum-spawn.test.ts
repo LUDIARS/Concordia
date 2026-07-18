@@ -63,6 +63,7 @@ describe("forum spawn", () => {
       templates: async () => [template("forum-codex-session"), template("forum-claude-session")],
       pickProvider: async () => "codex",
       resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+      resolveSpawnCwd: (_provider, requested) => requested ?? "E:/Document/Ars",
       hasExistingRun: () => false,
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
@@ -79,6 +80,41 @@ describe("forum spawn", () => {
     });
     expect(replies).toHaveLength(1);
     expect(replies[0]).toContain("run-1");
+  });
+
+  it("uses the normal spawn project root when the post has no project code", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-default", status: "queued" },
+      spawn_pid: 43,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const resolveSpawnCwd = vi.fn(() => "E:/Document/Ars/Castra");
+    const thread: ForumSpawnThread = {
+      id: "thread-default",
+      guildId: "guild-1",
+      parentId: "forum-1",
+      ownerId: "human-1",
+      name: "Investigate without a project code",
+      fetchStarterMessage: async () => ({ content: "Start a normal session" }),
+      send: async () => undefined,
+    };
+
+    await handleForumSpawnThread({
+      sessionForumId: "forum-1",
+      botUserId: "bot-1",
+      concordiaUrl: "http://127.0.0.1:17320",
+      templates: async () => [template("forum-codex-session")],
+      pickProvider: async () => "codex",
+      resolveProjectTarget: () => null,
+      resolveSpawnCwd,
+      hasExistingRun: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    }, thread);
+
+    expect(resolveSpawnCwd).toHaveBeenCalledWith("codex", undefined);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toMatchObject({ cwd: "E:/Document/Ars/Castra" });
   });
 
   it("replies with an error and does not invoke when the planned template is missing", async () => {
@@ -102,6 +138,7 @@ describe("forum spawn", () => {
       templates: async () => [],
       pickProvider: async () => "claude",
       resolveProjectTarget: () => null,
+      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
       hasExistingRun: () => false,
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);

@@ -1,6 +1,17 @@
+<p align="center">
+  <img src="docs/assets/concordia.svg" width="100" alt="Concordia logo" />
+</p>
+
 # Concordia
 
-LUDIARS の **複数 AI コーディングエージェントセッション間の協調 / 認識 / 記録** サービス。
+複数の AI コーディングエージェントセッション間の **協調 / 認識 / 記録** サービス。
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
+  <a href="https://github.com/LUDIARS/Concordia/actions"><img src="https://github.com/LUDIARS/Concordia/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+</p>
+
+---
 
 ラテン語で **同心 / 一致 / 協調** を意味し、 ローマ女神 Concordia (元老院・市民の和合の象徴) に由来する。
 **lock せず**、 各セッションが自律的に状態を共有することで重複作業や知識の分断を防ぐ。

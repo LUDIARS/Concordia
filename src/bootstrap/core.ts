@@ -47,7 +47,7 @@ import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { repinSession } from "../control/repin-session.js";
 import { AdminState } from "../admin/state.js";
-import { setLictorLauncherResolver, setConcordiaAddress } from "../control/spawner.js";
+import { resolveAgentHomeCwd, setLictorLauncherResolver, setConcordiaAddress } from "../control/spawner.js";
 import { resolveLictorLauncher } from "../control/lictor-launcher.js";
 import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
@@ -616,6 +616,8 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    resolveSessionSpawnCwd: (provider, requested) =>
+      resolveAgentHomeCwd(provider, requested, adminState.getWorkspaceRoot()),
     // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。

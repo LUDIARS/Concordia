@@ -32,6 +32,7 @@ import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { repinSession } from "./control/repin-session.js";
+import { resolveAgentHomeCwd } from "./control/spawner.js";
 import { makeDiscordConfigRepo, makeDiscordPendingQuestionsRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
@@ -240,6 +241,8 @@ async function main(): Promise<void> {
     workspaceRoot,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    resolveSessionSpawnCwd: (provider, requested) =>
+      resolveAgentHomeCwd(provider, requested, adminState.getWorkspaceRoot()),
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>

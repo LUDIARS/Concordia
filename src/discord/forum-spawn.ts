@@ -38,6 +38,8 @@ export interface ForumSpawnDeps {
   /** codex/claude のどちらが空いているかを返す (呼び出し側が週間 rate-limit 残量から判定する)。 */
   pickProvider: () => Promise<ForumSpawnProvider>;
   resolveProjectTarget: (title: string, body: string) => ForumProjectTarget | null;
+  /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
+  resolveSpawnCwd: (provider: ForumSpawnProvider, requested?: string) => string | undefined;
   hasExistingRun: (triggeredBy: string) => boolean;
   log: { info: (message: string) => void; warn: (message: string) => void };
 }
@@ -67,6 +69,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   }
   const body = starter.content.trim();
   const project = deps.resolveProjectTarget(thread.name, body);
+  const cwd = deps.resolveSpawnCwd(provider, project?.cwd);
   const result = await callConcordia<{
     ok: boolean;
     run: { id: string; status: string };
@@ -74,7 +77,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   }>(deps.concordiaUrl, "POST", "/v1/delegation/invoke", {
     call_name: template.call_name,
     args: forumTemplateDefaultArgs({ input_schema: template.input_schema ?? [] }),
-    cwd: project?.cwd,
+    cwd,
     extra_prompt: buildForumSpawnPrompt(thread.name, body),
     triggered_by: triggeredBy,
     spawn: true,
@@ -88,7 +91,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${template.call_name} ` +
-    `provider=${provider} project=${project?.project ?? "template-default"}`,
+    `provider=${provider} project=${project?.project ?? "workspace-default"} cwd=${cwd ?? "unresolved"}`,
   );
   await reply(thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
 }

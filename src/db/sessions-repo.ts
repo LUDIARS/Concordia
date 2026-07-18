@@ -262,6 +262,20 @@ export class SessionsRepo {
       .all(cutoff) as SessionRow[];
   }
 
+  /** ended のまま指定 metadata key を保持し、traffic / WS が途絶えた session を返す。 */
+  findStaleEndedWithMetadataKey(cutoff: number, key: string): SessionRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE status = 'ended'
+           AND last_seen_at < ?
+           AND ws_clients = 0
+           AND json_valid(metadata)
+           AND json_extract(metadata, ?) IS NOT NULL`,
+      )
+      .all(cutoff, `$.${key}`) as SessionRow[];
+  }
+
   // ─── WS persistent client (active 判定の主軸) ─────────
   //
   // 接続時に incrementWsClients、 切断時に decrementWsClients を呼ぶ.

@@ -170,13 +170,15 @@ heartbeat は**タイマー式ではなくイベント駆動**。長い 1 ター
   lictor/agent-client がグループリーダーでない場合に誤爆リスク。
 - **改修案**: kill 前にプロセスの開始時刻・イメージ名を記録値と照合する。
 
-### B-6. reaper 猶予とセッション終了処理のタイムアウト不整合 【P2】
+### B-6. reaper 猶予とセッション終了処理のタイムアウト不整合 【P2・解消済み】
 
 - `reaperEndedGraceSec = 300s` (`config.ts:224`) に対し、session-end 完了待ちは
   `SESSION_END_DONE_TIMEOUT_MS = 600s` (`src/api/sessions/shared.ts:25`)。
   終了処理 (ログ・memory 書き出し) が 5〜10 分かかると、正当なクリーンアップ中に
   reaper が lictor ツリーを kill しうる。
-- **改修案**: 2 つの窓を揃える (reaper 猶予 ≧ session-end タイムアウト)。
+- **2026-07-18 解消**: ended の時間ベース回収と完了待ちタイムアウトを廃止した。
+  `session-end-done` の完了通知だけがPIDを停止し、未完了のままtrafficが途絶えた場合は
+  sweeperがlostへ移した後、lost専用reaperが回収する。
 
 ---
 

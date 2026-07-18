@@ -7,7 +7,8 @@ import {
   pickSpawnProjectIdentificationInject,
   SPAWN_PROJECT_IDENTIFICATION_SOURCE,
 } from "../../control/spawn-project-identification.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -390,6 +391,10 @@ app.delete("/:id", async (c) => {
         });
       }
     } catch { /* swallow — best effort */ }
+    const alreadyPending = isSessionEndPending(s.metadata);
+    if (s.status === "active" && !alreadyPending) {
+      deps.repo.mergeMetadata(id, { [SESSION_END_PENDING_AT_KEY]: now });
+    }
     deps.repo.setStatus(id, "ended", now, now);
     deps.repo.appendEvent({
       session_id: id,
@@ -407,49 +412,6 @@ app.delete("/:id", async (c) => {
       },
       ended,
     );
-    // force-exit は AI 側の session-end スキル完了後に発行する。
-    // `POST /v1/sessions/:id/session-end-done` が来た時点で即 force-exit、
-    // シグナルなし時は SESSION_END_DONE_TIMEOUT_MS 後に保険として発行する。
-    // これにより session-log 出力・memory 更新・残タスク登録が完了する前に
-    // WT ウインドウが閉じる問題を防ぐ。
-    const lictorPid = parseLictorPid(ended.metadata);
-    const agentClientPid = parseAgentClientPid(ended.metadata);
-    const doForceExit = () => {
-      pendingSessionEndExits.delete(id);
-      const lictorTarget = resolveLictorTarget(deps.repo, id);
-      if (!("error" in lictorTarget)) {
-        void fetchFromLictor(lictorTarget.port, "/v1/internal/force-exit", { method: "POST" })
-          .catch(() => {});
-      }
-      // 保険: force-exit は Windows/ConPTY で不発になりやすい (graceful 終了に失敗するとプロセスが残る)。
-      // 猶予後に lictor_pid / agent_client_pid がまだ生きていれば確定的に kill する (taskkill /F /T)。
-      // agent-client は通常 WS の session.ended で自死するが、 WS 切断中だとイベントを取りこぼすため pid で保険。
-      if (lictorPid != null || agentClientPid != null) {
-        setTimeout(() => {
-          void (async () => {
-            if (lictorPid != null && isPidAlive(lictorPid)) {
-              const r = await stopSessionByLictorPid(lictorPid);
-              if (!r.ok) log.warn({ session_id: id, pid: lictorPid, error: r.error }, "delete insurance kill failed");
-              else log.info({ session_id: id, pid: lictorPid }, "delete insurance kill (force-exit did not terminate lictor)");
-            }
-            if (agentClientPid != null && isPidAlive(agentClientPid)) {
-              const r = await stopSessionByLictorPid(agentClientPid);
-              if (!r.ok) log.warn({ session_id: id, pid: agentClientPid, error: r.error }, "delete agent-client kill failed");
-              else log.info({ session_id: id, pid: agentClientPid }, "delete agent-client kill (WS self-shutdown missed)");
-            }
-          })();
-        }, FORCE_EXIT_GRACE_MS).unref?.();
-      }
-    };
-    const exitTimer = setTimeout(() => {
-      log.info({ session_id: id }, "session-end-done timeout — forcing exit");
-      doForceExit();
-    }, SESSION_END_DONE_TIMEOUT_MS);
-    exitTimer.unref?.();
-    pendingSessionEndExits.set(id, () => {
-      clearTimeout(exitTimer);
-      doForceExit();
-    });
     return c.json({ ok: true, session: serializeSession(ended), report });
   });
 }

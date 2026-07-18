@@ -105,7 +105,7 @@ describe("classifyOrphans (誤爆防止が核心)", () => {
   });
 });
 
-describe("liveSetsFromRepo (session-end 進行中の保護 = 安全弁)", () => {
+describe("liveSetsFromRepo (ended is never time-reaped)", () => {
   type Row = { id: string; status: string; metadata: string | null; ended_at: number | null };
   const makeRepo = (rows: Row[]): SessionsRepo =>
     ({
@@ -115,36 +115,22 @@ describe("liveSetsFromRepo (session-end 進行中の保護 = 安全弁)", () => 
   const now = 10_000;
   const rows: Row[] = [
     { id: "active-1", status: "active", metadata: '{"lictor_pid":11,"agent_client_pid":111}', ended_at: null },
-    // ended から 60s (grace 内) — 保護される
+    // ended は経過時間にかかわらず generic reaper から保護される
     { id: "ending-fresh", status: "ended", metadata: '{"lictor_pid":22}', ended_at: now - 60 },
-    // ended から 600s (grace 超) — 保護されない
     { id: "ending-stale", status: "ended", metadata: '{"lictor_pid":33}', ended_at: now - 600 },
   ];
 
-  it("grace 無しでは active/lost のみ live (ended は含めない)", () => {
+  it("active と ended のPID/sessionをすべてlive扱いにする", () => {
     const { lictorPids, sessionIds } = liveSetsFromRepo(makeRepo(rows));
-    expect([...sessionIds]).toEqual(["active-1"]);
-    expect([...lictorPids]).toEqual([11]);
-  });
-
-  it("grace 内の ended は live 扱いで保護され、 grace 超の ended は保護しない", () => {
-    const { lictorPids, sessionIds } = liveSetsFromRepo(makeRepo(rows), { nowSec: now, graceSec: 300 });
-    expect(sessionIds.has("ending-fresh")).toBe(true); // session-end 途中 → 殺さない
-    expect(lictorPids.has(22)).toBe(true);
-    expect(sessionIds.has("ending-stale")).toBe(false); // grace 超 → 回収対象
-    expect(lictorPids.has(33)).toBe(false);
-  });
-
-  it("graceSec=0 (無効) なら ended は一切保護しない", () => {
-    const { sessionIds } = liveSetsFromRepo(makeRepo(rows), { nowSec: now, graceSec: 0 });
-    expect(sessionIds.has("ending-fresh")).toBe(false);
+    expect([...sessionIds]).toEqual(["active-1", "ending-fresh", "ending-stale"]);
+    expect([...lictorPids]).toEqual([11, 22, 33]);
   });
 });
 
 describe("lost Lictor process cleanup", () => {
   type Row = {
     id: string;
-    status: "active" | "lost";
+    status: "active" | "lost" | "ended";
     metadata: string | null;
     last_seen_at: number;
     ws_clients: number;
@@ -203,10 +189,10 @@ describe("lost Lictor process cleanup", () => {
     expect(stopProcess).not.toHaveBeenCalled();
   });
 
-  it("protects a PID referenced by an active session", async () => {
+  it.each(["active", "ended"] as const)("protects a PID referenced by an %s session", async (status) => {
     const rows: Row[] = [
       { id: "lost-old-pid", status: "lost", metadata: '{"lictor_pid":251}', last_seen_at: nowSec - 600, ws_clients: 0 },
-      { id: "active-reused-pid", status: "active", metadata: '{"lictor_pid":251}', last_seen_at: nowSec, ws_clients: 1 },
+      { id: `${status}-reused-pid`, status, metadata: '{"lictor_pid":251}', last_seen_at: nowSec, ws_clients: status === "active" ? 1 : 0 },
     ];
     const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
 
@@ -249,7 +235,7 @@ describe("lost Lictor process cleanup", () => {
     const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
     const result = await reapOrphans(
       { repo: makeRepo([lost]), scanProcesses: async () => [process(301)], stopProcess },
-      { dryRun: false, minAgeSec: 180, endedGraceSec: 300, lostGraceSec: 300, nowSec },
+      { dryRun: false, minAgeSec: 180, lostGraceSec: 300, nowSec },
     );
 
     expect(result.lost.killed.map((candidate) => candidate.pid)).toEqual([301]);

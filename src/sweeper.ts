@@ -16,6 +16,7 @@ import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 import { eventBus } from "./events.js";
 import { createLoopBulkhead } from "./shared/loop-bulkhead.js";
+import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "./control/session-end-process.js";
 
 const log = createChildLogger("sweeper");
 
@@ -78,6 +79,22 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
         { session_id: s.id, last_seen_at: s.last_seen_at, recovered: !!recovered },
         "session marked lost",
       );
+    }
+
+    // session-end 完了通知が来なかった ended session は、traffic / WS 切断後に lost へ移す。
+    // Lictor の停止は時間ベースの ended 回収ではなく、lost 専用 reaper に委ねる。
+    for (const candidate of opts.repo.findStaleEndedWithMetadataKey(lostCutoff, SESSION_END_PENDING_AT_KEY)) {
+      const current = opts.repo.findSession(candidate.id);
+      if (!current || current.status !== "ended" || current.ws_clients > 0 || !isSessionEndPending(current.metadata)) continue;
+      opts.repo.setStatus(current.id, "lost", now);
+      opts.repo.appendEvent({
+        session_id: current.id,
+        ts: now,
+        kind: "lost",
+        payload: { last_seen_at: current.last_seen_at, reason: "session-end completion not received" },
+      });
+      eventBus.emit({ type: "session.lost", session_id: current.id, ts: now });
+      log.info({ session_id: current.id, last_seen_at: current.last_seen_at }, "incomplete session-end marked lost");
     }
 
     // 2. lost → abandoned

@@ -100,7 +100,7 @@ function candidateFor(
   return { sessionId: session.id, pid, lastSeenAt: session.last_seen_at, processAgeSec: process.ageSec };
 }
 
-/** active、または復帰猶予内/WS接続中のlost rowが参照するPIDはPID再利用とみなして保護する。 */
+/** active/ended、または復帰猶予内/WS接続中のlost rowが参照するPIDはPID再利用とみなして保護する。 */
 function collectProtectedPids(
   repo: LostSessionRepo,
   opts: Pick<LostLictorReapOptions, "nowSec" | "graceSec">,
@@ -113,6 +113,7 @@ function collectProtectedPids(
     if (pid !== null) protectedPids.add(pid);
   };
   for (const session of repo.listSessions({ status: "active" })) addPid(session);
+  for (const session of repo.listSessions({ status: "ended" })) addPid(session);
   const cutoff = lostCutoff(opts.nowSec, opts.graceSec);
   for (const session of repo.listSessions({ status: "lost" })) {
     if (cutoff === null || session.ws_clients > 0 || session.last_seen_at > cutoff) addPid(session);

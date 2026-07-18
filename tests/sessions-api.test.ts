@@ -148,8 +148,32 @@ describe("sessions API", () => {
     expect(r.status).toBe(200);
     const j = await r.json() as any;
     expect(j.session.status).toBe("ended");
+    expect(j.session.metadata.session_end_pending_at).toEqual(expect.any(Number));
     expect(j.report.summary_md).toContain("Session z");
     expect(j.report.bullets).toBeTruthy();
+
+    const done = await app.request("/v1/sessions/z/session-end-done", { method: "POST" });
+    expect(done.status).toBe(200);
+    expect(await done.json()).toMatchObject({ ok: true, stop: { stopped: [], failed: [] } });
+    const detail = await (await app.request("/v1/sessions/z")).json() as any;
+    expect(detail.session.metadata.session_end_pending_at).toBeUndefined();
+  });
+
+  it("session-end-done without a pending end does not stop an active session", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "not-ending", provider: "codex-cli", repo_path: "/x", host: "h",
+        metadata: { lictor_pid: 999_999 },
+      }),
+    });
+
+    const done = await app.request("/v1/sessions/not-ending/session-end-done", { method: "POST" });
+    expect(done.status).toBe(200);
+    expect(await done.json()).toMatchObject({ ok: true, ignored: true });
+    const detail = await (await app.request("/v1/sessions/not-ending")).json() as any;
+    expect(detail.session.status).toBe("active");
   });
 
   it("PATCH updates current_task", async () => {

@@ -578,7 +578,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const r = await reapOrphans({ repo: deps.repo }, {
       dryRun: true,
       minAgeSec: deps.config.reaperMinAgeSec,
-      endedGraceSec: deps.config.reaperEndedGraceSec,
       lostGraceSec: deps.config.reaperLostGraceSec,
     });
     return c.json({ scanned: r.scanned, lost_sessions: r.lost.candidates, orphans: r.orphans });
@@ -594,7 +593,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       {
         dryRun: body.dry_run === true,
         minAgeSec,
-        endedGraceSec: deps.config.reaperEndedGraceSec,
         lostGraceSec: deps.config.reaperLostGraceSec,
       },
     );

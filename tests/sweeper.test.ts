@@ -70,6 +70,46 @@ describe("sweeper session.lost event", () => {
     expect(sessions.findSession("stale-one")?.status).toBe("lost");
   });
 
+  it("marks an incomplete session-end lost after traffic and WS stop", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T00:00:30Z"));
+    const now = Math.floor(Date.now() / 1000);
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const tasks = new TasksRepo(db);
+    const transcriptLogs = new TranscriptLogsRepo(db);
+    const rules = new RulesRepo(db);
+    const stats = new StatsRepo(db);
+    startSession(sessions, "ending-stale", now - 100);
+    sessions.mergeMetadata("ending-stale", { session_end_pending_at: now - 100 });
+    sessions.setStatus("ending-stale", "ended", now - 100, now - 100);
+
+    const events: ConcordiaEvent[] = [];
+    cleanup.push(eventBus.subscribe((ev) => events.push(ev)));
+    const sweeper = startSweeper({
+      repo: sessions,
+      tasks,
+      transcriptLogs,
+      rules,
+      stats,
+      intervalMs: 60_000,
+      lostAfterSec: 10,
+      abandonedAfterSec: 3_600,
+      lostPurgeAfterSec: 3_600,
+      purgeAfterDays: 30,
+      transcriptRetentionDays: 90,
+      rulesLogRetentionDays: 90,
+      sessionStatsRetentionDays: 90,
+    });
+    cleanup.push(sweeper.stop);
+
+    await sweeper.runOnce();
+
+    expect(sessions.findSession("ending-stale")?.status).toBe("lost");
+    expect(events.filter((event) => event.type === "session.lost").map((event) => event.session_id)).toEqual(["ending-stale"]);
+    expect(sessions.allEvents("ending-stale").at(-1)?.payload).toContain("session-end completion not received");
+  });
+
   it("purges old transcript, rule log, and session stat rows in one pass", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));

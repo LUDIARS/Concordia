@@ -57,7 +57,6 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_REAPER_ENABLED` | `1` | Lictor/agent-client process reaper。`0`で無効。 |
 | `CONCORDIA_REAPER_INTERVAL_MS` | `300000` (5 分) | process reaperの走査周期。 |
 | `CONCORDIA_REAPER_MIN_AGE_SEC` | `180` | 起動直後の登録競合を避ける最小process age。 |
-| `CONCORDIA_REAPER_ENDED_GRACE_SEC` | `300` | ended後、session-end処理を保護する猶予。 |
 | `CONCORDIA_REAPER_LOST_GRACE_SEC` | `300` | lost後、live trafficによる復帰を待ってからLictor treeを回収する猶予。 |
 | `CONCORDIA_HTTP_CACHE_ENABLED` | 有効 | GET応答の小さなL1 cache。ルート別TTLはコード上の固定ポリシーとし、個別envは持たない。 |
 | `CONCORDIA_REDIS_ENABLED` | 無効 | `1` のときだけ共有cache用Redisへ接続する。Redis不在環境では未設定のままにする。 |

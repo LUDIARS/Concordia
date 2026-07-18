@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "セッション終了プロセスの回収 (reaper)"
-description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの孤児回収設計。DELETE /v1/sessions/:id への kill 配線 (Phase 1)、agent-client への明示 kill (Phase 2)、OS プロセス走査ベースの reaper (Phase 3) の 3 段構成で根本解決する。誤爆防止のため active/lost セッションおよび ended から 5 分以内のセッションは live 扱いで保護する。"
+description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの回収設計。session-end完了通知による確定停止、失敗時のlost回収、OSプロセス走査の3段構成。"
 service: concordia
 domain: session-coordination
 tags:
@@ -68,19 +68,15 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
   孤児と判定。lictor は `pid ∈ live lictor_pids` か、 agent-client は
   `--session <id> ∈ live session ids` か、で live を判定。
 - **誤爆防止 (live work を絶対殺さない):**
-  - generic orphan判定では従来どおりactive/lostをlive扱いにする。
+  - generic orphan判定ではactive/lost/endedをlive扱いにし、endedを経過時間で回収しない。
   - lost rowは専用判定で、`CONCORDIA_REAPER_LOST_GRACE_SEC`経過後もlost、
     `ws_clients=0`、metadataのPIDとOS上の`lictor.mjs` PIDが一致する場合だけtree-killする。
     kill直前にrowを再取得し、active復帰・WS再接続・PID差替えがあれば見送る。
   - 起動から `reaperMinAgeSec` (既定 180s) 未満は見送り (pid 登録レース回避)。
-  - **session-end 進行中の保護 (安全弁):** `ended_at` から `reaperEndedGraceSec`
-    (既定 300s = 5 分) 以内の ended session は live 扱いで殺さない
-    (`liveSetsFromRepo` が active/lost に加えて grace 内 ended を live 集合へ入れる)。
-    `DELETE /v1/sessions/:id` が status=ended にした直後から AI 側 session-end スキル
-    (log 保存 / memory 更新 / Memoria 登録) が走り、 その完了は
-    `POST /v1/sessions/:id/session-end-done` → force-exit で確定的に閉じる。
-    reaper がこの猶予内に割り込むと WT を巻き込んで「途中で終わる」事故になるため、
-    猶予の間は kill を背後にキューしたまま session-end の終了を見届ける。
+  - `DELETE /v1/sessions/:id` はmetadataへsession-end待機中を永続記録する。
+    `POST /v1/sessions/:id/session-end-done` を受けた場合だけ記録済みPIDを停止する。
+  - 完了通知がないままtrafficとWS接続が途絶えた待機中sessionはsweeperがlostへ移す。
+    その後はlost専用reaperが復帰猶予とPID再確認を経て回収する。
 - `startReaper()` — 既定 ON、 `reaperIntervalMs` (既定 5 分) 周期 + 起動直後 1 回。
 - 手動: `GET /v1/admin/orphans` (dry-run 一覧) / `POST /v1/admin/reap`
   (`{dry_run?, min_age_sec?}`)。
@@ -89,15 +85,14 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
 - `CONCORDIA_REAPER_ENABLED` (既定 `1`)
 - `CONCORDIA_REAPER_INTERVAL_MS` (既定 `300000`)
 - `CONCORDIA_REAPER_MIN_AGE_SEC` (既定 `180`)
-- `CONCORDIA_REAPER_ENDED_GRACE_SEC` (既定 `300` = 5 分。 `0` で無効 = ended を即回収)
 - `CONCORDIA_REAPER_LOST_GRACE_SEC` (既定 `300` = 5 分。lost復帰猶予後にLictor treeを回収)
 
 ## Phase 2: agent-client の明示 kill (実装済)
 agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に
-終了イベントが飛ぶと取りこぼし**孤児化する (reaper が 5 分以内に回収はする)。確定的に潰すため:
+終了イベントが飛ぶと取りこぼす**。確定的に潰すため:
 - `tools/concordia-agent-client.mjs` が起動時に `PATCH /v1/sessions/:id`
   `{ metadata: { agent_client_pid } }` で自分の pid を登録。
-- `DELETE /v1/sessions/:id`(猶予後保険)と `POST /v1/admin/stop-session/:id` が
+- `POST /v1/sessions/:id/session-end-done` と `POST /v1/admin/stop-session/:id` が
   `lictor_pid` と並べて `agent_client_pid` も kill (`parseAgentClientPid`)。
 
 ## 残 (follow-up)

@@ -2,7 +2,8 @@ import type { Hono } from "hono";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, SESSION_END_DONE_TIMEOUT_MS, pendingSessionEndExits, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { isSessionEndPending, SESSION_END_PENDING_AT_KEY, stopCompletedSessionProcesses } from "../../control/session-end-process.js";
 
 export function registerEndRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/compact", async (c) => {
@@ -111,13 +112,21 @@ app.post("/:id/request-title", (c) => {
     return c.json({ ok: true, enqueued: true });
   });
 
-app.post("/:id/session-end-done", (c) => {
+app.post("/:id/session-end-done", async (c) => {
     const id = c.req.param("id");
-    const trigger = pendingSessionEndExits.get(id);
-    if (trigger) {
-      log.info({ session_id: id }, "session-end-done received — triggering force-exit");
-      trigger();
+    const session = deps.repo.findSession(id);
+    if (!session) return c.json({ error: "not_found" }, 404);
+    if (!isSessionEndPending(session.metadata)) {
+      return c.json({ ok: true, ignored: true, reason: "session-end not pending" });
     }
-    return c.json({ ok: true });
+    const stop = await stopCompletedSessionProcesses(session.metadata);
+    if (!stop.ok) {
+      log.warn({ session_id: id, failed: stop.failed }, "session-end completed but process stop failed");
+      return c.json({ ok: false, error: "process_stop_failed", stop }, 500);
+    }
+    deps.repo.mergeMetadata(id, { [SESSION_END_PENDING_AT_KEY]: null });
+    if (session.status === "lost") deps.repo.setStatus(id, "ended", nowSec(), nowSec());
+    log.info({ session_id: id, stopped: stop.stopped, already_stopped: stop.alreadyStopped }, "session-end completed — processes stopped");
+    return c.json({ ok: true, stop });
   });
 }

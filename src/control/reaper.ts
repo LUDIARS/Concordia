@@ -7,17 +7,13 @@
  * 孤児と判定して kill する。
  *
  * 判定の安全側設計 (live work を絶対に殺さない):
- *  - lictor proc: pid が status active/lost の session.metadata.lictor_pid に含まれなければ孤児。
+ *  - lictor proc: pid が status active/lost/ended の session.metadata.lictor_pid に含まれなければ孤児。
  *  - lost session: 復帰猶予後もlost・WS未接続で、metadata PIDとOS上のlictor.mjsが一致すれば回収。
- *  - agent-client: `--session <id>` の id が status active/lost の session に無ければ孤児。
+ *  - agent-client: `--session <id>` の id が status active/lost/ended の session に無ければ孤児。
  *  - いずれも起動から minAgeSec 未満は見送る (登録レース回避: 起動直後で pid 未登録の可能性)。
- *  - generic orphan判定ではactive/lostをlive扱い。lostは専用判定で復帰猶予後だけ回収。
- *  - **session-end 進行中の保護 (安全弁):** ended になっても、 ended_at から endedGraceSec
- *    (既定 5 分) 以内は live 扱いで殺さない。 DELETE /v1/sessions/:id で status=ended に
- *    した直後から AI 側 session-end スキル (log 保存 / memory 更新 / Memoria 登録) が走り、
- *    その完了は `POST /v1/sessions/:id/session-end-done` → force-exit で確定的に閉じる。
- *    reaper がこの猶予内に割り込むと WT を巻き込んで「途中で終わる」事故になるため、
- *    猶予の間は kill を背後にキューしたまま session-end の終了を見届ける。
+ *  - generic orphan判定ではactive/lost/endedをlive扱い。lostは専用判定で復帰猶予後だけ回収。
+ *  - ended は時間経過で回収しない。session-end 完了通知がPIDを停止し、未完了でtrafficが
+ *    途絶えた場合だけsweeperがlostへ移してlost専用判定に委ねる。
  */
 
 import { spawn } from "node:child_process";
@@ -96,8 +92,8 @@ export function parsePosixProcLine(line: string): RunningAgentProc | null {
 
 /**
  * 実行中の Lictor/agent-client から孤児を判定 (pure)。
- * @param liveLictorPids status active/lost の session が持つ lictor_pid 集合。
- * @param liveSessionIds status active/lost の session id 集合。
+ * @param liveLictorPids status active/lost/ended の session が持つ lictor_pid 集合。
+ * @param liveSessionIds status active/lost/ended の session id 集合。
  * @param minAgeSec これ未満の若いプロセスは見送る (登録レース回避)。
  */
 export function classifyOrphans(
@@ -111,13 +107,13 @@ export function classifyOrphans(
     if (p.ageSec < minAgeSec) continue;
     if (p.kind === "lictor") {
       if (!liveLictorPids.has(p.pid)) {
-        out.push({ ...p, reason: "lictor_pid not referenced by any active/lost session" });
+        out.push({ ...p, reason: "lictor_pid not referenced by any active/lost/ended session" });
       }
     } else {
       if (!p.sessionId) {
         out.push({ ...p, reason: "agent-client without --session" });
       } else if (!liveSessionIds.has(p.sessionId)) {
-        out.push({ ...p, reason: `session ${p.sessionId} not active/lost` });
+        out.push({ ...p, reason: `session ${p.sessionId} not active/lost/ended` });
       }
     }
   }
@@ -126,13 +122,11 @@ export function classifyOrphans(
 
 /**
  * live な lictor_pid / session id 集合を作る。
- * active + lost は常に live。 加えて `endedGrace` を渡すと、 ended_at が
- * `nowSec - graceSec` 以降の ended セッション (= session-end 進行中) も live に含める。
- * これが「5 分間は安全弁でプロセスキルしない」 = session-end の途中で殺さない保護。
+ * active + lost + ended は常に live。ended の停止はsession-end完了通知だけが担当し、
+ * generic reaperは経過時間を根拠に終了処理へ割り込まない。
  */
 export function liveSetsFromRepo(
   repo: SessionsRepo,
-  endedGrace?: { nowSec: number; graceSec: number },
 ): {
   lictorPids: Set<number>;
   sessionIds: Set<string>;
@@ -144,15 +138,8 @@ export function liveSetsFromRepo(
     const pid = parseLictorPid(s.metadata);
     if (pid != null) lictorPids.add(pid);
   };
-  for (const status of ["active", "lost"] as const) {
+  for (const status of ["active", "lost", "ended"] as const) {
     for (const s of repo.listSessions({ status })) addLive(s);
-  }
-  // session-end 進行中 (ended から graceSec 以内) は live 扱いで保護する。
-  if (endedGrace && endedGrace.graceSec > 0) {
-    const floor = endedGrace.nowSec - endedGrace.graceSec;
-    for (const s of repo.listSessions({ status: "ended" })) {
-      if (s.ended_at != null && s.ended_at >= floor) addLive(s);
-    }
   }
   return { lictorPids, sessionIds };
 }
@@ -176,21 +163,12 @@ export async function scanAgentProcesses(): Promise<RunningAgentProc[]> {
   return out.split(/\r?\n/).map(parsePosixProcLine).filter((p): p is RunningAgentProc => p !== null);
 }
 
-/** ended セッションの保護猶予 (秒) の既定値 = 5 分。 */
-export const DEFAULT_ENDED_GRACE_SEC = 300;
 /** lost セッションがlive trafficで復帰するための猶予 (秒) の既定値 = 5 分。 */
 export const DEFAULT_LOST_GRACE_SEC = 300;
 
 export interface ReapOptions {
   dryRun: boolean;
   minAgeSec: number;
-  /**
-   * ended_at がこの秒数以内の ended セッションは live 扱いで殺さない安全弁。
-   * session-end スキル (log 保存 / memory 更新 / Memoria 登録) の実行中に reaper が
-   * 割り込んで WT を巻き込み kill する事故を防ぐ。 既定 {@link DEFAULT_ENDED_GRACE_SEC} (5 分)。
-   * 0 で無効 (旧挙動: ended は即回収対象)。
-   */
-  endedGraceSec?: number;
   /** lost化からこの秒数は復帰猶予としてLictor treeを保護する。既定5分。 */
   lostGraceSec?: number;
   /** 現在時刻 (秒)。 テスト注入用。 省略時は実時刻。 */
@@ -226,11 +204,7 @@ export async function reapOrphans(
       minProcessAgeSec: opts.minAgeSec,
     },
   );
-  const graceSec = opts.endedGraceSec ?? DEFAULT_ENDED_GRACE_SEC;
-  const { lictorPids, sessionIds } = liveSetsFromRepo(
-    deps.repo,
-    graceSec > 0 ? { nowSec, graceSec } : undefined,
-  );
+  const { lictorPids, sessionIds } = liveSetsFromRepo(deps.repo);
   const orphans = classifyOrphans(procs, lictorPids, sessionIds, opts.minAgeSec);
 
   const killed: OrphanProc[] = [];
@@ -257,7 +231,6 @@ export function startReaper(
     enabled: boolean;
     intervalMs: number;
     minAgeSec: number;
-    endedGraceSec: number;
     lostGraceSec: number;
   },
 ): ReaperHandle {
@@ -265,7 +238,6 @@ export function startReaper(
     reapOrphans(deps, {
       dryRun: false,
       minAgeSec: opts.minAgeSec,
-      endedGraceSec: opts.endedGraceSec,
       lostGraceSec: opts.lostGraceSec,
     });
 
@@ -302,7 +274,6 @@ export function startReaper(
     {
       intervalMs: opts.intervalMs,
       minAgeSec: opts.minAgeSec,
-      endedGraceSec: opts.endedGraceSec,
       lostGraceSec: opts.lostGraceSec,
     },
     "reaper started",

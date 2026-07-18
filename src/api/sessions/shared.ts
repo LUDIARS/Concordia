@@ -16,14 +16,6 @@ export const INACTIVE_TRANSCRIPT_LOG_WINDOW_MS = 30_000;
 export const inactiveTranscriptPostLogState = new Map<string, { lastAt: number; suppressed: number }>();
 /** DELETE 後 force-exit の猶予。 これを過ぎても lictor_pid 生存なら強制 kill する。 */
 export const FORCE_EXIT_GRACE_MS = 5000;
-/**
- * AI 側の session-end スキルが完了シグナルを送るまで force-exit を保留する猶予。
- * `POST /v1/sessions/:id/session-end-done` が来ればその時点で即 force-exit。
- * 来なくてもこの時間後に保険として force-exit を発行する。
- */
-export const SESSION_END_DONE_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
-/** id → force-exit 実行関数。 session-end-done シグナルかタイムアウトで発火する。 */
-export const pendingSessionEndExits = new Map<string, () => void>();
 
 /** /co-relictor で再起動した新セッションへ流す引き継ぎ inject の source。 */
 export const RELICTOR_INJECT_SOURCE = "auto:relictor-handoff";

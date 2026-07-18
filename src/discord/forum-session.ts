@@ -35,6 +35,7 @@ export interface CreateForumSessionInput extends ForumSessionMetadata {
   projectCode: string;
   summary: string | null;
   fallbackLabel: string;
+  delegationEmoji?: string | null;
 }
 
 export type ForumSessionThread = PublicThreadChannel<true>;
@@ -61,7 +62,11 @@ export async function createForumSessionThread(
     throw new Error(`Session forum is missing required tag: ${SESSION_STATE_TAG_NAMES.active}`);
   }
   return forum.threads.create({
-    name: buildForumThreadTitle(input.projectCode, input.summary ?? input.fallbackLabel),
+    name: buildForumThreadTitle(
+      input.projectCode,
+      input.summary ?? input.fallbackLabel,
+      input.delegationEmoji,
+    ),
     message: { content: buildForumStarterContent(guild.id, input) },
     appliedTags: [waitingTagId],
     reason: `Concordia session ${input.sessionId} started`,
@@ -95,8 +100,9 @@ export async function updateForumSessionTitle(
   thread: ForumSessionThread,
   projectCode: string,
   summary: string,
+  delegationEmoji?: string | null,
 ): Promise<string> {
-  const name = buildForumThreadTitle(projectCode, summary);
+  const name = buildForumThreadTitle(projectCode, summary, delegationEmoji);
   await thread.setName(name, "Concordia session title updated");
   return name;
 }
@@ -138,9 +144,14 @@ export function hasForumSessionState(thread: ForumSessionThread, state: ChannelD
   return !!tagId && thread.appliedTags.includes(tagId);
 }
 
-export function buildForumThreadTitle(projectCode: string, summary: string): string {
+export function buildForumThreadTitle(
+  projectCode: string,
+  summary: string,
+  delegationEmoji?: string | null,
+): string {
   const normalizedSummary = summary.replace(/\s+/g, " ").trim() || "session";
-  return `[${projectCode}] ${normalizedSummary}`.slice(0, 100);
+  const emojiPrefix = delegationEmoji?.trim() ? `${delegationEmoji.trim()} ` : "";
+  return `${emojiPrefix}[${projectCode}] ${normalizedSummary}`.slice(0, 100);
 }
 
 export function buildForumStarterContent(guildId: string, input: ForumSessionMetadata): string {

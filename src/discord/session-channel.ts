@@ -32,6 +32,7 @@ import {
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import {
+  buildForumThreadTitle,
   createForumSessionThread,
   fetchForumSessionThread,
   hasForumSessionState,
@@ -97,6 +98,7 @@ export async function onSessionRegistered(
         projectCode: input.projectCode?.trim() || "Session",
         summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.agentType ?? "session",
+        delegationEmoji: input.delegationEmoji,
         surfaceLabel: input.surfaceLabel,
         delegationRunId: input.delegationRunId,
       });
@@ -357,7 +359,12 @@ export async function onSessionStatusChanged(
   }
 
   // DB に保存済みの agent_type / name_body から再構築 — チャンネル名パース不要。
-  const newName = buildSessionChannelName(newDisplayState, row.agent_type, row.name_body ?? "session");
+  const newName = buildSessionChannelName(
+    newDisplayState,
+    row.agent_type,
+    row.name_body ?? "session",
+    row.delegation_emoji,
+  );
 
   try {
     // sessions カテゴリに無い channel (旧レイアウトで状態カテゴリに作られた遺物
@@ -545,6 +552,7 @@ export async function onSessionTitleChanged(
         thread,
         input.projectCode?.trim() || "Session",
         input.title,
+        row.delegation_emoji,
       );
       deps.repo.setDisplayState(input.sessionId, row.display_state, input.agentType, newBody);
       deps.log.info(`session-forum: title updated for ${input.sessionId} name=${nextName}`);
@@ -655,8 +663,12 @@ export async function onSessionChannelNameLocked(
       const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
       if (!thread) return { ok: false, reason: "channel_missing" };
       deps.repo.setNameLock(input.sessionId, body);
-      const projectPrefix = /^\[[^\]]+]\s*/.exec(thread.name)?.[0] ?? "";
-      const lockedName = `${projectPrefix}${input.name.trim() || "session"}`.slice(0, 100);
+      const projectCode = /(?:^|\s)\[([^\]]+)]\s*/.exec(thread.name)?.[1] ?? "Session";
+      const lockedName = buildForumThreadTitle(
+        projectCode,
+        input.name.trim() || "session",
+        row.delegation_emoji,
+      );
       await thread.setName(lockedName, `session ${input.sessionId} name locked via /ch_name`);
       return { ok: true, name: thread.name };
     } catch (e) {

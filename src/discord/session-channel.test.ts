@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelType } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
-import { onSessionRegistered, onSessionStatusChanged, reconcileEndedSessionChannels, reconcileLostSessionChannels } from "./session-channel.js";
+import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged, reconcileEndedSessionChannels, reconcileLostSessionChannels } from "./session-channel.js";
 
 // onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
 // eager 作成し token を永続化する」ことを検証する。 これで以降の egress は
@@ -296,5 +296,63 @@ describe("onSessionStatusChanged lost archive", () => {
 
     expect(result).toEqual({ scanned: 1, reconciled: 1 });
     expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("preserves the delegation emoji when a lost channel becomes active again", async () => {
+    const m = makeLostArchiveMocks("lost");
+    m.row.delegation_emoji = "🧭";
+
+    await onSessionStatusChanged(
+      { guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log },
+      { sessionId: m.row.session_id, status: "active" },
+    );
+
+    expect(m.channelObj.edit).toHaveBeenCalledWith(expect.objectContaining({
+      name: "🟢🧭-task",
+    }));
+  });
+});
+
+describe("onSessionTitleChanged forum thread", () => {
+  it("preserves the delegation emoji during automatic title updates", async () => {
+    const row: any = {
+      session_id: "session-delegation-1",
+      channel_id: "thread-1",
+      channel_kind: "thread",
+      status: "active",
+      display_state: "active",
+      agent_type: "codex-cli",
+      name_body: "delegation",
+      delegation_emoji: "🧭",
+      name_locked: 0,
+    };
+    const thread: any = {
+      id: row.channel_id,
+      type: ChannelType.PublicThread,
+      parent: { type: ChannelType.GuildForum },
+      setName: vi.fn(async (name: string) => {
+        thread.name = name;
+      }),
+    };
+    const repo = {
+      findBySessionId: vi.fn(() => row),
+      setDisplayState: vi.fn(),
+    };
+    const guild = { channels: { cache: new Map([[row.channel_id, thread]]) } };
+
+    await onSessionTitleChanged(
+      { guild: guild as any, layout: {} as any, repo: repo as any, log: { info: vi.fn(), warn: vi.fn() } },
+      {
+        sessionId: row.session_id,
+        title: "Review delegation",
+        agentType: "codex-cli",
+        projectCode: "Cc",
+      },
+    );
+
+    expect(thread.setName).toHaveBeenCalledWith(
+      "🧭 [Cc] Review delegation",
+      "Concordia session title updated",
+    );
   });
 });

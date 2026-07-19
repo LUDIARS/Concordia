@@ -1,9 +1,8 @@
 /**
  * 内部 cron が起動する delegation ジョブの定義一覧。
  *
- * DB 化・GUI 化はしない — 既存の morning/daily/stat scheduler と同じく
- * コード内の固定リストで管理する (対象が増えて可変管理が要るようになったら再検討)。
- * 実行は src/scheduler/cron-scheduler.ts が担う。
+ * 実行は src/scheduler/cron-scheduler.ts が担う。日次レビューは二重起動を避けるため、
+ * env で選択した delegation だけを登録する。
  */
 
 function todayIso(): string {
@@ -25,23 +24,34 @@ export interface CronJobDefinition {
   buildArgs: () => Record<string, unknown>;
 }
 
-export const CRON_JOBS: CronJobDefinition[] = [
-  {
-    name: "ludiars-review-daily",
-    // 毎日 5:07 JST。 旧 Windows Task Scheduler / claude.ai リモートルーティンの
-    // 起動時刻慣行 (5:07) を踏襲。
-    // 新方式 (daily-review-reconciliation) の安定確認後に停止予定
-    // (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2 — 移行完了までは並走)。
-    cron: "7 5 * * *",
-    call_name: "ludiars-review-daily",
+export const DAILY_REVIEW_DELEGATION_CALL_NAMES = [
+  "ludiars-review-daily-dual",
+  "ludiars-review-daily",
+] as const;
+
+export type DailyReviewDelegationCallName = typeof DAILY_REVIEW_DELEGATION_CALL_NAMES[number];
+
+const DEFAULT_DAILY_REVIEW_DELEGATION: DailyReviewDelegationCallName = "ludiars-review-daily-dual";
+const DAILY_REVIEW_CRON = "10 5 * * *";
+
+export function resolveDailyReviewDelegation(raw: string | undefined): DailyReviewDelegationCallName {
+  const selected = raw?.trim() || DEFAULT_DAILY_REVIEW_DELEGATION;
+  if (DAILY_REVIEW_DELEGATION_CALL_NAMES.includes(selected as DailyReviewDelegationCallName)) {
+    return selected as DailyReviewDelegationCallName;
+  }
+  throw new Error(
+    `CONCORDIA_DAILY_REVIEW_DELEGATION must be one of: ${DAILY_REVIEW_DELEGATION_CALL_NAMES.join(", ")}`,
+  );
+}
+
+export function createCronJobs(env: NodeJS.ProcessEnv = process.env): CronJobDefinition[] {
+  const callName = resolveDailyReviewDelegation(env.CONCORDIA_DAILY_REVIEW_DELEGATION);
+  return [{
+    name: callName,
+    cron: DAILY_REVIEW_CRON,
+    call_name: callName,
     buildArgs: () => ({ date: todayIso() }),
-  },
-  {
-    name: "daily-review-reconciliation",
-    // 毎日 5:10 JST。 Codex × Opus の独立差分レビュー + 突合 (Tier 1 リポのみ)。
-    // 対象・手順の正本は LUDIARS/service-map.json + LUDIARS/docs/REVIEW-PROMPTS.md。
-    cron: "10 5 * * *",
-    call_name: "daily-review-reconciliation",
-    buildArgs: () => ({ date: todayIso() }),
-  },
-];
+  }];
+}
+
+export const CRON_JOBS: CronJobDefinition[] = createCronJobs();

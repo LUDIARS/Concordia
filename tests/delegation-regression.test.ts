@@ -23,10 +23,10 @@ const EXPECTED_SEED_CALLS = [
   "gemma4-12-impl",
   // 日次レビュー + タスク種別別 Caller (sort_order 未指定 → 既定 1000、 call_name ASC 順)
   "daily-review-autofix",
-  "daily-review-reconciliation",
   "design-analysis-opus",
   "design-hard-fable5",
   "ludiars-review-daily",
+  "ludiars-review-daily-dual",
   // review-sonnet5 は review-duo へ一本化して無効化 (2026-07-17)
 ] as const;
 

@@ -81,14 +81,16 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("forum-codex-session")?.forum_tag).toBe(1);
   });
 
-  it("seeds the daily-review-reconciliation parttimer template", () => {
+  it("seeds the ludiars-review-daily-dual Sol Ultra template", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    const tpl = repo.findTemplateByCallName("daily-review-reconciliation");
+    const tpl = repo.findTemplateByCallName("ludiars-review-daily-dual");
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
-    expect(tpl?.target_provider).toBe("claude");
+    expect(tpl?.target_provider).toBe("codex");
+    expect(tpl?.model).toBe("gpt-5.6-sol");
+    expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
     expect(tpl?.prompt_template).toContain("REVIEW-PROMPTS.md");
     expect(tpl?.prompt_template).toContain("service-map.json");
@@ -141,12 +143,37 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("review-sonnet5")?.is_active).toBe(0);
   });
 
-  it("keeps the legacy daily review local-only during migration", () => {
+  it("keeps a switchable single-AI Claude definition on the new review flow", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    const tpl = repo.findTemplateByCallName("ludiars-review-daily");
-    expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
-    expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
+    const claude = repo.findTemplateByCallName("ludiars-review-daily");
+    expect(claude?.target_provider).toBe("claude");
+    expect(claude?.title).toBe("毎日レビュー");
+    expect(claude?.model).toBe("claude-sonnet-5");
+    expect(claude?.prompt_template).toContain("service-map.json");
+    expect(claude?.prompt_template).toContain("daily_review: true");
+    expect(claude?.prompt_template).toContain("別AIは起動しない");
+    expect(claude?.prompt_template).not.toContain("2 レビュアー");
+    expect(claude?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
+    expect(claude?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
+  });
+
+  it("deactivates the replaced daily-review-reconciliation call name", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    repo.createTemplate({
+      call_name: "daily-review-reconciliation",
+      title: "Old dual review",
+      target_provider: "claude",
+      prompt_template: "old",
+    });
+
+    seedDelegationTemplates(repo);
+
+    expect(repo.findTemplateByCallName("daily-review-reconciliation")?.is_active).toBe(0);
+    expect(repo.findTemplateByCallName("ludiars-review-daily-dual")).toMatchObject({
+      is_active: 1,
+      title: "毎日レビューちょいつよ版",
+    });
   });
 });

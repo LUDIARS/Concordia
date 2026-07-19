@@ -100,6 +100,7 @@ Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`�
 |------|--------|-----------|------|
 | `ANTHROPIC_API_KEY` | 空 | `config.ts:72`, `discord/webhook-pool.ts:127` | report 生成等で使う Anthropic API key。 空なら LLM 機能は無効。 |
 | `CONCORDIA_REPORT_MODEL` | `claude-haiku-4-5` | `config.ts:73` | 終了レポート等の LLM モデル名。 |
+| `CONCORDIA_DAILY_REVIEW_DELEGATION` | `ludiars-review-daily-dual` | `scheduler/cron-jobs.ts` | 毎朝5:10の日次レビューで起動するdelegation。Sol Ultraの二重レビュー版 `ludiars-review-daily-dual` またはClaude通常版 `ludiars-review-daily`。片方だけを登録し、不正値は起動時エラー。 |
 | `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で緊急 OFF) | `admin/state.ts` / `rules/proposer.ts` / `report/generator.ts` / `daily/generator.ts` / `personas/feedback.ts` | **緊急 hard-OFF**。 `1` で rule engine / proposer / report 等の claude CLI 呼び出しを全経路で止める。 通常の ON/OFF は下記の runtime スイッチで行い、 この env は `rules_enabled=true` でも勝つ。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | `rules/claude-runner.ts:15` | rule 用 claude CLI subprocess の timeout (ms)。 |
 

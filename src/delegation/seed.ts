@@ -111,6 +111,57 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
   },
 ];
 
+/** Provider を切り替えても日次レビューの対象・突合・保存規約を同一に保つ正本。 */
+const DAILY_REVIEW_RECONCILIATION_PROMPT = [
+  "## デイリー突合レビュー — ${date}",
+  "",
+  "あなたはオーケストレータ。レビュー本文は書かず、Codex と Claude Opus の 2 レビュアーを回して所見を突合する。",
+  "",
+  "### 正本 (最初に必ず読む)",
+  "- 手順・プロンプト・突合ルール: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md`",
+  "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
+  "",
+  "### 手順",
+  "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
+  "   今回 HEAD はリポごとに `git fetch origin` のみ実行し (作業ツリーへの checkout/pull/merge は行わない)、",
+  "   `git rev-parse origin/<default-branch>` で取得する。ローカルの現在チェックアウト (`git rev-parse HEAD`) は",
+  "   他セッションの WIP ブランチや古い checkout を指すことがあるため絶対に使わない。",
+  "2. 前回 HEAD == 今回 HEAD のリポはスキップし「変更なし」と記録する。",
+  "   さらに `git merge-base --is-ancestor <今回HEAD> <前回HEAD>` が真になる場合 (範囲逆転: 今回 HEAD が",
+  "   前回 HEAD の祖先 = ローカル取得ミス等で HEAD が逆行している) は、diff を作らずそのリポを",
+  "   skip/no_change として記録し、理由 (range_reversed) を添えてレビュアーには一切投げない (early-exit)。",
+  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-4-8` を起動する (互いの所見は見せない)。",
+  "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定 → 両者一致の High 以上は対象リポへ GitHub Issue 作成。",
+  "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` を今回 HEAD (origin/<default-branch> の sha) へ更新する。",
+  "   Review/ への書き込みはローカルのみ。Castra で `git add` / `git commit` / `git push` は行わない。",
+  "6. 新規指摘より先に open な指摘 Issue の解消確認 (resolved_checks) を行い、未対応 High は放置日数付きでレポート先頭に出す。",
+  "7. 最終サマリ (対象数 / 変更なし数 / range_reversed によるスキップ数 / 一致・不一致所見数 / Issue 化件数 / unreviewed) を報告する。",
+  "",
+  "自分でコード修正はしない。レビュアーの JSON が契約 (§2) を破ったら 1 回だけ再問い合わせ、それでも破れば該当リポを failed として記録し他リポを続行する。",
+  "Codex または Claude の一方が利用不能な場合は、利用可能な側のレビューを partial として保存して処理を続ける。突合できないため Issue は作成せず、latest.json の head も進めず、unreviewed に停止理由を記録する。",
+].join("\n");
+
+/** 新方式の対象・差分・保存規約を使い、オーケストレータ自身が1回レビューする通常版。 */
+const DAILY_REVIEW_PROMPT = [
+  "## デイリーレビュー — ${date}",
+  "",
+  "### 正本 (最初に必ず読む)",
+  "- レビュー観点・出力契約: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md`",
+  "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
+  "",
+  "### 手順",
+  "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
+  "   今回 HEAD は `git fetch origin` 後の `origin/<default-branch>` から取得し、ローカル checkout の HEAD は使わない。",
+  "2. 前回 HEAD == 今回 HEAD は変更なし、今回 HEAD が前回 HEAD の祖先なら range_reversed としてレビューせず記録する。",
+  "3. REVIEW-PROMPTS.md の入力・JSON契約・Claudeレビュー観点を使い、オーケストレータ自身が各リポを1回レビューする。別AIは起動しない。",
+  "4. file:line の実在を検証し、結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存して `latest.json` の `head` を今回 HEAD へ更新する。",
+  "   Review/ への書き込みはローカルのみ。Castra で `git add` / `git commit` / `git push` は行わない。",
+  "5. open な指摘 Issue の解消確認 (resolved_checks) を先に行い、未対応 High は放置日数付きでレポート先頭に出す。",
+  "6. 最終サマリ (対象数 / 変更なし数 / 指摘数 / resolved_checks / failed) を報告する。",
+  "",
+  "自分でコード修正やIssue作成はしない。JSON契約を満たせないリポはfailedとして記録し、他リポを続行する。",
+].join("\n");
+
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "impl-from-design",
@@ -357,44 +408,17 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // ── 毎朝 5 時の Timer Delegation (AIFormat + spec 追随チェック) ────────
-  // Morning Tasks と同じ内部 Timer Delegation (src/scheduler/cron-scheduler.ts、
-  // ジョブ定義は cron-jobs.ts) が毎日 5:07 JST に本テンプレを invoke する。
-  // 安全範囲の autofix は自分でやらず daily-review-autofix (Codex) に委託させる。
+  // ── Claude オーケストレータ版のデイリー突合レビュー ────────────────
+  // Sol Ultra 版と prompt を共有し、利用可能な provider に応じて scheduler から片方を選ぶ。
   {
     call_name: "ludiars-review-daily",
-    title: "日次レビュー (Claude)",
-    description: "LUDIARS 全 active リポを AIFormat に沿ってレビューし、spec/ が実装に追随できているか (FORMAT_SPEC.md §10) も確認する。安全範囲の自動修正は自分で行わず daily-review-autofix (Codex) に委託する。Morning Tasks と同じ Timer Delegation が毎日5:07 JSTにinvokeし、記録は E:DocumentArsReview に保存する (配置フォルダの正本)。",
+    title: "毎日レビュー",
+    description: "新方式の Tier 1・前回HEADからの差分・ローカル保存規約で、Claude Sonnet 5 が単独レビューする通常版。dual版と切替可能。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "📋",
-    prompt_template: [
-      "## LUDIARS 全リポ日次レビュー — ${date}",
-      "",
-      "AIFormat (`E:\\Document\\Ars\\AIFormat\\REVIEW_*.md`、 spec 追随は `FORMAT_SPEC.md` §10) に沿って",
-      "LUDIARS 全 active リポをレビューし、レビュー記録をローカル専用の `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存する。",
-      "Review/ への書き込みはローカルのみ。Castra で git add / commit / push はしない。",
-      "",
-      "### 手順",
-      "1. `E:\\Document\\Ars\\` 配下で origin が `github.com/LUDIARS/` のリポを列挙する (worktree / 複製は1件にまとめる)。",
-      "2. AIFormat の `REVIEW.md` + 5 本の `REVIEW_*.md` を読み、テンプレ構造を把握する。",
-      "3. リポごとに Explore agent を並列起動し、対象コミット範囲の差分を軸にレビューする。",
-      "   `FORMAT_SPEC.md` §10 の spec 追随チェックを必ず行う: 実装差分に spec/ が追随できていなければ、",
-      "   機械的に導出可能な内容は spec/ に新規ファイルとして生成 (既存ファイルは上書きしない)、",
-      "   無理なら該当ファイル冒頭に `SPEC-TODO` マーカーを付ける。",
-      "4. 各リポの安全範囲の指摘 (lint / typo / unused_import / dead_code / gitignore / toc / spec_gen) を",
-      "   file:line + 概要で1件ずつまとめる。",
-      "5. **自分でブランチを切って修正しない。** 安全範囲の指摘が1件以上あるリポごとに、",
-      "   MCP tool `delegation_invoke` (server: concordia-delegation) を呼び、",
-      "   call_name=\"daily-review-autofix\" に `target_repo` / `repo_name` / `date` / `fixes` (指摘一覧テキスト) を渡して",
-      "   Codex に autofix を委託する (自分は git 操作をしない)。",
-      "6. レビュー記録 (REVIEW*.md 6本 + AUTOFIX.md + latest.json) を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に書く。",
-      "   Castra で `git add` / `git commit` / `git push` を行わず、既存の追跡済み `Review/` も変更しない。",
-      "7. 完了したら対象リポ数・重大指摘・autofix 委託件数をサマリとして報告する。",
-      "",
-      "詳細手順: `E:\\Document\\Ars\\.claude\\skills\\ludiars-review\\SKILL.md`。",
-    ].join("\n"),
+    prompt_template: DAILY_REVIEW_PROMPT,
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
@@ -432,47 +456,17 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // ── 毎朝 5:10 のデイリー突合レビュー (Codex × Opus 独立レビュー + 突合) ──
-  // cron-jobs.ts が毎日 5:10 JST に invoke する。 対象は LUDIARS/service-map.json の
-  // daily_review=true リポ (Tier 1)。 プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md
-  // (二重管理しない — 本テンプレはオーケストレーション手順のみ持つ)。
-  // 旧 ludiars-review-daily は新運用の安定確認まで並走し、 その後停止する
-  // (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2)。
+  // ── Sol Ultra オーケストレータ版のデイリー突合レビュー ────────────
   {
-    call_name: "daily-review-reconciliation",
-    title: "デイリー突合レビュー (Codex × Opus)",
-    description: "service-map.json の Tier 1 リポについて、前回レビュー HEAD からの累積 diff を Codex と Claude Opus に独立レビューさせ、所見を突合して E:DocumentArsReview に保存する。High 一致は GitHub Issue 化。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。Timer Delegation が毎朝 5:10 JST に invoke する。",
-    target_provider: "claude",
-    model: "claude-sonnet-5",
+    call_name: "ludiars-review-daily-dual",
+    title: "毎日レビューちょいつよ版",
+    description: "service-map.json の Tier 1 リポについて、前回レビュー HEAD からの累積 diff を Codex と Claude Opus に独立レビューさせ、所見を突合して E:DocumentArsReview に保存する。High 一致は GitHub Issue 化。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-5.6 Sol Ultra のオーケストレータを Timer Delegation が毎朝 5:10 JST に invoke する。",
+    target_provider: "codex",
+    model: "gpt-5.6-sol",
+    runtime_options: { model_reasoning_effort: "ultra" },
     category: "parttimer",
     emoji: "⚖️",
-    prompt_template: [
-      "## デイリー突合レビュー — ${date}",
-      "",
-      "あなたはオーケストレータ。レビュー本文は書かず、Codex と Claude Opus の 2 レビュアーを回して所見を突合する。",
-      "",
-      "### 正本 (最初に必ず読む)",
-      "- 手順・プロンプト・突合ルール: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md`",
-      "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
-      "",
-      "### 手順",
-      "1. service-map.json から対象リポを列挙。各リポの前回レビュー HEAD は `E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `head` (無ければ直近 24h の main 差分)。",
-      "   今回 HEAD はリポごとに `git fetch origin` のみ実行し (作業ツリーへの checkout/pull/merge は行わない)、",
-      "   `git rev-parse origin/<default-branch>` で取得する。ローカルの現在チェックアウト (`git rev-parse HEAD`) は",
-      "   他セッションの WIP ブランチや古い checkout を指すことがあるため絶対に使わない。",
-      "2. 前回 HEAD == 今回 HEAD のリポはスキップし「変更なし」と記録する。",
-      "   さらに `git merge-base --is-ancestor <今回HEAD> <前回HEAD>` が真になる場合 (範囲逆転: 今回 HEAD が",
-      "   前回 HEAD の祖先 = ローカル取得ミス等で HEAD が逆行している) は、diff を作らずそのリポを",
-      "   skip/no_change として記録し、理由 (range_reversed) を添えてレビュアーには一切投げない (early-exit)。",
-      "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-4-8` を起動する (互いの所見は見せない)。",
-      "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定 → 両者一致の High 以上は対象リポへ GitHub Issue 作成。",
-      "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` を今回 HEAD (origin/<default-branch> の sha) へ更新する。",
-      "   Review/ への書き込みはローカルのみ。Castra で `git add` / `git commit` / `git push` は行わない。",
-      "6. 新規指摘より先に open な指摘 Issue の解消確認 (resolved_checks) を行い、未対応 High は放置日数付きでレポート先頭に出す。",
-      "7. 最終サマリ (対象数 / 変更なし数 / range_reversed によるスキップ数 / 一致・不一致所見数 / Issue 化件数 / unreviewed) を報告する。",
-      "",
-      "自分でコード修正はしない。レビュアーの JSON が契約 (§2) を破ったら 1 回だけ再問い合わせ、それでも破れば該当リポを failed として記録し他リポを続行する。",
-    ].join("\n"),
+    prompt_template: DAILY_REVIEW_RECONCILIATION_PROMPT,
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
@@ -620,4 +614,6 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   if (legacy) repo.deactivateTemplate(legacy.id);
   const legacySonnet = repo.findTemplateByCallName("claude-sonnet-4-6-impl");
   if (legacySonnet) repo.deactivateTemplate(legacySonnet.id);
+  const legacyDailyReconciliation = repo.findTemplateByCallName("daily-review-reconciliation");
+  if (legacyDailyReconciliation) repo.deactivateTemplate(legacyDailyReconciliation.id);
 }

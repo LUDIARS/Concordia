@@ -82,7 +82,7 @@ delegation を「どう起動されるか」で 3 分類する。 単一情報�
 |----|--------|------|-----|
 | `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `claude-*-impl`, `codex-5-6-*`, `task-process` |
 | `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-sonnet5` |
-| `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily`, `daily-review-reconciliation` |
+| `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily`, `ludiars-review-daily-dual` |
 
 - 既定は `employee` (既存 DB の行は列追加 migration で employee に埋まる。 seed テンプレは boot upsert で正しい値に上書き)。
 - `GET /v1/delegation/templates?category=<値>` で絞り込み可 (不正値は 400)。
@@ -226,14 +226,18 @@ delegation テンプレ選択ベースで起動する:
 (`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
 1 PR 集約 等) を含める。 旧 `gamma-impl` (target=gamma) は seed 時に deactivate される。
 
-時限起動 (parttimer) の seed には `daily-review-reconciliation` (毎朝 5:10 JST、
-cron-jobs.ts) がある。 Codex × Claude Opus の独立差分レビュー + 突合。 対象は
+時限起動 (parttimer) の二重レビュー版 `ludiars-review-daily-dual` は GPT-5.6 Sol / Ultraを
+オーケストレータとして、Codex × Claude Opus の独立差分レビュー + 突合を行う。対象は
 `LUDIARS/service-map.json` の Tier 1、 プロンプト正本は `LUDIARS/docs/REVIEW-PROMPTS.md`
-(テンプレ側に本文を二重管理しない)。 旧 `ludiars-review-daily` (5:07) は新方式の安定確認
-まで並走し、 その後停止する (LUDIARS/docs/REVIEW-STRATEGY.md §7 O2)。
+(テンプレ側に本文を二重管理しない)。通常版 `ludiars-review-daily` は同じTier 1・差分・
+保存規約でClaude Sonnet 5が単独レビューする。`CONCORDIA_DAILY_REVIEW_DELEGATION` で
+片方を選び、cronは毎朝5:10に選択中の1件だけを起動する。既定はdual版。
+
+片方のレビューCLIが利用不能なら、利用可能な側の結果をpartialとして保存する。突合できない
+ためIssue化と`latest.json`のHEAD更新は行わず、次回の完全レビューで同じ差分を再評価する。
 
 両日次レビューは Morning Tasks と同じ Timer Delegation としてローカル起動する。
-レビュー記録の保存先は Castra checkout 内の `E:\Document\Ars\reviews\<repo>\` に固定し、
+レビュー記録の保存先はローカル専用の `E:\Document\Ars\Review\<repo>\` に固定し、
 `reviews/` は Castra の ignore 対象とする。Delegation は Castra で
 `git add` / `git commit` / `git push` を行わず、既存の追跡済み `Review/` も変更しない。
 

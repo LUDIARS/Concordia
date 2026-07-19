@@ -96,6 +96,15 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
     expect(tpl?.prompt_template).toContain("`git add` / `git commit` / `git push` は行わない");
     expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
+    // 今回 HEAD はローカル checkout ではなく origin/<default-branch> を fetch して取る (2026-07-18 #555)。
+    // Tier1 リポで他セッションの WIP checkout を「今回 HEAD」と誤認し逆向き diff を作った事故の再発防止。
+    expect(tpl?.prompt_template).toContain("git fetch origin");
+    expect(tpl?.prompt_template).toContain("git rev-parse origin/<default-branch>");
+    // ローカル `git rev-parse HEAD` は使わない旨の明示的な禁止注記があること (逆に許可はしない)。
+    expect(tpl?.prompt_template).toContain("絶対に使わない");
+    // 範囲逆転 (今回 HEAD が前回 HEAD の祖先) を検出したら早期 skip し、レビュアーへ投げない。
+    expect(tpl?.prompt_template).toContain("merge-base --is-ancestor");
+    expect(tpl?.prompt_template).toContain("range_reversed");
   });
 
   it("codex Sol defaults to high + fast and Sol Ultra is explicit (2026-07-17)", () => {

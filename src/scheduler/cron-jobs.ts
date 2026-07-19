@@ -1,8 +1,7 @@
 /**
  * 内部 cron が起動する delegation ジョブの定義一覧。
  *
- * 実行は src/scheduler/cron-scheduler.ts が担う。日次レビューは二重起動を避けるため、
- * env で選択した delegation だけを登録する。
+ * 実行は src/scheduler/cron-scheduler.ts が担う。
  */
 
 function todayIso(): string {
@@ -24,34 +23,11 @@ export interface CronJobDefinition {
   buildArgs: () => Record<string, unknown>;
 }
 
-export const DAILY_REVIEW_DELEGATION_CALL_NAMES = [
-  "ludiars-review-daily-dual",
-  "ludiars-review-daily",
-] as const;
-
-export type DailyReviewDelegationCallName = typeof DAILY_REVIEW_DELEGATION_CALL_NAMES[number];
-
-const DEFAULT_DAILY_REVIEW_DELEGATION: DailyReviewDelegationCallName = "ludiars-review-daily-dual";
 const DAILY_REVIEW_CRON = "10 5 * * *";
 
-export function resolveDailyReviewDelegation(raw: string | undefined): DailyReviewDelegationCallName {
-  const selected = raw?.trim() || DEFAULT_DAILY_REVIEW_DELEGATION;
-  if (DAILY_REVIEW_DELEGATION_CALL_NAMES.includes(selected as DailyReviewDelegationCallName)) {
-    return selected as DailyReviewDelegationCallName;
-  }
-  throw new Error(
-    `CONCORDIA_DAILY_REVIEW_DELEGATION must be one of: ${DAILY_REVIEW_DELEGATION_CALL_NAMES.join(", ")}`,
-  );
-}
-
-export function createCronJobs(env: NodeJS.ProcessEnv = process.env): CronJobDefinition[] {
-  const callName = resolveDailyReviewDelegation(env.CONCORDIA_DAILY_REVIEW_DELEGATION);
-  return [{
-    name: callName,
+export const CRON_JOBS: CronJobDefinition[] = [{
+    name: "ludiars-review-daily-dual",
     cron: DAILY_REVIEW_CRON,
-    call_name: callName,
+    call_name: "ludiars-review-daily-dual",
     buildArgs: () => ({ date: todayIso() }),
-  }];
-}
-
-export const CRON_JOBS: CronJobDefinition[] = createCronJobs();
+}];

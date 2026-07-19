@@ -1,10 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { startCronScheduler } from "../src/scheduler/cron-scheduler.js";
-import {
-  CRON_JOBS,
-  createCronJobs,
-  resolveDailyReviewDelegation,
-} from "../src/scheduler/cron-jobs.js";
+import { CRON_JOBS } from "../src/scheduler/cron-jobs.js";
 import type { DelegationService, InvokeResultOk } from "../src/delegation/service.js";
 
 // 実際に発火させず (croner の時刻判定は上流ライブラリの責務)、triggerNow() 経由で
@@ -91,19 +87,5 @@ describe("startCronScheduler", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily-dual", cron: "10 5 * * *", call_name: "ludiars-review-daily-dual" },
     ]);
-  });
-
-  it("can switch the single daily review job to the Claude delegation", () => {
-    expect(createCronJobs({ CONCORDIA_DAILY_REVIEW_DELEGATION: "ludiars-review-daily" })[0]).toMatchObject({
-      name: "ludiars-review-daily",
-      cron: "10 5 * * *",
-      call_name: "ludiars-review-daily",
-    });
-  });
-
-  it("fails fast for an unknown daily review delegation", () => {
-    expect(() => resolveDailyReviewDelegation("unknown-review")).toThrow(
-      "CONCORDIA_DAILY_REVIEW_DELEGATION must be one of",
-    );
   });
 });

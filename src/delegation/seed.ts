@@ -408,12 +408,11 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // ── Claude オーケストレータ版のデイリー突合レビュー ────────────────
-  // Sol Ultra 版と prompt を共有し、利用可能な provider に応じて scheduler から片方を選ぶ。
+  // 旧 Claude 単独版。dual 方式への移行完了後も履歴参照用に無効状態で残す。
   {
     call_name: "ludiars-review-daily",
-    title: "毎日レビュー",
-    description: "新方式の Tier 1・前回HEADからの差分・ローカル保存規約で、Claude Sonnet 5 が単独レビューする通常版。dual版と切替可能。",
+    title: "毎日レビュー [旧・無効]",
+    description: "旧 Claude 単独レビュー。ludiars-review-daily-dual へ移行したため無効化。履歴参照のため定義のみ残す。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
@@ -423,7 +422,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
     default_cwd: "E:\\Document\\Ars\\Concordia",
-    is_active: true,
+    is_active: false,
   },
   {
     call_name: "daily-review-autofix",

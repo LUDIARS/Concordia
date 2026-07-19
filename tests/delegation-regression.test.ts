@@ -25,9 +25,9 @@ const EXPECTED_SEED_CALLS = [
   "daily-review-autofix",
   "design-analysis-opus",
   "design-hard-fable5",
-  "ludiars-review-daily",
   "ludiars-review-daily-dual",
   // review-sonnet5 は review-duo へ一本化して無効化 (2026-07-17)
+  // ludiars-review-daily は dual 方式へ移行して無効化
 ] as const;
 
 interface Template {
@@ -48,7 +48,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 105, 110, 120, 130, 140, 150, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 105, 110, 120, 130, 140, 150, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "codex-5-6-sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-luna")?.emoji).toBe("🌙");

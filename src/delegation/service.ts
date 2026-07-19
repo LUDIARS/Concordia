@@ -632,6 +632,7 @@ export class DelegationService {
         // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
         args: spawnArgs.length > 0 ? spawnArgs : undefined,
         title: `delegation:${input.call_name}`,
+        spawnId: runId,
         env: {
           // spawn 解決由来の env (gemma4-12 の LICTOR_LOCAL_MODEL 等) を先に展開。
           ...(spawn.env ?? {}),
@@ -648,6 +649,8 @@ export class DelegationService {
       // Register before spawn so a fast session.started callback can claim this run.
       recordPendingDelegationSpawn({
         cwd,
+        spawnId: runId,
+        branch: spawnBranch,
         emoji: def.emoji ?? null,
         callName: input.call_name,
         runId,

@@ -57,6 +57,8 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
       fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
       subsidiaryId: stringOrNull(meta.subsidiary_id),
+      webhookName: stringOrNull(meta.discord_webhook_name),
+      webhookAvatarUrl: stringOrNull(meta.discord_webhook_avatar_url),
     };
   };
 
@@ -270,6 +272,8 @@ function readChatMeta(raw: string | null | undefined): ChatMessageMetadata {
     discord_channel_id: stringOrUndefined(parsed.discord_channel_id),
     slack_user_id: stringOrUndefined(parsed.slack_user_id),
     scope: stringOrUndefined(parsed.scope),
+    webhook_username: stringOrUndefined(parsed.webhook_username),
+    webhook_avatar_url: stringOrUndefined(parsed.webhook_avatar_url),
     ...(attachmentPaths ? { attachment_paths: attachmentPaths } : {}),
   };
 }

@@ -71,8 +71,8 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
 
   repo.ensureBuiltin({
     kind: "block",
-    title: "セッション・worktree 動作テスト禁止",
-    description: "セッション内または worktree でサービス起動・動作テストを行わない。動作テストは Concordia の confirm キューのみで行う。",
+    title: "未指示テスト禁止",
+    description: "ユーザが当該 Session に明示していないテストは、単体・統合・動作・起動を問わず実行しない。明示された起動テストは Excubitor + testing claim の規約に従う。",
     sort_order: 70,
   });
 
@@ -83,7 +83,7 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
     description:
       "実装作業は main / develop の直編集・直コミットで行わない。作業内容を解析して作業ブランチを確定し、" +
       "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (task md) に積み、コミット → PR 作成まで行う。" +
-      "レビューとテストは作業完了後に非同期で実施してよい (PR 作成を直列待ちにしない)。" +
+      "PR 作成後は停止し、ユーザの明示指示がないレビュー・テスト・マージへ進まない。" +
       "ルートフォルダ (リポ本体) のブランチ切り替え自体は判定対象にしない (不問)。" +
       "判定するのは main/develop への直コミットと、完了フロー (task md → コミット → PR) の欠落である。",
     sort_order: 80,

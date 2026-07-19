@@ -162,7 +162,9 @@ CREATE TABLE chat_message_reactions (
 
 詳細実装指示は [discord-ui-pr-b.md](discord-ui-pr-b.md) (codex 向け)。 主要項目:
 
-- **Slash commands** 9 個: `/spawn` `/inject` `/skill` `/keys` `/answer` `/stat` `/chitchat` `/consultation` `/end-session` + autocomplete
+- **Slash commands**: Session skill 呼び出しは `/cc-skill`。autocomplete は Cc に登録された Session の現在の `repo_path` から取得する。
+
+Forum の starter と Session 発言は親 Forum の共有 webhook で投稿する。Session metadata の `discord_webhook_name` / `discord_webhook_avatar_url` が既定 identity、`POST /v1/chat` の `metadata.webhook_username` / `metadata.webhook_avatar_url` が投稿単位の上書きになる。
 - **Modal** で `/inject` 等の長文入力 (4000 文字)
 - **Embed** 整形 (chat / transcript / status / report / question を色 + footer + fields で rich 化)
 - **AskUserQuestion bridge** (Concordia 側): `POST /v1/sessions/:id/pending-question` を受けて session channel に Button 付き embed 投稿、 押下 → `POST /answer-question` で answer 流入 (`question.answered` event)

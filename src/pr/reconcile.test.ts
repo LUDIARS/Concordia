@@ -34,7 +34,7 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
     vi.unstubAllEnvs();
   });
 
-  it("enqueues a test request when a session-authored PR turns green", async () => {
+  it("enqueues a report-only notice when a session-authored PR turns green", async () => {
     const deps = makeDeps();
     deps.prs.upsertFromStat({
       repo_origin: "LUDIARS/Concordia",
@@ -60,10 +60,11 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
     expect(task).toBeTruthy();
     const payload = JSON.parse(task!.payload) as { ci_status: string; instructions: string };
     expect(payload.ci_status).toBe("success");
-    expect(payload.instructions).toContain("Ask for the required final tests");
+    expect(payload.instructions).toContain("Report the status and stop");
+    expect(payload.instructions).toContain("Do not run tests or merge");
   });
 
-  it("enqueues a fix request when a session-authored PR turns red", async () => {
+  it("enqueues a report-only notice when a session-authored PR turns red", async () => {
     const deps = makeDeps();
     deps.prs.upsertFromStat({
       repo_origin: "LUDIARS/Concordia",
@@ -89,7 +90,8 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
     expect(task).toBeTruthy();
     const payload = JSON.parse(task!.payload) as { ci_status: string; instructions: string };
     expect(payload.ci_status).toBe("failure");
-    expect(payload.instructions).toContain("fix the PR");
+    expect(payload.instructions).toContain("Report the failing status and stop");
+    expect(payload.instructions).toContain("only when the user explicitly requests it");
   });
 
   it("does not enqueue repeatedly while CI status is unchanged", async () => {

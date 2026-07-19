@@ -21,6 +21,7 @@ import compactionCommand from "./commands/compaction.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import confirmCommand from "./commands/confirm.js";
+import ccSkillCommand from "./commands/cc-skill.js";
 import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
@@ -71,6 +72,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   goalCommand,
   relictorCommand,
   confirmCommand,
+  ccSkillCommand,
   exRunCommand,
   exRebootCommand,
 ];

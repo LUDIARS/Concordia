@@ -9,7 +9,7 @@ import type { InjectManualsRepo, InjectManualKind } from "../db/inject-manuals-r
 const DEFAULT_MANUALS: Record<InjectManualKind, string> = {
   実装:
     "作業ブランチを確定 → worktree を生成 → 作業 → task md (spec/tasks/) に分解 → コミット → PR 作成まで行う。" +
-    "main/develop へ直コミットしない。オートマージ禁止。レビューとテストは PR 作成後に非同期でよい。",
+    "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
   レビュー:
     "worktree の生成・ブランチ切り替えは不要。main 最新、または指定されたブランチ/worktree の上で読む。" +
     "コードの修正・git 操作はしない。指摘は重大度 + file:line。成果は Review/ フォルダまたはレポートで返す。",
@@ -17,7 +17,7 @@ const DEFAULT_MANUALS: Record<InjectManualKind, string> = {
     "worktree は不要。読み取り中心で分析し、spec の編集を伴う場合のみブランチ → PR。" +
     "結論はトレードオフ比較つきで spec/plan/ 形式に。",
   テスト:
-    "テストワークフロー (confirm キュー) に従う。セッション内・worktree でのサービス起動・動作テストは行わない。",
+    "ユーザがこの Session に明示したテストだけを実行する。起動テストは Excubitor + testing claim の規約に従う。明示範囲外のテストやマージは行わない。",
   雑用: "軽作業。リポ変更を伴うならブランチ → PR、読み取りのみなら自由。",
 };
 

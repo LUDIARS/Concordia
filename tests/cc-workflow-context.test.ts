@@ -44,8 +44,8 @@ describe("Cc workflow context injection", () => {
     expect(workflow.rules.join("\n")).toContain("task_update");
     expect(workflow.rules.join("\n")).toContain("open a PR");
     expect(workflow.interrupt_policy).toContain("append");
-    expect(workflow.completion_policy.join("\n")).toContain("CI is green");
-    expect(workflow.completion_policy.join("\n")).toContain("CI is red");
+    expect(workflow.completion_policy.join("\n")).toContain("commit, push, and PR creation");
+    expect(workflow.completion_policy.join("\n")).toContain("user explicitly adds that instruction");
   });
 
   it("also exposes the same workflow through GET /context", async () => {

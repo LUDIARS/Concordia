@@ -100,11 +100,9 @@ export interface ConcordiaConfig {
    *
    * 解決順:
    *  1. env `CONCORDIA_SPAWN_DEFAULT_CWD` (明示指定、 最優先)
-   *  2. env `LUDIARS_ROOT` (Excubitor が spawn 時に注入する LUDIARS ワークスペースルート)
-   *  3. 空文字列 (= フォールバック無し、 Concordia 自身の cwd で spawn)
+   *  2. 空文字列 (= project 未指定。spawn は fail-closed で拒否)
    *
-   * 空文字列なら spawn endpoint は cwd を指定せず spawnSession 側のロジックで
-   * `process.cwd()` 相当を使う.
+   * `LUDIARS_ROOT` / workspace root はリポジトリ探索専用で、Session cwd には使わない。
    */
   spawnDefaultCwd: string;
   /**
@@ -201,11 +199,14 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
   const explicitSpawnCwd = (env.CONCORDIA_SPAWN_DEFAULT_CWD ?? "").trim();
   // 作業ディレクトリの既定は Excubitor 注入の LUDIARS_ROOT を基準にする (ドライブ非依存)。
   const ludiarsRoot = resolveLudiarsRoot(env);
-  const spawnDefaultCwd = explicitSpawnCwd || ludiarsRoot;
+  // Castra/LUDIARS_ROOT is a repository container and must never become a
+  // Session cwd. Only an explicit project cwd remains as the legacy default;
+  // spawnSession still rejects it when it equals a configured workspace root.
+  const spawnDefaultCwd = explicitSpawnCwd;
   const githubOrg =
     (env.CONCORDIA_GITHUB_ORG ?? "").trim() ||
     (ludiarsRoot ? "LUDIARS" : "");
-  const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || spawnDefaultCwd;
+  const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || ludiarsRoot || spawnDefaultCwd;
   const workspaceRoots = dedupeWorkspaceRoots([
     workspaceRoot,
     ...parseExtraWorkspaceRoots(env.CONCORDIA_WORKSPACE_ROOTS),

@@ -129,7 +129,10 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
   const res = await deps.webhooks.send(client, {
     content: row.text,
-    username: author,
+    username: chatMeta.webhook_username?.trim() || session?.webhookName?.trim() || author,
+    ...(chatMeta.webhook_avatar_url?.trim() || session?.webhookAvatarUrl?.trim()
+      ? { avatarURL: chatMeta.webhook_avatar_url?.trim() || session?.webhookAvatarUrl?.trim() }
+      : {}),
     ...(attachFiles.length > 0 ? { files: attachFiles } : {}),
   });
   if (res) {
@@ -211,7 +214,8 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     const buf = Buffer.from(p.data, "base64");
     const res = await deps.webhooks.send(client, {
       content: "",
-      username: author,
+      username: session.webhookName?.trim() || author,
+      ...(session.webhookAvatarUrl?.trim() ? { avatarURL: session.webhookAvatarUrl.trim() } : {}),
       files: [{ attachment: buf, name: `image.${ext}` }],
     });
     if (!res) {
@@ -256,7 +260,11 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
     });
     return;
   }
-  const res = await deps.webhooks.send(client, { content, username: author });
+  const res = await deps.webhooks.send(client, {
+    content,
+    username: session.webhookName?.trim() || author,
+    ...(session.webhookAvatarUrl?.trim() ? { avatarURL: session.webhookAvatarUrl.trim() } : {}),
+  });
   if (!res) {
     deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
     return;

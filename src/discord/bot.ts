@@ -655,10 +655,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   }));
 
   client.on(Events.ThreadCreate, instrumentDiscord("threadCreate", (thread, newlyCreated) => {
-    if (gatewayClosed || stopping || !newlyCreated || !layout?.forumMode) return;
+    const forumLayout = layout;
+    const forumWebhooks = webhooks;
+    if (gatewayClosed || stopping || !newlyCreated || !forumLayout?.forumMode || !forumWebhooks) return;
     if (!inScope(thread.guildId)) return;
     void handleForumSpawnThread({
-      sessionForumId: layout.sessionForumId,
+      sessionForumId: forumLayout.sessionForumId,
       botUserId: client.user?.id ?? "",
       concordiaUrl: deps.concordiaUrl,
       // このスレッドを持つ Bot インスタンス自身の子会社 id (本社なら null)。
@@ -677,6 +679,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       resolveSpawnCwd: (provider, requested) =>
         deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
       hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
+      postToThread: async (threadId, content) => {
+        const webhook = await forumWebhooks.getForChannel(forumLayout.sessionForumId);
+        if (!webhook) throw new Error("Session forum webhook unavailable");
+        const sent = await forumWebhooks.send(webhook, {
+          content,
+          threadId,
+          username: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_NAME?.trim() || "Concordia",
+          ...(process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL?.trim()
+            ? { avatarURL: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL.trim() }
+            : {}),
+          allowedMentions: { parse: [] },
+        });
+        if (!sent) throw new Error("Session forum webhook post failed");
+      },
       log,
     }, thread as unknown as ForumSpawnThread).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
@@ -830,7 +846,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 fastMode: state?.fastMode ?? null,
               });
               if (originalBody) {
-                await thread.send({ content: originalBody.slice(0, 1900), allowedMentions: { parse: [] } });
+                const parentWebhook = await webhooks.getForChannel(layout.sessionForumId);
+                if (!parentWebhook) throw new Error("Session forum webhook unavailable for original request relay");
+                const relayed = await webhooks.send(parentWebhook, {
+                  content: originalBody.slice(0, 1900),
+                  threadId: thread.id,
+                  username: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_NAME?.trim() || "CLI User",
+                  ...(process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL?.trim()
+                    ? { avatarURL: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL.trim() }
+                    : {}),
+                  allowedMentions: { parse: [] },
+                });
+                if (!relayed) throw new Error("Session forum original request webhook relay failed");
               }
               sessionChannelsRepo.upsert({
                 session_id: sessionId,
@@ -867,6 +894,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 projectCode: projectResolver.codeForRepo(repoPath),
                 surfaceLabel: surface.label,
                 delegationRunId: surface.delegationRunId,
+                webhookName: state?.webhookName ?? null,
+                webhookAvatarUrl: state?.webhookAvatarUrl ?? null,
               },
             );
             if (delegationRun) {
@@ -898,7 +927,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             const sessionRow = sessionChannelsRepo.findBySessionId(sessionId);
             if (sessionRow) {
               await updateSessionSurfaceMetadata(
-                { guild, layout, repo: sessionChannelsRepo, log },
+                { guild, layout, repo: sessionChannelsRepo, log, webhooks },
                 {
                   sessionId,
                   repoPath,
@@ -1089,7 +1118,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!state) return;
       const delegationRun = state.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
       void updateSessionSurfaceMetadata(
-        { guild, layout, repo: sessionChannelsRepo, log },
+        { guild, layout, repo: sessionChannelsRepo, log, webhooks },
         {
           sessionId: ev.session_id,
           repoPath: state.repoPath,
@@ -1183,7 +1212,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (state) {
         const delegationRun = state.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
         await updateSessionSurfaceMetadata(
-          { guild: activeGuild, layout, repo: sessionChannelsRepo, log },
+          { guild: activeGuild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
           {
             sessionId,
             repoPath: state.repoPath,

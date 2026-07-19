@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,6 +9,9 @@ import {
   prepareSpawnTarget,
   type SpawnTargetGitRunner,
 } from "./spawn-target.js";
+import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
+
+const noProjectResources = async (): Promise<void> => undefined;
 
 describe("spawn target branch/worktree", () => {
   it("validates git branch names conservatively", () => {
@@ -51,7 +54,12 @@ describe("spawn target branch/worktree", () => {
       throw new Error(`unexpected git ${args.join(" ")}`);
     };
 
-    const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/x", git });
+    const result = await prepareSpawnTarget({
+      cwd: repo,
+      branch: "feat/x",
+      git,
+      projectResources: noProjectResources,
+    });
 
     expect(result).toMatchObject({
       ok: true,
@@ -60,6 +68,52 @@ describe("spawn target branch/worktree", () => {
       worktree_created: false,
     });
     expect(calls.some((args) => args[0] === "worktree" && args[1] === "add")).toBe(false);
+  });
+
+  it("copies ignored project startup configuration from the primary worktree before reuse", async () => {
+    const root = mkdtempSync(join(tmpdir(), "concordia-spawn-target-config-"));
+    const primary = join(root, "Concordia");
+    const caller = join(root, "Concordia-caller");
+    const existing = join(root, "Concordia-feat-x");
+    mkdirSync(join(primary, ".claude"), { recursive: true });
+    mkdirSync(caller, { recursive: true });
+    mkdirSync(existing, { recursive: true });
+    writeFileSync(join(primary, ".claude", "settings.local.json"), "{\"trusted\":true}", "utf8");
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      if (args.join(" ") === "rev-parse --show-toplevel") return caller;
+      if (args.join(" ") === "worktree list --porcelain") {
+        return [
+          `worktree ${primary}`,
+          "branch refs/heads/main",
+          "",
+          `worktree ${caller}`,
+          "branch refs/heads/fix/caller",
+          "",
+          `worktree ${existing}`,
+          "branch refs/heads/feat/x",
+          "",
+        ].join("\n");
+      }
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({
+        cwd: caller,
+        branch: "feat/x",
+        git,
+        projectResources: async (sourceRoot, targetRoot) => {
+          await copyWorktreeProjectConfig(sourceRoot, targetRoot);
+        },
+      });
+
+      expect(result).toMatchObject({ ok: true, cwd: existing, worktree_created: false });
+      expect(readFileSync(join(existing, ".claude", "settings.local.json"), "utf8")).toBe(
+        "{\"trusted\":true}",
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("creates a sibling worktree from HEAD for a new branch", async () => {
@@ -75,7 +129,12 @@ describe("spawn target branch/worktree", () => {
     };
 
     try {
-      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/new", git });
+      const result = await prepareSpawnTarget({
+        cwd: repo,
+        branch: "feat/new",
+        git,
+        projectResources: noProjectResources,
+      });
 
       expect(result.ok).toBe(true);
       if (!result.ok) return;

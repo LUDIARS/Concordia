@@ -19,9 +19,10 @@ The workflow requires agents to:
 - create or switch to a task branch before editing;
 - push the branch and open a PR after implementation;
 - append user interruptions after the current queue unless explicitly marked as priority;
-- monitor PR CI, request final tests when CI is green, merge only after tests pass, and fix the PR when CI is red.
+- stop after the PR is created; tests, CI-fix continuation, merge, auto-merge, and main updates require an explicit user instruction.
 
 PR CI follow-up is also backed by the existing PR reconciler. When GitHub status
 changes to `success` or `failure` for a session-authored PR, Concordia enqueues
 a `pr-ci-followup` pending task for the author session. The hook prints that task
-on the next prompt/heartbeat/session-end pull.
+on the next prompt/heartbeat/session-end pull as a status report; it does not
+authorize tests, CI fixes, or merge work by itself.

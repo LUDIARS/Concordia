@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import { access, utimes } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { reportError } from "../errors.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -45,7 +46,10 @@ import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.
 import type { DelegationService } from "../delegation/service.js";
 import type { DelegationQueue } from "../delegation/queue.js";
 import { substituteVars } from "../delegation/service.js";
-import { recordPendingDelegationSpawn } from "../control/pending-delegation-spawns.js";
+import {
+  forgetPendingDelegationSpawnBySpawnId,
+  recordPendingDelegationSpawn,
+} from "../control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -399,6 +403,19 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         worktree: requestedWorktree,
       });
       if (!spawnTarget.ok) return c.json({ error: spawnTarget.error }, 400);
+      // SessionStart can arrive immediately after wt.exe launch. Record the resolved
+      // branch before spawn so Cc never loses the caller's requested branch.
+      const spawnId = randomUUID();
+      recordPendingDelegationSpawn({
+        cwd: spawnTarget.cwd,
+        spawnId,
+        branch: spawnTarget.branch,
+        emoji: tpl.emoji ?? null,
+        callName: tpl.call_name,
+        subsidiaryId,
+        project: projectName || null,
+        goalAndGo: goalAndGoRequested(runtimeOptions),
+      });
       const result = spawnSession({
         provider: spawn.provider,
         mode,
@@ -408,17 +425,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
         env: { ...(spawn.env ?? {}), ...resolveDelegationRuntimeEnv(tpl.target_provider, runtimeOptions) },
+        spawnId,
       });
-      if (!result.ok) return c.json({ error: result.error }, 400);
-      // delegation_emoji を pending registry に登録。session.started 受信時に cwd で claim して metadata に焼く。
-      recordPendingDelegationSpawn({
-        cwd: spawnTarget.cwd,
-        emoji: tpl.emoji ?? null,
-        callName: tpl.call_name,
-        subsidiaryId,
-        project: projectName || null,
-        goalAndGo: goalAndGoRequested(runtimeOptions),
-      });
+      if (!result.ok) {
+        forgetPendingDelegationSpawnBySpawnId(spawnId);
+        return c.json({ error: result.error }, 400);
+      }
       return c.json({
         ok: true,
         pid: result.pid,
@@ -463,6 +475,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       worktree: requestedWorktree,
     });
     if (!directTarget.ok) return c.json({ error: directTarget.error }, 400);
+    const spawnId = randomUUID();
+    recordPendingDelegationSpawn({
+      cwd: directTarget.cwd,
+      spawnId,
+      branch: directTarget.branch,
+      callName: "spawn",
+      subsidiaryId,
+      project: projectName || null,
+      goalAndGo: goalAndGoRequested(directOptions),
+    });
     const result = spawnSession({
       provider: resolved.provider,
       mode,
@@ -473,18 +495,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         (typeof body.cwd === "string" && body.cwd.trim().length > 0),
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,
+      spawnId,
     });
-    if (!result.ok) return c.json({ error: result.error }, 400);
-    // 子会社由来の素の provider spawn も subsidiary_id を焼く (本社流入防止)。 本社の通常
-    // spawn では pending を積まない (cwd 衝突で他 delegation の claim を奪わないため)。
-    if (subsidiaryId || goalAndGoRequested(directOptions)) {
-      recordPendingDelegationSpawn({
-        cwd: directTarget.cwd,
-        callName: "spawn",
-        subsidiaryId,
-        project: projectName || null,
-        goalAndGo: goalAndGoRequested(directOptions),
-      });
+    if (!result.ok) {
+      forgetPendingDelegationSpawnBySpawnId(spawnId);
+      return c.json({ error: result.error }, 400);
     }
     return c.json({
       ok: true,

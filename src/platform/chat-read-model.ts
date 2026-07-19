@@ -12,6 +12,8 @@ export interface ChatMessageMetadata {
   slack_user_id?: string;
   scope?: string;
   attachment_paths?: string[];
+  webhook_username?: string;
+  webhook_avatar_url?: string;
 }
 
 export interface ChatMessageRelay {
@@ -38,6 +40,8 @@ export interface SessionRelayState {
   effortLevel: string | null;
   fastMode: boolean | null;
   subsidiaryId: string | null;
+  webhookName?: string | null;
+  webhookAvatarUrl?: string | null;
 }
 
 export interface SlackSessionIndexEntry {

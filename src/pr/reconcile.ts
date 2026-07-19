@@ -276,8 +276,8 @@ function enqueueCiFollowup(
   if (pr.previous_ci_status === pr.ci_status) return;
   if (pr.ci_status !== "success" && pr.ci_status !== "failure") return;
   const instructions = pr.ci_status === "success"
-    ? "PR CI is green. Ask for the required final tests; merge the PR only after those tests pass."
-    : "PR CI is red. Notify this session, inspect failing checks, and fix the PR before requesting final tests.";
+    ? "PR CI is green. Report the status and stop. Do not run tests or merge unless the user explicitly requests it."
+    : "PR CI is red. Report the failing status and stop. Inspect or fix CI only when the user explicitly requests it.";
   deps.tasks.enqueue({
     session_id: existing.author_session_id,
     kind: "pr-ci-followup",

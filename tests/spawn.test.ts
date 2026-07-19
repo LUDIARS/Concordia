@@ -223,26 +223,26 @@ describe("spawn arg builder", () => {
   });
 
   describe("resolveAgentHomeCwd", () => {
-    it("uses workspace/Castra for Claude and Codex when it exists", () => {
+    it("does not infer workspace/Castra for Claude or Codex", () => {
       const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
       const castra = join(root, "Castra");
       mkdirSync(castra);
       try {
-        expect(resolveCastraDefaultCwd(root)).toBe(castra);
-        expect(resolveAgentHomeCwd("claude", undefined, root)).toBe(castra);
-        expect(resolveAgentHomeCwd("codex", undefined, root)).toBe(castra);
+        expect(resolveCastraDefaultCwd(root)).toBe("");
+        expect(resolveAgentHomeCwd("claude", undefined, root)).toBeUndefined();
+        expect(resolveAgentHomeCwd("codex", undefined, root)).toBeUndefined();
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     });
 
-    it("leaves explicit cwd and non-Claude providers on the existing path", () => {
+    it("keeps explicit cwd and rejects missing cwd for every provider", () => {
       const root = mkdtempSync(join(tmpdir(), "concordia-castra-"));
       const requested = mkdtempSync(join(tmpdir(), "concordia-requested-"));
       mkdirSync(join(root, "Castra"));
       try {
         expect(resolveAgentHomeCwd("claude", requested, root)).toBe(requested);
-        expect(resolveAgentHomeCwd("gemini", undefined, root)).toBe(root);
+        expect(resolveAgentHomeCwd("gemini", undefined, root)).toBeUndefined();
       } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(requested, { recursive: true, force: true });
@@ -278,11 +278,11 @@ describe("spawn router (Hono)", () => {
     expect(body.default_cwd).toBe("");
   });
 
-  it("GET /info echoes deps.resolveDefaultCwd() (実行時解決のプライマリ workspace ルート)", async () => {
+  it("GET /info does not expose a workspace root as default_cwd", async () => {
     const app = spawnRouter({ cwd, resolveDefaultCwd: () => "D:\\LUDIARS" });
     const res = await app.request("/info");
     const body = (await res.json()) as { default_cwd: string };
-    expect(body.default_cwd).toBe("D:\\LUDIARS");
+    expect(body.default_cwd).toBe("");
   });
 
   it("POST / without token returns 401 with WWW-Authenticate", async () => {

@@ -7,7 +7,10 @@ import {
   CONCORDIA_SPAWN_CWD_MODE_ENV,
   CONCORDIA_SPAWN_ID_ENV,
   resolveSpawnCwd,
+  resolveAgentHomeCwd,
+  resolveCastraDefaultCwd,
   sanitizeSpawnEnv,
+  validateProjectCwd,
 } from "./spawner.js";
 
 describe("resolveSpawnCwd", () => {
@@ -37,6 +40,19 @@ describe("resolveSpawnCwd", () => {
 
   it("defaultCwd が実在しなければ undefined", () => {
     expect(resolveSpawnCwd(undefined, join(dir, "does-not-exist"))).toBeUndefined();
+  });
+});
+
+describe("project cwd three-out guard", () => {
+  it("does not infer Castra from a workspace root", () => {
+    expect(resolveCastraDefaultCwd("E:/Document/Ars", {})).toBe("");
+    expect(resolveAgentHomeCwd("codex", undefined, "E:/Document/Ars")).toBeUndefined();
+  });
+
+  it("rejects omitted cwd and every configured workspace root", () => {
+    expect(validateProjectCwd(undefined, ["E:/Document/Ars"])).toContain("project cwd is required");
+    expect(validateProjectCwd("E:\\Document\\Ars", ["E:/Document/Ars"])).toContain("workspace root");
+    expect(validateProjectCwd("E:/Document/Ars/Concordia", ["E:/Document/Ars"])).toBeNull();
   });
 });
 

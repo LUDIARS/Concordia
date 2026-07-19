@@ -47,7 +47,12 @@ import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { repinSession } from "../control/repin-session.js";
 import { AdminState } from "../admin/state.js";
-import { resolveAgentHomeCwd, setLictorLauncherResolver, setConcordiaAddress } from "../control/spawner.js";
+import {
+  resolveAgentHomeCwd,
+  setLictorLauncherResolver,
+  setConcordiaAddress,
+  setWorkspaceRootsResolver,
+} from "../control/spawner.js";
 import { resolveLictorLauncher } from "../control/lictor-launcher.js";
 import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
@@ -483,6 +488,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // spawn する Lictor が必ず spawning Concordia を指すよう、 自分の listen アドレスを
   // env 継承ではなく CONCORDIA_HOST / CONCORDIA_PORT として明示注入する。
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
+  setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());
 
   // テスト交通整備: 起動テスト/再起動の宣言レジストリ (/v1/testing) + ブランチ切替
   // 監視 inject。 spec/feature/testing-traffic.md

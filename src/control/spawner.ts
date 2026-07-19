@@ -7,7 +7,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { resolve as resolvePath } from "node:path";
 
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -43,6 +43,8 @@ export interface SpawnRequest {
   mode?: SpawnMode;
   title?: string;
   env?: Record<string, string>;
+  /** pending spawn と SessionStart を cwd ではなく一意に結ぶ相関 ID。 */
+  spawnId?: string;
 }
 
 export interface SpawnResultOk {
@@ -108,10 +110,16 @@ function currentLictorLauncher(): string[] {
  * 未注入なら何も足さない (= Lictor 側の既定 / 既存 env にフォールバック)。
  */
 let concordiaAddressResolver: (() => { host: string; port: number }) | null = null;
+let workspaceRootsResolver: (() => string[]) | null = null;
 
 /** spawn 子 (Lictor) へ注入する Concordia 住所の解決関数を差し替える (server 起動時)。 */
 export function setConcordiaAddress(fn: () => { host: string; port: number }): void {
   concordiaAddressResolver = fn;
+}
+
+/** Session cwd として禁止する workspace/Castra root 群を runtime 設定から解決する。 */
+export function setWorkspaceRootsResolver(fn: () => string[]): void {
+  workspaceRootsResolver = fn;
 }
 
 /**
@@ -234,16 +242,15 @@ export function resolveCastraDefaultCwd(
   env: NodeJS.ProcessEnv = process.env,
 ): string {
   const explicit = env.CONCORDIA_CASTRA_CWD?.trim();
-  if (explicit) return explicit;
-  const fallback = (defaultCwd ?? "").trim();
-  if (!fallback) return "";
-  const candidate = join(fallback, "Castra");
-  try {
-    if (existsSync(candidate) && statSync(candidate).isDirectory()) return candidate;
-  } catch {
-    // Fall back to the configured workspace root.
+  if (explicit) {
+    const root = (defaultCwd ?? "").trim();
+    return root && normalizePath(explicit) === normalizePath(root) ? "" : explicit;
   }
-  return fallback;
+  // Castra/workspace root is a repository container, not a Session working
+  // directory. Keep the legacy helper for API compatibility but never infer
+  // a cwd from the workspace root.
+  void defaultCwd;
+  return "";
 }
 
 export function resolveAgentHomeCwd(
@@ -254,10 +261,10 @@ export function resolveAgentHomeCwd(
   if (typeof requested === "string" && requested.trim()) {
     return resolveSpawnCwd(requested, defaultCwd);
   }
-  if (provider === "claude" || provider === "codex") {
-    return resolveSpawnCwd(undefined, resolveCastraDefaultCwd(defaultCwd));
-  }
-  return resolveSpawnCwd(undefined, defaultCwd);
+  void provider;
+  // Missing project is an error at spawnSession. Never silently start in
+  // Castra or Concordia's own process.cwd().
+  return undefined;
 }
 
 /**
@@ -291,10 +298,49 @@ export function validateCwd(cwd: string | undefined): string | null {
   }
 }
 
+/**
+ * Central three-out guard: every launcher path eventually calls spawnSession,
+ * so omitted cwd and configured workspace roots are rejected in one place.
+ */
+export function validateProjectCwd(
+  cwd: string | undefined,
+  workspaceRoots: readonly string[] = currentWorkspaceRoots(),
+): string | null {
+  const value = cwd?.trim();
+  if (!value) return "project cwd is required; select a project before spawning a Session";
+  const normalized = normalizePath(value);
+  if (workspaceRoots.some((root) => root.trim() && normalizePath(root) === normalized)) {
+    return `workspace root cannot be used as a Session cwd: ${value}`;
+  }
+  return null;
+}
+
+function currentWorkspaceRoots(): string[] {
+  if (workspaceRootsResolver) {
+    try {
+      return workspaceRootsResolver();
+    } catch {
+      // Fall through to process env so a transient AdminState read cannot
+      // disable the safety boundary.
+    }
+  }
+  return [
+    process.env.CONCORDIA_WORKSPACE_ROOT ?? "",
+    ...((process.env.CONCORDIA_WORKSPACE_ROOTS ?? "").split(";")),
+    process.env.LUDIARS_ROOT ?? "",
+  ].filter((value) => value.trim().length > 0);
+}
+
+function normalizePath(value: string): string {
+  return resolvePath(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 export function spawnSession(req: SpawnRequest): SpawnResult {
   if (process.platform !== "win32") {
     return { ok: false, error: "spawn currently requires Windows + Windows Terminal (wt.exe)" };
   }
+  const projectCwdErr = validateProjectCwd(req.cwd);
+  if (projectCwdErr) return { ok: false, error: projectCwdErr };
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
 
@@ -309,7 +355,7 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...sanitizeSpawnEnv(req.env),
-    ...buildSpawnIdentityEnv(req),
+    ...buildSpawnIdentityEnv(req, req.spawnId?.trim() || randomUUID()),
     ...currentConcordiaAddressEnv(),
   };
   // spawn の失敗 (ENOENT / EACCES / EMFILE 等) は非同期の `error` イベントで届く。

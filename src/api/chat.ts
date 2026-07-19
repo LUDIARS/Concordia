@@ -31,7 +31,11 @@ const PostSchema = z.object({
   attachment_paths: z.array(z.string().min(1).max(500)).max(10).optional(),
 });
 
-/** discord_channel_id / attachment_paths を metadata に畳み込む (egress が読む). */
+/**
+ * discord_channel_id / attachment_paths を metadata に畳み込む (egress が読む)。
+ * metadata.webhook_username / metadata.webhook_avatar_url を指定すると、Discord
+ * Forum webhook の表示名・画像を投稿単位で上書きできる。
+ */
 function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
   const merged: Record<string, unknown> = { ...(parsed.metadata ?? {}), scope };
   if (parsed.discord_channel_id) merged.discord_channel_id = parsed.discord_channel_id;

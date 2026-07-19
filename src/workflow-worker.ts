@@ -13,7 +13,7 @@ import { runClaude } from "./rules/claude-runner.js";
 import { DelegationQueue } from "./delegation/queue.js";
 import { AdminState } from "./admin/state.js";
 import { makeDiscordConfigRepo } from "./db/discord-repo.js";
-import { setConcordiaAddress, setLictorLauncherResolver } from "./control/spawner.js";
+import { setConcordiaAddress, setLictorLauncherResolver, setWorkspaceRootsResolver } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
 import { readWorkflowWorkerLease, startWorkflowWorkerLease } from "./bootstrap/workflow.js";
 
@@ -56,6 +56,7 @@ async function main(): Promise<void> {
   });
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
+  setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());
 
   const concordiaUrl = `http://${cfg.host}:${cfg.port}`;
   // キュー払い出しの launch でも main プロセスと同じ kind 別マニュアルを差し込む

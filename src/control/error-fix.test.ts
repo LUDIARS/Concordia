@@ -27,11 +27,13 @@ describe("shouldFixError", () => {
 });
 
 describe("buildErrorFixPrompt", () => {
-  it("includes source/message and an auto-merge instruction", () => {
+  it("includes source/message and the stop-at-PR boundary", () => {
     const p = buildErrorFixPrompt({ source: "vestigium:actio", message: "boom", detail: { line: 42 } });
     expect(p).toContain("vestigium:actio");
     expect(p).toContain("boom");
-    expect(p).toContain("自動マージ");
+    expect(p).toContain("PR 作成まで");
+    expect(p).toContain("auto-merge");
+    expect(p).toContain("禁止");
     expect(p).toContain("サービス \"actio\"");
   });
 

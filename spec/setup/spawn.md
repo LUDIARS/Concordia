@@ -19,7 +19,7 @@ related:
   - ../feature/delegation.md
   - discord.md
   - config-reference.md
-updated: 2026-07-10
+updated: 2026-07-19
 ---
 
 # セッション管制 (spawn) の設定 (spawn)
@@ -45,33 +45,49 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 (自動既定あり) | `cwd` 省略時に使う working directory。 |
+| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。workspace root と同じ値は拒否される。 |
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | token ファイルの場所を上書き (docker/systemd の volume 分離用)。 |
 | `CONCORDIA_RESTART_DRY_RUN` | 未設定 | `1` で `/v1/admin/restart` の spawn/exit を skip (テスト用)。 |
 
-### spawn 既定 cwd の解決順
+### spawn cwd の必須条件
 
-`body.cwd` が省略されたときの既定値は **プライマリ workspace ルート** (`workspaceRoots[0]` = `AdminState.getWorkspaceRoot()`) を実行時に解決する (`src/app.ts` / `src/api/spawn.ts`)。 env 固定の `CONCORDIA_SPAWN_DEFAULT_CWD` を直接流用せず、 設定 GUI / `/v1/admin/workspace-root(s)` での上書きが即反映される。
+Session spawn は個別 project cwd を必須とする。`cwd` / `project` / template の `default_cwd` のいずれでも project を解決できない場合は 400 で停止する。`workspaceRoots` のいずれかと完全一致する Castra/workspace root は中央 spawn guard が拒否する。
 
 `getWorkspaceRoot()` 自体の解決順 (`src/admin/state.ts` / `src/shared/config.ts`):
 
 1. AdminState の `workspace_roots` (設定 GUI / API で上書き、 schema_meta 永続化) の先頭
 2. (移行用) 旧 single key `workspace_root`
-3. config 既定 `workspaceRoots[0]` = env `CONCORDIA_WORKSPACE_ROOT` || `spawnDefaultCwd`
-   - `spawnDefaultCwd` = env `CONCORDIA_SPAWN_DEFAULT_CWD` || (Windows かつ `E:\Document\Ars` 存在時の自動採用)
+3. project を解決できなければ spawn せず、呼び出し元がユーザへ project を確認する
 4. 空 → フォールバック無し (Concordia 自身の cwd で spawn)
 
-> 既定 cwd は workspace ルート先頭が source of truth。 別パスに恒久的に変えたいときは設定 GUI で workspace root を変更する (env `CONCORDIA_SPAWN_DEFAULT_CWD` は最終フォールバックの一段でしかない)。 Concordia への委託は cwd 明示が安全 (memory: feedback_delegation_cwd_needed)。
+> `workspaceRoots` はリポジトリ探索の正本であり、Session cwd の既定値ではない。Castra 直下へ Session を起動してから project を探す運用は禁止。
 
-### spawn 後の project 特定 Inject
+### worktree の project別 Skill / Memory / trust 設定
+
+branch 指定で linked worktree を作成または再利用するとき、Cc は Lictor 起動前に
+project 本体から不足している `.claude` / `.agent` / `.agents` / `.codex` と
+`.mcp.json` / `mcp.json` / `mcp_servers.json` を worktree へコピーする。これにより、
+ignored な `settings.local.json`、hook、Skill、MCP 定義が worktree に無いことを原因とする
+初回 trust ダイアログを防ぐ。
+
+Skill はproject本体の `.claude/skills` / `.agent(s)/skills` / `.codex/skills` を正本とし、
+workspace共通Skillと他projectのSkillを混ぜない。Memoryはリポジトリへ入れず、Claudeの
+`~/.claude/projects/<project本体の絶対path key>/memory/*.md` だけを、対応する
+`<worktreeの絶対path key>/memory/` へ不足分のみ配置する。workspace rootの混在Memoryや
+他projectのMemoryはコピーしない。
+
+worktree 側に既にある設定・Memoryは上書きしない。project内の `.claude/memory`、
+`state` / `worktrees` / `sessions` / `logs` / cache / temp と symlink は、private Memory、
+実行時データ、または境界外参照なのでproject設定コピーの対象にしない。コピーに失敗した
+場合は spawn を中止し、新規作成直後なら worktree と新規 local branch を片付ける。
+
+### spawn 後の Session 作業ポリシー Inject
 
 Concordia が interactive session を spawn するときは、Lictor 子プロセスへ一意な
 `CONCORDIA_SPAWN_ID` と `CONCORDIA_SPAWN_CWD_MODE` (`provided` / `omitted`) を渡す。
 Lictor はこの二項目を session 登録 metadata に返し、Concordia は新規登録された当該
-session だけへ、次の `session.inject` を必ず送る。
-
-- cwd 指定あり: `ルートディレクトリのスキルを確認しに行って`
-- cwd 指定なし（launcher/default cwd のみ）: `次のユーザプロンプトでプロジェクトを特定できない場合は、プロジェクトを特定する質問をユーザに行う`
+session だけへ、project 特定、workspace root 禁止、branch 確認・Cc 登録、PR で停止、
+明示指示のないテスト・merge 禁止を含む共通 `session.inject` を必ず送る。
 
 照合は cwd と時刻の推測ではなく spawn ID で行うため、同一 cwd で複数 session を並走
 起動しても別 session に指示を送らない。既存 session の再登録時には再 Inject しない。

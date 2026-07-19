@@ -33,6 +33,7 @@ import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import {
   buildForumThreadTitle,
+  buildForumStarterContent,
   createForumSessionThread,
   fetchForumSessionThread,
   hasForumSessionState,
@@ -72,6 +73,8 @@ export async function onSessionRegistered(
     projectCode?: string | null;
     surfaceLabel?: "Session" | "TaskWorkflow";
     delegationRunId?: string | null;
+    webhookName?: string | null;
+    webhookAvatarUrl?: string | null;
   },
 ): Promise<void> {
   const existing = deps.repo.findBySessionId(input.sessionId);
@@ -87,8 +90,9 @@ export async function onSessionRegistered(
   const name = buildSessionChannelName("active", input.agentType, nameBody, input.delegationEmoji);
   try {
     if (deps.layout.forumMode) {
+      if (!deps.webhooks) throw new Error("Session forum requires WebhookPool");
       const repoPath = input.repoPath?.trim() || "unknown";
-      const created = await createForumSessionThread(deps.guild, deps.layout.sessionForumId, {
+      const created = await createForumSessionThread(deps.guild, deps.layout.sessionForumId, deps.webhooks, {
         sessionId: input.sessionId,
         repoPath,
         branch: input.branch ?? null,
@@ -101,20 +105,22 @@ export async function onSessionRegistered(
         delegationEmoji: input.delegationEmoji,
         surfaceLabel: input.surfaceLabel,
         delegationRunId: input.delegationRunId,
+        webhookName: input.webhookName ?? input.roleLabel ?? input.agentType ?? "Concordia",
+        webhookAvatarUrl: input.webhookAvatarUrl ?? null,
       });
-      const starter = await created.fetchStarterMessage();
       deps.repo.upsert({
         session_id: input.sessionId,
-        channel_id: created.id,
+        channel_id: created.thread.id,
         channel_kind: "thread",
         status: "active",
         display_state: "active",
         agent_type: input.agentType ?? null,
         name_body: nameBody,
         delegation_emoji: input.delegationEmoji ?? null,
-        surface_message_id: starter?.id ?? null,
+        surface_message_id: created.starterMessageId,
       });
-      deps.log.info(`session-forum: created ${created.name} for ${input.sessionId}`);
+      deps.repo.setWebhook(input.sessionId, created.webhookId, created.webhookToken);
+      deps.log.info(`session-forum: created ${created.thread.name} via webhook for ${input.sessionId}`);
       await ensureEagerWebhook(deps, input.sessionId);
       return;
     }
@@ -717,6 +723,14 @@ export async function updateSessionSurfaceMetadata(
   if (!row || row.channel_kind !== "thread") return;
   const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
   if (!thread) return;
+  if (row.surface_message_id && deps.webhooks) {
+    const updated = await deps.webhooks.editForSession(
+      input.sessionId,
+      row.surface_message_id,
+      buildForumStarterContent(deps.guild.id, input),
+    );
+    if (updated) return;
+  }
   await updateForumSessionStarter(deps.guild, thread, input, row.surface_message_id);
 }
 

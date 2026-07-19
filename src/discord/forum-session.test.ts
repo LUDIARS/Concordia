@@ -39,19 +39,30 @@ describe("forum session surfaces", () => {
   });
 
   it("uses the delegation emoji when creating and renaming a forum thread", async () => {
-    const thread = { setName: vi.fn(async () => undefined) };
-    const create = vi.fn(async () => thread);
+    const thread = {
+      id: "thread-1",
+      type: ChannelType.PublicThread,
+      parent: null as any,
+      setName: vi.fn(async () => undefined),
+    };
     const forum = {
+      id: "forum-1",
       type: ChannelType.GuildForum,
       availableTags: [{ id: "active-tag", name: SESSION_STATE_TAG_NAMES.active }],
-      threads: { create },
     };
+    thread.parent = forum;
+    const createForumThread = vi.fn(async () => ({
+      threadId: "thread-1",
+      messageId: "message-1",
+      webhookId: "webhook-1",
+      webhookToken: "token-1",
+    }));
     const guild = {
       id: "guild-1",
-      channels: { cache: new Map([["forum-1", forum]]) },
+      channels: { cache: new Map<string, any>([["forum-1", forum], ["thread-1", thread]]) },
     };
 
-    await createForumSessionThread(guild as any, "forum-1", {
+    const result = await createForumSessionThread(guild as any, "forum-1", { createForumThread } as any, {
       sessionId: "session-1",
       repoPath: "E:/Document/Ars/Concordia",
       branch: "fix/delegation-channel-emoji",
@@ -59,10 +70,15 @@ describe("forum session surfaces", () => {
       summary: "Implement delegation",
       fallbackLabel: "session",
       delegationEmoji: "🧭",
+      webhookName: "Branch Agent",
+      webhookAvatarUrl: "https://example.test/avatar.png",
     });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      name: "🧭 [Cc] Implement delegation",
+    expect(createForumThread).toHaveBeenCalledWith("forum-1", expect.objectContaining({
+      threadName: "🧭 [Cc] Implement delegation",
+      username: "Branch Agent",
+      avatarURL: "https://example.test/avatar.png",
     }));
+    expect(result).toEqual(expect.objectContaining({ thread, starterMessageId: "message-1" }));
 
     await updateForumSessionTitle(thread as any, "Cc", "Review delegation", "🧭");
     expect(thread.setName).toHaveBeenCalledWith(

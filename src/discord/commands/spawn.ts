@@ -1,7 +1,6 @@
 import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../commands.js";
 import { callConcordia } from "./_util.js";
-import { readSpawnToken } from "../../control/token.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
@@ -33,7 +32,9 @@ const spawnCommand: DiscordCommandSpec = {
       o.setName("model")
         .setDescription("モデル (例 haiku / sonnet / opus)。provider 直指定時のみ有効")
         .setRequired(false))
-    .addStringOption((o) => o.setName("cwd").setDescription("working directory").setRequired(false)),
+    .addStringOption((o) => o.setName("project").setDescription("project/repository name under workspace roots").setRequired(false))
+    .addStringOption((o) => o.setName("branch").setDescription("requested working branch (Cc に登録)").setRequired(false))
+    .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false)),
 
   async autocomplete(interaction, deps) {
     const focused = interaction.options.getFocused().toLowerCase();
@@ -63,10 +64,12 @@ const spawnCommand: DiscordCommandSpec = {
     const prompt = interaction.options.getString("prompt")?.trim() || undefined;
     const model = interaction.options.getString("model")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
+    const project = interaction.options.getString("project")?.trim() || undefined;
+    const branch = interaction.options.getString("branch")?.trim() || undefined;
 
     deps.log.info(
       `spawn command execute provider=${provider ?? "-"} template=${template ?? "-"} inject=${inject ? 1 : 0} ` +
-      `has_prompt=${prompt ? 1 : 0} model=${model ?? "-"} has_cwd=${cwd ? 1 : 0} ` +
+       `has_prompt=${prompt ? 1 : 0} model=${model ?? "-"} project=${project ?? "-"} branch=${branch ?? "-"} has_cwd=${cwd ? 1 : 0} ` +
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
 
@@ -86,7 +89,7 @@ const spawnCommand: DiscordCommandSpec = {
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        { template, inject_prompt: inject, cwd, subsidiary_id: deps.subsidiaryId ?? null },
+        { template, inject_prompt: inject, project, cwd, branch, subsidiary_id: deps.subsidiaryId ?? null },
       );
       if ("error" in r || !r.ok) {
         deps.log.warn(`spawn command template failed template=${template} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
@@ -105,69 +108,37 @@ const spawnCommand: DiscordCommandSpec = {
       return;
     }
 
-    // ── 従来経路: provider 直接指定 (/v1/spawn は token 必須) ──────
+    // ── provider 直接指定 ───────────────────────────────────────
     if (!provider) {
       deps.log.warn("spawn command rejected missing provider and template");
       await interaction.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
       return;
     }
-    // prompt / model 指定あり = 自由テキスト初回プロンプト経路。/v1/admin/spawn-session
-    // (loopback 信頼境界、token 不要) が prompt を prompt file 化して注入する。
-    if (prompt || model) {
-      await interaction.deferReply({ ephemeral: false });
-      deps.log.info(`spawn command branch=admin-provider provider=${provider} model=${model ?? "-"} has_prompt=${prompt ? 1 : 0}`);
-      const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
-        deps.concordiaUrl,
-        "POST",
-        "/v1/admin/spawn-session",
-        { provider, prompt, model, cwd, subsidiary_id: deps.subsidiaryId ?? null },
-      );
-      if ("error" in r || !r.ok) {
-        deps.log.warn(`spawn command admin-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
-        await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
-        return;
-      }
-      const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
-      deps.log.info(`spawn command admin-provider ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
-      await interaction.editReply({
-        content: channelMention
-          ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
-          : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
-      });
-      return;
-    }
-    // 子会社経路は廃止: 子会社 guild では dispatchInteraction が全コマンドを拒否する
-    // (子会社は Discord コマンド不許可。 依頼は受付チャンネル → ガードゲートのみ)。
-    // /v1/spawn requires the Bearer token from `<cwd>/.spawn.token`. The bot
-    // runs in-process with Concordia so it can read the file directly.
-    const token = readSpawnToken();
-    if (!token) {
-      deps.log.warn("spawn command legacy-token branch failed: .spawn.token not found");
+    if (!project && !cwd) {
       await interaction.reply({
-        content: "spawn failed: .spawn.token not found (Concordia hasn't generated it yet?)",
+        content: "作業対象プロジェクトを特定できません。`project` または個別リポジトリの `cwd` を指定してください。Castra 直下では起動しません。",
         ephemeral: true,
       });
       return;
     }
     await interaction.deferReply({ ephemeral: false });
-    deps.log.info(`spawn command branch=legacy-token provider=${provider}`);
-    const r = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
+    deps.log.info(`spawn command branch=admin-provider provider=${provider} project=${project ?? "-"} requested_branch=${branch ?? "-"}`);
+    const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
       deps.concordiaUrl,
       "POST",
-      "/v1/spawn",
-      { provider, cwd },
-      token,
+      "/v1/admin/spawn-session",
+      { provider, prompt, model, project, cwd, branch, subsidiary_id: deps.subsidiaryId ?? null },
     );
     if ("error" in r || !r.ok) {
-      deps.log.warn(`spawn command legacy-token failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
+      deps.log.warn(`spawn command admin-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
       await interaction.editReply({ content: `spawn failed: ${"error" in r ? r.error : (r.error ?? "unknown")}` });
       return;
     }
     const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
-    deps.log.info(`spawn command legacy-token ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
+    deps.log.info(`spawn command admin-provider ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
     await interaction.editReply({
       content: channelMention
-        ? `Spawned \`${provider}\` → ${channelMention}`
+        ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${branch ? ` on \`${branch}\`` : ""} → ${channelMention}`
         : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
     });
   },

@@ -35,6 +35,15 @@ function webhookToken(client: WebhookClient): string | null {
   return (client as unknown as { token?: string | null }).token ?? null;
 }
 
+function webhookMessageChannelId(message: unknown): string | undefined {
+  const value = message as { channelId?: unknown; channel_id?: unknown };
+  return typeof value.channelId === "string"
+    ? value.channelId
+    : typeof value.channel_id === "string"
+      ? value.channel_id
+      : undefined;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -139,6 +148,59 @@ export class WebhookPool {
     return this.ensureWebhookForChannel(channelId);
   }
 
+  /** Parent Forum webhook から starter を投稿し、新規 thread を作る。 */
+  async createForumThread(
+    forumId: string,
+    options: WebhookMessageCreateOptions & { content: string; threadName: string },
+  ): Promise<{ threadId: string; messageId: string; webhookId: string; webhookToken: string } | null> {
+    const client = await this.getForChannel(forumId);
+    if (!client) return null;
+    const token = webhookToken(client);
+    if (!token) return null;
+    const sent = await this.send(client, options);
+    if (!sent?.channelId) {
+      whLog.warn({ forum_id: forumId, webhook_id: client.id }, "webhook-pool forum create missing thread id");
+      return null;
+    }
+    return {
+      threadId: sent.channelId,
+      messageId: sent.id,
+      webhookId: client.id,
+      webhookToken: token,
+    };
+  }
+
+  /** webhook authored Forum surface message を session-scoped token で更新する。 */
+  async editForSession(sessionId: string, messageId: string, content: string): Promise<boolean> {
+    const client = await this.getForSession(sessionId);
+    if (!client) return false;
+    const token = webhookToken(client);
+    if (!token) return false;
+    const threadId = this.threadTargets.get(client);
+    const threadQuery = threadId ? `?thread_id=${encodeURIComponent(threadId)}` : "";
+    try {
+      const res = await fetch(
+        `https://discord.com/api/v10/webhooks/${client.id}/${token}/messages/${messageId}${threadQuery}`,
+        {
+          method: "PATCH",
+          signal: webhookSendAbortSignal(),
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ content }),
+        },
+      );
+      if (res.ok) return true;
+      const body = await res.text().catch(() => "");
+      whLog.warn(
+        { sessionId, message_id: messageId, status: res.status, body: body.slice(0, 200) },
+        "webhook-pool edit failed",
+      );
+      return false;
+    } catch (error) {
+      whLog.warn({ sessionId, message_id: messageId, err: (error as Error).message }, "webhook-pool edit threw");
+      return false;
+    }
+  }
+
   /**
    * channel 上の bot 所有 webhook (`Concordia`) を全削除し cache/inflight からも除く.
    * session 終了 → archive 時に呼ぶ。 archived channel が Discord の webhook budget
@@ -225,7 +287,7 @@ export class WebhookPool {
   async send(
     client: WebhookClient,
     options: WebhookMessageCreateOptions,
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string; channelId?: string } | null> {
     const threadId = options.threadId ?? this.threadTargets.get(client);
     const targetedOptions = threadId ? { ...options, threadId } : options;
     const previous = this.sendQueues.get(client.id) ?? Promise.resolve();
@@ -241,24 +303,25 @@ export class WebhookPool {
   private async sendNow(
     client: WebhookClient,
     options: WebhookMessageCreateOptions,
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string; channelId?: string } | null> {
     try {
       await sleep(WEBHOOK_SEND_SPACING_MS);
       const content = typeof options.content === "string" ? options.content : null;
       if (content === null) {
         const msg = await client.send(options);
-        return { id: msg.id };
+        const channelId = webhookMessageChannelId(msg);
+        return { id: msg.id, ...(channelId ? { channelId } : {}) };
       }
 
       // テーブルを ``` で囲み、 上限超なら ``` ブロックをまたがず分割する
       // (テーブル/コードブロックがメッセージ境界で割れて崩れるのを防ぐ)。
       const chunks = formatForChunkedPost(content, DISCORD_MESSAGE_MAX);
-      let firstId: string | null = null;
+      let first: { id: string; channelId?: string } | null = null;
       for (const chunk of chunks) {
         const msg = await this.sendTextChunk(client, { ...options, content: chunk });
-        if (!firstId) firstId = msg.id;
+        if (!first) first = msg;
       }
-      return firstId ? { id: firstId } : null;
+      return first;
     } catch (err) {
       whLog.warn(
         {
@@ -274,10 +337,11 @@ export class WebhookPool {
   private async sendTextChunk(
     client: WebhookClient,
     options: WebhookMessageCreateOptions & { content: string },
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; channelId?: string }> {
     if (options.files?.length) {
       const msg = await client.send(options);
-      return { id: msg.id };
+      const channelId = webhookMessageChannelId(msg);
+      return { id: msg.id, ...(channelId ? { channelId } : {}) };
     }
     const token = webhookToken(client);
     if (!token) throw new Error("Discord webhook token unavailable");
@@ -301,7 +365,10 @@ export class WebhookPool {
       });
       if (res.status === 429 && attempt < 2) {
         const retryMs = await webhookRetryAfterMs(res);
-        if (retryMs >= WEBHOOK_FALLBACK_THRESHOLD_MS) {
+        if (retryMs >= WEBHOOK_FALLBACK_THRESHOLD_MS && (options.threadName || options.threadId)) {
+          throw new Error(`Discord forum webhook rate limited for ${retryMs}ms`);
+        }
+        if (retryMs >= WEBHOOK_FALLBACK_THRESHOLD_MS && !options.threadName && !options.threadId) {
           whLog.warn(
             { webhook_id: client.id, retry_ms: retryMs },
             "webhook-pool.send rate limited too long; falling back to bot send",
@@ -319,9 +386,9 @@ export class WebhookPool {
         const body = await res.text().catch(() => "");
         throw new Error(`Discord webhook HTTP ${res.status}: ${body.slice(0, 300)}`);
       }
-      const json = await res.json() as { id?: string };
+      const json = await res.json() as { id?: string; channel_id?: string };
       if (!json.id) throw new Error("Discord webhook response missing message id");
-      return { id: json.id };
+      return { id: json.id, ...(json.channel_id ? { channelId: json.channel_id } : {}) };
     }
     throw new Error("Discord webhook send retry exhausted");
   }
@@ -329,7 +396,7 @@ export class WebhookPool {
   private async sendTextChunkViaBot(
     client: WebhookClient,
     options: WebhookMessageCreateOptions & { content: string },
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; channelId?: string }> {
     const channelId = this.webhookChannels.get(client.id);
     if (!channelId) throw new Error("Discord webhook fallback channel unavailable");
     const targetId = options.threadId ?? channelId;
@@ -345,7 +412,7 @@ export class WebhookPool {
       embeds: options.embeds,
       components: options.components,
     });
-    return { id: msg.id };
+    return { id: msg.id, channelId: msg.channelId };
   }
 
   private async resolveSessionWebhookTarget(

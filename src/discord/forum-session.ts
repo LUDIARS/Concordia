@@ -7,6 +7,7 @@ import {
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import { SESSION_STATE_TAG_NAMES, type DiscordConfigSnapshot } from "./config.js";
 import { formatFastMode, formatWorkingBranch, type RuntimeMetadata } from "./runtime-metadata.js";
+import type { WebhookPool } from "./webhook-pool.js";
 
 export interface ForumSessionSurface {
   forumId: string;
@@ -36,9 +37,17 @@ export interface CreateForumSessionInput extends ForumSessionMetadata {
   summary: string | null;
   fallbackLabel: string;
   delegationEmoji?: string | null;
+  webhookName?: string | null;
+  webhookAvatarUrl?: string | null;
 }
 
 export type ForumSessionThread = PublicThreadChannel<true>;
+export interface CreatedForumSessionThread {
+  thread: ForumSessionThread;
+  starterMessageId: string;
+  webhookId: string;
+  webhookToken: string;
+}
 
 export function isForumSessionThread(
   channel: { type: ChannelType; parent?: unknown } | null | undefined,
@@ -51,8 +60,9 @@ export function isForumSessionThread(
 export async function createForumSessionThread(
   guild: Guild,
   forumId: string,
+  webhooks: WebhookPool,
   input: CreateForumSessionInput,
-): Promise<ForumSessionThread> {
+): Promise<CreatedForumSessionThread> {
   const forum = guild.channels.cache.get(forumId);
   if (!forum || forum.type !== ChannelType.GuildForum) {
     throw new Error(`Session forum is unavailable: ${forumId || "(empty id)"}`);
@@ -61,16 +71,26 @@ export async function createForumSessionThread(
   if (!waitingTagId) {
     throw new Error(`Session forum is missing required tag: ${SESSION_STATE_TAG_NAMES.active}`);
   }
-  return forum.threads.create({
-    name: buildForumThreadTitle(
+  const created = await webhooks.createForumThread(forum.id, {
+    content: buildForumStarterContent(guild.id, input),
+    username: input.webhookName ?? input.fallbackLabel,
+    ...(input.webhookAvatarUrl ? { avatarURL: input.webhookAvatarUrl } : {}),
+    threadName: buildForumThreadTitle(
       input.projectCode,
       input.summary ?? input.fallbackLabel,
       input.delegationEmoji,
     ),
-    message: { content: buildForumStarterContent(guild.id, input) },
     appliedTags: [waitingTagId],
-    reason: `Concordia session ${input.sessionId} started`,
   });
+  if (!created) throw new Error(`Session forum webhook create failed: ${forumId}`);
+  const thread = await fetchForumSessionThread(guild, created.threadId);
+  if (!thread) throw new Error(`Session forum webhook returned unavailable thread: ${created.threadId}`);
+  return {
+    thread,
+    starterMessageId: created.messageId,
+    webhookId: created.webhookId,
+    webhookToken: created.webhookToken,
+  };
 }
 
 export async function fetchForumSessionThread(

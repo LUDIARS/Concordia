@@ -4,14 +4,18 @@
 // 背景: `/co-spawn`（delegation）は wt.exe ターミナルを起動し、その中の Lictor が
 // **別途** Concordia にセッション登録する（POST /v1/sessions）。spawn 時点では
 // session_id が未確定なため、delegation テンプレの絵文字をセッションに直接焼けない。
-// そこで spawn 時に (cwd, emoji, call_name) を覚えておき、session.started 受信時に
-// cwd 一致で claim → セッション metadata に emoji を焼く。マッチは数秒以内に起きる
+// そこで spawn 時に (spawn_id, cwd, branch, emoji, call_name) を覚えておき、session.started
+// 受信時に spawn_id で claim → セッション metadata/branch に焼く。cwd は旧 spawn の fallback。
+// マッチは数秒以内に起きる
 // 想定なので in-memory で十分（再起動で失っても既定アイコンに戻るだけ）。
 
 const TTL_MS = 5 * 60 * 1000; // 5 分でexpire（取り違え防止）
 
 export interface PendingDelegationSpawn {
   cwd: string;
+  spawnId: string | null;
+  /** Cc が spawn 前に解決した作業ブランチ。Session 登録時の照合・復元に使う。 */
+  branch: string | null;
   emoji: string | null;
   callName: string;
   runId: string | null;
@@ -32,6 +36,8 @@ const pending: PendingDelegationSpawn[] = [];
 export function recordPendingDelegationSpawn(
   input: {
     cwd?: string | null;
+    spawnId?: string | null;
+    branch?: string | null;
     emoji?: string | null;
     callName: string;
     runId?: string | null;
@@ -46,6 +52,8 @@ export function recordPendingDelegationSpawn(
   if (!cwd) return;
   pending.push({
     cwd: normalize(cwd),
+    spawnId: (input.spawnId ?? "").trim() || null,
+    branch: (input.branch ?? "").trim() || null,
     emoji: (input.emoji ?? "").trim() || null,
     callName: input.callName,
     runId: (input.runId ?? "").trim() || null,
@@ -63,8 +71,18 @@ export function recordPendingDelegationSpawn(
  * マッチ規則: cwd 完全一致 → cwd が repo_path の祖先（AI が cwd 配下へ移動した場合）の順。
  * 同条件が複数あれば最新を採る。見つからなければ null。
  */
-export function claimPendingDelegationSpawn(repoPath: string | null | undefined, now = Date.now()): PendingDelegationSpawn | null {
+export function claimPendingDelegationSpawn(
+  repoPath: string | null | undefined,
+  now = Date.now(),
+  spawnId?: string | null,
+): PendingDelegationSpawn | null {
   prune(now);
+  const sid = (spawnId ?? "").trim();
+  if (sid) {
+    const byId = pending.findIndex((item) => item.spawnId === sid);
+    if (byId >= 0) return pending.splice(byId, 1)[0];
+    return null;
+  }
   const rp = normalize((repoPath ?? "").trim());
   if (!rp) return null;
   let bestIdx = -1;
@@ -91,6 +109,14 @@ export function forgetPendingDelegationSpawnByRunId(runId: string | null | undef
   if (!rid) return;
   for (let i = pending.length - 1; i >= 0; i--) {
     if (pending[i].runId === rid) pending.splice(i, 1);
+  }
+}
+
+export function forgetPendingDelegationSpawnBySpawnId(spawnId: string | null | undefined): void {
+  const sid = (spawnId ?? "").trim();
+  if (!sid) return;
+  for (let i = pending.length - 1; i >= 0; i--) {
+    if (pending[i].spawnId === sid) pending.splice(i, 1);
   }
 }
 

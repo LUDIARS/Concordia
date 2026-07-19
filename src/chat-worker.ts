@@ -32,7 +32,7 @@ import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { repinSession } from "./control/repin-session.js";
-import { resolveAgentHomeCwd } from "./control/spawner.js";
+import { resolveAgentHomeCwd, setWorkspaceRootsResolver } from "./control/spawner.js";
 import { makeDiscordConfigRepo, makeDiscordPendingQuestionsRepo, makeDiscordSessionChannelsRepo } from "./db/discord-repo.js";
 import { makeSlackConfigRepo } from "./db/slack-config-repo.js";
 import { resolveSlackConfig } from "./slack/config.js";
@@ -158,6 +158,7 @@ async function main(): Promise<void> {
     ),
     lictorDevPath: workspaceRoot ? join(workspaceRoot, "Lictor") : "",
   });
+  setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
     discordUserIds: adminState.getReactionWorkflowDiscordUserIds(),

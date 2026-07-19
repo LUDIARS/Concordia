@@ -28,6 +28,11 @@ import {
   tokenMatches,
 } from "../control/token.js";
 import { createChildLogger } from "../shared/logger.js";
+import { prepareSpawnTarget } from "../control/spawn-target.js";
+import {
+  forgetPendingDelegationSpawnBySpawnId,
+  recordPendingDelegationSpawn,
+} from "../control/pending-delegation-spawns.js";
 
 const log = createChildLogger("api/spawn");
 
@@ -35,11 +40,9 @@ export interface SpawnApiDeps {
   /** cwd Concordia was started in — used for token storage. */
   cwd?: string;
   /**
-   * Default working directory the spawn endpoint applies when the caller
-   * omits `cwd`. 既定はプライマリ workspace ルート (`workspaceRoots[0]`) を
-   * 実行時に解決する resolver。 これにより設定 GUI / AdminState での上書きが
-   * 即座に反映される (env 固定の spawnDefaultCwd を流用しない)。 空文字列を
-   * 返す / 未指定なら fallback 無し (Concordia 自身の cwd で spawn)。
+   * Workspace-root resolver used only by the central forbidden-root guard and
+   * legacy info response. Omitting body.cwd no longer launches in this path;
+   * the caller must select an individual project cwd.
    */
   resolveDefaultCwd?: () => string;
   /**
@@ -99,24 +102,38 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       );
     }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
+    const target = await prepareSpawnTarget({
+      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
+      branch: body.branch,
+      worktree: body.worktree,
+    });
+    if (!target.ok) return c.json({ error: target.error }, 400);
     const request: SpawnRequest = {
       provider,
       mode,
       args: Array.isArray(body.args)
         ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
         : undefined,
-      cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
+      cwd: target.cwd,
       cwdProvided: typeof body.cwd === "string" && body.cwd.trim().length > 0,
       title: typeof body.title === "string" ? body.title : undefined,
       // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
       // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
     };
 
+    const id = randomUUID();
+    recordPendingDelegationSpawn({
+      cwd: target.cwd,
+      spawnId: id,
+      branch: target.branch,
+      callName: "spawn-api",
+    });
+    request.spawnId = id;
     const result = spawnSession(request);
     if (!result.ok) {
+      forgetPendingDelegationSpawnBySpawnId(id);
       return c.json({ error: result.error }, 400);
     }
-    const id = randomUUID();
     log.info({ id, provider, mode, pid: result.pid }, "spawn launched");
     return c.json({ ok: true, id, pid: result.pid, command: result.command });
   });

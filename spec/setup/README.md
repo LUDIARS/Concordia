@@ -67,7 +67,7 @@ npm run dev          # backend (11111) + Vite frontend を同時起動
 2. **`.env`** (サービス cwd 直下) — `#` コメント可、 `KEY=VALUE`、 値の前後クォートは剥がす。
 3. **コード上の既定値** — `config-reference.md` の「既定値」列。
 
-`CONCORDIA_SPAWN_DEFAULT_CWD` だけは追加で「Windows かつ `E:\Document\Ars` 存在時の自動採用」 という第 2 段の既定がある ([spawn.md](spawn.md) 参照)。
+Session spawn は個別 project cwd が必須で、Castra/workspace root への自動フォールバックは行わない ([spawn.md](spawn.md) 参照)。
 
 ---
 

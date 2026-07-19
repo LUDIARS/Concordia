@@ -35,15 +35,9 @@ describe("sessions API", () => {
     expect(typeof j2.advisory.worktree_command).toBe("string");
   });
 
-  it.each([
-    ["provided", "ルートディレクトリのスキルを確認しに行って"],
-    [
-      "omitted",
-      "次のユーザプロンプトでプロジェクトを特定できない場合は、プロジェクトを特定する質問をユーザに行う",
-    ],
-  ] as const)(
-    "Cc spawn metadata records the mandatory project-identification inject (%s)",
-    async (cwdMode, expectedText) => {
+  it.each(["provided", "omitted"] as const)(
+    "Cc spawn metadata records the mandatory Session work-policy inject (%s)",
+    async (cwdMode) => {
       const id = `spawn-${cwdMode}`;
       const start = await app.request("/v1/sessions", {
         method: "POST",
@@ -67,9 +61,10 @@ describe("sessions API", () => {
       };
       const inject = body.events.find(
         (event) => event.kind === "inject" &&
-          event.payload.source === "cc-spawn-project-identification",
+          event.payload.source === "cc-session-work-policy",
       );
-      expect(inject?.payload.text).toBe(expectedText);
+      expect(inject?.payload.text).toContain("作業対象プロジェクトを最初に特定");
+      expect(inject?.payload.text).toContain("Castra / workspace root");
     },
   );
 

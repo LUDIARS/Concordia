@@ -4,9 +4,10 @@ import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
 import {
-  pickSpawnProjectIdentificationInject,
-  SPAWN_PROJECT_IDENTIFICATION_SOURCE,
-} from "../../control/spawn-project-identification.js";
+  buildSessionWorkPolicy,
+  isWorkspaceRootCwd,
+  SESSION_WORK_POLICY_SOURCE,
+} from "../../control/session-work-policy.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
@@ -17,12 +18,18 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     const parsed = StartSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
+    const workspaceRoots = deps.resolveWorkspaceRoots?.() ?? [];
+    if (isWorkspaceRootCwd(input.repo_path, workspaceRoots)) {
+      return c.json(
+        { error: `workspace root cannot be registered as a Session cwd: ${input.repo_path}` },
+        400,
+      );
+    }
     const now = nowSec();
     // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;
-    // Cc spawn の一意 metadata がある新規セッションだけに、project 特定用の初回
-    // inject を送る。既存セッションの再登録では二重送信しない。
-    let spawnProjectIdentificationText: string | null = null;
+    // 全ての新規 Session に共通の fail-closed 作業ポリシーを 1 回だけ inject する。
+    let sessionWorkPolicyText: string | null = null;
 
     const existing = deps.repo.findSession(input.id);
     const resumed = !!existing && existing.status !== "active";
@@ -59,9 +66,23 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     } else {
       // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
       // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
-      const claimed = claimPendingDelegationSpawn(input.repo_path);
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
-      spawnProjectIdentificationText = pickSpawnProjectIdentificationInject(meta);
+      const spawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
+      const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
+      const workPolicy = buildSessionWorkPolicy({
+        repoPath: input.repo_path,
+        observedBranch: input.branch ?? null,
+        pendingSpawn: claimed,
+        workspaceRoots,
+      });
+      sessionWorkPolicyText = workPolicy.text;
+      if (claimed?.branch) meta.requested_branch = claimed.branch;
+      if (workPolicy.branchMismatch) {
+        meta.branch_mismatch = {
+          requested: claimed?.branch ?? null,
+          observed: input.branch ?? null,
+        };
+      }
       if (claimed?.emoji) meta.delegation_emoji = claimed.emoji;
       if (claimed?.callName) meta.delegation_call_name = claimed.callName;
       const delegationRunId = resolveDelegationRunIdForSession({
@@ -103,7 +124,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         provider: input.provider as ProviderName,
         repo_path: input.repo_path,
         repo_origin: input.repo_origin ?? null,
-        branch: input.branch ?? null,
+        branch: workPolicy.registeredBranch,
         host: input.host,
         started_at: now,
         last_seen_at: now,
@@ -115,14 +136,21 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         session_id: input.id,
         ts: now,
         kind: "start",
-        payload: { provider: input.provider, host: input.host, cwd: input.repo_path, branch: input.branch ?? null },
+        payload: {
+          provider: input.provider,
+          host: input.host,
+          cwd: input.repo_path,
+          branch: workPolicy.registeredBranch,
+          requested_branch: claimed?.branch ?? null,
+          branch_mismatch: workPolicy.branchMismatch,
+        },
       });
       eventBus.emit({
         type: "session.started",
         session_id: input.id,
         provider: input.provider,
         repo_path: input.repo_path,
-        branch: input.branch ?? null,
+        branch: workPolicy.registeredBranch,
         ts: now,
       });
     }
@@ -162,14 +190,14 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
     });
 
-    if (spawnProjectIdentificationText) {
+    if (sessionWorkPolicyText) {
       deps.repo.appendEvent({
         session_id: input.id,
         ts: nowSec(),
         kind: "inject",
         payload: {
-          text: spawnProjectIdentificationText,
-          source: SPAWN_PROJECT_IDENTIFICATION_SOURCE,
+          text: sessionWorkPolicyText,
+          source: SESSION_WORK_POLICY_SOURCE,
         },
       });
       // Lictor opens its session-scoped WS immediately after register returns.
@@ -178,8 +206,8 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         eventBus.emit({
           type: "session.inject",
           target_session_id: input.id,
-          text: spawnProjectIdentificationText!,
-          source: SPAWN_PROJECT_IDENTIFICATION_SOURCE,
+          text: sessionWorkPolicyText!,
+          source: SESSION_WORK_POLICY_SOURCE,
           ts: nowSec(),
         });
       }, 1500).unref?.();

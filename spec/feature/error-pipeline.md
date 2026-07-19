@@ -51,14 +51,14 @@ updated: 2026-06-30
   以後は同じセッションに inject して再利用する。
 - **inject**: `session.inject` event (Lictor が WS 経由で Codex TUI に流す。
   `auto-session-end-inject.ts` と同経路)。 prompt は `buildErrorFixPrompt`:
-  source/message/detail + 対象リポ推定 + 「fix ブランチ→PR→CI green なら squash merge +
-  ブランチ削除 + main 更新まで (Ars 自動マージ規約)」。
+  source/message/detail + 対象リポ推定 + 「fix ブランチ→commit→push→PR 作成で停止」。
+  テスト、CI 修正継続、merge、auto-merge、main 更新はユーザの明示指示が必要。
 - **dedupe / rate-limit**: 同一 (source|message) は 10 分以内再依頼しない。
   inject 間隔は最小 120s、 滞留は queue (上限 20) に積んで 30s tick で drain。
 
 ### 既知の制約 / 将来
-- fixer の cwd は 1 つ。 クロスリポ修正は prompt で対象リポ path を伝え Codex が移動して対応
-  (Ars 配下は単一ワークスペース root を fixerCwd にすれば全リポ到達可)。
+- fixer の cwd は 1 つ。workspace root は指定せず、個別プロジェクトの cwd を設定する。
+  クロスリポ修正は対象プロジェクトを特定してから、そのリポの Session として扱う。
 - spawn→session_id の同定は cwd 一致ヒューリスティック。 より厳密にするなら Lictor 側で
   「role=error-fixer」 マーカーを registration metadata に伝播させる契約が要る (将来)。
 - Vestigium ライブ検知の本体は Excubitor (別サービス) にあり、 Concordia 側は env で

@@ -27,7 +27,6 @@ export interface ForumSpawnThread {
   ownerId: string | null;
   name: string;
   fetchStarterMessage: () => Promise<{ content: string } | null>;
-  send: (options: { content: string; allowedMentions?: { parse: never[] } }) => Promise<unknown>;
 }
 
 export interface ForumSpawnDeps {
@@ -48,6 +47,8 @@ export interface ForumSpawnDeps {
   /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
   resolveSpawnCwd: (provider: ForumSpawnProvider, requested?: string) => string | undefined;
   hasExistingRun: (triggeredBy: string) => boolean;
+  /** Cc の Forum 返信も必ず親 Forum webhook + thread_id で投稿する。 */
+  postToThread: (threadId: string, content: string) => Promise<void>;
   log: { info: (message: string) => void; warn: (message: string) => void };
 }
 
@@ -65,18 +66,35 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   const template = templates.find((t) => t.call_name === plan.callName && t.is_active);
   if (!template) {
     deps.log.warn(`forum-spawn missing/inactive template call_name=${plan.callName}`);
-    await reply(thread, `起動テンプレ \`${plan.callName}\` が見つからないか無効化されています。管理者に連絡してください。`);
+    await reply(deps, thread, `起動テンプレ \`${plan.callName}\` が見つからないか無効化されています。管理者に連絡してください。`);
     return;
   }
 
   const starter = await thread.fetchStarterMessage();
   if (!starter) {
-    await reply(thread, "最初の投稿を取得できなかったため、セッションを起動できませんでした。");
+    await reply(deps, thread, "最初の投稿を取得できなかったため、セッションを起動できませんでした。");
     return;
   }
   const body = starter.content.trim();
+  if (isConcordiaSessionStarter(body)) {
+    deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
+    return;
+  }
   const project = deps.resolveProjectTarget(thread.name, body);
+  if (!project) {
+    deps.log.info(`forum-spawn project unresolved thread=${thread.id}`);
+    await reply(
+      deps,
+      thread,
+      "作業対象プロジェクトを特定できませんでした。プロジェクトコードまたはリポジトリ名を本文かタイトルに追記してください。Castra 直下では Session を起動しません。",
+    );
+    return;
+  }
   const cwd = deps.resolveSpawnCwd(provider, project?.cwd);
+  if (!cwd) {
+    await reply(deps, thread, `プロジェクト \`${project.project}\` の作業ディレクトリを解決できませんでした。設定を確認してください。`);
+    return;
+  }
   const result = await callConcordia<{
     ok: boolean;
     run: { id: string; status: string };
@@ -94,14 +112,18 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   if ("error" in result || !result.ok) {
     const error = "error" in result ? result.error : "delegation invoke failed";
     deps.log.warn(`forum-spawn failed thread=${thread.id} template=${template.call_name}: ${error}`);
-    await reply(thread, `セッション起動に失敗しました: ${error}`);
+    await reply(deps, thread, `セッション起動に失敗しました: ${error}`);
     return;
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${template.call_name} ` +
     `provider=${provider} project=${project?.project ?? "workspace-default"} cwd=${cwd ?? "unresolved"}`,
   );
-  await reply(thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
+  await reply(deps, thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
+}
+
+export function isConcordiaSessionStarter(content: string): boolean {
+  return /^\*\*(?:Session|TaskWorkflow)\*\* `[^`]+`/m.test(content) && content.includes("**Repository**");
 }
 
 export function buildForumSpawnTrigger(guildId: string, threadId: string): string {
@@ -124,6 +146,6 @@ export function buildForumSpawnPrompt(title: string, body: string): string {
   ].join("\n");
 }
 
-async function reply(thread: ForumSpawnThread, content: string): Promise<void> {
-  await thread.send({ content: content.slice(0, 1900), allowedMentions: { parse: [] } });
+async function reply(deps: ForumSpawnDeps, thread: ForumSpawnThread, content: string): Promise<void> {
+  await deps.postToThread(thread.id, content.slice(0, 1900));
 }

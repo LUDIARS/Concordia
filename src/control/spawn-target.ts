@@ -10,12 +10,15 @@ import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { promisify } from "node:util";
+import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
+import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
 
 const execFileAsync = promisify(execFile);
 const GIT_BIN = process.platform === "win32" ? "git.exe" : "git";
 const BRANCH_RE = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 
 export type SpawnTargetGitRunner = (cwd: string, args: string[]) => Promise<string>;
+export type SpawnTargetResourcePreparer = (sourceRoot: string, targetRoot: string) => Promise<void>;
 
 export interface SpawnTargetRequest {
   cwd?: string;
@@ -23,6 +26,7 @@ export interface SpawnTargetRequest {
   worktree?: unknown;
   worktreeBaseDir?: string | null;
   git?: SpawnTargetGitRunner;
+  projectResources?: SpawnTargetResourcePreparer;
 }
 
 export interface SpawnTargetOk {
@@ -40,6 +44,11 @@ export interface SpawnTargetErr {
 }
 
 export type SpawnTargetResult = SpawnTargetOk | SpawnTargetErr;
+
+interface GitWorktreeEntry {
+  path: string;
+  branch: string | null;
+}
 
 export function parseSpawnBranch(value: unknown): { ok: true; branch: string | null } | SpawnTargetErr {
   if (value === undefined || value === null) return { ok: true, branch: null };
@@ -95,6 +104,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   }
 
   const git = input.git ?? defaultGit;
+  const projectResources = input.projectResources ?? defaultProjectResourcePreparer;
   let repoRoot: string;
   try {
     repoRoot = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim();
@@ -103,8 +113,12 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   }
   if (!repoRoot) return { ok: false, error: "cwd is not a git repository" };
 
-  const existing = await findWorktreeForBranch(git, repoRoot, branch);
+  const worktrees = await listWorktrees(git, repoRoot);
+  const configSourceRoot = worktrees[0]?.path ?? repoRoot;
+  const existing = worktrees.find((entry) => entry.branch === branch)?.path ?? null;
   if (existing) {
+    const resourceError = await placeProjectResources(projectResources, configSourceRoot, existing);
+    if (resourceError) return resourceError;
     return {
       ok: true,
       cwd: existing,
@@ -124,6 +138,8 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
       }
       const targetBranch = (await git(worktreePath, ["rev-parse", "--abbrev-ref", "HEAD"])).trim();
       if (targetBranch === branch) {
+        const resourceError = await placeProjectResources(projectResources, configSourceRoot, worktreePath);
+        if (resourceError) return resourceError;
         return {
           ok: true,
           cwd: worktreePath,
@@ -155,6 +171,12 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     return { ok: false, error: `failed to create worktree: ${messageOf(err)}` };
   }
 
+  const resourceError = await placeProjectResources(projectResources, configSourceRoot, worktreePath);
+  if (resourceError) {
+    await cleanupFailedWorktree(git, repoRoot, worktreePath, branch, !localBranch);
+    return resourceError;
+  }
+
   return {
     ok: true,
     cwd: worktreePath,
@@ -163,6 +185,44 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     worktree_path: worktreePath,
     worktree_created: true,
   };
+}
+
+async function defaultProjectResourcePreparer(sourceRoot: string, targetRoot: string): Promise<void> {
+  await copyWorktreeProjectConfig(sourceRoot, targetRoot);
+  await copyWorktreeProjectMemory(sourceRoot, targetRoot);
+}
+
+async function placeProjectResources(
+  prepare: SpawnTargetResourcePreparer,
+  sourceRoot: string,
+  targetRoot: string,
+): Promise<SpawnTargetErr | null> {
+  try {
+    await prepare(sourceRoot, targetRoot);
+    return null;
+  } catch (error) {
+    return { ok: false, error: `failed to place project agent resources: ${messageOf(error)}` };
+  }
+}
+
+async function cleanupFailedWorktree(
+  git: SpawnTargetGitRunner,
+  repoRoot: string,
+  worktreePath: string,
+  branch: string,
+  branchCreated: boolean,
+): Promise<void> {
+  try {
+    await git(repoRoot, ["worktree", "remove", "--force", worktreePath]);
+  } catch {
+    // The failed preparation is already reported; cleanup remains best-effort.
+  }
+  if (!branchCreated) return;
+  try {
+    await git(repoRoot, ["branch", "-D", branch]);
+  } catch {
+    // The failed preparation is already reported; cleanup remains best-effort.
+  }
 }
 
 async function defaultGit(cwd: string, args: string[]): Promise<string> {
@@ -183,29 +243,34 @@ async function refExists(git: SpawnTargetGitRunner, cwd: string, ref: string): P
   }
 }
 
-async function findWorktreeForBranch(
+async function listWorktrees(
   git: SpawnTargetGitRunner,
   cwd: string,
-  branch: string,
-): Promise<string | null> {
+): Promise<GitWorktreeEntry[]> {
   let stdout: string;
   try {
     stdout = await git(cwd, ["worktree", "list", "--porcelain"]);
   } catch {
-    return null;
+    return [];
   }
+  const entries: GitWorktreeEntry[] = [];
   let currentPath: string | null = null;
   for (const line of stdout.split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
+      if (currentPath) entries.push({ path: currentPath, branch: null });
       currentPath = line.slice("worktree ".length).trim();
       continue;
     }
     if (line.startsWith("branch ")) {
       const currentBranch = line.slice("branch ".length).trim().replace(/^refs\/heads\//, "");
-      if (currentBranch === branch) return currentPath;
+      if (currentPath) {
+        entries.push({ path: currentPath, branch: currentBranch });
+        currentPath = null;
+      }
     }
   }
-  return null;
+  if (currentPath) entries.push({ path: currentPath, branch: null });
+  return entries;
 }
 
 function messageOf(err: unknown): string {

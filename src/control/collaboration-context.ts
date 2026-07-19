@@ -150,18 +150,20 @@ function buildCcWorkflow(sessionId: string): CollaborationContextPacket["cc_work
     },
     rules: [
       "Break the work into visible todos and post task_update through the Concordia API before substantive edits.",
-      "Create or switch to a task branch before editing; do not work directly on main.",
+      "Identify the individual project first; never use the workspace/Castra root as the working directory.",
+      "Confirm the requested branch against the actual checkout and register that branch in Cc before editing; do not work directly on main.",
       "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
       "When implementation is complete, push the branch and open a PR.",
+      "Do not run any test unless the user explicitly requested it for this Session.",
+      "Do not merge, enable auto-merge, or update main unless the user explicitly requested it.",
       "Keep task_update current as work moves between pending, in_progress, and completed.",
     ],
     interrupt_policy:
       "If the user interrupts with additional work, append it after the current queue unless the user explicitly marks it as priority.",
     completion_policy: [
-      "After the PR exists, monitor CI until it is green or red.",
-      "When CI is green, ask for the required final tests before merging.",
-      "Merge the PR only after the requested tests pass.",
-      "When CI is red, notify the session and fix the PR instead of asking for final tests.",
+      "The default Session completion boundary is commit, push, and PR creation.",
+      "After creating the PR, stop and report it; do not automatically monitor/fix CI, test, or merge.",
+      "Only continue into tests or merge when the user explicitly adds that instruction.",
     ],
   };
 }

@@ -78,6 +78,18 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.runId).toBe("run-123");
   });
 
+  it("round-trips the branch resolved before Session registration", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", branch: "fix/branch-register", callName: "spawn" }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.branch).toBe("fix/branch-register");
+  });
+
+  it("claims concurrent same-cwd spawns by unique spawn id", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", spawnId: "spawn-main", branch: "main", callName: "spawn" }, 1000);
+    recordPendingDelegationSpawn({ cwd: "/a", spawnId: "spawn-fix", branch: "fix/one", callName: "spawn" }, 1001);
+    expect(claimPendingDelegationSpawn("/a", 1002, "spawn-main")?.branch).toBe("main");
+    expect(claimPendingDelegationSpawn("/a", 1003, "spawn-fix")?.branch).toBe("fix/one");
+  });
+
   it("round-trips parentSessionId for delegation parent linkage", () => {
     recordPendingDelegationSpawn({
       cwd: "/a",

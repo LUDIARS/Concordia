@@ -7,7 +7,7 @@
  *  - セッション: 単一の常駐 Codex を再利用。 同定キーは「専用 cwd の active codex-cli セッション」。
  *    cwd は CONCORDIA_ERROR_AUTOFIX_CWD (= fixer の identity)。 居なければ一度だけ spawn。
  *  - 安全弁: env CONCORDIA_ERROR_AUTOFIX=1 の時だけ稼働 (既定 OFF)。 dedupe + rate-limit。
- *    修正手順は「ブランチ→PR→CI green なら自動マージまで」 (Ars 自動マージ規約) を prompt で指示。
+ *    修正手順は「ブランチ→コミット→PR」で停止。テスト/マージは明示指示時のみ。
  *
  * inject は session.inject event (Lictor が WS 経由で Codex TUI に流し込む) を使う
  * — auto-session-end-inject.ts と同じ経路。
@@ -61,7 +61,7 @@ export function buildErrorFixPrompt(rec: { source: string; message: string; deta
     `source: ${rec.source}`,
     `message: ${rec.message}`.slice(0, 600) + det,
     repoHint,
-    "手順: 該当リポで fix ブランチを切り、修正 → コミット → PR 作成 → CI が green なら squash merge + ブランチ削除 + main 更新まで実施 (Ars 自動マージ規約)。CI red の時は止めて状況を残す。既知の一過性エラーや再現性が無いものは無視してよい。",
+    "手順: 該当リポで fix ブランチを切り、修正 → コミット → push → PR 作成まで行い、そこで停止する。ユーザの明示指示がないテスト、CI 修正継続、merge、auto-merge、main 更新は禁止。既知の一過性エラーや再現性が無いものは無視してよい。",
   ].join("\n");
 }
 

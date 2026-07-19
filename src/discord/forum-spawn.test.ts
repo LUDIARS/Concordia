@@ -4,6 +4,7 @@ import {
   buildForumSpawnPrompt,
   buildForumSpawnTrigger,
   handleForumSpawnThread,
+  isConcordiaSessionStarter,
   parseForumSpawnTrigger,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
@@ -38,6 +39,11 @@ describe("forum spawn", () => {
     );
   });
 
+  it("recognizes webhook-created Cc Session starters so they do not recursively spawn", () => {
+    expect(isConcordiaSessionStarter("**Session** `s1`\n**Repository** `Concordia`")).toBe(true);
+    expect(isConcordiaSessionStarter("Please fix **Repository** handling")).toBe(false);
+  });
+
   it("invokes the plan for the picked provider, without needing any tag", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
@@ -53,7 +59,6 @@ describe("forum spawn", () => {
       ownerId: "human-1",
       name: "[Cc] Implement Phase 2",
       fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-      send: async ({ content }) => { replies.push(content); },
     };
 
     await handleForumSpawnThread({
@@ -65,6 +70,7 @@ describe("forum spawn", () => {
       resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
       resolveSpawnCwd: (_provider, requested) => requested ?? "E:/Document/Ars",
       hasExistingRun: () => false,
+      postToThread: async (_threadId, content) => { replies.push(content); },
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
 
@@ -96,7 +102,6 @@ describe("forum spawn", () => {
       ownerId: "human-1",
       name: "[Cc] Implement Phase 2",
       fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-      send: async () => undefined,
     };
 
     await handleForumSpawnThread({
@@ -106,9 +111,10 @@ describe("forum spawn", () => {
       subsidiaryId: "sub-1",
       templates: async () => [template("forum-codex-session")],
       pickProvider: async () => "codex",
-      resolveProjectTarget: () => null,
-      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
+      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+      resolveSpawnCwd: (_provider, requested) => requested,
       hasExistingRun: () => false,
+      postToThread: async () => undefined,
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
 
@@ -130,7 +136,6 @@ describe("forum spawn", () => {
       ownerId: "human-1",
       name: "[Cc] Implement Phase 2",
       fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-      send: async () => undefined,
     };
 
     await handleForumSpawnThread({
@@ -139,9 +144,10 @@ describe("forum spawn", () => {
       concordiaUrl: "http://127.0.0.1:17320",
       templates: async () => [template("forum-codex-session")],
       pickProvider: async () => "codex",
-      resolveProjectTarget: () => null,
-      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
+      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+      resolveSpawnCwd: (_provider, requested) => requested,
       hasExistingRun: () => false,
+      postToThread: async () => undefined,
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
 
@@ -149,7 +155,7 @@ describe("forum spawn", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: null });
   });
 
-  it("uses the normal spawn project root when the post has no project code", async () => {
+  it("asks for the project and does not fall back to Castra when resolution fails", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       run: { id: "run-default", status: "queued" },
@@ -164,8 +170,8 @@ describe("forum spawn", () => {
       ownerId: "human-1",
       name: "Investigate without a project code",
       fetchStarterMessage: async () => ({ content: "Start a normal session" }),
-      send: async () => undefined,
     };
+    const replies: string[] = [];
 
     await handleForumSpawnThread({
       sessionForumId: "forum-1",
@@ -176,12 +182,13 @@ describe("forum spawn", () => {
       resolveProjectTarget: () => null,
       resolveSpawnCwd,
       hasExistingRun: () => false,
+      postToThread: async (_threadId, content) => { replies.push(content); },
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
 
-    expect(resolveSpawnCwd).toHaveBeenCalledWith("codex", undefined);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({ cwd: "E:/Document/Ars/Castra" });
+    expect(resolveSpawnCwd).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(replies[0]).toContain("作業対象プロジェクトを特定できません");
   });
 
   it("replies with an error and does not invoke when the planned template is missing", async () => {
@@ -195,7 +202,6 @@ describe("forum spawn", () => {
       ownerId: "human-1",
       name: "[Cc] Implement Phase 2",
       fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-      send: async ({ content }) => { replies.push(content); },
     };
 
     await handleForumSpawnThread({
@@ -207,6 +213,7 @@ describe("forum spawn", () => {
       resolveProjectTarget: () => null,
       resolveSpawnCwd: () => "E:/Document/Ars/Castra",
       hasExistingRun: () => false,
+      postToThread: async (_threadId, content) => { replies.push(content); },
       log: { info: vi.fn(), warn: vi.fn() },
     }, thread);
 

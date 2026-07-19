@@ -152,7 +152,7 @@ export async function callConcordia<T>(
 |---|---|---|---|---|
 | `inject.ts` | `inject` | `text` (string, required, max 4000) | - | session channel 内のみ。 `POST /v1/sessions/:id/inject` で text 流入 |
 | `spawn.ts` | `spawn` | `provider` (string choice: claude/codex/gemini), `cwd` (string, autocomplete), `no_cernere` (bool, optional) | cwd: 直近 30 日の `sessions.repo_path` distinct 上位 25 件 | spawn token を `.spawn.token` から読み、 `POST /v1/spawn` |
-| `skill.ts` | `skill` | `name` (string, autocomplete) | name: lictor の `/v1/skill/list` を loopback proxy。 ない場合は ["pending-tasks", "conflicts", "session-state"] fallback | session channel 内、 `POST /v1/sessions/:id/skill` (Lictor proxy 経由、 既存 fs-rpc 系の踏襲) |
+| `cc-skill.ts` | `cc-skill` | `name` (string, autocomplete) | Session の `repo_path` (= 現在の branch/worktree) 内 `.claude/.agents/.codex/skills` と Cc の `src/skills/*.md` を列挙 | session channel 内、 `POST /v1/sessions/:id/skill` で選択した branch 上の本文を Lictor へ注入 |
 | `keys.ts` | `keys` | `seq` (string, max 200) | - | session channel 内、 Lictor `/v1/keys` proxy |
 | `answer.ts` | `answer` | `choice` (integer 0-24) | - | 直近未回答の pending question を `POST /v1/sessions/:id/answer-question { question_id, answer_index }` |
 | `stat.ts` | `stat` | (なし) | - | `GET /v1/stat` の JSON を embed で整形 (active sessions 一覧 + branch + last_event) |

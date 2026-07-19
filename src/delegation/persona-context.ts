@@ -71,9 +71,9 @@ export function buildDelegationContext(
     "  ルールに従います。 コミットメッセージは『何を・なぜ』が分かる粒度で書きます。",
     "- 起動後は最新の origin base から新規 worktree を作成して実装します。base は origin/develop があれば",
     "  develop、無ければ main とし、PR base も同じにします。",
-    "- worktree ではサービス起動・動作テストをしません。起動を伴わない単体テスト (vitest 等) は可。",
-    "  動作テストは Concordia の confirm キューが安定ブランチで行います。",
-    "- 実装完了の責務は commit + PR + delegation status 報告までです。マージと確認テストはスコープ外です。",
+    "- ユーザが明示的に指示しない限り、単体・統合・動作・起動を含むテストを実行しません。",
+    "- 実装完了の責務は commit + push + PR + delegation status 報告までです。PR 作成後は停止します。",
+    "- ユーザが明示的に指示しない限り、merge・squash merge・auto-merge・main 更新を行いません。",
     "",
   );
 

@@ -1,0 +1,39 @@
+{
+  "signals": {
+    "identity_relevance": 0.6,
+    "status_visibility": 0.3,
+    "aspiration": 0.6,
+    "public_consumption": 0.2,
+    "proof_strength": 0.8,
+    "economic_stakes": 0.7,
+    "measurable_value": 0.8,
+    "loss_salience": 0.8,
+    "ownership_potential": 0.9,
+    "trialability": 0.9,
+    "immediacy": 0.7,
+    "reward_clarity": 0.8,
+    "repeat_frequency": 0.9,
+    "variety_potential": 0.5,
+    "habit_opportunity": 0.8,
+    "satiation_risk": 0.2,
+    "feedback_speed": 0.8,
+    "frustration": 0.9,
+    "blocked_goal": 0.9,
+    "autonomy_threat": 0.4,
+    "repairability": 0.8,
+    "evidence_of_problem": 0.8,
+    "decision_friction": 0.7,
+    "effort": 0.6,
+    "delay": 0.7,
+    "choice_complexity": 0.8,
+    "present_bias": 0.5,
+    "reversibility": 0.9
+  },
+  "confidence": {
+    "global": 0.7,
+    "avaritia": 0.75,
+    "ira": 0.8,
+    "acedia": 0.75
+  },
+  "risk_flags": []
+}

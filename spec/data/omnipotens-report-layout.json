@@ -1,0 +1,20 @@
+{
+  "generatedAt": "2026-07-16T09:09:27+09:00",
+  "sections": [
+    { "id": "00", "title": "Source manifest", "sources": ["spec/plan/00-source-manifest.md"], "artifacts": ["spec/data/tool-manifest.json"] },
+    { "id": "01", "title": "Product brief", "sources": ["spec/feature/product-brief.md"] },
+    { "id": "02", "title": "System baseline and applicability", "sources": ["spec/feature/game-spec.md"] },
+    { "id": "03", "title": "Ludus applicability", "sources": ["spec/plan/03-ludus-analysis.md"] },
+    { "id": "04", "title": "Domain model", "sources": ["spec/plan/04-domain-model.md"] },
+    { "id": "05", "title": "Anatomia analysis", "sources": ["spec/plan/05-anatomia-analysis.md"], "artifacts": ["spec/data/anatomia-architecture-review.json", "report/architecture-review-spec-domains.html", "report/architecture-review-spec-domains.html.json", "report/architecture-review.html", "report/architecture-review.html.json"] },
+    { "id": "06", "title": "Specification–domain–code map", "sources": ["spec/plan/06-spec-domain-code-map.md"] },
+    { "id": "07", "title": "Gap and contradiction register", "sources": ["spec/plan/07-spec-gaps.md"] },
+    { "id": "08", "title": "Operational loop analysis", "sources": ["spec/plan/08-mechanics-economy.md"] },
+    { "id": "09", "title": "AI Format and architecture health", "sources": ["spec/plan/09-aiformat-architecture-review.md"] },
+    { "id": "10", "title": "UX review", "sources": ["spec/plan/10-ux-review.md"] },
+    { "id": "11", "title": "Vitia marketability", "sources": ["spec/plan/11-vitia-marketability.md"], "artifacts": ["spec/data/vitia-input.json", "spec/data/vitia-score.json"] },
+    { "id": "12", "title": "Di discussion", "sources": ["spec/plan/12-di-discussion-paper.md"] },
+    { "id": "13", "title": "Runtime boundaries", "sources": ["spec/interface/runtime-boundaries.md"] },
+    { "id": "14", "title": "Reproduction and verification", "sources": ["spec/setup/reproducible-build.md", "spec/test/review-test-plan.md"] }
+  ]
+}

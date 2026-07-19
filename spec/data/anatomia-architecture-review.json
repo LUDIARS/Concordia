@@ -1,0 +1,55 @@
+{
+  "projectCommit": "b8f3ed7e1d11ce746344281884b08c6538506eb4",
+  "anatomiaCommit": "2b09de8f79f4c205f6cb797a3135316e764ef56e",
+  "baseline": "ten locked specification domains; generic built-ins neutralized for aggregate scoring",
+  "counts": {
+    "files": 643,
+    "functions": 5532,
+    "calls": 6766,
+    "unresolvedCalls": 4574,
+    "skippedFiles": 0
+  },
+  "designStrength": {
+    "score": 54.7,
+    "components": {
+      "domainCoverage": 88.1,
+      "domainCohesion": 58.0,
+      "cycleHealth": 0,
+      "moduleModularity": 75.2,
+      "specLinkage": 82.3,
+      "godClassHealth": 20.2
+    }
+  },
+  "review": {
+    "functionCycleGroups": 13,
+    "structuralDuplicateCandidates": 43,
+    "domainCouplingPairs": 72,
+    "orphanCandidates": 3656,
+    "specGapFileCandidates": 114
+  },
+  "topHotspots": [
+    { "file": "src/bootstrap/core.ts", "line": 336, "name": "startBackend", "cyclomatic": 84, "coupling": 83 },
+    { "file": "src/discord/bot.ts", "line": 185, "name": "startDiscordBot", "cyclomatic": 69, "coupling": 71 },
+    { "file": "src/api/register-core.ts", "line": 138, "name": "registerCoreRoutes", "cyclomatic": 52, "coupling": 52 },
+    { "file": "src/slack/bot.ts", "line": 108, "name": "startSlackBot", "cyclomatic": 48, "coupling": 49 }
+  ],
+  "topGodClass": {
+    "file": "src/delegation/service.ts",
+    "line": 247,
+    "name": "DelegationService",
+    "risk": 79.8,
+    "methods": 10,
+    "externalFanOut": 29,
+    "domainSpan": 5,
+    "cyclomatic": 39
+  },
+  "rawArtifacts": [
+    "report/architecture-review-spec-domains.html.json",
+    "report/architecture-review.html.json"
+  ],
+  "limitations": [
+    "Composite scores are prioritization signals, not release gates.",
+    "Unresolved calls, callbacks, tests, and dynamic dispatch inflate orphan and cohesion uncertainty.",
+    "Function self-recursion is counted as a cycle; dependency-cruiser reports no prohibited module violations."
+  ]
+}

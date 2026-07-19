@@ -1,0 +1,17 @@
+{
+  "name": "agent-delegation",
+  "description": "Agent delegation, persona generation, subsidiary bots, harness sessions, and advisory testing claims that coordinate work beyond a single session.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/personas/[^/]+$" },
+    { "pathPattern": "(^|/)src/delegation/[^/]+$" },
+    { "pathPattern": "(^|/)src/subsidiary/[^/]+$" },
+    { "pathPattern": "(^|/)src/harness/[^/]+$" },
+    { "pathPattern": "(^|/)src/testing/[^/]+$" }
+  ],
+  "cardTemplate": "Summarise the \"agent-delegation\" domain: Agent delegation, persona generation, subsidiary bots, harness sessions, and advisory testing claims that coordinate work beyond a single session.",
+  "source": "manual",
+  "lockedFields": ["*"],
+  "specRefs": ["spec/feature/domain-taxonomy.concordia.md#agent-delegation"]
+}

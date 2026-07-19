@@ -1,0 +1,15 @@
+{
+  "retrievedAt": "2026-07-16T09:09:27+09:00",
+  "project": { "name": "Concordia", "commit": "b8f3ed7e1d11ce746344281884b08c6538506eb4" },
+  "tools": [
+    { "name": "node", "version": "v24.14.1" },
+    { "name": "npm", "version": "11.11.0" },
+    { "name": "python", "version": "3.14.3" },
+    { "name": "git", "version": "2.24.1.windows.2" },
+    { "name": "Anatomia", "version": "0.1.0", "commit": "2b09de8f79f4c205f6cb797a3135316e764ef56e" },
+    { "name": "AIFormat", "commit": "ff3edc1a927170d1728df10f635af28fd000dd7c" },
+    { "name": "Ludus", "commit": "ccd38ccbb55d8871cffb40198cfa8beb62af1b42" },
+    { "name": "Vitia", "commit": "382de6a345279d2967e03e19918a0931088e91e1" },
+    { "name": "Discutere", "commit": "5640fda49e1759a1ce07cfa677e39c5b5379563d" }
+  ]
+}

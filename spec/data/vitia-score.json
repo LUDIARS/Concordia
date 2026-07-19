@@ -1,0 +1,16 @@
+{
+  "status": "ok",
+  "primary": "avaritia",
+  "secondary": "ira",
+  "scores": {
+    "avaritia": { "score": 0.651, "coverage": 0.85 },
+    "ira": { "score": 0.647, "coverage": 0.8 },
+    "acedia": { "score": 0.63, "coverage": 1.0 },
+    "gula": { "score": 0.62, "coverage": 1.0 },
+    "luxuria": { "score": 0.503, "coverage": 0.45 },
+    "superbia": { "score": 0.436, "coverage": 1.0 },
+    "invidia": { "score": 0.381, "coverage": 0.3 }
+  },
+  "cautions": [],
+  "note": "Scores route strategy work; they do not diagnose people or prove causal effects."
+}

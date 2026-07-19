@@ -1,0 +1,15 @@
+{
+  "name": "persistence",
+  "description": "Durable state and cross-cutting infrastructure: SQLite repositories for all entities plus shared config, secrets, and auth helpers.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/db/[^/]+$" },
+    { "pathPattern": "(^|/)src/shared/[^/]+$" },
+    { "pathPattern": "(^|/)src/auth/[^/]+$" }
+  ],
+  "cardTemplate": "Summarise the \"persistence\" domain: Durable state and cross-cutting infrastructure: SQLite repositories for all entities plus shared config, secrets, and auth helpers.",
+  "source": "manual",
+  "lockedFields": ["*"],
+  "specRefs": ["spec/feature/domain-taxonomy.concordia.md#persistence"]
+}

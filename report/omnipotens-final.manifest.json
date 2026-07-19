@@ -1,0 +1,1242 @@
+{
+  "schemaVersion": 2,
+  "project": "Concordia",
+  "generatedAt": "2026-07-16T09:09:27+09:00",
+  "output": "omnipotens-final.html",
+  "files": [
+    {
+      "path": "report/architecture-review-spec-domains.html",
+      "sha256": "3f7381aeb71e39e35db20ebe4d6c2e823f0c7115a0bbc127986d3fabc7a8179d"
+    },
+    {
+      "path": "report/architecture-review-spec-domains.html.json",
+      "sha256": "6119fc53d5d2239e340ae344905e5e58c85fcdbe030729de99b628f5524ce69f"
+    },
+    {
+      "path": "report/architecture-review.html",
+      "sha256": "0c3285b3b69e23f8ce4875d03cc5b5157d58bcff2ebbe373e2bf305d98e1ec6c"
+    },
+    {
+      "path": "report/architecture-review.html.json",
+      "sha256": "6243edafe8f50238b70d28c81eb38d273d35a6f2c0d656aed4fe854971bb7fae"
+    },
+    {
+      "path": "spec/data/anatomia-architecture-review.json",
+      "sha256": "cd72ec73513d166bd7c77e7f30f70c2a5680a9d2876fc804d4b34a30b7fc5898"
+    },
+    {
+      "path": "spec/data/anatomia-domains/agent-delegation.domain.json",
+      "sha256": "5d733bccaf6baaa3c186a6b8ef15dfa6d622f9ad28a27d737f79f5afa5d88190"
+    },
+    {
+      "path": "spec/data/anatomia-domains/analysis-core.domain.json",
+      "sha256": "8d67e2d4d7df7960dd5f013aab4af565d8a539f75ee6057c8d55063fe761606c"
+    },
+    {
+      "path": "spec/data/anatomia-domains/chat-platforms.domain.json",
+      "sha256": "307823a664a14c88ed56abbed07c7cf3d92a03470ccfa4de4823f04f260d69ff"
+    },
+    {
+      "path": "spec/data/anatomia-domains/governance.domain.json",
+      "sha256": "ed577ba0bce3e61f1d0932c61dc3578965dfae5ffaed0806949cdf5bba53ea58"
+    },
+    {
+      "path": "spec/data/anatomia-domains/http-interface.domain.json",
+      "sha256": "b0a58f831374772fa3f9d846f099af26f9cf4c192c30f389c7fcefbe873f1122"
+    },
+    {
+      "path": "spec/data/anatomia-domains/observability.domain.json",
+      "sha256": "f9b46cd20252d0ac98c2126218ccd6da16411f50dbc2a5428ef9193017fed0c1"
+    },
+    {
+      "path": "spec/data/anatomia-domains/persistence.domain.json",
+      "sha256": "088c53690616b3a9ec21c93455f97a48b8e33b5e12389113caf929fff7a593a3"
+    },
+    {
+      "path": "spec/data/anatomia-domains/runtime-orchestration.domain.json",
+      "sha256": "ff56884ccc878142220f7443ad4debe7f0cffa648dd59f7b6d38894d40537d11"
+    },
+    {
+      "path": "spec/data/anatomia-domains/session-coordination.domain.json",
+      "sha256": "cb5524a2e9ed97e197d445d740d38250622708bccc960009a01c46a02cd76805"
+    },
+    {
+      "path": "spec/data/anatomia-domains/tooling.domain.json",
+      "sha256": "9a820a1a0cfdcacea1648aae4c185b482c06ab068b7eac8fcc55c8335d2903fc"
+    },
+    {
+      "path": "spec/data/concordia.taxonomy.json",
+      "sha256": "a5378a979751b77c3ccb40c37ff899e144b0560728572d511d17fc4800ee5d26"
+    },
+    {
+      "path": "spec/data/omnipotens-report-layout.json",
+      "sha256": "558fb3b5bccddd1cc9809064d90a71eb5d4e3600ce853bc431c19023cf069bc8"
+    },
+    {
+      "path": "spec/data/ontology/agent-delegation.domain.json",
+      "sha256": "4f9372445d1c82f696055c3070a0919b628fefbdee9a28ecd473783d0ac3d86d"
+    },
+    {
+      "path": "spec/data/ontology/analysis-core.domain.json",
+      "sha256": "f30d5f747df36a394510f2bc4e6147e365108f42150a14a5f1d2f8db06eb4e0d"
+    },
+    {
+      "path": "spec/data/ontology/chat-platforms.domain.json",
+      "sha256": "a77c2329435c7e93436b3bdb417f18cc339239b10cd277c4b39209e2b0eb4ae4"
+    },
+    {
+      "path": "spec/data/ontology/governance.domain.json",
+      "sha256": "e715c3cc14ce32bc941b1dd6f6b9683d2ee2960dbb22cc9d0f164311ac0511f1"
+    },
+    {
+      "path": "spec/data/ontology/http-interface.domain.json",
+      "sha256": "087078b6c0c2fa35037d3c7050ace9dfc8fe27ed1f4490c576534253a7f2f7a5"
+    },
+    {
+      "path": "spec/data/ontology/observability.domain.json",
+      "sha256": "c682f1b29f44d3d3ddc77ef16000ea1a30eabf523f49cf34f4162cd33ae91cba"
+    },
+    {
+      "path": "spec/data/ontology/persistence.domain.json",
+      "sha256": "802c839d5a5d63d4a1b7abe97a0a71e99f81910c205d39ade499322ed10ce27a"
+    },
+    {
+      "path": "spec/data/ontology/runtime-orchestration.domain.json",
+      "sha256": "0e6b2805f368d779d9d0523eec38b0beea0b754c64c66ae3e67dd8be5e98902b"
+    },
+    {
+      "path": "spec/data/ontology/session-coordination.domain.json",
+      "sha256": "2d518545409b715de5873bed9a46d49fe23e14de74baf6b2116c571af15b252f"
+    },
+    {
+      "path": "spec/data/ontology/tooling.domain.json",
+      "sha256": "ed7bccae9a5bc616e428cec23ebf26a791b8d9241d95fa8c3a6fc1b44b4fa7aa"
+    },
+    {
+      "path": "spec/data/schema.md",
+      "sha256": "87d29c1b4db19ba113a55fc354674ca58975b376e8046d6e0f54a65f7f5821c4"
+    },
+    {
+      "path": "spec/data/tool-manifest.json",
+      "sha256": "d01f94577c4453fe5a8331234b272ec6699377d9b50683d476439cf794b41b1a"
+    },
+    {
+      "path": "spec/data/vitia-input.json",
+      "sha256": "1cde3ff1cfbfe0a6ad48d08a52242feeb6edaa661bfeb606b7bf8dd6fcdf5deb"
+    },
+    {
+      "path": "spec/data/vitia-score.json",
+      "sha256": "3afd41b97c6ef6e916273b4874020ae2386763f1b374adfba67a25fddd96793a"
+    },
+    {
+      "path": "spec/feature/autonomous-work-continuation.md",
+      "sha256": "5275f5a819eaf2e816dc7cc199c3eec807aaedf24bdcc0770b5947cafc90263f"
+    },
+    {
+      "path": "spec/feature/blackbox-chat-engine.md",
+      "sha256": "ea5d222435e52ae54fae70c0875f412071542b735dc1d56e33b618676f7707bc"
+    },
+    {
+      "path": "spec/feature/boyaki-channel.md",
+      "sha256": "c5ba48c1e63d7534677458ee3ced6d5a6513817b114b8ce9a28f74d37e2217ea"
+    },
+    {
+      "path": "spec/feature/cc-workflow.md",
+      "sha256": "24de32f0bed23126e03689a73a5846c80a16d6a2dc101bb6c714d8b3adeb6423"
+    },
+    {
+      "path": "spec/feature/cost-observability.md",
+      "sha256": "0cf11a4664a587d5c1d0f7aaaf52ea6ce4db3d557f3fee186c79ff31b4051c61"
+    },
+    {
+      "path": "spec/feature/delegation-coordination.md",
+      "sha256": "f9c8dcd4ea9b0addd007c6df55b4c2a040969d51020889565c121307a9ab9942"
+    },
+    {
+      "path": "spec/feature/delegation.md",
+      "sha256": "db4aa3153035cb46d75680fe528585fb0ed26666de365ec60792cb05364a7f6e"
+    },
+    {
+      "path": "spec/feature/develop-confirm-flow.md",
+      "sha256": "4a49dcf4ca609a80750194a6f21e96376082c889dbc220b8e66a671d06da4cc9"
+    },
+    {
+      "path": "spec/feature/discord-control-ui.md",
+      "sha256": "ce22170162cb9d48a18578c26f316094f43abf147739b227cd2be90395a503b9"
+    },
+    {
+      "path": "spec/feature/discord-excubitor-commands.md",
+      "sha256": "c75aafb9f825a41f215894c8d1e973b4184eecf11251d3eec25419c010f49029"
+    },
+    {
+      "path": "spec/feature/discord-forum-migration.md",
+      "sha256": "7ffbf238afa1af128bc5db13b22464f2370e8a62ab1fe9c9719e7a2f45c80a3b"
+    },
+    {
+      "path": "spec/feature/discord-lictor-relay.md",
+      "sha256": "22d516a7efa2bf7cdffc48c8ad5c382f5630a3f64ffc2d36bb8cd88ac45fc11c"
+    },
+    {
+      "path": "spec/feature/discord-runtime-recovery.md",
+      "sha256": "d0adb8f06a18eab10a7abf55444803274fe7fafa328126de451ebb1756870e74"
+    },
+    {
+      "path": "spec/feature/discord-session-direct-inject.md",
+      "sha256": "e320ea78b855035d27adf01b528574468e86e3ef564012abe33c31b819de1e77"
+    },
+    {
+      "path": "spec/feature/discord-ui-pr-b.md",
+      "sha256": "02b55714a0739f5a17542381c03217623fdb7d38a6e1a1164186d8feda8b38de"
+    },
+    {
+      "path": "spec/feature/discord-ui.md",
+      "sha256": "18853719f5dfe25827170b8659b26c0e284ddbe6f97ccc3c224e9a53f8fc441c"
+    },
+    {
+      "path": "spec/feature/domain-taxonomy.concordia.md",
+      "sha256": "1d444713342a4ea856c580de02563eee24d104db6bfd4387b61fecf7e55d28eb"
+    },
+    {
+      "path": "spec/feature/error-pipeline.md",
+      "sha256": "3a010ff221ff8444017b37047474cb14dd879103d9c67ce8d5b2cbb44658ae74"
+    },
+    {
+      "path": "spec/feature/faq.md",
+      "sha256": "8eb575a56facfe0e54e9f805f62944f28c9d2a4ea6450a94993a0c80f887f4ce"
+    },
+    {
+      "path": "spec/feature/game-spec.md",
+      "sha256": "b419955f0c2f20963e8dc2e9e0e6b0b0e5f7b579d1a9fa7c3fc1d9f34aea59ec"
+    },
+    {
+      "path": "spec/feature/goal-and-go.md",
+      "sha256": "e1ad98ac2252f72cdefd89aec7d30db7c2f4a71dcb3a397096b2160ac0576730"
+    },
+    {
+      "path": "spec/feature/harness-status-card.md",
+      "sha256": "4c59e64d6b53e44f118436a4013ce0075a4cca25a5e22998fd8135031573d41b"
+    },
+    {
+      "path": "spec/feature/idle-nudge.md",
+      "sha256": "5524721c934a9359c93da6279347fbf56394649e3083a76c078313fca4678c29"
+    },
+    {
+      "path": "spec/feature/memory-library.md",
+      "sha256": "d287bac0612e0c666fae6e8250bcd311f4be8d3c6efe9628d831e00c66cb99bf"
+    },
+    {
+      "path": "spec/feature/multi-provider.md",
+      "sha256": "acd10b32a6b88b365f1fb00004e2c7e474c6ab332d9959bdeab967160f8314b3"
+    },
+    {
+      "path": "spec/feature/participants.md",
+      "sha256": "b09482dda702596cae77d7d763e2a1c705a7257716caccac2ef1f78279d5caa6"
+    },
+    {
+      "path": "spec/feature/persona-cc-workflow-optin.md",
+      "sha256": "7910e14926075a833b365db608394d1882aa262d66b671bf5c7fd499d1ca99ce"
+    },
+    {
+      "path": "spec/feature/persona-generation.md",
+      "sha256": "2540b30df1a471f66a791d4fca9e73f597f90151e7ff5c27747ce2269b4da10d"
+    },
+    {
+      "path": "spec/feature/pr-queue.md",
+      "sha256": "0eb340276206f4824ae8c3a10666548254cf319218b53cc44f22c88dc571b606"
+    },
+    {
+      "path": "spec/feature/product-brief.md",
+      "sha256": "5ff1424a9bdd7b25714677bf10aa05cf6f07de482ea7ecf2e36c41efc18b2c10"
+    },
+    {
+      "path": "spec/feature/reaction-workflow.md",
+      "sha256": "c2d16781f01b04115a3507de79f0101488bb7f6211e3127469241814a5c822be"
+    },
+    {
+      "path": "spec/feature/runtime-function-metrics.md",
+      "sha256": "dd157f90e9180b0ab73f46409dc5214e463d108c2a0813691259cf0a06d15771"
+    },
+    {
+      "path": "spec/feature/session-compaction.md",
+      "sha256": "2d4dc5cd31c986c4a016c10560db1bb47ef555f911154ddad9ddf14c73628bcb"
+    },
+    {
+      "path": "spec/feature/session-log-browser.md",
+      "sha256": "24e456f39a4f45bc9af4c54923b6178170829858e436cd203b210fe985e97b57"
+    },
+    {
+      "path": "spec/feature/session-process-reaper.md",
+      "sha256": "6f9b00be239e1ae1b6a02252eb8192c5a18749a248d098c2a68101ced1347499"
+    },
+    {
+      "path": "spec/feature/skill-history.md",
+      "sha256": "4385e43c3d6da369dd91f0f1ce461056764595835eb28736b187b6c086788cb0"
+    },
+    {
+      "path": "spec/feature/slack-platform.md",
+      "sha256": "6ff797625ff3137d29249ed2caea5b997629ffe0f17857da7bc6d73efe2ad0be"
+    },
+    {
+      "path": "spec/feature/subsidiary-delegation.md",
+      "sha256": "dd11409d2b4d1ff97659d7f7d209516f65bb8b97c042ecafd6f511db2f63ae93"
+    },
+    {
+      "path": "spec/feature/task-workflow.md",
+      "sha256": "93e919f6681634deb4cecc66ec58bfd2a706cb91e2a8de7f635d4f6e9acca9b5"
+    },
+    {
+      "path": "spec/feature/testing-traffic.md",
+      "sha256": "4ef6fdc75ed24fc02f15c27e9c69ae710cf5d8e34bad829d38aee6343d025b69"
+    },
+    {
+      "path": "spec/feature/work-conflict-scope.md",
+      "sha256": "a33fe9740ce96ef73e93de6829a116f6e9cfc2d840ca378f43346b1146237f96"
+    },
+    {
+      "path": "spec/feature/working-indicator.md",
+      "sha256": "e936ba2535318aecc59e95a4449cb554ba8b3c82febccd8eb98920fd4a65ebf7"
+    },
+    {
+      "path": "spec/interface/runtime-boundaries.md",
+      "sha256": "337b0f494133bf38f705f4667dc6b9fdc2e0fa4a26f81e00580eb6fefc97ddd0"
+    },
+    {
+      "path": "spec/interface/service-schema.md",
+      "sha256": "f2b6317b876aa238980ff6b62bbfaa05c959adfeb59d999fa2dcd3829459631c"
+    },
+    {
+      "path": "spec/plan/00-source-manifest.md",
+      "sha256": "efcfee5ae9f06a3e90bc913544f6f03ca84ae88941f488d1426d3bec2848102d"
+    },
+    {
+      "path": "spec/plan/03-ludus-analysis.md",
+      "sha256": "a5144a8dfaacafec6b4310baddf774a2c410456009c1fc3b2c095769128e06c0"
+    },
+    {
+      "path": "spec/plan/04-domain-model.md",
+      "sha256": "42083f2b41dcd464f428f9393a4455536faa1d5ba3396993cb70025c5d936ab2"
+    },
+    {
+      "path": "spec/plan/05-anatomia-analysis.md",
+      "sha256": "689a60c55243832f33315e8daa08a5de79ecc6d177c9715898257372eb99f082"
+    },
+    {
+      "path": "spec/plan/06-spec-domain-code-map.md",
+      "sha256": "6dc3c79cdf809df5aa1bfb378bb05c7fd29d0909a37d69d3d0ad7a390b2d262f"
+    },
+    {
+      "path": "spec/plan/07-spec-gaps.md",
+      "sha256": "d643003c32495ad6cbcd7cb19a777c499930b98eff5e187baead19d287bdfa67"
+    },
+    {
+      "path": "spec/plan/08-mechanics-economy.md",
+      "sha256": "38f6a136c4d84e602f8c7e965fac0eaface0a9821e2e975e2572032c70fd1492"
+    },
+    {
+      "path": "spec/plan/09-aiformat-architecture-review.md",
+      "sha256": "4fffa3d92a8c71491d3b5e647ff897bb244e699432fa7d72835cec001baac0c9"
+    },
+    {
+      "path": "spec/plan/10-ux-review.md",
+      "sha256": "cdb847fb33d780075bd2dc65795a26b811616a2efdb52b71c721c8855a0ede0e"
+    },
+    {
+      "path": "spec/plan/11-vitia-marketability.md",
+      "sha256": "e20b1c92142ee36dfaf51af95b418f339bc3c31e3791fc4fface2db99ff339ca"
+    },
+    {
+      "path": "spec/plan/12-di-discussion-paper.md",
+      "sha256": "b7ddf1e086de521a5049406740a887327a4f2180103dea381001cf5427515b41"
+    },
+    {
+      "path": "spec/plan/cc-stability-analysis.md",
+      "sha256": "70ecc1b865ece33d22202c3a475f75fdc776201d30f115c6ac0c302d257fb04e"
+    },
+    {
+      "path": "spec/plan/p4-structural-hardening-2026-07-13.md",
+      "sha256": "f91c388c767632884bef25e421e4c4710a768b4d342b6ccf9c06b8f14fbb1e5e"
+    },
+    {
+      "path": "spec/plan/problem_logs/2026-07-06-discord-compaction-alert-mojibake.md",
+      "sha256": "2a8892030ae58276f3294dde1aff620fb674695ca12de6ee0a35be04ed259b87"
+    },
+    {
+      "path": "spec/plan/problem_logs/2026-07-06-discord-end-session-unknown-interaction.md",
+      "sha256": "216952039575ae7af4834825dcbc06def5c10c0450dccf29c13a503e6f9669d3"
+    },
+    {
+      "path": "spec/plan/problems/cc-stability-problems.md",
+      "sha256": "0be6611b56ab70f35e3885e71d3cb7262da9757a239a15efea57c62464958ff6"
+    },
+    {
+      "path": "spec/plan/problems/stability-checklist.md",
+      "sha256": "31fbd1e06315b9b1a47a5a2599db22acfe3056e6f9caeb2043de12dc7232940e"
+    },
+    {
+      "path": "spec/plan/process-isolation-v2.md",
+      "sha256": "de3b04c3c069f48a040d87952e373b03016dd2c758b8e185a2763702494cfdb1"
+    },
+    {
+      "path": "spec/plan/refactor-3axis-architecture.md",
+      "sha256": "175bc0de28c4bfc7435f7f6cba7264754f485d850828ecd6cdfe2c81632f0940"
+    },
+    {
+      "path": "spec/plan/refactor-3axis-architecture.session-log.md",
+      "sha256": "0050ccaf52898c0b8f78232ec5145859ec9d2518d6800cdb4a572e35b207bb13"
+    },
+    {
+      "path": "spec/plan/tasks/phase-0.md",
+      "sha256": "a1976cc84773df529e7e644d1086b55d3201079b7d15f0183b0407ba65c30516"
+    },
+    {
+      "path": "spec/plan/tasks/phase-1.md",
+      "sha256": "ef970e3a2794cec7b07e7793a9a3f98271b8d05c62ac720fb7e554225930d2c7"
+    },
+    {
+      "path": "spec/plan/tasks/phase-2.md",
+      "sha256": "436d9e5bf25c31ea1964544870fd75fd5cbc93f4e6c9db367b0f746d75bd5959"
+    },
+    {
+      "path": "spec/plan/tasks/phase-3.md",
+      "sha256": "7a88390588dd55f38d80313bf6d9bb7f65642c9d9c81d107b5bd232bfabe1f83"
+    },
+    {
+      "path": "spec/plan/tasks/phase-4.md",
+      "sha256": "fd8ea19d68876164fff853ad58fdacd421b098b60d4e5aa35e52551f748f3092"
+    },
+    {
+      "path": "spec/plan/tasks/README.md",
+      "sha256": "29dd6def52b2255019359a4d9c71a6d083166e6f9b16b6bec2d8e19d65dd17ae"
+    },
+    {
+      "path": "spec/README.md",
+      "sha256": "e713d35595a2e7e327fd5f8dd403df090e7e933661ebb8960a4a4397ef84b239"
+    },
+    {
+      "path": "spec/setup/codex-cli.md",
+      "sha256": "24b033b72b1a1c2fb4b0bdb99962fe85488abdabd6511c3d8c18e1ed1dd25f49"
+    },
+    {
+      "path": "spec/setup/config-reference.md",
+      "sha256": "a48d60a6cddf638f6900ecd19e6be1e8bf0b7a0b2075838e2f655c4d4b1aa078"
+    },
+    {
+      "path": "spec/setup/core.md",
+      "sha256": "a0e2c4f5e102fa122c7e973b286f2600ab12224b4d220e23c04c6ac1065e3152"
+    },
+    {
+      "path": "spec/setup/discord.md",
+      "sha256": "79329e4f21217ee250847e129ae759e1956d8d46d2df6c8d45bdd651b8e76fad"
+    },
+    {
+      "path": "spec/setup/hooks-claude-code.md",
+      "sha256": "5af08dd1d8a59541b42ed98b72136d16a5c65ac7b879a679b9f1f9578ec46bbd"
+    },
+    {
+      "path": "spec/setup/hooks-codex-cli.md",
+      "sha256": "5155c1de9ecf8f03ab9130bd71435fbc1f4135d89c4377a092866f0ff08d8bb5"
+    },
+    {
+      "path": "spec/setup/log-injection.md",
+      "sha256": "e893bc90bfacd622047f79c1e18825a95377e93f9f6c1538434fabd7e9926163"
+    },
+    {
+      "path": "spec/setup/observability.md",
+      "sha256": "cebc6d5e8c973899c25e273dc91beb326aac51ac0ebe9c08e799ce38ae483bff"
+    },
+    {
+      "path": "spec/setup/README.md",
+      "sha256": "d19643566c1959219eee1d9f7c61dc44503292547cb4dd4c4988a7456727f2e1"
+    },
+    {
+      "path": "spec/setup/reproducible-build.md",
+      "sha256": "649f9f257f60a38bd91a73f019794ef3b9b992d903e0dcd1f8faf58d951a737d"
+    },
+    {
+      "path": "spec/setup/slack.md",
+      "sha256": "c730006a87e07e32966fbd4c2ce5cbd65a439eb5935acdef83579043f67819e9"
+    },
+    {
+      "path": "spec/setup/spawn.md",
+      "sha256": "6b424695c7204d46d8de50a10f2e68b9b2aba249fde9d6645ee8b28a50773b13"
+    },
+    {
+      "path": "spec/setup/windows.md",
+      "sha256": "f9c01eb2a4b934ac0b75bf1014421878a021638c37df4980d060829f1b38fac6"
+    },
+    {
+      "path": "spec/test/review-test-plan.md",
+      "sha256": "09cfaf2994323184bb613a7c8f2d4e045a693d58a7e517208ed1ec6e8276ae53"
+    },
+    {
+      "path": "spec/test/test-design.md",
+      "sha256": "0f7b3c606abec686463ddb90b124029abae0d8e12c0b748c95a2c24d75c00e55"
+    }
+  ],
+  "sources": [
+    {
+      "stage": "05",
+      "path": "report/architecture-review-spec-domains.html",
+      "kind": "html",
+      "sha256": "3f7381aeb71e39e35db20ebe4d6c2e823f0c7115a0bbc127986d3fabc7a8179d"
+    },
+    {
+      "stage": "05",
+      "path": "report/architecture-review-spec-domains.html.json",
+      "kind": "json",
+      "sha256": "6119fc53d5d2239e340ae344905e5e58c85fcdbe030729de99b628f5524ce69f"
+    },
+    {
+      "stage": "05",
+      "path": "report/architecture-review.html",
+      "kind": "html",
+      "sha256": "0c3285b3b69e23f8ce4875d03cc5b5157d58bcff2ebbe373e2bf305d98e1ec6c"
+    },
+    {
+      "stage": "05",
+      "path": "report/architecture-review.html.json",
+      "kind": "json",
+      "sha256": "6243edafe8f50238b70d28c81eb38d273d35a6f2c0d656aed4fe854971bb7fae"
+    },
+    {
+      "stage": "05",
+      "path": "spec/data/anatomia-architecture-review.json",
+      "kind": "json",
+      "sha256": "cd72ec73513d166bd7c77e7f30f70c2a5680a9d2876fc804d4b34a30b7fc5898"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/agent-delegation.domain.json",
+      "kind": "json",
+      "sha256": "5d733bccaf6baaa3c186a6b8ef15dfa6d622f9ad28a27d737f79f5afa5d88190"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/analysis-core.domain.json",
+      "kind": "json",
+      "sha256": "8d67e2d4d7df7960dd5f013aab4af565d8a539f75ee6057c8d55063fe761606c"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/chat-platforms.domain.json",
+      "kind": "json",
+      "sha256": "307823a664a14c88ed56abbed07c7cf3d92a03470ccfa4de4823f04f260d69ff"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/governance.domain.json",
+      "kind": "json",
+      "sha256": "ed577ba0bce3e61f1d0932c61dc3578965dfae5ffaed0806949cdf5bba53ea58"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/http-interface.domain.json",
+      "kind": "json",
+      "sha256": "b0a58f831374772fa3f9d846f099af26f9cf4c192c30f389c7fcefbe873f1122"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/observability.domain.json",
+      "kind": "json",
+      "sha256": "f9b46cd20252d0ac98c2126218ccd6da16411f50dbc2a5428ef9193017fed0c1"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/persistence.domain.json",
+      "kind": "json",
+      "sha256": "088c53690616b3a9ec21c93455f97a48b8e33b5e12389113caf929fff7a593a3"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/runtime-orchestration.domain.json",
+      "kind": "json",
+      "sha256": "ff56884ccc878142220f7443ad4debe7f0cffa648dd59f7b6d38894d40537d11"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/session-coordination.domain.json",
+      "kind": "json",
+      "sha256": "cb5524a2e9ed97e197d445d740d38250622708bccc960009a01c46a02cd76805"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/anatomia-domains/tooling.domain.json",
+      "kind": "json",
+      "sha256": "9a820a1a0cfdcacea1648aae4c185b482c06ab068b7eac8fcc55c8335d2903fc"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/concordia.taxonomy.json",
+      "kind": "json",
+      "sha256": "a5378a979751b77c3ccb40c37ff899e144b0560728572d511d17fc4800ee5d26"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/omnipotens-report-layout.json",
+      "kind": "json",
+      "sha256": "558fb3b5bccddd1cc9809064d90a71eb5d4e3600ce853bc431c19023cf069bc8"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/agent-delegation.domain.json",
+      "kind": "json",
+      "sha256": "4f9372445d1c82f696055c3070a0919b628fefbdee9a28ecd473783d0ac3d86d"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/analysis-core.domain.json",
+      "kind": "json",
+      "sha256": "f30d5f747df36a394510f2bc4e6147e365108f42150a14a5f1d2f8db06eb4e0d"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/chat-platforms.domain.json",
+      "kind": "json",
+      "sha256": "a77c2329435c7e93436b3bdb417f18cc339239b10cd277c4b39209e2b0eb4ae4"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/governance.domain.json",
+      "kind": "json",
+      "sha256": "e715c3cc14ce32bc941b1dd6f6b9683d2ee2960dbb22cc9d0f164311ac0511f1"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/http-interface.domain.json",
+      "kind": "json",
+      "sha256": "087078b6c0c2fa35037d3c7050ace9dfc8fe27ed1f4490c576534253a7f2f7a5"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/observability.domain.json",
+      "kind": "json",
+      "sha256": "c682f1b29f44d3d3ddc77ef16000ea1a30eabf523f49cf34f4162cd33ae91cba"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/persistence.domain.json",
+      "kind": "json",
+      "sha256": "802c839d5a5d63d4a1b7abe97a0a71e99f81910c205d39ade499322ed10ce27a"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/runtime-orchestration.domain.json",
+      "kind": "json",
+      "sha256": "0e6b2805f368d779d9d0523eec38b0beea0b754c64c66ae3e67dd8be5e98902b"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/session-coordination.domain.json",
+      "kind": "json",
+      "sha256": "2d518545409b715de5873bed9a46d49fe23e14de74baf6b2116c571af15b252f"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/ontology/tooling.domain.json",
+      "kind": "json",
+      "sha256": "ed7bccae9a5bc616e428cec23ebf26a791b8d9241d95fa8c3a6fc1b44b4fa7aa"
+    },
+    {
+      "stage": "support",
+      "path": "spec/data/schema.md",
+      "kind": "markdown",
+      "sha256": "87d29c1b4db19ba113a55fc354674ca58975b376e8046d6e0f54a65f7f5821c4"
+    },
+    {
+      "stage": "00",
+      "path": "spec/data/tool-manifest.json",
+      "kind": "json",
+      "sha256": "d01f94577c4453fe5a8331234b272ec6699377d9b50683d476439cf794b41b1a"
+    },
+    {
+      "stage": "11",
+      "path": "spec/data/vitia-input.json",
+      "kind": "json",
+      "sha256": "1cde3ff1cfbfe0a6ad48d08a52242feeb6edaa661bfeb606b7bf8dd6fcdf5deb"
+    },
+    {
+      "stage": "11",
+      "path": "spec/data/vitia-score.json",
+      "kind": "json",
+      "sha256": "3afd41b97c6ef6e916273b4874020ae2386763f1b374adfba67a25fddd96793a"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/autonomous-work-continuation.md",
+      "kind": "markdown",
+      "sha256": "5275f5a819eaf2e816dc7cc199c3eec807aaedf24bdcc0770b5947cafc90263f"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/blackbox-chat-engine.md",
+      "kind": "markdown",
+      "sha256": "ea5d222435e52ae54fae70c0875f412071542b735dc1d56e33b618676f7707bc"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/boyaki-channel.md",
+      "kind": "markdown",
+      "sha256": "c5ba48c1e63d7534677458ee3ced6d5a6513817b114b8ce9a28f74d37e2217ea"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/cc-workflow.md",
+      "kind": "markdown",
+      "sha256": "24de32f0bed23126e03689a73a5846c80a16d6a2dc101bb6c714d8b3adeb6423"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/cost-observability.md",
+      "kind": "markdown",
+      "sha256": "0cf11a4664a587d5c1d0f7aaaf52ea6ce4db3d557f3fee186c79ff31b4051c61"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/delegation-coordination.md",
+      "kind": "markdown",
+      "sha256": "f9c8dcd4ea9b0addd007c6df55b4c2a040969d51020889565c121307a9ab9942"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/delegation.md",
+      "kind": "markdown",
+      "sha256": "db4aa3153035cb46d75680fe528585fb0ed26666de365ec60792cb05364a7f6e"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/develop-confirm-flow.md",
+      "kind": "markdown",
+      "sha256": "4a49dcf4ca609a80750194a6f21e96376082c889dbc220b8e66a671d06da4cc9"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-control-ui.md",
+      "kind": "markdown",
+      "sha256": "ce22170162cb9d48a18578c26f316094f43abf147739b227cd2be90395a503b9"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-excubitor-commands.md",
+      "kind": "markdown",
+      "sha256": "c75aafb9f825a41f215894c8d1e973b4184eecf11251d3eec25419c010f49029"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-forum-migration.md",
+      "kind": "markdown",
+      "sha256": "7ffbf238afa1af128bc5db13b22464f2370e8a62ab1fe9c9719e7a2f45c80a3b"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-lictor-relay.md",
+      "kind": "markdown",
+      "sha256": "22d516a7efa2bf7cdffc48c8ad5c382f5630a3f64ffc2d36bb8cd88ac45fc11c"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-runtime-recovery.md",
+      "kind": "markdown",
+      "sha256": "d0adb8f06a18eab10a7abf55444803274fe7fafa328126de451ebb1756870e74"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-session-direct-inject.md",
+      "kind": "markdown",
+      "sha256": "e320ea78b855035d27adf01b528574468e86e3ef564012abe33c31b819de1e77"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-ui-pr-b.md",
+      "kind": "markdown",
+      "sha256": "02b55714a0739f5a17542381c03217623fdb7d38a6e1a1164186d8feda8b38de"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/discord-ui.md",
+      "kind": "markdown",
+      "sha256": "18853719f5dfe25827170b8659b26c0e284ddbe6f97ccc3c224e9a53f8fc441c"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/domain-taxonomy.concordia.md",
+      "kind": "markdown",
+      "sha256": "1d444713342a4ea856c580de02563eee24d104db6bfd4387b61fecf7e55d28eb"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/error-pipeline.md",
+      "kind": "markdown",
+      "sha256": "3a010ff221ff8444017b37047474cb14dd879103d9c67ce8d5b2cbb44658ae74"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/faq.md",
+      "kind": "markdown",
+      "sha256": "8eb575a56facfe0e54e9f805f62944f28c9d2a4ea6450a94993a0c80f887f4ce"
+    },
+    {
+      "stage": "02",
+      "path": "spec/feature/game-spec.md",
+      "kind": "markdown",
+      "sha256": "b419955f0c2f20963e8dc2e9e0e6b0b0e5f7b579d1a9fa7c3fc1d9f34aea59ec"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/goal-and-go.md",
+      "kind": "markdown",
+      "sha256": "e1ad98ac2252f72cdefd89aec7d30db7c2f4a71dcb3a397096b2160ac0576730"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/harness-status-card.md",
+      "kind": "markdown",
+      "sha256": "4c59e64d6b53e44f118436a4013ce0075a4cca25a5e22998fd8135031573d41b"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/idle-nudge.md",
+      "kind": "markdown",
+      "sha256": "5524721c934a9359c93da6279347fbf56394649e3083a76c078313fca4678c29"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/memory-library.md",
+      "kind": "markdown",
+      "sha256": "d287bac0612e0c666fae6e8250bcd311f4be8d3c6efe9628d831e00c66cb99bf"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/multi-provider.md",
+      "kind": "markdown",
+      "sha256": "acd10b32a6b88b365f1fb00004e2c7e474c6ab332d9959bdeab967160f8314b3"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/participants.md",
+      "kind": "markdown",
+      "sha256": "b09482dda702596cae77d7d763e2a1c705a7257716caccac2ef1f78279d5caa6"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/persona-cc-workflow-optin.md",
+      "kind": "markdown",
+      "sha256": "7910e14926075a833b365db608394d1882aa262d66b671bf5c7fd499d1ca99ce"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/persona-generation.md",
+      "kind": "markdown",
+      "sha256": "2540b30df1a471f66a791d4fca9e73f597f90151e7ff5c27747ce2269b4da10d"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/pr-queue.md",
+      "kind": "markdown",
+      "sha256": "0eb340276206f4824ae8c3a10666548254cf319218b53cc44f22c88dc571b606"
+    },
+    {
+      "stage": "01",
+      "path": "spec/feature/product-brief.md",
+      "kind": "markdown",
+      "sha256": "5ff1424a9bdd7b25714677bf10aa05cf6f07de482ea7ecf2e36c41efc18b2c10"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/reaction-workflow.md",
+      "kind": "markdown",
+      "sha256": "c2d16781f01b04115a3507de79f0101488bb7f6211e3127469241814a5c822be"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/runtime-function-metrics.md",
+      "kind": "markdown",
+      "sha256": "dd157f90e9180b0ab73f46409dc5214e463d108c2a0813691259cf0a06d15771"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/session-compaction.md",
+      "kind": "markdown",
+      "sha256": "2d4dc5cd31c986c4a016c10560db1bb47ef555f911154ddad9ddf14c73628bcb"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/session-log-browser.md",
+      "kind": "markdown",
+      "sha256": "24e456f39a4f45bc9af4c54923b6178170829858e436cd203b210fe985e97b57"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/session-process-reaper.md",
+      "kind": "markdown",
+      "sha256": "6f9b00be239e1ae1b6a02252eb8192c5a18749a248d098c2a68101ced1347499"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/skill-history.md",
+      "kind": "markdown",
+      "sha256": "4385e43c3d6da369dd91f0f1ce461056764595835eb28736b187b6c086788cb0"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/slack-platform.md",
+      "kind": "markdown",
+      "sha256": "6ff797625ff3137d29249ed2caea5b997629ffe0f17857da7bc6d73efe2ad0be"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/subsidiary-delegation.md",
+      "kind": "markdown",
+      "sha256": "dd11409d2b4d1ff97659d7f7d209516f65bb8b97c042ecafd6f511db2f63ae93"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/task-workflow.md",
+      "kind": "markdown",
+      "sha256": "93e919f6681634deb4cecc66ec58bfd2a706cb91e2a8de7f635d4f6e9acca9b5"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/testing-traffic.md",
+      "kind": "markdown",
+      "sha256": "4ef6fdc75ed24fc02f15c27e9c69ae710cf5d8e34bad829d38aee6343d025b69"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/work-conflict-scope.md",
+      "kind": "markdown",
+      "sha256": "a33fe9740ce96ef73e93de6829a116f6e9cfc2d840ca378f43346b1146237f96"
+    },
+    {
+      "stage": "support",
+      "path": "spec/feature/working-indicator.md",
+      "kind": "markdown",
+      "sha256": "e936ba2535318aecc59e95a4449cb554ba8b3c82febccd8eb98920fd4a65ebf7"
+    },
+    {
+      "stage": "13",
+      "path": "spec/interface/runtime-boundaries.md",
+      "kind": "markdown",
+      "sha256": "337b0f494133bf38f705f4667dc6b9fdc2e0fa4a26f81e00580eb6fefc97ddd0"
+    },
+    {
+      "stage": "support",
+      "path": "spec/interface/service-schema.md",
+      "kind": "markdown",
+      "sha256": "f2b6317b876aa238980ff6b62bbfaa05c959adfeb59d999fa2dcd3829459631c"
+    },
+    {
+      "stage": "00",
+      "path": "spec/plan/00-source-manifest.md",
+      "kind": "markdown",
+      "sha256": "efcfee5ae9f06a3e90bc913544f6f03ca84ae88941f488d1426d3bec2848102d"
+    },
+    {
+      "stage": "03",
+      "path": "spec/plan/03-ludus-analysis.md",
+      "kind": "markdown",
+      "sha256": "a5144a8dfaacafec6b4310baddf774a2c410456009c1fc3b2c095769128e06c0"
+    },
+    {
+      "stage": "04",
+      "path": "spec/plan/04-domain-model.md",
+      "kind": "markdown",
+      "sha256": "42083f2b41dcd464f428f9393a4455536faa1d5ba3396993cb70025c5d936ab2"
+    },
+    {
+      "stage": "05",
+      "path": "spec/plan/05-anatomia-analysis.md",
+      "kind": "markdown",
+      "sha256": "689a60c55243832f33315e8daa08a5de79ecc6d177c9715898257372eb99f082"
+    },
+    {
+      "stage": "06",
+      "path": "spec/plan/06-spec-domain-code-map.md",
+      "kind": "markdown",
+      "sha256": "6dc3c79cdf809df5aa1bfb378bb05c7fd29d0909a37d69d3d0ad7a390b2d262f"
+    },
+    {
+      "stage": "07",
+      "path": "spec/plan/07-spec-gaps.md",
+      "kind": "markdown",
+      "sha256": "d643003c32495ad6cbcd7cb19a777c499930b98eff5e187baead19d287bdfa67"
+    },
+    {
+      "stage": "08",
+      "path": "spec/plan/08-mechanics-economy.md",
+      "kind": "markdown",
+      "sha256": "38f6a136c4d84e602f8c7e965fac0eaface0a9821e2e975e2572032c70fd1492"
+    },
+    {
+      "stage": "09",
+      "path": "spec/plan/09-aiformat-architecture-review.md",
+      "kind": "markdown",
+      "sha256": "4fffa3d92a8c71491d3b5e647ff897bb244e699432fa7d72835cec001baac0c9"
+    },
+    {
+      "stage": "10",
+      "path": "spec/plan/10-ux-review.md",
+      "kind": "markdown",
+      "sha256": "cdb847fb33d780075bd2dc65795a26b811616a2efdb52b71c721c8855a0ede0e"
+    },
+    {
+      "stage": "11",
+      "path": "spec/plan/11-vitia-marketability.md",
+      "kind": "markdown",
+      "sha256": "e20b1c92142ee36dfaf51af95b418f339bc3c31e3791fc4fface2db99ff339ca"
+    },
+    {
+      "stage": "12",
+      "path": "spec/plan/12-di-discussion-paper.md",
+      "kind": "markdown",
+      "sha256": "b7ddf1e086de521a5049406740a887327a4f2180103dea381001cf5427515b41"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/cc-stability-analysis.md",
+      "kind": "markdown",
+      "sha256": "70ecc1b865ece33d22202c3a475f75fdc776201d30f115c6ac0c302d257fb04e"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/p4-structural-hardening-2026-07-13.md",
+      "kind": "markdown",
+      "sha256": "f91c388c767632884bef25e421e4c4710a768b4d342b6ccf9c06b8f14fbb1e5e"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/problem_logs/2026-07-06-discord-compaction-alert-mojibake.md",
+      "kind": "markdown",
+      "sha256": "2a8892030ae58276f3294dde1aff620fb674695ca12de6ee0a35be04ed259b87"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/problem_logs/2026-07-06-discord-end-session-unknown-interaction.md",
+      "kind": "markdown",
+      "sha256": "216952039575ae7af4834825dcbc06def5c10c0450dccf29c13a503e6f9669d3"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/problems/cc-stability-problems.md",
+      "kind": "markdown",
+      "sha256": "0be6611b56ab70f35e3885e71d3cb7262da9757a239a15efea57c62464958ff6"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/problems/stability-checklist.md",
+      "kind": "markdown",
+      "sha256": "31fbd1e06315b9b1a47a5a2599db22acfe3056e6f9caeb2043de12dc7232940e"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/process-isolation-v2.md",
+      "kind": "markdown",
+      "sha256": "de3b04c3c069f48a040d87952e373b03016dd2c758b8e185a2763702494cfdb1"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/refactor-3axis-architecture.md",
+      "kind": "markdown",
+      "sha256": "175bc0de28c4bfc7435f7f6cba7264754f485d850828ecd6cdfe2c81632f0940"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/refactor-3axis-architecture.session-log.md",
+      "kind": "markdown",
+      "sha256": "0050ccaf52898c0b8f78232ec5145859ec9d2518d6800cdb4a572e35b207bb13"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/phase-0.md",
+      "kind": "markdown",
+      "sha256": "a1976cc84773df529e7e644d1086b55d3201079b7d15f0183b0407ba65c30516"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/phase-1.md",
+      "kind": "markdown",
+      "sha256": "ef970e3a2794cec7b07e7793a9a3f98271b8d05c62ac720fb7e554225930d2c7"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/phase-2.md",
+      "kind": "markdown",
+      "sha256": "436d9e5bf25c31ea1964544870fd75fd5cbc93f4e6c9db367b0f746d75bd5959"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/phase-3.md",
+      "kind": "markdown",
+      "sha256": "7a88390588dd55f38d80313bf6d9bb7f65642c9d9c81d107b5bd232bfabe1f83"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/phase-4.md",
+      "kind": "markdown",
+      "sha256": "fd8ea19d68876164fff853ad58fdacd421b098b60d4e5aa35e52551f748f3092"
+    },
+    {
+      "stage": "support",
+      "path": "spec/plan/tasks/README.md",
+      "kind": "markdown",
+      "sha256": "29dd6def52b2255019359a4d9c71a6d083166e6f9b16b6bec2d8e19d65dd17ae"
+    },
+    {
+      "stage": "support",
+      "path": "spec/README.md",
+      "kind": "markdown",
+      "sha256": "e713d35595a2e7e327fd5f8dd403df090e7e933661ebb8960a4a4397ef84b239"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/codex-cli.md",
+      "kind": "markdown",
+      "sha256": "24b033b72b1a1c2fb4b0bdb99962fe85488abdabd6511c3d8c18e1ed1dd25f49"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/config-reference.md",
+      "kind": "markdown",
+      "sha256": "a48d60a6cddf638f6900ecd19e6be1e8bf0b7a0b2075838e2f655c4d4b1aa078"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/core.md",
+      "kind": "markdown",
+      "sha256": "a0e2c4f5e102fa122c7e973b286f2600ab12224b4d220e23c04c6ac1065e3152"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/discord.md",
+      "kind": "markdown",
+      "sha256": "79329e4f21217ee250847e129ae759e1956d8d46d2df6c8d45bdd651b8e76fad"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/hooks-claude-code.md",
+      "kind": "markdown",
+      "sha256": "5af08dd1d8a59541b42ed98b72136d16a5c65ac7b879a679b9f1f9578ec46bbd"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/hooks-codex-cli.md",
+      "kind": "markdown",
+      "sha256": "5155c1de9ecf8f03ab9130bd71435fbc1f4135d89c4377a092866f0ff08d8bb5"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/log-injection.md",
+      "kind": "markdown",
+      "sha256": "e893bc90bfacd622047f79c1e18825a95377e93f9f6c1538434fabd7e9926163"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/observability.md",
+      "kind": "markdown",
+      "sha256": "cebc6d5e8c973899c25e273dc91beb326aac51ac0ebe9c08e799ce38ae483bff"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/README.md",
+      "kind": "markdown",
+      "sha256": "d19643566c1959219eee1d9f7c61dc44503292547cb4dd4c4988a7456727f2e1"
+    },
+    {
+      "stage": "14",
+      "path": "spec/setup/reproducible-build.md",
+      "kind": "markdown",
+      "sha256": "649f9f257f60a38bd91a73f019794ef3b9b992d903e0dcd1f8faf58d951a737d"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/slack.md",
+      "kind": "markdown",
+      "sha256": "c730006a87e07e32966fbd4c2ce5cbd65a439eb5935acdef83579043f67819e9"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/spawn.md",
+      "kind": "markdown",
+      "sha256": "6b424695c7204d46d8de50a10f2e68b9b2aba249fde9d6645ee8b28a50773b13"
+    },
+    {
+      "stage": "support",
+      "path": "spec/setup/windows.md",
+      "kind": "markdown",
+      "sha256": "f9c01eb2a4b934ac0b75bf1014421878a021638c37df4980d060829f1b38fac6"
+    },
+    {
+      "stage": "14",
+      "path": "spec/test/review-test-plan.md",
+      "kind": "markdown",
+      "sha256": "09cfaf2994323184bb613a7c8f2d4e045a693d58a7e517208ed1ec6e8276ae53"
+    },
+    {
+      "stage": "support",
+      "path": "spec/test/test-design.md",
+      "kind": "markdown",
+      "sha256": "0f7b3c606abec686463ddb90b124029abae0d8e12c0b748c95a2c24d75c00e55"
+    }
+  ],
+  "stageReports": [
+    {
+      "stageId": "00",
+      "path": "stages/00-source-manifest.html"
+    },
+    {
+      "stageId": "01",
+      "path": "stages/01-product-brief.html"
+    },
+    {
+      "stageId": "02",
+      "path": "stages/02-system-baseline-and-applicability.html"
+    },
+    {
+      "stageId": "03",
+      "path": "stages/03-ludus-applicability.html"
+    },
+    {
+      "stageId": "04",
+      "path": "stages/04-domain-model.html"
+    },
+    {
+      "stageId": "05",
+      "path": "stages/05-anatomia-analysis.html"
+    },
+    {
+      "stageId": "06",
+      "path": "stages/06-specification-domain-code-map.html"
+    },
+    {
+      "stageId": "07",
+      "path": "stages/07-gap-and-contradiction-register.html"
+    },
+    {
+      "stageId": "08",
+      "path": "stages/08-operational-loop-analysis.html"
+    },
+    {
+      "stageId": "09",
+      "path": "stages/09-ai-format-and-architecture-health.html"
+    },
+    {
+      "stageId": "10",
+      "path": "stages/10-ux-review.html"
+    },
+    {
+      "stageId": "11",
+      "path": "stages/11-vitia-marketability.html"
+    },
+    {
+      "stageId": "12",
+      "path": "stages/12-di-discussion.html"
+    },
+    {
+      "stageId": "13",
+      "path": "stages/13-runtime-boundaries.html"
+    },
+    {
+      "stageId": "14",
+      "path": "stages/14-reproduction-and-verification.html"
+    }
+  ]
+}

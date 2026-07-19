@@ -2,7 +2,7 @@
 task: fix-codex-transcript-scan-block
 project: Concordia
 kind: 実装
-status: pending
+status: done
 created: 2026-07-16T00:00:00.000Z
 source_session: lictor-340dbfff-25a8-4bd0-9a66-8ba0a0ceb69e
 memoria_task_id: 526
@@ -42,3 +42,15 @@ memory_links: []
 ## スコープ (編集可ディレクトリ)
 
 - src/providers/ (codex-cli.ts とそのテスト)
+
+## 実装状況 (2026-07-19 追記)
+
+PR #348 (`fix: リクエスト詰まり根治 — codex transcript 全量スキャン排除 + 同期 taskkill/cost lease 是正`)
+で完了条件を全て満たして main にマージ済み (`src/providers/codex-cli.ts`):
+先頭 64KB head 読み (`HEAD_READ_BYTES` / `transcriptHeadHasSessionId`)、
+sessionId→path 正キャッシュ (`foundPathCache`, existsSync 失効検証)、
+負キャッシュ (`missCache`, TTL は id 538 で指数バックオフ化済み)、
+日付ディレクトリ降順 walk + 早期 return、`src/providers/codex-cli.test.ts` 新規テスト追加。
+Memoria task id 526/527/528/538 の統合対応 (本 md 群) の一環として 2026-07-19 に再検証:
+`npx tsc --noEmit` (両 tsconfig) / `npx vitest run` (240 files / 1681 tests) /
+`npx depcruise` / `npm run build` すべて green。status を pending → done に更新。

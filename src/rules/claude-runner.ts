@@ -8,12 +8,45 @@
  */
 
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { access } from "node:fs/promises";
 import { createChildLogger } from "../shared/logger.js";
 import { recordLocalOneShot } from "../cost/one-shot-recorder.js";
 
 const log = createChildLogger("claude-runner");
 const TIMEOUT_MS = Number(process.env.CONCORDIA_CLAUDE_TIMEOUT_MS ?? "120000");
+
+/**
+ * Windows の git-bash 候補パス解決結果 (プロセス内メモ化)。
+ * runClaude は rule engine / report 生成 / delegation / reaction-workflow から
+ * 高頻度に呼ばれるリクエスト経路であり、 existsSync を毎回同期実行しないよう
+ * fs/promises 化 + 一度解決した結果をキャッシュする (id 538 A-5 残件対応)。
+ * undefined = 未解決、 null = 候補どちらも見つからず (以後探索しない)。
+ */
+let gitBashPathCache: string | null | undefined;
+
+async function resolveGitBashPath(): Promise<string | null> {
+  if (gitBashPathCache !== undefined) return gitBashPathCache;
+  const candidates = [
+    "C:\\Program Files\\Git\\bin\\bash.exe",
+    "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+  ];
+  for (const c of candidates) {
+    try {
+      await access(c);
+      gitBashPathCache = c;
+      return gitBashPathCache;
+    } catch {
+      // try next candidate
+    }
+  }
+  gitBashPathCache = null;
+  return gitBashPathCache;
+}
+
+/** テスト用: メモ化キャッシュをクリアする。 */
+export function resetGitBashPathCache(): void {
+  gitBashPathCache = undefined;
+}
 
 export interface ClaudeRunResult {
   ok: boolean;
@@ -64,16 +97,8 @@ export async function runClaude(
   delete env.CONCORDIA_HOOK;
 
   if (process.platform === "win32" && !env.CLAUDE_CODE_GIT_BASH_PATH) {
-    const candidates = [
-      "C:\\Program Files\\Git\\bin\\bash.exe",
-      "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
-    ];
-    for (const c of candidates) {
-      if (existsSync(c)) {
-        env.CLAUDE_CODE_GIT_BASH_PATH = c;
-        break;
-      }
-    }
+    const resolved = await resolveGitBashPath();
+    if (resolved) env.CLAUDE_CODE_GIT_BASH_PATH = resolved;
   }
 
   return new Promise((resolve) => {

@@ -2,7 +2,7 @@
 task: fix-stop-session-sync-kill
 project: Concordia
 kind: 実装
-status: pending
+status: done
 created: 2026-07-16T00:00:00.000Z
 source_session: lictor-340dbfff-25a8-4bd0-9a66-8ba0a0ceb69e
 memoria_task_id: 528
@@ -29,3 +29,16 @@ HTTP ハンドラおよび reaper (5 分周期) の上で直列同期実行さ�
 
 - src/control/ (stop-session.ts, reaper.ts とそのテスト)
 - src/api/register-core.ts (DELETE ハンドラの await 化が必要な範囲のみ)
+
+## 実装状況 (2026-07-19 追記)
+
+PR #348 で完了条件を全て満たして main にマージ済み: `src/control/stop-session.ts`
+`stopSessionByLictorPid` は Windows は `spawn` + `close` イベント待ちの Promise、
+POSIX は `process.kill` (同期だが即時 syscall、ブロッキング I/O ではない) に変更。
+呼び出し側 4 箇所 (`src/api/register-core.ts` の `/v1/admin/stop-session/:id`、
+`src/control/reaper.ts` の孤児 kill、`src/control/lost-session-process-reaper.ts` の
+lost Lictor kill) はすべて await/void 化済み。`tests/reaper.test.ts` で
+async `stopProcess` を注入したテストが 23 件 green。
+Memoria task id 526/527/528/538 の統合対応の一環として 2026-07-19 に再検証:
+tsc / vitest (240 files / 1681 tests) / depcruise / build すべて green。
+status を pending → done に更新。

@@ -2,7 +2,7 @@
 task: fix-cost-worker-lease-fallback
 project: Concordia
 kind: 実装
-status: pending
+status: done
 created: 2026-07-16T00:00:00.000Z
 source_session: lictor-340dbfff-25a8-4bd0-9a66-8ba0a0ceb69e
 memoria_task_id: 527
@@ -33,3 +33,15 @@ cost だけ逆方向フォールバックが無い (bootstrap/core.ts:1048-1052 
 ## スコープ (編集可ディレクトリ)
 
 - src/bootstrap/ (core.ts の watch 部, cost.ts)
+
+## 実装状況 (2026-07-19 追記)
+
+PR #348 で完了条件を全て満たして main にマージ済み:
+`src/bootstrap/cost.ts` の `createCostLeaseWatchTick` が chat/workflow watch と対称化され、
+lease 生存中は embedded サンプラ停止、embedded モードは lease 失効で自動再開
+(`deps.runtime.start()`)、worker モードは lease 失効時に 1 停止につき 1 回だけ
+warn + `reportWorkerDown` → `error.reported` イベント発火 (`src/bootstrap/core.ts` の
+`costWorkerWatch` interval から配線)。両方向遷移は `src/bootstrap/cost-lease-watch.test.ts`
+で検証済み。Memoria task id 526/527/528/538 の統合対応の一環として 2026-07-19 に再検証:
+tsc / vitest (240 files / 1681 tests) / depcruise / build すべて green。
+status を pending → done に更新。

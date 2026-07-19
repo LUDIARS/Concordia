@@ -117,7 +117,15 @@ export function setConcordiaAddress(fn: () => { host: string; port: number }): v
   concordiaAddressResolver = fn;
 }
 
-/** Session cwd として禁止する workspace/Castra root 群を runtime 設定から解決する。 */
+/**
+ * workspace/Castra root 群を runtime 設定から解決する resolver を差し替える。
+ *
+ * 以前は「Session cwd として禁止するリスト」を組み立てるためだけに使っていたが、
+ * cwd=workspace root 自体は禁止しない方針に変更した (validateProjectCwd 参照:
+ * 本来のリスクは Castra 自体への破壊的 git 操作であって、 cwd の選択そのものではない)。
+ * root 群の解決先は残しておき、 Castra 向けの操作ガードが将来 cwd 判定を必要とする
+ * 場合に再利用できるようにする。
+ */
 export function setWorkspaceRootsResolver(fn: () => string[]): void {
   workspaceRootsResolver = fn;
 }
@@ -300,7 +308,18 @@ export function validateCwd(cwd: string | undefined): string | null {
 
 /**
  * Central three-out guard: every launcher path eventually calls spawnSession,
- * so omitted cwd and configured workspace roots are rejected in one place.
+ * so an omitted cwd is rejected in one place.
+ *
+ * Using the workspace root (Castra) itself as a Session cwd is intentionally
+ * ALLOWED: cross-repo / coordination sessions legitimately start there (see
+ * conflict-scope.ts's "umbrella" handling, which already assumes root-cwd
+ * sessions are normal). Blocking it here treated Castra as an off-limits
+ * competitor rather than guarding the actual risk — destructive git
+ * operations against Castra's own working tree (commit / push / checkout /
+ * reset, etc.), not the choice of cwd. That risk is guarded separately:
+ * session-work-policy.ts injects a fail-closed advisory into every Session
+ * warning against destructive git ops on Castra, on top of the org-wide
+ * branch→PR / no-direct-main-push convention (CLAUDE.md).
  */
 export function validateProjectCwd(
   cwd: string | undefined,
@@ -308,10 +327,9 @@ export function validateProjectCwd(
 ): string | null {
   const value = cwd?.trim();
   if (!value) return "project cwd is required; select a project before spawning a Session";
-  const normalized = normalizePath(value);
-  if (workspaceRoots.some((root) => root.trim() && normalizePath(root) === normalized)) {
-    return `workspace root cannot be used as a Session cwd: ${value}`;
-  }
+  // Kept for signature stability / a potential future Castra-operation guard;
+  // no longer used to reject workspace-root cwds (see comment above).
+  void workspaceRoots;
   return null;
 }
 

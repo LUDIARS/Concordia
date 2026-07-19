@@ -61,7 +61,7 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_HTTP_CACHE_ENABLED` | 有効 | GET応答の小さなL1 cache。ルート別TTLはコード上の固定ポリシーとし、個別envは持たない。 |
 | `CONCORDIA_REDIS_ENABLED` | 無効 | `1` のときだけ共有cache用Redisへ接続する。Redis不在環境では未設定のままにする。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
-| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。Castra/workspace root と一致する値は拒否。通常は request の `project` / `cwd` を使う。 |
+| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。通常は request の `project` / `cwd` を使う。 |
 | `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
 > 注: `CONCORDIA_LOST_AFTER_SEC` の既定は **1800 秒 (30 分)** (`.env.example` も同値に統一済み)。 Stop hook が turn 毎にしか発火せず idle ≠ 終了のため、 これより短くすると健全な作業中セッションが lost 化しやすい。 過去に `.env.example` が 300 (5 分) を配布していた時期があるので、 運用中の実 env が 300 のままになっていないか確認すること。

@@ -5,7 +5,6 @@ import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
 import {
   buildSessionWorkPolicy,
-  isWorkspaceRootCwd,
   SESSION_WORK_POLICY_SOURCE,
 } from "../../control/session-work-policy.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
@@ -19,12 +18,13 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
     const workspaceRoots = deps.resolveWorkspaceRoots?.() ?? [];
-    if (isWorkspaceRootCwd(input.repo_path, workspaceRoots)) {
-      return c.json(
-        { error: `workspace root cannot be registered as a Session cwd: ${input.repo_path}` },
-        400,
-      );
-    }
+    // NOTE: cwd === workspace root (Castra) is intentionally allowed to register.
+    // Cross-repo / coordination sessions legitimately run with cwd=root (see
+    // conflict-scope.ts's "umbrella" handling), and hard-blocking registration
+    // here treated Castra as an off-limits competitor rather than guarding the
+    // actual risk — destructive git ops against Castra's own working tree. That
+    // risk is covered by the fail-closed advisory buildSessionWorkPolicy()
+    // injects below (see session-work-policy.ts).
     const now = nowSec();
     // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;

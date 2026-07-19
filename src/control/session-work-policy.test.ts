@@ -27,13 +27,15 @@ describe("buildSessionWorkPolicy", () => {
     expect(policy.text).toContain("auto-merge");
   });
 
-  it("marks Castra/workspace root as a cwd violation", () => {
+  it("warns about destructive git ops on Castra when cwd is the workspace root", () => {
     const policy = buildSessionWorkPolicy({
       repoPath: "E:\\Document\\Ars",
       observedBranch: "main",
       pendingSpawn: null,
       workspaceRoots: ["E:/Document/Ars"],
     });
-    expect(policy.text).toContain("cwd violation");
+    expect(policy.text).toContain("Castra 破壊的 git 操作ガード");
+    // No longer a hard "you may not use this cwd" violation — root cwd is allowed.
+    expect(policy.text).not.toContain("cwd violation");
   });
 });

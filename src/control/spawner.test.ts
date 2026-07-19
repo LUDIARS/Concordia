@@ -49,9 +49,12 @@ describe("project cwd three-out guard", () => {
     expect(resolveAgentHomeCwd("codex", undefined, "E:/Document/Ars")).toBeUndefined();
   });
 
-  it("rejects omitted cwd and every configured workspace root", () => {
+  it("rejects only an omitted cwd; workspace root (Castra) is an allowed Session cwd", () => {
     expect(validateProjectCwd(undefined, ["E:/Document/Ars"])).toContain("project cwd is required");
-    expect(validateProjectCwd("E:\\Document\\Ars", ["E:/Document/Ars"])).toContain("workspace root");
+    // Castra (workspace root) itself is intentionally allowed as a Session cwd —
+    // destructive git ops against it are guarded separately (session-work-policy.ts),
+    // not by rejecting the cwd choice here.
+    expect(validateProjectCwd("E:\\Document\\Ars", ["E:/Document/Ars"])).toBeNull();
     expect(validateProjectCwd("E:/Document/Ars/Concordia", ["E:/Document/Ars"])).toBeNull();
   });
 });

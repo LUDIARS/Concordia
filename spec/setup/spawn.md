@@ -45,13 +45,13 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。workspace root と同じ値は拒否される。 |
+| `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。 |
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | token ファイルの場所を上書き (docker/systemd の volume 分離用)。 |
 | `CONCORDIA_RESTART_DRY_RUN` | 未設定 | `1` で `/v1/admin/restart` の spawn/exit を skip (テスト用)。 |
 
 ### spawn cwd の必須条件
 
-Session spawn は個別 project cwd を必須とする。`cwd` / `project` / template の `default_cwd` のいずれでも project を解決できない場合は 400 で停止する。`workspaceRoots` のいずれかと完全一致する Castra/workspace root は中央 spawn guard が拒否する。
+Session spawn は個別 project cwd を必須とする。`cwd` / `project` / template の `default_cwd` のいずれでも project を解決できない場合は 400 で停止する。`workspaceRoots` (Castra/workspace root) のいずれかと完全一致する cwd は許可される — 横断作業・調査セッションが cwd=root で正当に起動するケースを一律拒否するのは、本来のリスク (Castra 自体への破壊的 git 操作) より広すぎたため。Castra 自体への commit/push/checkout/reset 等は spawn 後に inject される fail-closed advisory (下記) が個別に警告する。
 
 `getWorkspaceRoot()` 自体の解決順 (`src/admin/state.ts` / `src/shared/config.ts`):
 
@@ -60,7 +60,7 @@ Session spawn は個別 project cwd を必須とする。`cwd` / `project` / tem
 3. project を解決できなければ spawn せず、呼び出し元がユーザへ project を確認する
 4. 空 → フォールバック無し (Concordia 自身の cwd で spawn)
 
-> `workspaceRoots` はリポジトリ探索の正本であり、Session cwd の既定値ではない。Castra 直下へ Session を起動してから project を探す運用は禁止。
+> `workspaceRoots` はリポジトリ探索の正本であり、Session cwd の既定値ではない。cwd=Castra 直下での起動自体は許可されるが、対象 project の特定を省略してよいわけではない — 個別プロジェクトへの変更は当該プロジェクトの本体/worktree で行う。
 
 ### worktree の project別 Skill / Memory / trust 設定
 
@@ -86,7 +86,7 @@ worktree 側に既にある設定・Memoryは上書きしない。project内の 
 Concordia が interactive session を spawn するときは、Lictor 子プロセスへ一意な
 `CONCORDIA_SPAWN_ID` と `CONCORDIA_SPAWN_CWD_MODE` (`provided` / `omitted`) を渡す。
 Lictor はこの二項目を session 登録 metadata に返し、Concordia は新規登録された当該
-session だけへ、project 特定、workspace root 禁止、branch 確認・Cc 登録、PR で停止、
+session だけへ、project 特定、Castra への破壊的 git 操作の禁止、branch 確認・Cc 登録、PR で停止、
 明示指示のないテスト・merge 禁止を含む共通 `session.inject` を必ず送る。
 
 照合は cwd と時刻の推測ではなく spawn ID で行うため、同一 cwd で複数 session を並走

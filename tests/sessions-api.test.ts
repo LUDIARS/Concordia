@@ -64,7 +64,7 @@ describe("sessions API", () => {
           event.payload.source === "cc-session-work-policy",
       );
       expect(inject?.payload.text).toContain("作業対象プロジェクトを最初に特定");
-      expect(inject?.payload.text).toContain("Castra / workspace root");
+      expect(inject?.payload.text).toContain("Castra (workspace root) を cwd にした横断作業");
     },
   );
 

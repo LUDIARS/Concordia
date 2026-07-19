@@ -63,7 +63,20 @@ app.post("/:id/relictor", async (c) => {
     const lictorPid = parseLictorPid(session.metadata);
     if (lictorPid != null) {
       setTimeout(() => {
-        if (isPidAlive(lictorPid)) void stopSessionByLictorPid(lictorPid);
+        if (isPidAlive(lictorPid)) {
+          try {
+            const job = deps.controlJobs.enqueueStopProcess({
+              pid: lictorPid,
+              source: "relictor-insurance",
+              sessionId: id,
+              role: "lictor",
+              expectedCommand: null,
+            });
+            log.info({ session_id: id, pid: lictorPid, job_id: job.id }, "relictor insurance kill queued");
+          } catch (error) {
+            log.warn({ session_id: id, pid: lictorPid, error }, "relictor insurance kill enqueue failed");
+          }
+        }
       }, FORCE_EXIT_GRACE_MS).unref?.();
     }
     log.info({ session_id: id, repo: session.repo_path }, "relictor: spawned replacement + ended old");

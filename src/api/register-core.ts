@@ -84,8 +84,8 @@ import {
 } from "../control/provider-preset.js";
 import { resolveLocalModel } from "../control/famulus-select.js";
 import { basename } from "node:path";
-import { stopSessionByLictorPid } from "../control/stop-session.js";
 import { reapOrphans } from "../control/reaper.js";
+import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { startDetachedBackendRestart } from "../control/backend-restart.js";
@@ -97,6 +97,7 @@ const restartLog = createChildLogger("api/backend-restart");
 
 export interface CoreDeps {
   repo: SessionsRepo;
+  controlJobs: ControlJobsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
@@ -146,6 +147,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     "/v1/sessions",
     sessionsRouter({
       repo: deps.repo,
+      controlJobs: deps.controlJobs,
       tasks: deps.tasks,
       chat: deps.chat,
       config: deps.config,
@@ -528,8 +530,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // 1. session row から metadata.lictor_pid を取得
   // 2. session を ended に遷移 + end event append (stopped_by: admin)
   // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿) を実行
-  // 4. 独白後に platform 別 process tree を kill (Win: taskkill /F /T, POSIX: SIGTERM)
-  //    DELETE /v1/sessions/:id と同じ helper (control/end-session-flow.ts) を経由する.
+  // 4. 独白後に durable control queue へ停止ジョブを登録する。
+  //    taskkill / signal は別プロセスの control-worker が実行する。
   app.post("/v1/admin/stop-session/:id", async (c) => {
     const id = c.req.param("id");
     const session = deps.repo.findSession(id);
@@ -564,34 +566,40 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       },
       ended,
     );
-    const killResult = await stopSessionByLictorPid(meta.lictor_pid);
-    // agent-client (別ツリー) も登録 pid があれば落とす (best-effort、 結果は待たない)。
+    const lictorJob = deps.controlJobs.enqueueStopProcess({
+      pid: meta.lictor_pid,
+      source: "admin-stop-session",
+      sessionId: id,
+      role: "lictor",
+      expectedCommand: null,
+    });
+    let agentClientJob: ReturnType<ControlJobsRepo["enqueueStopProcess"]> | null = null;
     if (typeof meta.agent_client_pid === "number") {
-      void stopSessionByLictorPid(meta.agent_client_pid);
-    }
-    if (!killResult.ok) {
-      return c.json({
-        ok: false,
-        error: killResult.error,
-        pid: meta.lictor_pid,
-        report_generated: flow.report !== null,
-        monologue_posted: flow.postedMessageId !== null,
-      }, 500);
+      agentClientJob = deps.controlJobs.enqueueStopProcess({
+        pid: meta.agent_client_pid,
+        source: "admin-stop-session",
+        sessionId: id,
+        role: "agent-client",
+        expectedCommand: null,
+      });
     }
     return c.json({
       ok: true,
+      status: "queued",
       pid: meta.lictor_pid,
       agent_client_pid: meta.agent_client_pid ?? null,
+      job_id: lictorJob.id,
+      agent_client_job_id: agentClientJob?.id ?? null,
       report_generated: flow.report !== null,
       monologue_posted: flow.postedMessageId !== null,
-    });
+    }, 202);
   });
 
   // ── 管理 API: 孤児プロセス回収 (reaper) ─────────────────────────────
   // GET  /v1/admin/orphans : dry-run。 終了/消滅 session に紐付かない Lictor/agent-client の一覧。
   // POST /v1/admin/reap    : 回収実行 (kill)。 body {dry_run?: boolean, min_age_sec?: number}。
   app.get("/v1/admin/orphans", async (c) => {
-    const r = await reapOrphans({ repo: deps.repo }, {
+    const r = await reapOrphans({ repo: deps.repo, controlJobs: deps.controlJobs }, {
       dryRun: true,
       minAgeSec: deps.config.reaperMinAgeSec,
       lostGraceSec: deps.config.reaperLostGraceSec,
@@ -605,7 +613,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ? body.min_age_sec
         : deps.config.reaperMinAgeSec;
     const r = await reapOrphans(
-      { repo: deps.repo },
+      { repo: deps.repo, controlJobs: deps.controlJobs },
       {
         dryRun: body.dry_run === true,
         minAgeSec,
@@ -616,7 +624,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       scanned: r.scanned,
       orphans: r.orphans.length,
       lost_sessions: r.lost.candidates.length,
-      killed: r.killed.length + r.lost.killed.length,
+      queued: r.queued.length,
+      killed: r.lost.killed.length,
       failed: r.failed.length + r.lost.failed.length,
       detail: r,
     });

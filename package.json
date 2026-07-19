@@ -15,6 +15,7 @@
     "cost:worker": "node --import tsx --env-file-if-exists=.env src/cost-worker.ts",
     "db:drop-obsolete-excubitor": "node --import tsx src/drop-obsolete-excubitor.ts",
     "chat:worker": "node --import tsx --env-file-if-exists=.env src/chat-worker.ts",
+    "control:worker": "node --import tsx --env-file-if-exists=.env src/control-worker.ts",
     "workflow:worker": "node --import tsx --env-file-if-exists=.env src/workflow-worker.ts",
     "dev:web": "cd web && npm run dev",
     "start": "node dist/server.js",

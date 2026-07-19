@@ -10,6 +10,7 @@ import { loadConfig, isLoopbackHost } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
 import { openDb, closeDb } from "../db/index.js";
 import { SessionsRepo } from "../db/sessions-repo.js";
+import { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { makeParticipantsRepo } from "../db/participants-repo.js";
 import { TasksRepo } from "../db/tasks-repo.js";
 import { ChatRepo } from "../db/chat-repo.js";
@@ -369,6 +370,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const db = openDb(dbPath);
   const repo = new SessionsRepo(db);
+  const controlJobs = new ControlJobsRepo(db);
   // プロセス再起動時は in-memory の WS 接続が全部消えているので、
   // sessions.ws_clients を 0 にリセットして整合性を保つ.
   const tasks = new TasksRepo(db);
@@ -711,6 +713,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const app = buildApp({
     repo,
+    controlJobs,
     metrics: metricsStore,
     tasks,
     chat,
@@ -844,7 +847,7 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(startBranchWatch({ sessions: repo, claims: testingClaims, log }));
     trackPostListenHandle(
       startReaper(
-        { repo },
+        { repo, controlJobs },
         {
           enabled: cfg.reaperEnabled,
           intervalMs: cfg.reaperIntervalMs,

@@ -8,6 +8,7 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { SessionTaskRecordsRepo } from "../../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../../db/transcript-logs-repo.js";
 import type { DelegationRepo } from "../../db/delegation-repo.js";
+import type { ControlJobsRepo } from "../../db/control-jobs-repo.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system";
 
@@ -57,6 +58,7 @@ export interface SessionsApiDeps {
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
   delegation?: DelegationRepo;
+  controlJobs: ControlJobsRepo;
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
   resolveWorkspaceRoots?: () => string[];

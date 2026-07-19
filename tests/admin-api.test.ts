@@ -271,6 +271,30 @@ describe("admin API", () => {
     expect(r.status).toBe(400);
   });
 
+  it("POST /v1/admin/stop-session/:id persists stop jobs instead of running taskkill", async () => {
+    const previous = process.env.CONCORDIA_DISABLE_CLAUDE;
+    process.env.CONCORDIA_DISABLE_CLAUDE = "1";
+    try {
+      await seedSession(env, "queued-stop", "DESKTOP-A", "active");
+      env.repo.setMetadata("queued-stop", JSON.stringify({ lictor_pid: 123, agent_client_pid: 456 }));
+
+      const r = await env.app.request("/v1/admin/stop-session/queued-stop", { method: "POST" });
+      const body = await r.json() as {
+        status: string;
+        job_id: string;
+        agent_client_job_id: string;
+      };
+
+      expect(r.status).toBe(202);
+      expect(body.status).toBe("queued");
+      expect(env.controlJobs.findById(body.job_id)?.status).toBe("queued");
+      expect(env.controlJobs.findById(body.agent_client_job_id)?.status).toBe("queued");
+    } finally {
+      if (previous === undefined) delete process.env.CONCORDIA_DISABLE_CLAUDE;
+      else process.env.CONCORDIA_DISABLE_CLAUDE = previous;
+    }
+  });
+
   describe("/v1/admin/restart", () => {
     beforeAll(() => { process.env.CONCORDIA_RESTART_DRY_RUN = "1"; });
     afterAll(() => { delete process.env.CONCORDIA_RESTART_DRY_RUN; });

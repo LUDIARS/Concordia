@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { buildApp, type AppDeps } from "../../src/app.js";
 import { AdminState } from "../../src/admin/state.js";
 import { ChatRepo } from "../../src/db/chat-repo.js";
+import { ControlJobsRepo } from "../../src/db/control-jobs-repo.js";
 import { CostOneShotCallsRepo } from "../../src/db/cost-one-shot-calls-repo.js";
 import { CostLimitSamplesRepo } from "../../src/db/cost-limit-samples-repo.js";
 import { CostUsageSamplesRepo } from "../../src/db/cost-usage-samples-repo.js";
@@ -62,6 +63,7 @@ export interface TestAppEnv {
   app: ReturnType<typeof buildApp>;
   db: Database.Database;
   repo: SessionsRepo;
+  controlJobs: ControlJobsRepo;
   tasks: TasksRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
@@ -89,6 +91,7 @@ export interface TestAppEnv {
 export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const db = opts.db ?? makeTestDb();
   const repo = new SessionsRepo(db);
+  const controlJobs = new ControlJobsRepo(db);
   const tasks = new TasksRepo(db);
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
@@ -139,7 +142,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   };
 
   const deps: AppDeps = {
-    repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
+    repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     taskStore,
@@ -158,7 +161,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   return {
     app: buildApp(deps),
-    db, repo, tasks, chat, skills, rules, dayReports, processes, stats, prs,
+    db, repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     processManager, config, logsDir,

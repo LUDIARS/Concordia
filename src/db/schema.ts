@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 39;
+export const SCHEMA_VERSION = 40;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -524,6 +524,32 @@ const STATEMENTS = [
   )`,
   `CREATE INDEX IF NOT EXISTS idx_chat_mutation_outbox_created
      ON chat_mutation_outbox(created_at, id)`,
+
+  // API / core process から重い OS 制御を切り離す durable queue。
+  // running lease が失効したジョブは別 control-worker が再取得できる。
+  `CREATE TABLE IF NOT EXISTS control_jobs (
+    id               TEXT PRIMARY KEY,
+    kind             TEXT NOT NULL,
+    payload_json     TEXT NOT NULL,
+    dedupe_key       TEXT NOT NULL,
+    status           TEXT NOT NULL DEFAULT 'queued',
+    attempts         INTEGER NOT NULL DEFAULT 0,
+    max_attempts     INTEGER NOT NULL DEFAULT 3,
+    available_at     INTEGER NOT NULL,
+    lease_owner      TEXT,
+    lease_expires_at INTEGER,
+    result_json      TEXT,
+    last_error       TEXT,
+    created_at       INTEGER NOT NULL,
+    updated_at       INTEGER NOT NULL,
+    finished_at      INTEGER,
+    expires_at       INTEGER NOT NULL
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_control_jobs_claim
+     ON control_jobs(status, available_at, created_at)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_control_jobs_active_dedupe
+     ON control_jobs(dedupe_key)
+     WHERE status IN ('queued', 'running')`,
 
   // ─── participants (人間入力者の identity レジストリ) ──────────────────────
   // platform handle ↔ 表示名 ↔ canonical 人物 の最小マッピング。発言者明示の

@@ -233,12 +233,19 @@ describe("lost Lictor process cleanup", () => {
       ws_clients: 0,
     };
     const stopProcess = vi.fn(async () => ({ ok: true as const, method: "taskkill" as const }));
+    const enqueueStopProcess = vi.fn();
     const result = await reapOrphans(
-      { repo: makeRepo([lost]), scanProcesses: async () => [process(301)], stopProcess },
+      {
+        repo: makeRepo([lost]),
+        controlJobs: { enqueueStopProcess },
+        scanProcesses: async () => [process(301)],
+        stopProcess,
+      },
       { dryRun: false, minAgeSec: 180, lostGraceSec: 300, nowSec },
     );
 
     expect(result.lost.killed.map((candidate) => candidate.pid)).toEqual([301]);
     expect(result.orphans).toHaveLength(0);
+    expect(enqueueStopProcess).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,7 @@
 
 import { spawn } from "node:child_process";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { stopSessionByLictorPid } from "./stop-session.js";
 import {
   reapLostLictorProcesses,
@@ -179,7 +180,7 @@ export interface ReapResult {
   scanned: number;
   lost: LostLictorReapResult;
   orphans: OrphanProc[];
-  killed: OrphanProc[];
+  queued: Array<{ proc: OrphanProc; jobId: string; deduplicated: boolean }>;
   failed: Array<{ proc: OrphanProc; error: string }>;
 }
 
@@ -187,6 +188,7 @@ export interface ReapResult {
 export async function reapOrphans(
   deps: {
     repo: SessionsRepo;
+    controlJobs: Pick<ControlJobsRepo, "enqueueStopProcess">;
     scanProcesses?: () => Promise<RunningAgentProc[]>;
     stopProcess?: typeof stopSessionByLictorPid;
   },
@@ -207,16 +209,26 @@ export async function reapOrphans(
   const { lictorPids, sessionIds } = liveSetsFromRepo(deps.repo);
   const orphans = classifyOrphans(procs, lictorPids, sessionIds, opts.minAgeSec);
 
-  const killed: OrphanProc[] = [];
+  const queued: ReapResult["queued"] = [];
   const failed: Array<{ proc: OrphanProc; error: string }> = [];
   if (!opts.dryRun) {
     for (const o of orphans) {
-      const r = await stopProcess(o.pid);
-      if (r.ok) killed.push(o);
-      else failed.push({ proc: o, error: r.error });
+      try {
+        const job = deps.controlJobs.enqueueStopProcess({
+          pid: o.pid,
+          source: "reaper",
+          sessionId: o.sessionId,
+          role: "orphan",
+          expectedCommand: o.cmd,
+          dedupeKey: `stop_process_tree:orphan:${o.pid}:${o.cmd}`,
+        });
+        queued.push({ proc: o, jobId: job.id, deduplicated: job.deduplicated });
+      } catch (error) {
+        failed.push({ proc: o, error: error instanceof Error ? error.message : String(error) });
+      }
     }
   }
-  return { scanned: procs.length, lost, orphans, killed, failed };
+  return { scanned: procs.length, lost, orphans, queued, failed };
 }
 
 export interface ReaperHandle {
@@ -226,7 +238,7 @@ export interface ReaperHandle {
 
 /** 周期 reaper を起動する。 */
 export function startReaper(
-  deps: { repo: SessionsRepo },
+  deps: { repo: SessionsRepo; controlJobs: Pick<ControlJobsRepo, "enqueueStopProcess"> },
   opts: {
     enabled: boolean;
     intervalMs: number;
@@ -248,7 +260,7 @@ export function startReaper(
 
   const tick = async (): Promise<void> => {
     const r = await runOnce();
-    if (r.killed.length > 0 || r.failed.length > 0 || r.lost.killed.length > 0 || r.lost.failed.length > 0) {
+    if (r.queued.length > 0 || r.failed.length > 0 || r.lost.killed.length > 0 || r.lost.failed.length > 0) {
       log.info(
         {
           scanned: r.scanned,
@@ -257,7 +269,7 @@ export function startReaper(
           lostSkipped: r.lost.skipped.length,
           lostFailed: r.lost.failed.length,
           orphans: r.orphans.length,
-          killed: r.killed.length,
+          queued: r.queued.length,
           failed: r.failed.length,
         },
         "reaped lost session and orphan processes",

@@ -83,9 +83,10 @@ describe("startCronScheduler", () => {
     await expect(handle.triggerNow()).resolves.toBeUndefined();
   });
 
-  it("runs only the Sol Ultra daily review by default", () => {
+  it("runs the Sol Ultra daily review and the biweekly AI note review by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily-dual", cron: "10 5 * * *", call_name: "ludiars-review-daily-dual" },
+      { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
     ]);
   });
 });

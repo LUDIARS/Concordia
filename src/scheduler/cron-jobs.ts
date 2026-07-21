@@ -25,9 +25,17 @@ export interface CronJobDefinition {
 
 const DAILY_REVIEW_CRON = "10 5 * * *";
 
+/** 隔週相当 (毎月1日・15日)。croner は隔週を直接表現できないため半月周期で近似する。 */
+const AI_NOTE_REVIEW_CRON = "10 6 1,15 * *";
+
 export const CRON_JOBS: CronJobDefinition[] = [{
     name: "ludiars-review-daily-dual",
     cron: DAILY_REVIEW_CRON,
     call_name: "ludiars-review-daily-dual",
+    buildArgs: () => ({ date: todayIso() }),
+}, {
+    name: "ai-note-biweekly-review",
+    cron: AI_NOTE_REVIEW_CRON,
+    call_name: "ai-note-biweekly-review",
     buildArgs: () => ({ date: todayIso() }),
 }];

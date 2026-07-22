@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { DelegationQueue, DEFAULT_STALE_MS } from "./queue.js";
 import { DelegationRepo, type DelegationRunRow } from "../db/delegation-repo.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
+import type Database from "better-sqlite3";
+import { delegationQueueClaim } from "./lease.js";
 
 function makeRun(repo: DelegationRepo, status: DelegationRunRow["status"], overrides: Partial<{
   child_session_id: string | null;
@@ -25,6 +27,7 @@ function makeRun(repo: DelegationRepo, status: DelegationRunRow["status"], overr
 
 describe("DelegationQueue", () => {
   let repo: DelegationRepo;
+  let db: Database.Database;
   let sessions: { findSession: (id: string) => { status: string } | null };
   let sessionStatus: Record<string, string>;
   let spawned: string[];
@@ -37,13 +40,18 @@ describe("DelegationQueue", () => {
       resolveMaxConcurrency: () => max,
       spawnQueued: async (run) => {
         spawned.push(run.id);
-        repo.markRunSpawned(run.id, { status: "spawned", spawn_pid: 999, spawn_command: ["codex"] });
+        repo.markRunSpawned(
+          run.id,
+          { status: "spawned", spawn_pid: 999, spawn_command: ["codex"] },
+          delegationQueueClaim(run),
+        );
       },
       now: () => now,
     });
 
   beforeEach(() => {
-    repo = new DelegationRepo(makeTestDb());
+    db = makeTestDb();
+    repo = new DelegationRepo(db);
     sessionStatus = {};
     sessions = { findSession: (id) => (sessionStatus[id] ? { status: sessionStatus[id] } : null) };
     spawned = [];
@@ -142,5 +150,29 @@ describe("DelegationQueue", () => {
     expect(after.status).toBe("spawn_failed");
     expect(after.error).toContain("boom");
     expect(after.queue_payload_json).toBeNull();
+  });
+
+  it("claim と launch intent を同じ transaction で outbox に残す", () => {
+    const run = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    const claimed = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 1_000, maxConcurrency: 1 });
+    expect(claimed?.id).toBe(run.id);
+    expect(claimed?.status).toBe("launching");
+    const outbox = db.prepare(
+      `SELECT status, owner, fencing_token FROM delegation_outbox WHERE run_id = ?`,
+    ).get(run.id);
+    expect(outbox).toEqual({ status: "pending", owner: "worker-a", fencing_token: 1 });
+  });
+
+  it("expired claimを再取得しても古いfencing tokenでは完了できない", () => {
+    const run = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    const first = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 10, maxConcurrency: 1 })!;
+    const second = repo.claimNextQueuedRun({ owner: "worker-b", now: now + 11, leaseMs: 10, maxConcurrency: 1 })!;
+    expect(second.queue_fencing_token).toBe(2);
+    expect(repo.markRunSpawned(
+      run.id,
+      { status: "spawned", spawn_pid: 1, spawn_command: ["codex"] },
+      delegationQueueClaim(first),
+    )).toBeNull();
+    expect(repo.findRun(run.id)?.status).toBe("launching");
   });
 });

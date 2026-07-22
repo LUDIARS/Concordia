@@ -97,7 +97,10 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `delegation_templates` | 委託テンプレ | id PK / call_name UNIQUE / target_provider / prompt_template / input_schema / default_cwd |
-| `delegation_runs` | 委託実行履歴 | id PK / template_id / call_name / target_provider / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / finished_at |
+| `delegation_runs` | 委託実行履歴とqueue状態機械 | id PK / template_id / call_name / target_provider / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / queue_owner / queue_lease_until / queue_fencing_token / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / finished_at |
+| `delegation_outbox` | claimと同時に永続化するlaunch intent | run_id / kind / payload_json / status / owner / fencing_token / delivered_at。UNIQUE(run_id, kind) |
 
-> マイグレーションは `CREATE TABLE IF NOT EXISTS` + 冪等 ALTER（PRAGMA table_info で
-> 存在チェックしてから column 追加）。詳細は schema.ts 後半。
+> マイグレーションは番号・名前・SHA-256 checksumを `schema_migrations` に記録する。
+> `src/db/migrator.ts` の単一 migrator が `BEGIN IMMEDIATE` でwriterを直列化し、DDL、冪等ALTER、
+> backfill、ledger、`schema_meta.version` を一つのtransactionでcommitする。適用済みmigrationの
+> source変更はchecksum mismatchとして起動を拒否する。

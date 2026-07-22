@@ -40,7 +40,7 @@ export function readChatWorkerLease(
 export function startChatWorkerLease(
   repo: DiscordConfigRepo,
   opts: { pid?: number; now?: () => number } = {},
-): { stop(): void } {
+): ReturnType<typeof startWorkerLease> {
   return startWorkerLease(repo, {
     key: CHAT_WORKER_LEASE_KEY,
     role: CHAT_WORKER_ROLE,

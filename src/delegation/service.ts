@@ -11,22 +11,12 @@ import {
   type DelegationRepo,
   type DelegationProvider,
   type DelegationRunRow,
-  type DelegationTemplateRow,
-  type InputSchemaItem,
   parseRuntimeOptions,
-  parseInputSchema,
 } from "../db/delegation-repo.js";
-import { spawnSession, type SpawnRequest } from "../control/spawner.js";
-import {
-  forgetPendingDelegationSpawnByRunId,
-  recordPendingDelegationSpawn,
-} from "../control/pending-delegation-spawns.js";
 import {
   resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
-  resolveDelegationRuntimeEnv,
   resolveDelegationSpawn,
-  goalAndGoRequested,
   normalizeProviderEffort,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
@@ -42,146 +32,31 @@ import {
   type EffortTaskBucket,
 } from "./effort-policy.js";
 import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
+import { buildInvocationPlan } from "./plan.js";
+import { substituteVars } from "./prompt.js";
+import {
+  templateToDefinition,
+  type DelegationDefinition,
+  type InvokeInput,
+  type QueuePayload,
+  type LaunchResult,
+} from "./contracts.js";
+import { executeQueuedRun } from "./executor.js";
+import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
+export { resolveDelegationSpawner } from "./launcher.js";
+export { templateToDefinition } from "./contracts.js";
+export type { DelegationDefinition, InvokeInput } from "./contracts.js";
+export { renderTemplate, substituteVars, validateArgs } from "./prompt.js";
 
 const log = createChildLogger("delegation/service");
 
 /// 静的文字列内の `${var}` を args から埋める (fallback 構文 `${var:fb}` 対応)。
 /// renderTemplate と違って schema チェックや missing 追跡はしない (cwd 用)。
 /// app.ts の spawn-from-template (素のセッション) 経路も同じ展開を使うため export。
-export function substituteVars(s: string, args: Record<string, unknown>): string {
-  return s.replace(/\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]*))?\}/g,
-    (_m, name: string, fb?: string) => {
-      const v = args[name];
-      if (v !== undefined && v !== null && v !== "") return String(v);
-      return fb ?? "";
-    });
-}
-
-export interface RenderResult {
-  rendered: string;
-  missing: string[];     // required but absent
-  unknown_vars: string[]; // referenced in template but not in schema (warning)
-}
-
-const VAR_RE = /\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?::([^}]*))?\}/g;
-
-export function renderTemplate(
-  template: string,
-  args: Record<string, unknown>,
-  schema: InputSchemaItem[],
-): RenderResult {
-  const missing: string[] = [];
-  const unknown: Set<string> = new Set();
-  const required = new Set(schema.filter((s) => s.required).map((s) => s.name));
-  const known = new Set(schema.map((s) => s.name));
-  // First fill in defaults from schema for any missing args
-  const filledArgs: Record<string, unknown> = { ...args };
-  for (const s of schema) {
-    if (filledArgs[s.name] === undefined && s.default !== undefined) {
-      filledArgs[s.name] = s.default;
-    }
-  }
-  // Required check
-  for (const r of required) {
-    const v = filledArgs[r];
-    if (v === undefined || v === null || v === "") missing.push(r);
-  }
-  const rendered = template.replace(VAR_RE, (_match, name: string, fallback?: string) => {
-    if (!known.has(name)) unknown.add(name);
-    const v = filledArgs[name];
-    if (v !== undefined && v !== null && v !== "") return String(v);
-    return fallback ?? "";
-  });
-  return { rendered, missing, unknown_vars: Array.from(unknown) };
-}
-
-export function validateArgs(
-  args: Record<string, unknown>,
-  schema: InputSchemaItem[],
-): { ok: true } | { ok: false; errors: string[] } {
-  const errors: string[] = [];
-  for (const s of schema) {
-    const v = args[s.name];
-    if (v === undefined || v === null) {
-      if (s.required && s.default === undefined) {
-        errors.push(`missing required arg: ${s.name}`);
-      }
-      continue;
-    }
-    const t = typeof v;
-    if (s.type === "string" && t !== "string") errors.push(`arg ${s.name} must be string`);
-    if (s.type === "number" && t !== "number") errors.push(`arg ${s.name} must be number`);
-    if (s.type === "boolean" && t !== "boolean") errors.push(`arg ${s.name} must be boolean`);
-  }
-  return errors.length === 0 ? { ok: true } : { ok: false, errors };
-}
-
 /**
  * 起動に必要な delegation 定義の最小集合。 グローバルテンプレ (delegation_templates) と
  * 子会社所有の複製 (subsidiary_delegations) を同じ起動経路 (runDefinition) に載せるための共通形。
  */
-export interface DelegationDefinition {
-  /** run 記録の template_id。 グローバルテンプレなら id、 子会社所有 (テンプレ無し) なら null。 */
-  template_id: string | null;
-  call_name: string;
-  title: string;
-  target_provider: DelegationProvider;
-  model: string | null;
-  runtime_options_json?: string | null;
-  prompt_template: string;
-  input_schema: string;          // JSON string
-  default_cwd: string | null;
-  project?: string | null;
-  emoji?: string | null;
-}
-
-/** グローバルテンプレ行を起動定義に変換する。 */
-export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefinition {
-  return {
-    template_id: tpl.id,
-    call_name: tpl.call_name,
-    title: tpl.title,
-    target_provider: tpl.target_provider as DelegationProvider,
-    model: tpl.model,
-    runtime_options_json: tpl.runtime_options_json,
-    prompt_template: tpl.prompt_template,
-    input_schema: tpl.input_schema,
-    default_cwd: tpl.default_cwd,
-    project: tpl.project,
-    emoji: tpl.emoji,
-  };
-}
-
-export interface InvokeInput {
-  call_name: string;
-  args: Record<string, unknown>;
-  cwd?: string;
-  /** render 後の prompt 末尾に追記する任意の追加指示（テンプレ render とは別経路）。 */
-  extra_prompt?: string;
-  /** prompt 末尾にリンクとして列挙する参照メモリ。内容は読み込まない。 */
-  memory_links?: string[];
-  triggered_by?: string;
-  /** false で spawn せず render + 記録のみ */
-  spawn?: boolean;
-  /** Provider-specific one-shot options. These are not stored on the template. */
-  options?: DelegationRuntimeOptions;
-  /** One-shot provider/model/runtime overrides. These are not stored on the template. */
-  overrides?: {
-    provider?: DelegationProvider;
-    model?: string | null;
-    reasoning_effort?: string;
-  };
-  /** Active parent Concordia session that requested this delegation, when known. */
-  parent_session_id?: string | null;
-  /** Optional git branch for the spawned session. Worktree mode avoids switching the current checkout. */
-  branch?: string;
-  /** When branch is set, defaults to true: create/reuse a linked worktree for the branch. */
-  worktree?: boolean;
-  /** 子会社由来の invoke なら子会社 id。 spawn したセッションの metadata.subsidiary_id へ焼く。 */
-  subsidiary_id?: string | null;
-  /** project 限定 spawn なら session.started 時に metadata.project へ焼く。 */
-  project?: string | null;
-}
 
 export interface InvokeResultOk {
   ok: true;
@@ -211,11 +86,6 @@ export interface DelegationQueuePort {
 }
 
 /** queued run を後から起動するために保存しておく入力一式。 */
-interface QueuePayload {
-  def: DelegationDefinition;
-  input: InvokeInput;
-}
-
 export interface InvokeResultErr {
   ok: false;
   error: string;
@@ -227,7 +97,7 @@ export type InvokeResult = InvokeResultOk | InvokeResultErr;
 export interface DelegationServiceDeps {
   repo: DelegationRepo;
   /** 端末 spawn を上書き (テスト用)。 省略時は実際に wt.exe を起動 */
-  spawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+  spawn?: DelegationSpawner;
   /** prompt file の出力先 dir (default = process.cwd()/delegation-prompts) */
   promptsDir?: string;
   /** delegation context に載せる協調 API URL。 */
@@ -239,16 +109,6 @@ export interface DelegationServiceDeps {
    * kind は resolveManualKind (manual-kind.ts) がテンプレから解決する。
    */
   injectManual?: (kind: string) => string | null;
-}
-
-type DelegationSpawner = NonNullable<DelegationServiceDeps["spawn"]>;
-
-/**
- * Delegation は provider を問わず Lictor の通常セッション経路で起動する。
- * Codex の prompt 投入と transcript 永続化は Lictor の App Server transport が担う。
- */
-export function resolveDelegationSpawner(override?: DelegationSpawner): DelegationSpawner {
-  return override ?? spawnSession;
 }
 
 export class DelegationService {
@@ -300,25 +160,9 @@ export class DelegationService {
   }
 
   private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
-    const schema = parseInputSchema(def.input_schema);
-    const validation = validateArgs(input.args ?? {}, schema);
-    if (!validation.ok) {
-      return { ok: false, error: "invalid args", details: validation.errors };
-    }
-    const render = renderTemplate(def.prompt_template, input.args ?? {}, schema);
-    if (render.missing.length > 0) {
-      return { ok: false, error: "missing required args", details: render.missing };
-    }
-    // 初回注入プロンプト (任意) を render 結果の末尾に追記する。テンプレ render とは
-    // 別経路で、 人間が起動時に渡す追加指示。 prompt file + run.rendered_prompt 両方に載る。
-    const extra = (input.extra_prompt ?? "").trim();
-    const withExtra = extra
-      ? `${render.rendered}\n\n---\n\n## 追加の初回指示（人間）\n\n${extra}`
-      : render.rendered;
-    const memoryLinks = (input.memory_links ?? []).map((link) => link.trim()).filter(Boolean);
-    const renderedPrompt = memoryLinks.length > 0
-      ? `${withExtra}\n\n## 参照メモリ (必要な分だけ読むこと)\n\n${memoryLinks.map((link) => `- ${link}`).join("\n")}`
-      : withExtra;
+    const plan = buildInvocationPlan(def, input);
+    if (!plan.ok) return plan;
+    const renderedPrompt = plan.renderedPrompt;
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const shouldSpawn = input.spawn !== false;
@@ -411,45 +255,10 @@ export class DelegationService {
    * 起動入力を復元し、 invoke 時と同じ launch を通してから run に結果を焼き戻す。
    */
   async spawnQueuedRun(run: DelegationRunRow): Promise<void> {
-    if (!run.queue_payload_json) {
-      this.deps.repo.markRunSpawned(run.id, {
-        status: "spawn_failed", spawn_pid: null, spawn_command: null,
-        error: "queue payload missing (起動入力が失われているため再実行できません)",
-      });
-      return;
-    }
-    let payload: QueuePayload;
-    try {
-      payload = JSON.parse(run.queue_payload_json) as QueuePayload;
-    } catch (e) {
-      this.deps.repo.markRunSpawned(run.id, {
-        status: "spawn_failed", spawn_pid: null, spawn_command: null,
-        error: `queue payload broken: ${(e as Error).message}`,
-      });
-      return;
-    }
-    const launch = await this.launch(run.id, payload.def, payload.input, run.rendered_prompt, true);
-    if (!launch.ok) {
-      this.deps.repo.markRunSpawned(run.id, {
-        status: "spawn_failed", spawn_pid: null, spawn_command: null, error: launch.error,
-      });
-      return;
-    }
-    this.deps.repo.markRunSpawned(run.id, {
-      status: launch.status,
-      spawn_pid: launch.spawn_pid,
-      spawn_command: launch.spawn_command,
-      error: launch.error_message,
-      effort_level: launch.effort_level,
-      effort_source: launch.effort_source,
-      effort_bucket: launch.effort_bucket,
-      effective_model: launch.effective_model,
-      fast_mode: launch.fast_mode,
-      spawn_cwd: launch.cwd,
-      spawn_branch: launch.branch,
-      spawn_worktree_path: launch.worktree_path,
-      spawn_worktree_created: launch.worktree_created,
-      effort_decision_id: launch.effort_decision_id,
+    await executeQueuedRun({
+      run,
+      repo: this.deps.repo,
+      launch: (payload) => this.launch(run.id, payload.def, payload.input, run.rendered_prompt, true),
     });
   }
 
@@ -622,61 +431,24 @@ export class DelegationService {
     let status: DelegationRunRow["status"] = "pending";
     let spawnError: string | null = null;
     if (shouldSpawn) {
-      const spawner = resolveDelegationSpawner(this.deps.spawn);
-      const req: SpawnRequest = {
-        // 実 spawn は解決後の CLI。 gemma4-12 は Lictor ネイティブ local-agent
-        // (`lictor gemma4-12`)、 それ以外は同名 CLI。 記録上の論理 provider とは別。
-        provider: spawn.provider,
-        mode: "window",
-        cwd: cwd ?? undefined,
-        // 解決済み args (`--model` 等)。 空配列なら付けず、 各 CLI の config 既定に委ねる。
-        args: spawnArgs.length > 0 ? spawnArgs : undefined,
-        title: `delegation:${input.call_name}`,
-        spawnId: runId,
-        env: {
-          // spawn 解決由来の env (gemma4-12 の LICTOR_LOCAL_MODEL 等) を先に展開。
-          ...(spawn.env ?? {}),
-          ...resolveDelegationRuntimeEnv(provider, effectiveOptions),
-          CONCORDIA_DELEGATION_PROMPT_FILE: promptPath,
-          CONCORDIA_DELEGATION_RUN_ID: runId,
-          ...(input.parent_session_id ? {
-            CONCORDIA_DELEGATION_PARENT_SESSION_ID: input.parent_session_id,
-            CONCORDIA_PARENT_SESSION_ID: input.parent_session_id,
-          } : {}),
-          CONCORDIA_DELEGATION_CALL_NAME: input.call_name,
-        },
-      };
-      // Register before spawn so a fast session.started callback can claim this run.
-      recordPendingDelegationSpawn({
-        cwd,
-        spawnId: runId,
-        branch: spawnBranch,
-        emoji: def.emoji ?? null,
-        callName: input.call_name,
+      const result = launchDelegationProcess({
         runId,
-        subsidiaryId: input.subsidiary_id ?? null,
-        project: input.project ?? null,
-        parentSessionId: input.parent_session_id ?? null,
-        goalAndGo: goalAndGoRequested(effectiveOptions),
+        definition: def,
+        invocation: input,
+        logicalProvider: provider,
+        spawnProvider: spawn.provider,
+        spawnArgs,
+        spawnEnv: spawn.env,
+        effectiveOptions,
+        cwd,
+        branch: spawnBranch,
+        promptPath,
+        spawner: this.deps.spawn as DelegationSpawner | undefined,
       });
-      const result = spawner(req);
-      if (result.ok) {
-        spawnPid = result.pid;
-        spawnCommand = result.command;
-        status = "spawned";
-        log.info({
-          run_id: runId, call_name: input.call_name, provider, cwd,
-          spawn_pid: spawnPid, prompt_file: promptPath,
-        }, "delegation spawn ok");
-      } else {
-        forgetPendingDelegationSpawnByRunId(runId);
-        status = "spawn_failed";
-        spawnError = result.error;
-        log.warn({
-          run_id: runId, call_name: input.call_name, provider, cwd,
-          error: spawnError,
-        }, "delegation spawn failed");
-      }
+      spawnPid = result.spawnPid;
+      spawnCommand = result.spawnCommand;
+      status = result.status;
+      spawnError = result.error;
     } else {
       log.info({ run_id: runId, call_name: input.call_name }, "delegation render-only (spawn=false)");
     }
@@ -701,28 +473,6 @@ export class DelegationService {
     };
   }
 }
-
-/** launch (副作用フェーズ) の結果。 ok:false は run 行を作る前に落ちたケース。 */
-type LaunchResult =
-  | {
-      ok: true;
-      provider: DelegationProvider;
-      status: DelegationRunRow["status"];
-      spawn_pid: number | null;
-      spawn_command: string[] | null;
-      error_message: string | null;
-      cwd: string | null;
-      branch: string | null;
-      worktree_path: string | null;
-      worktree_created: boolean;
-      effort_level: string | null;
-      effort_source: string | null;
-      effort_bucket: EffortTaskBucket | null;
-      effective_model: string | null;
-      fast_mode: boolean;
-      effort_decision_id: number | null;
-    }
-  | { ok: false; error: string };
 
 type ExplicitEffortSource = "override" | "one-shot" | "template";
 

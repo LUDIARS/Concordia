@@ -55,7 +55,7 @@ export function readCostWorkerLease(repo: DiscordConfigRepo, now: number = Date.
 export function startCostWorkerLease(
   repo: DiscordConfigRepo,
   opts: { pid?: number; now?: () => number } = {},
-): { stop(): void } {
+): ReturnType<typeof startWorkerLease> {
   return startWorkerLease(repo, {
     key: COST_WORKER_LEASE_KEY,
     role: COST_WORKER_ROLE,

@@ -40,7 +40,7 @@ export function readWorkflowWorkerLease(
 export function startWorkflowWorkerLease(
   repo: DiscordConfigRepo,
   opts: { pid?: number; now?: () => number } = {},
-): { stop(): void } {
+): ReturnType<typeof startWorkerLease> {
   return startWorkerLease(repo, {
     key: WORKFLOW_WORKER_LEASE_KEY,
     role: WORKFLOW_WORKER_ROLE,

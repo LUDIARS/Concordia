@@ -12,6 +12,7 @@ export interface DiscordConfigRepo {
   get(key: string): string | null;
   set(key: string, value: string): void;
   delete(key: string): void;
+  compareAndSwap(key: string, expected: string | null, value: string | null): boolean;
   all(): Record<string, string>;
 }
 
@@ -42,6 +43,21 @@ export function makeDiscordConfigRepo(db: Database, scope = ""): DiscordConfigRe
     },
     delete(key) {
       db.prepare("DELETE FROM discord_config WHERE key = ?").run(k(key));
+    },
+    compareAndSwap(key, expected, value) {
+      const target = k(key);
+      if (expected === null) {
+        if (value === null) return !db.prepare("SELECT 1 FROM discord_config WHERE key = ?").get(target);
+        return db.prepare(
+          `INSERT INTO discord_config(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`,
+        ).run(target, value).changes === 1;
+      }
+      if (value === null) {
+        return db.prepare("DELETE FROM discord_config WHERE key = ? AND value = ?")
+          .run(target, expected).changes === 1;
+      }
+      return db.prepare("UPDATE discord_config SET value = ? WHERE key = ? AND value = ?")
+        .run(value, target, expected).changes === 1;
     },
     all() {
       const rows = db.prepare("SELECT key, value FROM discord_config").all() as {

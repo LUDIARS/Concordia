@@ -92,6 +92,12 @@ invoke で **各パラメータをモデル含め上書き可**:
   - 払い出しは **FIFO** (`created_at`、 同一 ms は挿入順)。 契機は ①子の完了報告
     (`POST /runs/:id/status` が terminal) ②20 秒ごとの定期 drain ③起動時 (再起動を跨いで
     queued のまま残った run を拾い直す)。
+  - 払い出しは DB transaction 内で `queued → launching` を claim し、`queue_owner`、
+    `queue_lease_until`、単調増加する `queue_fencing_token` を記録する。同じ transaction で
+    `delegation_outbox` に `launch` intent を作るため、process 内の drain flag は所有権の
+    正本ではない。lease 失効後の再 claim は fencing token を増やし、旧 worker の完了更新を拒否する。
+  - 状態機械は `queued → launching → spawned → running → completed|failed`。spawn 失敗は
+    `launching → spawn_failed`。outbox は結果のCAS更新と同時に `delivered` へ進む。
   - 適用範囲は **全 invoke 経路** (Discord 窓口 / Web UI / 朝スケジューラ / MCP)。
     `spawn:false` (render のみ) はキューを通らない。
 - **スロットの数え方 (stale 扱い)**: 子が status を報告せずに死ぬと run は `running` のまま

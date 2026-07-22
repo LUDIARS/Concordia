@@ -3,6 +3,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { runMigrations, type NumberedMigration } from "./migrator.js";
 
 export const SCHEMA_VERSION = 41;
 
@@ -393,6 +394,10 @@ const STATEMENTS = [
     spawn_worktree_created INTEGER NOT NULL DEFAULT 0,
     effort_decision_id  INTEGER,
     finished_at         INTEGER,
+    queue_payload_json  TEXT,
+    queue_owner         TEXT,
+    queue_lease_until   INTEGER,
+    queue_fencing_token INTEGER NOT NULL DEFAULT 0,
     created_at          INTEGER NOT NULL
   )`,
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_created
@@ -404,6 +409,21 @@ const STATEMENTS = [
   // 実行キュー: queued を FIFO で拾い、 spawned/running のスロット数を数える経路が使う。
   `CREATE INDEX IF NOT EXISTS idx_delegation_runs_status
      ON delegation_runs(status, created_at)`,
+  `CREATE TABLE IF NOT EXISTS delegation_outbox (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id        TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    payload_json  TEXT NOT NULL,
+    status        TEXT NOT NULL DEFAULT 'pending',
+    owner         TEXT,
+    fencing_token INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL,
+    delivered_at INTEGER,
+    UNIQUE(run_id, kind),
+    FOREIGN KEY(run_id) REFERENCES delegation_runs(id) ON DELETE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS idx_delegation_outbox_pending
+     ON delegation_outbox(status, created_at)`,
   // NOTE: parent_session_id / child_session_id の index は base schema ではなく
   // applyMigrations で applyColumnAdditions (列追加) の後に作る (delegationCoordinationIndexes)。
   // 既存 DB では CREATE TABLE IF NOT EXISTS が no-op で列が無いため、 base で index を
@@ -1005,6 +1025,9 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "confirm_runs", column: "promotion_approved_by", ddl: `ALTER TABLE confirm_runs ADD COLUMN promotion_approved_by TEXT` },
   { table: "processes", column: "instance_id", ddl: `ALTER TABLE processes ADD COLUMN instance_id TEXT` },
   { table: "processes", column: "generation", ddl: `ALTER TABLE processes ADD COLUMN generation INTEGER NOT NULL DEFAULT 0` },
+  { table: "delegation_runs", column: "queue_owner", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_owner TEXT` },
+  { table: "delegation_runs", column: "queue_lease_until", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_lease_until INTEGER` },
+  { table: "delegation_runs", column: "queue_fencing_token", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_fencing_token INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {
@@ -1042,24 +1065,21 @@ function applyOwnedDelegationBackfill(db: Database.Database): void {
     WHERE subsidiary_id = ? AND call_name = ?
   `);
   const now = 0; // 決定的な epoch (Date.now はスキーマ層で使わない)。表示用 timestamp は API/repo 側で付く。
-  const tx = db.transaction(() => {
-    for (const row of stale) {
-      const tpl = findTpl.get(row.call_name) as
-        | {
-            title: string; description: string; target_provider: string; model: string | null;
-            prompt_template: string; input_schema: string; default_cwd: string | null;
-            project: string | null; emoji: string;
-          }
-        | undefined;
-      if (!tpl) continue;
-      upd.run(
-        tpl.title, tpl.description, tpl.target_provider, tpl.model,
-        tpl.prompt_template, tpl.input_schema, tpl.default_cwd, tpl.project ?? null, tpl.emoji,
-        now, now, row.subsidiary_id, row.call_name,
-      );
-    }
-  });
-  tx();
+  for (const row of stale) {
+    const tpl = findTpl.get(row.call_name) as
+      | {
+          title: string; description: string; target_provider: string; model: string | null;
+          prompt_template: string; input_schema: string; default_cwd: string | null;
+          project: string | null; emoji: string;
+        }
+      | undefined;
+    if (!tpl) continue;
+    upd.run(
+      tpl.title, tpl.description, tpl.target_provider, tpl.model,
+      tpl.prompt_template, tpl.input_schema, tpl.default_cwd, tpl.project ?? null, tpl.emoji,
+      now, now, row.subsidiary_id, row.call_name,
+    );
+  }
 }
 
 /**
@@ -1083,29 +1103,17 @@ export function applyMigrations(db: Database.Database): void {
   // 競合時に即 SQLITE_BUSY で throw させず 5s まで待つことを明示する。 better-sqlite3 は
   // 同期 API なのでこの待ちはイベントループを塞ぐ — 値を大きくしすぎないこと。
   db.pragma("busy_timeout = 5000");
-  if (shouldSkipMigrations(db)) return;
-  const tx = db.transaction((stmts: string[]) => {
-    for (const stmt of stmts) db.exec(stmt);
-  });
-  tx(STATEMENTS);
-  applyColumnAdditions(db);
-  // 列追加 (parent_session_id / child_session_id) の後に index を張る。 base schema で
-  // 先に張ると既存 DB (列未追加) で "no such column" になり起動失敗するため。
-  for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
-  applyOwnedDelegationBackfill(db);
-  db.prepare(
-    `INSERT OR REPLACE INTO schema_meta(key, value) VALUES('version', ?)`,
-  ).run(String(SCHEMA_VERSION));
+  runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
 }
 
-function shouldSkipMigrations(db: Database.Database): boolean {
-  if (process.env.CONCORDIA_DB_SKIP_MIGRATIONS_IF_CURRENT === "0") return false;
-  try {
-    const row = db
-      .prepare(`SELECT value FROM schema_meta WHERE key = 'version'`)
-      .get() as { value?: unknown } | undefined;
-    return String(row?.value ?? "") === String(SCHEMA_VERSION);
-  } catch {
-    return false;
-  }
-}
+const MIGRATIONS: readonly NumberedMigration[] = [{
+  version: SCHEMA_VERSION,
+  name: "baseline-v41",
+  source: JSON.stringify({ statements: STATEMENTS, columns: COLUMN_ADDITIONS, indexes: DELEGATION_COORDINATION_INDEXES }),
+  up(db) {
+    for (const stmt of STATEMENTS) db.exec(stmt);
+    applyColumnAdditions(db);
+    for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
+    applyOwnedDelegationBackfill(db);
+  },
+}];

@@ -74,10 +74,13 @@ export interface DelegationRunRow {
    * queued = 同時実行上限に達していたため spawn を保留した状態 (queue_payload_json に
    * 起動入力一式を持ち、 スロットが空き次第 FIFO で spawn される)。
    */
-  status: "queued" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
+  status: "queued" | "launching" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
   error: string | null;
   /** queued の間だけ入る起動入力 (JSON)。 spawn 後は null に落とす。 */
   queue_payload_json: string | null;
+  queue_owner?: string | null;
+  queue_lease_until?: number | null;
+  queue_fencing_token?: number;
   effort_level?: string | null;
   effort_source?: string | null;
   effort_bucket?: string | null;
@@ -93,7 +96,7 @@ export interface DelegationRunRow {
 }
 
 /** spawn 中/実行中とみなす status (= 同時実行スロットを 1 つ占有する)。 */
-export const DELEGATION_ACTIVE_STATUSES: readonly DelegationRunRow["status"][] = ["spawned", "running"];
+export const DELEGATION_ACTIVE_STATUSES: readonly DelegationRunRow["status"][] = ["launching", "spawned", "running"];
 
 export interface InputSchemaItem {
   name: string;
@@ -385,18 +388,83 @@ export class DelegationRepo {
   /** spawn 済み / 実行中の run (= 同時実行スロットの候補)。 stale 判定は呼び出し側 (queue.ts)。 */
   listActiveRuns(): DelegationRunRow[] {
     return this.db.prepare(
-      `SELECT * FROM delegation_runs WHERE status IN ('spawned', 'running') ORDER BY created_at ASC`,
+      `SELECT * FROM delegation_runs WHERE status IN ('launching', 'spawned', 'running') ORDER BY created_at ASC`,
     ).all() as DelegationRunRow[];
+  }
+
+  /** Atomically claim one launch intent and write its durable outbox record. */
+  claimNextQueuedRun(input: {
+    owner: string;
+    now: number;
+    leaseMs: number;
+    maxConcurrency: number;
+  }): DelegationRunRow | null {
+    const claim = this.db.transaction(() => {
+      let candidate = this.db.prepare(
+        `SELECT id FROM delegation_runs
+         WHERE status = 'launching' AND queue_lease_until <= ?
+         ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+      ).get(input.now) as { id: string } | undefined;
+
+      if (!candidate) {
+        if (input.maxConcurrency > 0) {
+          const active = this.db.prepare(
+            `SELECT COUNT(*) AS count FROM delegation_runs
+             WHERE status IN ('launching', 'spawned', 'running')`,
+          ).get() as { count: number };
+          if (active.count >= input.maxConcurrency) return null;
+        }
+        candidate = this.db.prepare(
+          `SELECT id FROM delegation_runs WHERE status = 'queued'
+           ORDER BY created_at ASC, rowid ASC LIMIT 1`,
+        ).get() as { id: string } | undefined;
+      }
+      if (!candidate) return null;
+
+      const updated = this.db.prepare(
+        `UPDATE delegation_runs
+         SET status = 'launching', queue_owner = ?, queue_lease_until = ?,
+             queue_fencing_token = queue_fencing_token + 1
+         WHERE id = ? AND (
+           status = 'queued' OR (status = 'launching' AND queue_lease_until <= ?)
+         )`,
+      ).run(input.owner, input.now + input.leaseMs, candidate.id, input.now);
+      if (updated.changes !== 1) return null;
+      const run = this.findRun(candidate.id)!;
+      this.db.prepare(
+        `INSERT INTO delegation_outbox(
+           run_id, kind, payload_json, status, owner, fencing_token, created_at
+         ) VALUES (?, 'launch', ?, 'pending', ?, ?, ?)
+         ON CONFLICT(run_id, kind) DO UPDATE SET
+           payload_json = excluded.payload_json,
+           status = 'pending', owner = excluded.owner,
+           fencing_token = excluded.fencing_token, delivered_at = NULL`,
+      ).run(
+        run.id,
+        run.queue_payload_json ?? "{}",
+        input.owner,
+        run.queue_fencing_token ?? 0,
+        input.now,
+      );
+      return run;
+    });
+    return claim.immediate();
   }
 
   /**
    * queued run の spawn 試行結果を焼き戻す。 payload は spawn 後に用済みなので落とす
    * (spawn_failed も再試行しないので落とす — 再実行は新しい run として起こす)。
    */
-  markRunSpawned(runId: string, outcome: RunSpawnOutcome): DelegationRunRow | null {
+  markRunSpawned(
+    runId: string,
+    outcome: RunSpawnOutcome,
+    claim?: { owner: string; fencingToken: number },
+  ): DelegationRunRow | null {
     const row = this.findRun(runId);
     if (!row) return null;
-    this.db.prepare(`
+    if (row.status === "launching" && !claim) return null;
+    const complete = this.db.transaction(() => {
+      const updated = this.db.prepare(`
       UPDATE delegation_runs
          SET status = ?,
              spawn_pid = ?,
@@ -413,8 +481,11 @@ export class DelegationRepo {
              spawn_worktree_created = COALESCE(?, spawn_worktree_created),
              effort_decision_id = COALESCE(?, effort_decision_id),
              finished_at = CASE WHEN ? IN ('spawn_failed', 'completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
-             queue_payload_json = NULL
+             queue_payload_json = NULL,
+             queue_owner = NULL,
+             queue_lease_until = NULL
        WHERE id = ?
+         AND (? IS NULL OR (status = 'launching' AND queue_owner = ? AND queue_fencing_token = ?))
     `).run(
       outcome.status,
       outcome.spawn_pid,
@@ -433,8 +504,21 @@ export class DelegationRepo {
       outcome.status,
       Date.now(),
       runId,
+      claim?.owner ?? null,
+      claim?.owner ?? null,
+      claim?.fencingToken ?? null,
     );
-    return this.findRun(runId);
+      if (updated.changes !== 1) return null;
+      if (claim) {
+        this.db.prepare(
+          `UPDATE delegation_outbox
+           SET status = 'delivered', delivered_at = ?
+           WHERE run_id = ? AND kind = 'launch' AND owner = ? AND fencing_token = ?`,
+        ).run(Date.now(), runId, claim.owner, claim.fencingToken);
+      }
+      return this.findRun(runId);
+    });
+    return complete.immediate();
   }
 
   findRun(id: string): DelegationRunRow | null {

@@ -2,7 +2,15 @@ import { describe, expect, it } from "vitest";
 import { createCostLeaseWatchTick, type CostLeaseWatchDeps } from "./cost.js";
 import type { WorkerLease } from "../shared/worker-lease.js";
 
-const LEASE: WorkerLease = { kind: "worker", role: "cost-sampler", pid: 123, ts: 1_000 };
+const LEASE: WorkerLease = {
+  kind: "worker",
+  role: "cost-sampler",
+  owner: "worker-1",
+  pid: 123,
+  ts: 1_000,
+  expires_at: 91_000,
+  fencing_token: 1,
+};
 
 function makeDeps(overrides: Partial<CostLeaseWatchDeps> = {}): {
   deps: CostLeaseWatchDeps;

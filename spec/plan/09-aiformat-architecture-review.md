@@ -47,3 +47,9 @@ This composite is not a release gate:
 5. Recalibrate architecture scoring to separate product domains, infrastructure, tooling, tests, and self-recursion.
 
 Detailed evidence is in `report/architecture-review-spec-domains.html`.
+
+## 2026-07-22 structural follow-up
+
+`DelegationService`の外部APIを維持したまま、`contracts`、`plan`、`prompt`、`launcher`、
+`executor`、`lease`へ責務を抽出した。queue ownershipはDB CAS + fencing token、起動intentは
+transactional outboxに移し、service本体はtemplate解決とcompositionを担う。

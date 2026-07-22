@@ -8,6 +8,7 @@ export interface SlackConfigRepo {
   get(key: string): string | null;
   set(key: string, value: string): void;
   delete(key: string): void;
+  compareAndSwap(key: string, expected: string | null, value: string | null): boolean;
   all(): Record<string, string>;
 }
 
@@ -27,6 +28,20 @@ export function makeSlackConfigRepo(db: Database): SlackConfigRepo {
     },
     delete(key) {
       db.prepare("DELETE FROM slack_config WHERE key = ?").run(key);
+    },
+    compareAndSwap(key, expected, value) {
+      if (expected === null) {
+        if (value === null) return !db.prepare("SELECT 1 FROM slack_config WHERE key = ?").get(key);
+        return db.prepare(
+          `INSERT INTO slack_config(key, value) VALUES (?, ?) ON CONFLICT(key) DO NOTHING`,
+        ).run(key, value).changes === 1;
+      }
+      if (value === null) {
+        return db.prepare("DELETE FROM slack_config WHERE key = ? AND value = ?")
+          .run(key, expected).changes === 1;
+      }
+      return db.prepare("UPDATE slack_config SET value = ? WHERE key = ? AND value = ?")
+        .run(value, key, expected).changes === 1;
     },
     all() {
       const rows = db.prepare("SELECT key, value FROM slack_config").all() as {

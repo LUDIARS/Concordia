@@ -20,6 +20,8 @@
 
 import type { DelegationRepo, DelegationRunRow } from "../db/delegation-repo.js";
 import { createChildLogger } from "../shared/logger.js";
+import { randomUUID } from "node:crypto";
+import { delegationQueueClaim, QUEUE_CLAIM_LEASE_MS } from "./lease.js";
 
 const log = createChildLogger("delegation/queue");
 
@@ -49,6 +51,7 @@ export interface DelegationQueueDeps {
 export class DelegationQueue {
   private draining = false;
   private timer: NodeJS.Timeout | null = null;
+  private readonly owner = randomUUID();
 
   constructor(private readonly deps: DelegationQueueDeps) {}
 
@@ -106,13 +109,14 @@ export class DelegationQueue {
     this.draining = true;
     try {
       const max = this.maxConcurrency();
-      if (max === 0) {
-        // 上限が外された (0 に変更された) なら待たせている分は全部流す。
-        for (const run of this.deps.repo.listQueuedRuns()) await this.spawn(run);
-        return;
-      }
-      for (const run of this.deps.repo.listQueuedRuns()) {
-        if (this.activeCount() >= max) break;
+      while (true) {
+        const run = this.deps.repo.claimNextQueuedRun({
+          owner: this.owner,
+          now: this.now,
+          leaseMs: QUEUE_CLAIM_LEASE_MS,
+          maxConcurrency: max,
+        });
+        if (!run) break;
         await this.spawn(run);
       }
     } finally {
@@ -143,7 +147,11 @@ export class DelegationQueue {
       // spawn 経路の想定外例外。 queued のまま残すと同じ run で無限に再試行するので
       // spawn_failed に倒して payload を落とす (再実行は新しい invoke で行う)。
       const error = (e as Error).message;
-      this.deps.repo.markRunSpawned(run.id, { status: "spawn_failed", spawn_pid: null, spawn_command: null, error });
+      this.deps.repo.markRunSpawned(
+        run.id,
+        { status: "spawn_failed", spawn_pid: null, spawn_command: null, error },
+        delegationQueueClaim(run),
+      );
       log.warn({ run_id: run.id, error }, "delegation queue: queued run spawn threw");
     }
   }

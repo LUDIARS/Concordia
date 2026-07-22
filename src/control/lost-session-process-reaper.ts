@@ -8,7 +8,7 @@
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
-import { parseLictorPid } from "./session-process-metadata.js";
+import { matchesObservedProcessGeneration, parseLictorPid } from "./session-process-metadata.js";
 import { stopSessionByLictorPid, type StopResult } from "./stop-session.js";
 
 export interface ObservedAgentProcess {
@@ -97,6 +97,7 @@ function candidateFor(
   if (pid === null || protectedPids.has(pid)) return null;
   const process = processByPid.get(pid);
   if (!process || process.ageSec < opts.minProcessAgeSec) return null;
+  if (!matchesObservedProcessGeneration(session.metadata, process.ageSec, opts.nowSec)) return null;
   return { sessionId: session.id, pid, lastSeenAt: session.last_seen_at, processAgeSec: process.ageSec };
 }
 

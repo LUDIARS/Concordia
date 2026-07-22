@@ -14,12 +14,14 @@
  */
 
 import { mkdirSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
 import { isAbsolute, join, resolve as resolvePath } from "node:path";
 import { ProcessesRepo } from "../db/processes-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
   type ProcessDef,
+  type ProcessCommandManifest,
   readDevProcessMd,
 } from "./dev-process-md.js";
 import { spawnProcess, type LogEntry, type RunnerHandle } from "./runner.js";
@@ -34,7 +36,7 @@ export interface ManagerDeps {
 
 export interface StartOneInput {
   name: string;
-  command: string;
+  command: ProcessCommandManifest;
   /** 絶対パス. dev-process.md 由来は manager が解決済の絶対パスを渡す. */
   cwd: string;
   env?: Record<string, string>;
@@ -48,6 +50,8 @@ export interface StartOneResult {
   ok: boolean;
   reason?: string;
   pid?: number;
+  instance_id?: string;
+  generation?: number;
 }
 
 export class ProcessManager {
@@ -122,6 +126,8 @@ export class ProcessManager {
       return { ok: false, reason: `cwd_not_found: ${input.cwd}` };
     }
     const logPath = join(this.deps.logsDir, `${safeFileName(input.name)}.log`);
+    const generation = (this.deps.repo.find(input.name)?.generation ?? 0) + 1;
+    const instanceId = randomUUID();
     const meta = JSON.stringify({
       env: input.env ?? null,
       error_patterns: input.error_patterns ?? null,
@@ -129,11 +135,13 @@ export class ProcessManager {
     this.deps.repo.upsert({
       name: input.name,
       cwd: input.cwd,
-      command: input.command,
+      command: JSON.stringify(input.command),
       repo_path: input.repo_path ?? null,
       repo_origin: input.repo_origin ?? null,
       log_path: logPath,
       metadata: meta,
+      instance_id: instanceId,
+      generation,
     });
 
     let handle: RunnerHandle;
@@ -145,6 +153,8 @@ export class ProcessManager {
         env: input.env,
         log_path: logPath,
         error_patterns: input.error_patterns,
+        instance_id: instanceId,
+        generation,
         onLine: (entry: LogEntry) => {
           try {
             this.deps.repo.appendLog({
@@ -159,16 +169,19 @@ export class ProcessManager {
           }
         },
         onExit: (info) => {
-          this.handles.delete(input.name);
+          const current = this.handles.get(input.name);
+          if (current?.instance_id === instanceId && current.generation === generation) {
+            this.handles.delete(input.name);
+          }
           try {
-            this.deps.repo.setExited(input.name, info);
+            this.deps.repo.setExited(input.name, instanceId, generation, info);
           } catch (err) {
             log.warn({ err, name: input.name }, "setExited failed");
           }
         },
       });
     } catch (err) {
-      this.deps.repo.setExited(input.name, {
+      this.deps.repo.setExited(input.name, instanceId, generation, {
         exit_code: null,
         exit_signal: null,
         exited_at: Math.floor(Date.now() / 1000),
@@ -179,16 +192,26 @@ export class ProcessManager {
 
     this.handles.set(input.name, handle);
     if (handle.pid > 0) {
-      this.deps.repo.setStarted(input.name, handle.pid, Math.floor(Date.now() / 1000));
+      this.deps.repo.setStarted(input.name, instanceId, generation, handle.pid, Math.floor(Date.now() / 1000));
     }
-    return { ok: true, pid: handle.pid };
+    return { ok: true, pid: handle.pid, instance_id: instanceId, generation };
   }
 
-  async stopOne(name: string, timeoutMs = 5000): Promise<{ ok: boolean; reason?: string }> {
+  async stopOne(
+    name: string,
+    timeoutMs = 5000,
+    expected?: { instance_id: string; generation: number },
+  ): Promise<{ ok: boolean; reason?: string }> {
     const h = this.handles.get(name);
     if (!h) return { ok: false, reason: "not_running" };
+    if (expected && (h.instance_id !== expected.instance_id || h.generation !== expected.generation)) {
+      return { ok: false, reason: "ownership_mismatch" };
+    }
     await h.stop(timeoutMs);
-    this.handles.delete(name);
+    const current = this.handles.get(name);
+    if (current?.instance_id === h.instance_id && current.generation === h.generation) {
+      this.handles.delete(name);
+    }
     return { ok: true };
   }
 

@@ -19,16 +19,20 @@ import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { LogLevel, LogStream } from "../shared/types.js";
 import { DEFAULT_ERROR_PATTERNS } from "./dev-process-md.js";
+import type { ProcessCommandManifest } from "./dev-process-md.js";
+import { randomUUID } from "node:crypto";
 
 const log = createChildLogger("runner");
 
 export interface RunnerInput {
   name: string;
-  command: string;
+  command: ProcessCommandManifest;
   cwd: string;
   env?: Record<string, string>;
   log_path: string;
   error_patterns?: string[];
+  instance_id?: string;
+  generation?: number;
   /** in-memory ringbuffer サイズ. 既定 1000 行. */
   ring_size?: number;
   /** 行ごとに呼ばれる callback. 永続化や log GC のフック用. */
@@ -54,6 +58,8 @@ export interface ExitInfo {
 export interface RunnerHandle {
   name: string;
   pid: number;
+  instance_id: string;
+  generation: number;
   /** SIGTERM を送る. timeoutMs 後に SIGKILL fallback. */
   stop: (timeoutMs?: number) => Promise<void>;
   /** ringbuffer のスナップショット (新→古). */
@@ -65,6 +71,8 @@ export function windowsTreeKillArgs(pid: number): string[] {
 }
 
 export function spawnProcess(input: RunnerInput): RunnerHandle {
+  const instanceId = input.instance_id ?? randomUUID();
+  const generation = input.generation ?? 1;
   const errorPatterns = (input.error_patterns ?? DEFAULT_ERROR_PATTERNS).map(
     (p) => new RegExp(p, "i"),
   );
@@ -81,10 +89,10 @@ export function spawnProcess(input: RunnerInput): RunnerHandle {
     log.warn({ err, name: input.name }, "failed to open log file");
   }
 
-  const child: ChildProcess = spawn(input.command, {
+  const child: ChildProcess = spawn(input.command.file, input.command.args, {
     cwd: input.cwd,
     env: input.env ? { ...process.env, ...input.env } : process.env,
-    shell: true,
+    shell: false,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
@@ -94,7 +102,7 @@ export function spawnProcess(input: RunnerInput): RunnerHandle {
     process_name: input.name,
     pid: child.pid ?? -1,
     cwd: input.cwd,
-    command: input.command,
+    command: JSON.stringify(input.command),
     ts: nowSec(),
   });
 
@@ -181,6 +189,8 @@ export function spawnProcess(input: RunnerInput): RunnerHandle {
   return {
     name: input.name,
     pid: child.pid ?? -1,
+    instance_id: instanceId,
+    generation,
     snapshot: () => ring.slice(),
     stop: (timeoutMs = 5000) =>
       new Promise<void>((resolve) => {

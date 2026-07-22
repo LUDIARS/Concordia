@@ -27,6 +27,8 @@ function makeManager(repo: ProcessesRepo): ProcessManager {
   return new ProcessManager({ repo, logsDir });
 }
 
+const nodeCommand = (source: string) => ({ file: process.execPath, args: ["-e", source] });
+
 describe("dev-process.md parser", () => {
   it("returns empty processes when no fence", () => {
     const out = parseDevProcessMd("# heading\nplain text");
@@ -41,15 +43,15 @@ describe("dev-process.md parser", () => {
       "```concordia.processes",
       JSON.stringify({
         processes: [
-          { name: "be", command: "node srv.js" },
-          { name: "fe", command: "vite", cwd: "web", auto_start: false },
+          { name: "be", command: { file: "node", args: ["srv.js"] } },
+          { name: "fe", command: { file: "vite", args: [] }, cwd: "web", auto_start: false },
         ],
       }, null, 2),
       "```",
     ].join("\n");
     const out = parseDevProcessMd(md);
     expect(out.processes).toHaveLength(2);
-    expect(out.processes[0]).toMatchObject({ name: "be", command: "node srv.js" });
+    expect(out.processes[0]).toMatchObject({ name: "be", command: { file: "node", args: ["srv.js"] } });
     expect(out.processes[1]).toMatchObject({ name: "fe", cwd: "web", auto_start: false });
     expect(out.warnings).toEqual([]);
   });
@@ -59,9 +61,9 @@ describe("dev-process.md parser", () => {
       "```concordia.processes",
       JSON.stringify({
         processes: [
-          { name: "ok", command: "x" },
-          { name: "ok", command: "y" },        // duplicate
-          { name: "bad name!", command: "z" }, // invalid name
+          { name: "ok", command: { file: "x", args: [] } },
+          { name: "ok", command: { file: "y", args: [] } },        // duplicate
+          { name: "bad name!", command: { file: "z", args: [] } }, // invalid name
           { name: "no-cmd", command: "" },     // empty command
         ],
       }),
@@ -94,9 +96,10 @@ describe("ProcessesRepo", () => {
     repo.upsert({
       name: "p1", cwd: "/x", command: "echo",
       repo_path: "/x", repo_origin: null, log_path: "/tmp/p1.log",
+      instance_id: "instance-1", generation: 1,
     });
     expect(repo.find("p1")?.status).toBe("starting");
-    repo.setStarted("p1", 1234, 1000);
+    repo.setStarted("p1", "instance-1", 1, 1234, 1000);
     const after = repo.find("p1")!;
     expect(after.pid).toBe(1234);
     expect(after.status).toBe("running");
@@ -106,7 +109,7 @@ describe("ProcessesRepo", () => {
     expect(repo.recentLogs("p1", { limit: 10 })).toHaveLength(2);
     expect(repo.recentLogs("p1", { level: "error" })).toHaveLength(1);
 
-    repo.setExited("p1", { exit_code: 0, exit_signal: null, exited_at: 1100, failed: false });
+    repo.setExited("p1", "instance-1", 1, { exit_code: 0, exit_signal: null, exited_at: 1100, failed: false });
     expect(repo.find("p1")?.status).toBe("exited");
 
     repo.remove("p1");
@@ -122,7 +125,7 @@ describe("ProcessManager spawn", () => {
     // 短命コマンド: cross-platform に node -e で固定行を吐く
     const r = await mgr.startOne({
       name: "echo1",
-      command: `node -e "console.log('hello-runner')"`,
+      command: nodeCommand("console.log('hello-runner')"),
       cwd: process.cwd(),
       repo_path: null,
     });
@@ -171,10 +174,10 @@ describe("ProcessManager spawn", () => {
     const repo = makeRepo();
     const mgr = makeManager(repo);
     const r1 = await mgr.startOne({
-      name: "ka", command: `node -e "setTimeout(()=>{},5000)"`, cwd: process.cwd(),
+      name: "ka", command: nodeCommand("setTimeout(()=>{},5000)"), cwd: process.cwd(),
     });
     const r2 = await mgr.startOne({
-      name: "kb", command: `node -e "setTimeout(()=>{},5000)"`, cwd: process.cwd(),
+      name: "kb", command: nodeCommand("setTimeout(()=>{},5000)"), cwd: process.cwd(),
     });
     expect(r1.ok && r2.ok).toBe(true);
     expect(mgr.listRunning()).toHaveLength(2);
@@ -211,13 +214,13 @@ describe("ProcessManager spawn", () => {
     // sleep 相当: node -e + setTimeout で 1.5s 走らせる
     const r1 = await mgr.startOne({
       name: "dup",
-      command: `node -e "setTimeout(()=>{},1500)"`,
+      command: nodeCommand("setTimeout(()=>{},1500)"),
       cwd: process.cwd(),
     });
     expect(r1.ok).toBe(true);
     const r2 = await mgr.startOne({
       name: "dup",
-      command: `node -e "setTimeout(()=>{},1500)"`,
+      command: nodeCommand("setTimeout(()=>{},1500)"),
       cwd: process.cwd(),
     });
     expect(r2.ok).toBe(false);

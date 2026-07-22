@@ -3,6 +3,8 @@ import { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseAgentClientPid, parseLictorPid, scanAgentProcesses } from "./reaper.js";
+import type { RunningAgentProc } from "./reaper.js";
+import { matchesObservedProcessGeneration } from "./session-process-metadata.js";
 import { isPidAlive, stopSessionByLictorPid, type StopResult } from "./stop-session.js";
 
 const log = createChildLogger("control-worker");
@@ -110,6 +112,8 @@ export function makeControlJobExecutor(deps: {
   sessions: SessionsRepo;
   stopProcess?: (pid: number) => StopResult | Promise<StopResult>;
   isProcessAlive?: (pid: number) => boolean;
+  scanProcesses?: () => Promise<RunningAgentProc[]>;
+  nowSec?: () => number;
 }): ControlJobExecutor {
   return async (job) => {
     if (job.kind !== "stop_process_tree") {
@@ -121,7 +125,12 @@ export function makeControlJobExecutor(deps: {
     } catch {
       return { ok: false, retryable: false, error: "invalid stop_process_tree payload JSON" };
     }
-    const validation = await validateStopTarget(deps.sessions, payload);
+    const validation = await validateStopTarget(
+      deps.sessions,
+      payload,
+      deps.scanProcesses ?? scanAgentProcesses,
+      (deps.nowSec ?? (() => Date.now() / 1000))(),
+    );
     if (!validation.ok) return validation;
     if (validation.result !== undefined) return validation;
     if (!(deps.isProcessAlive ?? isPidAlive)(payload.pid)) {
@@ -136,6 +145,8 @@ export function makeControlJobExecutor(deps: {
 async function validateStopTarget(
   sessions: SessionsRepo,
   payload: StopProcessTreePayload,
+  scanProcesses: () => Promise<RunningAgentProc[]>,
+  nowSec: number,
 ): Promise<ControlJobExecutionResult> {
   if (!Number.isInteger(payload.pid) || payload.pid <= 0) {
     return { ok: false, retryable: false, error: `invalid pid: ${payload.pid}` };
@@ -144,7 +155,7 @@ async function validateStopTarget(
     if (!payload.expectedCommand) {
       return { ok: false, retryable: false, error: "orphan job has no command fingerprint" };
     }
-    const current = (await scanAgentProcesses()).find((proc) => proc.pid === payload.pid);
+    const current = (await scanProcesses()).find((proc) => proc.pid === payload.pid);
     if (!current) {
       return isPidAlive(payload.pid)
         ? { ok: false, retryable: true, error: "orphan PID is alive but its command could not be verified" }
@@ -167,6 +178,10 @@ async function validateStopTarget(
     : parseAgentClientPid(session.metadata);
   if (expectedPid !== payload.pid) {
     return { ok: false, retryable: false, error: "session PID metadata changed; refusing to stop reused PID" };
+  }
+  const current = (await scanProcesses()).find((proc) => proc.pid === payload.pid);
+  if (!current || !matchesObservedProcessGeneration(session.metadata, current.ageSec, nowSec)) {
+    return { ok: false, retryable: false, error: "process generation changed; refusing to stop reused PID" };
   }
   return { ok: true };
 }

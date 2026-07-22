@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
 import { eventBus } from "../events.js";
+import { currentPrincipal, type Principal } from "../auth/principal.js";
 
 const PostSchema = z.object({
   channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
@@ -36,8 +37,13 @@ const PostSchema = z.object({
  * metadata.webhook_username / metadata.webhook_avatar_url を指定すると、Discord
  * Forum webhook の表示名・画像を投稿単位で上書きできる。
  */
-function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
-  const merged: Record<string, unknown> = { ...(parsed.metadata ?? {}), scope };
+function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string, actor: Principal): string {
+  const merged: Record<string, unknown> = {
+    ...(parsed.metadata ?? {}),
+    scope,
+    authenticated_principal_id: actor.id,
+    authenticated_principal_role: actor.role,
+  };
   if (parsed.discord_channel_id) merged.discord_channel_id = parsed.discord_channel_id;
   if (parsed.attachment_paths?.length) merged.attachment_paths = parsed.attachment_paths;
   return JSON.stringify(merged);
@@ -57,7 +63,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
 
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
-    const metadataJson = buildMeta(parsed.data, scope);
+    const metadataJson = buildMeta(parsed.data, scope, currentPrincipal(c));
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,
@@ -103,7 +109,7 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
-    const metadataJson = buildMeta(parsed.data, scope);
+    const metadataJson = buildMeta(parsed.data, scope, currentPrincipal(c));
     const msg = deps.chat.insert({
       channel: parsed.data.channel as ChatChannel,
       session_id: parsed.data.session_id ?? null,

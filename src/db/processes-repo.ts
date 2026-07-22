@@ -19,6 +19,8 @@ export interface UpsertProcessInput {
   repo_origin: string | null;
   log_path: string;
   metadata?: string | null;
+  instance_id: string;
+  generation: number;
 }
 
 export class ProcessesRepo {
@@ -29,14 +31,16 @@ export class ProcessesRepo {
       .prepare(
         `INSERT INTO processes(
            name, cwd, command, repo_path, repo_origin,
-           pid, status, started_at, exited_at, exit_code, exit_signal,
+           pid, instance_id, generation, status, started_at, exited_at, exit_code, exit_signal,
            log_path, metadata
-         ) VALUES (?, ?, ?, ?, ?, NULL, 'starting', NULL, NULL, NULL, NULL, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, 'starting', NULL, NULL, NULL, NULL, ?, ?)
          ON CONFLICT(name) DO UPDATE SET
            cwd = excluded.cwd,
            command = excluded.command,
            repo_path = excluded.repo_path,
            repo_origin = excluded.repo_origin,
+           instance_id = excluded.instance_id,
+           generation = excluded.generation,
            log_path = excluded.log_path,
            metadata = excluded.metadata`,
       )
@@ -46,6 +50,8 @@ export class ProcessesRepo {
         input.command,
         input.repo_path,
         input.repo_origin,
+        input.instance_id,
+        input.generation,
         input.log_path,
         input.metadata ?? null,
       );
@@ -70,19 +76,21 @@ export class ProcessesRepo {
     return this.db.prepare(sql).all(...params) as ProcessRow[];
   }
 
-  setStarted(name: string, pid: number, startedAt: number): void {
+  setStarted(name: string, instanceId: string, generation: number, pid: number, startedAt: number): void {
     this.db
       .prepare(
         `UPDATE processes
             SET pid = ?, status = 'running', started_at = ?,
                 exited_at = NULL, exit_code = NULL, exit_signal = NULL
-          WHERE name = ?`,
+          WHERE name = ? AND instance_id = ? AND generation = ?`,
       )
-      .run(pid, startedAt, name);
+      .run(pid, startedAt, name, instanceId, generation);
   }
 
   setExited(
     name: string,
+    instanceId: string,
+    generation: number,
     info: { exit_code: number | null; exit_signal: string | null; exited_at: number; failed: boolean },
   ): void {
     this.db
@@ -93,7 +101,7 @@ export class ProcessesRepo {
                 exited_at = ?,
                 exit_code = ?,
                 exit_signal = ?
-          WHERE name = ?`,
+          WHERE name = ? AND instance_id = ? AND generation = ?`,
       )
       .run(
         info.failed ? "failed" : "exited",
@@ -101,6 +109,8 @@ export class ProcessesRepo {
         info.exit_code,
         info.exit_signal,
         name,
+        instanceId,
+        generation,
       );
   }
 

@@ -27,16 +27,22 @@ describe("removed dead API routes", () => {
     expect(await response.json()).toEqual({ processes: [] });
   });
 
-  it.each([
-    ["GET", "/v1/spawn/recent"],
-    ["POST", "/v1/spawn/preview"],
-  ] as const)("removes authenticated spawn helper %s %s", async (method, path) => {
+  it("removes authenticated spawn helper GET /v1/spawn/recent", async () => {
     const env = makeTestApp();
     const token = readFileSync(join(env.logsDir, ".spawn.token"), "utf8").trim();
-    const response = await env.app.request(path, {
-      method,
+    const response = await env.app.request("/v1/spawn/recent", {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(response.status).toBe(404);
+  });
+
+  it("denies removed spawn mutations before route dispatch", async () => {
+    const env = makeTestApp({ config: { adminToken: "" } });
+    const token = readFileSync(join(env.logsDir, ".spawn.token"), "utf8").trim();
+    const response = await env.app.request("/v1/spawn/preview", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.status).toBe(401);
   });
 });

@@ -107,10 +107,26 @@ describe("durable control job queue", () => {
       started_at: 1,
       last_seen_at: 1,
       transcript_path: null,
-      metadata: JSON.stringify({ lictor_pid: 123 }),
+      metadata: JSON.stringify({
+        lictor_pid: 123,
+        concordia_spawn_id: "spawn-instance-1234",
+        start_iso: new Date((1_000 - 60) * 1000).toISOString(),
+      }),
     });
     const stopProcess = vi.fn(() => ({ ok: true as const, method: "taskkill" as const }));
-    const executor = makeControlJobExecutor({ sessions, stopProcess, isProcessAlive: () => true });
+    const executor = makeControlJobExecutor({
+      sessions,
+      stopProcess,
+      isProcessAlive: () => true,
+      nowSec: () => 1_000,
+      scanProcesses: async () => [{
+        pid: 123,
+        kind: "lictor",
+        sessionId: null,
+        ageSec: 60,
+        cmd: "lictor.mjs",
+      }],
+    });
     const queued = jobs.enqueueStopProcess({
       pid: 123,
       source: "test",

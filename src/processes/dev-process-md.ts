@@ -24,11 +24,18 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+export interface ProcessCommandManifest {
+  /** Executable name or absolute path. It is passed directly to spawn(), never through a shell. */
+  file: string;
+  /** Exact argv tokens. Shell operators and interpolation have no special meaning. */
+  args: string[];
+}
+
 export interface ProcessDef {
   /** 識別名 (Concordia 内 UNIQUE). 1 .. 64 文字, [a-zA-Z0-9_.-]. */
   name: string;
-  /** spawn 用 shell 行 (shell: true で実行). */
-  command: string;
+  /** Structured command manifest. Legacy shell command strings are rejected. */
+  command: ProcessCommandManifest;
   /** dev-process.md ファイル位置からの相対 cwd. 省略時 "." */
   cwd?: string;
   /** 追加 env. PATH 等の継承は spawn 既定通り. */
@@ -98,13 +105,13 @@ function normalizeProcessDef(raw: unknown, warnings: string[]): ProcessDef | nul
   }
   const r = raw as Record<string, unknown>;
   const name = typeof r.name === "string" ? r.name.trim() : "";
-  const command = typeof r.command === "string" ? r.command.trim() : "";
+  const command = normalizeCommandManifest(r.command);
   if (!name || !NAME_RE.test(name)) {
     warnings.push(`プロセス name "${String(r.name)}" は不正です. ([a-zA-Z0-9_.-]{1,64})`);
     return null;
   }
   if (!command) {
-    warnings.push(`プロセス "${name}" の command が空です.`);
+    warnings.push(`プロセス "${name}" は command { file, args } が必要です。legacy shell command は拒否されます.`);
     return null;
   }
   const def: ProcessDef = { name, command };
@@ -122,6 +129,21 @@ function normalizeProcessDef(raw: unknown, warnings: string[]): ProcessDef | nul
     if (pats.length) def.error_patterns = pats;
   }
   return def;
+}
+
+function normalizeCommandManifest(raw: unknown): ProcessCommandManifest | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const value = raw as Record<string, unknown>;
+  const file = typeof value.file === "string" ? value.file.trim() : "";
+  if (!file || file.length > 500 || /[\r\n\0]/.test(file)) return null;
+  if (!Array.isArray(value.args)) return null;
+  const args: string[] = [];
+  for (const arg of value.args) {
+    if (typeof arg !== "string" || arg.length > 8_192 || /[\r\n\0]/.test(arg)) return null;
+    args.push(arg);
+  }
+  if (args.length > 256) return null;
+  return { file, args };
 }
 
 /**

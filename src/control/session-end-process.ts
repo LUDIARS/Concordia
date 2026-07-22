@@ -1,5 +1,6 @@
 import { isPidAlive, stopSessionByLictorPid, type StopResult } from "./stop-session.js";
-import { parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
+import { scanAgentProcesses, type RunningAgentProc } from "./reaper.js";
+import { matchesObservedProcessGeneration, parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
 
 export const SESSION_END_PENDING_AT_KEY = "session_end_pending_at";
 
@@ -13,6 +14,8 @@ export interface CompletedSessionStopResult {
 export interface CompletedSessionStopDeps {
   isAlive?: (pid: number) => boolean;
   stopProcess?: (pid: number) => Promise<StopResult>;
+  scanProcesses?: () => Promise<RunningAgentProc[]>;
+  nowSec?: () => number;
 }
 
 export function isSessionEndPending(metadata: string | null): boolean {
@@ -36,12 +39,19 @@ export async function stopCompletedSessionProcesses(
 ): Promise<CompletedSessionStopResult> {
   const isAlive = deps.isAlive ?? isPidAlive;
   const stopProcess = deps.stopProcess ?? stopSessionByLictorPid;
+  const observed = new Map((await (deps.scanProcesses ?? scanAgentProcesses)()).map((process) => [process.pid, process]));
+  const nowSec = (deps.nowSec ?? (() => Date.now() / 1000))();
   const pids = [...new Set([parseLictorPid(metadata), parseAgentClientPid(metadata)].filter((pid): pid is number => pid != null))];
   const result: CompletedSessionStopResult = { ok: true, stopped: [], alreadyStopped: [], failed: [] };
 
   for (const pid of pids) {
     if (!isAlive(pid)) {
       result.alreadyStopped.push(pid);
+      continue;
+    }
+    const process = observed.get(pid);
+    if (!process || !matchesObservedProcessGeneration(metadata, process.ageSec, nowSec)) {
+      result.failed.push({ pid, error: "process generation does not match session ownership" });
       continue;
     }
     const stopped = await stopProcess(pid);

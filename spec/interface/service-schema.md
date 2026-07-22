@@ -330,8 +330,8 @@ auto-start の対象になる. フェンス言語は `concordia.processes`、 �
 ```concordia.processes
 {
   "processes": [
-    { "name": "backend", "command": "npm run dev:backend" },
-    { "name": "web",     "command": "npm run dev", "cwd": "web" }
+    { "name": "backend", "command": { "file": "npm", "args": ["run", "dev:backend"] } },
+    { "name": "web",     "command": { "file": "npm", "args": ["run", "dev"] }, "cwd": "web" }
   ]
 }
 ```
@@ -342,7 +342,7 @@ auto-start の対象になる. フェンス言語は `concordia.processes`、 �
 | キー | 型 | 既定 | 意味 |
 |------|----|------|------|
 | `name` | string | — | UNIQUE 識別子. `[a-zA-Z0-9_.-]{1,64}` |
-| `command` | string | — | shell 行 (`shell: true` で spawn) |
+| `command` | `{file:string,args:string[]}` | — | shellを介さず `spawn(file,args,{shell:false})` するmanifest。legacy文字列は拒否 |
 | `cwd` | string | `"."` | dev-process.md からの相対 / 絶対 |
 | `env` | object | `{}` | 追加 env (PATH 等は継承) |
 | `auto_start` | bool | `true` | SessionStart 時に自動起動するか |
@@ -358,6 +358,8 @@ CREATE TABLE processes (
   repo_path    TEXT,                              -- 紐付く repo
   repo_origin  TEXT,
   pid          INTEGER,                           -- 走行中のみ非 NULL
+  instance_id  TEXT,                              -- spawn instance ownership
+  generation   INTEGER NOT NULL DEFAULT 0,        -- 同名再起動ごとの世代
   status       TEXT NOT NULL,                     -- starting / running / exited / failed
   started_at   INTEGER,
   exited_at    INTEGER,
@@ -385,7 +387,7 @@ CREATE TABLE process_logs (
 | `POST` | `/v1/processes` | ad-hoc 起動 (dev-process.md に無い command も可) |
 | `POST` | `/v1/processes/start-from-repo` | `{repo_path}` の dev-process.md 由来をまとめて起動 |
 | `GET`  | `/v1/processes/:name` | 詳細 + 直近 50 行 |
-| `POST` | `/v1/processes/:name/stop` | SIGTERM → 5s 後 SIGKILL fallback |
+| `POST` | `/v1/processes/:name/stop` | `{instance_id,generation}` が現在値と一致した場合のみ停止 |
 | `POST` | `/v1/processes/stop-all` | 走行中の全 (or `repo_path` 指定で絞った) managed processes を一括停止. PC リソース解放 / セッション終了時のクリーンアップ用 |
 | `GET`  | `/v1/processes/:name/logs` | 過去ログ pull (`?since_ts=&level=&limit=`) |
 | `GET`  | `/v1/processes/:name/stream` | SSE: そのプロセスの新規行のみ (backfill 100 行付き) |

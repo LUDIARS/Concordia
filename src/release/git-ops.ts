@@ -59,12 +59,28 @@ export async function syncDevelopClone(cwd: string): Promise<GitResult> {
  *
  * main 系クローンの HEAD は触らず、 リモート参照だけで push する。
  */
-export async function promoteDevelopToMain(cwd: string): Promise<GitResult> {
+export async function promoteDevelopToMain(cwd: string, approvedDevelopSha: string): Promise<GitResult> {
+  if (!/^[0-9a-f]{40}$/i.test(approvedDevelopSha)) {
+    return { ok: false, stdout: "", error: "承認済み develop SHA が不正です" };
+  }
   const fetched = await git(cwd, ["fetch", "origin", "main", "develop"]);
   if (!fetched.ok) return fetched;
 
+  const actualDevelop = await git(cwd, ["rev-parse", "origin/develop"]);
+  if (!actualDevelop.ok) return actualDevelop;
+  if (actualDevelop.stdout.toLowerCase() !== approvedDevelopSha.toLowerCase()) {
+    return {
+      ok: false,
+      stdout: "",
+      error: `develop HEAD が確認開始時から変わりました (approved=${approvedDevelopSha.slice(0, 12)}, current=${actualDevelop.stdout.slice(0, 12)})`,
+    };
+  }
+
+  const expectedMain = await git(cwd, ["rev-parse", "origin/main"]);
+  if (!expectedMain.ok) return expectedMain;
+
   // origin/main が origin/develop の祖先か (= ff できるか) を先に判定する。
-  const ancestor = await git(cwd, ["merge-base", "--is-ancestor", "origin/main", "origin/develop"]);
+  const ancestor = await git(cwd, ["merge-base", "--is-ancestor", expectedMain.stdout, approvedDevelopSha]);
   if (!ancestor.ok) {
     return {
       ok: false,
@@ -73,9 +89,16 @@ export async function promoteDevelopToMain(cwd: string): Promise<GitResult> {
     };
   }
   // ローカルの作業ツリーを一切動かさず、 リモート参照どうしで push する。
-  const pushed = await git(cwd, ["push", "origin", "origin/develop:refs/heads/main"]);
+  // Compare-and-swap: main が fetch 後に動いていたら force-with-lease が拒否する。
+  // push する object も approvedDevelopSha そのものに固定し、動く branch ref を使わない。
+  const pushed = await git(cwd, [
+    "push",
+    `--force-with-lease=refs/heads/main:${expectedMain.stdout}`,
+    "origin",
+    `${approvedDevelopSha}:refs/heads/main`,
+  ]);
   if (!pushed.ok) return pushed;
-  return git(cwd, ["rev-parse", "origin/develop"]);
+  return { ok: true, stdout: approvedDevelopSha };
 }
 
 /**

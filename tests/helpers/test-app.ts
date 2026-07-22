@@ -138,6 +138,9 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const processManager = new ProcessManager({ repo: processes, logsDir });
   const config: ConcordiaConfig = {
     ...loadConfig({}),
+    adminToken: Object.prototype.hasOwnProperty.call(opts.config ?? {}, "adminToken")
+      ? (opts.config?.adminToken ?? "")
+      : "concordia-test-admin-token",
     ...opts.config,
   };
 
@@ -159,8 +162,24 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     costRoutes: opts.costRoutes === false ? null : undefined,
   };
 
+  const app = buildApp(deps);
+  // Most API tests exercise route behavior, not authentication. Give those
+  // calls an explicit test principal. Auth-specific tests pass adminToken in
+  // opts.config and therefore bypass this convenience path.
+  if (!Object.prototype.hasOwnProperty.call(opts.config ?? {}, "adminToken")) {
+    const request = app.request.bind(app);
+    app.request = ((input: string | Request, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      if (!headers.has("authorization") && !headers.has("x-concordia-token")) {
+        headers.set("authorization", "Bearer concordia-test-admin-token");
+      }
+      headers.set("x-concordia-principal", "test-operator");
+      return request(input, { ...init, headers });
+    }) as typeof app.request;
+  }
+
   return {
-    app: buildApp(deps),
+    app,
     db, repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,

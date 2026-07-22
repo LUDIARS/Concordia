@@ -20,6 +20,11 @@ const StartFromRepoSchema = z.object({
   repo_origin: z.string().nullable().optional(),
 });
 
+const StopSchema = z.object({
+  instance_id: z.string().uuid(),
+  generation: z.number().int().positive(),
+});
+
 export function processesRouter(deps: ProcessesApiDeps): Hono {
   const app = new Hono();
 
@@ -62,7 +67,10 @@ export function processesRouter(deps: ProcessesApiDeps): Hono {
   // POST /v1/processes/:name/stop
   app.post("/:name/stop", async (c) => {
     const name = c.req.param("name");
-    const r = await deps.manager.stopOne(name);
+    const body = await c.req.json().catch(() => null);
+    const parsed = StopSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "instance_id and generation are required" }, 400);
+    const r = await deps.manager.stopOne(name, 5000, parsed.data);
     if (!r.ok) return c.json({ ok: false, reason: r.reason }, 409);
     return c.json({ ok: true });
   });
@@ -169,6 +177,8 @@ export function serializeProcess(row: ProcessRow) {
     repo_path: row.repo_path,
     repo_origin: row.repo_origin,
     pid: row.pid,
+    instance_id: row.instance_id,
+    generation: row.generation,
     status: row.status,
     started_at: row.started_at,
     exited_at: row.exited_at,

@@ -29,8 +29,8 @@ export function extractBearer(authHeader: string | undefined): string {
 /**
  * admin ルート用の認証ミドルウェアを生成する。
  *
- * - `getAdminToken()` が空文字列 (= loopback 信頼境界、 token 未設定): 素通し
- *   (従来挙動を保つ)。
+ * - `getAdminToken()` が空文字列: 503 で fail closed。loopback は認証主体の代わりに
+ *   ならず、空 token を allow-all として扱わない。
  * - token が設定済み: `Authorization: Bearer <token>` または
  *   `X-Concordia-Admin-Token: <token>` の一致を要求し、 不一致なら 401。
  *
@@ -39,7 +39,12 @@ export function extractBearer(authHeader: string | undefined): string {
 export function adminAuthMiddleware(getAdminToken: () => string): MiddlewareHandler {
   return async (c, next) => {
     const token = (getAdminToken() ?? "").trim();
-    if (!token) return next();
+    if (!token) {
+      return c.json(
+        { error: "authentication_not_configured", hint: "set CONCORDIA_ADMIN_TOKEN" },
+        503,
+      );
+    }
     const got =
       extractBearer(c.req.header("authorization")) ||
       (c.req.header("x-concordia-admin-token") ?? "").trim();

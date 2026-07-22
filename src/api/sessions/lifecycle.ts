@@ -69,6 +69,12 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
       const spawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
       const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
+      // concordia_spawn_id is a one-time enrollment secret placed only in the
+      // spawned Lictor environment. Supplying an unknown or already-consumed
+      // value is never allowed to degrade into an unowned registration.
+      if (spawnId && !claimed) {
+        return c.json({ error: "invalid_or_consumed_session_enrollment" }, 401);
+      }
       const workPolicy = buildSessionWorkPolicy({
         repoPath: input.repo_path,
         observedBranch: input.branch ?? null,

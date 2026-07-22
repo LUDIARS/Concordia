@@ -13,6 +13,7 @@ import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
 import { listHaltedLoops } from "./shared/loop-bulkhead.js";
+import { principalMiddleware, requireCapability } from "./auth/principal.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -79,18 +80,41 @@ export function buildApp(deps: AppDeps): Hono {
   });
   app.use("*", httpCacheMiddleware());
 
+  // Every request receives an explicit principal. Anonymous remains a real,
+  // least-privilege principal instead of being represented by an empty token.
+  app.use("*", principalMiddleware(() => deps.config.adminToken));
+
   const adminAuth = adminAuthMiddleware(() => deps.config.adminToken);
   app.use("/v1/admin/*", adminAuth);
   app.use("/v1/sweeper/run", adminAuth);
   app.use("/v1/sessions/:id/inject", adminAuth);
   app.use("/v1/delegation/invoke", adminAuth);
+  const chatWrite = requireCapability("chat:write");
+  if (deps.chatRoutes !== null) {
+    app.use("/v1/chat", async (c, next) => c.req.method === "GET" ? next() : chatWrite(c, next));
+    app.use("/v1/chat/*", async (c, next) => c.req.method === "GET" ? next() : chatWrite(c, next));
+  }
+  app.use("/v1/confirm/*", async (c, next) => {
+    if (c.req.method === "GET") return next();
+    return requireCapability("release:confirm")(c, next);
+  });
   app.use("/v1/processes/*", async (c, next) => {
     if (c.req.method === "GET") return next();
-    return adminAuth(c, next);
+    return requireCapability("process:control")(c, next);
   });
   app.use("/v1/sessions/:id", async (c, next) => {
     if (c.req.method !== "DELETE") return next();
-    return adminAuth(c, next);
+    return requireCapability("session:control")(c, next);
+  });
+  // Deny by default for every remaining state-changing API. The two bootstrap
+  // entrances authenticate with narrower, one-time credentials in their route
+  // handlers: /v1/spawn uses the repository spawn token and POST /v1/sessions
+  // consumes concordia_spawn_id enrollment.
+  app.use("/v1/*", async (c, next) => {
+    if (isReadOnlyMethod(c.req.method) || isSelfAuthenticatingBootstrap(c.req.method, c.req.path)) {
+      return next();
+    }
+    return requireCapability(capabilityForMutation(c.req.path))(c, next);
   });
 
   app.get("/health", (c) =>
@@ -116,6 +140,22 @@ export function buildApp(deps: AppDeps): Hono {
   registerWebRoutes(app);
 
   return app;
+}
+
+function isReadOnlyMethod(method: string): boolean {
+  return method === "GET" || method === "HEAD" || method === "OPTIONS";
+}
+
+function isSelfAuthenticatingBootstrap(method: string, path: string): boolean {
+  return method === "POST" && (path === "/v1/spawn" || path === "/v1/sessions");
+}
+
+function capabilityForMutation(path: string) {
+  if (path === "/v1/chat" || path.startsWith("/v1/chat/")) return "chat:write" as const;
+  if (path.startsWith("/v1/confirm/")) return "release:confirm" as const;
+  if (path.startsWith("/v1/processes/")) return "process:control" as const;
+  if (path.startsWith("/v1/sessions/")) return "session:control" as const;
+  return "admin:write" as const;
 }
 
 function readPositiveIntEnv(name: string, fallback: number): number {

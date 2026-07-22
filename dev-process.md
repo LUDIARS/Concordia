@@ -20,28 +20,28 @@ auto_start を **off** にしてある (起動経路は従来どおり手動 `np
   "processes": [
     {
       "name": "concordia-backend",
-      "command": "npm run dev:backend",
+      "command": { "file": "npm", "args": ["run", "dev:backend"] },
       "auto_start": false
     },
     {
       "name": "concordia-web",
-      "command": "npm run dev",
+      "command": { "file": "npm", "args": ["run", "dev"] },
       "cwd": "web",
       "auto_start": false
     },
     {
       "name": "cost-worker",
-      "command": "npm run cost:worker",
+      "command": { "file": "npm", "args": ["run", "cost:worker"] },
       "auto_start": false
     },
     {
       "name": "chat-worker",
-      "command": "npm run chat:worker",
+      "command": { "file": "npm", "args": ["run", "chat:worker"] },
       "auto_start": false
     },
     {
       "name": "workflow-worker",
-      "command": "npm run workflow:worker",
+      "command": { "file": "npm", "args": ["run", "workflow:worker"] },
       "auto_start": false
     }
   ]

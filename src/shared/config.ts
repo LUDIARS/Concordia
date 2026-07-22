@@ -39,11 +39,10 @@ export interface ConcordiaConfig {
    * admin / sweeper / 副作用エンドポイントを保護する bearer token (env `CONCORDIA_ADMIN_TOKEN`)。
    *
    * 信頼境界:
-   *  - `host` が loopback (127.0.0.1/::1/localhost) のときは従来どおり loopback 信頼境界に
-   *    乗り、 token 未設定なら admin API は無認証で使える (空文字列)。
-   *  - token を設定すると loopback でも `/v1/admin/*`, `/v1/sweeper/run`, session inject/delete,
-   *    delegation invoke は
-   *    `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。
+   *  - token 未設定時は loopback でも変更系 HTTP API を fail-closed にする。
+   *  - `/v1/spawn` の repo token と session registration の一回限り enrollment だけは
+   *    admin token とは独立した bootstrap credential として扱う。
+   *  - token を設定すると principal/RBAC により変更系 API が bearer token 必須になる。
    *  - `host` が非 loopback のときは server.ts が起動時に token 必須を強制する
    *    (未設定なら起動拒否)。 詳細は spec/setup/config-reference.md の信頼境界節。
    */

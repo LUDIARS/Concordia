@@ -72,6 +72,8 @@ main 反映までを Concordia が自動でやり、 人間は Discord で 2 回
 | `service_code` | Excubitor のサービスコード (無い = 起動を伴わないリポ) |
 | `pr_number` / `pr_title` / `pr_url` | 由来 PR |
 | `develop_sha` | マージ後の develop HEAD |
+| `start_approved_by` | develop版の確認開始を承認した principal |
+| `promotion_approved_by` | main昇格を承認した別 principal |
 | `status` | `pending` → `confirming` → `confirmed` / `rejected` / `failed` |
 | `memoria_task_id` | Memoria に積んだ確認タスク id (null = 連携失敗) |
 | `error` | 起動失敗時の理由 |
@@ -120,11 +122,14 @@ main 反映までを Concordia が自動でやり、 人間は Discord で 2 回
 
 `/confirm ok <service>`:
 1. testing claim
-2. `git -C <main clone> fetch origin && git merge --ff-only origin/develop` して `git push origin main`
-   (main と develop が分岐していたら ff できない → 中止して人間に返す)
-3. Excubitor: develop 版を stop → main 版を start
-4. `confirm_runs.status = confirmed`、 Memoria の確認タスクを done に
-5. testing release
+2. 確認開始者とは別 principal の承認を要求する (二者承認)
+3. 確認開始時に記録した exact `develop_sha` と現在の `origin/develop` が一致することを確認する
+4. fetch時点の `origin/main` を lease 値として、承認済みSHAそのものを
+   `--force-with-lease=refs/heads/main:<expected>` で pushする。main/developのどちらかが
+   並行更新されていればCAS不一致で中止する
+5. Excubitor: develop 版を stop → main 版を start
+6. `confirm_runs.status = confirmed`、 Memoria の確認タスクを done に
+7. testing release
 
 ## 8. 実装スコープ
 

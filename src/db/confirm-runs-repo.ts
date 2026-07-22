@@ -21,6 +21,8 @@ export interface ConfirmRunRow {
   pr_title: string;
   pr_url: string | null;
   develop_sha: string | null;
+  start_approved_by: string | null;
+  promotion_approved_by: string | null;
   status: ConfirmStatus;
   memoria_task_id: number | null;
   error: string | null;
@@ -125,5 +127,19 @@ export class ConfirmRunsRepo {
     this.db.prepare(
       `UPDATE confirm_runs SET develop_sha = ?, updated_at = ? WHERE id = ?`,
     ).run(sha, Date.now(), id);
+  }
+
+  setStartApproval(id: string, principalId: string): void {
+    this.db.prepare(
+      `UPDATE confirm_runs
+          SET start_approved_by = ?, promotion_approved_by = NULL, updated_at = ?
+        WHERE id = ?`,
+    ).run(principalId, Date.now(), id);
+  }
+
+  setPromotionApproval(id: string, principalId: string): void {
+    this.db.prepare(
+      `UPDATE confirm_runs SET promotion_approved_by = ?, updated_at = ? WHERE id = ?`,
+    ).run(principalId, Date.now(), id);
   }
 }

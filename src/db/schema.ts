@@ -4,7 +4,7 @@
 
 import type Database from "better-sqlite3";
 
-export const SCHEMA_VERSION = 40;
+export const SCHEMA_VERSION = 41;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -183,6 +183,8 @@ const STATEMENTS = [
     repo_path    TEXT,                              -- 紐付く repo (dev-process.md の場所)
     repo_origin  TEXT,
     pid          INTEGER,                           -- 走行中のみ非 NULL
+    instance_id  TEXT,                              -- spawn ごとの不変 ownership id
+    generation   INTEGER NOT NULL DEFAULT 0,        -- 同名再起動ごとの単調増加世代
     status       TEXT NOT NULL,                     -- starting / running / exited / failed
     started_at   INTEGER,                           -- 最後に spawn した時刻
     exited_at    INTEGER,
@@ -423,6 +425,8 @@ const STATEMENTS = [
     pr_title         TEXT    NOT NULL DEFAULT '',
     pr_url           TEXT,
     develop_sha      TEXT,                       -- マージ後の develop HEAD (判明していれば)
+    start_approved_by TEXT,                      -- develop 起動を承認した principal
+    promotion_approved_by TEXT,                  -- main 昇格を承認した別 principal
     status           TEXT    NOT NULL,           -- pending | confirming | confirmed | rejected | failed
     memoria_task_id  INTEGER,                    -- Memoria に積んだ確認タスク (null = 連携失敗)
     error            TEXT,
@@ -997,6 +1001,10 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "delegation_runs", column: "spawn_worktree_created", ddl: `ALTER TABLE delegation_runs ADD COLUMN spawn_worktree_created INTEGER NOT NULL DEFAULT 0` },
   { table: "delegation_runs", column: "effort_decision_id", ddl: `ALTER TABLE delegation_runs ADD COLUMN effort_decision_id INTEGER` },
   { table: "delegation_runs", column: "finished_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN finished_at INTEGER` },
+  { table: "confirm_runs", column: "start_approved_by", ddl: `ALTER TABLE confirm_runs ADD COLUMN start_approved_by TEXT` },
+  { table: "confirm_runs", column: "promotion_approved_by", ddl: `ALTER TABLE confirm_runs ADD COLUMN promotion_approved_by TEXT` },
+  { table: "processes", column: "instance_id", ddl: `ALTER TABLE processes ADD COLUMN instance_id TEXT` },
+  { table: "processes", column: "generation", ddl: `ALTER TABLE processes ADD COLUMN generation INTEGER NOT NULL DEFAULT 0` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

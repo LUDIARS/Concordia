@@ -148,10 +148,15 @@ describe("lost Lictor process cleanup", () => {
       listSessions: ({ status }: { status?: string }) => rows.filter((row) => row.status === status),
       findSession: findSession ?? ((id: string) => rows.find((row) => row.id === id)),
     }) as unknown as SessionsRepo;
+  const ownedMetadata = (pid: number, ageSec = 2_000) => JSON.stringify({
+    lictor_pid: pid,
+    concordia_spawn_id: `00000000-0000-4000-8000-${String(pid).padStart(12, "0")}`,
+    start_iso: new Date((nowSec - ageSec) * 1000).toISOString(),
+  });
 
   it("kills only a lost, disconnected Lictor after the recovery grace", async () => {
     const rows: Row[] = [
-      { id: "lost-old", status: "lost", metadata: '{"lictor_pid":101}', last_seen_at: nowSec - 600, ws_clients: 0 },
+      { id: "lost-old", status: "lost", metadata: ownedMetadata(101), last_seen_at: nowSec - 600, ws_clients: 0 },
       { id: "lost-fresh", status: "lost", metadata: '{"lictor_pid":102}', last_seen_at: nowSec - 60, ws_clients: 0 },
       { id: "lost-connected", status: "lost", metadata: '{"lictor_pid":103}', last_seen_at: nowSec - 600, ws_clients: 1 },
       { id: "active", status: "active", metadata: '{"lictor_pid":104}', last_seen_at: nowSec - 600, ws_clients: 0 },
@@ -172,7 +177,7 @@ describe("lost Lictor process cleanup", () => {
     const lost: Row = {
       id: "revived",
       status: "lost",
-      metadata: '{"lictor_pid":201}',
+      metadata: ownedMetadata(201),
       last_seen_at: nowSec - 600,
       ws_clients: 0,
     };
@@ -228,7 +233,7 @@ describe("lost Lictor process cleanup", () => {
     const lost: Row = {
       id: "lost-wired",
       status: "lost",
-      metadata: '{"lictor_pid":301}',
+      metadata: ownedMetadata(301),
       last_seen_at: nowSec - 600,
       ws_clients: 0,
     };

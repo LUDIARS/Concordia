@@ -2,8 +2,13 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
 
 function makeEnv() {
-  return makeTestApp();
+  return makeTestApp({ config: { adminToken: "chat-test-token" } });
 }
+
+const writeHeaders = {
+  "content-type": "application/json",
+  authorization: "Bearer chat-test-token",
+};
 
 describe("/v1/chat", () => {
   let env: TestAppEnv;
@@ -12,7 +17,7 @@ describe("/v1/chat", () => {
   it("posts a chitchat message + lists it", async () => {
     const r = await env.app.request("/v1/chat", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({
         channel: "chitchat",
         text: "ふつうに流れてる",
@@ -31,7 +36,7 @@ describe("/v1/chat", () => {
   it("flags actionable suggestion", async () => {
     const r = await env.app.request("/v1/chat", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({
         channel: "consultation",
         text: "ここを refactor した方がいい",
@@ -45,14 +50,14 @@ describe("/v1/chat", () => {
   it("does not fan out peer chat tasks", async () => {
     await env.app.request("/v1/sessions", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({
         id: "s1", provider: "claude-code", repo_path: "/repo", host: "h",
       }),
     });
     await env.app.request("/v1/sessions", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({
         id: "s2", provider: "claude-code", repo_path: "/repo", host: "h",
       }),
@@ -60,7 +65,7 @@ describe("/v1/chat", () => {
 
     const r = await env.app.request("/v1/chat", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({
         channel: "chitchat",
         session_id: "s1",
@@ -76,13 +81,13 @@ describe("/v1/chat", () => {
   it("reply attaches in_reply_to", async () => {
     const r1 = await env.app.request("/v1/chat", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({ channel: "chitchat", text: "こんにちは", author_label: "human" }),
     });
     const m = (await r1.json()) as any;
     const r2 = await env.app.request(`/v1/chat/${m.message.id}/reply`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders,
       body: JSON.stringify({ channel: "chitchat", text: "や", author_label: "テスト魂" }),
     });
     const j2 = (await r2.json()) as any;

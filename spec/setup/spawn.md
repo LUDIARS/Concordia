@@ -33,7 +33,7 @@ Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッ
 | エンドポイント | 認証 | 用途 |
 |----------------|------|------|
 | `POST /v1/spawn` | **Bearer token** (`.spawn.token`) | 外部 / Discord bot から。 token 必須。 |
-| `POST /v1/admin/spawn-session` | 無し (loopback 信頼境界) | Web UI / dashboard から。 他の `/v1/admin/*` と同じ扱い。 |
+| `POST /v1/admin/spawn-session` | Admin principal | Web UI / dashboard から。空tokenはfail closed。 |
 
 `/v1/spawn` の token は `<cwd>/.spawn.token` (64-hex)。 Concordia が起動時に未生成なら自動生成する (`ensureSpawnToken`, `src/control/token.ts`)。 認証は `Authorization: Bearer <token>` または `X-Concordia-Token: <token>`。 `GET /v1/spawn/info` (無認証) で token ファイルの絶対パスだけ取得できる (値は返さない)。
 
@@ -85,7 +85,8 @@ worktree 側に既にある設定・Memoryは上書きしない。project内の 
 
 Concordia が interactive session を spawn するときは、Lictor 子プロセスへ一意な
 `CONCORDIA_SPAWN_ID` と `CONCORDIA_SPAWN_CWD_MODE` (`provided` / `omitted`) を渡す。
-Lictor はこの二項目を session 登録 metadata に返し、Concordia は新規登録された当該
+Lictor はこの二項目を session 登録 metadata に返し、Concordia はspawn IDを一回限りの
+enrollmentとしてconsumeする。未知または再利用されたspawn IDは401で拒否する。Concordiaは新規登録された当該
 session だけへ、project 特定、Castra への破壊的 git 操作の禁止、branch 確認・Cc 登録、PR で停止、
 明示指示のないテスト・merge 禁止を含む共通 `session.inject` を必ず送る。
 
@@ -115,7 +116,7 @@ MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節�
 
 - **Windows 専用**: `wt.exe` 起動なので非 Windows では spawn できない (`GET /v1/spawn/info` の `platform_supported` が false)。
 - **token は機密**: `.spawn.token` は cwd 直下。 `.gitignore` 済。 値を共有しない。 壊れた (64-hex でない) ファイルは自動 rotate される。
-- **`/v1/admin/spawn-session` は loopback 前提**: 認証なしは「127.0.0.1 でしか上がっていない」 信頼境界に依存。 非 loopback に晒さない。
+- **`/v1/admin/spawn-session` も認証必須**: loopback自体を主体証明として扱わない。`CONCORDIA_ADMIN_TOKEN` が空なら503で拒否する。
 - **Tauri / window 起動の落とし穴**: lictor-wrapped GUI を起動するケースでは、 親終了で window が落ちる問題に注意 (memory: feedback_tauri_launch_powershell)。
 
 ## トラブルシュート

@@ -77,6 +77,8 @@ export interface ProcessRow {
   repo_path: string | null;
   repo_origin: string | null;
   pid: number | null;
+  instance_id: string | null;
+  generation: number;
   status: ProcessStatus;
   started_at: number | null;
   exited_at: number | null;

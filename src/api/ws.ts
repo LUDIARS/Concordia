@@ -2,7 +2,8 @@
  * WebSocket broadcast endpoint (/ws).
  *
  * eventBus に乗った全 ConcordiaEvent を JSON で接続中の各 client に流す.
- * 認証なし (loopback 想定). client 側で reconnect / dedup を担当する.
+ * session socket は一回限り enrollment から派生した credential を要求する。
+ * observer socket は read-only で、client 側が reconnect / dedup を担当する。
  *
  * WebSocket は frontend SPA の即応用 / AI agent の
  * 永続クライアント (= active 判定の主軸) として使われる. URL に `?session=<id>`
@@ -17,6 +18,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/event-schema.js";
 import { reviveIfLost } from "./sessions/shared.js";
+import { tokensMatch } from "../shared/admin-auth.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -60,6 +62,25 @@ function readSessionId(req: IncomingMessage): string | null {
   return id;
 }
 
+function readEnrollment(req: IncomingMessage): string {
+  if (!req.url) return "";
+  return new URL(req.url, "http://localhost").searchParams.get("enrollment")?.trim() ?? "";
+}
+
+function sessionEnrollmentMatches(repo: SessionsRepo, sessionId: string, supplied: string): boolean {
+  const row = repo.findSession(sessionId);
+  if (!row?.metadata || !supplied) return false;
+  try {
+    const metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+    const expected = typeof metadata.concordia_spawn_id === "string"
+      ? metadata.concordia_spawn_id.trim()
+      : "";
+    return tokensMatch(expected, supplied);
+  } catch {
+    return false;
+  }
+}
+
 export function attachWsServer(
   httpServer: HttpServer,
   pathName = "/ws",
@@ -100,6 +121,11 @@ export function attachWsServer(
 
   wss.on("connection", (ws, req) => {
     const sessionId = readSessionId(req);
+    if (sessionId && sessionsRepo && !sessionEnrollmentMatches(sessionsRepo, sessionId, readEnrollment(req))) {
+      log.warn({ sessionId }, "ws session claim rejected: invalid enrollment");
+      ws.close(1008, "invalid session enrollment");
+      return;
+    }
     clientSession.set(ws, sessionId);
     log.debug({ clients: wss.clients.size, sessionId }, "ws connected");
     let registered = false;

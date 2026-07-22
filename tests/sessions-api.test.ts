@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp } from "./helpers/test-app.js";
+import { recordPendingDelegationSpawn } from "../src/control/pending-delegation-spawns.js";
 
 function buildTestApp() {
   return makeTestApp().app;
@@ -39,6 +40,11 @@ describe("sessions API", () => {
     "Cc spawn metadata records the mandatory Session work-policy inject (%s)",
     async (cwdMode) => {
       const id = `spawn-${cwdMode}`;
+      recordPendingDelegationSpawn({
+        cwd: "/workspace/Castra",
+        spawnId: `cc-${cwdMode}`,
+        callName: "sessions-api-test",
+      });
       const start = await app.request("/v1/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },

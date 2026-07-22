@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { ConfirmService } from "../release/confirm-service.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
+import { currentPrincipal } from "../auth/principal.js";
 
 const ActionSchema = z.object({
   service: z.string().min(1).max(64),
@@ -35,6 +36,7 @@ export function confirmRouter(deps: ConfirmApiDeps): Hono {
     const parsed = ActionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { service, session_id, reason } = parsed.data;
+    const actor = currentPrincipal(c);
 
     // 起動・停止を伴うので作業宣言する。 claim は advisory なので衝突しても止めない
     // (Concordia が両者に警告を流す)。
@@ -48,8 +50,8 @@ export function confirmRouter(deps: ConfirmApiDeps): Hono {
     });
     try {
       const result =
-        action === "start" ? await deps.service.start(service)
-        : action === "ok" ? await deps.service.ok(service)
+        action === "start" ? await deps.service.start(service, actor.id)
+        : action === "ok" ? await deps.service.ok(service, actor.id)
         : await deps.service.ng(service, reason);
       return c.json(result, result.ok ? 200 : 409);
     } finally {

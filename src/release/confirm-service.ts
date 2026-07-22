@@ -53,7 +53,7 @@ export class ConfirmService {
    * 確認開始: develop クローンを同期 → ビルド → main 版を止めて develop 版を起動。
    * 起動できなければ自動で main 版に戻す (= 「機能追加によるダウン」への唯一の自動対応)。
    */
-  async start(serviceCode: string): Promise<ConfirmActionResult> {
+  async start(serviceCode: string, approvedBy: string): Promise<ConfirmActionResult> {
     const runs = this.deps.repo.listOpenForService(serviceCode);
     if (runs.length === 0) {
       return { ok: false, message: `確認待ちの変更がありません (${serviceCode})`, runs: [] };
@@ -72,7 +72,10 @@ export class ConfirmService {
     const synced = await syncDevelopClone(paths.develop);
     if (!synced.ok) return this.fail(runs, `develop 同期に失敗: ${synced.error}`);
     const developSha = synced.stdout;
-    for (const run of runs) this.deps.repo.setDevelopSha(run.id, developSha);
+    for (const run of runs) {
+      this.deps.repo.setDevelopSha(run.id, developSha);
+      this.deps.repo.setStartApproval(run.id, approvedBy);
+    }
 
     const built = await buildClone(paths.develop);
     if (!built.ok) return this.retryableFailure(runs, `ビルドに失敗: ${built.error}`);
@@ -104,17 +107,30 @@ export class ConfirmService {
   }
 
   /** 確認 OK: develop を main に ff 反映 → main 版で起動し直す → 確認タスクを done に。 */
-  async ok(serviceCode: string): Promise<ConfirmActionResult> {
+  async ok(serviceCode: string, approvedBy: string): Promise<ConfirmActionResult> {
     const runs = this.deps.repo.listOpenForService(serviceCode).filter((r) => r.status === "confirming");
     if (runs.length === 0) {
       return { ok: false, message: `確認中の変更がありません (${serviceCode})。 先に /confirm start してください`, runs: [] };
     }
+    const firstApprovers = new Set(runs.map((run) => run.start_approved_by).filter(Boolean));
+    if (firstApprovers.size !== 1 || firstApprovers.has(approvedBy)) {
+      return {
+        ok: false,
+        message: "main 反映には、確認開始者とは別 principal の承認が必要です",
+        runs,
+      };
+    }
+    const approvedShas = new Set(runs.map((run) => run.develop_sha).filter(Boolean));
+    if (approvedShas.size !== 1) {
+      return this.fail(runs, "確認対象の exact develop SHA を一意に確定できません");
+    }
+    const approvedSha = [...approvedShas][0]!;
 
     const paths = resolveClonePaths(runs[0].repo_name, this.deps.resolveWorkspaceRoots());
     const gitCwd = paths.develop ?? paths.main;
     if (!gitCwd) return this.fail(runs, `クローンが見つかりません (${runs[0].repo_name})`);
 
-    const promoted = await promoteDevelopToMain(gitCwd);
+    const promoted = await promoteDevelopToMain(gitCwd, approvedSha);
     if (!promoted.ok) return this.fail(runs, `main 反映に失敗: ${promoted.error}`);
 
     // main 版で起動し直す (develop 版は止める)。 main クローンの同期に失敗しても
@@ -131,6 +147,7 @@ export class ConfirmService {
     }
 
     for (const run of runs) {
+      this.deps.repo.setPromotionApproval(run.id, approvedBy);
       this.deps.repo.setStatus(run.id, "confirmed", null);
       await this.completeMemoriaTask(run);
     }

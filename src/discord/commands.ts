@@ -1,13 +1,8 @@
 import {
-  type AutocompleteInteraction,
-  type ChatInputCommandInteraction,
-  type Guild,
   type Interaction,
   REST,
   Routes,
 } from "discord.js";
-import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
-import type { DiscordConfigSnapshot } from "./config.js";
 import spawnCommand from "./commands/spawn.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
@@ -26,36 +21,9 @@ import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
-import type { SessionsRepo } from "../db/sessions-repo.js";
-import type { AnswerQuestionFn } from "../platform/answer-question.js";
 import { interactionAgeMs } from "./interaction-diagnostics.js";
-
-export interface DiscordCommandDeps {
-  concordiaUrl: string;
-  sessionsRepo: SessionsRepo;
-  sessionChannelsRepo: DiscordSessionChannelsRepo;
-  pendingQuestionsRepo: DiscordPendingQuestionsRepo;
-  /**
-   * AskUserQuestion 回答の in-process 直呼び (embedded backend が注入)。
-   * standalone chat-worker では未指定 → question.ts が HTTP + リトライへフォールバック。
-   * self-fetch (自プロセスへの HTTP) は backlog 溢れ時に落ちるため embedded では使わない。
-   */
-  answerQuestion?: AnswerQuestionFn;
-  guild: Guild;
-  layout: DiscordConfigSnapshot;
-  log: { info: (m: string) => void; warn: (m: string) => void };
-  logsDir?: string;
-  permissionActions?: PermissionActionStore;
-  resolveWorkspaceRoots?: () => string[];
-  /** 子会社 Bot から呼ばれた場合の子会社 id。 /spawn が spawn したセッションへ焼く。 本社は null。 */
-  subsidiaryId?: string | null;
-}
-
-export interface DiscordCommandSpec {
-  builder: { name: string; toJSON: () => unknown };
-  execute: (interaction: ChatInputCommandInteraction, deps: DiscordCommandDeps) => Promise<void>;
-  autocomplete?: (interaction: AutocompleteInteraction, deps: DiscordCommandDeps) => Promise<void>;
-}
+import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
+export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 // User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [

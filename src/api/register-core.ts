@@ -92,10 +92,11 @@ import { startDetachedBackendRestart } from "../control/backend-restart.js";
 import type { TaskMdStore } from "../taskflow/md-store.js";
 import { taskflowRouter } from "./taskflow.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
+import { mountRouteGroups } from "./route-groups.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
-export interface CoreDeps {
+export interface CoreSessionDeps {
   repo: SessionsRepo;
   controlJobs: ControlJobsRepo;
   tasks: TasksRepo;
@@ -112,6 +113,9 @@ export interface CoreDeps {
   discordConfig: DiscordConfigRepo;
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
+}
+
+export interface CoreDelegationDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
@@ -129,6 +133,9 @@ export interface CoreDeps {
   harnessBlackbox?: HarnessBlackboxService;
   subsidiaryManager?: SubsidiaryBotManager;
   subsidiaryBudget?: SubsidiaryBudgetTracker;
+}
+
+export interface CoreRuntimeDeps {
   adminState: AdminState;
   costStatus?: () => CostBudgetStatus;
   processManager: ProcessManager;
@@ -142,7 +149,10 @@ export interface CoreDeps {
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
 
+export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
+
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route(
     "/v1/sessions",
     sessionsRouter({
@@ -168,6 +178,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     "/v1/session-logs",
     sessionLogsRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
   );
+  } }, { name: "knowledge-and-work", mount: () => {
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
   app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
@@ -187,6 +198,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
   }
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
+  } }, { name: "spawn-and-automation", mount: () => {
   app.route(
     "/v1/spawn",
     spawnRouter({
@@ -268,6 +280,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api") }),
     );
   }
+  } }]);
   // クロスサービス cost-feed (Anatomia の同名パネルを複製。送信元は両方へ push しうる)。
   // env 解決の singleton を使うので AppDeps への配線は不要。
   app.post("/v1/sweeper/run", async (c) => {

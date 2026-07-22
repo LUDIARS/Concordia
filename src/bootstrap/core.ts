@@ -97,6 +97,8 @@ import { startDiscordBot } from "../discord/bot.js";
 import { initReactionWorkflow } from "../platform/reaction-workflow-loader.js";
 import type { SlackBotDeps } from "../slack/bot.js";
 import { startSlackBot } from "../slack/bot.js";
+import { runBootPhases } from "./boot-phases.js";
+import { ResourceOwner } from "./resource-owner.js";
 import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
@@ -988,21 +990,31 @@ export async function startBackend(): Promise<BackendHandle> {
     await delay(readNonNegativeIntEnv("CONCORDIA_POST_LISTEN_STARTUP_DELAY_MS", 250));
     if (shuttingDown) return;
 
-    seedDefaultRules(rules);
-    seedDelegationTemplates(delegationRepo);
-    seedModelCatalog(modelCatalog);
-    seedHarnessRules(harnessRepo);
-    seedInjectManuals(injectManualsRepo);
-    if (shuttingDown) return;
-
-    const resetCount = repo.resetAllWsClients();
-    if (resetCount > 0) {
-      log.info({ count: resetCount }, "ws_clients reset after listen");
-    }
-    startPostListenBackground();
-    if (shuttingDown) return;
-    await initReactionWorkflow(workspaceRootDefault, log);
-    if (shuttingDown) return;
+    const ready = await runBootPhases([
+      {
+        name: "seed-domain-data",
+        run: () => {
+          seedDefaultRules(rules);
+          seedDelegationTemplates(delegationRepo);
+          seedModelCatalog(modelCatalog);
+          seedHarnessRules(harnessRepo);
+          seedInjectManuals(injectManualsRepo);
+        },
+      },
+      {
+        name: "reset-runtime-ownership",
+        run: () => {
+          const resetCount = repo.resetAllWsClients();
+          if (resetCount > 0) log.info({ count: resetCount }, "ws_clients reset after listen");
+          startPostListenBackground();
+        },
+      },
+      { name: "reaction-workflow", run: () => initReactionWorkflow(workspaceRootDefault, log) },
+    ], {
+      shouldStop: () => shuttingDown,
+      onComplete: (name, durationMs) => log.info({ phase: name, duration_ms: durationMs }, "boot phase complete"),
+    });
+    if (!ready) return;
 
   // Discord-UI bot. CONCORDIA_DISCORD_ENABLED が無ければ完全 no-op (= 既存運用に影響なし).
   // spec/discord-ui.md
@@ -1118,34 +1130,38 @@ export async function startBackend(): Promise<BackendHandle> {
   // 子会社 Bot: enabled な子会社を一括起動 (本社 bot と同じ 3 カテゴリ自動作成 +
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
 
+  const resources = new ResourceOwner((message) => log.warn(message));
+  resources.own("daily scheduler", () => dailyScheduler.stop());
+  resources.own("sweeper", () => sweeper.stop());
+  resources.own("delegation queue", () => delegationQueue.stop());
+  resources.own("post-listen handles", () => {
+    for (const handle of postListenHandles.splice(0).reverse()) {
+      try { handle.stop(); }
+      catch (error) { log.warn(`post-listen handle stop failed: ${(error as Error).message}`); }
+    }
+  });
+  resources.own("testing release subscription", () => unsubTestingRelease());
+  resources.own("worker lease watchers", () => {
+    clearInterval(costWorkerWatch);
+    clearInterval(chatWorkerWatch);
+    clearInterval(workflowWorkerWatch);
+  });
+  resources.own("cost runtime", () => costRuntime.stop());
+  resources.own("discord restart timer", () => clearDiscordBotAutoRestart());
+  resources.own("post-listen startup", () => postListenStartup.catch(() => {}));
+  resources.own("discord bot", () => stopDiscordBotManaged());
+  resources.own("slack bot", () => stopSlackBotManaged());
+  resources.own("subsidiary bots", () => subsidiaryManager.stopAll());
+  resources.own("managed processes", () => processManager.stopAll());
+  resources.own("websocket server", () => ws.close());
+  resources.own("http server", () => { server.close(); });
+  resources.own("database", () => closeDb());
+
   return {
     port: cfg.port,
     shutdown: async () => {
       shuttingDown = true;
-      dailyScheduler.stop();
-      sweeper.stop();
-      delegationQueue.stop();
-      for (const handle of postListenHandles.splice(0).reverse()) {
-        try {
-          handle.stop();
-        } catch (e) {
-          log.warn(`post-listen handle stop failed: ${(e as Error).message}`);
-        }
-      }
-      unsubTestingRelease();
-      clearInterval(costWorkerWatch);
-      clearInterval(chatWorkerWatch);
-      clearInterval(workflowWorkerWatch);
-      costRuntime.stop();
-      clearDiscordBotAutoRestart();
-      await postListenStartup.catch(() => {});
-      await stopDiscordBotManaged();
-      await stopSlackBotManaged();
-      await subsidiaryManager.stopAll();
-      await processManager.stopAll();
-      ws.close();
-      server.close();
-      closeDb();
+      await resources.closeInOrder();
     },
   };
 }

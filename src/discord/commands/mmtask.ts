@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import type { DiscordCommandSpec } from "../commands.js";
+import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia, requireSessionChannel } from "./_util.js";
 
 const MEMORIA_BASE = (process.env.MEMORIA_BASE ?? "http://127.0.0.1:5180").replace(/\/$/, "");

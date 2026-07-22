@@ -176,16 +176,6 @@ module.exports = {
       from: {
         pathNot: [
           "\\.test\\.ts$",
-          // V12 (discord-internal): discord/commands.ts is an index that imports all
-          // sub-command handlers; each handler imports the DiscordCommandSpec type
-          // back from discord/commands.ts → mutual import. Until the type is extracted
-          // to a separate file, both sides of the cycle are excluded.
-          "^src/discord/commands\\.ts$",
-          "^src/discord/commands/",
-          // V12 (discord-internal): question.ts and permission.ts are imported by
-          // commands.ts and in turn import DiscordCommandSpec from commands.ts.
-          "^src/discord/question\\.ts$",
-          "^src/discord/permission\\.ts$",
         ],
       },
       to: {

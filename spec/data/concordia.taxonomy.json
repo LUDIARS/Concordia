@@ -5,21 +5,20 @@
   "domains": [
     {
       "name": "chat-platforms",
-      "description": "Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch and synthetic personas.",
+      "description": "Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including reaction-driven dispatch.",
       "modules": [
         {
           "name": "discord",
           "description": "Discord bot, control UI, session channels, and command handlers (src/discord, src/discord/commands).",
           "paths": [
-            "(^|/)src/discord/[^/]+$",
-            "(^|/)src/discord/commands/[^/]+$"
+            "(^|/)src/discord(?:/.*)?$"
           ]
         },
         {
           "name": "slack",
           "description": "Slack bot, message/thread mapping, and session mirroring repos (src/slack).",
           "paths": [
-            "(^|/)src/slack/[^/]+$"
+            "(^|/)src/slack(?:/.*)?$"
           ]
         },
         {
@@ -33,27 +32,20 @@
           "name": "reaction-workflow",
           "description": "Emoji-to-action mapping, workflow planning, and runner harness (src/platform).",
           "paths": [
-            "(^|/)src/platform/[^/]+$"
+            "(^|/)src/platform(?:/.*)?$"
           ]
         }
       ]
     },
     {
       "name": "agent-delegation",
-      "description": "Agent delegation, persona generation, subsidiary bots, harness sessions, and advisory testing claims that coordinate work beyond a single session.",
+      "description": "Agent delegation, subsidiary bots, harness sessions, and advisory testing claims that coordinate work beyond a single session.",
       "modules": [
-        {
-          "name": "personas",
-          "description": "Dynamic persona seeds, signal collection, and persona feedback loops (src/personas).",
-          "paths": [
-            "(^|/)src/personas/[^/]+$"
-          ]
-        },
         {
           "name": "delegation-coordination",
           "description": "Delegation templates, parent/child run tracking, portable prompts, and injected coordination messages (src/delegation).",
           "paths": [
-            "(^|/)src/delegation/[^/]+$"
+            "(^|/)src/delegation(?:/.*)?$"
           ]
         },
         {
@@ -81,7 +73,7 @@
           "name": "rest-api",
           "description": "Hono routers for sessions, spawn, reports, and other v1 endpoints (src/api).",
           "paths": [
-            "(^|/)src/api/[^/]+$"
+            "(^|/)src/api(?:/.*)?$"
           ]
         },
         {
@@ -120,7 +112,7 @@
           "name": "session-lifecycle",
           "description": "Session registration, heartbeat, end flow, spawn, compaction, and reaper control (src/control).",
           "paths": [
-            "(^|/)src/control/[^/]+$"
+            "(^|/)src/control(?:/.*)?$"
           ]
         },
         {
@@ -156,7 +148,7 @@
           "name": "bootstrap-composition",
           "description": "Core bootstrap composition, chat/cost mode selection, service startup, and shutdown wiring (src/bootstrap).",
           "paths": [
-            "(^|/)src/bootstrap/[^/]+$"
+            "(^|/)src/bootstrap(?:/.*)?$"
           ]
         },
         {
@@ -176,7 +168,7 @@
           "name": "repositories",
           "description": "SQLite-backed repos for sessions, participants, channels, PRs, and more (src/db).",
           "paths": [
-            "(^|/)src/db/[^/]+$"
+            "(^|/)src/db(?:/.*)?$"
           ]
         },
         {
@@ -241,7 +233,7 @@
           "name": "admin-settings",
           "description": "Workspace, chat, and feature toggle administration (src/admin).",
           "paths": [
-            "(^|/)src/admin/[^/]+$"
+            "(^|/)src/admin(?:/.*)?$"
           ]
         }
       ]

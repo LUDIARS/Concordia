@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import type { DiscordCommandSpec } from "../commands.js";
+import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia, requireSessionChannel } from "./_util.js";
 import { ENTER_KEY_TEXT } from "../../platform/enter-key.js";
 

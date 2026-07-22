@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/bootstrap/[^/]+$"
+      "pathPattern": "(^|/)src/bootstrap(?:/.*)?$"
     },
     {
       "pathPattern": "(^|/)src/(app|server|events|errors|sweeper|chat-worker|cost-worker|discord-worker)\\.ts$"

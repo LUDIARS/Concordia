@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/db/[^/]+$"
+      "pathPattern": "(^|/)src/db(?:/.*)?$"
     },
     {
       "pathPattern": "(^|/)src/shared/[^/]+$"

@@ -3,8 +3,8 @@ type: interface
 title: "Omnipotens runtime boundary assessment"
 service: concordia
 domain: runtime-orchestration
-status: partial
-updated: 2026-07-16
+status: implemented
+updated: 2026-07-22
 ---
 
 # Runtime boundaries
@@ -26,9 +26,12 @@ updated: 2026-07-16
 ## Evidence and residual risk
 
 - dependency-cruiser reports zero prohibited dependency violations.
+- `boot-phases.ts` owns ordered initialization and cancellation; `resource-owner.ts` owns idempotent, all-attempt shutdown.
+- `route-groups.ts` names route ownership, while `CoreSessionDeps`, `CoreDelegationDeps`, and `CoreRuntimeDeps` keep consumers purpose-scoped.
+- Discord and Slack adapters expose leaf lifecycle, routing, projection, command/permission, and modal ports. Command handlers no longer import their registry index.
+- `AdminState` is a compatibility facade over workspace, workflow, and runtime stores.
 - Chat and observability show strong internal cohesion (76.8% and 68.9%).
-- Runtime orchestration cohesion is 44.0%; `startBackend` has cyclomatic 84 and coupling 83.
-- `DelegationService` crosses five specification domains, indicating semantic coupling not fully captured by import rules.
+- The historical Anatomia complexity numbers predate this split and must be regenerated before being used as current metrics.
 
 ## Unverified runtime properties
 

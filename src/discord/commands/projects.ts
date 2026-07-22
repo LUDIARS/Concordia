@@ -1,6 +1,6 @@
 import { EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import { loadProjectCodes } from "../../projects/project-codes.js";
-import type { DiscordCommandSpec } from "../commands.js";
+import type { DiscordCommandSpec } from "../command-port.js";
 
 const projectsCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder()

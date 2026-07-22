@@ -23,6 +23,12 @@ updated: 2026-07-16
 
 ## Positive evidence
 
+2026-07-22 follow-up: the structural P2 pass extracted AdminState domain stores,
+bootstrap phases/resource ownership, HTTP route groups/purpose-specific deps, and
+Discord/Slack lifecycle-routing-projection-interaction modules. Recursive taxonomy
+membership now classifies nested adapter/API/bootstrap modules; the former command
+type cycle exclusions were removed from dependency-cruiser.
+
 - All 1,572 tests pass.
 - TypeScript and dependency-cruiser pass with no prohibited dependency violations.
 - AI Format structure is Grade A with all six categories present and no personal-data violations.

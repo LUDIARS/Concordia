@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import type { DiscordCommandSpec } from "../commands.js";
+import type { DiscordCommandSpec } from "../command-port.js";
 import { archiveStaleChannels } from "../session-channel.js";
 
 const cleanCommand: DiscordCommandSpec = {

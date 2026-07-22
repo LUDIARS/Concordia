@@ -53,7 +53,10 @@ import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
+import { eventSessionId } from "./projection.js";
+import { resolveIntake } from "./intake-router.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
+import { stopLifecycle } from "../platform/lifecycle.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
 import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentation.js";
@@ -93,7 +96,6 @@ const log = {
 export function shouldRelaySessionPromptToDiscord(provider: string | null | undefined): boolean {
   return provider === "codex-cli";
 }
-
 export function shouldPostPermissionRequestToDiscord(env: Pick<DiscordEnv, "permissionRequestsEnabled">): boolean {
   return env.permissionRequestsEnabled;
 }
@@ -190,7 +192,6 @@ export interface DiscordBotDeps {
     onChannelResolved?: (channelId: string) => void;
   };
 }
-
 export type DiscordBotHandle = ChatPlatform;
 
 export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatform | null> {
@@ -1257,64 +1258,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     },
     async stop() {
       stopping = true;
-      unsubscribe?.();
-      unsubscribe = null;
-      clearRuntimeTimers();
-      errorMonitor?.stop();
-      errorMonitor = null;
-      if (errorPoster) { try { await errorPoster.stop(); } catch {} }
-      errorPoster = null;
-      try { await client.destroy(); } catch {}
+      await stopLifecycle([
+        { name: "event subscription", stop: () => { unsubscribe?.(); unsubscribe = null; } },
+        { name: "runtime timers", stop: () => clearRuntimeTimers() },
+        { name: "error monitor", stop: () => { errorMonitor?.stop(); errorMonitor = null; } },
+        { name: "error poster", stop: async () => { await errorPoster?.stop(); errorPoster = null; } },
+        { name: "discord client", stop: () => client.destroy() },
+      ], (message) => log.warn(message));
       deps.onRuntimeState?.({ running: false, status: "stopped" });
     },
   };
-}
-
-
-/**
- * この Bot が見張る依頼窓口 (ingress の intake) を解決する。 子会社 Bot は自分の受付
- * チャンネル、 本社 Bot は desk のタスク依頼チャンネル。 どちらも無ければ窓口なし。
- */
-function resolveIntake(
-  deps: DiscordBotDeps,
-  subsidiaryIntakeChannelId: string | null,
-  deskChannelId: string | null,
-): { intakeChannelId: string | null; process: (u: string, l: string, i: string) => Promise<{ replyText: string }>; isLocked: (u: string) => boolean } | undefined {
-  if (deps.subsidiary) {
-    return {
-      intakeChannelId: subsidiaryIntakeChannelId,
-      process: deps.subsidiary.process,
-      isLocked: deps.subsidiary.isLocked,
-    };
-  }
-  if (deps.desk) {
-    return {
-      intakeChannelId: deskChannelId,
-      process: deps.desk.process,
-      isLocked: deps.desk.isLocked,
-    };
-  }
-  return undefined;
-}
-
-/** session-scoped イベントの対象 session id を返す (subsidiary-only 可視のゲート用)。 非該当は null。 */
-function eventSessionId(ev: ConcordiaEvent): string | null {
-  switch (ev.type) {
-    case "session.started":
-    case "session.lost":
-    case "session.ended":
-    case "session.event":
-      return ev.session_id;
-    case "transcript.frame":
-    case "session.inject":
-    case "session.permission_request":
-    case "delegation.mirror":
-    case "question.posted":
-    case "question.resolved":
-      return ev.target_session_id;
-    case "chat.posted":
-      return ev.session_id ?? null;
-    default:
-      return null;
-  }
 }

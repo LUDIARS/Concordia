@@ -12,7 +12,7 @@ import {
   type Interaction,
   type TextChannel,
 } from "discord.js";
-import type { DiscordCommandDeps } from "./commands.js";
+import type { DiscordCommandDeps } from "./command-port.js";
 import type { AnswerQuestionBody } from "../platform/answer-question.js";
 import type {
   DiscordPendingQuestionsRepo,

@@ -9,19 +9,12 @@ import {
   type Guild,
   type Interaction,
 } from "discord.js";
-import type { DiscordCommandDeps } from "./commands.js";
+import type { DiscordCommandDeps } from "./command-port.js";
+import type { PermissionAction, PermissionActionStore } from "./permission-port.js";
+export type { PermissionAction, PermissionActionStore } from "./permission-port.js";
 import type { DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 
 type PermissionDecision = "allow" | "deny" | "ask";
-
-export interface PermissionAction {
-  sessionId: string;
-  requestId: string;
-  toolName: string;
-  createdAt: number;
-}
-
-export type PermissionActionStore = Map<string, PermissionAction>;
 
 const CUSTOM_ID_PREFIX = "perm:";
 const STORE_TTL_MS = 15 * 60 * 1000;

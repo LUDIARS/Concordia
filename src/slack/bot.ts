@@ -15,9 +15,9 @@ import { createChildLogger } from "../shared/logger.js";
 import { formatAuthorName } from "../platform/formatter.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
+import { stopLifecycle } from "../platform/lifecycle.js";
 import type { ChatReadModel, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 import { WorkingIndicator } from "../platform/working-indicator.js";
-import { injectSession } from "../platform/session-inject.js";
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { makeSlackSessionChannelsRepo } from "./session-channels-repo.js";
 import {
@@ -53,11 +53,12 @@ import {
   reconcileDelegationArgs,
   DELEGATION_MODAL_CALLBACK_ID,
   PROMPT_BLOCK,
-  type WorkdirOption,
 } from "./delegation-modal.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
-import { buildSlackConsultationBody } from "./ingress-chat.js";
+import { buildSlackSessionTopic } from "./projection.js";
+import { listWorkdirOptions, readSlackInputValue } from "./modal.js";
+import { injectToSession, postChat } from "./router.js";
 
 const slackLog = createChildLogger("slack");
 const QUESTION_OTHER_MODAL_CALLBACK_ID = "concordia_question_other";
@@ -977,92 +978,18 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     async stop() {
       if (stopped) return;
       stopped = true;
-      clearInterval(costCanvasTimer);
-      unsubscribe();
-      for (const session of deps.readModel.listSlackSessionIndex?.() ?? []) working.clear(session.sessionId);
-      await archiveLifecycle.stop();
-      await sessionsCanvas.stop();
-      try { await socket.disconnect(); } catch {}
+      await stopLifecycle([
+        { name: "cost canvas timer", stop: () => clearInterval(costCanvasTimer) },
+        { name: "event subscription", stop: () => unsubscribe() },
+        { name: "working indicators", stop: () => {
+          for (const session of deps.readModel.listSlackSessionIndex?.() ?? []) working.clear(session.sessionId);
+        } },
+        { name: "archive lifecycle", stop: () => archiveLifecycle.stop() },
+        { name: "sessions canvas", stop: () => sessionsCanvas.stop() },
+        { name: "socket", stop: () => socket.disconnect() },
+      ], (message) => log.warn(message));
     },
   };
-}
-
-function buildSlackSessionTopic(state: SessionCardState): string {
-  const parts = [
-    state.status,
-    `session ${state.shortId}`,
-    state.who,
-    state.provider,
-    state.currentTask,
-  ];
-  return parts
-    .map((part) => part?.trim())
-    .filter((part): part is string => !!part)
-    .join(" · ")
-    .slice(0, 250);
-}
-
-// ─── ingress helpers（Concordia HTTP — Discord ingress と同じ宛先）────────────
-
-async function injectToSession(deps: SlackBotDeps, sessionId: string, text: string, source: string, authorLabel?: string): Promise<void> {
-  const result = await injectSession({
-    concordiaUrl: deps.concordiaUrl,
-    sessionId,
-    text,
-    source,
-    authorLabel,
-    enterFallbackSource: deps.readModel.isCodexSession(sessionId) ? "slack-enter-fallback" : undefined,
-  });
-  if (result.ok) {
-    log.info(`ingress inject ok session=${sessionId}`);
-  } else if (result.kind === "http") {
-    log.warn(`ingress inject failed status=${result.status} session=${sessionId}`);
-  } else {
-    log.warn(`ingress inject network error session=${sessionId}: ${result.message}`);
-  }
-}
-
-async function postChat(
-  deps: SlackBotDeps,
-  text: string,
-  userId: string,
-  sessionId: string | null,
-): Promise<void> {
-  try {
-    const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(buildSlackConsultationBody(text, userId, sessionId)),
-    });
-    if (!res.ok) log.warn(`ingress /v1/chat returned ${res.status}`);
-  } catch (e) {
-    log.warn(`ingress /v1/chat failed: ${(e as Error).message}`);
-  }
-}
-
-// 作業ディレクトリ候補 = ワークスペースルートそのもの（リポ単位ではなく `E:/Document/Ars`
-// のような束ね単位を選ばせる）。複数ルートが設定されていれば各ルートを 1 候補にする。
-// 末尾スラッシュを正規化し、 重複は畳む。候補が 1 つでもそのまま出す（選択の明示になる）。
-function listWorkdirOptions(roots: string[]): WorkdirOption[] {
-  const out: WorkdirOption[] = [];
-  const seen = new Set<string>();
-  for (const root of roots) {
-    const value = (root ?? "").replace(/[\\/]+$/, "");
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    out.push({ label: value, value });
-  }
-  out.sort((a, b) => a.label.localeCompare(b.label));
-  return out;
-}
-
-
-// ─── Slack イベントの最小型（@slack/* の型に依存しすぎないための薄い shape）──
-function readSlackInputValue(values: unknown, blockId: string, actionId: string): string {
-  const block = values && typeof values === "object" ? (values as Record<string, unknown>)[blockId] : null;
-  const action = block && typeof block === "object" ? (block as Record<string, unknown>)[actionId] : null;
-  const value = action && typeof action === "object" ? (action as { value?: unknown }).value : null;
-  return typeof value === "string" ? value.trim() : "";
 }
 
 interface SlackMessageEvent {

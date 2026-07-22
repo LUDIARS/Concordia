@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import type { DiscordCommandSpec } from "../commands.js";
+import type { DiscordCommandSpec } from "../command-port.js";
 import { discordCommandQueue } from "../background-task-queue.js";
 import {
   excubitorBaseUrl,

@@ -86,6 +86,14 @@ export interface SessionStatusTask {
   task_text: string;
 }
 
+export interface DelegatedChildStatus {
+  runId: string;
+  callName: string;
+  taskLabel: string;
+  childSessionId: string | null;
+  status: string;
+}
+
 export interface SessionCacheSnapshot {
   gets: number;
   hits: number;
@@ -113,6 +121,7 @@ export interface SessionStatusSnapshot {
   pending: Array<{ task_text: string }>;
   doneCount: number;
   concordiaPending: number;
+  delegatedChildren: DelegatedChildStatus[];
   cache: SessionCacheSnapshot | null;
   sufficiency: ProjectSufficiency | null;
   contextBadge: string;

@@ -2,7 +2,11 @@ import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
-import type { ChatReadModel, SessionCacheSnapshot } from "../platform/chat-read-model.js";
+import type {
+  ChatReadModel,
+  DelegatedChildStatus,
+  SessionCacheSnapshot,
+} from "../platform/chat-read-model.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatFastMode, formatWorkingBranch } from "./runtime-metadata.js";
 
@@ -118,6 +122,7 @@ export interface StatusEmbedInput {
   pending: Array<{ task_text: string }>;
   doneCount: number;
   concordiaPending: number;
+  delegatedChildren?: DelegatedChildStatus[];
   cache?: SessionCacheSnapshot | null;
   sufficiency?: ProjectSufficiency | null;
   contextBadge?: string;
@@ -153,6 +158,7 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const taskHeader =
     `${i.inProgress.length} ▶ / ${i.pending.length} ⏳ / ${i.doneCount} ✓` +
     (i.concordiaPending > 0 ? ` · 依頼残 ${i.concordiaPending}` : "");
+  const delegatedChildren = formatDelegatedChildren(i.delegatedChildren ?? []);
 
   const descParts: string[] = [];
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
@@ -182,6 +188,14 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
       { name: `タスク (${taskHeader})`, value: taskValue, inline: false },
     );
 
+  if (delegatedChildren) {
+    embed.addFields({
+      name: `Delegation children (${i.delegatedChildren?.length ?? 0})`,
+      value: delegatedChildren,
+      inline: false,
+    });
+  }
+
   const cacheLine = formatCacheField(i.cache);
   if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });
   const sufficiencyLine = formatSufficiencyField(i.sufficiency);
@@ -190,6 +204,18 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   return embed
     .setFooter({ text: `session ${shortId} ﾂｷ ${truncate(i.repoPath, 80)}` })
     .setTimestamp(new Date());
+}
+
+function formatDelegatedChildren(children: NonNullable<StatusEmbedInput["delegatedChildren"]>): string | null {
+  if (children.length === 0) return null;
+  const lines = children.slice(0, 8).map((child) => {
+    const run = child.runId.slice(0, 8);
+    const claimed = child.childSessionId
+      ? ` · child ${child.childSessionId.replace(/^lictor-/, "").slice(0, 8)}`
+      : "";
+    return `\`${truncate(child.status, 16)}\` ${truncate(child.taskLabel, 120)} · ${truncate(child.callName, 48)} · run ${run}${claimed}`;
+  });
+  return truncate(lines.join("\n"), 1024);
 }
 
 function formatSufficiencyField(sufficiency: ProjectSufficiency | null | undefined): string | null {
@@ -360,5 +386,12 @@ function buildActivityLabel(status: string, ageSec: number | null): string {
 }
 
 function truncate(s: string, n: number): string {
-  return s.length <= n ? s : `${s.slice(0, n - 3)}...`;
+  if (s.length <= n) return s;
+  let end = n - 3;
+  const before = s.charCodeAt(end - 1);
+  const after = s.charCodeAt(end);
+  if (before >= 0xD800 && before <= 0xDBFF && after >= 0xDC00 && after <= 0xDFFF) {
+    end -= 1;
+  }
+  return `${s.slice(0, end)}...`;
 }

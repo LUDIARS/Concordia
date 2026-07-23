@@ -101,6 +101,35 @@ describe("buildSessionStatusEmbed", () => {
     expect(field(withPending, "タスク")!.value).toContain("no open tasks");
   });
 
+  it("queued/running/completed/failed の child Delegation を task と child identity 付きで表示する", () => {
+    const e = buildSessionStatusEmbed(base({
+      delegatedChildren: [
+        { runId: "run-queued-123", callName: "design", taskLabel: "設計する", childSessionId: null, status: "queued" },
+        { runId: "run-running-1", callName: "impl", taskLabel: "実装する", childSessionId: "lictor-childabc123", status: "running" },
+        { runId: "run-complete1", callName: "review", taskLabel: "レビューする", childSessionId: "lictor-done123456", status: "completed" },
+        { runId: "run-failed-12", callName: "verify", taskLabel: "検証する", childSessionId: "lictor-fail123456", status: "failed" },
+      ],
+    }));
+    const children = field(e, "Delegation children")!;
+    expect(children.name).toBe("Delegation children (4)");
+    expect(children.value).toContain("`queued` 設計する · design · run run-queu");
+    expect(children.value).toContain("`running` 実装する · impl · run run-runn · child childabc");
+    expect(children.value).toContain("`completed` レビューする");
+    expect(children.value).toContain("`failed` 検証する");
+  });
+
+  it("Delegation children field を Discord の1024文字上限内に収める", () => {
+    const delegatedChildren = Array.from({ length: 8 }, (_, index) => ({
+      runId: `run-${index}-${"r".repeat(60)}`,
+      callName: `call-${index}-${"c".repeat(60)}`,
+      taskLabel: `task-${index}-${"日".repeat(200)}`,
+      childSessionId: `lictor-child-${index}-${"s".repeat(40)}`,
+      status: "running",
+    }));
+    const value = field(buildSessionStatusEmbed(base({ delegatedChildren })), "Delegation children")!.value;
+    expect(value.length).toBeLessThanOrEqual(1024);
+  });
+
   it("コンテキスト占有と想定コストを description に 1 行で出す", () => {
     const e = buildSessionStatusEmbed(base({
       contextBadge: "🧠 ctx ~62% (124k)",

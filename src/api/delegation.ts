@@ -30,6 +30,7 @@ import {
   buildDelegationStatusNotification,
   normalizeDelegationStatus,
 } from "../delegation/coordination.js";
+import { emitDelegationRunChanged } from "../delegation/run-events.js";
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -485,6 +486,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       const status = result.error.startsWith("unknown call_name") ? 404 : 400;
       return c.json({ error: result.error, detail: result.details }, status);
     }
+    emitDelegationRunChanged(result.run);
     return c.json({
       ok: true,
       run: serializeRun(result.run),
@@ -513,6 +515,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       status,
       status === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
     )!;
+    emitDelegationRunChanged(updated);
     if ((status === "completed" || status === "failed") && row.status !== "completed" && row.status !== "failed") {
       deps.service.recordEffortOutcome(updated, status);
     }

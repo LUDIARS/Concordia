@@ -39,4 +39,14 @@ describe("buildDelegationContext", () => {
     const ctx = buildDelegationContext("http://127.0.0.1:11111", null);
     expect(ctx).not.toContain("## 作業マニュアル");
   });
+
+  it("Codex/Claude native child task を使わず Cc Delegation へ統一する契約を含む", () => {
+    const ctx = buildDelegationContext("http://127.0.0.1:11111");
+    expect(ctx).toContain("Codex/Claude 固有の子エージェント起動機能は使いません");
+    expect(ctx).toContain("`delegation_list_templates`");
+    expect(ctx).toContain("`delegation_invoke`");
+    expect(ctx).toContain("`spawn: true`");
+    expect(ctx).toContain("`CONCORDIA_SESSION_ID`");
+    expect(ctx).toContain("provider 固有 child を黙って代用せず");
+  });
 });

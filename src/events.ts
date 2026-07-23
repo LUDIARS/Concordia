@@ -30,6 +30,13 @@ type ConcordiaEventPayload =
       ts: number;
     }
   | {
+      type: "delegation.run_changed";
+      parent_session_id: string;
+      run_id: string;
+      status: string;
+      ts: number;
+    }
+  | {
       type: "taskflow.user_decision";
       kind: "confirm-queued" | "no-tasks" | "pr-decision" | "impl-unlock" | "question";
       target_session_id: string;

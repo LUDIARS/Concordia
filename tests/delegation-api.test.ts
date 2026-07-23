@@ -284,7 +284,11 @@ describe("delegation coordination API", () => {
     });
     const events: ConcordiaEvent[] = [];
     const unsub = eventBus.subscribe((ev) => {
-      if (ev.type === "session.inject" || ev.type === "delegation.mirror") events.push(ev);
+      if (
+        ev.type === "session.inject"
+        || ev.type === "delegation.mirror"
+        || ev.type === "delegation.run_changed"
+      ) events.push(ev);
     });
     try {
       const r = await app.request(`/v1/delegation/runs/${run.id}/status`, {
@@ -296,6 +300,12 @@ describe("delegation coordination API", () => {
       expect(repo.findRun(run.id)?.status).toBe("completed");
       expect(events.some((ev) => ev.type === "session.inject" && ev.target_session_id === "parent-1")).toBe(true);
       expect(events.some((ev) => ev.type === "delegation.mirror" && ev.target_session_id === "parent-1")).toBe(true);
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "delegation.run_changed",
+        parent_session_id: "parent-1",
+        run_id: run.id,
+        status: "completed",
+      }));
       expect(sessions.recentEvents("parent-1", 1)[0].kind).toBe("inject");
     } finally {
       unsub();
@@ -367,24 +377,38 @@ describe("delegation coordination API", () => {
       triggered_by: "test",
       status: "spawned",
     });
-    const r = await env.app.request("/v1/sessions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id: "child-1",
-        provider: "codex-cli",
-        repo_path: "C:/work/child",
-        host: "host",
-        metadata: { delegation_run_id: run.id },
-      }),
+    const events: ConcordiaEvent[] = [];
+    const unsub = eventBus.subscribe((event) => {
+      if (event.type === "delegation.run_changed") events.push(event);
     });
-    expect(r.status).toBe(200);
-    expect(env.delegation.findRun(run.id)).toMatchObject({
-      child_session_id: "child-1",
-      status: "running",
-    });
-    const meta = JSON.parse(env.repo.findSession("child-1")!.metadata!);
-    expect(meta.delegation_parent_session_id).toBe("parent-1");
-    expect(meta.delegation_call_name).toBe("impl-from-design");
+    try {
+      const r = await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "child-1",
+          provider: "codex-cli",
+          repo_path: "C:/work/child",
+          host: "host",
+          metadata: { delegation_run_id: run.id },
+        }),
+      });
+      expect(r.status).toBe(200);
+      expect(env.delegation.findRun(run.id)).toMatchObject({
+        child_session_id: "child-1",
+        status: "running",
+      });
+      const meta = JSON.parse(env.repo.findSession("child-1")!.metadata!);
+      expect(meta.delegation_parent_session_id).toBe("parent-1");
+      expect(meta.delegation_call_name).toBe("impl-from-design");
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "delegation.run_changed",
+        parent_session_id: "parent-1",
+        run_id: run.id,
+        status: "running",
+      }));
+    } finally {
+      unsub();
+    }
   });
 });

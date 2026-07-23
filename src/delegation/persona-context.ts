@@ -75,6 +75,14 @@ export function buildDelegationContext(
     "- 実装完了の責務は commit + push + PR + delegation status 報告までです。PR 作成後は停止します。",
     "- ユーザが明示的に指示しない限り、merge・squash merge・auto-merge・main 更新を行いません。",
     "",
+    "### 子タスクは Cc Delegation で起動する (重要)",
+    "",
+    "- sub-agent / child task が必要な場合、Codex/Claude 固有の子エージェント起動機能は使いません。",
+    "- `delegation_list_templates` で対象を選び、`delegation_invoke` を `spawn: true` で呼びます。",
+    "- `parent_session_id` は現在の `CONCORDIA_SESSION_ID` とし、委託するタスクを `task` / `problem`",
+    "  / `design_path` のいずれかへ短く明記します。これが親セッション情報カードの記録になります。",
+    "- Cc Delegation tool が利用不能なら、provider 固有 child を黙って代用せず委託元へ報告します。",
+    "",
   );
 
   lines.push(

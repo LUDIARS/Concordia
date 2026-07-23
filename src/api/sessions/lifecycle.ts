@@ -10,6 +10,7 @@ import {
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
+import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -100,7 +101,10 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         const claimedRun = deps.delegation?.claimChildSession(delegationRunId, input.id) ?? null;
         if (claimedRun?.call_name) meta.delegation_call_name = claimedRun.call_name;
         const parentSessionId = claimedRun?.parent_session_id ?? claimed?.parentSessionId ?? null;
-        if (parentSessionId) meta.delegation_parent_session_id = parentSessionId;
+        if (parentSessionId) {
+          meta.delegation_parent_session_id = parentSessionId;
+          emitDelegationRunChanged(claimedRun);
+        }
       } else if (claimed?.parentSessionId) {
         meta.delegation_parent_session_id = claimed.parentSessionId;
       }

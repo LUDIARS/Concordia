@@ -18,6 +18,7 @@ import { probeProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatAuthorName } from "../platform/formatter.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
+import { projectDelegatedChildRun } from "../delegation/status-card-projection.js";
 import type { ChatReadModel, ChatMessageMetadata, ChatMessageRelay, CostSnapshot, MonitorSnapshot, PrQueueSnapshot, SessionCardState, SessionRelayState, SessionStatusSnapshot, SlackSessionIndexEntry, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 
 const PR_QUEUE_CONTENT_LIMIT = 2000;
@@ -164,6 +165,9 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
           .map((t) => ({ task_text: t.task_text })),
         doneCount: taskRows.filter((t) => t.status === "completed").length,
         concordiaPending: deps.tasksRepo.countUndeliveredForSession(sessionId),
+        delegatedChildren: deps.delegationRepo
+          .listRunsByParentSession(sessionId, 8)
+          .map(projectDelegatedChildRun),
         cache,
         sufficiency,
         contextBadge: formatContextBadge(ctx),

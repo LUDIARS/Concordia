@@ -22,6 +22,7 @@ import type { DelegationRepo, DelegationRunRow } from "../db/delegation-repo.js"
 import { createChildLogger } from "../shared/logger.js";
 import { randomUUID } from "node:crypto";
 import { delegationQueueClaim, QUEUE_CLAIM_LEASE_MS } from "./lease.js";
+import { emitDelegationRunChanged } from "./run-events.js";
 
 const log = createChildLogger("delegation/queue");
 
@@ -147,11 +148,12 @@ export class DelegationQueue {
       // spawn 経路の想定外例外。 queued のまま残すと同じ run で無限に再試行するので
       // spawn_failed に倒して payload を落とす (再実行は新しい invoke で行う)。
       const error = (e as Error).message;
-      this.deps.repo.markRunSpawned(
+      const updated = this.deps.repo.markRunSpawned(
         run.id,
         { status: "spawn_failed", spawn_pid: null, spawn_command: null, error },
         delegationQueueClaim(run),
       );
+      emitDelegationRunChanged(updated);
       log.warn({ run_id: run.id, error }, "delegation queue: queued run spawn threw");
     }
   }

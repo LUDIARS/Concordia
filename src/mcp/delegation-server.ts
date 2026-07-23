@@ -28,6 +28,7 @@ import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { resolveDelegationParentSessionId } from "./delegation-parent-session.js";
 
 const DEFAULT_BASE = "http://127.0.0.1:11111";
 
@@ -138,7 +139,22 @@ async function main(): Promise<void> {
       const r = await callConcordia(
         "POST",
         "/v1/delegation/invoke",
-        { call_name, args: args ?? {}, cwd, branch, worktree, triggered_by, memory_links, parent_session_id, spawn, options, overrides },
+        {
+          call_name,
+          args: args ?? {},
+          cwd,
+          branch,
+          worktree,
+          triggered_by,
+          memory_links,
+          parent_session_id: resolveDelegationParentSessionId(
+            parent_session_id,
+            process.env.CONCORDIA_SESSION_ID,
+          ),
+          spawn,
+          options,
+          overrides,
+        },
         true,
       );
       if (!r.ok) {

@@ -1030,6 +1030,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((e) => log.warn(`delegation mirror post failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
+    if (ev.type === "delegation.run_changed") {
+      if (!isActiveDiscordSession(ev.parent_session_id)) return;
+      void upsertSessionStatusCard({
+        guild,
+        layout,
+        configRepo,
+        sessionChannelsRepo,
+        readModel: deps.readModel,
+        log,
+      }, ev.parent_session_id).catch((e) => {
+        log.warn(`delegation status-card refresh failed session=${ev.parent_session_id}: ${(e as Error).message}`);
+      });
+      return;
+    }
     if (ev.type === "taskflow.user_decision") {
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void (async () => {

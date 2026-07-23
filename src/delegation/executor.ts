@@ -1,6 +1,7 @@
 import type { DelegationRepo, DelegationRunRow, RunSpawnOutcome } from "../db/delegation-repo.js";
 import type { LaunchResult, QueuePayload } from "./contracts.js";
 import { delegationQueueClaim } from "./lease.js";
+import { emitDelegationRunChanged } from "./run-events.js";
 
 export async function executeQueuedRun(input: {
   run: DelegationRunRow;
@@ -9,9 +10,10 @@ export async function executeQueuedRun(input: {
 }): Promise<void> {
   const claim = delegationQueueClaim(input.run);
   const fail = (error: string): void => {
-    input.repo.markRunSpawned(input.run.id, {
+    const updated = input.repo.markRunSpawned(input.run.id, {
       status: "spawn_failed", spawn_pid: null, spawn_command: null, error,
     }, claim);
+    emitDelegationRunChanged(updated);
   };
   if (!input.run.queue_payload_json) {
     fail("queue payload missing (起動入力が失われているため再実行できません)");
@@ -45,5 +47,5 @@ export async function executeQueuedRun(input: {
     spawn_worktree_created: launch.worktree_created,
     effort_decision_id: launch.effort_decision_id,
   };
-  input.repo.markRunSpawned(input.run.id, outcome, claim);
+  emitDelegationRunChanged(input.repo.markRunSpawned(input.run.id, outcome, claim));
 }

@@ -6,13 +6,14 @@ import { notifyUserDecision } from "./notify.js";
 import { DECOMPOSE_PROMPT } from "./decompose-inject.js";
 
 export const RESIDUAL_DOMAIN = "concordia.workflow.residual";
+export type ResidualOutcome = "next-task" | "decompose" | "none";
 
 export async function checkResidual(input: {
   sessionId: string;
   sessions: SessionsRepo;
   store: TaskMdStore;
   mentionUserId?: string | null;
-}): Promise<"next-task" | "decompose" | "none"> {
+}): Promise<ResidualOutcome> {
   const session = input.sessions.findSession(input.sessionId);
   if (!session) return "none";
   const tasks = await input.store.findForProject(session.repo_path, ["pending"]);
@@ -34,7 +35,9 @@ export async function checkResidual(input: {
     eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "decompose", pending_count: 0, ts: Math.floor(Date.now() / 1000) });
     return "decompose";
   }
-  notifyUserDecision({ kind: "no-tasks", targetSessionId: input.sessionId, mentionUserId: input.mentionUserId, text: "残作業タスクがありません。ワークフローを閉じてよいか確認してください。" });
+  if (!readGoalAndGoStatus(session.metadata).enabled) {
+    notifyUserDecision({ kind: "no-tasks", targetSessionId: input.sessionId, mentionUserId: input.mentionUserId, text: "残作業タスクがありません。ワークフローを閉じてよいか確認してください。" });
+  }
   eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "none", pending_count: 0, ts: Math.floor(Date.now() / 1000) });
   return "none";
 }

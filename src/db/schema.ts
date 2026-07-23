@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 41;
+export const SCHEMA_VERSION = 42;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1107,7 +1107,7 @@ export function applyMigrations(db: Database.Database): void {
 }
 
 const MIGRATIONS: readonly NumberedMigration[] = [{
-  version: SCHEMA_VERSION,
+  version: 41,
   name: "baseline-v41",
   source: JSON.stringify({ statements: STATEMENTS, columns: COLUMN_ADDITIONS, indexes: DELEGATION_COORDINATION_INDEXES }),
   up(db) {
@@ -1115,5 +1115,33 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
     applyColumnAdditions(db);
     for (const stmt of DELEGATION_COORDINATION_INDEXES) db.exec(stmt);
     applyOwnedDelegationBackfill(db);
+  },
+}, {
+  version: 42,
+  name: "test-forum-pr-head-surfaces",
+  source: "pr_records.head_sha + discord_test_surfaces v1",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(pr_records)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "head_sha")) {
+      db.exec("ALTER TABLE pr_records ADD COLUMN head_sha TEXT");
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS discord_test_surfaces (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        scope          TEXT NOT NULL DEFAULT '',
+        repo_origin    TEXT NOT NULL,
+        pr_number      INTEGER NOT NULL,
+        head_sha       TEXT NOT NULL,
+        worktree_path  TEXT,
+        thread_id      TEXT NOT NULL,
+        status         TEXT NOT NULL DEFAULT 'open',
+        created_at     INTEGER NOT NULL,
+        closed_at      INTEGER,
+        close_reason   TEXT,
+        UNIQUE(scope, repo_origin, pr_number, head_sha, thread_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_discord_test_surfaces_open
+        ON discord_test_surfaces(scope, status, repo_origin, pr_number);
+    `);
   },
 }];

@@ -8,6 +8,7 @@ import { CompletionBlackbox } from "./completion-blackbox.js";
 import { findSessionPr, runGoalMachine } from "./goal-machine.js";
 import { checkResidual } from "./residual-blackbox.js";
 import { eventBus } from "../events.js";
+import { finishAutonomousTaskflow } from "./session-end.js";
 
 export interface TaskflowRuntimeDeps {
   db: Database.Database;
@@ -26,8 +27,9 @@ export class TaskflowRuntime {
   async handleCompletedRun(run: DelegationRunRow): Promise<void> {
     const sessionId = run.child_session_id ?? run.parent_session_id;
     if (!sessionId) return;
-    await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
-    await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
+    const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
+    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome });
   }
 
   start(): { stop(): void } {
@@ -60,7 +62,8 @@ export class TaskflowRuntime {
     });
     if (decision.verdict !== "completed") return;
     eventBus.emit({ type: "taskflow.completion_detected", session_id: sessionId, pr_number: pr?.number ?? null, outcome: pr?.state ?? "unknown", decision_id: decision.decisionId, ts: Math.floor(Date.now() / 1000) });
-    await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
-    await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
+    const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
+    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome });
   }
 }

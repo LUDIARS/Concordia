@@ -30,7 +30,7 @@ const log = createChildLogger("pr-reconcile");
 
 const GH_BIN = process.platform === "win32" ? "gh.exe" : "gh";
 const GH_FIELDS =
-  "number,title,url,state,headRefName,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergedAt,closedAt,isDraft";
+  "number,title,url,state,headRefName,headRefOid,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergedAt,closedAt,isDraft";
 
 interface GhPr {
   number: number;
@@ -38,6 +38,7 @@ interface GhPr {
   url?: string;
   state?: string; // OPEN | CLOSED | MERGED
   headRefName?: string;
+  headRefOid?: string;
   baseRefName?: string;
   additions?: number;
   deletions?: number;
@@ -194,6 +195,7 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
           title: gh.title,
           url: gh.url,
           head_branch: gh.headRefName ?? null,
+          head_sha: gh.headRefOid ?? null,
           base_branch: gh.baseRefName ?? null,
           state: mapState(gh),
           ci_status: nextCi,

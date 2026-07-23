@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { ChannelType } from "discord.js";
 import type { Guild } from "discord.js";
-import { ensureDiscordLayout, SESSION_FORUM_TOPIC } from "./config.js";
+import { ensureDiscordLayout, SESSION_FORUM_TOPIC, TEST_FORUM_TOPIC } from "./config.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 
 /** ensureDiscordLayout 用の最小 fake Guild / repo。 channels.create を記録する。 */
@@ -78,6 +78,7 @@ describe("ensureDiscordLayout", () => {
     expect(Object.keys(snap.metaChannels).length).toBeGreaterThan(0);
     expect(snap.forumMode).toBe(true);
     expect(snap.sessionForumId).not.toBe("");
+    expect(snap.testForumId).not.toBe("");
     expect(snap.taskWorkflowForumId).not.toBe("");
 
     const names = created.map((c) => c.name);
@@ -125,7 +126,19 @@ describe("ensureDiscordLayout", () => {
     // セッション系 (コスト / monitor) は子会社でも作る。
     expect(names).toContain("concordia-monitor");
     expect(names).toContain("Session");
+    expect(names).toContain("Test");
     expect(names).toContain("TaskWorkflow");
+  });
+
+  it("Test forum を PR/worktree 同期専用として作る", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const snap = await ensureDiscordLayout(guild, makeFakeRepo());
+
+    const forum = channels.get(snap.testForumId);
+    expect(forum?.name).toBe("Test");
+    expect(forum?.topic).toBe(TEST_FORUM_TOPIC);
+    expect(TEST_FORUM_TOPIC).toContain("head commit");
+    expect(TEST_FORUM_TOPIC).toContain("worktree");
   });
 
   it("Session forum に起動テンプレタグと spawn の流れを自動設定する", async () => {

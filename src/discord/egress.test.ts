@@ -337,6 +337,7 @@ function makeTranscriptRelayDeps(provider: ProviderName, opts: {
       guildId: "guild",
       forumMode: false,
       sessionForumId: "",
+      testForumId: "",
       taskWorkflowForumId: "",
       metaCategoryId: "meta",
       sessionsCategoryId: "sessions",

@@ -34,6 +34,7 @@ import type { WebhookPool } from "./webhook-pool.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import {
   buildForumThreadTitle,
+  type ForumSessionThread,
   buildForumStarterContent,
   createForumSessionThread,
   fetchForumSessionThread,
@@ -202,6 +203,69 @@ export async function reconcileLostSessionChannels(
   return { scanned: rows.length, reconciled };
 }
 
+export async function reconcileActiveSessionForumThreads(
+  deps: SessionChannelDeps & {
+    restoreMissing: (sessionId: string) => Promise<void>;
+    listActiveSessionIds?: () => readonly string[];
+  },
+): Promise<{ scanned: number; reconciled: number }> {
+  const rows = deps.repo.listActive().filter((row) => row.channel_kind === "thread");
+  let reconciled = 0;
+  for (const row of rows) {
+    let thread: ForumSessionThread | null;
+    try {
+      thread = await fetchForumSessionThread(deps.guild, row.channel_id);
+    } catch (error) {
+      deps.log.warn(`session-forum: active thread fetch failed ${row.channel_id}: ${(error as Error).message}`);
+      continue;
+    }
+    if (thread) {
+      if (thread.archived) {
+        await updateForumSessionState(thread, "active");
+        reconciled += 1;
+      }
+      continue;
+    }
+    deps.repo.deleteBySessionId(row.session_id);
+    try {
+      await deps.restoreMissing(row.session_id);
+      if (!deps.repo.findBySessionId(row.session_id)) {
+        throw new Error("replacement surface was not persisted");
+      }
+      reconciled += 1;
+    } catch (error) {
+      deps.repo.upsert({
+        session_id: row.session_id,
+        channel_id: row.channel_id,
+        channel_kind: row.channel_kind,
+        webhook_id: row.webhook_id,
+        webhook_token: row.webhook_token,
+        status: row.status,
+        display_state: row.display_state,
+        agent_type: row.agent_type,
+        name_body: row.name_body,
+        delegation_emoji: row.delegation_emoji,
+        surface_message_id: row.surface_message_id,
+      });
+      deps.log.warn(`session-forum: active thread restore failed ${row.session_id}: ${(error as Error).message}`);
+    }
+  }
+  const activeSessionIds = [...new Set(deps.listActiveSessionIds?.() ?? rows.map((row) => row.session_id))];
+  for (const sessionId of activeSessionIds) {
+    if (deps.repo.findBySessionId(sessionId)) continue;
+    try {
+      await deps.restoreMissing(sessionId);
+      if (!deps.repo.findBySessionId(sessionId)) {
+        throw new Error("replacement surface was not persisted");
+      }
+      reconciled += 1;
+    } catch (error) {
+      deps.log.warn(`session-forum: missing active surface restore failed ${sessionId}: ${(error as Error).message}`);
+    }
+  }
+  return { scanned: activeSessionIds.length, reconciled };
+}
+
 async function fetchSessionTextChannel(
   deps: SessionChannelDeps,
   channelId: string,
@@ -282,7 +346,9 @@ export async function onSessionStatusChanged(
     } catch (e) {
       deps.log.warn(`session-forum: state update failed for ${input.sessionId}: ${(e as Error).message}`);
     } finally {
-      if (input.status === "ended") deps.webhooks?.releaseSession(input.sessionId);
+      if (input.status === "ended" || input.status === "lost") {
+        deps.webhooks?.releaseSession(input.sessionId);
+      }
     }
     return;
   }

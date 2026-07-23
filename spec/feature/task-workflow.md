@@ -277,6 +277,15 @@ delegation run は §5 の status API が正なので、 本節は **status を�
   確認テストのキュー投入 (§5) / タスクが無い (§2.3, §7) / PR 化の判断 (§5) /
   強推論モデル実装の承認 (§8) / セッションからの質問。
 - Discord フォーラム移行後は投稿先を当該 run の TaskWorkflow スレッド (1 run = 1 スレッド) に寄せる。
+- Discord 投稿は `<@id>` の文字列だけでなく `allowedMentions.users=[id]` を明示し、
+  設定済みユーザだけを実際に ping する。
+
+### 10.1 自走完了時の session-end
+
+goal-and-go が有効で、PR が open/draft のテスト候補として引き継がれ、residual 判定が
+`none` の場合は provider 別の session-end (`/session-end` / `$session-end`) を自動 inject
+する。同じ session の `auto:session-end` inject は永続イベントを使って exactly-once にする。
+次タスク・分解・confirm queue・PR 判断など自走または人間の作業が残る場合は自動終了しない。
 
 ## 11. Discord フォーラム移行との整合
 
@@ -319,5 +328,7 @@ pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_st
 - [ ] リポの `spec/tasks/` に task md を置くと reconciler が Memoria に登録し、 id を frontmatter に書き戻す。 Memoria 停止中でも md 運用が継続し、 復帰後に後追い登録される。
 - [ ] 子の completed 報告で、 merged PR なら confirm_runs が立ちメンション付き事前通知が飛ぶ。 PR 無しならユーザ判断のメンションが飛ぶ。
 - [ ] 対話セッションの実装完了を completion 黒箱が検知し、 §5 と同じ経路に合流する。
-- [ ] 完了後に residual 黒箱が走り、 次タスクがあれば goal-and-go 経路で同セッションに inject される。 タスクが無ければメンションで停止する。
+- [ ] 完了後に residual 黒箱が走り、次タスクがあれば goal-and-go 経路で同セッションに
+  inject される。真の自走完了なら provider-aware session-end を exactly-once で inject し、
+  goal-and-go 無効時や人間判断が残る場合だけメンションで停止する。
 - [ ] テストの実施開始は常に人間の `/confirm start` であり、 Cc が自動で起動しない。

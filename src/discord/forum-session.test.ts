@@ -6,6 +6,7 @@ import {
   buildForumThreadTitle,
   createForumSessionThread,
   resolveForumSessionSurface,
+  updateForumSessionState,
   updateForumSessionTitle,
 } from "./forum-session.js";
 
@@ -99,5 +100,25 @@ describe("forum session surfaces", () => {
       label: "Session",
       delegationRunId: null,
     });
+  });
+
+  it.each(["ended", "lost"] as const)("archives a Forum thread when a session is %s", async (state) => {
+    const thread = {
+      id: "thread-closed",
+      appliedTags: ["active-tag"],
+      archived: false,
+      parent: {
+        type: ChannelType.GuildForum,
+        availableTags: [{ id: "active-tag", name: SESSION_STATE_TAG_NAMES.active }],
+      },
+      edit: vi.fn(async () => undefined),
+    };
+
+    await updateForumSessionState(thread as any, state);
+
+    expect(thread.edit).toHaveBeenCalledWith(expect.objectContaining({
+      appliedTags: [],
+      archived: true,
+    }));
   });
 });

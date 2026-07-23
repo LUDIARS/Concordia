@@ -28,6 +28,7 @@ export interface PrRecordRow {
   title: string;
   url: string | null;
   head_branch: string | null;
+  head_sha?: string | null;
   base_branch: string | null;
   state: PrState;
   ci_status: PrCiStatus;
@@ -52,6 +53,7 @@ export interface UpsertFromStatInput {
   title?: string;
   url?: string | null;
   head_branch?: string | null;
+  head_sha?: string | null;
   base_branch?: string | null;
   repo_path?: string | null;
   author_session_id?: string | null;
@@ -66,6 +68,7 @@ export interface ReconcileInput {
   title?: string;
   url?: string | null;
   head_branch?: string | null;
+  head_sha?: string | null;
   base_branch?: string | null;
   state?: PrState;
   ci_status?: PrCiStatus;
@@ -105,11 +108,11 @@ export class PrRecordsRepo {
       this.db
         .prepare(
           `INSERT INTO pr_records
-             (repo_origin, repo_path, number, title, url, head_branch, base_branch,
+             (repo_origin, repo_path, number, title, url, head_branch, head_sha, base_branch,
               state, ci_status, review_state,
               author_session_id, persona_id, persona_name,
               created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 'unknown', 'needs_review', ?, ?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', 'unknown', 'needs_review', ?, ?, ?, ?, ?)`,
         )
         .run(
           input.repo_origin,
@@ -118,6 +121,7 @@ export class PrRecordsRepo {
           input.title ?? "",
           input.url ?? null,
           input.head_branch ?? null,
+          input.head_sha ?? null,
           input.base_branch ?? null,
           input.author_session_id ?? null,
           input.persona_id ?? null,
@@ -135,6 +139,7 @@ export class PrRecordsRepo {
            title = CASE WHEN ? <> '' THEN ? ELSE title END,
            url = COALESCE(?, url),
            head_branch = COALESCE(?, head_branch),
+           head_sha = COALESCE(?, head_sha),
            base_branch = COALESCE(?, base_branch),
            repo_path = COALESCE(?, repo_path),
            author_session_id = COALESCE(author_session_id, ?),
@@ -148,6 +153,7 @@ export class PrRecordsRepo {
         input.title ?? "",
         input.url ?? null,
         input.head_branch ?? null,
+        input.head_sha ?? null,
         input.base_branch ?? null,
         input.repo_path ?? null,
         input.author_session_id ?? null,
@@ -178,6 +184,7 @@ export class PrRecordsRepo {
     set("title", input.title !== undefined && input.title !== "" ? input.title : undefined);
     set("url", input.url);
     set("head_branch", input.head_branch);
+    set("head_sha", input.head_sha);
     set("base_branch", input.base_branch);
     set("state", input.state);
     set("ci_status", input.ci_status);

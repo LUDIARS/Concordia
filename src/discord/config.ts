@@ -12,6 +12,7 @@ export interface DiscordConfigSnapshot {
   guildId: string;
   forumMode: boolean;
   sessionForumId: string;
+  testForumId: string;
   taskWorkflowForumId: string;
   metaCategoryId: string;
   sessionsCategoryId: string;
@@ -28,6 +29,7 @@ export interface DiscordConfigSnapshot {
 
 const META_CATEGORY_KEY = "meta_category_id";
 const SESSION_FORUM_KEY = "session_forum_id";
+const TEST_FORUM_KEY = "test_forum_id";
 const TASK_WORKFLOW_FORUM_KEY = "task_workflow_forum_id";
 const SESSIONS_CATEGORY_KEY = "sessions_category_id";
 const STATUS_CATEGORY_KEY = "status_category_id";
@@ -49,6 +51,7 @@ const CATEGORY_NAMES = {
 
 const FORUM_NAMES = {
   session: "Session",
+  test: "Test",
   taskWorkflow: "TaskWorkflow",
 } as const;
 
@@ -62,6 +65,9 @@ export const SESSION_FORUM_TOPIC = [
 
 const TASK_WORKFLOW_FORUM_TOPIC =
   "Delegation runごとの進行・状態・結果を1スレッドに集約します。Sessionフォーラムの新規投稿から直接作る場所ではありません。";
+
+export const TEST_FORUM_TOPIC =
+  "Open/Draft PR の現在の head commit と worktree を起動時に同期します。更新・close・merge・worktree削除で古いスレッドを閉じます。";
 
 export const SESSION_STATE_TAG_NAMES = {
   working: "作業中",
@@ -124,6 +130,15 @@ export async function ensureDiscordLayout(
         sessionForumTagNames,
       )
     : "";
+  const testForumId = forumMode
+    ? await ensureForum(
+        guild,
+        repo,
+        TEST_FORUM_KEY,
+        FORUM_NAMES.test,
+        TEST_FORUM_TOPIC,
+      )
+    : "";
   const taskWorkflowForumId = forumMode
     ? await ensureForum(
         guild,
@@ -172,6 +187,7 @@ export async function ensureDiscordLayout(
     guildId: guild.id,
     forumMode,
     sessionForumId,
+    testForumId,
     taskWorkflowForumId,
     metaCategoryId,
     sessionsCategoryId,

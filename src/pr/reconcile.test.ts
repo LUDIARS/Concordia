@@ -49,6 +49,7 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
         number: 10,
         title: "Workflow fix",
         state: "OPEN",
+        headRefOid: "head-sha-10",
         statusCheckRollup: [{ status: "COMPLETED", conclusion: "SUCCESS" }],
       }],
     });
@@ -62,6 +63,7 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
     expect(payload.ci_status).toBe("success");
     expect(payload.instructions).toContain("Report the status and stop");
     expect(payload.instructions).toContain("Do not run tests or merge");
+    expect(deps.prs.findByKey("LUDIARS/Concordia", 10)?.head_sha).toBe("head-sha-10");
   });
 
   it("enqueues a report-only notice when a session-authored PR turns red", async () => {

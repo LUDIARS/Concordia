@@ -49,6 +49,8 @@ const DISCORD_TARGETS = {
   monitorRefresh: "discord.monitor.refresh",
   prQueueRefresh: "discord.pr_queue.refresh",
   statusReconcile: "discord.status.reconcile",
+  sessionForumReconcile: "discord.session_forum.reconcile",
+  testForumReconcile: "discord.test_forum.reconcile",
   staleChannelSweep: "discord.stale_channel.sweep",
 } as const;
 

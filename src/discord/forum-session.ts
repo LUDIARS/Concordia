@@ -128,8 +128,12 @@ export async function updateForumSessionState(
     .map((tag) => tag.id);
   const kept = thread.appliedTags.filter((id) => !stateTagIds.includes(id));
 
-  if (state === "ended") {
-    await thread.edit({ appliedTags: kept, archived: true, reason: "Concordia session ended" });
+  if (state === "ended" || state === "lost") {
+    await thread.edit({
+      appliedTags: kept,
+      archived: true,
+      reason: state === "ended" ? "Concordia session ended" : "Concordia session lost",
+    });
     return;
   }
 
@@ -144,7 +148,7 @@ export async function updateForumSessionState(
 }
 
 export function hasForumSessionState(thread: ForumSessionThread, state: ChannelDisplayState): boolean {
-  if (state === "ended") return thread.archived === true;
+  if (state === "ended" || state === "lost") return thread.archived === true;
   const forum = thread.parent as ForumChannel | null;
   const tagName = SESSION_STATE_TAG_NAMES[state];
   const tagId = forum?.availableTags.find((tag) => tag.name === tagName)?.id;

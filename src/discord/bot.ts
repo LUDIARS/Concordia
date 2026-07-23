@@ -12,6 +12,8 @@ import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
+import { makeDiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
+import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
@@ -28,6 +30,7 @@ import {
   pruneStatusCategoryChannels,
   reconcileEndedSessionChannels,
   reconcileLostSessionChannels,
+  reconcileActiveSessionForumThreads,
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
@@ -75,6 +78,12 @@ import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { pickAvailableForumProvider } from "../delegation/forum-provider-availability.js";
 import { fetchCodexRateLimits } from "../cost/codex-rate-limits.js";
 import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
+import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
+import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
+import { reconcileTestForum } from "./test-forum-reconcile.js";
+import { createTestForumDiscordAdapter } from "./test-forum-discord.js";
+import { scanReposMulti } from "../work/repo-scan.js";
+import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 
 const discordLog = createChildLogger("discord");
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
@@ -244,6 +253,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
 
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
+  const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
+  const prRecordsRepo = new PrRecordsRepo(deps.db);
   const delegationRepo = new DelegationRepo(deps.db);
   const resolveLayoutOpts = (): EnsureLayoutOptions => ({
     ...layoutOpts,
@@ -297,6 +308,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const backgroundTimers = new Set<ReturnType<typeof setTimeout>>();
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
+  let testForumRefresh: ((reason: string) => Promise<void>) | null = null;
   // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
   let errorPoster: ErrorChannelPoster | null = null;
   let errorMonitor: ErrorMonitorHandle | null = null;
@@ -532,6 +544,72 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const lay = layout;
       const statusSyncConcurrency = readPositiveIntEnv("CONCORDIA_DISCORD_STATUS_SYNC_CONCURRENCY", 2);
       const bootSyncDelayMs = readOptionalIntEnv("CONCORDIA_DISCORD_BOOT_SYNC_DELAY_MS", 0, 1000);
+      const runSessionForumReconcile = instrumentDiscord("sessionForumReconcile", async (reason: string): Promise<void> => {
+        const lostChannels = await reconcileLostSessionChannels({
+          guild, layout: lay, repo: sessionChannelsRepo,
+          isSessionLost: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "lost",
+          log, webhooks: webhooks ?? undefined,
+        });
+        const ended = await reconcileEndedSessionChannels({
+          guild, layout: lay, repo: sessionChannelsRepo,
+          isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
+          log, webhooks: webhooks ?? undefined,
+        });
+        const active = await reconcileActiveSessionForumThreads({
+          guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
+          listActiveSessionIds: () => deps.sessionsRepo.listSessions({ status: "active" })
+            .map((session) => session.id)
+            .filter(ownsSession),
+          restoreMissing: async (sessionId) => {
+            const state = deps.readModel.getSessionRelayState(sessionId);
+            if (!state || state.status !== "active") return;
+            await onSessionRegistered({
+              guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
+            }, {
+              sessionId,
+              agentType: state.provider,
+              delegationEmoji: state.delegationEmoji,
+              roleLabel: state.roleLabel,
+              repoPath: state.repoPath,
+              branch: state.branch,
+              model: state.model,
+              effortLevel: state.effortLevel,
+              fastMode: state.fastMode,
+              currentTask: state.currentTask,
+              projectCode: projectResolver.codeForRepo(state.repoPath),
+              surfaceLabel: state.delegationRunId ? "TaskWorkflow" : "Session",
+              delegationRunId: state.delegationRunId,
+              webhookName: state.webhookName,
+              webhookAvatarUrl: state.webhookAvatarUrl,
+            });
+          },
+        });
+        log.info(
+          `session-forum ${reason} reconcile: scanned=${Math.max(lostChannels.scanned, ended.scanned)}`
+          + ` active=${active.reconciled} lost=${lostChannels.reconciled} ended=${ended.reconciled}`,
+        );
+      });
+      const runTestForumReconcile = instrumentDiscord("testForumReconcile", async (reason: string): Promise<void> => {
+        if (!lay.forumMode || !lay.testForumId) {
+          log.info(`test-forum ${reason} reconcile skipped; forum mode disabled`);
+          return;
+        }
+        const repos = await scanReposMulti(workspaceRoots, deps.sessionsRepo);
+        const result = await reconcileTestForum({
+          prs: prRecordsRepo.list({ limit: 500 }),
+          repos,
+          surfaces: testSurfacesRepo,
+          adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
+        });
+        log.info(
+          `test-forum ${reason} reconcile: scanned=${result.scanned} kept=${result.kept}`
+          + ` created=${result.created} closed=${result.closed}`,
+        );
+      });
+      testForumRefresh = createTestForumRefreshTrigger({
+        reconcile: runTestForumReconcile,
+        warn: log.warn,
+      });
       const runStatusReconcile = instrumentDiscord("statusReconcile", async (reason: string): Promise<void> => {
         if (reconcileRunning) {
           log.info(`status-card ${reason} reconcile skipped; previous run still active`);
@@ -541,14 +619,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         try {
           const lost = await reconcileLostStatusCards({ guild, configRepo, readModel: deps.readModel, log });
           log.info(`status-card ${reason} reconcile: scanned=${lost.scanned} removed=${lost.removed}`);
-          const lostChannels = await reconcileLostSessionChannels({
-            guild, layout: lay, repo: sessionChannelsRepo,
-            isSessionLost: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "lost",
-            log,
-          });
-          if (lostChannels.reconciled > 0) {
-            log.info(`session-channel lost ${reason} reconcile: scanned=${lostChannels.scanned} reconciled=${lostChannels.reconciled}`);
-          }
           const activeRows = sessionChannelsRepo.listActive();
           await runWithConcurrency(activeRows, statusSyncConcurrency, async (row) => {
             await upsertSessionStatusCard({
@@ -560,17 +630,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           if (pruned.deleted > 0) {
             log.info(`status-category ${reason} sweep: scanned=${pruned.scanned} deleted=${pruned.deleted}`);
           }
-          const ended = await reconcileEndedSessionChannels({
-            guild, layout: lay, repo: sessionChannelsRepo,
-            isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
-            log, webhooks: webhooks ?? undefined,
-          });
-          if (ended.reconciled > 0) {
-            log.info(`session-channel ended ${reason} reconcile: scanned=${ended.scanned} reconciled=${ended.reconciled}`);
-          }
         } finally {
           reconcileRunning = false;
         }
+      });
+      scheduleBootForumReconciliations({
+        delayMs: bootSyncDelayMs,
+        schedule: scheduleBackground,
+        reconcileSessionForum: () => runSessionForumReconcile("boot"),
+        reconcileTestForum: () => testForumRefresh!("boot"),
+        log,
       });
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
@@ -580,7 +649,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const reconcileSec = readOptionalIntEnv("CONCORDIA_DISCORD_STATUS_RECONCILE_SEC", 0, 60);
       if (reconcileSec > 0) {
         reconcileTimer = setInterval(() => {
-          void runStatusReconcile("periodic").catch((e) => log.warn(`status-card periodic reconcile failed: ${(e as Error).message}`));
+          void runStatusReconcile("periodic")
+            .catch((e) => log.warn(`status-card periodic reconcile failed: ${(e as Error).message}`));
+          void runSessionForumReconcile("periodic")
+            .catch((e) => log.warn(`session-forum periodic reconcile failed: ${(e as Error).message}`));
         }, reconcileSec * 1000);
         reconcileTimer.unref?.();
       } else {
@@ -946,6 +1018,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "pr.changed") {
       // ingest / reconcile で PR キューが動いたら pr-queue チャンネルを即時更新.
       prQueueRefresh?.();
+      void testForumRefresh?.("pr.changed");
       return;
     }
     if (ev.type === "delegation.mirror") {
@@ -962,12 +1035,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void (async () => {
         const client = await webhooks.getForSession(ev.target_session_id);
         if (!client) return;
-        const mention = ev.mention_user_id ? `<@${ev.mention_user_id}> ` : "";
-        await webhooks.send(client, {
-          content: `${mention}${ev.text}`.slice(0, 1900),
-          username: "Cc taskflow",
-          allowedMentions: ev.mention_user_id ? { users: [ev.mention_user_id] } : { parse: [] },
-        });
+        await webhooks.send(client, buildTaskflowDecisionMessage({
+          text: ev.text,
+          mentionUserId: ev.mention_user_id,
+        }));
       })().catch((e) => log.warn(`taskflow decision post failed: ${(e as Error).message}`));
       return;
     }

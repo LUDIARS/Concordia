@@ -5,6 +5,7 @@ import {
   onSessionRegistered,
   onSessionStatusChanged,
   onSessionTitleChanged,
+  reconcileActiveSessionForumThreads,
   reconcileEndedSessionChannels,
   reconcileLostSessionChannels,
   updateSessionSurfaceMetadata,
@@ -370,6 +371,66 @@ describe("onSessionStatusChanged lost archive", () => {
     expect(m.channelObj.edit).toHaveBeenCalledWith(expect.objectContaining({
       name: "🟢🧭-task",
     }));
+  });
+});
+
+describe("reconcileActiveSessionForumThreads", () => {
+  it("recreates the binding when an active Forum thread is missing", async () => {
+    const row = {
+      session_id: "session-active",
+      channel_id: "missing-thread",
+      channel_kind: "thread",
+      status: "active",
+    };
+    let replacement: typeof row | null = null;
+    const repo = {
+      listActive: vi.fn(() => [row]),
+      deleteBySessionId: vi.fn(() => { replacement = null; }),
+      findBySessionId: vi.fn(() => replacement),
+      upsert: vi.fn(),
+    };
+    const restoreMissing = vi.fn(async () => { replacement = { ...row, channel_id: "replacement-thread" }; });
+    const guild = {
+      channels: {
+        cache: new Map(),
+        fetch: vi.fn(async () => null),
+      },
+    };
+
+    const result = await reconcileActiveSessionForumThreads({
+      guild: guild as any,
+      layout: {} as any,
+      repo: repo as any,
+      restoreMissing,
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(repo.deleteBySessionId).toHaveBeenCalledWith("session-active");
+    expect(restoreMissing).toHaveBeenCalledWith("session-active");
+  });
+
+  it("creates a Forum surface for an active session that has no Discord row", async () => {
+    let replacement: { session_id: string } | null = null;
+    const repo = {
+      listActive: vi.fn(() => []),
+      findBySessionId: vi.fn(() => replacement),
+    };
+    const restoreMissing = vi.fn(async (sessionId: string) => {
+      replacement = { session_id: sessionId };
+    });
+
+    const result = await reconcileActiveSessionForumThreads({
+      guild: { channels: { cache: new Map(), fetch: vi.fn() } } as any,
+      layout: {} as any,
+      repo: repo as any,
+      listActiveSessionIds: () => ["session-without-row"],
+      restoreMissing,
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1 });
+    expect(restoreMissing).toHaveBeenCalledWith("session-without-row");
   });
 });
 

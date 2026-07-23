@@ -1,4 +1,4 @@
-# Discord フォーラム移行 — Session / TaskWorkflow
+# Discord フォーラム移行 — Session / Test / TaskWorkflow
 
 - Status: **approved (2026-07-13 未決4点をユーザ決定済み)**
 - 起票: 2026-07-13 neco 指示
@@ -27,6 +27,7 @@
 | --- | --- |
 | **Session** | 人間とやりとりするセッション。 人間の新規投稿 = spawn 依頼 |
 | **TaskWorkflow** | 自動タスク処理。 **[決定 3a] 1 delegation run = 1 スレッド** (run とログが 1:1、 完了で archive) |
+| **Test** | open/draft PR の現在 head SHA と worktree を表すテスト候補。head 更新・PR merge/close・紐づけた worktree 消失で archive |
 
 - `ensureDiscordLayout` を拡張し、 sessions / archive **カテゴリの自動生成を廃止**して
   2 フォーラムの ensure に統合する。 フォーラム ID は起動時に確認し
@@ -51,7 +52,14 @@
   avatar_url を持たせる)。
 - ingress: `message.channel.isThread() && parent === Session フォーラム` で
   session_channels のスレッド id 逆引き → 既存の inject 経路へ。
-- ended: スレッドを archive (カテゴリ移動・削除は廃止)。 lost: タグで表現。
+- ended / lost: スレッドを archive (カテゴリ移動・削除は廃止)。
+
+Cc 起動時は Session と Test を別々の冪等 reconcile として実行する。一方の失敗で他方を
+中止しない。Session は終了・喪失済みの stale open thread を閉じ、Test は DB に保存した
+PR head SHA / worktree path と現在状態を比較して obsolete surface を閉じる。更新後の open PR
+には新しい Test thread を作成する。起動後も `pr.changed` を Test reconcile のトリガーにし、
+merge / close / head 更新を次の再起動まで残さない。重複イベントは集約し、実行中に到着した
+更新には trailing reconcile を 1 回行う。
 - 状態カード / cost チャンネルは従来どおり (このスコープでは触らない)。
 
 ### spawn-by-post (コマンド spawn の置き換え)
@@ -96,7 +104,8 @@
 - **作業内容タグ (固定 5 種)**: `設計相談` / `実装` / `レビュー` / `テスト` / `雑用`。
   title-suggest と同じ黒箱 (Haiku 責務) が current_task / 初回 prompt から分類し
   自動付与。 変更されたら貼り替え。
-- **状態タグ**: `作業中` / `待機` / `lost` (旧チャンネル名絵文字の代替)。
+- **状態タグ**: active thread は `作業中` / `待機` を使う。`lost` は旧 thread 互換の
+  予約タグとして残すが、現在は lost を thread archive で閉じる。
 - タグ枠の割当: テンプレ 10 + 作業内容 5 + 状態 3 = 18 ≤ 20 (Discord 上限内)。
 - **[決定 2a] ブランチ**: タグにせず**スレッド初回メッセージ + 状態カード**に表示し、
   ブランチ変更イベントで初回メッセージを edit する。

@@ -103,19 +103,6 @@ export async function fetchForumSessionThread(
   return isForumSessionThread(fetched) ? fetched : null;
 }
 
-export async function updateForumSessionStarter(
-  guild: Guild,
-  thread: ForumSessionThread,
-  metadata: ForumSessionMetadata,
-  surfaceMessageId?: string | null,
-): Promise<void> {
-  const message = surfaceMessageId
-    ? await thread.messages.fetch(surfaceMessageId)
-    : await thread.fetchStarterMessage();
-  if (!message) throw new Error(`Forum session metadata message is unavailable: ${thread.id}`);
-  await message.edit({ content: buildForumStarterContent(guild.id, metadata) });
-}
-
 export async function updateForumSessionTitle(
   thread: ForumSessionThread,
   projectCode: string,

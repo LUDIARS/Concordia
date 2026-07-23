@@ -170,6 +170,25 @@ export class WebhookPool {
     };
   }
 
+  /** 既存 Forum thread に webhook-owned session status surface を作る。 */
+  async createForumSessionSurface(
+    forumId: string,
+    threadId: string,
+    options: WebhookMessageCreateOptions & { content: string },
+  ): Promise<{ messageId: string; webhookId: string; webhookToken: string } | null> {
+    const client = await this.getForChannel(forumId);
+    if (!client) return null;
+    const token = webhookToken(client);
+    if (!token) return null;
+    const sent = await this.send(client, { ...options, threadId });
+    if (!sent) return null;
+    return {
+      messageId: sent.id,
+      webhookId: client.id,
+      webhookToken: token,
+    };
+  }
+
   /** webhook authored Forum surface message を session-scoped token で更新する。 */
   async editForSession(sessionId: string, messageId: string, content: string): Promise<boolean> {
     const client = await this.getForSession(sessionId);

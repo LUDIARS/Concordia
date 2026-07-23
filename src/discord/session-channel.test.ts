@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ChannelType } from "discord.js";
 import { WebhookPool } from "./webhook-pool.js";
-import { onSessionRegistered, onSessionStatusChanged, onSessionTitleChanged, reconcileEndedSessionChannels, reconcileLostSessionChannels } from "./session-channel.js";
+import {
+  onSessionRegistered,
+  onSessionStatusChanged,
+  onSessionTitleChanged,
+  reconcileEndedSessionChannels,
+  reconcileLostSessionChannels,
+  updateSessionSurfaceMetadata,
+} from "./session-channel.js";
 
 // onSessionRegistered が「セッション spawn (= channel 作成) と同時に webhook を
 // eager 作成し token を永続化する」ことを検証する。 これで以降の egress は
@@ -96,6 +103,59 @@ describe("onSessionRegistered — spawn と同時に webhook を eager 作成", 
     );
     expect(m.repo.upsert).toHaveBeenCalledTimes(1);
     expect(m.createWebhook).not.toHaveBeenCalled();
+  });
+});
+
+describe("updateSessionSurfaceMetadata webhook ownership", () => {
+  it("edits the stored webhook surface and never touches the Forum starter", async () => {
+    const fetchStarterMessage = vi.fn();
+    const fetchMessage = vi.fn();
+    const forum = { id: "forum-1", type: ChannelType.GuildForum };
+    const thread = {
+      id: "thread-1",
+      type: ChannelType.PublicThread,
+      parent: forum,
+      messages: { fetch: fetchMessage },
+      fetchStarterMessage,
+    };
+    const guild = {
+      id: "guild-1",
+      channels: {
+        cache: new Map<string, any>([[thread.id, thread]]),
+        fetch: vi.fn(),
+      },
+    };
+    const row = {
+      session_id: SESSION_ID,
+      channel_id: thread.id,
+      channel_kind: "thread",
+      surface_message_id: "status-message-1",
+    };
+    const repo = { findBySessionId: vi.fn(() => row) };
+    const editForSession = vi.fn(async () => true);
+    const log = { info: vi.fn(), warn: vi.fn() };
+
+    await updateSessionSurfaceMetadata({
+      guild: guild as any,
+      layout: {} as any,
+      repo: repo as any,
+      webhooks: { editForSession } as any,
+      log,
+    }, {
+      sessionId: SESSION_ID,
+      repoPath: "E:/Document/Ars/Concordia",
+      branch: "fix/forum-surface",
+      model: "claude-fable-5",
+      effortLevel: "xhigh",
+    });
+
+    expect(editForSession).toHaveBeenCalledWith(
+      SESSION_ID,
+      "status-message-1",
+      expect.stringContaining("claude-fable-5"),
+    );
+    expect(fetchStarterMessage).not.toHaveBeenCalled();
+    expect(fetchMessage).not.toHaveBeenCalled();
   });
 });
 

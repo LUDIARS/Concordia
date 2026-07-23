@@ -11,6 +11,7 @@ import type { WebhookPool } from "./webhook-pool.js";
 import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 import { buildDelegationMirrorText } from "../delegation/coordination.js";
 import { isTranscriptCompletion } from "../platform/transcript-completion.js";
+import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
@@ -127,11 +128,22 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     return;
   }
   const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
+  const identity = session
+    ? buildDiscordWebhookIdentity({
+        model: session.model,
+        provider: session.provider,
+        configuredName: session.webhookName,
+        currentTask: session.currentTask,
+        roleLabel: session.roleLabel,
+        fallbackName: author,
+        delegationEmoji: session.delegationEmoji,
+      })
+    : null;
   const res = await deps.webhooks.send(client, {
     content: row.text,
-    username: chatMeta.webhook_username?.trim() || session?.webhookName?.trim() || author,
-    ...(chatMeta.webhook_avatar_url?.trim() || session?.webhookAvatarUrl?.trim()
-      ? { avatarURL: chatMeta.webhook_avatar_url?.trim() || session?.webhookAvatarUrl?.trim() }
+    username: chatMeta.webhook_username?.trim() || identity?.username || author,
+    ...(chatMeta.webhook_avatar_url?.trim() || identity?.avatarURL || session?.webhookAvatarUrl?.trim()
+      ? { avatarURL: chatMeta.webhook_avatar_url?.trim() || identity?.avatarURL || session?.webhookAvatarUrl?.trim() }
       : {}),
     ...(attachFiles.length > 0 ? { files: attachFiles } : {}),
   });
@@ -210,12 +222,23 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
       return;
     }
     const author = formatAuthorName(null, session?.roleLabel ?? null);
+    const identity = buildDiscordWebhookIdentity({
+      model: session?.model,
+      provider: session?.provider,
+      configuredName: session?.webhookName,
+      currentTask: session?.currentTask,
+      roleLabel: session?.roleLabel,
+      fallbackName: author,
+      delegationEmoji: session?.delegationEmoji,
+    });
     const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
     const buf = Buffer.from(p.data, "base64");
     const res = await deps.webhooks.send(client, {
       content: "",
-      username: session.webhookName?.trim() || author,
-      ...(session.webhookAvatarUrl?.trim() ? { avatarURL: session.webhookAvatarUrl.trim() } : {}),
+      username: identity.username,
+      ...(identity.avatarURL || session.webhookAvatarUrl?.trim()
+        ? { avatarURL: identity.avatarURL || session.webhookAvatarUrl!.trim() }
+        : {}),
       files: [{ attachment: buf, name: `image.${ext}` }],
     });
     if (!res) {
@@ -252,6 +275,16 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
         text,
       })
     : text;
+  const identity = buildDiscordWebhookIdentity({
+    model: session.model,
+    provider: session.provider,
+    callName: mirroredFromChild || role === "summary" ? author : null,
+    configuredName: session.webhookName,
+    currentTask: session.currentTask,
+    roleLabel: session.roleLabel,
+    fallbackName: author,
+    delegationEmoji: session.delegationEmoji,
+  });
   if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, content)) {
     dedupStats.skipped_transcript_frame += 1;
     deps.onTranscriptPosted?.({
@@ -262,8 +295,10 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   }
   const res = await deps.webhooks.send(client, {
     content,
-    username: session.webhookName?.trim() || author,
-    ...(session.webhookAvatarUrl?.trim() ? { avatarURL: session.webhookAvatarUrl.trim() } : {}),
+    username: identity.username,
+    ...(identity.avatarURL || session.webhookAvatarUrl?.trim()
+      ? { avatarURL: identity.avatarURL || session.webhookAvatarUrl!.trim() }
+      : {}),
   });
   if (!res) {
     deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);

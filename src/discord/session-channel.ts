@@ -31,13 +31,13 @@ import {
 } from "./formatter.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import type { WebhookPool } from "./webhook-pool.js";
+import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import {
   buildForumThreadTitle,
   buildForumStarterContent,
   createForumSessionThread,
   fetchForumSessionThread,
   hasForumSessionState,
-  updateForumSessionStarter,
   updateForumSessionState,
   updateForumSessionTitle,
 } from "./forum-session.js";
@@ -92,6 +92,15 @@ export async function onSessionRegistered(
     if (deps.layout.forumMode) {
       if (!deps.webhooks) throw new Error("Session forum requires WebhookPool");
       const repoPath = input.repoPath?.trim() || "unknown";
+      const identity = buildDiscordWebhookIdentity({
+        model: input.model,
+        provider: input.agentType,
+        configuredName: input.webhookName,
+        currentTask: input.currentTask,
+        roleLabel: input.roleLabel,
+        fallbackName: input.agentType,
+        delegationEmoji: input.delegationEmoji,
+      });
       const created = await createForumSessionThread(deps.guild, deps.layout.sessionForumId, deps.webhooks, {
         sessionId: input.sessionId,
         repoPath,
@@ -105,8 +114,8 @@ export async function onSessionRegistered(
         delegationEmoji: input.delegationEmoji,
         surfaceLabel: input.surfaceLabel,
         delegationRunId: input.delegationRunId,
-        webhookName: input.webhookName ?? input.roleLabel ?? input.agentType ?? "Concordia",
-        webhookAvatarUrl: input.webhookAvatarUrl ?? null,
+        webhookName: identity.username,
+        webhookAvatarUrl: identity.avatarURL ?? input.webhookAvatarUrl ?? null,
       });
       deps.repo.upsert({
         session_id: input.sessionId,
@@ -723,15 +732,18 @@ export async function updateSessionSurfaceMetadata(
   if (!row || row.channel_kind !== "thread") return;
   const thread = await fetchForumSessionThread(deps.guild, row.channel_id);
   if (!thread) return;
-  if (row.surface_message_id && deps.webhooks) {
-    const updated = await deps.webhooks.editForSession(
-      input.sessionId,
-      row.surface_message_id,
-      buildForumStarterContent(deps.guild.id, input),
-    );
-    if (updated) return;
+  if (!row.surface_message_id) {
+    throw new Error(`Forum session webhook surface is missing: ${input.sessionId}`);
   }
-  await updateForumSessionStarter(deps.guild, thread, input, row.surface_message_id);
+  if (!deps.webhooks) {
+    throw new Error(`Forum session webhook pool is unavailable: ${input.sessionId}`);
+  }
+  const updated = await deps.webhooks.editForSession(
+    input.sessionId,
+    row.surface_message_id,
+    buildForumStarterContent(deps.guild.id, input),
+  );
+  if (!updated) throw new Error(`Forum session webhook surface update failed: ${input.sessionId}`);
 }
 
 function titleToChannelBase(title: string): string {

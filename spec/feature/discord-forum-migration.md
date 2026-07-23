@@ -69,9 +69,10 @@
      `FORUM_PROVIDER_PLAN` / `src/delegation/forum-provider-availability.ts`。
   3. プロジェクトコード (タイトル先頭 `[Xx]` / 本文から検出) → cwd 上書き
   4. セッション spawn (既存 delegation invoke / spawnSession を流用)
-  5. **starter (ユーザーの元投稿) をセッション情報カードで編集/上書きし、 元の指示内容は
-     別メッセージとして再投稿する** (`session.started` バインド時、 `bot.ts`)。 タイトルと
-     本文はこれまで通り extra_prompt として inject 済み
+  5. **[2026-07-23 neco が旧方針を上書き] starter (ユーザーの元投稿) は編集しない**。
+     親 Forum の webhook から同じ thread へセッション情報カードを別投稿し、その
+     webhook message ID/token を保存する。タイトルと本文はこれまで通り
+     extra_prompt として inject 済み
   6. 作成されたセッションをこのスレッドに紐付け (新規スレッドは作らない)
 - **[決定 4a] 既存の `/spawn` コマンド・spawn テンプレ UI は恒久併存**。
   設定を細かくしたいケース (branch / worktree / options 指定等) のコマンド導線
@@ -143,7 +144,8 @@
    空き状況 (codex/claude それぞれの週間 rate-limit 枠の残量が多い方)** で自動選択する。
    codex は `gpt-5.6-terra`、 claude は `claude-sonnet-5` を **常に reasoning_effort=high**
    で使う (effort は投稿内容で変えない — 固定)。
-2. starter (フォーラムスレッドの最初の投稿 = ユーザーの元指示) はセッション確立時に
-   セッション情報カードへ編集/上書きし、 元の指示本文は別メッセージとして再投稿する。
-   以降の repo/branch/model/effort 変更同期も starter を直接編集する経路に統一
-   (`surface_message_id` は forum-spawn セッションでは持たせない)。
+2. **[2026-07-23 neco が上書き]** starter (フォーラムスレッドの最初の投稿 =
+   ユーザーの元指示) は編集せず、そのまま保持する。セッション情報カードは親 Forum の
+   webhook から同じ thread へ別投稿し、返された message ID と webhook ID/token を
+   session surface として永続化する。以降の repo/branch/model/effort 変更同期はその
+   webhook-owned message を編集する。

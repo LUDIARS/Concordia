@@ -215,7 +215,10 @@ describe("handleEvent transcript.frame relay", () => {
 
     expect(webhooks.getForSession).toHaveBeenCalledWith(sessionId);
     expect(webhooks.send).toHaveBeenCalledTimes(1);
-    expect(sent[0].options).toMatchObject({ content: "compact summary", username: "Conversation summary" });
+    expect(sent[0].options).toMatchObject({
+      content: "compact summary",
+      username: "Claude · Conversation summary",
+    });
   });
 
   it("notifies the tag lifecycle only after a completion frame is posted", async () => {
@@ -274,7 +277,7 @@ describe("handleEvent transcript.frame relay", () => {
 
     expect(webhooks.getForSession).toHaveBeenCalledWith(parentSessionId);
     expect(sent[0].options).toMatchObject({
-      username: "Cc delegation",
+      username: "Codex · Cc delegation",
       content: "[delegation:run-1] child s-codex-cli\n\nchild update",
     });
   });

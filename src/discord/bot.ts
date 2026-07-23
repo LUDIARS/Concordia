@@ -69,11 +69,9 @@ import {
   type ForumSpawnThread,
 } from "./forum-spawn.js";
 import {
-  fetchForumSessionThread,
   resolveForumSessionSurface,
-  updateForumSessionState,
-  updateForumSessionStarter,
 } from "./forum-session.js";
+import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { pickAvailableForumProvider } from "../delegation/forum-provider-availability.js";
 import { fetchCodexRateLimits } from "../cost/codex-rate-limits.js";
 import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
@@ -827,55 +825,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           const repoPath = state?.repoPath ?? ev.repo_path;
           const branch = state?.branch ?? ev.branch;
           if (forumSpawn) {
-            const existing = sessionChannelsRepo.findBySessionId(sessionId);
-            if (!existing) {
-              const thread = await fetchForumSessionThread(guild, forumSpawn.threadId);
-              if (!thread || thread.parentId !== layout.sessionForumId) {
-                throw new Error(`spawn source thread is unavailable: ${forumSpawn.threadId}`);
-              }
-              // starter (=ユーザーの元投稿) をセッション情報カードで上書きし、元の指示内容は
-              // 別メッセージとして再投稿する (neco 2026-07-18 指示)。 surface_message_id は
-              // 意図的に null のまま保存 — 以降の同期 (updateSessionSurfaceMetadata) も
-              // starter 自体を編集する既定経路に統一する。
-              const originalBody = (await thread.fetchStarterMessage())?.content?.trim();
-              await updateForumSessionStarter(guild, thread, {
+            await bindForumSpawnSession(
+              {
+                guild,
+                sessionForumId: layout.sessionForumId,
+                repo: sessionChannelsRepo,
+                webhooks,
+                log,
+              },
+              {
                 sessionId,
+                threadId: forumSpawn.threadId,
+                provider: ev.provider ?? null,
                 repoPath,
                 branch,
-                model: state?.model ?? null,
-                effortLevel: state?.effortLevel ?? null,
-                fastMode: state?.fastMode ?? null,
-              });
-              if (originalBody) {
-                const parentWebhook = await webhooks.getForChannel(layout.sessionForumId);
-                if (!parentWebhook) throw new Error("Session forum webhook unavailable for original request relay");
-                const relayed = await webhooks.send(parentWebhook, {
-                  content: originalBody.slice(0, 1900),
-                  threadId: thread.id,
-                  username: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_NAME?.trim() || "CLI User",
-                  ...(process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL?.trim()
-                    ? { avatarURL: process.env.CONCORDIA_DISCORD_FORUM_WEBHOOK_AVATAR_URL.trim() }
-                    : {}),
-                  allowedMentions: { parse: [] },
-                });
-                if (!relayed) throw new Error("Session forum original request webhook relay failed");
-              }
-              sessionChannelsRepo.upsert({
-                session_id: sessionId,
-                channel_id: thread.id,
-                channel_kind: "thread",
-                status: "active",
-                display_state: "active",
-                agent_type: ev.provider ?? null,
-                name_body: state?.currentTask ?? state?.roleLabel ?? "session",
-                delegation_emoji: state?.delegationEmoji ?? null,
-                surface_message_id: null,
-              });
-              await updateForumSessionState(thread, "active");
-              log.info(`forum-spawn bound session=${sessionId} thread=${thread.id} run=${state?.delegationRunId}`);
-            } else {
-              log.info(`forum-spawn session already bound session=${sessionId} thread=${existing.channel_id}`);
-            }
+                callName: delegationRun?.call_name ?? null,
+                state,
+              },
+            );
           } else {
             const surface = resolveForumSessionSurface(layout, delegationRun?.id);
             const surfaceLayout = { ...layout, sessionForumId: surface.forumId };

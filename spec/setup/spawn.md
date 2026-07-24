@@ -19,7 +19,7 @@ related:
   - ../feature/delegation.md
   - discord.md
   - config-reference.md
-updated: 2026-07-19
+updated: 2026-07-25
 ---
 
 # セッション管制 (spawn) の設定 (spawn)
@@ -50,6 +50,12 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 | `CONCORDIA_RESTART_DRY_RUN` | 未設定 | `1` で `/v1/admin/restart` の spawn/exit を skip (テスト用)。 |
 
 ### spawn cwd の必須条件
+
+### Template default cwd fallback
+
+For a non-injected template launch, an unresolved variable in `default_cwd` (for example `${target_repo}`) is intentional when neither `project` nor `cwd` is supplied. Concordia launches that session from the configured workspace root, which supports cross-repository work. An explicit `project` or `cwd` overrides this fallback. This does not allow malformed Windows paths: an explicit invalid path must still fail before spawn.
+
+The generic required-project rule below applies only when no configured workspace root is available; this template fallback takes precedence when a workspace root exists.
 
 Session spawn は個別 project cwd を必須とする。`cwd` / `project` / template の `default_cwd` のいずれでも project を解決できない場合は 400 で停止する。`workspaceRoots` (Castra/workspace root) のいずれかと完全一致する cwd は許可される — 横断作業・調査セッションが cwd=root で正当に起動するケースを一律拒否するのは、本来のリスク (Castra 自体への破壊的 git 操作) より広すぎたため。Castra 自体への commit/push/checkout/reset 等は spawn 後に inject される fail-closed advisory (下記) が個別に警告する。
 

@@ -27,6 +27,12 @@ The immediate cause is a malformed Windows path reaching delegation spawn. The l
 
 Separately, the Discord success text is too optimistic: it can show a PID fallback even when no session is registered, and it does not present the persisted run failure to the user.
 
+## 2026-07-25 correction
+
+An unresolved `${target_repo}` in a non-injected template launch is not an error when no `project` or `cwd` is supplied. It deliberately falls back to the configured workspace root for cross-repository sessions. The earlier rejection of that case was a specification error and has been removed.
+
+The observed PID-without-session result was also caused by an incomplete Lictor runtime: the `node-pty` installation was incomplete and the `lib/vestigium` submodule was not initialized. Both were restored locally, and `node bin/lictor.mjs --help` now succeeds. Discord now reports a launch as unconfirmed if no session registers within its 12-second wait, rather than displaying `Spawned from ...`.
+
 ## Fix Requirements
 
 - Preserve Windows absolute paths (including `\\`) from Discord `/spawn` input through template args, `cwd`, and `DelegationService`.

@@ -103,7 +103,7 @@ const spawnCommand: DiscordCommandSpec = {
       await interaction.editReply({
         content: channelMention
           ? `Spawned from \`${template}\`${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
-          : `Spawned from \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""})`,
+          : `spawn accepted for \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""}), but no session registered within 12 seconds. Check the Lictor runtime and try again.`,
       });
       return;
     }

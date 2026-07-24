@@ -44,3 +44,4 @@ Separately, the Discord success text is too optimistic: it can show a PID fallba
 
 - Correlate the user-visible PID `14420` with the exact API response and run ID; do not treat the text as proof that a session started.
 - Review all 2026-07-23 and 2026-07-24 first-parent merges that changed spawn, delegation, Discord, or serialization behavior before selecting the implementation fix.
+- 2026-07-24 verification found the same success-looking result for `codex-5-6-sol` with no `project` or `cwd`. Its `${target_repo}` default was unresolved and silently fell back to the workspace root. Reject that request before `wt.exe` is launched.

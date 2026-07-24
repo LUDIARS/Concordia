@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -82,6 +82,29 @@ describe("admin API", () => {
 
     expect(r.status).toBe(502);
     expect(await r.json()).toMatchObject({ error: "cwd does not exist: E:DocumentArsConcordia" });
+  });
+
+  it("POST /v1/admin/spawn-session rejects a template with an unresolved cwd variable", async () => {
+    const spawn = vi.fn(() => ({ ok: true as const, pid: 123, command: ["wt.exe"] }));
+    env = makeTestApp({ delegationSpawn: spawn });
+    env.delegation.createTemplate({
+      call_name: "template-needs-project",
+      title: "Template needs project",
+      target_provider: "codex",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: "${target_repo}",
+    });
+
+    const r = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ template: "template-needs-project" }),
+    });
+
+    expect(r.status).toBe(400);
+    expect(await r.json()).toEqual({ error: "template requires project or cwd: template-needs-project" });
+    expect(spawn).not.toHaveBeenCalled();
   });
 
   it("POST /v1/admin/spawn-session automatically selects Codex effort", async () => {

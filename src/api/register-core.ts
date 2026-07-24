@@ -407,6 +407,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         const expanded = substituteVars(tpl.default_cwd, tplArgs).trim();
         tplCwd = (expanded && !expanded.includes("${")) ? expanded : undefined;
       }
+      if (!tplCwd && tpl.default_cwd?.includes("${")) {
+        return c.json({
+          error: `template requires project or cwd: ${tpl.call_name}`,
+        }, 400);
+      }
       // local-LLM レーンで model="auto" なら Famulus 黒箱に選ばせる (delegation invoke と同じ。
       // 選択 Sonnet は Famulus 内部 = Concordia は LLM-free)。それ以外は素通し。
       let modelInput = tpl.model;

@@ -40,6 +40,8 @@ export interface SessionRelayState {
   effortLevel: string | null;
   fastMode: boolean | null;
   subsidiaryId: string | null;
+  /** ended_at (epoch sec)。 teardown 猶予窓 (egress の relay 判定) に使う。 */
+  endedAt: number | null;
   webhookName?: string | null;
   webhookAvatarUrl?: string | null;
 }

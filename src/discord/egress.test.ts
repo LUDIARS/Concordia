@@ -53,6 +53,16 @@ describe("isActiveRelayTarget", () => {
     expect(isActiveRelayTarget("ended", "active")).toBe(false);
     expect(isActiveRelayTarget("active", null)).toBe(false);
   });
+
+  it("teardown 猶予: ended 直後 (ended_at 窓内) は Discord channel active ならリレーする", () => {
+    const now = 1_784_720_000;
+    expect(isActiveRelayTarget("ended", "active", now - 10, now)).toBe(true);
+    expect(isActiveRelayTarget("lost", "active", now - 10, now)).toBe(true);
+    // 窓超過 / channel 非 active / ended_at 不明は従来どおり拒否
+    expect(isActiveRelayTarget("ended", "active", now - 10_000, now)).toBe(false);
+    expect(isActiveRelayTarget("ended", "ended", now - 10, now)).toBe(false);
+    expect(isActiveRelayTarget("ended", "active", null, now)).toBe(false);
+  });
 });
 
 describe("isChatRelayTarget", () => {
@@ -61,6 +71,12 @@ describe("isChatRelayTarget", () => {
     expect(isChatRelayTarget(null, null, null)).toBe(false);
     expect(isChatRelayTarget("s1", "active", null)).toBe(false);
     expect(isChatRelayTarget("s1", "ended", "active")).toBe(false);
+  });
+
+  it("teardown 猶予: session-end 独白 (ended 後投稿) を窓内ならリレーする", () => {
+    const now = 1_784_720_000;
+    expect(isChatRelayTarget("s1", "ended", "active", now - 74, now)).toBe(true);
+    expect(isChatRelayTarget("s1", "ended", "active", now - 10_000, now)).toBe(false);
   });
 });
 

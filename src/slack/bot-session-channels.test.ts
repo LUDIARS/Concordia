@@ -77,6 +77,7 @@ function makeReadModel(): ChatReadModel {
       delegationParentSessionId: null,
       model: "gpt",
       subsidiaryId: null,
+      endedAt: null,
       effortLevel: null,
       fastMode: null,
     }),

@@ -3,6 +3,7 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { withinTeardownGrace } from "../../platform/session-teardown-grace.js";
 
 export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/transcript-frame", async (c) => {
@@ -15,7 +16,14 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     const ts = nowSec();
     if (session.status === "active") deps.repo.updateHeartbeat(id, ts);
     const discordRow = deps.channelDirectory.findSessionChannel(id);
-    const activeRelayTarget = session.status === "active" && discordRow?.status === "active";
+    // teardown 猶予: DELETE /v1/sessions/:id は status を即 "ended" にするが、
+    // 子プロセス exit 直後の最終応答 frame はその数秒後に届く。 厳密 active 判定だと
+    // ユーザから見て「返事が来ない」になるため、 ended 直後は broadcast を許す
+    // (egress 側の isActiveRelayTarget と同じ窓)。
+    const activeRelayTarget =
+      discordRow?.status === "active" &&
+      (session.status === "active" ||
+        withinTeardownGrace(session.status, session.ended_at ?? null, ts));
 
     // 永続化: 失敗してもログ流通は止めず、 続けて WS broadcast に進む
     // (永続化失敗は dispatcher / 監視への副作用が無いため安全)

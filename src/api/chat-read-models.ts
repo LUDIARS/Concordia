@@ -58,6 +58,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
       fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
       subsidiaryId: stringOrNull(meta.subsidiary_id),
+      endedAt: session.ended_at ?? null,
       webhookName: stringOrNull(meta.discord_webhook_name),
       webhookAvatarUrl: stringOrNull(meta.discord_webhook_avatar_url),
     };

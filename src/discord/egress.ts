@@ -9,6 +9,7 @@ import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
+import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
 import { buildDelegationMirrorText } from "../delegation/coordination.js";
 import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
@@ -74,7 +75,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   const sessionId = row.sessionId;
   const sessionRow = sessionId ? deps.sessionChannelsRepo.findBySessionId(sessionId) : null;
   const session = sessionId ? deps.readModel.getSessionRelayState(sessionId) : null;
-  if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null)) {
+  if (!isChatRelayTarget(sessionId, session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) {
     deps.log.warn(
       `egress.handleChatPosted skipped unrelayable session message_id=${row.id} row_session_id=${sessionId ?? "null"} ` +
       `session_status=${session?.status ?? "null"} discord_status=${sessionRow?.status ?? "null"} ` +
@@ -162,10 +163,10 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   let mirroredFromChild = false;
   const directSessionStatus = session?.status ?? null;
   const directDiscordStatus = sessionRow?.status ?? null;
-  if (!isActiveRelayTarget(directSessionStatus, directDiscordStatus) && originalSession?.delegationParentSessionId) {
+  if (!isActiveRelayTarget(directSessionStatus, directDiscordStatus, originalSession?.endedAt ?? null) && originalSession?.delegationParentSessionId) {
     const parent = deps.readModel.getSessionRelayState(originalSession.delegationParentSessionId);
     const parentRow = deps.sessionChannelsRepo.findBySessionId(originalSession.delegationParentSessionId);
-    if (isActiveRelayTarget(parent?.status ?? null, parentRow?.status ?? null)) {
+    if (isActiveRelayTarget(parent?.status ?? null, parentRow?.status ?? null, parent?.endedAt ?? null)) {
       relaySessionId = originalSession.delegationParentSessionId;
       session = parent;
       sessionRow = parentRow;
@@ -174,7 +175,7 @@ async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEven
   }
   const sessionStatus = session?.status ?? null;
   const discordStatus = sessionRow?.status ?? null;
-  if (!isActiveRelayTarget(sessionStatus, discordStatus)) {
+  if (!isActiveRelayTarget(sessionStatus, discordStatus, session?.endedAt ?? null)) {
     logInactiveTranscriptFrame(deps, ev, {
       sessionStatus: directSessionStatus,
       discordStatus: directDiscordStatus,
@@ -375,15 +376,23 @@ export function isChatRelayTarget(
   sessionId: string | null | undefined,
   sessionStatus: string | null | undefined,
   discordStatus: string | null | undefined,
+  endedAtSec?: number | null,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): boolean {
-  return !!sessionId && isActiveRelayTarget(sessionStatus, discordStatus);
+  return !!sessionId && isActiveRelayTarget(sessionStatus, discordStatus, endedAtSec, nowSec);
 }
 
 export function isActiveRelayTarget(
   sessionStatus: string | null | undefined,
   discordStatus: string | null | undefined,
+  endedAtSec?: number | null,
+  nowSec: number = Math.floor(Date.now() / 1000),
 ): boolean {
-  return sessionStatus === "active" && discordStatus === "active";
+  if (discordStatus !== "active") return false;
+  if (sessionStatus === "active") return true;
+  // teardown 猶予: platform/session-teardown-grace.ts 参照 (最終応答 frame と
+  // session-end 独白は ended 直後に届くため、 厳密 active 判定だと必ず落ちる)。
+  return withinTeardownGrace(sessionStatus, endedAtSec, nowSec);
 }
 
 async function buildAttachFiles(

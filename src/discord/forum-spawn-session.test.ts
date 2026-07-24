@@ -100,6 +100,7 @@ describe("bindForumSpawnSession", () => {
         effortLevel: "xhigh",
         fastMode: false,
         subsidiaryId: null,
+        endedAt: null,
       },
     });
 

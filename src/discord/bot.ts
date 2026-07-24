@@ -71,6 +71,7 @@ import {
   type ForumSpawnDeps,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
+import { forumAutoSpawnSuppression, waitForExplicitForumSpawn } from "./forum-auto-spawn-suppression.js";
 import {
   resolveForumSessionSurface,
 } from "./forum-session.js";
@@ -732,28 +733,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     const forumWebhooks = webhooks;
     if (gatewayClosed || stopping || !newlyCreated || !forumLayout?.forumMode || !forumWebhooks) return;
     if (!inScope(thread.guildId)) return;
-    void handleForumSpawnThread({
-      sessionForumId: forumLayout.sessionForumId,
-      botUserId: client.user?.id ?? "",
-      concordiaUrl: deps.concordiaUrl,
+    void waitForExplicitForumSpawn(forumAutoSpawnSuppression, thread.id).then((suppressed) => {
+      if (suppressed) {
+        log.info(`forum-spawn skipped explicit /spawn thread=${thread.id}`);
+        return;
+      }
+      return handleForumSpawnThread({
+        sessionForumId: forumLayout.sessionForumId,
+        botUserId: client.user?.id ?? "",
+        concordiaUrl: deps.concordiaUrl,
       // このスレッドを持つ Bot インスタンス自身の子会社 id (本社なら null)。
       // /v1/delegation/invoke へ転送し、 spawn したセッションを正しい会社スコープに
       // 帰属させる (ownsSession の subsidiary-only 可視判定を壊さないため)。
-      subsidiaryId,
-      isLaunchUserAllowed: deps.isLaunchUserAllowed,
-      templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
-      pickProvider: async () => {
+        subsidiaryId,
+        isLaunchUserAllowed: deps.isLaunchUserAllowed,
+        templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
+        pickProvider: async () => {
         const [codexRate, claudeUsage] = await Promise.all([
           fetchCodexRateLimits({ log }),
           fetchClaudeOAuthUsage({ log }),
         ]);
         return pickAvailableForumProvider({ codexRate, claudeUsage });
-      },
-      resolveProjectTarget: projectResolver.targetFromPost,
-      resolveSpawnCwd: (provider, requested) =>
+        },
+        resolveProjectTarget: projectResolver.targetFromPost,
+        resolveSpawnCwd: (provider, requested) =>
         deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
-      hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
-      postToThread: async (threadId, content) => {
+        hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
+        postToThread: async (threadId, content) => {
         const webhook = await forumWebhooks.getForChannel(forumLayout.sessionForumId);
         if (!webhook) throw new Error("Session forum webhook unavailable");
         const sent = await forumWebhooks.send(webhook, {
@@ -766,9 +772,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           allowedMentions: { parse: [] },
         });
         if (!sent) throw new Error("Session forum webhook post failed");
-      },
-      log,
-    }, thread as unknown as ForumSpawnThread).catch((error) => {
+        },
+        log,
+      }, thread as unknown as ForumSpawnThread);
+    }).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
     });
   }));

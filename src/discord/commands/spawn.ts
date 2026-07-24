@@ -2,6 +2,7 @@ import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
+import { forumAutoSpawnSuppression } from "../forum-auto-spawn-suppression.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
 
@@ -72,6 +73,10 @@ const spawnCommand: DiscordCommandSpec = {
        `has_prompt=${prompt ? 1 : 0} model=${model ?? "-"} project=${project ?? "-"} branch=${branch ?? "-"} has_cwd=${cwd ? 1 : 0} ` +
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
+
+    // A newly created Forum thread emits ThreadCreate beside this interaction.
+    // Prefer the explicit user-selected spawn over the Forum auto-spawn path.
+    forumAutoSpawnSuppression.suppressForExplicitSpawn(interaction.channelId);
 
     // 本社はどのチャンネルからでも spawn 可 (2026-07-02 ユーザ指示でチャンネル限定を撤回)。
     // 子会社の spawn 禁止は dispatchInteraction の全コマンド拒否で担保している。

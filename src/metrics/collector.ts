@@ -9,6 +9,7 @@
 
 import os from "node:os";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { ExcubitorClient } from "../excubitor/client.js";
 import { parseLictorPid } from "../control/reaper.js";
 import { listProcesses, sumTreeRss, topByName, type TopProc } from "./process-tree.js";
 import { sampleWsl, sampleDocker, type WslSample, type DockerSample } from "./os-samplers.js";
@@ -42,11 +43,15 @@ export interface HostSnapshot {
   eventLoopLag?: LagSnapshot;
 }
 
-export async function collectHostSnapshot(repo: SessionsRepo, nowMs: number): Promise<HostSnapshot> {
-  const [procList, loadPct, wsl, docker] = await Promise.all([
-    listProcesses(),
+export async function collectHostSnapshot(
+  repo: SessionsRepo,
+  nowMs: number,
+  excubitorClient?: ExcubitorClient,
+): Promise<HostSnapshot> {
+  const procList = await listProcesses(excubitorClient, nowMs);
+  const [loadPct, wsl, docker] = await Promise.all([
     cpuLoadPct(),
-    sampleWsl(),
+    sampleWsl(procList ?? []),
     sampleDocker(),
   ]);
 

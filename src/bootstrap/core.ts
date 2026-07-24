@@ -863,6 +863,7 @@ export async function startBackend(): Promise<BackendHandle> {
         {
           repo,
           store: metricsStore,
+          excubitorClient,
           notifyLag: (snapshot) => {
             eventBus.emit({
               type: "error.reported",

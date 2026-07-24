@@ -3,6 +3,7 @@
  */
 
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { ExcubitorClient } from "../excubitor/client.js";
 import { createChildLogger } from "../shared/logger.js";
 import { collectHostSnapshot } from "./collector.js";
 import { MetricsStore } from "./store.js";
@@ -18,7 +19,12 @@ export interface MetricsLoopHandle {
 }
 
 export function startMetricsLoop(
-  deps: { repo: SessionsRepo; store: MetricsStore; notifyLag?: (snapshot: LagSnapshot) => Promise<void> | void },
+  deps: {
+    repo: SessionsRepo;
+    store: MetricsStore;
+    excubitorClient?: ExcubitorClient;
+    notifyLag?: (snapshot: LagSnapshot) => Promise<void> | void;
+  },
   opts: { enabled: boolean; intervalMs: number; retentionHours: number },
 ): MetricsLoopHandle {
   if (!opts.enabled) {
@@ -56,7 +62,7 @@ export function startMetricsLoop(
       }
       const lagSnap = lagSampler.snapshot();
       lagAlert.observe(lagSnap);
-      const snap = await collectHostSnapshot(deps.repo, Date.now());
+      const snap = await collectHostSnapshot(deps.repo, Date.now(), deps.excubitorClient);
       snap.eventLoopLag = lagSnap;
       deps.store.insert(snap);
       deps.store.prune(Date.now() - opts.retentionHours * 3_600_000);

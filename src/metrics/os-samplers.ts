@@ -2,7 +2,7 @@
  * WSL / docker のメモリサンプラ (host 概況用)。 失敗時は空配列で degrade。
  */
 
-import { runCapture } from "./process-tree.js";
+import { runCapture } from "./run-capture.js";
 
 export interface WslSample {
   key: string;          // distro 名 | 'vmmem'
@@ -64,6 +64,13 @@ export function parseVmmem(rawCsv: string): number {
   return bytes;
 }
 
+/** Excubitor の共有 process snapshot から vmmem 系 RSS を合算する (pure)。 */
+export function vmmemFromProcesses(processes: readonly { name: string; rss: number }[]): number {
+  return processes
+    .filter((process) => /^vmmem/i.test(process.name))
+    .reduce((total, process) => total + process.rss, 0);
+}
+
 /** docker stats NDJSON を parse (pure)。 */
 export function parseDockerStats(raw: string): DockerSample[] {
   const out: DockerSample[] = [];
@@ -83,7 +90,9 @@ export function parseDockerStats(raw: string): DockerSample[] {
   return out;
 }
 
-export async function sampleWsl(): Promise<WslSample[]> {
+export async function sampleWsl(
+  processes: readonly { name: string; rss: number }[] = [],
+): Promise<WslSample[]> {
   if (process.platform !== "win32") return [];
   const samples: WslSample[] = [];
   const listed = await runWsl(["-l", "-q"]);
@@ -92,11 +101,8 @@ export async function sampleWsl(): Promise<WslSample[]> {
     const parsed = mi ? parseMeminfo(mi) : null;
     if (parsed) samples.push({ key: distro, side: "guest", rss: parsed.used, total: parsed.total });
   }
-  const tl = await runCapture("tasklist", ["/FO", "CSV", "/NH"], 8000);
-  if (tl) {
-    const vm = parseVmmem(tl);
-    if (vm > 0) samples.push({ key: "vmmem", side: "host", rss: vm });
-  }
+  const vm = vmmemFromProcesses(processes);
+  if (vm > 0) samples.push({ key: "vmmem", side: "host", rss: vm });
   return samples;
 }
 

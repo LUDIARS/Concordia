@@ -8,6 +8,7 @@ import {
   liveSetsFromRepo,
   parseLictorPid,
   parseAgentClientPid,
+  runningAgentProcessesFromSnapshot,
   reapOrphans,
   type RunningAgentProc,
 } from "../src/control/reaper.js";
@@ -56,6 +57,59 @@ describe("parsePosixProcLine", () => {
   it("ps の pid etimes args を parse", () => {
     const r = parsePosixProcLine("  4242   900 node /ars/Lictor/bin/lictor.mjs");
     expect(r).toMatchObject({ pid: 4242, ageSec: 900, kind: "lictor" });
+  });
+});
+
+describe("runningAgentProcessesFromSnapshot", () => {
+  it("共有 snapshot から対象 command だけを抽出し age を算出する", () => {
+    const processes = runningAgentProcessesFromSnapshot({
+      sampled_at: 90_000,
+      processes: [
+        {
+          pid: 10,
+          ppid: 1,
+          rss: 100,
+          cpu_ms: null,
+          name: "node.exe",
+          started_at: 40_000,
+          command_line: "node Lictor/bin/lictor.mjs",
+        },
+        {
+          pid: 20,
+          ppid: 1,
+          rss: 100,
+          cpu_ms: null,
+          name: "node.exe",
+          started_at: null,
+          command_line: "node tools/concordia-agent-client.mjs --session s2",
+        },
+        {
+          pid: 30,
+          ppid: 1,
+          rss: 100,
+          cpu_ms: null,
+          name: "node.exe",
+          started_at: 1,
+          command_line: "node unrelated.js",
+        },
+      ],
+    }, 100_000);
+    expect(processes).toEqual([
+      {
+        pid: 10,
+        kind: "lictor",
+        sessionId: null,
+        ageSec: 60,
+        cmd: "node Lictor/bin/lictor.mjs",
+      },
+      {
+        pid: 20,
+        kind: "agent-client",
+        sessionId: "s2",
+        ageSec: 0,
+        cmd: "node tools/concordia-agent-client.mjs --session s2",
+      },
+    ]);
   });
 });
 

@@ -2,11 +2,15 @@
  * プロセスツリーの RSS サンプリング。
  *
  * セッション別メモリは「Lictor の pid (sessions.metadata.lictor_pid) を根とする部分木の RSS」。
- * `npm`/cmd ラッパ経由で起動するため pid 単体では取りこぼす → 1 回の OS 呼び出しで全プロセスの
- * (pid, ppid, rss, name) を取得し、 木構造で合算する。
+ * `npm`/cmd ラッパ経由で起動するため pid 単体では取りこぼす。全プロセス走査は Excubitor が
+ * 一元管理し、Concordia は共有 snapshot の (pid, ppid, rss, name) から木構造で合算する。
  */
 
-import { spawn } from "node:child_process";
+import {
+  ExcubitorClient,
+  MAX_PROCESS_SNAPSHOT_AGE_MS,
+  type ExcubitorProcessSnapshot,
+} from "../excubitor/client.js";
 
 export interface ProcEntry {
   pid: number;
@@ -99,38 +103,34 @@ export function topByName(procs: ProcEntry[], limit = 15): TopProc[] {
     .slice(0, limit);
 }
 
-/** OS から全プロセス (pid, ppid, rss, name) を取得。 失敗時 null。 */
-export function listProcesses(timeoutMs = 15000): Promise<ProcEntry[] | null> {
-  if (process.platform === "win32") {
-    const script =
-      "Get-CimInstance Win32_Process | ForEach-Object { " +
-      "[string]$_.ProcessId + ',' + [string]$_.ParentProcessId + ',' + [string]$_.WorkingSetSize + ',' + $_.Name }";
-    return runCapture("powershell", ["-NoProfile", "-NonInteractive", "-Command", script], timeoutMs).then(
-      (o) => (o == null ? null : parseWindowsProcs(o)),
-    );
-  }
-  return runCapture("ps", ["-eo", "pid=,ppid=,rss=,comm="], timeoutMs).then((o) =>
-    o == null ? null : parsePosixProcs(o),
-  );
+/** Excubitor API の wire model をメトリクス用の最小形へ変換する (pure)。 */
+export function procEntriesFromSnapshot(snapshot: ExcubitorProcessSnapshot): ProcEntry[] {
+  return snapshot.processes
+    .filter((process) =>
+      Number.isFinite(process.pid)
+      && Number.isFinite(process.ppid)
+      && Number.isFinite(process.rss),
+    )
+    .map((process) => ({
+      pid: process.pid,
+      ppid: process.ppid,
+      rss: process.rss,
+      name: process.name || "(unknown)",
+    }));
 }
 
-export function runCapture(cmd: string, args: string[], timeoutMs: number): Promise<string | null> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: false, windowsHide: true });
-    let out = "";
-    let settled = false;
-    const done = (v: string | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(v);
-    };
-    const timer = setTimeout(() => {
-      try { proc.kill("SIGTERM"); } catch { /* noop */ }
-      done(null);
-    }, timeoutMs);
-    proc.stdout.on("data", (c: Buffer) => (out += c.toString("utf8")));
-    proc.on("error", () => done(null));
-    proc.on("close", (code) => done(code === 0 ? out : null));
-  });
+/** Excubitor の共有 snapshot を取得する。失敗・stale 時は null (ローカル走査へ fallback しない)。 */
+export async function listProcesses(
+  client = new ExcubitorClient(),
+  nowMs = Date.now(),
+): Promise<ProcEntry[] | null> {
+  try {
+    const snapshot = await client.getProcessSnapshot();
+    if (!Number.isFinite(snapshot.sampled_at) || nowMs - snapshot.sampled_at > MAX_PROCESS_SNAPSHOT_AGE_MS) {
+      return null;
+    }
+    return procEntriesFromSnapshot(snapshot);
+  } catch {
+    return null;
+  }
 }

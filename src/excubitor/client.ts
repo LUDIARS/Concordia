@@ -14,6 +14,7 @@ const log = createChildLogger("excubitor/client");
 
 const DEFAULT_BASE_URL = "http://127.0.0.1:17332";
 const DEFAULT_TIMEOUT_MS = 120_000;
+export const MAX_PROCESS_SNAPSHOT_AGE_MS = 150_000;
 
 export type ServiceAction = "start" | "stop" | "restart";
 
@@ -32,6 +33,21 @@ export interface ControlResult {
   exit_code: number | null;
   stdout?: string;
   stderr?: string;
+}
+
+export interface ExcubitorProcess {
+  pid: number;
+  ppid: number;
+  rss: number;
+  cpu_ms: number | null;
+  name: string;
+  started_at: number | null;
+  command_line: string;
+}
+
+export interface ExcubitorProcessSnapshot {
+  sampled_at: number;
+  processes: ExcubitorProcess[];
 }
 
 export interface ExcubitorClientOptions {
@@ -55,6 +71,11 @@ export class ExcubitorClient {
   async listServices(): Promise<ExcubitorService[]> {
     const body = await this.request<{ services: ExcubitorService[] }>("GET", "/api/v1/services");
     return body.services ?? [];
+  }
+
+  /** Excubitor が一元採取した全プロセスの最新キャッシュを読む。ローカル WMI/ps は起動しない。 */
+  async getProcessSnapshot(timeoutMs = 5_000): Promise<ExcubitorProcessSnapshot> {
+    return this.request<ExcubitorProcessSnapshot>("GET", "/api/v1/processes/snapshot", undefined, timeoutMs);
   }
 
   async findService(code: string): Promise<ExcubitorService | null> {
@@ -91,9 +112,14 @@ export class ExcubitorClient {
     return last.ok === 1;
   }
 
-  private async request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async request<T>(
+    method: "GET" | "POST",
+    path: string,
+    body?: unknown,
+    timeoutMs = this.timeoutMs,
+  ): Promise<T> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method,

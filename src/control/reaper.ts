@@ -16,9 +16,13 @@
  *    途絶えた場合だけsweeperがlostへ移してlost専用判定に委ねる。
  */
 
-import { spawn } from "node:child_process";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
+import {
+  ExcubitorClient,
+  MAX_PROCESS_SNAPSHOT_AGE_MS,
+  type ExcubitorProcessSnapshot,
+} from "../excubitor/client.js";
 import { stopSessionByLictorPid } from "./stop-session.js";
 import {
   reapLostLictorProcesses,
@@ -147,21 +151,53 @@ export function liveSetsFromRepo(
 
 // ─── OS 走査 ───────────────────────────────────────
 
-/** OS から Lictor/agent-client プロセスを列挙する。 失敗時は空配列。 */
-export async function scanAgentProcesses(): Promise<RunningAgentProc[]> {
-  if (process.platform === "win32") {
-    // node.exe に絞って pid / 起動からの経過秒 / cmdline を出す。
-    const script =
-      "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | ForEach-Object { " +
-      "$age=[int]((Get-Date)-$_.CreationDate).TotalSeconds; " +
-      "\"$($_.ProcessId)`t$age`t$($_.CommandLine)\" }";
-    const out = await runCapture("powershell", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    if (out == null) return [];
-    return out.split(/\r?\n/).map(parseWindowsProcLine).filter((p): p is RunningAgentProc => p !== null);
+/** Excubitor snapshot から reaper 対象だけを抽出する (pure)。 */
+export function runningAgentProcessesFromSnapshot(
+  snapshot: ExcubitorProcessSnapshot,
+  nowMs = Date.now(),
+): RunningAgentProc[] {
+  const out: RunningAgentProc[] = [];
+  for (const process of snapshot.processes) {
+    const cmd = process.command_line;
+    const kind = classifyKind(cmd);
+    if (!kind) continue;
+    // 起動時刻が取れないプロセスは age=0 とし、reaper の minAgeSec ガードで保護する。
+    const ageSec = process.started_at == null
+      ? 0
+      : Math.max(0, Math.floor((nowMs - process.started_at) / 1000));
+    out.push({
+      pid: process.pid,
+      kind,
+      sessionId: kind === "agent-client" ? extractSessionId(cmd) : null,
+      ageSec,
+      cmd,
+    });
   }
-  const out = await runCapture("ps", ["-eo", "pid=,etimes=,args="]);
-  if (out == null) return [];
-  return out.split(/\r?\n/).map(parsePosixProcLine).filter((p): p is RunningAgentProc => p !== null);
+  return out;
+}
+
+/** Excubitor の共有 snapshot から列挙する。失敗・stale 時は安全側の空配列。 */
+export async function scanAgentProcesses(
+  client = new ExcubitorClient(),
+  nowMs = Date.now(),
+): Promise<RunningAgentProc[]> {
+  try {
+    const snapshot = await client.getProcessSnapshot();
+    if (!Number.isFinite(snapshot.sampled_at) || nowMs - snapshot.sampled_at > MAX_PROCESS_SNAPSHOT_AGE_MS) {
+      log.warn(
+        { sampledAt: snapshot.sampled_at, ageMs: nowMs - snapshot.sampled_at },
+        "excubitor process snapshot is stale; reaper scan skipped",
+      );
+      return [];
+    }
+    return runningAgentProcessesFromSnapshot(snapshot, nowMs);
+  } catch (error) {
+    log.warn(
+      { err: error instanceof Error ? error.message : String(error) },
+      "excubitor process snapshot unavailable; reaper scan skipped",
+    );
+    return [];
+  }
 }
 
 /** lost セッションがlive trafficで復帰するための猶予 (秒) の既定値 = 5 分。 */
@@ -299,26 +335,4 @@ export function startReaper(
 /** 現在時刻 (秒)。 grace 判定の基準。 */
 function nowSecReal(): number {
   return Math.floor(Date.now() / 1000);
-}
-
-/** stdout を集める軽量 spawn。 失敗・非 0 終了・timeout は null。 */
-function runCapture(cmd: string, args: string[], timeoutMs = 15000): Promise<string | null> {
-  return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { shell: false, windowsHide: true });
-    let out = "";
-    let settled = false;
-    const done = (v: string | null): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(v);
-    };
-    const timer = setTimeout(() => {
-      try { proc.kill("SIGTERM"); } catch { /* noop */ }
-      done(null);
-    }, timeoutMs);
-    proc.stdout.on("data", (c: Buffer) => (out += c.toString("utf8")));
-    proc.on("error", () => done(null));
-    proc.on("close", (code) => done(code === 0 ? out : null));
-  });
 }

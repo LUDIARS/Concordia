@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseWindowsProcs,
   parsePosixProcs,
+  procEntriesFromSnapshot,
   sumTreeRss,
   topByName,
   type ProcEntry,
@@ -11,6 +12,7 @@ import {
   parseDistroList,
   parseMeminfo,
   parseVmmem,
+  vmmemFromProcesses,
   parseDockerStats,
 } from "../src/metrics/os-samplers.js";
 
@@ -25,6 +27,23 @@ describe("process-tree parse", () => {
   it("POSIX rss(KB)→bytes", () => {
     const e = parsePosixProcs("  100   4  1024 node\n  200 100  512 npm");
     expect(e[0]).toEqual({ pid: 100, ppid: 4, rss: 1024 * 1024, name: "node" });
+  });
+});
+
+describe("Excubitor process snapshot", () => {
+  it("wire model をメトリクス用 ProcEntry に変換する", () => {
+    expect(procEntriesFromSnapshot({
+      sampled_at: 1000,
+      processes: [{
+        pid: 100,
+        ppid: 4,
+        rss: 1024,
+        cpu_ms: 2,
+        name: "node.exe",
+        started_at: 500,
+        command_line: "node app.js",
+      }],
+    })).toEqual([{ pid: 100, ppid: 4, rss: 1024, name: "node.exe" }]);
   });
 });
 
@@ -79,6 +98,13 @@ describe("os-samplers parse", () => {
   });
   it("parseVmmem は vmmem 系 KB 合算", () => {
     expect(parseVmmem('"vmmemWSL","1","C","1","2,000 K"\n"explorer.exe","2","C","1","100 K"')).toBe(2000 * 1024);
+  });
+  it("vmmem RSS は Excubitor process snapshot から合算", () => {
+    expect(vmmemFromProcesses([
+      { name: "vmmemWSL", rss: 2000 },
+      { name: "vmmem", rss: 3000 },
+      { name: "explorer.exe", rss: 100 },
+    ])).toBe(5000);
   });
   it("parseDockerStats", () => {
     const raw = JSON.stringify({ Name: "infisical-backend", MemUsage: "734MiB / 8GiB", MemPerc: "2.29%" });

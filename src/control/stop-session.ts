@@ -16,6 +16,8 @@
 
 import { spawn } from "node:child_process";
 
+const TASKKILL_TIMEOUT_MS = 30_000;
+
 export interface StopOk { ok: true; method: "taskkill" | "signal" }
 export interface StopErr { ok: false; error: string }
 export type StopResult = StopOk | StopErr;
@@ -46,12 +48,24 @@ export function stopSessionByLictorPid(pid: number): Promise<StopResult> {
       const child = spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { windowsHide: true });
       let stdout = "";
       let stderr = "";
+      let settled = false;
+      const done = (result: StopResult): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch { /* already gone */ }
+        done({ ok: false, error: `taskkill timeout after ${TASKKILL_TIMEOUT_MS}ms` });
+      }, TASKKILL_TIMEOUT_MS);
+      timer.unref?.();
       child.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
       child.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
-      child.on("error", (err) => resolve({ ok: false, error: err.message }));
+      child.on("error", (err) => done({ ok: false, error: err.message }));
       child.on("close", (code) => {
-        if (code === 0) resolve({ ok: true, method: "taskkill" });
-        else resolve({ ok: false, error: stderr.trim() || stdout.trim() || `taskkill exit ${code}` });
+        if (code === 0) done({ ok: true, method: "taskkill" });
+        else done({ ok: false, error: stderr.trim() || stdout.trim() || `taskkill exit ${code}` });
       });
     });
   }

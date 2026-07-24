@@ -162,8 +162,8 @@ spawn は token-free・Delegation CRUD だけ token 必須という非対称が�
 - `delegation_list_templates` — 一覧 (call_name / title / description / input_schema)
 - `delegation_invoke` — `{ call_name, args, cwd?, triggered_by? }` で resolve + spawn、 結果を返す
 
-Concordia loopback (デフォルト http://127.0.0.1:11111) に対して HTTP fetch。
-Bearer token は `process.env.CONCORDIA_SPAWN_TOKEN` から取得。
+Concordia loopback (デフォルト http://127.0.0.1:11111) に対して token なしで HTTP fetch。
+外部公開はせず、platform 起点は Discord / Slack adapter 側で user ID allowlist を検証する。
 
 ## 7. CLI skill
 
@@ -172,7 +172,7 @@ Bearer token は `process.env.CONCORDIA_SPAWN_TOKEN` から取得。
 ```
 /codex-delegate <call_name> [key=value ...]
 
-  - .spawn.token を読み、 POST /v1/delegation/invoke
+  - POST /v1/delegation/invoke
   - 返ってきた prompt_file_path / spawn_pid を出力
   - 失敗時はエラーを返す
 ```

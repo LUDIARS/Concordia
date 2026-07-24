@@ -36,13 +36,13 @@ describe("removed dead API routes", () => {
     expect(response.status).toBe(404);
   });
 
-  it("denies removed spawn mutations before route dispatch", async () => {
-    const env = makeTestApp({ config: { adminToken: "" } });
+  it("returns 404 for removed spawn mutations", async () => {
+    const env = makeTestApp();
     const token = readFileSync(join(env.logsDir, ".spawn.token"), "utf8").trim();
     const response = await env.app.request("/v1/spawn/preview", {
       method: "POST",
       headers: { authorization: `Bearer ${token}` },
     });
-    expect(response.status).toBe(401);
+    expect(response.status).toBe(404);
   });
 });

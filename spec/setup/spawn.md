@@ -1,7 +1,7 @@
 ---
 type: setup
 title: "セッション管制 (spawn) の設定 (spawn)"
-description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。Bearer token 認証の外部エンドポイント (`/v1/spawn`) と loopback 信頼境界の管理エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、MCP delegation 経由の委託 spawn と既定 cwd の解決順も網羅する。"
+description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。repository token 認証の外部エンドポイント (`/v1/spawn`) と loopback 内部エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、platform user allowlist・MCP delegation・既定 cwd の解決順も網羅する。"
 service: concordia
 domain: session-coordination
 tags:
@@ -33,7 +33,7 @@ Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッ
 | エンドポイント | 認証 | 用途 |
 |----------------|------|------|
 | `POST /v1/spawn` | **Bearer token** (`.spawn.token`) | 外部 / Discord bot から。 token 必須。 |
-| `POST /v1/admin/spawn-session` | Admin principal | Web UI / dashboard から。空tokenはfail closed。 |
+| `POST /v1/admin/spawn-session` | loopback 内部 API | AccessControl 配下の Web UI、または platform adapter / worker から。 |
 
 `/v1/spawn` の token は `<cwd>/.spawn.token` (64-hex)。 Concordia が起動時に未生成なら自動生成する (`ensureSpawnToken`, `src/control/token.ts`)。 認証は `Authorization: Bearer <token>` または `X-Concordia-Token: <token>`。 `GET /v1/spawn/info` (無認証) で token ファイルの絶対パスだけ取得できる (値は返さない)。
 
@@ -100,9 +100,10 @@ session だけへ、project 特定、Castra への破壊的 git 操作の禁止�
 | キー | 既定値 | 意味 |
 |------|--------|------|
 | `CONCORDIA_BASE_URL` | `http://127.0.0.1:11111` | 叩く先。 |
-| `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | `/v1/spawn` 用 token の場所。 |
 
-MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](../feature/delegation.md)。
+MCP delegation は loopback の `/v1/delegation/invoke` を直接使い、service token や
+`.spawn.token` を要求しない。MCP 登録例はリポ root [`README.md`](../../README.md) の
+MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](../feature/delegation.md)。
 
 ## 手順
 
@@ -110,13 +111,14 @@ MCP 登録例はリポ root [`README.md`](../../README.md) の MCP サーバ節�
 2. 必要なら `CONCORDIA_SPAWN_DEFAULT_CWD` を設定 (上記)。
 3. 呼び出し:
    - Web UI: `POST /v1/admin/spawn-session` (token 不要)
-   - 外部 / bot: `GET /v1/spawn/info` で token パスを得て読み、 `POST /v1/spawn` に Bearer 付与
-   - Discord: `/spawn provider [cwd]` (bot が in-process で token を直読み)
+   - 外部: `GET /v1/spawn/info` で token パスを得て読み、 `POST /v1/spawn` に Bearer 付与
+   - Discord / Slack: platform が認証した user ID を exact allowlist で照合後、内部 API を呼ぶ
 ## 注意点
 
 - **Windows 専用**: `wt.exe` 起動なので非 Windows では spawn できない (`GET /v1/spawn/info` の `platform_supported` が false)。
 - **token は機密**: `.spawn.token` は cwd 直下。 `.gitignore` 済。 値を共有しない。 壊れた (64-hex でない) ファイルは自動 rotate される。
-- **`/v1/admin/spawn-session` も認証必須**: loopback自体を主体証明として扱わない。`CONCORDIA_ADMIN_TOKEN` が空なら503で拒否する。
+- **内部 API を直接公開しない**: `CONCORDIA_HOST` は loopback に固定し、Web は AccessControl 経由、
+  Discord / Slack は platform user ID allowlist 経由で起動する。
 - **Tauri / window 起動の落とし穴**: lictor-wrapped GUI を起動するケースでは、 親終了で window が落ちる問題に注意 (memory: feedback_tauri_launch_powershell)。
 
 ## トラブルシュート

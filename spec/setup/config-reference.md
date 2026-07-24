@@ -43,7 +43,7 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 
 | キー | 既定値 | 意味 |
 |------|--------|------|
-| `CONCORDIA_HOST` | `127.0.0.1` | bind するホスト。 loopback 前提 (無認証)。 非 loopback (0.0.0.0 等) に変える場合は `CONCORDIA_ADMIN_TOKEN` 必須 (未設定なら起動拒否)。 下記「信頼境界」節参照。 |
+| `CONCORDIA_HOST` | `127.0.0.1` | bind するホスト。内部 API は loopback 専用で、非 loopback (0.0.0.0 / LAN IP 等) は起動拒否。下記「信頼境界」節参照。 |
 | `CONCORDIA_PORT` | `11111` | backend HTTP ポート (loopback)。 |
 | `CONCORDIA_DB_PATH` | 空 → `<cwd>/concordia.db` | SQLite ファイルパス。 空なら cwd 直下 (`defaultDbPath()`)。 |
 | `CONCORDIA_LOST_AFTER_SEC` | `1800` (30 分) | heartbeat 途絶からこの秒数で `status=lost` に落とす。 |
@@ -62,7 +62,6 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_REDIS_ENABLED` | 無効 | `1` のときだけ共有cache用Redisへ接続する。Redis不在環境では未設定のままにする。 |
 | `CONCORDIA_MAX_AI_RULES` | `10` | AI proposer が新 rule を提案する上限。 enabled な ai 由来 rule がこれ以上なら proposer は claude を呼ばず skip (rule 雪だるま防止)。 |
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。通常は request の `project` / `cwd` を使う。 |
-| `CONCORDIA_ADMIN_TOKEN` | 空 | admin / sweeper エンドポイントの bearer token。 設定すると `/v1/admin/*` と `/v1/sweeper/run` が `Authorization: Bearer <token>` (または `X-Concordia-Admin-Token`) を要求する。 詳細は下記「信頼境界」節。 |
 
 > 注: `CONCORDIA_LOST_AFTER_SEC` の既定は **1800 秒 (30 分)** (`.env.example` も同値に統一済み)。 Stop hook が turn 毎にしか発火せず idle ≠ 終了のため、 これより短くすると健全な作業中セッションが lost 化しやすい。 過去に `.env.example` が 300 (5 分) を配布していた時期があるので、 運用中の実 env が 300 のままになっていないか確認すること。
 
@@ -82,15 +81,17 @@ npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db --backup E:\p
 
 ### 信頼境界 (trust boundary)
 
-Concordia の管理系エンドポイント (`/v1/admin/*`、 `/v1/sweeper/run`、 `/v1/admin/truncate-sessions`、 `/v1/admin/spawn-session` 等) は **元来 loopback (127.0.0.1) 前提で無認証**。 同一マシンからしか到達しないことを信頼境界としている。 2026-06-11 の脆弱性レビュー (CWE-306 / CWE-1188) を受けて、 次の 2 段で境界を担保する。
+Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session inject/delete、
+`/v1/delegation/invoke` 等) は **loopback (127.0.0.1) の内部 API**。サービス共有 bearer token は
+主体を識別できず Web UI / MCP / worker 間の連携を壊すため廃止した。
 
-1. **bind host 判定** (`shared/config.ts:isLoopbackHost()`): `127.0.0.0/8` / `::1` / `localhost` / 空 (既定 bind) は loopback。 `0.0.0.0` / `::` / LAN IP / hostname は非 loopback。
-2. **token による保護** (`shared/admin-auth.ts`):
-   - **loopback + token 未設定** (既定): 従来どおり admin API は無認証で使える。
-   - **token 設定済み**: loopback でも admin / sweeper は bearer 認証を要求する。
-   - **非 loopback bind**: 起動時 (`server.ts`) に warn を出し、 `CONCORDIA_ADMIN_TOKEN` 未設定なら **起動拒否** (throw)。 LAN/0.0.0.0 公開時に無認証 admin API が晒されるのを防ぐ。
-
-> つまり LAN へ公開したい場合は `CONCORDIA_HOST=0.0.0.0` + `CONCORDIA_ADMIN_TOKEN=<秘密値>` を必ずセットで指定する。 token はクライアント (Lictor / dashboard / Web UI proxy) 側も同じ値を `Authorization: Bearer` で送る必要がある。
+- `shared/config.ts:isLoopbackHost()` で `127.0.0.0/8` / `::1` / `localhost` / 空だけを許可する。
+  `0.0.0.0` / `::` / LAN IP / hostname は、token の有無にかかわらず起動拒否する。
+- Web UI は外側の AccessControl を通過した管理者だけが利用する。Concordia 内部 API は Web の
+  identity token を重ねて要求しない。
+- Discord / Slack 起点の spawn・delegation は、Gateway / Socket Mode が認証した platform user IDを
+  AdminState の platform 別 exact allowlist と照合する。ID 欠落・不一致・空 allowlist は全拒否。
+- `/v1/spawn` の repository spawn token と、spawned session の一回限り enrollment は用途が異なるため維持する。
 
 ---
 
@@ -286,7 +287,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
-| reaction-workflow 発火ユーザ | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。GET はIDを露出せず readiness と件数のみ返す。 ID の代わりに `*` を単独で保存すると、そのプラットフォームの全ユーザーを許可する (`allow_all`)。 |
+| platform 発火ユーザ (reaction / spawn / delegation) | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。reaction と session launch の両方が同じ exact allowlist を live 参照する。GET はIDを露出せず readiness と件数のみ返す。 ID の代わりに `*` を単独で保存すると、そのプラットフォームの全ユーザーを許可する (`allow_all`)。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
@@ -298,7 +299,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 `GET /v1/admin/reaction-workflow` の `readiness.status` は `disabled` / `ready` /
 `no_authorized_users`。ON かつ全 platform 合計 0 件は `no_authorized_users` として起動時・設定変更時に
 警告される。platform 別の件数と issue code も返すが user ID 自体は返さない。空設定は allow-all へ
-フォールバックせず、常に全拒否。
+はならず、reaction workflow の ON/OFF にかかわらず platform 起点の spawn / delegation も拒否する。
 
 ---
 

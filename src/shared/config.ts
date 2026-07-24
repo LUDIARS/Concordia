@@ -35,18 +35,6 @@ export interface ConfigProbe {
 export interface ConcordiaConfig {
   host: string;
   port: number;
-  /**
-   * admin / sweeper / 副作用エンドポイントを保護する bearer token (env `CONCORDIA_ADMIN_TOKEN`)。
-   *
-   * 信頼境界:
-   *  - token 未設定時は loopback でも変更系 HTTP API を fail-closed にする。
-   *  - `/v1/spawn` の repo token と session registration の一回限り enrollment だけは
-   *    admin token とは独立した bootstrap credential として扱う。
-   *  - token を設定すると principal/RBAC により変更系 API が bearer token 必須になる。
-   *  - `host` が非 loopback のときは server.ts が起動時に token 必須を強制する
-   *    (未設定なら起動拒否)。 詳細は spec/setup/config-reference.md の信頼境界節。
-   */
-  adminToken: string;
   dbPath: string;
   lostAfterSec: number;
   abandonedAfterSec: number;
@@ -214,7 +202,6 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     // 既定値は concordia.config.json (env は override 用)。 env を使わない方針。
     host: env.CONCORDIA_HOST ?? file.host ?? "127.0.0.1",
     port: Number(env.CONCORDIA_PORT ?? file.port ?? 11111),
-    adminToken: (env.CONCORDIA_ADMIN_TOKEN ?? "").trim(),
     dbPath: env.CONCORDIA_DB_PATH || defaultDbPath(),
     // Stop hook が turn 終わりごとに発火する制約があるので、 idle ≠ session 終了.
     // 30 分 heartbeat 無しで初めて lost にする (元 5 分は短すぎた).

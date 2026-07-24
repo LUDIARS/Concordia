@@ -118,7 +118,7 @@ bot が要求する Gateway intents (`src/discord/bot.ts:73`):
 
 | command | 動作 |
 |---------|------|
-| `/spawn provider [cwd]` | 新 session を spawn (`provider` = claude/codex/gemini)。 bot が in-process で `.spawn.token` を読み `/v1/spawn` を Bearer 認証で叩く ([spawn.md](spawn.md))。 |
+| `/spawn provider [cwd]` | 新 session を spawn (`provider` = claude/codex/gemini)。 Gateway が認証した user ID を exact allowlist と照合後、loopback 内部 API を呼ぶ ([spawn.md](spawn.md))。 |
 | `/enter` | 対象 session に改行 (Enter キー) だけを inject (`/v1/sessions/:id/inject`)。 |
 | `/stat` | 現在の Concordia stat を表示。 |
 | `/end-session` | 対象 session を終了。 |
@@ -127,9 +127,9 @@ session 対応 channel ↔ session の双方向は [`spec/discord-lictor-relay.m
 
 ## 認証モデルに関する注意
 
-Concordia 本体は loopback bind + 認証なしが信頼境界 (`spec/service-schema.md`)。 Discord 側からの操作 (`/spawn` 等) も bot が loopback で Concordia を叩くだけで、 bot 自身の admin 判定キーは env には無い。 `/spawn` だけは `.spawn.token` の Bearer 認証を経由する (bot は同プロセスなのでファイルを直読みできる)。
-
-> 注: Discutere (Di) は「認証を Discord 署名検証 + admin-id allowlist に寄せる」 設計だが、 それは別サービス。 **Concordia 側に Discord admin-id allowlist の env キーは現状存在しない** (実装確認済)。 ここに allowlist 系キーを書かない。
+Concordia 本体は loopback 内部 API。Discord Gateway が認証した発火 user ID を、設定画面 /
+`/v1/admin/reaction-workflow` の `discord_user_ids` exact allowlist と照合してから spawn /
+delegation を呼ぶ。ID 欠落・不一致・空 allowlist は全拒否し、service token は使用しない。
 
 ## トラブルシュート
 

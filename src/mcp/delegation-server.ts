@@ -9,8 +9,7 @@
  *         "command": "node",
  *         "args": ["E:/Document/Ars/Concordia/dist/mcp/delegation-server.js"],
  *         "env": {
- *           "CONCORDIA_BASE_URL": "http://127.0.0.1:11111",
- *           "CONCORDIA_SPAWN_TOKEN_PATH": "E:/Document/Ars/Concordia/.spawn.token"
+ *           "CONCORDIA_BASE_URL": "http://127.0.0.1:11111"
  *         }
  *       }
  *     }
@@ -24,7 +23,6 @@
  * running していなければ動かない、 でも spawn の責任分界が明確になる).
  */
 
-import { readFile } from "node:fs/promises";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -32,39 +30,14 @@ import { resolveDelegationParentSessionId } from "./delegation-parent-session.js
 
 const DEFAULT_BASE = "http://127.0.0.1:11111";
 
-async function loadToken(): Promise<string | null> {
-  const path = process.env.CONCORDIA_SPAWN_TOKEN_PATH;
-  if (!path) return null;
-  try {
-    const t = (await readFile(path, "utf8")).trim();
-    return /^[a-f0-9]{64}$/.test(t) ? t : null;
-  } catch {
-    return null; // 不在 (旧 existsSync ガード) / 読取失敗はどちらも null。
-  }
-}
-
 async function callConcordia(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
-  requireAuth = false,
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
   const base = process.env.CONCORDIA_BASE_URL ?? DEFAULT_BASE;
   const url = `${base.replace(/\/$/, "")}${path}`;
   const headers: Record<string, string> = { "content-type": "application/json" };
-  if (requireAuth) {
-    const tok = await loadToken();
-    if (!tok) {
-      return {
-        ok: false,
-        status: 0,
-        body: {
-          error: "spawn token not available (set CONCORDIA_SPAWN_TOKEN_PATH env to the .spawn.token file path)",
-        },
-      };
-    }
-    headers.authorization = `Bearer ${tok}`;
-  }
   try {
     const res = await fetch(url, {
       method,
@@ -155,7 +128,6 @@ async function main(): Promise<void> {
           options,
           overrides,
         },
-        true,
       );
       if (!r.ok) {
         return {

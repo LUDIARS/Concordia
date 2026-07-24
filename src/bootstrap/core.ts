@@ -353,19 +353,13 @@ export async function startBackend(): Promise<BackendHandle> {
     });
   });
 
-  // 信頼境界の強制: 非 loopback bind (0.0.0.0 / LAN IP 等) は admin API を localhost の
-  // 外へ晒す。 warn を出し、 admin token 未設定なら起動拒否する (CWE-306 / CWE-1188)。
+  // HTTP API は Web gateway / platform adapter の内側で使う内部面。サービス token を
+  // 廃止したため、直接 LAN へ bind して AccessControl を迂回できる構成は許可しない。
   if (!isLoopbackHost(cfg.host)) {
-    log.warn(
-      { host: cfg.host },
-      "Concordia is binding to a non-loopback host — admin and mutation APIs (/v1/admin/*, /v1/sweeper/run, session inject/delete, delegation invoke) would be reachable beyond localhost",
+    throw new Error(
+      `CONCORDIA_HOST=${cfg.host} is non-loopback. ` +
+        "Concordia mutation APIs are internal-only; bind to 127.0.0.1 and expose the Web UI through AccessControl.",
     );
-    if (!cfg.adminToken) {
-      throw new Error(
-        `CONCORDIA_HOST=${cfg.host} is non-loopback but CONCORDIA_ADMIN_TOKEN is unset. ` +
-          `Refusing to start: set CONCORDIA_ADMIN_TOKEN to require auth on admin and mutation endpoints, or bind to 127.0.0.1.`,
-      );
-    }
   }
 
   const dbPath = cfg.dbPath;
@@ -634,6 +628,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+    isLaunchUserAllowed: (userId) =>
+      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -664,6 +660,8 @@ export async function startBackend(): Promise<BackendHandle> {
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+    isLaunchUserAllowed: (userId) =>
       isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。

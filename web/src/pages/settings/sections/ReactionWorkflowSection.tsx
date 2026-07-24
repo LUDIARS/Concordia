@@ -160,9 +160,9 @@ export function ReactionWorkflowSection() {
 
       <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
         <div>
-          <div className="text-sm font-medium">発火ユーザー allowlist</div>
+          <div className="text-sm font-medium">発火・セッション起動ユーザー allowlist</div>
           <div className="text-xs text-subtle mt-0.5">
-            ID は完全一致で照合し、空は全拒否です。API は保存済みIDを返さず、件数だけ表示します。
+            Reaction Workflow と spawn / delegation で共用します。ID は完全一致で照合し、空は全拒否です。API は保存済みIDを返さず、件数だけ表示します。
           </div>
         </div>
 

@@ -109,10 +109,9 @@ export function startChatWorkerWsBridge(wsUrl: string, onOpen?: () => void): WsB
   };
 }
 
-function postInject(concordiaUrl: string, adminToken: string): DiscordBotDeps["emitSessionInject"] {
+function postInject(concordiaUrl: string): DiscordBotDeps["emitSessionInject"] {
   return (sessionId, text, source) => {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (adminToken) headers.authorization = `Bearer ${adminToken}`;
     void fetch(`${concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
       method: "POST",
       headers,
@@ -183,7 +182,6 @@ async function main(): Promise<void> {
   const mutationOutbox = installChatMutationOutbox({
     baseUrl: concordiaUrl,
     repo: new ChatMutationOutboxRepo(db),
-    adminToken: cfg.adminToken,
     log,
   });
   const channels = makeDiscordSessionChannelsRepo(db);
@@ -248,10 +246,12 @@ async function main(): Promise<void> {
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+    isLaunchUserAllowed: (userId) =>
+      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(sessions, sessionId),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
-    emitSessionInject: postInject(concordiaUrl, cfg.adminToken),
+    emitSessionInject: postInject(concordiaUrl),
   };
   const slackDeps: SlackBotDeps = {
     db,
@@ -264,6 +264,8 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
+      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+    isLaunchUserAllowed: (userId) =>
       isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
     runHeadless: runClaude,
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),

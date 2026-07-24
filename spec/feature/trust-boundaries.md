@@ -1,31 +1,34 @@
 ---
 type: feature
-title: "Concordia principals and trust boundaries"
+title: "Concordia platform identity and trust boundaries"
 service: concordia
 domain: governance
 status: implemented
-updated: 2026-07-22
+updated: 2026-07-24
 related:
   - ./develop-confirm-flow.md
   - ../setup/spawn.md
   - ../interface/service-schema.md
 ---
 
-# Concordia principals and trust boundaries
+# Concordia platform identity and trust boundaries
 
-Every HTTP request has an explicit principal. An absent or invalid credential
-is the `anonymous` principal with read-only capability; it is never represented
-by an empty admin token. Protected mutation routes fail closed when
-`CONCORDIA_ADMIN_TOKEN` is absent. The legacy admin token authenticates the
-fixed `admin` principal; caller-controlled identity headers are ignored. Named
-principals are configured by `CONCORDIA_PRINCIPAL_TOKENS` as a JSON array of
-`{ "id", "role", "token" }`. IDs and tokens must be unique, tokens must be at
-least 16 characters, and a malformed registry fails closed as empty.
+Concordia HTTP is an internal loopback API. It does not use a shared admin
+service token: such a token identifies a process path, not the human who
+triggered a launch, and requiring it broke Web UI, worker, and MCP delegation.
+Non-loopback bind is rejected. The Web UI is exposed only behind AccessControl,
+where every admitted user is an administrator.
 
-Capabilities are `read`, `chat:write`, `session:control`, `process:control`,
-`release:confirm`, and `admin:write`. Route composition declares the required
-capability. Chat keeps a caller-selected display label, but durable metadata
-always records `authenticated_principal_id` and role.
+Discord and Slack launch authorization happens at their authenticated platform
+adapters. Gateway / Socket Mode supplies the triggering platform user ID.
+Spawn and delegation require an exact match in the existing platform-specific
+AdminState allowlists (`discord_user_ids` / `slack_user_ids`). A missing ID,
+an empty allowlist, or a non-matching ID denies the launch. The reaction
+workflow switch does not bypass or disable this launch check.
+
+Internal callers such as the delegation MCP server and chat worker use the
+loopback API directly. Caller-provided `triggered_by` metadata is correlation
+data, not authentication, and must never be used to bypass platform ingress.
 
 Cc-spawned sessions use `CONCORDIA_SPAWN_ID` as a one-time enrollment value.
 An unknown or consumed value is rejected instead of degrading to an unowned

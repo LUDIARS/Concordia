@@ -144,6 +144,8 @@ export interface DiscordBotDeps {
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /** Exact Discord user ID allowlist check for permission-skipping reaction workflows. */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
+  /** Exact Discord user ID allowlist check for session spawn/delegation launches. */
+  isLaunchUserAllowed?: (userId: string) => boolean;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -738,6 +740,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // /v1/delegation/invoke へ転送し、 spawn したセッションを正しい会社スコープに
       // 帰属させる (ownsSession の subsidiary-only 可視判定を壊さないため)。
       subsidiaryId,
+      isLaunchUserAllowed: deps.isLaunchUserAllowed,
       templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
       pickProvider: async () => {
         const [codexRate, claudeUsage] = await Promise.all([
@@ -825,6 +828,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log,
       permissionActions,
       subsidiaryId,
+      isLaunchUserAllowed: deps.isLaunchUserAllowed,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);

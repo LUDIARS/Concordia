@@ -54,18 +54,6 @@ describe("loadConfig spawnDefaultCwd resolution", () => {
   });
 });
 
-describe("loadConfig adminToken", () => {
-  it("既定は空文字列", () => {
-    const cfg = loadConfig({} as NodeJS.ProcessEnv);
-    expect(cfg.adminToken).toBe("");
-  });
-
-  it("CONCORDIA_ADMIN_TOKEN を trim して読む", () => {
-    const cfg = loadConfig({ CONCORDIA_ADMIN_TOKEN: "  s3cr3t  " } as NodeJS.ProcessEnv);
-    expect(cfg.adminToken).toBe("s3cr3t");
-  });
-});
-
 describe("loadConfig reaper lost grace", () => {
   it("defaults to five minutes", () => {
     expect(loadConfig({} as NodeJS.ProcessEnv).reaperLostGraceSec).toBe(300);

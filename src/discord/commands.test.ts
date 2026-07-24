@@ -43,4 +43,32 @@ describe("Discord command registration", () => {
       expect(isSubsidiaryAllowedInteraction(interaction as never)).toBe(false);
     },
   );
+
+  it.each([
+    { userId: "", customId: undefined, label: "missing slash actor" },
+    { userId: "discord-denied", customId: undefined, label: "unauthorized slash actor" },
+    { userId: "discord-denied", customId: "ctrl:spawn-modal:codex", label: "unauthorized control-modal actor" },
+  ])("rejects $label before spawn dispatch", async ({ userId, customId }) => {
+    const reply = vi.fn(async () => undefined);
+    const interaction = {
+      type: customId ? 5 : 2,
+      commandName: customId ? undefined : "spawn",
+      customId,
+      user: { id: userId },
+      isAutocomplete: () => false,
+      isRepliable: () => true,
+      isChatInputCommand: () => !customId,
+      isButton: () => false,
+      isModalSubmit: () => Boolean(customId),
+      reply,
+    };
+    await dispatchInteraction(interaction as never, {
+      isLaunchUserAllowed: (id: string) => id === "discord-allowed",
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("起動権限がありません"),
+      ephemeral: true,
+    }));
+  });
 });

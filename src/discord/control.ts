@@ -80,9 +80,6 @@ export async function postControlPanel(
 async function callConcordia(baseUrl: string, method: string, path: string, body?: unknown): Promise<{ ok: boolean; error?: string; body?: any }> {
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
-    if (process.env.CONCORDIA_ADMIN_TOKEN) {
-      headers.authorization = `Bearer ${process.env.CONCORDIA_ADMIN_TOKEN}`;
-    }
     const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers,

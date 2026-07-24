@@ -45,7 +45,15 @@ import {
   parseOtherAnswerActionId,
   type SessionCardState,
 } from "./render.js";
-import { runSlackSlash, spawnSession, subFromCoCommand, listDelegationTemplates, invokeDelegation } from "./slash.js";
+import {
+  invokeDelegation,
+  isSlackLaunchAuthorized,
+  listDelegationTemplates,
+  runSlackSlash,
+  spawnSession,
+  subFromCoCommand,
+  type SlashDeps,
+} from "./slash.js";
 import {
   buildDelegationModalView,
   parseDelegationModalSubmit,
@@ -104,6 +112,8 @@ export interface SlackBotDeps {
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /** Exact Slack user ID allowlist check for permission-skipping reaction workflows. */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
+  /** Exact Slack user ID allowlist check for session spawn/delegation launches. */
+  isLaunchUserAllowed?: (userId: string) => boolean;
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
@@ -143,6 +153,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     const single = deps.resolveWorkspaceRoot?.() || deps.workspaceRoot;
     return single ? [single] : [];
   };
+  const slashDepsFor = (actorUserId: string | undefined): SlashDeps => ({
+    concordiaUrl: deps.concordiaUrl,
+    actorUserId,
+    isLaunchUserAllowed: deps.isLaunchUserAllowed,
+  });
 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
   // platform 非依存ランナーを流用。runner は常に構築し、 安全弁は handle() 内で live 評価
@@ -662,7 +677,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       try { await ack(); } catch {}
       try {
         const resultText = await invokeDelegation(
-          { concordiaUrl: deps.concordiaUrl },
+          slashDepsFor(body.user?.id),
           { call_name: parsed.call_name, args, cwd: parsed.cwd, extra_prompt, triggered_by: `slack:${body.user?.id ?? ""}` },
         );
         // 起動完了メッセージは発火者のみ見える ephemeral にする（チャンネルに残さない）。
@@ -767,6 +782,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       try {
         // `/co-spawn`: 引数なし → delegation テンプレ選択モーダル、 引数あり → 即 raw spawn。
         if ((body?.command ?? "").trim() === "/co-spawn") {
+          const slashDeps = slashDepsFor(body.user_id);
+          if (!isSlackLaunchAuthorized(slashDeps)) {
+            await ack({ response_type: "ephemeral", text: "このユーザーにはセッション起動権限がありません。" });
+            return;
+          }
           const args = (body?.text ?? "").trim();
           if (!args && body.trigger_id) {
             await ack();
@@ -788,7 +808,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
             return;
           }
           const parts = args.split(/\s+/).filter(Boolean);
-          const resultText = await spawnSession({ concordiaUrl: deps.concordiaUrl }, parts[0], parts.slice(1).join(" "));
+          const resultText = await spawnSession(slashDeps, parts[0], parts.slice(1).join(" "));
           await ack({ response_type: "ephemeral", text: resultText });
           return;
         }
@@ -796,11 +816,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         // 例: `/co-stat` → `stat`、 `/co-end ab12` → `end ab12`。
         const coSub = subFromCoCommand(body?.command);
         if (coSub) {
-          const out = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, `${coSub} ${body?.text ?? ""}`.trim());
+          const out = await runSlackSlash(slashDepsFor(body.user_id), `${coSub} ${body?.text ?? ""}`.trim());
           await ack({ response_type: "ephemeral", text: out });
           return;
         }
-        const text = await runSlackSlash({ concordiaUrl: deps.concordiaUrl }, body?.text ?? "");
+        const text = await runSlackSlash(slashDepsFor(body.user_id), body?.text ?? "");
         await ack({ response_type: "ephemeral", text });
       } catch (e) {
         try { await ack({ response_type: "ephemeral", text: `エラー: ${(e as Error).message}` }); } catch {}
@@ -823,7 +843,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       try {
         if (event.function?.callback_id !== "spawn_session") return; // 想定外の function は無視
         const inputs = event.inputs ?? {};
-        const result = await spawnSession({ concordiaUrl: deps.concordiaUrl }, inputs.provider, inputs.cwd);
+        const actorUserId = event.user_id ?? inputs.user_id;
+        const result = await spawnSession(slashDepsFor(actorUserId), inputs.provider, inputs.cwd);
         await web.functions.completeSuccess({ function_execution_id: execId, outputs: { result } });
       } catch (e) {
         const msg = (e as Error).message;
@@ -1021,6 +1042,8 @@ interface SlackReactionEvent {
 interface SlackFunctionExecutedEvent {
   type?: string;
   function?: { callback_id?: string };
-  inputs?: { provider?: string; cwd?: string };
+  /** Slack workflow actor. If the event omits it, a workflow input must carry user_id. */
+  user_id?: string;
+  inputs?: { provider?: string; cwd?: string; user_id?: string };
   function_execution_id?: string;
 }

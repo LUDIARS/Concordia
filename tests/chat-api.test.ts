@@ -2,12 +2,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
 
 function makeEnv() {
-  return makeTestApp({ config: { adminToken: "chat-test-token" } });
+  return makeTestApp();
 }
 
 const writeHeaders = {
   "content-type": "application/json",
-  authorization: "Bearer chat-test-token",
 };
 
 describe("/v1/chat", () => {

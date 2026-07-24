@@ -46,6 +46,8 @@ export interface ForumSpawnDeps {
   resolveProjectTarget: (title: string, body: string) => ForumProjectTarget | null;
   /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
   resolveSpawnCwd: (provider: ForumSpawnProvider, requested?: string) => string | undefined;
+  /** Exact Discord user ID authorization for the thread owner. */
+  isLaunchUserAllowed?: (userId: string) => boolean;
   hasExistingRun: (triggeredBy: string) => boolean;
   /** Cc の Forum 返信も必ず親 Forum webhook + thread_id で投稿する。 */
   postToThread: (threadId: string, content: string) => Promise<void>;
@@ -54,6 +56,11 @@ export interface ForumSpawnDeps {
 
 export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: ForumSpawnThread): Promise<void> {
   if (thread.parentId !== deps.sessionForumId || !thread.ownerId || thread.ownerId === deps.botUserId) return;
+  if (deps.isLaunchUserAllowed?.(thread.ownerId) !== true) {
+    deps.log.warn(`forum-spawn unauthorized owner=${thread.ownerId} thread=${thread.id}`);
+    await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
+    return;
+  }
   const triggeredBy = buildForumSpawnTrigger(thread.guildId, thread.id);
   if (deps.hasExistingRun(triggeredBy)) {
     deps.log.info(`forum-spawn duplicate ignored thread=${thread.id}`);

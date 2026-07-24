@@ -65,6 +65,7 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-1",
       templates: async () => [template("forum-codex-session"), template("forum-claude-session")],
       pickProvider: async () => "codex",
       resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
@@ -108,6 +109,7 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-1",
       subsidiaryId: "sub-1",
       templates: async () => [template("forum-codex-session")],
       pickProvider: async () => "codex",
@@ -142,6 +144,7 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-1",
       templates: async () => [template("forum-codex-session")],
       pickProvider: async () => "codex",
       resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
@@ -177,6 +180,7 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-1",
       templates: async () => [template("forum-codex-session")],
       pickProvider: async () => "codex",
       resolveProjectTarget: () => null,
@@ -208,6 +212,7 @@ describe("forum spawn", () => {
       sessionForumId: "forum-1",
       botUserId: "bot-1",
       concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-1",
       templates: async () => [],
       pickProvider: async () => "claude",
       resolveProjectTarget: () => null,
@@ -220,5 +225,36 @@ describe("forum spawn", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(replies).toHaveLength(1);
     expect(replies[0]).toContain("forum-claude-session");
+  });
+
+  it("rejects a non-allowlisted Discord thread owner before delegation", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const replies: string[] = [];
+    const thread: ForumSpawnThread = {
+      id: "thread-denied",
+      guildId: "guild-1",
+      parentId: "forum-1",
+      ownerId: "human-denied",
+      name: "[Cc] denied",
+      fetchStarterMessage: async () => ({ content: "Do not launch" }),
+    };
+
+    await handleForumSpawnThread({
+      sessionForumId: "forum-1",
+      botUserId: "bot-1",
+      concordiaUrl: "http://127.0.0.1:17320",
+      isLaunchUserAllowed: (userId) => userId === "human-allowed",
+      templates: async () => [template("forum-codex-session")],
+      pickProvider: async () => "codex",
+      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+      resolveSpawnCwd: (_provider, requested) => requested,
+      hasExistingRun: () => false,
+      postToThread: async (_threadId, content) => { replies.push(content); },
+      log: { info: vi.fn(), warn: vi.fn() },
+    }, thread);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(replies[0]).toContain("起動権限がありません");
   });
 });

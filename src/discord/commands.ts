@@ -98,6 +98,20 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     }
     return;
   }
+  if (isLaunchInteraction(interaction) && !isLaunchActorAllowed(interaction, deps)) {
+    const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
+    deps.log.warn(
+      `discord launch rejected unauthorized user=${userId || "-"} ` +
+      `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
+    );
+    if (interaction.isRepliable()) {
+      await interaction.reply({
+        content: "このユーザーにはセッション起動権限がありません。",
+        ephemeral: true,
+      }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
+    }
+    return;
+  }
   if (interaction.isChatInputCommand()) {
     const age = interactionAgeMs(interaction);
     deps.log.info(
@@ -157,4 +171,18 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   if (interaction.isModalSubmit() && interaction.customId.startsWith("ctrl:")) {
     await handleControlModalSubmit(interaction, { concordiaUrl: deps.concordiaUrl, log: deps.log });
   }
+}
+
+function isLaunchInteraction(interaction: Interaction): boolean {
+  if (interaction.isChatInputCommand()) return interaction.commandName === "spawn";
+  if (interaction.isButton() || interaction.isModalSubmit()) {
+    return interaction.customId.startsWith("ctrl:spawn:")
+      || interaction.customId.startsWith("ctrl:spawn-modal:");
+  }
+  return false;
+}
+
+function isLaunchActorAllowed(interaction: Interaction, deps: DiscordCommandDeps): boolean {
+  const userId = "user" in interaction ? interaction.user?.id?.trim() ?? "" : "";
+  return userId.length > 0 && deps.isLaunchUserAllowed?.(userId) === true;
 }

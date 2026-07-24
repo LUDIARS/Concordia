@@ -1,9 +1,22 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { parseSlashCommand } from "./render.js";
-import { formatStat, formatHelp, runSlackSlash, spawnSession, subFromCoCommand } from "./slash.js";
+import {
+  formatStat,
+  formatHelp,
+  invokeDelegation,
+  runSlackSlash,
+  spawnSession,
+  subFromCoCommand,
+} from "./slash.js";
+
+const authorizedDeps = {
+  concordiaUrl: "http://127.0.0.1:1",
+  actorUserId: "U-allowed",
+  isLaunchUserAllowed: (userId: string) => userId === "U-allowed",
+};
 
 describe("runSlackSlash 早期バリデーション (ネットワーク前)", () => {
-  const deps = { concordiaUrl: "http://127.0.0.1:1" };
+  const deps = authorizedDeps;
   it("spawn の不正 provider は fetch せずエラーメッセージ", async () => {
     const out = await runSlackSlash(deps, "spawn nope");
     expect(out).toContain("provider は");
@@ -20,7 +33,17 @@ describe("runSlackSlash 早期バリデーション (ネットワーク前)", ()
 
 describe("spawnSession (構造化入力 — slash と custom function 共通)", () => {
   afterEach(() => vi.restoreAllMocks());
-  const deps = { concordiaUrl: "http://127.0.0.1:1" };
+  const deps = authorizedDeps;
+
+  it.each([
+    { actorUserId: undefined, label: "missing" },
+    { actorUserId: "U-denied", label: "unauthorized" },
+  ])("$label Slack user ID は fetch 前に拒否する", async ({ actorUserId }) => {
+    const f = vi.spyOn(globalThis, "fetch");
+    const out = await spawnSession({ ...deps, actorUserId }, "codex");
+    expect(out).toContain("起動権限がありません");
+    expect(f).not.toHaveBeenCalled();
+  });
 
   it("不正 provider は fetch せずエラーメッセージ", async () => {
     const f = vi.spyOn(globalThis, "fetch");
@@ -47,6 +70,29 @@ describe("spawnSession (構造化入力 — slash と custom function 共通)", 
     await spawnSession(deps, "codex", "  ");
     const body = JSON.parse((f.mock.calls[0][1] as RequestInit).body as string);
     expect(body).toEqual({ provider: "codex" });
+  });
+});
+
+describe("invokeDelegation launch authorization", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("allows an exact allowlisted Slack user ID", async () => {
+    const f = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ run: { status: "queued" }, spawn_pid: 99 }), { status: 200 }),
+    );
+    const out = await invokeDelegation(authorizedDeps, { call_name: "impl", args: {} });
+    expect(out).toContain("✅ 委託起動");
+    expect(f).toHaveBeenCalledOnce();
+  });
+
+  it("denies a non-allowlisted Slack user ID", async () => {
+    const f = vi.spyOn(globalThis, "fetch");
+    const out = await invokeDelegation(
+      { ...authorizedDeps, actorUserId: "U-denied" },
+      { call_name: "impl", args: {} },
+    );
+    expect(out).toContain("起動権限がありません");
+    expect(f).not.toHaveBeenCalled();
   });
 });
 

@@ -5,7 +5,6 @@ export interface ChatMutationOutboxHandle { stop(): void }
 export function installChatMutationOutbox(opts: {
   baseUrl: string;
   repo: ChatMutationOutboxRepo;
-  adminToken?: string;
   retryMs?: number;
   fetchImpl?: typeof fetch;
   log?: { info: (message: string) => void; warn: (message: string) => void };
@@ -42,7 +41,6 @@ export function installChatMutationOutbox(opts: {
     try {
       for (const row of opts.repo.list()) {
         const headers: Record<string, string> = { "content-type": "application/json" };
-        if (opts.adminToken) headers.authorization = `Bearer ${opts.adminToken}`;
         try {
           const response = await nativeFetch(`${baseUrl}${row.path}`, {
             method: row.method,

@@ -188,7 +188,7 @@ window.API_DATA = {
       ],
     },
     {
-      group: "admin", title: "Admin — runtime 管理 (loopback-trusted / 任意で bearer)", note: "CONCORDIA_ADMIN_TOKEN が設定されていれば bearer 必須。各種 runtime トグル + bot 制御",
+      group: "admin", title: "Admin — runtime 管理 (loopback internal)", note: "Web は AccessControl 配下。Discord / Slack launch は platform user ID allowlist で認可",
       items: [
         { m: "POST", p: "/v1/sweeper/run", d: "lost-session sweeper を 1 回実行", params: "—", resp: "{ ok }", src: "app.ts:192" },
         { m: "POST", p: "/v1/admin/truncate-sessions", d: "noise セッションを全削除", params: "—", resp: "{ ok, deleted }", src: "app.ts:198" },

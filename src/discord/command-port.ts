@@ -18,6 +18,8 @@ export interface DiscordCommandDeps {
   permissionActions?: PermissionActionStore;
   resolveWorkspaceRoots?: () => string[];
   subsidiaryId?: string | null;
+  /** Exact Discord user ID authorization for spawn/delegation launch surfaces. */
+  isLaunchUserAllowed?: (userId: string) => boolean;
 }
 
 export interface DiscordCommandSpec {

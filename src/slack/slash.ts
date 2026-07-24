@@ -8,6 +8,15 @@ import type { DelegationTemplateLite } from "./delegation-modal.js";
 
 export interface SlashDeps {
   concordiaUrl: string;
+  actorUserId?: string;
+  isLaunchUserAllowed?: (userId: string) => boolean;
+}
+
+const LAUNCH_DENIED = "このユーザーにはセッション起動権限がありません。";
+
+export function isSlackLaunchAuthorized(deps: SlashDeps): boolean {
+  const userId = deps.actorUserId?.trim() ?? "";
+  return userId.length > 0 && deps.isLaunchUserAllowed?.(userId) === true;
 }
 
 /** stat の enriched item（必要フィールドだけ緩く拾う）。 */
@@ -62,6 +71,7 @@ const SPAWN_PROVIDERS = ["claude", "codex"] as const;
  * provider/cwd を構造化入力で受け、 /v1/admin/spawn-session に流して人間向け文を返す。
  */
 export async function spawnSession(deps: SlashDeps, providerRaw: string | undefined, cwdRaw?: string): Promise<string> {
+  if (!isSlackLaunchAuthorized(deps)) return LAUNCH_DENIED;
   const provider = (providerRaw ?? "claude").trim().toLowerCase();
   if (!SPAWN_PROVIDERS.includes(provider as (typeof SPAWN_PROVIDERS)[number])) {
     return `provider は ${SPAWN_PROVIDERS.join(" / ")} のいずれか。例: \`/concordia spawn claude\``;
@@ -93,6 +103,7 @@ export async function invokeDelegation(
   deps: SlashDeps,
   input: { call_name: string; args: Record<string, unknown>; cwd?: string; extra_prompt?: string; triggered_by?: string },
 ): Promise<string> {
+  if (!isSlackLaunchAuthorized(deps)) return LAUNCH_DENIED;
   const res = await fetch(`${deps.concordiaUrl}/v1/delegation/invoke`, {
     method: "POST",
     headers: { "content-type": "application/json" },

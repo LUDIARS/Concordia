@@ -186,6 +186,11 @@ manifest で**作れないもの**は手動で残す:
    `{spawn:true, cwd, args(target_repo=作業ディレクトリ), extra_prompt=初回プロンプト}` で流す。
    結果(`✅ 委託起動: <call_name> pid=…`)は運用チャンネルに通知。
 
+spawn / delegation は Socket Mode payload の Slack user ID を AdminState の Slack exact
+allowlist と照合する。ID 欠落・不一致・空 allowlist は API 呼び出し前に拒否する。
+Workflow Builder の `function_executed` が actor ID を含まない構成では、workflow input の
+`user_id` を明示しなければ fail closed で起動しない。
+
 - **作業ディレクトリ**はワークスペースルート(`adminState.getWorkspaceRoots()`)直下の
   ディレクトリから選ぶ。cwd と、テンプレが要求する `target_repo` 引数を兼ねる。
 - **初回注入プロンプト**は `extra_prompt` として render 後の初期プロンプト末尾に

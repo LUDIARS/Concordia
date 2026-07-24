@@ -18,7 +18,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isConcordiaEventType, toWsEventFrame, toWsHelloFrame } from "../shared/event-schema.js";
 import { reviveIfLost } from "./sessions/shared.js";
-import { tokensMatch } from "../shared/admin-auth.js";
+import { secureValuesMatch } from "../shared/secure-compare.js";
 
 const log = createChildLogger("ws");
 const PING_INTERVAL_MS = 25_000;
@@ -75,7 +75,7 @@ function sessionEnrollmentMatches(repo: SessionsRepo, sessionId: string, supplie
     const expected = typeof metadata.concordia_spawn_id === "string"
       ? metadata.concordia_spawn_id.trim()
       : "";
-    return tokensMatch(expected, supplied);
+    return secureValuesMatch(expected, supplied);
   } catch {
     return false;
   }

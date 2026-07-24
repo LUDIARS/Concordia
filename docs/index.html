@@ -98,7 +98,7 @@
       <li><b>lock しない</b>: 並行作業を前提とする。worktree 自動化は提案のみで強制しない（lock より自由度を優先）。</li>
       <li><b>provider 中立</b>: <code>sessions.provider</code> 列で agent 種別を識別。Claude Code / Codex CLI は実装済、Gemini CLI は stub。<code>local-llm</code>（Lictor ネイティブ）も追加済。</li>
       <li><b>個人データ非保管</b>: session 内容は session_events に蓄積し 90 日で GC。transcript はパス参照のみ保持し本体は複写しない。</li>
-      <li><b>ローカル運用</b>: loopback (127.0.0.1) bind、認証は loopback 信頼ベース（admin token は任意）。tailnet 越えは将来。</li>
+      <li><b>ローカル運用</b>: backend は loopback (127.0.0.1) 専用。Web は AccessControl、Discord / Slack の起動操作は platform user ID allowlist で認可。</li>
       <li><b>LUDIARS スタック準拠</b>: TypeScript + Node 22 + Hono + better-sqlite3、frontend は React 19 + Vite + Foundation UI。</li>
     </ul>
   </section>

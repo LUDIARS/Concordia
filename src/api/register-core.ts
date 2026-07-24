@@ -378,6 +378,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           subsidiary_id: subsidiaryId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
+        if (result.run.status === "spawn_failed") {
+          return c.json({
+            error: result.run.error ?? "delegation spawn failed",
+            run_id: result.run.id,
+          }, 502);
+        }
         return c.json({
           ok: true,
           pid: result.spawn_pid,

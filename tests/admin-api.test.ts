@@ -58,6 +58,32 @@ describe("admin API", () => {
     });
   });
 
+  it("POST /v1/admin/spawn-session reports a delegation spawn failure", async () => {
+    env = makeTestApp({
+      delegationSpawn: () => ({ ok: false, error: "cwd does not exist: E:DocumentArsConcordia" }),
+    });
+    env.delegation.createTemplate({
+      call_name: "failed-template-spawn",
+      title: "Failed template spawn",
+      target_provider: "claude",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+    });
+
+    const r = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        template: "failed-template-spawn",
+        inject_prompt: true,
+        args: { task: "x" },
+      }),
+    });
+
+    expect(r.status).toBe(502);
+    expect(await r.json()).toMatchObject({ error: "cwd does not exist: E:DocumentArsConcordia" });
+  });
+
   it("POST /v1/admin/spawn-session automatically selects Codex effort", async () => {
     const spawnCalls: Array<{ provider: string; args?: string[] }> = [];
     env = makeTestApp({

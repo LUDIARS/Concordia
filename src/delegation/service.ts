@@ -33,6 +33,7 @@ import {
 } from "./effort-policy.js";
 import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
 import { buildInvocationPlan } from "./plan.js";
+import { recoverCollapsedWindowsWorkspacePath } from "./windows-path-recovery.js";
 import { substituteVars } from "./prompt.js";
 import {
   templateToDefinition,
@@ -160,6 +161,7 @@ export class DelegationService {
   }
 
   private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
+    input = normalizeInvocationPaths(input);
     const plan = buildInvocationPlan(def, input);
     if (!plan.ok) return plan;
     const renderedPrompt = plan.renderedPrompt;
@@ -472,6 +474,23 @@ export class DelegationService {
       effort_decision_id: effortDecisionId,
     };
   }
+}
+
+function normalizeInvocationPaths(input: InvokeInput): InvokeInput {
+  const cwd = typeof input.cwd === "string"
+    ? recoverCollapsedWindowsWorkspacePath(input.cwd)
+    : input.cwd;
+  const targetRepo = input.args?.target_repo;
+  if (typeof targetRepo !== "string") {
+    return cwd === input.cwd ? input : { ...input, cwd };
+  }
+  const recoveredTargetRepo = recoverCollapsedWindowsWorkspacePath(targetRepo);
+  if (cwd === input.cwd && recoveredTargetRepo === targetRepo) return input;
+  return {
+    ...input,
+    cwd,
+    args: { ...input.args, target_repo: recoveredTargetRepo },
+  };
 }
 
 type ExplicitEffortSource = "override" | "one-shot" | "template";

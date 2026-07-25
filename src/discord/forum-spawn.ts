@@ -2,23 +2,15 @@ import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { forumTemplateDefaultArgs } from "./forum-template-tags.js";
 import { callConcordia } from "./commands/_util.js";
-import type { ForumSpawnProvider } from "../delegation/forum-provider-availability.js";
+import type { DelegationProvider } from "../db/delegation-repo.js";
+import type { ForumDelegationSelectionInput, ForumDelegationSelection } from "./forum-delegation-selector.js";
+import {
+  hasConcordiaManagedForumTag,
+  type ForumTagIdentity,
+  type ForumTagState,
+} from "./forum-system-tag.js";
 
 const FORUM_SPAWN_TRIGGER_PREFIX = "discord-forum";
-
-/**
- * provider ごとの固定起動プラン。 タグ選択を廃し、 `pickProvider` (週間 rate-limit 枠の
- * 残量が多い方) だけで call_name と model/effort の overrides を決める。 codex は Terra、
- * claude は Sonnet-5 を常に high effort で使う (投稿内容による effort 分岐はしない
- * — neco 2026-07-18 指示)。
- */
-const FORUM_PROVIDER_PLAN: Record<
-  ForumSpawnProvider,
-  { callName: string; overrides: { model?: string; reasoning_effort: string } }
-> = {
-  codex: { callName: "forum-codex-session", overrides: { model: "gpt-5.6-terra", reasoning_effort: "high" } },
-  claude: { callName: "forum-claude-session", overrides: { reasoning_effort: "high" } },
-};
 
 export interface ForumSpawnThread {
   id: string;
@@ -26,7 +18,10 @@ export interface ForumSpawnThread {
   parentId: string | null;
   ownerId: string | null;
   name: string;
+  appliedTags: readonly string[];
+  availableTags: readonly ForumTagIdentity[];
   fetchStarterMessage: () => Promise<{ content: string } | null>;
+  fetchTagState: () => Promise<ForumTagState>;
 }
 
 export interface ForumSpawnDeps {
@@ -41,11 +36,11 @@ export interface ForumSpawnDeps {
    */
   subsidiaryId?: string | null;
   templates: () => Promise<DelegationTemplateLite[]>;
-  /** codex/claude のどちらが空いているかを返す (呼び出し側が週間 rate-limit 残量から判定する)。 */
-  pickProvider: () => Promise<ForumSpawnProvider>;
+  /** `claude -p --model sonnet` による one-shot template selector。 */
+  selectTemplate: (input: ForumDelegationSelectionInput) => Promise<ForumDelegationSelection>;
   resolveProjectTarget: (title: string, body: string) => ForumProjectTarget | null;
   /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
-  resolveSpawnCwd: (provider: ForumSpawnProvider, requested?: string) => string | undefined;
+  resolveSpawnCwd: (provider: DelegationProvider, requested?: string) => string | undefined;
   /** Exact Discord user ID authorization for the thread owner. */
   isLaunchUserAllowed?: (userId: string) => boolean;
   hasExistingRun: (triggeredBy: string) => boolean;
@@ -55,7 +50,12 @@ export interface ForumSpawnDeps {
 }
 
 export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: ForumSpawnThread): Promise<void> {
-  if (thread.parentId !== deps.sessionForumId || !thread.ownerId || thread.ownerId === deps.botUserId) return;
+  if (thread.parentId !== deps.sessionForumId) return;
+  if (hasConcordiaManagedForumTag(thread)) {
+    deps.log.info(`forum-spawn Cc-managed thread ignored thread=${thread.id}`);
+    return;
+  }
+  if (!thread.ownerId || thread.ownerId === deps.botUserId) return;
   if (deps.isLaunchUserAllowed?.(thread.ownerId) !== true) {
     deps.log.warn(`forum-spawn unauthorized owner=${thread.ownerId} thread=${thread.id}`);
     await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
@@ -64,16 +64,6 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   const triggeredBy = buildForumSpawnTrigger(thread.guildId, thread.id);
   if (deps.hasExistingRun(triggeredBy)) {
     deps.log.info(`forum-spawn duplicate ignored thread=${thread.id}`);
-    return;
-  }
-
-  const provider = await deps.pickProvider();
-  const plan = FORUM_PROVIDER_PLAN[provider];
-  const templates = await deps.templates();
-  const template = templates.find((t) => t.call_name === plan.callName && t.is_active);
-  if (!template) {
-    deps.log.warn(`forum-spawn missing/inactive template call_name=${plan.callName}`);
-    await reply(deps, thread, `起動テンプレ \`${plan.callName}\` が見つからないか無効化されています。管理者に連絡してください。`);
     return;
   }
 
@@ -97,11 +87,39 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     );
     return;
   }
+  const templates = await deps.templates();
+  const selection = await deps.selectTemplate({ title: thread.name, body, templates });
+  if (!selection.ok) {
+    deps.log.warn(`forum-spawn template selection failed thread=${thread.id}: ${selection.error}`);
+    await reply(deps, thread, selection.error);
+    return;
+  }
+  const template = selection.template;
+  const provider = template.target_provider;
+  if (!provider) {
+    deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template.call_name}`);
+    await reply(deps, thread, `起動テンプレ \`${template.call_name}\` の provider 設定がありません。`);
+    return;
+  }
   const cwd = deps.resolveSpawnCwd(provider, project?.cwd);
   if (!cwd) {
     await reply(deps, thread, `プロジェクト \`${project.project}\` の作業ディレクトリを解決できませんでした。設定を確認してください。`);
     return;
   }
+
+  let freshTagState: ForumTagState;
+  try {
+    freshTagState = await thread.fetchTagState();
+  } catch (error) {
+    deps.log.warn(`forum-spawn tag refresh failed thread=${thread.id}: ${(error as Error).message}`);
+    await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、セッションを起動しませんでした。");
+    return;
+  }
+  if (hasConcordiaManagedForumTag(freshTagState)) {
+    deps.log.info(`forum-spawn explicit/Cc-managed thread ignored after refresh thread=${thread.id}`);
+    return;
+  }
+
   const result = await callConcordia<{
     ok: boolean;
     run: { id: string; status: string };
@@ -113,7 +131,6 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     extra_prompt: buildForumSpawnPrompt(thread.name, body),
     triggered_by: triggeredBy,
     spawn: true,
-    overrides: plan.overrides,
     subsidiary_id: deps.subsidiaryId ?? null,
   });
   if ("error" in result || !result.ok) {
@@ -130,7 +147,8 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
 }
 
 export function isConcordiaSessionStarter(content: string): boolean {
-  return /^\*\*(?:Session|TaskWorkflow)\*\* `[^`]+`/m.test(content) && content.includes("**Repository**");
+  return /^\*\*(?:Session|TaskWorkflow)\*\* `[^`]+`/m.test(content)
+    && /\*\*(?:Repo|Repository)\*\*/.test(content);
 }
 
 export function buildForumSpawnTrigger(guildId: string, threadId: string): string {

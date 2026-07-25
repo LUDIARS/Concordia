@@ -1,6 +1,7 @@
 import { ChannelType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { SESSION_STATE_TAG_NAMES } from "./config.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import {
   buildForumStarterContent,
   buildForumThreadTitle,
@@ -49,7 +50,10 @@ describe("forum session surfaces", () => {
     const forum = {
       id: "forum-1",
       type: ChannelType.GuildForum,
-      availableTags: [{ id: "active-tag", name: SESSION_STATE_TAG_NAMES.active }],
+      availableTags: [
+        { id: "active-tag", name: SESSION_STATE_TAG_NAMES.active },
+        { id: "managed-tag", name: CONCORDIA_MANAGED_FORUM_TAG_NAME },
+      ],
     };
     thread.parent = forum;
     const createForumThread = vi.fn(async () => ({
@@ -78,6 +82,7 @@ describe("forum session surfaces", () => {
       threadName: "🧭 [Cc] Implement delegation",
       username: "Branch Agent",
       avatarURL: "https://example.test/avatar.png",
+      appliedTags: ["active-tag", "managed-tag"],
     }));
     expect(result).toEqual(expect.objectContaining({ thread, starterMessageId: "message-1" }));
 

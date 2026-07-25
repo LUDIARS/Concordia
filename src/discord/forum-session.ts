@@ -6,6 +6,10 @@ import {
 } from "discord.js";
 import type { ChannelDisplayState } from "../db/discord-repo.js";
 import { SESSION_STATE_TAG_NAMES, type DiscordConfigSnapshot } from "./config.js";
+import {
+  CONCORDIA_MANAGED_FORUM_TAG_NAME,
+  concordiaManagedTagId,
+} from "./forum-system-tag.js";
 import { formatFastMode, formatWorkingBranch, type RuntimeMetadata } from "./runtime-metadata.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
@@ -71,6 +75,10 @@ export async function createForumSessionThread(
   if (!waitingTagId) {
     throw new Error(`Session forum is missing required tag: ${SESSION_STATE_TAG_NAMES.active}`);
   }
+  const managedTagId = concordiaManagedTagId({ availableTags: forum.availableTags });
+  if (!managedTagId) {
+    throw new Error(`Session forum is missing required tag: ${CONCORDIA_MANAGED_FORUM_TAG_NAME}`);
+  }
   const created = await webhooks.createForumThread(forum.id, {
     content: buildForumStarterContent(guild.id, input),
     username: input.webhookName ?? input.fallbackLabel,
@@ -80,7 +88,7 @@ export async function createForumSessionThread(
       input.summary ?? input.fallbackLabel,
       input.delegationEmoji,
     ),
-    appliedTags: [waitingTagId],
+    appliedTags: [waitingTagId, managedTagId],
   });
   if (!created) throw new Error(`Session forum webhook create failed: ${forumId}`);
   const thread = await fetchForumSessionThread(guild, created.threadId);

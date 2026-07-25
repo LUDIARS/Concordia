@@ -73,6 +73,8 @@ import {
   resolveSpawnCwd,
   spawnSession,
   SPAWN_PROVIDERS,
+  type SpawnRequest,
+  type SpawnResult,
   type SpawnMode,
 } from "../control/spawner.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
@@ -147,11 +149,14 @@ export interface CoreRuntimeDeps {
   taskStore: TaskMdStore;
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
+  /** Direct interactive session launcher. Tests inject a host-independent stub. */
+  sessionSpawn?: (request: SpawnRequest) => SpawnResult;
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
+  const sessionSpawn = deps.sessionSpawn ?? spawnSession;
   mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route(
     "/v1/sessions",
@@ -437,7 +442,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         project: projectName || null,
         goalAndGo: goalAndGoRequested(runtimeOptions),
       });
-      const result = spawnSession({
+      const result = sessionSpawn({
         provider: spawn.provider,
         mode,
         args: spawnArgs.length > 0 ? spawnArgs : undefined,
@@ -506,7 +511,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       project: projectName || null,
       goalAndGo: goalAndGoRequested(directOptions),
     });
-    const result = spawnSession({
+    const result = sessionSpawn({
       provider: resolved.provider,
       mode,
       args: [...resolved.args, ...runtimeArgs, ...userArgs],

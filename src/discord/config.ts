@@ -7,6 +7,7 @@ import {
   desiredSessionForumTagNames,
   type ForumTemplateTagSource,
 } from "./forum-template-tags.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
 export interface DiscordConfigSnapshot {
   guildId: string;
@@ -57,10 +58,10 @@ const FORUM_NAMES = {
 
 export const SESSION_FORUM_TOPIC = [
   "新規投稿からCcセッションを起動します。",
-  "1. 起動テンプレタグを1つ選ぶ（Claude起動 / Codex起動など）。",
-  "2. タイトルを「[project code] 作業概要」にし、本文へ依頼内容・完了条件を書く。",
-  "3. 投稿するとCcがセッションをspawnし、起動後は状態・会話・結果を同じスレッドへ紐付ける。",
-  "タグなし・複数タグでは起動しません。対象projectが不明な場合は起動後に確認します。",
+  "1. タイトルを「[project code] 作業概要」にし、本文へ依頼内容・完了条件を書く。",
+  "2. 投稿内容からCcが起動テンプレを選択し、Ccがセッションをspawnします。",
+  "3. 起動後は状態・会話・結果を同じスレッドへ紐付けます。",
+  "対象projectが不明な場合は起動せず、追記を依頼します。",
 ].join("\n");
 
 const TASK_WORKFLOW_FORUM_TOPIC =
@@ -111,7 +112,11 @@ export async function ensureDiscordLayout(
   const forumMode = opts.forumMode ?? true;
   const sessionForumTagNames = opts.sessionForumTemplates
     ? desiredSessionForumTagNames(opts.sessionForumTemplates)
-    : [...SESSION_WORK_TAG_NAMES, ...Object.values(SESSION_STATE_TAG_NAMES)];
+    : [
+        ...SESSION_WORK_TAG_NAMES,
+        ...Object.values(SESSION_STATE_TAG_NAMES),
+        CONCORDIA_MANAGED_FORUM_TAG_NAME,
+      ];
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
@@ -146,7 +151,7 @@ export async function ensureDiscordLayout(
         TASK_WORKFLOW_FORUM_KEY,
         FORUM_NAMES.taskWorkflow,
         TASK_WORKFLOW_FORUM_TOPIC,
-        Object.values(SESSION_STATE_TAG_NAMES),
+        [...Object.values(SESSION_STATE_TAG_NAMES), CONCORDIA_MANAGED_FORUM_TAG_NAME],
       )
     : "";
   // コストはカテゴリ外のルートチャンネル。既存配置も ensure 時にルートへ戻す。

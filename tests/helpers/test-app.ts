@@ -54,6 +54,7 @@ export interface TestAppOptions {
   /** Kept for older tests; dispatcher fanout was removed. */
   rng?: () => number;
   delegationSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
+  sessionSpawn?: (req: SpawnRequest) => { ok: true; pid: number | null; command: string[] } | { ok: false; error: string };
   chatRoutes?: boolean;
   costRoutes?: boolean;
   costOverviewSource?: "live" | "samples";
@@ -146,6 +147,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     taskStore,
+    sessionSpawn: opts.sessionSpawn,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,
     processManager,

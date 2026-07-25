@@ -1,8 +1,11 @@
-import { SlashCommandBuilder } from "discord.js";
+import { ChannelType, SlashCommandBuilder, type PublicThreadChannel } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
-import { forumAutoSpawnSuppression } from "../forum-auto-spawn-suppression.js";
+import {
+  markForumThreadAsConcordiaManaged,
+  type EditableForumThread,
+} from "../forum-system-tag.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
 
@@ -74,10 +77,6 @@ const spawnCommand: DiscordCommandSpec = {
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
 
-    // A newly created Forum thread emits ThreadCreate beside this interaction.
-    // Prefer the explicit user-selected spawn over the Forum auto-spawn path.
-    forumAutoSpawnSuppression.suppressForExplicitSpawn(interaction.channelId);
-
     // 本社はどのチャンネルからでも spawn 可 (2026-07-02 ユーザ指示でチャンネル限定を撤回)。
     // 子会社の spawn 禁止は dispatchInteraction の全コマンド拒否で担保している。
 
@@ -89,6 +88,7 @@ const spawnCommand: DiscordCommandSpec = {
     // provider / model / 既定 cwd はテンプレから継承する。
     if (template) {
       await interaction.deferReply({ ephemeral: false });
+      if (!await markExplicitSpawnThread(interaction, deps)) return;
       deps.log.info(`spawn command branch=template template=${template} inject=${inject ? 1 : 0}`);
       const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
         deps.concordiaUrl,
@@ -127,6 +127,7 @@ const spawnCommand: DiscordCommandSpec = {
       return;
     }
     await interaction.deferReply({ ephemeral: false });
+    if (!await markExplicitSpawnThread(interaction, deps)) return;
     deps.log.info(`spawn command branch=admin-provider provider=${provider} project=${project ?? "-"} requested_branch=${branch ?? "-"}`);
     const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
       deps.concordiaUrl,
@@ -150,6 +151,44 @@ const spawnCommand: DiscordCommandSpec = {
 };
 
 export default spawnCommand;
+
+async function markExplicitSpawnThread(
+  interaction: Parameters<DiscordCommandSpec["execute"]>[0],
+  deps: Parameters<DiscordCommandSpec["execute"]>[1],
+): Promise<boolean> {
+  const channel = interaction.channel;
+  if (
+    !channel?.isThread()
+    || channel.type !== ChannelType.PublicThread
+    || channel.parentId !== deps.layout.sessionForumId
+    || channel.parent?.type !== ChannelType.GuildForum
+  ) {
+    return true;
+  }
+  try {
+    await markForumThreadAsConcordiaManaged(adaptForumThread(channel));
+    deps.log.info(`spawn command marked Cc-managed forum thread=${channel.id}`);
+    return true;
+  } catch (error) {
+    const message = (error as Error).message;
+    deps.log.warn(`spawn command forum tag failed thread=${channel.id}: ${message}`);
+    await interaction.editReply({
+      content: `spawn failed: Forum の Cc 管理タグを付与できませんでした: ${message}`,
+    });
+    return false;
+  }
+}
+
+function adaptForumThread(thread: PublicThreadChannel<true>): EditableForumThread {
+  const forum = thread.parent;
+  return {
+    id: thread.id,
+    appliedTags: thread.appliedTags,
+    availableTags: forum?.type === ChannelType.GuildForum ? forum.availableTags : [],
+    fetch: async () => adaptForumThread(await thread.fetch(true) as PublicThreadChannel<true>),
+    edit: (patch) => thread.edit(patch),
+  };
+}
 
 /**
  * スポーン後、新しいセッションチャンネルが DB に現れるまで最大 12s ポーリングし、

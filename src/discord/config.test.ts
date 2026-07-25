@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { ChannelType } from "discord.js";
 import type { Guild } from "discord.js";
 import { ensureDiscordLayout, SESSION_FORUM_TOPIC, TEST_FORUM_TOPIC } from "./config.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 
 /** ensureDiscordLayout 用の最小 fake Guild / repo。 channels.create を記録する。 */
@@ -156,8 +157,11 @@ describe("ensureDiscordLayout", () => {
 
     const forum = channels.get(snap.sessionForumId);
     expect(forum?.availableTags?.map((tag) => tag.name)).toContain("Claude起動");
+    expect(forum?.availableTags?.map((tag) => tag.name)).toContain(CONCORDIA_MANAGED_FORUM_TAG_NAME);
+    expect(channels.get(snap.taskWorkflowForumId)?.availableTags?.map((tag) => tag.name))
+      .toContain(CONCORDIA_MANAGED_FORUM_TAG_NAME);
     expect(forum?.topic).toBe(SESSION_FORUM_TOPIC);
-    expect(SESSION_FORUM_TOPIC).toContain("起動テンプレタグを1つ");
+    expect(SESSION_FORUM_TOPIC).toContain("投稿内容からCcが起動テンプレを選択");
     expect(SESSION_FORUM_TOPIC).toContain("[project code]");
     expect(SESSION_FORUM_TOPIC).toContain("Ccがセッションをspawn");
     expect(SESSION_FORUM_TOPIC).toContain("同じスレッド");

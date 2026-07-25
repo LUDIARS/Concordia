@@ -13,6 +13,10 @@ export interface DelegationTemplateLite {
   }>;
   default_cwd?: string | null;
   project?: string | null;
+  description?: string;
+  target_provider?: "claude" | "codex" | "gemini" | "gemma4-12";
+  model?: string | null;
+  default_options?: Record<string, unknown>;
 }
 
 export interface DelegationTemplateCacheLogger {

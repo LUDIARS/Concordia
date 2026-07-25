@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeTestApp } from "./helpers/test-app.js";
 import { isReactionUserAllowed } from "../src/shared/reaction-workflow-auth.js";
+import type { SpawnRequest } from "../src/control/spawner.js";
 
 function buildTestApp() {
   return makeTestApp();
@@ -85,7 +86,13 @@ describe("admin API", () => {
   });
 
   it("POST /v1/admin/spawn-session falls back to workspace root for an unresolved template cwd variable", async () => {
-    env = makeTestApp();
+    const spawnCalls: SpawnRequest[] = [];
+    env = makeTestApp({
+      sessionSpawn: (request) => {
+        spawnCalls.push(request);
+        return { ok: true, pid: 123, command: ["wt.exe", request.provider] };
+      },
+    });
     env.delegation.createTemplate({
       call_name: "template-needs-project",
       title: "Template needs project",
@@ -104,6 +111,9 @@ describe("admin API", () => {
 
     expect(r.status).toBe(200);
     expect(await r.json()).toMatchObject({ cwd: env.adminState.getWorkspaceRoot() });
+    expect(spawnCalls).toEqual([expect.objectContaining({
+      cwd: env.adminState.getWorkspaceRoot(),
+    })]);
   });
 
   it("POST /v1/admin/spawn-session automatically selects Codex effort", async () => {

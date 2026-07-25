@@ -71,14 +71,11 @@ import {
   type ForumSpawnDeps,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
-import { forumAutoSpawnSuppression, waitForExplicitForumSpawn } from "./forum-auto-spawn-suppression.js";
+import { selectForumDelegationTemplate } from "./forum-delegation-selector.js";
 import {
   resolveForumSessionSurface,
 } from "./forum-session.js";
 import { bindForumSpawnSession } from "./forum-spawn-session.js";
-import { pickAvailableForumProvider } from "../delegation/forum-provider-availability.js";
-import { fetchCodexRateLimits } from "../cost/codex-rate-limits.js";
-import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { reconcileTestForum } from "./test-forum-reconcile.js";
@@ -108,7 +105,10 @@ export function shouldPostPermissionRequestToDiscord(env: Pick<DiscordEnv, "perm
   return env.permissionRequestsEnabled;
 }
 
-export type DiscordHeadlessRunner = (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
+export type DiscordHeadlessRunner = (
+  prompt: string,
+  opts?: RwfRunOptions & { timeoutMs?: number },
+) => Promise<RwfRunResult>;
 export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; path?: string | null; error?: string }>;
 
 export interface DiscordBotDeps {
@@ -733,12 +733,31 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     const forumWebhooks = webhooks;
     if (gatewayClosed || stopping || !newlyCreated || !forumLayout?.forumMode || !forumWebhooks) return;
     if (!inScope(thread.guildId)) return;
-    void waitForExplicitForumSpawn(forumAutoSpawnSuppression, thread.id).then((suppressed) => {
-      if (suppressed) {
-        log.info(`forum-spawn skipped explicit /spawn thread=${thread.id}`);
-        return;
-      }
-      return handleForumSpawnThread({
+    const parent = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
+    const forumSpawnThread: ForumSpawnThread = {
+      id: thread.id,
+      guildId: thread.guildId,
+      parentId: thread.parentId,
+      ownerId: thread.ownerId,
+      name: thread.name,
+      appliedTags: thread.appliedTags,
+      availableTags: parent?.availableTags ?? [],
+      fetchStarterMessage: async () => {
+        const starter = await thread.fetchStarterMessage();
+        return starter ? { content: starter.content } : null;
+      },
+      fetchTagState: async () => {
+        const freshThread = await thread.fetch(true);
+        const freshParent = freshThread.parent?.type === ChannelType.GuildForum
+          ? await freshThread.parent.fetch(true)
+          : null;
+        return {
+          appliedTags: freshThread.appliedTags,
+          availableTags: freshParent?.type === ChannelType.GuildForum ? freshParent.availableTags : [],
+        };
+      },
+    };
+    void handleForumSpawnThread({
         sessionForumId: forumLayout.sessionForumId,
         botUserId: client.user?.id ?? "",
         concordiaUrl: deps.concordiaUrl,
@@ -748,13 +767,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         subsidiaryId,
         isLaunchUserAllowed: deps.isLaunchUserAllowed,
         templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
-        pickProvider: async () => {
-        const [codexRate, claudeUsage] = await Promise.all([
-          fetchCodexRateLimits({ log }),
-          fetchClaudeOAuthUsage({ log }),
-        ]);
-        return pickAvailableForumProvider({ codexRate, claudeUsage });
-        },
+        selectTemplate: (input) => selectForumDelegationTemplate(
+          (prompt, options) => deps.runHeadless(prompt, options),
+          input,
+        ),
         resolveProjectTarget: projectResolver.targetFromPost,
         resolveSpawnCwd: (provider, requested) =>
         deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
@@ -774,8 +790,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         if (!sent) throw new Error("Session forum webhook post failed");
         },
         log,
-      }, thread as unknown as ForumSpawnThread);
-    }).catch((error) => {
+      }, forumSpawnThread).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
     });
   }));

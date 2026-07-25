@@ -6,20 +6,60 @@ import {
   handleForumSpawnThread,
   isConcordiaSessionStarter,
   parseForumSpawnTrigger,
+  type ForumSpawnDeps,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
-function template(callName: string): DelegationTemplateLite {
+const MANAGED_TAG = { id: "managed-tag", name: CONCORDIA_MANAGED_FORUM_TAG_NAME };
+
+function template(callName = "forum-codex-session"): DelegationTemplateLite {
   return {
     call_name: callName,
     title: callName,
+    description: "Implement a Forum request",
+    target_provider: "codex",
+    model: "gpt-5.6-sol",
     is_active: true,
     call_only: false,
     emoji: "",
     forum_tag: true,
-    input_schema: [],
+    input_schema: [{ name: "effort", type: "string", required: true, default: "high" }],
     default_cwd: null,
     project: null,
+  };
+}
+
+function makeThread(patch: Partial<ForumSpawnThread> = {}): ForumSpawnThread {
+  return {
+    id: "thread-1",
+    guildId: "guild-1",
+    parentId: "forum-1",
+    ownerId: "human-1",
+    name: "[Cc] Implement Phase 2",
+    appliedTags: [],
+    availableTags: [MANAGED_TAG],
+    fetchStarterMessage: vi.fn(async () => ({ content: "Build spawn-by-post" })),
+    fetchTagState: vi.fn(async () => ({ appliedTags: [], availableTags: [MANAGED_TAG] })),
+    ...patch,
+  };
+}
+
+function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
+  const selected = template();
+  return {
+    sessionForumId: "forum-1",
+    botUserId: "bot-1",
+    concordiaUrl: "http://127.0.0.1:17320",
+    isLaunchUserAllowed: (userId) => userId === "human-1",
+    templates: vi.fn(async () => [selected]),
+    selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
+    resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+    resolveSpawnCwd: (_provider, requested) => requested,
+    hasExistingRun: () => false,
+    postToThread: vi.fn(async () => undefined),
+    log: { info: vi.fn(), warn: vi.fn() },
+    ...patch,
   };
 }
 
@@ -33,228 +73,111 @@ describe("forum spawn", () => {
     expect(parseForumSpawnTrigger("discord-forum:guild:thread:extra")).toBeNull();
   });
 
-  it("includes both title and body in the initial injected prompt", () => {
+  it("includes title/body and recognizes both Repo spellings in Cc starters", () => {
     expect(buildForumSpawnPrompt("[Cc] Phase 2", "Implement spawn-by-post")).toContain(
       "Title: [Cc] Phase 2\n\nImplement spawn-by-post",
     );
+    expect(isConcordiaSessionStarter("**Session** `s1`\n**Repo** `Concordia`")).toBe(true);
+    expect(isConcordiaSessionStarter("**TaskWorkflow** `s2`\n**Repository** `Concordia`")).toBe(true);
+    expect(isConcordiaSessionStarter("Please fix **Repo** handling")).toBe(false);
   });
 
-  it("recognizes webhook-created Cc Session starters so they do not recursively spawn", () => {
-    expect(isConcordiaSessionStarter("**Session** `s1`\n**Repository** `Concordia`")).toBe(true);
-    expect(isConcordiaSessionStarter("Please fix **Repository** handling")).toBe(false);
+  it("ignores a Cc-managed thread before authorization, starter fetch, selector, or invoke", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const isLaunchUserAllowed = vi.fn(() => true);
+    const deps = makeDeps({ isLaunchUserAllowed });
+    const thread = makeThread({ appliedTags: ["managed-tag"] });
+
+    await handleForumSpawnThread(deps, thread);
+
+    expect(isLaunchUserAllowed).not.toHaveBeenCalled();
+    expect(thread.fetchStarterMessage).not.toHaveBeenCalled();
+    expect(deps.selectTemplate).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("invokes the plan for the picked provider, without needing any tag", async () => {
+  it("selects one active template and invokes it without overriding template runtime defaults", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       run: { id: "run-1", status: "queued" },
       spawn_pid: 42,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const replies: string[] = [];
-    const thread: ForumSpawnThread = {
-      id: "thread-1",
-      guildId: "guild-1",
-      parentId: "forum-1",
-      ownerId: "human-1",
-      name: "[Cc] Implement Phase 2",
-      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-    };
+    const selected = template("impl-from-forum");
+    const deps = makeDeps({
+      templates: async () => [selected],
+      selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
+    });
 
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-1",
-      templates: async () => [template("forum-codex-session"), template("forum-claude-session")],
-      pickProvider: async () => "codex",
-      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
-      resolveSpawnCwd: (_provider, requested) => requested ?? "E:/Document/Ars",
-      hasExistingRun: () => false,
-      postToThread: async (_threadId, content) => { replies.push(content); },
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
+    await handleForumSpawnThread(deps, makeThread());
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("http://127.0.0.1:17320/v1/delegation/invoke");
-    expect(JSON.parse(String(init.body))).toMatchObject({
-      call_name: "forum-codex-session",
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      call_name: "impl-from-forum",
+      args: { effort: "high" },
       cwd: "E:/Document/Ars/Concordia",
       triggered_by: "discord-forum:guild-1:thread-1",
       spawn: true,
-      overrides: { model: "gpt-5.6-terra", reasoning_effort: "high" },
+      subsidiary_id: null,
     });
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("run-1");
+    expect(body).not.toHaveProperty("overrides");
   });
 
-  it("stamps subsidiary_id when the thread belongs to a subsidiary Bot instance", async () => {
+  it("rechecks fresh tags immediately before invoke and yields to explicit /spawn", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const deps = makeDeps();
+    const thread = makeThread({
+      fetchTagState: vi.fn(async () => ({
+        appliedTags: ["managed-tag"],
+        availableTags: [MANAGED_TAG],
+      })),
+    });
+
+    await handleForumSpawnThread(deps, thread);
+
+    expect(deps.selectTemplate).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when template selection fails", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const deps = makeDeps({
+      selectTemplate: vi.fn(async () => ({
+        ok: false as const,
+        error: "起動テンプレの選択に失敗しました。",
+      })),
+    });
+
+    await handleForumSpawnThread(deps, makeThread());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deps.postToThread).toHaveBeenCalledWith("thread-1", "起動テンプレの選択に失敗しました。");
+  });
+
+  it("rejects a non-allowlisted owner before the selector", async () => {
+    const deps = makeDeps({ isLaunchUserAllowed: () => false });
+    await handleForumSpawnThread(deps, makeThread({ ownerId: "human-denied" }));
+    expect(deps.selectTemplate).not.toHaveBeenCalled();
+    expect(deps.postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringContaining("起動権限がありません"),
+    );
+  });
+
+  it("stamps the owning subsidiary on the selected template invoke", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
       run: { id: "run-sub", status: "queued" },
       spawn_pid: 44,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    const thread: ForumSpawnThread = {
-      id: "thread-sub",
-      guildId: "guild-sub",
-      parentId: "forum-1",
-      ownerId: "human-1",
-      name: "[Cc] Implement Phase 2",
-      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-    };
-
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-1",
-      subsidiaryId: "sub-1",
-      templates: async () => [template("forum-codex-session")],
-      pickProvider: async () => "codex",
-      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
-      resolveSpawnCwd: (_provider, requested) => requested,
-      hasExistingRun: () => false,
-      postToThread: async () => undefined,
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
-
+    await handleForumSpawnThread(makeDeps({ subsidiaryId: "sub-1" }), makeThread());
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: "sub-1" });
-  });
-
-  it("stamps subsidiary_id=null for the headquarters Bot (no subsidiary configured)", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      ok: true,
-      run: { id: "run-hq", status: "queued" },
-      spawn_pid: 45,
-    }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const thread: ForumSpawnThread = {
-      id: "thread-hq",
-      guildId: "guild-hq",
-      parentId: "forum-1",
-      ownerId: "human-1",
-      name: "[Cc] Implement Phase 2",
-      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-    };
-
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-1",
-      templates: async () => [template("forum-codex-session")],
-      pickProvider: async () => "codex",
-      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
-      resolveSpawnCwd: (_provider, requested) => requested,
-      hasExistingRun: () => false,
-      postToThread: async () => undefined,
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
-
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: null });
-  });
-
-  it("asks for the project and does not fall back to Castra when resolution fails", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      ok: true,
-      run: { id: "run-default", status: "queued" },
-      spawn_pid: 43,
-    }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    const resolveSpawnCwd = vi.fn(() => "E:/Document/Ars/Castra");
-    const thread: ForumSpawnThread = {
-      id: "thread-default",
-      guildId: "guild-1",
-      parentId: "forum-1",
-      ownerId: "human-1",
-      name: "Investigate without a project code",
-      fetchStarterMessage: async () => ({ content: "Start a normal session" }),
-    };
-    const replies: string[] = [];
-
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-1",
-      templates: async () => [template("forum-codex-session")],
-      pickProvider: async () => "codex",
-      resolveProjectTarget: () => null,
-      resolveSpawnCwd,
-      hasExistingRun: () => false,
-      postToThread: async (_threadId, content) => { replies.push(content); },
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
-
-    expect(resolveSpawnCwd).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(replies[0]).toContain("作業対象プロジェクトを特定できません");
-  });
-
-  it("replies with an error and does not invoke when the planned template is missing", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const replies: string[] = [];
-    const thread: ForumSpawnThread = {
-      id: "thread-1",
-      guildId: "guild-1",
-      parentId: "forum-1",
-      ownerId: "human-1",
-      name: "[Cc] Implement Phase 2",
-      fetchStarterMessage: async () => ({ content: "Build spawn-by-post" }),
-    };
-
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-1",
-      templates: async () => [],
-      pickProvider: async () => "claude",
-      resolveProjectTarget: () => null,
-      resolveSpawnCwd: () => "E:/Document/Ars/Castra",
-      hasExistingRun: () => false,
-      postToThread: async (_threadId, content) => { replies.push(content); },
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(replies).toHaveLength(1);
-    expect(replies[0]).toContain("forum-claude-session");
-  });
-
-  it("rejects a non-allowlisted Discord thread owner before delegation", async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const replies: string[] = [];
-    const thread: ForumSpawnThread = {
-      id: "thread-denied",
-      guildId: "guild-1",
-      parentId: "forum-1",
-      ownerId: "human-denied",
-      name: "[Cc] denied",
-      fetchStarterMessage: async () => ({ content: "Do not launch" }),
-    };
-
-    await handleForumSpawnThread({
-      sessionForumId: "forum-1",
-      botUserId: "bot-1",
-      concordiaUrl: "http://127.0.0.1:17320",
-      isLaunchUserAllowed: (userId) => userId === "human-allowed",
-      templates: async () => [template("forum-codex-session")],
-      pickProvider: async () => "codex",
-      resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
-      resolveSpawnCwd: (_provider, requested) => requested,
-      hasExistingRun: () => false,
-      postToThread: async (_threadId, content) => { replies.push(content); },
-      log: { info: vi.fn(), warn: vi.fn() },
-    }, thread);
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(replies[0]).toContain("起動権限がありません");
   });
 });

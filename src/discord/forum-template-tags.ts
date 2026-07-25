@@ -1,5 +1,6 @@
 import { REST, Routes } from "discord.js";
 import type { InputSchemaItem } from "../db/delegation-repo.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
 export const MAX_FORUM_TEMPLATES = 10;
 export const MAX_FORUM_TAG_NAME_LENGTH = 20;
@@ -31,6 +32,10 @@ export function validateForumTemplateTags(templates: readonly ForumTemplateTagSo
     return { ok: false, error: `forum_tag templates must be at most ${MAX_FORUM_TEMPLATES}` };
   }
 
+  const reservedLabels = new Set(
+    [...SESSION_WORK_TAG_NAMES, ...SESSION_STATE_TAG_NAMES, CONCORDIA_MANAGED_FORUM_TAG_NAME]
+      .map((label) => label.toLocaleLowerCase()),
+  );
   const labels = new Set<string>();
   for (const template of enabled) {
     const label = forumTemplateTagName(template);
@@ -42,6 +47,9 @@ export function validateForumTemplateTags(templates: readonly ForumTemplateTagSo
       };
     }
     const normalized = label.toLocaleLowerCase();
+    if (reservedLabels.has(normalized)) {
+      return { ok: false, error: `forum_tag title is reserved: ${label}` };
+    }
     if (labels.has(normalized)) return { ok: false, error: `duplicate forum_tag title: ${label}` };
     labels.add(normalized);
 
@@ -71,7 +79,12 @@ export function desiredSessionForumTagNames(templates: readonly ForumTemplateTag
   const templateNames = templates
     .filter((template) => Boolean(template.is_active) && Boolean(template.forum_tag))
     .map(forumTemplateTagName);
-  return [...SESSION_WORK_TAG_NAMES, ...SESSION_STATE_TAG_NAMES, ...templateNames];
+  return [
+    ...SESSION_WORK_TAG_NAMES,
+    ...SESSION_STATE_TAG_NAMES,
+    CONCORDIA_MANAGED_FORUM_TAG_NAME,
+    ...templateNames,
+  ];
 }
 
 interface DiscordForumChannelResponse {

@@ -8,7 +8,7 @@ import type { DelegationRepo, CreateTemplateInput } from "../db/delegation-repo.
 
 const CLAUDE_TEMPLATE_SORT_ORDER = {
   "fable-5": 10,
-  "opus-4-8": 30,
+  "opus-5": 30,
   "sonnet-5": 40,
   "haiku-4-5": 60,
 } as const;
@@ -130,7 +130,7 @@ const DAILY_REVIEW_RECONCILIATION_PROMPT = [
   "   さらに `git merge-base --is-ancestor <今回HEAD> <前回HEAD>` が真になる場合 (範囲逆転: 今回 HEAD が",
   "   前回 HEAD の祖先 = ローカル取得ミス等で HEAD が逆行している) は、diff を作らずそのリポを",
   "   skip/no_change として記録し、理由 (range_reversed) を添えてレビュアーには一切投げない (early-exit)。",
-  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-4-8` を起動する (互いの所見は見せない)。",
+  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-5` を起動する (互いの所見は見せない)。",
   "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定 → 両者一致の High 以上は対象リポへ GitHub Issue 作成。",
   "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` を今回 HEAD (origin/<default-branch> の sha) へ更新する。",
   "   Review/ への書き込みはローカルのみ。Castra で `git add` / `git commit` / `git push` は行わない。",
@@ -263,9 +263,9 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   // ── Claude (Opus / Sonnet / Fable) への汎用実装委託 ──────────────────
   // target_provider=claude + model 指定 → spawn は `lictor claude --model <id>`。
   // 同じ Claude Code でも上位/中位/高速モデルを選んで委託できるよう既定で 3 本入れる。
-  ...(["opus-4-8", "sonnet-5", "fable-5", "haiku-4-5"] as const).map((tier) => {
+  ...(["opus-5", "sonnet-5", "fable-5", "haiku-4-5"] as const).map((tier) => {
     const meta = {
-      "opus-4-8": { id: "claude-opus-4-8", label: "Opus 4.8", note: "最上位。 設計判断や難所の実装向き。", emoji: "🧙‍♂️" },
+      "opus-5": { id: "claude-opus-5", label: "Opus 5", note: "最上位。 設計判断や難所の実装向き。", emoji: "🧙‍♂️" },
       "sonnet-5": { id: "claude-sonnet-5", label: "Sonnet 5", note: "中位。 一般的な実装の主力。", emoji: "🧑‍💼" },
       "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。", emoji: "🦸" },
       "haiku-4-5": { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", note: "超高速・軽量タスク向き。", emoji: "🗣️" },
@@ -504,10 +504,10 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   },
   {
     call_name: "design-analysis-opus",
-    title: "設計・提案・分析委託 (Opus 4.8)",
-    description: "現状分析・改善提案・影響範囲の整理を Opus 4.8 に委託する。実装はせず、分析結果を spec/faq/ (kind: design) 形式のドキュメントとして出力する。",
+    title: "設計・提案・分析委託 (Opus 5)",
+    description: "現状分析・改善提案・影響範囲の整理を Opus 5 に委託する。実装はせず、分析結果を spec/faq/ (kind: design) 形式のドキュメントとして出力する。",
     target_provider: "claude",
-    model: "claude-opus-4-8",
+    model: "claude-opus-5",
     category: "freelancer",
     emoji: "🔬",
     prompt_template: [
@@ -549,7 +549,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "review-duo",
     title: "レビュー (Opus × Sol xhigh 突合)",
-    description: "対象を Claude Opus 4.8 と Codex GPT-5.6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
+    description: "対象を Claude Opus 5 と Codex GPT-5.6 Sol (xhigh) に独立レビューさせて突合する既定のレビュー起動。結果は E:\\Document\\Ars\\Review\\<リポ名>\\<日付>\\ に保存。起動後も追加指示 (inject) でモデル構成・範囲を調整できる。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "freelancer",
@@ -564,7 +564,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "",
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
-      "- Reviewer A: `claude -p --model claude-opus-4-8`",
+      "- Reviewer A: `claude -p --model claude-opus-5`",
       "- Reviewer B: `codex exec` — model gpt-5.6-sol, `model_reasoning_effort=\"${sol_effort:xhigh}\"`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
@@ -613,6 +613,8 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   if (legacy) repo.deactivateTemplate(legacy.id);
   const legacySonnet = repo.findTemplateByCallName("claude-sonnet-4-6-impl");
   if (legacySonnet) repo.deactivateTemplate(legacySonnet.id);
+  const legacyOpus = repo.findTemplateByCallName("claude-opus-4-8-impl");
+  if (legacyOpus) repo.deactivateTemplate(legacyOpus.id);
   const legacyDailyReconciliation = repo.findTemplateByCallName("daily-review-reconciliation");
   if (legacyDailyReconciliation) repo.deactivateTemplate(legacyDailyReconciliation.id);
 }

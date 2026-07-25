@@ -4,10 +4,12 @@ import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
-  it("seeds Sonnet 5 on a fresh catalog", () => {
+  it("seeds Opus 5 and Sonnet 5 on a fresh catalog", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     seedModelCatalog(repo);
-    expect(repo.list().map((m) => m.model_id)).toContain("claude-sonnet-5");
+    const ids = repo.list().map((m) => m.model_id);
+    expect(ids).toContain("claude-opus-5");
+    expect(ids).toContain("claude-sonnet-5");
   });
 
   it("adds rolling new models to an existing catalog without restoring ordinary seeds", () => {
@@ -18,8 +20,27 @@ describe("seedModelCatalog", () => {
 
     const ids = repo.list({ includeInactive: true }).map((m) => m.model_id);
     expect(ids).toContain("custom-model");
+    expect(ids).toContain("claude-opus-5");
     expect(ids).toContain("claude-sonnet-5");
     expect(ids).not.toContain("claude-opus-4-8");
+  });
+
+  it("deactivates an existing Opus 4.8 row when adding Opus 5", () => {
+    const repo = new ModelCatalogRepo(makeTestDb());
+    repo.create({ provider: "claude", model_id: "claude-opus-4-8", label: "Opus 4.8", sort_order: 10 });
+
+    seedModelCatalog(repo);
+
+    const rows = repo.list({ includeInactive: true });
+    expect(rows.find((m) => m.model_id === "claude-opus-5")).toMatchObject({
+      label: "Opus 5",
+      sort_order: 10,
+      is_active: 1,
+    });
+    expect(rows.find((m) => m.model_id === "claude-opus-4-8")).toMatchObject({
+      sort_order: 90,
+      is_active: 0,
+    });
   });
 
   it("demotes an existing Sonnet 4.6 row behind Sonnet 5 without recreating deleted rows", () => {

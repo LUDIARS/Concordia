@@ -162,7 +162,7 @@ export function ModelCatalogSection() {
           <span className="text-subtle">model_id (--model に渡す実値)</span>
           <input
             className="foundation-form w-full"
-            placeholder="例: claude-opus-4-8 / gpt-5.5"
+            placeholder="例: claude-opus-5 / gpt-5.6-sol"
             value={draft.model_id}
             onChange={(e) => setDraft({ ...draft, model_id: e.target.value })}
           />
@@ -171,7 +171,7 @@ export function ModelCatalogSection() {
           <span className="text-subtle">label (表示名、 任意)</span>
           <input
             className="foundation-form w-full"
-            placeholder="例: Opus 4.8"
+            placeholder="例: Opus 5"
             value={draft.label}
             onChange={(e) => setDraft({ ...draft, label: e.target.value })}
           />

@@ -217,7 +217,7 @@ delegation テンプレ選択ベースで起動する:
 | `impl-from-design` | codex | — | 設計書 path を渡して実装させる |
 | `fix-bug` | codex | — | バグ説明 + 任意の再現手順から修正 PR を作らせる |
 | `refactor` | codex | — | 範囲指定リファクタ (behavior 維持) |
-| `claude-opus-4-8-impl` | claude | claude-opus-4-8 | Claude Opus に実装委託 (最上位 / 難所・設計判断向き) |
+| `claude-opus-5-impl` | claude | claude-opus-5 | Claude Opus に実装委託 (最上位 / 難所・設計判断向き) |
 | `claude-sonnet-5-impl` | claude | claude-sonnet-5 | Claude Sonnet に実装委託 (中位 / 一般実装の主力) |
 | `claude-fable-5-impl` | claude | claude-fable-5 | Claude Fable に実装委託 (高速 / 軽量〜中規模) |
 | `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Famulus 経由) に実装委託、 API 課金ゼロ |

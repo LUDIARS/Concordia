@@ -7,7 +7,7 @@ const EXPECTED_SEED_CALLS = [
   "claude-fable-5-impl",
   "codex-5-6-sol",
   "codex-5-6-sol-ultra",
-  "claude-opus-4-8-impl",
+  "claude-opus-5-impl",
   "claude-sonnet-5-impl",
   "codex-5-6-terra",
   "claude-haiku-4-5-impl",

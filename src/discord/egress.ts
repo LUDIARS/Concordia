@@ -1,4 +1,5 @@
 ﻿import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type { Guild } from "discord.js";
 import type { ChatMessageRelay, ChatReadModel } from "../platform/chat-read-model.js";
@@ -13,6 +14,7 @@ import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
 import { buildDelegationMirrorText } from "../delegation/coordination.js";
 import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
+import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
@@ -41,6 +43,7 @@ export interface EgressDeps {
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
   messageOptimizationEnabled?: boolean;
+  resolveWorkspaceRoots?: () => string[];
   /** A transcript frame reached Discord (or was deduplicated against an already-posted copy). */
   onTranscriptPosted?: (input: { sessionId: string; completion: boolean }) => void;
   log: { warn: (m: string) => void };
@@ -128,7 +131,7 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
     dedupStats.skipped_chat_posted += 1;
     return;
   }
-  const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log);
+  const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log, deps.resolveWorkspaceRoots?.() ?? []);
   const identity = session
     ? buildDiscordWebhookIdentity({
         model: session.model,
@@ -399,12 +402,27 @@ async function buildAttachFiles(
   rawPaths: string[] | undefined,
   messageId: number,
   log: { warn: (m: string) => void },
+  workspaceRoots: string[],
 ): Promise<Array<{ attachment: Buffer; name: string }>> {
   if (!rawPaths?.length) return [];
+  const enforce = process.env.CONCORDIA_ATTACHMENT_ENFORCE !== "0";
+  const guard = createAttachmentGuard({
+    roots: buildAttachmentRoots({
+      workspaceRoots,
+      tempDir: os.tmpdir(),
+      configuredRoots: process.env.CONCORDIA_ATTACHMENT_ROOTS,
+    }),
+    enforce,
+  });
   const out: Array<{ attachment: Buffer; name: string }> = [];
   for (const p of rawPaths) {
-    const absPath = path.isAbsolute(p) ? p : null;
-    if (!absPath) {
+    const result = await guard.check(p);
+    if (!result.ok) {
+      log.warn(`egress: attachment rejected message_id=${messageId} reason=${result.reason} path=${p}`);
+      if (enforce) continue;
+    }
+    const absPath = result.ok ? result.realPath : p;
+    if (!path.isAbsolute(absPath)) {
       log.warn(`egress: attachment skipped (not absolute) message_id=${messageId} path=${p}`);
       continue;
     }

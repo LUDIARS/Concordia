@@ -3,10 +3,12 @@
  */
 
 import { Hono } from "hono";
+import os from "node:os";
 import { z } from "zod";
 import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
 import { eventBus } from "../events.js";
+import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
 
 const PostSchema = z.object({
   channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
@@ -48,6 +50,7 @@ function buildMeta(parsed: z.infer<typeof PostSchema>, scope: string): string {
 
 export interface ChatApiDeps {
   chat: ChatRepo;
+  resolveWorkspaceRoots: () => string[];
 }
 
 export function chatRouter(deps: ChatApiDeps): Hono {
@@ -57,6 +60,8 @@ export function chatRouter(deps: ChatApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PostSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const attachmentError = await validateAttachments(parsed.data.attachment_paths, deps);
+    if (attachmentError) return c.json(attachmentError, 400);
 
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
@@ -104,6 +109,8 @@ export function chatRouter(deps: ChatApiDeps): Hono {
       in_reply_to: target.id,
     });
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const attachmentError = await validateAttachments(parsed.data.attachment_paths, deps);
+    if (attachmentError) return c.json(attachmentError, 400);
     const actionable = isActionableSuggestion(parsed.data.text);
     const scope = parsed.data.scope ?? "world";
     const metadataJson = buildMeta(parsed.data, scope);
@@ -130,6 +137,30 @@ export function chatRouter(deps: ChatApiDeps): Hono {
   });
 
   return app;
+}
+
+async function validateAttachments(
+  paths: string[] | undefined,
+  deps: ChatApiDeps,
+): Promise<{ error: "attachment_paths_rejected"; rejected_count: number; reasons: string[] } | null> {
+  if (!paths?.length) return null;
+  const enforce = process.env.CONCORDIA_ATTACHMENT_ENFORCE !== "0";
+  const guard = createAttachmentGuard({
+    roots: buildAttachmentRoots({
+      workspaceRoots: deps.resolveWorkspaceRoots(),
+      tempDir: os.tmpdir(),
+      configuredRoots: process.env.CONCORDIA_ATTACHMENT_ROOTS,
+    }),
+    enforce,
+  });
+  const failures = (await Promise.all(paths.map((attachmentPath) => guard.check(attachmentPath))))
+    .filter((result): result is Extract<typeof result, { ok: false }> => !result.ok);
+  if (!failures.length || !enforce) return null;
+  return {
+    error: "attachment_paths_rejected",
+    rejected_count: failures.length,
+    reasons: [...new Set(failures.map((failure) => failure.reason))],
+  };
 }
 
 function serialize(m: { id: number; channel: string; session_id: string | null; author_label: string; ts: number; text: string; in_reply_to: number | null; is_actionable: number; metadata: string | null }) {

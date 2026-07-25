@@ -92,6 +92,46 @@ describe("/v1/chat", () => {
     const j2 = (await r2.json()) as any;
     expect(j2.message.in_reply_to).toBe(m.message.id);
   });
+
+  it("rejects disallowed attachment paths before inserting the message", async () => {
+    const r = await env.app.request("/v1/chat", {
+      method: "POST",
+      headers: writeHeaders,
+      body: JSON.stringify({
+        channel: "chitchat",
+        text: "do not send this",
+        author_label: "human",
+        attachment_paths: [process.execPath],
+      }),
+    });
+    expect(r.status).toBe(400);
+    const body = await r.json() as { error: string; rejected_count: number; reasons: string[] };
+    expect(body).toMatchObject({ error: "attachment_paths_rejected", rejected_count: 1 });
+    expect(body.reasons).toContain("outside_roots");
+    expect(JSON.stringify(body)).not.toContain(process.execPath);
+    expect((await (await env.app.request("/v1/chat?channel=chitchat")).json() as { messages: unknown[] }).messages).toHaveLength(0);
+  });
+
+  it("allows disallowed attachment paths in audit mode", async () => {
+    const previous = process.env.CONCORDIA_ATTACHMENT_ENFORCE;
+    process.env.CONCORDIA_ATTACHMENT_ENFORCE = "0";
+    try {
+      const r = await env.app.request("/v1/chat", {
+        method: "POST",
+        headers: writeHeaders,
+        body: JSON.stringify({
+          channel: "chitchat",
+          text: "audit only",
+          author_label: "human",
+          attachment_paths: [process.execPath],
+        }),
+      });
+      expect(r.status).toBe(200);
+    } finally {
+      if (previous === undefined) delete process.env.CONCORDIA_ATTACHMENT_ENFORCE;
+      else process.env.CONCORDIA_ATTACHMENT_ENFORCE = previous;
+    }
+  });
 });
 
 describe("/v1/sessions/:id/pending-tasks", () => {

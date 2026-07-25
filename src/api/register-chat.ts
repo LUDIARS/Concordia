@@ -56,7 +56,10 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     metrics: deps.metrics,
     resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
   }));
-  app.route("/v1/chat", chatRouter({ chat: deps.chat }));
+  app.route("/v1/chat", chatRouter({
+    chat: deps.chat,
+    resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+  }));
   app.route(
     "/v1/daily-reports",
     dailyRouter({ dayReports: deps.dayReports, scheduler: deps.dailyScheduler }),

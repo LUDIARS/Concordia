@@ -1091,6 +1091,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sessionChannelsRepo,
         messageMap,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
+        resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
         onTranscriptPosted,
         log,
       }, ev);
@@ -1323,6 +1324,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sessionChannelsRepo,
         messageMap,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
+        resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
         onTranscriptPosted,
         log,
       }, {

@@ -95,6 +95,32 @@ export function recordDiscordInteractionAck(result: {
   });
 }
 
+/**
+ * event loop が同期処理で塞がれた事象を記録する。
+ *
+ * これが出ている間は Discord interaction の 3 秒 ack に間に合わず
+ * `10062 Unknown interaction` になる。 従来はログの空白から事後推測するしかなかった。
+ */
+export function recordEventLoopStall(stall: {
+  lagMs: number;
+  activeHandles: number;
+  activeRequests: number;
+}): void {
+  if (!ENABLED) return;
+  metrics.record({
+    kind: "runtime",
+    target: "runtime.event_loop.stall",
+    tags: {
+      process_mode: process.env.CONCORDIA_CHAT_PROCESS_ROLE ?? "embedded",
+      active_handles: stall.activeHandles,
+      active_requests: stall.activeRequests,
+    },
+    durationMs: stall.lagMs,
+    status: "error",
+    errorName: "EventLoopStall",
+  });
+}
+
 export function instrumentConcordiaFunction<Fn extends AnyFunction>(
   target: string,
   fn: Fn,

@@ -134,6 +134,8 @@ import {
   readWorkflowWorkerLease,
   workflowEmbeddedEnabled,
 } from "./workflow.js";
+import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
+import { recordEventLoopStall } from "../instrumentation.js";
 
 const log = createChildLogger("server");
 
@@ -1055,6 +1057,43 @@ export async function startBackend(): Promise<BackendHandle> {
   trackPostListenHandle(taskflowRuntime.start());
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
+
+  // event loop が同期処理で塞がれた事象を常時記録する。
+  //
+  // 塞がっている間は Discord interaction の 3 秒 ack に間に合わず 10062 (Unknown
+  // interaction) になり、 ユーザには「コマンドが失敗した」 としか見えない。 2026-07-26 の
+  // 調査では 14 秒の停止を「ログの空白」 から事後推測するしかなく、 発生頻度が低いため
+  // CPU プロファイル (90 秒) でも捕まえられなかった。 stall を正確な時刻・長さ付きで
+  // 残すことで、 次に踏んだときへ手掛かりを繋ぐ。
+  const eventLoopStallMs = readPositiveIntEnv("CONCORDIA_EVENT_LOOP_STALL_MS", 1_000);
+  const eventLoopMonitor = startEventLoopMonitor({
+    stallThresholdMs: eventLoopStallMs,
+    onStall: (stall) => {
+      log.warn(
+        {
+          lag_ms: Math.round(stall.lagMs),
+          active_handles: stall.activeHandles,
+          active_requests: stall.activeRequests,
+        },
+        "event loop stalled",
+      );
+      recordEventLoopStall(stall);
+    },
+    onSummary: (summary) => {
+      // 平穏な区間まで毎分出すとノイズになるので、 山が出たときだけ残す。
+      if (summary.stalls === 0 && summary.maxLagMs < eventLoopStallMs / 2) return;
+      log.info(
+        {
+          stalls: summary.stalls,
+          max_lag_ms: Math.round(summary.maxLagMs),
+          histogram_max_ms: Math.round(summary.histogramMaxMs),
+          histogram_p99_ms: Math.round(summary.histogramP99Ms),
+        },
+        "event loop delay summary",
+      );
+    },
+  });
+  void eventLoopMonitor; // unref 済み。 プロセス終了は妨げない。
 
   const costWorkerWatch = setInterval(
     createCostLeaseWatchTick({

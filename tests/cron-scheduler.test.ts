@@ -83,6 +83,37 @@ describe("startCronScheduler", () => {
     await expect(handle.triggerNow()).resolves.toBeUndefined();
   });
 
+  it("resolveCallNameOverride takes precedence over the job's default call_name", async () => {
+    const invoke = vi.fn(async () => okResult());
+    const resolveCallNameOverride = vi.fn((jobName: string) =>
+      jobName === "job-a" ? "ludiars-review-daily" : null);
+    handle = startCronScheduler(
+      { delegationService: fakeDelegationService(invoke), resolveCallNameOverride },
+      [{ name: "job-a", cron: NEVER_FIRES, call_name: "ludiars-review-daily-dual", buildArgs: () => ({ date: "2026-07-27" }) }],
+    );
+
+    await handle.triggerNow();
+
+    expect(resolveCallNameOverride).toHaveBeenCalledWith("job-a");
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ call_name: "ludiars-review-daily" }),
+    );
+  });
+
+  it("falls back to the job's default call_name when there is no override", async () => {
+    const invoke = vi.fn(async () => okResult());
+    handle = startCronScheduler(
+      { delegationService: fakeDelegationService(invoke), resolveCallNameOverride: () => null },
+      [{ name: "job-a", cron: NEVER_FIRES, call_name: "ludiars-review-daily-dual", buildArgs: () => ({}) }],
+    );
+
+    await handle.triggerNow();
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({ call_name: "ludiars-review-daily-dual" }),
+    );
+  });
+
   it("runs the Sol Ultra daily review and the biweekly AI note review by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily-dual", cron: "10 5 * * *", call_name: "ludiars-review-daily-dual" },

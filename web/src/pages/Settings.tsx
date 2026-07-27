@@ -9,6 +9,7 @@ import {
   CostBudgetSection,
   LictorSection,
   WebHostsSection,
+  CronJobsSection,
 } from "./settings/sections.js";
 
 // Concordia の「設定」ページ。 設定項目が増えたので左メニュー + セクション構成にした。
@@ -69,6 +70,12 @@ const SECTIONS: SettingsSection[] = [
     label: "Lictor",
     hint: "spawn の Lictor 起動 (auto / dev / prod)",
     render: () => <section className="border border-border rounded p-4"><LictorSection /></section>,
+  },
+  {
+    id: "cron-jobs",
+    label: "定期実行",
+    hint: "毎日レビュー等、内部 cron が呼ぶテンプレの切り替え",
+    render: () => <section className="border border-border rounded p-4"><CronJobsSection /></section>,
   },
   {
     id: "web-hosts",

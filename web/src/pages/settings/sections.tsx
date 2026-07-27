@@ -4,3 +4,4 @@ export { WorkspaceSection } from "./sections/WorkspaceSection.js";
 export { CostBudgetSection } from "./sections/CostBudgetSection.js";
 export { WebHostsSection } from "./sections/WebHostsSection.js";
 export { LictorSection } from "./sections/LictorSection.js";
+export { CronJobsSection } from "./sections/CronJobsSection.js";

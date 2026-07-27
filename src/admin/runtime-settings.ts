@@ -5,6 +5,7 @@ const KEYS = {
   lictorMode: "admin.lictor_mode", lictorDev: "admin.lictor_dev_path", lictorProd: "admin.lictor_prod_exe",
   dailyBudget: "admin.daily_token_budget", delegationMax: "admin.delegation_max_concurrency",
   strongModels: "harness.strong_impl_models", mentionUser: "admin.mention_user_id",
+  cronJobOverrides: "admin.cron_job_overrides",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -41,6 +42,34 @@ export class RuntimeSettingsStore {
   setHarnessStrongImplModels(models: string[]): void { this.store.set(KEYS.strongModels, JSON.stringify(models.map((model) => model.trim()).filter(Boolean))); }
   getMentionUserId(): string | null { return this.store.get(KEYS.mentionUser)?.trim() || null; }
   setMentionUserId(value: string | null): void { this.store.set(KEYS.mentionUser, value?.trim() ?? ""); }
+
+  /**
+   * 内部 cron (src/scheduler/cron-jobs.ts) の call_name を、コード再デプロイなしで
+   * WebUI から切り替えるための override。 job_name → call_name の map。
+   * 未設定/null 相当のキーは削除し、cron-jobs.ts の既定 call_name を使わせる。
+   */
+  getCronJobOverrides(): Record<string, string> {
+    try {
+      const parsed = JSON.parse(this.store.get(KEYS.cronJobOverrides) ?? "{}") as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [jobName, callName] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof callName === "string" && callName.trim()) out[jobName] = callName.trim();
+        }
+        return out;
+      }
+    } catch { /* treat as unset */ }
+    return {};
+  }
+  getCronJobOverride(jobName: string): string | null {
+    return this.getCronJobOverrides()[jobName] ?? null;
+  }
+  setCronJobOverride(jobName: string, callName: string | null): void {
+    const overrides = this.getCronJobOverrides();
+    if (callName === null || !callName.trim()) delete overrides[jobName];
+    else overrides[jobName] = callName.trim();
+    this.store.set(KEYS.cronJobOverrides, JSON.stringify(overrides));
+  }
 }
 
 function positiveOrZero(raw: string | null, fallback: number): number {

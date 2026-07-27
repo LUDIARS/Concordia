@@ -16,6 +16,11 @@ const TIMEZONE = "Asia/Tokyo";
 
 export interface CronSchedulerDeps {
   delegationService: DelegationService;
+  /**
+   * cron 発火直前に呼ぶ、 call_name の実行時 override 解決 (WebUI `/v1/admin/cron-jobs` 経由)。
+   * 未指定 / null を返せば job.call_name (cron-jobs.ts の既定) を使う。
+   */
+  resolveCallNameOverride?: (jobName: string) => string | null;
 }
 
 export interface CronSchedulerHandle {
@@ -30,10 +35,11 @@ export function startCronScheduler(
 ): CronSchedulerHandle {
   async function runJob(job: CronJobDefinition): Promise<void> {
     const args = job.buildArgs();
-    log.info({ job: job.name, call_name: job.call_name, args }, "cron job firing");
+    const call_name = deps.resolveCallNameOverride?.(job.name) ?? job.call_name;
+    log.info({ job: job.name, call_name, default_call_name: job.call_name, args }, "cron job firing");
 
     const result = await deps.delegationService.invoke({
-      call_name: job.call_name,
+      call_name,
       args,
       cwd: "E:\\Document\\Ars",
       triggered_by: `cron:${job.name}`,

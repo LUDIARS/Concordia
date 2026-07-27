@@ -882,7 +882,10 @@ export async function startBackend(): Promise<BackendHandle> {
       ),
     );
     trackPostListenHandle(startMorningScheduler({ delegationService }));
-    trackPostListenHandle(startCronScheduler({ delegationService }));
+    trackPostListenHandle(startCronScheduler({
+      delegationService,
+      resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
+    }));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

@@ -95,6 +95,7 @@ import type { TaskMdStore } from "../taskflow/md-store.js";
 import { taskflowRouter } from "./taskflow.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
+import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -776,6 +777,38 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (!body || (body.user_id !== null && typeof body.user_id !== "string")) return c.json({ error: "invalid_user_id" }, 400);
     deps.adminState.setMentionUserId(body.user_id as string | null);
     return c.json({ user_id: deps.adminState.getMentionUserId() });
+  });
+
+  // 内部 cron (src/scheduler/cron-jobs.ts) が起動する call_name を WebUI から切り替える。
+  // override は schema_meta 永続化 (AdminState) なので再起動不要・次回発火から反映される。
+  // cron-jobs.ts の既定値自体は変えない (override 未設定時のフォールバック)。
+  function serializeCronJob(job: CronJobDefinition) {
+    return {
+      name: job.name,
+      cron: job.cron,
+      default_call_name: job.call_name,
+      call_name: deps.adminState.getCronJobOverride(job.name) ?? job.call_name,
+    };
+  }
+  app.get("/v1/admin/cron-jobs", (c) => {
+    return c.json({ jobs: CRON_JOBS.map(serializeCronJob) });
+  });
+  app.put("/v1/admin/cron-jobs/:name", async (c) => {
+    const name = c.req.param("name");
+    const job = CRON_JOBS.find((j) => j.name === name);
+    if (!job) return c.json({ error: `unknown cron job: ${name}` }, 404);
+    const body = await c.req.json().catch(() => null) as { call_name?: unknown } | null;
+    if (!body || (body.call_name !== null && typeof body.call_name !== "string")) {
+      return c.json({ error: "body.call_name (string or null) required" }, 400);
+    }
+    const callName = body.call_name as string | null;
+    if (callName !== null) {
+      const tpl = deps.delegation.findTemplateByCallName(callName);
+      if (!tpl) return c.json({ error: `unknown call_name: ${callName}` }, 404);
+      if (!tpl.is_active) return c.json({ error: `template is inactive: ${callName}` }, 400);
+    }
+    deps.adminState.setCronJobOverride(name, callName);
+    return c.json({ job: serializeCronJob(job) });
   });
 
   // 管理 API: 新コード反映用の self-restart.

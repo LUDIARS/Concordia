@@ -58,6 +58,9 @@ export class AdminState {
   setHarnessStrongImplModels(models: string[]): void { this.runtime.setHarnessStrongImplModels(models); }
   getMentionUserId(): string | null { return this.runtime.getMentionUserId(); }
   setMentionUserId(value: string | null): void { this.runtime.setMentionUserId(value); }
+  getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
+  getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
+  setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }
 
   snapshot() {
     return {
@@ -68,6 +71,7 @@ export class AdminState {
       lictor_dev_path: this.getLictorDevPath(), lictor_prod_exe: this.getLictorProdExe(),
       daily_token_budget: this.getDailyTokenBudget(), delegation_max_concurrency: this.getDelegationMaxConcurrency(),
       harness_strong_impl_models: this.getHarnessStrongImplModels(), mention_user_id: this.getMentionUserId(),
+      cron_job_overrides: this.getCronJobOverrides(),
     };
   }
 }

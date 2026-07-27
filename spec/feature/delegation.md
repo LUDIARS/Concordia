@@ -232,8 +232,15 @@ delegation テンプレ選択ベースで起動する:
 (テンプレ側に本文を二重管理しない)。旧 Claude 単独版 `ludiars-review-daily` は
 cron 登録と seed template の双方で無効化し、dual 版だけを毎朝5:10に起動する。
 
+レビュー対象の最新状態は GitHub や `origin/*` ではなく各リポジトリのローカル
+`refs/heads/<default-branch>` を正本とする。固定した main SHA から detached の一時
+worktree を作り、`Review/<repo>/latest.json` の `reviewed_at` 以降に main へ入った
+commit がある場合だけ累積差分をレビューする。実行中は `git fetch`、`git pull`、
+`gh`、GitHub API、Issue API を呼ばず、High 所見もローカル findings に保存する。
+一時 worktree は成功・失敗を問わず削除する。
+
 片方のレビューCLIが利用不能なら、利用可能な側の結果をpartialとして保存する。突合できない
-ためIssue化と`latest.json`のHEAD更新は行わず、次回の完全レビューで同じ差分を再評価する。
+ため findings の確定と`latest.json`のHEAD更新は行わず、次回の完全レビューで同じ差分を再評価する。
 
 日次レビューは Morning Tasks と同じ Timer Delegation としてローカル起動する。
 レビュー記録の保存先はローカル専用の `E:\Document\Ars\Review\<repo>\` に固定し、

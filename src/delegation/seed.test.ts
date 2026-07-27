@@ -130,12 +130,17 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
     expect(tpl?.prompt_template).toContain("`git add` / `git commit` / `git push` は行わない");
     expect(tpl?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
-    // 今回 HEAD はローカル checkout ではなく origin/<default-branch> を fetch して取る (2026-07-18 #555)。
-    // Tier1 リポで他セッションの WIP checkout を「今回 HEAD」と誤認し逆向き diff を作った事故の再発防止。
-    expect(tpl?.prompt_template).toContain("git fetch origin");
-    expect(tpl?.prompt_template).toContain("git rev-parse origin/<default-branch>");
-    // ローカル `git rev-parse HEAD` は使わない旨の明示的な禁止注記があること (逆に許可はしない)。
-    expect(tpl?.prompt_template).toContain("絶対に使わない");
+    // 2026-07-28: 最新の正本は GitHub/origin ではなくローカル main。
+    expect(tpl?.prompt_template).toContain("git rev-parse refs/heads/<default-branch>");
+    expect(tpl?.prompt_template).toContain("detached の一時 review worktree");
+    expect(tpl?.prompt_template).toContain("--since=<前回レビュー日時>");
+    expect(tpl?.prompt_template).toContain("latest.json");
+    expect(tpl?.prompt_template).toContain("reviewed_at");
+    expect(tpl?.prompt_template).toContain("一時 worktree は全経路で削除");
+    expect(tpl?.prompt_template).toContain("GitHub へのアクセス");
+    expect(tpl?.prompt_template).not.toContain("git fetch origin");
+    expect(tpl?.prompt_template).not.toContain("git rev-parse origin/");
+    expect(tpl?.prompt_template).not.toContain("GitHub Issue");
     // 範囲逆転 (今回 HEAD が前回 HEAD の祖先) を検出したら早期 skip し、レビュアーへ投げない。
     expect(tpl?.prompt_template).toContain("merge-base --is-ancestor");
     expect(tpl?.prompt_template).toContain("range_reversed");
@@ -191,6 +196,9 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.prompt_template).not.toContain("2 レビュアー");
     expect(claude?.prompt_template).toContain("E:\\Document\\Ars\\Review\\<repo>\\${date}\\");
     expect(claude?.prompt_template).not.toContain("E:\\Document\\Ars\\reviews\\");
+    expect(claude?.prompt_template).toContain("refs/heads/<default-branch>");
+    expect(claude?.prompt_template).toContain("reviewed_at");
+    expect(claude?.prompt_template).not.toContain("git fetch origin");
   });
 
   it("deactivates the replaced daily-review-reconciliation call name", () => {

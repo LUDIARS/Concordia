@@ -76,6 +76,7 @@ import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
+import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { MemoriaClient } from "../memoria/client.js";
@@ -463,6 +464,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
+  const revisorClient = createRevisorClientFromEnv(excubitorClient);
   const memoriaClient = new MemoriaClient();
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots());
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -945,6 +947,8 @@ export async function startBackend(): Promise<BackendHandle> {
       prs,
       sessions: repo,
       tasks,
+      revisor: revisorClient ?? undefined,
+      isCcWorkflowEnabled: () => adminState.getCcWorkflowEnabled(),
       // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
       onDevelopMerge: async (event) => {
         const result = await intakeDevelopMerge(

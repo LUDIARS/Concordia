@@ -255,6 +255,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `CONCORDIA_PR_FULL_SYNC_LIMIT` | `300` (1..1000) | `pr/full-sync.ts:76` | 1 回で取得する PR 上限。 |
 | `CONCORDIA_PR_RECONCILE_ENABLED` | 有効 (`0` で無効) | `pr/reconcile.ts:129` | open PR の差分 reconcile。 |
 | `CONCORDIA_PR_RECONCILE_MIN` | `10` (最小 2) | `pr/reconcile.ts:130` | reconcile の間隔 (分)。 |
+| `CONCORDIA_REVISOR_TOKEN` | 空 (Cc 発火なし) | `pr/revisor-client.ts` | Cc workflow が通常 CI 成功後にRevisorへ投入するためのBearer token。RevisorのPR-gate origin tokenと同じ値をローカルsecret managerから注入し、DBやログには保存しない。 |
 
 ---
 

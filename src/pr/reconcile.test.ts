@@ -3,7 +3,10 @@ import { makeTestDb } from "../../tests/helpers/db.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { SessionsRepo } from "../db/sessions-repo.js";
 import { TasksRepo } from "../db/tasks-repo.js";
-import { startPrReconciler } from "./reconcile.js";
+import {
+  reviewModeFromCommitMessage,
+  startPrReconciler,
+} from "./reconcile.js";
 
 function makeDeps() {
   const db = makeTestDb();
@@ -121,5 +124,168 @@ describe("startPrReconciler PR CI follow-up tasks", () => {
     reconciler.stop();
 
     expect(deps.tasks.pull("session-1").filter((t) => t.kind === "pr-ci-followup")).toHaveLength(0);
+  });
+
+  it("enqueues Revisor after ordinary CI succeeds for a Cc-authored PR", async () => {
+    const deps = makeDeps();
+    deps.prs.upsertFromStat({
+      repo_origin: "LUDIARS/Concordia",
+      number: 13,
+      title: "Review workflow",
+      author_session_id: "session-1",
+    });
+    const enqueue = vi.fn(async () => ({ id: "job-13", status: "queued" }));
+    const reconciler = startPrReconciler({
+      ...deps,
+      revisor: { enqueue },
+      isCcWorkflowEnabled: () => true,
+      resolveReviewMode: async () => "full",
+      fetchPrsForOrigin: async () => [{
+        number: 13,
+        title: "Review workflow",
+        url: "https://github.com/LUDIARS/Concordia/pull/13",
+        state: "OPEN",
+        headRefName: "feat/review",
+        headRefOid: "a".repeat(40),
+        baseRefName: "main",
+        isCrossRepository: false,
+        statusCheckRollup: [{
+          name: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+        }],
+      }],
+    });
+
+    await reconciler.runOnce();
+    reconciler.stop();
+
+    expect(enqueue).toHaveBeenCalledOnce();
+    expect(enqueue).toHaveBeenCalledWith({
+      repository: "LUDIARS/Concordia",
+      number: 13,
+      head_sha: "a".repeat(40),
+      head_ref: "feat/review",
+      head_repository: "LUDIARS/Concordia",
+      base_ref: "main",
+      pull_request_url: "https://github.com/LUDIARS/Concordia/pull/13",
+      review_mode: "full",
+    });
+  });
+
+  it("requests verification only for a Revisor autofix head", async () => {
+    const deps = makeDeps();
+    deps.prs.upsertFromStat({
+      repo_origin: "LUDIARS/Concordia",
+      number: 15,
+      title: "Autofix verification",
+      author_session_id: "session-1",
+    });
+    const enqueue = vi.fn(async () => ({ id: "job-15", status: "queued" }));
+    const resolveReviewMode = vi.fn(async () => "verification" as const);
+    const reconciler = startPrReconciler({
+      ...deps,
+      revisor: { enqueue },
+      isCcWorkflowEnabled: () => true,
+      resolveReviewMode,
+      fetchPrsForOrigin: async () => [{
+        number: 15,
+        state: "OPEN",
+        headRefName: "feat/review",
+        headRefOid: "c".repeat(40),
+        baseRefName: "main",
+        isCrossRepository: false,
+        statusCheckRollup: [{
+          name: "CI",
+          status: "COMPLETED",
+          conclusion: "SUCCESS",
+        }],
+      }],
+    });
+
+    await reconciler.runOnce();
+    reconciler.stop();
+
+    expect(resolveReviewMode).toHaveBeenCalledWith(
+      "LUDIARS/Concordia",
+      "c".repeat(40),
+    );
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      review_mode: "verification",
+    }));
+  });
+
+  it.each([
+    {
+      name: "Cc workflow is disabled",
+      enabled: false,
+      isCrossRepository: false,
+      checks: [{ name: "CI", status: "COMPLETED", conclusion: "SUCCESS" }],
+    },
+    {
+      name: "the PR comes from a fork",
+      enabled: true,
+      isCrossRepository: true,
+      checks: [{ name: "CI", status: "COMPLETED", conclusion: "SUCCESS" }],
+    },
+    {
+      name: "ordinary CI is still pending",
+      enabled: true,
+      isCrossRepository: false,
+      checks: [{ name: "CI", status: "IN_PROGRESS" }],
+    },
+    {
+      name: "the current head already has a Revisor Check",
+      enabled: true,
+      isCrossRepository: false,
+      checks: [
+        { name: "CI", status: "COMPLETED", conclusion: "SUCCESS" },
+        { name: "Revisor review", status: "QUEUED" },
+      ],
+    },
+  ])("does not enqueue Revisor when $name", async ({
+    enabled,
+    isCrossRepository,
+    checks,
+  }) => {
+    const deps = makeDeps();
+    deps.prs.upsertFromStat({
+      repo_origin: "LUDIARS/Concordia",
+      number: 14,
+      title: "Ineligible review",
+      author_session_id: "session-1",
+    });
+    const enqueue = vi.fn(async () => ({ id: "job-14", status: "queued" }));
+    const reconciler = startPrReconciler({
+      ...deps,
+      revisor: { enqueue },
+      isCcWorkflowEnabled: () => enabled,
+      resolveReviewMode: async () => "full",
+      fetchPrsForOrigin: async () => [{
+        number: 14,
+        state: "OPEN",
+        headRefName: "feat/review",
+        headRefOid: "b".repeat(40),
+        baseRefName: "main",
+        isCrossRepository,
+        statusCheckRollup: checks,
+      }],
+    });
+
+    await reconciler.runOnce();
+    reconciler.stop();
+
+    expect(enqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe("reviewModeFromCommitMessage", () => {
+  it("detects only the explicit Revisor autofix trailer", () => {
+    expect(reviewModeFromCommitMessage(
+      "fix: apply review\n\nRevisor-Autofix: true\n",
+    )).toBe("verification");
+    expect(reviewModeFromCommitMessage(
+      "docs: mention Revisor-Autofix: true in prose",
+    )).toBe("full");
   });
 });

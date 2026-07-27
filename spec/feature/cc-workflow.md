@@ -26,3 +26,14 @@ changes to `success` or `failure` for a session-authored PR, Concordia enqueues
 a `pr-ci-followup` pending task for the author session. The hook prints that task
 on the next prompt/heartbeat/session-end pull as a status report; it does not
 authorize tests, CI fixes, or merge work by itself.
+
+When Cc workflow is enabled and `CONCORDIA_REVISOR_TOKEN` is configured, the
+same reconciler asks the independent Revisor service to review a
+session-authored, non-fork PR after ordinary CI succeeds. Cc resolves Revisor
+through Excubitor and does not execute review code itself. An existing
+`Revisor review` Check suppresses repeat requests; Revisor also deduplicates
+Action/Cc races for the same exact head SHA.
+
+Cc reads the exact head commit message before enqueueing. A
+`Revisor-Autofix: true` trailer selects verification-only mode so an autofix
+does not recursively start another full review.

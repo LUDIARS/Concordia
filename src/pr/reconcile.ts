@@ -14,6 +14,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type {
   PrCiStatus,
+  PrRecordRow,
   PrRecordsRepo,
   PrReviewState,
   PrState,
@@ -21,6 +22,7 @@ import type {
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TasksRepo } from "../db/tasks-repo.js";
 import { isOwnerRepo, normalizeRepoOrigin, prUrlFor } from "./normalize.js";
+import type { RevisorReviewTrigger } from "./revisor-client.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
@@ -29,8 +31,10 @@ const execFileAsync = promisify(execFile);
 const log = createChildLogger("pr-reconcile");
 
 const GH_BIN = process.platform === "win32" ? "gh.exe" : "gh";
+const REVISOR_CHECK_NAME = "Revisor review";
+const REVISOR_AUTOFIX_TRAILER = /^Revisor-Autofix:\s*true\s*$/im;
 const GH_FIELDS =
-  "number,title,url,state,headRefName,headRefOid,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergedAt,closedAt,isDraft";
+  "number,title,url,state,headRefName,headRefOid,baseRefName,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergedAt,closedAt,isDraft,isCrossRepository";
 
 interface GhPr {
   number: number;
@@ -44,16 +48,29 @@ interface GhPr {
   deletions?: number;
   changedFiles?: number;
   reviewDecision?: string | null; // APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED | null
-  statusCheckRollup?: Array<{ status?: string; conclusion?: string; state?: string }>;
+  statusCheckRollup?: Array<{
+    name?: string;
+    context?: string;
+    status?: string;
+    conclusion?: string;
+    state?: string;
+  }>;
   mergedAt?: string | null;
   closedAt?: string | null;
   isDraft?: boolean;
+  isCrossRepository?: boolean;
 }
 
 export interface PrReconcileDeps {
   prs: PrRecordsRepo;
   sessions: SessionsRepo;
   tasks?: TasksRepo;
+  revisor?: RevisorReviewTrigger;
+  isCcWorkflowEnabled?: () => boolean;
+  resolveReviewMode?: (
+    origin: string,
+    headSha: string,
+  ) => Promise<"full" | "verification">;
   fetchPrsForOrigin?: (origin: string) => Promise<GhPr[]>;
   nowSec?: () => number;
   /**
@@ -118,6 +135,18 @@ function mapReview(gh: GhPr): PrReviewState | undefined {
   }
 }
 
+function hasRevisorCheck(gh: GhPr): boolean {
+  return gh.statusCheckRollup?.some((check) =>
+    check.name === REVISOR_CHECK_NAME || check.context === REVISOR_CHECK_NAME
+  ) ?? false;
+}
+
+export function reviewModeFromCommitMessage(
+  message: string,
+): "full" | "verification" {
+  return REVISOR_AUTOFIX_TRAILER.test(message) ? "verification" : "full";
+}
+
 async function fetchPrsForOrigin(origin: string): Promise<GhPr[]> {
   const { stdout } = await execFileAsync(
     GH_BIN,
@@ -139,6 +168,72 @@ async function resolveOriginFromRepoPath(repoPath: string): Promise<string | nul
     return isOwnerRepo(origin) ? origin : null;
   } catch {
     return null;
+  }
+}
+
+async function resolveReviewMode(
+  origin: string,
+  headSha: string,
+): Promise<"full" | "verification"> {
+  const { stdout } = await execFileAsync(
+    GH_BIN,
+    ["api", `repos/${origin}/commits/${headSha}`, "--jq", ".commit.message"],
+    { timeout: 10_000, maxBuffer: 1024 * 1024, windowsHide: true },
+  );
+  return reviewModeFromCommitMessage(stdout);
+}
+
+async function enqueueRevisorReview(
+  deps: PrReconcileDeps,
+  existing: PrRecordRow | null,
+  origin: string,
+  gh: GhPr,
+  ciStatus: PrCiStatus,
+): Promise<void> {
+  if (
+    !deps.revisor
+    || !(deps.isCcWorkflowEnabled?.() ?? false)
+    || !existing?.author_session_id
+    || mapState(gh) !== "open"
+    || gh.isCrossRepository !== false
+    || ciStatus !== "success"
+    || hasRevisorCheck(gh)
+    || !gh.headRefOid
+    || !gh.headRefName
+    || !gh.baseRefName
+  ) {
+    return;
+  }
+
+  try {
+    const reviewMode = await (deps.resolveReviewMode ?? resolveReviewMode)(
+      origin,
+      gh.headRefOid,
+    );
+    const job = await deps.revisor.enqueue({
+      repository: origin,
+      number: gh.number,
+      head_sha: gh.headRefOid,
+      head_ref: gh.headRefName,
+      head_repository: origin,
+      base_ref: gh.baseRefName,
+      pull_request_url: gh.url ?? existing.url ?? prUrlFor(origin, gh.number) ?? undefined,
+      review_mode: reviewMode,
+    });
+    log.info({
+      repo_origin: origin,
+      pr_number: gh.number,
+      head_sha: gh.headRefOid,
+      revisor_job_id: job.id,
+      revisor_status: job.status,
+    }, "Cc workflow enqueued Revisor review");
+  } catch (e) {
+    log.warn({
+      repo_origin: origin,
+      pr_number: gh.number,
+      head_sha: gh.headRefOid,
+      err: (e as Error).message,
+    }, "Cc workflow could not enqueue Revisor review");
   }
 }
 
@@ -189,6 +284,7 @@ export function startPrReconciler(deps: PrReconcileDeps): PrReconcileHandle {
           existing = deps.prs.findByKey(origin, gh.number);
         }
         const nextCi = mapCi(gh);
+        await enqueueRevisorReview(deps, existing, origin, gh, nextCi);
         const changed = deps.prs.reconcile({
           repo_origin: origin,
           number: gh.number,

@@ -1,0 +1,83 @@
+name: Local PR gate
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-local-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.PR_LOCAL_GATE_ENABLED == '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PR_GATE_URL: ${{ secrets.PR_GATE_URL }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.PR_GATE_CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.PR_GATE_CF_ACCESS_CLIENT_SECRET }}
+      PR_GATE_ORIGIN_TOKEN: ${{ secrets.PR_GATE_ORIGIN_TOKEN }}
+    steps:
+      - name: Submit local PR gate
+        id: submit
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in PR_GATE_URL CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET PR_GATE_ORIGIN_TOKEN; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required secret $name is not configured"
+              exit 1
+            fi
+          done
+          payload="$(jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --argjson number '${{ github.event.pull_request.number }}' \
+            --arg head_sha '${{ github.event.pull_request.head.sha }}' \
+            --arg head_ref '${{ github.event.pull_request.head.ref }}' \
+            --arg head_repository '${{ github.event.pull_request.head.repo.full_name }}' \
+            --arg base_ref '${{ github.event.pull_request.base.ref }}' \
+            --arg pull_request_url '${{ github.event.pull_request.html_url }}' \
+            '{repository:$repository,number:$number,head_sha:$head_sha,head_ref:$head_ref,head_repository:$head_repository,base_ref:$base_ref,pull_request_url:$pull_request_url}')"
+          response="$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Content-Type: application/json" \
+            --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            --header "Authorization: Bearer $PR_GATE_ORIGIN_TOKEN" \
+            --data "$payload" \
+            "${PR_GATE_URL%/}/v1/pr-gate/jobs")"
+          job_id="$(jq -er '.id' <<<"$response")"
+          echo "job_id=$job_id" >>"$GITHUB_OUTPUT"
+
+      - name: Wait for local PR gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint="${PR_GATE_URL%/}/v1/pr-gate/jobs/${{ steps.submit.outputs.job_id }}"
+          for attempt in $(seq 1 180); do
+            response="$(curl --silent --show-error --fail-with-body \
+              --header "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              --header "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              --header "Authorization: Bearer $PR_GATE_ORIGIN_TOKEN" \
+              "$endpoint")"
+            status="$(jq -r '.status' <<<"$response")"
+            if [[ "$status" == "completed" ]]; then
+              jq '.result' <<<"$response"
+              [[ "$(jq -r '.result.conclusion' <<<"$response")" == "success" ]]
+              exit
+            fi
+            if [[ "$status" == "failed" ]]; then
+              jq -r '.error // "Local PR gate failed"' <<<"$response" >&2
+              exit 1
+            fi
+            sleep 10
+          done
+          echo "::error::Local PR gate timed out" >&2
+          exit 1

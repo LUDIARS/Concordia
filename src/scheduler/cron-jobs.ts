@@ -29,9 +29,9 @@ const DAILY_REVIEW_CRON = "10 5 * * *";
 const AI_NOTE_REVIEW_CRON = "10 6 1,15 * *";
 
 export const CRON_JOBS: CronJobDefinition[] = [{
-    name: "ludiars-review-daily-dual",
+    name: "ludiars-review-daily",
     cron: DAILY_REVIEW_CRON,
-    call_name: "ludiars-review-daily-dual",
+    call_name: "ludiars-review-daily",
     buildArgs: () => ({ date: todayIso() }),
 }, {
     name: "ai-note-biweekly-review",

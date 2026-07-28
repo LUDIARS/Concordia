@@ -181,14 +181,14 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("review-sonnet5")?.is_active).toBe(0);
   });
 
-  it("keeps the legacy single-AI Claude definition inactive", () => {
+  it("reactivates the single-AI Claude definition as the daily cron default", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
     const claude = repo.findTemplateByCallName("ludiars-review-daily");
     expect(claude?.target_provider).toBe("claude");
-    expect(claude?.title).toBe("毎日レビュー [旧・無効]");
-    expect(claude?.is_active).toBe(0);
+    expect(claude?.title).toBe("毎日レビュー");
+    expect(claude?.is_active).toBe(1);
     expect(claude?.model).toBe("claude-sonnet-5");
     expect(claude?.prompt_template).toContain("service-map.json");
     expect(claude?.prompt_template).toContain("daily_review: true");

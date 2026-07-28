@@ -229,8 +229,8 @@ delegation テンプレ選択ベースで起動する:
 時限起動 (parttimer) の二重レビュー版 `ludiars-review-daily-dual` は GPT-5.6 Sol / Ultraを
 オーケストレータとして、Codex × Claude Opus の独立差分レビュー + 突合を行う。対象は
 `LUDIARS/service-map.json` の Tier 1、 プロンプト正本は `LUDIARS/docs/REVIEW-PROMPTS.md`
-(テンプレ側に本文を二重管理しない)。旧 Claude 単独版 `ludiars-review-daily` は
-cron 登録と seed template の双方で無効化し、dual 版だけを毎朝5:10に起動する。
+(テンプレ側に本文を二重管理しない)。単一オーケストレータ版 `ludiars-review-daily` は
+2026-07-27 neco 指示で毎朝5:10の cron 既定へ巻き戻した (dual 版は is_active のまま手動起動用に残る)。
 
 レビュー対象の最新状態は GitHub や `origin/*` ではなく各リポジトリのローカル
 `refs/heads/<default-branch>` を正本とする。固定した main SHA から detached の一時

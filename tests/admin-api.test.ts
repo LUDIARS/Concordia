@@ -249,8 +249,8 @@ describe("admin API", () => {
 
   it("PUT /v1/admin/cron-jobs/:name overrides the call_name and persists it", async () => {
     env.delegation.createTemplate({
-      call_name: "ludiars-review-daily",
-      title: "毎日レビュー",
+      call_name: "cron-target-active-template",
+      title: "テスト用の切替先テンプレ",
       target_provider: "claude",
       prompt_template: "review ${date}",
       input_schema: [{ name: "date", type: "string", required: true }],
@@ -260,19 +260,19 @@ describe("admin API", () => {
     const put = await env.app.request("/v1/admin/cron-jobs/ludiars-review-daily-dual", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ call_name: "ludiars-review-daily" }),
+      body: JSON.stringify({ call_name: "cron-target-active-template" }),
     });
     expect(put.status).toBe(200);
-    expect((await put.json() as { job: { call_name: string } }).job.call_name).toBe("ludiars-review-daily");
+    expect((await put.json() as { job: { call_name: string } }).job.call_name).toBe("cron-target-active-template");
 
     const list = await env.app.request("/v1/admin/cron-jobs");
     const { jobs } = (await list.json()) as { jobs: Array<{ name: string; call_name: string; default_call_name: string }> };
     const dailyReview = jobs.find((j) => j.name === "ludiars-review-daily-dual");
-    expect(dailyReview?.call_name).toBe("ludiars-review-daily");
+    expect(dailyReview?.call_name).toBe("cron-target-active-template");
     expect(dailyReview?.default_call_name).toBe("ludiars-review-daily-dual");
 
     // schema_meta 永続化なので、同じ DB を指す新しい AdminState でも読めること。
-    expect(env.adminState.getCronJobOverride("ludiars-review-daily-dual")).toBe("ludiars-review-daily");
+    expect(env.adminState.getCronJobOverride("ludiars-review-daily-dual")).toBe("cron-target-active-template");
   });
 
   it("PUT /v1/admin/cron-jobs/:name rejects an unknown job", async () => {

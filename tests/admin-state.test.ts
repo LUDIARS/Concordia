@@ -50,6 +50,7 @@ describe("AdminState", () => {
       delegation_max_concurrency: 4,
       harness_strong_impl_models: ["fable", "sol-ultra"],
       mention_user_id: null,
+      cron_job_overrides: {},
     });
   });
 

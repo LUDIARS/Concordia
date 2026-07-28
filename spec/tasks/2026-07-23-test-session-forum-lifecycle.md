@@ -6,6 +6,10 @@ Make Cc synchronize the Test Forum and Session Forum independently at Cc startup
 and align TaskWorkflow lifecycle behavior with open pull requests, worktrees, and
 session completion.
 
+> 2026-07-28: Test Forumの候補正本はGitHub PR/worktree台帳からRevisorの
+> `Open / Test OK` 一覧へ移行した。現在の契約は
+> [Revisor Test Workflow synchronization](../feature/revisor-test-forum-sync.md)を参照。
+
 ## Terminology
 
 - **Session Forum**: the existing Forum whose threads represent Cc sessions.

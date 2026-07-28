@@ -132,6 +132,7 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
 | `CONCORDIA_DISCORD_COST_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:157` | cost channel メッセージの更新間隔 (分)。 10 未満は 10 に丸め。 |
 | `CONCORDIA_DISCORD_MONITOR_REFRESH_MIN` | `10` (最小 10) | `discord/bot.ts:182` | monitor (サービス状態) channel の更新間隔 (分)。 |
 | `CONCORDIA_DISCORD_PR_QUEUE_REFRESH_MIN` | `15` (最小 10) | `discord/bot.ts:207` | PR キュー channel の更新間隔 (分)。 |
+| `CONCORDIA_DISCORD_TEST_FORUM_RECONCILE_SEC` | `30` (最小 5、`0` で停止) | `discord/bot.ts` | Revisorの `Open / Test OK` 一覧とDiscord Test Forum投稿を同期する間隔 (秒)。 |
 
 ---
 
@@ -256,6 +257,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `CONCORDIA_PR_RECONCILE_ENABLED` | 有効 (`0` で無効) | `pr/reconcile.ts:129` | open PR の差分 reconcile。 |
 | `CONCORDIA_PR_RECONCILE_MIN` | `10` (最小 2) | `pr/reconcile.ts:130` | reconcile の間隔 (分)。 |
 | `CONCORDIA_REVISOR_TOKEN` | 空 (Cc 発火なし) | `pr/revisor-client.ts` | Cc workflow が通常 CI 成功後にRevisorへ投入するためのBearer token。RevisorのPR-gate origin tokenと同じ値をローカルsecret managerから注入し、DBやログには保存しない。 |
+| `CONCORDIA_REVISOR_WORKFLOW_TOKEN` | 空 (Test Forum同期なし) | `pr/revisor-test-workflow-client.ts` | Revisorの `GET /v1/test-workflow` を読むBearer token。Revisorのlocal workflow tokenと同じ値をsecret managerから注入する。 |
 
 ---
 

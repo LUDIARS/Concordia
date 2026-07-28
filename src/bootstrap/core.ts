@@ -77,6 +77,7 @@ import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
 import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
+import { createRevisorTestWorkflowClientFromEnv } from "../pr/revisor-test-workflow-client.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { MemoriaClient } from "../memoria/client.js";
@@ -465,6 +466,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
   const revisorClient = createRevisorClientFromEnv(excubitorClient);
+  const revisorTestWorkflow = createRevisorTestWorkflowClientFromEnv(excubitorClient);
   const memoriaClient = new MemoriaClient();
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots());
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -604,6 +606,7 @@ export async function startBackend(): Promise<BackendHandle> {
     readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
+    revisorTestWorkflow: revisorTestWorkflow ?? undefined,
     // channel 作成前に届いた transcript frame の埋め戻し (transcript-replay)。
     transcriptLogs,
     // 本社モニターの「本社/子会社別コスト」用。 子会社 Bot は manager が baseDiscordDeps を

@@ -17,7 +17,7 @@ function starterContent(candidate: TestForumCandidate): string {
     `**Repo** \`${candidate.repoOrigin}\``,
     `**Head** \`${candidate.headBranch ?? "-"}\` @ \`${candidate.headSha}\``,
     `**Worktree** ${candidate.worktreePath ? `\`${candidate.worktreePath}\`` : "なし"}`,
-    "この投稿は Cc 起動時の同期で作成されました。head 更新・PR close/merge・worktree 削除時に閉じます。",
+    "Revisor で Open / Test OK になったため掲載されました。再審査・merge・closeなどで対象外になるとCcが閉じます。",
   ].join("\n");
 }
 

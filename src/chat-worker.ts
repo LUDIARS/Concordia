@@ -44,6 +44,8 @@ import { getReactionWorkflowReadiness } from "./shared/reaction-workflow-readine
 import { readChatWorkerLease, startChatWorkerLease } from "./bootstrap/chat.js";
 import { ChatMutationOutboxRepo } from "./db/chat-mutation-outbox-repo.js";
 import { installChatMutationOutbox } from "./platform/chat-mutation-outbox.js";
+import { ExcubitorClient } from "./excubitor/client.js";
+import { createRevisorTestWorkflowClientFromEnv } from "./pr/revisor-test-workflow-client.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -231,6 +233,7 @@ async function main(): Promise<void> {
     readModel,
     chatRepo: chat,
     sessionsRepo: sessions,
+    revisorTestWorkflow: createRevisorTestWorkflowClientFromEnv(new ExcubitorClient()) ?? undefined,
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,

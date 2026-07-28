@@ -13,7 +13,7 @@ import {
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { makeDiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
-import { PrRecordsRepo } from "../db/pr-records-repo.js";
+import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-client.js";
 import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
@@ -78,9 +78,8 @@ import {
 import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
-import { reconcileTestForum } from "./test-forum-reconcile.js";
+import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
 import { createTestForumDiscordAdapter } from "./test-forum-discord.js";
-import { scanReposMulti } from "../work/repo-scan.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 
 const discordLog = createChildLogger("discord");
@@ -116,6 +115,8 @@ export interface DiscordBotDeps {
   readModel: ChatReadModel;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
+  /** Revisor の Open / Test OK 一覧。Test Forum の候補正本として使う。 */
+  revisorTestWorkflow?: RevisorTestWorkflowSource;
   /**
    * channel 作成前に届いた transcript frame の埋め戻し (transcript-replay) に使う。
    * 省略時は replay をスキップ (standalone worker 等、 repo を持たない構成)。
@@ -257,7 +258,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
   const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
-  const prRecordsRepo = new PrRecordsRepo(deps.db);
   const delegationRepo = new DelegationRepo(deps.db);
   const resolveLayoutOpts = (): EnsureLayoutOptions => ({
     ...layoutOpts,
@@ -304,6 +304,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  let testForumTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   let gatewayClosed = false;
@@ -363,6 +364,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (monitorTimer) { clearInterval(monitorTimer); monitorTimer = null; }
     if (prQueueTimer) { clearInterval(prQueueTimer); prQueueTimer = null; }
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
+    if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
   };
   const stopAfterGatewayInstability = (status: string, error: string): void => {
@@ -597,10 +599,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           log.info(`test-forum ${reason} reconcile skipped; forum mode disabled`);
           return;
         }
-        const repos = await scanReposMulti(workspaceRoots, deps.sessionsRepo);
+        if (!deps.revisorTestWorkflow) {
+          log.warn(`test-forum ${reason} reconcile skipped; Revisor Test Workflow source unavailable`);
+          return;
+        }
+        const products = await deps.revisorTestWorkflow.listProducts();
         const result = await reconcileTestForum({
-          prs: prRecordsRepo.list({ limit: 500 }),
-          repos,
+          candidates: buildTestForumCandidates(products),
           surfaces: testSurfacesRepo,
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
         });
@@ -644,6 +649,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         reconcileTestForum: () => testForumRefresh!("boot"),
         log,
       });
+      const testForumReconcileSec = readOptionalIntEnv(
+        "CONCORDIA_DISCORD_TEST_FORUM_RECONCILE_SEC",
+        30,
+        5,
+      );
+      if (testForumReconcileSec > 0) {
+        testForumTimer = setInterval(() => {
+          void testForumRefresh?.("periodic");
+        }, testForumReconcileSec * 1000);
+        testForumTimer.unref?.();
+      } else {
+        log.info("test-forum periodic reconcile disabled");
+      }
       if (bootSyncDelayMs > 0) {
         scheduleBackground("status-card boot reconcile", () => runStatusReconcile("boot"), bootSyncDelayMs);
       } else {

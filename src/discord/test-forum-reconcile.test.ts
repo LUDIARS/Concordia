@@ -1,64 +1,45 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiscordTestSurfaceRow, DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
-import type { PrRecordRow, PrState } from "../db/pr-records-repo.js";
-import type { RepoStatus } from "../work/repo-scan.js";
-import { reconcileTestForum, type TestForumSurfaceAdapter } from "./test-forum-reconcile.js";
+import type { RevisorTestWorkflowProduct } from "../pr/revisor-test-workflow-client.js";
+import {
+  buildTestForumCandidates,
+  reconcileTestForum,
+  type TestForumCandidate,
+  type TestForumSurfaceAdapter,
+} from "./test-forum-reconcile.js";
 
-function pr(state: PrState = "open", headSha = "sha-1"): PrRecordRow {
+function product(headSha = "sha-1"): RevisorTestWorkflowProduct {
   return {
-    id: 1,
-    repo_origin: "LUDIARS/Concordia",
-    repo_path: "E:/Document/Ars/Concordia",
+    repository: "LUDIARS/Concordia",
+    pullRequestId: "local-pr-42",
     number: 42,
     title: "Test Forum",
-    url: "https://github.com/LUDIARS/Concordia/pull/42",
-    head_branch: "feat/test-forum",
-    head_sha: headSha,
-    base_branch: "main",
-    state,
-    ci_status: "success",
-    review_state: "approved",
-    author_session_id: null,
-    persona_id: null,
-    persona_name: null,
-    additions: 1,
-    deletions: 0,
-    changed_files: 1,
-    note: null,
-    created_at: 1,
-    updated_at: 1,
-    merged_at: state === "merged" ? 2 : null,
-    closed_at: state === "closed" ? 2 : null,
+    status: "Open / Test OK",
+    reviewedHeadSha: headSha,
+    updatedAt: "2026-07-28T00:00:00.000Z",
   };
 }
 
-function repo(withWorktree = true): RepoStatus {
+function candidate(headSha = "sha-1", worktreePath: string | null = null): TestForumCandidate {
   return {
-    name: "Concordia",
-    path: "E:/Document/Ars/Concordia",
-    branch: "main",
-    detached: false,
-    is_worktree: false,
-    default_branch: "main",
-    on_default_branch: true,
-    worktrees: withWorktree
-      ? [{ path: "E:/Document/Ars/Concordia-test-forum", branch: "feat/test-forum", is_main: false }]
-      : [{ path: "E:/Document/Ars/Concordia", branch: "main", is_main: true }],
-    extra_worktree_count: withWorktree ? 1 : 0,
-    updated_at: 1,
-    sessions: [],
-    error: null,
+    repoOrigin: "LUDIARS/Concordia",
+    prNumber: 42,
+    title: "Test Forum",
+    url: null,
+    headBranch: null,
+    headSha,
+    worktreePath,
   };
 }
 
-function surface(headSha = "sha-1"): DiscordTestSurfaceRow {
+function surface(headSha = "sha-1", worktreePath: string | null = null): DiscordTestSurfaceRow {
   return {
     id: 7,
     scope: "",
     repo_origin: "LUDIARS/Concordia",
     pr_number: 42,
     head_sha: headSha,
-    worktree_path: "E:/Document/Ars/Concordia-test-forum",
+    worktree_path: worktreePath,
     thread_id: "thread-old",
     status: "open",
     created_at: 1,
@@ -92,39 +73,40 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
 }
 
 describe("reconcileTestForum", () => {
-  it("creates one surface for a current open PR head and matching worktree", async () => {
+  it("projects Revisor products into Test Forum candidates", () => {
+    expect(buildTestForumCandidates([product()])).toEqual([candidate()]);
+  });
+
+  it("creates one surface for a Revisor Open / Test OK product", async () => {
     const h = harness();
-    const result = await reconcileTestForum({ prs: [pr()], repos: [repo()], ...h });
+    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
     expect(result).toEqual({ scanned: 0, kept: 0, created: 1, closed: 0 });
     expect(h.surfaces.create).toHaveBeenCalledWith(expect.objectContaining({
       headSha: "sha-1",
-      worktreePath: "E:/Document/Ars/Concordia-test-forum",
+      worktreePath: null,
     }));
   });
 
-  it.each([
-    ["merged", "pr-merged"],
-    ["closed", "pr-closed"],
-  ] as const)("closes a surface when its PR becomes %s", async (state, reason) => {
+  it("closes a surface when Revisor no longer lists the product", async () => {
     const h = harness([surface()]);
-    const result = await reconcileTestForum({ prs: [pr(state)], repos: [repo()], ...h });
+    const result = await reconcileTestForum({ candidates: [], ...h });
     expect(result.closed).toBe(1);
-    expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), reason);
+    expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "candidate-unavailable");
     expect(h.adapter.create).not.toHaveBeenCalled();
   });
 
-  it("closes an obsolete head and creates a replacement for the updated open PR", async () => {
+  it("closes an obsolete head and creates a replacement for the reviewed head", async () => {
     const h = harness([surface("sha-old")]);
-    const result = await reconcileTestForum({ prs: [pr("open", "sha-new")], repos: [repo()], ...h });
+    const result = await reconcileTestForum({ candidates: [candidate("sha-new")], ...h });
     expect(result).toEqual({ scanned: 1, kept: 0, created: 1, closed: 1 });
     expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "head-updated");
     expect(h.surfaces.create).toHaveBeenCalledWith(expect.objectContaining({ headSha: "sha-new" }));
   });
 
-  it("closes a worktree-linked surface without recreating it when that worktree disappears", async () => {
-    const h = harness([surface()]);
-    const result = await reconcileTestForum({ prs: [pr()], repos: [repo(false)], ...h });
-    expect(result).toEqual({ scanned: 1, kept: 0, created: 0, closed: 1 });
+  it("replaces a legacy worktree-linked surface with the Revisor projection", async () => {
+    const h = harness([surface("sha-1", "E:/Document/Ars/Concordia-test-forum")]);
+    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
+    expect(result).toEqual({ scanned: 1, kept: 0, created: 1, closed: 1 });
     expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "worktree-removed");
   });
 });

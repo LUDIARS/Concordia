@@ -4,7 +4,7 @@ import type { DelegationProvider } from "../db/delegation-repo.js";
 import { extractJson, type RunClaudeFn } from "../rules/claude-runner.js";
 import {
   baselineEffort,
-  classifyEffortTask,
+  classifyTaskEffort,
   normalizeAutomaticEffort,
   type AutoEffortLevel,
   type EffortTaskBucket,
@@ -34,7 +34,7 @@ export class DelegationEffortBlackbox {
     callName: string;
     project: string | null;
   }): Promise<DelegationEffortDecision> {
-    const bucket = classifyEffortTask(input.prompt);
+    const bucket = classifyTaskEffort(input.prompt);
     const model = input.model?.trim() || "(provider-default)";
     const project = input.project?.trim() || "(none)";
     const features = {

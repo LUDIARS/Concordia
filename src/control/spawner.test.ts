@@ -3,13 +3,19 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildHeadlessCmdArgs,
+  buildSatellesArgs,
   buildSpawnIdentityEnv,
+  escapeCmdArg,
   CONCORDIA_SPAWN_CWD_MODE_ENV,
   CONCORDIA_SPAWN_ID_ENV,
+  currentSatellesLauncher,
+  HEADLESS_SPAWN_PROVIDERS,
   resolveSpawnCwd,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
   sanitizeSpawnEnv,
+  SPAWN_PROVIDERS,
   validateProjectCwd,
 } from "./spawner.js";
 
@@ -109,5 +115,51 @@ describe("buildSpawnIdentityEnv", () => {
       [CONCORDIA_SPAWN_ID_ENV]: "spawn-2",
       [CONCORDIA_SPAWN_CWD_MODE_ENV]: "omitted",
     });
+  });
+});
+
+describe("codex-sdk (Satelles headless) spawn plumbing", () => {
+  it("buildSatellesArgs: 委託 env があれば run、無ければ serve", () => {
+    expect(
+      buildSatellesArgs(
+        {
+          provider: "codex-sdk",
+          args: ["--model", "gpt-5.6-sol", "--effort", "xhigh"],
+          env: { CONCORDIA_DELEGATION_PROMPT_FILE: "E:/tmp/prompt.md" },
+        },
+        ["satelles"],
+      ),
+    ).toEqual(["satelles", "run", "--model", "gpt-5.6-sol", "--effort", "xhigh"]);
+    expect(
+      buildSatellesArgs({ provider: "codex-sdk", args: ["--model", "gpt-5.6"] }, ["satelles"]),
+    ).toEqual(["satelles", "serve", "--model", "gpt-5.6"]);
+  });
+
+  it("currentSatellesLauncher: 既定は PATH の satelles、env でトークン列を差し替え", () => {
+    expect(currentSatellesLauncher({} as NodeJS.ProcessEnv)).toEqual(["satelles"]);
+    expect(
+      currentSatellesLauncher({
+        CONCORDIA_SATELLES_LAUNCHER: "node;E:/Document/Ars/Satelles/bin/satelles.mjs",
+      } as NodeJS.ProcessEnv),
+    ).toEqual(["node", "E:/Document/Ars/Satelles/bin/satelles.mjs"]);
+    expect(
+      currentSatellesLauncher({ CONCORDIA_SATELLES_LAUNCHER: " ; ; " } as NodeJS.ProcessEnv),
+    ).toEqual(["satelles"]);
+  });
+
+  it("buildHeadlessCmdArgs: wt.exe 経路と同じ escapeCmdArg で cmd.exe へ渡す", () => {
+    const tokens = ["C:/Program Files/Satelles/satelles.cmd", "run", "--model", "gpt-5.6"];
+    const args = buildHeadlessCmdArgs(tokens);
+    expect(args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    expect(args[3]).toBe(tokens.map(escapeCmdArg).join(" "));
+    // 先頭が引用符でない = cmd.exe の `/s` (先頭と末尾の引用符を剥がす) に触れないので、
+    // 空白入り launcher パスでも起動コマンドが壊れない。
+    expect(args[3]?.startsWith('"')).toBe(false);
+  });
+
+  it("HEADLESS_SPAWN_PROVIDERS: codex-sdk のみ headless", () => {
+    expect(HEADLESS_SPAWN_PROVIDERS.has("codex-sdk")).toBe(true);
+    expect(HEADLESS_SPAWN_PROVIDERS.has("codex")).toBe(false);
+    expect(SPAWN_PROVIDERS).toContain("codex-sdk");
   });
 });

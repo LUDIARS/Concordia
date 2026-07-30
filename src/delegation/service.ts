@@ -14,6 +14,7 @@ import {
   parseRuntimeOptions,
 } from "../db/delegation-repo.js";
 import {
+  isCodexFamilyProvider,
   resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
@@ -27,7 +28,7 @@ import { resolveManualKind } from "./manual-kind.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
   baselineEffort,
-  classifyEffortTask,
+  classifyTaskEffort,
   supportsAutomaticEffort,
   type EffortTaskBucket,
 } from "./effort-policy.js";
@@ -329,7 +330,7 @@ export class DelegationService {
     let effortDecisionId: number | null = null;
     let effortConfidence: number | null = null;
     if (supportsAutomaticEffort(provider)) {
-      effortBucket = classifyEffortTask(renderedPrompt);
+      effortBucket = classifyTaskEffort(renderedPrompt);
       if (requestedEffort && !isAutoEffort(requestedEffort.value)) {
         const normalized = normalizeProviderEffort(provider, requestedEffort.value);
         if (!normalized) {
@@ -359,8 +360,12 @@ export class DelegationService {
         effortConfidence = decision.confidence;
       }
     }
+    // codex ファミリ (codex / codex-sdk) は model_reasoning_effort、 claude は effort。
+    // resolveEffectiveDelegationRuntimeOptions / resolveDelegationRuntimeArgs が
+    // codex ファミリで読むのは model_reasoning_effort (と reasoning_effort) だけなので、
+    // ここで `effort` に載せると決定した effort が黙って捨てられ既定 xhigh になる。
     const effortOptions = effortLevel
-      ? provider === "codex"
+      ? isCodexFamilyProvider(provider)
         ? { model_reasoning_effort: effortLevel }
         : { effort: effortLevel }
       : {};
@@ -504,7 +509,7 @@ function findRequestedEffort(
   if (overrides?.reasoning_effort !== undefined) {
     return { value: overrides.reasoning_effort, source: "override" };
   }
-  const keys = provider === "codex"
+  const keys = isCodexFamilyProvider(provider)
     ? ["model_reasoning_effort", "reasoning_effort", "effort"]
     : ["effort", "reasoning_effort"];
   for (const key of keys) {

@@ -102,7 +102,9 @@ async function main(): Promise<void> {
         options: z.record(z.unknown()).optional().describe("Provider-specific one-shot options, e.g. {\"model_reasoning_effort\":\"high\"} for Codex"),
         overrides: z.object({
           model: z.string().nullable().optional(),
-          provider: z.enum(["claude", "codex", "gemini", "gemma4-12"]).optional(),
+          // 正本は src/db/delegation-repo.ts の DELEGATION_PROVIDERS。 この server は
+          // DB モジュールを読み込まない独立プロセスなのでリテラルで同期する。
+          provider: z.enum(["claude", "codex", "codex-sdk", "gemini", "gemma4-12"]).optional(),
           reasoning_effort: z.string().optional(),
         }).optional().describe("One-shot model/provider/reasoning overrides"),
         spawn: z.boolean().optional().describe("false で render + 記録のみ (no spawn)"),

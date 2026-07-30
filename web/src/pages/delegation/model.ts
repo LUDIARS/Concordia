@@ -4,7 +4,8 @@ import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from 
 import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js";
 
 // gemma4-12 = ローカル LLM レーン (旧名 gamma。 内部は codex CLI を Ollama 経由、 推論は Gemma)。
-export type Provider = "claude" | "codex" | "gemini" | "gemma4-12";
+// codex-sdk = Satelles ヘッドレスランナー (wt.exe / Lictor を使わない codex ファミリレーン)。
+export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
 
 // 雇用形態カテゴリ (サーバ側正本: src/db/delegation-repo.ts DELEGATION_CATEGORIES)。
 export type Category = "employee" | "freelancer" | "parttimer";

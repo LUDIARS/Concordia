@@ -44,7 +44,7 @@ delegation_templates
   call_name (unique, ^[a-z][a-z0-9_-]{0,63}$)
   title (人間向け 1 行)
   description (いつ使うか)
-  target_provider ("claude" | "codex" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma)
+  target_provider ("claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma) / codex-sdk=Satelles ヘッドレスレーン (§13.2)
   model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gemma4-12 は gemma4:12b)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
@@ -108,19 +108,20 @@ delegation を「どう起動されるか」で 3 分類する。 単一情報�
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
-   - 全 provider を Lictor の通常セッション経路で起動する。Codex は Lictor の App Server transport が thread 束縛、prompt 投入、transcript 永続化を担い、Concordia の headless worker は使用しない
+   - `codex-sdk` 以外の provider は Lictor の通常セッション経路で起動する。Codex は Lictor の App Server transport が thread 束縛、prompt 投入、transcript 永続化を担い、Concordia の headless worker は使用しない
+   - `codex-sdk` (Satelles) だけは wt.exe / Lictor を経由しないヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`)。 `satelles run` を detached child として直接起動する (§13.2)
 5. delegation_runs に upsert
 6. response: `{ run_id, rendered_prompt, prompt_file_path, spawn_pid, spawn_command }`
 
 ### 4.1 reasoning effort の成長型自動選択
 
-Codex / Claude の delegation は、effort の明示指定がない場合に domain
+Codex ファミリ (codex / codex-sdk) / Claude の delegation は、effort の明示指定がない場合に domain
 `concordia.delegation.effort` の `@ludiars/blackbox` で起動前に1回だけ判定する。
 
 優先順位は `overrides.reasoning_effort` → invoke の `options` → template の
 `runtime_options` → blackbox 自動選択。明示値は学習判定を迂回する。自動値は provider
 共通の `low | medium | high | xhigh` で、Codex は
-`-c model_reasoning_effort=<value>`、Claude は `--effort <value>` へ変換する。
+`-c model_reasoning_effort=<value>`、codex-sdk と Claude は `--effort <value>` へ変換する。
 
 live rule がない間は Haiku の one-shot 判定を教師に candidate rule を蓄積し、同じ
 provider / effective model / call name / project / task bucket の判断が安定すると trial / auto rule へ昇格する。
@@ -342,6 +343,25 @@ REPL) を起動する。 **codex CLI は経由しない** (旧 v0.3 は codex �
 | codex | codex | `--model <model?>` | OpenAI Codex |
 | gemini | gemini | `--model <model?>` | Gemini |
 | **gemma4-12** | **gemma4-12** (Lictor local-agent) | env `LICTOR_LOCAL_MODEL=<model\|gemma4:12b>` | **ローカル (Gemma 等)** |
+| **codex-sdk** | **Lictor を経由しない** — `satelles run\|serve` (§13.2) | `--model <model?>` / `--effort <effort>` / `--network` | OpenAI Codex |
+
+### 13.2 codex-sdk (Satelles ヘッドレスレーン)
+
+`codex-sdk` は Satelles のヘッドレスランナーを直接起動する論理 provider。 ウィンドウ /
+PTY / Lictor を使わないため、 `spawner.ts` の `HEADLESS_SPAWN_PROVIDERS` に入り
+wt.exe 経路をバイパスして detached child として spawn される (Windows 以外でも動く)。
+
+- サブコマンドは `buildSatellesArgs` が決める: 委託 (`CONCORDIA_DELEGATION_PROMPT_FILE`
+  あり) は one-shot `run`、 それ以外の spawn は常駐 `serve`。
+- 起動コマンドは既定 PATH 上の `satelles`。 `CONCORDIA_SATELLES_LAUNCHER`
+  (セミコロン区切りトークン) で差し替え可能。
+- `--network` は常に付ける。 委託ライフサイクル (git push / PR 作成 / Concordia への
+  run-status コールバック) が network 前提のため、 codex の `network_access=false`
+  拒否と同じ理由による。
+- effort は codex ファミリ扱い (`isCodexFamilyProvider`)。 §4.1 の成長型自動選択に乗り、
+  codex の `-c model_reasoning_effort=` ではなく `--effort <value>` へ変換される
+  (Satelles CLI が内部で config override に落とす)。 `codex_config` の素通しレーンは
+  持たない。
 
 - 解決の単一情報源は `src/control/provider-preset.ts` の `resolveDelegationSpawn(target, model)`。
   delegation invoke (`delegation/service.ts`) と admin spawn-from-template (`app.ts`) の

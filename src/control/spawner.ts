@@ -21,10 +21,16 @@ export type SpawnMode = "tab" | "window";
  * (このファイル中の SPAWN_PROVIDERS、 spawn / admin/spawn-session ハンドラ) を
  * 同時に更新する.
  */
-export type SpawnProvider = "claude" | "codex" | "gemini" | "gemma4-12";
+export type SpawnProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
 
 /** Runtime 用 provider allow-list. API 側の validation で参照する. */
-export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "gemini", "gemma4-12"];
+export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "codex-sdk", "gemini", "gemma4-12"];
+
+/**
+ * codex-sdk (Satelles) はウィンドウ / PTY / Lictor を使わないヘッドレス spawn。
+ * wt.exe 経路とは別に、 satelles CLI を detached child として直接起動する。
+ */
+export const HEADLESS_SPAWN_PROVIDERS: ReadonlySet<SpawnProvider> = new Set(["codex-sdk"]);
 
 export function isSpawnProvider(v: unknown): v is SpawnProvider {
   return typeof v === "string" && (SPAWN_PROVIDERS as readonly string[]).includes(v);
@@ -102,6 +108,18 @@ function currentLictorLauncher(): string[] {
   } catch {
     return ["lictor"];
   }
+}
+
+/**
+ * Satelles (codex-sdk headless runner) の起動コマンド resolver。 既定は PATH 上の
+ * `satelles`。 `CONCORDIA_SATELLES_LAUNCHER` で明示パスに差し替え可能
+ * (dev checkout の bin/satelles.mjs を node で指す等、 セミコロン区切りトークン)。
+ */
+export function currentSatellesLauncher(env: NodeJS.ProcessEnv = process.env): string[] {
+  const raw = env.CONCORDIA_SATELLES_LAUNCHER?.trim();
+  if (!raw) return ["satelles"];
+  const tokens = raw.split(";").map((t) => t.trim()).filter(Boolean);
+  return tokens.length > 0 ? tokens : ["satelles"];
 }
 
 /**
@@ -353,14 +371,108 @@ function normalizePath(value: string): string {
   return resolvePath(value).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
+/**
+ * Pure: codex-sdk (Satelles) の argv を組み立てる。
+ * 委託 (CONCORDIA_DELEGATION_PROMPT_FILE がある) は one-shot `run`、
+ * それ以外の対話 spawn は常駐 `serve`。 prompt 自体は env 契約で渡るので
+ * argv には現れない。 model / effort は resolveDelegationSpawn /
+ * resolveDelegationRuntimeArgs が `--model` / `--effort` として req.args に積む。
+ */
+export function buildSatellesArgs(req: SpawnRequest, launcher: string[] = ["satelles"]): string[] {
+  const subcommand = req.env?.CONCORDIA_DELEGATION_PROMPT_FILE ? "run" : "serve";
+  return [...launcher, subcommand, ...(req.args ?? [])];
+}
+
+/**
+ * headless spawn の argv トークン検証 (Windows では cmd.exe 経由で走る)。 実際の
+ * 無害化は buildHeadlessCmdArgs の escapeCmdArg が行い、 これはその手前の
+ * fail-fast な追加防御。
+ * `%` を落とすのが要点: cmd.exe の `%VAR%` 展開は `^` エスケープより前段で走るため
+ * escapeCmdArg でも塞ぎきれず、 通せば親プロセスの環境変数値 (認証情報を含み得る) が
+ * 子のコマンドラインへ混入する。
+ */
+const HEADLESS_ARG_UNSAFE_RE = /[\0\r\n&|<>^"%]/u;
+
+/**
+ * Pure: headless spawn を Windows の cmd.exe 経由で起動するときの argv。
+ *
+ * wt.exe 経路 (buildWtArgs) と同じく全トークンを escapeCmdArg で無害化してから
+ * 1 本のコマンドラインに結合する。 理由は 2 つ:
+ *
+ *  1. CWE-78: `/v1/spawn` の `args` は外部入力として子のコマンドラインへ届く。
+ *     denylist は `(` `)` `,` `;` 等 cmd.exe のトークン分割文字を素通しするので、
+ *     経路ごとに別ロジックを持たず wt.exe 経路と同じエスケープに揃える。
+ *  2. libuv 既定のクォート (arg に空白があれば `"` で囲む) は cmd.exe の `/s`
+ *     (先頭が引用符ならコマンドライン全体の先頭と末尾の引用符を剥がす) と噛み合わず、
+ *     空白を含む launcher パス — `CONCORDIA_SATELLES_LAUNCHER` で dev checkout を
+ *     指す想定の主用途 — で起動が壊れる。 escapeCmdArg の出力は `^"` 始まりなので
+ *     `/s` の剥がし条件に触れない。
+ *
+ * 呼び出し側は `windowsVerbatimArguments: true` で渡すこと (Node に再クォートさせない)。
+ */
+export function buildHeadlessCmdArgs(tokens: readonly string[]): string[] {
+  return ["/d", "/s", "/c", tokens.map(escapeCmdArg).join(" ")];
+}
+
+function spawnHeadlessSession(req: SpawnRequest): SpawnResult {
+  const tokens = buildSatellesArgs(req, currentSatellesLauncher());
+  for (const token of tokens) {
+    if (HEADLESS_ARG_UNSAFE_RE.test(token)) {
+      return { ok: false, error: `unsafe character in headless spawn token: ${token.slice(0, 40)}` };
+    }
+  }
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...sanitizeSpawnEnv(req.env),
+    ...buildSpawnIdentityEnv(req, req.spawnId?.trim() || randomUUID()),
+    ...currentConcordiaAddressEnv(),
+  };
+  const isWindows = process.platform === "win32";
+  const file = isWindows ? process.env.ComSpec ?? "cmd.exe" : tokens[0]!;
+  const args = isWindows ? buildHeadlessCmdArgs(tokens) : tokens.slice(1);
+  let child: ReturnType<typeof spawn>;
+  try {
+    // detached + stdio "ignore" — 親 (Concordia) の stdio を継承させない
+    // (detached inherit は Excubitor EBADF ループの実害があった構成)。
+    child = spawn(file, args, {
+      detached: true,
+      stdio: "ignore",
+      cwd: req.cwd,
+      env,
+      windowsHide: true,
+      // buildHeadlessCmdArgs が既にエスケープ済み。 Node に再クォートさせると
+      // `/s` の引用符剥がしと干渉する (POSIX では無視される)。
+      windowsVerbatimArguments: isWindows,
+    });
+  } catch (err) {
+    const msg = `satelles spawn failed: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  child.on("error", (err) => {
+    const msg = `satelles spawn error: ${err.message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+  });
+  try {
+    child.unref();
+  } catch {
+    // best-effort
+  }
+  return { ok: true, command: tokens, pid: child.pid ?? null };
+}
+
 export function spawnSession(req: SpawnRequest): SpawnResult {
-  if (process.platform !== "win32") {
+  const isHeadless = HEADLESS_SPAWN_PROVIDERS.has(req.provider);
+  if (!isHeadless && process.platform !== "win32") {
     return { ok: false, error: "spawn currently requires Windows + Windows Terminal (wt.exe)" };
   }
   const projectCwdErr = validateProjectCwd(req.cwd);
   if (projectCwdErr) return { ok: false, error: projectCwdErr };
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
+  if (isHeadless) return spawnHeadlessSession(req);
 
   const args = buildWtArgs(req, currentLictorLauncher());
   // CWE-78 対策: 外部入力 env を子プロセスへ素通ししない。 公開 spawn API は env を

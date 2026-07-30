@@ -1,11 +1,24 @@
 import { describe, expect, it } from "vitest";
-import { baselineEffort, classifyEffortTask, normalizeAutomaticEffort } from "./effort-policy.js";
+import {
+  baselineEffort,
+  classifyTaskEffort,
+  normalizeAutomaticEffort,
+  supportsAutomaticEffort,
+} from "./effort-policy.js";
 
 describe("delegation effort policy", () => {
+  it("codex ファミリ (codex / codex-sdk) と claude が自動 effort 対象", () => {
+    expect(supportsAutomaticEffort("codex")).toBe(true);
+    expect(supportsAutomaticEffort("codex-sdk")).toBe(true);
+    expect(supportsAutomaticEffort("claude")).toBe(true);
+    expect(supportsAutomaticEffort("gemini")).toBe(false);
+    expect(supportsAutomaticEffort("gemma4-12")).toBe(false);
+  });
+
   it("classifies routine, implementation, and complex prompts", () => {
-    expect(classifyEffortTask("Rename this label.")).toBe("routine");
-    expect(classifyEffortTask("Implement the API endpoint and tests.")).toBe("implementation");
-    expect(classifyEffortTask("Investigate the race condition and redesign the architecture.")).toBe("complex");
+    expect(classifyTaskEffort("Rename this label.")).toBe("routine");
+    expect(classifyTaskEffort("Implement the API endpoint and tests.")).toBe("implementation");
+    expect(classifyTaskEffort("Investigate the race condition and redesign the architecture.")).toBe("complex");
   });
 
   it("provides deterministic fallback levels", () => {

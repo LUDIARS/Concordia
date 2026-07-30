@@ -1,3 +1,4 @@
+import { isCodexFamilyProvider } from "../control/provider-preset.js";
 import type { DelegationProvider } from "../db/delegation-repo.js";
 
 export const AUTO_EFFORT_LEVELS = ["low", "medium", "high", "xhigh"] as const;
@@ -5,10 +6,13 @@ export type AutoEffortLevel = typeof AUTO_EFFORT_LEVELS[number];
 export type EffortTaskBucket = "routine" | "implementation" | "complex";
 
 export function supportsAutomaticEffort(provider: DelegationProvider): boolean {
-  return provider === "codex" || provider === "claude";
+  // codex-sdk (Satelles headless) も codex ファミリなので同じ effort 学習に乗せる
+  // (delegationOptionSuggestions が codex-sdk にも "auto (learned)" を出すため、
+  // ここで外すと UI の約束と実挙動が食い違う)。
+  return isCodexFamilyProvider(provider) || provider === "claude";
 }
 
-export function classifyEffortTask(prompt: string): EffortTaskBucket {
+export function classifyTaskEffort(prompt: string): EffortTaskBucket {
   const normalized = prompt.toLowerCase();
   const complexSignals = [
     "architecture", "migration", "migrate", "refactor", "security", "race condition",

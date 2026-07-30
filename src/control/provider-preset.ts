@@ -38,6 +38,7 @@ const GEMMA4_12_SPAWN_PROVIDER: SpawnProvider = "gemma4-12";
 export const DELEGATION_PROVIDER_LABELS: Record<string, string> = {
   claude: "Claude (Claude Code)",
   codex: "Codex (OpenAI)",
+  "codex-sdk": "Codex SDK (Satelles headless)",
   gemini: "Gemini",
   "gemma4-12": "gemma4-12 (ローカル LLM / Ollama)",
 };
@@ -81,7 +82,7 @@ const CODEX_CONFIG_KEY_RE = /^[A-Za-z_][A-Za-z0-9_.-]{0,127}$/;
 
 export function delegationOptionSuggestions(provider: string, model?: string | null): DelegationOptionSuggestion[] {
   const suggestions: DelegationOptionSuggestion[] = [];
-  if (provider === "codex" && supportsCodexReasoningEffort(model)) {
+  if (isCodexFamilyProvider(provider) && supportsCodexReasoningEffort(model)) {
     const choices: DelegationOptionChoice[] = [
       { label: "auto (learned)", value: "auto" },
       { label: "minimal", value: "minimal" },
@@ -97,7 +98,9 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
       key: "model_reasoning_effort",
       label: "Reasoning effort",
       type: "select",
-      description: "Codex/GPT only. Passed as a one-shot Codex config override.",
+      description:
+        "Codex/GPT only. codex は one-shot config override (`-c model_reasoning_effort=`)、" +
+        "codex-sdk は Satelles の `--effort` として渡る。",
       choices,
     });
   }
@@ -152,6 +155,11 @@ export function resolveDelegationRuntimeEnv(
   return env;
 }
 
+/** codex ファミリ (CLI wrap の `codex` と Satelles headless の `codex-sdk`)。 */
+export function isCodexFamilyProvider(provider: string): boolean {
+  return provider === "codex" || provider === "codex-sdk";
+}
+
 function supportsCodexReasoningEffort(model: string | null | undefined): boolean {
   const normalized = (model ?? "").trim().toLowerCase();
   if (!normalized) return true;
@@ -177,6 +185,20 @@ export function resolveDelegationRuntimeArgs(
     const o = isPlainRecord(options) ? options : {};
     const effort = normalizeProviderEffort(provider, o.effort ?? o.reasoning_effort);
     return effort ? ["--effort", effort] : [];
+  }
+  if (provider === "codex-sdk") {
+    // Satelles CLI は `--effort` を直接受ける (内部で -c model_reasoning_effort= に
+    // 変換する)。 codex_config の素通しレーンは持たない (必要になったら Satelles 側に
+    // 明示フラグを足してから配線する — 無言の互換レイヤは作らない)。
+    const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(provider, options);
+    const effort = normalizeProviderEffort(
+      provider,
+      effectiveOptions.model_reasoning_effort ?? effectiveOptions.reasoning_effort,
+    );
+    // 委託ライフサイクルは network 前提 (git push / PR 作成 / Cc への
+    // run-status コールバック)。codex 側の network_access=false 拒否と同じ理由で、
+    // codex-sdk 委託は常に --network を付ける。
+    return [...(effort ? ["--effort", effort] : []), "--network"];
   }
   if (provider !== "codex") return [];
   const args: string[] = [];
@@ -239,7 +261,7 @@ export function resolveEffectiveDelegationRuntimeOptions(
   options: DelegationRuntimeOptions | null | undefined,
 ): DelegationRuntimeOptions {
   const effectiveOptions = isPlainRecord(options) ? { ...options } : {};
-  if (provider !== "codex") return effectiveOptions;
+  if (!isCodexFamilyProvider(provider)) return effectiveOptions;
 
   const config = isPlainRecord(effectiveOptions.codex_config) ? effectiveOptions.codex_config : {};
   const effort = normalizeReasoningEffort(
@@ -261,7 +283,7 @@ export function normalizeProviderEffort(provider: string, value: unknown): strin
   if (typeof value !== "string") return null;
   const normalized = value.trim().toLowerCase();
   if (normalized === "auto") return null;
-  if (provider === "codex") return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
+  if (isCodexFamilyProvider(provider)) return CODEX_REASONING_EFFORTS.has(normalized) ? normalized : null;
   if (provider === "claude") return CLAUDE_REASONING_EFFORTS.has(normalized) ? normalized : null;
   return null;
 }
@@ -282,6 +304,10 @@ function tomlScalar(value: unknown): string {
  *  - gemma4-12 (旧名 gamma) : Lictor のネイティブ local-agent (`lictor gemma4-12`) を起動。
  *            codex CLI は経由しない。 モデルは `LICTOR_LOCAL_MODEL` env で渡す
  *            (CLI フラグではないので args は空)。 推論は Ollama 上のローカルモデル。
+ *  - codex-sdk : Satelles ヘッドレスランナー (`satelles run|serve`)。 wt.exe /
+ *            Lictor を使わない (spawner.ts の HEADLESS_SPAWN_PROVIDERS)。 model は
+ *            `--model` (Satelles が `-c model=` に変換)、 effort は
+ *            resolveDelegationRuntimeArgs の `--effort`。
  *  - それ以外 (claude/codex/gemini) : 同名 CLI をそのまま起動。 model 指定時のみ `--model`。
  */
 export function resolveDelegationSpawn(

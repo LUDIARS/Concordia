@@ -183,7 +183,7 @@ subsidiary_delegations              -- 子会社が「所有する」 delegation
   call_name                         --  コピー。 以降は独立編集可。 cwd/project もここで持つ)
   is_default (0/1)                  -- 出張先の素の依頼で使う既定 delegation
   title, description
-  target_provider                   -- claude | codex | gemini | gemma4-12
+  target_provider                   -- claude | codex | codex-sdk | gemini | gemma4-12
   model (NULLABLE)
   prompt_template (TEXT)
   input_schema (TEXT, JSON)

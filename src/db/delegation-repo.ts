@@ -11,9 +11,12 @@ import { randomUUID } from "node:crypto";
 // gemma4-12 は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
 // 起動するが、 推論は OpenAI ではなくローカルモデル (既定 Gemma 4 12B)。 旧名は gamma
 // (DB に永続化済みの値は resolveDelegationSpawn が後方互換で受理する)。
+// codex-sdk は Satelles のヘッドレスレーン (spec/feature/delegation.md §13.2)。 Lictor /
+// wt.exe を経由せず `satelles run|serve` を直接起動する。 effort 系は codex ファミリ扱い
+// (src/control/provider-preset.ts:isCodexFamilyProvider)。
 // 解決は src/control/provider-preset.ts:resolveDelegationSpawn が単一情報源。
-export type DelegationProvider = "claude" | "codex" | "gemini" | "gemma4-12";
-export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "gemini", "gemma4-12"];
+export type DelegationProvider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
+export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "codex", "codex-sdk", "gemini", "gemma4-12"];
 
 // Delegation の雇用形態カテゴリ (spec/feature/delegation.md §2)。
 //   employee   = 従業員: セッションワーカー。spawn で対話セッションとして起動する汎用実装レーン

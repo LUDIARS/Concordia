@@ -306,7 +306,7 @@ describe("spawn router (Hono)", () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
-    expect(body.error).toMatch(/valid: claude, codex, gemini/);
+    expect(body.error).toMatch(/valid: claude, codex, codex-sdk, gemini/);
   });
 
 });

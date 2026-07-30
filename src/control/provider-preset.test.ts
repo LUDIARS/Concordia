@@ -162,3 +162,38 @@ describe("delegation runtime options", () => {
     ]);
   });
 });
+
+describe("codex-sdk (Satelles headless) preset", () => {
+  it("resolveDelegationSpawn: codex-sdk は --model のみ (effort は runtime args 側)", () => {
+    const r = resolveDelegationSpawn("codex-sdk", "gpt-5.6-sol");
+    expect(r.provider).toBe("codex-sdk");
+    expect(r.args).toEqual(["--model", "gpt-5.6-sol"]);
+    expect(r.effectiveModel).toBe("gpt-5.6-sol");
+    const bare = resolveDelegationSpawn("codex-sdk", null);
+    expect(bare.args).toEqual([]);
+    expect(bare.effectiveModel).toBeNull();
+  });
+
+  it("resolveDelegationRuntimeArgs: codex-sdk は --effort (既定 xhigh) + --network、codex_config は転送しない", () => {
+    expect(resolveDelegationRuntimeArgs("codex-sdk", {})).toEqual(["--effort", "xhigh", "--network"]);
+    expect(resolveDelegationRuntimeArgs("codex-sdk", { model_reasoning_effort: "medium" }))
+      .toEqual(["--effort", "medium", "--network"]);
+    expect(resolveDelegationRuntimeArgs("codex-sdk", {
+      model_reasoning_effort: "high",
+      codex_config: { sandbox_mode: "workspace-write" },
+    })).toEqual(["--effort", "high", "--network"]);
+  });
+
+  it("resolveEffectiveDelegationRuntimeOptions: codex-sdk も既定 effort が入る", () => {
+    expect(resolveEffectiveDelegationRuntimeOptions("codex-sdk", {}))
+      .toEqual({ model_reasoning_effort: CODEX_DEFAULT_REASONING_EFFORT });
+  });
+
+  it("delegationOptionSuggestions: codex-sdk にも reasoning effort が出る (Sol なら ultra 含む)", () => {
+    const keys = delegationOptionSuggestions("codex-sdk", "gpt-5.6-sol").map((s) => s.key);
+    expect(keys).toContain("model_reasoning_effort");
+    const effort = delegationOptionSuggestions("codex-sdk", "gpt-5.6-sol")
+      .find((s) => s.key === "model_reasoning_effort");
+    expect(effort?.choices?.some((c) => c.value === "ultra")).toBe(true);
+  });
+});

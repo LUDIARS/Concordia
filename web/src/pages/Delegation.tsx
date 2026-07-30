@@ -164,6 +164,7 @@ export function Delegation() {
                 onChange={(e) => setForm({ ...form, target_provider: e.target.value as Provider })}
               >
                 <option value="codex">codex</option>
+                <option value="codex-sdk">codex-sdk (Satelles headless)</option>
                 <option value="claude">claude</option>
                 <option value="gemini">gemini</option>
                 <option value="gemma4-12">gemma4-12 (ローカル LLM / Ollama)</option>
@@ -173,8 +174,13 @@ export function Delegation() {
               <span className="text-subtle">model (optional)</span>
               {(() => {
                 // provider に紐づく候補 (provider 一致 + 'any') を sort_order 順で。
+                // codex-sdk は codex ファミリで同じ OpenAI モデルを使うため、
+                // model_catalog は codex の行を共有する (専用行は持たない)。
+                const catalogProvider = form.target_provider === "codex-sdk"
+                  ? "codex"
+                  : form.target_provider;
                 const opts = models.filter(
-                  (m) => m.provider === "any" || m.provider === form.target_provider,
+                  (m) => m.provider === "any" || m.provider === catalogProvider,
                 );
                 // 既存テンプレが catalog に無いモデルを持つ場合、 値を失わないよう
                 // 末尾に現値を補う (編集時の互換)。

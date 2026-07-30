@@ -201,6 +201,57 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.prompt_template).not.toContain("git fetch origin");
   });
 
+  it("seeds the Genius ingest templates for the cron jobs", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    for (const callName of ["genius-ingest-daily", "genius-ingest-tier2-nightly"]) {
+      const tpl = repo.findTemplateByCallName(callName);
+      expect(tpl?.is_active).toBe(1);
+      // 時限起動なので parttimer (spec/feature/delegation.md の category 表)。
+      expect(tpl?.category).toBe("parttimer");
+      expect(tpl?.target_provider).toBe("claude");
+      expect(tpl?.model).toBe("claude-sonnet-5");
+      expect(tpl?.default_cwd).toBe("E:\\Document\\Ars\\Genius");
+      expect(JSON.parse(tpl?.input_schema ?? "null")).toEqual([
+        { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
+      ]);
+
+      const prompt = tpl?.prompt_template ?? "";
+      // 完了条件は completed と completed-with-errors の両方 (後者は失敗扱いにしない)。
+      expect(prompt).toContain("`GET http://127.0.0.1:4230/api/clone/ingest/runs/<run id>`");
+      expect(prompt).toContain("`completed-with-errors`");
+      expect(prompt).toContain("失敗扱いにしない");
+      // 自動リトライ禁止 (retry-failed は 1 回だけ / それ以外は人間へ)。
+      expect(prompt).toContain("--retry-failed");
+      expect(prompt).toContain("**1 回だけ**");
+      // 運用ジョブなので起動・再起動・テスト実行は指示しない。
+      expect(prompt).toContain("起動・再起動は Excubitor / 人間の担当");
+      expect(prompt).toContain("テスト実行");
+      expect(prompt).not.toContain("npm test");
+      // 通知の環流対策: 本文・絶対パスの転記禁止。
+      expect(prompt).toContain("**文書本文・カード本文・絶対パスは報告に載せない**");
+    }
+  });
+
+  it("keeps the Genius Tier 1 and Tier 2 ingest commands in separate templates", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const daily = repo.findTemplateByCallName("genius-ingest-daily")?.prompt_template ?? "";
+    const nightly = repo.findTemplateByCallName("genius-ingest-tier2-nightly")?.prompt_template ?? "";
+
+    expect(daily).toContain("`node dist/cli.js ingest` を実行する");
+    expect(daily).not.toContain("ingest:tier2-nightly");
+    expect(nightly).toContain("`npm run ingest:tier2-nightly`");
+    // budget は Genius 側で撤廃済み。テンプレに上限値を書き戻さない。
+    expect(nightly).not.toContain("--budget-files");
+    // Tier 2 の全量 run は Tier 1 の 4:10 を跨ぎうる (Concordia に同時実行制限は無い)。
+    // Tier 1 側で「実行中なら見送る」判断を持たせて重複 ingest を防ぐ。
+    expect(daily).toContain("重ねて起動せず");
+    expect(daily).toContain("見送り");
+  });
+
   it("deactivates the replaced daily-review-reconciliation call name", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({

@@ -41,7 +41,7 @@ describe("startCronScheduler", () => {
     const invoke = vi.fn(async () => okResult());
     handle = startCronScheduler(
       { delegationService: fakeDelegationService(invoke) },
-      [{ name: "job-a", cron: NEVER_FIRES, call_name: "ludiars-review-daily", buildArgs: () => ({ date: "2026-07-09" }) }],
+      [{ name: "job-a", cron: NEVER_FIRES, call_name: "ludiars-review-daily", buildArgs: () => ({ date: "2026-07-09" }), cwd: "E:\\Document\\Ars" }],
     );
 
     await handle.triggerNow();
@@ -114,10 +114,78 @@ describe("startCronScheduler", () => {
     );
   });
 
-  it("runs the daily review and the biweekly AI note review by default", () => {
+  it("runs the daily review, the biweekly AI note review, and the Genius ingest jobs by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily", cron: "10 5 * * *", call_name: "ludiars-review-daily" },
       { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
+      { name: "genius-ingest-tier2-nightly", cron: "10 3 * * *", call_name: "genius-ingest-tier2-nightly" },
+      { name: "genius-ingest-daily", cron: "10 4 * * *", call_name: "genius-ingest-daily" },
     ]);
+    // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
+    // ジョブ定義側へ移したあとも消えていないことを回帰で押さえる。
+    expect(CRON_JOBS.filter((j) => j.cwd === "E:\\Document\\Ars").map((j) => j.name)).toEqual([
+      "ludiars-review-daily",
+      "ai-note-biweekly-review",
+    ]);
+  });
+
+  it("gives every job a distinct name, call_name, and firing time", () => {
+    // 同時刻に複数ジョブを置くと spawn が重なるため、時刻の衝突を回帰で防ぐ。
+    const names = CRON_JOBS.map((j) => j.name);
+    const callNames = CRON_JOBS.map((j) => j.call_name);
+    const crons = CRON_JOBS.map((j) => j.cron);
+
+    expect(new Set(names).size).toBe(names.length);
+    expect(new Set(callNames).size).toBe(callNames.length);
+    expect(new Set(crons).size).toBe(crons.length);
+    // 分・時が一致するジョブは日付条件が違っても同日に重なりうるので、そこも重複させない。
+    const minuteHour = crons.map((c) => c.split(" ").slice(0, 2).join(" "));
+    expect(new Set(minuteHour).size).toBe(minuteHour.length);
+  });
+
+  it("passes the run date to both Genius ingest jobs", () => {
+    for (const name of ["genius-ingest-daily", "genius-ingest-tier2-nightly"]) {
+      const job = CRON_JOBS.find((j) => j.name === name);
+      expect(job, `${name} must be registered`).toBeDefined();
+      expect(job?.buildArgs()).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    }
+  });
+
+  it("invokes the Genius daily ingest delegation when its job fires", async () => {
+    const invoke = vi.fn(async () => okResult());
+    const job = CRON_JOBS.find((j) => j.name === "genius-ingest-daily");
+    handle = startCronScheduler(
+      { delegationService: fakeDelegationService(invoke) },
+      [{ ...job!, cron: NEVER_FIRES }],
+    );
+
+    await handle.triggerNow("genius-ingest-daily");
+
+    expect(invoke).toHaveBeenCalledWith(
+      expect.objectContaining({
+        call_name: "genius-ingest-daily",
+        triggered_by: "cron:genius-ingest-daily",
+      }),
+    );
+  });
+
+  it("leaves the Genius ingest cwd to the template's default_cwd (Genius repository)", async () => {
+    // caller 指定の cwd は template.default_cwd より優先されるため、Ars root を渡すと
+    // ingest が Genius repository の外で走ってしまう。cron 側は cwd を渡さないこと。
+    const seenCwds: Array<string | undefined> = [];
+    const invoke = vi.fn(async (input: { cwd?: string }) => {
+      seenCwds.push(input.cwd);
+      return okResult();
+    });
+    const jobs = CRON_JOBS.filter((j) => j.name.startsWith("genius-ingest-"));
+    expect(jobs).toHaveLength(2);
+    handle = startCronScheduler(
+      { delegationService: fakeDelegationService(invoke) },
+      jobs.map((j) => ({ ...j, cron: NEVER_FIRES })),
+    );
+
+    await handle.triggerNow();
+
+    expect(seenCwds).toEqual([undefined, undefined]);
   });
 });

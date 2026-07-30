@@ -165,6 +165,109 @@ const DAILY_REVIEW_PROMPT = [
   "自分でコード修正やIssue作成はしない。JSON契約を満たせないリポはfailedとして記録し、他リポを続行する。",
 ].join("\n");
 
+// ── Genius (判断カード DB) の ingest 運用 ────────────────────────────────
+// Genius 側 spec (`E:\Document\Ars\Genius\spec\feature\operations.md` §7) の
+// 「Timer Delegation の実登録」は Concordia 側の実装項目である (Genius には自己申告
+// できる設定ファイルも API も無く、cron は本ファイルと scheduler/cron-jobs.ts の
+// 固定リストが正本)。本ブロックの 2 テンプレ + CRON_JOBS の 2 ジョブ
+// (genius-ingest-tier2-nightly 3:10 / genius-ingest-daily 4:10 JST) でその登録は完了。
+//
+// 注意:
+// - どちらも「ingest を回して run を polling し、結果を報告する」だけの運用ジョブ。
+//   テスト実行・コード修正・サービスの起動/再起動は指示しない (共有インフラの
+//   lifecycle は Excubitor / 人間の担当)。
+// - 完了条件は `completed` と `completed-with-errors` の両方。後者は Genius T5 で
+//   入る「文書単位で失敗を隔離した正常終了」なので失敗扱いにしない。
+// - 自動リトライは実装せず、`--retry-failed` を 1 回試すか人間へ上げるかを LLM が判断する。
+const GENIUS_REPO_PATH = "E:\\Document\\Ars\\Genius";
+
+/** run polling・失敗トリアージ・非転記ルールを Tier 1 / Tier 2 で同一に保つ共通節。 */
+const GENIUS_INGEST_COMMON_STEPS = [
+  "### 前提確認 (起動はしない)",
+  `- 作業ディレクトリは Genius repository (\`${GENIUS_REPO_PATH}\`)。別の場所にいる場合は移動してから実行する。`,
+  "- Genius サービスの `GET http://127.0.0.1:4230/healthz` を確認する (port の正本は Excubitor catalog と",
+  "  `genius.config.json`。応答が無い / 別 port の場合は設定を読んで確認する)。",
+  "- サービスが起動していない場合、**起動・再起動は Excubitor / 人間の担当**なので自分では行わず、",
+  "  「Genius サービス停止中のため ingest 未実行」と報告して終了する。",
+  "",
+  "### run の完了確認",
+  "- CLI の成功は「非同期 run の受付成功」にすぎない。返った run id を控え、",
+  "  `GET http://127.0.0.1:4230/api/clone/ingest/runs/<run id>` を polling して終了状態を確認する。",
+  "- 完了条件は status が `completed` **または** `completed-with-errors`。",
+  "  `completed-with-errors` は文書単位で失敗を隔離した正常終了であり、失敗扱いにしない。",
+  "",
+  "### 失敗時の判断 (自動リトライはしない)",
+  "- status が `failed`、または `completed-with-errors` で未解決の失敗が残る場合は、",
+  "  失敗したソース名・文書のリポジトリ相対パス・エラー種別とメッセージ要約を報告する。",
+  "  **文書本文・カード本文・絶対パスは報告に載せない** (通知が次回 ingest で DB へ環流するため)。",
+  "- 対処として `node dist/cli.js ingest --sources <失敗ソース> --retry-failed` を **1 回だけ** 試すか、",
+  "  人間へエスカレーションするかを自分で判断する。同じリトライを繰り返さない。",
+  "- コードの修正・テスト実行・PR 作成はしない。原因が実装バグらしい場合も報告に留める。",
+].join("\n");
+
+const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
+  {
+    call_name: "genius-ingest-daily",
+    title: "Genius 日次 ingest (Tier 1)",
+    description: "Genius (判断カード DB) の Tier 1 日次 ingest を実行し、run を polling して結果を報告する。completed / completed-with-errors を完了条件とし、失敗時は --retry-failed 1 回か人間へのエスカレーションを LLM が判断する。Timer Delegation が毎朝 4:10 JST に invoke する。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "🧠",
+    prompt_template: [
+      "## Genius 日次 ingest (Tier 1) — ${date}",
+      "",
+      "Genius の Tier 1 ingest を回し、終了状態を確認して報告する運用ジョブです。",
+      "",
+      GENIUS_INGEST_COMMON_STEPS,
+      "",
+      "### 実行",
+      "1. `node dist/cli.js ingest` を実行する (引数なしは Tier 1 のみが対象。Tier 2 は別枠の夜間ジョブ)。",
+      "2. 1 時間前に始まる夜間の Tier 2 ジョブが長引いてまだ走っていることがある。CLI や API が",
+      "   「別の run が実行中」の旨を返した場合は**重ねて起動せず**、その run id を添えて",
+      "   「夜間 run 継続中のため Tier 1 は見送り」と報告して終了する (kill も強制実行もしない)。",
+      "3. 上記「run の完了確認」に従って polling する。Tier 1 は通常数分程度で終わる。",
+      "4. 最終報告: run id / status / 取り込み件数 / 未解決失敗件数 / 取った対処。",
+    ].join("\n"),
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: GENIUS_REPO_PATH,
+    is_active: true,
+  },
+  {
+    call_name: "genius-ingest-tier2-nightly",
+    title: "Genius 夜間 ingest (Tier 2 全量)",
+    description: "Genius の Tier 2 (Claude / Codex 生 JSONL) を budget 無制限で ingest する夜間ジョブ。日次 Tier 1 とは別枠で、初回全量は非常に長時間かかりうる。Timer Delegation が毎朝 3:10 JST に invoke する。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "🌙",
+    prompt_template: [
+      "## Genius 夜間 ingest (Tier 2 全量) — ${date}",
+      "",
+      "Genius の Tier 2 (Claude / Codex の生 JSONL) を budget 無制限で取り込む夜間ジョブです。",
+      "日次 Tier 1 ingest とは別枠なので、Tier 1 の再実行はしません。",
+      "",
+      GENIUS_INGEST_COMMON_STEPS,
+      "",
+      "### 実行",
+      "1. `npm run ingest:tier2-nightly` を実行する (Tier 2 ソースのみを明示したラッパ。",
+      "   budget 上限は Genius 側の設計で撤廃済みのため、未読分を全量処理する)。",
+      "2. 上記「run の完了確認」に従って polling する。**未読が多いと 1 run が非常に長時間かかる**ため、",
+      "   polling 間隔を数分に広げ、進行が見える限りは待つ。",
+      "3. 待ち切れないほど長引く場合も run を kill せず、run id と最後に観測した進捗を添えて",
+      "   「継続中」として報告し、翌朝の実行で確認できるようにする。",
+      "4. 最終報告: run id / status / 取り込み件数 / 未解決失敗件数 / 所要時間 / 取った対処。",
+    ].join("\n"),
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: GENIUS_REPO_PATH,
+    is_active: true,
+  },
+];
+
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "impl-from-design",
@@ -594,6 +697,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  ...GENIUS_INGEST_TEMPLATES,
 ];
 
 export function seedDelegationTemplates(repo: DelegationRepo): void {

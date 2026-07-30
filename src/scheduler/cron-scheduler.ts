@@ -41,7 +41,8 @@ export function startCronScheduler(
     const result = await deps.delegationService.invoke({
       call_name,
       args,
-      cwd: "E:\\Document\\Ars",
+      // 未指定なら テンプレートの default_cwd が使われる (caller cwd は default_cwd より優先される)。
+      cwd: job.cwd,
       triggered_by: `cron:${job.name}`,
     });
 

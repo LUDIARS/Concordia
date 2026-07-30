@@ -169,11 +169,16 @@ Discord ⇄ (Gateway ×1) 本社 Concordia
 
 ## 段階導入
 
-- **Phase 0 — 信頼境界の分離**: 連合 listener を `/v1` と別面に切り出し、
+Phase 0 + Phase 1 は実装済み。実装仕様は
+[../feature/federation-link.md](../feature/federation-link.md) が正本
+(実装上の語は `site` (拠点)、連合イベントは専用スキーマ + `v` — 下記未決事項のうち
+この 2 件はそこで確定した)。
+
+- **Phase 0 — 信頼境界の分離** (実装済み): 連合 listener を `/v1` と別面に切り出し、
   既定 OFF の opt-in で立てられるようにする。`isLoopbackHost` 拒否は維持したまま
   連合面だけを外部到達可能にできることを確認する (これが未了なら Phase 1 に進まない)。
-- **Phase 1 — 連合リンク基盤**: 子会社 ⇄ 本社 WS リンク (登録・認証・ハートビート・
-  再接続・キュー)。本社 WebUI に子会社一覧。
+- **Phase 1 — 連合リンク基盤** (実装済み): 子会社 ⇄ 本社 WS リンク (登録・認証・
+  ハートビート・再接続・キュー)。本社 WebUI に拠点一覧 (`/federation`)。
 - **Phase 2 — 設定透過配布**: スナップショット push + 差分配信 + 子会社ローカルキャッシュ。
 - **Phase 3 — 部署ルーティング**: ingress 転送 + egress プロキシ。1 部署を試験的に
   子会社へ割当てて実運用検証。
@@ -182,11 +187,14 @@ Discord ⇄ (Gateway ×1) 本社 Concordia
 ## 未決事項
 
 - 子会社切断中の本社代理応答 (フォールバック) の要否。
-- 連合リンクのイベントスキーマ (`ConcordiaEvent` をそのまま流すか、連合専用の
-  外部スキーマを切るか)。互換性運用の観点では専用スキーマ + バージョン番号を推奨。
+- ~~連合リンクのイベントスキーマ~~ → 決定: 連合専用スキーマ + `v` (Phase 1 実装、
+  `src/federation/protocol.ts`)。`ConcordiaEvent` はそのまま流さない。
 - 子会社側 DB (sessions/chat) と本社 DB の同期範囲 (全量ミラーか、担当部署のみか)。
 - 連合面の公開方式 (既存 AccessControl の逆プロキシに相乗りするか、専用トンネルか)
   と TLS 証明書の運用。
-- 切断キューの具体的な上限値 (件数 / TTL) と、破棄が起きたときの部署側への表示。
-- 本設計の「子会社」に充てる実装上の語 (`site` / `federation-peer` / 他) の確定。
-  既存 `subsidiary` 系との衝突を避けるため実装着手前に決める。
+- 切断キューの具体的な上限値 (件数 / TTL) は Phase 1 で env 既定 (10000 件 / 7 日) を
+  置いた。破棄が起きたときの部署 (拠点) 側への表示は未決 (本社側は
+  `reportError("federation", …)` でエラーチャンネルに出す)。
+- ~~本設計の「子会社」に充てる実装上の語~~ → 決定: `site` (拠点)。DB / API / env は
+  `federation_*` / `/v1/federation` / `CONCORDIA_FEDERATION_*` で既存 `subsidiary`
+  (出張所 Bot) と識別子を共有しない。

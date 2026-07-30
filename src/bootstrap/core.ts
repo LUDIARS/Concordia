@@ -107,6 +107,7 @@ import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import { createFederationRuntime } from "../federation/runtime.js";
 import { isReactionUserAllowed, normalizeReactionUserIds } from "../shared/reaction-workflow-auth.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
@@ -397,6 +398,15 @@ export async function startBackend(): Promise<BackendHandle> {
   const secretBox = loadSecretBox({
     envValue: process.env.CONCORDIA_SECRET_KEY,
     keyFile: join(process.cwd(), "concordia.secret.key"),
+  });
+  // マルチ拠点連合 (spec/plan/multi-site-federation.md) Phase 1。
+  // listener / 拠点クライアントの起動は opt-in (env、startRoles で後述)。管理 API は
+  // 常時マウントし、listener 有効化前に拠点登録 (トークン発行) できるようにする。
+  // env の設定不備 (LISTEN=1 かつ PORT 未指定) はここで throw = 起動前に落とす。
+  const federation = createFederationRuntime({
+    db,
+    secretBox,
+    version: process.env.npm_package_version ?? "dev",
   });
   const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);
@@ -771,6 +781,7 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     slackConfig,
     secretBox,
+    federation: federation.apiDeps,
     taskStore,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
     syncDiscordForumTags: (templates) => {
@@ -1202,6 +1213,12 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("subsidiary bots", () => subsidiaryManager.stopAll());
   resources.own("managed processes", () => processManager.stopAll());
   resources.own("websocket server", () => ws.close());
+
+  // 連合 (マルチ拠点) の起動 — opt-in。listener は /v1 とは別ポート・別 origin の
+  // 専用面 (Phase 0 信頼境界。既定 host は 127.0.0.1、外部公開はトンネル前提)。
+  // 個々のロールの起動失敗は runtime 側で報告され、本体は続行する。
+  await federation.startRoles();
+  resources.own("federation", () => federation.stop());
   resources.own("http server", () => { server.close(); });
   resources.own("database", () => closeDb());
 

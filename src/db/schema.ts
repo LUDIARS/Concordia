@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 42;
+export const SCHEMA_VERSION = 43;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1142,6 +1142,35 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_discord_test_surfaces_open
         ON discord_test_surfaces(scope, status, repo_origin, pr_number);
+    `);
+  },
+}, {
+  version: 43,
+  name: "federation-link-p1",
+  source: "federation_sites + federation_outbox v1",
+  up(db) {
+    // マルチ拠点連合 (spec/plan/multi-site-federation.md) Phase 1。
+    // 用語衝突の注意: 既存 subsidiaries (出張所 Bot) とは別概念なので federation_* を使う。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS federation_sites (
+        site_id            TEXT PRIMARY KEY,
+        name               TEXT,
+        token_enc          TEXT NOT NULL,
+        status             TEXT NOT NULL DEFAULT 'active',
+        created_at         INTEGER NOT NULL,
+        revoked_at         INTEGER,
+        last_connected_at  INTEGER,
+        last_seen_at       INTEGER,
+        site_version       TEXT
+      );
+      CREATE TABLE IF NOT EXISTS federation_outbox (
+        seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+        site_id    TEXT NOT NULL,
+        payload    TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_federation_outbox_site
+        ON federation_outbox(site_id, seq);
     `);
   },
 }];

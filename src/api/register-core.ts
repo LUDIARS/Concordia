@@ -38,6 +38,7 @@ import type { AdminState } from "../admin/state.js";
 import type { CostBudgetStatus } from "../cost/usage-tracker.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import type { ChannelDirectory } from "./sessions/deps.js";
+import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
@@ -152,6 +153,8 @@ export interface CoreRuntimeDeps {
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
   /** Direct interactive session launcher. Tests inject a host-independent stub. */
   sessionSpawn?: (request: SpawnRequest) => SpawnResult;
+  /** マルチ拠点連合の管理 API。未注入なら /v1/federation は生えない。 */
+  federation?: FederationApiDeps;
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
@@ -279,6 +282,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         mentionUserId: () => deps.adminState.getMentionUserId(),
       }),
     );
+  }
+  if (deps.federation) {
+    app.route("/v1/federation", federationRouter(deps.federation));
   }
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(

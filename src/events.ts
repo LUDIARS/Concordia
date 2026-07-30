@@ -123,6 +123,12 @@ type ConcordiaEventPayload =
   // picker がローカル回答で解決し、リモート回答なしに失効した（Lictor 通知）。
   // Discord/Slack 側はボタン除去に使い、古いボタンの再クリックを防ぐ。
   | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
+  /**
+   * 連合リンク (マルチ拠点) の拠点接続状態変化. 本社側 listener が emit し、
+   * WebUI の子会社一覧が再取得トリガに使う.
+   */
+  | { type: "federation.site.connected";    site_id: string; ts: number }
+  | { type: "federation.site.disconnected"; site_id: string; ts: number }
   | { type: "ping";             ts: number };
 
 type ChatEventType =

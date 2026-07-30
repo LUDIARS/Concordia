@@ -18,6 +18,7 @@ import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
 import { CostFeed } from "./pages/CostFeed.js";
+import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
 
 const NAV: NavItem[] = [
@@ -36,6 +37,7 @@ const NAV: NavItem[] = [
   { to: "/delegation", label: "Delegation" },
   { to: "/manuals", label: "マニュアル" },
   { to: "/subsidiaries", label: "子会社" },
+  { to: "/federation", label: "拠点" },
   { to: "/setup", label: "Setup" },
   { to: "/settings", label: "設定" },
 ];
@@ -70,6 +72,7 @@ export function App() {
           <Route path="/delegation" element={<Delegation />} />
           <Route path="/manuals" element={<Manuals />} />
           <Route path="/subsidiaries" element={<Subsidiaries />} />
+          <Route path="/federation" element={<Federation />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

@@ -161,6 +161,25 @@ export interface TaskflowOverviewResult {
   tasks: TaskflowOverviewTask[];
 }
 
+export interface FederationSiteView {
+  site_id: string;
+  name: string | null;
+  status: "active" | "revoked";
+  connection: "online" | "offline";
+  connected_at: number | null;
+  last_seen_at: number | null;
+  last_connected_at: number | null;
+  site_version: string | null;
+  pending_events: number;
+  created_at: number;
+  revoked_at: number | null;
+}
+
+export interface FederationListResult {
+  listener_enabled: boolean;
+  sites: FederationSiteView[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${path}`);
@@ -781,6 +800,11 @@ export const api = {
     return get<SessionLogsList>(`/v1/session-logs${tail ? `?${tail}` : ""}`);
   },
   sessionLog: (id: string) => get<SessionLogFull>(`/v1/session-logs/${encodeURIComponent(id)}`),
+  federationList: () => get<FederationListResult>("/v1/federation"),
+  federationCreateSite: (body: { site_id: string; name?: string | null }) =>
+    post<{ ok: true; site_id: string; token: string }>("/v1/federation/sites", body),
+  federationRevokeSite: (siteId: string) =>
+    post<{ ok: true; site_id: string }>(`/v1/federation/sites/${encodeURIComponent(siteId)}/revoke`, {}),
   wsCleanupDryRun: () => get<WsCleanupResult>("/v1/admin/ws-cleanup"),
   wsCleanupApply: (body: { fetch?: boolean; delete_merged_remote_gone?: boolean } = {}) =>
     post<WsCleanupResult>("/v1/admin/ws-cleanup", { apply: true, ...body }),

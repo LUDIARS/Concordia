@@ -16,6 +16,8 @@ describe("schema", () => {
     expect(names).toContain("slack_session_channels");
     expect(names).toContain("slack_session_threads");
     expect(names).toContain("schema_meta");
+    expect(names).toContain("federation_sites");
+    expect(names).toContain("federation_outbox");
     expect(names).not.toContain("liveness_history");
     expect(names).not.toContain("service_instance_logs");
 

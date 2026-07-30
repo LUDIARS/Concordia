@@ -62,6 +62,8 @@ type ConcordiaEventPayload =
     }
   | { type: "question.answered"; target_session_id: string; question_id: number; answer_index: number; answer_text: string; ts: number }
   | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
+  | { type: "federation.site.connected";    site_id: string; ts: number }
+  | { type: "federation.site.disconnected"; site_id: string; ts: number }
   | { type: "ping";             ts: number };
 
 export type ConcordiaEvent = ConcordiaEventPayload & { v?: WsFrameVersion };

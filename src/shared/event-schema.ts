@@ -32,6 +32,8 @@ export const CONCORDIA_EVENT_TYPES = [
   "question.posted",
   "question.answered",
   "question.resolved",
+  "federation.site.connected",
+  "federation.site.disconnected",
   "ping",
 ] as const satisfies readonly ConcordiaEvent["type"][];
 
@@ -232,6 +234,16 @@ const eventSchemas = {
     type: z.literal("question.resolved"),
     target_session_id: z.string(),
     question_id: z.number(),
+    ts: z.number(),
+  }).passthrough(),
+  "federation.site.connected": z.object({
+    type: z.literal("federation.site.connected"),
+    site_id: z.string(),
+    ts: z.number(),
+  }).passthrough(),
+  "federation.site.disconnected": z.object({
+    type: z.literal("federation.site.disconnected"),
+    site_id: z.string(),
     ts: z.number(),
   }).passthrough(),
   ping: z.object({

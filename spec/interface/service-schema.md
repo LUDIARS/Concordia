@@ -81,6 +81,28 @@ CREATE TABLE session_reports (
   duration_sec INTEGER NOT NULL,
   metadata     TEXT                             -- JSON (file_changes, tool_count, etc.)
 );
+
+-- マルチ拠点連合: 拠点登録簿 (v43, spec/feature/federation-link.md)
+CREATE TABLE federation_sites (
+  site_id            TEXT PRIMARY KEY,          -- [a-z0-9][a-z0-9-]{1,63}
+  name               TEXT,
+  token_enc          TEXT NOT NULL,             -- secret-box 暗号化 (enc:v1:…)
+  status             TEXT NOT NULL DEFAULT 'active',  -- active / revoked
+  created_at         INTEGER NOT NULL,
+  revoked_at         INTEGER,
+  last_connected_at  INTEGER,
+  last_seen_at       INTEGER,
+  site_version       TEXT
+);
+
+-- マルチ拠点連合: 拠点別 切断中キュー (v43)。seq が配送順序、上限/TTL 超過は最古破棄
+CREATE TABLE federation_outbox (
+  seq        INTEGER PRIMARY KEY AUTOINCREMENT,
+  site_id    TEXT NOT NULL,
+  payload    TEXT NOT NULL,                     -- 不透明 JSON (連合 protocol v1)
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX idx_federation_outbox_site ON federation_outbox(site_id, seq);
 ```
 
 ---

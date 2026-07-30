@@ -21,6 +21,7 @@ related:
   - feature/multi-provider.md
   - interface/service-schema.md
   - plan/refactor-3axis-architecture.md
+  - plan/multi-site-federation.md
 updated: 2026-07-02
 ---
 
@@ -38,12 +39,14 @@ spec/
 ├── data/        # SQLite スキーマ一覧（schema.ts 正本）
 ├── feature/     # 機能（Discord 連携 / 委託 / multi-provider / FAQ）
 ├── interface/   # API・schema 正本（service-schema.md）
-├── plan/        # 中長期計画（3軸分離リファクタリング）
+├── plan/        # 中長期計画（3軸分離リファクタリング / マルチ拠点連合）
 ├── setup/       # 起動・設定（用途別ガイド + hook 連携手順）
 └── test/        # テスト設計
 ```
 > ロードマップは README §開発ステータス。アーキテクチャ再編計画は
 > [plan/refactor-3axis-architecture.md](plan/refactor-3axis-architecture.md)。
+> マルチ拠点連合 (本社/子会社/部署) は
+> [plan/multi-site-federation.md](plan/multi-site-federation.md)。
 
 ## feature 一覧
 | ドキュメント | 概要 |

@@ -119,7 +119,7 @@ export function buildCoreServer(): McpServer {
         "List Concordia sessions, optionally filtered by status / provider / repo_origin / host. Returns serialized session rows including session_id, status, repo_path, branch, current_task, started_at, last_seen_at.",
       inputSchema: {
         status: z.enum(["active", "lost", "ended"]).optional().describe("Filter by lifecycle status"),
-        provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "local-llm", "unknown"]).optional(),
+        provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]).optional(),
         repo_origin: z.string().optional().describe("Match against sessions.repo_origin (canonical remote URL)"),
         host: z.string().optional().describe("Hostname filter"),
       },

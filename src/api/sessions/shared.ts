@@ -31,6 +31,8 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
       return "claude";
     case "codex-cli":
       return "codex";
+    case "codex-sdk":
+      return "codex-sdk";
     case "gemini-cli":
       return "gemini";
     default:
@@ -40,7 +42,7 @@ export function toSpawnProvider(provider: string): SpawnProvider | null {
 
 export const StartSchema = z.object({
   id: z.string().min(1).max(128),
-  provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "local-llm", "unknown"]),
+  provider: z.enum(["claude-code", "gemini-cli", "codex-cli", "codex-sdk", "local-llm", "unknown"]),
   repo_path: z.string().min(1),
   repo_origin: z.string().nullable().optional(),
   branch: z.string().nullable().optional(),

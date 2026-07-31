@@ -21,7 +21,7 @@ related:
   - slack.md
   - observability.md
   - federation.md
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 
@@ -325,6 +325,7 @@ reaction workflow の ON/OFF にかかわらず platform 起点の spawn / deleg
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | 未設定 | `federation/env.ts:51` | 登録応答でだけ得られる平文トークン。 secret store にのみ置き、 Git / ログには残さない。 |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | `10000` | `federation/env.ts:52` | 本社側で保持する拠点別 outbox (本社→拠点イベント) の上限行数 (超過は最古から破棄)。 |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | `604800` (7 日) | `federation/env.ts:53` | 同 outbox エントリの TTL 秒 (超過は破棄)。 |
+| `CONCORDIA_VILLA_URL` | `http://127.0.0.1:17610` | `villa/client.ts:26` | 拠点タグ名の正本となる Villa の base URL。 到達不能なら拠点タグ無しで degrade する (部署ルーティングは継続)。 |
 
 ---
 

@@ -14,7 +14,7 @@ related:
   - ../feature/federation-link.md
   - ../plan/multi-site-federation.md
   - config-reference.md
-updated: 2026-07-31
+updated: 2026-08-01
 ---
 
 # Concordia federation setup
@@ -74,7 +74,43 @@ CONCORDIA_FEDERATION_SITE_TOKEN=<token-returned-at-registration>
 
 The site ID and token must exactly match the registration response. Keep the token in the remote site's secret store and never add it to an example file or repository configuration.
 
-## 4. Confirm the connection
+## 4. Decide what the site runs
+
+A site receives work in two ways, and they are configured separately.
+
+**Departments (per guild).** A department is a Discord guild. Assign the guilds a site is responsible for, and every message from those guilds is routed to that site instead of the HQ:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:11111/v1/federation/sites/osaka-dev/departments \
+  -H 'content-type: application/json' \
+  -d '{"departments":["123456789012345678"]}'
+```
+
+Assign each guild to **one** site. When the same guild is listed under two active sites the input is ambiguous, so Concordia refuses to duplicate it: the message falls back to the HQ and an error is reported. Changing `departments` does not redistribute configuration on its own — see `spec/feature/federation-link.md`.
+
+**Site tags (per thread).** Departments cannot express "run just this one piece of work on that PC". For that, tag the Session forum thread with the target PC. The tag names come from **Villa** (the home PC resource map, `http://127.0.0.1:17610/api/state` unless `CONCORDIA_VILLA_URL` points elsewhere), so PC names are never hard-coded in Concordia. Map the site to its Villa PC id:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:11111/v1/federation/sites/osaka-dev/villa-pc \
+  -H 'content-type: application/json' \
+  -d '{"villa_pc_id":"pc-haster"}'
+```
+
+Concordia then offers that PC's Villa name (for example `HASTER`) as a Session forum tag. Only sites that are `active` **and** mapped to a Villa PC produce a tag — a tag that cannot route anywhere is never shown. A site tag takes priority over department routing, so a thread tagged `HASTER` runs there even when its guild belongs to another site.
+
+Degradation is deliberate and always logged, because "I tagged it and it still ran at HQ" is otherwise impossible to explain:
+
+| Situation | Result |
+| --- | --- |
+| Two or more site tags on one thread | HQ, with a warning (no side is guessed) |
+| Tag maps to a revoked site | Falls back to department routing, with a warning |
+| Tag is a Villa PC that no active site is mapped to | Falls back to department routing, with a warning |
+| Tag name is not a Villa PC | Ignored (work-type and state tags are never read as sites) |
+| Villa is unreachable | No site tags are offered; department routing continues |
+
+Pass `{"villa_pc_id": null}` to unmap a site, which withdraws its tag.
+
+## 5. Confirm the connection
 
 On the HQ, inspect the federation state:
 
@@ -87,7 +123,7 @@ For the registered site, `connection: "online"` means an authenticated WebSocket
 
 The WebUI offers the same overview at `/federation`, on the **拠点** tab. Check the site status, connection state, last-seen time, version, and pending events there when operators need a visual view.
 
-## 5. Revoke a site
+## 6. Revoke a site
 
 To invalidate a site token, call the revoke endpoint at the HQ:
 
@@ -122,3 +158,4 @@ Defaults and the reading code path are canonical in [`config-reference.md` §10]
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | Remote site | Registration token; keep only in a secret store. |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | HQ | Optional maximum queued HQ-to-site events per site (oldest dropped first). |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | HQ | Optional retention period in seconds for queued HQ-to-site events. |
+| `CONCORDIA_VILLA_URL` | HQ | Optional Villa base URL used to resolve site tags (§4); defaults to `http://127.0.0.1:17610`. |

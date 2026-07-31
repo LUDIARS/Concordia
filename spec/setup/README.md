@@ -1,7 +1,7 @@
 ---
 type: setup
 title: "Concordia セットアップガイド (用途別)"
-description: "Concordia の用途別セットアップインデックス。core / windows / discord / slack / observability / spawn の各ガイドへの案内と、設定優先順位 (env > .env > 既定値) を定義する。"
+description: "Concordia の用途別セットアップインデックス。core / windows / discord / slack / observability / spawn / federation の各ガイドへの案内と、設定優先順位 (env > .env > 既定値) を定義する。"
 service: concordia
 domain: session-coordination
 tags:
@@ -20,7 +20,8 @@ related:
   - ../feature/discord-control-ui.md
   - ../feature/discord-lictor-relay.md
   - ../feature/delegation.md
-updated: 2026-06-30
+  - federation.md
+updated: 2026-07-31
 ---
 
 
@@ -42,6 +43,7 @@ Concordia は多機能サービス (loopback でのセッション協調 + Disco
 | Slack で session を見る / 操作する | [slack.md](slack.md) | `CONCORDIA_SLACK_*` + Socket Mode + `/concordia` slash |
 | サービス監視 / auto-fix (旧 Excubitor) を有効化 | [observability.md](observability.md) | `catalog/services.yaml` / `LUDIARS_ROOT` / bash path |
 | 別 session を spawn する管制 / MCP 委託 | [spawn.md](spawn.md) | `.spawn.token` / `CONCORDIA_SPAWN_DEFAULT_CWD` |
+| マルチ拠点連合 (本社 listener / 拠点登録) を有効化 | [federation.md](federation.md) | `CONCORDIA_FEDERATION_*` + listener port 11112 |
 | 全 env キーの正本を引く | [config-reference.md](config-reference.md) | (一覧) |
 
 ---

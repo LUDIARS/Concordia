@@ -1,7 +1,7 @@
 ---
 type: setup
 title: "Concordia 設定キー正本 (config-reference)"
-description: "Concordia の全環境変数設定キーを集約した正本リファレンス。コア起動・LLM・Discord/Slack bot・セッション管制・observability・ログ・hook・PR キュー・error 自動対応の 9 カテゴリを網羅し、既定値・読み出し元ファイル・信頼境界ルールを明記する。"
+description: "Concordia の全環境変数設定キーを集約した正本リファレンス。コア起動・LLM・Discord/Slack bot・セッション管制・observability・ログ・hook・PR キュー・error 自動対応・マルチ拠点連合の 10 カテゴリを網羅し、既定値・読み出し元ファイル・信頼境界ルールを明記する。"
 service: concordia
 domain: governance
 tags:
@@ -20,7 +20,8 @@ related:
   - discord.md
   - slack.md
   - observability.md
-updated: 2026-06-30
+  - federation.md
+updated: 2026-07-31
 ---
 
 
@@ -306,6 +307,24 @@ ON かつ全 platform 合計 0 人は `no_authorized_users` として起動時�
 platform 別の件数と issue code も返すが user ID 自体は返さない。名簿が空でも allow-all にはならず、
 reaction workflow の ON/OFF にかかわらず platform 起点の spawn / delegation も拒否する
 (判定関数が未注入の場合も deny = fail-closed)。
+
+---
+
+## 10. マルチ拠点連合 (federation)
+
+`src/federation/env.ts` が読む。 本社 (listener) / 拠点 (client) とも既定 OFF の opt-in。
+手順は [federation.md](federation.md)、 設計は [federation-link.md](../feature/federation-link.md)。
+
+| キー | 既定値 | 読み出し元 | 意味 |
+|------|--------|-----------|------|
+| `CONCORDIA_FEDERATION_LISTEN` | 未設定 (`1` で有効) | `federation/env.ts:37` | 本社側の連合 listener を起動する。 `/v1` (11111) とは別ポート・別 origin。 |
+| `CONCORDIA_FEDERATION_LISTEN_HOST` | `127.0.0.1` | `federation/env.ts:47` | listener の bind host。 外部拠点を受けるなら前段で TLS を終端する。 |
+| `CONCORDIA_FEDERATION_LISTEN_PORT` | 既定なし (LISTEN=1 なら必須、 未指定は起動時エラー) | `federation/env.ts:38` | listener port。 想定値 11112 は本リポの `excubitor.catalog.yaml` にコメントとして控えてあるだけで (fragment は service を宣言しない)、 割り当ての正本は `Excubitor/catalog/services.yaml`。 |
+| `CONCORDIA_FEDERATION_HQ_URL` | 未設定 (= 拠点クライアントを起動しない) | `federation/env.ts:49` | 接続先本社の WS URL。 loopback 以外への平文 `ws://` は拠点側で拒否 (`wss://` を使う)。 |
+| `CONCORDIA_FEDERATION_SITE_ID` | 未設定 | `federation/env.ts:50` | 本社の登録 ID (`[a-z0-9][a-z0-9-]{1,63}`)。 |
+| `CONCORDIA_FEDERATION_SITE_TOKEN` | 未設定 | `federation/env.ts:51` | 登録応答でだけ得られる平文トークン。 secret store にのみ置き、 Git / ログには残さない。 |
+| `CONCORDIA_FEDERATION_OUTBOX_MAX` | `10000` | `federation/env.ts:52` | 本社側で保持する拠点別 outbox (本社→拠点イベント) の上限行数 (超過は最古から破棄)。 |
+| `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | `604800` (7 日) | `federation/env.ts:53` | 同 outbox エントリの TTL 秒 (超過は破棄)。 |
 
 ---
 

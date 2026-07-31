@@ -1,0 +1,8 @@
+# Excubitor catalog fragment -- Concordia federation listener allocation.
+#
+# ServiceSchema has one primary port per service and cannot augment the existing
+# `concordia` service from a fragment (duplicate service codes are ignored).
+# Keep the listener allocation here, alongside the owning repository, while the
+# primary Concordia backend remains catalog/services.yaml:concordia (11111).
+# federation_listen_port: 11112
+services: []

@@ -30,8 +30,11 @@ Discord Forumでは「🔄 作業中…」メッセージを投稿しない。�
 - `session.lost` / `session.ended` はsession状態側のタグ処理を優先する。
 - per-sessionのタグ更新を直列化し、短い応答でも付与・解除の順序を保証する。
 
+状態ノード (`onSessionWorkState`) への反映は `src/discord/bot.ts` の
+`sessionWorkStateApply` を唯一の入口とする (state-machine 規約の apply 入口)。
+
 実装: `src/discord/channel-work-state.ts`、`src/discord/egress.ts`、
-`src/platform/transcript-completion.ts`
+`src/discord/bot.ts`、`src/platform/transcript-completion.ts`
 
 ## Slack
 

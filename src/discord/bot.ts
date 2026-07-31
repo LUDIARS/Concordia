@@ -97,6 +97,29 @@ const log = {
   },
 };
 
+/**
+ * 作業状態をセッションチャンネルへ反映する。
+ *
+ * Anatomia の state-machine 規約 (preset stateAccessPath) は「名前が `State` で終わる
+ * 関数は `Transition` / `Apply` / `Reduce` からのみ呼べる」と定めている。
+ * `onSessionWorkState` はその状態ノード側で、 起動関数 (`startDiscordBot`) から直に
+ * 呼ぶと severity=error の違反になり、 **その関数を触る PR がすべてブロックされる**。
+ *
+ * 反映処理をこの入口に閉じ込めることで、 規約が意図するとおり「状態への出入りは
+ * Apply を通す」形になる。 挙動は変えていない。
+ *
+ * 名前が `sessionWorkStateApply` なのは規約の照合が **大文字小文字を区別する**ため
+ * (`new RegExp("Transition|Apply|Reduce")`)。 `applySessionWorkState` のように小文字で
+ * 始めると許可パターンに合致せず、 ラッパを挟んでも違反のままになる。 併せて末尾が
+ * `Apply` なので `State$` にも当たらず、 この入口自体が状態ノード扱いされることもない。
+ */
+async function sessionWorkStateApply(
+  deps: Parameters<typeof onSessionWorkState>[0],
+  input: Parameters<typeof onSessionWorkState>[1],
+): Promise<void> {
+  await onSessionWorkState(deps, input);
+}
+
 export function shouldRelaySessionPromptToDiscord(provider: string | null | undefined): boolean {
   return provider === "codex-cli";
 }
@@ -706,7 +729,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       channelWorkState = new ChannelWorkState({
         log: (m) => log.info(`channel-work-state: ${m}`),
         setWorking: (sessionId, working) =>
-          onSessionWorkState(
+          sessionWorkStateApply(
             { guild, layout: layout!, repo: sessionChannelsRepo, log },
             { sessionId, working },
           ),

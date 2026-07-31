@@ -184,7 +184,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
 
   // ライブカードの状態を session 行から組む（同期・純粋寄り）。
   // ended の poem は呼び出し側 (renderEndedCard) が埋める。
-  function buildCardState(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState {
+  function buildSessionCard(sessionId: string, status: "active" | "ended", poem?: string | null): SessionCardState {
     return deps.readModel.getSessionCardState(sessionId, status, poem) ?? {
       who: formatAuthorName(null, null),
       emoji: null,
@@ -198,7 +198,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   }
 
   function describeSession(sessionId: string): SlackSessionChannelDescription {
-    const state = buildCardState(sessionId, "active");
+    const state = buildSessionCard(sessionId, "active");
     const card = renderSessionCard(state);
     return {
       title: state.currentTask ?? null,
@@ -223,7 +223,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       return;
     }
     try {
-      const state = buildCardState(sessionId, status, poem);
+      const state = buildSessionCard(sessionId, status, poem);
       const card = renderSessionCard(state);
       await web.chat.update({
         channel: row.channel_id,

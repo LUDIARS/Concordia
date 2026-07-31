@@ -16,6 +16,7 @@ import { TasksRepo } from "./db/tasks-repo.js";
 import { SessionTaskRecordsRepo } from "./db/session-task-records-repo.js";
 import { PrRecordsRepo } from "./db/pr-records-repo.js";
 import { DelegationRepo } from "./db/delegation-repo.js";
+import { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
 import { DelegationService } from "./delegation/service.js";
 import { DelegationEffortBlackbox } from "./delegation/effort-blackbox.js";
 import { SubsidiaryRepo } from "./db/subsidiary-repo.js";
@@ -207,6 +208,7 @@ async function main(): Promise<void> {
   reconcileTimer.unref?.();
 
   const delegationRepo = new DelegationRepo(db);
+  const transcriptLogs = new TranscriptLogsRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
   const delegationService = new DelegationService({
@@ -221,6 +223,7 @@ async function main(): Promise<void> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    usageFrames: transcriptLogs,
     hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
     delegationRepo,
   });

@@ -622,6 +622,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
     prRecordsRepo: prs,
+    usageFrames: transcriptLogs,
     hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
     delegationRepo,
     perfLog: createChildLogger("cost-report"),

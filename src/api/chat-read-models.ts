@@ -4,6 +4,7 @@ import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js"
 import type { TasksRepo } from "../db/tasks-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
+import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { estimateContextTokens, formatContextBadge } from "../cost/context-estimate.js";
 import { estimateSessionCostUsd, formatCostBadge } from "../cost/session-cost.js";
 import { collectOrgCostWindows, renderOrgCostLines, type OrgCostSubsidiary } from "../cost/org-cost.js";
@@ -30,6 +31,11 @@ export interface ChatReadModelDeps {
   tasksRepo: TasksRepo;
   prRecordsRepo: PrRecordsRepo;
   delegationRepo: DelegationRepo;
+  /**
+   * codex-sdk は JSONL ではなく transcript frame に usage を残すため、状態カードも
+   * 同じ一次ソースを読む。cost 層を型依存に巻き込まないよう DB repo の最小面を使う。
+   */
+  usageFrames: Pick<TranscriptLogsRepo, "listUsagePayloads">;
   oauthLog?: { warn: (m: string) => void; info?: (m: string) => void };
   perfLog?: { warn: (m: string) => void; info?: (m: string) => void };
   costSnapshotAllowFullScan?: boolean;
@@ -37,33 +43,6 @@ export interface ChatReadModelDeps {
 }
 
 export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
-  const relayState = (sessionId: string): SessionRelayState | null => {
-    const session = deps.sessionsRepo.findSession(sessionId);
-    if (!session) return null;
-    const meta = readSessionMeta(session.metadata);
-    const delegationRunId = stringOrNull(meta.delegation_run_id);
-    const delegationRun = delegationRunId ? deps.delegationRepo.findRun(delegationRunId) : null;
-    return {
-      sessionId,
-      provider: session.provider,
-      repoPath: session.repo_path,
-      branch: session.branch ?? delegationRun?.spawn_branch ?? null,
-      status: session.status,
-      currentTask: session.current_task,
-      roleLabel: stringOrNull(meta.role_label),
-      delegationEmoji: stringOrNull(meta.delegation_emoji),
-      delegationRunId,
-      delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
-      model: delegationRun?.effective_model ?? stringOrNull(meta.model),
-      effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
-      fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
-      subsidiaryId: stringOrNull(meta.subsidiary_id),
-      endedAt: session.ended_at ?? null,
-      webhookName: stringOrNull(meta.discord_webhook_name),
-      webhookAvatarUrl: stringOrNull(meta.discord_webhook_avatar_url),
-    };
-  };
-
   const workflowTarget = (row: ChatMessageRow | null): WorkflowTargetSnapshot | null => {
     if (!row) return null;
     let repoPath: string | null = null;
@@ -96,9 +75,11 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     getLatestWorkflowTargetForChannel(channel) {
       return workflowTarget(deps.chatRepo.list({ channel: channel as never, limit: 1 })[0] ?? null);
     },
-    getSessionRelayState: relayState,
+    getSessionRelayState(sessionId) {
+      return readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
+    },
     getSessionCardState(sessionId, status, poem) {
-      const state = relayState(sessionId);
+      const state = readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
       if (!state) return null;
       return {
         who: formatAuthorName(null, state.roleLabel),
@@ -117,7 +98,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     },
     listSlackSessionIndex() {
       return deps.sessionsRepo.listSessions({}).map((session) => {
-        const state = relayState(session.id);
+        const state = readSessionRelay(session.id, deps.sessionsRepo, deps.delegationRepo);
         return {
           sessionId: session.id,
           provider: session.provider,
@@ -132,7 +113,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
     async getSessionStatusSnapshot(sessionId, sessionChannelId) {
       const session = deps.sessionsRepo.findSession(sessionId);
       if (!session) return null;
-      const state = relayState(sessionId);
+      const state = readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
       if (!state) return null;
       const taskRows = deps.sessionTaskRecordsRepo.listBySession(sessionId);
       const openTasks = taskRows.filter((t) => t.status !== "completed");
@@ -142,7 +123,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       const cache = await fetchSessionCacheStats(sessionId).catch(() => null);
       const sufficiency = await probeProjectSufficiency(session.target_project ?? session.repo_path).catch(() => null);
       const ctx = await estimateContextTokens(session);
-      const cost = await estimateSessionCostUsd(session);
+      const cost = await estimateSessionCostUsd(session, deps.usageFrames);
       const requester = lastHumanRequester(deps.sessionsRepo.recentEvents(sessionId, 100));
       return {
         sessionId,
@@ -179,7 +160,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       } satisfies SessionStatusSnapshot;
     },
     getSessionPromptEvent(sessionId) {
-      const state = relayState(sessionId);
+      const state = readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
       if (!state) return null;
       const latest = deps.sessionsRepo.recentEvents(sessionId, 1)[0];
       const payload = readObject(latest?.payload);
@@ -189,7 +170,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       return { sessionId, provider: state.provider, status: state.status, text, source };
     },
     getSessionTitleEvent(sessionId) {
-      const state = relayState(sessionId);
+      const state = readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo);
       if (!state) return null;
       const latest = deps.sessionsRepo.recentEvents(sessionId, 1)[0];
       const payload = readObject(latest?.payload);
@@ -241,11 +222,46 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
       };
     },
     isSessionActive(sessionId) {
-      return relayState(sessionId)?.status === "active";
+      return readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo)?.status === "active";
     },
     isCodexSession(sessionId) {
-      return relayState(sessionId)?.provider === "codex-cli";
+      return readSessionRelay(sessionId, deps.sessionsRepo, deps.delegationRepo)?.provider === "codex-cli";
     },
+  };
+}
+
+/**
+ * セッション表示に必要な値を DB から投影する。factory のクロージャに閉じ込めず、
+ * 依存を引数として明示して各 read model 操作の参照境界を一定に保つ。
+ */
+function readSessionRelay(
+  sessionId: string,
+  sessionsRepo: SessionsRepo,
+  delegationRepo: DelegationRepo,
+): SessionRelayState | null {
+  const session = sessionsRepo.findSession(sessionId);
+  if (!session) return null;
+  const meta = readSessionMeta(session.metadata);
+  const delegationRunId = stringOrNull(meta.delegation_run_id);
+  const delegationRun = delegationRunId ? delegationRepo.findRun(delegationRunId) : null;
+  return {
+    sessionId,
+    provider: session.provider,
+    repoPath: session.repo_path,
+    branch: session.branch ?? delegationRun?.spawn_branch ?? null,
+    status: session.status,
+    currentTask: session.current_task,
+    roleLabel: stringOrNull(meta.role_label),
+    delegationEmoji: stringOrNull(meta.delegation_emoji),
+    delegationRunId,
+    delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
+    model: delegationRun?.effective_model ?? stringOrNull(meta.model),
+    effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
+    fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
+    subsidiaryId: stringOrNull(meta.subsidiary_id),
+    endedAt: session.ended_at ?? null,
+    webhookName: stringOrNull(meta.discord_webhook_name),
+    webhookAvatarUrl: stringOrNull(meta.discord_webhook_avatar_url),
   };
 }
 

@@ -1,3 +1,4 @@
+// Revisor Test Workflow の読取クライアント (spec/feature/revisor-test-forum-sync.md)。
 import type { ExcubitorClient } from "../excubitor/client.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
@@ -19,7 +20,8 @@ export interface RevisorTestWorkflowSource {
 
 interface RevisorTestWorkflowClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
-  token: string;
+  /** 読み取りは loopback 限定で token 不要。 設定されている場合だけ Bearer を送る。 */
+  token?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -48,10 +50,10 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   private readonly timeoutMs: number;
 
   constructor(options: RevisorTestWorkflowClientOptions) {
-    const token = options.token.trim();
-    if (!token) throw new Error("Revisor workflow token is required");
+    // Revisor は loopback からの読み取りに token を要求しない (変更系のみ要求する)。
+    // token は「あれば送る」扱いにして、 設定が無いだけで一覧取得が止まらないようにする。
     this.excubitor = options.excubitor;
-    this.token = token;
+    this.token = options.token?.trim() ?? "";
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -70,7 +72,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
         `http://127.0.0.1:${port}/v1/test-workflow`,
         {
           headers: {
-            authorization: `Bearer ${this.token}`,
+            ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
             "x-concordia-actor": "concordia",
           },
           signal: controller.signal,
@@ -98,7 +100,13 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
 export function createRevisorTestWorkflowClientFromEnv(
   excubitor: Pick<ExcubitorClient, "findService">,
   env: NodeJS.ProcessEnv = process.env,
-): RevisorTestWorkflowClient | null {
-  const token = env.CONCORDIA_REVISOR_WORKFLOW_TOKEN?.trim();
-  return token ? new RevisorTestWorkflowClient({ excubitor, token }) : null;
+): RevisorTestWorkflowClient {
+  // Revisor の読み取りは loopback 限定で token 不要なので、 未設定でもクライアントを作る。
+  // これが null を返していたため、 token を配れないだけで Test Forum 同期が
+  // 「Revisor Test Workflow source unavailable」で永久にスキップされていた。
+  // trim は constructor 側で行う。
+  return new RevisorTestWorkflowClient({
+    excubitor,
+    token: env.CONCORDIA_REVISOR_WORKFLOW_TOKEN,
+  });
 }

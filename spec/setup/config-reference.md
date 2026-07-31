@@ -257,7 +257,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `CONCORDIA_PR_RECONCILE_ENABLED` | 有効 (`0` で無効) | `pr/reconcile.ts:129` | open PR の差分 reconcile。 |
 | `CONCORDIA_PR_RECONCILE_MIN` | `10` (最小 2) | `pr/reconcile.ts:130` | reconcile の間隔 (分)。 |
 | `CONCORDIA_REVISOR_TOKEN` | 空 (Cc 発火なし) | `pr/revisor-client.ts` | Cc workflow が通常 CI 成功後にRevisorへ投入するためのBearer token。RevisorのPR-gate origin tokenと同じ値をローカルsecret managerから注入し、DBやログには保存しない。 |
-| `CONCORDIA_REVISOR_WORKFLOW_TOKEN` | 空 (Test Forum同期なし) | `pr/revisor-test-workflow-client.ts` | Revisorの `GET /v1/test-workflow` を読むBearer token。Revisorのlocal workflow tokenと同じ値をsecret managerから注入する。 |
+| `CONCORDIA_REVISOR_WORKFLOW_TOKEN` | 空 (token無しで同期する) | `pr/revisor-test-workflow-client.ts` | Revisorの `GET /v1/test-workflow` を読むBearer token。読取はloopback限定でRevisorがtokenを要求しないため任意。設定時のみ送信し、Revisorのlocal workflow tokenと同じ値をsecret managerから注入する。 |
 
 ---
 

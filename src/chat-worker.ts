@@ -233,7 +233,7 @@ async function main(): Promise<void> {
     readModel,
     chatRepo: chat,
     sessionsRepo: sessions,
-    revisorTestWorkflow: createRevisorTestWorkflowClientFromEnv(new ExcubitorClient()) ?? undefined,
+    revisorTestWorkflow: createRevisorTestWorkflowClientFromEnv(new ExcubitorClient()),
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,

@@ -43,6 +43,7 @@ describe("AdminState", () => {
       github_org: "",
       reaction_workflow_enabled: false,
       cc_workflow_enabled: false,
+      revisor_auto_submit_enabled: true,
       lictor_mode: "auto",
       lictor_dev_path: "",
       lictor_prod_exe: "",
@@ -124,6 +125,15 @@ describe("AdminState", () => {
     expect(withDefault.getCcWorkflowEnabled()).toBe(true);
     withDefault.setCcWorkflowEnabled(false);
     expect(new AdminState(env.db, { ccWorkflowEnabled: true }).getCcWorkflowEnabled()).toBe(false);
+  });
+
+  // 既定 ON。 レビュー発火が黙って無くなる状態を作らないため、 明示 OFF だけが止める。
+  it("revisor_auto_submit_enabled defaults to on + round-trips", () => {
+    expect(env.state.getRevisorAutoSubmitEnabled()).toBe(true);
+    env.state.setRevisorAutoSubmitEnabled(false);
+    expect(new AdminState(env.db).getRevisorAutoSubmitEnabled()).toBe(false);
+    env.state.setRevisorAutoSubmitEnabled(true);
+    expect(new AdminState(env.db, { revisorAutoSubmitEnabled: false }).getRevisorAutoSubmitEnabled()).toBe(true);
   });
 
   it("reaction emoji overrides upsert / delete / persist", () => {

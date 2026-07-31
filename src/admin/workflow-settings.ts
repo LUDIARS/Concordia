@@ -6,12 +6,16 @@ const DISCORD_USERS = "admin.reaction_workflow_discord_users";
 const SLACK_USERS = "admin.reaction_workflow_slack_users";
 const CC_ENABLED = "admin.cc_workflow_enabled";
 const EMOJI_OVERRIDES = "admin.reaction_emoji_overrides";
+// セッション終了時に作業ブランチを Revisor の local PR として自動提出するか。
+const REVISOR_AUTO_SUBMIT = "admin.revisor_auto_submit_enabled";
 
 export interface WorkflowSettingsDefaults {
   reactionWorkflowEnabled?: boolean;
   reactionWorkflowDiscordUserIds?: string[];
   reactionWorkflowSlackUserIds?: string[];
   ccWorkflowEnabled?: boolean;
+  /** 既定 true。 レビュー発火が黙って無くなる状態を作らないため、 明示 OFF のみ止める。 */
+  revisorAutoSubmitEnabled?: boolean;
 }
 
 export class WorkflowSettingsStore {
@@ -25,6 +29,9 @@ export class WorkflowSettingsStore {
   setDiscordUsers(ids: readonly string[]): void { this.setUsers(DISCORD_USERS, ids); }
   getSlackUsers(): string[] { return this.getUsers(SLACK_USERS, this.defaults.reactionWorkflowSlackUserIds); }
   setSlackUsers(ids: readonly string[]): void { this.setUsers(SLACK_USERS, ids); }
+
+  getRevisorAutoSubmitEnabled(): boolean { return this.store.getBoolean(REVISOR_AUTO_SUBMIT, this.defaults.revisorAutoSubmitEnabled ?? true); }
+  setRevisorAutoSubmitEnabled(value: boolean): void { this.store.setBoolean(REVISOR_AUTO_SUBMIT, value); }
 
   getEmojiOverrides(): Record<string, string> {
     try {

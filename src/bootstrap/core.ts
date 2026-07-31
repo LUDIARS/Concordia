@@ -77,6 +77,9 @@ import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
 import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
+import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
+import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
+import { listBranchCommits } from "../pr/branch-commits.js";
 import { createRevisorTestWorkflowClientFromEnv } from "../pr/revisor-test-workflow-client.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
@@ -516,6 +519,29 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   });
 
+  // レビュー発火: セッションが終わったら、 その作業ブランチを Revisor の local PR として
+  // 自動提出する。 旧経路 (GitHub PR の CI success → /v1/pr-gate/jobs) は Revisor が
+  // local PR ワークフローへ移行したときにエンドポイントごと無くなり、 以来「人が手で
+  // 提出したときだけレビューされる」状態だった。 失敗してもセッション終了処理は止めない。
+  const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient);
+  const localPrLog = createChildLogger("revisor-local-pr");
+  const localPrDeps = { revisor: revisorLocalPrs, listBranchCommits, log: localPrLog };
+  const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
+    if (ev.type !== "session.ended") return;
+    if (!adminState.getRevisorAutoSubmitEnabled()) return;
+    const session = repo.findSession(ev.session_id);
+    if (!session) return;
+    void submitSessionLocalPr(
+      localPrDeps,
+      {
+        sessionId: session.id,
+        repoPath: session.repo_path,
+        repository: session.repo_origin,
+        branch: session.branch,
+      },
+    );
+  });
+
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
   // Concordia 発の命令 (spawn / dispatcher / rule engine / proposer) を止める。
   const costRuntime = createCostRuntime({
@@ -757,6 +783,20 @@ export async function startBackend(): Promise<BackendHandle> {
     testingClaims,
     subsidiary: subsidiaryRepo,
     harnessRules: harnessRepo,
+    // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
+    submitLocalPr: async (sessionId: string) => {
+      const session = repo.findSession(sessionId);
+      if (!session) return { submitted: false as const, reason: "session_not_found" };
+      return submitSessionLocalPr(
+        localPrDeps,
+        {
+          sessionId: session.id,
+          repoPath: session.repo_path,
+          repository: session.repo_origin,
+          branch: session.branch,
+        },
+      );
+    },
     injectManuals: injectManualsRepo,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,
@@ -1200,6 +1240,7 @@ export async function startBackend(): Promise<BackendHandle> {
     }
   });
   resources.own("testing release subscription", () => unsubTestingRelease());
+  resources.own("revisor local PR submit subscription", () => unsubLocalPrSubmit());
   resources.own("worker lease watchers", () => {
     clearInterval(costWorkerWatch);
     clearInterval(chatWorkerWatch);

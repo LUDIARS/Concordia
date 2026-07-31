@@ -18,7 +18,7 @@ import { libraryRouter } from "./library.js";
 import { processesRouter } from "./processes.js";
 import { statRouter } from "./stat.js";
 import { workRouter } from "./work.js";
-import { prsRouter } from "./prs.js";
+import { prsRouter, type PrsApiDeps } from "./prs.js";
 import { confirmRouter } from "./confirm.js";
 import type { ConfirmService } from "../release/confirm-service.js";
 import type { ProcessManager } from "../processes/manager.js";
@@ -130,6 +130,8 @@ export interface CoreDelegationDeps {
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
+  /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
+  submitLocalPr?: PrsApiDeps["submitLocalPr"];
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
   injectManuals?: InjectManualsRepo;
   harnessAudit?: HarnessAuditRepo;
@@ -196,7 +198,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
-  app.route("/v1/prs", prsRouter({ prs: deps.prs }));
+  app.route("/v1/prs", prsRouter({ prs: deps.prs, submitLocalPr: deps.submitLocalPr }));
   app.route("/v1/taskflow", taskflowRouter({
     store: deps.taskStore,
     sessions: deps.repo,
@@ -699,6 +701,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }
     deps.adminState.setRulesEnabled(body.enabled);
     return c.json({ enabled: deps.adminState.getRulesEnabled() });
+  });
+
+  // レビュー発火 (セッション終了時の local PR 自動提出) の安全弁。 既定 ON で、
+  // 購読側が毎回 live 評価するので即時反映。 spec/feature/revisor-local-pr-submission.md §2
+  app.get("/v1/admin/revisor-auto-submit", (c) => {
+    return c.json({ enabled: deps.adminState.getRevisorAutoSubmitEnabled() });
+  });
+  app.put("/v1/admin/revisor-auto-submit", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setRevisorAutoSubmitEnabled(body.enabled);
+    return c.json({ enabled: deps.adminState.getRevisorAutoSubmitEnabled() });
   });
 
   // ワークスペースルート / GitHub Organization (schema_meta 永続化、 設定 GUI から編集)。

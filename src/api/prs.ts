@@ -23,6 +23,14 @@ import { renderPrQueueMarkdown } from "../pr/render.js";
 
 export interface PrsApiDeps {
   prs: PrRecordsRepo;
+  /**
+   * session の作業ブランチを Revisor の local PR として提出する。 未注入なら
+   * POST /v1/prs/local は生えない (レビュー発火なしの構成)。
+   */
+  submitLocalPr?: (sessionId: string) => Promise<
+    | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
+    | { submitted: false; reason: string; detail?: string }
+  >;
 }
 
 const VALID_STATES: PrState[] = ["draft", "open", "merged", "closed"];
@@ -62,6 +70,21 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   app.get("/digest", (c) => {
     const q = buildPrQueue(deps.prs);
     return c.json({ markdown: renderPrQueueMarkdown(q) });
+  });
+
+  /**
+   * POST /v1/prs/local — session の作業ブランチを Revisor へ local PR として提出する。
+   *
+   * 通常はセッション終了イベントで自動提出されるが、 終了を待たずにレビューへ出したい
+   * ときの手動口。 提出しなかった場合も 200 で理由を返す (呼び出し側が「なぜ出ないか」を
+   * 見られるようにする — 無言スキップが元の障害の温床だった)。
+   */
+  app.post("/local", async (c) => {
+    if (!deps.submitLocalPr) return c.json({ error: "local_pr_submission_unavailable" }, 503);
+    const body = await c.req.json().catch(() => null) as { session_id?: unknown } | null;
+    const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+    if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
+    return c.json(await deps.submitLocalPr(sessionId));
   });
 
   app.get("/list", (c) => {

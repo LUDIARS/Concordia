@@ -22,6 +22,18 @@ import { createFederationConnections } from "./hq-connections.js";
 import { createFederationConfigSnapshot } from "./config-snapshot.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
+import { authorizeEgressRequest, resolveDepartmentRoute } from "./department-routing.js";
+import type { FederationEgressRequestFrame } from "./protocol.js";
+
+export interface FederationIngressInput {
+  guild_id: string;
+  channel_id: string;
+  message_id: string;
+  author_id: string;
+  author_label: string;
+  text: string;
+  ts: number;
+}
 
 const log = createChildLogger("federation/runtime");
 
@@ -30,6 +42,10 @@ export interface FederationRuntime {
   apiDeps: FederationApiDeps;
   /** env で有効化されたロール (listener / 拠点クライアント) を起動する。 */
   startRoles(): Promise<void>;
+  /** Discord ingress が担当拠点へ渡せた場合だけ true。 */
+  routeIngress(input: FederationIngressInput): boolean;
+  /** Discord 実体を bootstrap から渡す egress ポート。 */
+  setEgressExecutor(executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null): void;
   stop(): void;
 }
 
@@ -52,6 +68,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
   const connections = createFederationConnections();
   let listener: FederationListenerHandle | null = null;
   let siteClient: FederationSiteClientHandle | null = null;
+  let egressExecutor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null = null;
 
   async function startListener(port: number): Promise<void> {
     try {
@@ -66,6 +83,15 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
           opts.db,
           sites.find(siteId)?.departments ?? [],
         ),
+        handleEgressRequest: async (siteId, request) => {
+          const authorized = authorizeEgressRequest(sites, siteId, request);
+          if (!authorized.ok) {
+            log.warn(`federation egress denied site=${siteId} guild=${request.guild_id}`);
+            return authorized;
+          }
+          if (!egressExecutor) return { ok: false, error: "HQ Discord egress is unavailable" };
+          return egressExecutor(request);
+        },
       });
     } catch (e) {
       log.error({ err: (e as Error).message }, "federation listener failed to start");
@@ -103,6 +129,15 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
     async startRoles() {
       if (env.listenEnabled && env.listenPort !== null) await startListener(env.listenPort);
       if (env.hqUrl) startSiteClient(env.hqUrl);
+    },
+    routeIngress(input) {
+      const route = resolveDepartmentRoute(sites, input.guild_id);
+      if (route.kind !== "site" || !listener) return false;
+      listener.enqueue(route.siteId, { type: "ingress", ...input });
+      return true;
+    },
+    setEgressExecutor(executor) {
+      egressExecutor = executor;
     },
     stop() {
       siteClient?.stop();

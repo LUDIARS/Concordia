@@ -10,6 +10,7 @@
  */
 
 import { WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
@@ -23,6 +24,7 @@ import {
   writeFederationConfigCache,
 } from "./config-cache.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
+import type { FederationEgressResultFrame } from "./protocol.js";
 
 const log = createChildLogger("federation/site");
 
@@ -36,6 +38,7 @@ const BACKOFF_MAX_MS = 60_000;
  */
 const HQ_IDLE_TIMEOUT_MS = 70_000;
 const HQ_IDLE_CHECK_MS = 10_000;
+const EGRESS_TIMEOUT_MS = 30_000;
 
 export interface FederationSiteClientDeps {
   hqUrl: string;
@@ -56,6 +59,7 @@ export interface FederationSiteClientHandle {
   stop(): void;
   isLinked(): boolean;
   getConfig(): FederationConfigSnapshot | null;
+  requestEgress(input: { requestId?: string; guildId: string; channelId: string; text: string }): Promise<FederationEgressResultFrame>;
 }
 
 /** loopback 以外への平文 ws:// を拒否する。戻り値は正規化済み接続 URL。 */
@@ -85,6 +89,15 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
   let ws: WebSocket | null = null;
   let retryTimer: NodeJS.Timeout | null = null;
   let idleTimer: NodeJS.Timeout | null = null;
+  const pendingEgress = new Map<string, { resolve: (result: FederationEgressResultFrame) => void; timer: NodeJS.Timeout }>();
+
+  const rejectPendingEgress = (error: string): void => {
+    for (const [requestId, pending] of pendingEgress) {
+      clearTimeout(pending.timer);
+      pending.resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error });
+    }
+    pendingEgress.clear();
+  };
 
   const scheduleReconnect = () => {
     if (stopped) return;
@@ -160,6 +173,14 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         deps.onConfig?.(config);
         return;
       }
+      if (frame.type === "egress-result") {
+        const pending = pendingEgress.get(frame.request_id);
+        if (!pending) return;
+        pendingEgress.delete(frame.request_id);
+        clearTimeout(pending.timer);
+        pending.resolve(frame);
+        return;
+      }
       if (frame.type === "error") {
         log.warn({ code: frame.code, message: frame.message }, "federation error from hq");
         // 失効 / 認証失敗は再接続しても直らない — 停止して人間の再設定を待つ。
@@ -185,6 +206,7 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
       }
       if (ws !== socket) return;
       linked = false;
+      rejectPendingEgress("HQ link closed before egress completed");
       if (stopped) return;
       log.info({ backoffMs }, "federation link closed; reconnecting");
       scheduleReconnect();
@@ -204,12 +226,39 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
       if (retryTimer) clearTimeout(retryTimer);
       if (idleTimer) { clearInterval(idleTimer); idleTimer = null; }
       try { ws?.close(1000, "site shutting down"); } catch { /* ignore */ }
+      rejectPendingEgress("site client stopped");
     },
     isLinked() {
       return linked;
     },
     getConfig() {
       return config;
+    },
+    requestEgress(input) {
+      const requestId = input.requestId ?? randomUUID();
+      // 同じ id を二重に走らせると、先行分の timer が後発分の pending を消して
+      // どちらか一方が永久に resolve しない。呼び出し側の id 衝突はここで断る。
+      if (pendingEgress.has(requestId)) {
+        return Promise.resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error: "an egress request with this id is already in flight" });
+      }
+      if (!linked || !ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error: "HQ link is not connected" });
+      }
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          pendingEgress.delete(requestId);
+          resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error: "egress request timed out after 30 seconds" });
+        }, EGRESS_TIMEOUT_MS);
+        timer.unref?.();
+        pendingEgress.set(requestId, { resolve, timer });
+        try {
+          ws!.send(serializeFederationFrame({ type: "egress-request", request_id: requestId, guild_id: input.guildId, channel_id: input.channelId, text: input.text }));
+        } catch (e) {
+          pendingEgress.delete(requestId);
+          clearTimeout(timer);
+          resolve({ v: FEDERATION_PROTOCOL_VERSION, type: "egress-result", request_id: requestId, ok: false, error: (e as Error).message });
+        }
+      });
     },
   };
 }

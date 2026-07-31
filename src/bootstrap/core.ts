@@ -647,6 +647,16 @@ export async function startBackend(): Promise<BackendHandle> {
     listSubsidiaries: () =>
       subsidiaryRepo.list().map((s) => ({ id: s.id, name: s.display_name || s.name, daily_token_budget: s.daily_token_budget })),
     concordiaUrl: publicUrl,
+    routeFederationIngress: (input) => federation.routeIngress({
+      guild_id: input.guildId,
+      channel_id: input.channelId,
+      message_id: input.messageId,
+      author_id: input.authorId,
+      author_label: input.authorLabel,
+      text: input.text,
+      ts: input.ts,
+    }),
+    setFederationEgressExecutor: federation.setEgressExecutor,
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
     // 「fetch failed」でユーザに何も返らない事故になるため使わない)。
     answerQuestion: (sessionId, body) =>

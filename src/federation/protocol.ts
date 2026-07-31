@@ -50,6 +50,35 @@ const eventSchema = z.object({
   payload: z.unknown(),
 }).passthrough();
 
+const ingressSchema = z.object({
+  v: versionField,
+  type: z.literal("ingress"),
+  guild_id: z.string().min(1).max(100),
+  channel_id: z.string().min(1).max(100),
+  message_id: z.string().min(1).max(100),
+  author_id: z.string().min(1).max(100),
+  author_label: z.string().min(1).max(200),
+  text: z.string().min(1).max(8_000),
+  ts: z.number().int().nonnegative(),
+}).passthrough();
+
+const egressRequestSchema = z.object({
+  v: versionField,
+  type: z.literal("egress-request"),
+  request_id: z.string().min(1).max(100),
+  guild_id: z.string().min(1).max(100),
+  channel_id: z.string().min(1).max(100),
+  text: z.string().min(1).max(8_000),
+}).passthrough();
+
+const egressResultSchema = z.object({
+  v: versionField,
+  type: z.literal("egress-result"),
+  request_id: z.string().min(1).max(100),
+  ok: z.boolean(),
+  error: z.string().max(500).optional(),
+}).passthrough();
+
 const configSnapshotSchema = z.object({
   discord: z.record(z.string()),
   templates: z.array(z.object({
@@ -99,6 +128,9 @@ const frameSchemas = {
   hello: helloSchema,
   welcome: welcomeSchema,
   event: eventSchema,
+  ingress: ingressSchema,
+  "egress-request": egressRequestSchema,
+  "egress-result": egressResultSchema,
   "config-snapshot": configSnapshotFrameSchema,
   "config-update": configUpdateFrameSchema,
   ack: ackSchema,
@@ -108,6 +140,9 @@ const frameSchemas = {
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
 export type FederationWelcomeFrame = z.infer<typeof welcomeSchema>;
 export type FederationEventFrame = z.infer<typeof eventSchema>;
+export type FederationIngressFrame = z.infer<typeof ingressSchema>;
+export type FederationEgressRequestFrame = z.infer<typeof egressRequestSchema>;
+export type FederationEgressResultFrame = z.infer<typeof egressResultSchema>;
 export type FederationConfigSnapshot = z.infer<typeof configSnapshotSchema>;
 export type FederationConfigSnapshotFrame = z.infer<typeof configSnapshotFrameSchema>;
 export type FederationConfigUpdateFrame = z.infer<typeof configUpdateFrameSchema>;
@@ -117,6 +152,9 @@ export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
   | FederationEventFrame
+  | FederationIngressFrame
+  | FederationEgressRequestFrame
+  | FederationEgressResultFrame
   | FederationConfigSnapshotFrame
   | FederationConfigUpdateFrame
   | FederationAckFrame
@@ -188,6 +226,9 @@ export type FederationFrameInput =
   | { type: "hello"; site_id: string; token: string; site_version?: string }
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
+  | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number }
+  | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string }
+  | { type: "egress-result"; request_id: string; ok: boolean; error?: string }
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
   | { type: "config-update"; snapshot: FederationConfigSnapshot }
   | { type: "ack"; seq: number }

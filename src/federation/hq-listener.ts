@@ -26,6 +26,7 @@ import {
   type FederationErrorCode,
 } from "./protocol.js";
 import type { FederationConfigSnapshot } from "./protocol.js";
+import type { FederationEgressRequestFrame, FederationFrameInput } from "./protocol.js";
 
 const log = createChildLogger("federation/hq");
 
@@ -36,11 +37,18 @@ const DELIVERY_BATCH = 100;
 const AUTH_FAILURE_LIMIT = 5;
 const AUTH_FAILURE_WINDOW_MS = 60_000;
 /**
- * 認証前フレームの上限。この面は (トンネル経由で) 外部公開されうるので、
- * ws 既定の 100MB を認証前の相手に許すと 1 接続でメモリを食い潰せる。
- * hello は site_id + token + version だけなので 8KB で十分。
+ * フレーム全体の上限。この面は (トンネル経由で) 外部公開されうるので、
+ * ws 既定の 100MB は許さない。認証後は egress-request が本文 (protocol.ts で
+ * 8,000 文字上限) を運ぶので、UTF-8 で 3 バイト級の文字が並んでも収まる幅を取る。
+ * ws の maxPayload 超過は接続ごと 1009 で落とすため、ここを本文上限より狭くすると
+ * 長文 1 通で連合リンクが切れて再接続ループに入る。
  */
-const MAX_FRAME_BYTES = 8 * 1024;
+const MAX_FRAME_BYTES = 64 * 1024;
+/**
+ * 認証前フレームの上限。hello は site_id + token + version だけなので 8KB で十分。
+ * 未認証の相手に 64KB を許さないための、ハンドシェイク中だけの追加の絞り。
+ */
+const MAX_PRE_AUTH_FRAME_BYTES = 8 * 1024;
 /**
  * hello 待ち (未認証) 接続の同時数上限。認証失敗を伴わない接続だけを大量に開くと
  * レート制限に記録が残らないため、ここで別に頭を押さえる。
@@ -63,6 +71,8 @@ export interface FederationListenerDeps {
   nowSec?: () => number;
   /** 設定の正本は HQ だけにあり、接続ごとに現在値を組み立てて送る。 */
   createConfigSnapshot?: (siteId: string) => FederationConfigSnapshot;
+  /** Discord 実体は bootstrap から注入する。federation は chat 層を知らない。 */
+  handleEgressRequest?: (siteId: string, request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export interface FederationListenerHandle {
@@ -73,6 +83,7 @@ export interface FederationListenerHandle {
   disconnect(siteId: string, code: FederationErrorCode): void;
   /** 明示的な再配布は link 中の site へだけ update として送る。 */
   sendConfigUpdate(siteId: string): boolean;
+  send(siteId: string, frame: FederationFrameInput): boolean;
   close(): void;
 }
 
@@ -139,6 +150,18 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
     }
   }
 
+  function send(siteId: string, frame: FederationFrameInput): boolean {
+    const socket = sockets.get(siteId);
+    if (!socket || socket.ws.readyState !== WebSocket.OPEN) return false;
+    try {
+      socket.ws.send(serializeFederationFrame(frame));
+      return true;
+    } catch (e) {
+      log.warn({ siteId, err: (e as Error).message }, "federation direct frame send failed");
+      return false;
+    }
+  }
+
   wss.on("connection", (ws, req) => {
     const remote = req.socket.remoteAddress ?? "unknown";
     if (isRateLimited(remote)) {
@@ -181,7 +204,15 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
     ws.on("error", (err) => log.warn({ remote, siteId, err: (err as Error).message }, "federation socket error"));
 
     ws.on("message", (raw) => {
-      const parsed = parseFederationFrame(raw.toString());
+      const text = raw.toString();
+      if (!siteId && Buffer.byteLength(text) > MAX_PRE_AUTH_FRAME_BYTES) {
+        log.warn({ remote }, "federation frame rejected: too large before hello");
+        recordAuthFailure(remote);
+        sendError(ws, "invalid_frame", "frame too large before hello");
+        ws.close(1008, "frame too large");
+        return;
+      }
+      const parsed = parseFederationFrame(text);
       if (!parsed.ok) {
         // 監査ログ: 何を拒否したか (値そのものは出さない)。
         log.warn({ remote, siteId, reason: parsed.reason, detail: parsed.detail }, "federation frame rejected");
@@ -245,6 +276,24 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           snapshot: createConfigSnapshot(siteId),
         }));
         deliverPending(siteId);
+        return;
+      }
+
+      if (frame.type === "egress-request") {
+        void (async () => {
+          const result = deps.handleEgressRequest
+            ? await deps.handleEgressRequest(siteId!, frame)
+            : { ok: false, error: "HQ egress is unavailable" };
+          send(siteId!, {
+            type: "egress-result",
+            request_id: frame.request_id,
+            ok: result.ok,
+            ...(result.error ? { error: result.error } : {}),
+          });
+        })().catch((e) => {
+          log.warn({ siteId, err: (e as Error).message }, "federation egress request failed");
+          send(siteId!, { type: "egress-result", request_id: frame.request_id, ok: false, error: "HQ egress failed" });
+        });
         return;
       }
 
@@ -349,6 +398,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         return false;
       }
     },
+    send,
     close() {
       clearInterval(pingTimer);
       for (const socket of sockets.values()) {

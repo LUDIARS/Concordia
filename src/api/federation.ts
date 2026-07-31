@@ -17,6 +17,7 @@ import type { FederationSitesRepo } from "../db/federation-sites-repo.js";
 import type { FederationOutboxRepo } from "../db/federation-outbox-repo.js";
 import type { FederationConnections } from "../federation/hq-connections.js";
 import { SITE_ID_PATTERN } from "../federation/protocol.js";
+import { reportError } from "../errors.js";
 
 const CreateSiteSchema = z.object({
   site_id: z.string().regex(SITE_ID_PATTERN, "site_id must match [a-z0-9][a-z0-9-]{1,63}"),
@@ -92,6 +93,12 @@ export function federationRouter(deps: FederationApiDeps): Hono {
     if (!deps.sites.setDepartments(siteId, parsed.data.departments)) {
       return c.json({ error: "site_not_found", site_id: siteId }, 404);
     }
+    // session_events は session 専用、Harness audit は tool 実行専用なので使わない。
+    // errors 面は運用者へ即時に届き、割当変更の監査対象 (guild / site) を残せる。
+    reportError("federation", "連合拠点の担当部署を更新しました", {
+      site_id: siteId,
+      departments: [...new Set(parsed.data.departments)],
+    });
     return c.json({ ok: true, site_id: siteId, departments: [...new Set(parsed.data.departments)] });
   });
 

@@ -64,6 +64,10 @@ export interface IngressDeps {
   };
   /** True only for a subsidiary guild; head-office desk intake remains false. */
   subsidiary?: boolean;
+  /** federation は Discord を import しないため、部署ルーティングだけを外から注入する。 */
+  routeFederationIngress?: (input: {
+    guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number;
+  }) => boolean;
 }
 
 export async function handleMessage(deps: IngressDeps, msg: Message): Promise<void> {
@@ -87,6 +91,20 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   const text = msg.content.trim();
   if (!text) {
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
+    return;
+  }
+
+  const authorLabel = msg.member?.nickname?.trim() || msg.author.username;
+  if (deps.routeFederationIngress?.({
+    guildId: msg.guildId,
+    channelId: msg.channelId,
+    messageId: msg.id,
+    authorId: msg.author.id,
+    authorLabel,
+    text,
+    ts: Math.floor(msg.createdTimestamp / 1000),
+  })) {
+    deps.log.info(`ingress: federation routed guild=${msg.guildId} channel=${msg.channelId}`);
     return;
   }
 
@@ -237,7 +255,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   }
 
   const chatChannel = metaKindToChatChannel(kind);
-  const author = msg.member?.nickname?.trim() || msg.author.username;
+  const author = authorLabel;
   try {
     const res = await fetch(`${deps.concordiaUrl}/v1/chat`, {
       method: "POST",

@@ -59,6 +59,7 @@ import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
+import type { FederationEgressRequestFrame } from "../federation/protocol.js";
 import { stopLifecycle } from "../platform/lifecycle.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
 import { excubitorBaseUrl, excubitorProjectCache } from "./excubitor-project-cache.js";
@@ -153,6 +154,8 @@ export interface DiscordBotDeps {
    */
   listSubsidiaries?: () => Array<{ id: string; name: string; daily_token_budget: number }>;
   concordiaUrl: string;
+  routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number }) => boolean;
+  setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
   /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
   workspaceRoot?: string;
   /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
@@ -347,6 +350,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
+  /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
+  let federationEgressRegistered = false;
   let gatewayClosed = false;
   let reconcileRunning = false;
   const backgroundTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -457,6 +462,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
       }
       webhooks = new WebhookPool(guild, sessionChannelsRepo);
+      // egress ポートはプロセスに 1 本しかないので、本社 Bot だけが握る。子会社 Bot は
+      // 同じ base deps を共有しているため、ここで絞らないと最後に ready した子会社 guild が
+      // 本社の executor を上書きし、本社担当部署宛ての egress が全て弾かれる。
+      const setEgressExecutor = deps.setFederationEgressExecutor;
+      if (!deps.subsidiary && setEgressExecutor) {
+        federationEgressRegistered = true;
+        setEgressExecutor(async (request) => {
+          // guild id と実 channel 所属をここで確認する。連合層は Discord 型へ依存せず、
+          // 本社の Discord ポートだけが channel → guild の対応を知る。
+          if (request.guild_id !== guild.id) return { ok: false, error: "destination guild is not this Discord runtime" };
+          const channel = await guild.channels.fetch(request.channel_id).catch(() => null);
+          if (!channel || channel.guildId !== guild.id) return { ok: false, error: "destination channel is not in the requested guild" };
+          const webhook = await webhooks!.getForChannel(request.channel_id);
+          if (!webhook) return { ok: false, error: "Discord webhook is unavailable for destination channel" };
+          const sent = await webhooks!.send(webhook, { content: request.text, username: "Concordia", allowedMentions: { parse: [] } });
+          return sent ? { ok: true } : { ok: false, error: "Discord send failed" };
+        });
+      }
       if (env.applicationId) {
         try {
           if (deps.subsidiary) {
@@ -769,6 +792,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       sessionChannelsRepo,
       sessionsRepo: deps.sessionsRepo,
       concordiaUrl: deps.concordiaUrl,
+      routeFederationIngress: deps.routeFederationIngress,
       log,
       // 単発絵文字 (🙏 / 🫡 等) をリアクションワークフローに流すための解決系。
       chatRepo: deps.chatRepo,
@@ -1400,6 +1424,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     },
     async stop() {
       stopping = true;
+      // 自分が登録した場合だけ外す。子会社 Bot の停止で本社の egress を落とさない。
+      if (federationEgressRegistered) {
+        federationEgressRegistered = false;
+        deps.setFederationEgressExecutor?.(null);
+      }
       await stopLifecycle([
         { name: "event subscription", stop: () => { unsubscribe?.(); unsubscribe = null; } },
         { name: "runtime timers", stop: () => clearRuntimeTimers() },

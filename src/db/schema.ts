@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 44;
+export const SCHEMA_VERSION = 45;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1198,6 +1198,14 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         ON staff_members(role, last_seen_at DESC);
     `);
     migrateReactionAllowlistToStaff(db);
+  },
+}, {
+  version: 45,
+  name: "federation-site-departments-p2",
+  source: "federation_sites.departments JSON guild id array",
+  up(db) {
+    // 拠点ごとに設定を渡せる部署を固定し、担当外 guild の設定漏洩を防ぐ。
+    db.exec("ALTER TABLE federation_sites ADD COLUMN departments TEXT NOT NULL DEFAULT '[]'");
   },
 }];
 

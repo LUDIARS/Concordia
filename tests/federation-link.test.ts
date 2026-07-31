@@ -3,6 +3,7 @@
  * ws-session-inject.test.ts と同様に実ポート (ephemeral) で listen する。
  */
 
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { SecretBox } from "../src/shared/secret-box.js";
@@ -11,13 +12,26 @@ import { makeFederationOutboxRepo } from "../src/db/federation-outbox-repo.js";
 import { createFederationConnections } from "../src/federation/hq-connections.js";
 import { startFederationListener, type FederationListenerHandle } from "../src/federation/hq-listener.js";
 import { startFederationSiteClient, resolveHqEndpoint } from "../src/federation/site-client.js";
-import { serializeFederationFrame } from "../src/federation/protocol.js";
-import { makeTestDb } from "./helpers/db.js";
+import { serializeFederationFrame, type FederationConfigSnapshot } from "../src/federation/protocol.js";
+import { makeTestDb, makeTestDir } from "./helpers/db.js";
 import { registerCleanup } from "./helpers/cleanup.js";
 
 const secretBox = new SecretBox(Buffer.alloc(32, 3));
 
-async function startHq(limits = { maxRows: 100, ttlSec: 3600 }): Promise<{
+/**
+ * link 確立時に本社から届く config-snapshot は拠点側でディスクに落ちる。
+ * 既定の保存先は cwd (= リポジトリ直下) なので、テストは必ず tmp を指す
+ * — でないとテスト実行が作業ツリーへファイルを残し、前回の残骸を次回の
+ * 起動キャッシュとして読み込んでしまう。
+ */
+function testConfigCachePath(): string {
+  return join(makeTestDir("concordia-federation-link-"), ".federation-config-cache.json");
+}
+
+async function startHq(
+  limits = { maxRows: 100, ttlSec: 3600 },
+  createConfigSnapshot?: (siteId: string) => FederationConfigSnapshot,
+): Promise<{
   listener: FederationListenerHandle;
   sites: ReturnType<typeof makeFederationSitesRepo>;
   outbox: ReturnType<typeof makeFederationOutboxRepo>;
@@ -35,6 +49,7 @@ async function startHq(limits = { maxRows: 100, ttlSec: 3600 }): Promise<{
     outbox,
     connections,
     hqVersion: "test-hq",
+    createConfigSnapshot,
   });
   registerCleanup(() => listener.close());
   return { listener, sites, outbox, connections, url: `ws://127.0.0.1:${listener.port}/federation/ws` };
@@ -68,6 +83,7 @@ describe("federation link", () => {
       siteId: "site-a",
       token,
       siteVersion: "test-site",
+      configCachePath: testConfigCachePath(),
       onEvent: (payload) => received.push((payload as { n: number }).n),
       onLinked: (info) => { linkedInfo = info; },
     });
@@ -89,6 +105,42 @@ describe("federation link", () => {
     // ライブ状態が WebUI 用レジストリに反映されている。
     expect(hq.connections.get("site-a")?.siteVersion).toBe("test-site");
     expect(hq.sites.find("site-a")?.last_connected_at).not.toBeNull();
+  });
+
+  it("delivers the current configuration on link and on explicit redistribution", async () => {
+    const asked: string[] = [];
+    let snapshot: FederationConfigSnapshot = { discord: { guild_id: "g1" }, templates: [] };
+    const hq = await startHq({ maxRows: 100, ttlSec: 3600 }, (siteId) => {
+      asked.push(siteId);
+      return snapshot;
+    });
+    const { token } = hq.sites.create({ siteId: "site-a" });
+
+    const received: FederationConfigSnapshot[] = [];
+    const client = startFederationSiteClient({
+      hqUrl: hq.url,
+      siteId: "site-a",
+      token,
+      siteVersion: "test-site",
+      configCachePath: testConfigCachePath(),
+      onConfig: (config) => received.push(config),
+    });
+    registerCleanup(() => client.stop());
+
+    // link 確立で本社の現在値が届く (拠点は自分では設定を組み立てない)。
+    await waitFor(() => received.length === 1);
+    expect(received[0]).toEqual({ discord: { guild_id: "g1" }, templates: [] });
+
+    // 担当部署を外した後の明示再配布は、接続中の拠点へ縮んだ現在値を届ける。
+    snapshot = { discord: {}, templates: [] };
+    expect(hq.listener.sendConfigUpdate("site-a")).toBe(true);
+    await waitFor(() => received.length === 2);
+    expect(received[1]).toEqual({ discord: {}, templates: [] });
+    expect(client.getConfig()).toEqual({ discord: {}, templates: [] });
+    expect(asked).toEqual(["site-a", "site-a"]);
+
+    // 未接続の拠点へは送れない (次回 link 時の config-snapshot で追いつく)。
+    expect(hq.listener.sendConfigUpdate("site-b")).toBe(false);
   });
 
   it("ignores an ack beyond what hq actually sent (no silent event loss)", async () => {
@@ -129,6 +181,7 @@ describe("federation link", () => {
       siteId: "site-a",
       token,
       siteVersion: "test-site",
+      configCachePath: testConfigCachePath(),
     });
     registerCleanup(() => client.stop());
     await waitFor(() => hq.connections.get("site-a") !== null);
@@ -211,6 +264,7 @@ describe("federation link", () => {
       siteId: "site-a",
       token,
       siteVersion: "test-site",
+      configCachePath: testConfigCachePath(),
     });
     registerCleanup(() => client.stop());
     await waitFor(() => client.isLinked());

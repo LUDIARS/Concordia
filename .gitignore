@@ -38,6 +38,7 @@ coverage/
 
 # local data
 /concordia.config.json
+.federation-config-cache.json
 *.sqlite
 *.sqlite-journal
 *.db

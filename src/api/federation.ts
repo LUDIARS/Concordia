@@ -7,6 +7,8 @@
  *   GET  /v1/federation                → 一覧 (登録 + ライブ接続状態 + 未配送数)
  *   POST /v1/federation/sites          → 拠点登録 + トークン発行 (平文はこの応答のみ)
  *   POST /v1/federation/sites/:id/revoke → 失効 (+ 接続中なら切断)
+ *   PUT  /v1/federation/sites/:id/departments → 担当 guild の設定
+ *   POST /v1/federation/sites/:id/config → 現在の設定を明示再配布
  */
 
 import { Hono } from "hono";
@@ -20,6 +22,9 @@ const CreateSiteSchema = z.object({
   site_id: z.string().regex(SITE_ID_PATTERN, "site_id must match [a-z0-9][a-z0-9-]{1,63}"),
   name: z.string().max(200).nullable().optional(),
 });
+const DepartmentsSchema = z.object({
+  departments: z.array(z.string().min(1).max(100)).max(100),
+});
 
 export interface FederationApiDeps {
   sites: FederationSitesRepo;
@@ -29,6 +34,7 @@ export interface FederationApiDeps {
   listenerEnabled: boolean;
   /** 接続中拠点の強制切断 (listener 起動時のみ供給)。 */
   disconnectSite?: (siteId: string, code: "revoked") => void;
+  redistributeConfig?: (siteId: string) => boolean;
 }
 
 export function federationRouter(deps: FederationApiDeps): Hono {
@@ -46,6 +52,7 @@ export function federationRouter(deps: FederationApiDeps): Hono {
         last_seen_at: live?.lastSeenSec ?? row.last_seen_at,
         last_connected_at: row.last_connected_at,
         site_version: live?.siteVersion ?? row.site_version,
+        departments: row.departments,
         pending_events: deps.outbox.pendingCount(row.site_id),
         created_at: row.created_at,
         revoked_at: row.revoked_at,
@@ -75,6 +82,24 @@ export function federationRouter(deps: FederationApiDeps): Hono {
     if (!revoked) return c.json({ error: "site_not_found_or_already_revoked", site_id: siteId }, 404);
     deps.disconnectSite?.(siteId, "revoked");
     return c.json({ ok: true, site_id: siteId });
+  });
+
+  app.put("/sites/:id/departments", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = DepartmentsSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const siteId = c.req.param("id");
+    if (!deps.sites.setDepartments(siteId, parsed.data.departments)) {
+      return c.json({ error: "site_not_found", site_id: siteId }, 404);
+    }
+    return c.json({ ok: true, site_id: siteId, departments: [...new Set(parsed.data.departments)] });
+  });
+
+  app.post("/sites/:id/config", (c) => {
+    const siteId = c.req.param("id");
+    const site = deps.sites.find(siteId);
+    if (!site || site.status !== "active") return c.json({ error: "site_not_found_or_revoked", site_id: siteId }, 404);
+    return c.json({ ok: true, site_id: siteId, delivered: deps.redistributeConfig?.(siteId) ?? false });
   });
 
   return app;

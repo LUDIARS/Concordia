@@ -17,6 +17,12 @@ import {
   parseFederationFrame,
   serializeFederationFrame,
 } from "./protocol.js";
+import {
+  defaultFederationConfigCachePath,
+  readFederationConfigCache,
+  writeFederationConfigCache,
+} from "./config-cache.js";
+import type { FederationConfigSnapshot } from "./protocol.js";
 
 const log = createChildLogger("federation/site");
 
@@ -40,11 +46,16 @@ export interface FederationSiteClientDeps {
   onEvent?: (payload: unknown, seq: number) => void;
   /** welcome 受信 (link 確立) 通知。テスト / 起動ログ用。 */
   onLinked?: (info: { hqVersion: string; pendingEvents: number }) => void;
+  /** 本社設定の更新通知。キャッシュ起動値も link 前に一度渡す。 */
+  onConfig?: (config: FederationConfigSnapshot) => void;
+  /** テストまたは埋め込み時の保存先。未指定なら cwd の固定キャッシュ。 */
+  configCachePath?: string;
 }
 
 export interface FederationSiteClientHandle {
   stop(): void;
   isLinked(): boolean;
+  getConfig(): FederationConfigSnapshot | null;
 }
 
 /** loopback 以外への平文 ws:// を拒否する。戻り値は正規化済み接続 URL。 */
@@ -65,6 +76,9 @@ export function resolveHqEndpoint(hqUrl: string): string {
 
 export function startFederationSiteClient(deps: FederationSiteClientDeps): FederationSiteClientHandle {
   const endpoint = resolveHqEndpoint(deps.hqUrl);
+  const configCachePath = deps.configCachePath ?? defaultFederationConfigCachePath();
+  let config = readFederationConfigCache(configCachePath);
+  if (config) deps.onConfig?.(config);
   let stopped = false;
   let linked = false;
   let backoffMs = BACKOFF_INITIAL_MS;
@@ -135,6 +149,17 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         }
         return;
       }
+      if (frame.type === "config-snapshot" || frame.type === "config-update") {
+        // link 後は本社の値が唯一の正本。古いオフラインキャッシュを必ず置き換える。
+        config = frame.snapshot;
+        try {
+          writeFederationConfigCache(configCachePath, config);
+        } catch (e) {
+          log.warn({ err: (e as Error).message }, "federation config cache write failed");
+        }
+        deps.onConfig?.(config);
+        return;
+      }
       if (frame.type === "error") {
         log.warn({ code: frame.code, message: frame.message }, "federation error from hq");
         // 失効 / 認証失敗は再接続しても直らない — 停止して人間の再設定を待つ。
@@ -182,6 +207,9 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
     },
     isLinked() {
       return linked;
+    },
+    getConfig() {
+      return config;
     },
   };
 }

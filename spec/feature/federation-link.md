@@ -1,7 +1,7 @@
 ---
 type: feature
-title: "連合リンク基盤 (マルチ拠点 Phase 0+1)"
-description: "本社 ⇄ 拠点 (site) の WebSocket 連合リンク。別ポートの専用 listener (opt-in)・事前共有トークン認証・切断中 outbox・ハートビート・WebUI 拠点一覧。"
+title: "連合リンク基盤 (マルチ拠点 Phase 0+1+2)"
+description: "本社 ⇄ 拠点 (site) の WebSocket 連合リンク。別ポートの専用 listener (opt-in)・事前共有トークン認証・切断中 outbox・ハートビート・WebUI 拠点一覧・部署スコープ設定配布。"
 service: concordia
 domain: federation
 tags:
@@ -13,13 +13,14 @@ related:
   - ../plan/multi-site-federation.md
   - ../feature/trust-boundaries.md
   - ../interface/service-schema.md
-updated: 2026-07-30
+  - ../tasks/2026-07-31-federation-phase2-config.md
+updated: 2026-07-31
 ---
 
-# 連合リンク基盤 (マルチ拠点 Phase 0+1)
+# 連合リンク基盤 (マルチ拠点 Phase 0+1+2)
 
 [../plan/multi-site-federation.md](../plan/multi-site-federation.md) の Phase 0
-(信頼境界の分離) + Phase 1 (連合リンク基盤) の実装仕様。
+(信頼境界の分離) + Phase 1 (連合リンク基盤) + Phase 2 (設定配布) の実装仕様。
 
 用語: 設計書の「子会社」は実装では **site (拠点)** と呼ぶ。既存の `subsidiary`
 (出張所 Bot、`/v1/subsidiaries`) とは別概念で、識別子を共有しない。
@@ -34,6 +35,8 @@ updated: 2026-07-30
 | ライブ接続レジストリ (WebUI 供給) | `src/federation/hq-connections.ts` |
 | 拠点登録簿 (トークン at-rest 暗号化) | `src/db/federation-sites-repo.ts` |
 | 切断中キュー (上限 + TTL、最古破棄) | `src/db/federation-outbox-repo.ts` |
+| 配布用 設定スナップショット (部署スコープ + allowlist) | `src/federation/config-snapshot.ts` |
+| 拠点側 設定キャッシュ (オフライン起動用) | `src/federation/config-cache.ts` |
 | ロール配線 (env → repo / listener / client、opt-in 起動) | `src/federation/runtime.ts` |
 | 管理 API (loopback /v1 面) | `src/api/federation.ts` |
 | WebUI 拠点一覧 | `web/src/pages/Federation.tsx` (`/federation`) |
@@ -57,6 +60,8 @@ updated: 2026-07-30
 site → hq : {"v":1,"type":"hello","site_id":"...","token":"...","site_version":"..."}
 hq → site : {"v":1,"type":"welcome","hq_version":"...","pending_events":N}
 hq → site : {"v":1,"type":"event","seq":N,"payload":<opaque JSON>}
+hq → site : {"v":1,"type":"config-snapshot","snapshot":{...}}   (link 確立直後の正本)
+hq → site : {"v":1,"type":"config-update","snapshot":{...}}     (明示再配布された正本)
 site → hq : {"v":1,"type":"ack","seq":N}
 hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|invalid_frame|replaced|revoked","message":"..."}
 ```
@@ -68,7 +73,7 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
   トークン照合が通った remote の失敗記録は破棄する (成功後の再接続を弾かないため)。
   運用上の注意: remote は TCP 接続元アドレスなので、複数拠点が同じトンネル / 逆プロキシ
   を経由すると全拠点が 1 つの remote に見える (1 拠点の設定ミスが他拠点を 60 秒間
-  弾きうる)。拠点ごとに経路を分けるか、Phase 2 で拠点 ID 単位の制限に切り替える。
+  弾きうる)。拠点ごとに経路を分けるか、拠点 ID 単位の制限へ切り替える (未実装)。
 - 認証前の相手に資源を積ませない上限: 受信フレーム 8KB (`maxPayload`。ws 既定の
   100MB は使わない)、hello 待ち接続の同時数 全体 64 / remote あたり 4 (超過は `1013`)。
   remote 別上限が無いと、1 つの発信元が hello を送らない接続を張り替え続けるだけで
@@ -89,6 +94,29 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
   `reportError("federation", …)` で拠点側エラーチャンネルへ通知する
   (人間の再設定が必要なため、黙って畳まない)。
 
+## 設定配布 (Phase 2)
+
+設定の正本は本社だけが持ち、拠点へは**接続ごとに組み立てた読み取り専用スナップショット**
+として渡す。拠点から本社の設定を書き換える経路は無い。
+
+- 配布単位は拠点の**担当部署** (`federation_sites.departments` = guild id の JSON 配列)。
+  本社の `discord_config.guild_id` が担当に含まれない拠点へは Discord 設定を一切渡さない
+  (`src/federation/config-snapshot.ts`)。担当判定を**値を読む前**に行うのは意図的で、
+  「読んでから除外」形式だと除外漏れ 1 箇所で部署外の値が流出するため。
+- 渡す Discord 設定キーは固定 allowlist (`FEDERATION_DISCORD_CONFIG_ALLOWLIST`、guild /
+  category / forum / channel の id のみ)。`bot_token` 等の秘密は allowlist に無いので
+  拠点へは出ない。delegation テンプレートは `id / call_name / title / target_provider /
+  model` だけを渡し、`prompt_template` は本社に留める。
+- 配布の契機は 2 つだけ: link 確立直後の `config-snapshot` と、管理 API
+  (`POST /v1/federation/sites/:id/config`) による明示再配布の `config-update`。
+  担当部署の変更 (`PUT …/departments`) は自動再配布しない — 縮小した担当を拠点へ即時
+  反映したい場合は再配布を明示的に呼ぶ。オフライン拠点への再配布は `delivered:false`
+  を返し、次回の link 時に `config-snapshot` で追いつく。
+- 拠点は受け取った正本を `.federation-config-cache.json` (既定は cwd、
+  `configCachePath` で上書き可・`.gitignore` 済み) に保存し、オフライン起動時だけ
+  これを使う。link 後は本社の値が唯一の正本として必ずキャッシュを置き換える。
+  壊れた / 形式違反のキャッシュは読み捨てて未設定として起動する。
+
 ## 設定 (env、全て opt-in)
 
 | 変数 | 意味 |
@@ -102,21 +130,27 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | outbox 上限行数 / 拠点 (既定 10000) |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | outbox TTL 秒 (既定 604800) |
 
-## DB (v43)
+## DB (v43 → v45)
 
 - `federation_sites` — 拠点登録簿。`token_enc` は secret-box (`enc:v1:…`) で at-rest
-  暗号化。status は `active | revoked`。
+  暗号化。status は `active | revoked`。`departments` (v45) は担当 guild id の JSON 配列
+  (既定 `[]` = 設定を渡さない)。repo 境界で decode / 重複除去して `string[]` で返す。
 - `federation_outbox` — 拠点別キュー。`seq` (AUTOINCREMENT) が配送順序。上限 / TTL
   超過は最古から破棄し、破棄件数を `reportError("federation", …)` でエラーチャンネルへ
   通知する。
 
 ## API (loopback /v1 面のみ)
 
-- `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + ライブ接続状態 +
-  未配送数)。トークンは返さない。
+- `GET /v1/federation` — listener 有効フラグ + 拠点一覧 (登録情報 + 担当部署 +
+  ライブ接続状態 + 未配送数)。トークンは返さない。
 - `POST /v1/federation/sites` `{site_id, name?}` — 登録 + トークン発行。平文トークンは
   この応答のみ。
 - `POST /v1/federation/sites/:id/revoke` — 失効 + 接続中なら切断。
+- `PUT /v1/federation/sites/:id/departments` `{departments: string[]}` — 担当 guild の
+  設定 (重複は除去、最大 100 件)。未登録拠点は 404。配布はしない。
+- `POST /v1/federation/sites/:id/config` — 現在の設定を明示再配布。応答の `delivered` は
+  live 接続へ `config-update` を送れたか (オフライン / listener 無効なら false)。
+  失効済み / 未登録拠点は 404。
 
 ## イベント
 

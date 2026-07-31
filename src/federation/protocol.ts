@@ -10,6 +10,8 @@
  *   site → hq : hello { site_id, token, site_version? }
  *   hq → site : welcome { hq_version, pending_events }
  *   hq → site : event { seq, payload }   (payload は不透明 JSON。中身は Phase 2+)
+ *   hq → site : config-snapshot { snapshot } (link 確立直後の設定正本)
+ *   hq → site : config-update { snapshot }   (明示再配布された設定正本)
  *   site → hq : ack { seq }              (seq 以下を受領済みとして outbox から削除)
  *   hq → site : error { code, message }  (close 直前の理由通知)
  *
@@ -48,6 +50,29 @@ const eventSchema = z.object({
   payload: z.unknown(),
 }).passthrough();
 
+const configSnapshotSchema = z.object({
+  discord: z.record(z.string()),
+  templates: z.array(z.object({
+    id: z.string(),
+    call_name: z.string(),
+    title: z.string(),
+    target_provider: z.string(),
+    model: z.string().nullable(),
+  }).strict()),
+}).strict();
+
+const configSnapshotFrameSchema = z.object({
+  v: versionField,
+  type: z.literal("config-snapshot"),
+  snapshot: configSnapshotSchema,
+}).passthrough();
+
+const configUpdateFrameSchema = z.object({
+  v: versionField,
+  type: z.literal("config-update"),
+  snapshot: configSnapshotSchema,
+}).passthrough();
+
 const ackSchema = z.object({
   v: versionField,
   type: z.literal("ack"),
@@ -74,6 +99,8 @@ const frameSchemas = {
   hello: helloSchema,
   welcome: welcomeSchema,
   event: eventSchema,
+  "config-snapshot": configSnapshotFrameSchema,
+  "config-update": configUpdateFrameSchema,
   ack: ackSchema,
   error: errorSchema,
 } as const;
@@ -81,12 +108,17 @@ const frameSchemas = {
 export type FederationHelloFrame = z.infer<typeof helloSchema>;
 export type FederationWelcomeFrame = z.infer<typeof welcomeSchema>;
 export type FederationEventFrame = z.infer<typeof eventSchema>;
+export type FederationConfigSnapshot = z.infer<typeof configSnapshotSchema>;
+export type FederationConfigSnapshotFrame = z.infer<typeof configSnapshotFrameSchema>;
+export type FederationConfigUpdateFrame = z.infer<typeof configUpdateFrameSchema>;
 export type FederationAckFrame = z.infer<typeof ackSchema>;
 export type FederationErrorFrame = z.infer<typeof errorSchema>;
 export type FederationFrame =
   | FederationHelloFrame
   | FederationWelcomeFrame
   | FederationEventFrame
+  | FederationConfigSnapshotFrame
+  | FederationConfigUpdateFrame
   | FederationAckFrame
   | FederationErrorFrame;
 
@@ -156,6 +188,8 @@ export type FederationFrameInput =
   | { type: "hello"; site_id: string; token: string; site_version?: string }
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
+  | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }
+  | { type: "config-update"; snapshot: FederationConfigSnapshot }
   | { type: "ack"; seq: number }
   | { type: "error"; code: FederationErrorCode; message: string };
 

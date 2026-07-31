@@ -19,6 +19,7 @@ import { createChildLogger } from "../shared/logger.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { readFederationEnv, type FederationEnv } from "./env.js";
 import { createFederationConnections } from "./hq-connections.js";
+import { createFederationConfigSnapshot } from "./config-snapshot.js";
 import { startFederationListener, type FederationListenerHandle } from "./hq-listener.js";
 import { startFederationSiteClient, type FederationSiteClientHandle } from "./site-client.js";
 
@@ -61,6 +62,10 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         outbox,
         connections,
         hqVersion: opts.version,
+        createConfigSnapshot: (siteId) => createFederationConfigSnapshot(
+          opts.db,
+          sites.find(siteId)?.departments ?? [],
+        ),
       });
     } catch (e) {
       log.error({ err: (e as Error).message }, "federation listener failed to start");
@@ -93,6 +98,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
       connections,
       listenerEnabled: env.listenEnabled,
       disconnectSite: (siteId, code) => listener?.disconnect(siteId, code),
+      redistributeConfig: (siteId) => listener?.sendConfigUpdate(siteId) ?? false,
     },
     async startRoles() {
       if (env.listenEnabled && env.listenPort !== null) await startListener(env.listenPort);

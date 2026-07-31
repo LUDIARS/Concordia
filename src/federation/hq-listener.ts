@@ -25,6 +25,7 @@ import {
   serializeFederationFrame,
   type FederationErrorCode,
 } from "./protocol.js";
+import type { FederationConfigSnapshot } from "./protocol.js";
 
 const log = createChildLogger("federation/hq");
 
@@ -60,6 +61,8 @@ export interface FederationListenerDeps {
   /** welcome で名乗る本社バージョン (package.json version 等)。 */
   hqVersion: string;
   nowSec?: () => number;
+  /** 設定の正本は HQ だけにあり、接続ごとに現在値を組み立てて送る。 */
+  createConfigSnapshot?: (siteId: string) => FederationConfigSnapshot;
 }
 
 export interface FederationListenerHandle {
@@ -68,6 +71,8 @@ export interface FederationListenerHandle {
   enqueue(siteId: string, payload: unknown): { seq: number; dropped: number };
   /** 拠点の live 接続を明示的に切る (revoke 時など)。 */
   disconnect(siteId: string, code: FederationErrorCode): void;
+  /** 明示的な再配布は link 中の site へだけ update として送る。 */
+  sendConfigUpdate(siteId: string): boolean;
   close(): void;
 }
 
@@ -235,6 +240,10 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
           hq_version: deps.hqVersion,
           pending_events: deps.outbox.pendingCount(siteId),
         }));
+        ws.send(serializeFederationFrame({
+          type: "config-snapshot",
+          snapshot: createConfigSnapshot(siteId),
+        }));
         deliverPending(siteId);
         return;
       }
@@ -326,6 +335,20 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
       log.info({ siteId, code }, "federation site disconnected by hq");
       try { socket.ws.close(1000, code); } catch { /* already closing */ }
     },
+    sendConfigUpdate(siteId) {
+      const socket = sockets.get(siteId);
+      if (!socket || socket.ws.readyState !== WebSocket.OPEN) return false;
+      try {
+        socket.ws.send(serializeFederationFrame({
+          type: "config-update",
+          snapshot: createConfigSnapshot(siteId),
+        }));
+        return true;
+      } catch (e) {
+        log.warn({ siteId, err: (e as Error).message }, "federation config update send failed");
+        return false;
+      }
+    },
     close() {
       clearInterval(pingTimer);
       for (const socket of sockets.values()) {
@@ -335,6 +358,10 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
       server.close();
     },
   };
+
+  function createConfigSnapshot(siteId: string): FederationConfigSnapshot {
+    return deps.createConfigSnapshot?.(siteId) ?? { discord: {}, templates: [] };
+  }
 
   return new Promise((resolve, reject) => {
     const onError = (error: Error) => {

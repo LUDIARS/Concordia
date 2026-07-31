@@ -25,6 +25,8 @@ export interface FederationSiteRow {
   last_connected_at: number | null;
   last_seen_at: number | null;
   site_version: string | null;
+  /** JSON array in SQLite; repo boundary returns decoded guild ids. */
+  departments: string[];
 }
 
 export interface FederationSitesRepo {
@@ -37,6 +39,7 @@ export interface FederationSitesRepo {
   revoke(siteId: string): boolean;
   touchConnected(siteId: string, siteVersion: string | null): void;
   touchSeen(siteId: string): void;
+  setDepartments(siteId: string, departments: readonly string[]): boolean;
 }
 
 export function makeFederationSitesRepo(
@@ -45,15 +48,21 @@ export function makeFederationSitesRepo(
   nowSec: () => number = () => Math.floor(Date.now() / 1000),
 ): FederationSitesRepo {
   // メソッド間の呼び出しは this を経由しない (分割代入で渡しても壊れないように)。
-  const findRow = (siteId: string): FederationSiteRow | null =>
-    (db.prepare("SELECT * FROM federation_sites WHERE site_id = ?")
-      .get(siteId) as FederationSiteRow | undefined) ?? null;
+  const decodeRow = (row: Omit<FederationSiteRow, "departments"> & { departments: string }): FederationSiteRow => ({
+    ...row,
+    departments: decodeDepartments(row.departments),
+  });
+  const findRow = (siteId: string): FederationSiteRow | null => {
+    const row = db.prepare("SELECT * FROM federation_sites WHERE site_id = ?")
+      .get(siteId) as (Omit<FederationSiteRow, "departments"> & { departments: string }) | undefined;
+    return row ? decodeRow(row) : null;
+  };
 
   return {
     list() {
-      return db.prepare(
+      return (db.prepare(
         "SELECT * FROM federation_sites ORDER BY created_at, site_id",
-      ).all() as FederationSiteRow[];
+      ).all() as Array<Omit<FederationSiteRow, "departments"> & { departments: string }>).map(decodeRow);
     },
     find(siteId) {
       return findRow(siteId);
@@ -93,5 +102,19 @@ export function makeFederationSitesRepo(
       db.prepare("UPDATE federation_sites SET last_seen_at = ? WHERE site_id = ?")
         .run(nowSec(), siteId);
     },
+    setDepartments(siteId, departments) {
+      const result = db.prepare("UPDATE federation_sites SET departments = ? WHERE site_id = ?")
+        .run(JSON.stringify([...new Set(departments)]), siteId);
+      return result.changes > 0;
+    },
   };
+}
+
+function decodeDepartments(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? [...new Set(parsed.filter((item): item is string => typeof item === "string"))] : [];
+  } catch {
+    return [];
+  }
 }

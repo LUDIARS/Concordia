@@ -92,7 +92,8 @@ CREATE TABLE federation_sites (
   revoked_at         INTEGER,
   last_connected_at  INTEGER,
   last_seen_at       INTEGER,
-  site_version       TEXT
+  site_version       TEXT,
+  departments        TEXT NOT NULL DEFAULT '[]'  -- v45: 担当 guild id の JSON 配列 (設定配布のスコープ)
 );
 
 -- マルチ拠点連合: 拠点別 切断中キュー (v43)。seq が配送順序、上限/TTL 超過は最古破棄

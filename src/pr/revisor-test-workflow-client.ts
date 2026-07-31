@@ -1,5 +1,6 @@
 // Revisor Test Workflow の読取クライアント (spec/feature/revisor-test-forum-sync.md)。
 import type { ExcubitorClient } from "../excubitor/client.js";
+import { resolveServicePort } from "../excubitor/service-port.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -60,8 +61,9 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
 
   async listProducts(): Promise<readonly RevisorTestWorkflowProduct[]> {
     const service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
-    const port = service?.port;
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    // Excubitor の top-level port は実行時の観測値で null のことがある。 catalog が正本。
+    const port = resolveServicePort(service);
+    if (port === null) {
       throw new Error(`Excubitor service "${REVISOR_SERVICE_CODE}" has no valid port`);
     }
 

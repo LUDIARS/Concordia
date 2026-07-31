@@ -116,7 +116,12 @@ GitHub の PR とは別系統に、 Revisor (ローカル PR レビューサー�
 - `GET /v1/prs/revisor` → `{ configured, base_url, pull_requests, error }`。
   Revisor の `GET /v1/local-prs` を Concordia が代理取得する
   (`RevisorClient.listLocalPrs()`)。 ポートは Excubitor catalog が正本 (port-source-rule)。
-- `CONCORDIA_REVISOR_TOKEN` 未設定なら `configured: false` で、 セクションは描かない。
+  Excubitor の top-level `port` は実行時の観測値で `state: "running"` でも null のことが
+  あるため、 観測値 → `catalog_snapshot.port` の順で解決する (`resolveServicePort`)。
+- 読み取り (local PR 一覧) に `CONCORDIA_REVISOR_TOKEN` は要らない。 Revisor は loopback
+  からの GET に token を要求しないので、 未設定でも `configured: true` でセクションを描く。
+  token は書き込み (`RevisorClient.enqueue()` = レビュー投入) にだけ必須で、 未設定なら
+  enqueue は理由付きで失敗する。
 - Revisor が停止していても `200 + error` を返す — PRs ページ自体は開けるべきなので、
   GitHub 側の表示を Revisor の死で壊さない。
 - 見出しと各行から Revisor の WebUI (`base_url`) を**新しいタブ**で開ける。 Revisor の

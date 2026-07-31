@@ -57,11 +57,47 @@ describe("RevisorClient", () => {
     );
   });
 
-  it("does not create an integration when the process secret is absent", () => {
-    expect(createRevisorClientFromEnv(
-      { findService: vi.fn() },
-      {},
-    )).toBeNull();
+  // 読み取り (local PR 一覧) に token は要らない。 null を返していたため、 秘密を配れない
+  // だけで PRs ページの Revisor セクションが configured=false のまま出なかった。
+  it("creates an integration even when the process secret is absent", () => {
+    expect(createRevisorClientFromEnv({ findService: vi.fn() }, {})).toBeInstanceOf(RevisorClient);
+  });
+
+  // 読み取りが token 不要になっても書き込みは必須。 空の `Bearer ` を投げて 401 にせず、
+  // 「秘密が未配布」と読める理由で失敗させる。
+  it("refuses to enqueue without a token instead of sending an empty bearer", async () => {
+    const fetchImpl = vi.fn();
+    const client = new RevisorClient({ excubitor: { findService: vi.fn() }, fetchImpl });
+
+    await expect(client.enqueue(request)).rejects.toThrow("token is required");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // Excubitor は state=running でも top-level port を null で返すことがある (catalog が正本)。
+  it("falls back to the catalog port when the observed port is missing", async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ pullRequests: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }));
+    const client = new RevisorClient({
+      excubitor: {
+        findService: vi.fn(async () => ({
+          code: "revisor",
+          name: "Revisor",
+          port: null,
+          state: "running",
+          catalog_snapshot: { port: 4240 },
+        })),
+      },
+      fetchImpl,
+    });
+
+    await expect(client.listLocalPrs()).resolves.toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:4240/v1/local-prs",
+      // token 未設定なら authorization ヘッダ自体を付けない。
+      expect.objectContaining({ headers: { "x-concordia-actor": "concordia" } }),
+    );
   });
 
   it("lists local PRs from the catalog port and drops malformed rows", async () => {

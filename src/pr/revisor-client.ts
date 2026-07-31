@@ -1,4 +1,5 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
+import { resolveServicePort } from "../excubitor/service-port.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -59,7 +60,8 @@ export interface RevisorLocalPrReader {
 
 interface RevisorClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
-  token: string;
+  /** 書き込み (enqueue) にだけ必要。 読み取りだけなら省略できる。 */
+  token?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -71,10 +73,10 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
   private readonly timeoutMs: number;
 
   constructor(options: RevisorClientOptions) {
-    const token = options.token.trim();
-    if (!token) throw new Error("Revisor trigger token is required");
+    // 読み取り (local PR 一覧) に token は要らない — Revisor は loopback からの GET に
+    // token を要求しない。 あれば送る扱いにして、 秘密が無いだけで一覧が出ない状態を作らない。
     this.excubitor = options.excubitor;
-    this.token = token;
+    this.token = options.token?.trim() ?? "";
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -84,8 +86,9 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
    */
   private async resolvePort(): Promise<number> {
     const service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
-    const port = service?.port;
-    if (typeof port !== "number" || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    // Excubitor の top-level port は実行時の観測値で null のことがある。 catalog が正本。
+    const port = resolveServicePort(service);
+    if (port === null) {
       throw new Error(`Excubitor service "${REVISOR_SERVICE_CODE}" has no valid port`);
     }
     return port;
@@ -102,7 +105,7 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
     try {
       const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs`, {
         headers: {
-          authorization: `Bearer ${this.token}`,
+          ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
           "x-concordia-actor": "concordia",
         },
         signal: controller.signal,
@@ -167,6 +170,11 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
     status: string;
     check_url?: string;
   }> {
+    // 書き込みは token 必須。 空のまま `Bearer ` を送ると Revisor 側の 401 になり、
+    // 「秘密が未配布」という本当の理由が呼び出し側のログから消える。
+    if (!this.token) {
+      throw new Error("Revisor trigger token is required (CONCORDIA_REVISOR_TOKEN)");
+    }
     const port = await this.resolvePort();
 
     const controller = new AbortController();
@@ -212,7 +220,9 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
 export function createRevisorClientFromEnv(
   excubitor: Pick<ExcubitorClient, "findService">,
   env: NodeJS.ProcessEnv = process.env,
-): RevisorClient | null {
-  const token = env.CONCORDIA_REVISOR_TOKEN?.trim();
-  return token ? new RevisorClient({ excubitor, token }) : null;
+): RevisorClient {
+  // token 未設定でもクライアントを作る。 PRs ページの Revisor セクションは読み取りだけで
+  // 足り、 Revisor は loopback からの GET に token を要求しない。 null を返していたため
+  // 「秘密を配れない」だけでセクションごと出ない (configured=false) 状態になっていた。
+  return new RevisorClient({ excubitor, token: env.CONCORDIA_REVISOR_TOKEN?.trim() ?? "" });
 }

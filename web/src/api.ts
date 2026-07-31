@@ -983,7 +983,7 @@ export interface RevisorLocalPr {
 }
 
 export interface RevisorLocalPrsResult {
-  /** CONCORDIA_REVISOR_TOKEN 未設定なら false (Revisor 連携が無効)。 */
+  /** Revisor 読み取り口が未注入なら false (セクションを描かない)。 token 有無とは無関係。 */
   configured: boolean;
   /** Revisor WebUI の base URL (loopback)。 到達不能なら null。 */
   base_url: string | null;

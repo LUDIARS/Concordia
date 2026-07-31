@@ -23,8 +23,14 @@ export interface ExcubitorService {
   name: string;
   port: number | null;
   state: string;
-  /** catalog エントリそのもの (cwd / command / runtime 等)。 */
-  catalog_snapshot?: { cwd?: string | null } | null;
+  /**
+   * catalog エントリそのもの (cwd / command / runtime 等)。
+   *
+   * `port` は catalog に宣言された正本。 top-level の `port` は実行時の観測値で、
+   * サービスが動いていても null のことがあるため、 ポート解決は
+   * `resolveServicePort` (excubitor/service-port.ts) を使って両方を見る。
+   */
+  catalog_snapshot?: { cwd?: string | null; port?: number | null } | null;
 }
 
 export interface ControlResult {

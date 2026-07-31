@@ -8,6 +8,7 @@
  *   POST /v1/federation/sites          → 拠点登録 + トークン発行 (平文はこの応答のみ)
  *   POST /v1/federation/sites/:id/revoke → 失効 (+ 接続中なら切断)
  *   PUT  /v1/federation/sites/:id/departments → 担当 guild の設定
+ *   PUT  /v1/federation/sites/:id/villa-pc → Villa PC との対応設定
  *   POST /v1/federation/sites/:id/config → 現在の設定を明示再配布
  */
 
@@ -26,6 +27,7 @@ const CreateSiteSchema = z.object({
 const DepartmentsSchema = z.object({
   departments: z.array(z.string().min(1).max(100)).max(100),
 });
+const VillaPcSchema = z.object({ villa_pc_id: z.string().min(1).max(200).nullable() });
 
 export interface FederationApiDeps {
   sites: FederationSitesRepo;
@@ -54,6 +56,7 @@ export function federationRouter(deps: FederationApiDeps): Hono {
         last_connected_at: row.last_connected_at,
         site_version: live?.siteVersion ?? row.site_version,
         departments: row.departments,
+        villa_pc_id: row.villa_pc_id,
         pending_events: deps.outbox.pendingCount(row.site_id),
         created_at: row.created_at,
         revoked_at: row.revoked_at,
@@ -100,6 +103,21 @@ export function federationRouter(deps: FederationApiDeps): Hono {
       departments: [...new Set(parsed.data.departments)],
     });
     return c.json({ ok: true, site_id: siteId, departments: [...new Set(parsed.data.departments)] });
+  });
+
+  app.put("/sites/:id/villa-pc", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    const parsed = VillaPcSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const siteId = c.req.param("id");
+    if (!deps.sites.setVillaPcId(siteId, parsed.data.villa_pc_id)) {
+      return c.json({ error: "site_not_found", site_id: siteId }, 404);
+    }
+    reportError("federation", "連合拠点の Villa PC 対応を更新しました", {
+      site_id: siteId,
+      villa_pc_id: parsed.data.villa_pc_id,
+    });
+    return c.json({ ok: true, site_id: siteId, villa_pc_id: parsed.data.villa_pc_id });
   });
 
   app.post("/sites/:id/config", (c) => {

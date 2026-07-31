@@ -129,15 +129,34 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | 発行済みトークン |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | outbox 上限行数 / 拠点 (既定 10000) |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | outbox TTL 秒 (既定 604800) |
+| `CONCORDIA_VILLA_URL` | 拠点タグ解決に使う Villa の URL (既定 `http://127.0.0.1:17610`) |
 
-## DB (v43 → v45)
+## DB (v43 → v46)
 
 - `federation_sites` — 拠点登録簿。`token_enc` は secret-box (`enc:v1:…`) で at-rest
   暗号化。status は `active | revoked`。`departments` (v45) は担当 guild id の JSON 配列
   (既定 `[]` = 設定を渡さない)。repo 境界で decode / 重複除去して `string[]` で返す。
+  `villa_pc_id` (v46) は Villa の PC id (`state.pcs[].id`、既定 NULL = 拠点タグ無し)。
+  PC 名ではなく id を持つのは、Villa 側の改名で対応が切れないようにするため。
 - `federation_outbox` — 拠点別キュー。`seq` (AUTOINCREMENT) が配送順序。上限 / TTL
   超過は最古から破棄し、破棄件数を `reportError("federation", …)` でエラーチャンネルへ
   通知する。
+
+## 拠点タグによる実行先指定
+
+Session Forum は Villa の PC 名を拠点タグとして表示する。候補は `status = active` かつ
+`federation_sites.villa_pc_id` が設定された拠点だけであり、PC 名は Concordia に固定せず
+Villa `GET /api/state` の `state.pcs[].name` を使う。対応は PC 名 → `pcs[].id` →
+`villa_pc_id` → site の順で解決する。
+
+- 拠点タグは 1 個だけ有効で、複数なら曖昧として本社へ退避しエラーを記録する。
+- 有効な拠点タグは部署 (guild) ルーティングより優先する。タグがなければ従来どおり部署で決める。
+- 失効済み・対応づけのないPC名は拠点指定なしとして扱い、理由を warn する。
+- Villa が停止・取得不能なら拠点タグ候補は空にし、既存の guild ルーティングを継続する。
+- Discord の20文字・20個のタグ上限や既存タグとの衝突ではタグを作らず warn する。拠点タグは
+  「あれば良い」扱いで、上限に当たっても作業種別等の必須タグ同期は止めない。
+- 同一内容の warn は反復抑止する (レイアウト同期は定期実行、ingress は 1 メッセージごとに
+  評価されるため、素通しだと errors チャンネルが同じ警告で埋まる)。
 
 ## API (loopback /v1 面のみ)
 
@@ -148,6 +167,8 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
 - `POST /v1/federation/sites/:id/revoke` — 失効 + 接続中なら切断。
 - `PUT /v1/federation/sites/:id/departments` `{departments: string[]}` — 担当 guild の
   設定 (重複は除去、最大 100 件)。未登録拠点は 404。配布はしない。
+- `PUT /v1/federation/sites/:id/villa-pc` `{villa_pc_id: string | null}` — 拠点タグに使う
+  Villa PC の対応設定 (`null` で解除)。未登録拠点は 404。
 - `POST /v1/federation/sites/:id/config` — 現在の設定を明示再配布。応答の `delivered` は
   live 接続へ `config-update` を送れたか (オフライン / listener 無効なら false)。
   失効済み / 未登録拠点は 404。

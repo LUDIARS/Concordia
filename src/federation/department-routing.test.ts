@@ -10,10 +10,10 @@ function sites(rows: Array<{ site_id: string; status?: "active" | "revoked"; dep
     list: () => rows.map((row) => ({
       ...row,
       status: row.status ?? "active",
-      name: null, token_enc: "", created_at: 0, revoked_at: null, last_connected_at: null, last_seen_at: null, site_version: null,
+      name: null, token_enc: "", created_at: 0, revoked_at: null, last_connected_at: null, last_seen_at: null, site_version: null, villa_pc_id: null,
     })),
     find: () => null, create: () => { throw new Error("unused"); }, verifyToken: () => false,
-    revoke: () => false, touchConnected: () => {}, touchSeen: () => {}, setDepartments: () => false,
+    revoke: () => false, touchConnected: () => {}, touchSeen: () => {}, setDepartments: () => false, setVillaPcId: () => false,
   };
 }
 

@@ -4,6 +4,8 @@ import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
 export const MAX_FORUM_TEMPLATES = 10;
 export const MAX_FORUM_TAG_NAME_LENGTH = 20;
+/** Discord の forum あたりのタグ数上限。名前長と同値なのは偶然なので別定数にする。 */
+export const MAX_FORUM_TAGS = 20;
 
 export const SESSION_WORK_TAG_NAMES = ["設計相談", "実装", "レビュー", "テスト", "雑用"] as const;
 export const SESSION_STATE_TAG_NAMES = ["作業中", "待機", "lost"] as const;
@@ -98,15 +100,57 @@ interface DiscordForumChannelResponse {
   }>;
 }
 
+export type ForumSiteTagSkipReason = "too_long" | "conflict" | "limit";
+
+export interface ForumSiteTagMerge {
+  /** base + 採用した拠点タグ (この順)。 */
+  names: string[];
+  /** 採用した拠点タグだけ。必須タグと分けて扱いたい呼び出し側向け。 */
+  accepted: string[];
+  skipped: Array<{ name: string; reason: ForumSiteTagSkipReason }>;
+}
+
+/**
+ * 拠点タグを既存のタグ列へ足す際の唯一の判定。
+ *
+ * 同じ方針を Bot 起動時のレイアウト同期と管理 API 側の同期で二重に書くと、
+ * 「片方だけタグが出る」ずれが起きる。落とした理由は呼び出し側が warn を出せるよう
+ * skipped で返す (黙って消えると「タグを付けたのに効かない」原因が追えない)。
+ */
+export function mergeForumSiteTags(
+  baseNames: readonly string[],
+  siteNames: readonly string[],
+): ForumSiteTagMerge {
+  const names = [...baseNames];
+  const accepted: string[] = [];
+  const used = new Set(baseNames.map((name) => name.toLocaleLowerCase()));
+  const skipped: Array<{ name: string; reason: ForumSiteTagSkipReason }> = [];
+  for (const name of siteNames) {
+    // 切り詰めると別 PC の名前と衝突しうるので、長すぎる名前は作らずに落とす。
+    if (!name || name.length > MAX_FORUM_TAG_NAME_LENGTH) { skipped.push({ name, reason: "too_long" }); continue; }
+    if (used.has(name.toLocaleLowerCase())) { skipped.push({ name, reason: "conflict" }); continue; }
+    if (names.length >= MAX_FORUM_TAGS) { skipped.push({ name, reason: "limit" }); continue; }
+    used.add(name.toLocaleLowerCase());
+    names.push(name);
+    accepted.push(name);
+  }
+  return { names, accepted, skipped };
+}
+
 export async function syncSessionForumTemplateTags(input: {
   token: string;
   forumId: string;
   templates: readonly ForumTemplateTagSource[];
+  /** Villa から取得した active 拠点のPC名タグ。 */
+  siteTags?: readonly string[];
   rest?: Pick<REST, "get" | "patch">;
 }): Promise<{ forum_id: string; tags: string[] }> {
   if (!input.token) throw new Error("Discord token is not configured");
   if (!input.forumId) throw new Error("Session forum is not initialized");
-  const tagNames = desiredSessionForumTagNames(input.templates);
+  const { names: tagNames } = mergeForumSiteTags(
+    desiredSessionForumTagNames(input.templates),
+    input.siteTags ?? [],
+  );
   const rest = input.rest ?? new REST({ version: "10" }).setToken(input.token);
   const current = await rest.get(Routes.channel(input.forumId)) as DiscordForumChannelResponse;
   const byName = new Map((current.available_tags ?? []).map((tag) => [tag.name, tag]));

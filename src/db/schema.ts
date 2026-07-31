@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 45;
+export const SCHEMA_VERSION = 46;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1206,6 +1206,14 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
   up(db) {
     // 拠点ごとに設定を渡せる部署を固定し、担当外 guild の設定漏洩を防ぐ。
     db.exec("ALTER TABLE federation_sites ADD COLUMN departments TEXT NOT NULL DEFAULT '[]'");
+  },
+}, {
+  version: 46,
+  name: "federation-site-villa-pc",
+  source: "federation_sites.villa_pc_id",
+  up(db) {
+    // PC 名ではなく Villa の安定した id を保持し、名称変更で拠点の対応を失わないようにする。
+    db.exec("ALTER TABLE federation_sites ADD COLUMN villa_pc_id TEXT");
   },
 }];
 

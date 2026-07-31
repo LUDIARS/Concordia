@@ -3,11 +3,15 @@ import { ChannelType } from "discord.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
 import {
+  MAX_FORUM_TAGS,
   SESSION_WORK_TAG_NAMES,
   desiredSessionForumTagNames,
+  mergeForumSiteTags,
+  type ForumSiteTagSkipReason,
   type ForumTemplateTagSource,
 } from "./forum-template-tags.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
+import { reportError } from "../errors.js";
 
 export interface DiscordConfigSnapshot {
   guildId: string;
@@ -99,6 +103,8 @@ export interface EnsureLayoutOptions {
   includeErrors?: boolean;
   /** Bot 起動時に Session forum へ不足分を補う delegation template tags。 */
   sessionForumTemplates?: readonly ForumTemplateTagSource[];
+  /** Villa から解決した、active 拠点だけのPC名タグ。 */
+  sessionForumSiteTags?: readonly string[];
 }
 
 export async function ensureDiscordLayout(
@@ -117,6 +123,9 @@ export async function ensureDiscordLayout(
         ...Object.values(SESSION_STATE_TAG_NAMES),
         CONCORDIA_MANAGED_FORUM_TAG_NAME,
       ];
+  // 拠点タグは「あれば良い」枠。必須タグと同列にすると、Villa 側で PC が増えた瞬間に
+  // タグ上限で ensureForumTags が throw し、レイアウト同期ごと止まる。
+  const sessionForumSiteTagNames = mergeSessionForumSiteTags(sessionForumTagNames, opts.sessionForumSiteTags ?? []);
 
   // meta カテゴリ自体は子会社でも作る (受付 (intake) チャンネルの親になるため)。
   const metaCategoryId = await ensureCategory(guild, repo, META_CATEGORY_KEY, CATEGORY_NAMES.meta);
@@ -133,6 +142,7 @@ export async function ensureDiscordLayout(
         FORUM_NAMES.session,
         SESSION_FORUM_TOPIC,
         sessionForumTagNames,
+        sessionForumSiteTagNames,
       )
     : "";
   const testForumId = forumMode
@@ -208,6 +218,41 @@ export async function ensureDiscordLayout(
   };
 }
 
+const SITE_TAG_SKIP_REASONS: Record<ForumSiteTagSkipReason, string> = {
+  too_long: "Discord のタグ名上限を超えています",
+  conflict: "既存タグと衝突しています",
+  limit: "Discord Forum のタグ上限に達しています",
+};
+
+/**
+ * 同じ skip 理由の再報告を抑える窓。
+ *
+ * ensureDiscordLayout は monitor / pr-queue の定期更新から繰り返し呼ばれるので、
+ * 素通しすると 1 台の長すぎる PC 名で errors チャンネルが同じ警告に埋まる。
+ * 恒久抑止にしないのは、解消されないまま忘れられるのを防ぐため。
+ */
+const SITE_TAG_SKIP_REPORT_TTL_MS = 60 * 60 * 1000;
+const siteTagSkipReportedAt = new Map<string, number>();
+
+function reportSiteTagSkip(name: string, reason: ForumSiteTagSkipReason): void {
+  const key = `${reason}:${name}`;
+  const now = Date.now();
+  const last = siteTagSkipReportedAt.get(key);
+  if (last !== undefined && now - last < SITE_TAG_SKIP_REPORT_TTL_MS) return;
+  siteTagSkipReportedAt.set(key, now);
+  for (const [k, ts] of siteTagSkipReportedAt) {
+    if (now - ts >= SITE_TAG_SKIP_REPORT_TTL_MS) siteTagSkipReportedAt.delete(k);
+  }
+  reportError("discord", `拠点タグを作成しません: ${SITE_TAG_SKIP_REASONS[reason]} (${name})`);
+}
+
+/** 採用できる拠点タグ名だけを返し、落としたものは理由つきで報告する。 */
+function mergeSessionForumSiteTags(baseNames: readonly string[], siteNames: readonly string[]): string[] {
+  const merged = mergeForumSiteTags(baseNames, siteNames);
+  for (const { name, reason } of merged.skipped) reportSiteTagSkip(name, reason);
+  return merged.accepted;
+}
+
 function findExistingCategory(
   guild: Guild,
   repo: DiscordConfigRepo,
@@ -232,6 +277,7 @@ async function ensureForum(
   name: string,
   topic: string,
   requiredTagNames: readonly string[] = [],
+  optionalTagNames: readonly string[] = [],
 ): Promise<string> {
   const cached = repo.get(key);
   let forum = cached ? guild.channels.cache.get(cached) : null;
@@ -246,18 +292,32 @@ async function ensureForum(
   if (forumChannel.topic !== topic) {
     await forumChannel.edit({ topic, reason: "Concordia forum details sync" });
   }
-  await ensureForumTags(forumChannel, requiredTagNames);
+  await ensureForumTags(forumChannel, requiredTagNames, optionalTagNames);
   return forum.id;
 }
 
-async function ensureForumTags(forum: ForumChannel, requiredTagNames: readonly string[]): Promise<void> {
-  const missing = requiredTagNames.filter((name) => !forum.availableTags.some((tag) => tag.name === name));
-  if (missing.length === 0) return;
-  if (forum.availableTags.length + missing.length > 20) {
+/**
+ * 不足タグを補う。required は入らなければ throw (設定不備として気付かせる) だが、
+ * optional (拠点タグ) は入る分だけ作って残りは warn する — 外部 (Villa) 由来で増減する
+ * 名前のために、必須タグごとレイアウト同期が落ちるのを避ける。
+ */
+async function ensureForumTags(
+  forum: ForumChannel,
+  requiredTagNames: readonly string[],
+  optionalTagNames: readonly string[] = [],
+): Promise<void> {
+  const isMissing = (name: string): boolean => !forum.availableTags.some((tag) => tag.name === name);
+  const missingRequired = requiredTagNames.filter(isMissing);
+  if (missingRequired.length > 0 && forum.availableTags.length + missingRequired.length > MAX_FORUM_TAGS) {
     throw new Error(
-      `Discord forum ${forum.name} has no room for required tags: ${missing.join(", ")}`,
+      `Discord forum ${forum.name} has no room for required tags: ${missingRequired.join(", ")}`,
     );
   }
+  const room = Math.max(0, MAX_FORUM_TAGS - forum.availableTags.length - missingRequired.length);
+  const missingOptional = optionalTagNames.filter(isMissing);
+  for (const name of missingOptional.slice(room)) reportSiteTagSkip(name, "limit");
+  const missing = [...missingRequired, ...missingOptional.slice(0, room)];
+  if (missing.length === 0) return;
   const tags: GuildForumTagData[] = [
     ...forum.availableTags.map((tag) => ({
       id: tag.id,

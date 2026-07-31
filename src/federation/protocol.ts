@@ -60,6 +60,8 @@ const ingressSchema = z.object({
   author_label: z.string().min(1).max(200),
   text: z.string().min(1).max(8_000),
   ts: z.number().int().nonnegative(),
+  /** 発言元スレッドに付いた forum タグ名 (拠点タグの解決は本社側で済んでいる)。 */
+  applied_tag_names: z.array(z.string().min(1).max(100)).max(20).optional(),
 }).passthrough();
 
 const egressRequestSchema = z.object({
@@ -226,7 +228,7 @@ export type FederationFrameInput =
   | { type: "hello"; site_id: string; token: string; site_version?: string }
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
-  | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number }
+  | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number; applied_tag_names?: readonly string[] }
   | { type: "egress-request"; request_id: string; guild_id: string; channel_id: string; text: string }
   | { type: "egress-result"; request_id: string; ok: boolean; error?: string }
   | { type: "config-snapshot"; snapshot: FederationConfigSnapshot }

@@ -656,7 +656,9 @@ export async function startBackend(): Promise<BackendHandle> {
       author_label: input.authorLabel,
       text: input.text,
       ts: input.ts,
+      applied_tag_names: input.appliedTagNames,
     }),
+    resolveForumSiteTags: () => federation.listForumSiteTagNames(),
     setFederationEgressExecutor: federation.setEgressExecutor,
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
     // 「fetch failed」でユーザに何も返らない事故になるため使わない)。
@@ -861,12 +863,13 @@ export async function startBackend(): Promise<BackendHandle> {
     federation: federation.apiDeps,
     taskStore,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
-    syncDiscordForumTags: (templates) => {
+    syncDiscordForumTags: async (templates) => {
       const config = resolveDiscordConfig(discordConfig, secretBox);
       return syncSessionForumTemplateTags({
         token: config.token ?? "",
         forumId: discordConfig.get("session_forum_id") ?? "",
         templates,
+        siteTags: await federation.listForumSiteTagNames(),
       });
     },
     slackAdmin: {

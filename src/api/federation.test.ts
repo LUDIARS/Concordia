@@ -39,4 +39,28 @@ describe("federation management API", () => {
     expect(await config.json()).toEqual({ ok: true, site_id: "site-a", delivered: true });
     expect(redistributeConfig).toHaveBeenCalledWith("site-a");
   });
+
+  it("拠点タグ用の Villa PC 対応を設定・解除し、未登録拠点は 404 を返す", async () => {
+    const app = federationRouter({
+      sites,
+      outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
+      connections: createFederationConnections(),
+      listenerEnabled: true,
+    });
+    const put = (siteId: string, body: unknown) => app.request(`http://local/sites/${siteId}/villa-pc`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    expect((await put("site-a", { villa_pc_id: "pc-haster" })).status).toBe(200);
+    expect(sites.find("site-a")?.villa_pc_id).toBe("pc-haster");
+
+    // null は「対応解除」 (拠点タグ候補から外す) として受ける。
+    expect((await put("site-a", { villa_pc_id: null })).status).toBe(200);
+    expect(sites.find("site-a")?.villa_pc_id).toBeNull();
+
+    expect((await put("site-a", { villa_pc_id: "" })).status).toBe(400);
+    expect((await put("missing", { villa_pc_id: "pc-haster" })).status).toBe(404);
+  });
 });

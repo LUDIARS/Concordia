@@ -25,6 +25,7 @@ export interface FederationSiteRow {
   last_connected_at: number | null;
   last_seen_at: number | null;
   site_version: string | null;
+  villa_pc_id: string | null;
   /** JSON array in SQLite; repo boundary returns decoded guild ids. */
   departments: string[];
 }
@@ -40,6 +41,7 @@ export interface FederationSitesRepo {
   touchConnected(siteId: string, siteVersion: string | null): void;
   touchSeen(siteId: string): void;
   setDepartments(siteId: string, departments: readonly string[]): boolean;
+  setVillaPcId(siteId: string, villaPcId: string | null): boolean;
 }
 
 export function makeFederationSitesRepo(
@@ -106,6 +108,10 @@ export function makeFederationSitesRepo(
       const result = db.prepare("UPDATE federation_sites SET departments = ? WHERE site_id = ?")
         .run(JSON.stringify([...new Set(departments)]), siteId);
       return result.changes > 0;
+    },
+    setVillaPcId(siteId, villaPcId) {
+      return db.prepare("UPDATE federation_sites SET villa_pc_id = ? WHERE site_id = ?")
+        .run(villaPcId, siteId).changes > 0;
     },
   };
 }

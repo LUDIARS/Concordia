@@ -166,4 +166,36 @@ describe("ensureDiscordLayout", () => {
     expect(SESSION_FORUM_TOPIC).toContain("Ccがセッションをspawn");
     expect(SESSION_FORUM_TOPIC).toContain("同じスレッド");
   });
+
+  it("渡された拠点タグを Session forum に作る", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const snap = await ensureDiscordLayout(guild, makeFakeRepo(), { sessionForumSiteTags: ["HASTER"] });
+    expect(channels.get(snap.sessionForumId)?.availableTags?.map((tag) => tag.name)).toContain("HASTER");
+  });
+
+  it("Villa 停止時の空候補でも既存のタグ同期を継続する", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const snap = await ensureDiscordLayout(guild, makeFakeRepo(), { sessionForumSiteTags: [] });
+    const names = channels.get(snap.sessionForumId)?.availableTags?.map((tag) => tag.name);
+    expect(names).not.toContain("HASTER");
+    expect(names).toContain(CONCORDIA_MANAGED_FORUM_TAG_NAME);
+  });
+
+  it("古い拠点タグで埋まった forum でも拠点タグを諦めるだけで同期は落とさない", async () => {
+    const { guild, channels } = makeFakeGuild();
+    const repo = makeFakeRepo();
+    // 先に上限 (20 個) まで埋める。 base 9 個 + 拠点タグ 11 個。
+    const old = Array.from({ length: 11 }, (_, i) => `OLD-${i}`);
+    const first = await ensureDiscordLayout(guild, repo, { sessionForumSiteTags: old });
+    expect(channels.get(first.sessionForumId)?.availableTags?.length).toBe(20);
+
+    // Villa 側で PC が入れ替わっても、古いタグは残ったまま = 空きが無い。
+    // 必須タグの同期ごと throw せず、新しい拠点タグだけ諦める。
+    const renamed = Array.from({ length: 11 }, (_, i) => `NEW-${i}`);
+    const second = await ensureDiscordLayout(guild, repo, { sessionForumSiteTags: renamed });
+    const names = channels.get(second.sessionForumId)?.availableTags?.map((tag) => tag.name) ?? [];
+    expect(names).not.toContain("NEW-0");
+    expect(names).toContain(CONCORDIA_MANAGED_FORUM_TAG_NAME);
+    expect(names).toHaveLength(20);
+  });
 });

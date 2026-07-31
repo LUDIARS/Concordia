@@ -67,6 +67,7 @@ export interface IngressDeps {
   /** federation は Discord を import しないため、部署ルーティングだけを外から注入する。 */
   routeFederationIngress?: (input: {
     guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number;
+    appliedTagNames?: readonly string[];
   }) => boolean;
 }
 
@@ -103,6 +104,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     authorLabel,
     text,
     ts: Math.floor(msg.createdTimestamp / 1000),
+    appliedTagNames: resolveAppliedForumTagNames(msg),
   })) {
     deps.log.info(`ingress: federation routed guild=${msg.guildId} channel=${msg.channelId}`);
     return;
@@ -275,6 +277,15 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   } catch (e) {
     deps.log.warn(`ingress: /v1/chat failed discord_channel=${msg.channelId}: ${(e as Error).message}`);
   }
+}
+
+function resolveAppliedForumTagNames(msg: Message): string[] {
+  if (msg.channel.type !== ChannelType.PublicThread || msg.channel.parent?.type !== ChannelType.GuildForum) return [];
+  const byId = new Map(msg.channel.parent.availableTags.map((tag) => [tag.id, tag.name]));
+  return msg.channel.appliedTags.flatMap((tagId) => {
+    const name = byId.get(tagId);
+    return name ? [name] : [];
+  });
 }
 
 function resolveRouteChannelId(msg: Message, sessions: DiscordSessionChannelsRepo): string {

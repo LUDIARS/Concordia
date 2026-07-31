@@ -154,7 +154,8 @@ export interface DiscordBotDeps {
    */
   listSubsidiaries?: () => Array<{ id: string; name: string; daily_token_budget: number }>;
   concordiaUrl: string;
-  routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number }) => boolean;
+  routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[] }) => boolean;
+  resolveForumSiteTags?: () => Promise<readonly string[]>;
   setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
   /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
   workspaceRoot?: string;
@@ -302,9 +303,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
   const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
   const delegationRepo = new DelegationRepo(deps.db);
-  const resolveLayoutOpts = (): EnsureLayoutOptions => ({
+  const resolveLayoutOpts = async (): Promise<EnsureLayoutOptions> => ({
     ...layoutOpts,
     sessionForumTemplates: delegationRepo.listTemplates(),
+    sessionForumSiteTags: await deps.resolveForumSiteTags?.() ?? [],
   });
   // このセッションがこの Bot の可視範囲 (subsidiary-only / 本社) に属するか。
   // 子会社 Bot は metadata.subsidiary_id 一致のみ、 本社 Bot は subsidiary_id 無しのみ写す。
@@ -435,7 +437,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const guild = await c.guilds.fetch(env.guildId!);
       activeGuild = guild;
       await guild.channels.fetch();
-      layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
+      layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
         try {
@@ -530,7 +532,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // concordia-monitor: アクティブなセッション数 + 最終更新時間を定期更新.
       const refreshMonitor = instrumentDiscord("monitorRefresh", async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
+        layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
         const monitorCh = guild.channels.cache.get(layout.monitorChannelId);
         if (!monitorCh || monitorCh.type !== ChannelType.GuildText) {
           log.warn(`monitor channel unavailable id=${layout.monitorChannelId}`);
@@ -564,7 +566,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // pr-queue: 各セッションが作った PR のキューを定期更新 + pr.changed で即時再描画.
       const refreshPrQueue = instrumentDiscord("prQueueRefresh", async () => {
         await guild.channels.fetch();
-        layout = await ensureDiscordLayout(guild, configRepo, resolveLayoutOpts());
+        layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
         const prQueueCh = guild.channels.cache.get(layout.prQueueChannelId);
         if (!prQueueCh || prQueueCh.type !== ChannelType.GuildText) {
           log.warn(`pr-queue channel unavailable id=${layout.prQueueChannelId}`);

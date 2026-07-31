@@ -55,6 +55,7 @@ import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
 import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
+import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
 import { injectManualsRouter } from "./inject-manuals.js";
 import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
@@ -65,6 +66,8 @@ import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
+import type { StaffRepo } from "../db/staff-repo.js";
+import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import {
@@ -130,6 +133,10 @@ export interface CoreDelegationDeps {
   testingClaims?: import("../db/testing-claims-repo.js").TestingClaimsRepo;
   subsidiary?: SubsidiaryRepo;
   harnessRules?: HarnessRulesRepo;
+  /** 社員名簿 (役職権限登録リスト)。 未注入なら /v1/staff は生えない。 */
+  staff?: StaffRepo;
+  /** Revisor local PR の読み取り口。 未注入なら /v1/prs/revisor は configured=false。 */
+  revisorLocalPrs?: RevisorLocalPrReader;
   /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
   submitLocalPr?: PrsApiDeps["submitLocalPr"];
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
@@ -198,7 +205,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
-  app.route("/v1/prs", prsRouter({ prs: deps.prs, submitLocalPr: deps.submitLocalPr }));
+  app.route("/v1/prs", prsRouter({ prs: deps.prs, revisor: deps.revisorLocalPrs, submitLocalPr: deps.submitLocalPr }));
   app.route("/v1/taskflow", taskflowRouter({
     store: deps.taskStore,
     sessions: deps.repo,
@@ -248,6 +255,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   if (deps.harnessRules) {
     app.route("/v1/harness-rules", harnessRulesRouter({ repo: deps.harnessRules }));
+  }
+  // 社員名簿 (役職権限登録リスト)。 spawn / end-session / キルスイッチの権限判定の正本。
+  if (deps.staff) {
+    app.route("/v1/staff", staffRouter({ repo: deps.staff }));
   }
   // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。

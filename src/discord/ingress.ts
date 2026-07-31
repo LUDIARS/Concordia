@@ -45,8 +45,10 @@ export interface IngressDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
-  /** Exact Discord user ID allowlist check for reaction-workflow execution. */
+  /** 社員名簿の役職に基づく発火権限判定 (管理職以上)。 */
   isWorkflowUserAllowed?: (userId: string) => boolean;
+  /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
+  recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /**
@@ -87,6 +89,15 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
     return;
   }
+
+  // ここから先はメッセージが Concordia (= LLM) に届く経路。 発言者を社員名簿へ記録し、
+  // サーバーでのプロファイル名 (guild nickname) も併せて取る。 記録は「誰が触ったか」の
+  // 台帳であって権限付与ではない — 役職の既定は ヒラ社員 (会話のみ)。
+  deps.recordStaffAccess?.({
+    userId: msg.author.id,
+    displayName: msg.author.globalName?.trim() || msg.author.username,
+    profileName: msg.member?.nickname?.trim() || msg.member?.displayName?.trim() || "",
+  });
 
   if (isControlTrigger(text)) {
     if (deps.subsidiary) {

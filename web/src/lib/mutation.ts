@@ -24,9 +24,3 @@ export async function runMutation<T>(options: MutationOptions<T>): Promise<T | u
     options.setBusy(false);
   }
 }
-
-export async function requireOk(response: Response): Promise<Response> {
-  if (response.ok) return response;
-  const body = await response.json().catch(() => ({})) as { error?: unknown };
-  throw new Error(typeof body.error === "string" ? body.error : `HTTP ${response.status}`);
-}

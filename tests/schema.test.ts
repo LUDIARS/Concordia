@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { applyMigrations, SCHEMA_VERSION } from "../src/db/schema.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
@@ -100,5 +100,89 @@ describe("schema", () => {
     ).toEqual({ value: String(SCHEMA_VERSION) });
 
     expect(() => applyMigrations(db)).not.toThrow();
+  });
+});
+
+// migration 44 は「旧リアクションWF allowlist → 社員名簿の管理職」の一度きりの移行。
+// ここが落ちるとアップグレード直後に spawn / 発火できる人間が 0 人になるので、
+// 取り込み・`*` 破棄・env フォールバックの 3 点を固定する
+// (spec/feature/staff-roster.md §4)。
+describe("migration 44: reaction allowlist → staff roster", () => {
+  const ENV_KEYS = [
+    "CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS",
+    "CONCORDIA_REACTION_WORKFLOW_SLACK_USERS",
+  ] as const;
+  const saved = new Map<string, string | undefined>();
+
+  beforeEach(() => {
+    // 実行環境の .env が漏れてくると期待値が揺れるので、毎回明示的に外す。
+    for (const key of ENV_KEYS) {
+      saved.set(key, process.env[key]);
+      delete process.env[key];
+    }
+  });
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      const value = saved.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  function seedLegacyAllowlist(db: ReturnType<typeof makeRawTestDb>, key: string, value: string) {
+    db.exec(`CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    db.prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`).run(key, value);
+  }
+
+  function roster(db: ReturnType<typeof makeRawTestDb>) {
+    return db
+      .prepare(`SELECT platform, platform_user_id, role FROM staff_members ORDER BY platform, platform_user_id`)
+      .all() as Array<{ platform: string; platform_user_id: string; role: string }>;
+  }
+
+  it("imports persisted allowlist IDs as 管理職 and drops the * sentinel", () => {
+    const db = makeRawTestDb();
+    seedLegacyAllowlist(db, "admin.reaction_workflow_discord_users", JSON.stringify(["d1", "d2"]));
+    seedLegacyAllowlist(db, "admin.reaction_workflow_slack_users", JSON.stringify(["*", "s1"]));
+
+    applyMigrations(db);
+
+    expect(roster(db)).toEqual([
+      { platform: "discord", platform_user_id: "d1", role: "manager" },
+      { platform: "discord", platform_user_id: "d2", role: "manager" },
+      { platform: "slack", platform_user_id: "s1", role: "manager" },
+    ]);
+    // 再適用しても重複行を作らない (migration 台帳で 1 度きり)。
+    applyMigrations(db);
+    expect(roster(db)).toHaveLength(3);
+  });
+
+  it("falls back to the retired env allowlist when nothing was persisted", () => {
+    process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS = "d1, d2;d3";
+    const db = makeRawTestDb();
+
+    applyMigrations(db);
+
+    expect(roster(db)).toEqual([
+      { platform: "discord", platform_user_id: "d1", role: "manager" },
+      { platform: "discord", platform_user_id: "d2", role: "manager" },
+      { platform: "discord", platform_user_id: "d3", role: "manager" },
+    ]);
+  });
+
+  it("treats a persisted empty allowlist as authoritative over the env fallback", () => {
+    process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS = "d1";
+    const db = makeRawTestDb();
+    seedLegacyAllowlist(db, "admin.reaction_workflow_discord_users", "[]");
+
+    applyMigrations(db);
+
+    expect(roster(db)).toEqual([]);
+  });
+
+  it("creates an empty roster on a fresh DB with no legacy configuration", () => {
+    const db = makeRawTestDb();
+    applyMigrations(db);
+    expect(roster(db)).toEqual([]);
   });
 });

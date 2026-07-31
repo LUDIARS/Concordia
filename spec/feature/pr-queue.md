@@ -107,6 +107,23 @@ Concordia の API / MCP と Discord の自動更新メッセージ / slash comma
 ### イベント (`src/events.ts`)
 - `pr.changed { reason: "ingest" | "reconcile" }` — WS / Discord 再描画トリガ。
 
+## 5-b. Revisor local PR (WebUI `/prs`)
+
+GitHub の PR とは別系統に、 Revisor (ローカル PR レビューサービス) の local PR を
+`/prs` ページ先頭の独立セクションとして並べる。 ローカルクローン上のブランチをレビュー・
+マージする仕組みなので、 GitHub 側のバケット (ready / needs review / …) には混ぜない。
+
+- `GET /v1/prs/revisor` → `{ configured, base_url, pull_requests, error }`。
+  Revisor の `GET /v1/local-prs` を Concordia が代理取得する
+  (`RevisorClient.listLocalPrs()`)。 ポートは Excubitor catalog が正本 (port-source-rule)。
+- `CONCORDIA_REVISOR_TOKEN` 未設定なら `configured: false` で、 セクションは描かない。
+- Revisor が停止していても `200 + error` を返す — PRs ページ自体は開けるべきなので、
+  GitHub 側の表示を Revisor の死で壊さない。
+- 見出しと各行から Revisor の WebUI (`base_url`) を**新しいタブ**で開ける。 Revisor の
+  ページは `frame-ancestors 'none'` なので iframe 埋め込みはできない (リンクのみ)。
+- `checkStatus` (queued / running / test_ok / failed / action_required) をバッジ表示し、
+  open と マージ/クローズ済み (details 折り畳み) に分ける。
+
 ## 6. 段階と将来
 
 - **P1 (本 PR)**: schema v16 + `pr-records-repo` + stat 派生取り込み + reconcile tick

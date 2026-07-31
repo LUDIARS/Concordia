@@ -167,10 +167,27 @@ export interface DiscordBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
-  /** Exact Discord user ID allowlist check for permission-skipping reaction workflows. */
+  /**
+   * 社員名簿 (staff_members) の役職に基づく権限判定。 未注入は deny 側 (fail-closed)。
+   * spec/feature/staff-roster.md §3 (capability → 最低役職 / ゲート位置)。
+   */
+  /** リアクションワークフローの発火 (管理職以上)。 */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
-  /** Exact Discord user ID allowlist check for session spawn/delegation launches. */
+  /** セッションの spawn / delegation 起動 (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** セッションの end-session (管理職以上)。 */
+  isSessionEndUserAllowed?: (userId: string) => boolean;
+  /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
+  isKillSwitchUserAllowed?: (userId: string) => boolean;
+  /**
+   * LLM にアクセスした Discord ユーザを社員名簿へ記録する。 記録時にサーバーでの
+   * プロファイル名 (guild nickname) も渡す。
+   */
+  recordStaffAccess?: (input: {
+    userId: string;
+    displayName?: string;
+    profileName?: string;
+  }) => void;
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -758,6 +775,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       messageMap,
       workflow: reactionWorkflow,
       isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
+      recordStaffAccess: deps.recordStaffAccess,
       resolveReactionMappings: deps.resolveReactionMappings,
       // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
       // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
@@ -846,6 +864,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log,
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
+        recordStaffAccess: deps.recordStaffAccess,
         sessionChannels: sessionChannelsRepo,
         sessions: deps.sessionsRepo,
         repin: deps.repinSession,
@@ -892,6 +911,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       permissionActions,
       subsidiaryId,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
+      isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
+      isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);

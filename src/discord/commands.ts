@@ -98,15 +98,16 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     }
     return;
   }
-  if (isLaunchInteraction(interaction) && !isLaunchActorAllowed(interaction, deps)) {
+  const privileged = classifyPrivilegedInteraction(interaction);
+  if (privileged && !isPrivilegedActorAllowed(interaction, deps, privileged)) {
     const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
     deps.log.warn(
-      `discord launch rejected unauthorized user=${userId || "-"} ` +
+      `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
       `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
     );
     if (interaction.isRepliable()) {
       await interaction.reply({
-        content: "このユーザーにはセッション起動権限がありません。",
+        content: privileged.denyMessage,
         ephemeral: true,
       }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
     }
@@ -173,16 +174,64 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
 }
 
-function isLaunchInteraction(interaction: Interaction): boolean {
-  if (interaction.isChatInputCommand()) return interaction.commandName === "spawn";
-  if (interaction.isButton() || interaction.isModalSubmit()) {
-    return interaction.customId.startsWith("ctrl:spawn:")
-      || interaction.customId.startsWith("ctrl:spawn-modal:");
-  }
-  return false;
+/**
+ * 権限が必要な操作の分類。 社員名簿の役職で判定する (spec/feature/staff-roster.md §3)。
+ * ここに載らない操作 (会話 / 状況確認など) はヒラ社員でも通す。
+ */
+interface PrivilegedInteraction {
+  capability: "session_spawn" | "session_end" | "kill_switch";
+  /** 拒否時に本人へ返す ephemeral メッセージ。 */
+  denyMessage: string;
+  check: (deps: DiscordCommandDeps) => ((userId: string) => boolean) | undefined;
 }
 
-function isLaunchActorAllowed(interaction: Interaction, deps: DiscordCommandDeps): boolean {
+const PRIVILEGED_SESSION_SPAWN: PrivilegedInteraction = {
+  capability: "session_spawn",
+  denyMessage: "このユーザーにはセッション起動権限がありません (管理職以上が必要)。",
+  check: (deps) => deps.isLaunchUserAllowed,
+};
+const PRIVILEGED_SESSION_END: PrivilegedInteraction = {
+  capability: "session_end",
+  denyMessage: "このユーザーにはセッション終了権限がありません (管理職以上が必要)。",
+  check: (deps) => deps.isSessionEndUserAllowed,
+};
+const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
+  capability: "kill_switch",
+  denyMessage: "このユーザーにはサービス操作権限がありません (執行役員のみ)。",
+  check: (deps) => deps.isKillSwitchUserAllowed,
+};
+
+/** キルスイッチ相当 = Excubitor 経由でサービスを起動 / 再起動するコマンド。 */
+const KILL_SWITCH_COMMANDS = new Set(["ex-run", "ex-reboot"]);
+
+function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInteraction | null {
+  if (interaction.isChatInputCommand()) {
+    if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
+    if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
+    if (KILL_SWITCH_COMMANDS.has(interaction.commandName)) return PRIVILEGED_KILL_SWITCH;
+    return null;
+  }
+  if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
+    const id = interaction.customId;
+    if (id.startsWith("ctrl:spawn:") || id.startsWith("ctrl:spawn-modal:")) {
+      return PRIVILEGED_SESSION_SPAWN;
+    }
+    // コントロールパネルの End Session (ボタン → 選択 → confirm の全段)。
+    if (id.startsWith("ctrl:end-session")) {
+      return PRIVILEGED_SESSION_END;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** 判定関数が未注入なら deny (fail-closed)。 */
+function isPrivilegedActorAllowed(
+  interaction: Interaction,
+  deps: DiscordCommandDeps,
+  privileged: PrivilegedInteraction,
+): boolean {
   const userId = "user" in interaction ? interaction.user?.id?.trim() ?? "" : "";
-  return userId.length > 0 && deps.isLaunchUserAllowed?.(userId) === true;
+  if (userId.length === 0) return false;
+  return privileged.check(deps)?.(userId) === true;
 }

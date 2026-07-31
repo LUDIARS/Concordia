@@ -110,8 +110,9 @@ import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
+import { StaffRepo } from "../db/staff-repo.js";
+import { capabilityAllowed } from "../staff/roles.js";
 import { createFederationRuntime } from "../federation/runtime.js";
-import { isReactionUserAllowed, normalizeReactionUserIds } from "../shared/reaction-workflow-auth.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
@@ -416,6 +417,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const modelCatalog = new ModelCatalogRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
+  // 社員名簿 = spawn / end-session / キルスイッチの権限判定の正本 (旧 allowlist の置き換え)。
+  const staffRepo = new StaffRepo(db);
   const harnessAuditRepo = new HarnessAuditRepo(db);
   const harnessBlackbox = createHarnessBlackbox(db);
   const injectManualsRepo = new InjectManualsRepo(db);
@@ -436,20 +439,14 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRootDefault ? [workspaceRootDefault] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
-    reactionWorkflowDiscordUserIds: normalizeReactionUserIds(
-      process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS,
-    ),
-    reactionWorkflowSlackUserIds: normalizeReactionUserIds(
-      process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS,
-    ),
     ccWorkflowEnabled: readCcWorkflowEnabled(),
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
-    discordUserIds: adminState.getReactionWorkflowDiscordUserIds(),
-    slackUserIds: adminState.getReactionWorkflowSlackUserIds(),
+    discordAuthorizedCount: staffRepo.countByCapability("discord", "reaction_workflow"),
+    slackAuthorizedCount: staffRepo.countByCapability("slack", "reaction_workflow"),
   });
   if (reactionWorkflowReadiness.issues.length > 0) {
     log.warn(
@@ -669,10 +666,25 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    // 権限は社員名簿 (staff_members) の役職で決める。 判定は毎回 live 参照 = WebUI で
+    // 役職を変えたら再起動なしで効く。 未登録は ヒラ社員 相当 (会話のみ)。
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
     isLaunchUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
+    isSessionEndUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_end"),
+    isKillSwitchUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "kill_switch"),
+    // LLM に触れた Discord ユーザを名簿へ記録する (サーバーでのプロファイル名も取る)。
+    recordStaffAccess: (input) => {
+      staffRepo.touch({
+        platform: "discord",
+        platformUserId: input.userId,
+        displayName: input.displayName,
+        profileName: input.profileName,
+      });
+    },
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -702,10 +714,21 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    // Discord と同じく社員名簿の役職で判定する (platform=slack の行を引く)。
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
     isLaunchUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_spawn"),
+    isSessionEndUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_end"),
+    recordStaffAccess: (input) => {
+      staffRepo.touch({
+        platform: "slack",
+        platformUserId: input.userId,
+        displayName: input.displayName,
+        profileName: input.profileName,
+      });
+    },
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
@@ -783,6 +806,9 @@ export async function startBackend(): Promise<BackendHandle> {
     testingClaims,
     subsidiary: subsidiaryRepo,
     harnessRules: harnessRepo,
+    staff: staffRepo,
+    // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
+    revisorLocalPrs: revisorClient ?? undefined,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
     submitLocalPr: async (sessionId: string) => {
       const session = repo.findSession(sessionId);

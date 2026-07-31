@@ -89,8 +89,9 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
   `0.0.0.0` / `::` / LAN IP / hostname は、token の有無にかかわらず起動拒否する。
 - Web UI は外側の AccessControl を通過した管理者だけが利用する。Concordia 内部 API は Web の
   identity token を重ねて要求しない。
-- Discord / Slack 起点の spawn・delegation は、Gateway / Socket Mode が認証した platform user IDを
-  AdminState の platform 別 exact allowlist と照合する。ID 欠落・不一致・空 allowlist は全拒否。
+- Discord / Slack 起点の spawn・delegation は、Gateway / Socket Mode が認証した platform user ID を
+  社員名簿 (`staff_members`) の役職と照合する (管理職以上)。ID 欠落・未登録・役職不足・判定関数の
+  未注入は全拒否 ([staff-roster](../feature/staff-roster.md))。
 - `/v1/spawn` の repository spawn token と、spawned session の一回限り enrollment は用途が異なるため維持する。
 
 ---
@@ -105,7 +106,7 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | `rules/claude-runner.ts:15` | rule 用 claude CLI subprocess の timeout (ms)。 |
 
 > **runtime スイッチ (env ではない)**: chat 投稿 / rule engine の通常 ON/OFF は env ではなく
-> `schema_meta` 永続のスイッチで制御する (再起動不要、 Web UI Rules ページ / admin API)。 **既定は OFF 寄り**。
+> `schema_meta` 永続のスイッチで制御する (再起動不要、 Web UI 設定ページ / admin API)。 **既定は OFF 寄り**。
 > 詳細は [core.md の「runtime 切替 (kill switch)」](core.md#runtime-切替-kill-switch)。
 >
 > | スイッチ | 既定 | admin API |
@@ -273,7 +274,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_MS` | `200` | `metrics/loop.ts` | event-loop lag p99 の通知閾値 (ms)。 |
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES` | `3` | `metrics/loop.ts` | lag 通知までに必要な連続超過サンプル数。 |
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_COOLDOWN_MS` | `600000` | `metrics/loop.ts` | lag 通知の cooldown (ms)。 |
-| `CONCORDIA_WORKSPACE_ROOT` | `LUDIARS_ROOT`、次に明示 spawn cwd | `shared/config.ts` | プライマリ workspace ルート (リポジトリ探索の基点)。Session cwd には使用しない。 **設定 GUI (Rules ページ) / `/v1/admin/workspace-root(s)` から上書き可**。 |
+| `CONCORDIA_WORKSPACE_ROOT` | `LUDIARS_ROOT`、次に明示 spawn cwd | `shared/config.ts` | プライマリ workspace ルート (リポジトリ探索の基点)。Session cwd には使用しない。 **設定 GUI (設定ページ) / `/v1/admin/workspace-root(s)` から上書き可**。 |
 | `CONCORDIA_WORKSPACE_ROOTS` | 未設定 (= `CONCORDIA_WORKSPACE_ROOT` のみ) | `shared/config.ts` | `;` 区切りの追加 workspace ルート列。 プライマリ + これらを正規化重複除去した集合が走査対象。 Work ページは全ルート直下の git リポを横断走査、 Memoria は実在する `<root>/Memoria` を採用。 |
 | `CONCORDIA_GITHUB_ORG` | `LUDIARS` 運用パス存在時のみ `LUDIARS`、 他は空 | `shared/config.ts` | リポが属する GitHub Organization (PR / repo 操作の owner 解決)。 **設定 GUI / `/v1/admin/github-org` から上書き可** (schema_meta 永続化)。 |
 
@@ -290,7 +291,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
-| platform 発火ユーザ (reaction / spawn / delegation) | env の Discord / Slack allowlist、未設定は空 (全拒否) | `/v1/admin/reaction-workflow` | `discord_user_ids` / `slack_user_ids` 配列をプラットフォーム別に置換保存。AdminState が source of truth、env は初回既定。reaction と session launch の両方が同じ exact allowlist を live 参照する。GET はIDを露出せず readiness と件数のみ返す。 ID の代わりに `*` を単独で保存すると、そのプラットフォームの全ユーザーを許可する (`allow_all`)。 |
+| platform 発火ユーザ (reaction / spawn / delegation) | (AdminState には無い) | `/v1/staff` | **allowlist は廃止**。 誰が発火 / spawn / end-session / キルスイッチできるかは社員名簿 (`staff_members`) の役職で決まる ([staff-roster](../feature/staff-roster.md))。 `PUT /v1/admin/reaction-workflow` は `{ enabled }` のみ受け、user ID 配列を送ると 400。 旧 env `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` と `*` 全員許可トークンは migration 44 で廃止 (旧 allowlist の ID は `manager` として名簿へ移行)。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
@@ -300,9 +301,11 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 > PATH に `lictor` が無く spawn に失敗する環境は `lictor_mode=dev/prod` + パス指定で解決する。
 
 `GET /v1/admin/reaction-workflow` の `readiness.status` は `disabled` / `ready` /
-`no_authorized_users`。ON かつ全 platform 合計 0 件は `no_authorized_users` として起動時・設定変更時に
-警告される。platform 別の件数と issue code も返すが user ID 自体は返さない。空設定は allow-all へ
-はならず、reaction workflow の ON/OFF にかかわらず platform 起点の spawn / delegation も拒否する。
+`no_authorized_users`。件数は **発火権限 (`reaction_workflow` = 管理職以上) を持つ社員の人数**で、
+ON かつ全 platform 合計 0 人は `no_authorized_users` として起動時・設定変更時に警告される。
+platform 別の件数と issue code も返すが user ID 自体は返さない。名簿が空でも allow-all にはならず、
+reaction workflow の ON/OFF にかかわらず platform 起点の spawn / delegation も拒否する
+(判定関数が未注入の場合も deny = fail-closed)。
 
 ---
 

@@ -148,33 +148,30 @@ MessageReactionAdd (discord.js)
 | env | 既定 | 意味 |
 |---|---|---|
 | `CONCORDIA_REACTION_WORKFLOW` | `0` (OFF) | `1` で実処理を起動。 OFF の間は記録のみ。 |
-| `CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS` | 空 (全拒否) | 実処理を発火できる Discord user ID。カンマ/空白/`;` 区切り。 |
-| `CONCORDIA_REACTION_WORKFLOW_SLACK_USERS` | 空 (全拒否) | 実処理を発火できる Slack user ID。カンマ/空白/`;` 区切り。 |
 | `CONCORDIA_REACTION_MODEL_HAIKU` | `haiku` | memoria-note / repo-memory に使うモデル別名。 |
 | `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task / enumerate-remaining / memoria-remaining / status-check に使うモデル別名。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | headless 1 回の timeout。 |
 
-error-autofix と同じく既定 OFF。ON にしてもプラットフォーム別 allowlist が空なら誰も発火できない。
+error-autofix と同じく既定 OFF。ON にしても社員名簿に管理職以上が居なければ誰も発火できない。
 対象メッセージ本文は「信頼できない外部データ」の区切り枠に入れてプロンプトへ渡す。
 dedup + fire-and-forget で記録経路を壊さない。
 
 **安全弁・写像は設定 GUI から編集可 (再起動なしで反映)**:
 - 安全弁 ON/OFF は AdminState (`schema_meta`) に永続化され、 runner が handle() ごとに live 評価する。
   `GET/PUT /v1/admin/reaction-workflow` / 設定ページ「リアクションWF」。 env はあくまで初期既定。
-- Discord / Slack の発火 allowlist も AdminState にプラットフォーム別に永続化する。PUT は
-  `discord_user_ids` / `slack_user_ids` の配列を受け取り、各項目は完全一致で照合する。GET/PUT 応答は
-  ID を返さず、`readiness.status`、合計件数、プラットフォーム別件数だけを返す。ON かつ合計 0 件は
-  `no_authorized_users` であり、設定変更時と起動時に警告ログを出す。空設定は常に全拒否のまま。
-  個別 ID の代わりに `*` (`REACTION_ALLOW_ALL_TOKEN`) を単独で保存すると、そのプラットフォームの
-  全ユーザーを許可する (`isReactionUserAllowed` が完全一致チェックの前に `*` の有無を見る)。
-  readiness はこれを `platforms.<platform>.allow_all: true` として返し、`no_authorized_users` 扱いに
-  しない。設定 GUI には platform ごとに「全員許可にする」ボタンがある。
+- **発火できるユーザは社員名簿 (`staff_members`) の役職で決まる。 allowlist はここには無い**
+  (`spec/feature/staff-roster.md`)。 `reaction_workflow` capability = 管理職以上。
+  `PUT /v1/admin/reaction-workflow` は `{ enabled }` のみ受ける (user ID 配列を送ると 400)。
+  GET/PUT 応答は ID を返さず、`readiness.status`、合計件数、プラットフォーム別件数
+  (= 発火権限を持つ社員の人数) だけを返す。 ON かつ合計 0 人は `no_authorized_users` で、
+  設定変更時と起動時に警告ログを出す。 役職の設定は WebUI `/staff` (社員ページ)。
+  旧 env `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` と `*` 全員許可トークンは廃止。
 - 絵文字→アクション写像はユーザが追加・上書きできる (既定は組み込み構成)。
   `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、
   `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で
   既定より優先される。
 
-`workspaceRoots` (Memoria 解決の基点、 複数可) と `github_org` は設定 GUI (Rules ページ / `/v1/admin/*`)
+`workspaceRoots` (Memoria 解決の基点、 複数可) と `github_org` は設定 GUI (設定ページ / `/v1/admin/*`)
 からも編集できる。 AdminState (`schema_meta` 永続化) が source of truth で、 未設定なら config
 (`CONCORDIA_WORKSPACE_ROOT` / `CONCORDIA_WORKSPACE_ROOTS` / `CONCORDIA_GITHUB_ORG`) 既定にフォールバック。
 複数ルートを設定した場合、 Memoria は実在する `<root>/Memoria` を採用する (先頭ルートを優先)。 変更は次の
@@ -196,8 +193,9 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 ## 5. 実装ファイル
 
 - `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック。
-- `src/shared/reaction-workflow-auth.ts` / `reaction-workflow-readiness.ts` — ID 完全一致の認可と、ID を露出しない稼働可視性。
-- `src/admin/state.ts` / `src/api/register-chat.ts` — allowlist の永続化、更新 API、readiness 応答。
+- `src/staff/roles.ts` / `src/db/staff-repo.ts` — 役職 → 権限の固定表と社員名簿 (認可の正本)。
+- `src/shared/reaction-workflow-readiness.ts` — ID を露出しない稼働可視性 (発火権限保持者の人数)。
+- `src/admin/state.ts` / `src/api/register-chat.ts` — 安全弁 ON/OFF の永続化、更新 API、readiness 応答。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
 - `src/discord/ingress.ts` / `src/slack/bot.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
@@ -205,7 +203,7 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 - `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
 - `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。
-- `src/bootstrap/core.ts` / `src/chat-worker.ts` — AdminState の enabled / allowlist を Discord/Slack 双方へ live 注入する。
+- `src/bootstrap/core.ts` / `src/chat-worker.ts` — AdminState の enabled と社員名簿の役職判定を Discord/Slack 双方へ live 注入する。
 - `src/platform/reaction-workflow.test.ts` — 写像 / plan の単体テスト。
 
 ## 6. 既知の制約 / TODO

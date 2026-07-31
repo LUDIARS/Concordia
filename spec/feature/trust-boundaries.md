@@ -21,10 +21,12 @@ where every admitted user is an administrator.
 
 Discord and Slack launch authorization happens at their authenticated platform
 adapters. Gateway / Socket Mode supplies the triggering platform user ID.
-Spawn and delegation require an exact match in the existing platform-specific
-AdminState allowlists (`discord_user_ids` / `slack_user_ids`). A missing ID,
-an empty allowlist, or a non-matching ID denies the launch. The reaction
-workflow switch does not bypass or disable this launch check.
+Spawn and delegation require that user ID to hold the `session_spawn`
+capability in the staff roster (`staff_members`, see
+[staff-roster.md](staff-roster.md)) — i.e. a role of 管理職 or above. A missing
+ID, an unregistered user, a lower role, or an uninjected permission checker
+denies the launch (fail-closed). The reaction workflow switch does not bypass
+or disable this launch check.
 
 Internal callers such as the delegation MCP server and chat worker use the
 loopback API directly. Caller-provided `triggered_by` metadata is correlation

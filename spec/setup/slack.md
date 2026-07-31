@@ -186,8 +186,10 @@ manifest で**作れないもの**は手動で残す:
    `{spawn:true, cwd, args(target_repo=作業ディレクトリ), extra_prompt=初回プロンプト}` で流す。
    結果(`✅ 委託起動: <call_name> pid=…`)は運用チャンネルに通知。
 
-spawn / delegation は Socket Mode payload の Slack user ID を AdminState の Slack exact
-allowlist と照合する。ID 欠落・不一致・空 allowlist は API 呼び出し前に拒否する。
+spawn / delegation と `/concordia end` は Socket Mode payload の Slack user ID を社員名簿
+(`staff_members`, platform=`slack`) の役職と照合する (いずれも管理職以上)。ID 欠落・未登録・
+役職不足・判定関数の未注入は API 呼び出し前に拒否する
+([staff-roster.md](../feature/staff-roster.md))。
 Workflow Builder の `function_executed` が actor ID を含まない構成では、workflow input の
 `user_id` を明示しなければ fail closed で起動しない。
 

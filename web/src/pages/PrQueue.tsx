@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtTs, type PrItem, type PrQueueResult } from "../api.js";
+import { RevisorSection } from "./prs/RevisorSection.js";
 
 // org の open PR をすべて表示する PR Queue ページ。
 // backend の /v1/prs (buildPrQueue) をそのまま使う。pr_records は full-sync が
@@ -108,6 +109,9 @@ export function PrQueue() {
       </p>
 
       {error && <div className="text-danger text-sm">load error: {error}</div>}
+
+      {/* Revisor (ローカル PR レビュー) は GitHub PR と別系統なので先頭に独立表示する。 */}
+      <RevisorSection />
 
       {data && (
         <div className="space-y-3">

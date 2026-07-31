@@ -3,7 +3,6 @@ import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
 import { SessionDetail } from "./pages/SessionDetail.js";
-import { Chat } from "./pages/Chat.js";
 import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
 import { SessionLogs } from "./pages/SessionLogs.js";
@@ -11,8 +10,8 @@ import { WsCleanup } from "./pages/WsCleanup.js";
 import { Library } from "./pages/Library.js";
 import { Setup } from "./pages/Setup.js";
 import { Skills } from "./pages/Skills.js";
-import { Rules } from "./pages/Rules.js";
 import { Delegation } from "./pages/Delegation.js";
+import { Staff } from "./pages/Staff.js";
 import { Manuals } from "./pages/Manuals.js";
 import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
@@ -26,16 +25,15 @@ const NAV: NavItem[] = [
   { to: "/work", label: "Work" },
   { to: "/taskflow", label: "Taskflow" },
   { to: "/prs", label: "PRs" },
-  { to: "/chat", label: "Chat" },
   { to: "/cost", label: "Cost" },
   { to: "/reports", label: "Reports" },
   { to: "/session-logs", label: "作業ログ" },
   { to: "/skills", label: "Skills" },
-  { to: "/rules", label: "Rules" },
   { to: "/ws-cleanup", label: "整理" },
   { to: "/library", label: "記憶整理" },
   { to: "/delegation", label: "Delegation" },
   { to: "/manuals", label: "マニュアル" },
+  { to: "/staff", label: "社員" },
   { to: "/subsidiaries", label: "子会社" },
   { to: "/federation", label: "拠点" },
   { to: "/setup", label: "Setup" },
@@ -60,17 +58,16 @@ export function App() {
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions/:id" element={<SessionDetail />} />
-          <Route path="/chat" element={<Chat />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportView />} />
           <Route path="/session-logs" element={<SessionLogs />} />
           <Route path="/skills" element={<Skills />} />
-          <Route path="/rules" element={<Rules />} />
           <Route path="/cost" element={<CostFeed />} />
           <Route path="/ws-cleanup" element={<WsCleanup />} />
           <Route path="/library" element={<Library />} />
           <Route path="/delegation" element={<Delegation />} />
           <Route path="/manuals" element={<Manuals />} />
+          <Route path="/staff" element={<Staff />} />
           <Route path="/subsidiaries" element={<Subsidiaries />} />
           <Route path="/federation" element={<Federation />} />
           <Route path="/setup" element={<Setup />} />

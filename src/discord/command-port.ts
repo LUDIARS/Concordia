@@ -18,8 +18,16 @@ export interface DiscordCommandDeps {
   permissionActions?: PermissionActionStore;
   resolveWorkspaceRoots?: () => string[];
   subsidiaryId?: string | null;
-  /** Exact Discord user ID authorization for spawn/delegation launch surfaces. */
+  /**
+   * 社員名簿 (staff_members) の役職に基づく権限判定。 いずれも未注入なら deny 側に倒す
+   * (fail-closed) — 名簿が配線されていない環境で権限操作を通すべきではない。
+   */
+  /** セッションの spawn (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** セッションの end-session (管理職以上)。 */
+  isSessionEndUserAllowed?: (userId: string) => boolean;
+  /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
+  isKillSwitchUserAllowed?: (userId: string) => boolean;
 }
 
 export interface DiscordCommandSpec {

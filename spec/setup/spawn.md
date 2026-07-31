@@ -1,7 +1,7 @@
 ---
 type: setup
 title: "セッション管制 (spawn) の設定 (spawn)"
-description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。repository token 認証の外部エンドポイント (`/v1/spawn`) と loopback 内部エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、platform user allowlist・MCP delegation・既定 cwd の解決順も網羅する。"
+description: "Concordia から Claude Code / Codex / Gemini セッションを Windows Terminal タブ/ウィンドウとして起動するスポーン機能の設定ガイド。repository token 認証の外部エンドポイント (`/v1/spawn`) と loopback 内部エンドポイント (`/v1/admin/spawn-session`) の 2 系統を解説し、社員名簿 (役職) による platform user 認可・MCP delegation・既定 cwd の解決順も網羅する。"
 service: concordia
 domain: session-coordination
 tags:
@@ -118,13 +118,13 @@ MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](
 3. 呼び出し:
    - Web UI: `POST /v1/admin/spawn-session` (token 不要)
    - 外部: `GET /v1/spawn/info` で token パスを得て読み、 `POST /v1/spawn` に Bearer 付与
-   - Discord / Slack: platform が認証した user ID を exact allowlist で照合後、内部 API を呼ぶ
+   - Discord / Slack: platform が認証した user ID の役職 (社員名簿 / 管理職以上) を確認後、内部 API を呼ぶ
 ## 注意点
 
 - **Windows 専用**: `wt.exe` 起動なので非 Windows では spawn できない (`GET /v1/spawn/info` の `platform_supported` が false)。
 - **token は機密**: `.spawn.token` は cwd 直下。 `.gitignore` 済。 値を共有しない。 壊れた (64-hex でない) ファイルは自動 rotate される。
 - **内部 API を直接公開しない**: `CONCORDIA_HOST` は loopback に固定し、Web は AccessControl 経由、
-  Discord / Slack は platform user ID allowlist 経由で起動する。
+  Discord / Slack は社員名簿の役職判定 ([staff-roster](../feature/staff-roster.md)) 経由で起動する。
 - **Tauri / window 起動の落とし穴**: lictor-wrapped GUI を起動するケースでは、 親終了で window が落ちる問題に注意 (memory: feedback_tauri_launch_powershell)。
 
 ## トラブルシュート

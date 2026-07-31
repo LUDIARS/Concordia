@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 43;
+export const SCHEMA_VERSION = 44;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1173,4 +1173,80 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         ON federation_outbox(site_id, seq);
     `);
   },
+}, {
+  version: 44,
+  name: "staff-roster-permissions",
+  source: "staff_members v1 + reaction allowlist migration",
+  up(db) {
+    // 社員名簿 = 役職権限登録リスト。 LLM に触れた platform ユーザを記録し、 役職で
+    // 権限を決める (spec/feature/staff-roster.md)。 リアクションWF 側の allowlist を
+    // 廃してここを唯一の判定源にする。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS staff_members (
+        platform         TEXT    NOT NULL,               -- discord | slack
+        platform_user_id TEXT    NOT NULL,
+        display_name     TEXT    NOT NULL DEFAULT '',    -- global name / username
+        profile_name     TEXT    NOT NULL DEFAULT '',    -- サーバーでのプロファイル名
+        role             TEXT    NOT NULL DEFAULT 'staff', -- staff | manager | executive
+        note             TEXT    NOT NULL DEFAULT '',
+        first_seen_at    INTEGER NOT NULL,
+        last_seen_at     INTEGER NOT NULL,
+        updated_at       INTEGER NOT NULL,
+        PRIMARY KEY (platform, platform_user_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_staff_members_role
+        ON staff_members(role, last_seen_at DESC);
+    `);
+    migrateReactionAllowlistToStaff(db);
+  },
 }];
+
+/**
+ * 旧 allowlist (admin.reaction_workflow_{discord,slack}_users) の ID を「管理職」として
+ * 名簿へ移す。 これが無いと移行直後に spawn 権限を持つ人間が 0 人になる。
+ *
+ * AdminState に永続値が無い環境 (GUI を一度も触らず、 廃止 env
+ * `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` だけで運用していた場合) は、 その env を
+ * 最後のフォールバックとして同じ扱いで取り込む。 env は移行後は読まれないので、 ここで拾わないと
+ * アップグレードした瞬間に spawn / 発火できる人間が居なくなる。
+ *
+ * `*` (全員許可トークン) は役職に翻訳できないので捨てる — 移行後は名簿が唯一の判定源で、
+ * 「全員許可」に相当する状態を残すと権限モデルが最初から無意味になるため。
+ */
+function migrateReactionAllowlistToStaff(db: Database.Database): void {
+  const now = Date.now();
+  const insert = db.prepare(`
+    INSERT INTO staff_members(
+      platform, platform_user_id, display_name, profile_name,
+      role, note, first_seen_at, last_seen_at, updated_at
+    )
+    VALUES (?, ?, '', '', 'manager', ?, ?, ?, ?)
+    ON CONFLICT(platform, platform_user_id) DO NOTHING
+  `);
+  const note = "旧リアクションWF allowlist から移行 (管理職)";
+  for (const [platform, key, envKey] of [
+    ["discord", "admin.reaction_workflow_discord_users", "CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS"],
+    ["slack", "admin.reaction_workflow_slack_users", "CONCORDIA_REACTION_WORKFLOW_SLACK_USERS"],
+  ] as const) {
+    const raw = (db.prepare(`SELECT value FROM schema_meta WHERE key = ?`).get(key) as
+      | { value: string }
+      | undefined)?.value;
+    let ids: string[];
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        ids = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+      } catch {
+        continue;
+      }
+    } else {
+      // 旧 env の区切りは カンマ / 空白 / `;` (廃止した parseReactionUserAllowlist と同じ)。
+      ids = (process.env[envKey] ?? "").split(/[\s,;]+/);
+    }
+    for (const id of ids) {
+      const userId = id.trim();
+      if (!userId || userId === "*") continue;
+      insert.run(platform, userId, note, now, now, now);
+    }
+  }
+}

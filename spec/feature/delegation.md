@@ -164,7 +164,7 @@ spawn は token-free・Delegation CRUD だけ token 必須という非対称が�
 - `delegation_invoke` — `{ call_name, args, cwd?, triggered_by? }` で resolve + spawn、 結果を返す
 
 Concordia loopback (デフォルト http://127.0.0.1:11111) に対して token なしで HTTP fetch。
-外部公開はせず、platform 起点は Discord / Slack adapter 側で user ID allowlist を検証する。
+外部公開はせず、platform 起点は Discord / Slack adapter 側で社員名簿の役職 (管理職以上) を検証する。
 
 ## 7. CLI skill
 

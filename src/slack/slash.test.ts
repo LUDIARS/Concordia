@@ -13,6 +13,7 @@ const authorizedDeps = {
   concordiaUrl: "http://127.0.0.1:1",
   actorUserId: "U-allowed",
   isLaunchUserAllowed: (userId: string) => userId === "U-allowed",
+  isSessionEndUserAllowed: (userId: string) => userId === "U-allowed",
 };
 
 describe("runSlackSlash 早期バリデーション (ネットワーク前)", () => {
@@ -92,6 +93,27 @@ describe("invokeDelegation launch authorization", () => {
       { call_name: "impl", args: {} },
     );
     expect(out).toContain("起動権限がありません");
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+// `/concordia end` は Discord `/end-session` と同じ session_end capability を引く。
+// ここが抜けると Slack 側からだけ誰でもセッションを落とせる (spec/feature/staff-roster.md §3)。
+describe("runSlackSlash end-session authorization", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  it("denies end for a user without the session_end capability", async () => {
+    const f = vi.spyOn(globalThis, "fetch");
+    const out = await runSlackSlash({ ...authorizedDeps, actorUserId: "U-denied" }, "end ab12cd34");
+    expect(out).toContain("セッション終了権限がありません");
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("denies end when no checker is injected (fail-closed)", async () => {
+    const f = vi.spyOn(globalThis, "fetch");
+    const { isSessionEndUserAllowed: _omitted, ...deps } = authorizedDeps;
+    const out = await runSlackSlash(deps, "end ab12cd34");
+    expect(out).toContain("セッション終了権限がありません");
     expect(f).not.toHaveBeenCalled();
   });
 });

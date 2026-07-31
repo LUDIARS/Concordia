@@ -55,8 +55,10 @@ export interface ReactionsDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
-  /** Workflow execution is deny-by-default and requires an exact platform user ID match. */
+  /** 発火は deny-by-default。 社員名簿の役職 (管理職以上) で判定する。 */
   isWorkflowUserAllowed?: (userId: string) => boolean;
+  /** リアクションした Discord ユーザを社員名簿へ記録する。 */
+  recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
   sessionChannels?: DiscordSessionChannelsRepo;
   sessions?: SessionLookup;
@@ -82,6 +84,13 @@ export async function handleReactionAdd(
   }
   const emoji = r.emoji.name ?? r.emoji.toString();
   if (!emoji) return;
+
+  // リアクションも「指示」= LLM への入口なので、 押した人を社員名簿へ記録する。
+  // 権限が無くて弾かれた人も名簿に残り、 WebUI で役職を付けられるようにする。
+  deps.recordStaffAccess?.({
+    userId: user.id,
+    displayName: ("globalName" in user ? user.globalName?.trim() : "") || user.username?.trim() || "",
+  });
 
   // メッセージ本文をプラットフォームから取得 (partial なら fetch)。 取れなくても
   // 残作業系 WF は本文不要なので続行する。

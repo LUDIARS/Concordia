@@ -84,7 +84,7 @@ Concordia backend (loopback HTTP) を立ち上げ、 複数 AI セッション�
 ## runtime 切替 (kill switch)
 
 chat 投稿 / rule engine は **env ではなく runtime のスイッチ**で制御する (再起動不要)。 値は
-`schema_meta` テーブルに永続化され、 Web UI の **Rules ページ** または admin API から切り替える
+`schema_meta` テーブルに永続化され、 Web UI の **設定ページ** または admin API から切り替える
 (`src/admin/state.ts`)。 **どちらも既定は OFF 寄り**なので、 入れたてのサービスは静かに立つ。
 
 | スイッチ | 既定 | 効果 | admin API |

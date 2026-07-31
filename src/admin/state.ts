@@ -35,10 +35,7 @@ export class AdminState {
   setGithubOrg(value: string): void { this.workspace.setGithubOrg(value); }
   getReactionWorkflowEnabled(): boolean { return this.workflow.getReactionEnabled(); }
   setReactionWorkflowEnabled(value: boolean): void { this.workflow.setReactionEnabled(value); }
-  getReactionWorkflowDiscordUserIds(): string[] { return this.workflow.getDiscordUsers(); }
-  setReactionWorkflowDiscordUserIds(ids: readonly string[]): void { this.workflow.setDiscordUsers(ids); }
-  getReactionWorkflowSlackUserIds(): string[] { return this.workflow.getSlackUsers(); }
-  setReactionWorkflowSlackUserIds(ids: readonly string[]): void { this.workflow.setSlackUsers(ids); }
+  // 発火ユーザの allowlist は撤去済み (社員名簿 staff_members が判定の正本)。
   getRevisorAutoSubmitEnabled(): boolean { return this.workflow.getRevisorAutoSubmitEnabled(); }
   setRevisorAutoSubmitEnabled(value: boolean): void { this.workflow.setRevisorAutoSubmitEnabled(value); }
   getCcWorkflowEnabled(): boolean { return this.workflow.getCcEnabled(); }

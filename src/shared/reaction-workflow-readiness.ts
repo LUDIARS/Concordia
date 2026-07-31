@@ -1,4 +1,10 @@
-import { isReactionAllowAll, normalizeReactionUserIds, type ReactionUserAllowlistInput } from "./reaction-workflow-auth.js";
+/**
+ * リアクションワークフローの発火可能性スナップショット。
+ *
+ * 「誰が発火できるか」 は社員名簿 (staff_members) の役職で決まるため、 ここは
+ * platform ごとの「発火権限を持つ社員 (管理職以上) の人数」 だけを受け取る。
+ * 旧 allowlist / 全員許可トークンは廃止済み (spec/feature/staff-roster.md §4)。
+ */
 
 export type ReactionWorkflowReadinessStatus = "disabled" | "ready" | "no_authorized_users";
 export type ReactionWorkflowReadinessIssue =
@@ -9,8 +15,8 @@ export interface ReactionWorkflowReadiness {
   status: ReactionWorkflowReadinessStatus;
   authorized_user_count: number;
   platforms: {
-    discord: { authorized_user_count: number; allow_all: boolean };
-    slack: { authorized_user_count: number; allow_all: boolean };
+    discord: { authorized_user_count: number };
+    slack: { authorized_user_count: number };
   };
   issues: ReactionWorkflowReadinessIssue[];
 }
@@ -18,29 +24,26 @@ export interface ReactionWorkflowReadiness {
 /** Build a non-sensitive readiness snapshot. User IDs are deliberately omitted. */
 export function getReactionWorkflowReadiness(input: {
   enabled: boolean;
-  discordUserIds: ReactionUserAllowlistInput;
-  slackUserIds: ReactionUserAllowlistInput;
+  /** 発火権限 (reaction_workflow) を持つ Discord 社員の人数。 */
+  discordAuthorizedCount: number;
+  /** 発火権限を持つ Slack 社員の人数。 */
+  slackAuthorizedCount: number;
 }): ReactionWorkflowReadiness {
-  const discordCount = normalizeReactionUserIds(input.discordUserIds).length;
-  const slackCount = normalizeReactionUserIds(input.slackUserIds).length;
-  const discordAllowAll = isReactionAllowAll(input.discordUserIds);
-  const slackAllowAll = isReactionAllowAll(input.slackUserIds);
-  const discordReady = discordAllowAll || discordCount > 0;
-  const slackReady = slackAllowAll || slackCount > 0;
-  const authorizedUserCount = discordCount + slackCount;
+  const discordCount = Math.max(0, Math.trunc(input.discordAuthorizedCount));
+  const slackCount = Math.max(0, Math.trunc(input.slackAuthorizedCount));
   const issues: ReactionWorkflowReadinessIssue[] = [];
 
-  if (input.enabled && !discordReady) issues.push("discord_no_authorized_users");
-  if (input.enabled && !slackReady) issues.push("slack_no_authorized_users");
+  if (input.enabled && discordCount === 0) issues.push("discord_no_authorized_users");
+  if (input.enabled && slackCount === 0) issues.push("slack_no_authorized_users");
 
   return {
     status: input.enabled
-      ? ((discordReady || slackReady) ? "ready" : "no_authorized_users")
+      ? ((discordCount > 0 || slackCount > 0) ? "ready" : "no_authorized_users")
       : "disabled",
-    authorized_user_count: authorizedUserCount,
+    authorized_user_count: discordCount + slackCount,
     platforms: {
-      discord: { authorized_user_count: discordCount, allow_all: discordAllowAll },
-      slack: { authorized_user_count: slackCount, allow_all: slackAllowAll },
+      discord: { authorized_user_count: discordCount },
+      slack: { authorized_user_count: slackCount },
     },
     issues,
   };

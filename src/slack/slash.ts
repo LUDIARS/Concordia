@@ -9,14 +9,27 @@ import type { DelegationTemplateLite } from "./delegation-modal.js";
 export interface SlashDeps {
   concordiaUrl: string;
   actorUserId?: string;
+  /** 社員名簿の役職に基づく spawn 権限判定 (管理職以上)。 未注入は deny (fail-closed)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** 同じく end-session 権限 (管理職以上)。 未注入は deny (fail-closed)。 */
+  isSessionEndUserAllowed?: (userId: string) => boolean;
 }
 
-const LAUNCH_DENIED = "このユーザーにはセッション起動権限がありません。";
+const LAUNCH_DENIED = "このユーザーにはセッション起動権限がありません (管理職以上が必要)。";
+const SESSION_END_DENIED = "このユーザーにはセッション終了権限がありません (管理職以上が必要)。";
 
 export function isSlackLaunchAuthorized(deps: SlashDeps): boolean {
   const userId = deps.actorUserId?.trim() ?? "";
   return userId.length > 0 && deps.isLaunchUserAllowed?.(userId) === true;
+}
+
+/**
+ * `/concordia end` の認可。 Discord の `/end-session` と同じ `session_end` capability を
+ * 引く — platform で権限モデルがずれると、 片方から誰でもセッションを落とせてしまう。
+ */
+export function isSlackSessionEndAuthorized(deps: SlashDeps): boolean {
+  const userId = deps.actorUserId?.trim() ?? "";
+  return userId.length > 0 && deps.isSessionEndUserAllowed?.(userId) === true;
 }
 
 /** stat の enriched item（必要フィールドだけ緩く拾う）。 */
@@ -138,6 +151,7 @@ async function doSpawn(deps: SlashDeps, args: string): Promise<string> {
 
 /** `/concordia end <sid8>` — session_id 先頭一致で 1 件に解決して DELETE。 */
 async function doEnd(deps: SlashDeps, args: string): Promise<string> {
+  if (!isSlackSessionEndAuthorized(deps)) return SESSION_END_DENIED;
   const prefix = args.trim().split(/\s+/)[0] ?? "";
   if (prefix.length < 4) return "session_id の先頭 4 桁以上を指定してください。例: `/concordia end ab12cd34`";
   const listRes = await fetch(`${deps.concordiaUrl}/v1/sessions?status=active`);

@@ -107,18 +107,6 @@ export interface SessionEvent {
   payload: any;
 }
 
-export interface ChatMessage {
-  id: number;
-  channel: "chitchat" | "consultation" | "system" | "報告";
-  session_id: string | null;
-  author_label: string;
-  ts: number;
-  text: string;
-  in_reply_to: number | null;
-  is_actionable: boolean;
-  metadata?: Record<string, unknown> | null;
-}
-
 export interface MonitorPayload {
   active: SessionRow[];
   lost: SessionRow[];
@@ -769,19 +757,7 @@ export const api = {
       next_since_id: number;
     }>(`/v1/sessions/${encodeURIComponent(id)}/transcript${qstr ? `?${qstr}` : ""}`);
   },
-  chatList: (channel?: string, limit = 50) =>
-    get<{ messages: ChatMessage[] }>(
-      `/v1/chat${channel ? `?channel=${channel}&limit=${limit}` : `?limit=${limit}`}`,
-    ),
-  chatPost: (body: {
-    channel: string;
-    text: string;
-    author_label: string;
-    in_reply_to?: number | null;
-    session_id?: string | null;
-    scope?: "world" | "local";
-  }) =>
-    post<{ message: ChatMessage }>("/v1/chat", { session_id: null, ...body }),
+  // /v1/chat の client は Chat ページ削除に伴い撤去した (backend は無変更で稼働中)。
   workRepos: () => get<{ root: string; roots: string[]; repos: RepoStatus[] }>("/v1/work/repos"),
   prsQueue: (repo?: string, author?: string) => {
     const q = new URLSearchParams();
@@ -862,6 +838,29 @@ export const api = {
   harnessRuleDelete: (id: string) =>
     del<{ ok: boolean; error?: string }>(`/v1/harness-rules/${encodeURIComponent(id)}`),
 
+  // ── 社員名簿 (役職権限登録リスト) ──
+  staffList: () => get<StaffListResult>("/v1/staff"),
+  staffCreate: (body: {
+    platform: StaffPlatform;
+    platform_user_id: string;
+    role: StaffRole;
+    display_name?: string;
+    note?: string;
+  }) => post<{ member: StaffMember }>("/v1/staff", body),
+  staffUpdate: (
+    platform: StaffPlatform,
+    userId: string,
+    body: { role?: StaffRole; note?: string },
+  ) => patch<{ member: StaffMember }>(
+    `/v1/staff/${platform}/${encodeURIComponent(userId)}`,
+    body,
+  ),
+  staffDelete: (platform: StaffPlatform, userId: string) =>
+    del<{ ok: boolean }>(`/v1/staff/${platform}/${encodeURIComponent(userId)}`),
+
+  // ── Revisor (ローカル PR レビューサービス) の local PR ──
+  prsRevisor: () => get<RevisorLocalPrsResult>("/v1/prs/revisor"),
+
   // ── kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル) ──
   injectManualsList: () => get<{ manuals: InjectManual[] }>("/v1/admin/inject-manuals"),
   injectManualUpdate: (kind: string, content: string) =>
@@ -915,6 +914,82 @@ export const api = {
   subsidiaryUnlock: (id: string, platform: string, userId: string) =>
     del<{ ok: boolean }>(`/v1/subsidiaries/${encodeURIComponent(id)}/locks/${encodeURIComponent(platform)}/${encodeURIComponent(userId)}`),
 };
+
+// ─── 社員名簿 (役職権限登録リスト) ───────────────────────────────────────────
+// backend `src/staff/roles.ts` の StaffRole / StaffCapability と対応する。
+// 役職を追加するときは backend を同時に更新する (固定語彙)。
+
+export type StaffPlatform = "discord" | "slack";
+export type StaffRole = "staff" | "manager" | "executive";
+export type StaffCapability =
+  | "converse"
+  | "reaction_workflow"
+  | "session_spawn"
+  | "session_end"
+  | "kill_switch";
+
+export interface StaffMember {
+  platform: StaffPlatform;
+  platform_user_id: string;
+  display_name: string;
+  /** サーバーでのプロファイル名 (Discord の guild nickname)。 空なら未取得。 */
+  profile_name: string;
+  role: StaffRole;
+  note: string;
+  first_seen_at: number;
+  last_seen_at: number;
+  updated_at: number;
+}
+
+export interface StaffListResult {
+  members: StaffMember[];
+  counts: Record<StaffPlatform, Record<StaffRole, number>>;
+  /** 執行役員が 1 人も居ない = キルスイッチを誰も踏めない状態。 */
+  has_executive: boolean;
+  roles: Array<{
+    role: StaffRole;
+    label: string;
+    capabilities: Array<{ capability: StaffCapability; label: string }>;
+  }>;
+  capabilities: Array<{
+    capability: StaffCapability;
+    label: string;
+    min_role: StaffRole;
+    min_role_label: string;
+  }>;
+}
+
+/** Revisor local PR (GET /v1/prs/revisor)。 Revisor 側の camelCase をそのまま受ける。 */
+export interface RevisorLocalPr {
+  id: string;
+  number: number;
+  repository: string;
+  title: string;
+  author: string;
+  status: string;
+  checkStatus: string;
+  draft?: boolean;
+  headRef: string;
+  baseRef: string;
+  headSha: string;
+  reviewedHeadSha?: string | null;
+  reviewer?: string | null;
+  labels?: string[];
+  reasons?: string[];
+  advisories?: string[];
+  humanQuestion?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RevisorLocalPrsResult {
+  /** CONCORDIA_REVISOR_TOKEN 未設定なら false (Revisor 連携が無効)。 */
+  configured: boolean;
+  /** Revisor WebUI の base URL (loopback)。 到達不能なら null。 */
+  base_url: string | null;
+  pull_requests: RevisorLocalPr[];
+  error: string | null;
+}
 
 /** kind 別 Inject マニュアル (GET/PUT /v1/admin/inject-manuals)。 */
 export interface InjectManual {

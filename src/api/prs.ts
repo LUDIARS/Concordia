@@ -13,6 +13,10 @@
  *  GET /v1/prs/list?state=&repo=&author=&limit=
  *    生の pr_records 行を filter して返す (デバッグ / 詳細閲覧用).
  *
+ *  GET /v1/prs/revisor
+ *    Revisor (ローカル PR レビューサービス) の local PR 一覧を代理取得する
+ *    ({ configured, base_url, pull_requests, error })。 GitHub PR とは別系統.
+ *
  * 認証は loopback 想定で無し (他 /v1 と同じ).
  */
 
@@ -20,9 +24,12 @@ import { Hono } from "hono";
 import type { PrRecordsRepo, PrState } from "../db/pr-records-repo.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
+import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
 
 export interface PrsApiDeps {
   prs: PrRecordsRepo;
+  /** Revisor local PR の読み取り口。 未注入なら /v1/prs/revisor は configured=false。 */
+  revisor?: RevisorLocalPrReader;
   /**
    * session の作業ブランチを Revisor の local PR として提出する。 未注入なら
    * POST /v1/prs/local は生えない (レビュー発火なしの構成)。
@@ -70,6 +77,34 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   app.get("/digest", (c) => {
     const q = buildPrQueue(deps.prs);
     return c.json({ markdown: renderPrQueueMarkdown(q) });
+  });
+
+  /**
+   * GET /v1/prs/revisor — Revisor (ローカル PR レビューサービス) の local PR 一覧。
+   *
+   * GitHub の PR とは別系統 (ローカルクローン上のブランチをレビューする仕組み) なので
+   * queue には混ぜず、 独立したセクションとして返す。 Revisor 未設定 / 停止中は
+   * configured=false ないし error を返し、 PRs ページは GitHub 側だけ描く。
+   */
+  app.get("/revisor", async (c) => {
+    if (!deps.revisor) {
+      return c.json({ configured: false, base_url: null, pull_requests: [], error: null });
+    }
+    try {
+      const [pullRequests, baseUrl] = await Promise.all([
+        deps.revisor.listLocalPrs(),
+        deps.revisor.baseUrl(),
+      ]);
+      return c.json({ configured: true, base_url: baseUrl, pull_requests: pullRequests, error: null });
+    } catch (error) {
+      // Revisor が落ちていても PRs ページ自体は開けるべきなので 200 + error で返す。
+      return c.json({
+        configured: true,
+        base_url: null,
+        pull_requests: [],
+        error: error instanceof Error ? error.message : "Revisor request failed",
+      });
+    }
   });
 
   /**

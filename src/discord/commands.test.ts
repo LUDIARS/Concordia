@@ -71,4 +71,71 @@ describe("Discord command registration", () => {
       ephemeral: true,
     }));
   });
+
+  // 社員名簿の役職ゲート (spec/feature/staff-roster.md §3)。 capability ごとに別の判定関数を
+  // 引くこと、 未注入なら deny (fail-closed) になることを固定する。
+  const slash = (commandName: string, userId: string, reply: () => Promise<undefined>) => ({
+    type: 2,
+    commandName,
+    user: { id: userId },
+    isAutocomplete: () => false,
+    isRepliable: () => true,
+    isChatInputCommand: () => true,
+    isButton: () => false,
+    isModalSubmit: () => false,
+    isStringSelectMenu: () => false,
+    reply,
+  });
+
+  it.each([
+    { commandName: "end-session", deny: "セッション終了権限がありません" },
+    { commandName: "ex-run", deny: "サービス操作権限がありません" },
+    { commandName: "ex-reboot", deny: "サービス操作権限がありません" },
+  ])("denies /$commandName when only spawn permission is granted", async ({ commandName, deny }) => {
+    const reply = vi.fn(async () => undefined);
+    await dispatchInteraction(slash(commandName, "discord-allowed", reply) as never, {
+      // spawn だけ許可された 管理職 相当。 end-session / キルスイッチは別 capability。
+      isLaunchUserAllowed: () => true,
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining(deny),
+      ephemeral: true,
+    }));
+  });
+
+  it("denies the kill switch for 管理職 and allows it only for 執行役員 checks", async () => {
+    const denied = vi.fn(async () => undefined);
+    await dispatchInteraction(slash("ex-run", "manager", denied) as never, {
+      isSessionEndUserAllowed: () => true,
+      isKillSwitchUserAllowed: (id: string) => id === "executive",
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(denied).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("執行役員のみ"),
+    }));
+  });
+
+  it("denies privileged control-panel selects when no checker is injected (fail-closed)", async () => {
+    const reply = vi.fn(async () => undefined);
+    const interaction = {
+      type: 3,
+      customId: "ctrl:end-session:pick",
+      user: { id: "discord-allowed" },
+      isAutocomplete: () => false,
+      isRepliable: () => true,
+      isChatInputCommand: () => false,
+      isButton: () => false,
+      isModalSubmit: () => false,
+      isStringSelectMenu: () => true,
+      reply,
+    };
+    await dispatchInteraction(interaction as never, {
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("セッション終了権限がありません"),
+      ephemeral: true,
+    }));
+  });
 });

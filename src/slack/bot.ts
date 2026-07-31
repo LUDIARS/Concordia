@@ -110,10 +110,14 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
-  /** Exact Slack user ID allowlist check for permission-skipping reaction workflows. */
+  /** 社員名簿 (staff_members) の役職に基づく発火権限判定 (管理職以上)。 */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
-  /** Exact Slack user ID allowlist check for session spawn/delegation launches. */
+  /** 社員名簿 (staff_members) の役職に基づく spawn 権限判定 (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /** 同じく end-session 権限判定 (管理職以上)。 Discord `/end-session` と同じ capability。 */
+  isSessionEndUserAllowed?: (userId: string) => boolean;
+  /** LLM に届く発言をした Slack ユーザを社員名簿へ記録する。 */
+  recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
@@ -157,6 +161,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     concordiaUrl: deps.concordiaUrl,
     actorUserId,
     isLaunchUserAllowed: deps.isLaunchUserAllowed,
+    isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
   });
 
   // リアクションワークフロー (👍=実装着手 / 📝=タスク登録 等)。Discord と同じ
@@ -550,6 +555,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       const text = (event.text ?? "").trim();
       if (!text || text.startsWith("//")) return;
 
+      // ここから先は LLM に届く経路。 発言者を社員名簿へ記録する (Discord ingress と同じ)。
+      // Slack は guild nickname に相当する値がイベントに無いので user ID のみ記録し、
+      // 表示名は WebUI で補える扱いにする。
+      if (event.user) deps.recordStaffAccess?.({ userId: event.user });
+
       // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
       // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
       const reactionRoute = classifyReactionIngress({
@@ -864,6 +874,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       if (!reactionWorkflow) return;
       if (!event || event.item?.type !== "message") return;
       if (botUserId && event.user === botUserId) return; // bot 自身のリアクションは無視
+      if (event.user) deps.recordStaffAccess?.({ userId: event.user });
       if (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user)) {
         log.info(`reaction_added ignored unauthorized user=${event.user ?? "-"}`);
         return;

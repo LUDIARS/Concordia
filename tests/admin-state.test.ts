@@ -100,24 +100,8 @@ describe("AdminState", () => {
     expect(new AdminState(env.db, { reactionWorkflowEnabled: true }).getReactionWorkflowEnabled()).toBe(false);
   });
 
-  it("reaction workflow allowlists default, normalize, and persist independently", () => {
-    const withDefaults = new AdminState(env.db, {
-      reactionWorkflowDiscordUserIds: ["discord-default"],
-      reactionWorkflowSlackUserIds: ["slack-default"],
-    });
-    expect(withDefaults.getReactionWorkflowDiscordUserIds()).toEqual(["discord-default"]);
-    expect(withDefaults.getReactionWorkflowSlackUserIds()).toEqual(["slack-default"]);
-
-    withDefaults.setReactionWorkflowDiscordUserIds([" discord-operator ", "discord-operator"]);
-    withDefaults.setReactionWorkflowSlackUserIds([]);
-
-    const persisted = new AdminState(env.db, {
-      reactionWorkflowDiscordUserIds: ["ignored-default"],
-      reactionWorkflowSlackUserIds: ["ignored-default"],
-    });
-    expect(persisted.getReactionWorkflowDiscordUserIds()).toEqual(["discord-operator"]);
-    expect(persisted.getReactionWorkflowSlackUserIds()).toEqual([]);
-  });
+  // 発火ユーザの allowlist は AdminState から撤去済み (社員名簿 staff_members が正本)。
+  // 権限判定の回帰テストは tests/staff-api.test.ts と src/staff/roles.test.ts が担う。
 
   it("cc_workflow_enabled defaults from constructor + round-trips", () => {
     expect(env.state.getCcWorkflowEnabled()).toBe(false);

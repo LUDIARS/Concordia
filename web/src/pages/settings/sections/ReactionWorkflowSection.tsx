@@ -4,6 +4,7 @@
 // AdminTogglesPanel から移設。reaction-workflow / workspace / Lictor は新規。
 
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ToggleRow, putJson } from "./common.js";
 
@@ -22,9 +23,10 @@ interface ReactionWorkflowStatus {
   readiness: {
     status: "disabled" | "ready" | "no_authorized_users";
     authorized_user_count: number;
+    // 人数は社員名簿 (管理職以上) の集計。 allowlist は廃止済み。
     platforms: {
-      discord: { authorized_user_count: number; allow_all: boolean };
-      slack: { authorized_user_count: number; allow_all: boolean };
+      discord: { authorized_user_count: number };
+      slack: { authorized_user_count: number };
     };
     issues: Array<"discord_no_authorized_users" | "slack_no_authorized_users">;
   };
@@ -38,8 +40,6 @@ export function ReactionWorkflowSection() {
   const [error, setError] = useState<string | null>(null);
   const [newEmoji, setNewEmoji] = useState("");
   const [newAction, setNewAction] = useState("");
-  const [discordUserIds, setDiscordUserIds] = useState("");
-  const [slackUserIds, setSlackUserIds] = useState("");
 
   useEffect(() => { void refresh(); }, []);
 
@@ -62,21 +62,6 @@ export function ReactionWorkflowSection() {
     setBusy("toggle"); setError(null);
     try { await putJson("/v1/admin/reaction-workflow", { enabled: v }); await refresh(); }
     catch (err) { setError((err as Error).message); } finally { setBusy(null); }
-  }
-
-  async function saveAllowlist(platform: "discord" | "slack", overrideIds?: string[]) {
-    const raw = platform === "discord" ? discordUserIds : slackUserIds;
-    const userIds = overrideIds
-      ?? [...new Set(raw.split(/[\s,;]+/).map((value) => value.trim()).filter(Boolean))];
-    setBusy(`${platform}-users`); setError(null);
-    try {
-      await putJson("/v1/admin/reaction-workflow", {
-        [platform === "discord" ? "discord_user_ids" : "slack_user_ids"]: userIds,
-      });
-      if (platform === "discord") setDiscordUserIds("");
-      else setSlackUserIds("");
-      await refresh();
-    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
   async function addMapping() {
@@ -143,7 +128,8 @@ export function ReactionWorkflowSection() {
         <div className="border border-danger bg-danger/10 text-danger rounded p-3 text-xs">
           <div className="font-semibold">実行可能ユーザーなし</div>
           <div className="mt-1">
-            ワークフローは ON ですが Discord / Slack の許可ユーザーが空のため、すべての発火を拒否します。
+            ワークフローは ON ですが、 発火権限を持つ社員 (管理職以上) が 1 人も居ないため
+            すべての発火を拒否します。 社員ページで役職を設定してください。
           </div>
         </div>
       )}
@@ -152,65 +138,29 @@ export function ReactionWorkflowSection() {
         <div className="border border-accent bg-accent/10 text-accent rounded p-3 text-xs">
           <div className="font-semibold">一部 platform に実行可能ユーザーがいません</div>
           <div className="mt-1">
-            {readiness.issues.includes("discord_no_authorized_users") && "Discord allowlist が空です。 "}
-            {readiness.issues.includes("slack_no_authorized_users") && "Slack allowlist が空です。"}
+            {readiness.issues.includes("discord_no_authorized_users") && "Discord に管理職以上の社員が居ません。 "}
+            {readiness.issues.includes("slack_no_authorized_users") && "Slack に管理職以上の社員が居ません。"}
           </div>
         </div>
       )}
 
-      <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
-        <div>
-          <div className="text-sm font-medium">発火・セッション起動ユーザー allowlist</div>
-          <div className="text-xs text-subtle mt-0.5">
-            Reaction Workflow と spawn / delegation で共用します。ID は完全一致で照合し、空は全拒否です。API は保存済みIDを返さず、件数だけ表示します。
-          </div>
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-2">
+        <div className="text-sm font-medium">発火できるユーザー</div>
+        <div className="text-xs text-subtle">
+          allowlist はここには置きません。 発火 (および spawn / end-session) の権限は
+          <Link to="/staff" className="text-accent"> 社員</Link> ページの役職で決まります
+          (管理職以上が発火可)。
         </div>
-
-        {(["discord", "slack"] as const).map((platform) => {
-          const isDiscord = platform === "discord";
-          const value = isDiscord ? discordUserIds : slackUserIds;
-          const count = readiness?.platforms[platform].authorized_user_count ?? 0;
-          const allowAll = readiness?.platforms[platform].allow_all ?? false;
-          return (
-            <div key={platform} className="bg-surface border border-border rounded p-2 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-medium">{isDiscord ? "Discord" : "Slack"}</span>
-                {allowAll
-                  ? <span className="text-xs text-accent">全員許可中</span>
-                  : (
-                    <span className={count > 0 ? "text-xs text-accent" : "text-xs text-danger"}>
-                      設定済み {count} 件
-                    </span>
-                  )}
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <input
-                  type="text"
-                  value={value}
-                  onChange={(event) => isDiscord
-                    ? setDiscordUserIds(event.target.value)
-                    : setSlackUserIds(event.target.value)}
-                  placeholder="置換する user ID（カンマ/空白区切り）"
-                  disabled={busy === `${platform}-users`}
-                  className="bg-muted border border-border rounded px-2 py-1 text-sm min-w-72 flex-1"
-                />
-                <button
-                  disabled={busy === `${platform}-users`}
-                  onClick={() => void saveAllowlist(platform)}
-                  className="px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
-                >置換保存</button>
-                <button
-                  disabled={busy === `${platform}-users` || allowAll}
-                  onClick={() => void saveAllowlist(platform, ["*"])}
-                  className="px-3 py-1 bg-muted border border-border rounded text-xs disabled:opacity-40"
-                >全員許可にする</button>
-              </div>
-              <div className="text-[11px] text-subtle">
-                空欄のまま置換保存すると、この platform は全拒否になります。「全員許可にする」は個別 ID の代わりに `*` を保存し、この platform の全ユーザーを許可します。
-              </div>
-            </div>
-          );
-        })}
+        <div className="flex items-center gap-3 text-xs">
+          {(["discord", "slack"] as const).map((platform) => {
+            const count = readiness?.platforms[platform].authorized_user_count ?? 0;
+            return (
+              <span key={platform} className={count > 0 ? "text-accent" : "text-danger"}>
+                {platform === "discord" ? "Discord" : "Slack"}: 発火権限あり {count} 人
+              </span>
+            );
+          })}
+        </div>
       </div>
 
       <details className="bg-muted/40 border border-border rounded p-3">

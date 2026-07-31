@@ -39,7 +39,8 @@ import { resolveSlackConfig } from "./slack/config.js";
 import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus } from "./events.js";
 import { eventFromWsFrame, parseWsFrame } from "./shared/event-schema.js";
-import { isReactionUserAllowed, normalizeReactionUserIds } from "./shared/reaction-workflow-auth.js";
+import { StaffRepo } from "./db/staff-repo.js";
+import { capabilityAllowed } from "./staff/roles.js";
 import { getReactionWorkflowReadiness } from "./shared/reaction-workflow-readiness.js";
 import { readChatWorkerLease, startChatWorkerLease } from "./bootstrap/chat.js";
 import { ChatMutationOutboxRepo } from "./db/chat-mutation-outbox-repo.js";
@@ -151,19 +152,15 @@ async function main(): Promise<void> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRoot ? [workspaceRoot] : []),
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
-    reactionWorkflowDiscordUserIds: normalizeReactionUserIds(
-      process.env.CONCORDIA_REACTION_WORKFLOW_DISCORD_USERS,
-    ),
-    reactionWorkflowSlackUserIds: normalizeReactionUserIds(
-      process.env.CONCORDIA_REACTION_WORKFLOW_SLACK_USERS,
-    ),
     lictorDevPath: workspaceRoot ? join(workspaceRoot, "Lictor") : "",
   });
   setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());
+  // 権限判定の正本 = 社員名簿。 chat-worker は本体と同じ DB を開くので同じ名簿を読む。
+  const staffRepo = new StaffRepo(db);
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
-    discordUserIds: adminState.getReactionWorkflowDiscordUserIds(),
-    slackUserIds: adminState.getReactionWorkflowSlackUserIds(),
+    discordAuthorizedCount: staffRepo.countByCapability("discord", "reaction_workflow"),
+    slackAuthorizedCount: staffRepo.countByCapability("slack", "reaction_workflow"),
   });
   if (reactionWorkflowReadiness.issues.length > 0) {
     log.warn(
@@ -173,7 +170,7 @@ async function main(): Promise<void> {
         discord_user_count: reactionWorkflowReadiness.platforms.discord.authorized_user_count,
         slack_user_count: reactionWorkflowReadiness.platforms.slack.authorized_user_count,
       },
-      "reaction-workflow is enabled with an empty platform allowlist",
+      "reaction-workflow is enabled but no staff member holds the firing capability",
     );
   }
   await initReactionWorkflow(workspaceRoot, log);
@@ -248,9 +245,21 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
     isLaunchUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowDiscordUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
+    isSessionEndUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_end"),
+    isKillSwitchUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), "kill_switch"),
+    recordStaffAccess: (input) => {
+      staffRepo.touch({
+        platform: "discord",
+        platformUserId: input.userId,
+        displayName: input.displayName,
+        profileName: input.profileName,
+      });
+    },
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(sessions, sessionId),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
@@ -267,9 +276,19 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
     isLaunchUserAllowed: (userId) =>
-      isReactionUserAllowed(adminState.getReactionWorkflowSlackUserIds(), userId),
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_spawn"),
+    isSessionEndUserAllowed: (userId) =>
+      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_end"),
+    recordStaffAccess: (input) => {
+      staffRepo.touch({
+        platform: "slack",
+        platformUserId: input.userId,
+        displayName: input.displayName,
+        profileName: input.profileName,
+      });
+    },
     runHeadless: runClaude,
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
   };

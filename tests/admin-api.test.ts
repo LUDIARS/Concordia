@@ -4,7 +4,6 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { makeTestApp } from "./helpers/test-app.js";
-import { isReactionUserAllowed } from "../src/shared/reaction-workflow-auth.js";
 import type { SpawnRequest } from "../src/control/spawner.js";
 
 function buildTestApp() {
@@ -312,7 +311,7 @@ describe("admin API", () => {
     expect(env.adminState.getCronJobOverride("ludiars-review-daily")).toBeNull();
   });
 
-  it("GET /v1/admin/reaction-workflow exposes enabled-empty readiness without IDs", async () => {
+  it("GET /v1/admin/reaction-workflow reports no authorized users when the roster is empty", async () => {
     env.adminState.setReactionWorkflowEnabled(true);
 
     const response = await env.app.request("/v1/admin/reaction-workflow");
@@ -323,44 +322,52 @@ describe("admin API", () => {
         status: "no_authorized_users",
         authorized_user_count: 0,
         platforms: {
-          discord: { authorized_user_count: 0, allow_all: false },
-          slack: { authorized_user_count: 0, allow_all: false },
+          discord: { authorized_user_count: 0 },
+          slack: { authorized_user_count: 0 },
         },
         issues: ["discord_no_authorized_users", "slack_no_authorized_users"],
       },
     });
   });
 
-  it("PUT /v1/admin/reaction-workflow configures exact allowlists without returning IDs", async () => {
-    const response = await env.app.request("/v1/admin/reaction-workflow", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        enabled: true,
-        discord_user_ids: ["discord-operator", "discord-operator"],
-        slack_user_ids: ["slack-operator"],
-      }),
-    });
-    expect(response.status).toBe(200);
+  it("GET /v1/admin/reaction-workflow counts 管理職 from the staff roster without exposing IDs", async () => {
+    env.adminState.setReactionWorkflowEnabled(true);
+    // ヒラ社員は発火権限を持たないので人数に入らない。
+    env.staff.touch({ platform: "discord", platformUserId: "discord-plain" });
+    env.staff.upsertManual({ platform: "discord", platformUserId: "discord-operator", role: "manager" });
+    env.staff.upsertManual({ platform: "slack", platformUserId: "slack-operator", role: "executive" });
+
+    const response = await env.app.request("/v1/admin/reaction-workflow");
     const body = await response.json() as {
       enabled: boolean;
-      readiness: { status: string; authorized_user_count: number };
+      readiness: {
+        status: string;
+        authorized_user_count: number;
+        platforms: { discord: { authorized_user_count: number } };
+      };
     };
-    expect(body.enabled).toBe(true);
     expect(body.readiness.status).toBe("ready");
     expect(body.readiness.authorized_user_count).toBe(2);
+    expect(body.readiness.platforms.discord.authorized_user_count).toBe(1);
     expect(JSON.stringify(body)).not.toContain("operator");
-
-    const configured = env.adminState.getReactionWorkflowDiscordUserIds();
-    expect(isReactionUserAllowed(configured, "discord-operator")).toBe(true);
-    expect(isReactionUserAllowed(configured, "discord-operator-extra")).toBe(false);
   });
 
-  it("PUT /v1/admin/reaction-workflow rejects malformed allowlists", async () => {
+  it("PUT /v1/admin/reaction-workflow toggles the switch only", async () => {
     const response = await env.app.request("/v1/admin/reaction-workflow", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ discord_user_ids: "discord-operator" }),
+      body: JSON.stringify({ enabled: true }),
+    });
+    expect(response.status).toBe(200);
+    expect((await response.json() as { enabled: boolean }).enabled).toBe(true);
+    expect(env.adminState.getReactionWorkflowEnabled()).toBe(true);
+  });
+
+  it("PUT /v1/admin/reaction-workflow rejects allowlist fields (moved to the staff roster)", async () => {
+    const response = await env.app.request("/v1/admin/reaction-workflow", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabled: true, discord_user_ids: ["discord-operator"] }),
     });
     expect(response.status).toBe(400);
   });

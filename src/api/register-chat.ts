@@ -6,6 +6,7 @@ import type { DayReportsRepo } from "../db/day-reports-repo.js";
 import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { StaffRepo } from "../db/staff-repo.js";
 import type { SchedulerHandle } from "../daily/scheduler.js";
 import type { MetricsStore } from "../metrics/store.js";
 import { setDiscordConfig, discordConfigStatus } from "../discord/conn-config.js";
@@ -20,14 +21,11 @@ import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./slack-admin.js";
 
 const reactionWorkflowLog = createChildLogger("reaction-workflow-config");
+// 発火ユーザの allowlist はここには無い。 誰が発火できるかは社員名簿 (/v1/staff) の
+// 役職で決まる (spec/feature/staff-roster.md §4)。 このエンドポイントは ON/OFF だけ。
 const ReactionWorkflowUpdateSchema = z.object({
-  enabled: z.boolean().optional(),
-  discord_user_ids: z.array(z.string().trim().min(1).max(128)).max(1_000).optional(),
-  slack_user_ids: z.array(z.string().trim().min(1).max(128)).max(1_000).optional(),
-}).strict().refine(
-  (value) => value.enabled !== undefined || value.discord_user_ids !== undefined || value.slack_user_ids !== undefined,
-  { message: "at least one reaction-workflow setting is required" },
-);
+  enabled: z.boolean(),
+}).strict();
 
 export interface DiscordBotAdmin {
   start: () => Promise<{ ok: boolean; status: "started" | "already_running" | "disabled" | "error"; error?: string }>;
@@ -48,6 +46,8 @@ export interface ChatDeps {
   slackConfig?: SlackConfigRepo;
   slackAdmin?: SlackBotAdmin;
   secretBox?: SecretBox;
+  /** 社員名簿。 リアクションワークフローの「発火できる人が居るか」判定に使う。 */
+  staff?: StaffRepo;
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
@@ -83,8 +83,8 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
       enabled,
       readiness: getReactionWorkflowReadiness({
         enabled,
-        discordUserIds: deps.adminState.getReactionWorkflowDiscordUserIds(),
-        slackUserIds: deps.adminState.getReactionWorkflowSlackUserIds(),
+        discordAuthorizedCount: deps.staff?.countByCapability("discord", "reaction_workflow") ?? 0,
+        slackAuthorizedCount: deps.staff?.countByCapability("slack", "reaction_workflow") ?? 0,
       }),
     };
   };
@@ -96,15 +96,7 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     if (!parsed.success) {
       return c.json({ error: parsed.error.message }, 400);
     }
-    if (parsed.data.enabled !== undefined) {
-      deps.adminState.setReactionWorkflowEnabled(parsed.data.enabled);
-    }
-    if (parsed.data.discord_user_ids !== undefined) {
-      deps.adminState.setReactionWorkflowDiscordUserIds(parsed.data.discord_user_ids);
-    }
-    if (parsed.data.slack_user_ids !== undefined) {
-      deps.adminState.setReactionWorkflowSlackUserIds(parsed.data.slack_user_ids);
-    }
+    deps.adminState.setReactionWorkflowEnabled(parsed.data.enabled);
 
     const status = reactionWorkflowStatus();
     if (status.readiness.issues.length > 0) {
@@ -115,7 +107,7 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
           discord_user_count: status.readiness.platforms.discord.authorized_user_count,
           slack_user_count: status.readiness.platforms.slack.authorized_user_count,
         },
-        "reaction-workflow is enabled with an empty platform allowlist",
+        "reaction-workflow is enabled but no staff member holds the firing capability",
       );
     }
     return c.json(status);

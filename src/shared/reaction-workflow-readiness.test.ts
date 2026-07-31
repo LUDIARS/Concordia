@@ -2,54 +2,51 @@ import { describe, expect, it } from "vitest";
 import { getReactionWorkflowReadiness } from "./reaction-workflow-readiness.js";
 
 describe("reaction workflow readiness", () => {
-  it("reports enabled with empty allowlists as having no authorized users", () => {
+  it("reports enabled with no privileged staff as having no authorized users", () => {
     expect(getReactionWorkflowReadiness({
       enabled: true,
-      discordUserIds: [],
-      slackUserIds: [],
+      discordAuthorizedCount: 0,
+      slackAuthorizedCount: 0,
     })).toEqual({
       status: "no_authorized_users",
       authorized_user_count: 0,
       platforms: {
-        discord: { authorized_user_count: 0, allow_all: false },
-        slack: { authorized_user_count: 0, allow_all: false },
+        discord: { authorized_user_count: 0 },
+        slack: { authorized_user_count: 0 },
       },
       issues: ["discord_no_authorized_users", "slack_no_authorized_users"],
     });
   });
 
-  it("reports configured counts without exposing IDs", () => {
+  it("reports per-platform counts and becomes ready when either side has staff", () => {
     const readiness = getReactionWorkflowReadiness({
       enabled: true,
-      discordUserIds: ["discord-operator"],
-      slackUserIds: ["slack-operator", "slack-operator"],
+      discordAuthorizedCount: 2,
+      slackAuthorizedCount: 0,
     });
 
     expect(readiness.status).toBe("ready");
     expect(readiness.authorized_user_count).toBe(2);
-    expect(readiness.platforms.discord.authorized_user_count).toBe(1);
-    expect(readiness.platforms.slack.authorized_user_count).toBe(1);
-    expect(JSON.stringify(readiness)).not.toContain("operator");
+    expect(readiness.platforms.discord.authorized_user_count).toBe(2);
+    expect(readiness.issues).toEqual(["slack_no_authorized_users"]);
   });
 
   it("does not report authorization issues while disabled", () => {
     expect(getReactionWorkflowReadiness({
       enabled: false,
-      discordUserIds: [],
-      slackUserIds: [],
+      discordAuthorizedCount: 0,
+      slackAuthorizedCount: 0,
     }).issues).toEqual([]);
   });
 
-  it("treats the * sentinel as ready without exposing a fake user count", () => {
+  it("clamps nonsense counts instead of trusting them", () => {
     const readiness = getReactionWorkflowReadiness({
       enabled: true,
-      discordUserIds: ["*"],
-      slackUserIds: [],
+      discordAuthorizedCount: -3,
+      slackAuthorizedCount: 1.9,
     });
 
-    expect(readiness.status).toBe("ready");
-    expect(readiness.platforms.discord).toEqual({ authorized_user_count: 1, allow_all: true });
-    expect(readiness.platforms.slack).toEqual({ authorized_user_count: 0, allow_all: false });
-    expect(readiness.issues).toEqual(["slack_no_authorized_users"]);
+    expect(readiness.platforms.discord.authorized_user_count).toBe(0);
+    expect(readiness.platforms.slack.authorized_user_count).toBe(1);
   });
 });

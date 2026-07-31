@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestDb } from "./helpers/db.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
+import { readUsageFrames } from "../src/cost/log-usage.js";
 
 function fresh() {
   const db = makeTestDb();
@@ -100,6 +101,54 @@ describe("TranscriptLogsRepo", () => {
     env.repo.insert({ session_id: "s1", seq: 0, ts: 1000, kind: "text", payload: complex });
     const list = env.repo.listBySession("s1");
     expect(list[0].payload).toEqual(complex);
+  });
+
+  it("listUsagePayloads は codex_usage frame だけを新しい順に返す", () => {
+    // kind は送信側 (Satelles) が決める自由文字列なので、特定 kind に依存しない。
+    env.repo.insert({ session_id: "s1", seq: 0, ts: 1000, kind: "text", payload: { role: "user", text: "hi" } });
+    env.repo.insert({
+      session_id: "s1", seq: 1, ts: 1001, kind: "raw",
+      payload: { type: "codex_usage", input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+    });
+    env.repo.insert({
+      session_id: "s1", seq: 2, ts: 1002, kind: "codex",
+      payload: { type: "codex_usage", input_tokens: 300, output_tokens: 50, total_tokens: 350 },
+    });
+    // 他 session の usage は混ざらない
+    env.repo.insert({
+      session_id: "s2", seq: 0, ts: 1003, kind: "raw",
+      payload: { type: "codex_usage", input_tokens: 900, output_tokens: 90, total_tokens: 990 },
+    });
+
+    const payloads = env.repo.listUsagePayloads("s1");
+    expect(payloads).toHaveLength(2);
+    expect((payloads[0] as { total_tokens: number }).total_tokens).toBe(350); // 新しい順
+    // 集計側と繋いだときにスレッド累積の最大値が採れること
+    expect(readUsageFrames(payloads)).toEqual({ input: 300, cached: 0, output: 50, total: 350 });
+  });
+
+  it("listUsagePayloads は本文が codex_usage に言及するだけの frame を拾わない", () => {
+    // type 以外のキーの値が codex_usage なだけの frame (例: 同名の tool 呼び出し)。
+    // readUsageFrames は type を見て捨てるが、 SQL 側で拾ってしまうと limit の窓を
+    // 埋めて実 usage frame を追い出す (= 過少計上) ので、 key ごと絞って除外する。
+    env.repo.insert({
+      session_id: "s1", seq: 0, ts: 1000, kind: "tool-use",
+      payload: { type: "tool_use", name: "codex_usage" },
+    });
+    env.repo.insert({
+      session_id: "s1", seq: 1, ts: 1001, kind: "raw",
+      payload: { type: "codex_usage", input_tokens: 100, output_tokens: 30, total_tokens: 130 },
+    });
+
+    const payloads = env.repo.listUsagePayloads("s1");
+    expect(payloads).toHaveLength(1);
+    expect(readUsageFrames(payloads)).toEqual({ input: 100, cached: 0, output: 30, total: 130 });
+  });
+
+  it("listUsagePayloads は usage frame が無ければ空 (0 を実測値と偽らない)", () => {
+    env.repo.insert({ session_id: "s1", seq: 0, ts: 1000, kind: "text", payload: { text: "no usage here" } });
+    expect(env.repo.listUsagePayloads("s1")).toEqual([]);
+    expect(readUsageFrames(env.repo.listUsagePayloads("s1"))).toBeNull();
   });
 
   it("purgeOlderThan で全 session の古い frame を削除できる", () => {

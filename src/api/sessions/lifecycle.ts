@@ -447,6 +447,9 @@ app.delete("/:id", async (c) => {
         chat: deps.chat,
         config: deps.config,
         harnessAudit: deps.harnessAudit,
+        // codex-sdk の usage は transcript frame にしか無い。 こちらが通常の
+        // 終了経路なので、 admin stop と同じく frame ソースを渡す。
+        usageFrames: deps.transcriptLogs,
       },
       ended,
     );

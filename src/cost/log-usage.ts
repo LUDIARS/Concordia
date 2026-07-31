@@ -46,8 +46,66 @@ export async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-/** セッション 1 本の累積トークン (provider 別ログから読む)。 取れなければ null。 */
-export async function readSessionUsage(s: SessionRow): Promise<Totals | null> {
+/**
+ * codex-sdk (Satelles) セッションの累積トークンを frame から読む。
+ *
+ * codex-cli の JSONL に相当するものが無いので、Satelles が turn ごとに送る
+ * `codex_usage` frame が唯一の一次ソース。frame の usage は turn 単位ではなく
+ * **スレッド累積** (rollout の total_token_usage と同じ意味) なので、同一
+ * thread 内では合算せず最大値を採る — codex-cli 側の readCodexUsage と同じ扱い。
+ *
+ * ただし 1 セッションが複数 thread を持ち得る (resume / 作り直しで thread_id が
+ * 変わる) ので、thread ごとに最大値を採ってから thread 間で合算する。全体の
+ * 単純最大だと最大 thread 1 本ぶんしか数えず、他 thread が丸ごと落ちる。
+ * thread_id を持たない frame は 1 つの無名 thread として扱う。
+ */
+export function readUsageFrames(payloads: readonly unknown[]): Totals | null {
+  const maxByThread = new Map<string, Totals>();
+  for (const payload of payloads) {
+    if (!isObj(payload) || payload.type !== "codex_usage") continue;
+    // JSONL リーダと違い frame は HTTP 越しに送られてくる値なので、 負数は
+    // 「壊れた frame」 として 0 に潰す (負の合計を実測値として表示しない)。
+    const cur: Totals = {
+      input: nonNeg(payload.input_tokens),
+      cached: nonNeg(payload.cached_input_tokens),
+      output: nonNeg(payload.output_tokens),
+      total: nonNeg(payload.total_tokens),
+    };
+    // total を出さない実装差に備えて内訳から補う (input は cached を含む)。
+    if (cur.total === 0) cur.total = cur.input + cur.output;
+    // ここまでで total が 0 = トークンが 1 つも無い frame。 0 を実測値として
+    // 採ると「計測不能」と区別が付かなくなるので採らない。
+    if (cur.total === 0) continue;
+    const thread = typeof payload.thread_id === "string" ? payload.thread_id : "";
+    const prev = maxByThread.get(thread);
+    if (!prev || cur.total > prev.total) maxByThread.set(thread, cur);
+  }
+  if (maxByThread.size === 0) return null;
+  const out: Totals = { input: 0, cached: 0, output: 0, total: 0 };
+  for (const t of maxByThread.values()) {
+    out.input += t.input;
+    out.cached += t.cached;
+    out.output += t.output;
+    out.total += t.total;
+  }
+  return out;
+}
+
+/** frame からセッション使用量を読むための最小依存 (テストで差し替える)。 */
+export interface UsageFrameSource {
+  listUsagePayloads(sessionId: string, limit?: number): unknown[];
+}
+
+/**
+ * セッション 1 本の累積トークン (provider 別ログから読む)。 取れなければ null。
+ *
+ * codex-sdk は frames にしか usage が無いため、frame ソースを渡されたときだけ
+ * 集計できる (渡されなければ従来どおり null = 未計測)。
+ */
+export async function readSessionUsage(
+  s: SessionRow,
+  frames?: UsageFrameSource,
+): Promise<Totals | null> {
   if (s.provider === "codex-cli") {
     const p = await findCodexLog(s);
     return p ? readCodexUsage(p) : null;
@@ -55,6 +113,9 @@ export async function readSessionUsage(s: SessionRow): Promise<Totals | null> {
   if (s.provider === "claude-code") {
     const p = await findClaudeLog(s);
     return p ? readClaudeUsage(p) : null;
+  }
+  if (s.provider === "codex-sdk") {
+    return frames ? readUsageFrames(frames.listUsagePayloads(s.id)) : null;
   }
   return null;
 }
@@ -312,4 +373,9 @@ async function readHeadChunk(path: string, maxBytes: number): Promise<{ text: st
 
 export function nn(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? v : 0;
+}
+
+/** nn の非負版 (負のトークン数を持つ壊れた入力を 0 に潰す)。 */
+function nonNeg(v: unknown): number {
+  return Math.max(0, nn(v));
 }

@@ -16,7 +16,14 @@
  */
 
 import type { SessionRow } from "../shared/types.js";
-import { findClaudeLog, findCodexLog, readLines, readSessionUsage, nn } from "./log-usage.js";
+import {
+  findClaudeLog,
+  findCodexLog,
+  readLines,
+  readSessionUsage,
+  nn,
+  type UsageFrameSource,
+} from "./log-usage.js";
 import {
   priceForModel,
   CACHE_READ_MULTIPLIER,
@@ -112,8 +119,12 @@ export async function readClaudeCost(path: string): Promise<SessionCostEstimate>
  * セッションの想定コストを概算する。 ログが取れなければ null。
  *  - claude-code: per-message 金額化。
  *  - codex-cli: 単価不明のため全トークンを unpriced 計上 (usd=0)。
+ *  - codex-sdk: JSONL を書かないので codex_usage frame から読む (frames が要る)。
  */
-export async function estimateSessionCostUsd(s: SessionRow): Promise<SessionCostEstimate | null> {
+export async function estimateSessionCostUsd(
+  s: SessionRow,
+  frames?: UsageFrameSource,
+): Promise<SessionCostEstimate | null> {
   if (s.provider === "claude-code") {
     const p = await findClaudeLog(s);
     if (!p) return null;
@@ -124,6 +135,14 @@ export async function estimateSessionCostUsd(s: SessionRow): Promise<SessionCost
     if (!p) return null;
     const totals = await readSessionUsage(s);
     if (!totals) return { usd: 0, pricedTokens: 0, unpricedTokens: 0, models: [] };
+    return { usd: 0, pricedTokens: 0, unpricedTokens: totals.total, models: [] };
+  }
+  // codex-sdk (Satelles) は JSONL を書かないので frame から読む。frame ソースが
+  // 無い呼び出し (旧経路) は従来どおり「計測不能」を返す。
+  if (s.provider === "codex-sdk") {
+    if (!frames) return null;
+    const totals = await readSessionUsage(s, frames);
+    if (!totals) return null;
     return { usd: 0, pricedTokens: 0, unpricedTokens: totals.total, models: [] };
   }
   return null;
@@ -153,8 +172,11 @@ export interface SessionUsageSummary {
   cost: SessionCostEstimate | null;
 }
 
-export async function summarizeSessionUsage(s: SessionRow): Promise<SessionUsageSummary> {
-  return { context: await estimateContextTokens(s), cost: await estimateSessionCostUsd(s) };
+export async function summarizeSessionUsage(
+  s: SessionRow,
+  frames?: UsageFrameSource,
+): Promise<SessionUsageSummary> {
+  return { context: await estimateContextTokens(s), cost: await estimateSessionCostUsd(s, frames) };
 }
 
 /**

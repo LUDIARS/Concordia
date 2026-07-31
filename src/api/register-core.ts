@@ -596,6 +596,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         chat: deps.chat,
         config: deps.config,
         harnessAudit: deps.harnessAudit,
+        usageFrames: deps.transcriptLogs,
       },
       ended,
     );

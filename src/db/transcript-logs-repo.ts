@@ -159,6 +159,40 @@ export class TranscriptLogsRepo {
     return row.n;
   }
 
+  /**
+   * codex-sdk (Satelles) が turn ごとに送る `codex_usage` frame の生 payload。
+   *
+   * codex-cli は rollout JSONL を後追いして集計できるが、codex-sdk は
+   * ファイルを書かない (rollout tail を持たないのが Satelles の存在意義)ので、
+   * このセッションのトークンはこの frame にしか無い。新しい順に返し、
+   * 呼び出し側が最大値を採る。
+   *
+   * kind は絞らない: kind は送信側 (Satelles) が自由文字列で決める値なので
+   * (TranscriptFrameSchema は `string` しか要求しない)、特定値に依存すると
+   * 送信側の表記が変わった瞬間に「常に 0 トークン」へ黙って劣化する。
+   * LIKE で候補を絞り、type の最終判定は readUsageFrames 側で行う。
+   * パターンに key ごと (`"type":"codex_usage"`) 含めるのは、 payload の
+   * JSON 化がこの repo 側の JSON.stringify (空白なし) に固定されているため
+   * 取りこぼしが無く、 かつ「本文に codex_usage という語が出てくるだけの
+   * text frame」 が limit 窓を埋めて実 frame を追い出すのを防げるため。
+   *
+   * limit は新しい順の打ち切り。 thread ごとの累積値は新しいものほど大きいので、
+   * 打ち切っても現行 thread の最大値は必ず窓に入る。 ただし usage frame が limit
+   * を超えるほど長いセッションでは、 古い thread が窓の外へ落ちて過少計上になる
+   * (レポート表示用の概算なので許容。 正確さが要るなら limit を上げる)。
+   */
+  listUsagePayloads(session_id: string, limit = 500): unknown[] {
+    const rows = this.db
+      .prepare(
+        `SELECT payload FROM transcript_logs
+          WHERE session_id = ? AND payload LIKE '%"type":"codex_usage"%'
+          ORDER BY ts DESC, seq DESC
+          LIMIT ?`,
+      )
+      .all(session_id, limit) as Array<{ payload: string }>;
+    return rows.map((r) => safeParse(r.payload));
+  }
+
   /** Storage 管理用: 全 session の cutoff より古い frame を削除する. */
   purgeOlderThan(cutoffTs: number): number {
     const result = this.db.prepare(`DELETE FROM transcript_logs WHERE ts < ?`).run(cutoffTs);

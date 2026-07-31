@@ -8,6 +8,8 @@ export type ProviderName =
   | "claude-code"
   | "gemini-cli"
   | "codex-cli"
+  /** Satelles (codex app-server 直叩き)。rollout JSONL を書かないので集計経路が別。 */
+  | "codex-sdk"
   | "local-llm"
   | "unknown";
 

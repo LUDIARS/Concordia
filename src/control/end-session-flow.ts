@@ -26,6 +26,7 @@ import { aggregateBullets, generateReport } from "../report/generator.js";
 import { lastHumanRequester } from "./requester.js";
 import type { SummaryFlags } from "../report/summary-flags.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
+import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
@@ -62,6 +63,14 @@ export interface EndSessionFlowDeps {
   config: ConcordiaConfig;
   /** あればブロック検出に決定論ソース (harness 監査 deny 行) を併用。 */
   harnessAudit?: HarnessAuditRepo;
+  /**
+   * codex-sdk セッションの usage は transcript frame にしか無い。
+   *
+   * 型を cost 層 (`UsageFrameSource`) から取らないのは、control → cost の
+   * import を `core-no-cost-write` が禁じているため。frame を持つのは
+   * transcript repo なので、必要なメソッドだけを repo 側の型から借りる。
+   */
+  usageFrames?: Pick<TranscriptLogsRepo, "listUsagePayloads">;
 }
 
 export interface SessionEndFlowResult {
@@ -97,7 +106,10 @@ export async function runSessionEndFlow(
   let report: SessionReportRow | null = null;
   try {
     const events = deps.repo.allEvents(id);
-    report = await generateReport(endedSession, events, { harnessAudit: deps.harnessAudit });
+    report = await generateReport(endedSession, events, {
+      harnessAudit: deps.harnessAudit,
+      usageFrames: deps.usageFrames,
+    });
     deps.repo.upsertReport(report);
   } catch (err) {
     log.warn(

@@ -12,7 +12,7 @@ tags:
   - budget
   - api
 status: implemented
-updated: 2026-07-11
+updated: 2026-07-31
 ---
 
 # Session cost observability
@@ -40,6 +40,33 @@ HTTP 境界は [`src/api/cost.ts`](../../src/api/cost.ts)、route 配線は
 overview source は runtime 配線で `live` または `samples`。`live` は provider logs を memoized
 reader で読む。`samples` は `cost_usage_samples` の累積値の正の差分を集計する。子会社 ID が
 既知一覧に無い sample は子会社集計へ入れず、`subsidiary_id` が無い sample は本社へ入れる。
+
+## provider 別の usage source
+
+[`src/cost/log-usage.ts`](../../src/cost/log-usage.ts) が provider ごとに一次ソースを選ぶ。
+
+- `claude-code` / `codex-cli`: ローカルの JSONL (`~/.claude/projects` / `~/.codex/sessions`)。
+- `codex-sdk` (Satelles): rollout JSONL を書かないので、transcript frame の `codex_usage`
+  payload (`transcript_logs`) が唯一の一次ソース。frame の値は turn 単位ではなくスレッド
+  累積なので、同一 thread 内では合算せず最大値を採る (`codex-cli` の `total_token_usage` と
+  同じ扱い)。1 セッションが複数 thread を持ち得るため、thread ごとの最大値を thread 間で
+  合算する。frame ソース (`UsageFrameSource`) を渡されない呼び出しでは「計測不能」= `null`。
+- 上記以外 (`gemini-cli` / `local-llm` / `unknown`): 未計測 (`null`)。
+
+`codex-sdk` の frame ソースは session 終了時のレポート生成経路 (`runSessionEndFlow` →
+`generateReport` の `usageFrames`) にのみ配線済み — `DELETE /v1/sessions/:id` と
+`POST /v1/admin/stop-session/:id` の両方が `transcript_logs` repo を渡す。
+それ以外の経路は frame ソースを持たないため `codex-sdk` を未計測扱いにする (既知の範囲)。
+表れ方は 2 通りある。
+
+- `null` (計測不能として行/バッジを省く): 状態カード / chat read model
+  (`getSessionStatusSnapshot` の cost badge)、`POST /v1/reports/:id/regenerate`。
+- `0` (合算時に 0 トークンとして畳む): channel cost・usage sampler・子会社 budget
+  (`readSessionUsage(s)?.total ?? 0` 経路)。
+
+frame は新しい順に上限 (既定 500) まで読む。累積値は新しいほど大きいので現行 thread の
+最大値は必ず窓に入るが、usage frame が上限を超える長大セッションでは古い thread が
+窓から落ちて過少計上になり得る (概算表示なので許容)。
 
 ## 時系列
 

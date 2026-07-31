@@ -17,6 +17,7 @@ import {
   renderUsageMarkdown,
   type SessionUsageSummary,
 } from "../cost/session-cost.js";
+import type { UsageFrameSource } from "../cost/log-usage.js";
 import {
   detectSummaryFlags,
   renderSummaryFlagsMarkdown,
@@ -29,6 +30,11 @@ import {
 /** generateReport の任意依存。 harnessAudit があればブロック検出に決定論ソースを併用。 */
 export interface GenerateReportOptions {
   harnessAudit?: HarnessAuditRepo;
+  /**
+   * codex-sdk (Satelles) の usage は transcript frame にしか無い
+   * (rollout JSONL を書かないため)。未注入なら該当 provider は未計測のまま。
+   */
+  usageFrames?: UsageFrameSource;
 }
 
 const log = createChildLogger("report");
@@ -149,7 +155,7 @@ export async function generateReport(
   // 想定コスト + コンテキスト占有を 1 回だけ概算し、 業務報告セクションに載せる
   // (provider ログ読み。 取れなければ各フィールドが null になり該当行を省く)。
   // 非同期読み (旧: 同期全量読みが DELETE /v1/sessions の数十秒ブロックの主因)。
-  const usage = await summarizeSessionUsage(session);
+  const usage = await summarizeSessionUsage(session, opts.usageFrames);
 
   // 優先: claude CLI (claude -p) で narrative
   let summary_md: string | null = await narrativeViaCli(session, events, bullets, usage);

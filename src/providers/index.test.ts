@@ -31,6 +31,10 @@ describe("getProvider — 未実装・不明プロバイダ", () => {
     expect(getProvider("local-llm")).toBeNull();
   });
 
+  it("codex-sdk は null を返す (CLI 固有の recovery / rollout 走査を持たない)", () => {
+    expect(getProvider("codex-sdk")).toBeNull();
+  });
+
   it("unknown は null を返す", () => {
     expect(getProvider("unknown")).toBeNull();
   });

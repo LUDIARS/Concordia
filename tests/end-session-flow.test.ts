@@ -10,11 +10,12 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
+import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
 import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
-import type { SessionEventRow, SessionReportRow } from "../src/shared/types.js";
+import type { ProviderName, SessionEventRow, SessionReportRow } from "../src/shared/types.js";
 
 function fakeReport(metadata: string | null): SessionReportRow {
   return { session_id: "s", generated_at: 0, summary_md: "", bullets: "{}", duration_sec: 0, metadata };
@@ -54,10 +55,15 @@ function makeEnv() {
   return { db, repo, tasks, chat, config };
 }
 
-function endedSession(repo: SessionsRepo, id: string, now: number) {
+function endedSession(
+  repo: SessionsRepo,
+  id: string,
+  now: number,
+  provider: ProviderName = "claude-code",
+) {
   repo.insertSession({
     id,
-    provider: "claude-code",
+    provider,
     repo_path: "/repo",
     repo_origin: null,
     branch: "main",
@@ -117,6 +123,45 @@ describe("runSessionEndFlow", () => {
     const posted = events.find((ev) => ev.type === "chat.posted" && ev.message_id === m!.id);
     expect(posted).toMatchObject({ type: "chat.posted", session_id: "s2" });
     expect(m!.channel).toBe("報告");
+  });
+
+  it("codex-sdk は usageFrames 経由で transcript frame から usage をレポートに載せる", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s5", now, "codex-sdk");
+    const transcripts = new TranscriptLogsRepo(env.db);
+    // 同一 thread の 2 turn。 frame の値はスレッド累積なので合算せず最大値 (3000) を採る。
+    transcripts.insert({
+      session_id: "s5", seq: 0, ts: now - 300, kind: "raw",
+      payload: { type: "codex_usage", thread_id: "t1", input_tokens: 900, cached_input_tokens: 100, output_tokens: 100, total_tokens: 1000 },
+    });
+    transcripts.insert({
+      session_id: "s5", seq: 1, ts: now - 200, kind: "raw",
+      payload: { type: "codex_usage", thread_id: "t1", input_tokens: 2500, cached_input_tokens: 400, output_tokens: 500, total_tokens: 3000 },
+    });
+    // 別 session の frame が混ざらないこと
+    transcripts.insert({
+      session_id: "other", seq: 0, ts: now - 100, kind: "raw",
+      payload: { type: "codex_usage", thread_id: "t9", input_tokens: 90000, output_tokens: 9000, total_tokens: 99000 },
+    });
+
+    const result = await runSessionEndFlow({ ...env, usageFrames: transcripts }, ended);
+    // codex-sdk は単価不明なので usd 化せず「未価格」トークンとして載る。
+    expect(result.report!.summary_md).toContain("## コスト / コンテキスト");
+    expect(result.report!.summary_md).toContain("未価格 3k tok");
+  });
+
+  it("codex-sdk でも usageFrames 未注入なら未計測 (コスト行を出さない)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s6", now, "codex-sdk");
+    const transcripts = new TranscriptLogsRepo(env.db);
+    transcripts.insert({
+      session_id: "s6", seq: 0, ts: now - 200, kind: "raw",
+      payload: { type: "codex_usage", thread_id: "t1", input_tokens: 2500, output_tokens: 500, total_tokens: 3000 },
+    });
+
+    const result = await runSessionEndFlow(env, ended);
+    // 0 を実測値と偽らず、 セクションごと省く。
+    expect(result.report!.summary_md).not.toContain("## コスト / コンテキスト");
   });
 
   it("session end flow does not enqueue peer chat tasks", async () => {

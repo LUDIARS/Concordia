@@ -332,7 +332,8 @@ describe("admin API", () => {
 
   it("GET /v1/admin/reaction-workflow counts 管理職 from the staff roster without exposing IDs", async () => {
     env.adminState.setReactionWorkflowEnabled(true);
-    // ヒラ社員は発火権限を持たないので人数に入らない。
+    // 発火自体は誰でもできるが、 件数は「権限を要する指示 (spawn / merge) を実行できる
+    // 社員 = 管理職以上」なので、 ヒラ社員は人数に入らない。
     env.staff.touch({ platform: "discord", platformUserId: "discord-plain" });
     env.staff.upsertManual({ platform: "discord", platformUserId: "discord-operator", role: "manager" });
     env.staff.upsertManual({ platform: "slack", platformUserId: "slack-operator", role: "executive" });

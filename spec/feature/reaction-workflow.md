@@ -152,19 +152,27 @@ MessageReactionAdd (discord.js)
 | `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task / enumerate-remaining / memoria-remaining / status-check に使うモデル別名。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | headless 1 回の timeout。 |
 
-error-autofix と同じく既定 OFF。ON にしても社員名簿に管理職以上が居なければ誰も発火できない。
+error-autofix と同じく既定 OFF。ON なら発火は誰でもできるが、 指示の中身が spawn / merge を
+要求するアクションは社員名簿の役職で別途拒否される (下記)。
 対象メッセージ本文は「信頼できない外部データ」の区切り枠に入れてプロンプトへ渡す。
 dedup + fire-and-forget で記録経路を壊さない。
 
 **安全弁・写像は設定 GUI から編集可 (再起動なしで反映)**:
 - 安全弁 ON/OFF は AdminState (`schema_meta`) に永続化され、 runner が handle() ごとに live 評価する。
   `GET/PUT /v1/admin/reaction-workflow` / 設定ページ「リアクションWF」。 env はあくまで初期既定。
-- **発火できるユーザは社員名簿 (`staff_members`) の役職で決まる。 allowlist はここには無い**
-  (`spec/feature/staff-roster.md`)。 `reaction_workflow` capability = 管理職以上。
+- **リアクションは「指示の簡略化」であって権限ではない (neco 2026-08-01)。 絵文字は誰でも押せる**
+  (`reaction_workflow` capability = ヒラ社員)。 ただし**指示の中身が実行できるとは限らない** —
+  🤝 `delegate-task` と 🛠️ `add-as-workflow` は `session_spawn`、 🔀 🚀 `merge-pr` と
+  🔄 `sync-project-main-after-merge` は `merge_pr` (いずれも管理職以上) を要求する。 対応表の正本は
+  `src/platform/reaction-workflow-capability.ts`、 役職→権限は `spec/feature/staff-roster.md`。
+  判定は runner の `handle()` 入口で dedup より先に行い (拒否で cooldown を消費させない)、
+  拒否は黙殺せず押した本人へ不足権限を返す (連打での chat 埋めを防ぐため通知だけは別枠の
+  cooldown で間引く)。 判定関数が未注入なら deny (fail-closed)。
   `PUT /v1/admin/reaction-workflow` は `{ enabled }` のみ受ける (user ID 配列を送ると 400)。
   GET/PUT 応答は ID を返さず、`readiness.status`、合計件数、プラットフォーム別件数
-  (= 発火権限を持つ社員の人数) だけを返す。 ON かつ合計 0 人は `no_authorized_users` で、
-  設定変更時と起動時に警告ログを出す。 役職の設定は WebUI `/staff` (社員ページ)。
+  (= 権限を要する指示を実行できる管理職以上の人数) だけを返す。 ON かつ合計 0 人は
+  `no_authorized_users` で、 設定変更時と起動時に警告ログを出す
+  (押せはするが spawn も merge も起きない状態)。 役職の設定は WebUI `/staff` (社員ページ)。
   旧 env `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` と `*` 全員許可トークンは廃止。
 - 絵文字→アクション写像はユーザが追加・上書きできる (既定は組み込み構成)。
   `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、

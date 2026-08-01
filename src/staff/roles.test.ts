@@ -8,13 +8,21 @@ import {
   isStaffRole,
   roleAtLeast,
 } from "./roles.js";
+import type { StaffCapability } from "./roles.js";
 
 describe("staff roles", () => {
-  it("treats unregistered users as ヒラ社員 who may only converse", () => {
-    expect(capabilityAllowed(null, "converse")).toBe(true);
-    expect(capabilityAllowed(undefined, "converse")).toBe(true);
+  // 未登録でも「会話」と「リアクションでの指示」はできる。 リアクションは指示の簡略化で
+  // あって権限ではない (neco 2026-08-01) — 実行できるかは中身が要求する権限で決まる。
+  // StaffCapability で型付けしておく (綴り違いをコンパイル時に落とすため)。
+  const OPEN_TO_EVERYONE: readonly StaffCapability[] = ["converse", "reaction_workflow"];
+
+  it("lets unregistered users converse and fire reactions, nothing more", () => {
+    for (const capability of OPEN_TO_EVERYONE) {
+      expect(capabilityAllowed(null, capability)).toBe(true);
+      expect(capabilityAllowed(undefined, capability)).toBe(true);
+    }
     for (const capability of STAFF_CAPABILITIES) {
-      if (capability === "converse") continue;
+      if (OPEN_TO_EVERYONE.includes(capability)) continue;
       expect(capabilityAllowed(null, capability)).toBe(false);
     }
   });
@@ -22,7 +30,7 @@ describe("staff roles", () => {
   it("lets 管理職 spawn and end sessions but not flip the kill switch", () => {
     expect(capabilityAllowed("manager", "session_spawn")).toBe(true);
     expect(capabilityAllowed("manager", "session_end")).toBe(true);
-    expect(capabilityAllowed("manager", "reaction_workflow")).toBe(true);
+    expect(capabilityAllowed("manager", "merge_pr")).toBe(true);
     expect(capabilityAllowed("manager", "kill_switch")).toBe(false);
   });
 

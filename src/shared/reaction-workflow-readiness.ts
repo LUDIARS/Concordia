@@ -1,8 +1,11 @@
 /**
- * リアクションワークフローの発火可能性スナップショット。
+ * リアクションワークフローの実効性スナップショット。
  *
- * 「誰が発火できるか」 は社員名簿 (staff_members) の役職で決まるため、 ここは
- * platform ごとの「発火権限を持つ社員 (管理職以上) の人数」 だけを受け取る。
+ * 発火自体は誰でもできる (リアクション = 指示の簡略化) ので、 数えるのは
+ * platform ごとの「権限を要する指示 (spawn / merge) を実行できる社員 = 管理職以上の人数」。
+ * 0 人なら ON にしても「押せるが spawn も merge も起きない」 ため警告する価値がある。
+ * 呼び出し側は代表として `session_spawn` の人数を渡す (`merge_pr` と同じ最低役職 = 管理職。
+ * `CAPABILITY_MIN_ROLE` で両者がずれたら数え方も見直すこと)。
  * 旧 allowlist / 全員許可トークンは廃止済み (spec/feature/staff-roster.md §4)。
  */
 
@@ -24,9 +27,9 @@ export interface ReactionWorkflowReadiness {
 /** Build a non-sensitive readiness snapshot. User IDs are deliberately omitted. */
 export function getReactionWorkflowReadiness(input: {
   enabled: boolean;
-  /** 発火権限 (reaction_workflow) を持つ Discord 社員の人数。 */
+  /** 権限を要する指示を実行できる Discord 社員 (管理職以上) の人数。 */
   discordAuthorizedCount: number;
-  /** 発火権限を持つ Slack 社員の人数。 */
+  /** 権限を要する指示を実行できる Slack 社員 (管理職以上) の人数。 */
   slackAuthorizedCount: number;
 }): ReactionWorkflowReadiness {
   const discordCount = Math.max(0, Math.trunc(input.discordAuthorizedCount));

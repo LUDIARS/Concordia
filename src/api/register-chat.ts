@@ -83,8 +83,8 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
       enabled,
       readiness: getReactionWorkflowReadiness({
         enabled,
-        discordAuthorizedCount: deps.staff?.countByCapability("discord", "reaction_workflow") ?? 0,
-        slackAuthorizedCount: deps.staff?.countByCapability("slack", "reaction_workflow") ?? 0,
+        discordAuthorizedCount: deps.staff?.countByCapability("discord", "session_spawn") ?? 0,
+        slackAuthorizedCount: deps.staff?.countByCapability("slack", "session_spawn") ?? 0,
       }),
     };
   };

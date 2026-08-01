@@ -5,9 +5,14 @@
  * 権限が付く。 リアクションワークフロー側に allowlist を置くのをやめ、 ここを唯一の
  * 判定源にする (spec/feature/staff-roster.md)。
  *
- *   ヒラ社員 (staff)     : 未登録 / 権限なし。 会話 (chat / inject) はできる。
- *   管理職   (manager)   : セッションの spawn と end-session ができる。
+ *   ヒラ社員 (staff)     : 未登録 / 権限なし。 会話 (chat / inject) とリアクション
+ *                          ワークフローの発火ができる。
+ *   管理職   (manager)   : セッションの spawn / end-session と PR のマージができる。
  *   執行役員 (executive) : Cc の管理権限 = キルスイッチ (サービス起動/再起動) ができる。
+ *
+ * リアクションワークフローは**指示の簡略化**であって権限ではない (neco 2026-08-01)。
+ * 絵文字は誰でも押せるが、 その指示が実行できるとは限らない — 中身が spawn や merge を
+ * 要求するなら、 そこで改めて役職が問われる。
  *
  * 役職は上位が下位を包含する (executive は manager の権限も持つ)。
  */
@@ -37,12 +42,17 @@ export const STAFF_ROLE_LABEL: Record<StaffRole, string> = {
 export type StaffCapability =
   /** 会話 (chat 投稿 / セッションへの inject)。 未登録でも可。 */
   | "converse"
-  /** リアクションワークフローの発火 (headless claude を起動して作業させる)。 */
+  /**
+   * リアクションワークフローの発火。 これは「指示の簡略化」であって権限ではない
+   * (neco 2026-08-01)。 誰が押してもよく、 指示の中身が要求する権限は別途課される。
+   */
   | "reaction_workflow"
-  /** セッションの spawn (/spawn・コントロールパネル)。 */
+  /** セッションの spawn (/spawn・コントロールパネル・🤝 delegate-task)。 */
   | "session_spawn"
   /** セッションの end-session (/end-session・コントロールパネル)。 */
   | "session_end"
+  /** PR のマージ (🔀 🚀 merge-pr・🔄 sync-project-main-after-merge)。 */
+  | "merge_pr"
   /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (/ex-run・/ex-reboot)。 */
   | "kill_switch";
 
@@ -51,24 +61,31 @@ export const STAFF_CAPABILITIES: readonly StaffCapability[] = [
   "reaction_workflow",
   "session_spawn",
   "session_end",
+  "merge_pr",
   "kill_switch",
 ];
 
 /** 各操作に必要な最低役職。 */
 export const CAPABILITY_MIN_ROLE: Record<StaffCapability, StaffRole> = {
   converse: "staff",
-  reaction_workflow: "manager",
+  // リアクションワークフローは「指示の簡略化」であって権限ではない (neco 2026-08-01)。
+  // 誰が絵文字を押してもよく、 その指示が実際に実行できるかは中身が要求する権限で決まる。
+  // 例: 🔀 (merge-pr) は merge_pr、 🤝 (delegate-task) は session_spawn を別途要求する。
+  reaction_workflow: "staff",
   session_spawn: "manager",
   session_end: "manager",
+  // マージは着地させる破壊的操作なので spawn / end と同じ管理職以上に置く。
+  merge_pr: "manager",
   kill_switch: "executive",
 };
 
 /** 操作の日本語説明 (WebUI の権限表に出す)。 */
 export const CAPABILITY_LABEL: Record<StaffCapability, string> = {
   converse: "会話 (chat / inject)",
-  reaction_workflow: "リアクションワークフローの発火",
+  reaction_workflow: "リアクションワークフローの発火 (指示の簡略化)",
   session_spawn: "セッションの起動 (spawn)",
   session_end: "セッションの終了 (end-session)",
+  merge_pr: "PR のマージ",
   kill_switch: "キルスイッチ (サービス起動・再起動)",
 };
 

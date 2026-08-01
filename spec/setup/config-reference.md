@@ -292,7 +292,7 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | 設定 | 既定 | API | 意味 |
 |------|------|-----|------|
 | reaction-workflow ON/OFF | env `CONCORDIA_REACTION_WORKFLOW` | `/v1/admin/reaction-workflow` | リアクションWF安全弁。 runner が live 評価 (即時反映)。 |
-| platform 発火ユーザ (reaction / spawn / delegation) | (AdminState には無い) | `/v1/staff` | **allowlist は廃止**。 誰が発火 / spawn / end-session / キルスイッチできるかは社員名簿 (`staff_members`) の役職で決まる ([staff-roster](../feature/staff-roster.md))。 `PUT /v1/admin/reaction-workflow` は `{ enabled }` のみ受け、user ID 配列を送ると 400。 旧 env `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` と `*` 全員許可トークンは migration 44 で廃止 (旧 allowlist の ID は `manager` として名簿へ移行)。 |
+| platform 権限ユーザ (reaction / spawn / delegation) | (AdminState には無い) | `/v1/staff` | **allowlist は廃止**。 誰が spawn / end-session / マージ / キルスイッチできるかは社員名簿 (`staff_members`) の役職で決まる (リアクションの発火自体は誰でも可) ([staff-roster](../feature/staff-roster.md))。 `PUT /v1/admin/reaction-workflow` は `{ enabled }` のみ受け、user ID 配列を送ると 400。 旧 env `CONCORDIA_REACTION_WORKFLOW_{DISCORD,SLACK}_USERS` と `*` 全員許可トークンは migration 44 で廃止 (旧 allowlist の ID は `manager` として名簿へ移行)。 |
 | reaction 絵文字→アクション 上書き | (組み込み既定) | `/v1/admin/reaction-mappings` | ユーザ追加の写像。 既定より優先。 |
 | `lictor_mode` | `auto` | `/v1/admin/lictor` | spawn の Lictor 起動。 `auto`=PATH の `lictor` / `dev`=`node <devPath>/bin/lictor.mjs` / `prod`=同梱 exe。 |
 | `lictor_dev_path` | `<workspaceRoot>/Lictor` | 〃 | dev モードのローカル Lictor リポ。 |
@@ -302,8 +302,10 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 > PATH に `lictor` が無く spawn に失敗する環境は `lictor_mode=dev/prod` + パス指定で解決する。
 
 `GET /v1/admin/reaction-workflow` の `readiness.status` は `disabled` / `ready` /
-`no_authorized_users`。件数は **発火権限 (`reaction_workflow` = 管理職以上) を持つ社員の人数**で、
-ON かつ全 platform 合計 0 人は `no_authorized_users` として起動時・設定変更時に警告される。
+`no_authorized_users`。 発火自体は誰でもできる (`reaction_workflow` = ヒラ社員) ので、 件数は
+**権限を要する指示 (🤝 spawn / 🔀 🚀 🔄 merge) を実行できる社員 = 管理職以上の人数**を数える。
+ON かつ全 platform 合計 0 人は `no_authorized_users` として起動時・設定変更時に警告される
+(押せはするが spawn も merge も起きない状態のため)。
 platform 別の件数と issue code も返すが user ID 自体は返さない。名簿が空でも allow-all にはならず、
 reaction workflow の ON/OFF にかかわらず platform 起点の spawn / delegation も拒否する
 (判定関数が未注入の場合も deny = fail-closed)。

@@ -110,8 +110,16 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
-  /** 社員名簿 (staff_members) の役職に基づく発火権限判定 (管理職以上)。 */
+  /**
+   * リアクションワークフローの発火可否。 発火自体は誰でも可 (`reaction_workflow` =
+   * ヒラ社員) なので実質は素通しゲート。 実行可否は下の `hasStaffCapability` が決める。
+   */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
+  /**
+   * リアクションワークフローの各アクションが要求する権限の判定。 リアクション自体は
+   * 誰でも押せるので、 発火可否ではなく「指示の内容が実行できるか」を見る。
+   */
+  hasStaffCapability?: (userId: string, capability: import("../staff/roles.js").StaffCapability) => boolean;
   /** 社員名簿 (staff_members) の役職に基づく spawn 権限判定 (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** 同じく end-session 権限判定 (管理職以上)。 Discord `/end-session` と同じ capability。 */
@@ -175,6 +183,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
     customMappings: deps.resolveReactionMappings,
+    // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
+    hasCapability: deps.hasStaffCapability,
     log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
   });
 

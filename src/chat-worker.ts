@@ -160,8 +160,8 @@ async function main(): Promise<void> {
   const staffRepo = new StaffRepo(db);
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
-    discordAuthorizedCount: staffRepo.countByCapability("discord", "reaction_workflow"),
-    slackAuthorizedCount: staffRepo.countByCapability("slack", "reaction_workflow"),
+    discordAuthorizedCount: staffRepo.countByCapability("discord", "session_spawn"),
+    slackAuthorizedCount: staffRepo.countByCapability("slack", "session_spawn"),
   });
   if (reactionWorkflowReadiness.issues.length > 0) {
     log.warn(
@@ -249,6 +249,9 @@ async function main(): Promise<void> {
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
+    // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
+    hasStaffCapability: (userId, capability) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), capability),
     isLaunchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
     isSessionEndUserAllowed: (userId) =>
@@ -280,6 +283,9 @@ async function main(): Promise<void> {
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
+    // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
+    hasStaffCapability: (userId, capability) =>
+      capabilityAllowed(staffRepo.roleOf("slack", userId), capability),
     isLaunchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "session_spawn"),
     isSessionEndUserAllowed: (userId) =>

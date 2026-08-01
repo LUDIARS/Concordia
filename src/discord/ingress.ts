@@ -45,7 +45,10 @@ export interface IngressDeps {
       onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
     ): Promise<void>;
   };
-  /** 社員名簿の役職に基づく発火権限判定 (管理職以上)。 */
+  /**
+   * 社員名簿の役職に基づく発火可否。 発火自体は誰でも可 (`reaction_workflow` = ヒラ社員)。
+   * 指示の中身が要求する権限は runner 側 (`hasCapability`) で判定する。
+   */
   isWorkflowUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;

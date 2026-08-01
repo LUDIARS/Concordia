@@ -445,8 +445,8 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
-    discordAuthorizedCount: staffRepo.countByCapability("discord", "reaction_workflow"),
-    slackAuthorizedCount: staffRepo.countByCapability("slack", "reaction_workflow"),
+    discordAuthorizedCount: staffRepo.countByCapability("discord", "session_spawn"),
+    slackAuthorizedCount: staffRepo.countByCapability("slack", "session_spawn"),
   });
   if (reactionWorkflowReadiness.issues.length > 0) {
     log.warn(
@@ -680,9 +680,12 @@ export async function startBackend(): Promise<BackendHandle> {
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     // 権限は社員名簿 (staff_members) の役職で決める。 判定は毎回 live 参照 = WebUI で
-    // 役職を変えたら再起動なしで効く。 未登録は ヒラ社員 相当 (会話のみ)。
+    // 役職を変えたら再起動なしで効く。 未登録は ヒラ社員 相当 (会話 + リアクション発火)。
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
+    // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
+    hasStaffCapability: (userId, capability) =>
+      capabilityAllowed(staffRepo.roleOf("discord", userId), capability),
     isLaunchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
     isSessionEndUserAllowed: (userId) =>
@@ -730,6 +733,9 @@ export async function startBackend(): Promise<BackendHandle> {
     // Discord と同じく社員名簿の役職で判定する (platform=slack の行を引く)。
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
+    // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
+    hasStaffCapability: (userId, capability) =>
+      capabilityAllowed(staffRepo.roleOf("slack", userId), capability),
     isLaunchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "session_spawn"),
     isSessionEndUserAllowed: (userId) =>

@@ -175,8 +175,16 @@ export interface DiscordBotDeps {
    * 社員名簿 (staff_members) の役職に基づく権限判定。 未注入は deny 側 (fail-closed)。
    * spec/feature/staff-roster.md §3 (capability → 最低役職 / ゲート位置)。
    */
-  /** リアクションワークフローの発火 (管理職以上)。 */
+  /**
+   * リアクションワークフローの発火可否。 発火自体は誰でも可 (`reaction_workflow` =
+   * ヒラ社員) なので実質は素通しゲート。 実行可否は下の `hasStaffCapability` が決める。
+   */
   isReactionWorkflowUserAllowed?: (userId: string) => boolean;
+  /**
+   * リアクションワークフローの各アクションが要求する権限の判定。 リアクション自体は
+   * 誰でも押せるので、 発火可否ではなく「指示の内容が実行できるか」を見る。
+   */
+  hasStaffCapability?: (userId: string, capability: import("../staff/roles.js").StaffCapability) => boolean;
   /** セッションの spawn / delegation 起動 (管理職以上)。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** セッションの end-session (管理職以上)。 */
@@ -334,6 +342,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
     customMappings: deps.resolveReactionMappings,
+    // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
+    hasCapability: deps.hasStaffCapability,
     log,
   });
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);

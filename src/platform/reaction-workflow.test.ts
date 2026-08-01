@@ -325,6 +325,9 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       workspaceRoot: "E:/Document/Ars",
       memoriaPath: "E:/Document/Ars/Memoria",
       enabled: true,
+      // 既定は権限ありで組む。 権限が要るアクション (delegate-task / merge-pr) の
+      // 拒否側は専用のテストで確かめる。
+      hasCapability: () => true,
       log: { info: () => {}, warn: () => {} },
       now: () => 1_000_000,
       ...over,
@@ -481,5 +484,87 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
 
   it("reactionAckText は 絵文字 + ラベル + 受付文 を返す", () => {
     expect(reactionAckText("enumerate-remaining", "🙏")).toBe("🙏 残作業の洗い出しを受け付けました");
+  });
+});
+
+// ─── 権限: リアクションは誰でも押せるが、指示の中身は実行できるとは限らない ──────
+describe("ReactionWorkflowRunner.handle 権限", () => {
+  // 既定は権限なし (ヒラ社員 相当)。 hasCapability を差し替えれば、 同じ runner
+  // インスタンスのまま役職が付いた状況 (= dedupe 状態を引き継いだ再発火) を作れる。
+  function denyingRunner(hasCapability: () => boolean = () => false) {
+    const calls: { prompt: string }[] = [];
+    const results: { ok: boolean; text: string }[] = [];
+    const runner = new ReactionWorkflowRunner({
+      runHeadless: async (prompt: string) => {
+        calls.push({ prompt });
+        return { ok: true, exit_code: 0, stdout: "", stderr: "", duration_ms: 1 };
+      },
+      emitInject: () => {},
+      workspaceRoot: "E:/Document/Ars",
+      enabled: true,
+      hasCapability,
+      log: { info: () => {}, warn: () => {} },
+      now: () => 1_000_000,
+    });
+    return { runner, calls, results };
+  }
+
+  const input = {
+    dedupeKey: "m-perm",
+    emoji: "🔀",
+    userId: "u-plain",
+    messageText: "これマージして",
+    authorLabel: "だれか",
+    repoPath: "E:/Document/Ars/Concordia",
+    sessionActive: false,
+    sessionId: null,
+  } as ReactionWorkflowInput;
+
+  it("merge-pr(🔀) を権限なしで押しても実行せず、理由を返す", async () => {
+    const { runner, calls, results } = denyingRunner();
+    await runner.handle(input, undefined, (_a, r) => results.push(r));
+    expect(calls).toEqual([]);
+    expect(results).toHaveLength(1);
+    expect(results[0].ok).toBe(false);
+    expect(results[0].text).toContain("マージ");
+  });
+
+  it("delegate-task(🤝) も同じくセッション起動権限を要求する", async () => {
+    const { runner, calls, results } = denyingRunner();
+    await runner.handle({ ...input, emoji: "🤝", dedupeKey: "m-perm2" }, undefined, (_a, r) => results.push(r));
+    expect(calls).toEqual([]);
+    expect(results[0]?.text).toContain("セッション起動");
+  });
+
+  // リアクションは付け外しが自由なので、 拒否のたびに返すと chat を埋め尽くせてしまう。
+  // 通知だけは間引く (発火側の cooldown は下のテストのとおり焼かない)。
+  it("同じ拒否を連打しても通知は 1 回だけ返す", async () => {
+    const { runner, results } = denyingRunner();
+    const onResult = (_a: WorkflowAction, r: { ok: boolean; text: string }) => results.push(r);
+    await runner.handle({ ...input, dedupeKey: "m-perm5" }, undefined, onResult);
+    await runner.handle({ ...input, dedupeKey: "m-perm5" }, undefined, onResult);
+    await runner.handle({ ...input, dedupeKey: "m-perm5" }, undefined, onResult);
+    expect(results).toHaveLength(1);
+  });
+
+  // 権限を要求しない指示は誰でも通る (それが「指示の簡略化」の意味)。
+  it("残作業の洗い出し(🙏) は権限なしでも実行する", async () => {
+    const { runner, calls } = denyingRunner();
+    await runner.handle({ ...input, emoji: "🙏", dedupeKey: "m-perm3" });
+    expect(calls.length).toBeGreaterThan(0);
+  });
+
+  // 拒否で cooldown を消費すると、役職を付けた直後に押し直せなくなる。 dedupe 状態は
+  // runner インスタンスが持つので、 同じ runner のまま権限だけを付け替えて確かめる
+  // (別インスタンスを作ると dedupe を共有せず、 何も検証しないテストになる)。
+  it("拒否された発火は dedupe を消費しない", async () => {
+    let allowed = false;
+    const { runner, calls } = denyingRunner(() => allowed);
+    await runner.handle({ ...input, dedupeKey: "m-perm4" });
+    expect(calls).toEqual([]);
+    // now は固定 = dedupe ウィンドウ内。 拒否が cooldown を焼いていれば ここで弾かれる。
+    allowed = true;
+    await runner.handle({ ...input, dedupeKey: "m-perm4" });
+    expect(calls.length).toBeGreaterThan(0);
   });
 });

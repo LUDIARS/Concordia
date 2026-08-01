@@ -924,6 +924,7 @@ export type StaffCapability =
   | "reaction_workflow"
   | "session_spawn"
   | "session_end"
+  | "merge_pr"
   | "kill_switch";
 
 export interface StaffMember {

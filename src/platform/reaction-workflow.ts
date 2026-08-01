@@ -33,6 +33,9 @@
  */
 
 import { join } from "node:path";
+import type { StaffCapability } from "../staff/roles.js";
+import type { WorkflowAction } from "./reaction-workflow-action.js";
+import { workflowActionCapability, workflowDenialMessage } from "./reaction-workflow-capability.js";
 import { readFile, stat } from "node:fs/promises";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
 
@@ -86,26 +89,10 @@ export interface CustomWorkflowEntry {
   cwd?: string;
 }
 
-export type WorkflowAction =
-  | "start-impl"
-  | "enumerate-remaining"
-  | "memoria-remaining"
-  | "status-check"
-  | "repo-memory-good"
-  | "repo-memory-bad"
-  | "memoria-note"
-  | "memoria-task"
-  | "defer-impl"
-  | "force-enter"
-  | "delegate-task"
-  | "channel-rename"
-  | "reschedule-non-goal"
-  | "run-goal-tasks"
-  | "handoff-document"
-  | "resume-work"
-  | "merge-pr"
-  | "sync-project-main-after-merge"
-  | "add-as-workflow";
+// 語彙の正本は reaction-workflow-action.ts。 権限の対応表がこの語彙だけを必要とするので
+// 実装から切り離してある (実装側から型を借りると capability ⇄ workflow の循環依存になり、
+// 依存検査 no-circular が落ちる)。 ここでは従来どおりの import 元として再輸出する。
+export type { WorkflowAction };
 
 /**
  * リアクション絵文字 → WorkflowAction。 Discord は標準絵文字を unicode 文字 (👍 等) で、
@@ -821,6 +808,12 @@ export interface ReactionWorkflowDeps {
   /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
   concordiaUrl?: string;
   /**
+   * 発火者がその操作を実行できるか。 リアクション自体は誰でも押せるが、 中身が
+   * セッション起動やマージを要求するなら改めて役職を問う (neco 2026-08-01)。
+   * 未注入なら、 権限を要求するアクションは deny (fail-closed)。
+   */
+  hasCapability?: (userId: string, capability: StaffCapability) => boolean;
+  /**
    * 複数ワークスペースルート (走査対象の全ルート)。 Memoria はこのうち実在する
    * `<root>/Memoria` を採用する。 未指定なら [workspaceRoot] 相当。
    */
@@ -980,6 +973,34 @@ export class ReactionWorkflowRunner {
         this.deps.log.warn(`reaction-workflow: custom failed: ${(e as Error).message}`),
       );
       return;
+    }
+
+    // リアクションは誰でも押せるが、 指示の内容が実行できるとは限らない。 セッション起動や
+    // マージを要求するアクションはここで役職を問う (neco 2026-08-01)。 dedup より先に見るのは、
+    // 拒否された発火で cooldown を消費させないため — 権限が付いた直後に押し直せる。
+    const requiredCapability = workflowActionCapability(action);
+    if (requiredCapability) {
+      const allowed = this.deps.hasCapability?.(input.userId, requiredCapability) === true;
+      if (!allowed) {
+        // 拒否は必ず記録する (監査用)。 発火側の cooldown は焼かない。
+        this.deps.log.info(
+          `reaction-workflow: denied action=${action} user=${input.userId} needs=${requiredCapability}`,
+        );
+        // 黙って無視しない。 押した本人に何が足りないかを返す。 ただし通知だけは別枠の
+        // cooldown で間引く — リアクションは付け外しが自由なので、 毎回返すと拒否された
+        // 側が chat を埋め尽くせてしまう。 発火用の key とは名前空間を分けてあるので、
+        // 役職が付いた直後の押し直しは従来どおり即座に通る。
+        const denyKey = `deny|${input.dedupeKey}|${input.emoji}|${input.userId}`;
+        const denyNow = this.nowSec();
+        const lastDenied = this.lastFired.get(denyKey);
+        const notified = lastDenied !== undefined && denyNow - lastDenied < DEDUPE_SEC;
+        if (!notified) {
+          this.lastFired.set(denyKey, denyNow);
+          const message = workflowDenialMessage(action, requiredCapability);
+          if (onResult) try { onResult(action, { ok: false, text: message }); } catch { /* best-effort */ }
+        }
+        return;
+      }
     }
 
     const key = `${input.dedupeKey}|${input.emoji}|${input.userId}`;

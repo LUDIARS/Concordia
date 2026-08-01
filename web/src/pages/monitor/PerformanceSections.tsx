@@ -54,7 +54,7 @@ export function MachinesSection() {
 }
 
 /**
- * PC パフォーマンス概況 — ホストのメモリ/CPU + 上位プロセス + WSL/docker +
+ * PC パフォーマンス概況 — ホストのメモリ/CPU + 上位プロセス +
  * セッション別メモリ (並び替え可)。 host_metrics の最新スナップショットを 10 秒 poll。
  */
 export function PerformanceSection() {
@@ -133,7 +133,7 @@ export function PerformanceSection() {
         </div>
       )}
 
-      {/* 上位プロセス + WSL/docker */}
+      {/* 上位プロセス */}
       <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
         <div className="bg-surface border border-border rounded p-3">
           <div className="text-sm font-semibold mb-1">上位プロセス</div>
@@ -147,37 +147,7 @@ export function PerformanceSection() {
             ))}
           </div>
         </div>
-        {(snap.wsl.length > 0 || snap.docker.length > 0) && (
-          <div className="bg-surface border border-border rounded p-3">
-            {snap.wsl.length > 0 && (
-              <>
-                <div className="text-sm font-semibold mb-1">WSL</div>
-                <div className="space-y-0.5 mb-2">
-                  {snap.wsl.map((w) => (
-                    <div key={w.key} className="flex items-center gap-2 text-xs">
-                      <span className="font-mono w-20 text-right">{fmtBytes(w.rss)}</span>
-                      <span className="truncate flex-1">{w.key}</span>
-                      <span className="text-subtle">{w.side}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-            {snap.docker.length > 0 && (
-              <>
-                <div className="text-sm font-semibold mb-1">docker ({snap.docker.length})</div>
-                <div className="space-y-0.5">
-                  {snap.docker.slice(0, 8).map((d) => (
-                    <div key={d.name} className="flex items-center gap-2 text-xs">
-                      <span className="font-mono w-20 text-right">{fmtBytes(d.rss)}</span>
-                      <span className="truncate flex-1">{d.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
+        {/* WSL / docker のバックエンド監視は Excubitor 側。 経緯は src/metrics/collector.ts の冒頭。 */}
       </div>
     </section>
   );

@@ -76,10 +76,10 @@ Durable state and cross-cutting infrastructure: SQLite repositories for all enti
 
 ## observability
 
-Cost, resource, and time-based reporting: aggregating spend, sampling host/WSL metrics, and scheduling daily/morning/stat rollups.
+Cost, resource, and time-based reporting: aggregating spend, sampling host metrics, and scheduling daily/morning/stat rollups.
 
 - **cost-tracking** - Cost feed aggregation and usage rate reading across providers (src/cost).  `paths: (^|/)src/cost/[^/]+$`
-- **host-metrics** - Host and WSL process/resource snapshots and capture (src/metrics).  `paths: (^|/)src/metrics/[^/]+$`
+- **host-metrics** - Host process/resource snapshots and capture (src/metrics).  `paths: (^|/)src/metrics/[^/]+$`
 - **scheduled-reports** - Daily, morning, and stat schedulers driving periodic reports (src/daily, src/morning, src/stat).  `paths: (^|/)src/daily/[^/]+$, (^|/)src/stat/[^/]+$, (^|/)src/morning/[^/]+$`
 
 ## governance

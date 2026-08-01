@@ -386,8 +386,6 @@ export interface HostSnapshot {
   sampled_at: number;
   host: { totalMem: number; usedMem: number; freeMem: number; cpuCount: number; loadPct: number | null };
   topProcesses: Array<{ name: string; rss: number; count: number }>;
-  wsl: Array<{ key: string; side: "guest" | "host"; rss: number; total?: number }>;
-  docker: Array<{ name: string; rss: number; percent: number | null }>;
   sessions: Array<{
     session_id: string;
     label: string;

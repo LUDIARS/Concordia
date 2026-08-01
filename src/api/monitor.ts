@@ -102,7 +102,7 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
     });
   });
 
-  // PC パフォーマンス: 最新スナップショット (host メモリ/CPU + 上位プロセス + WSL/docker
+  // PC パフォーマンス: 最新スナップショット (host メモリ/CPU + 上位プロセス
   // + セッション別 RSS)。 Monitor ページのマシン概況 + セッション別メモリ列に使う。
   app.get("/metrics", (c) => {
     if (!deps.metrics) return c.json({ error: "metrics disabled" }, 503);

@@ -3,8 +3,14 @@
  *
  * - host: 物理メモリ (os) + CPU 使用率 (os.cpus の 200ms デルタ)
  * - topProcesses: image 名で RSS 合算した上位
- * - wsl / docker: バックエンドのメモリ
  * - sessions: active/lost セッションごとに lictor_pid の部分木 RSS (= セッション別メモリ)
+ *
+ * Concordia が自前で見るのは Lictor セッションの消費だけにする。 WSL / docker の
+ * バックエンド監視は Excubitor が担当し、 必要ならそちらから受け取る。 自前で
+ * `wsl.exe` / `docker` を spawn するのをやめたのは、 WSL backend が刺さると
+ * プローブが返らず、 timeout で刈り取っても `wslservice` のハンドルと孤児
+ * `wslhost.exe` が tick ごとに積み上がったため (2026-08-01: wslservice が
+ * 19,000 ハンドル超、 孤児 5 本、 2 分で wsl.exe 起動 36 回)。
  */
 
 import os from "node:os";
@@ -12,7 +18,6 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { parseLictorPid } from "../control/reaper.js";
 import { listProcesses, sumTreeRss, topByName, type TopProc } from "./process-tree.js";
-import { sampleWsl, sampleDocker, type WslSample, type DockerSample } from "./os-samplers.js";
 import type { LagSnapshot } from "./event-loop-lag.js";
 
 export interface SessionMem {
@@ -36,8 +41,6 @@ export interface HostSnapshot {
     loadPct: number | null;
   };
   topProcesses: TopProc[];
-  wsl: WslSample[];
-  docker: DockerSample[];
   sessions: SessionMem[];
   /** Event-loop lag (ms)。 Phase 3 分離効果の物差し。 */
   eventLoopLag?: LagSnapshot;
@@ -49,11 +52,7 @@ export async function collectHostSnapshot(
   excubitorClient?: ExcubitorClient,
 ): Promise<HostSnapshot> {
   const procList = await listProcesses(excubitorClient, nowMs);
-  const [loadPct, wsl, docker] = await Promise.all([
-    cpuLoadPct(),
-    sampleWsl(procList ?? []),
-    sampleDocker(),
-  ]);
+  const loadPct = await cpuLoadPct();
 
   const total = os.totalmem();
   const free = os.freemem();
@@ -90,8 +89,6 @@ export async function collectHostSnapshot(
       loadPct,
     },
     topProcesses: procList ? topByName(procList, 15) : [],
-    wsl,
-    docker: docker.slice(0, 15),
     sessions,
   };
 }

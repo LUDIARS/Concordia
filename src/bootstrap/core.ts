@@ -597,7 +597,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。
   // sweeper が行を purge して記録が消えた分も OS 走査で回収する (止血は kill 経路の配線、 これは掃除)。
-  // PC パフォーマンス監視: ホストのメモリ/CPU + 上位プロセス + WSL/docker + セッション別 RSS を
+  // PC パフォーマンス監視: ホストのメモリ/CPU + 上位プロセス + セッション別 RSS を
   // 周期サンプリングして host_metrics に蓄積。 Monitor ページが最新スナップショットを表示する。
   const metricsStore = new MetricsStore(db);
   const toolPath = join(process.cwd(), "tools", "concordia-hook.mjs");

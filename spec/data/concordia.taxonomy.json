@@ -183,7 +183,7 @@
     },
     {
       "name": "observability",
-      "description": "Cost, resource, and time-based reporting: aggregating spend, sampling host/WSL metrics, and scheduling daily/morning/stat rollups.",
+      "description": "Cost, resource, and time-based reporting: aggregating spend, sampling host metrics, and scheduling daily/morning/stat rollups.",
       "modules": [
         {
           "name": "cost-tracking",
@@ -194,7 +194,7 @@
         },
         {
           "name": "host-metrics",
-          "description": "Host and WSL process/resource snapshots and capture (src/metrics).",
+          "description": "Host process/resource snapshots and capture (src/metrics).",
           "paths": [
             "(^|/)src/metrics/[^/]+$"
           ]

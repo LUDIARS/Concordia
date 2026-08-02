@@ -12,7 +12,7 @@ tags:
   - http
   - vestigium
 status: implemented
-updated: 2026-07-11
+updated: 2026-08-03
 ---
 
 # Runtime function metrics
@@ -32,7 +32,10 @@ Concordia 配線は [`src/instrumentation.ts`](../../src/instrumentation.ts)、�
 
 `CONCORDIA_AOP_METRICS=0` のときだけ無効。それ以外は既定で有効。無効時は middleware / snapshot
 route を追加せず、function wrapper は元 function をそのまま返し、method wrapper は no-op restore
-handle を返す。
+handle を返し、集約サマリ timer も張らない。
+
+`CONCORDIA_AOP_METRICS_STREAM=1` のとき、全 record を per-record で Vestigium へ流す旧挙動に戻し、
+集約サマリ timer は張らない。短期デバッグ用の opt-in。
 
 ## metric record
 
@@ -44,8 +47,27 @@ handle を返す。
 total/avg/min/max/last duration、last status/time、error name 別件数を持つ。同期関数と Promise-like
 関数の両方で成功・失敗を記録し、元の返り値または例外を保持する。
 
-各 completion は Vestigium に level `info`（成功）または `warn`（失敗）、message
-`lapilli.function_metric` で送る。reporter の例外は instrumentation 内で握り、処理本体へ伝播させない。
+reporter の例外は instrumentation 内で握り、処理本体へ伝播させない。
+
+## Vestigium 出力
+
+Vestigium への書き出しは per-record ストリームと集約サマリの 2 系統。
+
+| 系統 | message | level | 条件 |
+|---|---|---|---|
+| per-record | `lapilli.function_metric` | `warn` | status `error` の record。既定で `error` のみ |
+| per-record | `lapilli.function_metric` | `info` | status `ok` の record。`CONCORDIA_AOP_METRICS_STREAM=1` のときだけ |
+| 集約サマリ | `lapilli.function_metric.summary` | `info` | 60 秒間隔。既定 (stream 無効時) のみ |
+
+成功 record を per-record で流すと秒 10 行を超え、log 集積と scan 圧が膨らむため、既定では
+in-memory 集計と 60 秒サマリ 1 行に畳む。成功 record を落としても aggregate と snapshot API の
+値は変わらない（reporter と aggregator は独立）。
+
+集約サマリの ctx は `interval_ms`、前回サマリからの新規 call 数 `since_last_calls`、process 起動
+からの累計 `totals`、call 数上位 20 target の aggregate row `top`。totals は limit 適用前の全 row
+から取るため process 全体の値。**前回サマリから新規 call が無い interval では何も出さない**
+（aggregate は累計なので、無風区間で同一内容が積もるのを防ぐ）。summary timer は `unref` 済で
+process 終了を妨げず、内部の例外は握り潰して host へ伝播させない。
 
 ## HTTP instrumentation
 
@@ -72,8 +94,8 @@ target は `discord.*` の固定名、kind は `discord`。
 | `sort` | `calls` / `totalMs` / `avgMs` / `maxMs` / `lastAt`。既定 `totalMs` |
 
 response は `generatedAt`、filter 後 row から再集計した totals、sort 済み rows。in-memory state は
-process restart で失われる。内部 API `resetFunctionMetrics()` は全 aggregate を消すが、HTTP reset
-endpoint は提供しない。
+process restart で失われる。内部 API `resetFunctionMetrics()` は全 aggregate と集約サマリの基準値を
+消すが、HTTP reset endpoint は提供しない。
 
 ## 制約
 

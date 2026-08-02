@@ -3,6 +3,7 @@ import {
   createFunctionMetricRuntime,
   type AnyFunction,
   type FunctionMetricRecord,
+  type FunctionMetricSnapshot,
   type MetricStatus,
   type RestoreHandle,
   type SnapshotOptions,
@@ -12,12 +13,27 @@ import { vgWrite, type VgLevel } from "./shared/vestigium.js";
 const ENABLED = process.env.CONCORDIA_AOP_METRICS !== "0";
 const SERVICE = "concordia";
 const VG_MESSAGE = "lapilli.function_metric";
+const VG_SUMMARY_MESSAGE = "lapilli.function_metric.summary";
+
+/**
+ * per-record ストリーム書き込みの制御。
+ *
+ * 既定は error のみ per-record で Vg へ流し、 ok レコードは in-memory 集計
+ * (snapshot / /v1/instrumentation/functions) と 60 秒ごとの集約サマリ 1 行に
+ * 畳む。 全レコード垂れ流し (旧挙動、 秒 10 行超で Excubitor のログ集積と
+ * Defender スキャン圧を膨らませていた) は CONCORDIA_AOP_METRICS_STREAM=1 で
+ * 明示的に戻せる (短期デバッグ用)。
+ */
+const STREAM_ALL = process.env.CONCORDIA_AOP_METRICS_STREAM === "1";
+const SUMMARY_INTERVAL_MS = 60_000;
+const SUMMARY_TOP_N = 20;
 
 const metrics = createFunctionMetricRuntime({
   service: SERVICE,
   domain: "concordia",
   includeErrorMessage: false,
   report: (record) => {
+    if (!STREAM_ALL && record.status !== "error") return;
     vgWrite(levelFor(record), VG_MESSAGE, {
       metric: {
         service: record.service,
@@ -33,6 +49,11 @@ const metrics = createFunctionMetricRuntime({
     });
   },
 });
+
+/** 直近サマリ時点の累計 call 数。 無風区間の同一行の垂れ流しを止めるために持つ。 */
+let lastSummaryCalls = 0;
+
+if (ENABLED && !STREAM_ALL) startMetricSummaryTimer();
 
 const DISCORD_TARGETS = {
   ready: "discord.client.ready",
@@ -155,6 +176,41 @@ export function functionMetricSnapshot(opts: SnapshotOptions = {}) {
 
 export function resetFunctionMetrics(): void {
   metrics.reset();
+  lastSummaryCalls = 0;
+}
+
+/**
+ * 集約サマリ timer を張る。 呼び出し回数上位 N target を 60 秒ごとに 1 行で Vg へ流し、
+ * per-record を error のみに絞っても「どの関数がどれだけ呼ばれているか」の横断観測を残す。
+ * timer は unref 済なので process の終了を妨げない。
+ *
+ * @implements spec/feature/runtime-function-metrics.md — Vestigium 出力
+ */
+function startMetricSummaryTimer(): void {
+  const timer = setInterval(() => {
+    try {
+      emitMetricSummary();
+    } catch {
+      /* metrics summary must never break the host */
+    }
+  }, SUMMARY_INTERVAL_MS);
+  timer.unref();
+}
+
+/**
+ * 集約サマリ 1 行を Vg へ。 前回サマリから新規 call が無ければ何も出さない
+ * (aggregate は累計なので、 無風区間では同一内容が 60 秒ごとに積もるだけになる)。
+ *
+ * @implements spec/feature/runtime-function-metrics.md — Vestigium 出力
+ */
+export function emitMetricSummary(): void {
+  // limit を掛けずに取る。 snapshot の totals は filter / limit 適用後 rows の合計なので、
+  // limit 付きだと「上位 N の合計」になり process 全体の観測値として読めなくなる。
+  const snapshot = metrics.snapshot({ sortBy: "calls" });
+  if (snapshot.totals.calls <= lastSummaryCalls) return;
+  const sinceLastCalls = snapshot.totals.calls - lastSummaryCalls;
+  lastSummaryCalls = snapshot.totals.calls;
+  vgWrite("info", VG_SUMMARY_MESSAGE, buildMetricSummaryCtx(snapshot, sinceLastCalls));
 }
 
 function apiInstrumentationMiddleware(): MiddlewareHandler {
@@ -211,6 +267,23 @@ function normalizeApiPath(path: string): string {
 
 function levelFor(record: FunctionMetricRecord): VgLevel {
   return record.status === "error" ? "warn" : "info";
+}
+
+/**
+ * 集約サマリの Vg ctx。 vgWrite の ctx は Record<string, unknown> なので、
+ * 型付き snapshot をそのまま渡さずここで plain object に落とす。
+ * totals は process 起動からの累計、 `since_last_calls` が当該 interval の増分。
+ */
+function buildMetricSummaryCtx(
+  snapshot: FunctionMetricSnapshot,
+  sinceLastCalls: number,
+): Record<string, unknown> {
+  return {
+    interval_ms: SUMMARY_INTERVAL_MS,
+    since_last_calls: sinceLastCalls,
+    totals: snapshot.totals,
+    top: snapshot.rows.slice(0, SUMMARY_TOP_N),
+  };
 }
 
 function parsePositiveInt(raw: string | undefined): number | undefined {

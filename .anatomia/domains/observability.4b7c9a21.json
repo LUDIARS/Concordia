@@ -1,0 +1,62 @@
+{
+  "name": "observability",
+  "description": "自プロセスの観測レイヤー。AOP function metric (HTTP middleware / Discord callback wrapper / in-memory aggregate / snapshot API)、host・process メトリクス、Vestigium (Vg) への構造化ログ出力、外部 Excubitor への監視クライアントを含む。業務ロジックではなく「動いているものを測る」責務。",
+  "presetRules": [
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "src/instrumentation.ts",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "src/metrics/",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "src/shared/vestigium.ts",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "src/excubitor/",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "([Mm]etric|[Ii]nstrument|vg[A-Z])",
+        "by": "name",
+        "maxFanOut": 9007199254740991
+      }
+    }
+  ],
+  "templateRules": [],
+  "cardTemplate": "Summarise the \"observability\" domain: Concordia 自身の function metric / host metric / Vg ログ / サービス監視レイヤー。",
+  "source": "spec",
+  "mechanics": [
+    "function-metric-aop",
+    "metric-snapshot-api",
+    "vestigium-log-emit",
+    "excubitor-monitor-client"
+  ],
+  "specRefs": [
+    "Runtime function metrics",
+    "Runtime function metrics / Vestigium 出力",
+    "Runtime function metrics / snapshot API"
+  ],
+  "rationale": "instrumentation は業務ドメイン (chat / delegation / federation) のどれにも属さず、それら全てを横断して計測する。observability として独立させることで、業務層 → 観測層の単方向依存 (観測層は業務層を import しない) を維持でき、計測点の追加が業務ドメインの結合度に混入しなくなる。",
+  "updatedAt": "2026-08-03T00:00:00.000Z"
+}

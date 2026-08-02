@@ -105,6 +105,13 @@ invoke で **各パラメータをモデル含め上書き可**:
   - 子セッションが紐付いていて、 そのセッションが既に active でない
   - 紐付いた子セッションが無いまま TTL (既定 6h) を超えた
 
+  この判定はキュー側 (`DelegationQueue`) だけが行い、 claim (`queued → launching`) の上限
+  チェックもその結果を受け取る。 claim が status を生に数えると 死んだ run が枠を占有し続け、
+  queued が二度と払い出されない。 逆に、 その drain パスで払い出した run は TTL 起点
+  (`created_at`) が古くても stale 扱いにしない (長く待った run が spawn 直後に stale とみなされ、
+  上限を素通りするのを防ぐ)。 ただし数える母集合は active な status のままなので、 払い出し
+  直後に `spawn_failed` / 完了へ倒れた run は同じパスで枠を返す。
+
   外すのは **スロット計上のみ**で、 status は書き換えない。 「本当に失敗したのか報告を
   怠っただけか」 を Concordia は判別できず、 勝手に `failed` へ倒すと監査ログに嘘が残るため。
 - **run は完了しても消さない**。 `delegation_runs` は purge 対象外 (セッションは `purgeStale`

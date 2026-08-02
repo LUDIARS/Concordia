@@ -154,7 +154,7 @@ describe("DelegationQueue", () => {
 
   it("claim と launch intent を同じ transaction で outbox に残す", () => {
     const run = makeRun(repo, "queued", { queue_payload_json: "{}" });
-    const claimed = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 1_000, maxConcurrency: 1 });
+    const claimed = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 1_000, maxConcurrency: 1, activeCount: 0 });
     expect(claimed?.id).toBe(run.id);
     expect(claimed?.status).toBe("launching");
     const outbox = db.prepare(
@@ -165,8 +165,8 @@ describe("DelegationQueue", () => {
 
   it("expired claimを再取得しても古いfencing tokenでは完了できない", () => {
     const run = makeRun(repo, "queued", { queue_payload_json: "{}" });
-    const first = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 10, maxConcurrency: 1 })!;
-    const second = repo.claimNextQueuedRun({ owner: "worker-b", now: now + 11, leaseMs: 10, maxConcurrency: 1 })!;
+    const first = repo.claimNextQueuedRun({ owner: "worker-a", now, leaseMs: 10, maxConcurrency: 1, activeCount: 0 })!;
+    const second = repo.claimNextQueuedRun({ owner: "worker-b", now: now + 11, leaseMs: 10, maxConcurrency: 1, activeCount: 0 })!;
     expect(second.queue_fencing_token).toBe(2);
     expect(repo.markRunSpawned(
       run.id,
@@ -174,5 +174,85 @@ describe("DelegationQueue", () => {
       delegationQueueClaim(first),
     )).toBeNull();
     expect(repo.findRun(run.id)?.status).toBe("launching");
+  });
+
+  it("claim は渡された activeCount が上限に達していれば払い出さない", () => {
+    makeRun(repo, "queued", { queue_payload_json: "{}" });
+    expect(repo.claimNextQueuedRun({
+      owner: "worker-a", now, leaseMs: 1_000, maxConcurrency: 1, activeCount: 1,
+    })).toBeNull();
+  });
+
+  it("claim は activeCount が上限未満なら払い出す", () => {
+    const waiting = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    expect(repo.claimNextQueuedRun({
+      owner: "worker-a", now, leaseMs: 1_000, maxConcurrency: 2, activeCount: 1,
+    })?.id).toBe(waiting.id);
+  });
+
+  // 2026-07-31 の実障害の回帰テスト。spawn 後にプロセスが落ちても status は
+  // 'running' のまま残るので、claim が status を生に数えていた頃は死んだ run が
+  // 枠を食い続け、queued が二度と払い出されなくなった (実稼働 2 本に対し DB 上
+  // 142 本が active 扱いになり、上限 4 を超えて完全停止)。
+  it("子セッションが終了した run が残っていても drain は払い出す", async () => {
+    const queue = makeQueue(1);
+    const dead = makeRun(repo, "running", { child_session_id: "session-dead" });
+    sessionStatus["session-dead"] = "ended";
+    const waiting = makeRun(repo, "queued", { queue_payload_json: "{}" });
+
+    expect(queue.activeCount()).toBe(0);
+    await queue.drain();
+
+    expect(spawned).toEqual([waiting.id]);
+    // 報告漏れの可能性があるので、死んだ run の status は書き換えない。
+    expect(repo.findRun(dead.id)!.status).toBe("running");
+  });
+
+  // 長く待たされた queued run は spawn 直後から「紐付け待ちのまま TTL 超過」に見えるので、
+  // 占有数を数え直すだけでは 1 本も計上されず上限を素通りしてしまう。 払い出した分は
+  // drain 側で数える。
+  it("TTL より長く待たされた queued run でも上限を超えて払い出さない", async () => {
+    const queue = makeQueue(1);
+    const first = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    makeRun(repo, "queued", { queue_payload_json: "{}" });
+
+    now += DEFAULT_STALE_MS * 2;
+    await queue.drain();
+
+    expect(spawned).toEqual([first.id]);
+  });
+
+  it("紐付け待ちのまま TTL を超えた run が残っていても drain は払い出す", async () => {
+    const queue = makeQueue(1);
+    makeRun(repo, "spawned");
+    const waiting = makeRun(repo, "queued", { queue_payload_json: "{}" });
+
+    // TTL 内はまだ枠を占有している。
+    await queue.drain();
+    expect(spawned).toEqual([]);
+
+    now += DEFAULT_STALE_MS * 2;
+    await queue.drain();
+    expect(spawned).toEqual([waiting.id]);
+  });
+
+  // 払い出した分を無条件に 1 枠と数えると、 spawn 失敗が続く backlog が 1 drain あたり
+  // 上限本ずつしか流れなくなる (executeQueuedRun は payload 欠損などを throw せず
+  // spawn_failed に倒すので、 実運用でも起きる)。 倒れた run は同じパスで枠を返す。
+  it("spawn に失敗した run は同じ drain パスで枠を返す", async () => {
+    const queue = new DelegationQueue({
+      repo,
+      sessions,
+      resolveMaxConcurrency: () => 1,
+      spawnQueued: async () => { throw new Error("boom"); },
+      now: () => now,
+    });
+    const first = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    const second = makeRun(repo, "queued", { queue_payload_json: "{}" });
+
+    await queue.drain();
+
+    expect(repo.findRun(first.id)!.status).toBe("spawn_failed");
+    expect(repo.findRun(second.id)!.status).toBe("spawn_failed");
   });
 });

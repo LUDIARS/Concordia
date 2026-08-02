@@ -13,6 +13,10 @@
  *   - 子セッションが紐付いていて、 そのセッションが既に active でない
  *   - 紐付いた子セッションが無いまま TTL (既定 6h) を超えた
  *
+ * この判定はここでしか行わない。 claim (`DelegationRepo.claimNextQueuedRun`) の上限チェックも
+ * ここで数えた値を受け取る (`activeCount`)。 DB 側で status を生に数えると死んだ run が枠を
+ * 占有し続けるため。
+ *
  * 除外しても run の status は書き換えない。 「本当に失敗したのか、 報告を怠っただけか」
  * を Concordia は判別できないので、 勝手に failed へ倒すと監査ログに嘘が残る。
  * キューを流すのに必要なのはスロット計上から外すことだけなので、 そこに留める。
@@ -110,14 +114,21 @@ export class DelegationQueue {
     this.draining = true;
     try {
       const max = this.maxConcurrency();
+      // このパスで払い出した run は stale 除外を免除して数える (`countOccupiedSlots`)。
+      const claimedHere = new Set<string>();
       while (true) {
         const run = this.deps.repo.claimNextQueuedRun({
           owner: this.owner,
           now: this.now,
           leaseMs: QUEUE_CLAIM_LEASE_MS,
           maxConcurrency: max,
+          // 上限 0 (無制限) のとき claim 側は activeCount を見ないので、 数え直しの
+          // クエリ自体を省く (backlog 全件を流す経路で 1 件ごとに全 active 行を
+          // 読み直さない)。
+          activeCount: max > 0 ? this.countOccupiedSlots(claimedHere) : 0,
         });
         if (!run) break;
+        claimedHere.add(run.id);
         await this.spawn(run);
       }
     } finally {
@@ -156,6 +167,26 @@ export class DelegationQueue {
       emitDelegationRunChanged(updated);
       log.warn({ run_id: run.id, error }, "delegation queue: queued run spawn threw");
     }
+  }
+
+  /**
+   * claim に渡す占有スロット数。 stale な run は数えないが、 `claimedHere` (この drain
+   * パスで払い出した run) だけは stale 判定を免除して数える。
+   *
+   * 免除が要るのは TTL 起点が `created_at` だから。 6h 以上 queued のまま待った run は
+   * claim した瞬間から 「紐付け待ちのまま TTL 超過」 に見え (子セッションはまだ無い)、
+   * 1 本も計上されないまま backlog を一気に spawn してしまう。
+   *
+   * 母集合は `listActiveRuns` (launching/spawned/running) のままなので、 払い出した直後に
+   * spawn_failed / completed へ倒れた run は同じ drain パスの中で枠を返す。 払い出し済みを
+   * 無条件に 1 枠と数えると、 spawn 失敗が続く backlog が 1 drain あたり上限本ずつしか
+   * 流れなくなる (executeQueuedRun は payload 欠損などを throw せず spawn_failed に倒す)。
+   */
+  private countOccupiedSlots(claimedHere: ReadonlySet<string>): number {
+    const now = this.now;
+    return this.deps.repo.listActiveRuns()
+      .filter((run) => claimedHere.has(run.id) || !this.isStale(run, now))
+      .length;
   }
 
   /**

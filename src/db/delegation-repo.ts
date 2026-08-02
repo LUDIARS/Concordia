@@ -395,12 +395,26 @@ export class DelegationRepo {
     ).all() as DelegationRunRow[];
   }
 
-  /** Atomically claim one launch intent and write its durable outbox record. */
+  /**
+   * Atomically claim one launch intent and write its durable outbox record.
+   *
+   * `activeCount` は呼び出し側 (DelegationQueue) が数えた「今も枠を占有している
+   * run の数」。ここで status を生に数えてはいけない — spawn 後にプロセスが落ちて
+   * も status は 'running' のまま残るため、死んだ run が枠を食い続けて queued が
+   * 二度と払い出されなくなる (2026-07-31 に実発生。実稼働 2 本に対し DB 上 142 本
+   * が active 扱いになり、上限 4 を超えて完全に停止した)。占有判定は子セッション
+   * の生死を知る queue 側にしか行えないので、判定は一箇所に寄せて値だけ受け取る。
+   *
+   * その代わり activeCount は transaction の外で数えた値になる。 払い出す drain は
+   * workflow worker lease で 1 プロセスに絞られている前提 (bootstrap の producerOnly)
+   * なので、 上限は最終的に lease が守る。 spec/feature/delegation-coordination.md §6。
+   */
   claimNextQueuedRun(input: {
     owner: string;
     now: number;
     leaseMs: number;
     maxConcurrency: number;
+    activeCount: number;
   }): DelegationRunRow | null {
     const claim = this.db.transaction(() => {
       let candidate = this.db.prepare(
@@ -410,13 +424,7 @@ export class DelegationRepo {
       ).get(input.now) as { id: string } | undefined;
 
       if (!candidate) {
-        if (input.maxConcurrency > 0) {
-          const active = this.db.prepare(
-            `SELECT COUNT(*) AS count FROM delegation_runs
-             WHERE status IN ('launching', 'spawned', 'running')`,
-          ).get() as { count: number };
-          if (active.count >= input.maxConcurrency) return null;
-        }
+        if (input.maxConcurrency > 0 && input.activeCount >= input.maxConcurrency) return null;
         candidate = this.db.prepare(
           `SELECT id FROM delegation_runs WHERE status = 'queued'
            ORDER BY created_at ASC, rowid ASC LIMIT 1`,

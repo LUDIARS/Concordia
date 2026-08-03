@@ -47,7 +47,9 @@ import { readChatWorkerLease, startChatWorkerLease } from "./bootstrap/chat.js";
 import { ChatMutationOutboxRepo } from "./db/chat-mutation-outbox-repo.js";
 import { installChatMutationOutbox } from "./platform/chat-mutation-outbox.js";
 import { ExcubitorClient } from "./excubitor/client.js";
-import { createRevisorTestWorkflowClientFromEnv } from "./pr/revisor-test-workflow-client.js";
+import { createRevisorTestWorkflowClient } from "./pr/revisor-test-workflow-client.js";
+import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
+import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -147,6 +149,8 @@ async function main(): Promise<void> {
     envValue: process.env.CONCORDIA_SECRET_KEY,
     keyFile: join(process.cwd(), "concordia.secret.key"),
   });
+  // Revisor workflow token は本体と同じ DB (revisor_config) を読む。 env はフォールバック。
+  const revisorConfigRepo = makeRevisorConfigRepo(db);
   const workspaceRoot = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot,
@@ -233,7 +237,10 @@ async function main(): Promise<void> {
     readModel,
     chatRepo: chat,
     sessionsRepo: sessions,
-    revisorTestWorkflow: createRevisorTestWorkflowClientFromEnv(new ExcubitorClient()),
+    revisorTestWorkflow: createRevisorTestWorkflowClient(
+      new ExcubitorClient(),
+      () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox),
+    ),
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,

@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 46;
+export const SCHEMA_VERSION = 47;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -530,6 +530,15 @@ const STATEMENTS = [
   // ★ token (bot/app) は secret-box で暗号化した値を bot_token_enc / app_token_enc に保存し、
   //   平文では持たない (AIFormat §7 / coding-conventions §14)。channel_id / enabled は平文。
   `CREATE TABLE IF NOT EXISTS slack_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  )`,
+
+  // Revisor 連携設定の key/value (discord_config / slack_config と対の構成)。
+  // env (CONCORDIA_REVISOR_*) はフォールバックに残し、DB 値が優先。
+  // ★ workflow token は secret-box で暗号化した値を workflow_token_enc に保存し、
+  //   平文では持たない (AIFormat §7 / coding-conventions §14)。
+  `CREATE TABLE IF NOT EXISTS revisor_config (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   )`,
@@ -1214,6 +1223,20 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
   up(db) {
     // PC 名ではなく Villa の安定した id を保持し、名称変更で拠点の対応を失わないようにする。
     db.exec("ALTER TABLE federation_sites ADD COLUMN villa_pc_id TEXT");
+  },
+}, {
+  version: 47,
+  name: "revisor-config",
+  source: "revisor_config key/value",
+  up(db) {
+    // Revisor workflow token を Discord/Slack の bot token と同じ扱い (暗号化して DB) にする。
+    // 既存 DB は baseline を通らないので、 ここで作らないとテーブルが生えない。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS revisor_config (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    `);
   },
 }];
 

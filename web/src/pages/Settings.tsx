@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { SlackSettingsSection } from "./SlackConfig.js";
 import { DiscordSettingsSection } from "./DiscordConfig.js";
+import { RevisorSettingsSection } from "./RevisorConfig.js";
 import { ModelCatalogSection } from "./ModelCatalog.js";
 import {
   RuntimeControlsSection,
@@ -27,11 +28,12 @@ const SECTIONS: SettingsSection[] = [
   {
     id: "integrations",
     label: "連携",
-    hint: "Slack / Discord (DB+暗号化、 token は hot 再接続)",
+    hint: "Slack / Discord / Revisor (DB+暗号化)",
     render: () => (
       <div className="space-y-6">
         <section className="border border-border rounded p-4"><SlackSettingsSection /></section>
         <section className="border border-border rounded p-4"><DiscordSettingsSection /></section>
+        <section className="border border-border rounded p-4"><RevisorSettingsSection /></section>
       </div>
     ),
   },

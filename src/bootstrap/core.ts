@@ -80,7 +80,9 @@ import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
-import { createRevisorTestWorkflowClientFromEnv } from "../pr/revisor-test-workflow-client.js";
+import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
+import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
+import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { MemoriaClient } from "../memoria/client.js";
@@ -476,7 +478,11 @@ export async function startBackend(): Promise<BackendHandle> {
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
   const revisorClient = createRevisorClientFromEnv(excubitorClient);
-  const revisorTestWorkflow = createRevisorTestWorkflowClientFromEnv(excubitorClient);
+  // Revisor workflow token は DB (revisor_config、 secret-box 暗号化) が正本で、 env は
+  // フォールバック。 クライアントはリクエストごとに解決するので Web UI の変更が即効く。
+  const revisorConfigRepo = makeRevisorConfigRepo(db);
+  const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
+  const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots());
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -520,7 +526,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // 自動提出する。 旧経路 (GitHub PR の CI success → /v1/pr-gate/jobs) は Revisor が
   // local PR ワークフローへ移行したときにエンドポイントごと無くなり、 以来「人が手で
   // 提出したときだけレビューされる」状態だった。 失敗してもセッション終了処理は止めない。
-  const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient);
+  const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient, resolveRevisorToken);
   const localPrLog = createChildLogger("revisor-local-pr");
   const localPrDeps = { revisor: revisorLocalPrs, listBranchCommits, log: localPrLog };
   const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
@@ -828,6 +834,7 @@ export async function startBackend(): Promise<BackendHandle> {
     staff: staffRepo,
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
+    revisorConfig: revisorConfigRepo,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
     submitLocalPr: async (sessionId: string) => {
       const session = repo.findSession(sessionId);

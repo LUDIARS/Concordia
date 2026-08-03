@@ -11,6 +11,7 @@
 
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
+import { toTokenResolver } from "./revisor-token.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -48,10 +49,14 @@ export interface RevisorLocalPrGateway {
   submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary>;
 }
 
-interface RevisorLocalPrClientOptions {
+export interface RevisorLocalPrClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
-  /** 提出 (変更系) に必要。 空なら提出は失敗し、 一覧のみ利用できる。 */
-  token?: string;
+  /**
+   * 提出 (変更系) に必要。 空なら提出は失敗し、 一覧のみ利用できる。
+   * 関数を渡すと **リクエストごとに解決**するので、 Web UI から設定した token が
+   * 再起動なしで効く (DB 設定 → env フォールバックの解決は revisor-config.ts)。
+   */
+  token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -83,13 +88,13 @@ function asLocalPr(value: unknown): RevisorLocalPrSummary | null {
 
 export class RevisorLocalPrClient implements RevisorLocalPrGateway {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
-  private readonly token: string;
+  private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
   constructor(options: RevisorLocalPrClientOptions) {
     this.excubitor = options.excubitor;
-    this.token = options.token?.trim() ?? "";
+    this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -110,10 +115,12 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      // token は保持せずリクエストごとに解決する (設定変更が再起動なしで効く)。
+      const token = this.token();
       const response = await this.fetchImpl(`http://127.0.0.1:${port}${path}`, {
         ...init,
         headers: {
-          ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
           "x-concordia-actor": "concordia",
           ...(init?.body ? { "content-type": "application/json" } : {}),
           ...(init?.headers ?? {}),
@@ -173,12 +180,17 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
   }
 }
 
+/**
+ * token の既定は env フォールバックのみ。 DB 設定 (revisor_config) を効かせたい呼び出し側は
+ * `resolveToken` に `() => resolveRevisorWorkflowToken(repo, box)` を渡す。
+ */
 export function createRevisorLocalPrClient(
   excubitor: Pick<ExcubitorClient, "findService">,
+  resolveToken?: () => string | undefined,
   env: NodeJS.ProcessEnv = process.env,
 ): RevisorLocalPrClient {
   return new RevisorLocalPrClient({
     excubitor,
-    token: env.CONCORDIA_REVISOR_WORKFLOW_TOKEN?.trim() ?? "",
+    token: resolveToken ?? (() => env.CONCORDIA_REVISOR_WORKFLOW_TOKEN),
   });
 }

@@ -68,6 +68,8 @@ import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
 import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type { RevisorConfigRepo } from "../db/revisor-config-repo.js";
+import { revisorAdminRouter } from "./revisor-admin.js";
 import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import {
@@ -137,6 +139,8 @@ export interface CoreDelegationDeps {
   staff?: StaffRepo;
   /** Revisor local PR の読み取り口。 未注入なら /v1/prs/revisor は configured=false。 */
   revisorLocalPrs?: RevisorLocalPrReader;
+  /** Revisor workflow token の設定ストア。 未注入なら /v1/admin/revisor は生えない。 */
+  revisorConfig?: RevisorConfigRepo;
   /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
   submitLocalPr?: PrsApiDeps["submitLocalPr"];
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
@@ -206,6 +210,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs, revisor: deps.revisorLocalPrs, submitLocalPr: deps.submitLocalPr }));
+  // Revisor の workflow token 設定 (Discord/Slack の bot token と同じ扱い: 暗号化して DB)。
+  if (deps.revisorConfig && deps.secretBox) {
+    app.route("/v1/admin/revisor", revisorAdminRouter({ config: deps.revisorConfig, secretBox: deps.secretBox }));
+  }
   app.route("/v1/taskflow", taskflowRouter({
     store: deps.taskStore,
     sessions: deps.repo,

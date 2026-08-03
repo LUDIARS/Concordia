@@ -233,6 +233,12 @@ export interface SlackConfigStatus {
   };
 }
 
+/** Revisor workflow token の状態。 値は返らず set 済みと出所だけ。 */
+export interface RevisorConfigStatus {
+  workflow_token_set: boolean;
+  source: "db" | "env" | "none";
+}
+
 export interface SlackBotActionResult {
   ok: boolean;
   status: string;
@@ -711,6 +717,10 @@ export const api = {
       "/v1/admin/slack/config",
       body,
     ),
+  revisorConfigGet: () => get<RevisorConfigStatus>("/v1/admin/revisor/config"),
+  // workflow_token: null = クリア (env フォールバックへ) / undefined = 据え置き
+  revisorConfigSet: (body: { workflow_token?: string | null }) =>
+    put<RevisorConfigStatus>("/v1/admin/revisor/config", body),
   slackBotStart: () => post<SlackBotActionResult>("/v1/admin/slack/start", {}),
   slackBotStop: () => post<SlackBotActionResult>("/v1/admin/slack/stop", {}),
   slackBotRestart: () => post<SlackBotActionResult>("/v1/admin/slack/restart", {}),

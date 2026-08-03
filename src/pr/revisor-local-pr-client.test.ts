@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { RevisorLocalPrClient } from "./revisor-local-pr-client.js";
+import { createRevisorLocalPrClient, RevisorLocalPrClient } from "./revisor-local-pr-client.js";
 
 const findService = () => vi.fn(async () => ({
   code: "revisor",
@@ -119,6 +119,48 @@ describe("RevisorLocalPrClient", () => {
 
     await expect(client.listLocalPullRequests()).rejects.toThrow("no valid port");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  // 提出は token 必須の経路。 起動時に固定すると設定画面で入れた値が再起動まで効かない。
+  // resolver がリクエストごとに呼ばれること (= 設定変更が次の提出から効くこと) を固定する。
+  it("resolves the token per request so a config change applies without a restart", async () => {
+    const fetchImpl = vi.fn(async () => json({ repositories: [] }));
+    let stored: string | undefined;
+    const client = new RevisorLocalPrClient({
+      excubitor: { findService: findService() },
+      token: () => stored,
+      fetchImpl,
+    });
+
+    await client.listRepositories();
+    stored = "  set-later  ";
+    await client.listRepositories();
+
+    const headersOf = (index: number) =>
+      (fetchImpl.mock.calls[index] as unknown as [string, RequestInit])[1].headers as Record<string, string>;
+    expect(headersOf(0)).not.toHaveProperty("authorization");
+    // trim も resolver 経由で効く。
+    expect(headersOf(1)).toMatchObject({ authorization: "Bearer set-later" });
+  });
+
+  // resolver 未指定の既定は env フォールバック (bootstrap 前 / DB 無しの経路)。
+  it("falls back to the env token when no resolver is given", async () => {
+    const fetchImpl = vi.fn(async () => json({ repositories: [] }));
+    // factory は fetch を受け取らないので、 グローバルを差し替えてから生成する
+    // (クライアントは constructor 時点の globalThis.fetch を捕まえる)。
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      const client = createRevisorLocalPrClient(
+        { findService: findService() },
+        undefined,
+        { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "  env-secret  " },
+      );
+      await client.listRepositories();
+      const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect(init.headers).toMatchObject({ authorization: "Bearer env-secret" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("rejects a listing that is not shaped like a local PR list", async () => {

@@ -1,6 +1,7 @@
 // Revisor Test Workflow の読取クライアント (spec/feature/revisor-test-forum-sync.md)。
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
+import { toTokenResolver } from "./revisor-token.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -19,10 +20,13 @@ export interface RevisorTestWorkflowSource {
   listProducts(): Promise<readonly RevisorTestWorkflowProduct[]>;
 }
 
-interface RevisorTestWorkflowClientOptions {
+export interface RevisorTestWorkflowClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
-  /** 読み取りは loopback 限定で token 不要。 設定されている場合だけ Bearer を送る。 */
-  token?: string;
+  /**
+   * 読み取りは loopback 限定で token 不要。 設定されている場合だけ Bearer を送る。
+   * 関数を渡すとリクエストごとに解決する (設定変更が再起動なしで効く)。
+   */
+  token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
@@ -46,7 +50,7 @@ function isProduct(value: unknown): value is RevisorTestWorkflowProduct {
 
 export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
-  private readonly token: string;
+  private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -54,7 +58,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
     // Revisor は loopback からの読み取りに token を要求しない (変更系のみ要求する)。
     // token は「あれば送る」扱いにして、 設定が無いだけで一覧取得が止まらないようにする。
     this.excubitor = options.excubitor;
-    this.token = options.token?.trim() ?? "";
+    this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -70,11 +74,14 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
+      // token は保持せずリクエストごとに解決する (設定変更が再起動なしで効く)。
+      // resolver は DB を読むので throw しうる。 try の中で呼び、 timer を必ず片付ける。
+      const token = this.token();
       const response = await this.fetchImpl(
         `http://127.0.0.1:${port}/v1/test-workflow`,
         {
           headers: {
-            ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
             "x-concordia-actor": "concordia",
           },
           signal: controller.signal,
@@ -111,4 +118,17 @@ export function createRevisorTestWorkflowClientFromEnv(
     excubitor,
     token: env.CONCORDIA_REVISOR_WORKFLOW_TOKEN,
   });
+}
+
+/**
+ * DB 設定 (revisor_config) 込みで token を解決するクライアント。
+ * `resolveToken` はリクエストごとに呼ばれるので、 Web UI での変更が再起動なしで効く。
+ */
+export function createRevisorTestWorkflowClient(
+  excubitor: Pick<ExcubitorClient, "findService">,
+  resolveToken: () => string | undefined,
+  // fetch / timeout はテストから差し替えられるようにしておく (省略時は既定)。
+  overrides: Pick<RevisorTestWorkflowClientOptions, "fetchImpl" | "timeoutMs"> = {},
+): RevisorTestWorkflowClient {
+  return new RevisorTestWorkflowClient({ excubitor, token: resolveToken, ...overrides });
 }

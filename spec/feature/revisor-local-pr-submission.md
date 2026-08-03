@@ -106,9 +106,16 @@ Cc はその失敗を理由として記録する。
 ## 6. token
 
 Revisor の読み取り (`GET /v1/repositories` / `GET /v1/local-prs`) は loopback 限定で
-token 不要。 提出 (`POST /v1/local-prs`) は変更系なので token が要る
-(`CONCORDIA_REVISOR_WORKFLOW_TOKEN`)。 token が無い環境では提出だけが失敗し、 その理由が
-ログに残る。
+token 不要。 提出 (`POST /v1/local-prs`) は変更系なので token が要る。 token が無い環境では
+提出だけが失敗し、 その理由がログに残る。
+
+token の正本は **DB (`revisor_config.workflow_token_enc`、 secret-box で暗号化)**。
+設定画面 (`/v1/admin/revisor/config`) から入れる。 env `CONCORDIA_REVISOR_WORKFLOW_TOKEN` は
+フォールバックとして残す (bootstrap 用)。 Discord / Slack の bot token と同じ扱いに揃えたのは、
+env だけだと配布のたびにプロセス再起動が要り、 平文の置き場所も増えるため。
+
+クライアントは token を保持せず **リクエストごとに解決**する (`resolveRevisorWorkflowToken`)。
+設定画面で入れた値がその場から効く。
 
 ## 7. 実装ファイル
 

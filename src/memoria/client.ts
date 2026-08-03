@@ -19,6 +19,13 @@ export interface MemoriaTask {
   id: number;
   title: string;
   status: string;
+  /**
+   * Memoria API (`GET/POST /api/tasks`) はタスク詳細も返す。 mmtask の詳細表示系が参照する。
+   * 未設定のタスクでは null が返るため optional + nullable。
+   */
+  details?: string | null;
+  category?: string | null;
+  due_at?: string | null;
 }
 
 export interface CreateTaskInput {

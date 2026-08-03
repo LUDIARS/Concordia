@@ -1,10 +1,14 @@
 import pino, { type Logger, type TransportTargetOptions } from "pino";
+import { resolveRotationPolicy, rotateLogFileIfOversize } from "./log-file-rotation.js";
 
 const level = process.env.CONCORDIA_LOG_LEVEL ?? "info";
 const logFileMode = process.env.CONCORDIA_LOG_FILE;
 const logFilePath = process.env.CONCORDIA_LOG_FILE_PATH?.trim() || "logs/concordia.log";
 const fileTargetEnabled =
   logFileMode === "1" || (process.env.NODE_ENV !== "production" && logFileMode !== "0");
+
+// pino が fd を掴む前に世代交代させる (稼働中 rename は Windows で失敗する)。
+if (fileTargetEnabled) rotateLogFileIfOversize(logFilePath, resolveRotationPolicy());
 
 const targets: TransportTargetOptions[] = [
   process.env.NODE_ENV === "production"

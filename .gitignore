@@ -85,3 +85,9 @@ review/*
 !/lib/aop-metrics/
 !/lib/aop-metrics/**
 /plugins/
+
+# spec/**/*.md から機械生成する索引 (tools/build-spec-index.mjs)。
+# 追跡すると `npm run build` のたびに main が dirty になり、Revisor が
+# 「worktree is no longer clean」で全 PR のマージを拒否する。正本は spec/ の
+# frontmatter なので、必要なときに `npm run build:spec-index` で作り直す。
+/spec-index.jsonl

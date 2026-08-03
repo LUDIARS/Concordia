@@ -281,7 +281,7 @@ npm run depcruise
 - [ ] session end 後に設定した猶予で archive され、失敗時は再試行される。
 - [ ] 必須 scope 不足を fail-visible にし、旧 thread 方式へ自動退避しない。
 - [ ] migration は冪等、旧 thread table は保持される。
-- [ ] Slack setup/spec と `spec-index.jsonl` が更新される。
+- [ ] Slack setup/spec が更新される (`spec-index.jsonl` は git 管理外の派生物なのでコミットしない)。
 - [ ] lint / full test / build / depcruise が green。
 - [ ] `feat/slack-session-channels` から1 PRを作り、PR本文に検証結果と live test 未実施理由を記載する。
 

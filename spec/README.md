@@ -60,6 +60,7 @@ spec/
 | [multi-provider.md](feature/multi-provider.md) | Provider 抽象（Claude/Gemini/Codex） |
 | [faq.md](feature/faq.md) | よくある疑問・紛らわしい構成の Q&A |
 | [federation-link.md](feature/federation-link.md) | マルチ拠点連合リンク基盤 (本社 ⇄ 拠点 WS) |
+| [spec-index.md](feature/spec-index.md) | spec frontmatter の機械生成索引 (成果物は git 管理外) |
 
 ## interface
 - [service-schema.md](interface/service-schema.md) — DB schema / REST・WS・MCP API の正本。

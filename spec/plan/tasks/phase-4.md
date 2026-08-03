@@ -65,7 +65,7 @@ lint で守られた論理境界を物理配置に一致させ、 新規コー�
 - [ ] `npm run build` / `npm test` / `npm run lint` / `npm run depcruise` 全 green
 - [ ] `git log --follow` で移動ファイルの履歴が追える (代表 3 ファイルで確認)
 - [ ] `npm run dev` / `npm run chat:worker` / `npm run cost:worker` 起動確認
-- [ ] spec 文書のパス参照更新、 `spec-index.jsonl` 再生成
+- [ ] spec 文書のパス参照更新 (`spec-index.jsonl` は git 管理外の派生物なのでコミットしない)
 
 ### やらないこと
 - **npm workspaces 化・パッケージ分割はしない** (計画 §5 Phase 4:

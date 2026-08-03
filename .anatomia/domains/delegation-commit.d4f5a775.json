@@ -1,0 +1,45 @@
+{
+  "name": "delegation-commit",
+  "description": "委託 run のコミット代行 (commit broker)。 sandbox (Codex workspace-write 等) の委託先は `.git` に書けずコミットできないため、 run が所有する worktree / 宣言ブランチに限って Concordia が代わりにコミットする。 判定 (commit-guard)・依頼の受け口 (HTTP と cwd 直下の依頼ファイル)・git 実行 (commit-broker)・プロンプトへの露出から成る。 delegation 本体 (テンプレ resolve + spawn) とは別責務。",
+  "presetRules": [
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "src/delegation/commit-",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "[Cc]ommit(ForRun|FromRequestFile|Request|Allowed|Section|Guard|TargetRun|Outcome)",
+        "by": "name",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
+        "targetPattern": "(parseChangedPaths|sweepCommitRequest|workspaceRoots|buildMessage|isSameOrInside|normalizePath)",
+        "by": "name",
+        "maxFanOut": 9007199254740991
+      }
+    }
+  ],
+  "templateRules": [],
+  "cardTemplate": "Summarise the \"delegation-commit\" domain: 委託 run のコミット代行 (guard + broker + 依頼経路)。",
+  "source": "spec",
+  "mechanics": [
+    "commit-guard",
+    "commit-request",
+    "commit-broker"
+  ],
+  "specRefs": [
+    "Delegation Templates — 設計 / 14. v0.4 追加: コミット代行 (commit broker)",
+    "Delegation Templates — 設計 / 14. v0.4 追加: コミット代行 (commit broker) / ガード (`commit-guard.ts`、 純関数)",
+    "Delegation Templates — 設計 / 14. v0.4 追加: コミット代行 (commit broker) / 経路 (2 つ、 実装は 1 本)"
+  ],
+  "rationale": "コミット代行は「run → spawn_cwd / spawn_branch の対応」 を知っている Concordia にしか書けない検証を持つ (dw は GitHub API クライアントでローカル git は別ドメイン、 Revisor は PR / マージゲートの持ち主)。 一方で delegation 本体 (テンプレ resolve + spawn + 履歴) とは扱う対象が違い、 純関数の guard と I/O の broker を分けた形をそのまま境界にできるため、 独立ドメインとして切る。",
+  "updatedAt": "2026-08-03T00:00:00.000Z"
+}

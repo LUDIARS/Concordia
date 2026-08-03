@@ -31,6 +31,11 @@ import {
   normalizeDelegationStatus,
 } from "../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
+import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
+import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
+import { createChildLogger } from "../shared/logger.js";
+
+const commitLogger = createChildLogger("delegation-commit");
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -138,6 +143,11 @@ const StatusSchema = z.object({
 
 const RunInjectSchema = z.object({
   text: z.string().min(1).max(4000),
+});
+
+const RunCommitSchema = z.object({
+  message: z.string().min(1).max(8000),
+  paths: z.array(z.string().min(1).max(1000)).max(200).optional(),
 });
 
 export interface DelegationApiDeps {
@@ -518,6 +528,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     emitDelegationRunChanged(updated);
     if ((status === "completed" || status === "failed") && row.status !== "completed" && row.status !== "failed") {
       deps.service.recordEffortOutcome(updated, status);
+      // 終了時に依頼ファイルを掃き出す。 サンドボックス下の委託先は `.git` に書けないので、
+      // 「実装は済んだがコミットできないまま failed」 を最後に拾う経路がここ。
+      void sweepCommitRequest(updated, deps);
     }
     if ((status === "completed" || status === "failed") && updated.parent_session_id) {
       const text = buildDelegationStatusNotification(updated, parsed.data);
@@ -552,6 +565,31 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     }
     if (updated.status === "completed") void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated) });
+  });
+
+  // 委託先の代わりにコミットする。 Codex は sandbox_mode=workspace-write で走るため
+  // `.git` に書けず (index.lock が Permission denied)、 実装が済んでいてもコミットできない。
+  // run が所有する worktree / ブランチに限定して Concordia が代行する。
+  app.post("/runs/:id/commit", async (c) => {
+    const id = c.req.param("id");
+    const row = deps.repo.findRun(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+
+    const body = await c.req.json().catch(() => null);
+    const parsed = RunCommitSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const request = parseCommitRequest(parsed.data);
+    // zod を通っても paths の規則 (絶対パス / 親参照 / pathspec magic) で落ちうる。
+    // 理由を返さないと委託先は直しようがない。
+    if (!request) return c.json({ error: "invalid_request", detail: COMMIT_REQUEST_SHAPE_HINT }, 400);
+
+    const outcome = await commitForRun(row, request);
+    if (!outcome.ok) {
+      // guard 拒否は依頼側の状態の問題 (409)、 git 自体の失敗は Concordia 側の
+      // 失敗なので 500。 同じ 409 に混ぜると呼び出し側が再試行可否を判断できない。
+      return c.json({ error: outcome.code, detail: outcome.detail }, outcome.code === "git_failed" ? 500 : 409);
+    }
+    return c.json({ ok: true, sha: outcome.sha, files: outcome.files });
   });
 
   app.post("/runs/:id/inject", async (c) => {
@@ -690,4 +728,39 @@ function resolveParentSessionId(req: { header: (name: string) => string | undefi
 
 function nowSec(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+/**
+ * run 終了時に `.concordia-commit.json` を拾ってコミットする。
+ *
+ * 委託元セッションに結果を返すのが目的の半分: 「コミットされたのか、 されなかったのか」 が
+ * 分からないと、 委託元は毎回 worktree を見に行くことになる。
+ */
+async function sweepCommitRequest(run: DelegationRunRow, deps: DelegationApiDeps): Promise<void> {
+  // sweep 全体が best-effort。 呼び出し側は `void` で投げっぱなしにするので、
+  // ここで漏らした例外は unhandled rejection になる (通知側で throw しても同じ)。
+  try {
+    const outcome = await commitFromRequestFile(run);
+    if (!outcome) return; // 依頼なし = 正常系
+    const text = outcome.ok
+      ? `[delegation ${run.id}] コミット代行: ${outcome.sha.slice(0, 8)} (${outcome.files} files)`
+      : `[delegation ${run.id}] コミット代行に失敗: ${outcome.code} — ${outcome.detail}`;
+    commitLogger.info({ runId: run.id, outcome }, "delegation commit sweep");
+    if (!run.parent_session_id) return;
+    deps.sessions?.appendEvent({
+      session_id: run.parent_session_id,
+      ts: nowSec(),
+      kind: "inject",
+      payload: { text, source: `delegation:${run.id}:commit` },
+    });
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: run.parent_session_id,
+      text,
+      source: `delegation:${run.id}:commit`,
+      ts: nowSec(),
+    });
+  } catch (error) {
+    commitLogger.warn({ runId: run.id, err: error }, "delegation commit sweep failed");
+  }
 }

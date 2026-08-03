@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Delegation Templates — 設計"
-description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択まで実装済み。"
+description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択、v0.4 のコミット代行 (sandbox 下の委託先の代わりに Concordia がコミットする commit broker) まで実装済み。"
 service: concordia
 domain: governance
 tags:
@@ -14,7 +14,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-06-30
+updated: 2026-08-03
 ---
 
 
@@ -149,6 +149,7 @@ run の `completed` は decision verdict `ok`、`failed` は `ng` として返�
 | DELETE | /v1/delegation/templates/:id | none | soft delete (is_active=0) |
 | POST   | /v1/delegation/invoke | none | テンプレ resolve + spawn |
 | GET    | /v1/delegation/runs | none | 直近 100 件 |
+| POST   | /v1/delegation/runs/:id/commit | none | コミット代行 (§14)。 run が所有する worktree のみ |
 
 mutating endpoint も bearer token を要求しない。 Concordia は loopback
 (既定 127.0.0.1:11111) 限定で動き、 `/v1/admin/*` と同じ信頼境界に乗る。
@@ -438,3 +439,98 @@ spawn-from-template (`app.ts`) は `resolveLocalModel` (`control/famulus-select.
   に渡る。
 
 > 前提: Concordia と同ホストに `famulus` CLI が PATH 解決可能であること (現状 npm link)。
+
+## 14. v0.4 追加: コミット代行 (commit broker)
+
+### 動機
+
+Codex は `sandbox_mode = "workspace-write"` で走る。 ワークスペース内のファイルは
+書けるが **`.git` は保護されていて書けない** (`index.lock` が Permission denied)。
+結果として「実装は全部書けているのにコミットできず run が failed」 という失敗が
+繰り返し起きる。 委託元は残骸を自分で拾ってコミットし直すことになり、
+委託の経済性が落ちる。
+
+プロンプトの書き方では直らない (権限の問題なので)。 **コミットする主体を
+Concordia 側に移す**のが唯一の解になる。
+
+### なぜ Concordia が持つのか
+
+コミット代行は「**その run が所有する worktree の、 run が宣言したブランチだけ**」 に
+限定しないと、 委託先の暴走がそのまま履歴に入る。 この検証を書けるのは
+run → `spawn_cwd` / `spawn_branch` の対応を知っている Concordia だけ。
+
+- **dw ではない** — dw は暗号化 PAT を持つ GitHub API クライアントで、 扱う対象は
+  リモート操作。 ローカル git の変更を足すと、 リモート資格情報の管理面に
+  ローカル書き込み権限が同居することになる。 `dw commit` を Concordia への
+  薄い中継として置くのは可 (エージェントの allowlist 都合)。
+- **Revisor ではない** — Revisor はローカル PR / マージゲートの持ち主で、
+  モデルの中心は「リポジトリ + PR」。 作業途中の worktree を進める役ではない。
+
+### 経路 (2 つ、 実装は 1 本)
+
+| 経路 | 使う条件 |
+|---|---|
+| `POST /v1/delegation/runs/:id/commit` | loopback に出られるエージェント。 即時 |
+| cwd 直下の `.concordia-commit.json` | **サンドボックスが loopback を塞いでいても通る本命**。 run 終了時に Concordia が掃き出す |
+
+依頼の形はどちらも同じ:
+
+```jsonc
+{ "message": "feat(scope): 要約", "paths": ["省略可。 省略時は worktree の全変更"] }
+```
+
+`workspace-write` は定義上ワークスペース内のファイル書き込みを許すので、
+2 番目は「エージェントが何もできない」 状態にならない限り必ず成立する。
+
+### ガード (`commit-guard.ts`、 純関数)
+
+| 拒否コード | 条件 |
+|---|---|
+| `run_cwd_unknown` | run に `spawn_cwd` が無い (所有する worktree が無い) |
+| `cwd_outside_repo` | cwd がリポジトリ外 |
+| `forbidden_root` | repo root がワークスペースルート (Castra) 自体 |
+| `protected_branch` | `main` / `master` への直接コミット |
+| `detached_head` | HEAD が detached |
+| `branch_mismatch` | 起動時の `spawn_branch` と現在ブランチが違う |
+| `nothing_to_commit` | 変更なし |
+| `too_many_changes` | 変更 200 ファイル超 (暴走コミットは人間に見せる) |
+
+- 変更数の数え方は `git status --porcelain -uall`。 既定の porcelain は未追跡
+  ディレクトリを 1 行に畳むため、 それだと `git add -A` が stage する実数と
+  ずれて上限が素通りする。
+- hooks は殺さない (`--no-verify` は使わない)。
+- **push はしない**。 公開はローカル PR 経路の責務。
+- 依頼の `paths` は相対パスのみ。 絶対パス・親参照・先頭 `:` (git の pathspec magic
+  `:/` や `:(exclude)…`) は弾く。 `git add -- <path>` の `--` はオプション解析を
+  止めるだけで magic は生きるため、 弾かないと「リテラルな相対パス」 の約束が崩れる。
+- 依頼ファイル `.concordia-commit.json` は stage の前に消す。 残すと `git add -A` が
+  依頼そのものを履歴に入れ、 直後の削除で worktree が dirty のままになる。
+- コミットには `Delegated-Run: <run id>` / `Delegated-Provider: <provider>` の
+  trailer を付け、 後から「誰の代行か」 を追えるようにする。
+- 禁止ルートは `CONCORDIA_COMMIT_FORBIDDEN_ROOTS` (絶対パスを `;` 区切り) で
+  上書きできる。 未設定なら Concordia の cwd の親 1 つ。
+
+### 依頼が壊れていた場合
+
+依頼ファイルの読み取りは **「無い」 と 「壊れている」 を分ける**。 無いのは正常系
+(大半の run は自分でコミットできる) だが、 壊れているのは委託先が依頼を出したのに
+形が違う状態で、 黙って捨てると委託元は永久に気付けない。 壊れた依頼は
+`invalid_request` として拒否理由を返し、 ファイルは消す (残すと後続 run の
+`git add -A` が拾う)。
+
+### 委託元への通知
+
+run 終了時の掃き出し結果は、 委託元セッションに inject で返す
+(`delegation:<run id>:commit`)。 成功なら sha と件数、 失敗なら拒否コードと理由。
+これが無いと委託元は毎回 worktree を見に行くことになる。 掃き出しは status 更新の
+片手間 (best-effort) なので、 通知経路まで含めて例外は外に出さない。
+
+HTTP 経路の status code は、 guard 拒否 = `409` (依頼側の状態の問題)、
+`git_failed` = `500` (Concordia 側の失敗)。 混ぜると呼び出し側が再試行可否を
+判断できない。
+
+### プロンプトへの露出
+
+`renderPromptFile` が cwd を持つ run のプロンプト末尾に「コミット (自分で
+git commit しなくてよい)」 節を足す。 **知らなければ仕組みは使われない**ので、
+テンプレ側の記述に任せず起動側で必ず載せる。

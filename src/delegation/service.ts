@@ -425,6 +425,7 @@ export class DelegationService {
       contextBlock,
       provider,
       spawn.effectiveModel,
+      { runId, cwd: cwd ?? null, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? null },
     );
     try {
       await writeFile(promptPath, promptBody, "utf8");
@@ -534,6 +535,7 @@ function renderPromptFile(
   contextBlock: string,
   targetProvider: DelegationProvider,
   effectiveModel: string | null,
+  commit: CommitBrokerHint,
 ): string {
   const argsBlock = Object.keys(args).length === 0
     ? "(none)"
@@ -563,6 +565,44 @@ function renderPromptFile(
     "## Prompt",
     "",
     rendered,
+    "",
+    renderCommitSection(commit),
+  ].join("\n");
+}
+
+interface CommitBrokerHint {
+  runId: string;
+  cwd: string | null;
+  branch: string | null;
+  concordiaUrl: string | null;
+}
+
+/**
+ * コミット代行の使い方。 sandbox 下の委託先 (Codex の workspace-write 等) は `.git` に
+ * 書けず、 実装が済んでいてもコミットできずに run が落ちる。 そこで依頼を出す口を
+ * 毎回プロンプトに載せる — 知らなければ仕組みは使われない。
+ */
+function renderCommitSection(commit: CommitBrokerHint): string {
+  if (!commit.cwd) return "";
+  const endpoint = commit.concordiaUrl
+    ? `${commit.concordiaUrl.replace(/\/$/, "")}/v1/delegation/runs/${commit.runId}/commit`
+    : `/v1/delegation/runs/${commit.runId}/commit`;
+  return [
+    "## コミット (自分で git commit しなくてよい)",
+    "",
+    "`.git` への書き込みが sandbox で拒否される環境がある。 実装が終わったら",
+    "**自分でコミットせず Concordia に依頼する**こと。 どちらか片方でよい:",
+    "",
+    `1. cwd 直下に \`.concordia-commit.json\` を置く (ファイル書き込みは必ず通る):`,
+    "",
+    '   { "message": "feat(scope): 要約", "paths": ["省略可 / 省略時は全変更"] }',
+    "",
+    `2. loopback が使えるなら \`POST ${endpoint}\` に同じ JSON を送る (即時)`,
+    "",
+    `対象は run が所有する worktree のみ (cwd: ${commit.cwd}` +
+      `${commit.branch ? `, branch: ${commit.branch}` : ""})。`,
+    "main / master への直接コミット、 worktree 外の stage、 200 ファイル超の変更は拒否される。",
+    "push はしない (公開はローカル PR 経路の責務)。",
     "",
   ].join("\n");
 }

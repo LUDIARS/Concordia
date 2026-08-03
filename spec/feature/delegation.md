@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Delegation Templates — 設計"
-description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択、v0.4 のコミット代行 (sandbox 下の委託先の代わりに Concordia がコミットする commit broker) まで実装済み。"
+description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / codex-sdk (Satelles ヘッドレス) / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択、v0.4 のコミット代行 (sandbox 下の委託先の代わりに Concordia がコミットする commit broker) まで実装済み。"
 service: concordia
 domain: governance
 tags:
@@ -10,6 +10,8 @@ tags:
   - spawn
   - claude
   - codex
+  - codex-sdk
+  - satelles
   - sqlite
   - rest-api
   - lifecycle
@@ -375,6 +377,8 @@ REPL) を起動する。 **codex CLI は経由しない** (旧 v0.3 は codex �
 | **codex-sdk** | **Lictor を経由しない** — `satelles run\|serve` (§13.2) | `--model <model?>` / `--effort <effort>` / `--network` | OpenAI Codex |
 
 ### 13.2 codex-sdk (Satelles ヘッドレスレーン)
+
+**Requirement ID: `SPEC-DELEGATION-CODEX-SDK`**
 
 `codex-sdk` は Satelles のヘッドレスランナーを直接起動する論理 provider。 ウィンドウ /
 PTY / Lictor を使わないため、 `spawner.ts` の `HEADLESS_SPAWN_PROVIDERS` に入り

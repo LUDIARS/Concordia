@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as logger from "../shared/logger.js";
 import {
   CODEX_DEFAULT_REASONING_EFFORT,
   delegationOptionSuggestions,
@@ -8,6 +9,16 @@ import {
   resolveDelegationSpawn,
   resolveEffectiveDelegationRuntimeOptions,
 } from "./provider-preset.js";
+
+// codex_config を無視したときの warn (§6 無言のフォールバック禁止) を検査するため、
+// pino child logger をモックする。
+vi.mock("../shared/logger.js", () => {
+  const child = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+  return {
+    createChildLogger: () => child,
+    rootLogger: { child: () => child },
+  };
+});
 
 describe("resolveDelegationSpawn", () => {
   it("gemma4-12 → Lictor ネイティブ local-agent (codex 経由しない) + LICTOR_LOCAL_MODEL env", () => {
@@ -182,6 +193,33 @@ describe("codex-sdk (Satelles headless) preset", () => {
       model_reasoning_effort: "high",
       codex_config: { sandbox_mode: "workspace-write" },
     })).toEqual(["--effort", "high", "--network"]);
+  });
+
+  describe("無視した codex_config は warn する (無言のフォールバック禁止)", () => {
+    const warnMock = () =>
+      (logger.createChildLogger("") as unknown as { warn: ReturnType<typeof vi.fn> }).warn;
+
+    beforeEach(() => {
+      warnMock().mockClear();
+    });
+
+    it("転送されないキーを 1 度の warn にまとめて出す", () => {
+      resolveDelegationRuntimeArgs("codex-sdk", {
+        codex_config: { sandbox_mode: "workspace-write", network_access: false },
+      });
+      expect(warnMock()).toHaveBeenCalledTimes(1);
+      const [payload] = warnMock().mock.calls[0] as [{ provider: string; ignored_keys: string[] }];
+      expect(payload.provider).toBe("codex-sdk");
+      expect(payload.ignored_keys.sort()).toEqual(["network_access", "sandbox_mode"]);
+    });
+
+    it("尊重される model_reasoning_effort だけなら warn しない", () => {
+      resolveDelegationRuntimeArgs("codex-sdk", {
+        codex_config: { model_reasoning_effort: "high" },
+      });
+      resolveDelegationRuntimeArgs("codex-sdk", { model_reasoning_effort: "high" });
+      expect(warnMock()).not.toHaveBeenCalled();
+    });
   });
 
   it("resolveEffectiveDelegationRuntimeOptions: codex-sdk も既定 effort が入る", () => {

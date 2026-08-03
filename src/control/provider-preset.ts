@@ -177,6 +177,7 @@ function isSolModel(model: string | null | undefined): boolean {
   return normalized === "sol" || normalized.endsWith("-sol");
 }
 
+/** @implements spec/feature/delegation.md — 13.2 codex-sdk (`SPEC-DELEGATION-CODEX-SDK`) */
 export function resolveDelegationRuntimeArgs(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
@@ -191,6 +192,19 @@ export function resolveDelegationRuntimeArgs(
     // 変換する)。 codex_config の素通しレーンは持たない (必要になったら Satelles 側に
     // 明示フラグを足してから配線する — 無言の互換レイヤは作らない)。
     const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(provider, options);
+    // codex 経路が無視した override を 1 件ずつ warn するのと同じ扱いにする
+    // (§6 無言のフォールバック禁止)。 ここで黙って捨てると、 codex 用テンプレを
+    // codex-sdk に付け替えた利用者は sandbox_mode 等が効いていると誤認する。
+    const droppedConfig = isPlainRecord(effectiveOptions.codex_config)
+      ? Object.keys(effectiveOptions.codex_config).filter((k) => k !== "model_reasoning_effort")
+      : [];
+    if (droppedConfig.length > 0) {
+      log.warn(
+        { provider, ignored_keys: droppedConfig },
+        "codex_config is ignored for codex-sdk: Satelles has no raw `-c` passthrough lane; " +
+        "model_reasoning_effort is the only key honored (as --effort)",
+      );
+    }
     const effort = normalizeProviderEffort(
       provider,
       effectiveOptions.model_reasoning_effort ?? effectiveOptions.reasoning_effort,

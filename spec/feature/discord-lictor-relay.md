@@ -17,7 +17,7 @@ status: implemented
 related:
   - ../feature/discord-ui.md
   - ../interface/service-schema.md
-updated: 2026-06-30
+updated: 2026-08-03
 ---
 
 
@@ -58,6 +58,13 @@ AI に自己申告させていた**ことに起因する。
 > **AI は自分や他者の `session_id` / `channel_id` を名乗らない。**
 > identity と routing は、登録時に自分の id を生成し JSONL を排他 claim している
 > Lictor だけが知る。AI は local Lictor sidecar に「中身」だけ渡す。
+
+### ask マーカーの fail-loud 中継
+
+ask マーカーについても責務境界を固定する。Lictor は正常なマーカーを構造化して transcript
+本文から消費し、`question.posted` として質問カードを送る。生の ```` ```ask ```` が Concordia
+まで到達した場合は上流の構造化失敗であり、Concordia はマーカーを黙って除去してはならない。
+警告と元本文を通常メッセージとして中継し、遠隔利用者が回答できる fail-loud 経路を保つ。
 
 ## 3. アーキテクチャ
 

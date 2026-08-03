@@ -22,21 +22,24 @@
 
 export type RelayDropPredicate = (text: string) => boolean;
 
-/**
- * Lictor の "ask マーカー" — assistant が選択肢付き質問を出すときの
- * ```` ```ask ```` フェンスドブロック (中身は JSON)。 Lictor がこれを構造化
- * パースして Discord の質問カード (embed + ボタン) を別途投稿するため、 生の
- * JSON ブロックを relay 本文として二重表示する必要はない。 ここで本文から
- * 除去する。 info 文字列は `ask`、 閉じフェンスは ``` (3 backtick)。
- */
-const ASK_MARKER_BLOCK_RE = /```ask\b[\s\S]*?```/g;
+// 情報文字列 `ask` のフェンス開始行。 行頭 (前置の空白のみ許容) に限定するのは
+// `control/stalled-session-nudge.ts` の hasAskMarker と同じ判定にするため。 散文中で
+// ask プロトコルに言及しただけの本文へ誤って警告を付けないようにする。
+const ASK_MARKER_RE = /(^|\n)[ \t]*```ask\b/;
+
+const UNSTRUCTURED_ASK_NOTICE =
+  "⚠️ 質問カードを生成できませんでした。以下の質問へ通常のテキストで回答してください。";
 
 /**
- * relay 本文から ask マーカーブロックを取り除いて trim する。 ブロックが無ければ
- * 入力をそのまま (trim だけ) 返す。 質問に添えられた散文があればそれは残る。
+ * Lictor が構造化済みの ask マーカーは transcript 本文から消費され、質問カードとして
+ * 別送される。生のマーカーが Concordia まで到達した場合は上流の構造化失敗なので、
+ * JSON を黙って除去せず、警告付きの回答可能な本文として fail-loud に中継する。
+ * @implements spec/feature/discord-lictor-relay.md — ask マーカーの fail-loud 中継
  */
-export function stripAskMarkerBlocks(text: string): string {
-  return text.replace(ASK_MARKER_BLOCK_RE, "").trim();
+export function renderUnstructuredAskFallback(text: string): string {
+  const trimmed = text.trim();
+  if (!ASK_MARKER_RE.test(trimmed)) return trimmed;
+  return `${UNSTRUCTURED_ASK_NOTICE}\n\n${trimmed}`;
 }
 
 /**

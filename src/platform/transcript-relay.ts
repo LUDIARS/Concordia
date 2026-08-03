@@ -1,10 +1,15 @@
-import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
+import { renderUnstructuredAskFallback, shouldDropForRelay } from "./egress-filters.js";
 
 export interface RelayableTextFrame {
   role: "assistant" | "summary";
   text: string;
 }
 
+/**
+ * transcript.frame から中継すべき本文を抽出する。 未構造化 ask マーカーは除去せず
+ * 警告付きで中継する (fail-loud)。
+ * @implements spec/feature/discord-lictor-relay.md — ask マーカーの fail-loud 中継
+ */
 export function extractRelayableTextFrame(
   kind: string,
   payload: unknown,
@@ -22,7 +27,7 @@ export function extractRelayableTextFrame(
     }
     // 最適化 OFF (既定): commentary を含む作業中メッセージも全て中継する
     // (2026-07-18 neco 指示。 2026-05-27 の final_answer 限定は最適化 ON 時のみに縮小)。
-    const text = stripAskMarkerBlocks(value.text);
+    const text = renderUnstructuredAskFallback(value.text);
     if (!text || shouldDropForRelay(text)) return null;
     return { role: "assistant", text };
   }

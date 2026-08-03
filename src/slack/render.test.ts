@@ -174,14 +174,19 @@ describe("extractRelayableFrame", () => {
     expect(extractRelayableFrame("text", { role: "assistant", text: "" })).toBeNull();
     expect(extractRelayableFrame("summary", {})).toBeNull();
   });
-  it("ask ブロックのみの本文は null（Slack に raw JSON を流さない）", () => {
+  it("ask ブロックのみの本文を警告付きfail-loudメッセージとして返す", () => {
     const askOnly = '```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
-    expect(extractRelayableFrame("text", { role: "assistant", text: askOnly })).toBeNull();
+    const result = extractRelayableFrame("text", { role: "assistant", text: askOnly });
+    expect(result?.text).toContain("質問カードを生成できませんでした");
+    expect(result?.text).toContain(askOnly);
   });
-  it("ask ブロック + 散文 → ブロックを除去した散文を返す", () => {
+  it("ask ブロック + 散文を警告とraw質問ごと保持する", () => {
     const mixed = '進め方を確認します。\n\n```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
     const r = extractRelayableFrame("text", { role: "assistant", text: mixed });
-    expect(r).toEqual({ role: "assistant", text: "進め方を確認します。" });
+    expect(r?.role).toBe("assistant");
+    expect(r?.text).toContain("質問カードを生成できませんでした");
+    expect(r?.text).toContain("進め方を確認します。");
+    expect(r?.text).toContain('"question":"どっち?"');
   });
   it("summary の ask ブロックは除去しない（assistant のみ対象）", () => {
     const askBlock = '```ask\n{"question":"Q","options":[]}\n```';

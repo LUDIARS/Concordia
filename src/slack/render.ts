@@ -187,7 +187,8 @@ export function slackReactionToUnicode(name: string): string | null {
  *   - kind=text && role=assistant : AI の人間向け本文
  *   - kind=summary                : 会話要約
  *   - それ以外 (tool-use/result/thinking/raw/user) は null（中継しない）
- * ask マーカーブロック除去・本文ベースの drop フィルタ (guardian JSON 等) も適用する。
+ * 未構造化 ask のfail-loud化・本文ベースの drop フィルタ (guardian JSON 等) も適用する。
+ * @implements spec/feature/discord-lictor-relay.md — ask マーカーの fail-loud 中継
  */
 export function extractRelayableFrame(
   kind: string,

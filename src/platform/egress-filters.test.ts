@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { shouldDropForRelay, stripAskMarkerBlocks } from "./egress-filters.js";
+import { renderUnstructuredAskFallback, shouldDropForRelay } from "./egress-filters.js";
+
+// @implements spec/feature/discord-lictor-relay.md — ask マーカーの fail-loud 中継
 
 describe("egress-filters: shouldDropForRelay", () => {
   it("drops Codex guardian JSON ({risk_level, user_authorization, outcome})", () => {
@@ -39,28 +41,39 @@ describe("egress-filters: shouldDropForRelay", () => {
   });
 });
 
-describe("egress-filters: stripAskMarkerBlocks", () => {
-  it("removes an ask-marker-only message (Question JSON) entirely", () => {
+describe("egress-filters: renderUnstructuredAskFallback", () => {
+  it("keeps an ask-marker-only message with a fail-loud notice", () => {
     const text =
       '```ask\n{"question":"どっち?","multiSelect":false,"options":[{"label":"A"},{"label":"B"}]}\n```';
-    expect(stripAskMarkerBlocks(text)).toBe("");
+    const rendered = renderUnstructuredAskFallback(text);
+    expect(rendered).toContain("質問カードを生成できませんでした");
+    expect(rendered).toContain(text);
   });
 
-  it("keeps prose around the ask block but drops the JSON block", () => {
+  it("keeps both prose and the raw ask block", () => {
     const text =
       '進め方を確認します。\n\n```ask\n{"question":"どっち?","options":[{"label":"A"}]}\n```';
-    expect(stripAskMarkerBlocks(text)).toBe("進め方を確認します。");
+    const rendered = renderUnstructuredAskFallback(text);
+    expect(rendered).toContain("進め方を確認します。");
+    expect(rendered).toContain('"question":"どっち?"');
   });
 
-  it("removes multiple ask blocks in one message", () => {
+  it("keeps multiple ask blocks in one message", () => {
     const text =
       '```ask\n{"question":"q1","options":[{"label":"A"}]}\n```\nつなぎ\n```ask\n{"question":"q2","options":[{"label":"B"}]}\n```';
-    expect(stripAskMarkerBlocks(text)).toBe("つなぎ");
+    const rendered = renderUnstructuredAskFallback(text);
+    expect(rendered).toContain('"question":"q1"');
+    expect(rendered).toContain('"question":"q2"');
   });
 
   it("leaves normal text and non-ask code fences untouched", () => {
-    expect(stripAskMarkerBlocks("ふつうの本文です")).toBe("ふつうの本文です");
+    expect(renderUnstructuredAskFallback("ふつうの本文です")).toBe("ふつうの本文です");
     const code = "```ts\nconst x = 1;\n```";
-    expect(stripAskMarkerBlocks(code)).toBe(code);
+    expect(renderUnstructuredAskFallback(code)).toBe(code);
+  });
+
+  it("does not warn when the marker is only mentioned mid-line in prose", () => {
+    const prose = "選択肢を出すときは ```ask フェンスを使ってください。";
+    expect(renderUnstructuredAskFallback(prose)).toBe(prose);
   });
 });

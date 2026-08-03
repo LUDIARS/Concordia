@@ -13,6 +13,14 @@
     {
       "preset": "couplingCap",
       "params": {
+        "targetPattern": "tests/instrumentation-summary.test.ts",
+        "by": "path",
+        "maxFanOut": 9007199254740991
+      }
+    },
+    {
+      "preset": "couplingCap",
+      "params": {
         "targetPattern": "src/metrics/",
         "by": "path",
         "maxFanOut": 9007199254740991

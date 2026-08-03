@@ -103,6 +103,15 @@ process restart で失われる。内部 API `resetFunctionMetrics()` は全 agg
 - snapshot の totals は filter と limit 適用後の rows の合計であり、必ずしも process 全体ではない。
 - HTTP metric endpoint は `/v1/admin/*` ではないため、app の admin auth middleware 対象外。
 
+## 契約テストの境界
+
+Vestigium 出力契約を検証するテストは、親プロセスの `CONCORDIA_AOP_METRICS` と
+`CONCORDIA_AOP_METRICS_STREAM` のどちらにも依存させない。テスト内で前者を `1`（有効）、後者を
+`0`（既定の error のみ per-record）に固定してから instrumentation module を fresh import し、
+終了時に元の環境値と module cache を復元する。これは `observability` ドメインの出力契約だけを
+検証するための隔離であり、本番で `CONCORDIA_AOP_METRICS=0` を指定したときの無効化契約や業務
+ロジックを変更しない。
+
 ## 関連
 
 - [observability setup](../setup/observability.md)

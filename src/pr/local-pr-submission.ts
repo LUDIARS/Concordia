@@ -168,6 +168,7 @@ export async function submitSessionLocalPr(
       title,
       body,
       author: "concordia",
+      sessionId: request.sessionId,
       headRef: plan.headRef,
       baseRef: plan.baseRef,
     });

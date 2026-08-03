@@ -131,6 +131,7 @@ describe("submitSessionLocalPr", () => {
       repository: "LUDIARS/Concordia",
       headRef: "feat/thing",
       baseRef: "main",
+      sessionId: "s-1",
       title: "feat: 後の変更",
       author: "concordia",
     }));
@@ -155,6 +156,7 @@ describe("submitSessionLocalPr", () => {
       repository: "LUDIARS/Concordia",
       baseRef: "main",
       headRef: "feat/thing",
+      sessionId: "s-1",
     }));
   });
 

@@ -35,6 +35,8 @@ export interface SubmitLocalPrInput {
   title: string;
   body: string;
   author: string;
+  /** Revisor の終局レビューイベントを戻す Concordia セッション。 */
+  sessionId: string;
   headRef: string;
   baseRef?: string;
 }
@@ -157,6 +159,10 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
         title: input.title,
         body: input.body,
         author: input.author,
+        // Revisor はこの binding を保存し、審査終了時に該当セッションだけへ
+        // session.inject を送る。ここで落とすと通知先が無く、投稿者は結果を
+        // ポーリングするしかなくなる。
+        session_id: input.sessionId,
         head_ref: input.headRef,
         ...(input.baseRef ? { base_ref: input.baseRef } : {}),
       }),

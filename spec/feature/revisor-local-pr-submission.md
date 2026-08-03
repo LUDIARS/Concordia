@@ -1,10 +1,21 @@
 ---
-title: レビュー発火 — 作業ブランチの local PR 自動提出
-status: implemented
+type: feature
+title: "レビュー発火 — 作業ブランチの local PR 自動提出"
+description: "セッション終了時に作業ブランチを Revisor の local PR として自動提出する。提出可否は純関数で判定し理由付きでスキップする。提出時に session_id を binding し、審査の終局結果だけが提出元セッションへ戻る。"
+service: concordia
+domain: revisor-local-pr
 owner: Concordia
+tags:
+  - revisor
+  - local-pr
+  - review-trigger
+  - session-lifecycle
+status: implemented
 related:
-  - spec/feature/revisor-test-forum-sync.md
-  - spec/feature/pr-queue.md
+  - ./revisor-test-forum-sync.md
+  - ./pr-queue.md
+  - ./pr-local-gate.md
+updated: 2026-08-03
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
@@ -74,6 +85,13 @@ repository 名と base ref の照合は大文字小文字を無視する。 head
 - `title`: `base..branch` の**最新コミット件名** (200 文字で切り詰め)
 - `body`: セッション ID + コミット件名一覧
 - `author`: `concordia`
+- `session_id`: 提出した Concordia セッション ID。Revisor はこれを PR に保存し、審査が
+  終局状態になった時だけ `session.inject` をそのセッションへ送る。`failed` /
+  `action_required` なら原因を修正して再提出するよう促し、`test_ok` なら Revisor が
+  自動マージ可否を判定してから最終結果を送る。進行中の状態通知や提出元による
+  ポーリングは不要。 binding は**提出時に確定する**ので、 同じブランチで既に open な
+  local PR がある場合 (`already_open`) は再 binding されず、 結果は最初に提出した
+  セッションへ戻る。
 - `base_ref`: Revisor の登録値をそのまま使う (Cc 側では推測しない)
 
 head SHA / base SHA は **Revisor が自分で解決する** (`inspectLocalPullRequest`)。 Cc は

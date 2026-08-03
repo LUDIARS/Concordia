@@ -39,6 +39,7 @@ describe("RevisorLocalPrClient", () => {
       title: "feat: thing",
       body: "session s-1",
       author: "concordia",
+      sessionId: "s-1",
       headRef: "feat/thing",
       baseRef: "main",
     })).resolves.toEqual(LOCAL_PR);
@@ -57,6 +58,7 @@ describe("RevisorLocalPrClient", () => {
       title: "feat: thing",
       body: "session s-1",
       author: "concordia",
+      session_id: "s-1",
       head_ref: "feat/thing",
       base_ref: "main",
     });
@@ -102,6 +104,7 @@ describe("RevisorLocalPrClient", () => {
       title: "t",
       body: "b",
       author: "concordia",
+      sessionId: "s-1",
       headRef: "feat/thing",
     })).rejects.toThrow("worktree is not clean");
   });

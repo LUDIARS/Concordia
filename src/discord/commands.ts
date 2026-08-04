@@ -22,6 +22,8 @@ import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
 import { interactionAgeMs } from "./interaction-diagnostics.js";
+import { parseTestControlId } from "./test-forum-controls.js";
+import { handleTestForumControl } from "./test-forum-actions.js";
 import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
@@ -160,6 +162,25 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    const control = parseTestControlId(interaction.customId);
+    if (control) {
+      if (!deps.testSurfacesRepo || !deps.revisor) {
+        deps.log.warn(`test-forum control unavailable surface=${control.surfaceId}: dependencies missing`);
+        await interaction.reply({ content: "テスト操作の準備ができていません。Bot の設定を確認してください。", ephemeral: true });
+        return;
+      }
+      await handleTestForumControl(interaction, control, {
+        concordiaUrl: deps.concordiaUrl,
+        surfaces: deps.testSurfacesRepo,
+        revisor: deps.revisor,
+        isLaunchUserAllowed: deps.isLaunchUserAllowed,
+        // マージは `merge_pr` capability で判定する。 現状 spawn と同じ最低役職だが、
+        // 表 (CAPABILITY_MIN_ROLE) が動いたときに片方だけずれるのを避ける。
+        isMergeUserAllowed: deps.isMergeUserAllowed,
+        log: deps.log,
+      });
+      return;
+    }
     await dispatchQuestionInteraction(interaction, deps);
     return;
   }

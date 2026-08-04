@@ -58,6 +58,11 @@ export interface RevisorLocalPrReader {
   baseUrl(): Promise<string>;
 }
 
+/** Revisor が保持する local PR を明示操作でマージする窓口。 */
+export interface RevisorLocalPrMerger {
+  mergeLocalPr(id: string): Promise<void>;
+}
+
 interface RevisorClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
   /** 書き込み (enqueue) にだけ必要。 読み取りだけなら省略できる。 */
@@ -66,7 +71,7 @@ interface RevisorClientOptions {
   timeoutMs?: number;
 }
 
-export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader {
+export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
   private readonly token: string;
   private readonly fetchImpl: typeof fetch;
@@ -211,6 +216,32 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
         status: body.status,
         check_url: typeof body.check_url === "string" ? body.check_url : undefined,
       };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async mergeLocalPr(id: string): Promise<void> {
+    if (!this.token) {
+      throw new Error("Revisor merge token is required (CONCORDIA_REVISOR_TOKEN)");
+    }
+    const port = await this.resolvePort();
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    try {
+      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}/merge`, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          "x-concordia-actor": "concordia",
+        },
+        signal: controller.signal,
+      });
+      const body = await response.json().catch(() => null) as { error?: unknown } | null;
+      if (!response.ok) {
+        const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
+        throw new Error(`Revisor local PR merge failed (${response.status})${detail}`);
+      }
     } finally {
       clearTimeout(timer);
     }

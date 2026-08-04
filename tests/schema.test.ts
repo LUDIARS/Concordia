@@ -42,8 +42,11 @@ describe("schema", () => {
     applyMigrations(db);
     const templateColumns = db.prepare(`PRAGMA table_info(delegation_templates)`).all() as Array<{ name: string }>;
     const sessionColumns = db.prepare(`PRAGMA table_info(discord_session_channels)`).all() as Array<{ name: string }>;
+    const testSurfaceColumns = db.prepare(`PRAGMA table_info(discord_test_surfaces)`).all() as Array<{ name: string }>;
     expect(templateColumns.some((column) => column.name === "forum_tag")).toBe(true);
     expect(sessionColumns.some((column) => column.name === "surface_message_id")).toBe(true);
+    expect(testSurfaceColumns.some((column) => column.name === "repo_root_path")).toBe(true);
+    expect(testSurfaceColumns.some((column) => column.name === "head_branch")).toBe(true);
   });
 
   it("leaves orphan persona tables in legacy DB untouched (孤児テーブル放置)", () => {

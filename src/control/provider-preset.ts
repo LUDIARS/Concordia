@@ -22,6 +22,10 @@ import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("control/provider-preset");
 
+interface ProviderPresetLog {
+  warn(bindings: Record<string, unknown>, message: string): void;
+}
+
 /** gemma4-12 の論理 provider 名。 旧名は `gamma` (後方互換エイリアス)。 */
 export const LOCAL_LLM_PROVIDER = "gemma4-12";
 
@@ -181,6 +185,7 @@ function isSolModel(model: string | null | undefined): boolean {
 export function resolveDelegationRuntimeArgs(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
+  warningLog: ProviderPresetLog = log,
 ): string[] {
   if (provider === "claude") {
     const o = isPlainRecord(options) ? options : {};
@@ -191,15 +196,16 @@ export function resolveDelegationRuntimeArgs(
     // Satelles CLI は `--effort` を直接受ける (内部で -c model_reasoning_effort= に
     // 変換する)。 codex_config の素通しレーンは持たない (必要になったら Satelles 側に
     // 明示フラグを足してから配線する — 無言の互換レイヤは作らない)。
+    const rawOptions = isPlainRecord(options) ? options : {};
     const effectiveOptions = resolveEffectiveDelegationRuntimeOptions(provider, options);
     // codex 経路が無視した override を 1 件ずつ warn するのと同じ扱いにする
     // (§6 無言のフォールバック禁止)。 ここで黙って捨てると、 codex 用テンプレを
     // codex-sdk に付け替えた利用者は sandbox_mode 等が効いていると誤認する。
-    const droppedConfig = isPlainRecord(effectiveOptions.codex_config)
-      ? Object.keys(effectiveOptions.codex_config).filter((k) => k !== "model_reasoning_effort")
+    const droppedConfig = isPlainRecord(rawOptions.codex_config)
+      ? Object.keys(rawOptions.codex_config).filter((k) => k !== "model_reasoning_effort")
       : [];
     if (droppedConfig.length > 0) {
-      log.warn(
+      warningLog.warn(
         { provider, ignored_keys: droppedConfig },
         "codex_config is ignored for codex-sdk: Satelles has no raw `-c` passthrough lane; " +
         "model_reasoning_effort is the only key honored (as --effort)",
@@ -236,7 +242,7 @@ export function resolveDelegationRuntimeArgs(
     // なる (継続レビュー指摘)。 model は常にこの専用経路のみを単一情報源とし、
     // codex_config 側の重複指定は黙って壊さず転送せず理由をログに残す。
     if (key === "model") {
-      log.warn(
+      warningLog.warn(
         { provider, requested_value: value },
         "codex_config.model is ignored: model must be set via the dedicated " +
         "modelInput/--model resolution path, not a duplicate config override",
@@ -251,7 +257,7 @@ export function resolveDelegationRuntimeArgs(
     // (all-or-nothing のサンドボックス設定) ため、 この上書きは黙って壊さず
     // 転送せず理由をログに残す (fail-fast; §6 無言のフォールバック禁止)。
     if (key === "network_access" && isNetworkAccessDisabled(value)) {
-      log.warn(
+      warningLog.warn(
         { provider, requested_value: value },
         "codex_config.network_access=false is ignored: it would block " +
         "git push / PR creation / Concordia's own run-status callback",

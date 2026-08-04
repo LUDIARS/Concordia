@@ -2,9 +2,26 @@
  * Test Forum 投稿の Discord 側 (作成 / 編集リフレッシュ / クローズ)。
  * @implements spec/feature/revisor-test-forum-sync.md — Source and lifecycle
  */
-import { ChannelType, type AnyThreadChannel, type Guild } from "discord.js";
+import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  ChannelType,
+  StringSelectMenuBuilder,
+  type AnyThreadChannel,
+  type Guild,
+  type MessageActionRowComponentBuilder,
+} from "discord.js";
 import type { DiscordTestSurfaceRow } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrDetail } from "../pr/revisor-test-workflow-client.js";
+import {
+  buildTestControlId,
+  describeRunConfig,
+  providerChoiceValue,
+  TEST_PROVIDER_CHOICES,
+  testControlLayout,
+  testEffortChoices,
+} from "./test-forum-controls.js";
 import type {
   TestForumCandidate,
   TestForumSurfaceAdapter,
@@ -65,7 +82,9 @@ export function starterContent(candidate: TestForumCandidate): string {
   const lines = [
     `**Test candidate** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
     `**Repo** \`${candidate.repoOrigin}\``,
-    `**Head** \`${candidate.headBranch ?? "-"}\` @ \`${candidate.headSha}\``,
+    `**Head** \`${candidate.headBranch}\` @ \`${candidate.headSha}\``,
+    `**Spawn root** \`${candidate.repoRootPath}\``,
+    `**Active worktree** ${candidate.worktreePath ? `\`${candidate.worktreePath}\`` : "テスト開始時に解決"}`,
     ...(candidate.detail ? detailLines(candidate.detail) : []),
     "Revisor で Open / Test OK になったため掲載されました。内容が変わると Cc がこの投稿を編集で更新し、マージ・取り下げ・再審査で対象外になると閉じます。",
   ];
@@ -83,6 +102,68 @@ async function resolveThread(
     throw new Error(`Test surface is not a thread: ${threadId}`);
   }
   return channel;
+}
+
+/** 操作面は状態遷移モジュールから組み立て、Discord API 固有の部品だけをここに閉じ込める。 */
+export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
+  content: string;
+  components: ActionRowBuilder<MessageActionRowComponentBuilder>[];
+} {
+  const layout = testControlLayout(surface.run_state);
+  const config = { provider: surface.provider, model: surface.model, effort: surface.effort };
+  const rows: ActionRowBuilder<MessageActionRowComponentBuilder>[] = [];
+  if (layout.selectors) {
+    const provider = new StringSelectMenuBuilder()
+      .setCustomId(buildTestControlId("provider", surface.id))
+      .setPlaceholder("テスト provider / model")
+      .addOptions(TEST_PROVIDER_CHOICES.map((choice) => ({
+        label: choice.label,
+        value: choice.value,
+        default: choice.value === providerChoiceValue(config),
+      })));
+    const effort = new StringSelectMenuBuilder()
+      .setCustomId(buildTestControlId("effort", surface.id))
+      .setPlaceholder("reasoning effort")
+      .addOptions(testEffortChoices(config.provider)
+        .map((value) => ({ label: value, value, default: value === config.effort })));
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(provider));
+    rows.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(effort));
+  }
+  if (layout.primary) {
+    rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(buildTestControlId(layout.primary.action, surface.id))
+        .setLabel(layout.primary.label)
+        .setStyle(layout.primary.style === "primary" ? ButtonStyle.Primary : ButtonStyle.Success),
+    ));
+  }
+  return { content: describeRunConfig(config), components: rows };
+}
+
+/**
+ * 操作面の書き込み先スレッド。 Forum thread は無操作で自動 archive され、 archive 中は
+ * 投稿も編集も拒否されるので (update と同じ理由)、 書き込む前に解除する。
+ */
+async function requireWritableThread(
+  guild: Guild,
+  threadId: string,
+  reason: string,
+): Promise<AnyThreadChannel> {
+  const thread = await resolveThread(guild, threadId);
+  if (!thread) throw new Error(`Test surface thread is unavailable: ${threadId}`);
+  if (thread.archived) await thread.setArchived(false, reason);
+  return thread;
+}
+
+/** Persisted controls_message_id identifies the one message whose controls change with run_state. */
+export async function refreshTestForumControls(
+  guild: Guild,
+  surface: DiscordTestSurfaceRow,
+): Promise<void> {
+  if (!surface.controls_message_id) throw new Error(`Test surface controls message is missing: ${surface.id}`);
+  const thread = await requireWritableThread(guild, surface.thread_id, "Concordia test controls refreshed");
+  const message = await thread.messages.fetch(surface.controls_message_id);
+  await message.edit(renderTestForumControls(surface));
 }
 
 export function createTestForumDiscordAdapter(
@@ -118,6 +199,11 @@ export function createTestForumDiscordAdapter(
       if (thread.name !== name) {
         await thread.setName(name, "Concordia test candidate refreshed");
       }
+    },
+    async render(surface) {
+      const thread = await requireWritableThread(guild, surface.thread_id, "Concordia test controls posted");
+      const message = await thread.send(renderTestForumControls(surface));
+      return { controlsMessageId: message.id };
     },
     async close(surface: DiscordTestSurfaceRow, reason: TestSurfaceCloseReason) {
       const thread = await resolveThread(guild, surface.thread_id);

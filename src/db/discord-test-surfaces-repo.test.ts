@@ -19,6 +19,8 @@ describe("DiscordTestSurfacesRepo", () => {
       repoOrigin: "LUDIARS/Concordia",
       prNumber: 42,
       headSha: "abc123",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-42",
       worktreePath: "E:/Document/Ars/Concordia-pr42",
       threadId: "thread-42",
       contentHash: "hash-1",
@@ -27,6 +29,8 @@ describe("DiscordTestSurfacesRepo", () => {
     expect(repo.listOpen()).toEqual([expect.objectContaining({
       id: row.id,
       head_sha: "abc123",
+      repo_root_path: "E:/Document/Ars/Concordia",
+      head_branch: "feat/pr-42",
       worktree_path: "E:/Document/Ars/Concordia-pr42",
       content_hash: "hash-1",
     })]);
@@ -44,6 +48,8 @@ describe("DiscordTestSurfacesRepo", () => {
       repoOrigin: "LUDIARS/Concordia",
       prNumber: 42,
       headSha: "abc123",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-42",
       worktreePath: null,
       threadId: "thread-42",
       contentHash: "hash-1",
@@ -59,5 +65,28 @@ describe("DiscordTestSurfacesRepo", () => {
       qa_run_id: "run-qa-1",
       thread_id: "thread-42",
     })]);
+  });
+
+  it("persists editable config and terminal run state only through valid transitions", () => {
+    const repo = makeDiscordTestSurfacesRepo(db, "hq", () => 123);
+    const row = repo.create({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      headSha: "abc",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-42",
+      worktreePath: null,
+      threadId: "thread",
+      contentHash: null,
+    });
+    repo.updateRunConfig(row.id, { provider: "claude", model: "opus", effort: "high" });
+    repo.markTesting(row.id, "session-1", "E:/wt");
+    repo.updateRunConfig(row.id, { provider: "codex", model: "sol", effort: "xhigh" });
+    repo.setLocalPrId(row.id, "local-1");
+    repo.markMerged(row.id);
+    expect(repo.findOpen(row.id)).toEqual(expect.objectContaining({
+      provider: "claude", model: "opus", effort: "high", run_state: "merged", session_id: "session-1",
+      worktree_path: "E:/wt", local_pr_id: "local-1",
+    }));
   });
 });

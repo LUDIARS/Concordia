@@ -27,6 +27,8 @@ export interface PendingDelegationSpawn {
   parentSessionId: string | null;
   /** Whether the spawned session opted in to goal-and-go autonomous continuation. */
   goalAndGo: boolean;
+  /** Discord TestWorkflow surface that requested this direct session spawn. */
+  testSurfaceId: number | null;
   at: number;
 }
 
@@ -45,6 +47,7 @@ export function recordPendingDelegationSpawn(
     project?: string | null;
     parentSessionId?: string | null;
     goalAndGo?: boolean;
+    testSurfaceId?: number | null;
   },
   now = Date.now(),
 ): void {
@@ -61,6 +64,10 @@ export function recordPendingDelegationSpawn(
     project: (input.project ?? "").trim() || null,
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
     goalAndGo: input.goalAndGo === true,
+    testSurfaceId:
+      typeof input.testSurfaceId === "number" && Number.isInteger(input.testSurfaceId) && input.testSurfaceId > 0
+        ? input.testSurfaceId
+        : null,
     at: now,
   });
   prune(now);

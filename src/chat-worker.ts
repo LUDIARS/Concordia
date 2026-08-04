@@ -50,6 +50,7 @@ import { ExcubitorClient } from "./excubitor/client.js";
 import { createRevisorTestWorkflowClient } from "./pr/revisor-test-workflow-client.js";
 import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
+import { createRevisorClientFromEnv } from "./pr/revisor-client.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -241,6 +242,7 @@ async function main(): Promise<void> {
       new ExcubitorClient(),
       () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox),
     ),
+    revisor: createRevisorClientFromEnv(new ExcubitorClient()),
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,

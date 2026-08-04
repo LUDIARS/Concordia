@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 48;
+export const SCHEMA_VERSION = 50;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1249,6 +1249,47 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
     // 投稿ごとに起動するテスト・QA セッションの delegation run。 マージ等で投稿を
     // 閉じるとき、 この run の child session も一緒に終わらせる (テスト・QA 3-1)。
     db.exec("ALTER TABLE discord_test_surfaces ADD COLUMN qa_run_id TEXT");
+  },
+}, {
+  version: 49,
+  name: "test-surface-controls",
+  source: "discord_test_surfaces run state + spawn config",
+  up(db) {
+    // テストフォーラム投稿の操作面 (テスト開始 → マージ) の状態と実行設定。
+    // run_state: candidate (未着手) | testing (セッション起動済み) | merged。
+    // provider/model/effort は「テスト開始」前に投稿上のセレクトで変えられる値で、
+    // 起動時にそのまま spawn へ渡る (spec/feature/test-forum-controls.md)。
+    for (const [column, ddl] of [
+      ["run_state", "run_state TEXT NOT NULL DEFAULT 'candidate'"],
+      ["provider", "provider TEXT NOT NULL DEFAULT 'codex'"],
+      ["model", "model TEXT NOT NULL DEFAULT 'sol'"],
+      ["effort", "effort TEXT NOT NULL DEFAULT 'xhigh'"],
+      ["session_id", "session_id TEXT"],
+      ["local_pr_id", "local_pr_id TEXT"],
+      ["controls_message_id", "controls_message_id TEXT"],
+    ] as const) {
+      const columns = db.prepare("PRAGMA table_info(discord_test_surfaces)").all() as Array<{ name: string }>;
+      if (!columns.some((c) => c.name === column)) {
+        db.exec(`ALTER TABLE discord_test_surfaces ADD COLUMN ${ddl}`);
+      }
+    }
+  },
+}, {
+  version: 50,
+  name: "test-surface-spawn-target",
+  source: "discord_test_surfaces repository root + reviewed head branch",
+  up(db) {
+    // Revisor の登録済み repository root と local PR head ref を保持し、テスト開始時は
+    // Concordia の既存 spawn-target 経路に branch + worktree=true で解決させる。
+    for (const [column, ddl] of [
+      ["repo_root_path", "repo_root_path TEXT"],
+      ["head_branch", "head_branch TEXT"],
+    ] as const) {
+      const columns = db.prepare("PRAGMA table_info(discord_test_surfaces)").all() as Array<{ name: string }>;
+      if (!columns.some((c) => c.name === column)) {
+        db.exec(`ALTER TABLE discord_test_surfaces ADD COLUMN ${ddl}`);
+      }
+    }
   },
 }];
 

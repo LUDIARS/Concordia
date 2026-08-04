@@ -24,10 +24,15 @@ CcのDiscord Test Forumは、RevisorのローカルPR審査を通過した
 - 読取はloopback限定でRevisor側がtokenを要求しないため、`CONCORDIA_REVISOR_WORKFLOW_TOKEN`
   は任意とする。設定されている場合だけBearerとして送る (未設定でも同期は動く)。
 - Revisorが返すrepository、local PR番号、タイトル、reviewed head SHA、詳細から
-  Test Forum候補を作る。候補は描画元データの指紋 (content hash) を持つ。
+  Test Forum候補を作る。確認sessionを安全に起動できるよう、同じloopback read APIの
+  `/v1/local-prs` と `/v1/repositories` を併読し、local PRのhead refとRevisor登録済み
+  repository rootを `pullRequestId` / `repository` で結合する。候補は描画元データの
+  指紋 (content hash) を持つ。
 - 同じrepository・PR番号の投稿は維持する。**内容 (head SHA・タイトル・詳細) が
   変わった場合は投稿を閉じず、スターターメッセージの編集でリフレッシュする**。
   指紋が一致する限りDiscordへ編集を投げない (rate limit保護)。
+- repository rootまたはhead refが変わった場合は、安全なspawn targetを更新するため
+  旧投稿を閉じて現在の候補を作り直す。
 - Revisor一覧から消えた候補 (マージ・取り下げ・再審査落ち) は理由を推測せず
   投稿を閉じ、関連するテスト・QAセッションも終わらせる。
 - Revisorへの接続または応答検証に失敗した場合は同期全体を失敗として扱い、
@@ -56,3 +61,5 @@ Revisor Test Workflowの読取クライアントはDiscord表示処理から分�
 一覧のレスポンス形式が不正な場合は項目を黙って捨てずfail-fastする。
 詳細は追加情報のため、欠落フィールドはnullへ落とすが、骨格 (object) が無い場合は
 そのPRの詳細をエラーとして扱う。
+spawn targetを結合できない場合もfail-fastする。repository rootはRevisor登録値のみを
+信頼し、Discord入力から組み立てない。

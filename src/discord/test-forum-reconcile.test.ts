@@ -16,6 +16,8 @@ function product(headSha = "sha-1"): RevisorTestWorkflowProduct {
     number: 42,
     title: "Test Forum",
     status: "Open / Test OK",
+    headRef: "feat/test-forum",
+    repositoryRootPath: "E:/Document/Ars/Concordia",
     reviewedHeadSha: headSha,
     updatedAt: "2026-07-28T00:00:00.000Z",
   };
@@ -52,6 +54,8 @@ function surface(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSur
     repo_origin: "LUDIARS/Concordia",
     pr_number: 42,
     head_sha: "sha-1",
+    repo_root_path: "E:/Document/Ars/Concordia",
+    head_branch: "feat/test-forum",
     worktree_path: null,
     thread_id: "thread-old",
     status: "open",
@@ -60,6 +64,13 @@ function surface(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSur
     close_reason: null,
     content_hash: null,
     qa_run_id: null,
+    run_state: "candidate",
+    provider: "codex",
+    model: "sol",
+    effort: "xhigh",
+    session_id: null,
+    local_pr_id: null,
+    controls_message_id: null,
     ...overrides,
   };
 }
@@ -72,6 +83,8 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
       const row = surface({
         id: rows.length + 10,
         head_sha: input.headSha,
+        repo_root_path: input.repoRootPath,
+        head_branch: input.headBranch,
         thread_id: input.threadId,
         worktree_path: input.worktreePath,
         content_hash: input.contentHash,
@@ -97,10 +110,17 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
         row.close_reason = reason;
       }
     }),
+    findOpen: vi.fn(() => null),
+    updateRunConfig: vi.fn(),
+    markTesting: vi.fn(),
+    setLocalPrId: vi.fn(),
+    markMerged: vi.fn(),
+    setControlsMessageId: vi.fn(),
   };
   const adapter: TestForumSurfaceAdapter = {
     create: vi.fn(async () => ({ threadId: `thread-${rows.length + 1}` })),
     update: vi.fn(async () => undefined),
+    render: vi.fn(async (row) => ({ controlsMessageId: `controls-${row.id}` })),
     close: vi.fn(async () => undefined),
   };
   const qa: TestForumQaHooks = {
@@ -117,7 +137,7 @@ describe("buildTestForumCandidates", () => {
     expect(built.repoOrigin).toBe("LUDIARS/Concordia");
     expect(built.prNumber).toBe(42);
     expect(built.detail?.decisionLabel).toBe("自動マージ可");
-    expect(built.headBranch).toBe("feat/forum");
+    expect(built.headBranch).toBe("feat/test-forum");
     expect(built.contentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
@@ -142,6 +162,9 @@ describe("reconcileTestForum", () => {
     expect(h.surfaces.create).toHaveBeenCalledWith(expect.objectContaining({
       headSha: "sha-1",
       contentHash: built.contentHash,
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/test-forum",
+      worktreePath: null,
     }));
     expect(h.qa.start).toHaveBeenCalledWith(built, expect.any(String));
     expect(h.surfaces.setQaRun).toHaveBeenCalledWith(expect.any(Number), "run-qa-1");
@@ -188,6 +211,44 @@ describe("reconcileTestForum", () => {
     expect(h.surfaces.setQaRun).not.toHaveBeenCalled();
   });
 
+  it("attaches the control message to a newly created surface", async () => {
+    const h = harness();
+    await reconcileTestForum({ candidates: [candidate()], ...h });
+    expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(10, "controls-10");
+  });
+
+  it("still starts the QA session when the new post's controls cannot be rendered", async () => {
+    // 操作面の描画失敗で QA 起動を巻き添えにすると、 次周期はこの候補が「保持」側に
+    // 回るので QA が二度と起動しない。 操作面だけ次周期の backfill に任せる。
+    const h = harness();
+    (h.adapter.render as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("thread archived"));
+    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
+    expect(result.created).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(h.qa.start).toHaveBeenCalledOnce();
+    expect(h.surfaces.setQaRun).toHaveBeenCalledWith(10, "run-qa-1");
+  });
+
+  it("backfills controls onto surfaces posted before the controls existed", async () => {
+    // 操作面の導入前に立った投稿は controls_message_id を持たない。 head が変わるまで
+    // 操作が出ないままにしない。
+    const built = candidate();
+    const h = harness([surface({ content_hash: built.contentHash })]);
+    const result = await reconcileTestForum({ candidates: [built], ...h });
+    expect(result).toEqual({ scanned: 1, kept: 1, updated: 0, created: 0, closed: 0, failed: 0 });
+    expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(7, "controls-7");
+  });
+
+  it("keeps reconciling when a kept thread can no longer be rendered", async () => {
+    const built = candidate();
+    const h = harness([surface({ content_hash: built.contentHash })]);
+    (h.adapter.render as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("thread deleted"));
+    const result = await reconcileTestForum({ candidates: [built], ...h });
+    expect(result.kept).toBe(1);
+    expect(result.failed).toBe(1);
+    expect(h.surfaces.setControlsMessageId).not.toHaveBeenCalled();
+  });
+
   it("keeps reconciling the other posts when one Discord edit fails", async () => {
     const stale = candidate("sha-old");
     const h = harness([surface({ head_sha: "sha-old", content_hash: stale.contentHash })]);
@@ -203,5 +264,17 @@ describe("reconcileTestForum", () => {
     expect(h.surfaces.updateContent).not.toHaveBeenCalled();
     expect(h.adapter.create).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
+  });
+
+  it("replaces a legacy surface without a safe spawn target", async () => {
+    const legacy = surface({
+      worktree_path: "E:/Document/Ars/Concordia-test-forum",
+      repo_root_path: null,
+      head_branch: null,
+    });
+    const h = harness([legacy]);
+    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
+    expect(result).toEqual({ scanned: 1, kept: 0, updated: 0, created: 1, closed: 1, failed: 0 });
+    expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "spawn-target-updated");
   });
 });

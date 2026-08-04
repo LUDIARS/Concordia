@@ -32,8 +32,9 @@ function candidate(overrides: Partial<TestForumCandidate> = {}): TestForumCandid
     pullRequestId: "local-pr-42",
     title: "Test Forum",
     url: null,
-    headBranch: null,
+    headBranch: "feat/test-forum",
     headSha: "sha-1",
+    repoRootPath: "E:/Document/Ars/no-such-repo-xyz",
     worktreePath: null,
     detail: null,
     contentHash: "hash-1",
@@ -48,6 +49,8 @@ function surfaceRow(qaRunId: string | null): DiscordTestSurfaceRow {
     repo_origin: "LUDIARS/Concordia",
     pr_number: 42,
     head_sha: "sha-1",
+    repo_root_path: "E:/Document/Ars/Concordia",
+    head_branch: "feat/test-forum",
     worktree_path: null,
     thread_id: "thread-42",
     status: "open",
@@ -56,6 +59,13 @@ function surfaceRow(qaRunId: string | null): DiscordTestSurfaceRow {
     close_reason: null,
     content_hash: "hash-1",
     qa_run_id: qaRunId,
+    run_state: "candidate",
+    provider: "codex",
+    model: "sol",
+    effort: "xhigh",
+    session_id: null,
+    local_pr_id: null,
+    controls_message_id: null,
   };
 }
 

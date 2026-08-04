@@ -2,7 +2,11 @@ import { ChannelType, type Guild } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import type { DiscordTestSurfaceRow } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrDetail } from "../pr/revisor-test-workflow-client.js";
-import { createTestForumDiscordAdapter, starterContent } from "./test-forum-discord.js";
+import {
+  createTestForumDiscordAdapter,
+  renderTestForumControls,
+  starterContent,
+} from "./test-forum-discord.js";
 import type { TestForumCandidate } from "./test-forum-reconcile.js";
 
 function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDetail {
@@ -34,6 +38,7 @@ function candidate(overrides: Partial<TestForumCandidate> = {}): TestForumCandid
     url: null,
     headBranch: "feat/forum",
     headSha: "sha-1",
+    repoRootPath: "E:/Document/Ars/Concordia",
     worktreePath: null,
     detail: detail(),
     contentHash: "hash-1",
@@ -54,9 +59,9 @@ describe("starterContent", () => {
   });
 
   it("falls back to the skeleton when the detail is unavailable", () => {
-    const content = starterContent(candidate({ detail: null, headBranch: null }));
+    const content = starterContent(candidate({ detail: null }));
     expect(content).toContain("**Repo** `LUDIARS/Concordia`");
-    expect(content).toContain("**Head** `-` @ `sha-1`");
+    expect(content).toContain("**Head** `feat/forum` @ `sha-1`");
     expect(content).not.toContain("**判定**");
   });
 
@@ -92,6 +97,7 @@ function fakeThread(archived = false) {
     }),
     setName: vi.fn(async (_name: string, _reason?: string) => undefined),
     fetchStarterMessage: vi.fn(async () => starter),
+    send: vi.fn(async (_payload: unknown) => ({ id: "controls-1" })),
   };
   return { thread, starter };
 }
@@ -109,6 +115,8 @@ function surfaceRow(): DiscordTestSurfaceRow {
     repo_origin: "LUDIARS/Concordia",
     pr_number: 42,
     head_sha: "sha-0",
+    repo_root_path: "E:/Document/Ars/Concordia",
+    head_branch: "feat/forum",
     worktree_path: null,
     thread_id: "thread-42",
     status: "open",
@@ -117,6 +125,13 @@ function surfaceRow(): DiscordTestSurfaceRow {
     close_reason: null,
     content_hash: "hash-0",
     qa_run_id: null,
+    run_state: "candidate",
+    provider: "codex",
+    model: "sol",
+    effort: "xhigh",
+    session_id: null,
+    local_pr_id: null,
+    controls_message_id: null,
   };
 }
 
@@ -151,6 +166,18 @@ describe("createTestForumDiscordAdapter", () => {
     expect(thread.setName).toHaveBeenCalledWith("[Concordia #42] renamed", expect.any(String));
   });
 
+  it("un-archives before posting the controls onto an idle thread", async () => {
+    // 操作面の後付け (controls backfill) は放置で archive された古い投稿にこそ効く。
+    // archive 中の thread は send も拒否されるので、 解除が先でなければならない。
+    const { thread } = fakeThread(true);
+    const rendered = await createTestForumDiscordAdapter(guildWith(thread), "forum-1")
+      .render!(surfaceRow());
+    expect(thread.setArchived).toHaveBeenCalledWith(false, expect.any(String));
+    expect(thread.setArchived.mock.invocationCallOrder[0])
+      .toBeLessThan(thread.send.mock.invocationCallOrder[0]);
+    expect(rendered).toEqual({ controlsMessageId: "controls-1" });
+  });
+
   it("archives on close and leaves an already-archived thread alone", async () => {
     const open = fakeThread().thread;
     await createTestForumDiscordAdapter(guildWith(open), "forum-1")
@@ -161,5 +188,28 @@ describe("createTestForumDiscordAdapter", () => {
     await createTestForumDiscordAdapter(guildWith(alreadyClosed), "forum-1")
       .close(surfaceRow(), "candidate-unavailable");
     expect(alreadyClosed.setArchived).not.toHaveBeenCalled();
+  });
+});
+
+const controlSurface: DiscordTestSurfaceRow = {
+  id: 17, scope: "", repo_origin: "LUDIARS/Concordia", pr_number: 8, head_sha: "abc",
+  repo_root_path: "E:/Document/Ars/Concordia", head_branch: "feat/pr-8",
+  worktree_path: "E:/wt", thread_id: "thread", status: "open" as const, created_at: 1,
+  closed_at: null, close_reason: null, provider: "codex" as const, model: "sol",
+  effort: "xhigh" as const, session_id: null, local_pr_id: null, controls_message_id: null,
+  content_hash: null, qa_run_id: null, run_state: "candidate",
+};
+
+describe("renderTestForumControls", () => {
+  it("renders candidate selectors and start button from the persisted config", () => {
+    const rendered = renderTestForumControls({ ...controlSurface, run_state: "candidate" });
+    expect(rendered.content).toContain("codex/sol");
+    expect(rendered.components).toHaveLength(3);
+    expect((rendered.components[2]?.components[0]?.data as { custom_id?: string }).custom_id).toBe("test:start:17");
+  });
+
+  it("replaces selectors with merge and removes every control after merge", () => {
+    expect(renderTestForumControls({ ...controlSurface, run_state: "testing" }).components).toHaveLength(1);
+    expect(renderTestForumControls({ ...controlSurface, run_state: "merged" }).components).toEqual([]);
   });
 });

@@ -13,6 +13,8 @@ export interface RevisorTestWorkflowProduct {
   number: number;
   title: string;
   status: "Open / Test OK";
+  headRef: string;
+  repositoryRootPath: string;
   reviewedHeadSha: string;
   updatedAt: string;
 }
@@ -60,7 +62,17 @@ export interface RevisorTestWorkflowClientOptions {
   timeoutMs?: number;
 }
 
-function isProduct(value: unknown): value is RevisorTestWorkflowProduct {
+interface RevisorTestWorkflowProjection {
+  repository: string;
+  pullRequestId: string;
+  number: number;
+  title: string;
+  status: "Open / Test OK";
+  reviewedHeadSha: string;
+  updatedAt: string;
+}
+
+function isProjection(value: unknown): value is RevisorTestWorkflowProjection {
   if (!value || typeof value !== "object") return false;
   const product = value as Record<string, unknown>;
   return typeof product.repository === "string"
@@ -75,6 +87,10 @@ function isProduct(value: unknown): value is RevisorTestWorkflowProduct {
     && typeof product.reviewedHeadSha === "string"
     && product.reviewedHeadSha.trim().length > 0
     && typeof product.updatedAt === "string";
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
@@ -93,12 +109,42 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   }
 
   async listProducts(): Promise<readonly RevisorTestWorkflowProduct[]> {
-    const body = await this.getJson("/v1/test-workflow") as { products?: unknown } | null;
-    const products = body?.products;
-    if (!Array.isArray(products) || !products.every(isProduct)) {
+    const [workflowBody, prsBody, repositoriesBody] = await Promise.all([
+      this.getJson("/v1/test-workflow"),
+      this.getJson("/v1/local-prs"),
+      this.getJson("/v1/repositories"),
+    ]) as Array<Record<string, unknown> | null>;
+    const products = workflowBody?.products;
+    const pullRequests = prsBody?.pullRequests;
+    const repositories = repositoriesBody?.repositories;
+    if (
+      !Array.isArray(products)
+      || !products.every(isProjection)
+      || !Array.isArray(pullRequests)
+      || !Array.isArray(repositories)
+    ) {
       throw new Error("Revisor returned an invalid test workflow response");
     }
-    return products;
+    return products.map((product) => {
+      const pullRequest = pullRequests.find((value) => {
+        if (!value || typeof value !== "object") return false;
+        const candidate = value as Record<string, unknown>;
+        return candidate.id === product.pullRequestId
+          && candidate.repository === product.repository;
+      }) as Record<string, unknown> | undefined;
+      const repository = repositories.find((value) => {
+        if (!value || typeof value !== "object") return false;
+        return (value as Record<string, unknown>).repository === product.repository;
+      }) as Record<string, unknown> | undefined;
+      if (!nonEmptyString(pullRequest?.headRef) || !nonEmptyString(repository?.rootPath)) {
+        throw new Error(`Revisor omitted the spawn target for ${product.repository}#${product.number}`);
+      }
+      return {
+        ...product,
+        headRef: pullRequest.headRef,
+        repositoryRootPath: repository.rootPath,
+      };
+    });
   }
 
   async getProductDetail(pullRequestId: string): Promise<RevisorLocalPrDetail> {

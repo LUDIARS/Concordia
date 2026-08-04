@@ -343,6 +343,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // (session.started 時に cwd で claim → metadata.subsidiary_id)。 これが無いと
     // 未タグ = 本社所有扱いになり、 自動生成された session チャンネルが本社側に出てしまう。
     const subsidiaryId = typeof body.subsidiary_id === "string" && body.subsidiary_id.trim() ? body.subsidiary_id.trim() : null;
+    const testSurfaceId =
+      typeof body.test_surface_id === "number" && Number.isInteger(body.test_surface_id) && body.test_surface_id > 0
+        ? body.test_surface_id
+        : null;
     const projectName = typeof body.project === "string" ? body.project.trim() : "";
     const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
     const requestedWorktree = body.worktree;
@@ -538,6 +542,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       subsidiaryId,
       project: projectName || null,
       goalAndGo: goalAndGoRequested(directOptions),
+      testSurfaceId,
     });
     const result = sessionSpawn({
       provider: resolved.provider,

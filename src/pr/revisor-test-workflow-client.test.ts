@@ -6,7 +6,7 @@ import {
   RevisorTestWorkflowClient,
 } from "./revisor-test-workflow-client.js";
 
-const product = {
+const projection = {
   repository: "LUDIARS/Concordia",
   pullRequestId: "local-pr-1",
   number: 1,
@@ -16,6 +16,40 @@ const product = {
   updatedAt: "2026-07-28T00:00:00.000Z",
 } as const;
 
+const product = {
+  ...projection,
+  headRef: "feat/test-forum",
+  repositoryRootPath: "E:/Document/Ars/Concordia",
+} as const;
+
+function responseFor(
+  input: string | URL | Request,
+  products: readonly unknown[] = [projection],
+): Response {
+  const url = String(input);
+  if (url.endsWith("/v1/test-workflow")) {
+    return new Response(JSON.stringify({ products }), { status: 200 });
+  }
+  if (url.endsWith("/v1/local-prs")) {
+    return new Response(JSON.stringify({
+      pullRequests: [{
+        id: projection.pullRequestId,
+        repository: projection.repository,
+        headRef: product.headRef,
+      }],
+    }), { status: 200 });
+  }
+  if (url.endsWith("/v1/repositories")) {
+    return new Response(JSON.stringify({
+      repositories: [{
+        repository: projection.repository,
+        rootPath: product.repositoryRootPath,
+      }],
+    }), { status: 200 });
+  }
+  return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+}
+
 describe("RevisorTestWorkflowClient", () => {
   it("reads Open / Test OK products from the live Excubitor service port", async () => {
     const findService = vi.fn(async () => ({
@@ -24,10 +58,7 @@ describe("RevisorTestWorkflowClient", () => {
       port: 4240,
       state: "running",
     }));
-    const fetchImpl = vi.fn(async () => new Response(
-      JSON.stringify({ products: [product] }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input));
     const client = new RevisorTestWorkflowClient({
       excubitor: { findService },
       token: "workflow-secret",
@@ -58,10 +89,7 @@ describe("RevisorTestWorkflowClient", () => {
   });
 
   it("sends the configured env secret as a Bearer token", async () => {
-    const fetchMock = vi.fn(async () => new Response(
-      JSON.stringify({ products: [] }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ));
+    const fetchMock = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
     vi.stubGlobal("fetch", fetchMock);
     try {
       const client = createRevisorTestWorkflowClientFromEnv(
@@ -92,10 +120,7 @@ describe("RevisorTestWorkflowClient", () => {
     let sent: Record<string, string> = {};
     const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
       sent = (init?.headers ?? {}) as Record<string, string>;
-      return new Response(
-        JSON.stringify({ products: [] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
+      return responseFor(_url, []);
     });
     const client = new RevisorTestWorkflowClient({
       excubitor: {
@@ -126,10 +151,8 @@ describe("RevisorTestWorkflowClient", () => {
         })),
       },
       token: "workflow-secret",
-      fetchImpl: vi.fn(async () => new Response(
-        JSON.stringify({ products: [{ ...product, reviewedHeadSha: null }] }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )),
+      fetchImpl: vi.fn(async (input: string | URL | Request) =>
+        responseFor(input, [{ ...projection, reviewedHeadSha: null }])),
     });
 
     await expect(client.listProducts()).rejects.toThrow("invalid test workflow response");
@@ -144,10 +167,7 @@ describe("RevisorTestWorkflowClient", () => {
       port: 4240,
       state: "running",
     }));
-    const fetchImpl = vi.fn(async () => new Response(
-      JSON.stringify({ products: [] }),
-      { status: 200, headers: { "content-type": "application/json" } },
-    ));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
     let stored: string | undefined;
     const client = createRevisorTestWorkflowClient(
       { findService },
@@ -164,7 +184,7 @@ describe("RevisorTestWorkflowClient", () => {
     const headersOf = (index: number) => calls[index]![1].headers as Record<string, string>;
     expect(headersOf(0)).not.toHaveProperty("authorization");
     // trim も resolver 側で効く。
-    expect(headersOf(1)).toMatchObject({ authorization: "Bearer set-later" });
+    expect(headersOf(3)).toMatchObject({ authorization: "Bearer set-later" });
   });
 });
 

@@ -80,9 +80,11 @@ import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
-import { createTestForumDiscordAdapter } from "./test-forum-discord.js";
+import { createTestForumDiscordAdapter, refreshTestForumControls } from "./test-forum-discord.js";
 import { createTestForumQaHooks } from "./test-forum-qa.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
+import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
+import { readTestSurfaceId } from "./test-forum-session.js";
 
 const discordLog = createChildLogger("discord");
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
@@ -142,6 +144,7 @@ export interface DiscordBotDeps {
   sessionsRepo: SessionsRepo;
   /** Revisor の Open / Test OK 一覧。Test Forum の候補正本として使う。 */
   revisorTestWorkflow?: RevisorTestWorkflowSource;
+  revisor?: RevisorLocalPrReader & RevisorLocalPrMerger;
   /**
    * channel 作成前に届いた transcript frame の埋め戻し (transcript-replay) に使う。
    * 省略時は replay をスキップ (standalone worker 等、 repo を持たない構成)。
@@ -964,6 +967,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo,
       pendingQuestionsRepo,
+      testSurfacesRepo,
+      revisor: deps.revisor,
       answerQuestion: deps.answerQuestion,
       guild: interaction.guild!,
       layout,
@@ -973,6 +978,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
+      // Test Forum のマージボタンは `merge_pr`。 未注入なら handler 側で deny (fail-closed)。
+      isMergeUserAllowed: deps.hasStaffCapability
+        ? (userId) => deps.hasStaffCapability!(userId, "merge_pr")
+        : undefined,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
@@ -1031,6 +1040,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "session.started") {
       const state = deps.readModel.getSessionRelayState(ev.session_id);
       const sessionId = ev.session_id;
+      const testSurfaceId = readTestSurfaceId(deps.sessionsRepo.findSession(sessionId)?.metadata ?? null);
+      const testSurface = testSurfaceId ? testSurfacesRepo.findOpen(testSurfaceId) : null;
       const delegationRun = state?.delegationRunId ? delegationRepo.findRun(state.delegationRunId) : null;
       const forumSpawn = parseForumSpawnTrigger(delegationRun?.triggered_by);
       if (delegationRun && !layout.forumMode && (!forumSpawn || forumSpawn.guildId !== guild.id)) {
@@ -1044,7 +1055,35 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         try {
           const repoPath = state?.repoPath ?? ev.repo_path;
           const branch = state?.branch ?? ev.branch;
-          if (forumSpawn) {
+          if (testSurface) {
+            await bindForumSpawnSession(
+              {
+                guild,
+                sessionForumId: layout.testForumId,
+                repo: sessionChannelsRepo,
+                webhooks,
+                log,
+              },
+              {
+                sessionId,
+                threadId: testSurface.thread_id,
+                provider: ev.provider ?? null,
+                repoPath,
+                branch,
+                callName: "test-workflow",
+                state,
+              },
+            );
+            testSurfacesRepo.markTesting(testSurface.id, sessionId, repoPath);
+            const updated = testSurfacesRepo.findOpen(testSurface.id);
+            // 操作面の描き替えに失敗しても、 セッション自体の登録 (transcript replay /
+            // 状態カード) は続ける。 次の reconcile で操作面は貼り直される。
+            if (updated?.controls_message_id) {
+              await refreshTestForumControls(guild, updated).catch((e: unknown) =>
+                log.warn(`test-forum controls refresh failed surface=${testSurface.id}: ${(e as Error).message}`));
+            }
+            log.info(`test-forum bound session=${sessionId} surface=${testSurface.id}`);
+          } else if (forumSpawn) {
             await bindForumSpawnSession(
               {
                 guild,

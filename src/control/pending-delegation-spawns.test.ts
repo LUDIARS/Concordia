@@ -109,6 +109,11 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.goalAndGo).toBe(true);
   });
 
+  it("round-trips the TestWorkflow surface correlation", () => {
+    recordPendingDelegationSpawn({ cwd: "/a", callName: "spawn", testSurfaceId: 42 }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)?.testSurfaceId).toBe(42);
+  });
+
   it("forgets pending entries by runId", () => {
     recordPendingDelegationSpawn({ cwd: "/a", callName: "impl-from-design", runId: "run-123" }, 1000);
     forgetPendingDelegationSpawnByRunId("run-123");

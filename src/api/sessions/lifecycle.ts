@@ -113,6 +113,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (claimed?.subsidiaryId) meta.subsidiary_id = claimed.subsidiaryId;
       // project 限定 spawn は project を焼く (作業範囲の監査 / UI 表示用)。
       if (claimed?.project) meta.project = claimed.project;
+      if (claimed?.testSurfaceId) meta.test_surface_id = claimed.testSurfaceId;
       if (claimed?.goalAndGo) {
         meta.goal_and_go = {
           enabled: true,

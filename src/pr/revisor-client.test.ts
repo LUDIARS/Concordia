@@ -165,4 +165,18 @@ describe("RevisorClient", () => {
     await expect(client.enqueue(request)).rejects.toThrow("has no valid port");
     expect(fetchImpl).not.toHaveBeenCalled();
   });
+
+  it("uses the resolved port and token for an explicit local PR merge", async () => {
+    const fetchImpl = vi.fn(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } }));
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      token: "local-secret",
+      fetchImpl,
+    });
+    await expect(client.mergeLocalPr("local/pr 1")).resolves.toBeUndefined();
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:4240/v1/local-prs/local%2Fpr%201/merge",
+      expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer local-secret" }) }),
+    );
+  });
 });

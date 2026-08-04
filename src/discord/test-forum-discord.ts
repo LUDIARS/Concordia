@@ -78,15 +78,40 @@ function detailLines(detail: RevisorLocalPrDetail): string[] {
   return lines;
 }
 
+const CHECK_STATUS_LABELS: Record<string, string> = {
+  queued: "審査待ち",
+  running: "審査中",
+  test_ok: "Test OK",
+  failed: "審査失敗",
+  action_required: "人間の判断が必要",
+};
+
+export function checkStatusLabel(checkStatus: string): string {
+  return CHECK_STATUS_LABELS[checkStatus] ?? checkStatus;
+}
+
+export function statusChangeMessage(candidate: TestForumCandidate): string {
+  if (candidate.checkStatus === "test_ok") {
+    return "✅ 審査を通過しました (Test OK)。操作面の「テスト開始」でセッションを起動、「マージ」で squash merge できます。";
+  }
+  if (candidate.checkStatus === "failed") {
+    const reason = candidate.detail?.blockers[0] ? `\n> ${clip(candidate.detail.blockers[0], 300)}` : "";
+    return `❌ 審査に失敗しました。${reason}`;
+  }
+  const blockers = (candidate.detail?.blockers ?? []).slice(0, 3).map((b) => `> ${clip(b, 200)}`).join("\n");
+  return `⚠️ 審査は完了しましたが人間の判断が必要です。\n${blockers}`;
+}
+
 export function starterContent(candidate: TestForumCandidate): string {
   const lines = [
     `**Test candidate** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
     `**Repo** \`${candidate.repoOrigin}\``,
+    `**状態** ${checkStatusLabel(candidate.checkStatus)}`,
     `**Head** \`${candidate.headBranch}\` @ \`${candidate.headSha}\``,
     `**Spawn root** \`${candidate.repoRootPath}\``,
     `**Active worktree** ${candidate.worktreePath ? `\`${candidate.worktreePath}\`` : "テスト開始時に解決"}`,
     ...(candidate.detail ? detailLines(candidate.detail) : []),
-    "Revisor で Open / Test OK になったため掲載されました。内容が変わると Cc がこの投稿を編集で更新し、マージ・取り下げ・再審査で対象外になると閉じます。",
+    "Revisor に登録された時点で掲載されます。内容が変わると Cc がこの投稿を編集で更新し、マージ・取り下げで対象外になると閉じます。このスレッドに書き込むとテストセッションが対応します。",
   ];
   return clip(lines.join("\n"), 2000);
 }
@@ -181,6 +206,17 @@ export function createTestForumDiscordAdapter(
         message: { content: starterContent(candidate), allowedMentions: NO_MENTIONS },
         reason: `Concordia test candidate ${candidate.repoOrigin}#${candidate.prNumber}@${candidate.headSha}`,
       });
+      // 提出セッションを操作していた人たちに掲載を知らせる。 starter とは別メッセージに
+      // するのは、 starter は常にメンション抑制 (外部由来テキスト) のため。
+      // ここで throw すると thread は立ったのに DB 行が作られず、 次周期が同じ PR の
+      // 投稿を二重に立ててしまう。 メンションは掲載の従なので best-effort に留める。
+      if (candidate.mentionUserIds.length > 0) {
+        const mentions = candidate.mentionUserIds.map((id) => `<@${id}>`).join(" ");
+        await thread.send({
+          content: `${mentions} ${candidate.repoOrigin} #${candidate.prNumber} が Revisor に登録されました (${checkStatusLabel(candidate.checkStatus)})。`,
+          allowedMentions: { users: [...candidate.mentionUserIds] },
+        }).catch(() => undefined);
+      }
       return { threadId: thread.id };
     },
     async update(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate) {
@@ -204,6 +240,11 @@ export function createTestForumDiscordAdapter(
       const thread = await requireWritableThread(guild, surface.thread_id, "Concordia test controls posted");
       const message = await thread.send(renderTestForumControls(surface));
       return { controlsMessageId: message.id };
+    },
+    async postStatusChange(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate) {
+      const thread = await resolveThread(guild, surface.thread_id);
+      if (!thread) return;
+      await thread.send({ content: statusChangeMessage(candidate), allowedMentions: NO_MENTIONS });
     },
     async close(surface: DiscordTestSurfaceRow, reason: TestSurfaceCloseReason) {
       const thread = await resolveThread(guild, surface.thread_id);

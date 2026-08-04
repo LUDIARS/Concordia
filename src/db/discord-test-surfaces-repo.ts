@@ -27,6 +27,8 @@ export interface DiscordTestSurfaceRow {
   session_id: string | null;
   local_pr_id: string | null;
   controls_message_id: string | null;
+  /** 前回同期時の Revisor checkStatus。 審査の決着遷移の検知に使う。 */
+  check_status: string | null;
 }
 
 export interface DiscordTestSurfacesRepo {
@@ -41,9 +43,10 @@ export interface DiscordTestSurfacesRepo {
     worktreePath: string | null;
     threadId: string;
     contentHash: string | null;
+    checkStatus: string | null;
   }): DiscordTestSurfaceRow;
   /** 編集リフレッシュ後の head/指紋の書き戻し。 行は作り直さない (thread は同じ)。 */
-  updateContent(id: number, input: { headSha: string; contentHash: string | null }): void;
+  updateContent(id: number, input: { headSha: string; contentHash: string | null; checkStatus: string | null }): void;
   setQaRun(id: number, qaRunId: string): void;
   close(id: number, reason: string): void;
   updateRunConfig(id: number, config: { provider: "codex" | "claude"; model: string; effort: DiscordTestSurfaceRow["effort"] }): void;
@@ -75,8 +78,8 @@ export function makeDiscordTestSurfacesRepo(
       const result = db.prepare(
         `INSERT INTO discord_test_surfaces
            (scope, repo_origin, pr_number, head_sha, repo_root_path, head_branch,
-            worktree_path, thread_id, status, created_at, content_hash)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)`,
+            worktree_path, thread_id, status, created_at, content_hash, check_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)`,
       ).run(
         scope,
         input.repoOrigin,
@@ -88,6 +91,7 @@ export function makeDiscordTestSurfacesRepo(
         input.threadId,
         nowSec(),
         input.contentHash,
+        input.checkStatus,
       );
       return db.prepare("SELECT * FROM discord_test_surfaces WHERE id = ?")
         .get(Number(result.lastInsertRowid)) as DiscordTestSurfaceRow;
@@ -95,9 +99,9 @@ export function makeDiscordTestSurfacesRepo(
     updateContent(id, input) {
       db.prepare(
         `UPDATE discord_test_surfaces
-         SET head_sha = ?, content_hash = ?
+         SET head_sha = ?, content_hash = ?, check_status = ?
          WHERE id = ? AND scope = ? AND status = 'open'`,
-      ).run(input.headSha, input.contentHash, id, scope);
+      ).run(input.headSha, input.contentHash, input.checkStatus, id, scope);
     },
     setQaRun(id, qaRunId) {
       db.prepare(

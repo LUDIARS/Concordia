@@ -82,6 +82,9 @@ import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
 import { createTestForumDiscordAdapter, refreshTestForumControls } from "./test-forum-discord.js";
 import { createTestForumQaHooks } from "./test-forum-qa.js";
+import { resolveSessionMentions } from "./test-forum-mentions.js";
+import { handleTestForumMessage } from "./test-forum-message.js";
+import { callConcordia } from "./commands/_util.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
@@ -314,6 +317,31 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
   const testSurfacesRepo = makeDiscordTestSurfacesRepo(deps.db, scope);
+  // reconcile close / スレッド投稿が共有するテスト・QA hooks。 close 時は旧経路の
+  // delegation run (qa_run_id) に加え、 テスト開始で紐付いた session_id も畳む
+  // (マージ等で投稿が閉じたら関連セッションも終わらせる)。
+  const testForumQaBase = createTestForumQaHooks({
+    concordiaUrl: deps.concordiaUrl,
+    workspaceRoots,
+    subsidiaryId,
+    log,
+  });
+  const testForumQa = {
+    ...testForumQaBase,
+    end: async (surface: import("../db/discord-test-surfaces-repo.js").DiscordTestSurfaceRow) => {
+      await testForumQaBase.end(surface);
+      if (surface.session_id && deps.sessionsRepo.findSession(surface.session_id)?.status === "active") {
+        const ended = await callConcordia<{ ok: boolean }>(
+          deps.concordiaUrl,
+          "DELETE",
+          `/v1/sessions/${encodeURIComponent(surface.session_id)}`,
+        );
+        if ("error" in ended) {
+          log.info(`test-forum session end skipped session=${surface.session_id}: ${ended.error}`);
+        }
+      }
+    },
+  };
   const delegationRepo = new DelegationRepo(deps.db);
   const resolveLayoutOpts = async (): Promise<EnsureLayoutOptions> => ({
     ...layoutOpts,
@@ -683,31 +711,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           return;
         }
         const source = deps.revisorTestWorkflow;
-        const products = await source.listProducts();
-        // 詳細・判断事項は投稿を豊かにする追加情報。 1 件の取得失敗で同期全体を
-        // 止めず、 その PR は骨格情報だけで掲載する。
-        const details = new Map(
-          (await Promise.all(products.map(async (product) => {
-            try {
-              return [product.pullRequestId, await source.getProductDetail(product.pullRequestId)] as const;
-            } catch (error) {
-              log.warn(
-                `test-forum detail fetch failed ${product.repository}#${product.number}: ${(error as Error).message}`,
-              );
-              return null;
-            }
-          }))).filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+        // 掲載対象は Test OK 限定ではなく open な local PR 全件 (登録・審査時点で載せる)。
+        const openPullRequests = await source.listOpenLocalPrs();
+        // 新規掲載時に提出セッションの操作者へメンションする。 解決失敗は掲載を止めない。
+        const mentions = resolveSessionMentions(
+          (sessionId, limit) => deps.sessionsRepo.recentEvents(sessionId, limit),
+          openPullRequests.flatMap((pullRequest) => pullRequest.sessionId ? [pullRequest.sessionId] : []),
         );
         const result = await reconcileTestForum({
-          candidates: buildTestForumCandidates(products, details),
+          candidates: buildTestForumCandidates(openPullRequests, mentions),
           surfaces: testSurfacesRepo,
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
-          qa: createTestForumQaHooks({
-            concordiaUrl: deps.concordiaUrl,
-            workspaceRoots,
-            subsidiaryId,
-            log,
-          }),
+          qa: testForumQa,
           log,
         });
         log.info(
@@ -826,26 +841,59 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (gatewayClosed || stopping) return;
     // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
     if (!inScope(msg.guildId)) return;
-    void measuredHandleIngressMessage({
-      configRepo,
-      sessionChannelsRepo,
-      sessionsRepo: deps.sessionsRepo,
-      concordiaUrl: deps.concordiaUrl,
-      routeFederationIngress: deps.routeFederationIngress,
-      log,
-      // 単発絵文字 (🙏 / 🫡 等) をリアクションワークフローに流すための解決系。
-      chatRepo: deps.chatRepo,
-      messageMap,
-      workflow: reactionWorkflow,
-      isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
-      recordStaffAccess: deps.recordStaffAccess,
-      resolveReactionMappings: deps.resolveReactionMappings,
-      // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
-      // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
-      // (子会社 Bot に desk は配線されない)。
-      intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
-      subsidiary: Boolean(deps.subsidiary),
-    }, msg).catch((e) => {
+    void (async () => {
+      // Test Forum スレッドへの人間の投稿はテストセッションの起動/指示。
+      // 通常の ingress (セッションチャンネル/受付) より先に判定し、 対象なら委ねない。
+      if (layout?.testForumId) {
+        const handled = await handleTestForumMessage(msg, {
+          testForumId: layout.testForumId,
+          surfaces: testSurfacesRepo,
+          concordiaUrl: deps.concordiaUrl,
+          isLaunchUserAllowed: deps.isLaunchUserAllowed,
+          isSessionAlive: (sessionId) => deps.sessionsRepo.findSession(sessionId)?.status === "active",
+          // emitSessionInject が未配線でも投稿を黙って捨てない (📨 を返しておいて
+          // 実際には届かない、 を避ける)。 リアクションワークフローと同じ経路へ落とす。
+          injectToSession: (sessionId, text, source) => {
+            if (deps.emitSessionInject) {
+              deps.emitSessionInject(sessionId, text, source);
+              return;
+            }
+            eventBus.emit({
+              type: "session.inject",
+              target_session_id: sessionId,
+              text,
+              source,
+              ts: Math.floor(Date.now() / 1000),
+            });
+          },
+          log,
+        }).catch((e) => {
+          log.warn(`test-forum message handler failed channel=${msg.channelId}: ${(e as Error).message}`);
+          return false;
+        });
+        if (handled) return;
+      }
+      await measuredHandleIngressMessage({
+        configRepo,
+        sessionChannelsRepo,
+        sessionsRepo: deps.sessionsRepo,
+        concordiaUrl: deps.concordiaUrl,
+        routeFederationIngress: deps.routeFederationIngress,
+        log,
+        // 単発絵文字 (🙏 / 🫡 等) をリアクションワークフローに流すための解決系。
+        chatRepo: deps.chatRepo,
+        messageMap,
+        workflow: reactionWorkflow,
+        isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
+        recordStaffAccess: deps.recordStaffAccess,
+        resolveReactionMappings: deps.resolveReactionMappings,
+        // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
+        // どちらも同じガードゲートに通す (ingress は種別を知らない)。 両方は同時に持たない
+        // (子会社 Bot に desk は配線されない)。
+        intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
+        subsidiary: Boolean(deps.subsidiary),
+      }, msg);
+    })().catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
   }));

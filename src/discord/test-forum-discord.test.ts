@@ -6,6 +6,7 @@ import {
   createTestForumDiscordAdapter,
   renderTestForumControls,
   starterContent,
+  statusChangeMessage,
 } from "./test-forum-discord.js";
 import type { TestForumCandidate } from "./test-forum-reconcile.js";
 
@@ -40,6 +41,9 @@ function candidate(overrides: Partial<TestForumCandidate> = {}): TestForumCandid
     headSha: "sha-1",
     repoRootPath: "E:/Document/Ars/Concordia",
     worktreePath: null,
+    checkStatus: "test_ok",
+    sessionId: null,
+    mentionUserIds: [],
     detail: detail(),
     contentHash: "hash-1",
     ...overrides,
@@ -82,6 +86,21 @@ describe("starterContent", () => {
     }));
     expect(content).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])/);
     expect(content).not.toMatch(/(?<![\ud800-\udbff])[\udc00-\udfff]/);
+  });
+});
+
+describe("statusChangeMessage", () => {
+  it("tells the thread what the review concluded", () => {
+    expect(statusChangeMessage(candidate({ checkStatus: "test_ok" }))).toContain("審査を通過");
+    expect(statusChangeMessage(candidate({ checkStatus: "failed" }))).toContain("動作確認が必要");
+    const actionRequired = statusChangeMessage(candidate({ checkStatus: "action_required" }));
+    expect(actionRequired).toContain("人間の判断が必要");
+    expect(actionRequired).toContain("> 動作確認が必要");
+  });
+
+  it("survives a candidate with no detail", () => {
+    expect(statusChangeMessage(candidate({ checkStatus: "failed", detail: null }))).toContain("審査に失敗");
+    expect(statusChangeMessage(candidate({ checkStatus: "action_required", detail: null }))).toContain("判断が必要");
   });
 });
 
@@ -132,6 +151,7 @@ function surfaceRow(): DiscordTestSurfaceRow {
     session_id: null,
     local_pr_id: null,
     controls_message_id: null,
+    check_status: null,
   };
 }
 
@@ -150,6 +170,49 @@ describe("createTestForumDiscordAdapter", () => {
       .create(candidate({ title: "@everyone please look" }));
 
     expect(create.mock.calls[0][0].message.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it("pings the submitting session's operators in a separate message", async () => {
+    const send = vi.fn(async (_payload: unknown) => ({ id: "ping-1" }));
+    const create = vi.fn(async (_options: unknown) => ({ id: "thread-99", send }));
+    const guild = {
+      channels: {
+        cache: new Map([["forum-1", { type: ChannelType.GuildForum, threads: { create } }]]),
+      },
+    } as unknown as Guild;
+
+    await createTestForumDiscordAdapter(guild, "forum-1")
+      .create(candidate({ mentionUserIds: ["111", "222"], checkStatus: "queued" }));
+
+    const payload = send.mock.calls[0][0] as { content: string; allowedMentions: unknown };
+    expect(payload.content).toContain("<@111> <@222>");
+    expect(payload.content).toContain("審査待ち");
+    // starter と違い、 この 1 通だけは指名した相手を実際に ping する。
+    expect(payload.allowedMentions).toEqual({ users: ["111", "222"] });
+  });
+
+  it("keeps the post when the mention message cannot be sent", async () => {
+    // ここで throw すると DB 行が作られず、 次周期が同じ PR の投稿を二重に立てる。
+    const send = vi.fn(async () => { throw new Error("missing permissions"); });
+    const create = vi.fn(async (_options: unknown) => ({ id: "thread-99", send }));
+    const guild = {
+      channels: {
+        cache: new Map([["forum-1", { type: ChannelType.GuildForum, threads: { create } }]]),
+      },
+    } as unknown as Guild;
+
+    await expect(
+      createTestForumDiscordAdapter(guild, "forum-1").create(candidate({ mentionUserIds: ["111"] })),
+    ).resolves.toEqual({ threadId: "thread-99" });
+  });
+
+  it("announces a status change as a plain thread message", async () => {
+    const { thread } = fakeThread();
+    await createTestForumDiscordAdapter(guildWith(thread), "forum-1")
+      .postStatusChange(surfaceRow(), candidate({ checkStatus: "failed" }));
+    const payload = thread.send.mock.calls[0][0] as { content: string; allowedMentions: unknown };
+    expect(payload.content).toContain("審査に失敗");
+    expect(payload.allowedMentions).toEqual({ parse: [] });
   });
 
   it("un-archives before editing a still-listed post", async () => {
@@ -197,7 +260,7 @@ const controlSurface: DiscordTestSurfaceRow = {
   worktree_path: "E:/wt", thread_id: "thread", status: "open" as const, created_at: 1,
   closed_at: null, close_reason: null, provider: "codex" as const, model: "sol",
   effort: "xhigh" as const, session_id: null, local_pr_id: null, controls_message_id: null,
-  content_hash: null, qa_run_id: null, run_state: "candidate",
+  content_hash: null, qa_run_id: null, run_state: "candidate", check_status: "test_ok",
 };
 
 describe("renderTestForumControls", () => {

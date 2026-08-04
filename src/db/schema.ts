@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 50;
+export const SCHEMA_VERSION = 51;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1290,6 +1290,15 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         db.exec(`ALTER TABLE discord_test_surfaces ADD COLUMN ${ddl}`);
       }
     }
+  },
+}, {
+  version: 51,
+  name: "test-surface-check-status",
+  source: "discord_test_surfaces.check_status",
+  up(db) {
+    // 掲載を Test OK 限定から open 全件へ広げたので、 審査の決着遷移 (通過/失敗/
+    // 判断待ち) を検知してスレッドへ知らせるために前回の checkStatus を持つ。
+    db.exec("ALTER TABLE discord_test_surfaces ADD COLUMN check_status TEXT");
   },
 }];
 

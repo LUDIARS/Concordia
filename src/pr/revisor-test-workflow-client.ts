@@ -42,8 +42,29 @@ export interface RevisorLocalPrDetail {
   autoMerge: { merged: boolean; reason: string } | null;
 }
 
+/**
+ * Test Forum に掲載する open な local PR。 審査済み (Test OK) に限らず、
+ * Revisor に登録された時点から失敗・判断待ち・審査中も全部載せる。
+ */
+export interface RevisorOpenLocalPr {
+  id: string;
+  repository: string;
+  number: number;
+  title: string;
+  headRef: string;
+  headSha: string;
+  reviewedHeadSha: string | null;
+  repositoryRootPath: string;
+  checkStatus: string;
+  /** 提出元 Concordia セッション。 メンション対象の解決に使う。 */
+  sessionId: string | null;
+  detail: RevisorLocalPrDetail;
+}
+
 export interface RevisorTestWorkflowSource {
   listProducts(): Promise<readonly RevisorTestWorkflowProduct[]>;
+  /** open な local PR の全件 (詳細・spawn target 込み)。 Test Forum の候補正本。 */
+  listOpenLocalPrs(): Promise<readonly RevisorOpenLocalPr[]>;
   /**
    * 単一 PR の詳細。 取得や解析に失敗しても同期全体は止めない前提の
    * 追加情報なので、 呼出側は失敗を null として扱ってよい (throw はする)。
@@ -114,15 +135,23 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
       this.getJson("/v1/local-prs"),
       this.getJson("/v1/repositories"),
     ]) as Array<Record<string, unknown> | null>;
-    const products = workflowBody?.products;
+    const rawProducts = workflowBody?.products;
     const pullRequests = prsBody?.pullRequests;
     const repositories = repositoriesBody?.repositories;
     if (
-      !Array.isArray(products)
-      || !products.every(isProjection)
+      !Array.isArray(rawProducts)
       || !Array.isArray(pullRequests)
       || !Array.isArray(repositories)
     ) {
+      throw new Error("Revisor returned an invalid test workflow response");
+    }
+    // Revisor は early QA (feat 697a730) で審査中の行 (Open / In Review,
+    // reviewedHeadSha null) も返すようになった。 listProducts の意味は
+    // 「Test OK のプロダクト」なので、 早期 QA 行は捨てて Test OK だけを検証する。
+    const products = rawProducts.filter((value) =>
+      !!value && typeof value === "object"
+      && (value as Record<string, unknown>).status === "Open / Test OK");
+    if (!products.every(isProjection)) {
       throw new Error("Revisor returned an invalid test workflow response");
     }
     return products.map((product) => {
@@ -145,6 +174,32 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
         repositoryRootPath: repository.rootPath,
       };
     });
+  }
+
+  async listOpenLocalPrs(): Promise<readonly RevisorOpenLocalPr[]> {
+    const [prsBody, repositoriesBody] = await Promise.all([
+      this.getJson("/v1/local-prs"),
+      this.getJson("/v1/repositories"),
+    ]) as Array<Record<string, unknown> | null>;
+    const rows = prsBody?.pullRequests;
+    const repositories = repositoriesBody?.repositories;
+    if (!Array.isArray(rows) || !Array.isArray(repositories)) {
+      throw new Error("Revisor returned an invalid local PR list response");
+    }
+    const rootPaths = new Map<string, string>();
+    for (const value of repositories) {
+      if (!value || typeof value !== "object") continue;
+      const repository = value as Record<string, unknown>;
+      if (nonEmptyString(repository.repository) && nonEmptyString(repository.rootPath)) {
+        rootPaths.set(repository.repository, repository.rootPath);
+      }
+    }
+    const open: RevisorOpenLocalPr[] = [];
+    for (const row of rows) {
+      const parsed = parseOpenLocalPr(row, rootPaths);
+      if (parsed) open.push(parsed);
+    }
+    return open;
   }
 
   async getProductDetail(pullRequestId: string): Promise<RevisorLocalPrDetail> {
@@ -200,6 +255,47 @@ function asStringOrNull(value: unknown): string | null {
 
 function asNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * open 行だけを掲載候補にする。 骨格 (id/repository/番号/head/rootPath) が欠けた行は
+ * 候補から外す (null)。 detail の欠落フィールドは parseLocalPrDetail が null へ落とす。
+ */
+function parseOpenLocalPr(
+  value: unknown,
+  rootPaths: ReadonlyMap<string, string>,
+): RevisorOpenLocalPr | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (row.status !== "open") return null;
+  const rootPath = typeof row.repository === "string" ? rootPaths.get(row.repository) : undefined;
+  if (
+    !nonEmptyString(row.id)
+    || !nonEmptyString(row.repository)
+    || typeof row.number !== "number" || !Number.isInteger(row.number)
+    || typeof row.title !== "string"
+    || !nonEmptyString(row.headRef)
+    || !nonEmptyString(row.headSha)
+    || !nonEmptyString(row.checkStatus)
+    || !rootPath
+  ) {
+    return null;
+  }
+  const detail = parseLocalPrDetail(row);
+  if (!detail) return null;
+  return {
+    id: row.id,
+    repository: row.repository,
+    number: row.number,
+    title: row.title,
+    headRef: row.headRef,
+    headSha: row.headSha,
+    reviewedHeadSha: nonEmptyString(row.reviewedHeadSha) ? row.reviewedHeadSha : null,
+    repositoryRootPath: rootPath,
+    checkStatus: row.checkStatus,
+    sessionId: nonEmptyString(row.sessionId) ? row.sessionId : null,
+    detail,
+  };
 }
 
 /**

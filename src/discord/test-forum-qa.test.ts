@@ -36,6 +36,9 @@ function candidate(overrides: Partial<TestForumCandidate> = {}): TestForumCandid
     headSha: "sha-1",
     repoRootPath: "E:/Document/Ars/no-such-repo-xyz",
     worktreePath: null,
+    checkStatus: "test_ok",
+    sessionId: null,
+    mentionUserIds: [],
     detail: null,
     contentHash: "hash-1",
     ...overrides,
@@ -66,6 +69,7 @@ function surfaceRow(qaRunId: string | null): DiscordTestSurfaceRow {
     session_id: null,
     local_pr_id: null,
     controls_message_id: null,
+    check_status: null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DiscordTestSurfaceRow, DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
-import type { RevisorLocalPrDetail, RevisorTestWorkflowProduct } from "../pr/revisor-test-workflow-client.js";
+import type { RevisorLocalPrDetail, RevisorOpenLocalPr } from "../pr/revisor-test-workflow-client.js";
 import {
   buildTestForumCandidates,
   reconcileTestForum,
@@ -8,20 +8,6 @@ import {
   type TestForumQaHooks,
   type TestForumSurfaceAdapter,
 } from "./test-forum-reconcile.js";
-
-function product(headSha = "sha-1"): RevisorTestWorkflowProduct {
-  return {
-    repository: "LUDIARS/Concordia",
-    pullRequestId: "local-pr-42",
-    number: 42,
-    title: "Test Forum",
-    status: "Open / Test OK",
-    headRef: "feat/test-forum",
-    repositoryRootPath: "E:/Document/Ars/Concordia",
-    reviewedHeadSha: headSha,
-    updatedAt: "2026-07-28T00:00:00.000Z",
-  };
-}
 
 function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDetail {
   return {
@@ -43,8 +29,25 @@ function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDe
   };
 }
 
-function candidate(headSha = "sha-1"): TestForumCandidate {
-  return buildTestForumCandidates([product(headSha)])[0];
+function openPr(overrides: Partial<RevisorOpenLocalPr> = {}): RevisorOpenLocalPr {
+  return {
+    id: "local-pr-42",
+    repository: "LUDIARS/Concordia",
+    number: 42,
+    title: "Test Forum",
+    headRef: "feat/test-forum",
+    headSha: "sha-head",
+    reviewedHeadSha: "sha-1",
+    repositoryRootPath: "E:/Document/Ars/Concordia",
+    checkStatus: "test_ok",
+    sessionId: "sess-1",
+    detail: detail(),
+    ...overrides,
+  };
+}
+
+function candidate(overrides: Partial<RevisorOpenLocalPr> = {}): TestForumCandidate {
+  return buildTestForumCandidates([openPr(overrides)])[0];
 }
 
 function surface(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSurfaceRow {
@@ -71,6 +74,7 @@ function surface(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSur
     session_id: null,
     local_pr_id: null,
     controls_message_id: null,
+    check_status: null,
     ...overrides,
   };
 }
@@ -88,6 +92,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
         thread_id: input.threadId,
         worktree_path: input.worktreePath,
         content_hash: input.contentHash,
+        check_status: input.checkStatus,
       });
       rows.push(row);
       return row;
@@ -97,6 +102,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
       if (row) {
         row.head_sha = input.headSha;
         row.content_hash = input.contentHash;
+        row.check_status = input.checkStatus;
       }
     }),
     setQaRun: vi.fn((id, qaRunId) => {
@@ -121,6 +127,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
     create: vi.fn(async () => ({ threadId: `thread-${rows.length + 1}` })),
     update: vi.fn(async () => undefined),
     render: vi.fn(async (row) => ({ controlsMessageId: `controls-${row.id}` })),
+    postStatusChange: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
   };
   const qa: TestForumQaHooks = {
@@ -131,46 +138,57 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
 }
 
 describe("buildTestForumCandidates", () => {
-  it("projects Revisor products and attaches details by pullRequestId", () => {
-    const details = new Map([["local-pr-42", detail()]]);
-    const [built] = buildTestForumCandidates([product()], details);
+  it("projects every open local PR (any check status) with its detail and mentions", () => {
+    const mentions = new Map([["sess-1", ["111", "222"]]]);
+    const [built] = buildTestForumCandidates([openPr({ checkStatus: "failed" })], mentions);
     expect(built.repoOrigin).toBe("LUDIARS/Concordia");
     expect(built.prNumber).toBe(42);
-    expect(built.detail?.decisionLabel).toBe("自動マージ可");
+    expect(built.checkStatus).toBe("failed");
     expect(built.headBranch).toBe("feat/test-forum");
+    expect(built.detail?.decisionLabel).toBe("自動マージ可");
+    expect(built.mentionUserIds).toEqual(["111", "222"]);
     expect(built.contentHash).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("changes the content hash when the detail changes, and keeps it stable otherwise", () => {
-    const a = buildTestForumCandidates([product()], new Map([["local-pr-42", detail()]]))[0];
-    const b = buildTestForumCandidates([product()], new Map([["local-pr-42", detail()]]))[0];
-    const c = buildTestForumCandidates(
-      [product()],
-      new Map([["local-pr-42", detail({ blockers: ["動作確認が必要"] })]]),
-    )[0];
+  it("uses the raw head when the PR has not been reviewed yet", () => {
+    const [built] = buildTestForumCandidates([openPr({ reviewedHeadSha: null, checkStatus: "queued" })]);
+    expect(built.headSha).toBe("sha-head");
+  });
+
+  it("changes the content hash when the check status changes, and ignores mentions", () => {
+    const a = buildTestForumCandidates([openPr()], new Map([["sess-1", ["111"]]]))[0];
+    const b = buildTestForumCandidates([openPr()], new Map())[0];
+    const c = buildTestForumCandidates([openPr({ checkStatus: "failed" })])[0];
     expect(a.contentHash).toBe(b.contentHash);
     expect(a.contentHash).not.toBe(c.contentHash);
   });
 });
 
 describe("reconcileTestForum", () => {
-  it("creates one surface for a Revisor Open / Test OK product and starts a QA session", async () => {
+  it("creates one surface for a newly registered PR without starting a QA session", async () => {
     const h = harness();
-    const built = candidate();
+    const built = candidate({ checkStatus: "queued" });
     const result = await reconcileTestForum({ candidates: [built], ...h });
     expect(result).toEqual({ scanned: 0, kept: 0, updated: 0, created: 1, closed: 0, failed: 0 });
     expect(h.surfaces.create).toHaveBeenCalledWith(expect.objectContaining({
-      headSha: "sha-1",
       contentHash: built.contentHash,
+      checkStatus: "queued",
       repoRootPath: "E:/Document/Ars/Concordia",
       headBranch: "feat/test-forum",
-      worktreePath: null,
     }));
-    expect(h.qa.start).toHaveBeenCalledWith(built, expect.any(String));
-    expect(h.surfaces.setQaRun).toHaveBeenCalledWith(expect.any(Number), "run-qa-1");
+    // テストセッションの起動点はボタン / スレッド投稿。 掲載だけでは起動しない。
+    expect(h.qa.start).not.toHaveBeenCalled();
+    // 審査前の候補には操作面 (テスト開始/マージ) を出さない。
+    expect(h.adapter.render).not.toHaveBeenCalled();
   });
 
-  it("closes a surface and ends its QA session when Revisor no longer lists the product", async () => {
+  it("attaches the control message only to a Test OK candidate", async () => {
+    const h = harness();
+    await reconcileTestForum({ candidates: [candidate({ checkStatus: "test_ok" })], ...h });
+    expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(10, "controls-10");
+  });
+
+  it("closes a surface and ends its QA session when the PR leaves the open list", async () => {
     const h = harness([surface({ qa_run_id: "run-qa-9" })]);
     const result = await reconcileTestForum({ candidates: [], ...h });
     expect(result.closed).toBe(1);
@@ -179,61 +197,48 @@ describe("reconcileTestForum", () => {
     expect(h.adapter.create).not.toHaveBeenCalled();
   });
 
-  it("refreshes a changed post by editing instead of close-and-recreate", async () => {
-    const stale = candidate("sha-old");
-    const h = harness([surface({ head_sha: "sha-old", content_hash: stale.contentHash })]);
-    const fresh = candidate("sha-new");
+  it("refreshes a changed post by editing and announces a review pass", async () => {
+    const stale = candidate({ checkStatus: "running" });
+    const h = harness([surface({ content_hash: stale.contentHash, check_status: "running", controls_message_id: "c-1" })]);
+    const fresh = candidate({ checkStatus: "test_ok" });
     const result = await reconcileTestForum({ candidates: [fresh], ...h });
     expect(result).toEqual({ scanned: 1, kept: 1, updated: 1, created: 0, closed: 0, failed: 0 });
     expect(h.adapter.update).toHaveBeenCalledWith(expect.anything(), fresh);
+    // 審査の決着 (running → test_ok) はスレッドへ通常メッセージで知らせる。
+    expect(h.adapter.postStatusChange).toHaveBeenCalledWith(expect.anything(), fresh);
     expect(h.surfaces.updateContent).toHaveBeenCalledWith(7, {
-      headSha: "sha-new",
+      headSha: "sha-1",
       contentHash: fresh.contentHash,
+      checkStatus: "test_ok",
     });
     expect(h.adapter.close).not.toHaveBeenCalled();
-    // 既存投稿の更新では QA セッションを起動し直さない。
     expect(h.qa.start).not.toHaveBeenCalled();
+  });
+
+  it("announces a review failure but not a queued/running churn", async () => {
+    const queued = candidate({ checkStatus: "queued" });
+    const h = harness([surface({ content_hash: queued.contentHash, check_status: "queued" })]);
+    await reconcileTestForum({ candidates: [candidate({ checkStatus: "running" })], ...h });
+    expect(h.adapter.postStatusChange).not.toHaveBeenCalled();
+
+    const running = candidate({ checkStatus: "running" });
+    const h2 = harness([surface({ content_hash: running.contentHash, check_status: "running" })]);
+    const failed = candidate({ checkStatus: "failed" });
+    await reconcileTestForum({ candidates: [failed], ...h2 });
+    expect(h2.adapter.postStatusChange).toHaveBeenCalledWith(expect.anything(), failed);
   });
 
   it("leaves an unchanged post alone (no Discord edit)", async () => {
     const built = candidate();
-    const h = harness([surface({ content_hash: built.contentHash })]);
+    const h = harness([surface({ content_hash: built.contentHash, check_status: "test_ok", controls_message_id: "c-1" })]);
     const result = await reconcileTestForum({ candidates: [built], ...h });
     expect(result).toEqual({ scanned: 1, kept: 1, updated: 0, created: 0, closed: 0, failed: 0 });
     expect(h.adapter.update).not.toHaveBeenCalled();
   });
 
-  it("still publishes when the QA spawn fails", async () => {
-    const h = harness();
-    h.qa.start = vi.fn(async () => null);
-    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
-    expect(result.created).toBe(1);
-    expect(h.surfaces.setQaRun).not.toHaveBeenCalled();
-  });
-
-  it("attaches the control message to a newly created surface", async () => {
-    const h = harness();
-    await reconcileTestForum({ candidates: [candidate()], ...h });
-    expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(10, "controls-10");
-  });
-
-  it("still starts the QA session when the new post's controls cannot be rendered", async () => {
-    // 操作面の描画失敗で QA 起動を巻き添えにすると、 次周期はこの候補が「保持」側に
-    // 回るので QA が二度と起動しない。 操作面だけ次周期の backfill に任せる。
-    const h = harness();
-    (h.adapter.render as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("thread archived"));
-    const result = await reconcileTestForum({ candidates: [candidate()], ...h });
-    expect(result.created).toBe(1);
-    expect(result.failed).toBe(1);
-    expect(h.qa.start).toHaveBeenCalledOnce();
-    expect(h.surfaces.setQaRun).toHaveBeenCalledWith(10, "run-qa-1");
-  });
-
-  it("backfills controls onto surfaces posted before the controls existed", async () => {
-    // 操作面の導入前に立った投稿は controls_message_id を持たない。 head が変わるまで
-    // 操作が出ないままにしない。
+  it("backfills controls onto Test OK surfaces posted before the controls existed", async () => {
     const built = candidate();
-    const h = harness([surface({ content_hash: built.contentHash })]);
+    const h = harness([surface({ content_hash: built.contentHash, check_status: "test_ok" })]);
     const result = await reconcileTestForum({ candidates: [built], ...h });
     expect(result).toEqual({ scanned: 1, kept: 1, updated: 0, created: 0, closed: 0, failed: 0 });
     expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(7, "controls-7");
@@ -241,7 +246,7 @@ describe("reconcileTestForum", () => {
 
   it("keeps reconciling when a kept thread can no longer be rendered", async () => {
     const built = candidate();
-    const h = harness([surface({ content_hash: built.contentHash })]);
+    const h = harness([surface({ content_hash: built.contentHash, check_status: "test_ok" })]);
     (h.adapter.render as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error("thread deleted"));
     const result = await reconcileTestForum({ candidates: [built], ...h });
     expect(result.kept).toBe(1);
@@ -250,13 +255,13 @@ describe("reconcileTestForum", () => {
   });
 
   it("keeps reconciling the other posts when one Discord edit fails", async () => {
-    const stale = candidate("sha-old");
-    const h = harness([surface({ head_sha: "sha-old", content_hash: stale.contentHash })]);
+    const stale = candidate({ checkStatus: "running" });
+    const h = harness([surface({ content_hash: stale.contentHash, check_status: "running", controls_message_id: "c-1" })]);
     h.adapter.update = vi.fn(async () => {
       throw new Error("thread is archived");
     });
-    const fresh = candidate("sha-new");
-    const other: TestForumCandidate = { ...candidate(), prNumber: 43 };
+    const fresh = candidate({ checkStatus: "test_ok" });
+    const other = buildTestForumCandidates([openPr({ id: "local-pr-43", number: 43 })])[0];
     const warn = vi.fn();
     const result = await reconcileTestForum({ candidates: [fresh, other], ...h, log: { warn } });
     // 失敗した投稿は kept のまま (二重投稿しない) で DB も据え置き、 次周期で再試行する。

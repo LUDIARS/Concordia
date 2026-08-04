@@ -241,4 +241,29 @@ describe("parseLocalPrDetail", () => {
     expect(parseLocalPrDetail(null)).toBeNull();
     expect(parseLocalPrDetail("text")).toBeNull();
   });
+
+  it("tolerates early-QA rows (Open / In Review) in the workflow list", async () => {
+    // Revisor の early QA (697a730) は審査中の行を products に混ぜて返す。
+    // listProducts は Test OK だけを返し、混入で同期全体を落とさない。
+    const early = {
+      repository: "LUDIARS/Revisor",
+      pullRequestId: "local-pr-2",
+      number: 2,
+      title: "under review",
+      status: "Open / In Review",
+      checkStatus: "queued",
+      qaMode: "early",
+      headSha: "b".repeat(40),
+      reviewedHeadSha: null,
+      updatedAt: "2026-08-04T00:00:00.000Z",
+    };
+    const fetchImpl = vi.fn(async (input: string | URL | Request) =>
+      responseFor(input, [early, projection]));
+    const client = new RevisorTestWorkflowClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      fetchImpl,
+    });
+
+    await expect(client.listProducts()).resolves.toEqual([product]);
+  });
 });

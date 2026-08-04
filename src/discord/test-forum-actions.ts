@@ -84,6 +84,47 @@ async function updateConfig(
   await interaction.update(renderTestForumControls(updated));
 }
 
+/**
+ * surface の実行設定でテストセッションの起動を要求する。 起動点はボタンと
+ * スレッド内のユーザ投稿の両方 (test-forum-message.ts)。 instruction は
+ * ユーザ投稿の本文 (あれば起動プロンプトへ指示として載せる)。
+ */
+export async function requestTestSpawn(
+  surface: DiscordTestSurfaceRow,
+  deps: Pick<TestForumActionDeps, "concordiaUrl">,
+  instruction?: string,
+): Promise<{ ok: true; pid: number | null } | { ok: false; error: string }> {
+  if (!surface.repo_root_path || !surface.head_branch) {
+    return { ok: false, error: "確認対象のrepository rootまたはbranchを解決できません。" };
+  }
+  const prompt = `## Test forum verification\nRevisor local PR ${surface.repo_origin}#${surface.pr_number} の確認を行ってください。`
+    + (instruction ? `\n\nユーザからの指示:\n${instruction}` : "");
+  const result = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
+    deps.concordiaUrl,
+    "POST",
+    "/v1/admin/spawn-session",
+    {
+      provider: surface.provider,
+      model: surface.model || undefined,
+      cwd: surface.repo_root_path,
+      branch: surface.head_branch,
+      worktree: true,
+      // effort の読み取りキーは provider レーンごとに違う (control/provider-preset.ts:
+      // claude は `effort`、codex 系は `model_reasoning_effort`)。 取り違えると選択が
+      // 無言で捨てられ、 投稿の表示と実際の実行設定が食い違う。
+      options: surface.provider === "claude"
+        ? { effort: surface.effort }
+        : { model_reasoning_effort: surface.effort },
+      test_surface_id: surface.id,
+      prompt,
+    },
+  );
+  if ("error" in result || !result.ok) {
+    return { ok: false, error: ("error" in result ? result.error : undefined) ?? "unknown" };
+  }
+  return { ok: true, pid: result.pid ?? null };
+}
+
 async function startTest(
   interaction: ButtonInteraction,
   surface: DiscordTestSurfaceRow,
@@ -102,30 +143,10 @@ async function startTest(
     return;
   }
   await interaction.deferUpdate();
-  const result = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
-    deps.concordiaUrl,
-    "POST",
-    "/v1/admin/spawn-session",
-    {
-      provider: surface.provider,
-      model: surface.model || undefined,
-      cwd: surface.repo_root_path,
-      branch: surface.head_branch,
-      worktree: true,
-      // effort の読み取りキーは provider レーンごとに違う (control/provider-preset.ts:
-      // claude は `effort`、codex 系は `model_reasoning_effort`)。 取り違えると選択が
-      // 無言で捨てられ、 投稿の表示と実際の実行設定が食い違う。
-      options: surface.provider === "claude"
-        ? { effort: surface.effort }
-        : { model_reasoning_effort: surface.effort },
-      test_surface_id: surface.id,
-      prompt: `## Test forum verification\nRevisor local PR ${surface.repo_origin}#${surface.pr_number} の確認を行ってください。`,
-    },
-  );
-  if ("error" in result || !result.ok) {
-    const error = result.error ?? "unknown";
-    deps.log.warn(`test-forum start failed surface=${surface.id}: ${error}`);
-    await interaction.followUp({ content: `テスト開始に失敗しました: ${error}`, ephemeral: true });
+  const result = await requestTestSpawn(surface, deps);
+  if (!result.ok) {
+    deps.log.warn(`test-forum start failed surface=${surface.id}: ${result.error}`);
+    await interaction.followUp({ content: `テスト開始に失敗しました: ${result.error}`, ephemeral: true });
     return;
   }
   // session_id は Lictor の session.started 到着後に確定する。先に状態を変えると、失敗時に

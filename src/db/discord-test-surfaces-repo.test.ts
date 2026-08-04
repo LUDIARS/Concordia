@@ -24,6 +24,7 @@ describe("DiscordTestSurfacesRepo", () => {
       worktreePath: "E:/Document/Ars/Concordia-pr42",
       threadId: "thread-42",
       contentHash: "hash-1",
+      checkStatus: "queued",
     });
 
     expect(repo.listOpen()).toEqual([expect.objectContaining({
@@ -53,9 +54,10 @@ describe("DiscordTestSurfacesRepo", () => {
       worktreePath: null,
       threadId: "thread-42",
       contentHash: "hash-1",
+      checkStatus: "queued",
     });
 
-    repo.updateContent(row.id, { headSha: "def456", contentHash: "hash-2" });
+    repo.updateContent(row.id, { headSha: "def456", contentHash: "hash-2", checkStatus: "test_ok" });
     repo.setQaRun(row.id, "run-qa-1");
 
     expect(repo.listOpen()).toEqual([expect.objectContaining({
@@ -78,6 +80,7 @@ describe("DiscordTestSurfacesRepo", () => {
       worktreePath: null,
       threadId: "thread",
       contentHash: null,
+      checkStatus: "queued",
     });
     repo.updateRunConfig(row.id, { provider: "claude", model: "opus", effort: "high" });
     repo.markTesting(row.id, "session-1", "E:/wt");

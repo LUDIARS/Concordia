@@ -22,8 +22,10 @@ updated: 2026-07-31
 
 ## 1. 背景
 
-`revisor-test-forum-sync` は Revisor が Open / Test OK にした PR を Discord の
-テストフォーラムへスレッドとして掲載する。 しかし掲載されるのは**テキストだけ**で、
+`revisor-test-forum-sync` は Revisor に登録された open な local PR を Discord の
+テストフォーラムへスレッドとして掲載する (審査前・失敗・判断待ちも含む)。
+操作面を出すのは、そのうち **Test OK になった候補だけ**。
+しかし掲載されるのは**テキストだけ**で、
 そこからテストを始める手段もマージする手段も無く、 人間が別途 Revisor UI や CLI に
 移動する必要があった (neco 指摘 2026-07-31)。
 
@@ -50,7 +52,7 @@ candidate ──[テスト開始]──> testing ──[マージ]──> merged
 - spawn へ渡す effort のキーは provider レーンに合わせる (claude は `effort`、
   codex 系は `model_reasoning_effort`)。 取り違えると選択が無言で捨てられる
 
-## 3. 永続化 (実装済み: migration 49 + 50, `SCHEMA_VERSION = 50`)
+## 3. 永続化 (実装済み: migration 49 + 50)
 
 `discord_test_surfaces` に以下を追加:
 
@@ -90,9 +92,9 @@ provider/effortセレクトの変更もそのまま特権spawnの引数になる
 
 ## 6. 確認対象の解決境界
 
-`/v1/test-workflow` は候補選別の正本だが、spawn targetまでは返さない。Concordiaの
-Revisor read clientは同じloopback APIの `/v1/local-prs` と `/v1/repositories` を併読し、
-`pullRequestId` / `repository` で次を結合する。
+候補選別の正本は `/v1/local-prs` の open 行だが、spawn targetまでは1本では揃わない。
+Concordiaの Revisor read clientは同じloopback APIの `/v1/local-prs` と `/v1/repositories`
+を併読し、`repository` で次を結合する。
 
 - local PRの `headRef`
 - Revisorへ登録済みrepositoryの `rootPath`

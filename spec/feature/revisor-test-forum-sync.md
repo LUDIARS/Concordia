@@ -10,31 +10,38 @@ updated: 2026-08-04
 
 ## Purpose
 
-CcのDiscord Test Forumは、RevisorのローカルPR審査を通過した
-`Open / Test OK` のプロダクトだけを掲載する。GitHub PR台帳は候補の正本にしない。
-投稿にはPRの詳細と判断事項を載せ、テスト・QAセッションの起点にする。
+CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを掲載する
+(審査中・失敗・判断待ちも全部)。GitHub PR台帳は候補の正本にしない。
+投稿にはPRの詳細と判断事項を載せ、テストセッション操作面
+(spec/feature/test-forum-controls.md) の起点にする。
 
 ## Source and lifecycle
 
-- CcはExcubitor catalogでRevisorの稼働ポートを解決し、
-  `GET /v1/test-workflow` を読む。ポートは設定やソースへ固定しない。
-- 各プロダクトについて `GET /v1/local-prs/:id` で詳細 (判定・判断事項 blockers・
-  マージリスク・テスト結果・セキュリティスキャン・動作確認要否) を読む。
-  詳細の取得失敗はそのPRの掲載を骨格情報だけに落とし、同期全体は止めない。
+- CcはExcubitor catalogでRevisorの稼働ポートを解決し、loopback read APIの
+  `/v1/local-prs` と `/v1/repositories` を併読して **open な local PR 全件** を
+  候補にする (checkStatus は問わない)。ポートは設定やソースへ固定しない。
+- 各行の decision (判定・判断事項 blockers・マージリスク・テスト結果・
+  セキュリティスキャン・動作確認要否) と checkStatus を投稿本文に描画する。
+  確認sessionを安全に起動できるよう、local PRのhead refとRevisor登録済み
+  repository rootを結合する。骨格 (id/repository/番号/head/rootPath) が欠けた
+  行は候補から外す。
 - 読取はloopback限定でRevisor側がtokenを要求しないため、`CONCORDIA_REVISOR_WORKFLOW_TOKEN`
   は任意とする。設定されている場合だけBearerとして送る (未設定でも同期は動く)。
-- Revisorが返すrepository、local PR番号、タイトル、reviewed head SHA、詳細から
-  Test Forum候補を作る。確認sessionを安全に起動できるよう、同じloopback read APIの
-  `/v1/local-prs` と `/v1/repositories` を併読し、local PRのhead refとRevisor登録済み
-  repository rootを `pullRequestId` / `repository` で結合する。候補は描画元データの
-  指紋 (content hash) を持つ。
-- 同じrepository・PR番号の投稿は維持する。**内容 (head SHA・タイトル・詳細) が
-  変わった場合は投稿を閉じず、スターターメッセージの編集でリフレッシュする**。
-  指紋が一致する限りDiscordへ編集を投げない (rate limit保護)。
+- 新規掲載時、提出セッション (`sessionId`) の session_events から
+  **操作していたDiscordユーザ全員** を解決し、スレッドへメンション付き
+  メッセージを1回だけ投げる (starter本文は常にメンション抑制)。
+- 候補は描画元データの指紋 (content hash) を持つ。**内容 (head SHA・タイトル・
+  checkStatus・詳細) が変わった場合は投稿を閉じず、スターターメッセージの
+  編集でリフレッシュする**。指紋が一致する限りDiscordへ編集を投げない (rate limit保護)。
+- checkStatus の決着遷移 (→ test_ok / failed / action_required) は、
+  スレッドへ通常メッセージで知らせる。
+- 操作面 (provider/effort セレクタ + テスト開始 / マージ) は **Test OK の候補だけ**
+  に付ける (spec/feature/test-forum-controls.md)。審査前・失敗・判断待ちの候補には
+  出さない。
 - repository rootまたはhead refが変わった場合は、安全なspawn targetを更新するため
   旧投稿を閉じて現在の候補を作り直す。
-- Revisor一覧から消えた候補 (マージ・取り下げ・再審査落ち) は理由を推測せず
-  投稿を閉じ、関連するテスト・QAセッションも終わらせる。
+- Revisor一覧から消えた候補 (マージ・取り下げ) は理由を推測せず投稿を閉じ、
+  関連するテストセッションも終わらせる。
 - Revisorへの接続または応答検証に失敗した場合は同期全体を失敗として扱い、
   既存投稿を一括で閉じない。
 - Discord側の失敗 (自動archive・権限・rate limit) は投稿1件の範囲に閉じ込め、
@@ -42,17 +49,22 @@ CcのDiscord Test Forumは、RevisorのローカルPR審査を通過した
   DBを書き戻さないので次の周期で再試行する。掲載継続中の投稿がarchiveされて
   いた場合は、編集の前にarchiveを解除する。
 
-## テスト・QA delegation
+## テストセッションとスレッド投稿
 
-- 投稿の新規作成 (= テスト候補の検知) を起点に、delegation テンプレート
-  `test-qa` (category: `test-qa` = テスト・QA) のセッションを自動起動する。
-  仕事は候補内容の確認・調整であり、マージ判断はしない。
-- 起動した delegation run id は surface 行 (`qa_run_id`) に記録する。
-  起動失敗は投稿の掲載を巻き戻さない (掲載が主・QAは従)。
-- QAセッションは end-session で終了できるが、**投稿はクローズしない**。
+- テストセッションの起動点は2つ: 操作面の「テスト開始」ボタンと、
+  **スレッドへの人間の投稿の検知**。同期は自動起動しない
+  (登録時点の掲載は審査前で、テスト対象が定まらないため)。
+- スレッドに人間が投稿したとき:
+  - surface の `session_id` が生きていれば、投稿本文を inject で届ける (📨)。
+  - 無ければ、テスト開始ボタンと同じ設定・同じ経路 (`/v1/admin/spawn-session`) で
+    投稿本文を指示としてセッションを起動する (🧪)。特権 spawn なので
+    ボタンと同じ権限 (session_spawn, 管理職以上) で守り、権限が無ければ 🚫。
+  - run_state が candidate でない (テスト中だがセッション消滅等) は ⚠️ で案内する。
+- テストセッションは end-session で終了できるが、**投稿はクローズしない**。
   投稿を閉じるのは同期 (候補消滅) だけ。
-- 候補がマージ等で消えて投稿を閉じるとき、`qa_run_id` の child session を
-  `DELETE /v1/sessions/:id` で終わらせる。既に終了済みなら no-op として扱う。
+- 候補がマージ等で消えて投稿を閉じるとき、旧経路の `qa_run_id` の child session と
+  操作面経由の `session_id` の両方を `DELETE /v1/sessions/:id` で終わらせる。
+  既に終了済みなら no-op として扱う。
 
 ## Runtime boundary
 
@@ -61,5 +73,5 @@ Revisor Test Workflowの読取クライアントはDiscord表示処理から分�
 一覧のレスポンス形式が不正な場合は項目を黙って捨てずfail-fastする。
 詳細は追加情報のため、欠落フィールドはnullへ落とすが、骨格 (object) が無い場合は
 そのPRの詳細をエラーとして扱う。
-spawn targetを結合できない場合もfail-fastする。repository rootはRevisor登録値のみを
-信頼し、Discord入力から組み立てない。
+spawn targetを結合できない場合、その行は候補から外す。repository rootは
+Revisor登録値のみを信頼し、Discord入力から組み立てない。

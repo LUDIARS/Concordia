@@ -27,6 +27,7 @@ function row(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSurface
     session_id: "session-1",
     local_pr_id: null,
     controls_message_id: "controls",
+    check_status: "test_ok",
     ...overrides,
   };
 }

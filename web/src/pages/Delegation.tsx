@@ -264,6 +264,7 @@ export function Delegation() {
                 <option value="employee">従業員 — セッションワーカー (spawn で起動)</option>
                 <option value="freelancer">フリーランサー — caller で呼び出す特化型タスク</option>
                 <option value="parttimer">パートタイマー — 時限起動するタスク</option>
+                <option value="test-qa">テスト・QA — Test Forum の投稿検知で自動起動する検証タスク</option>
               </select>
             </label>
             <label className="text-sm space-y-1">

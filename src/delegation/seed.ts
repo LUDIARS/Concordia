@@ -697,6 +697,43 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  {
+    // Test Forum の投稿検知で自動起動するテスト・QA セッション (spec/feature/revisor-test-forum-sync.md)。
+    // 投稿 (テスト候補) の内容確認・調整が仕事で、 マージ判断はしない。
+    call_name: "test-qa",
+    title: "テスト・QA (Test Forum 候補の検証)",
+    description: "Revisor で Open / Test OK になったテスト候補の内容を確認・調整する。Test Forum の投稿検知で Cc が自動起動する。",
+    target_provider: "claude" as const,
+    model: "claude-sonnet-5",
+    emoji: "🧪",
+    category: "test-qa" as const,
+    sort_order: 160,
+    prompt_template: [
+      "あなたはテスト・QA 担当です。Revisor のローカル審査を通過した以下のテスト候補について、内容の確認と調整を行ってください。",
+      "",
+      "- Repository: ${repository}",
+      "- Local PR: #${pr_number} ${pr_title}",
+      "- Test Forum thread: ${thread_id}",
+      "${details:}",
+      "",
+      "### 作法",
+      "- 対象リポジトリの main とレビュー済みブランチを読み、変更内容がタイトル・説明と一致しているか確認する。",
+      "- 実行して安全なテスト (unit 等) があれば流し、結果を確認する。動作確認が必要と示されている場合は、確認手順を整理して報告する。",
+      "- コードの修正・マージ・push はしない。マージ判断は人間が行う。",
+      "- Test Forum の投稿 (thread) はあなたが閉じない。閉じる操作は Cc の同期が行う。",
+      "- 確認結果 (OK / 懸念 / 追加で人間が見るべき点) を報告して終了してよい。end-session で終了しても投稿は残る。",
+    ].join("\n"),
+    input_schema: [
+      { name: "repository", type: "string" as const, required: true, description: "対象リポジトリ (org/name)" },
+      { name: "pr_number", type: "string" as const, required: true, description: "Revisor local PR 番号" },
+      { name: "pr_title", type: "string" as const, required: true, description: "PR タイトル" },
+      { name: "thread_id", type: "string" as const, required: true, description: "Test Forum の thread id" },
+      { name: "target_repo", type: "string" as const, required: false, description: "Absolute path of the target repository" },
+      { name: "details", type: "string" as const, required: false, description: "判断事項・リスク等の要約" },
+    ],
+    default_cwd: "${target_repo}",
+    is_active: true,
+  },
   ...GENIUS_INGEST_TEMPLATES,
 ];
 

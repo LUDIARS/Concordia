@@ -65,6 +65,8 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("review-sonnet5")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("ludiars-review-daily")?.category).toBe("parttimer");
+    // Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md)。
+    expect(repo.findTemplateByCallName("test-qa")?.category).toBe("test-qa");
   });
 
   it("seeds argument-free launch templates for Session forum posts", () => {

@@ -77,7 +77,7 @@ delegation_runs
 
 ### 2.1 category (雇用形態カテゴリ)
 
-delegation を「どう起動されるか」で 3 分類する。 単一情報源は
+delegation を「どう起動されるか」で分類する。 単一情報源は
 `src/db/delegation-repo.ts` の `DELEGATION_CATEGORIES` (zod / UI / portable が参照)。
 
 | 値 | 表示名 | 意味 | 例 |
@@ -85,6 +85,7 @@ delegation を「どう起動されるか」で 3 分類する。 単一情報�
 | `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `claude-*-impl`, `codex-5-6-*`, `task-process` |
 | `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-sonnet5` |
 | `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily-dual` |
+| `test-qa` | テスト・QA | Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md) | `test-qa` |
 
 - 既定は `employee` (既存 DB の行は列追加 migration で employee に埋まる。 seed テンプレは boot upsert で正しい値に上書き)。
 - `GET /v1/delegation/templates?category=<値>` で絞り込み可 (不正値は 400)。

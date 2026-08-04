@@ -81,6 +81,7 @@ import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
 import { createTestForumDiscordAdapter } from "./test-forum-discord.js";
+import { createTestForumQaHooks } from "./test-forum-qa.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 
 const discordLog = createChildLogger("discord");
@@ -678,15 +679,38 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           log.warn(`test-forum ${reason} reconcile skipped; Revisor Test Workflow source unavailable`);
           return;
         }
-        const products = await deps.revisorTestWorkflow.listProducts();
+        const source = deps.revisorTestWorkflow;
+        const products = await source.listProducts();
+        // 詳細・判断事項は投稿を豊かにする追加情報。 1 件の取得失敗で同期全体を
+        // 止めず、 その PR は骨格情報だけで掲載する。
+        const details = new Map(
+          (await Promise.all(products.map(async (product) => {
+            try {
+              return [product.pullRequestId, await source.getProductDetail(product.pullRequestId)] as const;
+            } catch (error) {
+              log.warn(
+                `test-forum detail fetch failed ${product.repository}#${product.number}: ${(error as Error).message}`,
+              );
+              return null;
+            }
+          }))).filter((entry): entry is NonNullable<typeof entry> => entry !== null),
+        );
         const result = await reconcileTestForum({
-          candidates: buildTestForumCandidates(products),
+          candidates: buildTestForumCandidates(products, details),
           surfaces: testSurfacesRepo,
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
+          qa: createTestForumQaHooks({
+            concordiaUrl: deps.concordiaUrl,
+            workspaceRoots,
+            subsidiaryId,
+            log,
+          }),
+          log,
         });
         log.info(
           `test-forum ${reason} reconcile: scanned=${result.scanned} kept=${result.kept}`
-          + ` created=${result.created} closed=${result.closed}`,
+          + ` updated=${result.updated} created=${result.created} closed=${result.closed}`
+          + ` failed=${result.failed}`,
         );
       });
       testForumRefresh = createTestForumRefreshTrigger({

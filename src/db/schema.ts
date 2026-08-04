@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 47;
+export const SCHEMA_VERSION = 48;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -360,7 +360,7 @@ const STATEMENTS = [
     emoji             TEXT    NOT NULL DEFAULT '',
     call_only         INTEGER NOT NULL DEFAULT 0,
     forum_tag         INTEGER NOT NULL DEFAULT 0,
-    category          TEXT    NOT NULL DEFAULT 'employee',  -- employee | freelancer | parttimer (delegation-repo.ts DELEGATION_CATEGORIES が正本)
+    category          TEXT    NOT NULL DEFAULT 'employee',  -- employee | freelancer | parttimer | test-qa (delegation-repo.ts DELEGATION_CATEGORIES が正本)
     sort_order        INTEGER NOT NULL DEFAULT 1000,
     created_at        INTEGER NOT NULL,
     updated_at        INTEGER NOT NULL
@@ -1237,6 +1237,18 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         value TEXT NOT NULL
       )
     `);
+  },
+}, {
+  version: 48,
+  name: "test-forum-content-hash-qa-run",
+  source: "discord_test_surfaces.content_hash + qa_run_id",
+  up(db) {
+    // 投稿は作り直しではなく編集でリフレッシュする。 描画元データの指紋を持たないと
+    // 「変わったか」を判定できず、 毎周期 Discord へ edit を投げて rate limit を食う。
+    db.exec("ALTER TABLE discord_test_surfaces ADD COLUMN content_hash TEXT");
+    // 投稿ごとに起動するテスト・QA セッションの delegation run。 マージ等で投稿を
+    // 閉じるとき、 この run の child session も一緒に終わらせる (テスト・QA 3-1)。
+    db.exec("ALTER TABLE discord_test_surfaces ADD COLUMN qa_run_id TEXT");
   },
 }];
 

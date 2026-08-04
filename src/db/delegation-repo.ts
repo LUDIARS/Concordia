@@ -23,12 +23,13 @@ export const DELEGATION_PROVIDERS: readonly DelegationProvider[] = ["claude", "c
 //   freelancer = フリーランサー: caller (delegation_invoke / call_only) で呼び出す特化型指示タスク
 //   parttimer  = パートタイマー: スケジューラ (cron / morning) が時限起動するタスク
 // zod / UI / portable はこの定数を単一情報源として参照する (DELEGATION_PROVIDERS と同パターン)。
-export type DelegationCategory = "employee" | "freelancer" | "parttimer";
-export const DELEGATION_CATEGORIES: readonly DelegationCategory[] = ["employee", "freelancer", "parttimer"];
+export type DelegationCategory = "employee" | "freelancer" | "parttimer" | "test-qa";
+export const DELEGATION_CATEGORIES: readonly DelegationCategory[] = ["employee", "freelancer", "parttimer", "test-qa"];
 export const DELEGATION_CATEGORY_LABELS: Readonly<Record<DelegationCategory, string>> = {
   employee: "従業員",
   freelancer: "フリーランサー",
   parttimer: "パートタイマー",
+  "test-qa": "テスト・QA",
 };
 export const DEFAULT_DELEGATION_CATEGORY: DelegationCategory = "employee";
 

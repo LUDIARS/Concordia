@@ -8,12 +8,13 @@ import { RuntimeOptionsBuilder } from "../../components/RuntimeOptionsBuilder.js
 export type Provider = "claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12";
 
 // 雇用形態カテゴリ (サーバ側正本: src/db/delegation-repo.ts DELEGATION_CATEGORIES)。
-export type Category = "employee" | "freelancer" | "parttimer";
-export const CATEGORIES: readonly Category[] = ["employee", "freelancer", "parttimer"];
+export type Category = "employee" | "freelancer" | "parttimer" | "test-qa";
+export const CATEGORIES: readonly Category[] = ["employee", "freelancer", "parttimer", "test-qa"];
 export const CATEGORY_LABELS: Readonly<Record<Category, string>> = {
   employee: "従業員",
   freelancer: "フリーランサー",
   parttimer: "パートタイマー",
+  "test-qa": "テスト・QA",
 };
 
 export interface InputSchemaItem {

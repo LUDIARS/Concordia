@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  parseLocalPrDetail,
   createRevisorTestWorkflowClient,
   createRevisorTestWorkflowClientFromEnv,
   RevisorTestWorkflowClient,
@@ -164,5 +165,60 @@ describe("RevisorTestWorkflowClient", () => {
     expect(headersOf(0)).not.toHaveProperty("authorization");
     // trim も resolver 側で効く。
     expect(headersOf(1)).toMatchObject({ authorization: "Bearer set-later" });
+  });
+});
+
+describe("parseLocalPrDetail", () => {
+  it("extracts the decision summary from a Revisor local PR", () => {
+    const detail = parseLocalPrDetail({
+      author: "neco",
+      headRef: "feat/x",
+      baseRef: "main",
+      body: "説明",
+      decision: {
+        label: "人間の判断が必要",
+        blockers: ["動作確認が必要", 42, "リスク超過"],
+        riskScore: 57,
+        riskThreshold: 30,
+        riskBandLabel: "high",
+        runtimeVerificationRequired: true,
+      },
+      ci: [
+        { name: "unit", status: "passed" },
+        { name: "lint", status: "failed" },
+        { name: "e2e", status: "skipped" },
+      ],
+      security: { status: "passed" },
+      autoMerge: { merged: false, reason: "閾値超過" },
+    });
+    expect(detail).toEqual({
+      author: "neco",
+      headRef: "feat/x",
+      baseRef: "main",
+      body: "説明",
+      decisionLabel: "人間の判断が必要",
+      blockers: ["動作確認が必要", "リスク超過"],
+      riskScore: 57,
+      riskThreshold: 30,
+      riskBandLabel: "high",
+      runtimeVerificationRequired: true,
+      testsPassed: 1,
+      testsRan: 2,
+      securityStatus: "passed",
+      autoMerge: { merged: false, reason: "閾値超過" },
+    });
+  });
+
+  it("degrades missing fields to nulls but rejects a non-object payload", () => {
+    const detail = parseLocalPrDetail({ author: "neco" });
+    expect(detail).toMatchObject({
+      decisionLabel: null,
+      blockers: [],
+      riskScore: null,
+      testsRan: null,
+      autoMerge: null,
+    });
+    expect(parseLocalPrDetail(null)).toBeNull();
+    expect(parseLocalPrDetail("text")).toBeNull();
   });
 });

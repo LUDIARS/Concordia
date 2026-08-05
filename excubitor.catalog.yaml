@@ -1,8 +1,61 @@
-# Excubitor catalog fragment -- Concordia federation listener allocation.
+# Excubitor catalog fragment -- Concordia (サービス所有 catalog)。
 #
-# ServiceSchema has one primary port per service and cannot augment the existing
-# `concordia` service from a fragment (duplicate service codes are ignored).
-# Keep the listener allocation here, alongside the owning repository, while the
-# primary Concordia backend remains catalog/services.yaml:concordia (11111).
+# 中央 catalog/services.yaml は撤去された (サービス所有定義への移行 2026-08-04)。
+# ここが concordia 本体定義の正本。federation listener の割当メモも残す。
 # federation_listen_port: 11112
-services: []
+services:
+  - code: concordia
+    name: Concordia (AI 協調)
+    tier: personal
+    project_code: concordia
+    component: backend
+    port: 11111
+    repo: LUDIARS/Concordia
+    runtime: node
+    cwd: ${ARS_ROOT}/Concordia
+    command: node dist/server.js
+    autostart: false
+    restart_policy: "no"
+    health:
+      type: http
+      url: http://localhost:11111/health
+      interval_sec: 30
+      grace_period_sec: 10
+    log_path: ${ARS_ROOT}/logs/concordia
+    provides:
+      CONCORDIA_URL: http://${host}:${port}
+    env:
+      NODE_ENV: production
+      CONCORDIA_COST_MODE: worker
+      CONCORDIA_DISCORD_COST_REFRESH_MIN: "10"
+      CONCORDIA_LOG_FILE: "1"
+      CONCORDIA_LOG_FILE_PATH: ${ARS_ROOT}/logs/concordia/cc-live.jsonl
+      CONCORDIA_LOG_LEVEL: info
+      CONCORDIA_HTTP_CACHE_ENABLED: "1"
+      CONCORDIA_HTTP_CACHE_REDIS_READ: "0"
+      CONCORDIA_HTTP_LOG_ALL: "0"
+      CONCORDIA_QUEUE_VERBOSE: "0"
+      CONCORDIA_HTTP_LOG_QUERY: "1"
+      CONCORDIA_HTTP_PERF_LOG_MS: "20"
+      CONCORDIA_HTTP_SLOW_MS: "60"
+      CONCORDIA_HTTP_CACHE_STAT_TTL_MS: "3000"
+      CONCORDIA_HTTP_CACHE_COST_ONE_SHOTS_TTL_MS: "10000"
+      CONCORDIA_HTTP_CACHE_REPORTS_TTL_MS: "10000"
+      CONCORDIA_HTTP_CACHE_HARNESS_AUDIT_TTL_MS: "5000"
+      CONCORDIA_REDIS_URL: redis://127.0.0.1:6379
+      CONCORDIA_REDIS_TIMEOUT_MS: "8"
+      CONCORDIA_REDIS_READ_TIMEOUT_MS: "8"
+      CONCORDIA_REDIS_WRITE_TIMEOUT_MS: "500"
+      CONCORDIA_DISCORD_BOOT_SYNC_DELAY_MS: "60000"
+      CONCORDIA_POST_LISTEN_STARTUP_DELAY_MS: "1000"
+      CONCORDIA_METRICS_START_DELAY_MS: "30000"
+      CONCORDIA_REPO_SCAN_CONCURRENCY: "4"
+      CONCORDIA_REPO_SCAN_GIT_TIMEOUT_MS: "1500"
+      CONCORDIA_WORK_REPOS_CACHE_REDIS_READ: "0"
+      CONCORDIA_WORK_REPOS_CACHE_INITIAL_WAIT_MS: "0"
+      CONCORDIA_WORK_REPOS_CACHE_REFRESH_DELAY_MS: "1000"
+      CONCORDIA_WORK_CONVERSATIONS_DEFAULT_LIMIT_PER_SESSION: "40"
+      CONCORDIA_WORK_CONVERSATIONS_DEFAULT_MAX_SESSIONS: "20"
+      CONCORDIA_SLACK_ENABLED: "0"
+      CONCORDIA_PR_RECONCILE_ENABLED: "0"
+      CONCORDIA_PR_FULL_SYNC_ENABLED: "0"

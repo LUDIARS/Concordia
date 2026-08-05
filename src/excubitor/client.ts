@@ -30,7 +30,7 @@ export interface ExcubitorService {
    * サービスが動いていても null のことがあるため、 ポート解決は
    * `resolveServicePort` (excubitor/service-port.ts) を使って両方を見る。
    */
-  catalog_snapshot?: { cwd?: string | null; port?: number | null } | null;
+  catalog_snapshot?: { cwd?: string | null; port?: number | null; provides?: Record<string, string | null> } | null;
 }
 
 export interface ControlResult {

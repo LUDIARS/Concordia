@@ -59,6 +59,12 @@ export interface ConcordiaConfig {
   stallNudgeCooldownSec: number;
   /** Seconds after final_answer/summary before notifying requesters. <=0 disables. */
   idleNudgeSec: number;
+  /** Genius 判断カードを採用する最低 score。 */
+  inquiryScoreMin: number;
+  /** 同一 session/category の inquiry 再送を抑える秒数。 */
+  inquiryCacheSec: number;
+  /** `discord:<uid>` 等の既定上長。空なら上長メンションしない。 */
+  defaultSupervisor: string;
   /** Seconds after final_answer/summary before goal-and-go resumes an opted-in session. */
   goalAndGoIdleSec: number;
   /** Maximum autonomous continuations before a human turn resets the budget. */
@@ -221,6 +227,11 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
       env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
     ),
     idleNudgeSec: readIntegerEnv(env.CONCORDIA_IDLE_NUDGE_SEC, 120),
+    // NaN を通すと card.score >= NaN が常に false になり、 気付かないまま
+    // 全お伺いが self_judge に倒れる。 不正値は既定に戻す。
+    inquiryScoreMin: readScoreEnv(env.CONCORDIA_INQUIRY_SCORE_MIN, 0.6),
+    inquiryCacheSec: readIntegerEnv(env.CONCORDIA_INQUIRY_CACHE_SEC, 60),
+    defaultSupervisor: env.CONCORDIA_DEFAULT_SUPERVISOR ?? "",
     goalAndGoIdleSec: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_IDLE_SEC, 300),
     goalAndGoMaxContinuations: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_MAX_CONTINUATIONS, 6),
     goalAndGoMaxRuntimeSec: readIntegerEnv(env.CONCORDIA_GOAL_AND_GO_MAX_RUNTIME_SEC, 7200),
@@ -248,4 +259,11 @@ function readIntegerEnv(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+/** 0..1 のスコア閾値。 範囲外・非数は既定に戻す。 */
+function readScoreEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }

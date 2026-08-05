@@ -35,6 +35,7 @@ export interface SessionRow {
    * 個別プロジェクト単位で衝突判定する。 null なら repo_path に委ねる (conflict-scope.ts)。
    */
   target_project: string | null;
+  active_repos?: string;
 }
 
 export interface SessionEventRow {

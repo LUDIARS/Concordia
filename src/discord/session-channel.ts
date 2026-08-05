@@ -72,6 +72,7 @@ export async function onSessionRegistered(
     fastMode?: boolean | null;
     currentTask?: string | null;
     projectCode?: string | null;
+    projectCodes?: string[];
     surfaceLabel?: "Session" | "TaskWorkflow";
     delegationRunId?: string | null;
     webhookName?: string | null;
@@ -109,7 +110,7 @@ export async function onSessionRegistered(
         model: input.model ?? null,
         effortLevel: input.effortLevel ?? null,
         fastMode: input.fastMode ?? null,
-        projectCode: input.projectCode?.trim() || "Session",
+        projectCode: formatProjectCodes(input.projectCodes, input.projectCode),
         summary: input.currentTask ?? null,
         fallbackLabel: input.roleLabel ?? input.agentType ?? "session",
         delegationEmoji: input.delegationEmoji,
@@ -619,7 +620,7 @@ async function exportChannelLog(ch: TextChannel, baseDir: string, lastTs: number
  */
 export async function onSessionTitleChanged(
   deps: SessionChannelDeps,
-  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean; projectCode?: string | null },
+  input: { sessionId: string; title: string; agentType: string | null; forceRename?: boolean; projectCode?: string | null; projectCodes?: string[] },
 ): Promise<void> {
   const row = deps.repo.findBySessionId(input.sessionId);
   if (!row) return;
@@ -631,7 +632,7 @@ export async function onSessionTitleChanged(
       const newBody = titleToChannelBase(input.title);
       const nextName = await updateForumSessionTitle(
         thread,
-        input.projectCode?.trim() || "Session",
+        formatProjectCodes(input.projectCodes, input.projectCode),
         input.title,
         row.delegation_emoji,
       );
@@ -821,4 +822,11 @@ function titleToChannelBase(title: string): string {
     .replace(/^-|-$/g, "")
     .slice(0, 88);
   return s || "session";
+}
+
+function formatProjectCodes(codes: readonly string[] | undefined, fallback: string | null | undefined): string {
+  const distinct = [...new Set((codes ?? []).map((code) => code.trim()).filter(Boolean))];
+  if (distinct.length === 0) return fallback?.trim() || "Session";
+  if (distinct.length <= 4) return distinct.join("+");
+  return `${distinct.slice(0, 4).join("+")}+${distinct.length - 4}`;
 }

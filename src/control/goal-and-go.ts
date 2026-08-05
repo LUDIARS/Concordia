@@ -1,6 +1,6 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
-import { createIdleNudge, shouldArmIdleNudgeFromFrame, shouldClearIdleNudgeFromFrame } from "./idle-nudge.js";
+import { shouldClearIdleNudgeFromFrame } from "./idle-nudge.js";
 import { describeGoal, readGoalFromMetadata, type Goal } from "./goal.js";
 import { parseRequesterSource } from "./requester.js";
 
@@ -118,20 +118,6 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000));
   const globallyEnabled = seconds > 0;
 
-  const isEligible = (sessionId: string): boolean => {
-    const session = opts.repo.findSession(sessionId);
-    if (!session || session.status !== "active") return false;
-    const status = readGoalAndGoStatus(session.metadata);
-    return status.enabled && status.stopped_reason === null;
-  };
-
-  const idle = createIdleNudge({
-    seconds,
-    keepTimersRefed: opts.keepTimersRefed,
-    log: opts.log,
-    notify: (sessionId) => continueSession(sessionId),
-  });
-
   const saveStatus = (sessionId: string, status: GoalAndGoStatus): void => {
     const session = opts.repo.findSession(sessionId);
     if (!session) return;
@@ -219,12 +205,10 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
       continueSession(event.target_session_id);
       return;
     }
+    // arm 相当 (idle 経過での自走継続) は お伺い側へ移譲済み (feature/inquiry.md §8)。
+    // ここに残るのは「人間の入力で進捗をリセットする」clear 側だけ。
     handleGoalAndGoEvent(event, {
-      arm: (sessionId) => {
-        if (isEligible(sessionId)) idle.arm(sessionId);
-      },
       clear: (sessionId, reset) => {
-        idle.clear(sessionId);
         if (reset) resetProgress(sessionId);
       },
     });
@@ -236,21 +220,19 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
   return {
     stop() {
       unsubscribe();
-      idle.dispose();
     },
   };
 }
 
 function handleGoalAndGoEvent(
   event: ConcordiaEvent,
-  actions: { arm: (sessionId: string) => void; clear: (sessionId: string, reset: boolean) => void },
+  actions: { clear: (sessionId: string, reset: boolean) => void },
 ): void {
   if (event.type === "transcript.frame") {
     if (shouldClearIdleNudgeFromFrame(event)) {
       actions.clear(event.target_session_id, true);
       return;
     }
-    if (shouldArmIdleNudgeFromFrame(event)) actions.arm(event.target_session_id);
     return;
   }
   if (event.type === "session.inject" && parseRequesterSource(event.source)) {

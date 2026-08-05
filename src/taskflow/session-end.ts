@@ -2,18 +2,22 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { GoalMachineOutcome } from "./goal-machine.js";
 import type { ResidualOutcome } from "./residual-blackbox.js";
 import { readGoalAndGoStatus } from "../control/goal-and-go.js";
-import {
-  AUTO_SESSION_END_INJECT_SOURCE,
-  emitAutoSessionEndInject,
-  pickSessionEndInjectText,
-} from "../control/auto-session-end-inject.js";
+import { eventBus } from "../events.js";
 
-function hasRecordedSessionEnd(sessions: SessionsRepo, sessionId: string): boolean {
+const INQUIRY_INJECT_SOURCE = "auto:inquiry";
+const PART_TIMER_CATEGORY = "パートタイマー";
+
+/**
+ * 二重送信の抑止。 category まで見るのは、 作業完了時の自動お伺い (category=タスク,
+ * src/api/inquiry.ts) が同じ source で inject を積むため。 source だけで判定すると
+ * タスク お伺いが 1 回でも走ったセッションで完了報告が永久に出なくなる。
+ */
+function hasRecordedInquiry(sessions: SessionsRepo, sessionId: string): boolean {
   return sessions.recentEvents(sessionId, 200).some((event) => {
     if (event.kind !== "inject") return false;
     try {
-      const payload = JSON.parse(event.payload) as { source?: unknown };
-      return payload.source === AUTO_SESSION_END_INJECT_SOURCE;
+      const payload = JSON.parse(event.payload) as { source?: unknown; category?: unknown };
+      return payload.source === INQUIRY_INJECT_SOURCE && payload.category === PART_TIMER_CATEGORY;
     } catch {
       return false;
     }
@@ -43,14 +47,23 @@ export function finishAutonomousTaskflow(input: {
     residualOutcome: input.residualOutcome,
     goalAndGoEnabled: readGoalAndGoStatus(session.metadata).enabled,
   })) return false;
-  if (hasRecordedSessionEnd(input.sessions, input.sessionId)) return false;
+  if (hasRecordedInquiry(input.sessions, input.sessionId)) return false;
 
-  const text = pickSessionEndInjectText(session.provider);
+  const text = "作業完了のお伺いです。残タスクを確認し、残タスクが無ければ session-end を実行してください。終了は自分で判断してください。";
+  // 記録と emit で ts がずれないよう 1 回だけ読む。
+  const ts = (input.nowSec ?? (() => Math.floor(Date.now() / 1000)))();
   input.sessions.appendEvent({
     session_id: input.sessionId,
-    ts: (input.nowSec ?? (() => Math.floor(Date.now() / 1000)))(),
+    ts,
     kind: "inject",
-    payload: { text, source: AUTO_SESSION_END_INJECT_SOURCE },
+    payload: { text, source: INQUIRY_INJECT_SOURCE, category: PART_TIMER_CATEGORY },
   });
-  return emitAutoSessionEndInject(session);
+  eventBus.emit({
+    type: "session.inject",
+    target_session_id: input.sessionId,
+    text,
+    source: INQUIRY_INJECT_SOURCE,
+    ts,
+  });
+  return true;
 }

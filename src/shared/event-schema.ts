@@ -32,6 +32,7 @@ export const CONCORDIA_EVENT_TYPES = [
   "question.posted",
   "question.answered",
   "question.resolved",
+  "inquiry.resolved",
   "federation.site.connected",
   "federation.site.disconnected",
   "ping",
@@ -234,6 +235,14 @@ const eventSchemas = {
     type: z.literal("question.resolved"),
     target_session_id: z.string(),
     question_id: z.number(),
+    ts: z.number(),
+  }).passthrough(),
+  "inquiry.resolved": z.object({
+    type: z.literal("inquiry.resolved"),
+    target_session_id: z.string(),
+    category: z.string(),
+    decision: z.enum(["proceed", "ask_human", "self_judge"]),
+    supervisor_user_id: z.string().nullable(),
     ts: z.number(),
   }).passthrough(),
   "federation.site.connected": z.object({

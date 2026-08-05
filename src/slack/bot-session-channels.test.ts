@@ -68,6 +68,7 @@ function makeReadModel(): ChatReadModel {
       sessionId,
       provider: "codex-cli",
       repoPath: "E:/repo",
+      activeRepos: [],
       branch: "feat/test",
       status: "active",
       currentTask: "Slack channel routing",

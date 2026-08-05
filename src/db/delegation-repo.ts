@@ -56,6 +56,8 @@ export interface DelegationTemplateRow {
   forum_tag: number;
   /** 雇用形態カテゴリ (employee | freelancer | parttimer)。 既定 employee */
   category: DelegationCategory;
+  supervisor_platform?: string | null;
+  supervisor_user_id?: string | null;
   sort_order: number;
   created_at: number;
   updated_at: number;
@@ -96,6 +98,8 @@ export interface DelegationRunRow {
   spawn_worktree_created?: number;
   effort_decision_id?: number | null;
   finished_at?: number | null;
+  supervisor_platform?: string | null;
+  supervisor_user_id?: string | null;
   created_at: number;
 }
 

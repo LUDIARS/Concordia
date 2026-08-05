@@ -47,6 +47,7 @@ type ConcordiaEventPayload =
   | { type: "taskflow.completion_detected"; session_id: string; pr_number: number | null; outcome: string; decision_id?: number; ts: number }
   | { type: "taskflow.residual_checked"; session_id: string; outcome: "next-task" | "decompose" | "none"; pending_count: number; ts: number }
   | { type: "taskflow.continue_requested"; target_session_id: string; text: string; ts: number }
+  | { type: "inquiry.resolved"; target_session_id: string; category: string; decision: "proceed" | "ask_human" | "self_judge"; supervisor_user_id: string | null; ts: number }
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }
   | { type: "process.log";      process_name: string; stream: "stdout" | "stderr" | "event"; line: string; level?: "error" | "warn" | "info"; ts: number }
   | { type: "process.exited";   process_name: string; exit_code: number | null; signal: string | null; ts: number }

@@ -248,6 +248,7 @@ function readSessionRelay(
     sessionId,
     provider: session.provider,
     repoPath: session.repo_path,
+    activeRepos: readActiveRepos(session.active_repos, session.repo_path),
     branch: session.branch ?? delegationRun?.spawn_branch ?? null,
     status: session.status,
     currentTask: session.current_task,
@@ -314,6 +315,16 @@ function readObject(raw: string | null | undefined): Record<string, unknown> {
 
 function stringOrNull(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function readActiveRepos(raw: string | undefined, fallback: string): string[] {
+  try {
+    const parsed = JSON.parse(raw ?? "[]") as unknown;
+    const repos = Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string" && value.trim() !== "") : [];
+    return repos.length > 0 ? repos : [fallback];
+  } catch {
+    return [fallback];
+  }
 }
 
 function booleanOrNull(value: unknown): boolean | null {

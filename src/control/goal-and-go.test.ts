@@ -20,6 +20,9 @@ function fakeRepo(metadata: string | null) {
   const repo = {
     findSession: (id: string) => id === session.id ? session : null,
     setMetadata: (_id: string, next: string | null) => { session.metadata = next; },
+    patchSession: (_id: string, patch: { current_task?: string }) => {
+      if (patch.current_task !== undefined) session.current_task = patch.current_task;
+    },
     appendEvent: (event: { kind: string; payload: unknown }) => { events.push(event); },
   } as unknown as SessionsRepo;
   return { repo, session, events };
@@ -81,7 +84,9 @@ describe("buildGoalAndGoPrompt", () => {
 });
 
 describe("startGoalAndGo", () => {
-  it("injects one continuation after the idle threshold when enabled", async () => {
+  it("no longer injects on idle — continuation moved to the inquiry protocol", async () => {
+    // spec/feature/inquiry.md §8: 「idle 経過で自走継続を促す」タイマは撤去した。
+    // 継続はお伺い (タスク カテゴリ) の応答と taskflow.continue_requested だけが起こす。
     vi.useFakeTimers();
     const env = fakeRepo(setGoalAndGoEnabled(null, true));
     const injected: ConcordiaEvent[] = [];
@@ -97,11 +102,32 @@ describe("startGoalAndGo", () => {
     });
 
     eventBus.emit(finalFrame());
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(injected).toHaveLength(0);
+    expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("continues via taskflow.continue_requested as before", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+      now: () => 100,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次のタスク", ts: 1 });
 
     expect(injected).toHaveLength(1);
     expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(1);
-    expect(env.events.some((event) => event.kind === "inject")).toBe(true);
     handle.stop();
     unsubscribe();
   });
@@ -150,7 +176,8 @@ describe("startGoalAndGo", () => {
   });
 
   it("stops instead of injecting beyond the continuation limit", async () => {
-    vi.useFakeTimers();
+    // 上限 (maxContinuations) は暴走の最終防波堤として残る (spec §8)。
+    // idle タイマは無いので taskflow.continue_requested で上限超過を起こす。
     const env = fakeRepo(JSON.stringify({
       goal_and_go: {
         enabled: true,
@@ -168,8 +195,7 @@ describe("startGoalAndGo", () => {
       now: () => 100,
     });
 
-    eventBus.emit(finalFrame());
-    await vi.advanceTimersByTimeAsync(1_000);
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "続き", ts: 1 });
 
     expect(readGoalAndGoStatus(env.session.metadata).stopped_reason).toBe("continuation_limit");
     expect(env.events.some((event) => event.kind === "goal_and_go_stopped")).toBe(true);

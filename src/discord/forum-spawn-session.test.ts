@@ -89,6 +89,7 @@ describe("bindForumSpawnSession", () => {
         sessionId: "session-1",
         provider: "claude",
         repoPath: "E:/Document/Ars/Concordia",
+        activeRepos: [],
         branch: "fix/forum-surface",
         status: "active",
         currentTask: "Fix the forum surface",

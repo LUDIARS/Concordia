@@ -221,7 +221,7 @@ describe("seedDelegationTemplates", () => {
 
       const prompt = tpl?.prompt_template ?? "";
       // 完了条件は completed と completed-with-errors の両方 (後者は失敗扱いにしない)。
-      expect(prompt).toContain("`GET http://127.0.0.1:4230/api/clone/ingest/runs/<run id>`");
+      expect(prompt).toContain("provides.GENIUS_URL 配下の `/api/clone/ingest/runs/<run id>`");
       expect(prompt).toContain("`completed-with-errors`");
       expect(prompt).toContain("失敗扱いにしない");
       // 自動リトライ禁止 (retry-failed は 1 回だけ / それ以外は人間へ)。

@@ -51,6 +51,7 @@ export const StartSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   /** 作業衝突監視で使う「実際に扱う個別プロジェクト」の宣言 (conflict-scope.ts)。 */
   target_project: z.string().nullable().optional(),
+  active_repos: z.array(z.string().min(1)).optional(),
 });
 
 export const PatchSchema = z.object({
@@ -64,6 +65,7 @@ export const PatchSchema = z.object({
    * null で宣言解除 (repo_path 判定に戻す)。 (conflict-scope.ts)
    */
   target_project: z.string().nullable().optional(),
+  active_repos: z.array(z.string().min(1)).optional(),
   /**
    * Shallow merge into session.metadata. Use `null` value to delete a key.
    * Lictor uses this post-spawn to publish `lictor_port` once the sidecar

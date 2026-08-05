@@ -2,7 +2,6 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ChatPlatformPost } from "../platform/chat-platform.js";
 import type { SessionEventRow } from "../shared/types.js";
-import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { parseRequesterSource, type Requester } from "./requester.js";
 
 export interface IdleNudgeTimerHandle {
@@ -110,11 +109,20 @@ export interface IdleNudgeNotifyDeps {
   isActiveSession(sessionId: string): boolean;
   postToSession(input: ChatPlatformPost): Promise<void>;
   seconds: number;
+  /**
+   * お伺いが ask_human に着地したときの上長 (feature/inquiry.md §4)。
+   * 指示を出した人と重複しうるので、 宛先集合に混ぜてから重複を落とす。
+   */
+  supervisor?: Requester | null;
 }
 
 export async function notifyIdleNudge(deps: IdleNudgeNotifyDeps, sessionId: string): Promise<void> {
   if (!deps.isActiveSession(sessionId)) return;
   const requesters = collectIdleNudgeRequesters(deps.listEvents(sessionId));
+  const supervisor = deps.supervisor;
+  if (supervisor && !requesters.some((r) => r.platform === supervisor.platform && r.userId === supervisor.userId)) {
+    requesters.push(supervisor);
+  }
   if (requesters.length === 0) return;
   await deps.postToSession({
     sessionId,
@@ -139,6 +147,7 @@ export function startIdleNudge(opts: StartIdleNudgeOptions): StartIdleNudgeHandl
   const enabled = Math.floor(opts.seconds) > 0;
   const isActiveSession = (sessionId: string): boolean =>
     opts.repo.findSession(sessionId)?.status === "active";
+  const supervisors = new Map<string, Requester>();
   const idle = createIdleNudge({
     seconds: opts.seconds,
     keepTimersRefed: opts.keepTimersRefed,
@@ -149,12 +158,13 @@ export function startIdleNudge(opts: StartIdleNudgeOptions): StartIdleNudgeHandl
         isActiveSession,
         postToSession: opts.postToSession,
         seconds: opts.seconds,
+        supervisor: supervisors.get(sessionId) ?? null,
       }, sessionId),
   });
 
   const unsubscribe = eventBus.subscribe((ev) => {
     if (!enabled) return;
-    handleIdleNudgeEvent(idle, isActiveSession, ev);
+    handleIdleNudgeEvent(idle, isActiveSession, supervisors, ev);
   });
   opts.log?.info(enabled
     ? `idle nudge started (${Math.floor(opts.seconds)}s)`
@@ -168,10 +178,6 @@ export function startIdleNudge(opts: StartIdleNudgeOptions): StartIdleNudgeHandl
   };
 }
 
-export function shouldArmIdleNudgeFromFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): boolean {
-  return isTranscriptCompletion(ev.kind, ev.payload);
-}
-
 export function shouldClearIdleNudgeFromFrame(ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): boolean {
   if (ev.kind !== "text") return false;
   const payload = ev.payload as { role?: unknown } | null | undefined;
@@ -181,6 +187,7 @@ export function shouldClearIdleNudgeFromFrame(ev: Extract<ConcordiaEvent, { type
 function handleIdleNudgeEvent(
   idle: IdleNudgeHandle,
   isActiveSession: (sessionId: string) => boolean,
+  supervisors: Map<string, Requester>,
   ev: ConcordiaEvent,
 ): void {
   if (ev.type === "transcript.frame") {
@@ -188,8 +195,15 @@ function handleIdleNudgeEvent(
       idle.clear(ev.target_session_id);
       return;
     }
-    if (shouldArmIdleNudgeFromFrame(ev) && isActiveSession(ev.target_session_id)) {
+    return;
+  }
+  if (ev.type === "inquiry.resolved") {
+    if (ev.decision === "ask_human" && isActiveSession(ev.target_session_id)) {
+      if (ev.supervisor_user_id) supervisors.set(ev.target_session_id, { platform: "discord", userId: ev.supervisor_user_id });
       idle.arm(ev.target_session_id);
+    } else {
+      supervisors.delete(ev.target_session_id);
+      idle.clear(ev.target_session_id);
     }
     return;
   }
@@ -202,6 +216,7 @@ function handleIdleNudgeEvent(
     return;
   }
   if (ev.type === "session.ended" || ev.type === "session.lost") {
+    supervisors.delete(ev.session_id);
     idle.clear(ev.session_id);
   }
 }

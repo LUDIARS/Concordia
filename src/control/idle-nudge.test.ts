@@ -6,7 +6,6 @@ import {
   buildIdleNudgeText,
   collectIdleNudgeRequesters,
   createIdleNudge,
-  shouldArmIdleNudgeFromFrame,
   shouldClearIdleNudgeFromFrame,
   startIdleNudge,
   type IdleNudgeTimerApi,
@@ -161,33 +160,6 @@ describe("idle nudge requester text", () => {
 });
 
 describe("idle nudge event predicates", () => {
-  it("arms on summary and final assistant frames", () => {
-    expect(shouldArmIdleNudgeFromFrame({
-      type: "transcript.frame",
-      target_session_id: "s",
-      seq: 1,
-      kind: "summary",
-      payload: {},
-      ts: 1,
-    })).toBe(true);
-    expect(shouldArmIdleNudgeFromFrame({
-      type: "transcript.frame",
-      target_session_id: "s",
-      seq: 2,
-      kind: "text",
-      payload: { role: "assistant", phase: "final_answer" },
-      ts: 1,
-    })).toBe(true);
-    expect(shouldArmIdleNudgeFromFrame({
-      type: "transcript.frame",
-      target_session_id: "s",
-      seq: 3,
-      kind: "text",
-      payload: { role: "assistant", phase: "commentary" },
-      ts: 1,
-    })).toBe(false);
-  });
-
   it("clears on user transcript frames", () => {
     expect(shouldClearIdleNudgeFromFrame({
       type: "transcript.frame",
@@ -201,7 +173,7 @@ describe("idle nudge event predicates", () => {
 });
 
 describe("startIdleNudge", () => {
-  it("notifies requesters after a final answer event", async () => {
+  it("notifies requesters after an ask_human inquiry", async () => {
     vi.useFakeTimers();
     const posts: Array<{ sessionId: string; text: string }> = [];
     const handle = startIdleNudge({
@@ -213,11 +185,11 @@ describe("startIdleNudge", () => {
     });
 
     eventBus.emit({
-      type: "transcript.frame",
+      type: "inquiry.resolved",
       target_session_id: "s",
-      seq: 1,
-      kind: "text",
-      payload: { role: "assistant", phase: "final_answer" },
+      category: "タスク",
+      decision: "ask_human",
+      supervisor_user_id: null,
       ts: 1,
     });
     await vi.advanceTimersByTimeAsync(1_000);

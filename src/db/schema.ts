@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 51;
+export const SCHEMA_VERSION = 52;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1299,6 +1299,28 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
     // 掲載を Test OK 限定から open 全件へ広げたので、 審査の決着遷移 (通過/失敗/
     // 判断待ち) を検知してスレッドへ知らせるために前回の checkStatus を持つ。
     db.exec("ALTER TABLE discord_test_surfaces ADD COLUMN check_status TEXT");
+  },
+}, {
+  version: 52,
+  name: "inquiry-protocol",
+  source: "sessions.active_repos + delegation supervisor columns",
+  up(db) {
+    // お伺いプロトコル (spec/feature/inquiry.md §4) の上長解決と、 投稿タイトルの
+    // 全プロジェクトコード (session-surface-project-codes.md) の保存先。
+    // baseline (STATEMENTS / COLUMN_ADDITIONS) は適用済み DB の checksum 台帳に
+    // 含まれるため事後編集できない — 新しい列は必ず番号付き migration で足す。
+    for (const [table, column, ddl] of [
+      ["sessions", "active_repos", "ALTER TABLE sessions ADD COLUMN active_repos TEXT NOT NULL DEFAULT '[]'"],
+      ["delegation_runs", "supervisor_platform", "ALTER TABLE delegation_runs ADD COLUMN supervisor_platform TEXT"],
+      ["delegation_runs", "supervisor_user_id", "ALTER TABLE delegation_runs ADD COLUMN supervisor_user_id TEXT"],
+      ["delegation_templates", "supervisor_platform", "ALTER TABLE delegation_templates ADD COLUMN supervisor_platform TEXT"],
+      ["delegation_templates", "supervisor_user_id", "ALTER TABLE delegation_templates ADD COLUMN supervisor_user_id TEXT"],
+    ] as const) {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some((c) => c.name === column)) {
+        db.exec(ddl);
+      }
+    }
   },
 }];
 

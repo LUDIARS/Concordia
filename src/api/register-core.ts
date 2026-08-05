@@ -102,6 +102,7 @@ import { taskflowRouter } from "./taskflow.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
+import { inquiryRouter } from "./inquiry.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -258,6 +259,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     syncForumTags: deps.syncDiscordForumTags,
   }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
+  app.route("/v1/inquiry", inquiryRouter({ sessions: deps.repo, config: deps.config, delegation: deps.delegation }));
   if (deps.testingClaims) {
     app.route("/v1/testing", testingRouter({ claims: deps.testingClaims, sessions: deps.repo }));
   }

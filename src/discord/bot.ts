@@ -34,6 +34,7 @@ import {
   archiveStaleChannels,
 } from "./session-channel.js";
 import { ChannelWorkState } from "./channel-work-state.js";
+import type { SessionRelayState } from "../platform/chat-read-model.js";
 import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
 import { takeInjectAck } from "./inject-ack.js";
@@ -88,6 +89,15 @@ import { callConcordia } from "./commands/_util.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
+
+/**
+ * スレッドタイトルに載せる作業リポ群。 Lictor が active repo を 1 本も報告して
+ * いない間は repo_path (登録時の cwd) にフォールバックする。
+ */
+function readActiveRepos(state: SessionRelayState | null | undefined): string[] {
+  if (!state) return [];
+  return state.activeRepos.length > 0 ? state.activeRepos : [state.repoPath];
+}
 
 const discordLog = createChildLogger("discord");
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
@@ -688,7 +698,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               effortLevel: state.effortLevel,
               fastMode: state.fastMode,
               currentTask: state.currentTask,
-              projectCode: projectResolver.codeForRepo(state.repoPath),
+              projectCodes: projectResolver.codesForRepos(readActiveRepos(state)),
               surfaceLabel: state.delegationRunId ? "TaskWorkflow" : "Session",
               delegationRunId: state.delegationRunId,
               webhookName: state.webhookName,
@@ -1166,7 +1176,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 effortLevel: state?.effortLevel ?? null,
                 fastMode: state?.fastMode ?? null,
                 currentTask: state?.currentTask ?? delegationRun?.call_name ?? null,
-                projectCode: projectResolver.codeForRepo(repoPath),
+                projectCodes: projectResolver.codesForRepos(readActiveRepos(state)),
                 surfaceLabel: surface.label,
                 delegationRunId: surface.delegationRunId,
                 webhookName: state?.webhookName ?? null,
@@ -1396,7 +1406,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             title: titleEvent.title,
             agentType: titleEvent.provider,
             forceRename,
-            projectCode: projectResolver.codeForRepo(deps.readModel.getSessionRelayState(ev.session_id)?.repoPath ?? ""),
+            projectCodes: projectResolver.codesForRepos(readActiveRepos(deps.readModel.getSessionRelayState(ev.session_id))),
           },
         );
       }
@@ -1420,6 +1430,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           delegationRunId: delegationRun?.id ?? null,
         },
       ).catch((e) => log.warn(`session-forum: branch update failed ${ev.session_id}: ${(e as Error).message}`));
+      return;
+    }
+    if (ev.type === "session.event" && ev.kind === "lictor.active_repo.changed") {
+      const state = deps.readModel.getSessionRelayState(ev.session_id);
+      if (!state || !isActiveDiscordSession(ev.session_id)) return;
+      void onSessionTitleChanged(
+        { guild, layout, repo: sessionChannelsRepo, log },
+        {
+          sessionId: ev.session_id,
+          title: state.currentTask ?? "session",
+          agentType: state.provider,
+          projectCodes: projectResolver.codesForRepos(readActiveRepos(state)),
+        },
+      );
       return;
     }
     // task_update での状態カード即時更新は撤去 (更新は 10 分毎の定期 tick のみ)。
@@ -1487,7 +1511,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           effortLevel: state?.effortLevel ?? null,
           fastMode: state?.fastMode ?? null,
           currentTask: state?.currentTask ?? null,
-          projectCode: state?.repoPath ? projectResolver.codeForRepo(state.repoPath) : null,
+          projectCodes: projectResolver.codesForRepos(readActiveRepos(state)),
         },
       );
       await upsertSessionStatusCard({

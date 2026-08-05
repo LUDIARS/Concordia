@@ -102,7 +102,8 @@ Lictor は wrapped セッションの pty に**実ユーザのローカル stdin
 
 ## 受け入れ基準
 
-- [ ] final_answer/summary 送信後 N 秒無入力 → 送信者全員にメンション通知が 1 回届く。
+- 発火条件は `feature/inquiry.md` §5 へ移譲する。`ask_human` のお伺い着地時だけ arm し、
+  transcript の final_answer/summary は arm の根拠にしない。
 - [ ] N 秒以内に user_activity (生キー) / ユーザ発話 / 新規 human inject → 通知されない。
 - [ ] 連続フレームで最後の送信から N 秒に正しくリセットされる。
 - [ ] `CONCORDIA_IDLE_NUDGE_SEC=0` で機能無効。

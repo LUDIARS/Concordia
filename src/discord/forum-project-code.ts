@@ -10,6 +10,7 @@ export interface ForumProjectTarget {
 
 export interface ForumProjectResolver {
   codeForRepo: (repoPath: string) => string;
+  codesForRepos: (repoPaths: string[]) => string[];
   targetFromPost: (title: string, body: string) => ForumProjectTarget | null;
 }
 
@@ -72,7 +73,16 @@ export function createForumProjectResolver(
     return projectMatch ?? null;
   };
 
-  return { codeForRepo, targetFromPost };
+  const codesForRepos = (repoPaths: string[]): string[] => {
+    const codes: string[] = [];
+    for (const repoPath of repoPaths) {
+      const code = codeForRepo(repoPath);
+      if (!byCode.has(code.toLowerCase()) || codes.includes(code)) continue;
+      codes.push(code);
+    }
+    return codes.length > 1 ? codes.filter((code) => code !== "Ar") : codes;
+  };
+  return { codeForRepo, codesForRepos, targetFromPost };
 }
 
 function escapeRegExp(value: string): string {

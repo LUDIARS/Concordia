@@ -29,6 +29,7 @@ export interface SessionRelayState {
   sessionId: string;
   provider: string;
   repoPath: string;
+  activeRepos: string[];
   branch: string | null;
   status: string;
   currentTask: string | null;

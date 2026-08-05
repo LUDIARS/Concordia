@@ -25,9 +25,9 @@ function session(provider: SessionRow["provider"]): SessionRow {
 
 describe("finishAutonomousTaskflow", () => {
   it.each([
-    ["claude-code", "/session-end"],
-    ["codex-cli", "$session-end"],
-  ] as const)("injects the provider-aware command exactly once for %s", (provider, expected) => {
+    ["claude-code"],
+    ["codex-cli"],
+  ] as const)("sends an inquiry instruction exactly once for %s", (provider) => {
     const row = session(provider);
     const events: Array<{ kind: string; payload: string }> = [];
     const sessions = {
@@ -53,7 +53,8 @@ describe("finishAutonomousTaskflow", () => {
       residualOutcome: "none",
     })).toBe(false);
 
-    expect(emitted).toEqual([expected]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0]).toContain("お伺い");
     expect(sessions.appendEvent).toHaveBeenCalledOnce();
     unsubscribe();
   });

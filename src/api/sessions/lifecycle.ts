@@ -50,6 +50,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         repo_origin: input.repo_origin ?? null,
         branch: input.branch ?? undefined,
         target_project: input.target_project ?? undefined,
+        active_repos: input.active_repos ?? undefined,
       });
       if (branchChanged) {
         eventBus.emit({ type: "session.event", session_id: input.id, kind: "branch_changed", ts: now });
@@ -142,6 +143,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         transcript_path: input.transcript_path ?? null,
         metadata: Object.keys(meta).length ? JSON.stringify(meta) : null,
         target_project: input.target_project ?? null,
+        active_repos: input.active_repos ?? [],
       });
       deps.repo.appendEvent({
         session_id: input.id,

@@ -28,14 +28,15 @@ export class SessionsRepo {
     transcript_path: string | null;
     metadata: string | null;
     target_project?: string | null;
+    active_repos?: string[];
   }): void {
     this.db
       .prepare(
         `INSERT INTO sessions(
           id, provider, repo_path, repo_origin, branch, host,
           started_at, ended_at, status, last_seen_at, current_task,
-          transcript_path, metadata, target_project
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, NULL, ?, ?, ?)`,
+          transcript_path, metadata, target_project, active_repos
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'active', ?, NULL, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
@@ -49,6 +50,7 @@ export class SessionsRepo {
         input.transcript_path,
         input.metadata,
         input.target_project ?? null,
+        JSON.stringify(input.active_repos ?? []),
       );
   }
 
@@ -130,6 +132,7 @@ export class SessionsRepo {
       repo_path?: string;
       repo_origin?: string | null;
       target_project?: string | null;
+      active_repos?: string[];
     },
   ): void {
     const sets: string[] = [];
@@ -139,6 +142,7 @@ export class SessionsRepo {
     if (patch.repo_path !== undefined)    { sets.push("repo_path = ?");    args.push(patch.repo_path); }
     if (patch.repo_origin !== undefined)  { sets.push("repo_origin = ?");  args.push(patch.repo_origin); }
     if (patch.target_project !== undefined) { sets.push("target_project = ?"); args.push(patch.target_project); }
+    if (patch.active_repos !== undefined) { sets.push("active_repos = ?"); args.push(JSON.stringify(patch.active_repos)); }
     if (sets.length === 0) return;
     args.push(id);
     this.db.prepare(`UPDATE sessions SET ${sets.join(", ")} WHERE id = ?`).run(...args);

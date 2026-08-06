@@ -146,6 +146,17 @@ describe("handleTestForumMessage", () => {
     expect(react).toHaveBeenCalledWith("⚠️");
   });
 
+  it("waits for the reserved session instead of spawning from another thread message", async () => {
+    const { msg, react } = message();
+    const handled = await handleTestForumMessage(
+      msg,
+      deps({}, [surfaceRow({ run_state: "starting", session_id: null })]),
+    );
+    expect(handled).toBe(true);
+    expect(requestTestSpawn).not.toHaveBeenCalled();
+    expect(react).toHaveBeenCalledWith("⏳");
+  });
+
   it("reports a failed spawn on the post itself", async () => {
     requestTestSpawn.mockResolvedValue({ ok: false, error: "spawn refused" });
     const { msg, react } = message();

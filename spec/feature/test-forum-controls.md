@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./revisor-local-pr-submission.md
   - ./staff-roster.md
-updated: 2026-07-31
+updated: 2026-08-07
 ---
 
 # テストフォーラムの操作面 — テスト開始 / マージ
@@ -32,12 +32,13 @@ updated: 2026-07-31
 ## 2. 状態遷移 (実装済み: `src/discord/test-forum-controls.ts`)
 
 ```
-candidate ──[テスト開始]──> testing ──[マージ]──> merged
+candidate ──[テスト開始]──> starting ──[session.started]──> testing ──[マージ]──> merged
 ```
 
 | 状態 | 出す操作 |
 | --- | --- |
 | `candidate` | 「テスト開始」ボタン + provider(model) / effort セレクト |
+| `starting` | 操作を隠し、セッション登録を待つ。スレッド投稿からも再起動しない |
 | `testing` | **同じ場所が「マージ」ボタンに変わる**。 セレクトは畳む (起動済みセッションの設定は変えられないため) |
 | `merged` | 操作を出さない (二重マージの入口を残さない) |
 
@@ -58,7 +59,7 @@ candidate ──[テスト開始]──> testing ──[マージ]──> merged
 
 | 列 | migration | 意味 |
 | --- | --- | --- |
-| `run_state` | 49 | `candidate` / `testing` / `merged` |
+| `run_state` | 49 | `candidate` / `starting` / `testing` / `merged` |
 | `provider` / `model` / `effort` | 49 | 「テスト開始」前にセレクトで変えられる実行設定 |
 | `session_id` | 49 | 起動した確認セッション |
 | `local_pr_id` | 49 | マージ対象の Revisor local PR |
@@ -74,6 +75,13 @@ candidate ──[テスト開始]──> testing ──[マージ]──> merged
    登録された repository/worktree と local PR の head ref は起動プロンプトで後から
    指示し、セッションにフォーラム投稿を読むよう明記する。個別 repo を spawn cwd にせず、
    `branch + worktree=true` も渡さない。
+   起動要求前に surface を原子的に `starting` へ進め、`session.started` で `session_id` を
+   結び `testing` へ進める。この間の同じスレッドへの投稿は新規 spawn せず待機する。
+   `session_id` 確定後の投稿は既存 session へ inject する。
+   Test Forum session に限り Cc が暗号化設定から都度解決した Revisor workflow token を
+   `CONCORDIA_REVISOR_WORKFLOW_TOKEN` として spawn 環境へ委譲する。値は API 応答・prompt・
+   ログへ出さず、Revisor の変更系 API の Bearer token としてだけ使う。token が無ければ
+   使用不能な session を起動せず fail-fast する。
 4. **マージ**: 管理職以上に限定し、Revisor の `POST /v1/local-prs/:id/merge` を叩く。成功で `merged` へ遷移
 5. **オートマージ**: Revisor 側に `autoMergeIfEligible` + `autoMergeRiskThreshold` が既に
    あるので、 Concordia 側の実装は不要。 `autoMergeEnabled` を有効化する運用判断のみ

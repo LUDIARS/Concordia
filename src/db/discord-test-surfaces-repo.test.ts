@@ -83,6 +83,8 @@ describe("DiscordTestSurfacesRepo", () => {
       checkStatus: "queued",
     });
     repo.updateRunConfig(row.id, { provider: "claude", model: "opus", effort: "high" });
+    expect(repo.markStarting(row.id)).toBe(true);
+    expect(repo.markStarting(row.id)).toBe(false);
     repo.markTesting(row.id, "session-1", "E:/wt");
     repo.updateRunConfig(row.id, { provider: "codex", model: "sol", effort: "xhigh" });
     repo.setLocalPrId(row.id, "local-1");
@@ -90,6 +92,34 @@ describe("DiscordTestSurfacesRepo", () => {
     expect(repo.findOpen(row.id)).toEqual(expect.objectContaining({
       provider: "claude", model: "opus", effort: "high", run_state: "merged", session_id: "session-1",
       worktree_path: "E:/wt", local_pr_id: "local-1",
+    }));
+  });
+
+  it("rolls a failed spawn reservation back without reopening a bound session", () => {
+    const repo = makeDiscordTestSurfacesRepo(db, "hq", () => 123);
+    const row = repo.create({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 43,
+      headSha: "def",
+      repoRootPath: "E:/Document/Ars/Concordia",
+      headBranch: "feat/pr-43",
+      worktreePath: null,
+      threadId: "thread-43",
+      contentHash: null,
+      checkStatus: "test_ok",
+    });
+
+    expect(repo.markStarting(row.id)).toBe(true);
+    expect(repo.findOpen(row.id)?.run_state).toBe("starting");
+    repo.resetStarting(row.id);
+    expect(repo.findOpen(row.id)?.run_state).toBe("candidate");
+
+    expect(repo.markStarting(row.id)).toBe(true);
+    repo.markTesting(row.id, "session-43");
+    repo.resetStarting(row.id);
+    expect(repo.findOpen(row.id)).toEqual(expect.objectContaining({
+      run_state: "testing",
+      session_id: "session-43",
     }));
   });
 });

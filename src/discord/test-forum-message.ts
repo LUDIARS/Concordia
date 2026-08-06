@@ -49,6 +49,13 @@ export async function handleTestForumMessage(
     return true;
   }
 
+  // button / 直前の投稿が spawn 済みで session.started 待ちなら、同じ投稿から別の
+  // session を立てない。session_id 確定後は上の inject 経路へ自動的に切り替わる。
+  if (surface.run_state === "starting") {
+    await msg.react("⏳").catch(() => { /* best-effort */ });
+    return true;
+  }
+
   // 投稿からの起動はテスト開始ボタンと同じ特権 spawn なので、 同じ権限で守る。
   if (deps.isLaunchUserAllowed?.(msg.author.id) !== true) {
     deps.log.info(

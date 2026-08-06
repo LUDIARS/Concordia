@@ -63,6 +63,14 @@ function deps(surface: DiscordTestSurfaceRow, overrides: Partial<TestForumAction
     create: vi.fn(),
     close: vi.fn(),
     updateRunConfig: vi.fn(),
+    markStarting: vi.fn(() => {
+      if (state.run_state !== "candidate") return false;
+      state.run_state = "starting";
+      return true;
+    }),
+    resetStarting: vi.fn(() => {
+      if (state.run_state === "starting" && !state.session_id) state.run_state = "candidate";
+    }),
     markTesting: vi.fn(),
     setLocalPrId: vi.fn((_id: number, localPrId: string) => { state.local_pr_id = localPrId; }),
     markMerged: vi.fn(() => { state.run_state = "merged"; }),
@@ -220,7 +228,36 @@ describe("handleTestForumControl merge", () => {
     expect(body).not.toHaveProperty("worktree");
     expect(body.prompt).toContain("E:/Document/Ars/Concordia");
     expect(body.prompt).toContain("feat/test-forum");
+    expect(body.prompt).toContain("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
+    expect(h.state.run_state).toBe("starting");
     expect(interaction.deferUpdate).toHaveBeenCalledOnce();
     expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+  });
+
+  it("reserves the surface before spawn so concurrent requests cannot launch another session", async () => {
+    let releaseResponse!: () => void;
+    const responseGate = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    const fetchMock = vi.fn(async () => {
+      await responseGate;
+      return new Response(JSON.stringify({ ok: true, pid: 123 }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const h = deps(row({ run_state: "candidate", session_id: null }));
+
+    const first = handleTestForumControl(
+      button() as unknown as ButtonInteraction,
+      { action: "start", surfaceId: 7 },
+      h.deps,
+    );
+    await vi.waitFor(() => expect(h.state.run_state).toBe("starting"));
+    await handleTestForumControl(
+      button() as unknown as ButtonInteraction,
+      { action: "start", surfaceId: 7 },
+      h.deps,
+    );
+    releaseResponse();
+    await first;
+
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

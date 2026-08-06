@@ -186,7 +186,8 @@ export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
         .setStyle(layout.primary.style === "primary" ? ButtonStyle.Primary : ButtonStyle.Success),
     ));
   }
-  return { content: describeRunConfig(config), components: rows };
+  const state = surface.run_state === "starting" ? "\n**状態** テストセッションを起動しています…" : "";
+  return { content: `${describeRunConfig(config)}${state}`, components: rows };
 }
 
 /**

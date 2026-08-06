@@ -3,7 +3,7 @@ title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
 domain: release-coordination
-updated: 2026-08-04
+updated: 2026-08-07
 ---
 
 # Revisor Test Workflow synchronization
@@ -56,11 +56,15 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   (登録時点の掲載は審査前で、テスト対象が定まらないため)。
 - スレッドに人間が投稿したとき:
   - surface の `session_id` が生きていれば、投稿本文を inject で届ける (📨)。
+  - 起動要求済みで `session.started` 待ち (`starting`) なら、別 session は起動せず待つ (⏳)。
   - 無ければ、テスト開始ボタンと同じ設定・同じ経路 (`/v1/admin/spawn-session`) で
     workspace root からセッションを起動し、対象ディレクトリ・branch・投稿本文を
     起動後の指示として渡す (🧪)。特権 spawn なので
     ボタンと同じ権限 (session_spawn, 管理職以上) で守り、権限が無ければ 🚫。
   - run_state が candidate でない (テスト中だがセッション消滅等) は ⚠️ で案内する。
+- Test Forum session の spawn には、Cc の暗号化設定から解決した Revisor workflow token を
+  `CONCORDIA_REVISOR_WORKFLOW_TOKEN` としてだけ委譲する。通常 session には委譲しない。
+  token 未設定・復号不能時は session を起動せず明示的に失敗する。
 - テストセッションは end-session で終了できるが、**投稿はクローズしない**。
   投稿を閉じるのは同期 (候補消滅) だけ。
 - 候補がマージ等で消えて投稿を閉じるとき、旧経路の `qa_run_id` の child session と

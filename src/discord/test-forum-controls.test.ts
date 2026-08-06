@@ -23,6 +23,7 @@ describe("test forum controls", () => {
       primary: { action: "start", label: "テスト開始", style: "primary" },
       selectors: true,
     });
+    expect(testControlLayout("starting")).toEqual({ primary: null, selectors: false });
     expect(testControlLayout("testing")).toEqual({
       primary: { action: "merge", label: "マージ", style: "success" },
       selectors: false,

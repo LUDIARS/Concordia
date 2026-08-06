@@ -20,7 +20,7 @@ export interface DiscordTestSurfaceRow {
   content_hash: string | null;
   /** 投稿と一緒に起動したテスト・QA delegation run。 投稿を閉じるとき session も畳む。 */
   qa_run_id: string | null;
-  run_state: "candidate" | "testing" | "merged";
+  run_state: "candidate" | "starting" | "testing" | "merged";
   provider: "codex" | "claude";
   model: string;
   effort: "minimal" | "low" | "medium" | "high" | "xhigh";
@@ -50,6 +50,10 @@ export interface DiscordTestSurfacesRepo {
   setQaRun(id: number, qaRunId: string): void;
   close(id: number, reason: string): void;
   updateRunConfig(id: number, config: { provider: "codex" | "claude"; model: string; effort: DiscordTestSurfaceRow["effort"] }): void;
+  /** candidate を原子的に起動予約へ進める。 false は別要求が先に予約済み。 */
+  markStarting(id: number): boolean;
+  /** 同期 spawn 要求が失敗した場合だけ candidate へ戻す。 */
+  resetStarting(id: number): void;
   markTesting(id: number, sessionId: string, worktreePath?: string | null): void;
   setLocalPrId(id: number, localPrId: string): void;
   markMerged(id: number): void;
@@ -123,11 +127,26 @@ export function makeDiscordTestSurfacesRepo(
          WHERE id = ? AND scope = ? AND status = 'open' AND run_state = 'candidate'`,
       ).run(config.provider, config.model, config.effort, id, scope);
     },
+    markStarting(id) {
+      const result = db.prepare(
+        `UPDATE discord_test_surfaces SET run_state = 'starting'
+         WHERE id = ? AND scope = ? AND status = 'open' AND run_state = 'candidate'`,
+      ).run(id, scope);
+      return result.changes === 1;
+    },
+    resetStarting(id) {
+      db.prepare(
+        `UPDATE discord_test_surfaces SET run_state = 'candidate'
+         WHERE id = ? AND scope = ? AND status = 'open'
+           AND run_state = 'starting' AND session_id IS NULL`,
+      ).run(id, scope);
+    },
     markTesting(id, sessionId, worktreePath = null) {
       db.prepare(
         `UPDATE discord_test_surfaces
          SET run_state = 'testing', session_id = ?, worktree_path = COALESCE(?, worktree_path)
-         WHERE id = ? AND scope = ? AND status = 'open' AND run_state = 'candidate'`,
+         WHERE id = ? AND scope = ? AND status = 'open'
+           AND run_state IN ('candidate', 'starting')`,
       ).run(sessionId, worktreePath, id, scope);
     },
     setLocalPrId(id, localPrId) {

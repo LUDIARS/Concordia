@@ -15,6 +15,7 @@ import {
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
   sanitizeSpawnEnv,
+  buildSessionSpawnEnvironment,
   SPAWN_PROVIDERS,
   validateProjectCwd,
 } from "./spawner.js";
@@ -94,6 +95,26 @@ describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
   it("undefined / 非文字列値は空または無視", () => {
     expect(sanitizeSpawnEnv(undefined)).toEqual({});
     expect(sanitizeSpawnEnv({ LICTOR_X: 1 as unknown as string })).toEqual({});
+  });
+});
+
+describe("buildSessionSpawnEnvironment", () => {
+  it("does not inherit the Revisor workflow token unless the spawn explicitly delegates it", () => {
+    const inherited = { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "service-secret", KEEP: "yes" };
+
+    expect(buildSessionSpawnEnvironment({ provider: "codex" }, inherited, "spawn-1")).toEqual(
+      expect.objectContaining({
+        KEEP: "yes",
+        CONCORDIA_SPAWN_ID: "spawn-1",
+      }),
+    );
+    expect(buildSessionSpawnEnvironment({ provider: "codex" }, inherited, "spawn-1"))
+      .not.toHaveProperty("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
+    expect(buildSessionSpawnEnvironment(
+      { provider: "codex", env: { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "delegated-secret" } },
+      inherited,
+      "spawn-1",
+    )).toEqual(expect.objectContaining({ CONCORDIA_REVISOR_WORKFLOW_TOKEN: "delegated-secret" }));
   });
 });
 

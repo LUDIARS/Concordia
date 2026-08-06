@@ -104,6 +104,7 @@ import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
+import { resolveTestSessionWorkflowEnv } from "../control/test-session-workflow-token.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -560,9 +561,18 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
+    const testSessionWorkflowEnv = resolveTestSessionWorkflowEnv(
+      testSurfaceId,
+      deps.revisorConfig,
+      deps.secretBox,
+    );
+    if (!testSessionWorkflowEnv.ok) {
+      return c.json({ error: testSessionWorkflowEnv.error }, 503);
+    }
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
       ...resolveDelegationRuntimeEnv(provider, directOptions),
+      ...testSessionWorkflowEnv.env,
     };
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);

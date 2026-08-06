@@ -313,6 +313,28 @@ export function sanitizeSpawnEnv(
   return out;
 }
 
+/**
+ * Build the environment passed to an interactive child session.
+ *
+ * Revisor's workflow token is a Concordia service credential.  Never inherit
+ * it ambiently: the Test Forum route explicitly adds it to `req.env` only for
+ * the scoped verification session that needs to call Revisor mutations.
+ */
+export function buildSessionSpawnEnvironment(
+  req: SpawnRequest,
+  inheritedEnv: NodeJS.ProcessEnv = process.env,
+  spawnId: string = req.spawnId?.trim() || randomUUID(),
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...inheritedEnv };
+  delete env.CONCORDIA_REVISOR_WORKFLOW_TOKEN;
+  return {
+    ...env,
+    ...sanitizeSpawnEnv(req.env),
+    ...buildSpawnIdentityEnv(req, spawnId),
+    ...currentConcordiaAddressEnv(),
+  };
+}
+
 export function validateCwd(cwd: string | undefined): string | null {
   if (!cwd) return null;
   try {
@@ -421,12 +443,7 @@ function spawnHeadlessSession(req: SpawnRequest): SpawnResult {
       return { ok: false, error: `unsafe character in headless spawn token: ${token.slice(0, 40)}` };
     }
   }
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...sanitizeSpawnEnv(req.env),
-    ...buildSpawnIdentityEnv(req, req.spawnId?.trim() || randomUUID()),
-    ...currentConcordiaAddressEnv(),
-  };
+  const env = buildSessionSpawnEnvironment(req);
   const isWindows = process.platform === "win32";
   const file = isWindows ? process.env.ComSpec ?? "cmd.exe" : tokens[0]!;
   const args = isWindows ? buildHeadlessCmdArgs(tokens) : tokens.slice(1);
@@ -482,12 +499,7 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   // 任意コード実行に至るため、 prefix allowlist でそれらを構造的に排除する。
   // CONCORDIA_HOST / CONCORDIA_PORT は最後に Concordia 自身の listen アドレスで上書きし、
   // ambient env の継承に頼らず spawning Concordia を必ず指すようにする。
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...sanitizeSpawnEnv(req.env),
-    ...buildSpawnIdentityEnv(req, req.spawnId?.trim() || randomUUID()),
-    ...currentConcordiaAddressEnv(),
-  };
+  const env = buildSessionSpawnEnvironment(req);
   // spawn の失敗 (ENOENT / EACCES / EMFILE 等) は非同期の `error` イベントで届く。
   // リスナーが無いと uncaughtException として Concordia 本体を巻き込むため、
   // 同期 throw と合わせて必ず捕捉する (spawn 自体は成功扱いで返っているので

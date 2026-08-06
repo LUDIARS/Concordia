@@ -118,6 +118,8 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
     }),
     findOpen: vi.fn(() => null),
     updateRunConfig: vi.fn(),
+    markStarting: vi.fn(() => true),
+    resetStarting: vi.fn(),
     markTesting: vi.fn(),
     setLocalPrId: vi.fn(),
     markMerged: vi.fn(),

@@ -93,7 +93,7 @@ async function updateConfig(
  */
 export async function requestTestSpawn(
   surface: DiscordTestSurfaceRow,
-  deps: Pick<TestForumActionDeps, "concordiaUrl" | "workspaceRoots">,
+  deps: Pick<TestForumActionDeps, "concordiaUrl" | "workspaceRoots" | "surfaces">,
   instruction?: string,
 ): Promise<{ ok: true; pid: number | null } | { ok: false; error: string }> {
   if (!surface.repo_root_path || !surface.head_branch) {
@@ -103,6 +103,12 @@ export async function requestTestSpawn(
   if (!workspaceRoot) {
     return { ok: false, error: "Test Forum の workspace root を解決できません。" };
   }
+  // session.started より先に別のスレッド投稿が届くと、 session_id はまだ null のため
+  // 旧実装は同じ surface から二重 spawn できた。DB の条件付き更新を起動要求の mutex
+  // とし、プロセス内 Set では塞げない再起動・複数 Bot 間の競合も閉じる。
+  if (!deps.surfaces.markStarting(surface.id)) {
+    return { ok: false, error: "テストセッションは既に起動中または起動済みです。" };
+  }
   const targetDirectory = surface.worktree_path || surface.repo_root_path;
   const prompt = [
     "## Test forum verification",
@@ -110,30 +116,37 @@ export async function requestTestSpawn(
     `起動後の対象ディレクトリ: ${targetDirectory}`,
     `対象ブランチ: ${surface.head_branch}`,
     "最初に対象ディレクトリへ移動し、フォーラムに投稿された内容を読んでから確認してください。",
+    "Revisor の変更系 API 用 workflow token は環境変数 CONCORDIA_REVISOR_WORKFLOW_TOKEN に委譲されています。Excubitor から解決した Revisor endpoint へ Bearer token としてだけ使い、値を表示・ログ・報告へ出さないでください。",
   ].join("\n")
     + (instruction ? `\n\nユーザからの指示:\n${instruction}` : "");
-  const result = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
-    deps.concordiaUrl,
-    "POST",
-    "/v1/admin/spawn-session",
-    {
-      provider: surface.provider,
-      model: surface.model || undefined,
-      cwd: workspaceRoot,
-      // effort の読み取りキーは provider レーンごとに違う (control/provider-preset.ts:
-      // claude は `effort`、codex 系は `model_reasoning_effort`)。 取り違えると選択が
-      // 無言で捨てられ、 投稿の表示と実際の実行設定が食い違う。
-      options: surface.provider === "claude"
-        ? { effort: surface.effort }
-        : { model_reasoning_effort: surface.effort },
-      test_surface_id: surface.id,
-      prompt,
-    },
-  );
-  if ("error" in result || !result.ok) {
-    return { ok: false, error: ("error" in result ? result.error : undefined) ?? "unknown" };
+  try {
+    const result = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
+      deps.concordiaUrl,
+      "POST",
+      "/v1/admin/spawn-session",
+      {
+        provider: surface.provider,
+        model: surface.model || undefined,
+        cwd: workspaceRoot,
+        // effort の読み取りキーは provider レーンごとに違う (control/provider-preset.ts:
+        // claude は `effort`、codex 系は `model_reasoning_effort`)。 取り違えると選択が
+        // 無言で捨てられ、 投稿の表示と実際の実行設定が食い違う。
+        options: surface.provider === "claude"
+          ? { effort: surface.effort }
+          : { model_reasoning_effort: surface.effort },
+        test_surface_id: surface.id,
+        prompt,
+      },
+    );
+    if ("error" in result || !result.ok) {
+      deps.surfaces.resetStarting(surface.id);
+      return { ok: false, error: ("error" in result ? result.error : undefined) ?? "unknown" };
+    }
+    return { ok: true, pid: result.pid ?? null };
+  } catch (error) {
+    deps.surfaces.resetStarting(surface.id);
+    return { ok: false, error: (error as Error).message };
   }
-  return { ok: true, pid: result.pid ?? null };
 }
 
 async function startTest(
@@ -160,8 +173,14 @@ async function startTest(
     await interaction.followUp({ content: `テスト開始に失敗しました: ${result.error}`, ephemeral: true });
     return;
   }
-  // session_id は Lictor の session.started 到着後に確定する。先に状態を変えると、失敗時に
-  // 二度と再実行できなくなるため、ここでは「開始要求済み」をスレッドへ明示するだけに留める。
+  // session_id は Lictor の session.started 到着後に確定する。それまでは starting を
+  // 描画して二重操作を抑え、同期 spawn 失敗時だけ requestTestSpawn が candidate へ戻す。
+  const starting = deps.surfaces.findOpen(surface.id);
+  if (starting) {
+    await interaction.editReply(renderTestForumControls(starting)).catch((error: unknown) => {
+      deps.log.warn(`test-forum starting controls refresh failed surface=${surface.id}: ${(error as Error).message}`);
+    });
+  }
   await interaction.followUp({ content: `テスト起動を受け付けました (pid: ${result.pid ?? "n/a"})。セッション登録後に操作面を更新します。`, ephemeral: true });
 }
 

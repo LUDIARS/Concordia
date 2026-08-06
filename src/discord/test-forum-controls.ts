@@ -65,7 +65,7 @@ export function isEffortSupported(provider: TestProvider, value: string): value 
   return (testEffortChoices(provider) as readonly string[]).includes(value);
 }
 
-export type TestSurfaceState = "candidate" | "testing" | "merged";
+export type TestSurfaceState = "candidate" | "starting" | "testing" | "merged";
 
 /** customId の名前空間。 既存の `ctrl:` (コントロールパネル) とは別に切る。 */
 const PREFIX = "test";
@@ -118,6 +118,9 @@ export function testControlLayout(state: TestSurfaceState): TestControlLayout {
   switch (state) {
     case "candidate":
       return { primary: { action: "start", label: "テスト開始", style: "primary" }, selectors: true };
+    case "starting":
+      // session.started で session_id が確定するまでは二重起動もマージも許可しない。
+      return { primary: null, selectors: false };
     case "testing":
       // 起動後に provider を変えても走っているセッションは変わらないので選択は畳む。
       return { primary: { action: "merge", label: "マージ", style: "success" }, selectors: false };

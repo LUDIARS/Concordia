@@ -273,6 +273,9 @@ describe("renderTestForumControls", () => {
 
   it("replaces selectors with merge and removes every control after merge", () => {
     expect(renderTestForumControls({ ...controlSurface, run_state: "testing" }).components).toHaveLength(1);
+    const starting = renderTestForumControls({ ...controlSurface, run_state: "starting" });
+    expect(starting.components).toEqual([]);
+    expect(starting.content).toContain("起動しています");
     expect(renderTestForumControls({ ...controlSurface, run_state: "merged" }).components).toEqual([]);
   });
 });

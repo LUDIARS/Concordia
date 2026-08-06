@@ -49,6 +49,7 @@ export interface RevisorLocalPrGateway {
   listRepositories(): Promise<RevisorRepositoryRegistration[]>;
   listLocalPullRequests(): Promise<RevisorLocalPrSummary[]>;
   submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary>;
+  retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary>;
 }
 
 export interface RevisorLocalPrClientOptions {
@@ -179,6 +180,15 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
     }) as { pullRequest?: unknown } | null;
     const pullRequest = asLocalPr(body?.pullRequest);
     if (!pullRequest) throw new Error("Revisor returned an invalid local PR");
+    return pullRequest;
+  }
+
+  async retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary> {
+    const body = await this.request(`/v1/local-prs/${encodeURIComponent(id)}/retry`, {
+      method: "POST",
+    }) as { pullRequest?: unknown } | null;
+    const pullRequest = asLocalPr(body?.pullRequest);
+    if (!pullRequest) throw new Error("Revisor returned an invalid retried local PR");
     return pullRequest;
   }
 }

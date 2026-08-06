@@ -42,6 +42,7 @@ export interface LocalPrPlanInput {
 
 export type LocalPrPlan =
   | { submit: false; reason: SkipReason }
+  | { submit: false; retry: true; pullRequestId: string }
   | { submit: true; repository: string; headRef: string; baseRef: string };
 
 /**
@@ -81,11 +82,16 @@ export function planLocalPrSubmission(input: LocalPrPlanInput): LocalPrPlan {
   // 同じブランチの open な local PR が既にあるなら二重提出しない (再実行しても安全)。
   // ブランチ名だけは git と同じく大文字小文字を区別する (別ブランチなので)。
   const registeredKey = normalizeRepoOrigin(registration.repository).toLowerCase();
-  const duplicate = input.openPullRequests.some((pr) =>
+  const duplicate = input.openPullRequests.find((pr) =>
     pr.status === "open"
     && normalizeRepoOrigin(pr.repository).toLowerCase() === registeredKey
     && pr.headRef === branch);
-  if (duplicate) return { submit: false, reason: "already_open" };
+  if (duplicate) {
+    if (duplicate.checkStatus === "failed" || duplicate.checkStatus === "action_required") {
+      return { submit: false, retry: true, pullRequestId: duplicate.id };
+    }
+    return { submit: false, reason: "already_open" };
+  }
 
   return {
     submit: true,
@@ -112,6 +118,7 @@ export interface LocalPrSubmissionRequest {
 
 export type LocalPrSubmissionResult =
   | { submitted: true; pullRequest: RevisorLocalPrSummary }
+  | { submitted: false; resubmitted: true; pullRequest: RevisorLocalPrSummary }
   | { submitted: false; reason: SkipReason | "error"; detail?: string };
 
 /** コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。 */
@@ -156,6 +163,20 @@ export async function submitSessionLocalPr(
       openPullRequests,
       hasCommits: commits.length > 0,
     });
+    if (!plan.submit && "retry" in plan) {
+      const pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId);
+      deps.log.info(
+        {
+          session_id: request.sessionId,
+          repository: request.repository,
+          branch: request.branch,
+          local_pr_id: pullRequest.id,
+          local_pr_number: pullRequest.number,
+        },
+        "resubmitted local PR for review",
+      );
+      return { submitted: false, resubmitted: true, pullRequest };
+    }
     if (!plan.submit) {
       deps.log.info(
         { session_id: request.sessionId, repository: request.repository, branch: request.branch, reason: plan.reason },

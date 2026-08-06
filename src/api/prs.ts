@@ -36,6 +36,7 @@ export interface PrsApiDeps {
    */
   submitLocalPr?: (sessionId: string) => Promise<
     | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
+    | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; reason: string; detail?: string }
   >;
 }

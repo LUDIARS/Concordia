@@ -52,6 +52,17 @@ describe("planLocalPrSubmission", () => {
     expect(plan({ openPullRequests: [{ ...openPullRequests[0], status: "merged" }] }).submit).toBe(true);
   });
 
+  it("retries a failed open local PR instead of creating a duplicate", () => {
+    expect(plan({ openPullRequests: [{
+      id: "pr-1",
+      number: 1,
+      repository: "LUDIARS/Concordia",
+      headRef: "feat/thing",
+      status: "open",
+      checkStatus: "failed",
+    }] })).toEqual({ submit: false, retry: true, pullRequestId: "pr-1" });
+  });
+
   it("matches the repository and base ref case-insensitively", () => {
     expect(plan({ repository: "ludiars/concordia" }).submit).toBe(true);
     expect(plan({ branch: "MAIN" })).toEqual({ submit: false, reason: "on_base_branch" });
@@ -90,6 +101,14 @@ function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPr
       number: 9,
       repository: input.repository,
       headRef: input.headRef,
+      status: "open",
+      checkStatus: "queued",
+    }),
+    retryLocalPullRequest: async (id) => ({
+      id,
+      number: 9,
+      repository: "LUDIARS/Concordia",
+      headRef: "feat/thing",
       status: "open",
       checkStatus: "queued",
     }),
@@ -198,6 +217,31 @@ describe("submitSessionLocalPr", () => {
       log,
     }, request);
     expect(result).toEqual({ submitted: false, reason: "no_commits" });
+  });
+
+  it("retries a failed local PR without submitting a second one", async () => {
+    const retryLocalPullRequest = vi.fn(gateway().retryLocalPullRequest);
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        listLocalPullRequests: async () => [{
+          id: "pr-9",
+          number: 9,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "action_required",
+        }],
+        retryLocalPullRequest,
+        submitLocalPullRequest,
+      }),
+      listBranchCommits: async () => ["feat: x"],
+      log,
+    }, request);
+
+    expect(result).toEqual({ submitted: false, resubmitted: true, pullRequest: expect.objectContaining({ id: "pr-9" }) });
+    expect(retryLocalPullRequest).toHaveBeenCalledWith("pr-9");
+    expect(submitLocalPullRequest).not.toHaveBeenCalled();
   });
 
   // セッション終了処理をレビュー発火の失敗で壊さない。

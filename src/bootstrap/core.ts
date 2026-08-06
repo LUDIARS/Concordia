@@ -120,6 +120,7 @@ import { capabilityAllowed } from "../staff/roles.js";
 import { createFederationRuntime } from "../federation/runtime.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
+import { ImplementationToolsService } from "../implementation-tools/service.js";
 import type { BotRuntimeStatus } from "../api/platform-runtime-status.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
 import {
@@ -547,12 +548,10 @@ export async function startBackend(): Promise<BackendHandle> {
     }, sessionId),
     log: localPrLog,
   };
-  const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
-    if (ev.type !== "session.ended") return;
-    if (!adminState.getRevisorAutoSubmitEnabled()) return;
-    const session = repo.findSession(ev.session_id);
-    if (!session) return;
-    void submitSessionLocalPr(
+  const submitLocalPrForSession = async (sessionId: string) => {
+    const session = repo.findSession(sessionId);
+    if (!session) return { submitted: false as const, reason: "session_not_found" as const };
+    return submitSessionLocalPr(
       localPrDeps,
       {
         sessionId: session.id,
@@ -561,6 +560,21 @@ export async function startBackend(): Promise<BackendHandle> {
         branch: session.branch,
       },
     );
+  };
+  const implementationTools = new ImplementationToolsService({
+    sessions: repo,
+    claims: testingClaims,
+    excubitor: excubitorClient,
+    submitLocalPr: submitLocalPrForSession,
+    resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+    log: { warn: (message) => localPrLog.warn({}, message) },
+  });
+  const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
+    if (ev.type !== "session.ended") return;
+    if (!adminState.getRevisorAutoSubmitEnabled()) return;
+    const session = repo.findSession(ev.session_id);
+    if (!session) return;
+    void submitLocalPrForSession(session.id);
   });
 
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
@@ -854,20 +868,9 @@ export async function startBackend(): Promise<BackendHandle> {
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
     revisorConfig: revisorConfigRepo,
+    implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
-    submitLocalPr: async (sessionId: string) => {
-      const session = repo.findSession(sessionId);
-      if (!session) return { submitted: false as const, reason: "session_not_found" };
-      return submitSessionLocalPr(
-        localPrDeps,
-        {
-          sessionId: session.id,
-          repoPath: session.repo_path,
-          repository: session.repo_origin,
-          branch: session.branch,
-        },
-      );
-    },
+    submitLocalPr: submitLocalPrForSession,
     injectManuals: injectManualsRepo,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,

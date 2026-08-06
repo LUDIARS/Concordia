@@ -103,6 +103,8 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
+import { implementationToolsRouter } from "./implementation-tools.js";
+import type { ImplementationToolsService } from "../implementation-tools/service.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -144,6 +146,8 @@ export interface CoreDelegationDeps {
   revisorConfig?: RevisorConfigRepo;
   /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
   submitLocalPr?: PrsApiDeps["submitLocalPr"];
+  /** Batched implementation fast paths. Normal conversation sessions do not use them. */
+  implementationTools?: ImplementationToolsService;
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
   injectManuals?: InjectManualsRepo;
   harnessAudit?: HarnessAuditRepo;
@@ -218,6 +222,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
   app.route("/v1/prs", prsRouter({ prs: deps.prs, revisor: deps.revisorLocalPrs, submitLocalPr: deps.submitLocalPr }));
+  if (deps.implementationTools) {
+    app.route(
+      "/v1/implementation-tools",
+      implementationToolsRouter({ tools: deps.implementationTools }),
+    );
+  }
   // Revisor の workflow token 設定 (Discord/Slack の bot token と同じ扱い: 暗号化して DB)。
   if (deps.revisorConfig && deps.secretBox) {
     app.route("/v1/admin/revisor", revisorAdminRouter({ config: deps.revisorConfig, secretBox: deps.secretBox }));

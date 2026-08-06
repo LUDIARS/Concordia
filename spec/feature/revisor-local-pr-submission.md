@@ -66,7 +66,10 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 | `repository_not_registered` | Revisor に未登録のリポジトリ (`GET /v1/repositories` と突合) |
 | `on_base_branch` | 作業ブランチが base ref と同じ (大文字小文字は無視) |
 | `no_commits` | `base..branch` にコミットが無い |
-| `already_open` | 同じ repo + head ブランチの open な local PR が既にある (再実行しても二重提出しない) |
+| `already_open` | 同じ repo + head ブランチの local PR が queued/running/test_ok (二重提出しない) |
+
+同じ open PR が `failed` / `action_required` の場合、手動で別の retry API を探させず、同じ
+提出操作が `POST /v1/local-prs/:id/retry` へ進む。Revisor が head 前進と再審査範囲を判定する。
 
 repository 名と base ref の照合は大文字小文字を無視する。 head ブランチ名だけは git と
 同じく大文字小文字を区別する。

@@ -14,6 +14,7 @@
 
 import { normalizeRepoOrigin } from "./normalize.js";
 import type { RevisorLocalPrGateway, RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-client.js";
+import type { PrSourceLink } from "./session-source-links.js";
 
 /** 提出しない理由。 ログと API 応答でそのまま使う (無言でスキップしない)。 */
 export type SkipReason =
@@ -98,6 +99,7 @@ export interface LocalPrSubmissionDeps {
   revisor: RevisorLocalPrGateway;
   /** base..branch のコミット件名を新しい順で返す (空なら commits 無し)。 */
   listBranchCommits(repoPath: string, baseRef: string, branch: string): Promise<string[]>;
+  resolveSourceLinks?: (sessionId: string) => Promise<readonly PrSourceLink[]>;
   log: { info: (o: unknown, m: string) => void; warn: (o: unknown, m: string) => void };
 }
 
@@ -163,6 +165,17 @@ export async function submitSessionLocalPr(
     }
 
     const { title, body } = describe(commits, request.sessionId);
+    // Source links are supplemental navigation metadata. A transient Discord/Slack
+    // lookup failure must not prevent the local PR itself from being submitted.
+    let sourceLinks: readonly PrSourceLink[] = [];
+    try {
+      sourceLinks = await deps.resolveSourceLinks?.(request.sessionId) ?? [];
+    } catch (error) {
+      deps.log.warn(
+        { session_id: request.sessionId, err: error instanceof Error ? error.message : String(error) },
+        "local PR source-link resolution failed",
+      );
+    }
     const pullRequest = await deps.revisor.submitLocalPullRequest({
       repository: plan.repository,
       title,
@@ -171,6 +184,7 @@ export async function submitSessionLocalPr(
       sessionId: request.sessionId,
       headRef: plan.headRef,
       baseRef: plan.baseRef,
+      sourceLinks,
     });
     deps.log.info(
       {

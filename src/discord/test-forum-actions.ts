@@ -11,6 +11,8 @@ import { renderTestForumControls } from "./test-forum-discord.js";
 
 export interface TestForumActionDeps {
   concordiaUrl: string;
+  /** Test Forum session は個別 repo ではなく workspace root から起動する。 */
+  workspaceRoots?: readonly string[];
   surfaces: DiscordTestSurfacesRepo;
   revisor: RevisorLocalPrReader & RevisorLocalPrMerger;
   isLaunchUserAllowed?: (userId: string) => boolean;
@@ -91,13 +93,24 @@ async function updateConfig(
  */
 export async function requestTestSpawn(
   surface: DiscordTestSurfaceRow,
-  deps: Pick<TestForumActionDeps, "concordiaUrl">,
+  deps: Pick<TestForumActionDeps, "concordiaUrl" | "workspaceRoots">,
   instruction?: string,
 ): Promise<{ ok: true; pid: number | null } | { ok: false; error: string }> {
   if (!surface.repo_root_path || !surface.head_branch) {
     return { ok: false, error: "確認対象のrepository rootまたはbranchを解決できません。" };
   }
-  const prompt = `## Test forum verification\nRevisor local PR ${surface.repo_origin}#${surface.pr_number} の確認を行ってください。`
+  const workspaceRoot = deps.workspaceRoots?.[0];
+  if (!workspaceRoot) {
+    return { ok: false, error: "Test Forum の workspace root を解決できません。" };
+  }
+  const targetDirectory = surface.worktree_path || surface.repo_root_path;
+  const prompt = [
+    "## Test forum verification",
+    `Revisor local PR ${surface.repo_origin}#${surface.pr_number} の確認を行ってください。`,
+    `起動後の対象ディレクトリ: ${targetDirectory}`,
+    `対象ブランチ: ${surface.head_branch}`,
+    "最初に対象ディレクトリへ移動し、フォーラムに投稿された内容を読んでから確認してください。",
+  ].join("\n")
     + (instruction ? `\n\nユーザからの指示:\n${instruction}` : "");
   const result = await callConcordia<{ ok: boolean; pid?: number; error?: string }>(
     deps.concordiaUrl,
@@ -106,9 +119,7 @@ export async function requestTestSpawn(
     {
       provider: surface.provider,
       model: surface.model || undefined,
-      cwd: surface.repo_root_path,
-      branch: surface.head_branch,
-      worktree: true,
+      cwd: workspaceRoot,
       // effort の読み取りキーは provider レーンごとに違う (control/provider-preset.ts:
       // claude は `effort`、codex 系は `model_reasoning_effort`)。 取り違えると選択が
       // 無言で捨てられ、 投稿の表示と実際の実行設定が食い違う。

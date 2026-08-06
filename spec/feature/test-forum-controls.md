@@ -69,11 +69,11 @@ candidate ──[テスト開始]──> testing ──[マージ]──> merged
 
 1. **描画**: `test-forum-discord.ts` がボタン / セレクトを構築し、押下後も同じメッセージを更新
 2. **受信配線**: `commands.ts` の interaction dispatch が `test:` を処理
-3. **テスト開始**: 選択された provider/model/effort で確認セッションを spawn し、
-   スレッドへ束ねて Lictor 同期させる (既存 `forum-spawn-session.ts` の webhook surface
-   機構を流用する。 Revisor に登録された repository root と local PR の head ref を
-   `branch + worktree=true` で既存 `spawn-target.ts` へ渡し、対象branchのworktreeを
-   再利用または安全に作成する)
+3. **テスト開始**: 選択された provider/model/effort で、設定済み workspace root を cwd
+   として確認セッションを spawn し、スレッドへ束ねて Lictor 同期させる。Revisor に
+   登録された repository/worktree と local PR の head ref は起動プロンプトで後から
+   指示し、セッションにフォーラム投稿を読むよう明記する。個別 repo を spawn cwd にせず、
+   `branch + worktree=true` も渡さない。
 4. **マージ**: 管理職以上に限定し、Revisor の `POST /v1/local-prs/:id/merge` を叩く。成功で `merged` へ遷移
 5. **オートマージ**: Revisor 側に `autoMergeIfEligible` + `autoMergeRiskThreshold` が既に
    あるので、 Concordia 側の実装は不要。 `autoMergeEnabled` を有効化する運用判断のみ

@@ -12,6 +12,7 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { toTokenResolver } from "./revisor-token.js";
+import type { PrSourceLink } from "./session-source-links.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -40,6 +41,7 @@ export interface SubmitLocalPrInput {
   sessionId: string;
   headRef: string;
   baseRef?: string;
+  sourceLinks?: readonly PrSourceLink[];
 }
 
 /** local PR の提出・照会に必要な操作だけを表す最小インタフェース (テスト差し替え用)。 */
@@ -172,6 +174,7 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
         session_id: input.sessionId,
         head_ref: input.headRef,
         ...(input.baseRef ? { base_ref: input.baseRef } : {}),
+        ...(input.sourceLinks?.length ? { source_links: input.sourceLinks } : {}),
       }),
     }) as { pullRequest?: unknown } | null;
     const pullRequest = asLocalPr(body?.pullRequest);

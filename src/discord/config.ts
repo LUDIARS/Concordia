@@ -12,6 +12,7 @@ import {
   type ForumTemplateTagSource,
 } from "./forum-template-tags.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
+import { TEST_FORUM_STATUS_TAG_NAMES } from "./test-forum-status-tags.js";
 import { reportError } from "../errors.js";
 
 export interface DiscordConfigSnapshot {
@@ -148,12 +149,13 @@ export async function ensureDiscordLayout(
       )
     : "";
   const testForumId = forumMode
-    ? await ensureForum(
+      ? await ensureForum(
         guild,
         repo,
         TEST_FORUM_KEY,
         FORUM_NAMES.test,
         TEST_FORUM_TOPIC,
+        TEST_FORUM_STATUS_TAG_NAMES,
       )
     : "";
   const taskWorkflowForumId = forumMode

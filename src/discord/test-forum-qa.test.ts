@@ -93,12 +93,12 @@ function stubFetch(handler: (url: string, init?: RequestInit) => { status?: numb
   return calls;
 }
 
-function hooks(log = { info: vi.fn(), warn: vi.fn() }) {
+function hooks(log = { info: vi.fn(), warn: vi.fn() }, workspaceRoots: string[] = []) {
   return {
     log,
     qa: createTestForumQaHooks({
       concordiaUrl: "http://127.0.0.1:11111",
-      workspaceRoots: [],
+      workspaceRoots,
       subsidiaryId: null,
       log,
     }),
@@ -132,6 +132,18 @@ describe("createTestForumQaHooks", () => {
 
     expect(await qa.start(candidate(), "thread-42")).toBeNull();
     expect(log.warn).toHaveBeenCalled();
+  });
+
+  it("starts QA from the workspace root while retaining the target repository", async () => {
+    const calls = stubFetch(() => ({ body: { ok: true, run: { id: "run-qa-2" } } }));
+    const { qa } = hooks(undefined, ["E:/Document/Ars"]);
+
+    await qa.start(candidate(), "thread-42");
+
+    expect(calls[0].body).toMatchObject({
+      cwd: "E:/Document/Ars",
+      args: { repository: "LUDIARS/no-such-repo-xyz" },
+    });
   });
 
   it("ends the child session of the recorded QA run when the post closes", async () => {

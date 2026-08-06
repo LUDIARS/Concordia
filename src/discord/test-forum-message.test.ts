@@ -72,6 +72,7 @@ function deps(overrides: Partial<Parameters<typeof handleTestForumMessage>[1]> =
     testForumId: "forum-1",
     surfaces: { listOpen: () => rows } as unknown as DiscordTestSurfacesRepo,
     concordiaUrl: "http://127.0.0.1:17330",
+    workspaceRoots: ["E:/Document/Ars"],
     isLaunchUserAllowed: () => true,
     isSessionAlive: () => false,
     injectToSession: vi.fn(),

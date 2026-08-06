@@ -70,7 +70,7 @@ export function createTestForumQaHooks(deps: TestForumQaDeps): TestForumQaHooks 
           ...(targetRepo ? { target_repo: targetRepo } : {}),
           details: detailSummary(candidate),
         },
-        ...(targetRepo ? { cwd: targetRepo } : {}),
+        ...(deps.workspaceRoots[0] ? { cwd: deps.workspaceRoots[0] } : {}),
         triggered_by: `test-forum:${candidate.repoOrigin}#${candidate.prNumber}`,
         spawn: true,
         subsidiary_id: deps.subsidiaryId ?? null,

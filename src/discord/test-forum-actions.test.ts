@@ -81,6 +81,7 @@ function deps(surface: DiscordTestSurfaceRow, overrides: Partial<TestForumAction
     revisor,
     deps: {
       concordiaUrl: "http://127.0.0.1:17330",
+      workspaceRoots: ["E:/Document/Ars"],
       surfaces,
       revisor,
       isLaunchUserAllowed: () => true,
@@ -196,7 +197,7 @@ describe("handleTestForumControl merge", () => {
     expect(JSON.parse(String(request.body)).options).toEqual({ effort: "high" });
   });
 
-  it("starts the reviewed branch through the managed worktree spawn path", async () => {
+  it("starts from the workspace root and tells the session its target", async () => {
     const fetchMock = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) =>
       new Response(JSON.stringify({ ok: true, pid: 123 }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -211,11 +212,14 @@ describe("handleTestForumControl merge", () => {
 
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(JSON.parse(String(request.body))).toMatchObject({
-      cwd: "E:/Document/Ars/Concordia",
-      branch: "feat/test-forum",
-      worktree: true,
+      cwd: "E:/Document/Ars",
       test_surface_id: 7,
     });
+    const body = JSON.parse(String(request.body));
+    expect(body).not.toHaveProperty("branch");
+    expect(body).not.toHaveProperty("worktree");
+    expect(body.prompt).toContain("E:/Document/Ars/Concordia");
+    expect(body.prompt).toContain("feat/test-forum");
     expect(interaction.deferUpdate).toHaveBeenCalledOnce();
     expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
   });

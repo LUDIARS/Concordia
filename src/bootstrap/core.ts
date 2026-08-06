@@ -108,8 +108,10 @@ import { runBootPhases } from "./boot-phases.js";
 import { ResourceOwner } from "./resource-owner.js";
 import { makeChatReadModel } from "../api/chat-read-models.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
+import { makeSlackSessionChannelsRepo } from "../slack/session-channels-repo.js";
 import { resolveSlackConfig } from "../slack/config.js";
 import { resolveDiscordConfig } from "../discord/conn-config.js";
+import { resolveSessionSourceLinks } from "../pr/session-source-links.js";
 import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js";
 import { loadSecretBox } from "../shared/secret-box.js";
 import { StaffRepo } from "../db/staff-repo.js";
@@ -401,6 +403,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // Slack 連携をサービス内 (DB) で設定するための repo + token 暗号化用 secret-box。
   // 鍵は DB の外 (env CONCORDIA_SECRET_KEY、 無ければ cwd の concordia.secret.key) に置く。
   const slackConfig = makeSlackConfigRepo(db);
+  const slackChannels = makeSlackSessionChannelsRepo(db);
   const secretBox = loadSecretBox({
     envValue: process.env.CONCORDIA_SECRET_KEY,
     keyFile: join(process.cwd(), "concordia.secret.key"),
@@ -528,7 +531,18 @@ export async function startBackend(): Promise<BackendHandle> {
   // 提出したときだけレビューされる」状態だった。 失敗してもセッション終了処理は止めない。
   const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient, resolveRevisorToken);
   const localPrLog = createChildLogger("revisor-local-pr");
-  const localPrDeps = { revisor: revisorLocalPrs, listBranchCommits, log: localPrLog };
+  const localPrDeps = {
+    revisor: revisorLocalPrs,
+    listBranchCommits,
+    resolveSourceLinks: (sessionId: string) => resolveSessionSourceLinks({
+      discordChannels,
+      slackChannels,
+      resolveDiscordGuildId: () => resolveDiscordConfig(discordConfig, secretBox).guildId,
+      resolveSlackBotToken: () => resolveSlackConfig(slackConfig, secretBox).botToken,
+      log: localPrLog,
+    }, sessionId),
+    log: localPrLog,
+  };
   const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
     if (ev.type !== "session.ended") return;
     if (!adminState.getRevisorAutoSubmitEnabled()) return;

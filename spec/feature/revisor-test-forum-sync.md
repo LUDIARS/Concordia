@@ -57,7 +57,8 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
 - スレッドに人間が投稿したとき:
   - surface の `session_id` が生きていれば、投稿本文を inject で届ける (📨)。
   - 無ければ、テスト開始ボタンと同じ設定・同じ経路 (`/v1/admin/spawn-session`) で
-    投稿本文を指示としてセッションを起動する (🧪)。特権 spawn なので
+    workspace root からセッションを起動し、対象ディレクトリ・branch・投稿本文を
+    起動後の指示として渡す (🧪)。特権 spawn なので
     ボタンと同じ権限 (session_spawn, 管理職以上) で守り、権限が無ければ 🚫。
   - run_state が candidate でない (テスト中だがセッション消滅等) は ⚠️ で案内する。
 - テストセッションは end-session で終了できるが、**投稿はクローズしない**。

@@ -138,6 +138,13 @@ describe("ensureDiscordLayout", () => {
     const forum = channels.get(snap.testForumId);
     expect(forum?.name).toBe("Test");
     expect(forum?.topic).toBe(TEST_FORUM_TOPIC);
+    expect(forum?.availableTags?.map((tag) => tag.name)).toEqual([
+      "審査中",
+      "審査失敗",
+      "人間判断",
+      "マージOK",
+      "テストOK",
+    ]);
     expect(TEST_FORUM_TOPIC).toContain("head commit");
     expect(TEST_FORUM_TOPIC).toContain("worktree");
   });

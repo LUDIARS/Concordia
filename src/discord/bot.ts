@@ -863,6 +863,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           testForumId: layout.testForumId,
           surfaces: testSurfacesRepo,
           concordiaUrl: deps.concordiaUrl,
+          workspaceRoots,
           isLaunchUserAllowed: deps.isLaunchUserAllowed,
           isSessionAlive: (sessionId) => deps.sessionsRepo.findSession(sessionId)?.status === "active",
           // emitSessionInject が未配線でも投稿を黙って捨てない (📨 を返しておいて

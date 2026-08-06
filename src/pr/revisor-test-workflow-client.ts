@@ -29,6 +29,8 @@ export interface RevisorLocalPrDetail {
   baseRef: string | null;
   body: string | null;
   decisionLabel: string | null;
+  /** 現在の base に対して競合なくマージできるか。 */
+  mergeable?: boolean;
   /** 人間の判断が必要な理由 (判断事項)。 */
   blockers: readonly string[];
   riskScore: number | null;
@@ -326,6 +328,7 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
     baseRef: asStringOrNull(pr.baseRef),
     body: asStringOrNull(pr.body),
     decisionLabel: asStringOrNull(decision.label),
+    mergeable: decision.mergeable === true,
     blockers,
     riskScore: asNumberOrNull(decision.riskScore),
     riskThreshold: asNumberOrNull(decision.riskThreshold),

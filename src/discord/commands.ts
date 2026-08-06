@@ -171,6 +171,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       }
       await handleTestForumControl(interaction, control, {
         concordiaUrl: deps.concordiaUrl,
+        workspaceRoots: deps.resolveWorkspaceRoots?.(),
         surfaces: deps.testSurfacesRepo,
         revisor: deps.revisor,
         isLaunchUserAllowed: deps.isLaunchUserAllowed,

@@ -139,6 +139,25 @@ describe("submitSessionLocalPr", () => {
     expect(sent!.body).toContain("feat: 最初の変更");
   });
 
+  it("submits even when optional source-link resolution fails", async () => {
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+    const warn = vi.fn();
+
+    const result = await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: x"],
+      resolveSourceLinks: async () => { throw new Error("Slack unavailable"); },
+      log: { info: vi.fn(), warn },
+    }, request);
+
+    expect(result.submitted).toBe(true);
+    expect(submitLocalPullRequest).toHaveBeenCalledWith(expect.objectContaining({ sourceLinks: [] }));
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: "s-1", err: "Slack unavailable" }),
+      "local PR source-link resolution failed",
+    );
+  });
+
   // 実際の session.repo_origin はこの形で来る。 ここが素通しだと自動提出は永久に
   // repository_not_registered で止まる。
   it("resolves the base ref for a session whose repo_origin is a remote URL", async () => {

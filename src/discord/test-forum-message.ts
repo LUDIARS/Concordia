@@ -11,6 +11,7 @@ export interface TestForumMessageDeps {
   testForumId: string;
   surfaces: DiscordTestSurfacesRepo;
   concordiaUrl: string;
+  workspaceRoots?: readonly string[];
   /** テスト開始ボタンと同じ権限 (session_spawn, 管理職以上)。 未注入は deny。 */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /** 生きているセッションか (sessions repo の status で判定)。 */

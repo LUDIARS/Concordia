@@ -197,6 +197,7 @@ describe("parseLocalPrDetail", () => {
       body: "説明",
       decision: {
         label: "人間の判断が必要",
+        mergeable: true,
         blockers: ["動作確認が必要", 42, "リスク超過"],
         riskScore: 57,
         riskThreshold: 30,
@@ -217,6 +218,7 @@ describe("parseLocalPrDetail", () => {
       baseRef: "main",
       body: "説明",
       decisionLabel: "人間の判断が必要",
+      mergeable: true,
       blockers: ["動作確認が必要", "リスク超過"],
       riskScore: 57,
       riskThreshold: 30,
@@ -233,6 +235,7 @@ describe("parseLocalPrDetail", () => {
     const detail = parseLocalPrDetail({ author: "neco" });
     expect(detail).toMatchObject({
       decisionLabel: null,
+      mergeable: false,
       blockers: [],
       riskScore: null,
       testsRan: null,

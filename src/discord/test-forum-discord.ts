@@ -9,6 +9,7 @@ import {
   ChannelType,
   StringSelectMenuBuilder,
   type AnyThreadChannel,
+  type ForumChannel,
   type Guild,
   type MessageActionRowComponentBuilder,
 } from "discord.js";
@@ -27,6 +28,7 @@ import type {
   TestForumSurfaceAdapter,
   TestSurfaceCloseReason,
 } from "./test-forum-reconcile.js";
+import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
 
 // 投稿本文には PR タイトル・説明・判断事項がそのまま載る。 これらは Revisor 経由の
 // 外部由来テキストなので、 `@everyone` 等が混ざっても誰にも通知が飛ばないようにする
@@ -129,6 +131,28 @@ async function resolveThread(
   return channel;
 }
 
+function findTestForum(guild: Guild, forumId: string): ForumChannel | null {
+  const forum = guild.channels.cache.get(forumId);
+  if (!forum || forum.type !== ChannelType.GuildForum) {
+    return null;
+  }
+  return forum;
+}
+
+function appliedStatusTags(
+  forum: ForumChannel | null,
+  candidate: TestForumCandidate,
+  current: readonly string[] = [],
+): string[] | null {
+  if (!forum || !forum.availableTags?.length) return null;
+  return reconcileTestForumTagIds(
+    forum.availableTags,
+    current,
+    candidate.checkStatus,
+    candidate.detail?.mergeable === true,
+  );
+}
+
 /** 操作面は状態遷移モジュールから組み立て、Discord API 固有の部品だけをここに閉じ込める。 */
 export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
   content: string;
@@ -197,13 +221,13 @@ export function createTestForumDiscordAdapter(
 ): TestForumSurfaceAdapter {
   return {
     async create(candidate) {
-      const forum = guild.channels.cache.get(forumId);
-      if (!forum || forum.type !== ChannelType.GuildForum) {
-        throw new Error(`Test forum is unavailable: ${forumId || "(empty id)"}`);
-      }
+      const forum = findTestForum(guild, forumId);
+      if (!forum) throw new Error(`Test forum is unavailable: ${forumId || "(empty id)"}`);
+      const statusTags = appliedStatusTags(forum, candidate);
       const thread = await forum.threads.create({
         name: threadName(candidate),
         message: { content: starterContent(candidate), allowedMentions: NO_MENTIONS },
+        ...(statusTags ? { appliedTags: statusTags } : {}),
         reason: `Concordia test candidate ${candidate.repoOrigin}#${candidate.prNumber}@${candidate.headSha}`,
       });
       // 提出セッションを操作していた人たちに掲載を知らせる。 starter とは別メッセージに
@@ -234,6 +258,11 @@ export function createTestForumDiscordAdapter(
       const name = threadName(candidate);
       if (thread.name !== name) {
         await thread.setName(name, "Concordia test candidate refreshed");
+      }
+      const currentTags = thread.appliedTags ?? [];
+      const tags = appliedStatusTags(findTestForum(guild, forumId), candidate, currentTags);
+      if (tags && [...currentTags].sort().join("\0") !== [...tags].sort().join("\0")) {
+        await thread.setAppliedTags(tags, "Concordia test candidate status refreshed");
       }
     },
     async render(surface) {

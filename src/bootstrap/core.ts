@@ -58,6 +58,7 @@ import { resolveLictorLauncher } from "../control/lictor-launcher.js";
 import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
+import { releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
@@ -520,7 +521,10 @@ export async function startBackend(): Promise<BackendHandle> {
   const unsubTestingRelease = eventBus.subscribe((ev) => {
     if (ev.type === "session.ended" || ev.type === "session.lost") {
       try {
-        testingClaims.release(ev.session_id, null, Math.floor(Date.now() / 1000));
+        releaseTestingClaims(testingClaims, {
+          sessionId: ev.session_id,
+          now: Math.floor(Date.now() / 1000),
+        });
       } catch { /* best-effort */ }
     }
   });

@@ -11,6 +11,29 @@ type ConcordiaEventPayload =
   | { type: "session.event";    session_id: string; kind: string; ts: number }
   | { type: "chat.posted";      message_id: number; channel: string; author_label: string; ts: number; is_actionable: boolean; scope?: "world" | "local"; session_id?: string | null }
   | { type: "task.enqueued";    session_id: string; task_id: number; kind: string; ts: number }
+  | {
+      type: "operational.claim.opened";
+      target_session_id: string;
+      claim_kind: string;
+      claim_id: number;
+      resource: string;
+      branch: string | null;
+      note: string;
+      conflict_session_ids: string[];
+      started_at: number;
+      ts: number;
+    }
+  | {
+      type: "operational.claim.released";
+      target_session_id: string;
+      claim_kind: string;
+      claim_id: number;
+      resource: string;
+      branch: string | null;
+      note: string;
+      started_at: number;
+      ts: number;
+    }
   | { type: "skill.snapshot";   skill_name: string; repo_path: string; poison_score: number; growth_score: number; ts: number }
   | { type: "report.generated"; session_id: string; ts: number }
   | { type: "rule.changed";     rule_id: string | null; action: "add" | "remove" | "toggle" | "fire" | "skip" | "error"; ts: number }
@@ -134,6 +157,8 @@ type ConcordiaEventPayload =
 
 type ChatEventType =
   | "chat.posted"
+  | "operational.claim.opened"
+  | "operational.claim.released"
   | "session.inject"
   | "transcript.frame"
   | "session.permission_request"

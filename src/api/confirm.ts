@@ -11,6 +11,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { ConfirmService } from "../release/confirm-service.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
+import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 
 const ActionSchema = z.object({
   service: z.string().min(1).max(64),
@@ -39,12 +40,14 @@ export function confirmRouter(deps: ConfirmApiDeps): Hono {
     // (Concordia が両者に警告を流す)。
     const claimant = session_id ?? `confirm:${service}`;
     const now = Math.floor(Date.now() / 1000);
-    deps.testingClaims?.claim({
-      service,
-      session_id: claimant,
-      note: `confirm ${action}`,
-      now,
-    });
+    if (deps.testingClaims) {
+      openTestingClaim(deps.testingClaims, {
+        service,
+        sessionId: claimant,
+        note: `confirm ${action}`,
+        now,
+      });
+    }
     try {
       const result =
         action === "start" ? await deps.service.start(service, session_id ?? "web-admin")
@@ -52,7 +55,13 @@ export function confirmRouter(deps: ConfirmApiDeps): Hono {
         : await deps.service.ng(service, reason);
       return c.json(result, result.ok ? 200 : 409);
     } finally {
-      deps.testingClaims?.release(claimant, service, Math.floor(Date.now() / 1000));
+      if (deps.testingClaims) {
+        releaseTestingClaims(deps.testingClaims, {
+          sessionId: claimant,
+          service,
+          now: Math.floor(Date.now() / 1000),
+        });
+      }
     }
   });
 

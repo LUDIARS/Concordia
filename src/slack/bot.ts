@@ -32,6 +32,7 @@ import { makeSlackMessageMapRepo } from "./message-map-repo.js";
 import { readSlackEnv, slackEnvReady, type SlackEnv } from "./types.js";
 import { wrapTablesInCode } from "../shared/message-blocks.js";
 import { parseInjectSource } from "../shared/inject-source.js";
+import { renderOperationalClaimMessage } from "../platform/operational-claim.js";
 import {
   buildQuestionBlocks,
   buildSessionBotUsername,
@@ -372,6 +373,19 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
   }
 
+  async function handleOperationalClaim(
+    ev: Extract<ConcordiaEvent, { type: "operational.claim.opened" | "operational.claim.released" }>,
+  ): Promise<void> {
+    if (ev.type === "operational.claim.opened" && !deps.readModel.isSessionActive(ev.target_session_id)) return;
+    const surface = channels.findBySessionId(ev.target_session_id);
+    if (!surface) return;
+    await web.chat.postMessage({
+      channel: surface.channel_id,
+      text: sanitizeSlackMentions(renderOperationalClaimMessage(ev)),
+      username: "Cc claims",
+    });
+  }
+
   // 回答済み / ローカル解決時に質問メッセージのボタンを外す（再クリック防止）。
   async function clearQuestionButtons(questionId: number, label: string): Promise<void> {
     const message = questionMessages.get(questionId);
@@ -521,6 +535,9 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     } else if (ev.type === "question.resolved") {
       void clearQuestionButtons(ev.question_id, "✅ *回答済み（ローカル）*");
       sessionsCanvas.schedule();
+    } else if (ev.type === "operational.claim.opened" || ev.type === "operational.claim.released") {
+      void handleOperationalClaim(ev).catch((e) =>
+        log.warn(`claim lifecycle post failed session=${ev.target_session_id}: ${(e as Error).message}`));
     } else if (ev.type === "session.inject") {
       // 環境同期: 相手PF(Discord)由来の inject を Slack session channel に転記。
       void mirrorForeignInject(ev).catch((e) => log.warn(`session.inject mirror: ${(e as Error).message}`));

@@ -43,5 +43,7 @@ describe("ws event schema", () => {
     expect(isConcordiaEventType("chat.posted")).toBe(true);
     expect(isConcordiaEventType("not.real")).toBe(false);
     expect(CONCORDIA_EVENT_TYPES).toContain("delegation.templates_changed");
+    expect(CONCORDIA_EVENT_TYPES).toContain("operational.claim.opened");
+    expect(CONCORDIA_EVENT_TYPES).toContain("operational.claim.released");
   });
 });

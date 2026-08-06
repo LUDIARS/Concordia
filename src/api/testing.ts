@@ -15,6 +15,7 @@ import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { injectTestingNotice } from "../testing/notify.js";
+import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 
 const ClaimSchema = z.object({
   session_id: z.string().min(1),
@@ -48,9 +49,9 @@ export function testingRouter(deps: TestingApiDeps): Hono {
     const parsed = ClaimSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { session_id, service, branch, note } = parsed.data;
-    const { claim, conflicts } = deps.claims.claim({
+    const { claim, conflicts } = openTestingClaim(deps.claims, {
       service,
-      session_id,
+      sessionId: session_id,
       branch: branch ?? deps.sessions.findSession(session_id)?.branch ?? null,
       note,
       now: nowSec(),
@@ -79,7 +80,11 @@ export function testingRouter(deps: TestingApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = ReleaseSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    const released = deps.claims.release(parsed.data.session_id, parsed.data.service ?? null, nowSec());
+    const released = releaseTestingClaims(deps.claims, {
+      sessionId: parsed.data.session_id,
+      service: parsed.data.service ?? null,
+      now: nowSec(),
+    });
     deps.log?.info(`testing release session=${parsed.data.session_id} service=${parsed.data.service ?? "*"} released=${released}`);
     return c.json({ ok: true, released });
   });

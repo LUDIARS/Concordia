@@ -13,6 +13,8 @@ export function eventSessionId(event: ConcordiaEvent): string | null {
     case "delegation.mirror":
     case "question.posted":
     case "question.resolved":
+    case "operational.claim.opened":
+    case "operational.claim.released":
       return event.target_session_id;
     case "chat.posted":
       return event.session_id ?? null;

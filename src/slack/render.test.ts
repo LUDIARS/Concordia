@@ -205,6 +205,9 @@ describe("sanitizeSlackMentions", () => {
   it("<!everyone> を @everyone に変換", () => {
     expect(sanitizeSlackMentions("<!everyone> 緊急です")).toBe("@everyone 緊急です");
   });
+  it("ユーザーグループへのメンションを無害化する", () => {
+    expect(sanitizeSlackMentions("<!subteam^S01234567|@ops> に確認")).toBe("@group に確認");
+  });
   it("<@USERID> を @USERID に変換", () => {
     expect(sanitizeSlackMentions("こんにちは <@U12345ABC>")).toBe("こんにちは @U12345ABC");
   });

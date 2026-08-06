@@ -57,6 +57,7 @@ import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
+import { renderOperationalClaimMessage } from "../platform/operational-claim.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
@@ -1321,6 +1322,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }, ev.parent_session_id).catch((e) => {
         log.warn(`delegation status-card refresh failed session=${ev.parent_session_id}: ${(e as Error).message}`);
       });
+      return;
+    }
+    if (ev.type === "operational.claim.opened" || ev.type === "operational.claim.released") {
+      if (ev.type === "operational.claim.opened" && !isActiveDiscordSession(ev.target_session_id)) return;
+      void (async () => {
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        await webhooks.send(client, {
+          content: renderOperationalClaimMessage(ev).slice(0, 1900),
+          username: "Cc claims",
+          allowedMentions: { parse: [] },
+        });
+      })().catch((e) => log.warn(`claim lifecycle post failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "taskflow.user_decision") {

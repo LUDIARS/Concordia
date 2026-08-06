@@ -21,6 +21,15 @@
 - 放置 claim は TTL (60 分) で active から外れる。
 - テーブル: `service_test_claims` (schema.ts)。
 
+## 投稿
+
+testing claim の開始・再宣言・明示解放・セッション終了時の自動解放は、
+`operational.claim.opened` / `operational.claim.released` として公開する。Discord と Slack は
+対象 session のチャンネルへ lifecycle を投稿し、service、branch、note、競合件数を共有する。
+
+これは人が調整に使う advisory claim の通知面である。delegation queue の lease や Lictor の
+transcript file claim など、実装内部の排他・fencing claim は投稿対象に含めない。
+
 ## ツール監視 inject (branch-watch)
 
 プロンプトフックでの毎回注入は非効率なので、 セッション行の branch (Lictor が変化時に

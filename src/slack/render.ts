@@ -199,7 +199,7 @@ export function extractRelayableFrame(
 
 /**
  * Slack のメンション記法を通知が発火しない形式にエスケープする。
- * AI 出力に <!here>/<@USERID> が含まれていても全員通知や意図しないメンションに
+ * AI 出力に <!here>/<@USERID>/<!subteam^...> が含まれていても全員通知や意図しないメンションに
  * ならないよう、Slack が特別解釈する記法を無害化する。
  */
 export function sanitizeSlackMentions(text: string): string {
@@ -207,6 +207,7 @@ export function sanitizeSlackMentions(text: string): string {
     .replace(/<!here>/g, "@here")
     .replace(/<!channel>/g, "@channel")
     .replace(/<!everyone>/g, "@everyone")
+    .replace(/<!subteam\^[A-Z][A-Z0-9]*(?:\|[^>]*)?>/g, "@group")
     .replace(/<@([A-Z][A-Z0-9]+)>/g, "@$1");
 }
 

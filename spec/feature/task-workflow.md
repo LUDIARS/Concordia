@@ -263,11 +263,10 @@ delegation run は §5 の status API が正なので、 本節は **status を�
 
 - **既存で充足**: 役割別テンプレ (調査=Sonnet / 実装=Codex / 高度=Fable)、
   invoke `overrides.reasoning_effort` (codex `-c model_reasoning_effort=` 透過)、
-  local レーンの `famulus select` (model="auto" 黒箱選択)。
-- **実装済み**: Codex / Claude の effort は Famulus を経由せず、Cc の成長型 blackbox
-  domain `concordia.delegation.effort` がタスク prompt ごとに判定する。未学習時は Haiku
-  one-shot、学習後は昇格 rule で即決し、delegation の completed / failed を verdict として
-  自己修復する。明示 `overrides.reasoning_effort` / options / template 設定は常に優先する。
+  local レーンの Cc管理既定モデル (model="auto")。
+- **実装済み**: Codex / Claude の model/effort は Session Spawn とtask変更時にGeniusを照会する。
+  score閾値以上のhit時だけCcの小型judgeが候補を作り、Discord確認後に適用する。miss時は
+  Discordへ記録して現在値を維持し、別LLMへの自動フォールバックは行わない。
 
 ## 10. メンション方針
 

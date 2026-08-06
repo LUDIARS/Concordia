@@ -9,6 +9,7 @@ type ConcordiaEventPayload =
   | { type: "session.lost";     session_id: string; ts: number }
   | { type: "session.ended";    session_id: string; ts: number }
   | { type: "session.event";    session_id: string; kind: string; ts: number }
+  | { type: "session.task_changed"; session_id: string; previous_task: string | null; current_task: string | null; ts: number }
   | { type: "chat.posted";      message_id: number; channel: string; author_label: string; ts: number; is_actionable: boolean; scope?: "world" | "local"; session_id?: string | null }
   | { type: "task.enqueued";    session_id: string; task_id: number; kind: string; ts: number }
   | {

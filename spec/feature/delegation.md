@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "Delegation Templates — 設計"
-description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / codex-sdk (Satelles ヘッドレス) / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。v0.1 の spawn + render から v0.3 の Famulus 連携・model=\"auto\" 黒箱選択、v0.4 のコミット代行 (sandbox 下の委託先の代わりに Concordia がコミットする commit broker) まで実装済み。"
+description: "AI エージェント間の作業委託フレームワーク。Claude / Codex / codex-sdk (Satelles ヘッドレス) / Gemini / gemma4-12 (ローカル LLM) をテンプレート呼び出し名で発火し、Concordia が resolve + spawn + 履歴記録を管理する。spawn + render、Cc管理のmodel/effort確認、コミット代行を扱う。"
 service: concordia
 domain: governance
 tags:
@@ -225,7 +225,7 @@ delegation テンプレ選択ベースで起動する:
 | `claude-opus-5-impl` | claude | claude-opus-5 | Claude Opus に実装委託 (最上位 / 難所・設計判断向き) |
 | `claude-sonnet-5-impl` | claude | claude-sonnet-5 | Claude Sonnet に実装委託 (中位 / 一般実装の主力) |
 | `claude-fable-5-impl` | claude | claude-fable-5 | Claude Fable に実装委託 (高速 / 軽量〜中規模) |
-| `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Famulus 経由) に実装委託、 API 課金ゼロ |
+| `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Ollama) に実装委託、 API 課金ゼロ |
 
 `target_provider=claude` のテンプレは spawn 時に `lictor claude --model <id>` で起動する
 (`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
@@ -425,25 +425,14 @@ wt.exe 経路をバイパスして detached child として spawn される (Win
 target_provider=`gemma4-12` / **model="auto"** / default_cwd=`${target_repo}`。
 旧 seed `gamma-impl` (target_provider=gamma) は seed 時に deactivate される。
 
-### 13.4 Famulus 連携 + model="auto" (黒箱選択)
+### 13.4 Cc 管理の model="auto"
 
-実 spawn は `lictor gemma4-12` → Lictor が別リポ **Famulus** (`@ludiars/famulus`) の
-`famulus run` を pty 起動する (ローカル LLM スポナーを切り出した。Lictor 側の repoint 済)。
+`model="auto"` は delegation invoke と admin spawn-from-template の両方で、Cc管理の
+既定ローカルモデル `gemma4:12b` へ解決する。別プロセスのモデル選択器は呼ばない。
+固定したい場合はテンプレートへ Ollama model tag を明示する。
 
-`model="auto"` のとき、 delegation invoke (`delegation/service.ts`) と admin
-spawn-from-template (`app.ts`) は `resolveLocalModel` (`control/famulus-select.ts`) で
-**`famulus select --project <target_repo の basename>` を shell** し、対象プロジェクトに
-合うモデルを Famulus の黒箱切り替え機 (FT registry + Sonnet ワンショット) に選ばせる。
-
-- 選択の Sonnet 呼び出しは **Famulus 内部**なので Concordia は LLM-free を維持
-  (Famulus CLI を叩くだけ)。
-- 黒箱は常に model_id を返す (Sonnet 不可でも決定論フォールバック)。失敗時は既定
-  `gemma4:12b`。
-- 「全パターンの delegation テンプレを作らない」 → `model="auto"` の 1 本に集約する設計。
-- 解決済みモデルは `resolveDelegationSpawn` 経由で `LICTOR_LOCAL_MODEL` env として Famulus
-  に渡る。
-
-> 前提: Concordia と同ホストに `famulus` CLI が PATH 解決可能であること (現状 npm link)。
+Session Spawn の model/effort最適化は `model-effort-review.md` のGenius hit限定フローで
+扱い、miss時に別LLMへ自動フォールバックしない。
 
 ## 14. v0.4 追加: コミット代行 (commit broker)
 

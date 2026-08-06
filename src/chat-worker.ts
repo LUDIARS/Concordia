@@ -51,6 +51,10 @@ import { createRevisorTestWorkflowClient } from "./pr/revisor-test-workflow-clie
 import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
 import { createRevisorClientFromEnv } from "./pr/revisor-client.js";
+import { ModelCatalogRepo } from "./db/model-catalog-repo.js";
+import { CatalogGeniusClient } from "./inquiry/genius-client.js";
+import { GeniusModelReviewService } from "./model-review/service.js";
+import { applyRuntimeModelReview } from "./model-review/runtime-switch.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -213,6 +217,13 @@ async function main(): Promise<void> {
   reconcileTimer.unref?.();
 
   const delegationRepo = new DelegationRepo(db);
+  const excubitor = new ExcubitorClient();
+  const modelReview = new GeniusModelReviewService({
+    genius: new CatalogGeniusClient(excubitor),
+    models: new ModelCatalogRepo(db),
+    judge: runClaude,
+    scoreMin: cfg.inquiryScoreMin,
+  });
   const transcriptLogs = new TranscriptLogsRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
@@ -239,10 +250,10 @@ async function main(): Promise<void> {
     chatRepo: chat,
     sessionsRepo: sessions,
     revisorTestWorkflow: createRevisorTestWorkflowClient(
-      new ExcubitorClient(),
+      excubitor,
       () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox),
     ),
-    revisor: createRevisorClientFromEnv(new ExcubitorClient()),
+    revisor: createRevisorClientFromEnv(excubitor),
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,
@@ -277,6 +288,8 @@ async function main(): Promise<void> {
     },
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(sessions, sessionId),
+    modelReview,
+    applyRuntimeModelReview: (input) => applyRuntimeModelReview(sessions, input),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
     emitSessionInject: postInject(concordiaUrl),
   };

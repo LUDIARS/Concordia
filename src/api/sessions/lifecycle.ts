@@ -358,6 +358,7 @@ app.patch("/:id", async (c) => {
     };
     const patchTs = nowSec();
     const didChangeBranch = parsed.data.branch !== undefined && parsed.data.branch !== session.branch;
+    const didChangeTask = parsed.data.current_task !== undefined && parsed.data.current_task !== session.current_task;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);
     deps.repo.updateHeartbeat(id, patchTs);
@@ -371,6 +372,15 @@ app.patch("/:id", async (c) => {
         ts: patchTs,
         kind: "task_update",
         payload: { current_task: parsed.data.current_task },
+      });
+    }
+    if (didChangeTask) {
+      eventBus.emit({
+        type: "session.task_changed",
+        session_id: id,
+        previous_task: session.current_task,
+        current_task: parsed.data.current_task ?? null,
+        ts: patchTs,
       });
     }
     return c.json({ ok: true });

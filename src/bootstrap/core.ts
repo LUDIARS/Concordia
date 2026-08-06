@@ -86,6 +86,9 @@ import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
+import { CatalogGeniusClient } from "../inquiry/genius-client.js";
+import { GeniusModelReviewService } from "../model-review/service.js";
+import { applyRuntimeModelReview } from "../model-review/runtime-switch.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TaskMdStore } from "../taskflow/md-store.js";
 import { MemoriaBackend } from "../taskflow/backend.js";
@@ -482,6 +485,12 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
+  const modelReview = new GeniusModelReviewService({
+    genius: new CatalogGeniusClient(excubitorClient),
+    models: modelCatalog,
+    judge: runClaude,
+    scoreMin: cfg.inquiryScoreMin,
+  });
   const revisorClient = createRevisorClientFromEnv(excubitorClient);
   // Revisor workflow token は DB (revisor_config、 secret-box 暗号化) が正本で、 env は
   // フォールバック。 クライアントはリクエストごとに解決するので Web UI の変更が即効く。
@@ -742,6 +751,8 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
+    modelReview,
+    applyRuntimeModelReview: (input) => applyRuntimeModelReview(repo, input),
     onRuntimeState: (state) => {
       discordBotLastStatus = state.status;
       discordBotLastError = state.error ?? null;

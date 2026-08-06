@@ -8,6 +8,7 @@ export const CONCORDIA_EVENT_TYPES = [
   "session.lost",
   "session.ended",
   "session.event",
+  "session.task_changed",
   "chat.posted",
   "task.enqueued",
   "operational.claim.opened",
@@ -83,6 +84,13 @@ const eventSchemas = {
     type: z.literal("session.event"),
     session_id: z.string(),
     kind: z.string(),
+    ts: z.number(),
+  }).passthrough(),
+  "session.task_changed": z.object({
+    type: z.literal("session.task_changed"),
+    session_id: z.string(),
+    previous_task: nullableString,
+    current_task: nullableString,
     ts: z.number(),
   }).passthrough(),
   "chat.posted": z.object({

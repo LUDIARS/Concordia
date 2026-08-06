@@ -22,12 +22,14 @@ vi.mock("../cost/context-estimate.js", async (importOriginal) => ({
 
 describe("makeChatReadModel.getSessionStatusSnapshot", () => {
   let sessions: SessionsRepo;
+  let delegation: DelegationRepo;
   let transcriptLogs: TranscriptLogsRepo;
   let readModel: ReturnType<typeof makeChatReadModel>;
 
   beforeEach(() => {
     const db = makeTestDb();
     sessions = new SessionsRepo(db);
+    delegation = new DelegationRepo(db);
     transcriptLogs = new TranscriptLogsRepo(db);
     readModel = makeChatReadModel({
       chatRepo: new ChatRepo(db),
@@ -35,7 +37,7 @@ describe("makeChatReadModel.getSessionStatusSnapshot", () => {
       sessionTaskRecordsRepo: new SessionTaskRecordsRepo(db),
       tasksRepo: new TasksRepo(db),
       prRecordsRepo: new PrRecordsRepo(db),
-      delegationRepo: new DelegationRepo(db),
+      delegationRepo: delegation,
       usageFrames: transcriptLogs,
     });
   });
@@ -71,5 +73,44 @@ describe("makeChatReadModel.getSessionStatusSnapshot", () => {
     const snapshot = await readModel.getSessionStatusSnapshot("codex-sdk-session", "channel-1");
 
     expect(snapshot?.costBadge).toContain("110 tok");
+  });
+
+  it("runtime model review の metadata は delegation 起動時の設定より優先する", () => {
+    delegation.createRun({
+      id: "run-runtime-review",
+      template_id: null,
+      call_name: "codex-impl",
+      target_provider: "codex",
+      args: {},
+      rendered_prompt: "implement",
+      prompt_file_path: "prompt.md",
+      spawn_pid: 1,
+      spawn_command: ["codex"],
+      triggered_by: "web-spawn",
+      status: "running",
+      effective_model: "gpt-5.6-sol",
+      effort_level: "xhigh",
+    });
+    sessions.insertSession({
+      id: "runtime-reviewed-session",
+      provider: "codex-cli",
+      repo_path: "E:/Document/Ars/Concordia",
+      repo_origin: null,
+      branch: "main",
+      host: "test-host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: JSON.stringify({
+        delegation_run_id: "run-runtime-review",
+        model: "gpt-5.6-terra",
+        effort: "medium",
+      }),
+    });
+
+    expect(readModel.getSessionRelayState("runtime-reviewed-session")).toMatchObject({
+      model: "gpt-5.6-terra",
+      effortLevel: "medium",
+    });
   });
 });

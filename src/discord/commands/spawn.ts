@@ -6,6 +6,11 @@ import {
   markForumThreadAsConcordiaManaged,
   type EditableForumThread,
 } from "../forum-system-tag.js";
+import {
+  renderModelReviewMiss,
+  stageSpawnModelReview,
+} from "../model-review-dialog.js";
+import type { ModelReviewOutcome } from "../../model-review/contracts.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
 
@@ -36,6 +41,17 @@ const spawnCommand: DiscordCommandSpec = {
       o.setName("model")
         .setDescription("モデル (例 haiku / sonnet / opus)。provider 直指定時のみ有効")
         .setRequired(false))
+    .addStringOption((o) =>
+      o.setName("effort")
+        .setDescription("reasoning effort (未指定ならprovider/template既定)")
+        .setRequired(false)
+        .addChoices(
+          { name: "low", value: "low" },
+          { name: "medium", value: "medium" },
+          { name: "high", value: "high" },
+          { name: "xhigh", value: "xhigh" },
+          { name: "max", value: "max" },
+        ))
     .addStringOption((o) => o.setName("project").setDescription("project/repository name under workspace roots").setRequired(false))
     .addStringOption((o) => o.setName("branch").setDescription("requested working branch (Cc に登録)").setRequired(false))
     .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false)),
@@ -67,13 +83,14 @@ const spawnCommand: DiscordCommandSpec = {
     const inject = interaction.options.getBoolean("inject") ?? false;
     const prompt = interaction.options.getString("prompt")?.trim() || undefined;
     const model = interaction.options.getString("model")?.trim() || undefined;
+    const effort = interaction.options.getString("effort")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
     const project = interaction.options.getString("project")?.trim() || undefined;
     const branch = interaction.options.getString("branch")?.trim() || undefined;
 
     deps.log.info(
       `spawn command execute provider=${provider ?? "-"} template=${template ?? "-"} inject=${inject ? 1 : 0} ` +
-       `has_prompt=${prompt ? 1 : 0} model=${model ?? "-"} project=${project ?? "-"} branch=${branch ?? "-"} has_cwd=${cwd ? 1 : 0} ` +
+       `has_prompt=${prompt ? 1 : 0} model=${model ?? "-"} effort=${effort ?? "-"} project=${project ?? "-"} branch=${branch ?? "-"} has_cwd=${cwd ? 1 : 0} ` +
       `subsidiary=${deps.subsidiaryId ?? "-"} guild=${interaction.guildId ?? "-"} channel=${interaction.channelId}`,
     );
 
@@ -90,21 +107,42 @@ const spawnCommand: DiscordCommandSpec = {
       await interaction.deferReply({ ephemeral: false });
       if (!await markExplicitSpawnThread(interaction, deps)) return;
       deps.log.info(`spawn command branch=template template=${template} inject=${inject ? 1 : 0}`);
+      const cached = await delegationTemplateCache.get(deps.concordiaUrl, deps.log);
+      const selected = cached.templates.find((candidate) => candidate.call_name === template);
+      const templateProvider = selected?.target_provider ?? null;
+      const templateEffort = readTemplateEffort(templateProvider, selected?.default_options);
+      const request: Record<string, unknown> = {
+        template,
+        inject_prompt: inject,
+        project,
+        cwd,
+        branch,
+        subsidiary_id: deps.subsidiaryId ?? null,
+        requester_discord_user_id: interaction.user.id,
+        source_discord_guild_id: interaction.guildId,
+        source_discord_channel_id: interaction.channelId,
+        ...(templateProvider ? { provider: templateProvider } : {}),
+        ...(effort ? { options: effortOptions(templateProvider, effort) } : {}),
+      };
+      const review = await reviewSpawn(deps, {
+        provider: templateProvider,
+        task: prompt ?? selected?.description ?? selected?.title ?? template,
+        model: selected?.model ?? null,
+        effort: effort ?? templateEffort,
+      });
+      if (review?.status === "proposal") {
+        await interaction.editReply(stageSpawnModelReview({
+          actorUserId: interaction.user.id,
+          request,
+          proposal: review,
+        }));
+        return;
+      }
       const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        {
-          template,
-          inject_prompt: inject,
-          project,
-          cwd,
-          branch,
-          subsidiary_id: deps.subsidiaryId ?? null,
-          requester_discord_user_id: interaction.user.id,
-          source_discord_guild_id: interaction.guildId,
-          source_discord_channel_id: interaction.channelId,
-        },
+        request,
       );
       if ("error" in r || !r.ok) {
         deps.log.warn(`spawn command template failed template=${template} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
@@ -116,9 +154,9 @@ const spawnCommand: DiscordCommandSpec = {
       const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
       deps.log.info(`spawn command template ok template=${template} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
       await interaction.editReply({
-        content: channelMention
+        content: prefixMiss(review, channelMention
           ? `Spawned from \`${template}\`${r.injected_prompt ? " (prompt 注入)" : ""} → ${channelMention}`
-          : `spawn accepted for \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""}), but no session registered within 12 seconds. Check the Lictor runtime and try again.`,
+          : `spawn accepted for \`${template}\` (pid: ${r.pid ?? "n/a"}${r.injected_prompt ? ", prompt 注入" : ""}), but no session registered within 12 seconds. Check the Lictor runtime and try again.`),
       });
       return;
     }
@@ -139,22 +177,38 @@ const spawnCommand: DiscordCommandSpec = {
     await interaction.deferReply({ ephemeral: false });
     if (!await markExplicitSpawnThread(interaction, deps)) return;
     deps.log.info(`spawn command branch=admin-provider provider=${provider} project=${project ?? "-"} requested_branch=${branch ?? "-"}`);
+    const request: Record<string, unknown> = {
+      provider,
+      prompt,
+      model,
+      project,
+      cwd,
+      branch,
+      ...(effort ? { options: effortOptions(provider, effort) } : {}),
+      subsidiary_id: deps.subsidiaryId ?? null,
+      requester_discord_user_id: interaction.user.id,
+      source_discord_guild_id: interaction.guildId,
+      source_discord_channel_id: interaction.channelId,
+    };
+    const review = await reviewSpawn(deps, {
+      provider,
+      task: prompt ?? `${project ?? cwd ?? "unknown project"} の新規Session (task未指定)`,
+      model: model ?? null,
+      effort: effort ?? defaultEffort(provider),
+    });
+    if (review?.status === "proposal") {
+      await interaction.editReply(stageSpawnModelReview({
+        actorUserId: interaction.user.id,
+        request,
+        proposal: review,
+      }));
+      return;
+    }
     const r = await callConcordia<{ ok: boolean; pid?: number; injected_prompt?: boolean; error?: string }>(
       deps.concordiaUrl,
       "POST",
       "/v1/admin/spawn-session",
-      {
-        provider,
-        prompt,
-        model,
-        project,
-        cwd,
-        branch,
-        subsidiary_id: deps.subsidiaryId ?? null,
-        requester_discord_user_id: interaction.user.id,
-        source_discord_guild_id: interaction.guildId,
-        source_discord_channel_id: interaction.channelId,
-      },
+      request,
     );
     if ("error" in r || !r.ok) {
       deps.log.warn(`spawn command admin-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
@@ -164,12 +218,48 @@ const spawnCommand: DiscordCommandSpec = {
     const channelMention = await waitForSessionChannel(deps.sessionChannelsRepo, knownIds);
     deps.log.info(`spawn command admin-provider ok provider=${provider} pid=${r.pid ?? "n/a"} channel_found=${channelMention ? 1 : 0}`);
     await interaction.editReply({
-      content: channelMention
+      content: prefixMiss(review, channelMention
         ? `Spawned \`${provider}\`${model ? ` (${model})` : ""}${branch ? ` on \`${branch}\`` : ""} → ${channelMention}`
-        : `Spawn requested (pid: ${r.pid ?? "n/a"})`,
+        : `Spawn requested (pid: ${r.pid ?? "n/a"})`),
     });
   },
 };
+
+async function reviewSpawn(
+  deps: Parameters<DiscordCommandSpec["execute"]>[1],
+  input: { provider: string | null; task: string; model: string | null; effort: string | null },
+): Promise<ModelReviewOutcome | null> {
+  if (!deps.modelReview || (input.provider !== "claude" && input.provider !== "codex")) return null;
+  return deps.modelReview.review({
+    trigger: "spawn",
+    provider: input.provider,
+    task: input.task,
+    currentModel: input.model,
+    currentEffort: input.effort,
+  });
+}
+
+function effortOptions(provider: string | null, effort: string): Record<string, string> {
+  return provider === "claude" ? { effort } : { model_reasoning_effort: effort };
+}
+
+function defaultEffort(provider: string): string | null {
+  return provider === "codex" ? "xhigh" : null;
+}
+
+function readTemplateEffort(provider: string | null, options: Record<string, unknown> | undefined): string | null {
+  if (!options) return defaultEffort(provider ?? "");
+  const value = provider === "claude"
+    ? options.effort ?? options.reasoning_effort
+    : options.model_reasoning_effort ?? options.reasoning_effort;
+  return typeof value === "string" && value !== "auto" ? value : defaultEffort(provider ?? "");
+}
+
+function prefixMiss(review: ModelReviewOutcome | null, message: string): string {
+  return review?.status === "miss"
+    ? `${renderModelReviewMiss(review.reason, "spawn")}\n${message}`
+    : message;
+}
 
 export default spawnCommand;
 

@@ -89,9 +89,8 @@ import {
   resolveDelegationRuntimeArgs,
   resolveDelegationRuntimeEnv,
   resolveDelegationSpawn,
+  GEMMA4_12_DEFAULT_MODEL,
 } from "../control/provider-preset.js";
-import { resolveLocalModel } from "../control/famulus-select.js";
-import { basename } from "node:path";
 import { reapOrphans } from "../control/reaper.js";
 import type { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { runWsCleanup } from "../control/ws-cleanup.js";
@@ -441,6 +440,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           triggered_by: "web-spawn",
           spawn: true,
           options: runtimeOptions,
+          overrides: {
+            ...(typeof body.model === "string" && body.model.trim() ? { model: body.model.trim() } : {}),
+            ...(typeof body.reasoning_effort === "string" && body.reasoning_effort.trim()
+              ? { reasoning_effort: body.reasoning_effort.trim() }
+              : {}),
+          },
           extra_prompt: adHocPrompt || undefined,
           project: projectName || null,
           subsidiary_id: subsidiaryId,
@@ -478,11 +483,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         const expanded = substituteVars(tpl.default_cwd, tplArgs).trim();
         tplCwd = (expanded && !expanded.includes("${")) ? expanded : undefined;
       }
-      // local-LLM レーンで model="auto" なら Famulus 黒箱に選ばせる (delegation invoke と同じ。
-      // 選択 Sonnet は Famulus 内部 = Concordia は LLM-free)。それ以外は素通し。
-      let modelInput = tpl.model;
-      if (tpl.target_provider === "gemma4-12" && (tpl.model ?? "").trim().toLowerCase() === "auto") {
-        modelInput = await resolveLocalModel(tpl.model, { project: tplCwd ? basename(tplCwd) : undefined, repo: tplCwd ?? null });
+      // dialog で承認された body.model をテンプレ既定より優先する。
+      let modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : tpl.model;
+      if (tpl.target_provider === "gemma4-12" && (modelInput ?? "").trim().toLowerCase() === "auto") {
+        modelInput = GEMMA4_12_DEFAULT_MODEL;
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);

@@ -6,7 +6,7 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { basename, join } from "node:path";
+import { join } from "node:path";
 import {
   type DelegationRepo,
   type DelegationProvider,
@@ -19,19 +19,14 @@ import {
   resolveDelegationRuntimeArgs,
   resolveDelegationSpawn,
   normalizeProviderEffort,
+  GEMMA4_12_DEFAULT_MODEL,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
-import { resolveLocalModel } from "../control/famulus-select.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
 import { createChildLogger } from "../shared/logger.js";
-import {
-  baselineEffort,
-  classifyTaskEffort,
-  supportsAutomaticEffort,
-  type EffortTaskBucket,
-} from "./effort-policy.js";
+import { baselineEffort, classifyTaskEffort, supportsAutomaticEffort, type EffortTaskBucket } from "./effort-policy.js";
 import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
 import { buildInvocationPlan } from "./plan.js";
 import { recoverCollapsedWindowsWorkspacePath } from "./windows-path-recovery.js";
@@ -309,15 +304,12 @@ export class DelegationService {
       spawnWorktreePath = target.worktree_path;
       spawnWorktreeCreated = target.worktree_created;
     }
-    // local-LLM レーン (gemma4-12、旧 gamma) で model="auto" のとき、Famulus の黒箱
-    // 切り替え機にモデルを選ばせる。選択の Sonnet ワンショットは Famulus 内部なので
-    // Concordia は LLM-free を維持 (`famulus select` を shell するだけ)。それ以外は素通し。
-    // project ヒントは delegation の project を最優先、 無ければ cwd の basename。
+    // Famulus は model 選択経路から外す。 local-LLM の auto は Cc が管理する catalog
+    // 既定へ解決し、Genius model-review が hit した場合だけ明示候補で上書きされる。
     let modelInput = input.overrides?.model !== undefined ? input.overrides.model : def.model;
     if (provider === "gemma4-12" && (modelInput ?? "").trim().toLowerCase() === "auto") {
-      const projectHint = (def.project ?? "").trim() || (cwd ? basename(cwd) : undefined);
-      modelInput = await resolveLocalModel(modelInput, { project: projectHint, repo: cwd ?? null });
-      log.info({ call_name: def.call_name, project: projectHint, resolved_model: modelInput }, "famulus auto-model resolved");
+      modelInput = GEMMA4_12_DEFAULT_MODEL;
+      log.info({ call_name: def.call_name, resolved_model: modelInput }, "Cc local auto-model resolved");
     }
     // 論理 provider (gemma4-12 等) → 実 spawn (CLI + args + env) に解決 (単一情報源)。
     const spawn = resolveDelegationSpawn(provider, modelInput);
@@ -338,26 +330,22 @@ export class DelegationService {
         }
         effortLevel = normalized;
         effortSource = requestedEffort.source;
-      } else {
-        const decision = this.deps.effortBlackbox && shouldSpawn
-          ? await this.deps.effortBlackbox.decide({
-              provider,
-              model: spawn.effectiveModel,
-              prompt: renderedPrompt,
-              callName: def.call_name,
-              project: def.project ?? null,
-            })
-          : {
-              level: baselineEffort(effortBucket),
-              bucket: effortBucket,
-              source: "auto-baseline" as const,
-              decision_id: null,
-              confidence: null,
-            };
+      } else if (this.deps.effortBlackbox) {
+        const decision = await this.deps.effortBlackbox.decide({
+          provider,
+          model: spawn.effectiveModel,
+          prompt: renderedPrompt,
+          callName: def.call_name,
+          project: def.project ?? null,
+        });
         effortLevel = decision.level;
         effortSource = decision.source;
+        effortBucket = decision.bucket;
         effortDecisionId = decision.decision_id;
         effortConfidence = decision.confidence;
+      } else {
+        effortLevel = baselineEffort(effortBucket);
+        effortSource = "auto-baseline";
       }
     }
     // codex ファミリ (codex / codex-sdk) は model_reasoning_effort、 claude は effort。

@@ -6,6 +6,7 @@ export function eventSessionId(event: ConcordiaEvent): string | null {
     case "session.lost":
     case "session.ended":
     case "session.event":
+    case "session.task_changed":
       return event.session_id;
     case "transcript.frame":
     case "session.inject":

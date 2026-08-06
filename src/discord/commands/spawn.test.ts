@@ -63,9 +63,9 @@ describe("/spawn Forum marker", () => {
       appliedTags: ["work-tag", "managed-tag"],
       reason: "Concordia explicit spawn",
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:11111/v1/admin/spawn-session");
-    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("/v1/delegation/invoke");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe("http://127.0.0.1:11111/v1/admin/spawn-session");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("/v1/delegation/invoke");
   });
 
   it("fails closed and never calls the spawn API when the managed tag is missing", async () => {

@@ -6,6 +6,7 @@ import type { DiscordConfigSnapshot } from "./config.js";
 import type { PermissionActionStore } from "./permission-port.js";
 import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type { ModelReviewPort, RuntimeModelReviewApplyResult } from "../model-review/contracts.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -14,6 +15,12 @@ export interface DiscordCommandDeps {
   pendingQuestionsRepo: DiscordPendingQuestionsRepo;
   testSurfacesRepo?: DiscordTestSurfacesRepo;
   revisor?: RevisorLocalPrReader & RevisorLocalPrMerger;
+  modelReview?: ModelReviewPort;
+  applyRuntimeModelReview?: (input: {
+    sessionId: string;
+    model: string;
+    effort: string;
+  }) => Promise<RuntimeModelReviewApplyResult>;
   answerQuestion?: AnswerQuestionFn;
   guild: Guild;
   layout: DiscordConfigSnapshot;

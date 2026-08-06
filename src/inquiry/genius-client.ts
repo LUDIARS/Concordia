@@ -2,14 +2,20 @@ import type { ExcubitorClient } from "../excubitor/client.js";
 
 export interface GeniusCard {
   id: string;
+  /** Backward-compatible display label. Current Genius calls this `situation`. */
   title: string;
   score: number;
   domain?: string;
+  category?: string | null;
+  situation?: string;
+  judgment?: string;
+  rationale?: string;
+  confidence?: number;
   tags?: string[];
 }
 
 export interface GeniusClient {
-  query(input: { text: string; categories: string[]; k: number }): Promise<GeniusCard[] | null>;
+  query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null>;
 }
 
 /** healthz + query を合わせた上限 (spec/feature/inquiry.md §10-1)。 */
@@ -22,7 +28,7 @@ const QUERY_BUDGET_MS = 2_000;
 export class CatalogGeniusClient implements GeniusClient {
   constructor(private readonly excubitor: Pick<ExcubitorClient, "findService">, private readonly fetchImpl: typeof fetch = fetch) {}
 
-  async query(input: { text: string; categories: string[]; k: number }): Promise<GeniusCard[] | null> {
+  async query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null> {
     const url = await this.resolveUrl();
     if (!url) return null;
     // 予算は healthz + query の合計で 2s (spec §10-1)。 各要求に 2s ずつ与えると
@@ -65,6 +71,21 @@ export class CatalogGeniusClient implements GeniusClient {
 function asCard(value: unknown): GeniusCard[] {
   if (!value || typeof value !== "object") return [];
   const row = value as Record<string, unknown>;
-  if (typeof row.id !== "string" || typeof row.title !== "string" || typeof row.score !== "number") return [];
-  return [{ id: row.id, title: row.title, score: row.score, domain: typeof row.domain === "string" ? row.domain : undefined, tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : undefined }];
+  if (typeof row.id !== "string" || typeof row.score !== "number") return [];
+  const situation = typeof row.situation === "string" ? row.situation : undefined;
+  const legacyTitle = typeof row.title === "string" ? row.title : undefined;
+  const title = situation ?? legacyTitle;
+  if (!title) return [];
+  return [{
+    id: row.id,
+    title,
+    score: row.score,
+    domain: typeof row.domain === "string" ? row.domain : undefined,
+    category: typeof row.category === "string" || row.category === null ? row.category : undefined,
+    situation,
+    judgment: typeof row.judgment === "string" ? row.judgment : undefined,
+    rationale: typeof row.rationale === "string" ? row.rationale : undefined,
+    confidence: typeof row.confidence === "number" ? row.confidence : undefined,
+    tags: Array.isArray(row.tags) ? row.tags.filter((tag): tag is string => typeof tag === "string") : undefined,
+  }];
 }

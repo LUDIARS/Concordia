@@ -257,8 +257,11 @@ function readSessionRelay(
     delegationEmoji: stringOrNull(meta.delegation_emoji),
     delegationRunId,
     delegationParentSessionId: stringOrNull(meta.delegation_parent_session_id),
-    model: delegationRun?.effective_model ?? stringOrNull(meta.model),
-    effortLevel: delegationRun?.effort_level ?? stringOrNull(meta.effort),
+    // Runtime model review records the current setting in session metadata. It
+    // must override the immutable launch-time delegation run so status cards do
+    // not keep showing the value that was replaced after a task change.
+    model: stringOrNull(meta.model) ?? delegationRun?.effective_model ?? null,
+    effortLevel: stringOrNull(meta.effort) ?? delegationRun?.effort_level ?? null,
     fastMode: delegationRun ? delegationRun.fast_mode === 1 : booleanOrNull(meta.fast_mode),
     subsidiaryId: stringOrNull(meta.subsidiary_id),
     requesterDiscordUserId: stringOrNull(meta.discord_requester_user_id),

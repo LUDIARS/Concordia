@@ -25,13 +25,14 @@ describe("forum template tags", () => {
     expect(desiredSessionForumTagNames([template(1), template(2, { is_active: false })])).toEqual([
       "設計相談", "実装", "レビュー", "テスト", "雑用",
       "作業中", "待機", "lost",
+      "Unity", "Webサービス", "アプリ",
       CONCORDIA_MANAGED_FORUM_TAG_NAME,
       "Template 1",
     ]);
   });
 
-  it("rejects more than ten active templates and duplicate labels", () => {
-    expect(validateForumTemplateTags(Array.from({ length: 11 }, (_, index) => template(index))).ok).toBe(false);
+  it("rejects more than seven active templates and duplicate labels", () => {
+    expect(validateForumTemplateTags(Array.from({ length: 8 }, (_, index) => template(index))).ok).toBe(false);
     expect(validateForumTemplateTags([
       template(1, { title: "same" }),
       template(2, { title: "SAME" }),
@@ -42,7 +43,7 @@ describe("forum template tags", () => {
   });
 
   it("keeps the maximum required tag set within Discord's limit", () => {
-    expect(desiredSessionForumTagNames(Array.from({ length: 10 }, (_, index) => template(index))))
+    expect(desiredSessionForumTagNames(Array.from({ length: 7 }, (_, index) => template(index))))
       .toHaveLength(19);
   });
 

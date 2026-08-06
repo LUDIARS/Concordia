@@ -94,7 +94,17 @@ const spawnCommand: DiscordCommandSpec = {
         deps.concordiaUrl,
         "POST",
         "/v1/admin/spawn-session",
-        { template, inject_prompt: inject, project, cwd, branch, subsidiary_id: deps.subsidiaryId ?? null },
+        {
+          template,
+          inject_prompt: inject,
+          project,
+          cwd,
+          branch,
+          subsidiary_id: deps.subsidiaryId ?? null,
+          requester_discord_user_id: interaction.user.id,
+          source_discord_guild_id: interaction.guildId,
+          source_discord_channel_id: interaction.channelId,
+        },
       );
       if ("error" in r || !r.ok) {
         deps.log.warn(`spawn command template failed template=${template} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);
@@ -133,7 +143,18 @@ const spawnCommand: DiscordCommandSpec = {
       deps.concordiaUrl,
       "POST",
       "/v1/admin/spawn-session",
-      { provider, prompt, model, project, cwd, branch, subsidiary_id: deps.subsidiaryId ?? null },
+      {
+        provider,
+        prompt,
+        model,
+        project,
+        cwd,
+        branch,
+        subsidiary_id: deps.subsidiaryId ?? null,
+        requester_discord_user_id: interaction.user.id,
+        source_discord_guild_id: interaction.guildId,
+        source_discord_channel_id: interaction.channelId,
+      },
     );
     if ("error" in r || !r.ok) {
       deps.log.warn(`spawn command admin-provider failed provider=${provider} error=${"error" in r ? r.error : (r.error ?? "unknown")}`);

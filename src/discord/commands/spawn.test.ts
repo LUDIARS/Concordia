@@ -20,6 +20,7 @@ function makeInteraction(availableTags = [{ id: "managed-tag", name: CONCORDIA_M
     channelId: "thread-1",
     channel: thread,
     guildId: "guild-1",
+    user: { id: "123456789" },
     options: {
       getString: (name: string) => name === "template" ? "codex-5-6-sol" : null,
       getBoolean: () => null,

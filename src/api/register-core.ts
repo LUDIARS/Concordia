@@ -196,7 +196,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }),
   );
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
-  app.route("/v1/reports", reportsRouter({ repo: deps.repo, config: deps.config }));
+  app.route(
+    "/v1/reports",
+    reportsRouter({
+      repo: deps.repo,
+      config: deps.config,
+      questionState: deps.channelDirectory,
+    }),
+  );
   app.route(
     "/v1/session-logs",
     sessionLogsRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
@@ -349,6 +356,18 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       typeof body.test_surface_id === "number" && Number.isInteger(body.test_surface_id) && body.test_surface_id > 0
         ? body.test_surface_id
         : null;
+    const requesterDiscordUserId =
+      typeof body.requester_discord_user_id === "string" && /^\d{5,32}$/.test(body.requester_discord_user_id.trim())
+        ? body.requester_discord_user_id.trim()
+        : null;
+    const sourceDiscordGuildId =
+      typeof body.source_discord_guild_id === "string" && /^\d{5,32}$/.test(body.source_discord_guild_id.trim())
+        ? body.source_discord_guild_id.trim()
+        : null;
+    const sourceDiscordChannelId =
+      typeof body.source_discord_channel_id === "string" && /^\d{5,32}$/.test(body.source_discord_channel_id.trim())
+        ? body.source_discord_channel_id.trim()
+        : null;
     const projectName = typeof body.project === "string" ? body.project.trim() : "";
     const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
     const requestedWorktree = body.worktree;
@@ -415,6 +434,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           extra_prompt: adHocPrompt || undefined,
           project: projectName || null,
           subsidiary_id: subsidiaryId,
+          requester_discord_user_id: requesterDiscordUserId,
+          source_discord_guild_id: sourceDiscordGuildId,
+          source_discord_channel_id: sourceDiscordChannelId,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
         if (result.run.status === "spawn_failed") {
@@ -474,6 +496,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         callName: tpl.call_name,
         subsidiaryId,
         project: projectName || null,
+        requesterDiscordUserId,
+        startupInjectText: null,
+        sourceDiscordGuildId,
+        sourceDiscordChannelId,
         goalAndGo: goalAndGoRequested(runtimeOptions),
       });
       const result = sessionSpawn({
@@ -543,6 +569,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       callName: "spawn",
       subsidiaryId,
       project: projectName || null,
+      requesterDiscordUserId,
+      startupInjectText: adHocPrompt || null,
+      sourceDiscordGuildId,
+      sourceDiscordChannelId,
       goalAndGo: goalAndGoRequested(directOptions),
       testSurfaceId,
     });
@@ -623,6 +653,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         config: deps.config,
         harnessAudit: deps.harnessAudit,
         usageFrames: deps.transcriptLogs,
+        questionState: deps.channelDirectory,
       },
       ended,
     );

@@ -41,6 +41,7 @@ export function launchDelegationProcess(input: {
   cwd?: string;
   branch: string | null;
   promptPath: string;
+  startupInjectText: string;
   spawner?: DelegationSpawner;
 }): ProcessLaunchResult {
   const spawner = resolveDelegationSpawner(input.spawner);
@@ -72,6 +73,10 @@ export function launchDelegationProcess(input: {
     runId: input.runId,
     subsidiaryId: input.invocation.subsidiary_id ?? null,
     project: input.invocation.project ?? null,
+    requesterDiscordUserId: input.invocation.requester_discord_user_id ?? null,
+    startupInjectText: input.startupInjectText,
+    sourceDiscordGuildId: input.invocation.source_discord_guild_id ?? null,
+    sourceDiscordChannelId: input.invocation.source_discord_channel_id ?? null,
     parentSessionId: input.invocation.parent_session_id ?? null,
     goalAndGo: goalAndGoRequested(input.effectiveOptions),
   });

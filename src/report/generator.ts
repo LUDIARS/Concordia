@@ -26,8 +26,9 @@ import {
   hasFlags,
   EMPTY_FLAGS,
 } from "./summary-flags.js";
+import type { SummaryQuestionStateReader } from "./summary-event-excerpt.js";
 
-/** generateReport の任意依存。 harnessAudit があればブロック検出に決定論ソースを併用。 */
+/** generateReport の任意依存。監査ログと質問状態の正本を決定論ソースとして併用する。 */
 export interface GenerateReportOptions {
   harnessAudit?: HarnessAuditRepo;
   /**
@@ -35,6 +36,7 @@ export interface GenerateReportOptions {
    * (rollout JSONL を書かないため)。未注入なら該当 provider は未計測のまま。
    */
   usageFrames?: UsageFrameSource;
+  questionState?: SummaryQuestionStateReader;
 }
 
 const log = createChildLogger("report");
@@ -173,7 +175,7 @@ export async function generateReport(
   const deterministic = denyRows.length
     ? { blocked: harnessDenyToBlocked(denyRows), needsHuman: [] as string[] }
     : EMPTY_FLAGS;
-  const sonnet = await detectSummaryFlags(session, events);
+  const sonnet = await detectSummaryFlags(session, events, { questionState: opts.questionState });
   const flags = mergeFlags(deterministic, sonnet);
   const flagLines = renderSummaryFlagsMarkdown(flags);
   if (flagLines.length) summary_md = `${summary_md}\n\n${flagLines.join("\n")}`;

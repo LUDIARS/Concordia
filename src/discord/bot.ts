@@ -77,6 +77,7 @@ import { selectForumDelegationTemplate } from "./forum-delegation-selector.js";
 import {
   resolveForumSessionSurface,
 } from "./forum-session.js";
+import { postSessionStartupContext } from "./session-startup-context.js";
 import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
@@ -96,7 +97,10 @@ import { readTestSurfaceId } from "./test-forum-session.js";
  */
 function readActiveRepos(state: SessionRelayState | null | undefined): string[] {
   if (!state) return [];
-  return state.activeRepos.length > 0 ? state.activeRepos : [state.repoPath];
+  return [...new Set([
+    ...(state.targetProject ? [state.targetProject] : []),
+    ...(state.activeRepos.length > 0 ? state.activeRepos : [state.repoPath]),
+  ])];
 }
 
 const discordLog = createChildLogger("discord");
@@ -1071,6 +1075,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
   });
 
+  const startupContextInflight = new Set<string>();
+
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (gatewayClosed || stopping) return;
     if (ev.type === "delegation.templates_changed") {
@@ -1185,6 +1191,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             );
             if (delegationRun) {
               log.info(`task-workflow bound session=${sessionId} run=${delegationRun.id}`);
+            }
+          }
+          const sessionSurface = sessionChannelsRepo.findBySessionId(sessionId);
+          if (
+            sessionSurface
+            && state?.startupInjectText
+            && !state.startupContextPosted
+            && !startupContextInflight.has(sessionId)
+          ) {
+            startupContextInflight.add(sessionId);
+            try {
+              const posted = await postSessionStartupContext({
+                sessionId,
+                context: {
+                  requesterUserId: state.requesterDiscordUserId ?? null,
+                  startupInjectText: state.startupInjectText,
+                  surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
+                  sessionChannelId: sessionSurface.channel_id,
+                  sourceGuildId: state.sourceDiscordGuildId ?? forumSpawn?.guildId ?? null,
+                  sourceChannelId: state.sourceDiscordChannelId ?? forumSpawn?.threadId ?? null,
+                },
+                webhooks,
+                sessionsRepo: deps.sessionsRepo,
+              });
+              if (!posted) log.warn(`session startup context post failed session=${sessionId}`);
+            } finally {
+              startupContextInflight.delete(sessionId);
             }
           }
           // channel 作成前に届いて「永続化のみ」になった frame を埋め戻す。

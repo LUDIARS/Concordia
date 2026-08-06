@@ -11,6 +11,8 @@ import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, genera
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
+import { createProjectResolver } from "../../projects/project-resolver.js";
+import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -19,6 +21,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
     const workspaceRoots = deps.resolveWorkspaceRoots?.() ?? [];
+    const projectResolver = createProjectResolver(workspaceRoots, {
+      warn: (message) => log.warn(message),
+    });
     // NOTE: cwd === workspace root (Castra) is intentionally allowed to register.
     // Cross-repo / coordination sessions legitimately run with cwd=root (see
     // conflict-scope.ts's "umbrella" handling), and hard-blocking registration
@@ -84,6 +89,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         workspaceRoots,
       });
       sessionWorkPolicyText = workPolicy.text;
+      const claimedProjectTarget = claimed?.project
+        ? projectResolver.targetFromText(claimed.project)
+        : null;
       if (claimed?.branch) meta.requested_branch = claimed.branch;
       if (workPolicy.branchMismatch) {
         meta.branch_mismatch = {
@@ -115,6 +123,23 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // project 限定 spawn は project を焼く (作業範囲の監査 / UI 表示用)。
       if (claimed?.project) meta.project = claimed.project;
       if (claimed?.testSurfaceId) meta.test_surface_id = claimed.testSurfaceId;
+      if (claimed?.requesterDiscordUserId) {
+        meta.discord_requester_user_id = claimed.requesterDiscordUserId;
+      }
+      if (claimed?.sourceDiscordGuildId) {
+        meta.discord_source_guild_id = claimed.sourceDiscordGuildId;
+      }
+      if (claimed?.sourceDiscordChannelId) {
+        meta.discord_source_channel_id = claimed.sourceDiscordChannelId;
+      }
+      const startupInjectText = [
+        claimed?.startupInjectText,
+        sessionWorkPolicyText,
+        deps.resolveCcWorkflowEnabled?.()
+          ? renderCcWorkflowStartupInject(input.id)
+          : null,
+      ].filter((text): text is string => Boolean(text?.trim())).join("\n\n");
+      if (startupInjectText) meta.discord_startup_inject = startupInjectText;
       if (claimed?.goalAndGo) {
         meta.goal_and_go = {
           enabled: true,
@@ -142,7 +167,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         last_seen_at: now,
         transcript_path: input.transcript_path ?? null,
         metadata: Object.keys(meta).length ? JSON.stringify(meta) : null,
-        target_project: input.target_project ?? null,
+        target_project: input.target_project ?? claimedProjectTarget?.cwd ?? null,
         active_repos: input.active_repos ?? [],
       });
       deps.repo.appendEvent({
@@ -317,7 +342,20 @@ app.patch("/:id", async (c) => {
     const parsed = PatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     // Split off `metadata` — patchSession() only handles the column fields.
-    const { metadata, ...columnPatch } = parsed.data;
+    const projectClaimText = [
+      parsed.data.current_task,
+      parsed.data.branch,
+    ].filter((value): value is string => Boolean(value?.trim())).join("\n");
+    const inferredTargetProject =
+      parsed.data.target_project === undefined && projectClaimText
+        ? createProjectResolver(deps.resolveWorkspaceRoots?.() ?? [], {
+            warn: (message) => log.warn(message),
+          }).targetFromText(projectClaimText)?.cwd
+        : undefined;
+    const { metadata, ...columnPatch } = {
+      ...parsed.data,
+      ...(inferredTargetProject ? { target_project: inferredTargetProject } : {}),
+    };
     const patchTs = nowSec();
     const didChangeBranch = parsed.data.branch !== undefined && parsed.data.branch !== session.branch;
     deps.repo.patchSession(id, columnPatch);
@@ -453,6 +491,7 @@ app.delete("/:id", async (c) => {
         // codex-sdk の usage は transcript frame にしか無い。 こちらが通常の
         // 終了経路なので、 admin stop と同じく frame ソースを渡す。
         usageFrames: deps.transcriptLogs,
+        questionState: deps.channelDirectory,
       },
       ended,
     );

@@ -16,6 +16,10 @@ import type { SessionEventRow, SessionRow } from "../shared/types.js";
 import type { HarnessAuditRow } from "../db/harness-audit-repo.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
+import {
+  buildSummaryEventExcerpt,
+  type SummaryQuestionStateReader,
+} from "./summary-event-excerpt.js";
 
 const log = createChildLogger("summary-flags");
 
@@ -27,10 +31,6 @@ export interface SummaryFlags {
 }
 
 export const EMPTY_FLAGS: SummaryFlags = { blocked: [], needsHuman: [] };
-
-function nowSec(): number {
-  return Math.floor(Date.now() / 1000);
-}
 
 function safeParse(s: string): unknown {
   try {
@@ -119,22 +119,17 @@ export function renderSummaryFlagsMarkdown(f: SummaryFlags): string[] {
   return lines;
 }
 
-/**
- * session の events から Sonnet でブロック/人間確認事項を抽出する (best-effort)。
- * CONCORDIA_DISABLE_CLAUDE=1 / 取得失敗 / 解釈不能なら空 (warn ログに出す)。
- */
-export async function detectSummaryFlags(
+/** 質問の正本状態を含む、summary classifier 用 prompt を組み立てる。 */
+export function buildSummaryFlagsPrompt(
   session: SessionRow,
   events: SessionEventRow[],
-): Promise<SummaryFlags> {
-  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return EMPTY_FLAGS;
+  opts: { questionState?: SummaryQuestionStateReader } = {},
+): string {
+  const compact = buildSummaryEventExcerpt(events, { questionState: opts.questionState });
+  const completedQuestions = compact.filter((event) => event.kind === "question_completed");
+  const ordinaryEvents = compact.filter((event) => event.kind !== "question_completed");
 
-  const compact = events
-    .filter((e) => ["prompt", "edit", "tool_call", "task_update", "inject", "lost", "pending_question"].includes(e.kind))
-    .slice(-60)
-    .map((e) => ({ kind: e.kind, ago_sec: nowSec() - e.ts, payload: safeParse(e.payload) }));
-
-  const prompt = [
+  return [
     "あなたはセッションログを精査し、 人間が拾うべき 2 種を抽出する分類器です。",
     "出力は **JSON のみ**。 前置き / code fence なし。",
     "",
@@ -146,15 +141,41 @@ export async function detectSummaryFlags(
     "  「何を」「なぜ止まったか」 を 1 項目 1 行で簡潔に。 該当無しは空配列。",
     "- needsHuman: 方針が割れる / 破壊的操作 / 本番影響が不明 / 仕様が曖昧 等、 AI が決め打ちせず",
     "  **人間の判断/確認を仰ぐべき** 事項。 該当無しは空配列。",
+    "- question_completed は質問状態の正本または回答イベントに基づく **解決済み証跡**。",
+    "  同じ question_id の古い prompt / inject が未回答と述べていても needsHuman に含めない。",
     "- 通常完了した作業・単なる進捗は **含めない**。 拾うべきものが無ければ両方空配列。",
     "",
     "## 入力 (session events 抜粋)",
     JSON.stringify(
-      { session: { id: session.id, repo: session.repo_origin ?? session.repo_path, branch: session.branch }, events: compact },
+      {
+        session: {
+          id: session.id,
+          repo: session.repo_origin ?? session.repo_path,
+          branch: session.branch,
+        },
+        events: ordinaryEvents,
+      },
       null,
       1,
     ).slice(0, 12_000),
+    "",
+    "## 解決済み質問 (入力末尾の正本。上の古い記述より優先)",
+    JSON.stringify(completedQuestions, null, 1),
   ].join("\n");
+}
+
+/**
+ * session の events から Sonnet でブロック/人間確認事項を抽出する (best-effort)。
+ * CONCORDIA_DISABLE_CLAUDE=1 / 取得失敗 / 解釈不能なら空 (warn ログに出す)。
+ */
+export async function detectSummaryFlags(
+  session: SessionRow,
+  events: SessionEventRow[],
+  opts: { questionState?: SummaryQuestionStateReader } = {},
+): Promise<SummaryFlags> {
+  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return EMPTY_FLAGS;
+
+  const prompt = buildSummaryFlagsPrompt(session, events, opts);
 
   const r = await runClaude(prompt, { model: "sonnet" });
   if (!r.ok) {

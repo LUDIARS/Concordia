@@ -126,6 +126,10 @@ const InvokeSchema = z.object({
    * 経由) と同じ trust boundary (loopback 自己呼び出し) で運ぶ。
    */
   subsidiary_id: z.string().max(120).optional().nullable(),
+  project: z.string().max(120).optional().nullable(),
+  requester_discord_user_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
+  source_discord_guild_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
+  source_discord_channel_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
   spawn: z.boolean().optional(),
   options: z.record(z.unknown()).optional(),
   overrides: z.object({
@@ -491,6 +495,10 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       overrides: parsed.data.overrides,
       parent_session_id: resolveParentSessionId(c.req, parsed.data.parent_session_id),
       subsidiary_id: parsed.data.subsidiary_id ?? null,
+      project: parsed.data.project ?? null,
+      requester_discord_user_id: parsed.data.requester_discord_user_id ?? null,
+      source_discord_guild_id: parsed.data.source_discord_guild_id ?? null,
+      source_discord_channel_id: parsed.data.source_discord_channel_id ?? null,
     });
     if (!result.ok) {
       const status = result.error.startsWith("unknown call_name") ? 404 : 400;

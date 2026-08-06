@@ -35,7 +35,7 @@ function makeThread(patch: Partial<ForumSpawnThread> = {}): ForumSpawnThread {
     id: "thread-1",
     guildId: "guild-1",
     parentId: "forum-1",
-    ownerId: "human-1",
+    ownerId: "123456789",
     name: "[Cc] Implement Phase 2",
     appliedTags: [],
     availableTags: [MANAGED_TAG],
@@ -49,9 +49,9 @@ function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
   const selected = template();
   return {
     sessionForumId: "forum-1",
-    botUserId: "bot-1",
+    botUserId: "987654321",
     concordiaUrl: "http://127.0.0.1:17320",
-    isLaunchUserAllowed: (userId) => userId === "human-1",
+    isLaunchUserAllowed: (userId) => userId === "123456789",
     templates: vi.fn(async () => [selected]),
     selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
     resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
@@ -122,6 +122,10 @@ describe("forum spawn", () => {
       triggered_by: "discord-forum:guild-1:thread-1",
       spawn: true,
       subsidiary_id: null,
+      project: "Cc",
+      requester_discord_user_id: "123456789",
+      source_discord_guild_id: "guild-1",
+      source_discord_channel_id: "thread-1",
     });
     expect(body).not.toHaveProperty("overrides");
   });
@@ -141,6 +145,47 @@ describe("forum spawn", () => {
 
     expect(deps.selectTemplate).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("retries a starter that is not visible at ThreadCreate time", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-retry", status: "spawned" },
+      spawn_pid: 45,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const fetchStarterMessage = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ content: "Cc を直す" });
+    const wait = vi.fn(async () => undefined);
+
+    await handleForumSpawnThread(makeDeps({ wait }), makeThread({ fetchStarterMessage }));
+
+    expect(fetchStarterMessage).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledWith(200);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("adds selected runtime rule tags to the startup prompt", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-rules", status: "spawned" },
+      spawn_pid: 46,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const runtimeTag = { id: "rule-web", name: "Webサービス" };
+    const thread = makeThread({
+      availableTags: [MANAGED_TAG, runtimeTag],
+      fetchTagState: vi.fn(async () => ({
+        appliedTags: [runtimeTag.id],
+        availableTags: [MANAGED_TAG, runtimeTag],
+      })),
+    });
+
+    await handleForumSpawnThread(makeDeps(), thread);
+
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).extra_prompt).toContain("Active rules: Webサービス");
   });
 
   it("fails closed when template selection fails", async () => {

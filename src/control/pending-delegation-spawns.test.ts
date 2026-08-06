@@ -114,6 +114,23 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.testSurfaceId).toBe(42);
   });
 
+  it("round-trips Discord requester, source post, and startup inject", () => {
+    recordPendingDelegationSpawn({
+      cwd: "/a",
+      callName: "forum-spawn",
+      requesterDiscordUserId: "123456789",
+      sourceDiscordGuildId: "111111111",
+      sourceDiscordChannelId: "222222222",
+      startupInjectText: "Cc の修正",
+    }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)).toMatchObject({
+      requesterDiscordUserId: "123456789",
+      sourceDiscordGuildId: "111111111",
+      sourceDiscordChannelId: "222222222",
+      startupInjectText: "Cc の修正",
+    });
+  });
+
   it("forgets pending entries by runId", () => {
     recordPendingDelegationSpawn({ cwd: "/a", callName: "impl-from-design", runId: "run-123" }, 1000);
     forgetPendingDelegationSpawnByRunId("run-123");

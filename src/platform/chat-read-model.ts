@@ -30,6 +30,7 @@ export interface SessionRelayState {
   provider: string;
   repoPath: string;
   activeRepos: string[];
+  targetProject?: string | null;
   branch: string | null;
   status: string;
   currentTask: string | null;
@@ -41,6 +42,11 @@ export interface SessionRelayState {
   effortLevel: string | null;
   fastMode: boolean | null;
   subsidiaryId: string | null;
+  requesterDiscordUserId?: string | null;
+  startupInjectText?: string | null;
+  startupContextPosted?: boolean;
+  sourceDiscordGuildId?: string | null;
+  sourceDiscordChannelId?: string | null;
   /** ended_at (epoch sec)。 teardown 猶予窓 (egress の relay 判定) に使う。 */
   endedAt: number | null;
   webhookName?: string | null;

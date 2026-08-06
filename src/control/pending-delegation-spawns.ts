@@ -23,6 +23,12 @@ export interface PendingDelegationSpawn {
   subsidiaryId: string | null;
   /** project 限定 spawn ならプロジェクト名。 session.started 時に metadata.project へ焼く。 */
   project: string | null;
+  /** Discord から起動した利用者。session surface 冒頭の mention / follow 案内に使う。 */
+  requesterDiscordUserId: string | null;
+  /** 新規 session に渡した初回 prompt。Discord session surface の冒頭にも写す。 */
+  startupInjectText: string | null;
+  sourceDiscordGuildId: string | null;
+  sourceDiscordChannelId: string | null;
   /** Parent session that requested the delegation, when known. */
   parentSessionId: string | null;
   /** Whether the spawned session opted in to goal-and-go autonomous continuation. */
@@ -45,6 +51,10 @@ export function recordPendingDelegationSpawn(
     runId?: string | null;
     subsidiaryId?: string | null;
     project?: string | null;
+    requesterDiscordUserId?: string | null;
+    startupInjectText?: string | null;
+    sourceDiscordGuildId?: string | null;
+    sourceDiscordChannelId?: string | null;
     parentSessionId?: string | null;
     goalAndGo?: boolean;
     testSurfaceId?: number | null;
@@ -62,6 +72,10 @@ export function recordPendingDelegationSpawn(
     runId: (input.runId ?? "").trim() || null,
     subsidiaryId: (input.subsidiaryId ?? "").trim() || null,
     project: (input.project ?? "").trim() || null,
+    requesterDiscordUserId: (input.requesterDiscordUserId ?? "").trim() || null,
+    startupInjectText: (input.startupInjectText ?? "").trim() || null,
+    sourceDiscordGuildId: (input.sourceDiscordGuildId ?? "").trim() || null,
+    sourceDiscordChannelId: (input.sourceDiscordChannelId ?? "").trim() || null,
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
     goalAndGo: input.goalAndGo === true,
     testSurfaceId:

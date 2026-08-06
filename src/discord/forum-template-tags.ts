@@ -2,13 +2,14 @@ import { REST, Routes } from "discord.js";
 import type { InputSchemaItem } from "../db/delegation-repo.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 
-export const MAX_FORUM_TEMPLATES = 10;
+export const MAX_FORUM_TEMPLATES = 7;
 export const MAX_FORUM_TAG_NAME_LENGTH = 20;
 /** Discord の forum あたりのタグ数上限。名前長と同値なのは偶然なので別定数にする。 */
 export const MAX_FORUM_TAGS = 20;
 
 export const SESSION_WORK_TAG_NAMES = ["設計相談", "実装", "レビュー", "テスト", "雑用"] as const;
 export const SESSION_STATE_TAG_NAMES = ["作業中", "待機", "lost"] as const;
+export const SESSION_RUNTIME_RULE_TAG_NAMES = ["Unity", "Webサービス", "アプリ"] as const;
 
 export interface ForumTemplateTagSource {
   id: string;
@@ -35,7 +36,12 @@ export function validateForumTemplateTags(templates: readonly ForumTemplateTagSo
   }
 
   const reservedLabels = new Set(
-    [...SESSION_WORK_TAG_NAMES, ...SESSION_STATE_TAG_NAMES, CONCORDIA_MANAGED_FORUM_TAG_NAME]
+    [
+      ...SESSION_WORK_TAG_NAMES,
+      ...SESSION_STATE_TAG_NAMES,
+      ...SESSION_RUNTIME_RULE_TAG_NAMES,
+      CONCORDIA_MANAGED_FORUM_TAG_NAME,
+    ]
       .map((label) => label.toLocaleLowerCase()),
   );
   const labels = new Set<string>();
@@ -84,6 +90,7 @@ export function desiredSessionForumTagNames(templates: readonly ForumTemplateTag
   return [
     ...SESSION_WORK_TAG_NAMES,
     ...SESSION_STATE_TAG_NAMES,
+    ...SESSION_RUNTIME_RULE_TAG_NAMES,
     CONCORDIA_MANAGED_FORUM_TAG_NAME,
     ...templateNames,
   ];

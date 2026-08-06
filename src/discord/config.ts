@@ -5,6 +5,7 @@ import { META_CHANNEL_KIND, type MetaChannelKind } from "./types.js";
 import {
   MAX_FORUM_TAGS,
   SESSION_WORK_TAG_NAMES,
+  SESSION_RUNTIME_RULE_TAG_NAMES,
   desiredSessionForumTagNames,
   mergeForumSiteTags,
   type ForumSiteTagSkipReason,
@@ -121,6 +122,7 @@ export async function ensureDiscordLayout(
     : [
         ...SESSION_WORK_TAG_NAMES,
         ...Object.values(SESSION_STATE_TAG_NAMES),
+        ...SESSION_RUNTIME_RULE_TAG_NAMES,
         CONCORDIA_MANAGED_FORUM_TAG_NAME,
       ];
   // 拠点タグは「あれば良い」枠。必須タグと同列にすると、Villa 側で PC が増えた瞬間に
@@ -161,7 +163,11 @@ export async function ensureDiscordLayout(
         TASK_WORKFLOW_FORUM_KEY,
         FORUM_NAMES.taskWorkflow,
         TASK_WORKFLOW_FORUM_TOPIC,
-        [...Object.values(SESSION_STATE_TAG_NAMES), CONCORDIA_MANAGED_FORUM_TAG_NAME],
+        [
+          ...Object.values(SESSION_STATE_TAG_NAMES),
+          ...SESSION_RUNTIME_RULE_TAG_NAMES,
+          CONCORDIA_MANAGED_FORUM_TAG_NAME,
+        ],
       )
     : "";
   // コストはカテゴリ外のルートチャンネル。既存配置も ensure 時にルートへ戻す。

@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { generateReport } from "../report/generator.js";
+import type { SummaryQuestionStateReader } from "../report/summary-event-excerpt.js";
 
 const AppendSchema = z.object({
   role: z.string().min(1).max(64).optional(),
@@ -16,6 +17,7 @@ const AppendSchema = z.object({
 export interface ReportsApiDeps {
   repo: SessionsRepo;
   config: ConcordiaConfig;
+  questionState?: SummaryQuestionStateReader;
 }
 
 export function reportsRouter(deps: ReportsApiDeps): Hono {
@@ -39,7 +41,7 @@ export function reportsRouter(deps: ReportsApiDeps): Hono {
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
     const events = deps.repo.allEvents(id);
-    const report = await generateReport(s, events);
+    const report = await generateReport(s, events, { questionState: deps.questionState });
     deps.repo.upsertReport(report);
     return c.json({
       session_id: report.session_id,

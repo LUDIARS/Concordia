@@ -139,7 +139,14 @@ export async function buildCollaborationContextPacket(
   };
 }
 
-function buildCcWorkflow(sessionId: string): CollaborationContextPacket["cc_workflow"] {
+export function renderCcWorkflowStartupInject(sessionId: string): string {
+  return [
+    "[concordia/cc-workflow]",
+    JSON.stringify(buildCcWorkflow(sessionId), null, 2),
+  ].join("\n");
+}
+
+function buildCcWorkflow(sessionId: string): NonNullable<CollaborationContextPacket["cc_workflow"]> {
   const encoded = encodeURIComponent(sessionId);
   return {
     inject_source: "session-start:cc-workflow",

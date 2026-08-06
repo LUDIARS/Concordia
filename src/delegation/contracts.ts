@@ -55,6 +55,9 @@ export interface InvokeInput {
   worktree?: boolean;
   subsidiary_id?: string | null;
   project?: string | null;
+  requester_discord_user_id?: string | null;
+  source_discord_guild_id?: string | null;
+  source_discord_channel_id?: string | null;
 }
 
 export interface QueuePayload {

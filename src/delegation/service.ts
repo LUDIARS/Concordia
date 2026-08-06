@@ -451,6 +451,7 @@ export class DelegationService {
         cwd,
         branch: spawnBranch,
         promptPath,
+        startupInjectText: renderedPrompt,
         spawner: this.deps.spawn as DelegationSpawner | undefined,
       });
       spawnPid = result.spawnPid;

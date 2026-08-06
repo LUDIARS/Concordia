@@ -30,6 +30,7 @@ import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
 import type { SessionEventRow, SessionReportRow, SessionRow } from "../shared/types.js";
+import type { SummaryQuestionStateReader } from "../report/summary-event-excerpt.js";
 
 const log = createChildLogger("end-session-flow");
 
@@ -71,6 +72,8 @@ export interface EndSessionFlowDeps {
    * transcript repo なので、必要なメソッドだけを repo 側の型から借りる。
    */
   usageFrames?: Pick<TranscriptLogsRepo, "listUsagePayloads">;
+  /** 回答 event 欠落時も質問の durable state を report へ反映する。 */
+  questionState?: SummaryQuestionStateReader;
 }
 
 export interface SessionEndFlowResult {
@@ -109,6 +112,7 @@ export async function runSessionEndFlow(
     report = await generateReport(endedSession, events, {
       harnessAudit: deps.harnessAudit,
       usageFrames: deps.usageFrames,
+      questionState: deps.questionState,
     });
     deps.repo.upsertReport(report);
   } catch (err) {

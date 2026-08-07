@@ -102,22 +102,34 @@ describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
 });
 
 describe("buildSessionSpawnEnvironment", () => {
-  it("does not inherit the Revisor workflow token unless the spawn explicitly delegates it", () => {
-    const inherited = { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "service-secret", KEEP: "yes" };
-
-    expect(buildSessionSpawnEnvironment({ provider: "codex" }, inherited, "spawn-1")).toEqual(
-      expect.objectContaining({
-        KEEP: "yes",
-        CONCORDIA_SPAWN_ID: "spawn-1",
-      }),
-    );
-    expect(buildSessionSpawnEnvironment({ provider: "codex" }, inherited, "spawn-1"))
-      .not.toHaveProperty("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
-    expect(buildSessionSpawnEnvironment(
-      { provider: "codex", env: { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "delegated-secret" } },
+  it("never passes Revisor service credentials to an interactive session", () => {
+    const inherited = {
+      CONCORDIA_REVISOR_WORKFLOW_TOKEN: "workflow-secret",
+      CONCORDIA_REVISOR_TOKEN: "trigger-secret",
+      concordia_revisor_workflow_token: "differently-cased-workflow-secret",
+      concordia_revisor_token: "differently-cased-trigger-secret",
+      KEEP: "yes",
+    };
+    const environment = buildSessionSpawnEnvironment(
+      {
+        provider: "codex",
+        env: {
+          CONCORDIA_REVISOR_WORKFLOW_TOKEN: "explicit-workflow-secret",
+          CONCORDIA_REVISOR_TOKEN: "explicit-trigger-secret",
+        },
+      },
       inherited,
       "spawn-1",
-    )).toEqual(expect.objectContaining({ CONCORDIA_REVISOR_WORKFLOW_TOKEN: "delegated-secret" }));
+    );
+
+    expect(environment).toEqual(expect.objectContaining({
+      KEEP: "yes",
+      CONCORDIA_SPAWN_ID: "spawn-1",
+    }));
+    expect(environment).not.toHaveProperty("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
+    expect(environment).not.toHaveProperty("CONCORDIA_REVISOR_TOKEN");
+    expect(environment).not.toHaveProperty("concordia_revisor_workflow_token");
+    expect(environment).not.toHaveProperty("concordia_revisor_token");
   });
 });
 

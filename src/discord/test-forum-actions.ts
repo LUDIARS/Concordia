@@ -116,7 +116,7 @@ export async function requestTestSpawn(
     `起動後の対象ディレクトリ: ${targetDirectory}`,
     `対象ブランチ: ${surface.head_branch}`,
     "最初に対象ディレクトリへ移動し、フォーラムに投稿された内容を読んでから確認してください。",
-    "Revisor の変更系 API 用 workflow token は環境変数 CONCORDIA_REVISOR_WORKFLOW_TOKEN に委譲されています。Excubitor から解決した Revisor endpoint へ Bearer token としてだけ使い、値を表示・ログ・報告へ出さないでください。",
+    "このセッションの責務は検証と報告だけです。Revisor の状態変更は Cc の構造化操作または Revisor の状態機械が処理するため、提出・再審査・マージ・クローズを実行しないでください。",
   ].join("\n")
     + (instruction ? `\n\nユーザからの指示:\n${instruction}` : "");
   try {
@@ -184,6 +184,7 @@ async function startTest(
   await interaction.followUp({ content: `テスト起動を受け付けました (pid: ${result.pid ?? "n/a"})。セッション登録後に操作面を更新します。`, ephemeral: true });
 }
 
+/** Cc-owned mutation path: authorization and Revisor invocation never enter the LLM session. */
 async function mergeTest(
   interaction: ButtonInteraction,
   surface: DiscordTestSurfaceRow,

@@ -62,9 +62,11 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
     起動後の指示として渡す (🧪)。特権 spawn なので
     ボタンと同じ権限 (session_spawn, 管理職以上) で守り、権限が無ければ 🚫。
   - run_state が candidate でない (テスト中だがセッション消滅等) は ⚠️ で案内する。
-- Test Forum session の spawn には、Cc の暗号化設定から解決した Revisor workflow token を
-  `CONCORDIA_REVISOR_WORKFLOW_TOKEN` としてだけ委譲する。通常 session には委譲しない。
-  token 未設定・復号不能時は session を起動せず明示的に失敗する。
+- Test Forum session は検証と報告だけを担当する。Revisor の workflow token は委譲せず、
+  提出・再審査・マージ・クローズなどの状態変更を session に実行させない。
+  人間の明示 merge は Cc の権限付き構造化操作、オートマージは Revisor の状態機械が
+  処理する。同一スレッドの自然言語は検証 session への指示であって mutation command
+  には変換しない。
 - テストセッションは end-session で終了できるが、**投稿はクローズしない**。
   投稿を閉じるのは同期 (候補消滅) だけ。
 - 候補がマージ等で消えて投稿を閉じるとき、旧経路の `qa_run_id` の child session と
@@ -75,6 +77,8 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
 
 Revisor Test Workflowの読取クライアントはDiscord表示処理から分離する。
 接続は読取専用で、local workflow tokenが設定されている場合のみBearer送信する。
+workflow token は Cc サービス内に留め、interactive session の inherited env と明示 env
+のどちらからも除去する。
 一覧のレスポンス形式が不正な場合は項目を黙って捨てずfail-fastする。
 詳細は追加情報のため、欠落フィールドはnullへ落とすが、骨格 (object) が無い場合は
 そのPRの詳細をエラーとして扱う。

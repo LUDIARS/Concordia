@@ -1,7 +1,7 @@
 # Test Forum session lacks merge token and can spawn duplicates
 
 - Date: 2026-08-07
-- Status: fixed in working tree
+- Status: superseded — session reuse fix retained; token delegation reverted
 - Area: Discord Test Forum / session spawn / Revisor authorization
 - Severity: high — verified work cannot be merged from its assigned session, and follow-up conversation may start duplicate sessions
 
@@ -26,7 +26,9 @@ Existing thread-message code injects into `surface.session_id` when it is active
 1. The Test Forum spawn environment contained model/runtime variables but not the Cc-managed Revisor workflow token.
 2. There was no persisted launch-reservation state between the synchronous spawn request and asynchronous `session.started` binding.
 
-## Fix Requirements
+## Historical Fix Requirements
+
+The token-related requirements below describe the first fix and are rejected by the superseding incident record. The session-reuse requirements remain valid.
 
 - Delegate the Revisor workflow token only to Test Forum sessions, without exposing it in API responses, prompts, or logs.
 - Fail before spawn if the token is unavailable.
@@ -41,4 +43,4 @@ Regression coverage was added for token scoping/fail-fast behavior, atomic `cand
 
 ## Follow-up
 
-Revisor should run the repository test suite during local PR review. Operational verification should confirm that a Test Forum session can call the merge endpoint with its delegated token and that repeated posts remain attached to one session.
+The token-delegation portion of this fix gave an interactive LLM session authority over Revisor mutations. That ownership model was rejected by neco on 2026-08-07 and is superseded by `2026-08-07-test-forum-llm-revisor-authority.md`. The persisted `starting` reservation and same-thread session reuse remain valid.

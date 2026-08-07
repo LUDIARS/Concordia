@@ -319,20 +319,33 @@ export function sanitizeSpawnEnv(
 /**
  * Build the environment passed to an interactive child session.
  *
- * Revisor's workflow token is a Concordia service credential.  Never inherit
- * it ambiently: the Test Forum route explicitly adds it to `req.env` only for
- * the scoped verification session that needs to call Revisor mutations.
+ * Revisor mutations belong to Concordia's deterministic service paths, never
+ * an interactive LLM session. Strip both current Revisor credentials after
+ * merging inherited and request env so no caller can opt a child back in.
  */
 export function buildSessionSpawnEnvironment(
   req: SpawnRequest,
   inheritedEnv: NodeJS.ProcessEnv = process.env,
   spawnId: string = req.spawnId?.trim() || randomUUID(),
 ): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...inheritedEnv };
-  delete env.CONCORDIA_REVISOR_WORKFLOW_TOKEN;
+  const env: NodeJS.ProcessEnv = {
+    ...inheritedEnv,
+    ...sanitizeSpawnEnv(req.env),
+  };
+  // Windows treats environment variable names case-insensitively. Delete by
+  // normalized name so a differently-cased inherited key cannot retain a
+  // Revisor credential when this object is passed to the child process.
+  for (const key of Object.keys(env)) {
+    const normalized = key.toUpperCase();
+    if (
+      normalized === "CONCORDIA_REVISOR_WORKFLOW_TOKEN"
+      || normalized === "CONCORDIA_REVISOR_TOKEN"
+    ) {
+      delete env[key];
+    }
+  }
   return {
     ...env,
-    ...sanitizeSpawnEnv(req.env),
     ...buildSpawnIdentityEnv(req, spawnId),
     ...currentConcordiaAddressEnv(),
   };

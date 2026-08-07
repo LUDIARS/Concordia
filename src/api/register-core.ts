@@ -105,7 +105,6 @@ import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
-import { resolveTestSessionWorkflowEnv } from "../control/test-session-workflow-token.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -367,6 +366,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       typeof body.test_surface_id === "number" && Number.isInteger(body.test_surface_id) && body.test_surface_id > 0
         ? body.test_surface_id
         : null;
+    // Correlation only: a Test Forum surface binds the spawned session back to
+    // its thread, but never grants that interactive session Revisor authority.
     const requesterDiscordUserId =
       typeof body.requester_discord_user_id === "string" && /^\d{5,32}$/.test(body.requester_discord_user_id.trim())
         ? body.requester_discord_user_id.trim()
@@ -575,18 +576,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
-    const testSessionWorkflowEnv = resolveTestSessionWorkflowEnv(
-      testSurfaceId,
-      deps.revisorConfig,
-      deps.secretBox,
-    );
-    if (!testSessionWorkflowEnv.ok) {
-      return c.json({ error: testSessionWorkflowEnv.error }, 503);
-    }
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
-      ...testSessionWorkflowEnv.env,
     };
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);

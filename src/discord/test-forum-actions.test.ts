@@ -228,7 +228,8 @@ describe("handleTestForumControl merge", () => {
     expect(body).not.toHaveProperty("worktree");
     expect(body.prompt).toContain("E:/Document/Ars/Concordia");
     expect(body.prompt).toContain("feat/test-forum");
-    expect(body.prompt).toContain("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
+    expect(body.prompt).toContain("このセッションの責務は検証と報告だけ");
+    expect(body.prompt).not.toContain("CONCORDIA_REVISOR_WORKFLOW_TOKEN");
     expect(h.state.run_state).toBe("starting");
     expect(interaction.deferUpdate).toHaveBeenCalledOnce();
     expect(interaction.followUp).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));

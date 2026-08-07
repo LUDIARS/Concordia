@@ -78,11 +78,12 @@ candidate ──[テスト開始]──> starting ──[session.started]──>
    起動要求前に surface を原子的に `starting` へ進め、`session.started` で `session_id` を
    結び `testing` へ進める。この間の同じスレッドへの投稿は新規 spawn せず待機する。
    `session_id` 確定後の投稿は既存 session へ inject する。
-   Test Forum session に限り Cc が暗号化設定から都度解決した Revisor workflow token を
-   `CONCORDIA_REVISOR_WORKFLOW_TOKEN` として spawn 環境へ委譲する。値は API 応答・prompt・
-   ログへ出さず、Revisor の変更系 API の Bearer token としてだけ使う。token が無ければ
-   使用不能な session を起動せず fail-fast する。
-4. **マージ**: 管理職以上に限定し、Revisor の `POST /v1/local-prs/:id/merge` を叩く。成功で `merged` へ遷移
+   Test Forum session は検証と報告だけを担当し、Revisor workflow token を受け取らない。
+   interactive session の spawn 境界は inherited env と明示 env の両方から Revisor の
+   service credential を除去する。Revisor の mutation を prompt の遵守だけに依存させない。
+4. **マージ**: 管理職以上の構造化ボタン操作だけを受け、Cc サービスが保持する token で
+   Revisor の `POST /v1/local-prs/:id/merge` を叩く。成功で `merged` へ遷移する。
+   スレッドの自然言語を merge command として解釈しない
 5. **オートマージ**: Revisor 側に `autoMergeIfEligible` + `autoMergeRiskThreshold` が既に
    あるので、 Concordia 側の実装は不要。 `autoMergeEnabled` を有効化する運用判断のみ
 

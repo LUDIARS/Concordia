@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildSessionWorkPolicy } from "./session-work-policy.js";
+import {
+  buildSessionWorkPolicy,
+  EXPLICIT_WORKING_BRANCH_METADATA_KEY,
+  isCastraSessionBinding,
+  readExplicitWorkingBranch,
+  WORKSPACE_ROOT_METADATA_KEY,
+} from "./session-work-policy.js";
 
 describe("buildSessionWorkPolicy", () => {
   it("registers a requested branch when the child hook has not observed one yet", () => {
@@ -35,7 +41,20 @@ describe("buildSessionWorkPolicy", () => {
       workspaceRoots: ["E:/Document/Ars"],
     });
     expect(policy.text).toContain("Castra 破壊的 git 操作ガード");
-    // No longer a hard "you may not use this cwd" violation — root cwd is allowed.
+    expect(policy.registeredBranch).toBeNull();
     expect(policy.text).not.toContain("cwd violation");
+  });
+
+  it("remembers a Castra-rooted session after a child worktree binding replaces repo_path", () => {
+    const metadata = JSON.stringify({
+      [WORKSPACE_ROOT_METADATA_KEY]: "E:/Document/Ars",
+      [EXPLICIT_WORKING_BRANCH_METADATA_KEY]: "codex/concordia-card",
+    });
+    expect(isCastraSessionBinding({
+      repoPath: "E:/Document/Ars/.wt-Concordia-card",
+      targetProject: "E:/Document/Ars/Concordia",
+      metadata,
+    }, ["E:/Document/Ars"])).toBe(true);
+    expect(readExplicitWorkingBranch(metadata)).toBe("codex/concordia-card");
   });
 });

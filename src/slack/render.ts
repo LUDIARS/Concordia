@@ -28,6 +28,8 @@ export interface SessionCardState {
   provider?: string | null;
   /** metadata 由来の model 名（あれば併記）。 */
   model?: string | null;
+  /** runtime metadata または delegation 実行記録由来の reasoning effort。 */
+  effortLevel?: string | null;
   /** 現在の作業内容（current_task）。空なら短縮 id を見出しに使う。 */
   currentTask?: string | null;
   /** セッション短縮 id（8 桁）。 */
@@ -38,12 +40,10 @@ export interface SessionCardState {
   poem?: string | null;
 }
 
-/** provider + model を `claude-code (opus)` のような 1 行に整える。 */
-function formatEngine(provider?: string | null, model?: string | null): string {
-  const p = (provider ?? "").trim();
-  const m = (model ?? "").trim();
-  if (p && m) return `${p} · ${m}`;
-  return p || m || "?";
+function formatRuntimeValue(value?: string | null): string {
+  // Model and effort originate in runtime metadata. Keep them inside the
+  // surrounding inline-code delimiter so they cannot alter Slack formatting.
+  return (value?.trim() || "-").replace(/`/g, "ˋ");
 }
 
 /** `renderSessionCard` の戻り値。text はフォールバック / 通知文、blocks が Slack Block Kit 本体。 */
@@ -54,21 +54,24 @@ export interface SessionCardPayload {
 
 /**
  * session channel の header メッセージを組む（純粋）。Block Kit の section/fields で整形する。
- *  - active: Engine × Session ID の 2 カラムフィールド + 📌 作業内容 + 返信ヒント
- *  - ended : ✅ Done 行 + 独白ポエム（divider で区切る）
+ *  - active: Engine / Model / Effort / Session の runtime fields + 📌 作業内容 + 返信ヒント
+ *  - ended : ✅ Done 行 + runtime + 独白ポエム（divider で区切る）
  * `text` は通知文字列 / blocks 非対応時のフォールバック。
  */
 export function renderSessionCard(state: SessionCardState): SessionCardPayload {
-  const engine = formatEngine(state.provider, state.model);
+  const engine = formatRuntimeValue(state.provider);
+  const model = formatRuntimeValue(state.model);
+  const effort = formatRuntimeValue(state.effortLevel);
+  const runtime = `*Engine* \`${truncateForSlack(engine, 200)}\` · *Model* \`${truncateForSlack(model, 200)}\` · *Effort* \`${truncateForSlack(effort, 200)}\``;
   if (state.status === "ended") {
     const poem = (state.poem ?? "").trim() || "（記録は残った。次のセッションへ。）";
     const poemText = truncateForSlack(poem, 1500);
     return {
-      text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n\n${poemText}`,
+      text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n${runtime}\n\n${poemText}`,
       blocks: [
         {
           type: "section",
-          text: { type: "mrkdwn", text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`` },
+          text: { type: "mrkdwn", text: `✅ *Done* — *${state.who}*  \`${state.shortId}\`\n${runtime}` },
         },
         { type: "divider" },
         {
@@ -81,14 +84,16 @@ export function renderSessionCard(state: SessionCardState): SessionCardPayload {
   const task = (state.currentTask ?? "").trim();
   const headline = task ? truncateForSlack(task, 200) : state.shortId;
   // ペルソナ名・絵文字は buildSessionBotUsername() 経由で Slack の username フィールドへ。
-  // body は Engine × Session ID のテーブル + 📌 作業内容 + 返信ヒント。
+  // body は runtime fields + 📌 作業内容 + 返信ヒント。
   return {
-    text: `\`${engine}\`\n📌 ${headline}\n_(このチャンネルへ投稿すると ${state.who} に送信されます)_`,
+    text: `${runtime}\n📌 ${headline}\n_(このチャンネルへ投稿すると ${state.who} に送信されます)_`,
     blocks: [
       {
         type: "section",
         fields: [
           { type: "mrkdwn", text: `*Engine*\n\`${truncateForSlack(engine, 200)}\`` },
+          { type: "mrkdwn", text: `*Model*\n\`${truncateForSlack(model, 200)}\`` },
+          { type: "mrkdwn", text: `*Effort*\n\`${truncateForSlack(effort, 200)}\`` },
           { type: "mrkdwn", text: `*Session*\n\`${state.shortId}\`` },
         ],
       },

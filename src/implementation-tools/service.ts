@@ -5,6 +5,11 @@ import type { LocalPrSubmissionResult } from "../pr/local-pr-submission.js";
 import { createProjectResolver, type ProjectResolver } from "../projects/project-resolver.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
+import {
+  EXPLICIT_WORKING_BRANCH_METADATA_KEY,
+  isWorkspaceRootCwd,
+  WORKSPACE_ROOT_METADATA_KEY,
+} from "../control/session-work-policy.js";
 
 const nowSec = (): number => Math.floor(Date.now() / 1000);
 
@@ -52,6 +57,12 @@ export class ImplementationToolsService {
       repo_origin: context.repoOrigin,
       target_project: project.cwd,
       active_repos: activeRepos,
+    });
+    this.deps.sessions.mergeMetadata(session.id, {
+      [EXPLICIT_WORKING_BRANCH_METADATA_KEY]: context.branch,
+      ...(isWorkspaceRootCwd(session.repo_path, workspaceRoots)
+        ? { [WORKSPACE_ROOT_METADATA_KEY]: session.repo_path }
+        : {}),
     });
     this.deps.sessions.appendEvent({
       session_id: session.id,

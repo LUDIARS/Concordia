@@ -87,6 +87,7 @@ function makeReadModel(): ChatReadModel {
       emoji: null,
       provider: "codex-cli",
       model: "gpt",
+      effortLevel: "high",
       currentTask: "Slack channel routing",
       shortId: sessionId.slice(0, 8),
       status,

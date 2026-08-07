@@ -206,6 +206,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       emoji: null,
       provider: null,
       model: null,
+      effortLevel: null,
       currentTask: null,
       shortId: sessionId.slice(0, 8),
       status,

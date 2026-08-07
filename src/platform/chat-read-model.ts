@@ -68,6 +68,7 @@ export interface SessionCardState {
   emoji: string | null;
   provider: string | null;
   model: string | null;
+  effortLevel: string | null;
   currentTask: string | null;
   shortId: string;
   status: "active" | "ended";

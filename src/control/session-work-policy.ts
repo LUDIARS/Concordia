@@ -2,6 +2,8 @@ import type { PendingDelegationSpawn } from "./pending-delegation-spawns.js";
 import { resolve } from "node:path";
 
 export const SESSION_WORK_POLICY_SOURCE = "cc-session-work-policy";
+export const EXPLICIT_WORKING_BRANCH_METADATA_KEY = "cc_explicit_working_branch";
+export const WORKSPACE_ROOT_METADATA_KEY = "cc_workspace_root";
 
 export interface SessionWorkPolicyInput {
   repoPath: string;
@@ -23,9 +25,12 @@ export interface SessionWorkPolicyDecision {
 export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWorkPolicyDecision {
   const requestedBranch = input.pendingSpawn?.branch ?? null;
   const observedBranch = input.observedBranch?.trim() || null;
-  const registeredBranch = observedBranch ?? requestedBranch;
-  const branchMismatch = Boolean(requestedBranch && observedBranch && requestedBranch !== observedBranch);
   const isCastraCwd = isWorkspaceRootCwd(input.repoPath, input.workspaceRoots);
+  // Castra is an umbrella for cross-project investigation, not an
+  // implementation checkout. Do not register its observed branch as a working
+  // branch; an intentional child-project spawn may still carry its request.
+  const registeredBranch = isCastraCwd ? requestedBranch : observedBranch ?? requestedBranch;
+  const branchMismatch = !isCastraCwd && Boolean(requestedBranch && observedBranch && requestedBranch !== observedBranch);
 
   const lines = [
     "【Cc Session 作業ポリシー】",
@@ -47,6 +52,29 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
   return { registeredBranch, branchMismatch, text: lines.join("\n") };
 }
 
+export interface CastraSessionBinding {
+  repoPath: string;
+  targetProject: string | null;
+  metadata: string | null;
+}
+
+/**
+ * Whether Cc must treat this as a Castra-rooted session, even after an
+ * implementation binding replaces repo_path with a child worktree.
+ */
+export function isCastraSessionBinding(
+  session: CastraSessionBinding,
+  workspaceRoots: readonly string[],
+): boolean {
+  if (!session.targetProject?.trim()) return false;
+  return isWorkspaceRootCwd(session.repoPath, workspaceRoots)
+    || isWorkspaceRootCwd(readMetadataString(session.metadata, WORKSPACE_ROOT_METADATA_KEY) ?? "", workspaceRoots);
+}
+
+export function readExplicitWorkingBranch(metadata: string | null): string | null {
+  return readMetadataString(metadata, EXPLICIT_WORKING_BRANCH_METADATA_KEY);
+}
+
 /**
  * cwd が設定済み workspace/Castra root のいずれかと完全一致するか。
  *
@@ -55,6 +83,7 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
  * 破壊的 git 操作を控えるよう促す advisory 文言を足すかどうかの判定にのみ使う。
  */
 export function isWorkspaceRootCwd(cwd: string, workspaceRoots: readonly string[]): boolean {
+  if (!cwd.trim()) return false;
   return workspaceRoots.some((root) => root.trim().length > 0 && samePath(root, cwd));
 }
 
@@ -64,4 +93,15 @@ function samePath(left: string, right: string): boolean {
 
 function normalize(value: string): string {
   return resolve(value.trim()).replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+function readMetadataString(metadata: string | null, key: string): string | null {
+  if (!metadata) return null;
+  try {
+    const parsed = JSON.parse(metadata) as Record<string, unknown>;
+    const value = parsed[key];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
 }

@@ -86,6 +86,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         emoji: state.delegationEmoji,
         provider: state.provider,
         model: state.model,
+        effortLevel: state.effortLevel,
         currentTask: state.currentTask,
         shortId: sessionId.slice(0, 8),
         status,
@@ -132,7 +133,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         effortLevel: state.effortLevel,
         fastMode: state.fastMode,
         branch: state.branch,
-        repoPath: session.repo_path,
+        repoPath: state.repoPath,
         targetProject: session.target_project,
         currentTask: session.current_task,
         status: session.status,
@@ -244,11 +245,12 @@ function readSessionRelay(
   const meta = readSessionMeta(session.metadata);
   const delegationRunId = stringOrNull(meta.delegation_run_id);
   const delegationRun = delegationRunId ? delegationRepo.findRun(delegationRunId) : null;
+  const workingRepoPath = session.target_project ?? session.repo_path;
   return {
     sessionId,
     provider: session.provider,
-    repoPath: session.repo_path,
-    activeRepos: readActiveRepos(session.active_repos, session.repo_path),
+    repoPath: workingRepoPath,
+    activeRepos: readActiveRepos(session.active_repos, workingRepoPath),
     targetProject: session.target_project,
     branch: session.branch ?? delegationRun?.spawn_branch ?? null,
     status: session.status,

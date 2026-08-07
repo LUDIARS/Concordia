@@ -3,6 +3,11 @@ import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import {
+  EXPLICIT_WORKING_BRANCH_METADATA_KEY,
+  isCastraSessionBinding,
+  readExplicitWorkingBranch,
+} from "../../control/session-work-policy.js";
 
 export function registerEventsRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.get("/:id/tasks", (c) => {
@@ -51,6 +56,26 @@ app.post("/:id/event", async (c) => {
     });
     deps.repo.updateHeartbeat(id, ts);
     reviveIfLost(deps.repo, session, ts);
+    if (parsed.data.kind === "lictor.task.changed") {
+      const payload = parsed.data.payload ?? {};
+      const source = payload.source;
+      const reportedBranch = payload.branch;
+      const workspaceRoots = deps.resolveWorkspaceRoots?.() ?? [];
+      if (source === "explicit" && typeof reportedBranch === "string" && reportedBranch.trim()) {
+        deps.repo.mergeMetadata(id, { [EXPLICIT_WORKING_BRANCH_METADATA_KEY]: reportedBranch.trim() });
+      }
+      if (source === "auto" && isCastraSessionBinding({
+        repoPath: session.repo_path,
+        targetProject: session.target_project,
+        metadata: session.metadata,
+      }, workspaceRoots)) {
+        const explicitBranch = readExplicitWorkingBranch(session.metadata);
+        if (explicitBranch && session.branch !== explicitBranch) {
+          deps.repo.patchSession(id, { branch: explicitBranch });
+          eventBus.emit({ type: "session.event", session_id: id, kind: "branch_changed", ts });
+        }
+      }
+    }
     // prompt event は「いま何してるか」の最有力 signal なので current_task に反映
     if (parsed.data.kind === "prompt") {
       const summary = (parsed.data.payload as { summary?: unknown } | undefined)?.summary;

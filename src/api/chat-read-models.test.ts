@@ -113,4 +113,23 @@ describe("makeChatReadModel.getSessionStatusSnapshot", () => {
       effortLevel: "medium",
     });
   });
+
+  it("Castra root ではなく claim 済みの子プロジェクトを状態カードの Repo として表示する", () => {
+    sessions.insertSession({
+      id: "castra-root-session",
+      provider: "codex-cli",
+      repo_path: "E:/Document/Ars",
+      repo_origin: null,
+      branch: "codex/concordia-card",
+      host: "test-host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: null,
+      target_project: "E:/Document/Ars/Concordia",
+    });
+
+    expect(readModel.getSessionRelayState("castra-root-session")?.repoPath)
+      .toBe("E:/Document/Ars/Concordia");
+  });
 });

@@ -195,6 +195,66 @@ describe("sessions API", () => {
     expect(detail.session.current_task).toBe("doing X");
   });
 
+  it("keeps an explicit child binding when a Castra-rooted session reports root state again", async () => {
+    const env = makeTestApp();
+    env.adminState.setWorkspaceRoots(["E:/Document/Ars"]);
+    const root = "E:/Document/Ars";
+    const worktree = "E:/Document/Ars/.wt-Concordia-card";
+    const branch = "codex/concordia-card";
+
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "root-bound", provider: "codex-cli", repo_path: root, host: "h", branch: "main" }),
+    });
+    await env.app.request("/v1/sessions/root-bound", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo_path: worktree,
+        repo_origin: "git@github.com:LUDIARS/Concordia.git",
+        target_project: "E:/Document/Ars/Concordia",
+        branch,
+      }),
+    });
+    await env.app.request("/v1/sessions/root-bound/event", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "lictor.task.changed", payload: { source: "explicit", branch } }),
+    });
+
+    const rootUpdate = await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "root-bound", provider: "codex-cli", repo_path: root, repo_origin: null,
+        target_project: null, host: "h", branch: "main",
+      }),
+    });
+    expect(rootUpdate.status).toBe(200);
+
+    const session = env.repo.findSession("root-bound");
+    expect(session).toMatchObject({
+      repo_path: worktree,
+      repo_origin: "git@github.com:LUDIARS/Concordia.git",
+      target_project: "E:/Document/Ars/Concordia",
+      branch,
+    });
+
+    const patchRootUpdate = await env.app.request("/v1/sessions/root-bound", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo_path: root, repo_origin: null, target_project: null, branch: "main" }),
+    });
+    expect(patchRootUpdate.status).toBe(200);
+    expect(env.repo.findSession("root-bound")).toMatchObject({
+      repo_path: worktree,
+      repo_origin: "git@github.com:LUDIARS/Concordia.git",
+      target_project: "E:/Document/Ars/Concordia",
+      branch,
+    });
+  });
+
   it("404 for unknown session", async () => {
     const r = await app.request("/v1/sessions/nope");
     expect(r.status).toBe(404);

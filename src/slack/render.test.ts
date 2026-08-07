@@ -13,19 +13,19 @@ import {
 } from "./render.js";
 
 describe("renderSessionCard", () => {
-  it("active: text に engine + current_task + channel 投稿ヒントを含む（フォールバック文字列）", () => {
+  it("active: text に runtime + current_task + channel 投稿ヒントを含む（フォールバック文字列）", () => {
     const { text } = renderSessionCard({
-      who: "テスト魂", provider: "claude-code", model: "opus",
+      who: "テスト魂", provider: "claude-code", model: "opus", effortLevel: "high",
       currentTask: "Slack ライブカード実装", shortId: "abcd1234", status: "active",
     });
-    expect(text).toContain("claude-code · opus");
+    expect(text).toContain("*Engine* `claude-code` · *Model* `opus` · *Effort* `high`");
     expect(text).toContain("📌 Slack ライブカード実装");
     expect(text).toContain("このチャンネルへ投稿すると");
     expect(text).toContain("テスト魂"); // 投稿ヒント行にのみ残る
   });
-  it("active: blocks に Engine/Session の 2 カラムフィールドを含む", () => {
+  it("active: blocks に Engine/Model/Effort/Session の runtime fields を含む", () => {
     const { blocks } = renderSessionCard({
-      who: "テスト魂", provider: "claude-code", model: "opus",
+      who: "テスト魂", provider: "claude-code", model: "opus", effortLevel: "high",
       currentTask: "実装タスク", shortId: "abcd1234", status: "active",
     });
     const fieldsBlock = (blocks as Array<{ type: string; fields?: Array<{ text: string }> }>)
@@ -34,8 +34,27 @@ describe("renderSessionCard", () => {
     const fieldTexts = fieldsBlock?.fields?.map((f) => f.text) ?? [];
     expect(fieldTexts.some((t) => t.includes("Engine"))).toBe(true);
     expect(fieldTexts.some((t) => t.includes("claude-code"))).toBe(true);
+    expect(fieldTexts.some((t) => t.includes("Model") && t.includes("opus"))).toBe(true);
+    expect(fieldTexts.some((t) => t.includes("Effort") && t.includes("high"))).toBe(true);
     expect(fieldTexts.some((t) => t.includes("Session"))).toBe(true);
     expect(fieldTexts.some((t) => t.includes("abcd1234"))).toBe(true);
+  });
+  it("ended: runtime を残して実行条件を追跡できる", () => {
+    const { blocks } = renderSessionCard({
+      who: "X", provider: "codex-cli", model: "gpt-5.6-sol", effortLevel: "xhigh",
+      shortId: "abcd1234", status: "ended", poem: "完了しました",
+    });
+    const header = (blocks as Array<{ type: string; text?: { text: string } }>)[0]?.text?.text;
+    expect(header).toContain("*Model* `gpt-5.6-sol`");
+    expect(header).toContain("*Effort* `xhigh`");
+  });
+  it("runtime metadata の backtick で Slack の code formatting を閉じない", () => {
+    const { text } = renderSessionCard({
+      who: "X", model: "gpt`<@U123>", effortLevel: "high",
+      shortId: "abcd1234", status: "active",
+    });
+    expect(text).toContain("*Model* `gptˋ<@U123>` ");
+    expect(text).not.toContain("gpt`<@U123>`");
   });
   it("active: current_task 空なら短縮 id を見出しに使う", () => {
     const { text, blocks } = renderSessionCard({ who: "X", shortId: "deadbeef", status: "active" });
@@ -45,9 +64,13 @@ describe("renderSessionCard", () => {
     expect(taskBlock?.text?.text).toContain("deadbeef");
   });
   it("ended: text に ✅ Done + ポエム + 短縮id", () => {
-    const { text } = renderSessionCard({ who: "X", shortId: "abcd1234", status: "ended", poem: "コードは残った\n次へ" });
+    const { text } = renderSessionCard({
+      who: "X", provider: "claude-code", model: "opus", effortLevel: "high",
+      shortId: "abcd1234", status: "ended", poem: "コードは残った\n次へ",
+    });
     expect(text).toContain("✅ *Done*");
     expect(text).toContain("abcd1234");
+    expect(text).toContain("*Effort* `high`");
     expect(text).toContain("コードは残った");
   });
   it("ended: blocks に divider とポエムを含む", () => {

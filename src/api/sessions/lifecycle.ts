@@ -5,7 +5,10 @@ import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
 import {
   buildSessionWorkPolicy,
+  isCastraSessionBinding,
+  isWorkspaceRootCwd,
   SESSION_WORK_POLICY_SOURCE,
+  WORKSPACE_ROOT_METADATA_KEY,
 } from "../../control/session-work-policy.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
@@ -24,13 +27,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     const projectResolver = createProjectResolver(workspaceRoots, {
       warn: (message) => log.warn(message),
     });
-    // NOTE: cwd === workspace root (Castra) is intentionally allowed to register.
-    // Cross-repo / coordination sessions legitimately run with cwd=root (see
-    // conflict-scope.ts's "umbrella" handling), and hard-blocking registration
-    // here treated Castra as an off-limits competitor rather than guarding the
-    // actual risk — destructive git ops against Castra's own working tree. That
-    // risk is covered by the fail-closed advisory buildSessionWorkPolicy()
-    // injects below (see session-work-policy.ts).
+    // Cross-repo investigation may start at Castra, but it is an umbrella and
+    // never an implementation binding. Remember that origin so a later child
+    // worktree claim is not overwritten by root-derived Lictor updates.
     const now = nowSec();
     // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;
@@ -39,23 +38,33 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
 
     const existing = deps.repo.findSession(input.id);
     const resumed = !!existing && existing.status !== "active";
-    const branchChanged = !!existing
-      && input.branch != null
-      && existing.branch !== input.branch;
     if (existing) {
+      const preserveWorkingRepo = Boolean(
+        isWorkspaceRootCwd(input.repo_path, workspaceRoots)
+        && !isWorkspaceRootCwd(existing.repo_path, workspaceRoots)
+        && isCastraSessionBinding({
+          repoPath: existing.repo_path,
+          targetProject: existing.target_project,
+          metadata: existing.metadata,
+        }, workspaceRoots),
+      );
+      const branchChanged = !preserveWorkingRepo
+        && input.branch != null
+        && existing.branch !== input.branch;
       // 既存セッションが lost / ended なら "再開" として active 化.
-      // repo_path / repo_origin / branch は cwd 移動や checkout で変わり得るので毎回上書きする.
+      // repo_path / repo_origin / branch は cwd 移動や checkout で変わり得る。
+      // ただし Castra root からの再報告は既存の child binding を上書きしない。
       if (existing.status !== "active") {
         deps.repo.setStatus(input.id, "active", now);
       } else {
         deps.repo.updateHeartbeat(input.id, now);
       }
       deps.repo.patchSession(input.id, {
-        repo_path: input.repo_path,
-        repo_origin: input.repo_origin ?? null,
-        branch: input.branch ?? undefined,
-        target_project: input.target_project ?? undefined,
-        active_repos: input.active_repos ?? undefined,
+        repo_path: preserveWorkingRepo ? undefined : input.repo_path,
+        repo_origin: preserveWorkingRepo ? undefined : input.repo_origin ?? null,
+        branch: preserveWorkingRepo ? undefined : input.branch ?? undefined,
+        target_project: preserveWorkingRepo ? undefined : input.target_project ?? undefined,
+        active_repos: preserveWorkingRepo ? undefined : input.active_repos ?? undefined,
       });
       if (branchChanged) {
         eventBus.emit({ type: "session.event", session_id: input.id, kind: "branch_changed", ts: now });
@@ -65,8 +74,8 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
           type: "session.started",
           session_id: input.id,
           provider: input.provider,
-          repo_path: input.repo_path,
-          branch: input.branch ?? existing.branch,
+          repo_path: preserveWorkingRepo ? existing.repo_path : input.repo_path,
+          branch: preserveWorkingRepo ? existing.branch : input.branch ?? existing.branch,
           ts: now,
         });
       }
@@ -74,6 +83,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
       // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
+      if (isWorkspaceRootCwd(input.repo_path, workspaceRoots)) {
+        meta[WORKSPACE_ROOT_METADATA_KEY] = input.repo_path;
+      }
       const spawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
       const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
       // concordia_spawn_id is a one-time enrollment secret placed only in the
@@ -356,8 +368,28 @@ app.patch("/:id", async (c) => {
       ...parsed.data,
       ...(inferredTargetProject ? { target_project: inferredTargetProject } : {}),
     };
+    const roots = deps.resolveWorkspaceRoots?.() ?? [];
+    const effectiveTargetProject = columnPatch.target_project ?? session.target_project;
+    const incomingRootRepo = columnPatch.repo_path && isWorkspaceRootCwd(columnPatch.repo_path, roots);
+    const preserveWorkingRepo = Boolean(
+      incomingRootRepo
+      && !isWorkspaceRootCwd(session.repo_path, roots)
+      && isCastraSessionBinding({
+        repoPath: session.repo_path,
+        targetProject: effectiveTargetProject,
+        metadata: session.metadata,
+      }, roots),
+    );
+    if (preserveWorkingRepo) {
+      delete columnPatch.repo_path;
+      delete columnPatch.repo_origin;
+      // A root-derived update reports Castra's branch and may omit the child
+      // target. Both would erase the explicit implementation binding.
+      delete columnPatch.branch;
+      delete columnPatch.target_project;
+    }
     const patchTs = nowSec();
-    const didChangeBranch = parsed.data.branch !== undefined && parsed.data.branch !== session.branch;
+    const didChangeBranch = columnPatch.branch !== undefined && columnPatch.branch !== session.branch;
     const didChangeTask = parsed.data.current_task !== undefined && parsed.data.current_task !== session.current_task;
     deps.repo.patchSession(id, columnPatch);
     if (metadata) deps.repo.mergeMetadata(id, metadata);

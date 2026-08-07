@@ -86,6 +86,7 @@ import {
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import {
   goalAndGoRequested,
+  resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
   resolveDelegationRuntimeEnv,
   resolveDelegationSpawn,
@@ -491,7 +492,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
       // 論理 provider (gemma4-12 等) → 実 spawn に解決 (delegation invoke と同じ写像)。
       const spawn = resolveDelegationSpawn(tpl.target_provider, modelInput);
-      const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, runtimeOptions);
+      const effectiveRuntimeOptions = resolveEffectiveDelegationRuntimeOptions(
+        tpl.target_provider,
+        runtimeOptions,
+        spawn.effectiveModel,
+      );
+      const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
       const spawnArgs = [...spawn.args, ...runtimeArgs];
       const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const spawnTarget = await prepareSpawnTarget({
@@ -525,7 +531,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         cwdProvided: Boolean(tplCwd?.trim()),
         title: `tpl:${tpl.call_name}`,
         // gemma4-12 の LICTOR_LOCAL_MODEL 等、 spawn 解決由来の env を渡す。
-        env: { ...(spawn.env ?? {}), ...resolveDelegationRuntimeEnv(tpl.target_provider, runtimeOptions) },
+        env: {
+          ...(spawn.env ?? {}),
+          ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
+        },
         spawnId,
       });
       if (!result.ok) {
@@ -557,7 +566,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const modelInput = typeof body.model === "string" && body.model.trim() ? body.model.trim() : undefined;
     const resolved = resolveDelegationSpawn(provider, modelInput);
     const directOptions = isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {};
-    const runtimeArgs = resolveDelegationRuntimeArgs(provider, directOptions);
+    const effectiveDirectOptions = resolveEffectiveDelegationRuntimeOptions(
+      provider,
+      directOptions,
+      resolved.effectiveModel,
+    );
+    const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveDirectOptions);
     const userArgs = Array.isArray(body.args)
       ? (body.args as unknown[]).filter((x): x is string => typeof x === "string")
       : [];
@@ -571,7 +585,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
-      ...resolveDelegationRuntimeEnv(provider, directOptions),
+      ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
       ...testSessionWorkflowEnv.env,
     };
     if (adHocPrompt) {
@@ -597,7 +611,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       startupInjectText: adHocPrompt || null,
       sourceDiscordGuildId,
       sourceDiscordChannelId,
-      goalAndGo: goalAndGoRequested(directOptions),
+      goalAndGo: goalAndGoRequested(effectiveDirectOptions),
       testSurfaceId,
     });
     const result = sessionSpawn({

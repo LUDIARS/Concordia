@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   CODEX_DEFAULT_REASONING_EFFORT,
+  CLAUDE_OPUS_DEFAULT_EFFORT,
   delegationOptionSuggestions,
   GEMMA4_12_DEFAULT_MODEL,
   resolveDelegationRuntimeEnv,
@@ -68,8 +69,9 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("codex", "gpt-5.5").map((s) => s.key)).toContain("model_reasoning_effort");
     expect(delegationOptionSuggestions("codex")[0]?.choices?.map((choice) => choice.value)).toContain("xhigh");
     expect(delegationOptionSuggestions("codex", "gpt-3.5-turbo").map((s) => s.key)).toEqual(["goal_and_go"]);
-    expect(delegationOptionSuggestions("claude").map((s) => s.key)).toEqual(["effort", "fast_mode", "goal_and_go"]);
-    expect(delegationOptionSuggestions("claude")[0]?.choices?.map((choice) => choice.value)).toContain("auto");
+    expect(delegationOptionSuggestions("claude").map((s) => s.key))
+      .toEqual(["thinking", "effort", "fast_mode", "goal_and_go"]);
+    expect(delegationOptionSuggestions("claude")[1]?.choices?.map((choice) => choice.value)).toContain("auto");
   });
 
   it("suggests ultra reasoning effort only for the Sol model", () => {
@@ -96,6 +98,19 @@ describe("delegation runtime options", () => {
     });
   });
 
+  it("defaults Opus thinking off and permits an explicit per-delegation override", () => {
+    expect(resolveDelegationRuntimeEnv("claude", {}, "claude-opus-5")).toEqual({
+      CLAUDE_CODE_DISABLE_THINKING: "1",
+    });
+    expect(resolveDelegationRuntimeEnv("claude", { thinking: true }, "claude-opus-5")).toEqual({
+      CLAUDE_CODE_DISABLE_THINKING: "0",
+    });
+    expect(resolveDelegationRuntimeEnv("claude", { thinking: false }, "claude-sonnet-5")).toEqual({
+      CLAUDE_CODE_DISABLE_THINKING: "1",
+    });
+    expect(resolveDelegationRuntimeEnv("claude", {}, "claude-sonnet-5")).toEqual({});
+  });
+
   it("defaults Codex reasoning effort to xhigh when unspecified", () => {
     expect(resolveEffectiveDelegationRuntimeOptions("codex", {})).toEqual({
       model_reasoning_effort: CODEX_DEFAULT_REASONING_EFFORT,
@@ -104,6 +119,19 @@ describe("delegation runtime options", () => {
       "-c",
       'model_reasoning_effort="xhigh"',
     ]);
+  });
+
+  it("defaults Opus effort to high without overriding an explicit choice", () => {
+    const defaults = resolveEffectiveDelegationRuntimeOptions("claude", {}, "claude-opus-5");
+    expect(defaults).toEqual({
+      effort: CLAUDE_OPUS_DEFAULT_EFFORT,
+    });
+    expect(resolveDelegationRuntimeArgs("claude", defaults)).toEqual(["--effort", "high"]);
+    expect(resolveEffectiveDelegationRuntimeOptions(
+      "claude",
+      { effort: "low" },
+      "claude-opus-5",
+    )).toEqual({ effort: "low" });
   });
 
   it("passes Codex reasoning effort as one-shot config args", () => {

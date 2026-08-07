@@ -67,11 +67,14 @@ describe("project cwd three-out guard", () => {
 });
 
 describe("sanitizeSpawnEnv (CWE-78 env 注入対策)", () => {
-  it("allowlist prefix (LICTOR_ / CONCORDIA_) の key だけ通す", () => {
+  it("allowlist prefix と Claude thinking の専用 key だけ通す", () => {
     expect(sanitizeSpawnEnv({ LICTOR_LOCAL_MODEL: "gemma4:12b" })).toEqual({
       LICTOR_LOCAL_MODEL: "gemma4:12b",
     });
     expect(sanitizeSpawnEnv({ CONCORDIA_FOO: "x" })).toEqual({ CONCORDIA_FOO: "x" });
+    expect(sanitizeSpawnEnv({ CLAUDE_CODE_DISABLE_THINKING: "1" })).toEqual({
+      CLAUDE_CODE_DISABLE_THINKING: "1",
+    });
   });
 
   it("危険な loader/実行系 env は全て捨てる", () => {

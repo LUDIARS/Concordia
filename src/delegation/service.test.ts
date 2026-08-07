@@ -366,6 +366,21 @@ describe("DelegationService.invoke", () => {
     expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex");
   });
 
+  it("starts an Opus delegation with high effort and extended thinking disabled by default", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      overrides: { provider: "claude", model: "claude-opus-5" },
+    });
+    expect(r.ok).toBe(true);
+    const req = spawnCalls[0] as { args?: string[]; env?: Record<string, string> };
+    expect(req.args).toEqual(["--model", "claude-opus-5", "--effort", "high"]);
+    expect(req.env?.CLAUDE_CODE_DISABLE_THINKING).toBe("1");
+    if (!r.ok) return;
+    expect(r.run.effort_level).toBe("high");
+    expect(r.run.effort_source).toBe("opus-default");
+  });
+
   it("records parent_session_id and passes run/parent ids to spawned env", async () => {
     const r = await svc.invoke({
       call_name: "echo",

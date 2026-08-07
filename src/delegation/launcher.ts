@@ -37,6 +37,7 @@ export function launchDelegationProcess(input: {
   spawnProvider: SpawnRequest["provider"];
   spawnArgs: string[];
   spawnEnv?: Record<string, string>;
+  effectiveModel: string | null;
   effectiveOptions: DelegationRuntimeOptions;
   cwd?: string;
   branch: string | null;
@@ -54,7 +55,7 @@ export function launchDelegationProcess(input: {
     spawnId: input.runId,
     env: {
       ...(input.spawnEnv ?? {}),
-      ...resolveDelegationRuntimeEnv(input.logicalProvider, input.effectiveOptions),
+      ...resolveDelegationRuntimeEnv(input.logicalProvider, input.effectiveOptions, input.effectiveModel),
       CONCORDIA_DELEGATION_PROMPT_FILE: input.promptPath,
       CONCORDIA_DELEGATION_RUN_ID: input.runId,
       ...(input.invocation.parent_session_id ? {

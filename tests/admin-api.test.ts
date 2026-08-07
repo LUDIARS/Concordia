@@ -58,6 +58,57 @@ describe("admin API", () => {
     });
   });
 
+  it("POST /v1/admin/spawn-session applies Opus defaults through both direct session paths", async () => {
+    const spawnCalls: SpawnRequest[] = [];
+    env = makeTestApp({
+      sessionSpawn: (request) => {
+        spawnCalls.push(request);
+        return { ok: true, pid: 123, command: ["wt.exe", request.provider, ...(request.args ?? [])] };
+      },
+    });
+    env.adminState.setWorkspaceRoot(env.logsDir);
+    env.delegation.createTemplate({
+      call_name: "opus-direct-session",
+      title: "Opus direct session",
+      target_provider: "claude",
+      model: "claude-opus-5",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: env.logsDir,
+    });
+
+    const templateResponse = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ template: "opus-direct-session", args: { task: "x" } }),
+    });
+    const directResponse = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "claude",
+        model: "claude-opus-5",
+        cwd: env.logsDir,
+        options: { thinking: true },
+      }),
+    });
+
+    expect(templateResponse.status).toBe(200);
+    expect(directResponse.status).toBe(200);
+    expect(spawnCalls).toEqual([
+      expect.objectContaining({
+        provider: "claude",
+        args: ["--model", "claude-opus-5", "--effort", "high"],
+        env: expect.objectContaining({ CLAUDE_CODE_DISABLE_THINKING: "1" }),
+      }),
+      expect.objectContaining({
+        provider: "claude",
+        args: ["--model", "claude-opus-5", "--effort", "high"],
+        env: expect.objectContaining({ CLAUDE_CODE_DISABLE_THINKING: "0" }),
+      }),
+    ]);
+  });
+
   it("POST /v1/admin/spawn-session reports a delegation spawn failure", async () => {
     env = makeTestApp({
       delegationSpawn: () => ({ ok: false, error: "cwd does not exist: E:DocumentArsConcordia" }),

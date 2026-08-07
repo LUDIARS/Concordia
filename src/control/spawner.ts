@@ -299,6 +299,9 @@ export function resolveAgentHomeCwd(
  * これ以外 (NODE_OPTIONS / LD_PRELOAD / PATH 等) は一切通さない。
  */
 const SPAWN_ENV_ALLOW_PREFIXES = ["LICTOR_", "CONCORDIA_"] as const;
+// Claude's official thinking control is needed for Cc-owned delegation only.
+// Keep this an exact allowlist entry instead of allowing the full CLAUDE_* family.
+const SPAWN_ENV_ALLOWED_KEYS = new Set(["CLAUDE_CODE_DISABLE_THINKING"]);
 
 /** allowlist prefix の key だけを残す (CWE-78 env 注入対策、 pure)。 */
 export function sanitizeSpawnEnv(
@@ -308,7 +311,7 @@ export function sanitizeSpawnEnv(
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(reqEnv)) {
     if (typeof v !== "string") continue;
-    if (SPAWN_ENV_ALLOW_PREFIXES.some((p) => k.startsWith(p))) out[k] = v;
+    if (SPAWN_ENV_ALLOWED_KEYS.has(k) || SPAWN_ENV_ALLOW_PREFIXES.some((p) => k.startsWith(p))) out[k] = v;
   }
   return out;
 }

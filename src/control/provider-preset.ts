@@ -79,6 +79,7 @@ export interface DelegationOptionSuggestion {
 export type DelegationRuntimeOptions = Record<string, unknown>;
 
 export const CODEX_DEFAULT_REASONING_EFFORT = "xhigh";
+export const CLAUDE_OPUS_DEFAULT_EFFORT = "high";
 
 const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "ultra"]);
 const CLAUDE_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -110,10 +111,17 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
   }
   if (provider === "claude") {
     suggestions.push({
+      key: "thinking",
+      label: "Extended thinking",
+      type: "boolean",
+      description:
+        "Opus は既定で OFF。true で有効化、false で明示的に無効化します。",
+    });
+    suggestions.push({
       key: "effort",
       label: "Effort",
       type: "select",
-      description: "Claude Code effort. Auto learns from prior delegation outcomes.",
+      description: "Claude Code effort. Opus は既定 high、auto は過去の delegation 結果から学習します。",
       choices: [
         { label: "auto (learned)", value: "auto" },
         { label: "low", value: "low" },
@@ -143,13 +151,23 @@ export function goalAndGoRequested(options: DelegationRuntimeOptions | null | un
   return isPlainRecord(options) && options.goal_and_go === true;
 }
 
-/** Spawned Lictor can also preserve the opt-in when it builds registration metadata. */
+/** Build the Claude/Concordia runtime environment for a spawned delegation. */
 export function resolveDelegationRuntimeEnv(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
+  effectiveModel?: string | null,
 ): Record<string, string> {
   const o = isPlainRecord(options) ? options : {};
   const env: Record<string, string> = {};
+  if (provider === "claude") {
+    const thinkingEnabled = resolveClaudeThinkingEnabled(o.thinking, effectiveModel);
+    // `1` disables thinking regardless of ~/.claude settings. Set `0` for an
+    // explicit opt-in so a parent environment cannot keep it disabled.
+    if (thinkingEnabled === false) env.CLAUDE_CODE_DISABLE_THINKING = "1";
+    if (thinkingEnabled === true && o.thinking === true) {
+      env.CLAUDE_CODE_DISABLE_THINKING = "0";
+    }
+  }
   if (provider === "claude" && o.fast_mode === true) {
     env.CONCORDIA_DELEGATION_FAST_MODE = "1";
   }
@@ -162,6 +180,11 @@ export function resolveDelegationRuntimeEnv(
 /** codex ファミリ (CLI wrap の `codex` と Satelles headless の `codex-sdk`)。 */
 export function isCodexFamilyProvider(provider: string): boolean {
   return provider === "codex" || provider === "codex-sdk";
+}
+
+/** Whether the resolved Claude model is an Opus family model. */
+export function isClaudeOpusModel(provider: string, model: string | null | undefined): boolean {
+  return provider === "claude" && (model ?? "").trim().toLowerCase().includes("opus");
 }
 
 function supportsCodexReasoningEffort(model: string | null | undefined): boolean {
@@ -179,6 +202,13 @@ function supportsCodexReasoningEffort(model: string | null | undefined): boolean
 function isSolModel(model: string | null | undefined): boolean {
   const normalized = (model ?? "").trim().toLowerCase();
   return normalized === "sol" || normalized.endsWith("-sol");
+}
+
+/** Opus delegations default to no extended thinking; an explicit boolean wins. */
+function resolveClaudeThinkingEnabled(value: unknown, model: string | null | undefined): boolean | null {
+  if (typeof value === "boolean") return value;
+  const normalized = (model ?? "").trim().toLowerCase();
+  return normalized.includes("opus") ? false : null;
 }
 
 /** @implements spec/feature/delegation.md — 13.2 codex-sdk (`SPEC-DELEGATION-CODEX-SDK`) */
@@ -279,9 +309,19 @@ function isNetworkAccessDisabled(value: unknown): boolean {
 export function resolveEffectiveDelegationRuntimeOptions(
   provider: string,
   options: DelegationRuntimeOptions | null | undefined,
+  effectiveModel?: string | null,
 ): DelegationRuntimeOptions {
   const effectiveOptions = isPlainRecord(options) ? { ...options } : {};
-  if (!isCodexFamilyProvider(provider)) return effectiveOptions;
+  if (!isCodexFamilyProvider(provider)) {
+    if (
+      isClaudeOpusModel(provider, effectiveModel) &&
+      effectiveOptions.effort === undefined &&
+      effectiveOptions.reasoning_effort === undefined
+    ) {
+      effectiveOptions.effort = CLAUDE_OPUS_DEFAULT_EFFORT;
+    }
+    return effectiveOptions;
+  }
 
   const config = isPlainRecord(effectiveOptions.codex_config) ? effectiveOptions.codex_config : {};
   const effort = normalizeReasoningEffort(

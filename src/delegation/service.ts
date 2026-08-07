@@ -14,6 +14,8 @@ import {
   parseRuntimeOptions,
 } from "../db/delegation-repo.js";
 import {
+  CLAUDE_OPUS_DEFAULT_EFFORT,
+  isClaudeOpusModel,
   isCodexFamilyProvider,
   resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
@@ -321,7 +323,10 @@ export class DelegationService {
     let effortBucket: EffortTaskBucket | null = null;
     let effortDecisionId: number | null = null;
     let effortConfidence: number | null = null;
-    if (supportsAutomaticEffort(provider)) {
+    if (isClaudeOpusModel(provider, spawn.effectiveModel) && requestedEffort === null) {
+      effortLevel = CLAUDE_OPUS_DEFAULT_EFFORT;
+      effortSource = "opus-default";
+    } else if (supportsAutomaticEffort(provider)) {
       effortBucket = classifyTaskEffort(renderedPrompt);
       if (requestedEffort && !isAutoEffort(requestedEffort.value)) {
         const normalized = normalizeProviderEffort(provider, requestedEffort.value);
@@ -365,6 +370,7 @@ export class DelegationService {
         ...(input.overrides?.reasoning_effort ? { reasoning_effort: input.overrides.reasoning_effort } : {}),
         ...effortOptions,
       },
+      spawn.effectiveModel,
     );
     const runtimeArgs = resolveDelegationRuntimeArgs(provider, effectiveOptions);
     const spawnArgs = [...spawn.args, ...runtimeArgs];
@@ -435,6 +441,7 @@ export class DelegationService {
         spawnProvider: spawn.provider,
         spawnArgs,
         spawnEnv: spawn.env,
+        effectiveModel: spawn.effectiveModel,
         effectiveOptions,
         cwd,
         branch: spawnBranch,

@@ -146,6 +146,8 @@ export interface CoreDelegationDeps {
   revisorConfig?: RevisorConfigRepo;
   /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
   submitLocalPr?: PrsApiDeps["submitLocalPr"];
+  /** Revisor local PR を、session の直近人間指示者の権限でマージする。 */
+  revisorLocalPrMerger?: PrsApiDeps["revisorMerger"];
   /** Batched implementation fast paths. Normal conversation sessions do not use them. */
   implementationTools?: ImplementationToolsService;
   /** kind 別 Inject マニュアル。 未注入なら /v1/admin/inject-manuals は生えない。 */
@@ -221,7 +223,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     libraryRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
   );
   app.route("/v1/stat", statRouter({ stats: deps.stats, sessions: deps.repo }));
-  app.route("/v1/prs", prsRouter({ prs: deps.prs, revisor: deps.revisorLocalPrs, submitLocalPr: deps.submitLocalPr }));
+  app.route("/v1/prs", prsRouter({
+    prs: deps.prs,
+    revisor: deps.revisorLocalPrs,
+    submitLocalPr: deps.submitLocalPr,
+    sessions: deps.repo,
+    staff: deps.staff,
+    revisorMerger: deps.revisorLocalPrMerger,
+  }));
   if (deps.implementationTools) {
     app.route(
       "/v1/implementation-tools",

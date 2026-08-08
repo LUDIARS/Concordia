@@ -1,26 +1,32 @@
 {
   "name": "revisor-local-pr",
-  "description": "セッションの作業ブランチを Revisor の local PR として提出するレビュー発火経路。提出可否の純関数判定 (planLocalPrSubmission / findRegistration)、local PR API クライアント (登録一覧 / PR 一覧 / 提出、ポートは Excubitor catalog が正本)、base..branch のコミット件名読み取りから成る。提出時に session_id を binding して、審査の終局結果を提出元セッションへ戻す。GitHub PR を取り込んで横断キューを組む pr-queue (src/pr/ingest / reconcile / queue / full-sync) とは扱う対象が違う。",
+  "description": "Revisor local PR review submission and session-authorized merge workflow.",
   "presetRules": [],
   "templateRules": [],
   "membership": [
+    { "pathPattern": "(^|/)src/api/prs(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/register-core\\.ts$" },
+    { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/pr/local-pr-submission(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/revisor-local-pr-client(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$" }
+    { "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/staff/capability-authorization(\\.test)?\\.ts$" }
   ],
-  "cardTemplate": "Summarise the \"revisor-local-pr\" domain: 作業ブランチの local PR 自動提出によるレビュー発火 (判定・提出クライアント・コミット件名読み取り)。",
+  "cardTemplate": "Summarise the revisor-local-pr domain: local PR review submission and session-authorized merge.",
   "source": "spec",
   "mechanics": [
     "local-pr-submission-plan",
     "local-pr-submit-client",
-    "branch-commit-read"
+    "branch-commit-read",
+    "session-authorized-merge"
   ],
   "specRefs": [
+    "spec/feature/revisor-local-pr-submission.md#管理者の指示に基づくセッションからのマージ",
     "spec/feature/revisor-local-pr-submission.md#3-判定-planlocalprsubmission-純関数",
     "spec/feature/revisor-local-pr-submission.md#4-提出内容",
     "spec/feature/revisor-local-pr-submission.md#6-token"
   ],
-  "rationale": "src/pr は taxonomy 上 pr-queue 一括だったが、この経路は「GitHub の PR を取り込んで一覧にする」pr-queue とは向きが逆で、Concordia 側からレビューを発火させる責務。提出の可否判定は純関数、I/O は Revisor HTTP と読み取り専用 git に限定されており境界がそのまま切れる。session_id binding のように「どのセッションへ結果を戻すか」を知るのはこの層だけなので、独立ドメインとして分ける。",
+  "rationale": "Local PR review and merge operations are separate from GitHub PR synchronization. Session-derived requester identity is checked against the live staff roster before Revisor receives a merge request.",
   "lockedFields": ["*"],
-  "updatedAt": "2026-08-03T00:00:00.000Z"
+  "updatedAt": "2026-08-08T00:00:00.000Z"
 }

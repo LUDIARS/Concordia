@@ -120,6 +120,7 @@ import { syncSessionForumTemplateTags } from "../discord/forum-template-tags.js"
 import { loadSecretBox } from "../shared/secret-box.js";
 import { StaffRepo } from "../db/staff-repo.js";
 import { capabilityAllowed } from "../staff/roles.js";
+import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createFederationRuntime } from "../federation/runtime.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import { configureLoopHaltNotifier } from "../shared/loop-bulkhead.js";
@@ -733,7 +734,7 @@ export async function startBackend(): Promise<BackendHandle> {
       capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
     // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
     hasStaffCapability: (userId, capability) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), capability),
+      authorizeStaffCapability(staffRepo, "discord", userId, capability).allowed,
     isLaunchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
     isSessionEndUserAllowed: (userId) =>
@@ -878,6 +879,7 @@ export async function startBackend(): Promise<BackendHandle> {
     staff: staffRepo,
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
+    revisorLocalPrMerger: revisorClient,
     revisorConfig: revisorConfigRepo,
     implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。

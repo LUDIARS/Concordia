@@ -55,6 +55,27 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 手動口として `POST /v1/prs/local { session_id }` も生やす。 セッション終了を待たずに
 レビューへ出したいときに使う。 提出しなかった場合も 200 で理由を返す。
 
+### 管理者の指示に基づくセッションからのマージ
+
+`POST /v1/prs/local/:id/merge { session_id }` は、AI セッションが管理者から受けた指示を
+実行するための local PR マージ口である。権限境界をセッションそのものへ渡すのではなく、
+呼び出しごとに次の順序で検証する。
+
+1. 対象 session の event から `lastHumanRequester` で直近の人間指示者
+   (`platform`, `user_id`) を解決する。解決できなければ 403
+   `merge_authorizer_unknown` で終了する。
+2. 社員名簿を live 参照し、Discord の TestWorkflow マージボタンと同じ共通 capability
+   判定で指示者の `merge_pr` を検証する。持たなければ 403
+   `merge_not_authorized` を返す。
+3. 通過時だけ `RevisorClient.mergeLocalPr(id)` を実行する。Revisor の失敗は 502 と
+   安定した非機密の `detail` を返す。上流からの生の失敗文字列は endpoint や設定情報を
+   含み得るため、クライアントへは返さない。
+4. 成功時は、指示者、local PR ID、session ID を構造化ログと session event
+   `pr-merged` に監査記録する。
+
+Concordia は `dist` を実行するため、この変更を取り込んだ後は `npm run build` と
+Excubitor 経由の再起動が必要である。再起動操作そのものはこの API に含めない。
+
 ## 3. 判定 (`planLocalPrSubmission`, 純関数)
 
 スキップは必ず**理由付き**で返す。 無言スキップは、 発火経路が死んでいても誰も気づけない

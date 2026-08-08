@@ -1,6 +1,8 @@
 /**
  * /v1/prs — PR キュー API.
  *
+ * @implements spec/feature/revisor-local-pr-submission.md — 管理者の指示に基づくセッションからのマージ
+ *
  *  GET /v1/prs
  *    各 session が作った PR を「対応すべき順」 に並べたキューを返す.
  *    クエリ (任意): repo (repo_origin filter) / author (session_id filter) /
@@ -22,9 +24,14 @@
 
 import { Hono } from "hono";
 import type { PrRecordsRepo, PrState } from "../db/pr-records-repo.js";
+import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { StaffRepo } from "../db/staff-repo.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
-import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
+import { lastHumanRequester } from "../control/requester.js";
+import { authorizeStaffCapability } from "../staff/capability-authorization.js";
+import { createChildLogger } from "../shared/logger.js";
 
 export interface PrsApiDeps {
   prs: PrRecordsRepo;
@@ -39,9 +46,16 @@ export interface PrsApiDeps {
     | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; reason: string; detail?: string }
   >;
+  /** session の直近人間指示者を監査付きマージの認可者として解決する。 */
+  sessions?: Pick<SessionsRepo, "recentEvents" | "appendEvent">;
+  /** platform ごとの staff role を live 参照する。 */
+  staff?: Pick<StaffRepo, "roleOf">;
+  /** Revisor local PR の変更操作。未注入時は fail-closed。 */
+  revisorMerger?: RevisorLocalPrMerger;
 }
 
 const VALID_STATES: PrState[] = ["draft", "open", "merged", "closed"];
+const log = createChildLogger("prs-api");
 
 export function prsRouter(deps: PrsApiDeps): Hono {
   const app = new Hono();
@@ -121,6 +135,45 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
     if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
     return c.json(await deps.submitLocalPr(sessionId));
+  });
+
+  /**
+   * POST /v1/prs/local/:id/merge — session の直近人間指示者の権限で local PR をマージする。
+   * 指示者や capability を解決できない構成は、実行せず明示的に deny する。
+   */
+  app.post("/local/:id/merge", async (c) => {
+    if (!deps.sessions || !deps.staff || !deps.revisorMerger) {
+      return c.json({ error: "local_pr_merge_unavailable" }, 503);
+    }
+    const localPrId = c.req.param("id").trim();
+    if (!localPrId) return c.json({ error: "local_pr_id required" }, 400);
+    const body = await c.req.json().catch(() => null) as { session_id?: unknown } | null;
+    const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+    if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
+
+    const requester = lastHumanRequester(deps.sessions.recentEvents(sessionId, 100));
+    if (!requester) return c.json({ error: "merge_authorizer_unknown" }, 403);
+
+    const authorization = authorizeStaffCapability(deps.staff, requester.platform, requester.userId, "merge_pr");
+    if (!authorization.allowed) {
+      return c.json({ error: "merge_not_authorized", detail: authorization.detail }, 403);
+    }
+    try {
+      await deps.revisorMerger.mergeLocalPr(localPrId);
+    } catch {
+      // Revisor の生の失敗内容は endpoint / 設定情報を含み得るので、ローカル API を経由して返さない。
+      return c.json({ error: "local_pr_merge_failed", detail: "Revisor local PR merge failed" }, 502);
+    }
+
+    const ts = Math.floor(Date.now() / 1000);
+    const audit = {
+      local_pr_id: localPrId,
+      session_id: sessionId,
+      authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
+    };
+    log.info(audit, "local PR merged with session requester authorization");
+    deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-merged", payload: audit });
+    return c.json({ merged: true, local_pr_id: localPrId });
   });
 
   app.get("/list", (c) => {

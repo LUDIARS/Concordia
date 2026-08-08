@@ -121,12 +121,12 @@ describe("delegation runtime options", () => {
     ]);
   });
 
-  it("defaults Opus effort to high without overriding an explicit choice", () => {
+  it("defaults Opus effort to medium without overriding an explicit choice", () => {
     const defaults = resolveEffectiveDelegationRuntimeOptions("claude", {}, "claude-opus-5");
     expect(defaults).toEqual({
       effort: CLAUDE_OPUS_DEFAULT_EFFORT,
     });
-    expect(resolveDelegationRuntimeArgs("claude", defaults)).toEqual(["--effort", "high"]);
+    expect(resolveDelegationRuntimeArgs("claude", defaults)).toEqual(["--effort", "medium"]);
     expect(resolveEffectiveDelegationRuntimeOptions(
       "claude",
       { effort: "low" },

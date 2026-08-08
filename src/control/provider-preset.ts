@@ -79,7 +79,7 @@ export interface DelegationOptionSuggestion {
 export type DelegationRuntimeOptions = Record<string, unknown>;
 
 export const CODEX_DEFAULT_REASONING_EFFORT = "xhigh";
-export const CLAUDE_OPUS_DEFAULT_EFFORT = "high";
+export const CLAUDE_OPUS_DEFAULT_EFFORT = "medium";
 
 const CODEX_REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high", "xhigh", "ultra"]);
 const CLAUDE_REASONING_EFFORTS = new Set(["low", "medium", "high", "xhigh", "max"]);

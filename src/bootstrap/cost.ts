@@ -67,6 +67,8 @@ export function startCostWorkerLease(
 
 export interface CostLeaseWatchDeps {
   mode: CostMode;
+  /** Cost workflow が無効なら、 lease の状態にかかわらず embedded sampler を止める。 */
+  isWorkflowEnabled?: () => boolean;
   runtime: Pick<CostRuntime, "isRunning" | "start" | "stop">;
   readLease: () => WorkerLease | null;
   log: { info: (msg: string) => void; warn: (msg: string) => void };
@@ -88,6 +90,13 @@ export function createCostLeaseWatchTick(deps: CostLeaseWatchDeps): () => void {
   let workerDownReported = false;
   let lastLease: WorkerLease | null = null;
   return () => {
+    if (deps.isWorkflowEnabled && !deps.isWorkflowEnabled()) {
+      if (deps.runtime.isRunning()) {
+        deps.log.info("workflow.cost disabled; stopping embedded cost sampler");
+        deps.runtime.stop();
+      }
+      return;
+    }
     const lease = deps.readLease();
     if (lease) {
       lastLease = lease;

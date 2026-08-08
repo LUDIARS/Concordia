@@ -12,6 +12,7 @@
  */
 
 import type { SettingsStore } from "../admin/settings-store.js";
+import { createChildLogger } from "../shared/logger.js";
 import {
   WORKFLOW_KEYS,
   workflowEnvName,
@@ -36,6 +37,7 @@ export interface WorkflowTogglesDeps {
 
 const TRUE_PATTERN = /^(1|true|yes|on)$/i;
 const FALSE_PATTERN = /^(0|false|no|off)$/i;
+const log = createChildLogger("workflow-toggles");
 
 export class WorkflowToggles {
   private readonly store: SettingsStore;
@@ -94,12 +96,12 @@ export class WorkflowToggles {
     return WORKFLOW_KEYS.every((key) => !this.isEnabled(key));
   }
 
-  private warnUnparsable(name: string, raw: string): void {
+  private warnUnparsable(name: string, _raw: string): void {
     const message =
-      `workflow flag ${name}="${raw}" は真偽値として解釈できません。 ` +
+      `workflow flag ${name} は真偽値として解釈できません。 ` +
       "この設定は無視して次の解決元へ進みます (1/true/yes/on または 0/false/no/off を指定してください)";
     if (this.log) this.log.warn(message);
-    else console.warn(message);
+    else log.warn(message);
   }
 }
 

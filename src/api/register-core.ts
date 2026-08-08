@@ -105,8 +105,11 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
+import { directorRouter } from "./director.js";
+import type { DirectorService } from "../director/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
+import { resolveTestSessionWorkflowEnv } from "../control/test-session-workflow-token.js";
 import { workflowGate } from "../workflow/api-gate.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 
@@ -185,6 +188,8 @@ export interface CoreRuntimeDeps {
   spawnTokenCwd?: string;
   /** マルチ拠点連合の管理 API。未注入なら /v1/federation は生えない。 */
   federation?: FederationApiDeps;
+  /** 原稿フローの工程・判断監査。未注入なら /v1/director は生えない。 */
+  director?: DirectorService;
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
@@ -274,6 +279,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     delegation: deps.delegation,
     prs: deps.prs,
   }));
+  if (deps.director) {
+    app.route("/v1/director", directorRouter({ service: deps.director }));
+  }
   if (deps.confirmService) {
     app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
   }

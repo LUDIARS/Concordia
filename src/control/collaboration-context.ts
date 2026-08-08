@@ -161,6 +161,7 @@ function buildCcWorkflow(sessionId: string): NonNullable<CollaborationContextPac
       "Confirm the requested branch against the actual checkout and register that branch in Cc before editing; do not work directly on main.",
       "Commit your changes when the assigned work reaches a checkpoint or is complete — never leave the working tree uncommitted (this is mandatory; Codex sessions frequently forget to commit).",
       "When implementation is complete, push the branch and open a PR.",
+      "Do not spawn subagents yourself (Agent/Task tool). Delegate parallel or split work through Concordia delegation (POST /v1/delegation/invoke) so the child gets its own surface, status card, and PR — unless the user explicitly asked for an in-session agent.",
       "Do not run any test unless the user explicitly requested it for this Session.",
       "Do not merge, enable auto-merge, or update main unless the user explicitly requested it.",
       "Keep task_update current as work moves between pending, in_progress, and completed.",

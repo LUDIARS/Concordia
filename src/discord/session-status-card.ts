@@ -1,4 +1,10 @@
-import { ChannelType, EmbedBuilder, type Guild, type TextChannel } from "discord.js";
+import {
+  ChannelType,
+  EmbedBuilder,
+  type AnyThreadChannel,
+  type Guild,
+  type TextChannel,
+} from "discord.js";
 import type { DiscordConfigRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { sessionChannelSlug } from "./formatter.js";
@@ -12,6 +18,9 @@ import { formatFastMode, formatWorkingBranch } from "./runtime-metadata.js";
 
 const ACTIVE_WINDOW_SEC = 60;
 const WAITING_WINDOW_SEC = 5 * 60;
+
+/** 状態カードを送れる面 (専用チャンネル / セッションの forum thread)。 */
+type StatusCardChannel = TextChannel | AnyThreadChannel;
 
 const STATUS_MESSAGE_KEY_PREFIX = "session_status_message_id:";
 const STATUS_CHANNEL_KEY_PREFIX = "session_status_channel_id:";
@@ -49,13 +58,15 @@ export async function upsertSessionStatusCard(
   const snapshot = await deps.readModel.getSessionStatusSnapshot(sessionId, sessionChannelRow.channel_id);
   if (!snapshot) return;
 
-  const statusChannel = await ensureStatusChannel(deps, {
+  const surface = await ensureStatusSurface(deps, {
     sessionId,
     provider: snapshot.provider,
     roleLabel: snapshot.roleLabel,
     allowCreate: opts.allowCreate ?? false,
+    sessionChannelId: sessionChannelRow.channel_id,
   });
-  if (!statusChannel) return;
+  if (!surface) return;
+  const statusChannel = surface.channel;
 
   const embed = buildSessionStatusEmbed(snapshot);
   await maybeNotifyHighContextUsage(deps, {
@@ -90,8 +101,12 @@ export async function upsertSessionStatusCard(
   }
 
   try {
-    await purgeBotMessages(deps, statusChannel);
+    // 専用チャンネルのときだけ掃除する。 セッションの投稿 (forum thread) は会話そのものなので、
+    // ここで bot 発言を消すと中継ログが消える。
+    if (!surface.isSessionThread) await purgeBotMessages(deps, statusChannel);
     const sent = await statusChannel.send({ embeds: [embed] });
+    // 投稿に貼る形では会話に流れて見えなくなるため pin して定位置に置く (best-effort)。
+    if (surface.isSessionThread) await sent.pin().catch(() => undefined);
     deps.configRepo.set(msgKey, sent.id);
     deps.log.info(`status-card: created session=${sessionId} channel=${statusChannel.id} message=${sent.id}`);
   } catch (e) {
@@ -244,7 +259,7 @@ function statusColor(status: string, ageSec: number | null): number {
   return 0x747f8d;
 }
 
-async function purgeBotMessages(deps: SessionStatusCardDeps, channel: TextChannel): Promise<void> {
+async function purgeBotMessages(deps: SessionStatusCardDeps, channel: StatusCardChannel): Promise<void> {
   try {
     const msgs = await channel.messages.fetch({ limit: 10 });
     const selfId = deps.guild.client.user?.id;
@@ -262,7 +277,7 @@ async function maybeNotifyHighContextUsage(
   deps: SessionStatusCardDeps,
   input: {
     sessionId: string;
-    statusChannel: TextChannel;
+    statusChannel: StatusCardChannel;
     contextBadge: string;
     contextPct: number | null;
     requesterUserId?: string | null;
@@ -288,6 +303,53 @@ async function maybeNotifyHighContextUsage(
   } catch (e) {
     deps.log.warn(`status-card: context warning failed session=${input.sessionId}: ${(e as Error).message}`);
   }
+}
+
+/** 状態カードを置く面。 forum 運用ではセッションの投稿そのもの。 */
+interface StatusSurface {
+  channel: StatusCardChannel;
+  /** セッションの forum thread に貼っているか (= 専用チャンネルではない)。 */
+  isSessionThread: boolean;
+}
+
+/**
+ * 状態カードの置き場を決める。
+ *
+ * forum 運用では**専用チャンネルを作らず**、セッションの投稿 (forum thread) に貼る
+ * (2026-08-09 neco 指示: 状態カードのチャンネルは見られていない)。 チャンネル運用の
+ * ときだけ従来どおり status カテゴリのチャンネルを使う。
+ */
+async function ensureStatusSurface(
+  deps: SessionStatusCardDeps,
+  input: {
+    sessionId: string;
+    provider: string;
+    roleLabel: string | null;
+    allowCreate: boolean;
+    sessionChannelId: string;
+  },
+): Promise<StatusSurface | null> {
+  if (deps.layout.forumMode) {
+    const thread = await resolveSessionThread(deps, input.sessionChannelId);
+    if (!thread) return null;
+    // 掃除 (reconcileLostStatusCards) が辿れるよう、貼り先は従来と同じキーに記録する。
+    deps.configRepo.set(`${STATUS_CHANNEL_KEY_PREFIX}${input.sessionId}`, thread.id);
+    return { channel: thread, isSessionThread: true };
+  }
+  const channel = await ensureStatusChannel(deps, input);
+  return channel ? { channel, isSessionThread: false } : null;
+}
+
+async function resolveSessionThread(
+  deps: SessionStatusCardDeps,
+  channelId: string,
+): Promise<StatusCardChannel | null> {
+  const channel = deps.guild.channels.cache.get(channelId)
+    ?? await deps.guild.channels.fetch(channelId).catch(() => null);
+  if (!channel) return null;
+  return channel.type === ChannelType.PublicThread || channel.type === ChannelType.PrivateThread
+    ? channel
+    : null;
 }
 
 async function ensureStatusChannel(
@@ -341,6 +403,18 @@ export async function deleteSessionStatusCard(
   if (channelId) {
     const ch = deps.guild.channels.cache.get(channelId)
       ?? await deps.guild.channels.fetch(channelId).catch(() => null);
+    // forum 運用ではセッションの投稿に貼っている。 面ごと消すと会話が消えるので、
+    // カードのメッセージだけ取り下げる。
+    if (ch?.isThread()) {
+      const messageId = deps.configRepo.get(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`);
+      if (messageId) {
+        await ch.messages.delete(messageId).catch(() => undefined);
+        deps.log.info(`status-card: removed card message session=${sessionId} thread=${ch.id}`);
+      }
+      deps.configRepo.set(chKey, "");
+      deps.configRepo.set(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`, "");
+      return;
+    }
     if (ch) {
       try {
         await ch.delete(`session ${sessionId} status card removed`);

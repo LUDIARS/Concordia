@@ -58,6 +58,15 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     app.use("/v1/daily-reports", gate);
     app.use("/v1/daily-reports/*", gate);
   }
+  // ReactionWorkflow 固有の設定 API も、 workflow.reaction が無効なら利用させない。
+  // 有効化そのものは /v1/admin/workflows から行えるため、再有効化の経路は残る。
+  {
+    const gate = workflowGate("reaction", () => deps.adminState.isWorkflowEnabled("reaction"));
+    for (const prefix of ["/v1/admin/reaction-workflow", "/v1/admin/reaction-mappings"]) {
+      app.use(prefix, gate);
+      app.use(`${prefix}/*`, gate);
+    }
+  }
   app.route("/v1/monitor", monitorRouter({
     repo: deps.repo,
     metrics: deps.metrics,

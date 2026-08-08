@@ -41,19 +41,32 @@ async function main(): Promise<void> {
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
 
-  const lease = startCostWorkerLease(configRepo);
+  let lease: ReturnType<typeof startCostWorkerLease> | null = null;
   const runtime = createCostRuntime({
     db,
     sessionsRepo: sessions,
     getDailyTokenBudget: () => adminState.getDailyTokenBudget(),
     log,
   });
-  runtime.start();
+  const syncWorkflow = (): void => {
+    if (!adminState.isWorkflowEnabled("cost")) {
+      runtime.stop();
+      lease?.stop();
+      lease = null;
+      return;
+    }
+    if (!lease) lease = startCostWorkerLease(configRepo);
+    if (!runtime.isRunning()) runtime.start();
+  };
+  syncWorkflow();
+  const workflowWatch = setInterval(syncWorkflow, 5_000);
+  workflowWatch.unref?.();
   log.info("cost worker started");
 
   const shutdown = async () => {
+    clearInterval(workflowWatch);
     runtime.stop();
-    lease.stop();
+    lease?.stop();
     closeDb();
   };
   process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });

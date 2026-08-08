@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 55;
+export const SCHEMA_VERSION = 56;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1419,6 +1419,61 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "discord_channel_id")) {
       db.exec("ALTER TABLE discord_pending_questions ADD COLUMN discord_channel_id TEXT");
     }
+  },
+}, {
+  version: 56,
+  name: "director-script-flow",
+  source: "director_cases + director_steps + director_decisions v1",
+  up(db) {
+    // Director は既存の task Markdown / delegation run / local PR / confirm run を複製せず、
+    // 原稿フロー上の関連と工程状態だけを保持する。判断本文は Genius の監査結果として保存する。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS director_cases (
+        id          TEXT PRIMARY KEY,
+        title       TEXT NOT NULL,
+        goal        TEXT NOT NULL,
+        project     TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS director_steps (
+        id                  TEXT PRIMARY KEY,
+        case_id             TEXT NOT NULL,
+        sequence            INTEGER NOT NULL,
+        kind                TEXT NOT NULL,
+        title               TEXT NOT NULL,
+        status              TEXT NOT NULL,
+        task_path           TEXT,
+        delegation_run_id   TEXT,
+        local_pr_id         TEXT,
+        confirm_run_id      TEXT,
+        handoff_note        TEXT,
+        created_at          INTEGER NOT NULL,
+        updated_at          INTEGER NOT NULL,
+        UNIQUE(case_id, sequence)
+      );
+      CREATE INDEX IF NOT EXISTS idx_director_steps_case_sequence
+        ON director_steps(case_id, sequence);
+      CREATE TABLE IF NOT EXISTS director_decisions (
+        id                TEXT PRIMARY KEY,
+        case_id           TEXT NOT NULL,
+        step_id           TEXT NOT NULL,
+        kind              TEXT NOT NULL,
+        question          TEXT NOT NULL,
+        facts_json        TEXT NOT NULL,
+        options_json      TEXT NOT NULL,
+        impact            TEXT NOT NULL,
+        decision          TEXT NOT NULL,
+        instruction       TEXT NOT NULL,
+        genius_available  INTEGER NOT NULL,
+        genius_cards_json TEXT NOT NULL,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_case_created
+        ON director_decisions(case_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_step_created
+        ON director_decisions(step_id, created_at ASC);
+    `);
   },
 }];
 

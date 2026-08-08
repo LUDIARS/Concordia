@@ -265,7 +265,9 @@ async function main(): Promise<void> {
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     resolveSessionSpawnCwd: (provider, requested) =>
       resolveAgentHomeCwd(provider, requested, adminState.getWorkspaceRoot()),
-    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    resolveWorkflowEnabled: (key) => adminState.isWorkflowEnabled(key),
+    resolveReactionWorkflowEnabled: () =>
+      adminState.isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
@@ -301,7 +303,8 @@ async function main(): Promise<void> {
     workspaceRoot,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
-    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    resolveReactionWorkflowEnabled: () =>
+      adminState.isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),

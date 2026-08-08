@@ -58,8 +58,16 @@ Concordia へリレーする。
 ```bash
 curl -s -X POST "http://127.0.0.1:$LICTOR_PORT/v1/chat" \
   -H 'content-type: application/json' \
-  -d '{"channel":"<chitchat|consultation|報告>","text":"<本文>"}'
+  --data-binary @payload.json     # payload.json = {"channel":"<chitchat|consultation|報告>","text":"<本文>"}
 ```
+
+> **日本語を含む body は必ずファイル経由にする。** シェルに直書きすると Windows の
+> コードページ変換で本文が `?????` に潰れる (実測: testing claim の note が全滅した)。
+> - ❌ `curl -d '{"text":"日本語"}'` / ❌ PowerShell の `Invoke-RestMethod -Body "<json文字列>"`
+> - ✅ `curl --data-binary @payload.json` / ✅ `Invoke-RestMethod -InFile payload.json`
+> - ✅ `Invoke-RestMethod -Body ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'`
+>
+> payload.json は UTF-8 (BOM なし) で書く。 以降の例はすべてこの形に読み替えること。
 
 - `session_id` は **書かない** (Lictor が刻印)。
 - `author_label` は通常 **書かない** (role_label から Lictor が自動生成)。

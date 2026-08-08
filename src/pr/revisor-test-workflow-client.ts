@@ -216,7 +216,15 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   }
 
   private async getJson(path: string): Promise<unknown> {
-    const service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
+    // 2 つの upstream (Excubitor catalog → Revisor) を続けて叩くので、素の
+    // `fetch failed` だけでは**どちらが落ちているか**分からない。 test-forum reconcile の
+    // 失敗ログはこの文言がそのまま出るため、宛先と原因を必ず添えて投げ直す。
+    let service: Awaited<ReturnType<typeof this.excubitor.findService>>;
+    try {
+      service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
+    } catch (error) {
+      throw new Error(`Excubitor catalog lookup failed for "${REVISOR_SERVICE_CODE}": ${causeOf(error)}`);
+    }
     // Excubitor の top-level port は実行時の観測値で null のことがある。 catalog が正本。
     const port = resolveServicePort(service);
     if (port === null) {
@@ -229,16 +237,23 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
       // token は保持せずリクエストごとに解決する (設定変更が再起動なしで効く)。
       // resolver は DB を読むので throw しうる。 try の中で呼び、 timer を必ず片付ける。
       const token = this.token();
-      const response = await this.fetchImpl(
-        `http://127.0.0.1:${port}${path}`,
-        {
-          headers: {
-            ...(token ? { authorization: `Bearer ${token}` } : {}),
-            "x-concordia-actor": "concordia",
+      let response: Response;
+      try {
+        response = await this.fetchImpl(
+          `http://127.0.0.1:${port}${path}`,
+          {
+            headers: {
+              ...(token ? { authorization: `Bearer ${token}` } : {}),
+              "x-concordia-actor": "concordia",
+            },
+            signal: controller.signal,
           },
-          signal: controller.signal,
-        },
-      );
+        );
+      } catch (error) {
+        // 接続不能 (Revisor 停止・クラッシュ再起動中) と timeout をここで区別可能にする。
+        const reason = controller.signal.aborted ? `timeout after ${this.timeoutMs}ms` : causeOf(error);
+        throw new Error(`Revisor request to 127.0.0.1:${port}${path} failed: ${reason}`);
+      }
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
       if (!response.ok) {
         const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
@@ -249,6 +264,16 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
       clearTimeout(timer);
     }
   }
+}
+
+/**
+ * `fetch failed` は undici が接続段の失敗をまとめて包む文言で、それ自体では原因が読めない。
+ * 下位の cause (ECONNREFUSED 等) があればそれも並べて、ログから一次切り分けできるようにする。
+ */
+function causeOf(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : null;
+  return cause && cause !== message ? `${message} (${cause})` : message;
 }
 
 function asStringOrNull(value: unknown): string | null {

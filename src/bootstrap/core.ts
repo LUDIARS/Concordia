@@ -92,6 +92,8 @@ import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { CatalogGeniusClient } from "../inquiry/genius-client.js";
+import { DirectorRepo } from "../director/repo.js";
+import { DirectorService } from "../director/service.js";
 import { GeniusModelReviewService } from "../model-review/service.js";
 import { applyRuntimeModelReview } from "../model-review/runtime-switch.js";
 import { MemoriaClient } from "../memoria/client.js";
@@ -507,6 +509,11 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
   const excubitorClient = new ExcubitorClient();
+  const director = new DirectorService({
+    repo: new DirectorRepo(db),
+    genius: new CatalogGeniusClient(excubitorClient),
+    scoreMin: cfg.inquiryScoreMin,
+  });
   const modelReview = new GeniusModelReviewService({
     genius: new CatalogGeniusClient(excubitorClient),
     models: modelCatalog,
@@ -999,6 +1006,7 @@ export async function startBackend(): Promise<BackendHandle> {
     slackConfig,
     secretBox,
     federation: federation.apiDeps,
+    director,
     taskStore,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
     syncDiscordForumTags: async (templates) => {
@@ -1308,14 +1316,7 @@ export async function startBackend(): Promise<BackendHandle> {
       },
       {
         name: "reaction-workflow",
-        run: () => {
-          // workflow.reaction が無効ならプラグインの読み込み自体を行わない。
-          if (!isWorkflowEnabled("reaction")) {
-            log.info("reaction-workflow plugin load skipped (workflow.reaction disabled)");
-            return;
-          }
-          return initReactionWorkflow(workspaceRootDefault, log);
-        },
+        run: () => initReactionWorkflow(workspaceRootDefault, log),
       },
     ], {
       shouldStop: () => shuttingDown,

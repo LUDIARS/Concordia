@@ -37,6 +37,7 @@ import { ChannelWorkState } from "./channel-work-state.js";
 import type { SessionRelayState } from "../platform/chat-read-model.js";
 import { replayPersistedTranscript, type TranscriptReplaySource } from "./transcript-replay.js";
 import { upsertSessionStatusCard, deleteSessionStatusCard, reconcileLostStatusCards, getStatusChannelId } from "./session-status-card.js";
+import { postDelegationThreadLink } from "./delegation-thread-link.js";
 import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
@@ -1433,6 +1434,31 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }, ev.parent_session_id).catch((e) => {
         log.warn(`delegation status-card refresh failed session=${ev.parent_session_id}: ${(e as Error).message}`);
       });
+      // 起動できた委託の投稿へ、親の面から辿れるリンクを 1 回だけ貼る。
+      void (async () => {
+        const run = delegationRepo.findRun(ev.run_id);
+        if (!run) return;
+        await postDelegationThreadLink(
+          {
+            guildId: guild.id,
+            sessionChannelsRepo,
+            configRepo,
+            post: async (channelId, content) => {
+              const channel = await guild.channels.fetch(channelId).catch(() => null);
+              if (!channel?.isTextBased()) return;
+              await channel.send({ content, allowedMentions: { parse: [] } });
+            },
+            log,
+          },
+          {
+            runId: ev.run_id,
+            status: ev.status,
+            parentSessionId: ev.parent_session_id,
+            childSessionId: run.child_session_id,
+            label: run.call_name,
+          },
+        );
+      })().catch((e) => log.warn(`delegation thread link failed run=${ev.run_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "operational.claim.opened" || ev.type === "operational.claim.released") {

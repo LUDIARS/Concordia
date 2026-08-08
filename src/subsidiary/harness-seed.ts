@@ -69,6 +69,19 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
     sort_order: 60,
   });
 
+  // 2026-08-09 neco 指示。 セッション内 Agent は Concordia から見えず、 コスト・状態・成果物が
+  // どのセッションのものか追えない。 委託経路に載せれば面・状態カード・PR まで一本で追える。
+  repo.ensureBuiltin({
+    kind: "block",
+    title: "Agent 起動は delegation へ委譲",
+    description:
+      "セッション内で subagent (Agent tool / Task tool) を自分で起動しない。 並行作業や分担が必要なら "
+      + "Concordia の delegation (POST /v1/delegation/invoke、 または codex-delegate スキル) へ委譲する。 "
+      + "delegation なら子セッションに面と状態カードが付き、 コストと成果物 (PR) が追跡できる。 "
+      + "ユーザが明示的に Agent 起動を指示した場合だけ例外とする。",
+    sort_order: 65,
+  });
+
   repo.ensureBuiltin({
     kind: "block",
     title: "未指示テスト禁止",

@@ -1,0 +1,90 @@
+import { Hono, type Context } from "hono";
+import { z } from "zod";
+import {
+  DIRECTOR_DECISION_KINDS,
+  DIRECTOR_STEP_KINDS,
+  DIRECTOR_STEP_STATUSES,
+} from "../director/types.js";
+import {
+  DirectorNotFoundError,
+  DirectorService,
+  DirectorTransitionError,
+} from "../director/service.js";
+
+const CreateCaseSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+  goal: z.string().trim().min(1).max(4_000),
+  project: z.string().trim().min(1).max(200),
+  steps: z.array(z.object({
+    kind: z.enum(DIRECTOR_STEP_KINDS),
+    title: z.string().trim().min(1).max(300),
+    task_path: z.string().trim().min(1).max(1_000).nullable().optional(),
+    delegation_run_id: z.string().trim().min(1).max(200).nullable().optional(),
+    local_pr_id: z.string().trim().min(1).max(200).nullable().optional(),
+    confirm_run_id: z.string().trim().min(1).max(200).nullable().optional(),
+    handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
+  })).min(1).max(50),
+});
+
+const PatchStepSchema = z.object({
+  status: z.enum(DIRECTOR_STEP_STATUSES),
+  handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
+});
+
+const DecisionSchema = z.object({
+  kind: z.enum(DIRECTOR_DECISION_KINDS),
+  question: z.string().trim().min(1).max(4_000),
+  facts: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
+  options: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
+  impact: z.string().trim().min(1).max(4_000),
+});
+
+export function directorRouter(deps: { service: DirectorService }): Hono {
+  const app = new Hono();
+
+  app.post("/cases", async (c) => {
+    const parsed = CreateCaseSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_case" }, 400);
+    return c.json(deps.service.createCase(parsed.data), 201);
+  });
+
+  app.get("/cases/:caseId", (c) => {
+    const detail = deps.service.getCase(c.req.param("caseId"));
+    return detail ? c.json(detail) : c.json({ error: "not_found" }, 404);
+  });
+
+  app.patch("/cases/:caseId/steps/:stepId", async (c) => {
+    const parsed = PatchStepSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_step" }, 400);
+    try {
+      return c.json({ step: deps.service.updateStep({
+        case_id: c.req.param("caseId"),
+        step_id: c.req.param("stepId"),
+        ...parsed.data,
+      }) });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  app.post("/cases/:caseId/steps/:stepId/decisions", async (c) => {
+    const parsed = DecisionSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_decision" }, 400);
+    try {
+      return c.json(await deps.service.requestDecision({
+        case_id: c.req.param("caseId"),
+        step_id: c.req.param("stepId"),
+        ...parsed.data,
+      }), 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+  return app;
+}
+
+function errorResponse(c: Context, error: unknown) {
+  if (error instanceof DirectorNotFoundError) return c.json({ error: "not_found" }, 404);
+  if (error instanceof DirectorTransitionError) return c.json({ error: "invalid_transition" }, 409);
+  throw error;
+}

@@ -32,6 +32,8 @@ export function guidanceText(prev: string, next: string, activeSummary: string):
     "再起動・起動テストは Excubitor 経由でプロジェクト本体フォルダのみで行ってください (worktree / 複製フォルダからの起動は禁止)。",
     "サービスの再起動やテストを行う際は、事前に Concordia へ一報してください:",
     "  POST http://127.0.0.1:11111/v1/testing/claim {\"session_id\":\"<自分の session_id>\",\"service\":\"<サービスコード>\",\"note\":\"何をテストするか\"}",
+    "  note に日本語を書くときは body をファイルに置いて送ること (シェルに直書きすると ? に潰れる):",
+    "    curl -s -X POST http://127.0.0.1:11111/v1/testing/claim -H 'content-type: application/json' --data-binary @claim.json",
     "  終わったら POST /v1/testing/release。 (/cc-test スキル参照)",
     activeSummary ? `現在テスト中: ${activeSummary}` : "現在テスト中のサービスはありません。",
   ].join("\n");

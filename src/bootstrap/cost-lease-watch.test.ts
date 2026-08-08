@@ -97,4 +97,19 @@ describe("createCostLeaseWatchTick", () => {
     expect(calls.stopped).toBe(0);
     expect(calls.reported).toHaveLength(0);
   });
+
+  it("workflow.cost が無効なら sampler を止め、 lease 失効でも再開しない", () => {
+    const { deps, calls, setRunning, setLease } = makeDeps({
+      isWorkflowEnabled: () => false,
+    });
+    const tick = createCostLeaseWatchTick(deps);
+    setRunning(true);
+    setLease(null);
+
+    tick();
+
+    expect(calls.stopped).toBe(1);
+    expect(calls.started).toBe(0);
+    expect(calls.reported).toHaveLength(0);
+  });
 });

@@ -15,6 +15,7 @@ const GATED_ROUTES: Array<{ key: WorkflowKey; path: string }> = [
   { key: "review", path: "/v1/prs" },
   { key: "daily", path: "/v1/daily-reports" },
   { key: "cost", path: "/v1/cost/overview" },
+  { key: "reaction", path: "/v1/admin/reaction-mappings" },
 ];
 
 describe("GET /v1/admin/workflows", () => {

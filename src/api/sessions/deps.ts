@@ -9,6 +9,8 @@ import type { SessionTaskRecordsRepo } from "../../db/session-task-records-repo.
 import type { TranscriptLogsRepo } from "../../db/transcript-logs-repo.js";
 import type { DelegationRepo } from "../../db/delegation-repo.js";
 import type { ControlJobsRepo } from "../../db/control-jobs-repo.js";
+import type { SessionMessagesRepo } from "../../db/session-messages-repo.js";
+import type { SessionMessageReadsRepo } from "../../db/session-message-reads-repo.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system";
 
@@ -61,6 +63,8 @@ export interface SessionsApiDeps {
   controlJobs: ControlJobsRepo;
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
+  sessionMessages: SessionMessagesRepo;
+  sessionMessageReads: SessionMessageReadsRepo;
   resolveWorkspaceRoots?: () => string[];
   resolveCcWorkflowEnabled?: () => boolean;
   /** session-end ??????????????????????????????????????? (??????*/

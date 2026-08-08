@@ -4,6 +4,13 @@
  * SSE / WS clients が購読する. dispatcher / sweeper / api handlers が emit する.
  */
 
+import type { SessionMessagePayload } from "./shared/session-message-types.js";
+export type { SessionMessagePayload } from "./shared/session-message-types.js";
+
+/**
+ * `session.message` の wire payload。 `session_messages` 行のシリアライズ表現
+ * (events.ts は db/ 層に依存できないため独立定義 — 循環 import 回避)。
+ */
 type ConcordiaEventPayload =
   | { type: "session.started";  session_id: string; provider: string; repo_path: string; branch: string | null; ts: number }
   | { type: "session.lost";     session_id: string; ts: number }
@@ -149,6 +156,17 @@ type ConcordiaEventPayload =
   // Discord/Slack 側はボタン除去に使い、古いボタンの再クリックを防ぐ。
   | { type: "question.resolved"; target_session_id: string; question_id: number; ts: number }
   /**
+   * `session_messages` への projector 出力 1 件 (spec/feature/session-message-layer.md §4)。
+   * Discord egress (D6) / WebUI (D4) が transcript.frame の代わりにこれを購読して描画する
+   * 正本イベント。 `message` は `session_messages` 行そのもの (id 込み)。
+   */
+  | { type: "session.message"; target_session_id: string; op: "create" | "update"; message: SessionMessagePayload; ts: number }
+  /**
+   * 未読バッジ更新用の軽量シグナル (全 client へ)。 実際の未読件数は
+   * `GET /v1/sessions/:id/messages/unread?client_id=` を client が引き直す。
+   */
+  | { type: "session.message.summary"; target_session_id: string; latest_id: number; ts: number }
+  /**
    * 連合リンク (マルチ拠点) の拠点接続状態変化. 本社側 listener が emit し、
    * WebUI の子会社一覧が再取得トリガに使う.
    */
@@ -176,6 +194,34 @@ export type ChatEvent = Extract<ConcordiaEventPayload, { type: ChatEventType }>;
 export type CostEvent = Extract<ConcordiaEventPayload, { type: CostEventType }>;
 export type CoreEvent = Exclude<ConcordiaEventPayload, ChatEvent | CostEvent>;
 export type ConcordiaEvent = CoreEvent | ChatEvent | CostEvent;
+
+/** Returns the session targeted by an event, when it has one. */
+export function eventSessionId(event: ConcordiaEvent): string | null {
+  switch (event.type) {
+    case "session.started":
+    case "session.lost":
+    case "session.ended":
+    case "session.event":
+    case "session.task_changed":
+      return event.session_id;
+    case "transcript.frame":
+    case "session.inject":
+    case "session.permission_request":
+    case "delegation.mirror":
+    case "question.posted":
+    case "question.answered":
+    case "question.resolved":
+    case "operational.claim.opened":
+    case "operational.claim.released":
+    case "session.message":
+    case "session.message.summary":
+      return event.target_session_id;
+    case "chat.posted":
+      return event.session_id ?? null;
+    default:
+      return null;
+  }
+}
 
 type Listener = (ev: ConcordiaEvent) => void;
 

@@ -29,6 +29,8 @@ import type { StatsRepo } from "../db/stats-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
+import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
+import type { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
 import type {
   DiscordPendingQuestionsRepo,
   DiscordSessionChannelsRepo,
@@ -125,6 +127,8 @@ export interface CoreSessionDeps {
   discordConfig: DiscordConfigRepo;
   channelDirectory: ChannelDirectory;
   participants: ParticipantsRepo;
+  sessionMessages: SessionMessagesRepo;
+  sessionMessageReads: SessionMessageReadsRepo;
 }
 
 export interface CoreDelegationDeps {
@@ -196,6 +200,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       delegation: deps.delegation,
       channelDirectory: deps.channelDirectory,
       participants: deps.participants,
+      sessionMessages: deps.sessionMessages,
+      sessionMessageReads: deps.sessionMessageReads,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,

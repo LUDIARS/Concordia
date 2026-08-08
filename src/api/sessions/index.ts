@@ -7,6 +7,7 @@ import { registerRelayRoutes } from "./relay.js";
 import { registerTitleGoalRoutes } from "./title-goal.js";
 import { registerEndRoutes } from "./end.js";
 import { registerSkillRoutes } from "./skills.js";
+import { registerMessagesRoutes } from "./messages.js";
 
 export type { SessionsApiDeps } from "./deps.js";
 
@@ -19,5 +20,6 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   registerTitleGoalRoutes(app, deps);
   registerEndRoutes(app, deps);
   registerSkillRoutes(app, deps);
+  registerMessagesRoutes(app, deps);
   return app;
 }

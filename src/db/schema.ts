@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 52;
+export const SCHEMA_VERSION = 53;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1321,6 +1321,59 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         db.exec(ddl);
       }
     }
+  },
+}, {
+  version: 53,
+  name: "session-message-layer-d1",
+  source: "session_messages + session_message_delivery + session_message_reads v1",
+  up(db) {
+    // セッションメッセージ層 (spec/feature/session-message-layer.md §3)。 Discord egress
+    // と WebUI が同じレコードを読む正本。 transcript_logs (raw frame) は残し、
+    // こちらは projector が作る「表示用に整形済みの 1 メッセージ」を持つ。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_messages (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id      TEXT NOT NULL,
+        ts              INTEGER NOT NULL,
+        edited_ts       INTEGER,
+        author_type     TEXT NOT NULL,
+        author_label    TEXT NOT NULL,
+        author_platform TEXT,
+        content         TEXT NOT NULL,
+        embeds          TEXT,
+        components      TEXT,
+        attachments     TEXT,
+        reference_id    INTEGER,
+        metadata        TEXT,
+        dedupe_key      TEXT,
+        UNIQUE(session_id, dedupe_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_session_messages_session_id_desc
+        ON session_messages(session_id, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_session_messages_session_ts_desc
+        ON session_messages(session_id, ts DESC);
+    `);
+    // 配送先ごとの外部 ID。 D6 (Discord egress 切替) で編集・削除の伝播に使う。
+    // D1 では作るだけで書き手は無い。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_message_delivery (
+        message_id  INTEGER NOT NULL,
+        platform    TEXT NOT NULL,
+        external_id TEXT NOT NULL,
+        ts          INTEGER NOT NULL,
+        PRIMARY KEY (message_id, platform)
+      )
+    `);
+    // client_id (ブラウザ生成 UUID) ごとの既読位置。 session_id ごとに 1 行。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS session_message_reads (
+        client_id    TEXT NOT NULL,
+        session_id   TEXT NOT NULL,
+        last_read_id INTEGER NOT NULL,
+        updated_at   INTEGER NOT NULL,
+        PRIMARY KEY (client_id, session_id)
+      )
+    `);
   },
 }];
 

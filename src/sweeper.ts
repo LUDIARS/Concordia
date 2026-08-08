@@ -12,6 +12,7 @@ import type { TasksRepo } from "./db/tasks-repo.js";
 import type { RulesRepo } from "./db/rules-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
 import type { TranscriptLogsRepo } from "./db/transcript-logs-repo.js";
+import type { SessionMessagesRepo } from "./db/session-messages-repo.js";
 import { getProvider } from "./providers/index.js";
 import { createChildLogger } from "./shared/logger.js";
 import { eventBus } from "./events.js";
@@ -24,6 +25,7 @@ export interface SweeperOptions {
   repo: SessionsRepo;
   tasks: TasksRepo;
   transcriptLogs: Pick<TranscriptLogsRepo, "purgeOlderThan">;
+  sessionMessages: Pick<SessionMessagesRepo, "purgeOlderThan">;
   rules: Pick<RulesRepo, "purgeLogsOlderThan">;
   stats: Pick<StatsRepo, "purgeOlderThan">;
   intervalMs: number;
@@ -121,12 +123,15 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
     const transcriptPurged = opts.transcriptLogs.purgeOlderThan(
       now - opts.transcriptRetentionDays * 86400,
     );
+    const sessionMessagesPurged = opts.sessionMessages.purgeOlderThan(
+      now - opts.transcriptRetentionDays * 86400,
+    );
     const rulesPurged = opts.rules.purgeLogsOlderThan(now - opts.rulesLogRetentionDays * 86400);
     const statsPurged = opts.stats.purgeOlderThan(now - opts.sessionStatsRetentionDays * 86400);
-    if (transcriptPurged + rulesPurged + statsPurged > 0) {
+    if (transcriptPurged + sessionMessagesPurged + rulesPurged + statsPurged > 0) {
       log.info(
-        { transcriptPurged, rulesPurged, statsPurged },
-        "old transcript, rule, and session stat rows purged",
+        { transcriptPurged, sessionMessagesPurged, rulesPurged, statsPurged },
+        "old transcript, session message, rule, and session stat rows purged",
       );
     }
 

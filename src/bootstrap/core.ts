@@ -22,6 +22,9 @@ import { StatsRepo } from "../db/stats-repo.js";
 import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
+import { SessionMessagesRepo } from "../db/session-messages-repo.js";
+import { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
+import { SessionMessageService } from "../messages/service.js";
 import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
@@ -398,6 +401,10 @@ export async function startBackend(): Promise<BackendHandle> {
   const prs = new PrRecordsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
+  const sessionMessages = new SessionMessagesRepo(db);
+  const sessionMessageReads = new SessionMessageReadsRepo(db);
+  const messageService = new SessionMessageService({ repo: sessionMessages });
+  const stopMessageService = messageService.start();
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   // Discord channel/config repos は bot 起動とは独立に (bot OFF でも) Lictor の
   // discord-channels lookup / egress 明示 routing で使うので app 層にも渡す.
@@ -622,6 +629,7 @@ export async function startBackend(): Promise<BackendHandle> {
     repo,
     tasks,
     transcriptLogs,
+    sessionMessages,
     rules,
     stats,
     intervalMs: cfg.sweeperIntervalMs,
@@ -861,6 +869,8 @@ export async function startBackend(): Promise<BackendHandle> {
     prs,
     sessionTaskRecords,
     transcriptLogs,
+    sessionMessages,
+    sessionMessageReads,
     pendingQuestions,
     discordChannels,
     costSamples: usageSamplesRepo,
@@ -1329,6 +1339,7 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   resources.own("testing release subscription", () => unsubTestingRelease());
   resources.own("revisor local PR submit subscription", () => unsubLocalPrSubmit());
+  resources.own("session message subscription", () => stopMessageService());
   resources.own("worker lease watchers", () => {
     clearInterval(costWorkerWatch);
     clearInterval(chatWorkerWatch);

@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=15、セッション中核・chat/tasks・ルールエンジン・ペルソナ・Discord連携・delegation・observability の全テーブルを網羅する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=53、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -23,7 +23,7 @@ updated: 2026-06-30
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 15`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 53`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -45,6 +45,9 @@ API/機能視点は [`../interface/service-schema.md`](../interface/service-sche
 | `session_task_records` | TodoWrite 永続化（残作業判定） | session_id / task_text / status / first_seen / last_updated / completed_at / handled_by_session。UNIQUE(session_id, task_text) |
 | `session_stats` | 10 分 poll の現況 JSON（他 session も参照可、既定90日保持） | session_id / ts / payload(JSON) |
 | `transcript_logs` | Lictor transcript-tail の frame（既定90日保持） | session_id / seq / ts / kind / payload。UNIQUE(session_id, seq)（冪等） |
+| `session_messages` | 表示用の正規セッション作業ストリーム（`transcript_logs` と同じ保持期間） | id / session_id / ts / edited_ts / author_* / content / embeds / components / attachments / reference_id / metadata / dedupe_key。UNIQUE(session_id, dedupe_key) |
+| `session_message_reads` | browser client ごとの単調増加する既読位置 | client_id / session_id / last_read_id / updated_at。PK(client_id, session_id) |
+| `session_message_delivery` | 将来の配送先別外部 message ID（現フェーズは書き手なし） | message_id / platform / external_id / ts。PK(message_id, platform) |
 
 ## chat / tasks
 | テーブル | 用途 | 主要列 |

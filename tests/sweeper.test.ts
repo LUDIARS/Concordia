@@ -5,6 +5,7 @@ import { TasksRepo } from "../src/db/tasks-repo.js";
 import { RulesRepo } from "../src/db/rules-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
+import { SessionMessagesRepo } from "../src/db/session-messages-repo.js";
 import { startSweeper } from "../src/sweeper.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
 
@@ -39,6 +40,7 @@ describe("sweeper session.lost event", () => {
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
     const transcriptLogs = new TranscriptLogsRepo(db);
+    const sessionMessages = new SessionMessagesRepo(db);
     const rules = new RulesRepo(db);
     const stats = new StatsRepo(db);
     startSession(sessions, "stale-one", now - 100);
@@ -50,6 +52,7 @@ describe("sweeper session.lost event", () => {
       repo: sessions,
       tasks,
       transcriptLogs,
+      sessionMessages,
       rules,
       stats,
       intervalMs: 60_000,
@@ -78,6 +81,7 @@ describe("sweeper session.lost event", () => {
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
     const transcriptLogs = new TranscriptLogsRepo(db);
+    const sessionMessages = new SessionMessagesRepo(db);
     const rules = new RulesRepo(db);
     const stats = new StatsRepo(db);
     startSession(sessions, "ending-stale", now - 100);
@@ -90,6 +94,7 @@ describe("sweeper session.lost event", () => {
       repo: sessions,
       tasks,
       transcriptLogs,
+      sessionMessages,
       rules,
       stats,
       intervalMs: 60_000,
@@ -120,11 +125,14 @@ describe("sweeper session.lost event", () => {
     const sessions = new SessionsRepo(db);
     const tasks = new TasksRepo(db);
     const transcriptLogs = new TranscriptLogsRepo(db);
+    const sessionMessages = new SessionMessagesRepo(db);
     const rules = new RulesRepo(db);
     const stats = new StatsRepo(db);
 
     transcriptLogs.insert({ session_id: "old", seq: 0, ts: oldTs, kind: "text", payload: {} });
     transcriptLogs.insert({ session_id: "recent", seq: 0, ts: recentTs, kind: "text", payload: {} });
+    sessionMessages.upsert({ session_id: "old", ts: oldTs, author_type: "user", author_label: "User", content: "old" });
+    sessionMessages.upsert({ session_id: "recent", ts: recentTs, author_type: "user", author_label: "User", content: "recent" });
     db.prepare(`INSERT INTO rules_log(ts, rule_id, action, actor) VALUES (?, NULL, 'fire', 'engine')`).run(oldTs);
     db.prepare(`INSERT INTO rules_log(ts, rule_id, action, actor) VALUES (?, NULL, 'fire', 'engine')`).run(recentTs);
     stats.insert({ session_id: "old", ts: oldTs, payload: {} });
@@ -134,6 +142,7 @@ describe("sweeper session.lost event", () => {
       repo: sessions,
       tasks,
       transcriptLogs,
+      sessionMessages,
       rules,
       stats,
       intervalMs: 60_000,
@@ -151,6 +160,8 @@ describe("sweeper session.lost event", () => {
 
     expect(transcriptLogs.countBySession("old")).toBe(0);
     expect(transcriptLogs.countBySession("recent")).toBe(1);
+    expect(sessionMessages.list("old")).toHaveLength(0);
+    expect(sessionMessages.list("recent")).toHaveLength(1);
     expect(rules.recentLogs()).toHaveLength(1);
     expect(stats.history("old")).toHaveLength(0);
     expect(stats.history("recent")).toHaveLength(1);

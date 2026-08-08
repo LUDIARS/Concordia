@@ -38,6 +38,8 @@ import { SkillsRepo } from "../../src/db/skills-repo.js";
 import { StatsRepo } from "../../src/db/stats-repo.js";
 import { TasksRepo } from "../../src/db/tasks-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
+import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
+import { SessionMessageReadsRepo } from "../../src/db/session-message-reads-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
 import { ProcessManager } from "../../src/processes/manager.js";
@@ -76,6 +78,8 @@ export interface TestAppEnv {
   prs: PrRecordsRepo;
   sessionTaskRecords: SessionTaskRecordsRepo;
   transcriptLogs: TranscriptLogsRepo;
+  sessionMessages: SessionMessagesRepo;
+  sessionMessageReads: SessionMessageReadsRepo;
   pendingQuestions: ReturnType<typeof makeDiscordPendingQuestionsRepo>;
   discordChannels: ReturnType<typeof makeDiscordSessionChannelsRepo>;
   discordConfig: ReturnType<typeof makeDiscordConfigRepo>;
@@ -105,6 +109,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const prs = new PrRecordsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
+  const sessionMessages = new SessionMessagesRepo(db);
+  const sessionMessageReads = new SessionMessageReadsRepo(db);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
@@ -147,7 +153,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   const deps: AppDeps = {
     repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
+    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
     taskStore,
@@ -170,7 +176,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   return {
     app,
     db, repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, pendingQuestions, discordChannels, discordConfig,
+    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
     processManager, config, logsDir,

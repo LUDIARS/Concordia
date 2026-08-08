@@ -7,11 +7,11 @@
 
 ## Summary
 
-This is a regression in the current `main` runtime build. Excubitor restart requests
-spawned Concordia processes that could not be verified, so the service remained outside
-Excubitor's managed state. The first attempted process failed because its runtime
-dependencies were absent; after dependencies were restored, the current source still
-could not produce a clean backend build.
+This is a regression in the current `main` runtime build and startup path. Excubitor restart
+requests spawned Concordia processes that could not be verified, so the service remained
+outside Excubitor's managed state. The first attempted process failed because its runtime
+dependencies were absent; after dependencies were restored and the build was repaired, the
+process still stopped on a migration checksum mismatch.
 
 ## Evidence
 
@@ -26,6 +26,10 @@ could not produce a clean backend build.
     `src/bootstrap/core.ts`;
   - missing Fetch API members such as `Response.status` and `Response.json` across
     the backend because `tsconfig.json` omitted the `DOM` library.
+- The process output recorded `migration checksum mismatch at 41:baseline-v41`.
+  The persisted ledger checksum matched the pre-merge baseline. The latest source had
+  appended `discord_pending_questions.discord_channel_id` to `COLUMN_ADDITIONS`, which
+  is part of the already-applied baseline checksum.
 
 ## Regression Context
 
@@ -38,7 +42,8 @@ cleanup entries remained. Both are incomplete migration remnants.
 
 The TypeScript configuration declared only `ES2023` despite the Node backend using the
 standard Fetch API types. Separately, two refactors removed implementations without
-removing their stale references.
+removing their stale references. A later merge also changed the mutable source used by
+the applied migration 41 baseline instead of creating a new numbered migration.
 
 ## Fix Requirements
 
@@ -47,11 +52,14 @@ removing their stale references.
 - Include the standard Fetch API type library in the backend TypeScript build.
 - Keep runtime skill synchronization as part of the ordinary build before a future
   Concordia restart.
+- Move `discord_pending_questions.discord_channel_id` into a new idempotent migration and
+  leave migration 41's ledger source untouched.
 
 ## Verification
 
-`npm run build` must finish without TypeScript errors. No unit, integration, or service
-startup test was run in this session because the session policy requires explicit
+`npm run build` must finish without TypeScript errors. The repaired service must then start
+through Excubitor from the project main checkout and release its testing claim. No unit or
+integration test was run in this session because the session policy requires explicit
 authorization for tests.
 
 ## Follow-up

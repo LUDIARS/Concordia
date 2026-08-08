@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 54;
+export const SCHEMA_VERSION = 55;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -906,14 +906,6 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "answer_indices_json",
     ddl: `ALTER TABLE discord_pending_questions ADD COLUMN answer_indices_json TEXT`,
   },
-  // 質問カードを実際に投稿したチャンネル。 委託子の面が無い/非アクティブのときは親
-  // (委託元) の面へフォールバック投稿するため、 解決時のボタン除去は子の面ではなく
-  // この値で辿る。 spec/feature/inquiry.md ではなく question リレー (2026-08-08)。
-  {
-    table: "discord_pending_questions",
-    column: "discord_channel_id",
-    ddl: `ALTER TABLE discord_pending_questions ADD COLUMN discord_channel_id TEXT`,
-  },
   // チャンネル名の絵文字を Discord 側文字列パースに依存せず DB で管理する (three-out redesign)。
   // display_state = 表示状態 (working/active/lost/ended)、
   // agent_type = claude/codex/gemini 等 (絵文字選択用)、
@@ -1414,6 +1406,19 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_status
         ON taskflow_task_state(status, updated_at DESC);
     `);
+  },
+}, {
+  version: 55,
+  name: "discord-pending-question-channel",
+  source: "discord_pending_questions.discord_channel_id",
+  up(db) {
+    // 質問カードを実際に投稿したチャンネル。委託子の面が無い/非アクティブのときは親
+    // (委託元) の面へフォールバック投稿するため、解決時のボタン除去は子の面ではなく
+    // この値で辿る。適用済み baseline-v41 の checksum を変えないよう番号付き migration にする。
+    const columns = db.prepare("PRAGMA table_info(discord_pending_questions)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "discord_channel_id")) {
+      db.exec("ALTER TABLE discord_pending_questions ADD COLUMN discord_channel_id TEXT");
+    }
   },
 }];
 

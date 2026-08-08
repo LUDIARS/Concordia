@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, statSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
 
+import { readConfiguredWorkspaceRoots } from "../config/workspace-roots.js";
 import { reportError } from "../errors.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -398,11 +399,7 @@ function currentWorkspaceRoots(): string[] {
       // disable the safety boundary.
     }
   }
-  return [
-    process.env.CONCORDIA_WORKSPACE_ROOT ?? "",
-    ...((process.env.CONCORDIA_WORKSPACE_ROOTS ?? "").split(";")),
-    process.env.LUDIARS_ROOT ?? "",
-  ].filter((value) => value.trim().length > 0);
+  return readConfiguredWorkspaceRoots();
 }
 
 function normalizePath(value: string): string {

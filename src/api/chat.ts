@@ -9,6 +9,7 @@ import type { ChatRepo, ChatChannel } from "../db/chat-repo.js";
 import { isActionableSuggestion } from "../chat-actionable.js";
 import { eventBus } from "../events.js";
 import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
+import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
 
 const PostSchema = z.object({
   channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
@@ -144,12 +145,12 @@ async function validateAttachments(
   deps: ChatApiDeps,
 ): Promise<{ error: "attachment_paths_rejected"; rejected_count: number; reasons: string[] } | null> {
   if (!paths?.length) return null;
-  const enforce = process.env.CONCORDIA_ATTACHMENT_ENFORCE !== "0";
+  const enforce = isAttachmentEnforced();
   const guard = createAttachmentGuard({
     roots: buildAttachmentRoots({
       workspaceRoots: deps.resolveWorkspaceRoots(),
       tempDir: os.tmpdir(),
-      configuredRoots: process.env.CONCORDIA_ATTACHMENT_ROOTS,
+      configuredRoots: configuredAttachmentRoots(),
     }),
     enforce,
   });

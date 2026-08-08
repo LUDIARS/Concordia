@@ -40,8 +40,7 @@
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-
-const DEFAULT_BASE = "http://127.0.0.1:11111";
+import { concordiaBaseUrl } from "../config/service-urls.js";
 
 interface CallResult {
   ok: boolean;
@@ -65,8 +64,7 @@ export async function callConcordia(
   path: string,
   body?: unknown,
 ): Promise<CallResult> {
-  const base = process.env.CONCORDIA_BASE_URL ?? DEFAULT_BASE;
-  const url = `${base.replace(/\/$/, "")}${path}`;
+  const url = `${concordiaBaseUrl()}${path}`;
   try {
     const res = await fetch(url, {
       method,

@@ -8,6 +8,15 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  dedupeWorkspaceRoots,
+  readExtraWorkspaceRoots,
+} from "../config/workspace-roots.js";
+
+// ワークスペースルートの dedupe は config レイヤーが正本。 既存の import 元
+// (shared/config) を壊さないよう re-export だけ残す。
+export { dedupeWorkspaceRoots };
+
 /**
  * LUDIARS ワークスペースルート (= ローカルクローンの親ディレクトリ) の解決。
  *
@@ -139,29 +148,6 @@ export interface ConcordiaConfig {
   githubOrg: string;
 }
 
-/** `;` 区切りの追加ワークスペースルート列を trim + 空除去で配列化 (pure)。 */
-function parseExtraWorkspaceRoots(raw: string | undefined): string[] {
-  return (raw ?? "")
-    .split(";")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
-/** 正規化パスで重複除去しつつ元の表記を保つ (先頭優先、 空は捨てる) (pure)。 */
-export function dedupeWorkspaceRoots(roots: readonly string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const r of roots) {
-    const t = r.trim();
-    if (!t) continue;
-    const key = t.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
-  }
-  return out;
-}
-
 /**
  * bind host が loopback (= localhost からしか到達できない) かを判定する (pure)。
  *
@@ -209,7 +195,7 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
   const workspaceRoot = (env.CONCORDIA_WORKSPACE_ROOT ?? "").trim() || ludiarsRoot || spawnDefaultCwd;
   const workspaceRoots = dedupeWorkspaceRoots([
     workspaceRoot,
-    ...parseExtraWorkspaceRoots(env.CONCORDIA_WORKSPACE_ROOTS),
+    ...readExtraWorkspaceRoots(env),
   ]);
   return {
     // 既定値は concordia.config.json (env は override 用)。 env を使わない方針。

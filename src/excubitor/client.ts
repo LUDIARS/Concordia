@@ -8,11 +8,11 @@
  * spec/feature/develop-confirm-flow.md §3。
  */
 
+import { excubitorBaseUrl } from "../config/service-urls.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("excubitor/client");
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:17332";
 const DEFAULT_TIMEOUT_MS = 120_000;
 export const MAX_PROCESS_SNAPSHOT_AGE_MS = 150_000;
 
@@ -69,7 +69,9 @@ export class ExcubitorClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: ExcubitorClientOptions = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.CONCORDIA_EXCUBITOR_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = options.baseUrl
+      ? options.baseUrl.replace(/\/+$/, "")
+      : excubitorBaseUrl();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }

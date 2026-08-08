@@ -8,11 +8,11 @@
  * spec/feature/develop-confirm-flow.md §5。
  */
 
+import { memoriaBaseUrl } from "../config/service-urls.js";
 import { createChildLogger } from "../shared/logger.js";
 
 const log = createChildLogger("memoria/client");
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:5180";
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 export interface MemoriaTask {
@@ -47,9 +47,7 @@ export class MemoriaClient {
   private readonly fetchImpl: typeof fetch;
 
   constructor(options: MemoriaClientOptions = {}) {
-    this.baseUrl = (
-      options.baseUrl ?? process.env.CONCORDIA_MEMORIA_URL ?? DEFAULT_BASE_URL
-    ).replace(/\/+$/, "");
+    this.baseUrl = options.baseUrl ? options.baseUrl.replace(/\/+$/, "") : memoriaBaseUrl();
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.fetchImpl = options.fetchImpl ?? fetch;
   }

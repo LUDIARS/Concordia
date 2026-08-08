@@ -9,6 +9,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DayReportRow } from "../db/day-reports-repo.js";
 import { aggregateDay, dayRange, type DayBullets } from "./aggregator.js";
+import { isClaudeDisabled } from "../config/claude-availability.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -24,7 +25,7 @@ export async function generateDayReport(
   const bullets = aggregateDay(date_iso, sessions, sessionsRepo);
 
   let summary_md: string | null = null;
-  if (process.env.CONCORDIA_DISABLE_CLAUDE !== "1") {
+  if (!isClaudeDisabled()) {
     summary_md = await narrativeViaCli(bullets);
   }
   if (!summary_md) {

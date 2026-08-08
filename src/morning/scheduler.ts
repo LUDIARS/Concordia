@@ -8,6 +8,7 @@
  */
 
 import type { DelegationService } from "../delegation/service.js";
+import { memoriaBaseUrl } from "../config/service-urls.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
@@ -88,9 +89,7 @@ export function startMorningScheduler(
   let stopped = false;
   let lastFiredDate: string | null = null;
 
-  const memoriaBase =
-    deps.memoriaBaseUrl ??
-    (process.env.CONCORDIA_MEMORIA_URL ?? "http://127.0.0.1:5180");
+  const memoriaBase = deps.memoriaBaseUrl ?? memoriaBaseUrl();
 
   async function runOnce(opts: { dateIso?: string; force?: boolean } = {}): Promise<void> {
     if (stopped) return;

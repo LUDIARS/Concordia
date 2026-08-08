@@ -121,9 +121,7 @@ export class ExcubitorProjectCache {
 
 export const excubitorProjectCache = new ExcubitorProjectCache();
 
-export function excubitorBaseUrl(): string {
-  return (process.env.CONCORDIA_EXCUBITOR_URL || process.env.EXCUBITOR_URL || "http://127.0.0.1:17332").replace(/\/+$/, "");
-}
+// excubitorBaseUrl は config/service-urls.js へ移設 (env キーの正本を 1 箇所に集約)。
 
 export async function fetchExcubitorProjects(
   baseUrl: string,

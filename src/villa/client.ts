@@ -5,7 +5,8 @@
  * (spec/feature/federation-link.md 「拠点タグによる実行先指定」)。
  */
 
-const DEFAULT_BASE_URL = "http://127.0.0.1:17610";
+import { villaBaseUrl } from "../config/service-urls.js";
+
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 export interface VillaPc { id: string; name: string; location?: string; role?: string; mode?: string; }
@@ -23,7 +24,7 @@ export class VillaClient {
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
   constructor(options: { baseUrl?: string; fetchImpl?: typeof fetch; timeoutMs?: number } = {}) {
-    this.baseUrl = (options.baseUrl ?? process.env.CONCORDIA_VILLA_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
+    this.baseUrl = options.baseUrl ? options.baseUrl.replace(/\/+$/, "") : villaBaseUrl();
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }

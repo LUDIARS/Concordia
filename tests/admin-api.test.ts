@@ -243,7 +243,9 @@ describe("admin API", () => {
       rmSync(worktreeRoot, { recursive: true, force: true });
       rmSync(repoRoot, { recursive: true, force: true });
     }
-  }, 15_000);
+  // The spawned worktree is prepared through several individually bounded Git
+  // commands, so the integration test needs headroom beyond one command.
+  }, 30_000);
 
   it("GET /v1/admin/state exposes snapshot with defaults", async () => {
     const r = await env.app.request("/v1/admin/state");

@@ -14,6 +14,7 @@
 
 import type { SessionEventRow, SessionRow } from "../shared/types.js";
 import type { HarnessAuditRow } from "../db/harness-audit-repo.js";
+import { isClaudeDisabled } from "../config/claude-availability.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
@@ -173,7 +174,7 @@ export async function detectSummaryFlags(
   events: SessionEventRow[],
   opts: { questionState?: SummaryQuestionStateReader } = {},
 ): Promise<SummaryFlags> {
-  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return EMPTY_FLAGS;
+  if (isClaudeDisabled()) return EMPTY_FLAGS;
 
   const prompt = buildSummaryFlagsPrompt(session, events, opts);
 

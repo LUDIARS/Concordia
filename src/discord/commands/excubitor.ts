@@ -2,11 +2,11 @@ import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { discordCommandQueue } from "../background-task-queue.js";
 import {
-  excubitorBaseUrl,
   excubitorProjectCache,
   type ExcubitorComponentLite,
   type ExcubitorProjectLite,
 } from "../excubitor-project-cache.js";
+import { excubitorBaseUrl } from "../../config/service-urls.js";
 
 const CONTROLLABLE_RUNTIMES = new Set(["node", "dev-process-md", "app", "docker-compose", "docker"]);
 const RUNNING_STATES = new Set(["running", "healthy"]);

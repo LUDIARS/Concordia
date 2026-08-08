@@ -15,6 +15,7 @@ import { buildDelegationMirrorText } from "../delegation/coordination.js";
 import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
+import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 
@@ -405,12 +406,12 @@ async function buildAttachFiles(
   workspaceRoots: string[],
 ): Promise<Array<{ attachment: Buffer; name: string }>> {
   if (!rawPaths?.length) return [];
-  const enforce = process.env.CONCORDIA_ATTACHMENT_ENFORCE !== "0";
+  const enforce = isAttachmentEnforced();
   const guard = createAttachmentGuard({
     roots: buildAttachmentRoots({
       workspaceRoots,
       tempDir: os.tmpdir(),
-      configuredRoots: process.env.CONCORDIA_ATTACHMENT_ROOTS,
+      configuredRoots: configuredAttachmentRoots(),
     }),
     enforce,
   });

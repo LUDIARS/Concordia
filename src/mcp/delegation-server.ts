@@ -27,16 +27,14 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { resolveDelegationParentSessionId } from "./delegation-parent-session.js";
-
-const DEFAULT_BASE = "http://127.0.0.1:11111";
+import { concordiaBaseUrl } from "../config/service-urls.js";
 
 async function callConcordia(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
 ): Promise<{ ok: boolean; status: number; body: unknown }> {
-  const base = process.env.CONCORDIA_BASE_URL ?? DEFAULT_BASE;
-  const url = `${base.replace(/\/$/, "")}${path}`;
+  const url = `${concordiaBaseUrl()}${path}`;
   const headers: Record<string, string> = { "content-type": "application/json" };
   try {
     const res = await fetch(url, {

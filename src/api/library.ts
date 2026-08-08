@@ -30,6 +30,7 @@ import {
   type LibrarySnapshot,
   type LibrarySource,
 } from "@ludiars/memory";
+import { isClaudeDisabled } from "../config/claude-availability.js";
 import { runClaude } from "../rules/claude-runner.js";
 
 const ARCHIVE_DIRNAME = "_archive";
@@ -111,7 +112,7 @@ export function libraryRouter(deps: LibraryApiDeps): Hono {
     const src = snap.sources.find((s) => s.id === parsed.data.home);
     if (!src) return c.json({ error: "source not found" }, 404);
     const result = await analyzeHome(src, {
-      disabled: process.env.CONCORDIA_DISABLE_CLAUDE === "1",
+      disabled: isClaudeDisabled(),
       model: "haiku",
       runner: async (prompt, opts) => runClaude(prompt, { model: opts.model }),
     });

@@ -27,6 +27,7 @@ import {
   EMPTY_FLAGS,
 } from "./summary-flags.js";
 import type { SummaryQuestionStateReader } from "./summary-event-excerpt.js";
+import { isClaudeDisabled } from "../config/claude-availability.js";
 
 /** generateReport の任意依存。監査ログと質問状態の正本を決定論ソースとして併用する。 */
 export interface GenerateReportOptions {
@@ -230,7 +231,7 @@ async function narrativeViaCli(
   bullets: ReportBullets,
   usage?: SessionUsageSummary,
 ): Promise<string | null> {
-  if (process.env.CONCORDIA_DISABLE_CLAUDE === "1") return null;
+  if (isClaudeDisabled()) return null;
 
   const meta = parseMetadata(session.metadata);
   const role = meta.role_label ?? "雑用係";

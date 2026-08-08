@@ -1,3 +1,8 @@
+import {
+  anatomiaBaseUrl as resolveAnatomiaBaseUrl,
+  thaleiaBaseUrl as resolveThaleiaBaseUrl,
+} from "../config/service-urls.js";
+import { trimmedEnv } from "../config/env-parse.js";
 import type { PromptAnalysis } from "./local-prompt-analyzer.js";
 
 export interface PromptResearchOptions {
@@ -45,8 +50,6 @@ interface AnatomiaGraph {
   edges?: Array<{ from?: string; to?: string; kind?: string }>;
 }
 
-const DEFAULT_ANATOMIA_BASE_URL = "http://127.0.0.1:4200";
-const DEFAULT_THALEIA_BASE_URL = "http://127.0.0.1:8890";
 const DEFAULT_THRESHOLD = 30;
 const DEFAULT_TIMEOUT_MS = 350;
 
@@ -191,8 +194,16 @@ export async function collectPromptResearch(
 ): Promise<PromptResearchResult> {
   const threshold = options.threshold ?? numberEnv("CONCORDIA_PROMPT_RESEARCH_DETAIL_THRESHOLD", DEFAULT_THRESHOLD);
   const opts: Required<PromptResearchOptions> = {
-    anatomiaBaseUrl: options.anatomiaBaseUrl ?? process.env.CONCORDIA_PROMPT_RESEARCH_ANATOMIA_URL ?? process.env.ANATOMIA_BASE_URL ?? DEFAULT_ANATOMIA_BASE_URL,
-    thaleiaBaseUrl: options.thaleiaBaseUrl ?? process.env.CONCORDIA_PROMPT_RESEARCH_THALEIA_URL ?? process.env.THALEIA_BASE_URL ?? DEFAULT_THALEIA_BASE_URL,
+    // prompt research 専用の向き先 (共通の ANATOMIA/THALEIA_BASE_URL より優先)。
+    // 共通側の解決は config/service-urls.js が正本。
+    anatomiaBaseUrl:
+      options.anatomiaBaseUrl ??
+      trimmedEnv(process.env.CONCORDIA_PROMPT_RESEARCH_ANATOMIA_URL) ??
+      resolveAnatomiaBaseUrl(),
+    thaleiaBaseUrl:
+      options.thaleiaBaseUrl ??
+      trimmedEnv(process.env.CONCORDIA_PROMPT_RESEARCH_THALEIA_URL) ??
+      resolveThaleiaBaseUrl(),
     threshold,
     timeoutMs: options.timeoutMs ?? numberEnv("CONCORDIA_PROMPT_RESEARCH_TIMEOUT_MS", DEFAULT_TIMEOUT_MS),
     fetchImpl: options.fetchImpl ?? fetch,

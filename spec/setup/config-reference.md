@@ -21,15 +21,21 @@ related:
   - slack.md
   - observability.md
   - federation.md
-updated: 2026-08-01
+updated: 2026-08-09
 ---
 
 
 # Concordia 設定キー正本 (config-reference)
 
-最終更新: 2026-05-31
+最終更新: 2026-08-09
 
 Concordia の **全 env 設定キー** をここに集約する。 各キーの「読み出し元 (src の実ファイル)」を根拠として明記しているので、 値の意味・既定値はこの表を正本とする。 用途別の設定手順は [`README.md`](README.md) の各ガイドを参照。
+
+> **env 読み出しの実装配置**: 複数のモジュールが参照するキーは `src/config/` の設定レイヤー
+> (`service-urls.ts` / `workspace-roots.ts` / `attachment-policy.ts` / `claude-availability.ts`、
+> パース規則は `env-parse.ts`) が読み出しの正本。 消費側は `process.env` を直接見ずにここを経由する
+> (同じキーを複数箇所が別々の既定値・別々の解釈で読んで割れるのを防ぐため)。
+> 単一モジュールしか使わないキーは、 従来どおりそのモジュールが直接読んでよい。
 
 設定の与え方は 2 通り:
 
@@ -103,7 +109,7 @@ Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session in
 |------|--------|-----------|------|
 | `ANTHROPIC_API_KEY` | 空 | `config.ts:72`, `discord/webhook-pool.ts:127` | report 生成等で使う Anthropic API key。 空なら LLM 機能は無効。 |
 | `CONCORDIA_REPORT_MODEL` | `claude-haiku-4-5` | `config.ts:73` | 終了レポート等の LLM モデル名。 |
-| `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で緊急 OFF) | `admin/state.ts` / `rules/proposer.ts` / `report/generator.ts` / `daily/generator.ts` / `personas/feedback.ts` | **緊急 hard-OFF**。 `1` で rule engine / proposer / report 等の claude CLI 呼び出しを全経路で止める。 通常の ON/OFF は下記の runtime スイッチで行い、 この env は `rules_enabled=true` でも勝つ。 |
+| `CONCORDIA_DISABLE_CLAUDE` | 未設定 (`1` で緊急 OFF) | `config/claude-availability.ts` (消費: `report/generator.ts` / `report/summary-flags.ts` / `daily/generator.ts` / `api/library.ts`) | **緊急 hard-OFF**。 `1` で report / 日報 / summary flags / library 解析の claude CLI 呼び出しを止める。 通常の ON/OFF は下記の runtime スイッチで行い、 この env は `rules_enabled=true` でも勝つ。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | `rules/claude-runner.ts:15` | rule 用 claude CLI subprocess の timeout (ms)。 |
 
 > **runtime スイッチ (env ではない)**: chat 投稿 / rule engine の通常 ON/OFF は env ではなく
@@ -168,7 +174,7 @@ MCP サーバ (別プロセス) が読む env:
 
 | キー | 既定値 | 読み出し元 | 意味 |
 |------|--------|-----------|------|
-| `CONCORDIA_BASE_URL` | `http://127.0.0.1:11111` | `mcp/core-server.ts:60`, `mcp/delegation-server.ts:51` | MCP サーバが叩く Concordia loopback URL。 |
+| `CONCORDIA_BASE_URL` | `http://127.0.0.1:11111` | `config/service-urls.ts` (消費: `mcp/core-server.ts`, `mcp/delegation-server.ts`) | MCP サーバが叩く Concordia loopback URL。 |
 | `CONCORDIA_MCP_FETCH_TIMEOUT_MS` | (実装値) | `mcp/core-server.ts:49` | core MCP server の fetch timeout。 |
 | `VESTIGIUM_CATALOG_PATH` | `<cwd>/catalog/services.yaml` | `mcp/vestigium-server.ts:71` | vestigium MCP server が参照する service catalog。 |
 
@@ -194,6 +200,41 @@ MCP サーバ (別プロセス) が読む env:
 6. fallback: `C:\Program Files\Git\bin\bash.exe` (存在しなくても文字列返し → 起動時失敗ログ)
 
 > 自動検出は **Git for Windows と SourceTree 同梱しか拾わない**。 別の bash を使う環境では env で明示すること (memory: feedback_concordia_bash_path)。
+
+---
+
+## 5.5 兄弟サービスの base URL
+
+`src/config/service-urls.ts` が env 読み出しと従来互換の fallback URL の正本。
+この helper 自体は catalog を照会しない。 **ポートの正本は Excubitor catalog** で
+(port-source-rule)、 実効ポートを必要とする制御経路では
+`excubitor/service-port.ts:resolveServicePort()` が観測値 → catalog の順で解決する。
+
+| キー | 既定値 | 消費側 | 意味 |
+|------|--------|--------|------|
+| `CONCORDIA_EXCUBITOR_URL` | `http://127.0.0.1:17332` | `excubitor/client.ts`, `discord/bot.ts`, `discord/commands/excubitor.ts` | Excubitor (サービス監視・起動制御) の base URL。 |
+| `EXCUBITOR_URL` | (同上) | 同上 | Excubitor 慣用キー。 `CONCORDIA_EXCUBITOR_URL` 未設定時のみ使う。 |
+| `CONCORDIA_MEMORIA_URL` | `http://127.0.0.1:5180` | `memoria/client.ts`, `morning/scheduler.ts` | Memoria (タスク管理) の base URL。 |
+| `ANATOMIA_BASE_URL` | `http://127.0.0.1:4200` | `harness/data-sufficiency.ts`, `harness/prompt-research.ts` | Anatomia (リポジトリ解析) の base URL。 |
+| `THALEIA_BASE_URL` | `http://127.0.0.1:8890` | 同上 | Thaleia (ドキュメント / 仕様) の base URL。 |
+| `CONCORDIA_PROMPT_RESEARCH_ANATOMIA_URL` | `ANATOMIA_BASE_URL` | `harness/prompt-research.ts` | prompt research だけ別の Anatomia を向ける上書き。 |
+| `CONCORDIA_PROMPT_RESEARCH_THALEIA_URL` | `THALEIA_BASE_URL` | `harness/prompt-research.ts` | prompt research だけ別の Thaleia を向ける上書き。 |
+
+いずれも空文字 / 空白のみは **未設定と同じ**扱い (既定へフォールバック)。 末尾スラッシュは除去される。
+
+---
+
+## 5.6 添付ファイルのパス許可
+
+`src/config/attachment-policy.ts` が読み出しの正本。 chat 受信側 (`api/chat.ts`) と
+Discord 送出側 (`discord/egress.ts`) が同じ設定を見ることを保証する
+(入口と出口で許可ルートが割れると境界が破れるため)。 ルート文字列の分解は
+`shared/attachment-paths.ts:buildAttachmentRoots()`。
+
+| キー | 既定値 | 意味 |
+|------|--------|------|
+| `CONCORDIA_ATTACHMENT_ENFORCE` | 未設定 (= enforce ON。 `0` で audit のみ) | 許可外パスを実際に遮断するか。 `0` のときは拒否理由をログに残すだけで遮断しない。 |
+| `CONCORDIA_ATTACHMENT_ROOTS` | 未設定 | workspace ルート + temp に **追加**する許可ルート (`;` 区切り)。 |
 
 ---
 
@@ -275,8 +316,8 @@ at-least-once 再送する。認証 token は outbox に保存せず、再送時
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_MS` | `200` | `metrics/loop.ts` | event-loop lag p99 の通知閾値 (ms)。 |
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES` | `3` | `metrics/loop.ts` | lag 通知までに必要な連続超過サンプル数。 |
 | `CONCORDIA_EVENT_LOOP_LAG_ALERT_COOLDOWN_MS` | `600000` | `metrics/loop.ts` | lag 通知の cooldown (ms)。 |
-| `CONCORDIA_WORKSPACE_ROOT` | `LUDIARS_ROOT`、次に明示 spawn cwd | `shared/config.ts` | プライマリ workspace ルート (リポジトリ探索の基点)。Session cwd には使用しない。 **設定 GUI (設定ページ) / `/v1/admin/workspace-root(s)` から上書き可**。 |
-| `CONCORDIA_WORKSPACE_ROOTS` | 未設定 (= `CONCORDIA_WORKSPACE_ROOT` のみ) | `shared/config.ts` | `;` 区切りの追加 workspace ルート列。 プライマリ + これらを正規化重複除去した集合が走査対象。 Work ページは全ルート直下の git リポを横断走査、 Memoria は実在する `<root>/Memoria` を採用。 |
+| `CONCORDIA_WORKSPACE_ROOT` | `LUDIARS_ROOT`、次に明示 spawn cwd | `shared/config.ts` (プライマリ決定) / `config/workspace-roots.ts` (ルート集合) | プライマリ workspace ルート (リポジトリ探索の基点)。Session cwd には使用しない。 **設定 GUI (設定ページ) / `/v1/admin/workspace-root(s)` から上書き可**。 |
+| `CONCORDIA_WORKSPACE_ROOTS` | 未設定 (= `CONCORDIA_WORKSPACE_ROOT` のみ) | `shared/config.ts` (プライマリ決定) / `config/workspace-roots.ts` (ルート集合) | `;` 区切りの追加 workspace ルート列。 プライマリ + これらを正規化重複除去した集合が走査対象。 Work ページは全ルート直下の git リポを横断走査、 Memoria は実在する `<root>/Memoria` を採用。 |
 | `CONCORDIA_GITHUB_ORG` | `LUDIARS` 運用パス存在時のみ `LUDIARS`、 他は空 | `shared/config.ts` | リポが属する GitHub Organization (PR / repo 操作の owner 解決)。 **設定 GUI / `/v1/admin/github-org` から上書き可** (schema_meta 永続化)。 |
 
 > `workspace_root(s)` / `github_org` は AdminState (`schema_meta`) が source of truth で、 上記 env は
@@ -327,7 +368,7 @@ reaction workflow の ON/OFF にかかわらず platform 起点の spawn / deleg
 | `CONCORDIA_FEDERATION_SITE_TOKEN` | 未設定 | `federation/env.ts:51` | 登録応答でだけ得られる平文トークン。 secret store にのみ置き、 Git / ログには残さない。 |
 | `CONCORDIA_FEDERATION_OUTBOX_MAX` | `10000` | `federation/env.ts:52` | 本社側で保持する拠点別 outbox (本社→拠点イベント) の上限行数 (超過は最古から破棄)。 |
 | `CONCORDIA_FEDERATION_OUTBOX_TTL_SEC` | `604800` (7 日) | `federation/env.ts:53` | 同 outbox エントリの TTL 秒 (超過は破棄)。 |
-| `CONCORDIA_VILLA_URL` | `http://127.0.0.1:17610` | `villa/client.ts:26` | 拠点タグ名の正本となる Villa の base URL。 到達不能なら拠点タグ無しで degrade する (部署ルーティングは継続)。 |
+| `CONCORDIA_VILLA_URL` | `http://127.0.0.1:17610` | `config/service-urls.ts` (消費: `villa/client.ts`) | 拠点タグ名の正本となる Villa の base URL。 到達不能なら拠点タグ無しで degrade する (部署ルーティングは継続)。 |
 
 ---
 

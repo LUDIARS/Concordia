@@ -1,4 +1,8 @@
 import { request } from "node:http";
+import {
+  anatomiaBaseUrl as resolveAnatomiaBaseUrl,
+  thaleiaBaseUrl as resolveThaleiaBaseUrl,
+} from "../config/service-urls.js";
 import { repoLeaf } from "./predicates.js";
 
 export interface ProjectSufficiency {
@@ -29,8 +33,6 @@ interface JsonResponse {
   body: unknown;
 }
 
-const DEFAULT_ANATOMIA_BASE_URL = "http://127.0.0.1:4200";
-const DEFAULT_THALEIA_BASE_URL = "http://127.0.0.1:8890";
 const DEFAULT_TIMEOUT_MS = 1500;
 
 function baseUrl(value: string): string {
@@ -144,8 +146,8 @@ export async function probeProjectSufficiency(
 ): Promise<ProjectSufficiency> {
   const leaf = repoLeaf(project);
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const anatomiaBaseUrl = opts.anatomiaBaseUrl ?? process.env.ANATOMIA_BASE_URL ?? DEFAULT_ANATOMIA_BASE_URL;
-  const thaleiaBaseUrl = opts.thaleiaBaseUrl ?? process.env.THALEIA_BASE_URL ?? DEFAULT_THALEIA_BASE_URL;
+  const anatomiaBaseUrl = opts.anatomiaBaseUrl ?? resolveAnatomiaBaseUrl();
+  const thaleiaBaseUrl = opts.thaleiaBaseUrl ?? resolveThaleiaBaseUrl();
   const [anatomia, thaleia] = await Promise.all([
     probeAnatomia(leaf, anatomiaBaseUrl, timeoutMs).catch(() => ({ present: false })),
     probeThaleia(leaf, thaleiaBaseUrl, timeoutMs).catch(() => ({ present: false })),

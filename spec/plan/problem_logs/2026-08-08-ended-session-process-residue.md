@@ -136,8 +136,13 @@ spawn は `cmd /d /s /c "node ...\lictor.mjs ..."` の形なので、`cmd.exe` �
 2. **#4** — `control-worker` を Excubitor カタログへ登録するか、Concordia 本体
    プロセス内で worker を起動する。併せて queued 358 件の棚卸し
    (大半が #4b 由来の誤判定なので破棄が妥当)。
+   → **カタログ登録のみ完了。稼働はしていない。**
+   `concordia-control` は `state=crashed` でログ 0 行、queued は 713 件へ増加。
+   詳細と再診断は
+   [`2026-08-09-control-worker-crashed-stop-queue-stalled.md`](./2026-08-09-control-worker-crashed-stop-queue-stalled.md)。
 3. **#2** — `session-end-done` を skill markdown ではなく Lictor の shutdown
    コードから POST する。失敗を握り潰さずログに残す。
+   → 実装済み・未マージ (Lictor `fix/session-end-done-from-shutdown`)。
 4. **#3** — ended + マーカーの回収を `last_seen_at` に依存させない。
    `session_end_pending_at` からの経過時間で判定する
    (撤去された `endedGraceSec` 相当を、通知経路の保険として復活させる)。

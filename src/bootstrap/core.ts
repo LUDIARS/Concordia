@@ -537,6 +537,8 @@ export async function startBackend(): Promise<BackendHandle> {
     prs,
     store: taskStore,
     confirm: { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+    // Revisor 運用 (GitHub PR を作らない) でもゴール判断が空転しないよう local PR を見る。
+    revisor: revisorClient,
     mentionUserId: () => adminState.getMentionUserId(),
   });
 

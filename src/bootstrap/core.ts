@@ -1484,8 +1484,6 @@ export async function startBackend(): Promise<BackendHandle> {
       catch (error) { log.warn(`post-listen handle stop failed: ${(error as Error).message}`); }
     }
   });
-  resources.own("testing release subscription", () => unsubTestingRelease());
-  resources.own("revisor local PR submit subscription", () => unsubLocalPrSubmit());
   resources.own("session message subscription", () => stopMessageService());
   resources.own("worker lease watchers", () => {
     clearInterval(costWorkerWatch);

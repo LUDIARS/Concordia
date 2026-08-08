@@ -10,6 +10,24 @@ export const DECOMPOSE_PROMPT = [
 
 const injectedRuns = new Set<string>();
 
+/**
+ * 同一 run への分解 inject が既に永続イベントとして残っているか。 in-memory の
+ * `injectedRuns` はプロセス再起動で消え、 再起動後に同じ run へ分解プロンプトが
+ * 再送されていた。 session_events の inject (source=taskflow:<run>:decompose) を
+ * 正本として exactly-once を保証する (session-end.ts の auto:session-end と同型)。
+ */
+function alreadyInjected(sessions: SessionsRepo, sessionId: string, runId: string): boolean {
+  const source = `taskflow:${runId}:decompose`;
+  return sessions.recentEvents(sessionId, 200).some((event) => {
+    if (event.kind !== "inject") return false;
+    try {
+      return (JSON.parse(event.payload) as { source?: unknown }).source === source;
+    } catch {
+      return false;
+    }
+  });
+}
+
 export async function injectDecompositionWhenMissing(input: {
   run: DelegationRunRow;
   sessions: SessionsRepo;
@@ -25,6 +43,10 @@ export async function injectDecompositionWhenMissing(input: {
   if (existing.length > 0) return false;
   const target = input.run.parent_session_id ?? input.run.child_session_id;
   if (!target) return false;
+  if (alreadyInjected(input.sessions, target, input.run.id)) {
+    injectedRuns.add(input.run.id);
+    return false;
+  }
   injectedRuns.add(input.run.id);
   input.sessions.appendEvent({ session_id: target, ts: Math.floor(Date.now() / 1000), kind: "inject", payload: { text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose` } });
   eventBus.emit({ type: "session.inject", target_session_id: target, text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose`, ts: Math.floor(Date.now() / 1000) });

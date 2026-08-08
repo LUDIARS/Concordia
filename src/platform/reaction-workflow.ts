@@ -561,11 +561,12 @@ export function planWorkflow(
         `**ステップ 2: テンプレート選択 & 委託**\n` +
         `1. GET http://127.0.0.1:11111/v1/delegation/templates で利用可能なテンプレートを取得。\n` +
         `2. メッセージ内容に最適なテンプレートを選択する (task-process / impl-from-design / fix-bug / refactor 等)。\n` +
-        `3. GET http://127.0.0.1:11111/v1/spawn/info で spawn token のパスを確認し、読み取る。\n` +
-        `4. POST http://127.0.0.1:11111/v1/delegation/invoke で委託:\n` +
+        // spawn token の読み取り指示は撤去済みの実装 (delegation invoke は token 不要 —
+        // src/api/delegation.ts の非対称撤廃) に合わせて削除。 古い手順が残ると AI が
+        // 存在しない認可手続きで止まる。
+        `3. POST http://127.0.0.1:11111/v1/delegation/invoke で委託:\n` +
         `   { "call_name": "<選んだテンプレート>", "args": { ... }, "triggered_by": "reaction-workflow-delegate" }\n` +
-        `   Authorization: Bearer <spawn token>\n` +
-        `5. run ID と spawn_pid を取得して報告する。`;
+        `4. run ID と spawn_pid を取得して報告する。`;
       const monitorNote = ctx.sessionActive
         ? `\n\n委託後は起動した Lictor プロセスの完了を監視し、結果を報告してください。`
         : `\n\nセッションが非 active のため監視は行わない。委託のみ実行して終了する。`;

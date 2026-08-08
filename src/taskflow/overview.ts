@@ -15,6 +15,10 @@ export interface TaskflowOverviewRow {
   assignee: string | null;
   source_session: string | null;
   session_status: SessionRow["status"] | null;
+  /** 委託の親 (委託元 = このタスクを管理するセッション)。 run が無ければ null。 */
+  parent_session_id: string | null;
+  /** 委託の子 (実装担当)。 run が無ければ null。 */
+  child_session_id: string | null;
   delegation_run_id: string | null;
   delegation_status: DelegationRunRow["status"] | null;
   pr: {
@@ -68,11 +72,11 @@ export function buildTaskflowOverview(input: {
     const runtime = document.runtime ?? defaultRuntime();
     const explicitSessionId = runtime.source_session;
     const explicitRunId = runtime.delegation_run_id;
+    // run の推定は「child 一致 → parent 一致」の決定的順序にする。 混在 find だと
+    // runs の並び次第で同じタスクが親に付いたり子に付いたりして親子表示が不定になる。
     const run = (explicitRunId ? runsById.get(explicitRunId) : null)
-      ?? input.runs.find((candidate) =>
-        !!explicitSessionId &&
-        (candidate.child_session_id === explicitSessionId || candidate.parent_session_id === explicitSessionId),
-      )
+      ?? input.runs.find((candidate) => !!explicitSessionId && candidate.child_session_id === explicitSessionId)
+      ?? input.runs.find((candidate) => !!explicitSessionId && candidate.parent_session_id === explicitSessionId)
       ?? null;
     const sessionId = explicitSessionId ?? run?.child_session_id ?? run?.parent_session_id ?? null;
     const session = sessionId ? sessionsById.get(sessionId) ?? null : null;
@@ -89,6 +93,8 @@ export function buildTaskflowOverview(input: {
       assignee: resolveAssignee(runtime, session, run, pr),
       source_session: sessionId,
       session_status: session?.status ?? null,
+      parent_session_id: run?.parent_session_id ?? null,
+      child_session_id: run?.child_session_id ?? null,
       delegation_run_id: run?.id ?? explicitRunId ?? null,
       delegation_status: run?.status ?? null,
       pr: pr ? { number: pr.number, title: pr.title, url: pr.url, state: pr.state } : null,

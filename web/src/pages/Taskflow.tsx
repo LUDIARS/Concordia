@@ -140,7 +140,22 @@ export function Taskflow() {
                   </span>
                 </td>
                 <td className="p-2 text-xs">
-                  {task.source_session ? (
+                  {task.parent_session_id || task.child_session_id ? (
+                    // 委託タスク: 管理者 (親) → 実装担当 (子) の系譜で表示する。
+                    <div className="font-mono">
+                      {task.parent_session_id ? (
+                        <Link className="text-accent" title="管理セッション (委託元)" to={`/sessions/${encodeURIComponent(task.parent_session_id)}`}>
+                          {shortId(task.parent_session_id)}
+                        </Link>
+                      ) : <span className="text-subtle">—</span>}
+                      <span className="text-subtle"> → </span>
+                      {task.child_session_id ? (
+                        <Link className="text-accent" title="実装セッション (委託先)" to={`/sessions/${encodeURIComponent(task.child_session_id)}`}>
+                          {shortId(task.child_session_id)}
+                        </Link>
+                      ) : <span className="text-subtle">未紐付け</span>}
+                    </div>
+                  ) : task.source_session ? (
                     <Link className="text-accent font-mono" to={`/sessions/${encodeURIComponent(task.source_session)}`}>
                       {shortId(task.source_session)}
                     </Link>

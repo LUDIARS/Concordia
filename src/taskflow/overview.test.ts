@@ -39,6 +39,26 @@ describe("taskflow overview", () => {
     });
     expect(overview.tasks[0]).toMatchObject({ assignee: "neco", pr: { number: 42 }, ci_status: "failure" });
   });
+
+  it("exposes the parent/child lineage and resolves a child match before a parent match", () => {
+    // 同じ session が run-A の親・run-B の子として現れても、 child 一致を先に採る
+    // (混在 find だと runs の並びで親子表示が不定になる)。
+    const asParent: DelegationRunRow = { ...run(), id: "run-A", parent_session_id: "session-1", child_session_id: "child-9" };
+    const asChild: DelegationRunRow = { ...run(), id: "run-B", parent_session_id: "parent-7", child_session_id: "session-1" };
+    const overview = buildTaskflowOverview({
+      documents: [task({ source_session: "session-1", status: "delegated" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [session()],
+      runs: [asParent, asChild],
+      prs: [],
+      now: 123,
+    });
+    expect(overview.tasks[0]).toMatchObject({
+      delegation_run_id: "run-B",
+      parent_session_id: "parent-7",
+      child_session_id: "session-1",
+    });
+  });
 });
 
 function task(overrides: Partial<NonNullable<TaskDocument["runtime"]>>): TaskDocument {

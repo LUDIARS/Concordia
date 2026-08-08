@@ -129,6 +129,8 @@ export interface TaskflowOverviewTask {
   assignee: string | null;
   source_session: string | null;
   session_status: SessionRow["status"] | null;
+  parent_session_id: string | null;
+  child_session_id: string | null;
   delegation_run_id: string | null;
   delegation_status: string | null;
   pr: { number: number; title: string; url: string | null; state: string } | null;

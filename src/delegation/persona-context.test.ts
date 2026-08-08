@@ -49,4 +49,11 @@ describe("buildDelegationContext", () => {
     expect(ctx).toContain("`CONCORDIA_SESSION_ID`");
     expect(ctx).toContain("provider 固有 child を黙って代用せず");
   });
+
+  it("言語ポリシー (会話=日本語 / 実装=英語可) を含む", () => {
+    const ctx = buildDelegationContext("http://127.0.0.1:11111");
+    expect(ctx).toContain("## 言語ポリシー (required)");
+    expect(ctx).toContain("人間が読む出力は日本語で書きます");
+    expect(ctx).toContain("実装内容は効率が良ければ英語で構いません");
+  });
 });

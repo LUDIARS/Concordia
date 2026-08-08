@@ -84,6 +84,9 @@ describe("/v1/harness route", () => {
     const body = await readJson(res);
     expect(Array.isArray(body.rules)).toBe(true);
     expect(body.rules.length).toBeGreaterThan(0); // seed 済み builtin
+    const languagePolicy = body.rules.find((rule: { description: string }) => rule.description.includes("Discord/Slack"));
+    expect(languagePolicy).toMatchObject({ kind: "allow" });
+    expect(languagePolicy.description).toContain("PR");
     expect(body.blackbox.domain).toBe("concordia.harness.gate");
     expect(ctx.audit.recent({ event: "inject" })).toHaveLength(1);
   });

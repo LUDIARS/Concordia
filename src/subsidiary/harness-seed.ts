@@ -89,6 +89,16 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
     sort_order: 80,
   });
 
+  // 2026-08-08 neco 指示の言語ポリシー。 機械 deny はせず advisory (gate 黒箱の判断根拠)。
+  repo.ensureBuiltin({
+    kind: "allow",
+    title: "言語ポリシー (会話=日本語 / 実装=英語可)",
+    description:
+      "人間が読む出力 (Discord/Slack 投稿、質問 (ask)、状況報告・完了報告、PR タイトル・本文) は日本語で書く。" +
+      "実装内容 (コード、コメント、コミットメッセージ、内部の推論・ログ、委託プロンプト) は効率が良ければ英語でもよい。",
+    sort_order: 85,
+  });
+
   repo.ensureBuiltin({
     kind: "block",
     title: "オートマージ禁止",

@@ -86,6 +86,14 @@ export function buildDelegationContext(
   );
 
   lines.push(
+    "## 言語ポリシー (required)",
+    "",
+    "- 人間が読む出力は日本語で書きます: Discord / Slack への投稿、質問 (ask)、状況報告・完了報告の文面、PR タイトル・本文。",
+    "- 実装内容は効率が良ければ英語で構いません: コード、コメント、コミットメッセージ、内部の推論・ログ、子委託へのプロンプト。",
+    "",
+  );
+
+  lines.push(
     "## Delegation status / inject protocol (required)",
     "",
     "- The spawn environment includes CONCORDIA_DELEGATION_RUN_ID. When the task is completed or failed, you MUST call:",

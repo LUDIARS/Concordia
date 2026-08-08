@@ -312,6 +312,13 @@ Concordia 側に delegation の同時実行制限は無い (§10) ため、Tier 
   → §12.4。
 - prompt file の metadata に `- persona: <name>` 行が増える。
 
+#### 言語ポリシー
+
+Delegation context は、Discord / Slack 投稿、質問、状況・完了報告、PR タイトル・本文など
+人間が読む出力を日本語で書くよう要求する。コード、コメント、コミットメッセージ、内部ログ、
+子委託プロンプトは、効率上適切であれば英語を使用できる。同じ方針は子会社ハーネスの advisory
+ルールとしても配布し、機械的な deny 判定には用いない。
+
 ### 12.2 model catalog (選択可能モデルの手動管理)
 
 delegation テンプレ / spawn の `--model` 候補を DB で持ち、 Web UI から CRUD する。

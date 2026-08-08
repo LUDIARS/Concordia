@@ -1,0 +1,16 @@
+{
+  "name": "agent-delegation",
+  "description": "Delegation prompt context and subsidiary harness policies for coordinating work beyond a single session.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/delegation/persona-context(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/subsidiary/harness-seed\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context and subsidiary harness policies.",
+  "source": "spec",
+  "specRefs": [
+    "spec/feature/delegation.md#121-初期プロンプトへの-concordia-文脈--persona-注入"
+  ],
+  "updatedAt": "2026-08-08T00:00:00.000Z"
+}

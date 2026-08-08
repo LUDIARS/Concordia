@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 53;
+export const SCHEMA_VERSION = 54;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1380,6 +1380,31 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_at   INTEGER NOT NULL,
         PRIMARY KEY (client_id, session_id)
       )
+    `);
+  },
+}, {
+  version: 54,
+  name: "taskflow-runtime-state",
+  source: "taskflow_task_state v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS taskflow_task_state (
+        repo_path                    TEXT NOT NULL,
+        task_path                    TEXT NOT NULL,
+        status                       TEXT NOT NULL DEFAULT 'pending',
+        source_session               TEXT,
+        assignee                     TEXT,
+        owner                        TEXT,
+        delegation_run_id            TEXT,
+        pr_number                    INTEGER,
+        memoria_task_id              TEXT,
+        actio_task_id                TEXT,
+        memoria_registration_state   TEXT NOT NULL DEFAULT 'idle',
+        updated_at                   INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (repo_path, task_path)
+      );
+      CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_status
+        ON taskflow_task_state(status, updated_at DESC);
     `);
   },
 }];

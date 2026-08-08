@@ -1,7 +1,8 @@
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
+import type { TaskflowStateStore, TaskRuntimeState } from "./state-store.js";
 
 const log = createChildLogger("taskflow/md-store");
 
@@ -11,15 +12,7 @@ export interface TaskFrontmatter {
   task: string;
   project: string;
   kind: string;
-  status: TaskStatus;
   created: string;
-  source_session?: string;
-  assignee?: string;
-  owner?: string;
-  delegation_run_id?: string;
-  pr_number?: string | number | null;
-  memoria_task_id: string | number | null;
-  actio_task_id?: string | number | null;
   memory_links?: string[];
   [key: string]: unknown;
 }
@@ -30,6 +23,7 @@ export interface TaskDocument {
   title: string;
   frontmatter: TaskFrontmatter;
   body: string;
+  runtime?: TaskRuntimeState;
 }
 
 /**
@@ -48,7 +42,7 @@ export function parseTaskMarkdown(
     const value = yaml.load(match[1]!) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const fm = value as TaskFrontmatter;
-    if (typeof fm.task !== "string" || typeof fm.project !== "string" || typeof fm.status !== "string") return null;
+    if (typeof fm.task !== "string" || typeof fm.project !== "string" || typeof fm.kind !== "string") return null;
     const body = match[2] ?? "";
     const title = /^#\s+(.+)$/m.exec(body)?.[1]?.trim() || fm.task;
     return { path, title, frontmatter: fm, body };
@@ -73,10 +67,6 @@ async function isMainClone(repoPath: string): Promise<boolean> {
   }
 }
 
-export function renderTaskMarkdown(document: Pick<TaskDocument, "frontmatter" | "body">): string {
-  return `---\n${yaml.dump(document.frontmatter, { lineWidth: -1, noRefs: true }).trimEnd()}\n---\n${document.body}`;
-}
-
 /** md-store が使う warn だけの最小ロガー。 テストから差し替えるための境界。 */
 export interface TaskMdLogger {
   warn(payload: Record<string, unknown>, message: string): void;
@@ -98,6 +88,7 @@ export class TaskMdStore {
   constructor(
     private readonly resolveRoots: () => readonly string[],
     private readonly logger: TaskMdLogger = log,
+    private readonly state?: TaskflowStateStore,
   ) {}
 
   /** @implements spec/feature/operational-log-lifecycle.md — 重複 warn の抑制 */
@@ -130,7 +121,8 @@ export class TaskMdStore {
               this.warnOnce(path, "invalid task frontmatter skipped", { error: reason }),
             );
             if (parsed) {
-              documents.push({ ...parsed, repoPath });
+              const document = { ...parsed, repoPath };
+              documents.push(this.state ? { ...document, runtime: this.state.readOrMigrate(document) } : document);
               this.warnedPaths.delete(path); // 直ったら次の失敗はまた報告する
             } else {
               this.warnOnce(path, "invalid task markdown skipped");
@@ -144,17 +136,22 @@ export class TaskMdStore {
     return documents;
   }
 
-  async updateMemoriaTaskId(document: TaskDocument, id: string | number): Promise<void> {
-    const next = { ...document, frontmatter: { ...document.frontmatter, memoria_task_id: id } };
-    await writeFile(document.path, renderTaskMarkdown(next), "utf8");
-  }
-
   async findForProject(projectOrPath: string, statuses?: readonly TaskStatus[]): Promise<TaskDocument[]> {
     const needle = basename(projectOrPath.replace(/[\\/]+$/, "")).toLowerCase();
     return (await this.scan()).filter((document) => {
       const same = document.frontmatter.project.toLowerCase() === needle || basename(document.repoPath).toLowerCase() === needle;
-      return same && (!statuses || statuses.includes(document.frontmatter.status));
+      return same && (!statuses || statuses.includes(document.runtime?.status ?? "pending"));
     });
+  }
+
+  claimMemoriaCreation(document: TaskDocument): boolean {
+    if (!this.state) throw new Error("taskflow runtime state store is required for reconciliation");
+    return this.state.claimMemoriaCreation(document);
+  }
+
+  recordMemoriaTaskId(document: TaskDocument, id: string | number): void {
+    if (!this.state) throw new Error("taskflow runtime state store is required for reconciliation");
+    this.state.recordMemoriaTaskId(document, id);
   }
 
   relativePath(document: TaskDocument): string {

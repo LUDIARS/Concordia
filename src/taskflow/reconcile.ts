@@ -7,17 +7,19 @@ const log = createChildLogger("taskflow/reconcile");
 export async function reconcileTaskDocuments(store: TaskMdStore, backend: TaskBackend): Promise<number> {
   let created = 0;
   for (const document of await store.scan()) {
-    if (document.frontmatter.status !== "pending" || document.frontmatter.memoria_task_id != null) continue;
+    const runtime = document.runtime;
+    if (!runtime || runtime.status !== "pending" || runtime.memoria_task_id !== null) continue;
+    if (!store.claimMemoriaCreation(document)) continue;
     try {
       const task = await backend.createTask({
         title: document.title,
         details: `${document.body.trim()}\n\nsource: ${store.relativePath(document)}`.trim(),
         category: document.frontmatter.kind,
       });
-      await store.updateMemoriaTaskId(document, task.id);
+      store.recordMemoriaTaskId(document, task.id);
       created += 1;
     } catch (error) {
-      log.warn({ path: document.path, error: (error as Error).message }, "task reconcile failed; retrying next tick");
+      log.warn({ path: document.path, error: (error as Error).message }, "task reconcile outcome is unknown; preserving creation claim to prevent duplicate Memoria tasks");
     }
   }
   return created;

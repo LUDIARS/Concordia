@@ -3,11 +3,15 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 
 import { TaskMdStore } from "./md-store.js";
+import { TaskflowStateStore } from "./state-store.js";
+import { applyMigrations } from "../db/schema.js";
+import { reconcileTaskDocuments } from "./reconcile.js";
 
 // vitest は `isolate: false` で module registry を共有するため、 別のテストが先に
 // md-store を読み込んでいると `vi.mock("../shared/logger.js")` は効かない。
@@ -68,6 +72,20 @@ describe("TaskMdStore.scan", () => {
     await store.scan();
 
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it("reconciliation migrates legacy state without rewriting Markdown bytes", async () => {
+    const taskPath = join(tasksDir, "legacy.md");
+    const original = `${validTaskMarkdown().replace("memoria_task_id: null", "status: pending\nmemoria_task_id: null")}`;
+    await writeFile(taskPath, original, "utf8");
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskMdStore(() => [root], { warn }, new TaskflowStateStore(db));
+
+    await reconcileTaskDocuments(store, { createTask: async () => ({ id: 77 }) });
+
+    expect(await readFile(taskPath, "utf8")).toBe(original);
+    expect(db.prepare("SELECT memoria_task_id FROM taskflow_task_state").get()).toMatchObject({ memoria_task_id: "77" });
   });
 });
 

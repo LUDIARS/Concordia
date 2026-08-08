@@ -106,11 +106,7 @@ delegation の子セッションに限らず、 **対話セッションが自ら
 task: fix-auth-refresh            # slug (ファイル名と一致)
 project: Cernere                  # リポ名 (leaf)。置き場のリポと一致すること (検証用の冗長フィールド)
 kind: 実装                        # 設計相談 | 実装 | レビュー | テスト | 雑用 (forum タグと同語彙)
-status: pending                   # pending | delegated | done | cancelled
 created: 2026-07-13
-source_session: <session id>
-memoria_task_id: null             # Cc reconciler が登録後に書き戻す
-actio_task_id: null               # Actio backend 有効時のみ (Phase 4)
 memory_links: []                  # 参照メモリ (ファイルパス / URL)。委託時に §3.2 でそのまま渡す
 ---
 # タイトル
@@ -122,8 +118,12 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 ### 2.2 登録 (reconcile)
 
 - Cc の **task-md reconciler** (定期 tick) が全リポの `spec/tasks/` を走査し、
-  `status: pending` かつ `memoria_task_id: null` の md を Memoria へ登録
-  (`src/memoria/client.ts` の `createTask` 既存経路)。 成功したら frontmatter に id を**書き戻す** (冪等)。
+  SQLite の `taskflow_task_state` にある `status=pending` かつ `memoria_task_id IS NULL` の task を Memoria へ登録する
+  (`src/memoria/client.ts` の `createTask` 既存経路)。登録 claim と ID は同じ state 行へ永続化し、Markdown は**一切書き戻さない**。
+- `status`、外部 task ID、`source_session`、`assignee` / `owner`、`delegation_run_id`、`pr_number` はすべて runtime state である。
+  旧 frontmatter に残ったこれらの値は初回読込時だけ state へ移行し、既存 Markdown のバイト列は変更しない。
+- Memoria 登録の開始 claim も state に永続化する。登録結果が不明な通信失敗では claim を保持して再 POST せず、
+  同じ task の重複作成を防ぐ。
 - Memoria が落ちていても md は正本としてそのまま使える。 復帰後の tick で後追い登録される
   (= 「サービスが死んでいるときも動作」の実現)。
 - backend は interface (`TaskBackend`) で抽象化する。 今回は Memoria 実装のみ。
@@ -301,13 +301,13 @@ goal-and-go が有効で、PR が open/draft のテスト候補として引き�
 | AdminState | `harness.strong_impl_models` / `admin.mention_user_id` |
 | harness_rules seed | 「着手前に `spec/tasks/` へ md 分解保存」「動作テストは confirm キューのみ」(§4.2) |
 | API | `POST /v1/sessions/:id/impl-unlock`、 `GET /v1/taskflow/tasks` (md 一覧の read-only)、 `GET /v1/taskflow/overview` (担当・状態・PR・CI の統合一覧)、 invoke `memory_links` |
-| DB | 追加テーブル無し (task md が正本。 confirm_runs / delegation_runs は既存のまま) |
+| DB | `taskflow_task_state` に task の mutable runtime state を保持する。task md は static definition のみ。 |
 | events | `taskflow.completion_detected` / `taskflow.residual_checked` (監査用) |
 | blackbox | domain `concordia.workflow.completion` / `concordia.workflow.residual` |
 | module | 新設 `src/taskflow/` (md-store / reconcile / backend / decompose-inject / completion / residual / goal-machine)。 既存 `workflow-worker` (delegation キュー消費) とは別物 |
 
-`overview` は task md を正本とし、`assignee` / `owner` / `source_session` /
-`delegation_run_id` / `pr_number` を明示指定として扱う。未指定値は sessions、delegation_runs、
+`overview` は task md の static definition と SQLite runtime state を結合し、`assignee` / `owner` /
+`source_session` / `delegation_run_id` / `pr_number` は runtime state の明示値として扱う。未指定値は sessions、delegation_runs、
 pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_status` を表示する。
 
 ## 13. 実装フェーズ
@@ -324,7 +324,7 @@ pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_st
 - [ ] worktree 内でのサービス起動・動作テスト系コマンドが deny され、 監査ログに残る。
 - [ ] 強推論モデルのセッションがコード編集に入ると deny + ユーザメンションが飛び、 unlock 後は通る。
 - [ ] 実装 delegation がプロジェクトルートで起動し、 プロンプトに memory_links が列挙される。
-- [ ] リポの `spec/tasks/` に task md を置くと reconciler が Memoria に登録し、 id を frontmatter に書き戻す。 Memoria 停止中でも md 運用が継続し、 復帰後に後追い登録される。
+- [ ] リポの `spec/tasks/` に task md を置くと reconciler が Memoria に登録し、ID と登録 claim を SQLite state に永続化する。Memoria 停止中でも md 運用が継続し、復帰後に後追い登録される。
 - [ ] 子の completed 報告で、 merged PR なら confirm_runs が立ちメンション付き事前通知が飛ぶ。 PR 無しならユーザ判断のメンションが飛ぶ。
 - [ ] 対話セッションの実装完了を completion 黒箱が検知し、 §5 と同じ経路に合流する。
 - [ ] 完了後に residual 黒箱が走り、次タスクがあれば goal-and-go 経路で同セッションに

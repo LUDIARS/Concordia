@@ -65,8 +65,9 @@ export function buildTaskflowOverview(input: {
 
   const tasks = input.documents.map((document): TaskflowOverviewRow => {
     const fm = document.frontmatter;
-    const explicitSessionId = stringValue(fm.source_session);
-    const explicitRunId = stringValue(fm.delegation_run_id);
+    const runtime = document.runtime ?? defaultRuntime();
+    const explicitSessionId = runtime.source_session;
+    const explicitRunId = runtime.delegation_run_id;
     const run = (explicitRunId ? runsById.get(explicitRunId) : null)
       ?? input.runs.find((candidate) =>
         !!explicitSessionId &&
@@ -83,9 +84,9 @@ export function buildTaskflowOverview(input: {
       task: fm.task,
       project: fm.project,
       kind: fm.kind,
-      status: fm.status,
+      status: runtime.status,
       created: fm.created,
-      assignee: resolveAssignee(fm, session, run, pr),
+      assignee: resolveAssignee(runtime, session, run, pr),
       source_session: sessionId,
       session_status: session?.status ?? null,
       delegation_run_id: run?.id ?? explicitRunId ?? null,
@@ -108,7 +109,7 @@ function resolveTaskPr(
   sessionId: string | null,
   prs: readonly PrRecordRow[],
 ): PrRecordRow | null {
-  const explicitNumber = numberValue(document.frontmatter.pr_number);
+    const explicitNumber = document.runtime?.pr_number ?? null;
   if (explicitNumber !== null) {
     const repoMatches = prs.filter((pr) => sameRepo(document, session, pr));
     return repoMatches.find((pr) => pr.number === explicitNumber)
@@ -132,12 +133,12 @@ function sameRepo(document: TaskDocument, session: SessionRow | null, pr: PrReco
 }
 
 function resolveAssignee(
-  fm: TaskDocument["frontmatter"],
+  runtime: { assignee: string | null; owner: string | null },
   session: SessionRow | null,
   run: DelegationRunRow | null,
   pr: PrRecordRow | null,
 ): string | null {
-  const explicit = stringValue(fm.assignee) ?? stringValue(fm.owner);
+  const explicit = runtime.assignee ?? runtime.owner;
   if (explicit) return explicit;
   const metadata = parseMetadata(session?.metadata);
   return stringValue(metadata.role_label)
@@ -163,10 +164,8 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function numberValue(value: unknown): number | null {
-  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
-  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Number(value.trim());
-  return null;
+function defaultRuntime(): { status: TaskStatus; source_session: string | null; assignee: string | null; owner: string | null; delegation_run_id: string | null; pr_number: number | null } {
+  return { status: "pending", source_session: null, assignee: null, owner: null, delegation_run_id: null, pr_number: null };
 }
 
 function normalizePath(value: string): string {

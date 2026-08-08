@@ -95,6 +95,7 @@ import { GeniusModelReviewService } from "../model-review/service.js";
 import { applyRuntimeModelReview } from "../model-review/runtime-switch.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TaskMdStore } from "../taskflow/md-store.js";
+import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { MemoriaBackend } from "../taskflow/backend.js";
 import { startTaskReconciler } from "../taskflow/reconcile.js";
 import { TaskflowRuntime } from "../taskflow/runtime.js";
@@ -507,7 +508,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
-  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots());
+  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, new TaskflowStateStore(db));
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
   const resolveServiceCode = (repoName: string) => serviceMap.resolve(repoName);
   const confirmService = new ConfirmService({

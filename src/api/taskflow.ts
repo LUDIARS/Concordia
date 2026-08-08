@@ -20,12 +20,13 @@ export function taskflowRouter(input: {
     if (status && !STATUSES.includes(status)) return c.json({ error: "invalid_status" }, 400);
     const tasks = (await input.store.scan()).filter((document) => {
       if (project && document.frontmatter.project.toLowerCase() !== project) return false;
-      return !status || document.frontmatter.status === status;
+      return !status || (document.runtime?.status ?? "pending") === status;
     }).map((document) => ({
       path: input.store.relativePath(document),
       repo_path: document.repoPath,
       title: document.title,
       ...document.frontmatter,
+      ...document.runtime,
     }));
     return c.json({ tasks });
   });

@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=53、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=54、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -23,7 +23,7 @@ updated: 2026-06-30
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 53`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 54`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -54,6 +54,7 @@ API/機能視点は [`../interface/service-schema.md`](../interface/service-sche
 |---|---|---|
 | `chat_messages` | チャット（channel/session 単位） | id / channel / session_id / author_label / ts / text / in_reply_to / is_actionable / metadata |
 | `pending_tasks` | session へ配送待ちのタスク | id / session_id / kind / payload / created_at / delivered_at / expires_at / retries |
+| `taskflow_task_state` | task Markdown に対応する mutable runtime state | repo_path / task_path (複合 PK) / status / source_session / assignee / owner / delegation_run_id / pr_number / memoria_task_id / actio_task_id / memoria_registration_state。Markdown は static definition のみ。 |
 
 ## skill
 | テーブル | 用途 | 主要列 |

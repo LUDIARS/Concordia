@@ -8,7 +8,7 @@ import { buildTaskflowOverview } from "./overview.js";
 describe("taskflow overview", () => {
   it("joins task, assignee, delegation, PR, and CI state", () => {
     const overview = buildTaskflowOverview({
-      documents: [task({ source_session: "session-1", status: "delegated" })],
+      documents: [task({ status: "delegated", source_session: "session-1" })],
       relativePath: () => "spec/tasks/one.md",
       sessions: [session()],
       runs: [run()],
@@ -30,7 +30,7 @@ describe("taskflow overview", () => {
 
   it("prefers explicit frontmatter assignment and PR number", () => {
     const overview = buildTaskflowOverview({
-      documents: [task({ assignee: "neco", pr_number: "42" })],
+      documents: [task({ assignee: "neco", pr_number: 42 })],
       relativePath: () => "spec/tasks/one.md",
       sessions: [],
       runs: [],
@@ -41,7 +41,7 @@ describe("taskflow overview", () => {
   });
 });
 
-function task(overrides: Partial<TaskDocument["frontmatter"]>): TaskDocument {
+function task(overrides: Partial<NonNullable<TaskDocument["runtime"]>>): TaskDocument {
   return {
     path: "E:/repo/spec/tasks/one.md",
     repoPath: "E:/repo",
@@ -51,10 +51,12 @@ function task(overrides: Partial<TaskDocument["frontmatter"]>): TaskDocument {
       task: "one",
       project: "repo",
       kind: "実装",
-      status: "pending",
       created: "2026-07-14",
-      memoria_task_id: null,
-      ...overrides,
+    },
+    runtime: {
+      status: "pending", source_session: null, assignee: null, owner: null,
+      delegation_run_id: null, pr_number: null, memoria_task_id: null, actio_task_id: null,
+      memoria_registration_state: "idle", ...overrides,
     },
   };
 }

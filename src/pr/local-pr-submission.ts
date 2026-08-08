@@ -110,7 +110,8 @@ export interface LocalPrSubmissionDeps {
 }
 
 export interface LocalPrSubmissionRequest {
-  sessionId: string;
+  /** 提出元セッション。 direct 提出 (branch 直指定) では null — binding を付けない。 */
+  sessionId: string | null;
   repoPath: string;
   repository: string | null;
   branch: string | null;
@@ -122,11 +123,13 @@ export type LocalPrSubmissionResult =
   | { submitted: false; reason: SkipReason | "error"; detail?: string };
 
 /** コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。 */
-function describe(commits: readonly string[], sessionId: string): { title: string; body: string } {
+function describe(commits: readonly string[], sessionId: string | null): { title: string; body: string } {
   const subjects = commits.filter((line) => line.trim().length > 0);
   const title = subjects[0]?.slice(0, 200) ?? "Local branch review";
   const body = [
-    `Concordia session \`${sessionId}\` の作業ブランチを自動提出しました。`,
+    sessionId
+      ? `Concordia session \`${sessionId}\` の作業ブランチを自動提出しました。`
+      : "ブランチ直指定 (direct) で提出しました。審査結果は共有チャット通知で確認してください。",
     "",
     ...(subjects.length > 0 ? ["コミット:", ...subjects.map((s) => `- ${s}`)] : []),
   ].join("\n");
@@ -190,7 +193,9 @@ export async function submitSessionLocalPr(
     // lookup failure must not prevent the local PR itself from being submitted.
     let sourceLinks: readonly PrSourceLink[] = [];
     try {
-      sourceLinks = await deps.resolveSourceLinks?.(request.sessionId) ?? [];
+      sourceLinks = request.sessionId
+        ? await deps.resolveSourceLinks?.(request.sessionId) ?? []
+        : [];
     } catch (error) {
       deps.log.warn(
         { session_id: request.sessionId, err: error instanceof Error ? error.message : String(error) },
@@ -202,7 +207,7 @@ export async function submitSessionLocalPr(
       title,
       body,
       author: "concordia",
-      sessionId: request.sessionId,
+      ...(request.sessionId ? { sessionId: request.sessionId } : {}),
       headRef: plan.headRef,
       baseRef: plan.baseRef,
       sourceLinks,

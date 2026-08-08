@@ -52,6 +52,15 @@ export interface PrsApiDeps {
   staff?: Pick<StaffRepo, "roleOf">;
   /** Revisor local PR の変更操作。未注入時は fail-closed。 */
   revisorMerger?: RevisorLocalPrMerger;
+  /**
+   * session 非依存の direct 提出 (repo_path + branch)。 未注入なら
+   * POST /v1/prs/local/direct は 503。
+   */
+  submitDirectLocalPr?: (request: { repoPath: string; branch?: string; sessionId?: string }) => Promise<
+    | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
+    | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
+    | { submitted: false; reason: string; detail?: string }
+  >;
 }
 
 const VALID_STATES: PrState[] = ["draft", "open", "merged", "closed"];
@@ -174,6 +183,25 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     log.info(audit, "local PR merged with session requester authorization");
     deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-merged", payload: audit });
     return c.json({ merged: true, local_pr_id: localPrId });
+  });
+
+  /**
+   * POST /v1/prs/local/direct — repo_path + branch の直指定で local PR を提出する。
+   *
+   * Cc セッション登録を持たない作業 (Lictor 未ラップの bg job、 終了済みセッションの
+   * ブランチ、 手作業ブランチ) をレビューへ出す口。 session_id は任意で、 渡した
+   * 場合だけ審査結果 inject の binding が付く。 提出しなかった場合も 200 + 理由。
+   */
+  app.post("/local/direct", async (c) => {
+    if (!deps.submitDirectLocalPr) return c.json({ error: "local_pr_submission_unavailable" }, 503);
+    const body = await c.req.json().catch(() => null) as
+      | { repo_path?: unknown; branch?: unknown; session_id?: unknown }
+      | null;
+    const repoPath = typeof body?.repo_path === "string" ? body.repo_path.trim() : "";
+    if (!repoPath) return c.json({ error: "repo_path (string) required" }, 400);
+    const branch = typeof body?.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
+    const sessionId = typeof body?.session_id === "string" && body.session_id.trim() ? body.session_id.trim() : undefined;
+    return c.json(await deps.submitDirectLocalPr({ repoPath, branch, sessionId }));
   });
 
   app.get("/list", (c) => {

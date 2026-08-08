@@ -84,6 +84,7 @@ import { startPrReconciler } from "../pr/reconcile.js";
 import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
+import { submitDirectLocalPr } from "../pr/direct-submission.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
 import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
@@ -590,6 +591,13 @@ export async function startBackend(): Promise<BackendHandle> {
     }, sessionId),
     log: localPrLog,
   };
+  // direct 提出 (session 非依存)。 repo_path の境界は implementation-tools と同じ
+  // workspace roots を使う。
+  const submitDirectLocalPrRequest = (request: { repoPath: string; branch?: string; sessionId?: string }) =>
+    submitDirectLocalPr(
+      { ...localPrDeps, resolveWorkspaceRoots: () => adminState.getWorkspaceRoots() },
+      request,
+    );
   const submitLocalPrForSession = async (sessionId: string) => {
     const session = repo.findSession(sessionId);
     if (!session) return { submitted: false as const, reason: "session_not_found" as const };
@@ -964,6 +972,8 @@ export async function startBackend(): Promise<BackendHandle> {
     implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
     submitLocalPr: submitLocalPrForSession,
+    // session 非依存の direct 提出口 (POST /v1/prs/local/direct)。
+    submitDirectLocalPr: submitDirectLocalPrRequest,
     injectManuals: injectManualsRepo,
     harnessAudit: harnessAuditRepo,
     harnessRunClaude: runClaude,

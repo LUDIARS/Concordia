@@ -152,3 +152,27 @@ env だけだと配布のたびにプロセス再起動が要り、 平文の置
 - `src/api/prs.ts` — `POST /v1/prs/local`
 - `src/api/register-core.ts` — `GET/PUT /v1/admin/revisor-auto-submit` (安全弁)
 - `src/bootstrap/core.ts` — `session.ended` 購読と手動口の配線
+
+## 8. direct 提出 — session 非依存の口 (2026-08-08 neco 指示)
+
+既存の 3 経路 (自動 / 手動 / implementation-tools) はすべて Cc セッション前提で、
+Lictor 未ラップの bg job・終了済みセッションのブランチ・手作業ブランチはレビューへ
+出せなかった。 `POST /v1/prs/local/direct` は **repo_path + branch の直指定**で同じ
+提出判定 (`planLocalPrSubmission`) に載せる。
+
+```jsonc
+{ "repo_path": "E:/Document/Ars/<repo or worktree>",  // 必須。 絶対パス
+  "branch": "feat/xxx",                                // 省略時は checkout ブランチ
+  "session_id": "..." }                                // 任意。 渡すと審査結果 inject が紐づく
+```
+
+- repo_path は implementation-tools と同じ workspace roots 境界の中だけを許す。
+- `session_id` 無しの提出は Revisor へ binding を送らない。 審査の終局結果は
+  共有チャット通知 (pr-lifecycle-notice) だけで完結する。
+- 実在しないブランチ・不正なブランチ名は plan の手前で理由付きエラーにする
+  (`no_commits` 等の紛らわしいスキップ理由と混同させない)。
+- 判定・retry 分岐・重複抑止は既存経路と完全に共通 (§3)。
+
+実装: `src/pr/direct-submission.ts` (repo 解決 + 検証) / `src/api/prs.ts` (ルート)。
+タスク登録 (implement begin) はあくまで fast path の推奨レーンであり、 提出の
+前提条件ではない。

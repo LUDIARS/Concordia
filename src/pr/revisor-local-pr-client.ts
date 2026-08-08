@@ -37,8 +37,12 @@ export interface SubmitLocalPrInput {
   title: string;
   body: string;
   author: string;
-  /** Revisor の終局レビューイベントを戻す Concordia セッション。 */
-  sessionId: string;
+  /**
+   * Revisor の終局レビューイベントを戻す Concordia セッション。 session 非依存の
+   * direct 提出では無し — その場合 Revisor は session.inject を送らず、 結果は
+   * 共有チャット通知 (pr-lifecycle-notice) だけになる。
+   */
+  sessionId?: string;
   headRef: string;
   baseRef?: string;
   sourceLinks?: readonly PrSourceLink[];
@@ -171,8 +175,9 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
         author: input.author,
         // Revisor はこの binding を保存し、審査終了時に該当セッションだけへ
         // session.inject を送る。ここで落とすと通知先が無く、投稿者は結果を
-        // ポーリングするしかなくなる。
-        session_id: input.sessionId,
+        // ポーリングするしかなくなる。direct 提出 (session 無し) だけは意図的に
+        // binding を付けず、共有チャット通知に任せる。
+        ...(input.sessionId ? { session_id: input.sessionId } : {}),
         head_ref: input.headRef,
         ...(input.baseRef ? { base_ref: input.baseRef } : {}),
         ...(input.sourceLinks?.length ? { source_links: input.sourceLinks } : {}),

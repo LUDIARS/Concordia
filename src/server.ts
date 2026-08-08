@@ -41,6 +41,10 @@ function isEntrypoint(): boolean {
 
 if (isEntrypoint()) {
   installProcessSafetyNet();
+  log.info(
+    { version: process.env.EXCUBITOR_SERVICE_VERSION ?? "unavailable" },
+    "Concordia runtime version",
+  );
   process.on("beforeExit", (code) => {
     log.warn({ code, hasHandle: activeHandle !== null }, "Concordia process beforeExit");
   });

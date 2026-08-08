@@ -44,12 +44,17 @@ function asRepo(fake: ReturnType<typeof fakeRepo>): ExpiredSessionEndRepo {
 }
 
 function meta(markerAgeSec: number, pid = 4242): string {
-  return JSON.stringify({ [SESSION_END_PENDING_AT_KEY]: NOW - markerAgeSec, lictor_pid: pid });
+  return JSON.stringify({
+    [SESSION_END_PENDING_AT_KEY]: NOW - markerAgeSec,
+    lictor_pid: pid,
+    concordia_spawn_id: "00000000-0000-4000-8000-000000004242",
+    start_iso: new Date((NOW - 10_000) * 1000).toISOString(),
+  });
 }
 
 function stopDeps(overrides: Partial<{ alive: boolean; stopOk: boolean }> = {}) {
   const { alive = true, stopOk = true } = overrides;
-  const stopProcess = vi.fn(async () => (stopOk ? { ok: true as const, method: "taskkill" } : { ok: false as const, error: "boom" }));
+  const stopProcess = vi.fn(async () => (stopOk ? { ok: true as const, method: "taskkill" as const } : { ok: false as const, error: "boom" }));
   return {
     deps: {
       isAlive: () => alive,

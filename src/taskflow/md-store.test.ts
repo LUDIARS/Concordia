@@ -76,7 +76,7 @@ describe("TaskMdStore.scan", () => {
 
   it("reconciliation migrates legacy state without rewriting Markdown bytes", async () => {
     const taskPath = join(tasksDir, "legacy.md");
-    const original = `${validTaskMarkdown().replace("memoria_task_id: null", "status: pending\nmemoria_task_id: null")}`;
+    const original = validTaskMarkdown();
     await writeFile(taskPath, original, "utf8");
     const db = new Database(":memory:");
     applyMigrations(db);

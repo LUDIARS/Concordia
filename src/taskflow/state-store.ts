@@ -1,18 +1,8 @@
 import { relative } from "node:path";
 import type Database from "better-sqlite3";
-import type { TaskDocument, TaskStatus } from "./md-store.js";
+import type { TaskDocument, TaskRuntimeState, TaskStatus } from "./types.js";
 
-export interface TaskRuntimeState {
-  status: TaskStatus;
-  source_session: string | null;
-  assignee: string | null;
-  owner: string | null;
-  delegation_run_id: string | null;
-  pr_number: number | null;
-  memoria_task_id: string | null;
-  actio_task_id: string | null;
-  memoria_registration_state: "idle" | "creating" | "created";
-}
+export type { TaskRuntimeState } from "./types.js";
 
 type TaskRuntimeRow = Omit<TaskRuntimeState, "memoria_registration_state"> & {
   memoria_registration_state: TaskRuntimeState["memoria_registration_state"];

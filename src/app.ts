@@ -82,7 +82,7 @@ export function buildApp(deps: AppDeps): Hono {
     c.json({
       ok: true,
       service: "concordia",
-      version: "0.1.0",
+      version: process.env.EXCUBITOR_SERVICE_VERSION ?? "unavailable",
       started_at: deps.startedAt,
       halted_loops: listHaltedLoops(),
     }),

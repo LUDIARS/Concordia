@@ -120,12 +120,14 @@ describe("startCronScheduler", () => {
       { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
       { name: "genius-ingest-tier2-nightly", cron: "10 3 * * *", call_name: "genius-ingest-tier2-nightly" },
       { name: "genius-ingest-daily", cron: "10 4 * * *", call_name: "genius-ingest-daily" },
+      { name: "deps-sweep-daily", cron: "10 7 * * *", call_name: "deps-sweep-daily" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
     // ジョブ定義側へ移したあとも消えていないことを回帰で押さえる。
     expect(CRON_JOBS.filter((j) => j.cwd === "E:\\Document\\Ars").map((j) => j.name)).toEqual([
       "ludiars-review-daily",
       "ai-note-biweekly-review",
+      "deps-sweep-daily",
     ]);
   });
 

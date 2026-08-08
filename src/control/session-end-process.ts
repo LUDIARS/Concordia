@@ -1,5 +1,5 @@
 import { isPidAlive, stopSessionByLictorPid, type StopResult } from "./stop-session.js";
-import { scanAgentProcesses, type RunningAgentProc } from "./reaper.js";
+import { scanAgentProcesses, type RunningAgentProc } from "./agent-process-scan.js";
 import { matchesObservedProcessGeneration, parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
 
 export const SESSION_END_PENDING_AT_KEY = "session_end_pending_at";

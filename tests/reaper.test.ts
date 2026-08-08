@@ -201,6 +201,7 @@ describe("lost Lictor process cleanup", () => {
     ({
       listSessions: ({ status }: { status?: string }) => rows.filter((row) => row.status === status),
       findSession: findSession ?? ((id: string) => rows.find((row) => row.id === id)),
+      findEndedWithPendingMarkerOlderThan: () => [],
     }) as unknown as SessionsRepo;
   const ownedMetadata = (pid: number, ageSec = 2_000) => JSON.stringify({
     lictor_pid: pid,

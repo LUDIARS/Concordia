@@ -181,6 +181,8 @@ export interface CoreRuntimeDeps {
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
   /** Direct interactive session launcher. Tests inject a host-independent stub. */
   sessionSpawn?: (request: SpawnRequest) => SpawnResult;
+  /** Optional directory for the spawn endpoint token. */
+  spawnTokenCwd?: string;
   /** マルチ拠点連合の管理 API。未注入なら /v1/federation は生えない。 */
   federation?: FederationApiDeps;
 }
@@ -280,6 +282,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   app.route(
     "/v1/spawn",
     spawnRouter({
+      cwd: deps.spawnTokenCwd,
       // 既定 cwd は env 固定の spawnDefaultCwd ではなくプライマリ workspace ルート
       // (実行時解決) を採用する。 設定 GUI での workspace root 変更が即反映される。
       resolveDefaultCwd: () => deps.adminState.getWorkspaceRoot(),

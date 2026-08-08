@@ -2,29 +2,12 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
-import type { TaskflowStateStore, TaskRuntimeState } from "./state-store.js";
+import type { TaskflowStateStore } from "./state-store.js";
+import type { TaskDocument, TaskFrontmatter, TaskRuntimeState, TaskStatus } from "./types.js";
+
+export type { TaskDocument, TaskFrontmatter, TaskRuntimeState, TaskStatus } from "./types.js";
 
 const log = createChildLogger("taskflow/md-store");
-
-export type TaskStatus = "pending" | "delegated" | "done" | "cancelled";
-
-export interface TaskFrontmatter {
-  task: string;
-  project: string;
-  kind: string;
-  created: string;
-  memory_links?: string[];
-  [key: string]: unknown;
-}
-
-export interface TaskDocument {
-  path: string;
-  repoPath: string;
-  title: string;
-  frontmatter: TaskFrontmatter;
-  body: string;
-  runtime?: TaskRuntimeState;
-}
 
 /**
  * 失敗しても自分ではログを出さない。 周期スキャンから呼ばれるため、ここで直接

@@ -47,6 +47,7 @@ export function App() {
         <span className="text-lg font-semibold whitespace-nowrap">
           <span className="text-accent">●</span> Concordia
         </span>
+        <span className="text-subtle text-xs">v{import.meta.env.VITE_EXCUBITOR_SERVICE_VERSION ?? "unavailable"}</span>
         <span className="text-subtle text-xs hidden md:inline">multi-agent session coordinator</span>
         <Nav items={NAV} />
       </header>

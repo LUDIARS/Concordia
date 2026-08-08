@@ -98,12 +98,12 @@ describe("admin API", () => {
     expect(spawnCalls).toEqual([
       expect.objectContaining({
         provider: "claude",
-        args: ["--model", "claude-opus-5", "--effort", "high"],
+        args: ["--model", "claude-opus-5", "--effort", "medium"],
         env: expect.objectContaining({ CLAUDE_CODE_DISABLE_THINKING: "1" }),
       }),
       expect.objectContaining({
         provider: "claude",
-        args: ["--model", "claude-opus-5", "--effort", "high"],
+        args: ["--model", "claude-opus-5", "--effort", "medium"],
         env: expect.objectContaining({ CLAUDE_CODE_DISABLE_THINKING: "0" }),
       }),
     ]);

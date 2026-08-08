@@ -100,7 +100,7 @@ describe("RevisorClient", () => {
     );
   });
 
-  it("lists local PRs from the catalog port and drops malformed rows", async () => {
+  it("lists local PRs without disclosing the workflow token and drops malformed rows", async () => {
     const findService = vi.fn(async () => ({
       code: "revisor",
       name: "Revisor",
@@ -122,7 +122,7 @@ describe("RevisorClient", () => {
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://127.0.0.1:4240/v1/local-prs",
       expect.objectContaining({
-        headers: expect.objectContaining({ authorization: "Bearer local-secret" }),
+        headers: { "x-concordia-actor": "concordia" },
       }),
     );
   });

@@ -36,7 +36,7 @@ export function isShellWrapperCommand(cmd: string): boolean {
   // Windows: cmd[.exe] に任意個の /X フラグが続き /c で委譲する形。
   if (/^\s*"?[^"\s]*\bcmd(?:\.exe)?"?\s+(?:\/\S+\s+)*\/c\b/i.test(cmd)) return true;
   // POSIX: sh/bash/zsh 等の -c 委譲。
-  if (/^\s*"?[^"\s]*\b(?:ba|da|z)?sh"?\s+(?:-\S+\s+)*-c\b/.test(cmd)) return true;
+  if (/^\s*"?[^"\s]*\b(?:ba|da|z)?sh"?\s+(?:-\S+\s+)*-[A-Za-z]*c[A-Za-z]*\b/.test(cmd)) return true;
   return false;
 }
 

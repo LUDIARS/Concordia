@@ -85,7 +85,7 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
 
   constructor(options: RevisorClientOptions) {
     // 読み取り (local PR 一覧) に token は要らない — Revisor は loopback からの GET に
-    // token を要求しない。 あれば送る扱いにして、 秘密が無いだけで一覧が出ない状態を作らない。
+    // token を要求しない。 読み取り経路へ workflow token を送らない。
     this.excubitor = options.excubitor;
     this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
@@ -116,7 +116,6 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
     try {
       const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs`, {
         headers: {
-          ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
           "x-concordia-actor": "concordia",
         },
         signal: controller.signal,

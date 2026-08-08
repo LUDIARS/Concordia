@@ -129,15 +129,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const taskStore = new TaskMdStore(() => []);
 
   // 副作用の隔離: logsDir / spawn token / delegation prompt を全て tmpdir に向ける。
-  // CONCORDIA_SPAWN_TOKEN_PATH を設定しないと buildApp (spawnRouter) が
-  // process.cwd() = リポ直下に .spawn.token を書いてしまう。
   const logsDir = makeTestDir("concordia-test-logs-");
-  const prevTokenPath = process.env.CONCORDIA_SPAWN_TOKEN_PATH;
-  process.env.CONCORDIA_SPAWN_TOKEN_PATH = join(logsDir, ".spawn.token");
-  registerCleanup(() => {
-    if (prevTokenPath === undefined) delete process.env.CONCORDIA_SPAWN_TOKEN_PATH;
-    else process.env.CONCORDIA_SPAWN_TOKEN_PATH = prevTokenPath;
-  });
 
   const delegationService = new DelegationService({
     repo: delegation,
@@ -158,6 +150,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     staff,
     taskStore,
     sessionSpawn: opts.sessionSpawn,
+    spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},
     costOverviewSource: opts.costOverviewSource,
     processManager,

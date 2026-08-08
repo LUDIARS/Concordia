@@ -107,6 +107,9 @@ import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
+import { resolveTestSessionWorkflowEnv } from "../control/test-session-workflow-token.js";
+import { workflowGate } from "../workflow/api-gate.js";
+import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -185,6 +188,20 @@ export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;
+  // ワークフローに属する API は、 設定で無効なら 404 ではなく 409 + 理由を返す。
+  // 判定はリクエストごとの都度解決なので、 設定変更が再起動なしで次から効く。
+  const gate = (key: Parameters<typeof workflowGate>[0]) =>
+    workflowGate(key, () => deps.adminState.isWorkflowEnabled(key));
+  // Hono は登録順にハンドラを評価するので、 ゲートは対象ルートより先に置く。
+  const gateRoutes = (key: Parameters<typeof workflowGate>[0], prefixes: readonly string[]) => {
+    for (const prefix of prefixes) {
+      app.use(prefix, gate(key));
+      app.use(`${prefix}/*`, gate(key));
+    }
+  };
+  gateRoutes("task", ["/v1/taskflow"]);
+  gateRoutes("test", ["/v1/testing", "/v1/confirm"]);
+  gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
   mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route(
     "/v1/sessions",
@@ -921,6 +938,25 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       lictor_dev_path: deps.adminState.getLictorDevPath(),
       lictor_prod_exe: deps.adminState.getLictorProdExe(),
     });
+  });
+
+  // ワークフロー個別有効化フラグ (workflow.task / test / reaction / review / daily / cost)。
+  // 既定は全て有効。 無効化は明示設定のときだけ効く。 値は都度解決なので再起動不要。
+  // spec/feature/workflow-toggles-and-permission-noise.md — W1
+  app.get("/v1/admin/workflows", (c) => {
+    return c.json({ workflows: deps.adminState.workflows.snapshot() });
+  });
+  app.put("/v1/admin/workflows/:key", async (c) => {
+    const key = c.req.param("key");
+    if (!isWorkflowKey(key)) {
+      return c.json({ error: `unknown workflow: ${key} (valid: ${WORKFLOW_KEYS.join(", ")})` }, 404);
+    }
+    const body = await c.req.json().catch(() => null) as { enabled?: unknown } | null;
+    if (!body || typeof body.enabled !== "boolean") {
+      return c.json({ error: "body.enabled (boolean) required" }, 400);
+    }
+    deps.adminState.setWorkflowEnabled(key, body.enabled);
+    return c.json({ workflow: key, ...deps.adminState.workflows.state(key) });
   });
 
   app.get("/v1/admin/state", (c) => {

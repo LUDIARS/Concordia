@@ -156,6 +156,8 @@ import {
   readWorkflowWorkerLease,
   workflowEmbeddedEnabled,
 } from "./workflow.js";
+import { WorkflowBindingRegistry } from "../workflow/binding-registry.js";
+import type { WorkflowKey } from "../workflow/keys.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
 
@@ -463,6 +465,15 @@ export async function startBackend(): Promise<BackendHandle> {
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
   });
+  // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
+  // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して
+  // 登録側を張り替える。 spec/feature/workflow-toggles-and-permission-noise.md
+  const isWorkflowEnabled = (key: WorkflowKey): boolean => adminState.isWorkflowEnabled(key);
+  const workflowBindings = new WorkflowBindingRegistry({
+    isEnabled: isWorkflowEnabled,
+    log: { info: (message) => log.info(message), warn: (message) => log.warn(message) },
+  });
+
   const reactionWorkflowReadiness = getReactionWorkflowReadiness({
     enabled: adminState.getReactionWorkflowEnabled(),
     discordAuthorizedCount: staffRepo.countByCapability("discord", "session_spawn"),
@@ -538,15 +549,23 @@ export async function startBackend(): Promise<BackendHandle> {
   // 監視 inject。 spec/feature/testing-traffic.md
   const testingClaims = new TestingClaimsRepo(db);
   // セッション終了/喪失で claim を自動解放 (放置クレームの残留防止)。
-  const unsubTestingRelease = eventBus.subscribe((ev) => {
-    if (ev.type === "session.ended" || ev.type === "session.lost") {
-      try {
-        releaseTestingClaims(testingClaims, {
-          sessionId: ev.session_id,
-          now: Math.floor(Date.now() / 1000),
-        });
-      } catch { /* best-effort */ }
-    }
+  // workflow.test が無効な間は購読自体を張らない。
+  workflowBindings.register({
+    key: "test",
+    name: "testing-claim-release",
+    start: () => {
+      const unsubscribe = eventBus.subscribe((ev) => {
+        if (ev.type === "session.ended" || ev.type === "session.lost") {
+          try {
+            releaseTestingClaims(testingClaims, {
+              sessionId: ev.session_id,
+              now: Math.floor(Date.now() / 1000),
+            });
+          } catch { /* best-effort */ }
+        }
+      });
+      return { stop: unsubscribe };
+    },
   });
 
   // レビュー発火: セッションが終わったら、 その作業ブランチを Revisor の local PR として
@@ -588,12 +607,22 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     log: { warn: (message) => localPrLog.warn({}, message) },
   });
-  const unsubLocalPrSubmit = eventBus.subscribe((ev) => {
-    if (ev.type !== "session.ended") return;
-    if (!adminState.getRevisorAutoSubmitEnabled()) return;
-    const session = repo.findSession(ev.session_id);
-    if (!session) return;
-    void submitLocalPrForSession(session.id);
+  // レビュー発火の購読。 workflow.review が無効な間は購読自体を張らない
+  // (安全弁 revisor_auto_submit とは別軸: あちらは「発火するか」、 こちらは「そもそも
+  // レビューワークフローを動かすか」)。
+  workflowBindings.register({
+    key: "review",
+    name: "revisor-local-pr-auto-submit",
+    start: () => {
+      const unsubscribe = eventBus.subscribe((ev) => {
+        if (ev.type !== "session.ended") return;
+        if (!adminState.getRevisorAutoSubmitEnabled()) return;
+        const session = repo.findSession(ev.session_id);
+        if (!session) return;
+        void submitLocalPrForSession(session.id);
+      });
+      return { stop: unsubscribe };
+    },
   });
 
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で
@@ -610,17 +639,25 @@ export async function startBackend(): Promise<BackendHandle> {
   const costOneShotsRepo = costRuntime.oneShotsRepo;
   const isCostBlocked = () => (costMode === "off" ? false : costRuntime.tracker.isBlocked());
 
-  if (costEmbeddedEnabled()) {
-    if (readCostWorkerLease(discordConfig)) {
-      log.info("cost embedded sampler skipped: live cost-worker lease found");
-    } else {
-      costRuntime.start();
-    }
-  } else if (costMode === "worker") {
-    log.info("cost embedded sampler disabled; run `npm run cost:worker` as a separate process");
-  } else {
-    log.info("cost sampling disabled by CONCORDIA_COST_MODE=off");
-  }
+  // コストサンプリングは workflow.cost に属する。 無効な間は起動しない。
+  workflowBindings.register({
+    key: "cost",
+    name: "cost-sampler",
+    start: () => {
+      if (costEmbeddedEnabled()) {
+        if (readCostWorkerLease(discordConfig)) {
+          log.info("cost embedded sampler skipped: live cost-worker lease found");
+        } else {
+          costRuntime.start();
+        }
+      } else if (costMode === "worker") {
+        log.info("cost embedded sampler disabled; run `npm run cost:worker` as a separate process");
+      } else {
+        log.info("cost sampling disabled by CONCORDIA_COST_MODE=off");
+      }
+      return { stop: () => costRuntime.stop() };
+    },
+  });
 
   const processManager = new ProcessManager({
     repo: processes,
@@ -661,10 +698,33 @@ export async function startBackend(): Promise<BackendHandle> {
   const toolPath = join(process.cwd(), "tools", "concordia-hook.mjs");
   const publicUrl = `http://${cfg.host}:${cfg.port}`;
 
-  const dailyScheduler = startDailyScheduler({
-    sessions: repo,
-    dayReports,
+  // 日次レビュー scheduler は workflow.daily に属する。 API (/v1/daily-reports) には
+  // 実体ではなくこの port を渡し、 無効な間は実体を持たない (API 側は 409 で止まる)。
+  let dailyScheduler: ReturnType<typeof startDailyScheduler> | null = null;
+  const dailySchedulerPort = {
+    stop: () => dailyScheduler?.stop(),
+    runOnce: async (dateIso?: string) => {
+      if (!dailyScheduler) {
+        throw new Error("daily workflow is disabled (admin.workflow.daily.enabled)");
+      }
+      await dailyScheduler.runOnce(dateIso);
+    },
+  };
+  workflowBindings.register({
+    key: "daily",
+    name: "daily-report-scheduler",
+    start: () => {
+      dailyScheduler = startDailyScheduler({ sessions: repo, dayReports });
+      return {
+        stop: () => {
+          dailyScheduler?.stop();
+          dailyScheduler = null;
+        },
+      };
+    },
   });
+  // 起動時点で有効なものを立ち上げる (post-listen の binding は後段でもう一度 sync する)。
+  workflowBindings.sync();
 
   // 毎朝 8 時に Memoria の今日期限タスクを取得し、Lictor セッションを起動して処理させる。
   // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
@@ -776,6 +836,9 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
+    // ワークフロー有効化フラグ (W1)。 無効なワークフローの slash command は登録せず、
+    // リアクション購読も張らない。 値は都度解決なので稼働中の変更も張り替わる。
+    resolveWorkflowEnabled: isWorkflowEnabled,
   };
   slackBotDeps = {
     db,
@@ -787,8 +850,9 @@ export async function startBackend(): Promise<BackendHandle> {
     workspaceRoot: cfg.workspaceRoot || cfg.spawnDefaultCwd,
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
-    // 安全弁は AdminState (schema_meta) を毎回 live 評価 → 設定 GUI トグルが再起動なしで反映。
-    resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
+    // 安全弁 (設定 GUI) と workflow.reaction の AND を毎回 live 評価する。
+    resolveReactionWorkflowEnabled: () =>
+      isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
     // Discord と同じく社員名簿の役職で判定する (platform=slack の行を引く)。
@@ -906,7 +970,7 @@ export async function startBackend(): Promise<BackendHandle> {
     costStatus: () => costRuntime.tracker.status(),
     costOverviewSource: costMode === "worker" ? "samples" : "live",
     processManager,
-    dailyScheduler,
+    dailyScheduler: dailySchedulerPort,
     config: cfg,
     startedAt: new Date().toISOString(),
     sweeperRunOnce: sweeper.runOnce,
@@ -1002,7 +1066,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   function startPostListenBackground(): void {
     if (shuttingDown) return;
-    trackPostListenHandle(startBranchWatch({ sessions: repo, claims: testingClaims, log }));
+    registerPostListenWorkflowBindings();
     trackPostListenHandle(
       startReaper(
         { repo, controlJobs },
@@ -1037,11 +1101,6 @@ export async function startBackend(): Promise<BackendHandle> {
         },
       ),
     );
-    trackPostListenHandle(startMorningScheduler({ delegationService }));
-    trackPostListenHandle(startCronScheduler({
-      delegationService,
-      resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
-    }));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,
@@ -1108,34 +1167,83 @@ export async function startBackend(): Promise<BackendHandle> {
     );
     trackPostListenHandle(startStatScheduler({ sessions: repo, stats, tasks }));
     trackPostListenHandle(startRepoChangeWatcher({ sessions: repo, tasks }));
-    trackPostListenHandle(startPrIngestWatcher({ sessions: repo, stats, prs }));
-    trackPostListenHandle(startPrReconciler({
-      prs,
-      sessions: repo,
-      tasks,
-      revisor: revisorClient ?? undefined,
-      isCcWorkflowEnabled: () => adminState.getCcWorkflowEnabled(),
-      // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
-      onDevelopMerge: async (event) => {
-        const result = await intakeDevelopMerge(
-          { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
-          event,
-        );
-        if (result.created) {
-          const pr = prs.findByKey(event.repo_origin, event.pr_number);
-          if (pr?.author_session_id) {
-            notifyUserDecision({
-              kind: "confirm-queued",
-              targetSessionId: pr.author_session_id,
-              mentionUserId: adminState.getMentionUserId(),
-              text: `確認テストがキューに入りました。/confirm start ${result.row.service_code ?? result.row.repo_name} で開始してください。`,
-            });
-          }
-        }
-      },
-    }));
-    trackPostListenHandle(startPrFullSync({ prs }));
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
+  }
+
+  /**
+   * listen 後に立ち上がるワークフロー実体の binding 登録。 登録直後に sync して
+   * 有効なものだけ起動し、 以降はフラグの変化を watcher が拾って張り替える。
+   */
+  function registerPostListenWorkflowBindings(): void {
+    workflowBindings.register({
+      key: "test",
+      name: "testing-branch-watch",
+      start: () => startBranchWatch({ sessions: repo, claims: testingClaims, log }),
+    });
+    workflowBindings.register({
+      key: "daily",
+      name: "morning-scheduler",
+      start: () => startMorningScheduler({ delegationService }),
+    });
+    workflowBindings.register({
+      key: "daily",
+      name: "cron-scheduler",
+      start: () => startCronScheduler({
+        delegationService,
+        resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
+      }),
+    });
+    workflowBindings.register({
+      key: "review",
+      name: "pr-ingest-watcher",
+      start: () => startPrIngestWatcher({ sessions: repo, stats, prs }),
+    });
+    workflowBindings.register({
+      key: "review",
+      name: "pr-reconciler",
+      start: () => startPrReconciler({
+        prs,
+        sessions: repo,
+        tasks,
+        revisor: revisorClient ?? undefined,
+        isCcWorkflowEnabled: () => adminState.getCcWorkflowEnabled(),
+        // develop に入った変更を確認待ちに積む (冪等)。 spec/feature/develop-confirm-flow.md §5。
+        onDevelopMerge: async (event) => {
+          const result = await intakeDevelopMerge(
+            { repo: confirmRuns, memoria: memoriaClient, resolveServiceCode },
+            event,
+          );
+          if (result.created) {
+            const pr = prs.findByKey(event.repo_origin, event.pr_number);
+            if (pr?.author_session_id) {
+              notifyUserDecision({
+                kind: "confirm-queued",
+                targetSessionId: pr.author_session_id,
+                mentionUserId: adminState.getMentionUserId(),
+                text: `確認テストがキューに入りました。/confirm start ${result.row.service_code ?? result.row.repo_name} で開始してください。`,
+              });
+            }
+          }
+        },
+      }),
+    });
+    workflowBindings.register({
+      key: "review",
+      name: "pr-full-sync",
+      start: () => startPrFullSync({ prs }),
+    });
+    workflowBindings.register({
+      key: "task",
+      name: "task-reconciler",
+      start: () => startTaskReconciler({ store: taskStore, backend: new MemoriaBackend(memoriaClient) }),
+    });
+    workflowBindings.register({
+      key: "task",
+      name: "taskflow-runtime",
+      start: () => taskflowRuntime.start(),
+    });
+    workflowBindings.sync();
+    workflowBindings.startWatching();
   }
 
   server.on("listening", () => {
@@ -1183,7 +1291,17 @@ export async function startBackend(): Promise<BackendHandle> {
           startPostListenBackground();
         },
       },
-      { name: "reaction-workflow", run: () => initReactionWorkflow(workspaceRootDefault, log) },
+      {
+        name: "reaction-workflow",
+        run: () => {
+          // workflow.reaction が無効ならプラグインの読み込み自体を行わない。
+          if (!isWorkflowEnabled("reaction")) {
+            log.info("reaction-workflow plugin load skipped (workflow.reaction disabled)");
+            return;
+          }
+          return initReactionWorkflow(workspaceRootDefault, log);
+        },
+      },
     ], {
       shouldStop: () => shuttingDown,
       onComplete: (name, durationMs) => log.info({ phase: name, duration_ms: durationMs }, "boot phase complete"),
@@ -1226,8 +1344,8 @@ export async function startBackend(): Promise<BackendHandle> {
   } else {
     log.info("delegation embedded queue skipped: live workflow-worker lease found");
   }
-  trackPostListenHandle(startTaskReconciler({ store: taskStore, backend: new MemoriaBackend(memoriaClient) }));
-  trackPostListenHandle(taskflowRuntime.start());
+  // TaskWorkflow の実体 (task-reconciler / taskflow-runtime) は
+  // registerPostListenWorkflowBindings が workflow.task フラグに従って起動する。
   log.info({ duration_ms: Date.now() - startedAt }, "post-listen integrations started");
   }
 
@@ -1342,7 +1460,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // subsidiary-only 可視 + ガードゲート)。 spec/feature/subsidiary-delegation.md
 
   const resources = new ResourceOwner((message) => log.warn(message));
-  resources.own("daily scheduler", () => dailyScheduler.stop());
+  resources.own("workflow bindings", () => workflowBindings.stop());
   resources.own("sweeper", () => sweeper.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("post-listen handles", () => {

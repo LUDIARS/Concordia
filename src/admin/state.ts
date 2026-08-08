@@ -3,6 +3,8 @@ import { RuntimeSettingsStore, type LictorMode } from "./runtime-settings.js";
 import { SqliteSettingsStore } from "./settings-store.js";
 import { WorkflowSettingsStore, type WorkflowSettingsDefaults } from "./workflow-settings.js";
 import { WorkspaceSettingsStore, type WorkspaceSettingsDefaults } from "./workspace-settings.js";
+import { WorkflowToggles } from "../workflow/toggles.js";
+import type { WorkflowKey } from "../workflow/keys.js";
 
 export type { LictorMode } from "./runtime-settings.js";
 
@@ -15,13 +17,19 @@ export class AdminState {
   readonly workspace: WorkspaceSettingsStore;
   readonly workflow: WorkflowSettingsStore;
   readonly runtime: RuntimeSettingsStore;
+  /** ワークフロー個別有効化フラグ (DB → env → 既定 true)。 値は都度解決。 */
+  readonly workflows: WorkflowToggles;
 
   constructor(db: Database.Database, defaults: AdminStateDefaults = {}) {
     const store = new SqliteSettingsStore(db);
     this.workspace = new WorkspaceSettingsStore(store, defaults);
     this.workflow = new WorkflowSettingsStore(store, defaults);
     this.runtime = new RuntimeSettingsStore(store, defaults.lictorDevPath);
+    this.workflows = new WorkflowToggles({ store });
   }
+
+  isWorkflowEnabled(key: WorkflowKey): boolean { return this.workflows.isEnabled(key); }
+  setWorkflowEnabled(key: WorkflowKey, value: boolean): void { this.workflows.setEnabled(key, value); }
 
   getChatMuted(): boolean { return this.runtime.getChatMuted(); }
   setChatMuted(value: boolean): void { this.runtime.setChatMuted(value); }
@@ -81,6 +89,7 @@ export class AdminState {
       delegation_watchdog_enabled: this.getDelegationWatchdogEnabled(),
       delegation_watchdog_idle_sec: this.getDelegationWatchdogIdleSec(),
       delegation_watchdog_max_nudges: this.getDelegationWatchdogMaxNudges(),
+      workflows: this.workflows.snapshot(),
     };
   }
 }

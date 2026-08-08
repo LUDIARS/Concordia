@@ -9,6 +9,7 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { CostBudgetStatus } from "../cost/usage-tracker.js";
 import { costFeedRouter } from "./cost-feed.js";
 import { costRouter } from "./cost.js";
+import { workflowGate } from "../workflow/api-gate.js";
 
 export interface CostDeps {
   repo: SessionsRepo;
@@ -23,6 +24,12 @@ export interface CostDeps {
 }
 
 export function registerCostRoutes(app: Hono, deps: CostDeps): void {
+  // workflow.cost が無効なら 409 + 理由 (無言の 404 にしない)。 ゲートはルートより先に置く。
+  for (const prefix of ["/v1/cost-feed", "/v1/cost", "/v1/admin/cost-budget"]) {
+    const gate = workflowGate("cost", () => deps.adminState.isWorkflowEnabled("cost"));
+    app.use(prefix, gate);
+    app.use(`${prefix}/*`, gate);
+  }
   app.route("/v1/cost-feed", costFeedRouter());
   app.route(
     "/v1/cost",

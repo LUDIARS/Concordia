@@ -7,6 +7,7 @@ import type { PermissionActionStore } from "./permission-port.js";
 import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { ModelReviewPort, RuntimeModelReviewApplyResult } from "../model-review/contracts.js";
+import type { WorkflowKey } from "../workflow/keys.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -41,6 +42,11 @@ export interface DiscordCommandDeps {
   isMergeUserAllowed?: (userId: string) => boolean;
   /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
   isKillSwitchUserAllowed?: (userId: string) => boolean;
+  /**
+   * ワークフロー有効化フラグの都度解決。 コマンド登録は無効時に外すが、 guild 側に
+   * 残った登録から実行されうるので dispatch でも同じ判定を通す (二段防御)。
+   */
+  isWorkflowEnabled?: (key: WorkflowKey) => boolean;
 }
 
 export interface DiscordCommandSpec {

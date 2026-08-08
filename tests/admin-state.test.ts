@@ -55,6 +55,15 @@ describe("AdminState", () => {
       delegation_watchdog_enabled: true,
       delegation_watchdog_idle_sec: 1800,
       delegation_watchdog_max_nudges: 3,
+      // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
+      workflows: {
+        task: { enabled: true, source: "default" },
+        test: { enabled: true, source: "default" },
+        reaction: { enabled: true, source: "default" },
+        review: { enabled: true, source: "default" },
+        daily: { enabled: true, source: "default" },
+        cost: { enabled: true, source: "default" },
+      },
     });
   });
 

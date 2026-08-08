@@ -29,7 +29,18 @@ import {
   isModelReviewInteraction,
 } from "./model-review-dialog.js";
 import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
+import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow.js";
+import type { WorkflowKey } from "../workflow/keys.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
+
+/** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
+export type WorkflowEnabledResolver = (key: WorkflowKey) => boolean;
+
+export interface CommandRegistrationOptions {
+  subsidiary?: boolean;
+  /** 無効なワークフローのコマンドは guild へ登録しない。 */
+  isWorkflowEnabled?: WorkflowEnabledResolver;
+}
 
 // User-facing slash commands.
 const COMMANDS: DiscordCommandSpec[] = [
@@ -61,9 +72,11 @@ export function isSubsidiaryAllowedInteraction(interaction: Interaction): boolea
   return "commandName" in interaction && isSubsidiaryAllowedCommand(String(interaction.commandName));
 }
 
-export function commandNamesForRegistration(opts: { subsidiary?: boolean } = {}): string[] {
+export function commandNamesForRegistration(opts: CommandRegistrationOptions = {}): string[] {
+  const isWorkflowEnabled = opts.isWorkflowEnabled ?? (() => true);
   return COMMANDS
     .filter((c) => !opts.subsidiary || isSubsidiaryAllowedCommand(c.builder.name))
+    .filter((c) => isCommandWorkflowEnabled(c.builder.name, isWorkflowEnabled))
     .map((c) => c.builder.name);
 }
 
@@ -71,7 +84,7 @@ export async function registerGuildCommands(
   token: string,
   applicationId: string,
   guildId: string,
-  opts: { subsidiary?: boolean } = {},
+  opts: CommandRegistrationOptions = {},
 ): Promise<void> {
   const rest = new REST({ version: "10" }).setToken(token);
   const allowed = new Set(commandNamesForRegistration(opts));
@@ -131,6 +144,19 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       deps.log.warn(`discord command ignored unknown name=${interaction.commandName}`);
       return;
     }
+    const disabledWorkflow = disabledWorkflowForCommand(interaction.commandName, deps);
+    if (disabledWorkflow) {
+      deps.log.warn(
+        `discord command rejected (workflow disabled) name=${interaction.commandName} workflow=${disabledWorkflow}`,
+      );
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: `このコマンドが属するワークフロー (${disabledWorkflow}) は設定で無効です。設定から有効化してください。`,
+          ephemeral: true,
+        }).catch(() => { /* best-effort */ });
+      }
+      return;
+    }
     await cmd.execute(interaction, deps);
     return;
   }
@@ -141,6 +167,10 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       `channel=${interaction.channelId ?? "-"} user=${interaction.user?.id ?? "-"} ` +
       `age_ms=${age ?? "-"}`,
     );
+    if (disabledWorkflowForCommand(interaction.commandName, deps)) {
+      await interaction.respond([]).catch(() => { /* best-effort */ });
+      return;
+    }
     const cmd = COMMANDS.find((c) => c.builder.name === interaction.commandName);
     if (cmd?.autocomplete) {
       await cmd.autocomplete(interaction, deps);
@@ -237,6 +267,17 @@ const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
 
 /** キルスイッチ相当 = Excubitor 経由でサービスを起動 / 再起動するコマンド。 */
 const KILL_SWITCH_COMMANDS = new Set(["ex-run", "ex-reboot"]);
+
+/**
+ * そのコマンドが「無効なワークフロー」に属していれば、 そのワークフローキーを返す。
+ * 判定器が未注入なら従来どおり全て有効として扱う (既存構成の挙動を変えない)。
+ */
+function disabledWorkflowForCommand(name: string, deps: DiscordCommandDeps): WorkflowKey | null {
+  const key = workflowForCommand(name);
+  if (key === null) return null;
+  if (!deps.isWorkflowEnabled) return null;
+  return deps.isWorkflowEnabled(key) ? null : key;
+}
 
 function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInteraction | null {
   if (interaction.isChatInputCommand()) {

@@ -1,0 +1,37 @@
+/**
+ * ワークフロー有効化フラグのキー定義。
+ *
+ * @implements spec/feature/workflow-toggles-and-permission-noise.md — W1
+ *
+ * Concordia は「セッションコントロール基盤」と「その上のワークフロー群」を
+ * 個別に有効/無効へ切り替えられる。 ここはその識別子と、 DB / env の名前解決だけを
+ * 持つ (値の解決は toggles.ts、 実体の起動/停止は binding-registry.ts)。
+ */
+
+export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "cost"] as const;
+
+export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
+
+export function isWorkflowKey(value: string): value is WorkflowKey {
+  return (WORKFLOW_KEYS as readonly string[]).includes(value);
+}
+
+/** 人間向けの表示名 (409 の理由文・設定 UI で使う)。 */
+export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
+  task: "TaskWorkflow (タスク駆動・decompose・residual)",
+  test: "TestWorkflow (テストフォーラム・テスト候補)",
+  reaction: "ReactionWorkflow (絵文字リアクション)",
+  review: "レビュー通知・Revisor 連携",
+  daily: "日次レビュー / morning tasks",
+  cost: "コスト集計・予算通知",
+};
+
+/** schema_meta 上の設定キー。 */
+export function workflowSettingKey(key: WorkflowKey): string {
+  return `admin.workflow.${key}.enabled`;
+}
+
+/** DB 未設定時のフォールバック env 名。 */
+export function workflowEnvName(key: WorkflowKey): string {
+  return `CONCORDIA_WORKFLOW_${key.toUpperCase()}_ENABLED`;
+}

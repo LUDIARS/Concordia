@@ -19,6 +19,7 @@ import { dailyRouter } from "./daily.js";
 import { monitorRouter } from "./monitor.js";
 import type { BotRuntimeStatus } from "./platform-runtime-status.js";
 import { slackAdminRouter, type SlackBotAdmin } from "./slack-admin.js";
+import { workflowGate } from "../workflow/api-gate.js";
 
 const reactionWorkflowLog = createChildLogger("reaction-workflow-config");
 // 発火ユーザの allowlist はここには無い。 誰が発火できるかは社員名簿 (/v1/staff) の
@@ -51,6 +52,12 @@ export interface ChatDeps {
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
+  // workflow.daily が無効なら日次レビュー API は 409 + 理由 (無言の 404 にしない)。
+  {
+    const gate = workflowGate("daily", () => deps.adminState.isWorkflowEnabled("daily"));
+    app.use("/v1/daily-reports", gate);
+    app.use("/v1/daily-reports/*", gate);
+  }
   app.route("/v1/monitor", monitorRouter({
     repo: deps.repo,
     metrics: deps.metrics,

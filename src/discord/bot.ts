@@ -47,6 +47,13 @@ import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands, type DiscordCommandDeps } from "./commands.js";
+import {
+  startCommandRegistrationWatch,
+  workflowCommandSignature,
+  type CommandRegistrationWatchHandle,
+} from "./command-workflow.js";
+import { toPermissionRequestsResolver } from "./permission-request-flag.js";
+import type { WorkflowKey } from "../workflow/keys.js";
 import { describeInteractionForLog, interactionAgeMs } from "./interaction-diagnostics.js";
 import {
   delegationTemplateCache,
@@ -150,9 +157,9 @@ async function sessionWorkStateApply(
 export function shouldRelaySessionPromptToDiscord(provider: string | null | undefined): boolean {
   return provider === "codex-cli";
 }
-export function shouldPostPermissionRequestToDiscord(env: Pick<DiscordEnv, "permissionRequestsEnabled">): boolean {
-  return env.permissionRequestsEnabled;
-}
+// 許可要求の投稿可否は「都度解決」 の形で持つ (W6)。 判定本体と resolver は
+// permission-request-flag.ts に置き、 ここは既存の import 経路を保つ再輸出。
+export { shouldPostPermissionRequestToDiscord } from "./permission-request-flag.js";
 
 export type DiscordHeadlessRunner = (
   prompt: string,
@@ -252,6 +259,12 @@ export interface DiscordBotDeps {
    * restart で即反映される。 省略時は env (CONCORDIA_DISCORD_*) のみ。
    */
   resolveConfig?: () => DiscordEnv;
+  /**
+   * ワークフロー有効化フラグを都度解決する。 無効なワークフローは slash command を
+   * guild へ登録せず、 リアクション購読も張らない。 値の変化は稼働中に検知して
+   * 登録側を張り替える。 未注入なら全て有効 (既存構成の挙動を変えない)。
+   */
+  resolveWorkflowEnabled?: (key: WorkflowKey) => boolean;
   onRuntimeState?: (state: { running: boolean; status: string; error?: string }) => void;
   /**
    * 子会社モード。 指定すると:
@@ -292,6 +305,11 @@ export type DiscordBotHandle = ChatPlatform;
 
 export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatform | null> {
   const env = deps.resolveConfig ? deps.resolveConfig() : readDiscordEnv();
+  // W6: 許可要求の投稿可否は起動時スナップショットではなく都度解決する。
+  // (env を直接見ていた頃は Web UI で変えても再起動まで効かなかった)
+  const resolvePermissionRequestsEnabled = toPermissionRequestsResolver(deps.resolveConfig ?? env);
+  const isWorkflowEnabled: (key: WorkflowKey) => boolean =
+    deps.resolveWorkflowEnabled ?? (() => true);
   if (!env.enabled) {
     log.info("discord disabled (enabled != 1); skip");
     return null;
@@ -390,6 +408,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
   const permissionActions: PermissionActionStore = new Map();
 
+  const resolveReactionSafetyValve =
+    deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
+  const reactionWorkflowEnabled = (): boolean =>
+    isWorkflowEnabled("reaction") && resolveReactionSafetyValve();
+
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
@@ -398,7 +421,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) })),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
-    enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
+    // 安全弁 (設定 GUI) と ワークフロー有効化フラグ (workflow.reaction) の AND。
+    // どちらも都度解決なので、 どちらを切っても再起動なしで止まる。
+    enabled: () => reactionWorkflowEnabled(),
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
@@ -418,6 +443,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
+  let commandRegistrationWatch: CommandRegistrationWatchHandle | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
@@ -481,6 +507,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
+    if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
   };
   const stopAfterGatewayInstability = (status: string, error: string): void => {
     if (gatewayClosed || stopping) return;
@@ -555,12 +582,30 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           if (deps.subsidiary) {
             // 子会社 guild は安全なセッション内操作だけ登録する。作業依頼 / spawn 系は
             // 引き続き受付チャンネルのメッセージ → ガードゲート経由に限定する。
-            await registerGuildCommands(env.token!, env.applicationId, env.guildId!, { subsidiary: true });
+            await registerGuildCommands(env.token!, env.applicationId, env.guildId!, {
+              subsidiary: true,
+              isWorkflowEnabled,
+            });
             log.info(`slash commands registered (subsidiary allowed-only) guild=${env.guildId}`);
           } else {
-            await registerGuildCommands(env.token!, env.applicationId, env.guildId!);
+            await registerGuildCommands(env.token!, env.applicationId, env.guildId!, {
+              isWorkflowEnabled,
+            });
             log.info(`slash commands registered guild=${env.guildId}`);
           }
+          // 無効化 / 再有効化を検知して登録内容を張り替える (フラグだけ切り替わって
+          // コマンドが残る状態を作らない)。 リアクション購読も同じ変化で張り替える。
+          commandRegistrationWatch = startCommandRegistrationWatch({
+            signature: () => workflowCommandSignature(isWorkflowEnabled),
+            reregister: async () => {
+              syncReactionListeners();
+              await registerGuildCommands(env.token!, env.applicationId!, env.guildId!, {
+                subsidiary: !!deps.subsidiary,
+                isWorkflowEnabled,
+              });
+            },
+            log,
+          });
         } catch (e) {
           log.warn(`slash command registration failed guild=${env.guildId}: ${(e as Error).message}`);
         }
@@ -992,7 +1037,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     });
   }));
 
-  client.on(Events.MessageReactionAdd, instrumentDiscord("reactionAddEvent", (reaction, user) => {
+  const onMessageReactionAdd = instrumentDiscord("reactionAddEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
     void measuredHandleReactionAdd(
@@ -1012,14 +1057,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     ).catch((e) => {
       log.warn(`reaction add handler failed: ${(e as Error).message}`);
     });
-  }));
-  client.on(Events.MessageReactionRemove, instrumentDiscord("reactionRemoveEvent", (reaction, user) => {
+  });
+  const onMessageReactionRemove = instrumentDiscord("reactionRemoveEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
     if (!inScope(reaction.message.guildId)) return;
     void measuredHandleReactionRemove({ reactionsRepo, messageMap, log }, reaction, user).catch((e) => {
       log.warn(`reaction remove handler failed: ${(e as Error).message}`);
     });
-  }));
+  });
+
+  // workflow.reaction が無効な間はリアクションを **購読しない** (受け取ってから捨てない)。
+  // フラグは都度解決なので、 値が変わったら購読を張り替える。
+  let reactionListenersAttached = false;
+  function syncReactionListeners(): void {
+    const shouldAttach = isWorkflowEnabled("reaction");
+    if (shouldAttach === reactionListenersAttached) return;
+    if (shouldAttach) {
+      client.on(Events.MessageReactionAdd, onMessageReactionAdd);
+      client.on(Events.MessageReactionRemove, onMessageReactionRemove);
+      log.info("reaction listeners attached (workflow.reaction enabled)");
+    } else {
+      client.off(Events.MessageReactionAdd, onMessageReactionAdd);
+      client.off(Events.MessageReactionRemove, onMessageReactionRemove);
+      log.info("reaction listeners detached (workflow.reaction disabled)");
+    }
+    reactionListenersAttached = shouldAttach;
+  }
+  syncReactionListeners();
   client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
     startInteractionAckProbe(interaction, recordDiscordInteractionAck);
@@ -1055,6 +1119,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,
+      // guild 側に残った登録から実行されうるので dispatch でも同じ判定を通す。
+      isWorkflowEnabled,
       // Test Forum のマージボタンは `merge_pr`。 未注入なら handler 側で deny (fail-closed)。
       isMergeUserAllowed: deps.hasStaffCapability
         ? (userId) => deps.hasStaffCapability!(userId, "merge_pr")
@@ -1545,7 +1611,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "session.permission_request") {
-      if (!shouldPostPermissionRequestToDiscord(env)) return;
+      if (!resolvePermissionRequestsEnabled()) return;
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void postPermissionRequest({ guild, sessionChannelsRepo, permissionActions, log }, ev)
         .catch((e) => log.warn(`permission request post failed session=${ev.target_session_id}: ${(e as Error).message}`));

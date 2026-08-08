@@ -59,3 +59,29 @@ services:
       CONCORDIA_SLACK_ENABLED: "0"
       CONCORDIA_PR_RECONCILE_ENABLED: "0"
       CONCORDIA_PR_FULL_SYNC_ENABLED: "0"
+
+  # control_jobs (durable OS-control queue) の consumer。
+  #
+  # backend と同居させない理由は 2026-07-15 の問題ログ参照 — 同期 taskkill が
+  # HTTP / WS / timer と同じ event loop を止めるため、OS 制御は別 process に隔離する。
+  # この service が動いていないと reaper / relictor 保険 / session-end 完了停止が
+  # すべて「queue に積むだけ」になり、kill 経路が無言で全滅する
+  # (2026-08-08: control_jobs が 358 件 queued / attempts=0 のまま残留した)。
+  - code: concordia-control
+    name: Concordia control worker (OS制御キュー consumer)
+    tier: personal
+    project_code: concordia
+    component: worker
+    repo: LUDIARS/Concordia
+    runtime: node
+    cwd: ${ARS_ROOT}/Concordia
+    # 姉妹 worker (concordia-cost) と同じく tsx 常駐を避け build 済み dist を素の node で動かす。
+    # dist は concordia backend と同じ build (`npm run build`) が生成する。
+    command: node --env-file-if-exists=.env dist/control-worker.js
+    autostart: true
+    restart_policy: on-failure
+    max_restart: 5
+    log_path: ${ARS_ROOT}/logs/concordia-control
+    health:
+      type: process
+      interval_sec: 30

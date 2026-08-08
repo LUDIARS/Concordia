@@ -756,8 +756,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       dryRun: true,
       minAgeSec: deps.config.reaperMinAgeSec,
       lostGraceSec: deps.config.reaperLostGraceSec,
+      sessionEndGraceSec: deps.config.reaperSessionEndGraceSec,
     });
-    return c.json({ scanned: r.scanned, lost_sessions: r.lost.candidates, orphans: r.orphans });
+    return c.json({
+      scanned: r.scanned,
+      lost_sessions: r.lost.candidates,
+      expired_session_ends: r.expiredSessionEnds.candidates,
+      orphans: r.orphans,
+    });
   });
   app.post("/v1/admin/reap", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { dry_run?: boolean; min_age_sec?: number };
@@ -771,12 +777,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         dryRun: body.dry_run === true,
         minAgeSec,
         lostGraceSec: deps.config.reaperLostGraceSec,
+        sessionEndGraceSec: deps.config.reaperSessionEndGraceSec,
       },
     );
     return c.json({
       scanned: r.scanned,
       orphans: r.orphans.length,
       lost_sessions: r.lost.candidates.length,
+      expired_session_ends: r.expiredSessionEnds.candidates.length,
+      expired_session_ends_stopped: r.expiredSessionEnds.stopped.length,
       queued: r.queued.length,
       killed: r.lost.killed.length,
       failed: r.failed.length + r.lost.failed.length,

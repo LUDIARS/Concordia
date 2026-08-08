@@ -280,6 +280,27 @@ export class SessionsRepo {
       .all(cutoff, `$.${key}`) as SessionRow[];
   }
 
+  /**
+   * session-end 完了通知が来ないまま猶予を過ぎた ended session を返す。
+   *
+   * 判定基準は **マーカー自身の経過時間** で、`last_seen_at` には依存しない。
+   * 残留した Lictor は生きている限り traffic を送り続けて `last_seen_at` を更新するため、
+   * `last_seen_at` 基準では「回収が必要な唯一のケース (ラッパ生存)」で永久に条件が
+   * 成立しない (2026-08-08 の残留 21 件はこれで数日間素通りした)。
+   */
+  findEndedWithPendingMarkerOlderThan(cutoff: number, key: string): SessionRow[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE status = 'ended'
+           AND ws_clients = 0
+           AND json_valid(metadata)
+           AND json_extract(metadata, ?) IS NOT NULL
+           AND json_extract(metadata, ?) < ?`,
+      )
+      .all(`$.${key}`, `$.${key}`, cutoff) as SessionRow[];
+  }
+
   // ─── WS persistent client (active 判定の主軸) ─────────
   //
   // 接続時に incrementWsClients、 切断時に decrementWsClients を呼ぶ.

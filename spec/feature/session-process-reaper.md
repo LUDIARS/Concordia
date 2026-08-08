@@ -86,6 +86,43 @@ sweeper の kill-before-purge には踏み込まず (lost の復帰可能性を�
 - `CONCORDIA_REAPER_INTERVAL_MS` (既定 `300000`)
 - `CONCORDIA_REAPER_MIN_AGE_SEC` (既定 `180`)
 - `CONCORDIA_REAPER_LOST_GRACE_SEC` (既定 `300` = 5 分。lost復帰猶予後にLictor treeを回収)
+- `CONCORDIA_REAPER_SESSION_END_GRACE_SEC` (既定 `300` = 5 分。session-end 完了通知を待つ猶予)
+
+## SPEC-REAPER-SHELL-WRAPPER: 起動子は agent プロセスではない
+
+spawn は `cmd /d /s /c "node <path>/bin/lictor.mjs ..."` の形で Lictor を起動するので、
+shell ラッパ (`cmd.exe`) のコマンドラインにも `lictor.mjs` が現れる。一方
+`sessions.metadata.lictor_pid` に登録されるのは **その子の node** の PID で、両者は
+決して一致しない。
+
+`classifyKind` は shell ラッパを分類対象から外す (`agent-process-classify.ts`)。
+除外しないと稼働中セッションのラッパが「live PID 集合に無い = 孤児」と必ず判定され、
+control worker が動いた瞬間に作業中のセッションが子ごと tree-kill される。
+ラッパ自体は本体を tree-kill すれば子の終了に伴って自然終了するので、追跡しない。
+
+判定材料は Excubitor snapshot の `name` (image 名) とコマンドラインの `/c` / `-c` 委譲形。
+
+## SPEC-SESSION-END-GRACE: 完了通知が来ない場合の保険回収
+
+`session-end-done` 通知だけを停止の引き金にすると、通知経路が死んだ瞬間に回収手段が
+0 本になる。reaper は毎周期、`session_end_pending_at` から
+`CONCORDIA_REAPER_SESSION_END_GRACE_SEC` を過ぎた ended session を
+`stopCompletedSessionProcesses` で回収する (`expired-session-end-reaper.ts`)。
+
+判定は **マーカー自身の経過時間**で行い、`last_seen_at` には依存しない。
+残留した Lictor は生きている限り traffic を送り続けて `last_seen_at` を更新するため、
+`last_seen_at` 基準の条件は「回収が必要な唯一のケース (ラッパ生存)」で永久に成立しない。
+停止に失敗した場合はマーカーを残して次周期で再試行する。
+
+## 前提: control worker が動いていること
+
+reaper・relictor 保険・session-end 完了停止はいずれも `control_jobs` へ job を積むだけで、
+実際の kill は別 process の `concordia-control` (`dist/control-worker.js`) が行う
+(同期 taskkill を API と同じ event loop で走らせないため。2026-07-15 の問題ログ参照)。
+
+この service が動いていないと kill 経路が無言で全滅する。Excubitor catalog 断片
+(`excubitor.catalog.yaml`) に `concordia-control` を定義しているのはこのため。
+`control_jobs` に `queued` が積み上がり続けている場合は、まず worker の死活を疑う。
 
 ## Phase 2: agent-client の明示 kill (実装済)
 agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に

@@ -28,14 +28,24 @@ import {
   reapLostLictorProcesses,
   type LostLictorReapResult,
 } from "./lost-session-process-reaper.js";
+import {
+  DEFAULT_SESSION_END_GRACE_SEC,
+  reapExpiredSessionEnds,
+  type ExpiredSessionEndReapResult,
+} from "./expired-session-end-reaper.js";
 import { parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
 export { parseAgentClientPid, parseLictorPid } from "./session-process-metadata.js";
+import { classifyKind, extractSessionId, type AgentKind } from "./agent-process-classify.js";
+export {
+  classifyKind,
+  extractSessionId,
+  isShellWrapperCommand,
+  type AgentKind,
+} from "./agent-process-classify.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 
 const log = createChildLogger("reaper");
-
-export type AgentKind = "lictor" | "agent-client";
 
 export interface RunningAgentProc {
   pid: number;
@@ -52,19 +62,8 @@ export interface OrphanProc extends RunningAgentProc {
 }
 
 // ─── pure: cmdline 分類 ───────────────────────────────────────
-
-/** cmdline から Lictor / agent-client / 対象外(null) を判定 (pure)。 */
-export function classifyKind(cmd: string): AgentKind | null {
-  if (/concordia-agent-client/i.test(cmd)) return "agent-client";
-  if (/lictor\.mjs/i.test(cmd)) return "lictor";
-  return null;
-}
-
-/** cmdline から `--session <id>` / `-s <id>` を抽出 (pure)。 無ければ null。 */
-export function extractSessionId(cmd: string): string | null {
-  const m = cmd.match(/(?:--session|-s)\s+(\S+)/);
-  return m ? m[1]! : null;
-}
+//
+// 分類そのものは agent-process-classify.ts が持つ (shell ラッパ除外を含む)。
 
 /** Windows PowerShell 出力行 "pid\tageSec\tcmdline" を parse (pure)。 */
 export function parseWindowsProcLine(line: string): RunningAgentProc | null {
@@ -159,7 +158,8 @@ export function runningAgentProcessesFromSnapshot(
   const out: RunningAgentProc[] = [];
   for (const process of snapshot.processes) {
     const cmd = process.command_line;
-    const kind = classifyKind(cmd);
+    // image 名が取れる経路なので shell ラッパ判定に併用する (cmd.exe を Lictor 本体と誤認しない)。
+    const kind = classifyKind(cmd, process.name);
     if (!kind) continue;
     // 起動時刻が取れないプロセスは age=0 とし、reaper の minAgeSec ガードで保護する。
     const ageSec = process.started_at == null
@@ -208,6 +208,8 @@ export interface ReapOptions {
   minAgeSec: number;
   /** lost化からこの秒数は復帰猶予としてLictor treeを保護する。既定5分。 */
   lostGraceSec?: number;
+  /** session-end 完了通知を待つ猶予。超過した ended session を保険回収する。既定5分。 */
+  sessionEndGraceSec?: number;
   /** 現在時刻 (秒)。 テスト注入用。 省略時は実時刻。 */
   nowSec?: number;
 }
@@ -215,6 +217,8 @@ export interface ReapOptions {
 export interface ReapResult {
   scanned: number;
   lost: LostLictorReapResult;
+  /** session-end 完了通知が猶予内に来なかった ended session の回収結果。 */
+  expiredSessionEnds: ExpiredSessionEndReapResult;
   orphans: OrphanProc[];
   queued: Array<{ proc: OrphanProc; jobId: string; deduplicated: boolean }>;
   failed: Array<{ proc: OrphanProc; error: string }>;
@@ -242,6 +246,16 @@ export async function reapOrphans(
       minProcessAgeSec: opts.minAgeSec,
     },
   );
+  // 通知が来なかった ended session の保険回収。orphan 判定より前に回して、
+  // 停止できたものを次周期以降の孤児判定へ持ち込まない。
+  const expiredSessionEnds = await reapExpiredSessionEnds(
+    { repo: deps.repo },
+    {
+      dryRun: opts.dryRun,
+      nowSec,
+      graceSec: opts.sessionEndGraceSec ?? DEFAULT_SESSION_END_GRACE_SEC,
+    },
+  );
   const { lictorPids, sessionIds } = liveSetsFromRepo(deps.repo);
   const orphans = classifyOrphans(procs, lictorPids, sessionIds, opts.minAgeSec);
 
@@ -264,7 +278,7 @@ export async function reapOrphans(
       }
     }
   }
-  return { scanned: procs.length, lost, orphans, queued, failed };
+  return { scanned: procs.length, lost, expiredSessionEnds, orphans, queued, failed };
 }
 
 export interface ReaperHandle {
@@ -280,6 +294,7 @@ export function startReaper(
     intervalMs: number;
     minAgeSec: number;
     lostGraceSec: number;
+    sessionEndGraceSec: number;
   },
 ): ReaperHandle {
   const runOnce = () =>
@@ -287,6 +302,7 @@ export function startReaper(
       dryRun: false,
       minAgeSec: opts.minAgeSec,
       lostGraceSec: opts.lostGraceSec,
+      sessionEndGraceSec: opts.sessionEndGraceSec,
     });
 
   if (!opts.enabled) {
@@ -296,7 +312,14 @@ export function startReaper(
 
   const tick = async (): Promise<void> => {
     const r = await runOnce();
-    if (r.queued.length > 0 || r.failed.length > 0 || r.lost.killed.length > 0 || r.lost.failed.length > 0) {
+    if (
+      r.queued.length > 0
+      || r.failed.length > 0
+      || r.lost.killed.length > 0
+      || r.lost.failed.length > 0
+      || r.expiredSessionEnds.stopped.length > 0
+      || r.expiredSessionEnds.failed.length > 0
+    ) {
       log.info(
         {
           scanned: r.scanned,
@@ -304,6 +327,8 @@ export function startReaper(
           lostKilled: r.lost.killed.length,
           lostSkipped: r.lost.skipped.length,
           lostFailed: r.lost.failed.length,
+          expiredSessionEndStopped: r.expiredSessionEnds.stopped.length,
+          expiredSessionEndFailed: r.expiredSessionEnds.failed.length,
           orphans: r.orphans.length,
           queued: r.queued.length,
           failed: r.failed.length,
@@ -323,6 +348,7 @@ export function startReaper(
       intervalMs: opts.intervalMs,
       minAgeSec: opts.minAgeSec,
       lostGraceSec: opts.lostGraceSec,
+      sessionEndGraceSec: opts.sessionEndGraceSec,
     },
     "reaper started",
   );

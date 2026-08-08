@@ -372,6 +372,8 @@ export interface DiscordPendingQuestionRow {
   question: string;
   options_json: string;
   discord_message_id: string | null;
+  /** カードを実際に投稿したチャンネル。 親面フォールバック時は子の面と異なる。 */
+  discord_channel_id: string | null;
   answered_at: number | null;
   answer_index: number | null;
   answer_text: string | null;
@@ -398,7 +400,7 @@ export interface DiscordPendingQuestionsRepo {
     options: Array<PendingQuestionOption | string>;
     multiSelect?: boolean;
   }): DiscordPendingQuestionRow;
-  setDiscordMessageId(id: number, discordMessageId: string): void;
+  setDiscordMessageId(id: number, discordMessageId: string, discordChannelId?: string): void;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
   /** 複数選択回答。answer_index には先頭 index、answer_indices_json に全 index を記録。 */
   markAnsweredMulti(id: number, answerIndices: number[], answerText: string): void;
@@ -476,10 +478,10 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       ).run(input.session_id, input.question, JSON.stringify(normalized), input.multiSelect ? 1 : 0, ts);
       return this.findById(Number(info.lastInsertRowid))!;
     },
-    setDiscordMessageId(id, discordMessageId) {
+    setDiscordMessageId(id, discordMessageId, discordChannelId) {
       db.prepare(
-        `UPDATE discord_pending_questions SET discord_message_id = ? WHERE id = ?`,
-      ).run(discordMessageId, id);
+        `UPDATE discord_pending_questions SET discord_message_id = ?, discord_channel_id = ? WHERE id = ?`,
+      ).run(discordMessageId, discordChannelId ?? null, id);
     },
     markAnswered(id, answerIndex, answerText) {
       db.prepare(

@@ -401,6 +401,17 @@ export class DelegationRepo {
     ).all(limit) as DelegationRunRow[];
   }
 
+  /**
+   * 子セッション id から最新の run を引く。 委託子セッションの Question を親 (委託元)
+   * へリレーするときの親解決に使う (同じ子セッションが複数 run を持つのは再利用時のみで、
+   * 現行 run = 最新作成が正)。
+   */
+  findRunByChildSession(childSessionId: string): DelegationRunRow | null {
+    return (this.db.prepare(
+      `SELECT * FROM delegation_runs WHERE child_session_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+    ).get(childSessionId) as DelegationRunRow | undefined) ?? null;
+  }
+
   /** spawn 済み / 実行中の run (= 同時実行スロットの候補)。 stale 判定は呼び出し側 (queue.ts)。 */
   listActiveRuns(): DelegationRunRow[] {
     return this.db.prepare(

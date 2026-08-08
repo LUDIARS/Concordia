@@ -254,6 +254,8 @@ const eventSchemas = {
     question: z.string(),
     options: z.array(questionOptionSchema),
     multi_select: z.boolean().optional(),
+    parent_session_id: z.string().optional(),
+    delegation_run_id: z.string().optional(),
     requester_platform: optionalPlatform,
     requester_user_id: z.string().optional(),
     ts: z.number(),

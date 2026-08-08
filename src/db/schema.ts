@@ -906,6 +906,14 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
     column: "answer_indices_json",
     ddl: `ALTER TABLE discord_pending_questions ADD COLUMN answer_indices_json TEXT`,
   },
+  // 質問カードを実際に投稿したチャンネル。 委託子の面が無い/非アクティブのときは親
+  // (委託元) の面へフォールバック投稿するため、 解決時のボタン除去は子の面ではなく
+  // この値で辿る。 spec/feature/inquiry.md ではなく question リレー (2026-08-08)。
+  {
+    table: "discord_pending_questions",
+    column: "discord_channel_id",
+    ddl: `ALTER TABLE discord_pending_questions ADD COLUMN discord_channel_id TEXT`,
+  },
   // チャンネル名の絵文字を Discord 側文字列パースに依存せず DB で管理する (three-out redesign)。
   // display_state = 表示状態 (working/active/lost/ended)、
   // agent_type = claude/codex/gemini 等 (絵文字選択用)、

@@ -146,6 +146,10 @@ type ConcordiaEventPayload =
       options: Array<string | { label: string; description?: string }>;
       /** 複数選択可か (Discord UI を menu(min1/maxN) に切替)。未指定は単一選択。 */
       multi_select?: boolean;
+      /** 委託子セッションの質問のとき、 親 (委託元) セッション。 Discord の面フォールバック先。 */
+      parent_session_id?: string;
+      /** 同上。 リレー通知の [delegation:<id>] 前置に使う。 */
+      delegation_run_id?: string;
       /** この質問の起因者 (直近で指示した人間)。 Discord は @メンションに使う。未取得は省略。 */
       requester_platform?: "discord" | "slack";
       requester_user_id?: string;

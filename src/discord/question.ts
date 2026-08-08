@@ -64,6 +64,8 @@ export async function postQuestion(
     sessionChannelsRepo: DiscordSessionChannelsRepo;
     pendingQuestionsRepo: DiscordPendingQuestionsRepo;
     log: { warn: (m: string) => void };
+    /** relay 状態まで見た活性判定 (bot の isActiveDiscordSession)。 未注入なら面の有無だけで判定。 */
+    isActiveSession?: (sessionId: string) => boolean;
   },
   ev: {
     target_session_id: string;
@@ -71,12 +73,19 @@ export async function postQuestion(
     question: string;
     options: Array<string | { label: string; description?: string }>;
     multi_select?: boolean;
+    /** 委託子セッションの質問のとき、 親 (委託元) セッション。 子の面が無ければここへ出す。 */
+    parent_session_id?: string;
+    delegation_run_id?: string;
     /** 起因者 (直近で指示した人間)。 discord のときだけ @メンションする。 */
     requester_platform?: "discord" | "slack";
     requester_user_id?: string;
   },
 ): Promise<void> {
-  const row = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+  // 子セッションの面が無い/非アクティブな場合は親 (委託元) の面へフォールバックする。
+  // 従来は無言で捨てており、 委託子の質問が誰にも見えない「主人不在の Question」になっていた。
+  const childActive = input.isActiveSession ? input.isActiveSession(ev.target_session_id) : true;
+  const row = (childActive ? input.sessionChannelsRepo.findBySessionId(ev.target_session_id) : null)
+    ?? (ev.parent_session_id ? input.sessionChannelsRepo.findBySessionId(ev.parent_session_id) : null);
   if (!row) return;
   const channel = await input.guild.channels.fetch(row.channel_id);
   if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
@@ -149,7 +158,9 @@ export async function postQuestion(
   // 少し待って地の文の relay を先行させる (env で 0 にすれば即時)。
   if (QUESTION_POST_DELAY_MS > 0) await sleep(QUESTION_POST_DELAY_MS);
   const msg = await tc.send(payload);
-  input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id);
+  // 投稿先チャンネルも保存する — 親面フォールバック時、 解決 (ボタン除去) は子の面
+  // ではなくこの値で辿る。
+  input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id, tc.id);
 }
 
 /** 質問カードを地の文の後に出すための遅延 (ms)。 env CONCORDIA_QUESTION_POST_DELAY_MS で上書き。 */
@@ -176,10 +187,12 @@ export async function resolveQuestionMessage(
 ): Promise<void> {
   const row = input.pendingQuestionsRepo.findById(ev.question_id);
   if (!row || !row.discord_message_id) return;
-  const ch = input.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-  if (!ch) return;
+  // 投稿時に保存した実チャンネルを優先する (親面フォールバック時は子の面と異なる)。
+  const channelId = row.discord_channel_id
+    ?? input.sessionChannelsRepo.findBySessionId(ev.target_session_id)?.channel_id;
+  if (!channelId) return;
   try {
-    const channel = await input.guild.channels.fetch(ch.channel_id);
+    const channel = await input.guild.channels.fetch(channelId);
     if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
     const msg = await channel.messages.fetch(row.discord_message_id);
     await msg.edit({ components: [] });

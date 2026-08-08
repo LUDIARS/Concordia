@@ -52,6 +52,31 @@ export function buildDelegationInjectText(input: {
   ].join("\n");
 }
 
+/**
+ * 委託子セッションの Question を親 (委託元) セッションへリレーする本文。
+ * 親は自分で判断して answer-question API で回答するか、 人間へ ask で引き継ぐ。
+ */
+export function buildDelegationQuestionRelayText(input: {
+  runId: string;
+  childSessionId: string;
+  questionId: number;
+  question: string;
+  options: readonly string[];
+}): string {
+  return [
+    `[delegation:${input.runId}] 子セッション ${input.childSessionId} からの質問`,
+    "",
+    input.question.trim(),
+    "",
+    ...input.options.map((label, i) => `${i}. ${label}`),
+    "",
+    "委託元として回答してください:",
+    `POST /v1/sessions/${input.childSessionId}/answer-question`,
+    `body: {"question_id":${input.questionId},"answer_index":<番号>} または {"question_id":${input.questionId},"other_text":"..."}`,
+    "自分で判断できない場合は ask マーカーで人間へ引き継いでください。",
+  ].join("\n");
+}
+
 export function buildDelegationMirrorText(input: {
   runId: string;
   childSessionId: string;

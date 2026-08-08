@@ -4,6 +4,7 @@ import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { answerPendingQuestion, type AnswerQuestionBody } from "../../control/answer-question.js";
+import { buildDelegationQuestionRelayText } from "../../delegation/coordination.js";
 
 export function registerQaRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/permission-request", async (c) => {
@@ -87,9 +88,16 @@ app.post("/:id/pending-question", async (c) => {
         multi_select: parsed.data.multi_select === true,
       },
     });
+    // 委託子セッションなら親 (委託元) を解決する。 子の面が無い/非アクティブでも
+    // 質問が「主人不在」で消えないよう、 Discord 面のフォールバック先と親リレーに使う。
+    const run = deps.delegation?.findRunByChildSession(id) ?? null;
+    const parentSessionId = run?.parent_session_id ?? undefined;
     // 起因者 (直近で指示した人間) を session_events の inject source から後追い解決し、
     // Discord 側で @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
-    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50));
+    // 委託子は inject source が delegation:* で人間として解決できないため、 親側の
+    // 履歴からもフォールバック解決する (無メンションカードを作らない)。
+    const requester = lastHumanRequester(deps.repo.recentEvents(id, 50))
+      ?? (parentSessionId ? lastHumanRequester(deps.repo.recentEvents(parentSessionId, 50)) : null);
     eventBus.emit({
       type: "question.posted",
       target_session_id: id,
@@ -97,10 +105,26 @@ app.post("/:id/pending-question", async (c) => {
       question: row.question,
       options: parsed.data.options,
       multi_select: parsed.data.multi_select === true,
+      parent_session_id: parentSessionId,
+      delegation_run_id: run?.id,
       requester_platform: requester?.platform,
       requester_user_id: requester?.userId,
       ts,
     });
+    // 親セッションへのリレー: 委託元が自分で回答するか、 人間へ ask で引き継ぐ。
+    // persona-context の「親に聞け」を実装で裏付ける経路 (これまで API が無かった)。
+    if (run?.parent_session_id) {
+      const text = buildDelegationQuestionRelayText({
+        runId: run.id,
+        childSessionId: id,
+        questionId: row.id,
+        question: row.question,
+        options: parsed.data.options.map((o) => (typeof o === "string" ? o : o.label)),
+      });
+      const source = `delegation:${run.id}:question`;
+      deps.repo.appendEvent({ session_id: run.parent_session_id, ts, kind: "inject", payload: { text, source } });
+      eventBus.emit({ type: "session.inject", target_session_id: run.parent_session_id, text, source, ts });
+    }
     return c.json({ ok: true, question_id: row.id, ts });
   });
 

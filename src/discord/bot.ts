@@ -1606,8 +1606,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     // task_update での状態カード即時更新は撤去 (更新は 10 分毎の定期 tick のみ)。
     if (ev.type === "question.posted") {
-      if (!isActiveDiscordSession(ev.target_session_id)) return;
-      void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
+      // 委託子の面が無い/非アクティブでも、 親 (委託元) の面が生きていれば捨てない。
+      const deliverable = isActiveDiscordSession(ev.target_session_id)
+        || (ev.parent_session_id ? isActiveDiscordSession(ev.parent_session_id) : false);
+      if (!deliverable) return;
+      void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log, isActiveSession: isActiveDiscordSession }, ev);
       return;
     }
     if (ev.type === "session.permission_request") {

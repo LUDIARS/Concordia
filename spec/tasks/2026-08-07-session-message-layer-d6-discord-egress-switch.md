@@ -3,9 +3,9 @@ task: session-message-layer-d6-discord-egress-switch
 project: Concordia
 kind: 実装
 status: pending
-created: 2026-08-07
+created: 2026-08-07T00:00:00.000Z
 source_session: lictor-7a639cae-6283-4d6d-a324-6cba7ab0f592
-memoria_task_id: null
+memoria_task_id: 775
 actio_task_id: null
 memory_links: []
 ---

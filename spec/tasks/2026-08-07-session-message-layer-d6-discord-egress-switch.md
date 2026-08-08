@@ -17,9 +17,8 @@ memory_links: []
 置き換え、Discord と WebUI (D4) が同じレコードを描画するようにする。D1+D2 (Lictor の frame
 取りこぼし修正) の両方が完了してから着手する最終段。
 
-設計正本: D1 とともに `spec/feature/session-message-layer.md` および
-`spec/tasks/2026-08-07-session-message-layer.md` が本リポジトリにマージされた後、それぞれの
-§7.3・§9 と `D6` 節を参照すること。両ファイルが未マージの間は着手しない (D1+D2 依存)。
+設計正本: `spec/feature/session-message-webui-chat.md` §2.3・§4 と
+`spec/tasks/2026-08-07-session-message-layer.md` の `D6` 節を参照すること (D1 はマージ済み、D2 は Lictor #284 で反映済み)。
 D2 (Lictor 側の `lineToFrames` 化・Task/thinking 拡張) は Lictor リポジトリ側の別タスク。
 
 ## 完了条件

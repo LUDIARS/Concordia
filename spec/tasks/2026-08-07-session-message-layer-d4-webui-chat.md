@@ -17,9 +17,8 @@ memory_links: []
 `GET /v1/sessions/:id/messages` + WS `session.message` で描画する (`transcript.frame` からの
 再構成をやめる)。あわせて Web Push 通知を実装する。
 
-設計正本: D1 とともに `spec/feature/session-message-layer.md` および
-`spec/tasks/2026-08-07-session-message-layer.md` が本リポジトリにマージされた後、それぞれの
-§6.1–§6.2・§6.4 と `D4` 節を参照すること。両ファイルが未マージの間は着手しない。
+設計正本: `spec/feature/session-message-webui-chat.md` §1.1–§1.2・§1.4 と
+`spec/tasks/2026-08-07-session-message-layer.md` の `D4` 節を参照すること。
 
 ## 完了条件
 

@@ -17,10 +17,8 @@ memory_links: []
 permission 履歴) を `/sessions/:id/logs` に集約し、`/sessions` (一覧のみ) を新設する。
 D4 (作業チャット画面) が `/sessions/:id` を占有した後の再編。
 
-設計正本: D1 とともに `spec/feature/session-message-layer.md` および
-`spec/tasks/2026-08-07-session-message-layer.md` が本リポジトリにマージされた後、それぞれの
-§6.1・§6.3 と `D5` 節を参照すること。両ファイルが未マージの間は着手しない
-(D1 依存、D4 と併走可)。
+設計正本: `spec/feature/session-message-webui-chat.md` §1.1・§1.3 と
+`spec/tasks/2026-08-07-session-message-layer.md` の `D5` 節を参照すること (D4 と併走可)。
 
 ## 完了条件
 

@@ -1,5 +1,6 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
+import { toTokenResolver } from "./revisor-token.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -65,15 +66,20 @@ export interface RevisorLocalPrMerger {
 
 interface RevisorClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
-  /** 書き込み (enqueue) にだけ必要。 読み取りだけなら省略できる。 */
-  token?: string;
+  /**
+   * 書き込み (enqueue / merge) にだけ必要。 読み取りだけなら省略できる。
+   * 関数を渡すと**リクエストごとに解決**する — Revisor は変更系を workflow token
+   * 1 本で認可するので、 提出系 (revisor-local-pr-client) と同じ DB 正本
+   * (`revisor_config.workflow_token_enc`) を使い回せる。
+   */
+  token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
 }
 
 export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
-  private readonly token: string;
+  private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
 
@@ -81,7 +87,7 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
     // 読み取り (local PR 一覧) に token は要らない — Revisor は loopback からの GET に
     // token を要求しない。 あれば送る扱いにして、 秘密が無いだけで一覧が出ない状態を作らない。
     this.excubitor = options.excubitor;
-    this.token = options.token?.trim() ?? "";
+    this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -177,8 +183,9 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
   }> {
     // 書き込みは token 必須。 空のまま `Bearer ` を送ると Revisor 側の 401 になり、
     // 「秘密が未配布」という本当の理由が呼び出し側のログから消える。
-    if (!this.token) {
-      throw new Error("Revisor trigger token is required (CONCORDIA_REVISOR_TOKEN)");
+    const token = this.token();
+    if (!token) {
+      throw new Error("Revisor trigger token is required (workflow token unset)");
     }
     const port = await this.resolvePort();
 
@@ -190,7 +197,7 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
         {
           method: "POST",
           headers: {
-            authorization: `Bearer ${this.token}`,
+            authorization: `Bearer ${token}`,
             "content-type": "application/json",
             "x-concordia-actor": "concordia",
           },
@@ -222,8 +229,10 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
   }
 
   async mergeLocalPr(id: string): Promise<void> {
-    if (!this.token) {
-      throw new Error("Revisor merge token is required (CONCORDIA_REVISOR_TOKEN)");
+    // token はリクエストごとに解決する (設定画面で入れた workflow token が再起動なしで効く)。
+    const token = this.token();
+    if (!token) {
+      throw new Error("Revisor merge token is required (workflow token unset)");
     }
     const port = await this.resolvePort();
     const controller = new AbortController();
@@ -232,7 +241,7 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
       const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}/merge`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${this.token}`,
+          authorization: `Bearer ${token}`,
           "x-concordia-actor": "concordia",
         },
         signal: controller.signal,
@@ -248,12 +257,22 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
   }
 }
 
+/**
+ * token は DB 正本の workflow token resolver を渡すのが本則 — Revisor は変更系
+ * (merge 含む) を workflow token 1 本で認可するため、 merge 専用トークンは存在しない。
+ * 旧 env `CONCORDIA_REVISOR_TOKEN` は deprecation フォールバック (どこにも注入されて
+ * いないことが常態で、 マージボタンが実行時に必ず失敗する原因だった)。
+ */
 export function createRevisorClientFromEnv(
   excubitor: Pick<ExcubitorClient, "findService">,
   env: NodeJS.ProcessEnv = process.env,
+  resolveToken?: () => string | undefined,
 ): RevisorClient {
   // token 未設定でもクライアントを作る。 PRs ページの Revisor セクションは読み取りだけで
   // 足り、 Revisor は loopback からの GET に token を要求しない。 null を返していたため
   // 「秘密を配れない」だけでセクションごと出ない (configured=false) 状態になっていた。
-  return new RevisorClient({ excubitor, token: env.CONCORDIA_REVISOR_TOKEN?.trim() ?? "" });
+  return new RevisorClient({
+    excubitor,
+    token: () => resolveToken?.()?.trim() || env.CONCORDIA_REVISOR_TOKEN?.trim() || "",
+  });
 }

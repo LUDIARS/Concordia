@@ -512,11 +512,13 @@ export async function startBackend(): Promise<BackendHandle> {
     judge: runClaude,
     scoreMin: cfg.inquiryScoreMin,
   });
-  const revisorClient = createRevisorClientFromEnv(excubitorClient);
   // Revisor workflow token は DB (revisor_config、 secret-box 暗号化) が正本で、 env は
   // フォールバック。 クライアントはリクエストごとに解決するので Web UI の変更が即効く。
+  // Revisor は変更系 (merge 含む) を workflow token 1 本で認可するため、 merge 用の
+  // RevisorClient にも同じ resolver を渡す (旧 CONCORDIA_REVISOR_TOKEN の廃止方向)。
   const revisorConfigRepo = makeRevisorConfigRepo(db);
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
+  const revisorClient = createRevisorClientFromEnv(excubitorClient, process.env, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, new TaskflowStateStore(db));

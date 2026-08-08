@@ -91,7 +91,7 @@ export async function callConcordia(
   }
 }
 
-function toToolResult(r: CallResult) {
+export function toToolResult(r: CallResult) {
   if (!r.ok) {
     return {
       isError: true,

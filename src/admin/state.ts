@@ -57,6 +57,12 @@ export class AdminState {
   setHarnessStrongImplModels(models: string[]): void { this.runtime.setHarnessStrongImplModels(models); }
   getMentionUserId(): string | null { return this.runtime.getMentionUserId(); }
   setMentionUserId(value: string | null): void { this.runtime.setMentionUserId(value); }
+  getDelegationWatchdogEnabled(): boolean { return this.runtime.getDelegationWatchdogEnabled(); }
+  setDelegationWatchdogEnabled(value: boolean): void { this.runtime.setDelegationWatchdogEnabled(value); }
+  getDelegationWatchdogIdleSec(): number { return this.runtime.getDelegationWatchdogIdleSec(); }
+  setDelegationWatchdogIdleSec(value: number): void { this.runtime.setDelegationWatchdogIdleSec(value); }
+  getDelegationWatchdogMaxNudges(): number { return this.runtime.getDelegationWatchdogMaxNudges(); }
+  setDelegationWatchdogMaxNudges(value: number): void { this.runtime.setDelegationWatchdogMaxNudges(value); }
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
   setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }
@@ -72,6 +78,9 @@ export class AdminState {
       daily_token_budget: this.getDailyTokenBudget(), delegation_max_concurrency: this.getDelegationMaxConcurrency(),
       harness_strong_impl_models: this.getHarnessStrongImplModels(), mention_user_id: this.getMentionUserId(),
       cron_job_overrides: this.getCronJobOverrides(),
+      delegation_watchdog_enabled: this.getDelegationWatchdogEnabled(),
+      delegation_watchdog_idle_sec: this.getDelegationWatchdogIdleSec(),
+      delegation_watchdog_max_nudges: this.getDelegationWatchdogMaxNudges(),
     };
   }
 }

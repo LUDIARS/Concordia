@@ -100,6 +100,14 @@ export interface DelegationRunRow {
   finished_at?: number | null;
   supervisor_platform?: string | null;
   supervisor_user_id?: string | null;
+  /** watchdog が最後にこの run を点検した時刻 (epoch-ms)。 */
+  watchdog_last_check_at?: number | null;
+  /** watchdog が子へ確認 inject を送った回数。 */
+  watchdog_nudge_count?: number;
+  /** 直近の確認 inject の時刻 (epoch-ms)。 cooldown の根拠。 */
+  watchdog_last_nudge_at?: number | null;
+  /** 親へのエスカレーション通知を送った時刻 (epoch-ms)。 null = 未送 (1 回きりの保証)。 */
+  watchdog_escalated_at?: number | null;
   created_at: number;
 }
 
@@ -398,6 +406,38 @@ export class DelegationRepo {
     return this.db.prepare(
       `SELECT * FROM delegation_runs WHERE status IN ('launching', 'spawned', 'running') ORDER BY created_at ASC`,
     ).all() as DelegationRunRow[];
+  }
+
+  // ── run watchdog の永続状態 (spec/tasks/2026-08-08-delegation-run-watchdog.md) ──
+
+  /** watchdog がこの run を点検した事実だけを記録する (nudge の有無は問わない)。 */
+  recordWatchdogCheck(id: string, nowMs: number): void {
+    this.db.prepare(`UPDATE delegation_runs SET watchdog_last_check_at = ? WHERE id = ?`).run(nowMs, id);
+  }
+
+  /** 子への確認 inject を記録する。 回数と時刻が cooldown / エスカレーション判断の根拠。 */
+  recordWatchdogNudge(id: string, nowMs: number, lastActivityMs: number): void {
+    this.db.prepare(
+      `UPDATE delegation_runs
+       SET watchdog_nudge_count = CASE
+             WHEN watchdog_last_nudge_at IS NULL OR watchdog_last_nudge_at >= ? THEN watchdog_nudge_count + 1
+             ELSE 1
+           END,
+           watchdog_last_nudge_at = ?, watchdog_last_check_at = ?
+       WHERE id = ?`,
+    ).run(lastActivityMs, nowMs, nowMs, id);
+  }
+
+  /**
+   * 親へのエスカレーション通知を記録する。 未送 (null) のときだけ書き込み、 書けたかを
+   * 返す — 同一 run への二重通知を DB 側で防ぐ (プロセス再起動をまたいでも 1 回きり)。
+   */
+  recordWatchdogEscalation(id: string, nowMs: number): boolean {
+    const result = this.db.prepare(
+      `UPDATE delegation_runs SET watchdog_escalated_at = ?, watchdog_last_check_at = ?
+       WHERE id = ? AND watchdog_escalated_at IS NULL`,
+    ).run(nowMs, nowMs, id);
+    return result.changes > 0;
   }
 
   /**

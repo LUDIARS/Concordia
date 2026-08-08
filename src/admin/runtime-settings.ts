@@ -6,6 +6,9 @@ const KEYS = {
   dailyBudget: "admin.daily_token_budget", delegationMax: "admin.delegation_max_concurrency",
   strongModels: "harness.strong_impl_models", mentionUser: "admin.mention_user_id",
   cronJobOverrides: "admin.cron_job_overrides",
+  watchdogEnabled: "admin.delegation_watchdog_enabled",
+  watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
+  watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -42,6 +45,13 @@ export class RuntimeSettingsStore {
   setHarnessStrongImplModels(models: string[]): void { this.store.set(KEYS.strongModels, JSON.stringify(models.map((model) => model.trim()).filter(Boolean))); }
   getMentionUserId(): string | null { return this.store.get(KEYS.mentionUser)?.trim() || null; }
   setMentionUserId(value: string | null): void { this.store.set(KEYS.mentionUser, value?.trim() ?? ""); }
+  // 委託 run watchdog (spec/tasks/2026-08-08-delegation-run-watchdog.md)。
+  getDelegationWatchdogEnabled(): boolean { return this.store.getBoolean(KEYS.watchdogEnabled, true); }
+  setDelegationWatchdogEnabled(value: boolean): void { this.store.setBoolean(KEYS.watchdogEnabled, value); }
+  getDelegationWatchdogIdleSec(): number { return positiveOrDefault(this.store.get(KEYS.watchdogIdleSec), 1800); }
+  setDelegationWatchdogIdleSec(value: number): void { this.store.set(KEYS.watchdogIdleSec, String(requirePositive(value, "delegation_watchdog_idle_sec"))); }
+  getDelegationWatchdogMaxNudges(): number { return positiveOrDefault(this.store.get(KEYS.watchdogMaxNudges), 3); }
+  setDelegationWatchdogMaxNudges(value: number): void { this.store.set(KEYS.watchdogMaxNudges, String(requirePositive(value, "delegation_watchdog_max_nudges"))); }
 
   /**
    * 内部 cron (src/scheduler/cron-jobs.ts) の call_name を、コード再デプロイなしで
@@ -80,4 +90,13 @@ function positiveOrZero(raw: string | null, fallback: number): number {
 function requireNonNegative(value: number, field: string): number {
   if (!Number.isFinite(value)) throw new Error(`${field} must be a finite number`);
   return Math.max(0, Math.floor(value));
+}
+function positiveOrDefault(raw: string | null, fallback: number): number {
+  if (raw === null) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+function requirePositive(value: number, field: string): number {
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${field} must be a positive number`);
+  return Math.floor(value);
 }

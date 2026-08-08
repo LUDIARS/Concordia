@@ -57,6 +57,8 @@ export interface ConcordiaConfig {
   stallIdleSec: number;
   /** 一度 nudge したら次まで空ける秒数。 env `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 stallIdleSec と同じ)。 */
   stallNudgeCooldownSec: number;
+  /** 委託 run watchdog の走査間隔 (ms)。 env `CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS` (既定 30 分)。 */
+  delegationWatchdogIntervalMs: number;
   /** Seconds after final_answer/summary before notifying requesters. <=0 disables. */
   idleNudgeSec: number;
   /** Genius 判断カードを採用する最低 score。 */
@@ -226,6 +228,7 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     stallNudgeCooldownSec: Number(
       env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
     ),
+    delegationWatchdogIntervalMs: readPositiveIntegerEnv(env.CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS, 1_800_000),
     idleNudgeSec: readIntegerEnv(env.CONCORDIA_IDLE_NUDGE_SEC, 120),
     // NaN を通すと card.score >= NaN が常に false になり、 気付かないまま
     // 全お伺いが self_judge に倒れる。 不正値は既定に戻す。
@@ -259,6 +262,12 @@ function readIntegerEnv(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === "") return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? Math.trunc(parsed) : fallback;
+}
+
+function readPositiveIntegerEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 /** 0..1 のスコア閾値。 範囲外・非数は既定に戻す。 */

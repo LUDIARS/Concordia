@@ -820,6 +820,43 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     return c.json({ enabled: deps.adminState.getRevisorAutoSubmitEnabled() });
   });
 
+  // 委託 run watchdog (30 分周期の進捗確認)。 watchdog の tick が毎回 live 評価するので
+  // 即時反映。 spec/tasks/2026-08-08-delegation-run-watchdog.md
+  app.get("/v1/admin/delegation-watchdog", (c) => {
+    return c.json({
+      enabled: deps.adminState.getDelegationWatchdogEnabled(),
+      idle_sec: deps.adminState.getDelegationWatchdogIdleSec(),
+      max_nudges: deps.adminState.getDelegationWatchdogMaxNudges(),
+    });
+  });
+  app.put("/v1/admin/delegation-watchdog", async (c) => {
+    const body = await c.req.json().catch(() => null) as
+      | { enabled?: unknown; idle_sec?: unknown; max_nudges?: unknown }
+      | null;
+    if (!body) return c.json({ error: "json body required" }, 400);
+    try {
+      if (body.enabled !== undefined) {
+        if (typeof body.enabled !== "boolean") return c.json({ error: "enabled must be a boolean" }, 400);
+        deps.adminState.setDelegationWatchdogEnabled(body.enabled);
+      }
+      if (body.idle_sec !== undefined) {
+        if (typeof body.idle_sec !== "number") return c.json({ error: "idle_sec must be a number" }, 400);
+        deps.adminState.setDelegationWatchdogIdleSec(body.idle_sec);
+      }
+      if (body.max_nudges !== undefined) {
+        if (typeof body.max_nudges !== "number") return c.json({ error: "max_nudges must be a number" }, 400);
+        deps.adminState.setDelegationWatchdogMaxNudges(body.max_nudges);
+      }
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
+    return c.json({
+      enabled: deps.adminState.getDelegationWatchdogEnabled(),
+      idle_sec: deps.adminState.getDelegationWatchdogIdleSec(),
+      max_nudges: deps.adminState.getDelegationWatchdogMaxNudges(),
+    });
+  });
+
   // ワークスペースルート / GitHub Organization (schema_meta 永続化、 設定 GUI から編集)。
   // 変更は次の Discord/Slack bot start (= restart) で実効値として反映される。
   app.get("/v1/admin/workspace-root", (c) => {

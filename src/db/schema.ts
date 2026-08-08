@@ -1037,6 +1037,13 @@ const COLUMN_ADDITIONS: Array<{ table: string; column: string; ddl: string }> = 
   { table: "delegation_runs", column: "queue_owner", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_owner TEXT` },
   { table: "delegation_runs", column: "queue_lease_until", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_lease_until INTEGER` },
   { table: "delegation_runs", column: "queue_fencing_token", ddl: `ALTER TABLE delegation_runs ADD COLUMN queue_fencing_token INTEGER NOT NULL DEFAULT 0` },
+  // 委託 run watchdog (30 分周期の進捗確認) の永続状態。 in-memory Map だと再起動で
+  // 監視・抑止が外れるため DB に持つ。 時刻はいずれも epoch-ms (delegation_runs の他の
+  // 時刻列と同じ)。 spec/tasks/2026-08-08-delegation-run-watchdog.md。
+  { table: "delegation_runs", column: "watchdog_last_check_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN watchdog_last_check_at INTEGER` },
+  { table: "delegation_runs", column: "watchdog_nudge_count", ddl: `ALTER TABLE delegation_runs ADD COLUMN watchdog_nudge_count INTEGER NOT NULL DEFAULT 0` },
+  { table: "delegation_runs", column: "watchdog_last_nudge_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN watchdog_last_nudge_at INTEGER` },
+  { table: "delegation_runs", column: "watchdog_escalated_at", ddl: `ALTER TABLE delegation_runs ADD COLUMN watchdog_escalated_at INTEGER` },
 ];
 
 function applyColumnAdditions(db: Database.Database): void {

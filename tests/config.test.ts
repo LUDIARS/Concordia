@@ -64,6 +64,13 @@ describe("loadConfig reaper lost grace", () => {
   });
 });
 
+describe("loadConfig delegation watchdog interval", () => {
+  it("uses the default interval for invalid values", () => {
+    expect(loadConfig({ CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS: "Infinity" } as NodeJS.ProcessEnv).delegationWatchdogIntervalMs).toBe(1_800_000);
+    expect(loadConfig({ CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS: "0" } as NodeJS.ProcessEnv).delegationWatchdogIntervalMs).toBe(1_800_000);
+  });
+});
+
 describe("isLoopbackHost", () => {
   it("loopback とみなすもの", () => {
     for (const h of ["", "127.0.0.1", "127.1.2.3", "::1", "[::1]", "localhost", "LOCALHOST", "  127.0.0.1  "]) {

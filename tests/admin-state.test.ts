@@ -52,6 +52,9 @@ describe("AdminState", () => {
       harness_strong_impl_models: ["fable", "sol-ultra"],
       mention_user_id: null,
       cron_job_overrides: {},
+      delegation_watchdog_enabled: true,
+      delegation_watchdog_idle_sec: 1800,
+      delegation_watchdog_max_nudges: 3,
     });
   });
 

@@ -66,6 +66,7 @@ import { startBranchWatch } from "../testing/branch-watch.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { startAutoCompaction } from "../control/auto-compaction.js";
@@ -1047,6 +1048,18 @@ export async function startBackend(): Promise<BackendHandle> {
         intervalMs: cfg.stallNudgeIntervalMs,
         idleSec: cfg.stallIdleSec,
         cooldownSec: cfg.stallNudgeCooldownSec,
+      }),
+    );
+    // 委託 run の進捗確認 (30 分周期)。 状態は delegation_runs の watchdog_* 列に永続。
+    trackPostListenHandle(
+      startDelegationRunWatchdog({
+        runs: delegationRepo,
+        sessions: repo,
+        lastActivitySec: (sessionId) => transcriptLogs.tsSpan(sessionId)?.last_ts ?? null,
+        resolveEnabled: () => adminState.getDelegationWatchdogEnabled(),
+        resolveIdleSec: () => adminState.getDelegationWatchdogIdleSec(),
+        resolveMaxNudges: () => adminState.getDelegationWatchdogMaxNudges(),
+        intervalMs: cfg.delegationWatchdogIntervalMs,
       }),
     );
     trackPostListenHandle(

@@ -80,7 +80,8 @@ async function defaultMtimeMs(s: SessionRow): Promise<number | null> {
   }
 }
 
-async function defaultReadTail(s: SessionRow): Promise<string | null> {
+/** transcript 末尾を読む既定実装。 run watchdog (delegation) も ask 判定に再利用する。 */
+export async function readSessionTranscriptTail(s: SessionRow): Promise<string | null> {
   const path = await resolveTranscriptPath(s);
   if (!path) return null;
   try {
@@ -210,7 +211,7 @@ export function startStalledSessionNudge(
   const enabled = opts.enabled ?? true;
   const now = opts.now ?? Date.now;
   const mtimeOf = opts.transcriptMtimeMs ?? defaultMtimeMs;
-  const readTail = opts.readTranscriptTail ?? defaultReadTail;
+  const readTail = opts.readTranscriptTail ?? readSessionTranscriptTail;
 
   const idleThresholdMs = idleSec * 1000;
   const cooldownMs = cooldownSec * 1000;

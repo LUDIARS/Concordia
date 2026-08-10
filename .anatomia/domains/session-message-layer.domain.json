@@ -6,13 +6,13 @@
   "membership": [
     { "pathPattern": "(^|/)src/messages/(project|service)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/db/session-message(s|-reads)-repo(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/api/sessions/(messages|index|deps|routes\\.test)\\.ts$" },
+    { "pathPattern": "(^|/)src/api/sessions/(messages|index|deps|relay|routes\\.test)\\.ts$" },
     { "pathPattern": "(^|/)src/(events|sweeper)\\.ts$" },
     { "pathPattern": "(^|/)src/shared/(event-schema|session-message-types)\\.ts$" },
     { "pathPattern": "(^|/)src/api/register-core\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/db/schema\\.ts$" },
-    { "pathPattern": "(^|/)tests/(session-messages-api|sweeper)\\.test\\.ts$" },
+    { "pathPattern": "(^|/)tests/(session-messages-api|sessions-transcript-api|sweeper)\\.test\\.ts$" },
     { "pathPattern": "(^|/)tests/helpers/test-app\\.ts$" }
   ],
   "cardTemplate": "Summarise the session-message-layer domain: deterministic event projection, canonical message persistence, read cursors, REST/wire contracts, retention, and subscription ownership.",

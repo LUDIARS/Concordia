@@ -31,6 +31,7 @@ import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js"
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
+import { SessionMessageService } from "../messages/service.js";
 import type {
   DiscordPendingQuestionsRepo,
   DiscordSessionChannelsRepo,
@@ -211,6 +212,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   gateRoutes("task", ["/v1/taskflow"]);
   gateRoutes("test", ["/v1/testing", "/v1/confirm"]);
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
+  const sessionMessageProjector = new SessionMessageService({ repo: deps.sessionMessages });
   mountRouteGroups([{ name: "session-runtime", mount: () => {
   app.route(
     "/v1/sessions",
@@ -228,6 +230,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       participants: deps.participants,
       sessionMessages: deps.sessionMessages,
       sessionMessageReads: deps.sessionMessageReads,
+      projectSessionEvent: (event) => sessionMessageProjector.project(event),
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,

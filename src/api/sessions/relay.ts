@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
+import type { ConcordiaEvent } from "../../events.js";
 import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { withinTeardownGrace } from "../../platform/session-teardown-grace.js";
 
@@ -43,9 +44,21 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
       );
     }
 
+    const transcriptEvent = {
+      type: "transcript.frame",
+      target_session_id: id,
+      seq: parsed.data.seq,
+      kind: parsed.data.kind,
+      payload: parsed.data.payload,
+      ts,
+    } satisfies Extract<ConcordiaEvent, { type: "transcript.frame" }>;
+
     // ユーザ指示テキスト (kind="text" + payload.role="user") を構造化ログに残す.
     // Lictor → Concordia 転送経路の「いま何を頼まれて動いているか」 を後追いできるようにする目的.
     if (!activeRelayTarget) {
+      // External relay suppression must not suppress the canonical internal work stream.
+      // Active relay targets reach the same projector through eventBus below.
+      deps.projectSessionEvent(transcriptEvent);
       logInactiveTranscriptPost(id, parsed.data.seq, parsed.data.kind, {
         sessionStatus: session.status,
         discordStatus: discordRow?.status ?? null,
@@ -67,14 +80,7 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
         );
       }
     }
-    eventBus.emit({
-      type: "transcript.frame",
-      target_session_id: id,
-      seq: parsed.data.seq,
-      kind: parsed.data.kind,
-      payload: parsed.data.payload,
-      ts,
-    });
+    eventBus.emit(transcriptEvent);
     return c.json({ ok: true, persisted });
   });
 

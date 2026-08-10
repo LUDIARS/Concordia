@@ -41,8 +41,9 @@ describe("sessions API — transcript", () => {
     }
   });
 
-  it("Discord channel 紐付けが無い session の frame は永続化のみで emit しない (inactive 抑制)", async () => {
-    await app.request("/v1/sessions", {
+  it("Discord channel 紐付けが無い session の frame は relay emit せず message 投影する", async () => {
+    const env = makeTestApp();
+    await env.app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ id: "tf-nb", provider: "claude-code", repo_path: "/x", host: "h" }),
@@ -51,7 +52,7 @@ describe("sessions API — transcript", () => {
     const captured: any[] = [];
     const unsub = eventBus.subscribe((ev) => { if (ev.type === "transcript.frame") captured.push(ev); });
     try {
-      const r = await app.request("/v1/sessions/tf-nb/transcript-frame", {
+      const r = await env.app.request("/v1/sessions/tf-nb/transcript-frame", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ seq: 0, kind: "text", payload: { role: "assistant", text: "hi" } }),
@@ -61,6 +62,10 @@ describe("sessions API — transcript", () => {
       expect(body.persisted).toBe(true);
       expect(body.inactive).toBe(true);
       expect(captured).toHaveLength(0);
+      expect(env.sessionMessages.list("tf-nb")).toMatchObject([{
+        content: "hi",
+        dedupe_key: "frame:0",
+      }]);
     } finally {
       unsub();
     }

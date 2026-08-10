@@ -25,10 +25,10 @@ export class SessionMessageService {
 
   start(): () => void {
     const subscribe = this.deps.subscribe ?? ((listener: (ev: ConcordiaEvent) => void) => eventBus.subscribe(listener));
-    return subscribe((ev) => this.handle(ev));
+    return subscribe((ev) => this.project(ev));
   }
 
-  private handle(ev: ConcordiaEvent): void {
+  project(ev: ConcordiaEvent): void {
     const sessionId = eventSessionId(ev);
     if (!sessionId) return;
     const ctx = this.contextFor(sessionId);

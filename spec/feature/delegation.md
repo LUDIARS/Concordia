@@ -279,6 +279,21 @@ Concordia 側に delegation の同時実行制限は無い (§10) ため、Tier 
 が正本。cron ジョブ側の `cwd` は caller 指定として `default_cwd` を上書きするため、
 横断ジョブ (日次レビュー等) だけが Ars root を指定し、Genius ingest では指定しない。
 
+### Dependency sweep (parttimer)
+
+`deps-sweep-daily` は LUDIARS 全リポジトリの Dependabot alert を棚卸しする日次 Timer
+Delegation で、毎日 7:10 JST に Ars root (`E:\Document\Ars`) から起動する。実行手順の正本は
+Castra の `.claude/skills/deps-sweep/SKILL.md` とし、テンプレートは手順を複製しない。
+
+- `critical` / `high` は件数で制限せず当日中に扱い、`medium` / `low` だけを翌日へ繰り越せる。
+- major 更新、GitHub PR、merge、サービスの起動・再起動、Castra での commit は禁止する。
+- typecheck と build が通った個別リポジトリだけを Revisor local PR として提出する。
+- skill を読めないときは fail closed とし、更新や PR 作成を行わず未実行の理由を報告する。
+
+実際の Dependabot alert、各リポジトリの lockfile、Revisor 提出結果は Concordia のテスト
+環境では代替しない。登録済みテストはテンプレートと cron の配線を検証し、運用時には実行結果の
+報告項目（PR、未計測、major 要件、残件）を確認する。
+
 ## 10. v0.1 で やらないこと
 
 - Lictor / Codex CLI 側の prompt auto-inject (next PR)

@@ -1,0 +1,13 @@
+{
+  "name": "runtime-orchestration",
+  "description": "Process composition and periodic runtime loops, including the internal cron scheduler.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/scheduler/[^/]+$" }
+  ],
+  "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
+  "source": "spec",
+  "specRefs": ["spec/feature/delegation.md#dependency-sweep-parttimer"],
+  "lockedFields": ["*"]
+}

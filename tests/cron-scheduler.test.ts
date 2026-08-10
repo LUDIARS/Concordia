@@ -114,7 +114,7 @@ describe("startCronScheduler", () => {
     );
   });
 
-  it("runs the daily review, the biweekly AI note review, and the Genius ingest jobs by default", () => {
+  it("runs the review, Genius ingest, and dependency sweep jobs by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-daily", cron: "10 5 * * *", call_name: "ludiars-review-daily" },
       { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
@@ -145,8 +145,8 @@ describe("startCronScheduler", () => {
     expect(new Set(minuteHour).size).toBe(minuteHour.length);
   });
 
-  it("passes the run date to both Genius ingest jobs", () => {
-    for (const name of ["genius-ingest-daily", "genius-ingest-tier2-nightly"]) {
+  it("passes the run date to the scheduled jobs that require it", () => {
+    for (const name of ["genius-ingest-daily", "genius-ingest-tier2-nightly", "deps-sweep-daily"]) {
       const job = CRON_JOBS.find((j) => j.name === name);
       expect(job, `${name} must be registered`).toBeDefined();
       expect(job?.buildArgs()).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });

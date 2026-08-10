@@ -230,6 +230,7 @@ const DEPS_SWEEP_TEMPLATES: CreateTemplateInput[] = [
       "",
       "**最初に `deps-sweep` skill を読み、その手順に従ってください。**",
       "手順の正本は skill 側にあります (`.claude/skills/deps-sweep/SKILL.md`)。",
+      "skill を読めない場合は更新・PR 作成をせず、未実行として理由を報告して終了してください。",
       "",
       "### 踏み外してはいけない境界",
       "",

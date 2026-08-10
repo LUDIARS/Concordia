@@ -236,6 +236,28 @@ describe("seedDelegationTemplates", () => {
     }
   });
 
+  it("seeds the dependency sweep as a fail-closed cross-repository cron template", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("deps-sweep-daily");
+    expect(template).toMatchObject({
+      is_active: 1,
+      category: "parttimer",
+      target_provider: "claude",
+      model: "claude-sonnet-5",
+      default_cwd: "E:\\Document\\Ars",
+    });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
+      { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
+    ]);
+    const prompt = template?.prompt_template ?? "";
+    expect(prompt).toContain("`.claude/skills/deps-sweep/SKILL.md`");
+    expect(prompt).toContain("更新・PR 作成をせず");
+    expect(prompt).toContain("GitHub PR は作らない");
+    expect(prompt).toContain("major 更新は実施しない");
+  });
+
   it("keeps the Genius Tier 1 and Tier 2 ingest commands in separate templates", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

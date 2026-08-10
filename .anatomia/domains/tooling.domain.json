@@ -1,0 +1,13 @@
+{
+  "name": "tooling",
+  "description": "Automated test suites and shared test support that verify Concordia behavior.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)tests/[^/]+$" }
+  ],
+  "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
+  "source": "spec",
+  "specRefs": ["spec/feature/domain-taxonomy.concordia.md#tooling"],
+  "lockedFields": ["*"]
+}

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 
 import { prsRouter } from "./prs.js";
 import { makeTestApp } from "../../tests/helpers/test-app.js";
+import { RevisorMergeError } from "../pr/revisor-merge-outcome.js";
 
 function addSession(env: ReturnType<typeof makeTestApp>, sessionId = "session-1"): void {
   env.repo.insertSession({
@@ -121,7 +122,32 @@ describe("POST /v1/prs/local/:id/merge", () => {
     });
 
     expect(response.status).toBe(502);
-    expect(await response.json()).toEqual({ error: "local_pr_merge_failed", detail: "Revisor local PR merge failed" });
+    expect(await response.json()).toEqual({
+      error: "local_pr_merge_failed",
+      reason: "unknown",
+      detail: "Revisor がマージを拒否しました。詳細は Concordia のログを参照してください。",
+    });
+  });
+
+  it("treats an auto-merge that wins the race with this request as success", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => {
+      throw new RevisorMergeError("already merged", {
+        status: 409,
+        revisorError: "This pull request has already been merged.",
+      });
+    });
+
+    const response = await makePrsApp(env, mergeLocalPr).request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ merged: true, local_pr_id: "local-1", already_merged: true });
   });
 });
 

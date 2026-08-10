@@ -1,9 +1,22 @@
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
 import { toTokenResolver } from "./revisor-token.js";
+import { RevisorMergeError } from "./revisor-merge-outcome.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
+/**
+ * マージだけ別枠にする。 Revisor のマージは隔離 clone の準備・squash・事前
+ * セキュリティスキャン・公開までを 1 リクエストの中で同期実行するので、 読み取りと
+ * 同じ 10 秒では日常的に足りない。 2026-08-10 の Peregrinatio#408 では Concordia が
+ * 10,020ms / 10,014ms で 2 回打ち切った一方、 Revisor 側はどちらも完走していて、
+ * 「失敗した」と報告された変更が実際には main に入っていた。
+ *
+ * 打ち切り自体は残す — 無期限に待つと呼び出し側 (Discord のマージ操作) が固まる。
+ * 打ち切った場合は「失敗」ではなく「結果不明」として扱い、 呼び出し側が PR の実状態を
+ * 読み直して確定させる。
+ */
+const DEFAULT_MERGE_TIMEOUT_MS = 180_000;
 
 export interface RevisorReviewRequest {
   repository: string;
@@ -87,6 +100,8 @@ interface RevisorClientOptions {
   token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** マージだけの上限。 未指定なら `DEFAULT_MERGE_TIMEOUT_MS`。 */
+  mergeTimeoutMs?: number;
 }
 
 export class RevisorClient
@@ -95,6 +110,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
   private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly mergeTimeoutMs: number;
 
   constructor(options: RevisorClientOptions) {
     // 読み取り (local PR 一覧) に token は要らない — Revisor は loopback からの GET に
@@ -103,6 +119,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
     this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.mergeTimeoutMs = options.mergeTimeoutMs ?? DEFAULT_MERGE_TIMEOUT_MS;
   }
 
   /**
@@ -266,11 +283,23 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
     // token はリクエストごとに解決する (設定画面で入れた workflow token が再起動なしで効く)。
     const token = this.token();
     if (!token) {
-      throw new Error(`Revisor ${request.label} token is required (workflow token unset)`);
+      throw new RevisorMergeError(
+        `Revisor ${request.label} token is required (workflow token unset)`,
+        { status: 401 },
+      );
     }
     const port = await this.resolvePort();
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // 打ち切りを自前の旗で覚える。 AbortError は「呼び出し側が打ち切った」以外でも
+    // 起き得るので、 error の種類だけで timeout と断定しない。
+    let timedOut = false;
+    // 上限は操作ごとに分ける。 merge は隔離 clone の準備から公開までを同期実行するが、
+    // close は状態を書き替えるだけで短い。
+    const deadlineMs = request.action === "merge" ? this.mergeTimeoutMs : this.timeoutMs;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, deadlineMs);
     try {
       const url = `http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(request.id)}/${request.action}`;
       const response = await this.fetchImpl(url, {
@@ -285,9 +314,25 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
       });
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
       if (!response.ok) {
-        const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
-        throw new Error(`Revisor local PR ${request.label} failed (${response.status})${detail}`);
+        const revisorError = typeof body?.error === "string" ? body.error : null;
+        throw new RevisorMergeError(
+          `Revisor local PR ${request.label} failed (${response.status})`
+          + (revisorError ? `: ${revisorError}` : ""),
+          { status: response.status, revisorError },
+        );
       }
+    } catch (error) {
+      if (error instanceof RevisorMergeError) throw error;
+      if (timedOut) {
+        throw new RevisorMergeError(
+          `Revisor local PR ${request.label} timed out after ${deadlineMs}ms`,
+          { timedOut: true },
+        );
+      }
+      // 到達できなかった (接続拒否など)。 status を持たないことが「届いていない」の印。
+      throw new RevisorMergeError(
+        error instanceof Error ? error.message : `Revisor local PR ${request.label} failed`,
+      );
     } finally {
       clearTimeout(timer);
     }

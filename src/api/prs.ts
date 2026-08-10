@@ -33,6 +33,8 @@ import type {
   RevisorLocalPrMerger,
   RevisorLocalPrReader,
 } from "../pr/revisor-client.js";
+import { classifyMergeFailure } from "../pr/revisor-merge-outcome.js";
+import { isAlreadyMerged } from "../pr/revisor-merge-confirm.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -181,11 +183,43 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     if (!authorization.allowed) {
       return c.json({ error: "merge_not_authorized", detail: authorization.detail }, 403);
     }
+    // 要求を出す前に実状態を読む。 Test OK 到達時点で auto-merge が成立していることが
+    // あり、 その PR へ明示マージを出すと Revisor は拒否する。 目的は達成済みなので、
+    // 拒否を待ってから解釈するより先に確定させる。
+    if (await isAlreadyMerged(deps.revisor, localPrId)) {
+      log.info({ local_pr_id: localPrId, session_id: sessionId }, "local PR was already merged; skipping merge request");
+      return c.json({ merged: true, local_pr_id: localPrId, already_merged: true });
+    }
+
     try {
       await deps.revisorMerger.mergeLocalPr(localPrId);
-    } catch {
-      // Revisor の生の失敗内容は endpoint / 設定情報を含み得るので、ローカル API を経由して返さない。
-      return c.json({ error: "local_pr_merge_failed", detail: "Revisor local PR merge failed" }, 502);
+    } catch (error) {
+      const failure = classifyMergeFailure(error);
+      // 生の失敗内容は endpoint / 設定情報を含み得るので、 サーバ側ログにだけ残す。
+      log.warn(
+        {
+          local_pr_id: localPrId,
+          session_id: sessionId,
+          reason: failure.reason,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "local PR merge failed",
+      );
+      // 事前確認の直後に auto-merge が成立する競合があり得る。この場合は要求だけが
+      // 遅れたので、Revisor の 409 を API の失敗として返さない。
+      if (failure.reason === "already_merged") {
+        return c.json({ merged: true, local_pr_id: localPrId, already_merged: true });
+      }
+      // 打ち切りは「失敗」ではなく「結果不明」。 Revisor 側は処理を続けているので、
+      // 実状態を読み直してから確定させる。
+      if (failure.reason === "timeout" && await isAlreadyMerged(deps.revisor, localPrId)) {
+        log.info(
+          { local_pr_id: localPrId, session_id: sessionId },
+          "local PR merge timed out on the client but Revisor completed it",
+        );
+        return c.json({ merged: true, local_pr_id: localPrId, timed_out: true });
+      }
+      return c.json({ error: "local_pr_merge_failed", reason: failure.reason, detail: failure.detail }, 502);
     }
 
     const ts = Math.floor(Date.now() / 1000);

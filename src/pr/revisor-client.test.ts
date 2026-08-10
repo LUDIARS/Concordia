@@ -4,6 +4,7 @@ import {
   RevisorClient,
   type RevisorReviewRequest,
 } from "./revisor-client.js";
+import { RevisorMergeError } from "./revisor-merge-outcome.js";
 
 const request: RevisorReviewRequest = {
   repository: "LUDIARS/Concordia",
@@ -178,5 +179,65 @@ describe("RevisorClient", () => {
       "http://127.0.0.1:4240/v1/local-prs/local%2Fpr%201/merge",
       expect.objectContaining({ method: "POST", headers: expect.objectContaining({ authorization: "Bearer local-secret" }) }),
     );
+  });
+
+  it("carries the Revisor reason and status on a refused merge", async () => {
+    const fetchImpl = vi.fn(async () => new Response(
+      JSON.stringify({ error: "The head conflicts with the current 'main'." }),
+      { status: 409, headers: { "content-type": "application/json" } },
+    ));
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      token: "local-secret",
+      fetchImpl,
+    });
+
+    // 分類は呼び出し側 (classifyMergeFailure) の仕事。 client は素材を落とさず渡す。
+    const error = await client.mergeLocalPr("pr-1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RevisorMergeError);
+    expect((error as RevisorMergeError).status).toBe(409);
+    expect((error as RevisorMergeError).revisorError).toContain("conflicts");
+    expect((error as RevisorMergeError).timedOut).toBe(false);
+  });
+
+  it("marks a merge that ran past its own deadline as timed out", async () => {
+    const fetchImpl = vi.fn((_url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new Error("The operation was aborted.")));
+    }));
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      token: "local-secret",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      mergeTimeoutMs: 5,
+    });
+
+    const error = await client.mergeLocalPr("pr-1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RevisorMergeError);
+    // status を持たない = 応答が返っていない。 timedOut がそれを「到達不能」と分ける。
+    expect((error as RevisorMergeError).timedOut).toBe(true);
+    expect((error as RevisorMergeError).status).toBeNull();
+  });
+
+  it("keeps merges on a longer deadline than reads", async () => {
+    // マージは隔離 clone の準備から公開までを同期実行するので、 読み取りと同じ上限だと
+    // Revisor が完走している最中に打ち切ってしまう (Peregrinatio#408)。
+    const timers: number[] = [];
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })) },
+      token: "local-secret",
+      fetchImpl: vi.fn(async () => new Response("{}", { status: 200, headers: { "content-type": "application/json" } })),
+    });
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void, ms?: number) => {
+      timers.push(ms ?? 0);
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }) as typeof setTimeout);
+    try {
+      await client.listLocalPrs().catch(() => undefined);
+      await client.mergeLocalPr("pr-1");
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+    const [readDeadline, mergeDeadline] = timers;
+    expect(mergeDeadline).toBeGreaterThan(readDeadline);
   });
 });

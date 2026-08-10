@@ -253,6 +253,17 @@ describe("sessions API", () => {
       target_project: "E:/Document/Ars/Concordia",
       branch,
     });
+
+    // The automatic event can arrive after a root-derived branch update. It
+    // must restore the branch explicitly claimed for the child worktree.
+    env.repo.patchSession("root-bound", { branch: "main" });
+    const automaticTaskChange = await env.app.request("/v1/sessions/root-bound/event", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "lictor.task.changed", payload: { source: "auto", branch: "main" } }),
+    });
+    expect(automaticTaskChange.status).toBe(200);
+    expect(env.repo.findSession("root-bound")?.branch).toBe(branch);
   });
 
   it("404 for unknown session", async () => {

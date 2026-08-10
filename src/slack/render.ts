@@ -43,7 +43,10 @@ export interface SessionCardState {
 function formatRuntimeValue(value?: string | null): string {
   // Model and effort originate in runtime metadata. Keep them inside the
   // surrounding inline-code delimiter so they cannot alter Slack formatting.
-  return (value?.trim() || "-").replace(/`/g, "ˋ");
+  // A metadata value must also stay on its field's single line.
+  return (value?.trim() || "-")
+    .replace(/`/g, "ˋ")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u2028\u2029]+/g, " ");
 }
 
 /** `renderSessionCard` の戻り値。text はフォールバック / 通知文、blocks が Slack Block Kit 本体。 */

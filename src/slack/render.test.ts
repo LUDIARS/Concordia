@@ -48,13 +48,15 @@ describe("renderSessionCard", () => {
     expect(header).toContain("*Model* `gpt-5.6-sol`");
     expect(header).toContain("*Effort* `xhigh`");
   });
-  it("runtime metadata の backtick で Slack の code formatting を閉じない", () => {
+  it("runtime metadata の制御文字で Slack の runtime field を崩さない", () => {
     const { text } = renderSessionCard({
-      who: "X", model: "gpt`<@U123>", effortLevel: "high",
+      who: "X", model: "gpt`<@U123>\r\nspoofed\u2028again", effortLevel: "high",
       shortId: "abcd1234", status: "active",
     });
-    expect(text).toContain("*Model* `gptˋ<@U123>` ");
-    expect(text).not.toContain("gpt`<@U123>`");
+    expect(text).toContain("*Model* `gptˋ<@U123> spoofed again` ");
+    expect(text).not.toContain("gpt`<@U123>");
+    const [runtime] = text.split("\n");
+    expect(runtime).not.toMatch(/[\r\n\u2028\u2029]/);
   });
   it("active: current_task 空なら短縮 id を見出しに使う", () => {
     const { text, blocks } = renderSessionCard({ who: "X", shortId: "deadbeef", status: "active" });

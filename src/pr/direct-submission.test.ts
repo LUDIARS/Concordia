@@ -31,6 +31,15 @@ function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPr
       status: "open",
       checkStatus: "queued",
     }),
+    promoteLocalPullRequest: async (id) => ({
+      id,
+      number: 9,
+      repository: "LUDIARS/Concordia",
+      headRef: "feat/thing",
+      status: "open",
+      checkStatus: "queued",
+      reviewLane: "fast",
+    }),
     ...overrides,
   };
 }
@@ -84,6 +93,21 @@ describe("submitDirectLocalPr", () => {
       { repoPath: REPO, branch: "feat/thing", sessionId: "s-1" },
     );
     expect(submitLocalPullRequest).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "s-1" }));
+  });
+
+  it("rejects fast-lane opt-in without a session before accessing the repository", async () => {
+    const runGit = vi.fn(fakeGit());
+    const result = await submitDirectLocalPr(
+      deps({ runGit }),
+      { repoPath: REPO, branch: "feat/thing", fastLane: true },
+    );
+
+    expect(result).toEqual({
+      submitted: false,
+      reason: "error",
+      detail: "fast lane requires a Concordia session",
+    });
+    expect(runGit).not.toHaveBeenCalled();
   });
 
   it("passes the supplied PR content through to the submission", async () => {

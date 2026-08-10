@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
 
 const SessionSchema = z.object({ session_id: z.string().min(1) });
+const ReviewSchema = SessionSchema.extend({ fast_lane: z.boolean().optional() });
 const BindSchema = SessionSchema.extend({ cwd: z.string().min(1), task: z.string().min(1).max(1_000) });
 const ServiceSchema = SessionSchema.extend({
   service_code: z.string().min(1).max(64),
@@ -40,10 +41,12 @@ export function implementationToolsRouter(deps: { tools: ImplementationToolsServ
     }
   });
   app.post("/review", async (c) => {
-    const parsed = SessionSchema.safeParse(await c.req.json().catch(() => null));
+    const parsed = ReviewSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     try {
-      const result = await deps.tools.submitReview(parsed.data.session_id);
+      const result = await deps.tools.submitReview(parsed.data.session_id, {
+        fastLane: parsed.data.fast_lane === true,
+      });
       if (!result.submitted && !("resubmitted" in result) && result.reason === "error") {
         return c.json({ submitted: false, reason: "error" });
       }

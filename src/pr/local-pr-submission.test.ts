@@ -52,6 +52,24 @@ describe("planLocalPrSubmission", () => {
     expect(plan({ openPullRequests: [{ ...openPullRequests[0], status: "merged" }] }).submit).toBe(true);
   });
 
+  it("promotes a queued duplicate only for its submitting session after explicit fast-lane opt-in", () => {
+    const openPullRequests = [{
+      id: "pr-1",
+      number: 1,
+      repository: "LUDIARS/Concordia",
+      headRef: "feat/thing",
+      status: "open",
+      checkStatus: "queued",
+      sessionId: "s-1",
+    }];
+    expect(plan({ openPullRequests, fastLane: false }))
+      .toEqual({ submit: false, reason: "already_open" });
+    expect(plan({ openPullRequests, sessionId: "s-1", fastLane: true }))
+      .toEqual({ submit: false, promote: true, pullRequestId: "pr-1" });
+    expect(plan({ openPullRequests, sessionId: "s-2", fastLane: true }))
+      .toEqual({ submit: false, reason: "already_open" });
+  });
+
   it("retries a failed open local PR instead of creating a duplicate", () => {
     expect(plan({ openPullRequests: [{
       id: "pr-1",
@@ -112,6 +130,15 @@ function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPr
       status: "open",
       checkStatus: "queued",
     }),
+    promoteLocalPullRequest: async (id) => ({
+      id,
+      number: 9,
+      repository: "LUDIARS/Concordia",
+      headRef: "feat/thing",
+      status: "open",
+      checkStatus: "queued",
+      reviewLane: "fast",
+    }),
     ...overrides,
   };
 }
@@ -154,8 +181,72 @@ describe("submitSessionLocalPr", () => {
       title: "feat: 後の変更",
       author: "concordia",
     }));
+    expect(submitLocalPullRequest).not.toHaveBeenCalledWith(
+      expect.objectContaining({ fastLane: true }),
+    );
     expect(sent!.body).toContain("s-1");
     expect(sent!.body).toContain("feat: 最初の変更");
+  });
+
+  it("carries an explicit per-session fast-lane opt-in", async () => {
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+    await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: 早期確認"],
+      log,
+    }, { ...request, fastLane: true });
+    expect(submitLocalPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ fastLane: true, sessionId: "s-1" }),
+    );
+  });
+
+  it("moves the owning session's queued duplicate to the fast lane", async () => {
+    const promoteLocalPullRequest = vi.fn(gateway().promoteLocalPullRequest);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        listLocalPullRequests: async () => [{
+          id: "pr-9",
+          number: 9,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "queued",
+          sessionId: "s-1",
+        }],
+        promoteLocalPullRequest,
+      }),
+      listBranchCommits: async () => ["feat: 早期確認"],
+      log,
+    }, { ...request, fastLane: true });
+    expect(promoteLocalPullRequest).toHaveBeenCalledWith("pr-9", "s-1");
+    expect(result).toEqual({
+      submitted: false,
+      resubmitted: true,
+      pullRequest: expect.objectContaining({ id: "pr-9", reviewLane: "fast" }),
+    });
+  });
+
+  it("does not promote another session's queued duplicate", async () => {
+    const promoteLocalPullRequest = vi.fn(gateway().promoteLocalPullRequest);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        listLocalPullRequests: async () => [{
+          id: "pr-9",
+          number: 9,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "queued",
+          sessionId: "s-other",
+        }],
+        promoteLocalPullRequest,
+      }),
+      listBranchCommits: async () => ["feat: 早期確認"],
+      log,
+    }, { ...request, fastLane: true });
+
+    expect(result).toEqual({ submitted: false, reason: "already_open" });
+    expect(promoteLocalPullRequest).not.toHaveBeenCalled();
   });
 
   it("uses the author's PR content verbatim instead of generating a body", async () => {
@@ -328,6 +419,38 @@ describe("submitSessionLocalPr", () => {
     expect(result).toEqual({ submitted: false, resubmitted: true, pullRequest: expect.objectContaining({ id: "pr-9" }) });
     expect(retryLocalPullRequest).toHaveBeenCalledWith("pr-9");
     expect(submitLocalPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not promote a retried PR unless it belongs to the requesting session", async () => {
+    const promoteLocalPullRequest = vi.fn(gateway().promoteLocalPullRequest);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        listLocalPullRequests: async () => [{
+          id: "pr-9",
+          number: 9,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "failed",
+          sessionId: "s-other",
+        }],
+        retryLocalPullRequest: async () => ({
+          id: "pr-9",
+          number: 9,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "queued",
+          sessionId: "s-other",
+        }),
+        promoteLocalPullRequest,
+      }),
+      listBranchCommits: async () => ["feat: x"],
+      log,
+    }, { ...request, fastLane: true });
+
+    expect(result).toEqual({ submitted: false, resubmitted: true, pullRequest: expect.objectContaining({ id: "pr-9" }) });
+    expect(promoteLocalPullRequest).not.toHaveBeenCalled();
   });
 
   // セッション終了処理をレビュー発火の失敗で壊さない。

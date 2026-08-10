@@ -7,7 +7,7 @@
  * (`planLocalPrSubmission`) に載せる入口。 session_id は任意 — 渡せば従来どおり
  * Revisor の審査結果 inject が紐づき、 無ければ共有チャット通知のみで完結する。
  *
- * spec/feature/revisor-local-pr-submission.md §8。
+ * spec/feature/revisor-local-pr-submission.md §8, §9。
  */
 
 import { execFile } from "node:child_process";
@@ -31,6 +31,8 @@ export interface DirectLocalPrRequest {
    * 自動生成も Revisor の本文要件 (`## 実装内容` / `## 受け入れ条件`) を満たす。
    */
   prContent?: string;
+  /** sessionId と併用する明示 opt-in。省略時は通常キュー。 */
+  fastLane?: boolean;
 }
 
 export interface DirectLocalPrDeps extends LocalPrSubmissionDeps {
@@ -65,6 +67,9 @@ export async function submitDirectLocalPr(
   deps: DirectLocalPrDeps,
   request: DirectLocalPrRequest,
 ): Promise<LocalPrSubmissionResult> {
+  if (request.fastLane === true && !request.sessionId?.trim()) {
+    return { submitted: false, reason: "error", detail: "fast lane requires a Concordia session" };
+  }
   const runGit = deps.runGit ?? git;
   const requested = request.repoPath.trim();
   if (!requested || !isAbsolute(requested)) {
@@ -108,5 +113,6 @@ export async function submitDirectLocalPr(
     repository,
     branch: branch || null,
     prContent: request.prContent?.trim() || null,
+    fastLane: request.fastLane === true,
   });
 }

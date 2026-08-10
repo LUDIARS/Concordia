@@ -159,6 +159,8 @@ export interface CoreDelegationDeps {
   revisorLocalPrMerger?: PrsApiDeps["revisorMerger"];
   /** Revisor local PR を、session の直近人間指示者の権限で取り下げる。 */
   revisorLocalPrCloser?: RevisorLocalPrCloser;
+  /** queued local PR を提出元セッションの明示指示で fast lane へ移す。 */
+  revisorLocalPrPromoter?: PrsApiDeps["revisorPromoter"];
   /** repo_path + branch 直指定の direct 提出 (session 非依存)。 */
   submitDirectLocalPr?: PrsApiDeps["submitDirectLocalPr"];
   /** Batched implementation fast paths. Normal conversation sessions do not use them. */
@@ -266,6 +268,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     staff: deps.staff,
     revisorMerger: deps.revisorLocalPrMerger,
     revisorCloser: deps.revisorLocalPrCloser,
+    revisorPromoter: deps.revisorLocalPrPromoter,
     submitDirectLocalPr: deps.submitDirectLocalPr,
   }));
   if (deps.implementationTools) {

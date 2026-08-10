@@ -17,7 +17,7 @@ export interface ImplementationToolsDeps {
   sessions: SessionsRepo;
   claims: TestingClaimsRepo;
   excubitor: Pick<ExcubitorClient, "control">;
-  submitLocalPr: (sessionId: string) => Promise<LocalPrSubmissionResult | {
+  submitLocalPr: (sessionId: string, options?: { fastLane?: boolean }) => Promise<LocalPrSubmissionResult | {
     submitted: false;
     reason: "session_not_found";
   }>;
@@ -101,9 +101,9 @@ export class ImplementationToolsService {
     }
   }
 
-  async submitReview(sessionId: string) {
+  async submitReview(sessionId: string, { fastLane = false } = {}) {
     this.requireSession(sessionId);
-    return this.deps.submitLocalPr(sessionId);
+    return this.deps.submitLocalPr(sessionId, { fastLane });
   }
 
   private requireSession(sessionId: string) {

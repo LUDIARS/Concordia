@@ -31,6 +31,7 @@ import { renderPrQueueMarkdown } from "../pr/render.js";
 import type {
   RevisorLocalPrCloser,
   RevisorLocalPrMerger,
+  RevisorLocalPrPromoter,
   RevisorLocalPrReader,
 } from "../pr/revisor-client.js";
 import { classifyMergeFailure } from "../pr/revisor-merge-outcome.js";
@@ -47,19 +48,21 @@ export interface PrsApiDeps {
    * session の作業ブランチを Revisor の local PR として提出する。 未注入なら
    * POST /v1/prs/local は生えない (レビュー発火なしの構成)。
    */
-  submitLocalPr?: (sessionId: string) => Promise<
+  submitLocalPr?: (sessionId: string, options?: { fastLane?: boolean }) => Promise<
     | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; reason: string; detail?: string }
   >;
   /** session の直近人間指示者を監査付きマージの認可者として解決する。 */
-  sessions?: Pick<SessionsRepo, "recentEvents" | "appendEvent">;
+  sessions?: Pick<SessionsRepo, "recentEvents" | "appendEvent" | "findSession">;
   /** platform ごとの staff role を live 参照する。 */
   staff?: Pick<StaffRepo, "roleOf">;
   /** Revisor local PR の変更操作。未注入時は fail-closed。 */
   revisorMerger?: RevisorLocalPrMerger;
   /** Revisor local PR の取り下げ操作。未注入時は fail-closed。 */
   revisorCloser?: RevisorLocalPrCloser;
+  /** queued local PR を、その提出元セッションの明示指示で fast lane へ移す。 */
+  revisorPromoter?: RevisorLocalPrPromoter;
   /**
    * session 非依存の direct 提出 (repo_path + branch)。 未注入なら
    * POST /v1/prs/local/direct は 503。
@@ -69,6 +72,7 @@ export interface PrsApiDeps {
     branch?: string;
     sessionId?: string;
     prContent?: string;
+    fastLane?: boolean;
   }) => Promise<
     | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
@@ -156,10 +160,72 @@ export function prsRouter(deps: PrsApiDeps): Hono {
    */
   app.post("/local", async (c) => {
     if (!deps.submitLocalPr) return c.json({ error: "local_pr_submission_unavailable" }, 503);
+    const body = await c.req.json().catch(() => null) as {
+      session_id?: unknown;
+      fast_lane?: unknown;
+    } | null;
+    const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+    if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
+    if (body?.fast_lane !== undefined && typeof body.fast_lane !== "boolean") {
+      return c.json({ error: "fast_lane (boolean) required when provided" }, 400);
+    }
+    if (body?.fast_lane === true) {
+      if (!deps.sessions) return c.json({ error: "local_pr_fast_lane_unavailable" }, 503);
+      if (deps.sessions.findSession(sessionId)?.status !== "active") {
+        return c.json({ error: "local_pr_fast_lane_session_inactive" }, 403);
+      }
+    }
+    return c.json(await deps.submitLocalPr(sessionId, {
+      fastLane: body?.fast_lane === true,
+    }));
+  });
+
+  /**
+   * POST /v1/prs/local/:id/fast-lane — queued PR を提出元セッション自身が昇格する。
+   *
+   * Cc の loopback API は session_id を受け取るため、Revisor の記録した submitter と
+   * 照合してから変更する。別セッションの ID だけで共有予約枠を奪えないよう fail-closed。
+   */
+  app.post("/local/:id/fast-lane", async (c) => {
+    if (!deps.revisor || !deps.sessions || !deps.revisorPromoter) {
+      return c.json({ error: "local_pr_fast_lane_unavailable" }, 503);
+    }
+    const localPrId = c.req.param("id").trim();
+    if (!localPrId) return c.json({ error: "local_pr_id required" }, 400);
     const body = await c.req.json().catch(() => null) as { session_id?: unknown } | null;
     const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
     if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
-    return c.json(await deps.submitLocalPr(sessionId));
+    if (deps.sessions.findSession(sessionId)?.status !== "active") {
+      return c.json({ error: "local_pr_fast_lane_session_inactive" }, 403);
+    }
+
+    let target;
+    try {
+      target = (await deps.revisor.listLocalPrs()).find((pr) => pr.id === localPrId);
+    } catch {
+      return c.json({ error: "local_pr_fast_lane_failed" }, 502);
+    }
+    if (!target) return c.json({ error: "local_pr_not_found" }, 404);
+    if (!target.sessionId || target.sessionId !== sessionId) {
+      return c.json({ error: "local_pr_fast_lane_not_owner" }, 403);
+    }
+    if (target.status !== "open" || target.checkStatus !== "queued") {
+      return c.json({ error: "local_pr_fast_lane_not_queued" }, 409);
+    }
+    try {
+      await deps.revisorPromoter.promoteLocalPr(localPrId, sessionId);
+    } catch {
+      return c.json({ error: "local_pr_fast_lane_failed" }, 502);
+    }
+    const audit = { local_pr_id: localPrId, session_id: sessionId };
+    log.info(audit, "local PR promoted to fast lane by submitting session");
+    deps.sessions.appendEvent({
+      session_id: sessionId,
+      ts: Math.floor(Date.now() / 1000),
+      kind: "pr-fast-lane",
+      payload: audit,
+    });
+    return c.json({ promoted: true, local_pr_id: localPrId });
   });
 
   /**
@@ -297,7 +363,7 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   app.post("/local/direct", async (c) => {
     if (!deps.submitDirectLocalPr) return c.json({ error: "local_pr_submission_unavailable" }, 503);
     const body = await c.req.json().catch(() => null) as
-      | { repo_path?: unknown; branch?: unknown; session_id?: unknown; pr_content?: unknown }
+      | { repo_path?: unknown; branch?: unknown; session_id?: unknown; pr_content?: unknown; fast_lane?: unknown }
       | null;
     const repoPath = typeof body?.repo_path === "string" ? body.repo_path.trim() : "";
     if (!repoPath) return c.json({ error: "repo_path (string) required" }, 400);
@@ -306,7 +372,25 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     const prContent = typeof body?.pr_content === "string" && body.pr_content.trim()
       ? body.pr_content
       : undefined;
-    return c.json(await deps.submitDirectLocalPr({ repoPath, branch, sessionId, prContent }));
+    if (body?.fast_lane !== undefined && typeof body.fast_lane !== "boolean") {
+      return c.json({ error: "fast_lane (boolean) required when provided" }, 400);
+    }
+    if (body?.fast_lane === true && !sessionId) {
+      return c.json({ error: "session_id required for fast_lane" }, 400);
+    }
+    if (body?.fast_lane === true) {
+      if (!deps.sessions) return c.json({ error: "local_pr_fast_lane_unavailable" }, 503);
+      if (deps.sessions.findSession(sessionId as string)?.status !== "active") {
+        return c.json({ error: "local_pr_fast_lane_session_inactive" }, 403);
+      }
+    }
+    return c.json(await deps.submitDirectLocalPr({
+      repoPath,
+      branch,
+      sessionId,
+      ...(prContent ? { prContent } : {}),
+      ...(body?.fast_lane === true ? { fastLane: true } : {}),
+    }));
   });
 
   app.get("/list", (c) => {

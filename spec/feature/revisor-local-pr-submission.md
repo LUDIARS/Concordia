@@ -186,3 +186,18 @@ Lictor 未ラップの bg job・終了済みセッションのブランチ・手
 実装: `src/pr/direct-submission.ts` (repo 解決 + 検証) / `src/api/prs.ts` (ルート)。
 タスク登録 (implement begin) はあくまで fast path の推奨レーンであり、 提出の
 前提条件ではない。
+
+## 9. 明示 fast lane (2026-08-11 neco 指示)
+
+通常の提出は必ず Revisor の `standard` lane を使う。セッションが早期確認を必要と
+するときだけ、手動 `POST /v1/prs/local`、direct 提出、implementation-tools review の
+`fast_lane: true` を Revisor の `fast_lane: true` へ渡す。`session.ended` 自動提出は
+`fastLane: false` を明示し、fast lane を推測しない。
+fast opt-in は manual / direct / implementation-tools の全経路で active session に限定し、
+終了済み・lost・存在しない session から予約枠を使用させない。
+
+同じブランチの queued PR が既にある状態で fast を明示した場合は、新しい PR を作らず
+promotion を呼ぶ。独立した `POST /v1/prs/local/:id/fast-lane` は、Revisor の PR に記録
+された `sessionId` と要求セッションが一致し、そのセッションが active のときだけ通す。
+成功は `pr-fast-lane` session event に記録する。マージ権限は不要だが、別セッションの
+予約枠を操作することはできない。

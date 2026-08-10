@@ -9,7 +9,7 @@
  *
  * 判定は純関数 (`planLocalPrSubmission`) に閉じ、 git と HTTP は呼び出し側が渡す。
  *
- * spec/feature/revisor-local-pr-submission.md §3-§5。
+ * spec/feature/revisor-local-pr-submission.md §3-§5, §9。
  */
 
 import { normalizeRepoOrigin } from "./normalize.js";
@@ -32,17 +32,22 @@ export interface LocalPrPlanInput {
   repository: string | null;
   /** セッションが作業していたブランチ。 */
   branch: string | null;
+  /** fast lane への昇格は、この session が提出した重複 PR に限る。 */
+  sessionId?: string | null;
   /** Revisor に登録済みのリポジトリ一覧。 */
   registrations: readonly RevisorRepositoryRegistration[];
   /** Revisor に既にある local PR 一覧。 */
   openPullRequests: readonly RevisorLocalPrSummary[];
   /** base から進んだコミットがあるか。 */
   hasCommits: boolean;
+  /** 予約済みの審査枠を使うというセッションからの明示指示。 */
+  fastLane?: boolean;
 }
 
 export type LocalPrPlan =
   | { submit: false; reason: SkipReason }
   | { submit: false; retry: true; pullRequestId: string }
+  | { submit: false; promote: true; pullRequestId: string }
   | { submit: true; repository: string; headRef: string; baseRef: string };
 
 /**
@@ -90,6 +95,14 @@ export function planLocalPrSubmission(input: LocalPrPlanInput): LocalPrPlan {
     if (duplicate.checkStatus === "failed" || duplicate.checkStatus === "action_required") {
       return { submit: false, retry: true, pullRequestId: duplicate.id };
     }
+    if (
+      input.fastLane === true
+      && duplicate.checkStatus === "queued"
+      && !!input.sessionId
+      && duplicate.sessionId === input.sessionId
+    ) {
+      return { submit: false, promote: true, pullRequestId: duplicate.id };
+    }
     return { submit: false, reason: "already_open" };
   }
 
@@ -123,6 +136,8 @@ export interface LocalPrSubmissionRequest {
    * 本文は書き手から受け取れるようにする (省略時は従来どおり自動生成)。
    */
   prContent?: string | null;
+  /** 明示時だけ fast lane を使う。セッション終了時の自動提出は指定しない。 */
+  fastLane?: boolean;
 }
 
 export type LocalPrSubmissionResult =
@@ -194,6 +209,9 @@ export async function submitSessionLocalPr(
   request: LocalPrSubmissionRequest,
 ): Promise<LocalPrSubmissionResult> {
   try {
+    if (request.fastLane === true && !request.sessionId) {
+      return { submitted: false, reason: "error", detail: "fast lane requires a Concordia session" };
+    }
     const [registrations, openPullRequests] = await Promise.all([
       deps.revisor.listRepositories(),
       deps.revisor.listLocalPullRequests(),
@@ -211,12 +229,21 @@ export async function submitSessionLocalPr(
     const plan = planLocalPrSubmission({
       repository: request.repository,
       branch: request.branch,
+      sessionId: request.sessionId,
       registrations,
       openPullRequests,
       hasCommits: commits.length > 0,
+      fastLane: request.fastLane === true,
     });
     if (!plan.submit && "retry" in plan) {
-      const pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId);
+      let pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId);
+      if (
+        request.fastLane === true
+        && request.sessionId
+        && pullRequest.sessionId === request.sessionId
+      ) {
+        pullRequest = await deps.revisor.promoteLocalPullRequest(pullRequest.id, request.sessionId);
+      }
       deps.log.info(
         {
           session_id: request.sessionId,
@@ -227,6 +254,21 @@ export async function submitSessionLocalPr(
         },
         "resubmitted local PR for review",
       );
+      return { submitted: false, resubmitted: true, pullRequest };
+    }
+    if (!plan.submit && "promote" in plan) {
+      if (!request.sessionId) {
+        return { submitted: false, reason: "error", detail: "fast lane requires a Concordia session" };
+      }
+      const pullRequest = await deps.revisor.promoteLocalPullRequest(
+        plan.pullRequestId,
+        request.sessionId,
+      );
+      deps.log.info({
+        session_id: request.sessionId,
+        local_pr_id: pullRequest.id,
+        local_pr_number: pullRequest.number,
+      }, "promoted queued local PR to fast lane");
       return { submitted: false, resubmitted: true, pullRequest };
     }
     if (!plan.submit) {
@@ -260,6 +302,7 @@ export async function submitSessionLocalPr(
       headRef: plan.headRef,
       baseRef: plan.baseRef,
       sourceLinks,
+      ...(request.fastLane === true ? { fastLane: true } : {}),
     });
     deps.log.info(
       {

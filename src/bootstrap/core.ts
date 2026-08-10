@@ -605,12 +605,16 @@ export async function startBackend(): Promise<BackendHandle> {
     branch?: string;
     sessionId?: string;
     prContent?: string;
+    fastLane?: boolean;
   }) =>
     submitDirectLocalPr(
       { ...localPrDeps, resolveWorkspaceRoots: () => adminState.getWorkspaceRoots() },
       request,
     );
-  const submitLocalPrForSession = async (sessionId: string) => {
+  const submitLocalPrForSession = async (
+    sessionId: string,
+    options: { fastLane?: boolean } = {},
+  ) => {
     const session = repo.findSession(sessionId);
     if (!session) return { submitted: false as const, reason: "session_not_found" as const };
     return submitSessionLocalPr(
@@ -620,6 +624,7 @@ export async function startBackend(): Promise<BackendHandle> {
         repoPath: session.repo_path,
         repository: session.repo_origin,
         branch: session.branch,
+        fastLane: options.fastLane === true,
       },
     );
   };
@@ -643,7 +648,7 @@ export async function startBackend(): Promise<BackendHandle> {
         if (!adminState.getRevisorAutoSubmitEnabled()) return;
         const session = repo.findSession(ev.session_id);
         if (!session) return;
-        void submitLocalPrForSession(session.id);
+        void submitLocalPrForSession(session.id, { fastLane: false });
       });
       return { stop: unsubscribe };
     },
@@ -981,6 +986,7 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorLocalPrs: revisorClient ?? undefined,
     revisorLocalPrMerger: revisorClient,
     revisorLocalPrCloser: revisorClient,
+    revisorLocalPrPromoter: revisorClient,
     revisorConfig: revisorConfigRepo,
     implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。

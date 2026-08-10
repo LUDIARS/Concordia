@@ -63,6 +63,8 @@ export interface RevisorLocalPr {
   humanQuestion?: string | null;
   createdAt: string;
   updatedAt: string;
+  sessionId?: string | null;
+  reviewLane?: "standard" | "fast";
 }
 
 export interface RevisorLocalPrReader {
@@ -89,6 +91,11 @@ export interface RevisorLocalPrCloser {
   closeLocalPr(id: string, reason?: string): Promise<void>;
 }
 
+/** Revisor の queued local PR を提出元セッションの明示指示で fast lane へ移す。 */
+export interface RevisorLocalPrPromoter {
+  promoteLocalPr(id: string, sessionId: string): Promise<void>;
+}
+
 interface RevisorClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
   /**
@@ -105,7 +112,8 @@ interface RevisorClientOptions {
 }
 
 export class RevisorClient
-implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, RevisorLocalPrCloser {
+implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
+  RevisorLocalPrCloser, RevisorLocalPrPromoter {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
   private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
@@ -198,6 +206,8 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
           humanQuestion: optionalText("humanQuestion"),
           createdAt: text("createdAt"),
           updatedAt: text("updatedAt"),
+          sessionId: optionalText("sessionId"),
+          reviewLane: pr.reviewLane === "fast" ? "fast" : "standard",
         }];
       });
     } finally {
@@ -270,13 +280,22 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, Rev
     });
   }
 
+  async promoteLocalPr(id: string, sessionId: string): Promise<void> {
+    await this.mutateLocalPr({
+      id,
+      action: "fast-lane",
+      label: "fast-lane promotion",
+      body: { session_id: sessionId },
+    });
+  }
+
   /**
    * local PR の変更系 (merge / close) は Revisor では同じ workflow token 1 本で
    * 認可され、 経路も応答形も同じ。 差分は path と body だけなので 1 本にまとめる。
    */
   private async mutateLocalPr(request: {
     id: string;
-    action: "merge" | "close";
+    action: "merge" | "close" | "fast-lane";
     label: string;
     body?: Record<string, unknown>;
   }): Promise<void> {

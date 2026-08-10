@@ -30,6 +30,8 @@ export interface RevisorLocalPrSummary {
   headRef: string;
   status: string;
   checkStatus: string;
+  sessionId?: string | null;
+  reviewLane?: "standard" | "fast";
 }
 
 export interface SubmitLocalPrInput {
@@ -46,6 +48,8 @@ export interface SubmitLocalPrInput {
   headRef: string;
   baseRef?: string;
   sourceLinks?: readonly PrSourceLink[];
+  /** Explicit opt-in only. Omission always means the standard queue. */
+  fastLane?: boolean;
 }
 
 /** local PR の提出・照会に必要な操作だけを表す最小インタフェース (テスト差し替え用)。 */
@@ -54,6 +58,7 @@ export interface RevisorLocalPrGateway {
   listLocalPullRequests(): Promise<RevisorLocalPrSummary[]>;
   submitLocalPullRequest(input: SubmitLocalPrInput): Promise<RevisorLocalPrSummary>;
   retryLocalPullRequest(id: string): Promise<RevisorLocalPrSummary>;
+  promoteLocalPullRequest(id: string, sessionId: string): Promise<RevisorLocalPrSummary>;
 }
 
 export interface RevisorLocalPrClientOptions {
@@ -90,6 +95,8 @@ function asLocalPr(value: unknown): RevisorLocalPrSummary | null {
     headRef: typeof row.headRef === "string" ? row.headRef : "",
     status: typeof row.status === "string" ? row.status : "",
     checkStatus: typeof row.checkStatus === "string" ? row.checkStatus : "",
+    sessionId: typeof row.sessionId === "string" ? row.sessionId : null,
+    reviewLane: row.reviewLane === "fast" ? "fast" : "standard",
   };
 }
 
@@ -181,6 +188,7 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
         head_ref: input.headRef,
         ...(input.baseRef ? { base_ref: input.baseRef } : {}),
         ...(input.sourceLinks?.length ? { source_links: input.sourceLinks } : {}),
+        ...(input.fastLane === true ? { fast_lane: true } : {}),
       }),
     }) as { pullRequest?: unknown } | null;
     const pullRequest = asLocalPr(body?.pullRequest);
@@ -194,6 +202,16 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
     }) as { pullRequest?: unknown } | null;
     const pullRequest = asLocalPr(body?.pullRequest);
     if (!pullRequest) throw new Error("Revisor returned an invalid retried local PR");
+    return pullRequest;
+  }
+
+  async promoteLocalPullRequest(id: string, sessionId: string): Promise<RevisorLocalPrSummary> {
+    const body = await this.request(`/v1/local-prs/${encodeURIComponent(id)}/fast-lane`, {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId }),
+    }) as { pullRequest?: unknown } | null;
+    const pullRequest = asLocalPr(body?.pullRequest);
+    if (!pullRequest) throw new Error("Revisor returned an invalid promoted local PR");
     return pullRequest;
   }
 }

@@ -23,6 +23,8 @@ const LOCAL_PR = {
   headRef: "feat/thing",
   status: "open",
   checkStatus: "queued",
+  sessionId: null,
+  reviewLane: "standard",
 };
 
 describe("RevisorLocalPrClient", () => {
@@ -62,6 +64,33 @@ describe("RevisorLocalPrClient", () => {
       head_ref: "feat/thing",
       base_ref: "main",
     });
+  });
+
+  it("sends fast_lane only for an explicit opt-in and supports queued promotion", async () => {
+    const fetchImpl = vi.fn(async () => json({
+      pullRequest: { ...LOCAL_PR, sessionId: "s-1", reviewLane: "fast" },
+    }));
+    const client = new RevisorLocalPrClient({
+      excubitor: { findService: findService() },
+      token: "workflow-secret",
+      fetchImpl,
+    });
+    await client.submitLocalPullRequest({
+      repository: "LUDIARS/Concordia",
+      title: "変更を早く確認する",
+      body: "## 実装内容\n- 変更。\n\n## 受け入れ条件\n- 確認。",
+      author: "concordia",
+      sessionId: "s-1",
+      headRef: "feat/thing",
+      fastLane: true,
+    });
+    expect(JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body)))
+      .toMatchObject({ fast_lane: true, session_id: "s-1" });
+
+    await client.promoteLocalPullRequest("local-pr-1", "s-1");
+    const [url, init] = fetchImpl.mock.calls[1] as unknown as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:4240/v1/local-prs/local-pr-1/fast-lane");
+    expect(JSON.parse(String(init.body))).toEqual({ session_id: "s-1" });
   });
 
   // 読み取りは loopback 限定で token 不要 — token 無しの環境でも一覧は動く。

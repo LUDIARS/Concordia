@@ -151,6 +151,86 @@ describe("POST /v1/prs/local/:id/merge", () => {
   });
 });
 
+describe("POST /v1/prs/local and fast-lane promotion", () => {
+  it("passes only a strict explicit fast_lane opt-in to manual submission", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    const submitLocalPr = vi.fn(async () => ({ submitted: false as const, reason: "already_open" }));
+    const app = new Hono();
+    app.route("/v1/prs", prsRouter({ prs: env.prs, sessions: env.repo, submitLocalPr }));
+
+    const accepted = await app.request("/v1/prs/local", closeRequest({
+      session_id: "session-1",
+      fast_lane: true,
+    }));
+    expect(accepted.status).toBe(200);
+    expect(submitLocalPr).toHaveBeenCalledWith("session-1", { fastLane: true });
+
+    const rejected = await app.request("/v1/prs/local", closeRequest({
+      session_id: "session-1",
+      fast_lane: "yes",
+    }));
+    expect(rejected.status).toBe(400);
+
+    env.repo.setStatus("session-1", "ended", 2, 2);
+    const inactive = await app.request("/v1/prs/local", closeRequest({
+      session_id: "session-1",
+      fast_lane: true,
+    }));
+    expect(inactive.status).toBe(403);
+    expect(submitLocalPr).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets only the active submitting session promote a queued PR and audits it", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    const promoteLocalPr = vi.fn(async () => undefined);
+    const app = new Hono();
+    app.route("/v1/prs", prsRouter({
+      prs: env.prs,
+      sessions: env.repo,
+      revisor: {
+        baseUrl: async () => "http://127.0.0.1:4240",
+        listLocalPrs: async () => [{
+          id: "local-1",
+          number: 1,
+          repository: "LUDIARS/Concordia",
+          title: "変更",
+          author: "concordia",
+          status: "open",
+          checkStatus: "queued",
+          headRef: "feat/thing",
+          baseRef: "main",
+          headSha: "a",
+          createdAt: "2026-08-11T00:00:00Z",
+          updatedAt: "2026-08-11T00:00:00Z",
+          sessionId: "session-1",
+          reviewLane: "standard",
+        }],
+      },
+      revisorPromoter: { promoteLocalPr },
+    }));
+
+    const response = await app.request(
+      "/v1/prs/local/local-1/fast-lane",
+      closeRequest({ session_id: "session-1" }),
+    );
+    expect(response.status).toBe(200);
+    expect(promoteLocalPr).toHaveBeenCalledWith("local-1", "session-1");
+    expect(env.repo.recentEvents("session-1", 1)[0]).toMatchObject({
+      kind: "pr-fast-lane",
+      payload: expect.stringContaining("local-1"),
+    });
+
+    addSession(env, "session-other");
+    const denied = await app.request(
+      "/v1/prs/local/local-1/fast-lane",
+      closeRequest({ session_id: "session-other" }),
+    );
+    expect(denied.status).toBe(403);
+  });
+});
+
 describe("POST /v1/prs/local/:id/close", () => {
   it("closes with the last human requester's merge_pr capability and records an audit event", async () => {
     const env = makeTestApp();

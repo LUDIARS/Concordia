@@ -48,4 +48,40 @@ describe("POST /v1/prs/local/direct", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ submitted: false, reason: "no_commits" });
   });
+
+  it("requires a session and strict boolean for direct fast-lane opt-in", async () => {
+    const submitDirectLocalPr = vi.fn(async () => ({ submitted: false as const, reason: "no_commits" }));
+    let active = true;
+    const sessions = {
+      findSession: (id: string) => id === "s-1" ? { id, status: active ? "active" : "ended" } : null,
+      recentEvents: () => [],
+      appendEvent: () => undefined,
+    } as unknown as NonNullable<PrsApiDeps["sessions"]>;
+    const app = prsRouter({ prs: EMPTY_PRS, sessions, submitDirectLocalPr });
+    expect((await post(app, {
+      repo_path: "E:/Document/Ars/Concordia",
+      fast_lane: true,
+    })).status).toBe(400);
+    expect((await post(app, {
+      repo_path: "E:/Document/Ars/Concordia",
+      session_id: "s-1",
+      fast_lane: "true",
+    })).status).toBe(400);
+    const accepted = await post(app, {
+      repo_path: "E:/Document/Ars/Concordia",
+      session_id: "s-1",
+      fast_lane: true,
+    });
+    expect(accepted.status).toBe(200);
+    expect(submitDirectLocalPr).toHaveBeenLastCalledWith(expect.objectContaining({
+      sessionId: "s-1",
+      fastLane: true,
+    }));
+    active = false;
+    expect((await post(app, {
+      repo_path: "E:/Document/Ars/Concordia",
+      session_id: "s-1",
+      fast_lane: true,
+    })).status).toBe(403);
+  });
 });

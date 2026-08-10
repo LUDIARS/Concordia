@@ -5,6 +5,69 @@ import type { GeniusCard } from "../inquiry/genius-client.js";
 import { DirectorRepo } from "./repo.js";
 
 describe("DirectorRepo", () => {
+  it("advances the case timestamp when a decision is recorded", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new DirectorRepo(db);
+    repo.createCase({
+      id: "case-1",
+      title: "判断監査",
+      goal: "更新時刻を保つ",
+      project: "Cc",
+      created_at: 100,
+      updated_at: 100,
+    }, [{
+      id: "step-1",
+      case_id: "case-1",
+      sequence: 1,
+      kind: "review",
+      title: "レビュー",
+      status: "active",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: null,
+      created_at: 100,
+      updated_at: 100,
+    }]);
+
+    repo.createDecision({
+      id: "decision-1",
+      case_id: "case-1",
+      step_id: "step-1",
+      kind: "design",
+      question: "進めるか",
+      facts: [],
+      options: [],
+      impact: "次工程",
+      decision: "self_judge",
+      instruction: "通常判断で進める",
+      genius_available: false,
+      genius_cards: [],
+      created_at: 200,
+    });
+
+    expect(repo.findCase("case-1")?.updated_at).toBe(200);
+    repo.createDecision({
+      id: "decision-2",
+      case_id: "case-1",
+      step_id: "step-1",
+      kind: "design",
+      question: "再確認するか",
+      facts: [],
+      options: [],
+      impact: "次工程",
+      decision: "self_judge",
+      instruction: "通常判断で進める",
+      genius_available: false,
+      genius_cards: [],
+      created_at: 150,
+    });
+    expect(repo.findCase("case-1")?.updated_at).toBe(200);
+    db.close();
+  });
+
   it.each([
     "not-json",
     JSON.stringify({ id: "card-1" }),

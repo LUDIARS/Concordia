@@ -28,7 +28,7 @@ export interface DirectLocalPrRequest {
   sessionId?: string;
   /**
    * 任意。 提出者が書いた PR 本文。 省略時はコミット件名から自動生成する。
-   * Revisor の本文要件 (`## 実装内容` / `## 受け入れ条件`) は自動生成では満たせない。
+   * 自動生成も Revisor の本文要件 (`## 実装内容` / `## 受け入れ条件`) を満たす。
    */
   prContent?: string;
 }

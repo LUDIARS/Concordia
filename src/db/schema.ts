@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 56;
+export const SCHEMA_VERSION = 57;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1423,7 +1423,7 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
 }, {
   version: 56,
   name: "director-script-flow",
-  source: "director_cases + director_steps + director_decisions v1 ordered audit",
+  source: "director_cases + director_steps + director_decisions v1",
   up(db) {
     // Director は既存の task Markdown / delegation run / local PR / confirm run を複製せず、
     // 原稿フロー上の関連と工程状態だけを保持する。判断本文は Genius の監査結果として保存する。
@@ -1452,7 +1452,41 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_at          INTEGER NOT NULL,
         UNIQUE(case_id, sequence)
       );
+      CREATE INDEX IF NOT EXISTS idx_director_steps_case_sequence
+        ON director_steps(case_id, sequence);
       CREATE TABLE IF NOT EXISTS director_decisions (
+        id                TEXT PRIMARY KEY,
+        case_id           TEXT NOT NULL,
+        step_id           TEXT NOT NULL,
+        kind              TEXT NOT NULL,
+        question          TEXT NOT NULL,
+        facts_json        TEXT NOT NULL,
+        options_json      TEXT NOT NULL,
+        impact            TEXT NOT NULL,
+        decision          TEXT NOT NULL,
+        instruction       TEXT NOT NULL,
+        genius_available  INTEGER NOT NULL,
+        genius_cards_json TEXT NOT NULL,
+        created_at        INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_case_created
+        ON director_decisions(case_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_step_created
+        ON director_decisions(step_id, created_at ASC);
+    `);
+  },
+}, {
+  version: 57,
+  name: "director-decision-audit-order",
+  source: "director_decisions audit_sequence v2 + redundant index cleanup",
+  up(db) {
+    // Migration 56 は既に配布済みなので編集しない。SQLite は AUTOINCREMENT の
+    // PRIMARY KEY を ALTER TABLE で追加できないため、既存判断を発生順へ写して再構築する。
+    // 同一時刻の旧データは rowid (= 挿入順) で安定化し、新規データは audit_sequence を使う。
+    db.exec(`
+      DROP INDEX IF EXISTS idx_director_decisions_case_created;
+      DROP INDEX IF EXISTS idx_director_decisions_step_created;
+      CREATE TABLE director_decisions_v57 (
         audit_sequence    INTEGER PRIMARY KEY AUTOINCREMENT,
         id                TEXT NOT NULL UNIQUE,
         case_id           TEXT NOT NULL,
@@ -1468,10 +1502,22 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         genius_cards_json TEXT NOT NULL,
         created_at        INTEGER NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_director_decisions_case_sequence
+      INSERT INTO director_decisions_v57(
+        id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
+        instruction, genius_available, genius_cards_json, created_at
+      )
+      SELECT
+        id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
+        instruction, genius_available, genius_cards_json, created_at
+      FROM director_decisions
+      ORDER BY created_at ASC, rowid ASC;
+      DROP TABLE director_decisions;
+      ALTER TABLE director_decisions_v57 RENAME TO director_decisions;
+      CREATE INDEX idx_director_decisions_case_sequence
         ON director_decisions(case_id, audit_sequence ASC);
-      CREATE INDEX IF NOT EXISTS idx_director_decisions_step_sequence
+      CREATE INDEX idx_director_decisions_step_sequence
         ON director_decisions(step_id, audit_sequence ASC);
+      DROP INDEX IF EXISTS idx_director_steps_case_sequence;
     `);
   },
 }];

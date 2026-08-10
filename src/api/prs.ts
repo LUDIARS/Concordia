@@ -1,7 +1,7 @@
 /**
  * /v1/prs — PR キュー API.
  *
- * @implements spec/feature/revisor-local-pr-submission.md — 管理者の指示に基づくセッションからのマージ
+ * @implements spec/feature/revisor-local-pr-submission.md — local PR の提出・認可付き変更操作
  *
  *  GET /v1/prs
  *    各 session が作った PR を「対応すべき順」 に並べたキューを返す.

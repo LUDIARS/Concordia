@@ -210,6 +210,40 @@ describe("submitSessionLocalPr", () => {
     expect(sent!.body).toContain("Concordia session");
   });
 
+  // Revisor の PR 内容契約 (`local-contracts.mjs` の `prContent`) を満たさない本文は
+  // 400 で拒否され、Cc 経由の提出が全セッションで止まる (2026-08-10 に発生)。
+  // 節の有無だけでなく「非空かつ日本語を含む」ところまで見る — 契約の判定条件がそれ。
+  it("emits title and body that satisfy the Revisor PR content contract", async () => {
+    const sent: Array<{ title: string; body: string }> = [];
+    const submitLocalPullRequest = vi.fn(async (input: { title: string; body: string }) => {
+      sent.push({ title: input.title, body: input.body });
+      return {
+        id: "pr-9",
+        number: 9,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open" as const,
+        checkStatus: "queued" as const,
+      };
+    });
+    // 件名が英語だけでも日本語判定を満たすこと (箇条書きだけに頼らない)。
+    await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["fix(log): drop a repeated line"],
+      log,
+    }, request);
+
+    const japanese = /[぀-ヿ㐀-鿿]/;
+    expect(japanese.test(sent[0]!.title), "title must contain Japanese").toBe(true);
+    expect(sent[0]!.title).toBe("変更: fix(log): drop a repeated line");
+    for (const heading of ["実装内容", "受け入れ条件"]) {
+      const section = sent[0]!.body.split(new RegExp(`^##\\s+${heading}\\s*$`, "m"))[1] ?? "";
+      const content = section.split(/^##\s+/m)[0]!.trim();
+      expect(content, `## ${heading} must not be empty`).not.toBe("");
+      expect(japanese.test(content), `## ${heading} must contain Japanese`).toBe(true);
+    }
+  });
+
   it("submits even when optional source-link resolution fails", async () => {
     const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
     const warn = vi.fn();

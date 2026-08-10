@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { applyMigrations, SCHEMA_VERSION } from "../src/db/schema.js";
+import { migrationChecksum } from "../src/db/migrator.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
@@ -103,6 +104,88 @@ describe("schema", () => {
     ).toEqual({ value: String(SCHEMA_VERSION) });
 
     expect(() => applyMigrations(db)).not.toThrow();
+  });
+
+  it("upgrades an applied Director v56 schema without editing its migration", () => {
+    const db = makeRawTestDb();
+    db.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        applied_at INTEGER NOT NULL
+      );
+      CREATE TABLE director_cases (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        goal TEXT NOT NULL,
+        project TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE TABLE director_steps (
+        id TEXT PRIMARY KEY,
+        case_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        kind TEXT NOT NULL,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL,
+        task_path TEXT,
+        delegation_run_id TEXT,
+        local_pr_id TEXT,
+        confirm_run_id TEXT,
+        handoff_note TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(case_id, sequence)
+      );
+      CREATE INDEX idx_director_steps_case_sequence
+        ON director_steps(case_id, sequence);
+      CREATE TABLE director_decisions (
+        id TEXT PRIMARY KEY,
+        case_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        question TEXT NOT NULL,
+        facts_json TEXT NOT NULL,
+        options_json TEXT NOT NULL,
+        impact TEXT NOT NULL,
+        decision TEXT NOT NULL,
+        instruction TEXT NOT NULL,
+        genius_available INTEGER NOT NULL,
+        genius_cards_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX idx_director_decisions_case_created
+        ON director_decisions(case_id, created_at ASC);
+      CREATE INDEX idx_director_decisions_step_created
+        ON director_decisions(step_id, created_at ASC);
+      INSERT INTO director_decisions VALUES
+        ('z-first', 'case-1', 'step-1', 'design', 'first', '[]', '[]', 'impact',
+         'self_judge', 'instruction', 0, '[]', 100),
+        ('a-second', 'case-1', 'step-1', 'design', 'second', '[]', '[]', 'impact',
+         'self_judge', 'instruction', 0, '[]', 100);
+    `);
+    const v56 = {
+      version: 56,
+      name: "director-script-flow",
+      source: "director_cases + director_steps + director_decisions v1",
+    };
+    db.prepare(`
+      INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)
+    `).run(v56.version, v56.name, migrationChecksum(v56), 1);
+
+    applyMigrations(db);
+
+    const decisions = db.prepare(`
+      SELECT id, audit_sequence FROM director_decisions ORDER BY audit_sequence ASC
+    `).all() as Array<{ id: string; audit_sequence: number }>;
+    expect(decisions).toEqual([
+      { id: "z-first", audit_sequence: 1 },
+      { id: "a-second", audit_sequence: 2 },
+    ]);
+    const indexes = db.prepare(`PRAGMA index_list(director_steps)`).all() as Array<{ name: string }>;
+    expect(indexes.map((index) => index.name)).not.toContain("idx_director_steps_case_sequence");
   });
 });
 

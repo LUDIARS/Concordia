@@ -132,6 +132,8 @@ export type LocalPrSubmissionResult =
 
 /** PR 本文の上限。 Revisor 側の受け入れ上限 (65536) に合わせる。 */
 const MAX_PR_CONTENT_LENGTH = 65_536;
+const MAX_PR_TITLE_LENGTH = 200;
+const JAPANESE_TEXT_PATTERN = /[぀-ヿ㐀-鿿]/;
 
 /**
  * コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。
@@ -139,14 +141,28 @@ const MAX_PR_CONTENT_LENGTH = 65_536;
  * `prContent` が渡されたときは本文の自動生成を行わず、 書き手の文章をそのまま使う。
  * 提出の由来 (session / direct) は本文の意味に関わらないので付け足さない — 付けると
  * 書き手が構成した見出し構造の外に行が混ざる。
+ *
+ * 省略時の自動生成も Revisor の PR 内容契約 (`local-contracts.mjs` の `prContent`) を
+ * 満たす形にする — `## 実装内容` と `## 受け入れ条件` が両方あり、どちらも非空かつ日本語を
+ * 含むこと。本文を渡せるようにしても省略はできるので、フォールバックが契約から外れていると
+ * **Cc 経由の提出がそのまま 400 になる** (2026-08-10 に全セッションで発生)。
+ *
+ * 各節の先頭に日本語の導入行を置くのは体裁ではなく契約の要件。 コミット件名は英語のことが
+ * あり、箇条書きだけでは日本語判定を満たせない。
  */
 function describe(
   commits: readonly string[],
   sessionId: string | null,
   prContent?: string | null,
 ): { title: string; body: string } {
-  const subjects = commits.filter((line) => line.trim().length > 0);
-  const title = subjects[0]?.slice(0, 200) ?? "Local branch review";
+  const subjects = commits.map((line) => line.trim()).filter((line) => line.length > 0);
+  const subjectTitle = subjects[0] ?? "ローカルブランチの審査";
+  // Revisor はタイトルにも日本語を要求する。英語だけの Conventional Commit 件名を
+  // そのまま送ると、本文が契約を満たしていても提出全体が 400 になる。
+  const truncatedSubject = subjectTitle.slice(0, MAX_PR_TITLE_LENGTH);
+  const title = (JAPANESE_TEXT_PATTERN.test(truncatedSubject)
+    ? truncatedSubject
+    : `変更: ${subjectTitle}`).slice(0, MAX_PR_TITLE_LENGTH);
   const authored = typeof prContent === "string" ? prContent.trim() : "";
   if (authored) {
     return { title, body: authored.slice(0, MAX_PR_CONTENT_LENGTH) };
@@ -156,7 +172,15 @@ function describe(
       ? `Concordia session \`${sessionId}\` の作業ブランチを自動提出しました。`
       : "ブランチ直指定 (direct) で提出しました。審査結果は共有チャット通知で確認してください。",
     "",
-    ...(subjects.length > 0 ? ["コミット:", ...subjects.map((s) => `- ${s}`)] : []),
+    "## 実装内容",
+    subjects.length > 0
+      ? "このブランチに含まれるコミットは以下のとおりです。"
+      : "コミット件名を取得できなかったため、変更内容は差分を参照してください。",
+    ...subjects.map((subject) => `- ${subject}`),
+    "",
+    "## 受け入れ条件",
+    "- Revisor の審査ゲート (登録テスト・情報漏洩・Anatomia・セキュリティ) を通過すること。",
+    "- 上記コミットの範囲を超える変更を含まないこと。",
   ].join("\n");
   return { title, body };
 }

@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./pr-queue.md
   - ./pr-local-gate.md
-updated: 2026-08-03
+updated: 2026-08-10
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
@@ -73,6 +73,12 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 4. 成功時は、指示者、local PR ID、session ID を構造化ログと session event
    `pr-merged` に監査記録する。
 
+`POST /v1/prs/local/:id/close { session_id, reason? }` は同じ `merge_pr` capability と
+直近人間指示者の検証を通し、Revisor の local PR を明示的に取り下げる。board 整理のため
+他セッションが提出した PR も対象にできるが、指示者を解決できない場合や権限不足では fail-closed
+とする。`reason` は Revisor と監査ログへ渡す前に 500 文字へ制限し、成功時は `pr-closed`
+session event を残す。Revisor の生エラーは merge と同様にクライアントへ露出しない。
+
 Concordia は `dist` を実行するため、この変更を取り込んだ後は `npm run build` と
 Excubitor 経由の再起動が必要である。再起動操作そのものはこの API に含めない。
 
@@ -106,8 +112,11 @@ repository 名と base ref の照合は大文字小文字を無視する。 head
 
 ## 4. 提出内容
 
-- `title`: `base..branch` の**最新コミット件名** (200 文字で切り詰め)
-- `body`: セッション ID + コミット件名一覧
+- `title`: `base..branch` の**最新コミット件名**。Revisor の内容契約に合わせ、件名が英語だけなら
+  `変更: ` を先頭に補い、全体を 200 文字で切り詰める。
+- `body`: 呼び出し側が `pr_content` を渡した場合はその本文 (最大 65,536 文字)。省略時は
+  セッション ID / 提出経路、`## 実装内容`、コミット件名一覧、`## 受け入れ条件` を含む本文を
+  自動生成する。自動生成の各節は空にせず、日本語を含む Revisor 契約を満たす。
 - `author`: `concordia`
 - `session_id`: 提出した Concordia セッション ID。Revisor はこれを PR に保存し、審査が
   終局状態になった時だけ `session.inject` をそのセッションへ送る。`failed` /
@@ -163,7 +172,8 @@ Lictor 未ラップの bg job・終了済みセッションのブランチ・手
 ```jsonc
 { "repo_path": "E:/Document/Ars/<repo or worktree>",  // 必須。 絶対パス
   "branch": "feat/xxx",                                // 省略時は checkout ブランチ
-  "session_id": "..." }                                // 任意。 渡すと審査結果 inject が紐づく
+  "session_id": "...",                                // 任意。 渡すと審査結果 inject が紐づく
+  "pr_content": "## 実装内容\\n..." }                  // 任意。Revisor 契約に沿う提出本文
 ```
 
 - repo_path は implementation-tools と同じ workspace roots 境界の中だけを許す。

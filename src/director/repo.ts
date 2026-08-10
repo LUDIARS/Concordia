@@ -113,16 +113,23 @@ export class DirectorRepo {
     // Genius は外部サービス境界なので、既知フィールドだけを監査保存・API 応答へ通す。
     // 構文上は JSON 化できても契約外の内部フィールドをそのまま永続化しない。
     const geniusCards = readCards(JSON.stringify(input.genius_cards));
-    this.db.prepare(`
-      INSERT INTO director_decisions(
-        id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
-        instruction, genius_available, genius_cards_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      input.id, input.case_id, input.step_id, input.kind, input.question,
-      JSON.stringify(input.facts), JSON.stringify(input.options), input.impact, input.decision,
-      input.instruction, input.genius_available ? 1 : 0, JSON.stringify(geniusCards), input.created_at,
-    );
+    const create = this.db.transaction(() => {
+      this.db.prepare(`
+        INSERT INTO director_decisions(
+          id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
+          instruction, genius_available, genius_cards_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        input.id, input.case_id, input.step_id, input.kind, input.question,
+        JSON.stringify(input.facts), JSON.stringify(input.options), input.impact, input.decision,
+        input.instruction, input.genius_available ? 1 : 0, JSON.stringify(geniusCards), input.created_at,
+      );
+      // 判断の追加も case の監査履歴を変更する。step 遷移を伴わない proceed / self_judge
+      // でも read model の更新時刻が進むよう、同じ transaction で case を touch する。
+      this.db.prepare(`UPDATE director_cases SET updated_at = MAX(updated_at, ?) WHERE id = ?`)
+        .run(input.created_at, input.case_id);
+    });
+    create();
     return { ...input, genius_cards: geniusCards };
   }
 

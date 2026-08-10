@@ -19,6 +19,7 @@ import { PrQueue } from "./pages/PrQueue.js";
 import { CostFeed } from "./pages/CostFeed.js";
 import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
+import { RuntimeVersion } from "./components/RuntimeVersion.js";
 
 const NAV: NavItem[] = [
   { to: "/", label: "Monitor" },
@@ -47,7 +48,7 @@ export function App() {
         <span className="text-lg font-semibold whitespace-nowrap">
           <span className="text-accent">●</span> Concordia
         </span>
-        <span className="text-subtle text-xs">v{import.meta.env.VITE_EXCUBITOR_SERVICE_VERSION ?? "unavailable"}</span>
+        <RuntimeVersion />
         <span className="text-subtle text-xs hidden md:inline">multi-agent session coordinator</span>
         <Nav items={NAV} />
       </header>

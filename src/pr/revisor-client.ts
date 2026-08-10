@@ -64,6 +64,18 @@ export interface RevisorLocalPrMerger {
   mergeLocalPr(id: string): Promise<void>;
 }
 
+/**
+ * Revisor が保持する local PR を明示操作で取り下げる窓口。
+ *
+ * マージできない PR には「直せば通る」もの (衝突・テスト失敗) と、「もう出す意味が
+ * 無い」もの (内容が既に main に入っており squash しても 0 件) がある。 後者は
+ * Revisor 側でも squash が空コミットになって失敗するだけで、 board から消す手段が
+ * マージ経路には無い。 取り下げを別の窓口として持たせる。
+ */
+export interface RevisorLocalPrCloser {
+  closeLocalPr(id: string, reason?: string): Promise<void>;
+}
+
 interface RevisorClientOptions {
   excubitor: Pick<ExcubitorClient, "findService">;
   /**
@@ -77,7 +89,8 @@ interface RevisorClientOptions {
   timeoutMs?: number;
 }
 
-export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger {
+export class RevisorClient
+implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger, RevisorLocalPrCloser {
   private readonly excubitor: Pick<ExcubitorClient, "findService">;
   private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
@@ -228,27 +241,52 @@ export class RevisorClient implements RevisorReviewTrigger, RevisorLocalPrReader
   }
 
   async mergeLocalPr(id: string): Promise<void> {
+    await this.mutateLocalPr({ id, action: "merge", label: "merge" });
+  }
+
+  async closeLocalPr(id: string, reason?: string): Promise<void> {
+    await this.mutateLocalPr({
+      id,
+      action: "close",
+      label: "close",
+      body: reason ? { reason } : undefined,
+    });
+  }
+
+  /**
+   * local PR の変更系 (merge / close) は Revisor では同じ workflow token 1 本で
+   * 認可され、 経路も応答形も同じ。 差分は path と body だけなので 1 本にまとめる。
+   */
+  private async mutateLocalPr(request: {
+    id: string;
+    action: "merge" | "close";
+    label: string;
+    body?: Record<string, unknown>;
+  }): Promise<void> {
     // token はリクエストごとに解決する (設定画面で入れた workflow token が再起動なしで効く)。
     const token = this.token();
     if (!token) {
-      throw new Error("Revisor merge token is required (workflow token unset)");
+      throw new Error(`Revisor ${request.label} token is required (workflow token unset)`);
     }
     const port = await this.resolvePort();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetchImpl(`http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(id)}/merge`, {
+      const url = `http://127.0.0.1:${port}/v1/local-prs/${encodeURIComponent(request.id)}/${request.action}`;
+      const response = await this.fetchImpl(url, {
         method: "POST",
         headers: {
           authorization: `Bearer ${token}`,
           "x-concordia-actor": "concordia",
+          ...(request.body ? { "content-type": "application/json" } : {}),
         },
+        ...(request.body ? { body: JSON.stringify(request.body) } : {}),
         signal: controller.signal,
       });
       const body = await response.json().catch(() => null) as { error?: unknown } | null;
       if (!response.ok) {
         const detail = typeof body?.error === "string" ? `: ${body.error}` : "";
-        throw new Error(`Revisor local PR merge failed (${response.status})${detail}`);
+        throw new Error(`Revisor local PR ${request.label} failed (${response.status})${detail}`);
       }
     } finally {
       clearTimeout(timer);

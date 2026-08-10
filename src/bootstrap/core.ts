@@ -980,6 +980,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
     revisorLocalPrMerger: revisorClient,
+    revisorLocalPrCloser: revisorClient,
     revisorConfig: revisorConfigRepo,
     implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
@@ -1321,11 +1322,10 @@ export async function startBackend(): Promise<BackendHandle> {
       },
       {
         name: "reaction-workflow",
-        run: () => initReactionWorkflow(
-          workspaceRootDefault,
-          log,
-          isWorkflowEnabled("reaction"),
-        ),
+        // 実行は workflow.reaction で gate するが、実装は起動時に準備する。
+        // 無効時に読み込みまで飛ばすと、live 再有効化後も bot runner が bundled 実装に
+        // 固定され、設定済みの外部プラグインを使えなくなる。
+        run: () => initReactionWorkflow(workspaceRootDefault, log),
       },
     ], {
       shouldStop: () => shuttingDown,

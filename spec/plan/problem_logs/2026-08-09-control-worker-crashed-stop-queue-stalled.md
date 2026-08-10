@@ -165,10 +165,10 @@ Lictor `fix/session-end-done-from-shutdown` (`4dc6274` + autofix `dfb9461`) に
 
 0. **先に Excubitor の breakaway spawn を直す**。これが直らない限り
    `concordia-control` / `concordia-cost` / `genius` を含むどのサービスも
-   Excubitor 経由では起動できない。切り分けの次の一手は「子に渡している
-   `childEnv` を実際にダンプする」こと (launcher に env 保存を仕込む、または
-   `cmd /c set > dump.txt` 相当を一時的に起動して比較する)。手動起動時の env と
-   突き合わせれば、欠落しているものが特定できる。
+   Excubitor 経由では起動できない。切り分けでは、子へ渡す環境の**キー名だけ**を
+   launcher 側で一時採取し、手動起動時との差分を取る。値は token・資格情報・ローカル設定を
+   含み得るため保存しない。値の確認が不可避な個別キーは secret 判定後に明示的に redact し、
+   dump をリポジトリ・共有ログ・PR artifact へ入れない。
 1. `concordia-control` を復旧し、**定常稼働していることを state と実ログで確認する**。
    カタログ登録だけを完了条件にしない。
 2. 復旧前に滞留 713 件を棚卸しする。712 件は `expires_at` 切れで、worker は

@@ -28,7 +28,11 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
-import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type {
+  RevisorLocalPrCloser,
+  RevisorLocalPrMerger,
+  RevisorLocalPrReader,
+} from "../pr/revisor-client.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -52,6 +56,8 @@ export interface PrsApiDeps {
   staff?: Pick<StaffRepo, "roleOf">;
   /** Revisor local PR の変更操作。未注入時は fail-closed。 */
   revisorMerger?: RevisorLocalPrMerger;
+  /** Revisor local PR の取り下げ操作。未注入時は fail-closed。 */
+  revisorCloser?: RevisorLocalPrCloser;
   /**
    * session 非依存の direct 提出 (repo_path + branch)。 未注入なら
    * POST /v1/prs/local/direct は 503。
@@ -70,6 +76,9 @@ export interface PrsApiDeps {
 
 const VALID_STATES: PrState[] = ["draft", "open", "merged", "closed"];
 const log = createChildLogger("prs-api");
+
+/** 取り下げ理由は監査ログと Revisor 双方に載るので、素性の知れない長文は切り詰める。 */
+const MAX_CLOSE_REASON_LENGTH = 500;
 
 export function prsRouter(deps: PrsApiDeps): Hono {
   const app = new Hono();
@@ -188,6 +197,60 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     log.info(audit, "local PR merged with session requester authorization");
     deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-merged", payload: audit });
     return c.json({ merged: true, local_pr_id: localPrId });
+  });
+
+  /**
+   * POST /v1/prs/local/:id/close — session の直近人間指示者の権限で local PR を取り下げる。
+   *
+   * 認可はマージと同一 (merge_pr)。 取り下げは board から候補を消す破壊的操作で、 誤って
+   * 取り下げると変更が main に入らないまま見えなくなるため、 マージより弱い権限で通して
+   * よい理由が無い。
+   *
+   * 逆に、 マージより**強い**制限 (自セッションが作った PR に限る等) も付けない。 board の
+   * 整理は「既に main に入っていて出す意味が無くなった他セッションの PR」を畳む作業であり、
+   * 所有者に限ると用途そのものが成立しない。 マージが他セッターの PR を通せるのに取り下げ
+   * だけ通せないのは、 権限モデルとしても一貫しない。
+   */
+  app.post("/local/:id/close", async (c) => {
+    if (!deps.sessions || !deps.staff || !deps.revisorCloser) {
+      return c.json({ error: "local_pr_close_unavailable" }, 503);
+    }
+    const localPrId = c.req.param("id").trim();
+    if (!localPrId) return c.json({ error: "local_pr_id required" }, 400);
+    const body = await c.req.json().catch(() => null) as {
+      session_id?: unknown;
+      reason?: unknown;
+    } | null;
+    const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
+    if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
+    const reason = typeof body?.reason === "string" && body.reason.trim()
+      ? body.reason.trim().slice(0, MAX_CLOSE_REASON_LENGTH)
+      : undefined;
+
+    const requester = lastHumanRequester(deps.sessions.recentEvents(sessionId, 100));
+    if (!requester) return c.json({ error: "close_authorizer_unknown" }, 403);
+
+    const authorization = authorizeStaffCapability(deps.staff, requester.platform, requester.userId, "merge_pr");
+    if (!authorization.allowed) {
+      return c.json({ error: "close_not_authorized", detail: authorization.detail }, 403);
+    }
+    try {
+      await deps.revisorCloser.closeLocalPr(localPrId, reason);
+    } catch {
+      // Revisor の生の失敗内容は endpoint / 設定情報を含み得るので、ローカル API を経由して返さない。
+      return c.json({ error: "local_pr_close_failed", detail: "Revisor local PR close failed" }, 502);
+    }
+
+    const ts = Math.floor(Date.now() / 1000);
+    const audit = {
+      local_pr_id: localPrId,
+      session_id: sessionId,
+      reason: reason ?? null,
+      authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
+    };
+    log.info(audit, "local PR closed with session requester authorization");
+    deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-closed", payload: audit });
+    return c.json({ closed: true, local_pr_id: localPrId });
   });
 
   /**

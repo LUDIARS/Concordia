@@ -69,7 +69,7 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
-import type { RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type { RevisorLocalPrCloser, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { RevisorConfigRepo } from "../db/revisor-config-repo.js";
 import { revisorAdminRouter } from "./revisor-admin.js";
 import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
@@ -156,6 +156,8 @@ export interface CoreDelegationDeps {
   submitLocalPr?: PrsApiDeps["submitLocalPr"];
   /** Revisor local PR を、session の直近人間指示者の権限でマージする。 */
   revisorLocalPrMerger?: PrsApiDeps["revisorMerger"];
+  /** Revisor local PR を、session の直近人間指示者の権限で取り下げる。 */
+  revisorLocalPrCloser?: RevisorLocalPrCloser;
   /** repo_path + branch 直指定の direct 提出 (session 非依存)。 */
   submitDirectLocalPr?: PrsApiDeps["submitDirectLocalPr"];
   /** Batched implementation fast paths. Normal conversation sessions do not use them. */
@@ -260,6 +262,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     sessions: deps.repo,
     staff: deps.staff,
     revisorMerger: deps.revisorLocalPrMerger,
+    revisorCloser: deps.revisorLocalPrCloser,
     submitDirectLocalPr: deps.submitDirectLocalPr,
   }));
   if (deps.implementationTools) {

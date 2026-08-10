@@ -408,8 +408,21 @@ export async function deleteSessionStatusCard(
     if (ch?.isThread()) {
       const messageId = deps.configRepo.get(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`);
       if (messageId) {
-        await ch.messages.delete(messageId).catch(() => undefined);
-        deps.log.info(`status-card: removed card message session=${sessionId} thread=${ch.id}`);
+        try {
+          await ch.messages.delete(messageId);
+          deps.log.info(`status-card: removed card message session=${sessionId} thread=${ch.id}`);
+        } catch (error) {
+          const code = (error as { code?: number }).code;
+          if (code !== 10003 && code !== 10008) {
+            // marker を残して reconcile の次 tick で再試行する。ここで消すと stale card が
+            // Discord に残ったまま追跡不能になる。
+            deps.log.warn(
+              `status-card: remove card message failed session=${sessionId} thread=${ch.id}: ${(error as Error).message}`,
+            );
+            return;
+          }
+          deps.log.info(`status-card: card message already gone session=${sessionId} thread=${ch.id}`);
+        }
       }
       deps.configRepo.set(chKey, "");
       deps.configRepo.set(`${STATUS_MESSAGE_KEY_PREFIX}${sessionId}`, "");

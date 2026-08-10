@@ -1,7 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   buildContextWarningMessage,
   buildSessionStatusEmbed,
+  deleteSessionStatusCard,
   type StatusEmbedInput,
 } from "./session-status-card.js";
 
@@ -182,5 +183,33 @@ describe("buildSessionStatusEmbed", () => {
     expect(msg).toContain("86%");
     expect(msg).toContain("/co-compaction");
     expect(msg).not.toMatch(MOJIBAKE_RE);
+  });
+});
+
+describe("deleteSessionStatusCard", () => {
+  it("forum card の一時的な削除失敗では marker を残して再試行可能にする", async () => {
+    const values = new Map([
+      ["session_status_channel_id:session-1", "thread-1"],
+      ["session_status_message_id:session-1", "message-1"],
+    ]);
+    const remove = vi.fn().mockRejectedValue(new Error("temporary Discord failure"));
+    const thread = { id: "thread-1", isThread: () => true, messages: { delete: remove } };
+    const warn = vi.fn();
+
+    await deleteSessionStatusCard({
+      guild: {
+        channels: { cache: new Map([["thread-1", thread]]), fetch: vi.fn() },
+      } as unknown as Parameters<typeof deleteSessionStatusCard>[0]["guild"],
+      configRepo: {
+        get: (key: string) => values.get(key) ?? "",
+        set: (key: string, value: string) => { values.set(key, value); },
+      } as unknown as Parameters<typeof deleteSessionStatusCard>[0]["configRepo"],
+      log: { info: vi.fn(), warn },
+    }, "session-1");
+
+    expect(remove).toHaveBeenCalledWith("message-1");
+    expect(values.get("session_status_channel_id:session-1")).toBe("thread-1");
+    expect(values.get("session_status_message_id:session-1")).toBe("message-1");
+    expect(warn).toHaveBeenCalledOnce();
   });
 });

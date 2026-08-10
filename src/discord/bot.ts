@@ -49,6 +49,7 @@ import { WebhookPool } from "./webhook-pool.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
 import { dispatchInteraction, registerGuildCommands, type DiscordCommandDeps } from "./commands.js";
 import {
+  COMMAND_REGISTRATION_CHECK_MS,
   startCommandRegistrationWatch,
   workflowCommandSignature,
   type CommandRegistrationWatchHandle,
@@ -446,6 +447,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let reconcileTimer: ReturnType<typeof setInterval> | null = null;
   let testForumTimer: ReturnType<typeof setInterval> | null = null;
   let commandRegistrationWatch: CommandRegistrationWatchHandle | null = null;
+  let reactionListenerTimer: ReturnType<typeof setInterval> | null = null;
   let staleChannelTimer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
@@ -509,6 +511,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (reconcileTimer) { clearInterval(reconcileTimer); reconcileTimer = null; }
     if (testForumTimer) { clearInterval(testForumTimer); testForumTimer = null; }
     if (staleChannelTimer) { clearInterval(staleChannelTimer); staleChannelTimer = null; }
+    if (reactionListenerTimer) { clearInterval(reactionListenerTimer); reactionListenerTimer = null; }
     if (commandRegistrationWatch) { commandRegistrationWatch.stop(); commandRegistrationWatch = null; }
   };
   const stopAfterGatewayInstability = (status: string, error: string): void => {
@@ -596,11 +599,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             log.info(`slash commands registered guild=${env.guildId}`);
           }
           // 無効化 / 再有効化を検知して登録内容を張り替える (フラグだけ切り替わって
-          // コマンドが残る状態を作らない)。 リアクション購読も同じ変化で張り替える。
+          // コマンドが残る状態を作らない)。リアクション購読は独立 watcher が扱う。
           commandRegistrationWatch = startCommandRegistrationWatch({
             signature: () => workflowCommandSignature(isWorkflowEnabled),
             reregister: async () => {
-              syncReactionListeners();
               await registerGuildCommands(env.token!, env.applicationId!, env.guildId!, {
                 subsidiary: !!deps.subsidiary,
                 isWorkflowEnabled,
@@ -1086,6 +1088,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     reactionListenersAttached = shouldAttach;
   }
   syncReactionListeners();
+  // Slash command の application id / REST 成否と独立して live toggle を反映する。
+  reactionListenerTimer = setInterval(syncReactionListeners, COMMAND_REGISTRATION_CHECK_MS);
+  reactionListenerTimer.unref?.();
   client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
     startInteractionAckProbe(interaction, recordDiscordInteractionAck);
@@ -1445,7 +1450,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             configRepo,
             post: async (channelId, content) => {
               const channel = await guild.channels.fetch(channelId).catch(() => null);
-              if (!channel?.isTextBased()) return;
+              // resolved = 投稿成功という port 契約。取得失敗を成功扱いすると marker だけが
+              // 永続化され、以後の status event でもリンクを再試行できなくなる。
+              if (!channel?.isTextBased()) {
+                throw new Error(`delegation parent channel unavailable: ${channelId}`);
+              }
               await channel.send({ content, allowedMentions: { parse: [] } });
             },
             log,

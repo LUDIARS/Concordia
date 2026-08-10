@@ -89,12 +89,21 @@ export interface CostLeaseWatchDeps {
 export function createCostLeaseWatchTick(deps: CostLeaseWatchDeps): () => void {
   let workerDownReported = false;
   let lastLease: WorkerLease | null = null;
+  let workflowWasDisabled = false;
   return () => {
     if (deps.isWorkflowEnabled && !deps.isWorkflowEnabled()) {
+      workflowWasDisabled = true;
+      workerDownReported = false;
       if (deps.runtime.isRunning()) {
         deps.log.info("workflow.cost disabled; stopping embedded cost sampler");
         deps.runtime.stop();
       }
+      return;
+    }
+    if (workflowWasDisabled) {
+      // cost-worker は 5 秒周期で flag を見て lease を再取得する。再有効化直後の 1 tick は
+      // その猶予に充て、lease 再取得前の瞬間を worker down と誤報しない。
+      workflowWasDisabled = false;
       return;
     }
     const lease = deps.readLease();

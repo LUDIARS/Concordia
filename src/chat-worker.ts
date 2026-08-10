@@ -183,7 +183,8 @@ async function main(): Promise<void> {
       "reaction-workflow is enabled but no staff member holds the firing capability",
     );
   }
-  await initReactionWorkflow(workspaceRoot, log, adminState.isWorkflowEnabled("reaction"));
+  // workflow.reaction は購読・実行側で live gate する。外部実装は再有効化に備えて準備する。
+  await initReactionWorkflow(workspaceRoot, log);
 
   const backendHost = isLoopbackHost(cfg.host) ? cfg.host : "127.0.0.1";
   const concordiaUrl = `http://${backendHost}:${cfg.port}`;

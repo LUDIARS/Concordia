@@ -22,9 +22,10 @@ The workflow requires agents to:
 - stop after the PR is created; tests, CI-fix continuation, merge, auto-merge, and main updates require an explicit user instruction.
 
 これらの要求はすべて Cc と Revisor が生きていることを前提にしている。前提が崩れて復旧作業
-自体が始められない場合に限り、[エスカレーションモード](escalation-mode.md) がこの packet を
-差し替える (task 登録と worktree を外し、本ブランチの直接操作を許し、他セッションへ作業停止
-claim を送る)。外れる範囲と、外したことを記録に残す条件はそちらが定義する。
+自体が始められない場合に備えた [エスカレーションモード](escalation-mode.md) は定義済みだが、
+現時点では未実装であり、この packet はまだ差し替わらない。実装後は task 登録と worktree 要求を
+外し、本ブランチの直接操作を許し、他セッションへ作業停止 claim を送る。外れる範囲と、外した
+ことを記録に残す条件はリンク先が定義する。
 
 PR CI follow-up is also backed by the existing PR reconciler. When GitHub status
 changes to `success` or `failure` for a session-authored PR, Concordia enqueues

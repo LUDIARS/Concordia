@@ -4,7 +4,7 @@ import { postDelegationThreadLink } from "./delegation-thread-link.js";
 function makeDeps(overrides: { channels?: Record<string, string> } = {}) {
   const channels = overrides.channels ?? { parent: "100", child: "200" };
   const config = new Map<string, string>();
-  const post = vi.fn(async () => undefined);
+  const post = vi.fn<(channelId: string, content: string) => Promise<void>>(async () => undefined);
   return {
     post,
     config,
@@ -45,6 +45,30 @@ describe("postDelegationThreadLink", () => {
     await postDelegationThreadLink(deps, input);
     expect(await postDelegationThreadLink(deps, { ...input, status: "running" })).toBe(false);
     expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("同じ run のイベントが並行しても一度だけ貼る", async () => {
+    let releasePost: (() => void) | undefined;
+    const { deps, post } = makeDeps();
+    post.mockImplementation(() => new Promise<void>((resolve) => { releasePost = resolve; }));
+
+    const first = postDelegationThreadLink(deps, input);
+    const second = postDelegationThreadLink(deps, { ...input, status: "active" });
+    await Promise.resolve();
+    expect(post).toHaveBeenCalledTimes(1);
+    releasePost?.();
+
+    expect(await Promise.all([first, second])).toEqual([true, false]);
+    expect(post).toHaveBeenCalledTimes(1);
+  });
+
+  it("投稿失敗後は次のイベントで再試行できる", async () => {
+    const { deps, post } = makeDeps();
+    post.mockRejectedValueOnce(new Error("temporary Discord failure"));
+
+    expect(await postDelegationThreadLink(deps, input)).toBe(false);
+    expect(await postDelegationThreadLink(deps, input)).toBe(true);
+    expect(post).toHaveBeenCalledTimes(2);
   });
 
   it("起動前の status では貼らない", async () => {

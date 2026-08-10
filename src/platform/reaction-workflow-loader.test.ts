@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { getRwf, initReactionWorkflow, _resetReactionWorkflowLoader } from "./reaction-workflow-loader.js";
 
 const silentLog = { info: () => {}, warn: () => {} };
@@ -25,5 +25,17 @@ describe("reaction-workflow-loader", () => {
     await initReactionWorkflow(null, silentLog);
     expect(getRwf().isStandaloneEmoji("👍")).toBe(true);
     delete process.env.CONCORDIA_RWF_PLUGIN_PATH;
+  });
+
+  it("workflow.reaction が無効なら外部プラグインの読み込みを試みない", async () => {
+    const log = { info: vi.fn(), warn: vi.fn() };
+
+    await initReactionWorkflow("E:/workspace", log, false);
+
+    expect(log.info).toHaveBeenCalledWith(
+      "rwf-loader: workflow.reaction disabled; external plugin load skipped",
+    );
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(getRwf().classifyReactionWorkflow("👍")).toBe("start-impl");
   });
 });

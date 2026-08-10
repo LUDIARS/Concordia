@@ -600,7 +600,12 @@ export async function startBackend(): Promise<BackendHandle> {
   };
   // direct 提出 (session 非依存)。 repo_path の境界は implementation-tools と同じ
   // workspace roots を使う。
-  const submitDirectLocalPrRequest = (request: { repoPath: string; branch?: string; sessionId?: string }) =>
+  const submitDirectLocalPrRequest = (request: {
+    repoPath: string;
+    branch?: string;
+    sessionId?: string;
+    prContent?: string;
+  }) =>
     submitDirectLocalPr(
       { ...localPrDeps, resolveWorkspaceRoots: () => adminState.getWorkspaceRoots() },
       request,
@@ -1316,7 +1321,11 @@ export async function startBackend(): Promise<BackendHandle> {
       },
       {
         name: "reaction-workflow",
-        run: () => initReactionWorkflow(workspaceRootDefault, log),
+        run: () => initReactionWorkflow(
+          workspaceRootDefault,
+          log,
+          isWorkflowEnabled("reaction"),
+        ),
       },
     ], {
       shouldStop: () => shuttingDown,
@@ -1405,6 +1414,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const costWorkerWatch = setInterval(
     createCostLeaseWatchTick({
       mode: costMode,
+      isWorkflowEnabled: () => isWorkflowEnabled("cost"),
       runtime: costRuntime,
       readLease: () => readCostWorkerLease(discordConfig),
       log,

@@ -17,7 +17,13 @@ export function dedupeWorkspaceRoots(roots: readonly string[]): string[] {
   for (const root of roots) {
     const trimmed = root.trim();
     if (!trimmed) continue;
-    const key = trimmed.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+    const normalized = trimmed.replace(/\\/g, "/").replace(/\/+$/, "");
+    // Windows drive / UNC paths are case-insensitive even when unit tests run on
+    // another OS. POSIX roots remain case-sensitive (`/srv/Repo` and `/srv/repo`
+    // may be different directories), so do not lowercase them unconditionally.
+    const key = /^[A-Za-z]:\//.test(normalized) || normalized.startsWith("//")
+      ? normalized.toLowerCase()
+      : normalized;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(trimmed);

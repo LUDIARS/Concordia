@@ -50,9 +50,11 @@ async function main(): Promise<void> {
   });
   const syncWorkflow = (): void => {
     if (!adminState.isWorkflowEnabled("cost")) {
-      runtime.stop();
-      lease?.stop();
-      lease = null;
+      if (runtime.isRunning()) runtime.stop();
+      if (lease) {
+        lease.stop();
+        lease = null;
+      }
       return;
     }
     if (!lease) lease = startCostWorkerLease(configRepo);

@@ -109,7 +109,6 @@ import { directorRouter } from "./director.js";
 import type { DirectorService } from "../director/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
-import { resolveTestSessionWorkflowEnv } from "../control/test-session-workflow-token.js";
 import { workflowGate } from "../workflow/api-gate.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 

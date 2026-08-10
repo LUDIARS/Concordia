@@ -52,8 +52,13 @@ function resolvePluginPath(_workspaceRoot: string | null | undefined): string {
 export async function initReactionWorkflow(
   workspaceRoot: string | null | undefined,
   log: { info: (m: string) => void; warn: (m: string) => void },
+  enabled = true,
 ): Promise<void> {
   if (initialized) return;
+  if (!enabled) {
+    log.info("rwf-loader: workflow.reaction disabled; external plugin load skipped");
+    return;
+  }
   initialized = true;
   const path = resolvePluginPath(workspaceRoot);
   if (!path) {

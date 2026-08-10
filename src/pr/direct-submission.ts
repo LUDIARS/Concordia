@@ -26,6 +26,11 @@ export interface DirectLocalPrRequest {
   branch?: string;
   /** 任意。 渡すと従来経路と同じ session binding が付き、 審査結果が inject で戻る。 */
   sessionId?: string;
+  /**
+   * 任意。 提出者が書いた PR 本文。 省略時はコミット件名から自動生成する。
+   * Revisor の本文要件 (`## 実装内容` / `## 受け入れ条件`) は自動生成では満たせない。
+   */
+  prContent?: string;
 }
 
 export interface DirectLocalPrDeps extends LocalPrSubmissionDeps {
@@ -102,5 +107,6 @@ export async function submitDirectLocalPr(
     repoPath,
     repository,
     branch: branch || null,
+    prContent: request.prContent?.trim() || null,
   });
 }

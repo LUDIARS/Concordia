@@ -84,7 +84,11 @@ export class DirectorService {
       k: 8,
     }).catch(() => null);
     const geniusAvailable = cards !== null;
-    const decision = cards === null ? "self_judge" : decideInquiry(cards, this.deps.scoreMin);
+    const inquiryDecision = cards === null
+      ? "self_judge"
+      : decideDirectorInquiry(cards, this.deps.scoreMin);
+    const guardedFallback = requiresHumanFallback(input.kind) && inquiryDecision === "self_judge";
+    const decision = guardedFallback ? "ask_human" : inquiryDecision;
     const record: DirectorDecisionRecord = {
       id: id("ddc"),
       case_id: input.case_id,
@@ -95,16 +99,28 @@ export class DirectorService {
       options: input.options,
       impact: input.impact,
       decision,
-      instruction: instructionFor(decision, cards ?? [], this.deps.scoreMin),
+      instruction: instructionFor(
+        decision,
+        cards ?? [],
+        this.deps.scoreMin,
+        geniusAvailable,
+        guardedFallback,
+      ),
       genius_available: geniusAvailable,
       genius_cards: cards ?? [],
       created_at: this.now(),
     };
-    this.deps.repo.createDecision(record);
-    const resolvedStep = decision === "ask_human" && step.status !== "completed" && step.status !== "cancelled"
-      ? this.updateStep({ case_id: input.case_id, step_id: step.id, status: "blocked" })
-      : step;
-    return { decision: record, step: resolvedStep };
+    const savedRecord = this.deps.repo.createDecision(record);
+    // Genius 応答待ちの間に工程が進む可能性があるため、保存後に最新状態を読み直す。
+    // terminal へ到達済みなら監査記録だけを残し、古い active 状態を根拠に再遷移しない。
+    const currentStep = this.requireCaseStep(input.case_id, input.step_id);
+    const shouldBlock = decision === "ask_human"
+      && currentStep.status !== "completed"
+      && currentStep.status !== "cancelled";
+    const resolvedStep = shouldBlock && currentStep.status !== "blocked"
+      ? this.updateStep({ case_id: input.case_id, step_id: currentStep.id, status: "blocked" })
+      : currentStep;
+    return { decision: savedRecord, step: resolvedStep };
   }
 
   private requireCaseStep(caseId: string, stepId: string): DirectorStep {
@@ -137,6 +153,21 @@ function toInquiryCategory(kind: DirectorDecisionKind): InquiryCategory {
   return "設計";
 }
 
+function requiresHumanFallback(kind: DirectorDecisionKind): boolean {
+  return kind === "authority" || kind === "scope";
+}
+
+function decideDirectorInquiry(
+  cards: readonly GeniusCard[],
+  scoreMin: number,
+): DirectorDecisionRecord["decision"] {
+  const decision = decideInquiry(cards, scoreMin);
+  if (decision !== "proceed") return decision;
+  return cards.some((card) => card.score >= scoreMin && card.judgment?.trim())
+    ? "proceed"
+    : "self_judge";
+}
+
 function renderDecisionContext(input: RequestDirectorDecisionInput): string {
   return [
     `[Director ${input.kind}] ${input.question}`,
@@ -146,13 +177,27 @@ function renderDecisionContext(input: RequestDirectorDecisionInput): string {
   ].join("\n");
 }
 
-function instructionFor(decision: DirectorDecisionRecord["decision"], cards: readonly GeniusCard[], scoreMin: number): string {
+function instructionFor(
+  decision: DirectorDecisionRecord["decision"],
+  cards: readonly GeniusCard[],
+  scoreMin: number,
+  geniusAvailable: boolean,
+  guardedFallback: boolean,
+): string {
   if (decision === "proceed") {
     const precedent = cards
       .filter((card) => card.score >= scoreMin && card.judgment?.trim())
       .sort((left, right) => right.score - left.score)[0];
-    return precedent?.judgment?.trim() || "Genius の判断カードを参照して工程を進めてください。";
+    // decideDirectorInquiry が judgment の存在を必須にしているため、通常ここは必ず値を持つ。
+    return precedent?.judgment?.trim() || "Genius の判断を取得できませんでした。通常判断で進めてください。";
   }
-  if (decision === "ask_human") return "Genius の判断では人間の承認が必要です。上長の判断を待ってください。";
+  if (decision === "ask_human") {
+    if (guardedFallback) {
+      return geniusAvailable
+        ? "Genius に十分な前例がありません。権限またはスコープの判断は人間の承認を待ってください。"
+        : "Genius が利用できません。権限またはスコープの判断は人間の承認を待ってください。";
+    }
+    return "Genius の判断では人間の承認が必要です。上長の判断を待ってください。";
+  }
   return "判断代行 (Genius) が不在または前例不足です。このセッションの通常判断で進めてください。";
 }

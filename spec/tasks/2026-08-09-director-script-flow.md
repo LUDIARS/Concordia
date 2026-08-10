@@ -2,6 +2,7 @@
 task: director-script-flow
 project: Concordia
 kind: 実装
+status: done
 created: 2026-08-09
 memory_links:
   - spec/feature/task-workflow.md

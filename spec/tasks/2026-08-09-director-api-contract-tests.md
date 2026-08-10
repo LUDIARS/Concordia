@@ -2,6 +2,7 @@
 task: director-api-contract-tests
 project: Concordia
 kind: 実装
+status: done
 created: 2026-08-09
 memory_links:
   - spec/tasks/2026-08-09-director-script-flow.md

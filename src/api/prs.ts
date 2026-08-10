@@ -56,7 +56,12 @@ export interface PrsApiDeps {
    * session 非依存の direct 提出 (repo_path + branch)。 未注入なら
    * POST /v1/prs/local/direct は 503。
    */
-  submitDirectLocalPr?: (request: { repoPath: string; branch?: string; sessionId?: string }) => Promise<
+  submitDirectLocalPr?: (request: {
+    repoPath: string;
+    branch?: string;
+    sessionId?: string;
+    prContent?: string;
+  }) => Promise<
     | { submitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; resubmitted: true; pullRequest: { id: string; number: number; repository: string } }
     | { submitted: false; reason: string; detail?: string }
@@ -195,13 +200,16 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   app.post("/local/direct", async (c) => {
     if (!deps.submitDirectLocalPr) return c.json({ error: "local_pr_submission_unavailable" }, 503);
     const body = await c.req.json().catch(() => null) as
-      | { repo_path?: unknown; branch?: unknown; session_id?: unknown }
+      | { repo_path?: unknown; branch?: unknown; session_id?: unknown; pr_content?: unknown }
       | null;
     const repoPath = typeof body?.repo_path === "string" ? body.repo_path.trim() : "";
     if (!repoPath) return c.json({ error: "repo_path (string) required" }, 400);
     const branch = typeof body?.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
     const sessionId = typeof body?.session_id === "string" && body.session_id.trim() ? body.session_id.trim() : undefined;
-    return c.json(await deps.submitDirectLocalPr({ repoPath, branch, sessionId }));
+    const prContent = typeof body?.pr_content === "string" && body.pr_content.trim()
+      ? body.pr_content
+      : undefined;
+    return c.json(await deps.submitDirectLocalPr({ repoPath, branch, sessionId, prContent }));
   });
 
   app.get("/list", (c) => {

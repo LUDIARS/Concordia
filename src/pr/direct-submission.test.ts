@@ -86,6 +86,18 @@ describe("submitDirectLocalPr", () => {
     expect(submitLocalPullRequest).toHaveBeenCalledWith(expect.objectContaining({ sessionId: "s-1" }));
   });
 
+  it("passes the supplied PR content through to the submission", async () => {
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+    const authored = "## 実装内容\n\n直指定で本文を渡す。\n\n## 受け入れ条件\n\n本文がそのまま届く。";
+
+    await submitDirectLocalPr(
+      deps({ revisor: gateway({ submitLocalPullRequest }) }),
+      { repoPath: REPO, branch: "feat/thing", prContent: authored },
+    );
+
+    expect(submitLocalPullRequest).toHaveBeenCalledWith(expect.objectContaining({ body: authored }));
+  });
+
   it("falls back to the checkout branch when branch is omitted", async () => {
     const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
     await submitDirectLocalPr(

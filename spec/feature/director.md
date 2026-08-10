@@ -4,7 +4,7 @@ title: "Director — 原稿フロー進行と Genius 判断代理"
 description: "依頼を原稿フローの工程として管理し、実装の進行管理を Concordia Director、判断を Genius、権限判断を人間へ分離する。"
 service: concordia
 domain: governance
-status: planned
+status: implemented
 related:
   - feature/task-workflow.md
   - feature/inquiry.md
@@ -70,6 +70,9 @@ Genius の回答は `proceed`、`ask_human`、`self_judge` のいずれかとし
 - `ask_human`: 工程を blocked にし、上長への 1 件の判断カードを作る。
 - `self_judge`: Genius 不在または前例不足。担当へ「通常判断で進める」を明示する。
 
+ただし `authority` / `scope` は担当セッションへ委ねられない境界なので、Genius が不在でも
+`self_judge` へ降格せず `ask_human` として工程を blocked にする。
+
 merge、テスト開始、サービス制御、push、破壊的操作は Director の action 対象外であり、
 既存の人間承認・Revisor・Excubitor 経路を維持する。
 
@@ -78,7 +81,7 @@ merge、テスト開始、サービス制御、push、破壊的操作は Directo
 `director_cases` は依頼単位。title、goal、project、created/updated 時刻を持つ。
 `director_steps` は case 内の順序と工程情報、成果物参照、handoff note を持つ。
 `director_decisions` は step に紐づく判断依頼、Genius の可用性、決定、instruction、根拠カード、
-人間 escalation の有無を持つ。
+人間 escalation の有無と、同一時刻でも発生順を保持する単調増加の監査順序キーを持つ。
 
 いずれも taskflow の status、assignee、PR 番号を所有しない。task md は static definition、
 taskflow state は runtime state、delegation/PR/confirm は既存テーブルが唯一の正本である。

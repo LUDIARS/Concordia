@@ -19,6 +19,13 @@ describe("dedupeWorkspaceRoots", () => {
   it("先頭の表記を残す", () => {
     expect(dedupeWorkspaceRoots(["e:/ars", "E:\\Ars"])).toEqual(["e:/ars"]);
   });
+
+  it("POSIX の大文字小文字が異なるルートは別物として保持する", () => {
+    expect(dedupeWorkspaceRoots(["/srv/Repo", "/srv/repo"])).toEqual([
+      "/srv/Repo",
+      "/srv/repo",
+    ]);
+  });
 });
 
 describe("readConfiguredWorkspaceRoots", () => {

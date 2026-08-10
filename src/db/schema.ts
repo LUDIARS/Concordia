@@ -1423,7 +1423,7 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
 }, {
   version: 56,
   name: "director-script-flow",
-  source: "director_cases + director_steps + director_decisions v1",
+  source: "director_cases + director_steps + director_decisions v1 ordered audit",
   up(db) {
     // Director は既存の task Markdown / delegation run / local PR / confirm run を複製せず、
     // 原稿フロー上の関連と工程状態だけを保持する。判断本文は Genius の監査結果として保存する。
@@ -1452,10 +1452,9 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         updated_at          INTEGER NOT NULL,
         UNIQUE(case_id, sequence)
       );
-      CREATE INDEX IF NOT EXISTS idx_director_steps_case_sequence
-        ON director_steps(case_id, sequence);
       CREATE TABLE IF NOT EXISTS director_decisions (
-        id                TEXT PRIMARY KEY,
+        audit_sequence    INTEGER PRIMARY KEY AUTOINCREMENT,
+        id                TEXT NOT NULL UNIQUE,
         case_id           TEXT NOT NULL,
         step_id           TEXT NOT NULL,
         kind              TEXT NOT NULL,
@@ -1469,10 +1468,10 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
         genius_cards_json TEXT NOT NULL,
         created_at        INTEGER NOT NULL
       );
-      CREATE INDEX IF NOT EXISTS idx_director_decisions_case_created
-        ON director_decisions(case_id, created_at ASC);
-      CREATE INDEX IF NOT EXISTS idx_director_decisions_step_created
-        ON director_decisions(step_id, created_at ASC);
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_case_sequence
+        ON director_decisions(case_id, audit_sequence ASC);
+      CREATE INDEX IF NOT EXISTS idx_director_decisions_step_sequence
+        ON director_decisions(step_id, audit_sequence ASC);
     `);
   },
 }];

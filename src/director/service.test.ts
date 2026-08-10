@@ -48,6 +48,65 @@ describe("DirectorService", () => {
     expect(result.decision.instruction).toContain("Genius");
   });
 
+  it("does not proceed from a qualifying card that contains no judgment", async () => {
+    const service = makeService([card({ judgment: undefined })]);
+    const created = service.createCase({
+      title: "原稿フロー",
+      goal: "Cc が判断内容を補完しない",
+      project: "Cc",
+      steps: [{ kind: "implement", title: "実装" }],
+    });
+
+    const result = await service.requestDecision(
+      decisionRequest(created.case.id, created.steps[0].id),
+    );
+
+    expect(result.decision.decision).toBe("self_judge");
+    expect(result.decision.instruction).toContain("通常判断");
+  });
+
+  it.each(["authority", "scope"] as const)(
+    "blocks %s decisions when Genius is unavailable",
+    async (kind) => {
+      const service = makeService(null);
+      const created = service.createCase({
+        title: "原稿フロー",
+        goal: "権限境界を守る",
+        project: "Cc",
+        steps: [{ kind: "implement", title: "実装" }],
+      });
+      const result = await service.requestDecision({
+        ...decisionRequest(created.case.id, created.steps[0].id),
+        kind,
+      });
+
+      expect(result.decision).toMatchObject({
+        decision: "ask_human",
+        genius_available: false,
+      });
+      expect(result.decision.instruction).toContain("人間");
+      expect(result.step.status).toBe("blocked");
+    },
+  );
+
+  it("blocks authority decisions when Genius has no qualifying precedent", async () => {
+    const service = makeService([]);
+    const created = service.createCase({
+      title: "原稿フロー",
+      goal: "前例不足を人間へ上げる",
+      project: "Cc",
+      steps: [{ kind: "implement", title: "実装" }],
+    });
+    const result = await service.requestDecision({
+      ...decisionRequest(created.case.id, created.steps[0].id),
+      kind: "authority",
+    });
+
+    expect(result.decision).toMatchObject({ decision: "ask_human", genius_available: true });
+    expect(result.decision.instruction).toContain("十分な前例");
+    expect(result.step.status).toBe("blocked");
+  });
+
   it("blocks an active step when Genius identifies a human-approval decision", async () => {
     const service = makeService([card({ domain: "権限判断", tags: ["人間承認"] })]);
     const created = service.createCase({
@@ -72,12 +131,67 @@ describe("DirectorService", () => {
       case_id: created.case.id, step_id: created.steps[0].id, status: "active",
     })).toThrow(DirectorTransitionError);
   });
+
+  it("does not reopen a step completed while waiting for Genius", async () => {
+    let service: DirectorService;
+    let caseId = "";
+    let stepId = "";
+    const genius: GeniusClient = {
+      query: async () => {
+        service.updateStep({ case_id: caseId, step_id: stepId, status: "completed" });
+        return [card({ domain: "権限判断", tags: ["人間承認"] })];
+      },
+    };
+    service = makeServiceWithGenius(genius);
+    const created = service.createCase({
+      title: "原稿フロー",
+      goal: "競合時も terminal を守る",
+      project: "Cc",
+      steps: [{ kind: "review", title: "レビュー" }],
+    });
+    caseId = created.case.id;
+    stepId = created.steps[0].id;
+    service.updateStep({ case_id: caseId, step_id: stepId, status: "active" });
+
+    const result = await service.requestDecision({
+      ...decisionRequest(caseId, stepId),
+      kind: "authority",
+    });
+
+    expect(result.decision.decision).toBe("ask_human");
+    expect(result.step.status).toBe("completed");
+    expect(service.getCase(caseId)?.decisions).toHaveLength(1);
+  });
+
+  it("returns decisions in insertion order when timestamps collide", async () => {
+    const service = makeService([]);
+    const created = service.createCase({
+      title: "原稿フロー",
+      goal: "監査順序を固定する",
+      project: "Cc",
+      steps: [{ kind: "review", title: "レビュー" }],
+    });
+    await service.requestDecision({
+      ...decisionRequest(created.case.id, created.steps[0].id),
+      question: "first",
+    });
+    await service.requestDecision({
+      ...decisionRequest(created.case.id, created.steps[0].id),
+      question: "second",
+    });
+
+    expect(service.getCase(created.case.id)?.decisions.map((decision) => decision.question))
+      .toEqual(["first", "second"]);
+  });
 });
 
 function makeService(cards: GeniusCard[] | null): DirectorService {
+  return makeServiceWithGenius({ query: async () => cards });
+}
+
+function makeServiceWithGenius(genius: GeniusClient): DirectorService {
   const db = new Database(":memory:");
   applyMigrations(db);
-  const genius: GeniusClient = { query: async () => cards };
   return new DirectorService({ repo: new DirectorRepo(db), genius, scoreMin: 0.8, now: () => 1_730_000_000_000 });
 }
 

@@ -158,6 +158,58 @@ describe("submitSessionLocalPr", () => {
     expect(sent!.body).toContain("feat: 最初の変更");
   });
 
+  it("uses the author's PR content verbatim instead of generating a body", async () => {
+    let sent: { title: string; body: string } | null = null;
+    const submitLocalPullRequest = vi.fn(async (input: { title: string; body: string }) => {
+      sent = { title: input.title, body: input.body };
+      return {
+        id: "pr-10",
+        number: 10,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open",
+        checkStatus: "queued",
+      };
+    });
+    const authored = "## 実装内容\n\n本文を渡せるようにした。\n\n## 受け入れ条件\n\n本文がそのまま届く。";
+
+    await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: 本文を渡す"],
+      log,
+    }, { ...request, prContent: authored });
+
+    expect(sent!.body).toBe(authored);
+    // 由来の説明行や「コミット:」の並びが混ざると、書き手が組んだ見出し構造が崩れる。
+    expect(sent!.body).not.toContain("Concordia session");
+    expect(sent!.body).not.toContain("コミット:");
+    // タイトルは従来どおり最新コミット件名。
+    expect(sent!.title).toBe("feat: 本文を渡す");
+  });
+
+  it("falls back to the generated body when the supplied content is blank", async () => {
+    let sent: { body: string } | null = null;
+    const submitLocalPullRequest = vi.fn(async (input: { title: string; body: string }) => {
+      sent = { body: input.body };
+      return {
+        id: "pr-11",
+        number: 11,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open",
+        checkStatus: "queued",
+      };
+    });
+
+    await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: x"],
+      log,
+    }, { ...request, prContent: "   \n  " });
+
+    expect(sent!.body).toContain("Concordia session");
+  });
+
   it("submits even when optional source-link resolution fails", async () => {
     const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
     const warn = vi.fn();

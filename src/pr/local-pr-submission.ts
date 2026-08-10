@@ -115,6 +115,14 @@ export interface LocalPrSubmissionRequest {
   repoPath: string;
   repository: string | null;
   branch: string | null;
+  /**
+   * 提出者が書いた PR 本文。 渡すとコミット件名からの自動生成に代えてそのまま使う。
+   *
+   * Revisor は本文に `## 実装内容` / `## 受け入れ条件` を要求するが、 自動生成は
+   * コミット件名を並べるだけでそれを満たせない。 中身を知っているのは書き手なので、
+   * 本文は書き手から受け取れるようにする (省略時は従来どおり自動生成)。
+   */
+  prContent?: string | null;
 }
 
 export type LocalPrSubmissionResult =
@@ -122,10 +130,27 @@ export type LocalPrSubmissionResult =
   | { submitted: false; resubmitted: true; pullRequest: RevisorLocalPrSummary }
   | { submitted: false; reason: SkipReason | "error"; detail?: string };
 
-/** コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。 */
-function describe(commits: readonly string[], sessionId: string | null): { title: string; body: string } {
+/** PR 本文の上限。 Revisor 側の受け入れ上限 (65536) に合わせる。 */
+const MAX_PR_CONTENT_LENGTH = 65_536;
+
+/**
+ * コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。
+ *
+ * `prContent` が渡されたときは本文の自動生成を行わず、 書き手の文章をそのまま使う。
+ * 提出の由来 (session / direct) は本文の意味に関わらないので付け足さない — 付けると
+ * 書き手が構成した見出し構造の外に行が混ざる。
+ */
+function describe(
+  commits: readonly string[],
+  sessionId: string | null,
+  prContent?: string | null,
+): { title: string; body: string } {
   const subjects = commits.filter((line) => line.trim().length > 0);
   const title = subjects[0]?.slice(0, 200) ?? "Local branch review";
+  const authored = typeof prContent === "string" ? prContent.trim() : "";
+  if (authored) {
+    return { title, body: authored.slice(0, MAX_PR_CONTENT_LENGTH) };
+  }
   const body = [
     sessionId
       ? `Concordia session \`${sessionId}\` の作業ブランチを自動提出しました。`
@@ -188,7 +213,7 @@ export async function submitSessionLocalPr(
       return { submitted: false, reason: plan.reason };
     }
 
-    const { title, body } = describe(commits, request.sessionId);
+    const { title, body } = describe(commits, request.sessionId, request.prContent);
     // Source links are supplemental navigation metadata. A transient Discord/Slack
     // lookup failure must not prevent the local PR itself from being submitted.
     let sourceLinks: readonly PrSourceLink[] = [];

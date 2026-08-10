@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import type { GeniusCard } from "../inquiry/genius-client.js";
 import type {
   DirectorCase,
   DirectorCaseDetail,
@@ -109,6 +110,9 @@ export class DirectorRepo {
   }
 
   createDecision(input: DirectorDecisionRecord): DirectorDecisionRecord {
+    // Genius は外部サービス境界なので、既知フィールドだけを監査保存・API 応答へ通す。
+    // 構文上は JSON 化できても契約外の内部フィールドをそのまま永続化しない。
+    const geniusCards = readCards(JSON.stringify(input.genius_cards));
     this.db.prepare(`
       INSERT INTO director_decisions(
         id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
@@ -117,16 +121,16 @@ export class DirectorRepo {
     `).run(
       input.id, input.case_id, input.step_id, input.kind, input.question,
       JSON.stringify(input.facts), JSON.stringify(input.options), input.impact, input.decision,
-      input.instruction, input.genius_available ? 1 : 0, JSON.stringify(input.genius_cards), input.created_at,
+      input.instruction, input.genius_available ? 1 : 0, JSON.stringify(geniusCards), input.created_at,
     );
-    return input;
+    return { ...input, genius_cards: geniusCards };
   }
 
   listDecisions(caseId: string): DirectorDecisionRecord[] {
     const rows = this.db.prepare(`
       SELECT id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
              instruction, genius_available, genius_cards_json, created_at
-        FROM director_decisions WHERE case_id = ? ORDER BY created_at ASC, id ASC
+        FROM director_decisions WHERE case_id = ? ORDER BY audit_sequence ASC
     `).all(caseId) as DirectorDecisionRow[];
     return rows.map((row) => ({
       id: row.id,
@@ -158,8 +162,55 @@ function readStringArray(value: string): string[] {
 function readCards(value: string): DirectorDecisionRecord["genius_cards"] {
   try {
     const parsed = JSON.parse(value) as unknown;
-    return Array.isArray(parsed) ? parsed as DirectorDecisionRecord["genius_cards"] : [];
+    if (!Array.isArray(parsed)) return [];
+    const cards: GeniusCard[] = [];
+    for (const value of parsed) {
+      const card = readCard(value);
+      if (!card) return [];
+      cards.push(card);
+    }
+    return cards;
   } catch {
     return [];
   }
+}
+
+function readCard(value: unknown): GeniusCard | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.id !== "string"
+    || row.id.trim().length === 0
+    || typeof row.title !== "string"
+    || row.title.trim().length === 0
+    || typeof row.score !== "number"
+    || !Number.isFinite(row.score)
+  ) {
+    return null;
+  }
+  for (const key of ["domain", "situation", "judgment", "rationale"] as const) {
+    if (row[key] !== undefined && typeof row[key] !== "string") return null;
+  }
+  if (row.category !== undefined && row.category !== null && typeof row.category !== "string") {
+    return null;
+  }
+  if (row.confidence !== undefined && (typeof row.confidence !== "number" || !Number.isFinite(row.confidence))) {
+    return null;
+  }
+  if (row.tags !== undefined && (!Array.isArray(row.tags) || !row.tags.every((tag) => typeof tag === "string"))) {
+    return null;
+  }
+  const card: GeniusCard = {
+    id: row.id,
+    title: row.title,
+    score: row.score,
+  };
+  if (typeof row.domain === "string") card.domain = row.domain;
+  if (typeof row.category === "string" || row.category === null) card.category = row.category;
+  if (typeof row.situation === "string") card.situation = row.situation;
+  if (typeof row.judgment === "string") card.judgment = row.judgment;
+  if (typeof row.rationale === "string") card.rationale = row.rationale;
+  if (typeof row.confidence === "number") card.confidence = row.confidence;
+  if (Array.isArray(row.tags)) card.tags = row.tags as string[];
+  return card;
 }

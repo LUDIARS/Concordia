@@ -17,7 +17,7 @@ beforeEach(() => {
 const EMPTY_ENV = {} as NodeJS.ProcessEnv;
 
 describe("discord/conn-config", () => {
-  it("stores token encrypted at rest and resolves it decrypted", () => {
+  it("stores every UI setting encrypted at rest and resolves it decrypted", () => {
     setDiscordConfig(repo, box, {
       enabled: true,
       guildId: "G-DB",
@@ -25,10 +25,13 @@ describe("discord/conn-config", () => {
       token: "tok-secret",
     });
 
-    // DB の生値は暗号化されており平文 token を含まない
+    // DB の生値はすべて暗号化されており、平文の UI 設定を含まない。
     const rawToken = repo.get("conn_token_enc");
     expect(isEncrypted(rawToken)).toBe(true);
     expect(rawToken).not.toContain("tok-secret");
+    expect(isEncrypted(repo.get("conn_enabled"))).toBe(true);
+    expect(isEncrypted(repo.get("conn_guild_id"))).toBe(true);
+    expect(isEncrypted(repo.get("conn_application_id"))).toBe(true);
 
     const resolved = resolveDiscordConfig(repo, box, EMPTY_ENV);
     expect(resolved.enabled).toBe(true);
@@ -113,5 +116,11 @@ describe("discord/conn-config", () => {
     setDiscordConfig(repo, box, { guildId: "G-DB" });
     expect(resolveDiscordConfig(repo, box, EMPTY_ENV).guildId).toBe("G-DB");
     expect(repo.get("guild_id")).toBe("LEGACY"); // legacy キーは無傷
+  });
+
+  it("migrates legacy plaintext values when they are read", () => {
+    repo.set("conn_guild_id", "G-LEGACY");
+    expect(resolveDiscordConfig(repo, box, EMPTY_ENV).guildId).toBe("G-LEGACY");
+    expect(isEncrypted(repo.get("conn_guild_id"))).toBe(true);
   });
 });

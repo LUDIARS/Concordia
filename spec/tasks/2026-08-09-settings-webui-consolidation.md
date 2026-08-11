@@ -2,7 +2,7 @@
 task: settings-webui-consolidation
 project: Concordia
 kind: 実装
-status: pending
+status: done
 created: 2026-08-09
 source_session: lictor-cda8a337-d0f2-47ee-aa8a-639329b9fd55
 memoria_task_id: null
@@ -11,6 +11,18 @@ memory_links:
   - spec/tasks/2026-08-09-settings-admin-api.md
 ---
 # WebUI /settings へセクション分けして集約 (W5-3)
+
+## 完了 (2026-08-09, PR #357)
+
+設定ページに 「すべて」 セクションを追加し、 レジストリ全項目をセクション分けで表示・編集
+できるようにした。 出所バッジ (db / env / 既定 / 未設定)、 kind 別入力、 絞り込み、
+まとめ保存、 拒否理由の表示。 secret は値を出さず 「設定済み / 未設定」 のみ。
+env 専用は入力ではなく現在値表示にした (触れるのに効かない、 を作らない)。
+`web/src/pages/settings/sections/AllSettingsSection.tsx` ほか。
+
+**重複表示の解消だけは分離した** → [`2026-08-09-settings-duplicate-display-cleanup.md`]
+(2026-08-09-settings-duplicate-display-cleanup.md)。 個別セクションは汎用レジストリが
+持てない機能を担っており単純削除できず、 7 コンポーネントの改修になるため。
 
 ## 目的
 

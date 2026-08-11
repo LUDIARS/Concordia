@@ -9,12 +9,17 @@ const KEYS = {
   watchdogEnabled: "admin.delegation_watchdog_enabled",
   watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
   watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
+  reaperSessionEndGraceSec: "admin.reaper_session_end_grace_sec",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
 
 export class RuntimeSettingsStore {
-  constructor(private readonly store: SettingsStore, private readonly lictorDevDefault = "") {}
+  constructor(
+    private readonly store: SettingsStore,
+    private readonly lictorDevDefault = "",
+    private readonly reaperSessionEndGraceDefault = 300,
+  ) {}
   getChatMuted(): boolean { return this.store.getBoolean(KEYS.chatMuted, true); }
   setChatMuted(value: boolean): void { this.store.setBoolean(KEYS.chatMuted, value); }
   getRulesEnabled(): boolean { return this.store.getBoolean(KEYS.rulesEnabled, false); }
@@ -52,6 +57,8 @@ export class RuntimeSettingsStore {
   setDelegationWatchdogIdleSec(value: number): void { this.store.set(KEYS.watchdogIdleSec, String(requirePositive(value, "delegation_watchdog_idle_sec"))); }
   getDelegationWatchdogMaxNudges(): number { return positiveOrDefault(this.store.get(KEYS.watchdogMaxNudges), 3); }
   setDelegationWatchdogMaxNudges(value: number): void { this.store.set(KEYS.watchdogMaxNudges, String(requirePositive(value, "delegation_watchdog_max_nudges"))); }
+  getReaperSessionEndGraceSec(): number { return positiveOrDefault(this.store.get(KEYS.reaperSessionEndGraceSec), this.reaperSessionEndGraceDefault); }
+  setReaperSessionEndGraceSec(value: number): void { this.store.set(KEYS.reaperSessionEndGraceSec, String(requirePositive(value, "reaper_session_end_grace_sec"))); }
 
   /**
    * 内部 cron (src/scheduler/cron-jobs.ts) の call_name を、コード再デプロイなしで

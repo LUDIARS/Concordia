@@ -6,7 +6,7 @@
  *   - env (CONCORDIA_DISCORD_*): 初期 bootstrap / フォールバック。
  * フィールド単位で「DB にあれば DB、 無ければ env」で解決する。
  *
- * token は secret-box で暗号化して DB に保存し、 平文では持たない。
+ * すべての UI 設定値を secret-box で暗号化して DB に保存する。
  * status (GET) では token 値そのものは返さず set 済みかだけを返す (redaction)。
  *
  * 注意: discord_config テーブルは channel/category id 等 (src/discord/config.ts) と
@@ -17,9 +17,6 @@ import type { DiscordConfigRepo } from "../db/discord-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { isEncrypted } from "../shared/secret-box.js";
 import { readDiscordEnv, type DiscordEnv } from "./types.js";
-import { createChildLogger } from "../shared/logger.js";
-
-const log = createChildLogger("discord-conn-config");
 
 // discord_config の DB キー (channel/category id と衝突しないよう conn_ prefix)。
 const K_ENABLED = "conn_enabled";
@@ -60,15 +57,18 @@ export interface DiscordConfigPatch {
   messageOptimizationEnabled?: boolean;
 }
 
-/** DB に保存された token を復号する (平文混入時はそのまま返す = 移行容易性)。 */
-function decryptStored(box: SecretBox, stored: string | null): string | null {
-  if (!stored) return null;
-  if (!isEncrypted(stored)) return stored;
+/** DB 値を復号する。旧平文は読出し時に暗号化して移行する。 */
+function decryptStored(repo: DiscordConfigRepo, box: SecretBox, key: string): string | null {
+  const stored = repo.get(key);
+  if (stored === null) return null;
+  if (!isEncrypted(stored)) {
+    repo.set(key, box.encrypt(stored));
+    return stored;
+  }
   try {
     return box.decrypt(stored);
-  } catch (e) {
-    log.warn(`stored discord token decrypt failed (鍵不一致/破損?): ${(e as Error).message}`);
-    return null;
+  } catch {
+    throw new Error(`cannot decrypt persisted Discord setting: ${key}`);
   }
 }
 
@@ -81,12 +81,12 @@ export function resolveDiscordConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): DiscordEnv {
   const base = readDiscordEnv(env);
-  const dbEnabled = repo.get(K_ENABLED);
-  const dbGuild = repo.get(K_GUILD);
-  const dbApp = repo.get(K_APP);
-  const dbPermissionRequests = repo.get(K_PERMISSION_REQUESTS);
-  const dbMessageOptimization = repo.get(K_MESSAGE_OPTIMIZATION);
-  const dbToken = decryptStored(box, repo.get(K_TOKEN));
+  const dbEnabled = decryptStored(repo, box, K_ENABLED);
+  const dbGuild = decryptStored(repo, box, K_GUILD);
+  const dbApp = decryptStored(repo, box, K_APP);
+  const dbPermissionRequests = decryptStored(repo, box, K_PERMISSION_REQUESTS);
+  const dbMessageOptimization = decryptStored(repo, box, K_MESSAGE_OPTIMIZATION);
+  const dbToken = decryptStored(repo, box, K_TOKEN);
   return {
     enabled: dbEnabled !== null ? dbEnabled === "1" : base.enabled,
     token: dbToken ?? base.token,
@@ -105,7 +105,7 @@ export function resolveDiscordConfig(
 }
 
 /**
- * 設定を更新する。 token は暗号化して保存。 空文字指定は DB キー削除 (= env へ戻す)。
+ * 設定を更新する。全値を暗号化して保存。空文字指定は DB キー削除 (= env へ戻す)。
  */
 export function setDiscordConfig(
   repo: DiscordConfigRepo,
@@ -113,23 +113,23 @@ export function setDiscordConfig(
   patch: DiscordConfigPatch,
 ): void {
   if (patch.enabled !== undefined) {
-    repo.set(K_ENABLED, patch.enabled ? "1" : "0");
+    repo.set(K_ENABLED, box.encrypt(patch.enabled ? "1" : "0"));
   }
   if (patch.permissionRequestsEnabled !== undefined) {
-    repo.set(K_PERMISSION_REQUESTS, patch.permissionRequestsEnabled ? "1" : "0");
+    repo.set(K_PERMISSION_REQUESTS, box.encrypt(patch.permissionRequestsEnabled ? "1" : "0"));
   }
   if (patch.messageOptimizationEnabled !== undefined) {
-    repo.set(K_MESSAGE_OPTIMIZATION, patch.messageOptimizationEnabled ? "1" : "0");
+    repo.set(K_MESSAGE_OPTIMIZATION, box.encrypt(patch.messageOptimizationEnabled ? "1" : "0"));
   }
-  applyStringField(repo, K_GUILD, patch.guildId);
-  applyStringField(repo, K_APP, patch.applicationId);
+  applyStringField(repo, box, K_GUILD, patch.guildId);
+  applyStringField(repo, box, K_APP, patch.applicationId);
   applySecretField(repo, box, K_TOKEN, patch.token);
 }
 
-function applyStringField(repo: DiscordConfigRepo, key: string, value: string | null | undefined): void {
+function applyStringField(repo: DiscordConfigRepo, box: SecretBox, key: string, value: string | null | undefined): void {
   if (value === undefined) return;
   const v = value?.trim() ?? "";
-  if (v) repo.set(key, v);
+  if (v) repo.set(key, box.encrypt(v));
   else repo.delete(key);
 }
 

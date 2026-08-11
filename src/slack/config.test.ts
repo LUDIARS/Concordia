@@ -17,13 +17,15 @@ beforeEach(() => {
 const EMPTY_ENV = {} as NodeJS.ProcessEnv;
 
 describe("slack/config", () => {
-  it("stores tokens encrypted at rest and resolves them decrypted", () => {
+  it("stores every UI setting encrypted at rest and resolves it decrypted", () => {
     setSlackConfig(repo, box, { enabled: true, channelId: "C-DB", botToken: "xoxb-a", appToken: "xapp-b" });
 
-    // DB の生値は暗号化されており平文 token を含まない
+    // DB の生値はすべて暗号化されており、平文の UI 設定を含まない。
     const rawBot = repo.get("bot_token_enc");
     expect(isEncrypted(rawBot)).toBe(true);
     expect(rawBot).not.toContain("xoxb-a");
+    expect(isEncrypted(repo.get("enabled"))).toBe(true);
+    expect(isEncrypted(repo.get("channel_id"))).toBe(true);
 
     const resolved = resolveSlackConfig(repo, box, EMPTY_ENV);
     expect(resolved.enabled).toBe(true);
@@ -71,5 +73,11 @@ describe("slack/config", () => {
     expect(st.source.app_token).toBe("none");
     // token 値が status に漏れていないこと
     expect(JSON.stringify(st)).not.toContain("xoxb-a");
+  });
+
+  it("migrates legacy plaintext values when they are read", () => {
+    repo.set("channel_id", "C-LEGACY");
+    expect(resolveSlackConfig(repo, box, EMPTY_ENV).channelId).toBe("C-LEGACY");
+    expect(isEncrypted(repo.get("channel_id"))).toBe(true);
   });
 });

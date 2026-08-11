@@ -2,7 +2,7 @@
 task: settings-coverage-test
 project: Concordia
 kind: テスト
-status: pending
+status: done
 created: 2026-08-09
 source_session: lictor-cda8a337-d0f2-47ee-aa8a-639329b9fd55
 memoria_task_id: null

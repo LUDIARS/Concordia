@@ -6,7 +6,7 @@
  *   - env (CONCORDIA_SLACK_*): 初期 bootstrap / フォールバック。
  * フィールド単位で「DB にあれば DB、 無ければ env」で解決する。
  *
- * token (bot/app) は secret-box で暗号化して DB に保存し、 平文では持たない。
+ * すべての UI 設定値を secret-box で暗号化して DB に保存する。
  * status (GET) では token 値そのものは返さず set 済みかだけを返す (redaction)。
  */
 
@@ -14,9 +14,6 @@ import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { isEncrypted } from "../shared/secret-box.js";
 import { readSlackEnv, type SlackEnv } from "./types.js";
-import { createChildLogger } from "../shared/logger.js";
-
-const log = createChildLogger("slack-config");
 
 // slack_config の DB キー.
 const K_ENABLED = "enabled";
@@ -49,15 +46,18 @@ export interface SlackConfigPatch {
   appToken?: string | null;
 }
 
-/** DB に保存された token を復号する (平文混入時はそのまま返す = 移行容易性)。 */
-function decryptStored(box: SecretBox, stored: string | null): string | null {
-  if (!stored) return null;
-  if (!isEncrypted(stored)) return stored;
+/** DB 値を復号する。旧平文は読出し時に暗号化して移行する。 */
+function decryptStored(repo: SlackConfigRepo, box: SecretBox, key: string): string | null {
+  const stored = repo.get(key);
+  if (stored === null) return null;
+  if (!isEncrypted(stored)) {
+    repo.set(key, box.encrypt(stored));
+    return stored;
+  }
   try {
     return box.decrypt(stored);
-  } catch (e) {
-    log.warn(`stored slack token decrypt failed (鍵不一致/破損?): ${(e as Error).message}`);
-    return null;
+  } catch {
+    throw new Error(`cannot decrypt persisted Slack setting: ${key}`);
   }
 }
 
@@ -70,10 +70,10 @@ export function resolveSlackConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): SlackEnv {
   const base = readSlackEnv(env);
-  const dbEnabled = repo.get(K_ENABLED);
-  const dbChannel = repo.get(K_CHANNEL);
-  const dbBot = decryptStored(box, repo.get(K_BOT));
-  const dbApp = decryptStored(box, repo.get(K_APP));
+  const dbEnabled = decryptStored(repo, box, K_ENABLED);
+  const dbChannel = decryptStored(repo, box, K_CHANNEL);
+  const dbBot = decryptStored(repo, box, K_BOT);
+  const dbApp = decryptStored(repo, box, K_APP);
   return {
     enabled: dbEnabled !== null ? dbEnabled === "1" : base.enabled,
     channelId: dbChannel ?? base.channelId,
@@ -85,21 +85,21 @@ export function resolveSlackConfig(
 }
 
 /**
- * 設定を更新する。 token は暗号化して保存。 空文字指定は DB キー削除 (= env へ戻す)。
+ * 設定を更新する。全値を暗号化して保存。空文字指定は DB キー削除 (= env へ戻す)。
  */
 export function setSlackConfig(repo: SlackConfigRepo, box: SecretBox, patch: SlackConfigPatch): void {
   if (patch.enabled !== undefined) {
-    repo.set(K_ENABLED, patch.enabled ? "1" : "0");
+    repo.set(K_ENABLED, box.encrypt(patch.enabled ? "1" : "0"));
   }
-  applyStringField(repo, K_CHANNEL, patch.channelId);
+  applyStringField(repo, box, K_CHANNEL, patch.channelId);
   applySecretField(repo, box, K_BOT, patch.botToken);
   applySecretField(repo, box, K_APP, patch.appToken);
 }
 
-function applyStringField(repo: SlackConfigRepo, key: string, value: string | null | undefined): void {
+function applyStringField(repo: SlackConfigRepo, box: SecretBox, key: string, value: string | null | undefined): void {
   if (value === undefined) return;
   const v = value?.trim() ?? "";
-  if (v) repo.set(key, v);
+  if (v) repo.set(key, box.encrypt(v));
   else repo.delete(key);
 }
 

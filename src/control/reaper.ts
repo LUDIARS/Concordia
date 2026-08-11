@@ -234,7 +234,7 @@ export function startReaper(
     intervalMs: number;
     minAgeSec: number;
     lostGraceSec: number;
-    sessionEndGraceSec: number;
+    sessionEndGraceSec: number | (() => number);
   },
 ): ReaperHandle {
   const runOnce = () =>
@@ -242,7 +242,9 @@ export function startReaper(
       dryRun: false,
       minAgeSec: opts.minAgeSec,
       lostGraceSec: opts.lostGraceSec,
-      sessionEndGraceSec: opts.sessionEndGraceSec,
+      sessionEndGraceSec: typeof opts.sessionEndGraceSec === "function"
+        ? opts.sessionEndGraceSec()
+        : opts.sessionEndGraceSec,
     });
 
   if (!opts.enabled) {

@@ -8,6 +8,8 @@ function makeStore(initial: Record<string, string> = {}): SettingsStore {
   return {
     get: (key) => values.get(key) ?? null,
     set: (key, value) => { values.set(key, value); },
+    delete: (key) => { values.delete(key); },
+    transaction: (update) => update(),
     getBoolean: (key, fallback) => {
       const raw = values.get(key);
       return raw === undefined ? fallback : raw === "1" || raw === "true";

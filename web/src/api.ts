@@ -583,7 +583,70 @@ export interface ArchivedRecord {
   reason?: string;
 }
 
+// ─── 設定レジストリ (/v1/admin/settings) ───────────────────────────────
+// backend `src/config/settings/types.ts` と対。 secret は value を返さず set だけ来る。
+
+export type SettingValueKind =
+  | "boolean" | "integer" | "string" | "string-list" | "enum" | "secret" | "json";
+export type SettingSource = "db" | "env" | "default" | "none";
+
+export interface SettingItem {
+  key: string;
+  section: string;
+  label: string;
+  description: string;
+  kind: SettingValueKind;
+  envName: string | null;
+  dbKey: string | null;
+  defaultValue: unknown;
+  editable: boolean;
+  enumValues?: string[];
+  minValue?: number;
+  maxValue?: number;
+  managedBy?: string;
+  value: unknown;
+  set?: boolean;
+  source: SettingSource;
+}
+
+export interface SettingsSectionPayload {
+  id: string;
+  label: string;
+  description: string;
+  settings: SettingItem[];
+}
+
+export interface SettingsRejection {
+  code: "unknown_key" | "not_editable" | "invalid_value" | "backend_unavailable";
+  key: string;
+  detail?: string;
+  managedBy?: string;
+}
+
+export type SettingsUpdateOutcome =
+  | { ok: true; sections: SettingsSectionPayload[] }
+  | { ok: false; rejected: SettingsRejection[] };
+
+/**
+ * 汎用 `put()` は !ok で throw して本文を捨てるので、 拒否理由を UI に出すために
+ * ここだけ個別に fetch する (どのキーがなぜ拒まれたかを見せないと直せない)。
+ */
+async function putSettings(updates: Record<string, unknown>): Promise<SettingsUpdateOutcome> {
+  const r = await fetch(`${BASE}/v1/admin/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ updates }),
+  });
+  const body = (await r.json().catch(() => null)) as
+    | { sections?: SettingsSectionPayload[]; rejected?: SettingsRejection[] }
+    | null;
+  if (r.ok && body?.sections) return { ok: true, sections: body.sections };
+  return { ok: false, rejected: body?.rejected ?? [{ code: "invalid_value", key: "", detail: `${r.status}` }] };
+}
+
 export const api = {
+  allSettings: () => get<{ sections: SettingsSectionPayload[] }>("/v1/admin/settings"),
+  updateSettings: putSettings,
   health: () => get<{ ok: boolean; service: string; version: string }>("/health"),
   costFeed: () => get<CostFeedReport>("/v1/cost-feed"),
   costOverview: () => get<CostOverview>("/v1/cost/overview"),

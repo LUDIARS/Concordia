@@ -477,7 +477,8 @@ export async function startBackend(): Promise<BackendHandle> {
     ccWorkflowEnabled: readCcWorkflowEnabled(),
     // dev モードの Lictor リポ既定 (= <workspaceRoot>/Lictor)。 空でも GUI で設定可。
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
-  });
+    reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
+  }, secretBox);
   // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
   // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して
   // 登録側を張り替える。 spec/feature/workflow-toggles-and-permission-noise.md
@@ -1156,7 +1157,7 @@ export async function startBackend(): Promise<BackendHandle> {
           intervalMs: cfg.reaperIntervalMs,
           minAgeSec: cfg.reaperMinAgeSec,
           lostGraceSec: cfg.reaperLostGraceSec,
-          sessionEndGraceSec: cfg.reaperSessionEndGraceSec,
+          sessionEndGraceSec: () => adminState.getReaperSessionEndGraceSec(),
         },
       ),
     );

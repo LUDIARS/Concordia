@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { RuntimeSettingsStore, type LictorMode } from "./runtime-settings.js";
-import { SqliteSettingsStore } from "./settings-store.js";
+import { EncryptedSettingsStore, SqliteSettingsStore, type SettingsStore } from "./settings-store.js";
+import type { SecretBox } from "../shared/secret-box.js";
 import { WorkflowSettingsStore, type WorkflowSettingsDefaults } from "./workflow-settings.js";
 import { WorkspaceSettingsStore, type WorkspaceSettingsDefaults } from "./workspace-settings.js";
 import { WorkflowToggles } from "../workflow/toggles.js";
@@ -10,6 +11,7 @@ export type { LictorMode } from "./runtime-settings.js";
 
 export interface AdminStateDefaults extends WorkspaceSettingsDefaults, WorkflowSettingsDefaults {
   lictorDevPath?: string;
+  reaperSessionEndGraceSec?: number;
 }
 
 /** Compatibility facade; domain policy lives in the three focused stores. */
@@ -19,12 +21,19 @@ export class AdminState {
   readonly runtime: RuntimeSettingsStore;
   /** ワークフロー個別有効化フラグ (DB → env → 既定 true)。 値は都度解決。 */
   readonly workflows: WorkflowToggles;
+  /**
+   * schema_meta の素の key/value 口。 設定レジストリ (config/settings) が
+   * キー単位の汎用読み書きに使う。 意味付けは上の 3 ストアが持つ。
+   */
+  readonly store: SettingsStore;
 
-  constructor(db: Database.Database, defaults: AdminStateDefaults = {}) {
-    const store = new SqliteSettingsStore(db);
+  constructor(db: Database.Database, defaults: AdminStateDefaults = {}, secretBox?: SecretBox) {
+    const rawStore = new SqliteSettingsStore(db);
+    const store: SettingsStore = secretBox ? new EncryptedSettingsStore(rawStore, secretBox) : rawStore;
+    this.store = store;
     this.workspace = new WorkspaceSettingsStore(store, defaults);
     this.workflow = new WorkflowSettingsStore(store, defaults);
-    this.runtime = new RuntimeSettingsStore(store, defaults.lictorDevPath);
+    this.runtime = new RuntimeSettingsStore(store, defaults.lictorDevPath, defaults.reaperSessionEndGraceSec);
     this.workflows = new WorkflowToggles({ store });
   }
 
@@ -71,6 +80,8 @@ export class AdminState {
   setDelegationWatchdogIdleSec(value: number): void { this.runtime.setDelegationWatchdogIdleSec(value); }
   getDelegationWatchdogMaxNudges(): number { return this.runtime.getDelegationWatchdogMaxNudges(); }
   setDelegationWatchdogMaxNudges(value: number): void { this.runtime.setDelegationWatchdogMaxNudges(value); }
+  getReaperSessionEndGraceSec(): number { return this.runtime.getReaperSessionEndGraceSec(); }
+  setReaperSessionEndGraceSec(value: number): void { this.runtime.setReaperSessionEndGraceSec(value); }
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
   setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }
@@ -89,6 +100,7 @@ export class AdminState {
       delegation_watchdog_enabled: this.getDelegationWatchdogEnabled(),
       delegation_watchdog_idle_sec: this.getDelegationWatchdogIdleSec(),
       delegation_watchdog_max_nudges: this.getDelegationWatchdogMaxNudges(),
+      reaper_session_end_grace_sec: this.getReaperSessionEndGraceSec(),
       workflows: this.workflows.snapshot(),
     };
   }

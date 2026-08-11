@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { randomBytes } from "node:crypto";
 import { makeTestDb } from "./helpers/db.js";
 import { AdminState } from "../src/admin/state.js";
+import { SecretBox, isEncrypted } from "../src/shared/secret-box.js";
 
 function boot() {
   const db = makeTestDb();
@@ -55,6 +57,7 @@ describe("AdminState", () => {
       delegation_watchdog_enabled: true,
       delegation_watchdog_idle_sec: 1800,
       delegation_watchdog_max_nudges: 3,
+      reaper_session_end_grace_sec: 300,
       // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
       workflows: {
         task: { enabled: true, source: "default" },
@@ -156,6 +159,29 @@ describe("AdminState", () => {
       .prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`)
       .run("admin.daily_token_budget", "not-a-number");
     expect(env.state.getDailyTokenBudget()).toBe(0);
+  });
+
+  it("encrypts persisted user settings and migrates legacy plaintext", () => {
+    const box = new SecretBox(randomBytes(32));
+    const encrypted = new AdminState(env.db, {}, box);
+    encrypted.setDailyTokenBudget(50_000);
+    const raw = env.db.prepare(`SELECT value FROM schema_meta WHERE key = ?`).get("admin.daily_token_budget") as { value: string };
+    expect(isEncrypted(raw.value)).toBe(true);
+    expect(raw.value).not.toContain("50000");
+    expect(new AdminState(env.db, {}, box).getDailyTokenBudget()).toBe(50_000);
+
+    env.db.prepare(`INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)`).run("admin.reaper_session_end_grace_sec", "180");
+    expect(encrypted.getReaperSessionEndGraceSec()).toBe(180);
+    const migrated = env.db.prepare(`SELECT value FROM schema_meta WHERE key = ?`).get("admin.reaper_session_end_grace_sec") as { value: string };
+    expect(isEncrypted(migrated.value)).toBe(true);
+  });
+
+  it("session-end reaper grace defaults, persists, and rejects invalid values", () => {
+    expect(env.state.getReaperSessionEndGraceSec()).toBe(300);
+    expect(new AdminState(env.db, { reaperSessionEndGraceSec: 240 }).getReaperSessionEndGraceSec()).toBe(240);
+    env.state.setReaperSessionEndGraceSec(180);
+    expect(new AdminState(env.db).getReaperSessionEndGraceSec()).toBe(180);
+    expect(() => env.state.setReaperSessionEndGraceSec(0)).toThrow();
   });
 
   it("workspace_root / github_org fall back to constructor defaults when unset", () => {

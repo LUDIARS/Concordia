@@ -43,6 +43,12 @@ import type {
 import type { AdminState } from "../admin/state.js";
 import type { CostBudgetStatus } from "../cost/usage-tracker.js";
 import type { SecretBox } from "../shared/secret-box.js";
+import type { SlackConfigRepo } from "../db/slack-config-repo.js";
+import { settingsRouter } from "./settings.js";
+import {
+  createSettingsDbReader,
+  createSettingsDbWriter,
+} from "../config/settings/db-bindings.js";
 import type { ChannelDirectory } from "./sessions/deps.js";
 import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
@@ -191,6 +197,8 @@ export interface CoreRuntimeDeps {
   toolPath: string;
   publicUrl: string;
   secretBox?: SecretBox;
+  /** 設定レジストリが Slack 設定を読み書きするために使う。 未注入なら Slack 設定は env / 既定のみ。 */
+  slackConfig?: SlackConfigRepo;
   taskStore: TaskMdStore;
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
@@ -285,6 +293,22 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route(
       "/v1/implementation-tools",
       implementationToolsRouter({ tools: deps.implementationTools }),
+    );
+  }
+  // 設定レジストリ (W5): DB / env にしかない設定を 1 本の API に集約して出す。
+  {
+    const bindings = {
+      meta: deps.adminState.store,
+      discord: deps.discordConfig,
+      slack: deps.slackConfig,
+      secretBox: deps.secretBox,
+    };
+    app.route(
+      "/v1/admin/settings",
+      settingsRouter({
+        reader: createSettingsDbReader(bindings),
+        writer: createSettingsDbWriter(bindings),
+      }),
     );
   }
   // Revisor の workflow token 設定 (Discord/Slack の bot token と同じ扱い: 暗号化して DB)。
@@ -793,7 +817,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       dryRun: true,
       minAgeSec: deps.config.reaperMinAgeSec,
       lostGraceSec: deps.config.reaperLostGraceSec,
-      sessionEndGraceSec: deps.config.reaperSessionEndGraceSec,
+      sessionEndGraceSec: deps.adminState.getReaperSessionEndGraceSec(),
     });
     return c.json({
       scanned: r.scanned,
@@ -814,7 +838,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         dryRun: body.dry_run === true,
         minAgeSec,
         lostGraceSec: deps.config.reaperLostGraceSec,
-        sessionEndGraceSec: deps.config.reaperSessionEndGraceSec,
+        sessionEndGraceSec: deps.adminState.getReaperSessionEndGraceSec(),
       },
     );
     return c.json({

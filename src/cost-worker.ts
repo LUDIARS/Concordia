@@ -7,6 +7,7 @@ import { SessionsRepo } from "./db/sessions-repo.js";
 import { makeDiscordConfigRepo } from "./db/discord-repo.js";
 import { AdminState } from "./admin/state.js";
 import { createCostRuntime, startCostWorkerLease } from "./bootstrap/cost.js";
+import { loadSecretBox } from "./shared/secret-box.js";
 
 const log = createChildLogger("cost-worker");
 
@@ -32,6 +33,10 @@ async function main(): Promise<void> {
   const db = openDb(cfg.dbPath);
   const sessions = new SessionsRepo(db);
   const configRepo = makeDiscordConfigRepo(db);
+  const secretBox = loadSecretBox({
+    envValue: process.env.CONCORDIA_SECRET_KEY,
+    keyFile: join(process.cwd(), "concordia.secret.key"),
+  });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -39,7 +44,8 @@ async function main(): Promise<void> {
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
-  });
+    reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
+  }, secretBox);
 
   let lease: ReturnType<typeof startCostWorkerLease> | null = null;
   const runtime = createCostRuntime({

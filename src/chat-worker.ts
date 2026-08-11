@@ -163,7 +163,8 @@ async function main(): Promise<void> {
     githubOrg: cfg.githubOrg,
     reactionWorkflowEnabled: process.env.CONCORDIA_REACTION_WORKFLOW === "1",
     lictorDevPath: workspaceRoot ? join(workspaceRoot, "Lictor") : "",
-  });
+    reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
+  }, secretBox);
   setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());
   // 権限判定の正本 = 社員名簿。 chat-worker は本体と同じ DB を開くので同じ名簿を読む。
   const staffRepo = new StaffRepo(db);

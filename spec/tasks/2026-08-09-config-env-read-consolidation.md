@@ -43,7 +43,7 @@ branch 名 `feat/settings-consolidation` から作業内容を推測して着手
   添付ポリシー 2 キーを追加。
 - `npm run lint` (tsc x2 + dependency-cruiser) green。
 
-## 残り
+## 結果
 
-- 新規ユニットテストは追加のみで**未実行** (セッションポリシーによりテスト実行は指示待ち)。 CI で検証。
-- Revisor local PR #343 提出済み。 レビュー / チェック結果待ち。
+Revisor local PR #343 は **merged** (checks: test_ok)。 残作業なし。
+追加したユニットテストもその後の全体実行 (328 files / 2275 tests) で green を確認済み。

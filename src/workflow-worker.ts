@@ -16,6 +16,7 @@ import { makeDiscordConfigRepo } from "./db/discord-repo.js";
 import { setConcordiaAddress, setLictorLauncherResolver, setWorkspaceRootsResolver } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
 import { readWorkflowWorkerLease, startWorkflowWorkerLease } from "./bootstrap/workflow.js";
+import { loadSecretBox } from "./shared/secret-box.js";
 
 const log = createChildLogger("workflow-worker");
 
@@ -42,6 +43,10 @@ async function main(): Promise<void> {
   const sessions = new SessionsRepo(db);
   const delegationRepo = new DelegationRepo(db);
   const configRepo = makeDiscordConfigRepo(db);
+  const secretBox = loadSecretBox({
+    envValue: process.env.CONCORDIA_SECRET_KEY,
+    keyFile: join(process.cwd(), "concordia.secret.key"),
+  });
   const existingLease = readWorkflowWorkerLease(configRepo);
   if (existingLease && existingLease.pid !== process.pid) {
     throw new Error(`workflow-worker already active pid=${existingLease.pid}`);
@@ -53,7 +58,8 @@ async function main(): Promise<void> {
     workspaceRoots: cfg.workspaceRoots.length ? cfg.workspaceRoots : (workspaceRoot ? [workspaceRoot] : []),
     githubOrg: cfg.githubOrg,
     lictorDevPath: workspaceRoot ? join(workspaceRoot, "Lictor") : "",
-  });
+    reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
+  }, secretBox);
   setLictorLauncherResolver(() => resolveLictorLauncher(adminState));
   setConcordiaAddress(() => ({ host: cfg.host, port: cfg.port }));
   setWorkspaceRootsResolver(() => adminState.getWorkspaceRoots());

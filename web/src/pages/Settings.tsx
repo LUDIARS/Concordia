@@ -4,6 +4,7 @@ import { DiscordSettingsSection } from "./DiscordConfig.js";
 import { RevisorSettingsSection } from "./RevisorConfig.js";
 import { ModelCatalogSection } from "./ModelCatalog.js";
 import {
+  AllSettingsSection,
   RuntimeControlsSection,
   ReactionWorkflowSection,
   WorkspaceSection,
@@ -25,6 +26,14 @@ interface SettingsSection {
 }
 
 const SECTIONS: SettingsSection[] = [
+  {
+    // W5: DB / env にしかない設定も含めた全項目。 個別セクションは編集の作法が
+    // 特殊なもの (トークン検証・cron の対応表等) を引き続き担当する。
+    id: "all",
+    label: "すべて",
+    hint: "DB / env の全設定を出所付きで一覧 (env 専用は表示のみ)",
+    render: () => <section className="border border-border rounded p-4"><AllSettingsSection /></section>,
+  },
   {
     id: "integrations",
     label: "連携",

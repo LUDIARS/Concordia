@@ -124,6 +124,7 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
   旧 frontmatter に残ったこれらの値は初回読込時だけ state へ移行し、既存 Markdown のバイト列は変更しない。
 - Memoria 登録の開始 claim も state に永続化する。登録結果が不明な通信失敗では claim を保持して再 POST せず、
   同じ task の重複作成を防ぐ。
+- 接続拒否など HTTP request が Memoria に到達していないと確定できる失敗だけは claim を解除し、次の tick で再試行する。
 - Memoria が落ちていても md は正本としてそのまま使える。 復帰後の tick で後追い登録される
   (= 「サービスが死んでいるときも動作」の実現)。
 - backend は interface (`TaskBackend`) で抽象化する。 今回は Memoria 実装のみ。

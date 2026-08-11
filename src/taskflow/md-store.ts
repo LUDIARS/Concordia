@@ -132,6 +132,11 @@ export class TaskMdStore {
     return this.state.claimMemoriaCreation(document);
   }
 
+  releaseMemoriaCreation(document: TaskDocument): void {
+    if (!this.state) throw new Error("taskflow runtime state store is required for reconciliation");
+    this.state.releaseMemoriaCreation(document);
+  }
+
   recordMemoriaTaskId(document: TaskDocument, id: string | number): void {
     if (!this.state) throw new Error("taskflow runtime state store is required for reconciliation");
     this.state.recordMemoriaTaskId(document, id);

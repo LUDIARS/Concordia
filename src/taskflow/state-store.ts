@@ -10,7 +10,12 @@ type TaskRuntimeRow = Omit<TaskRuntimeState, "memoria_registration_state"> & {
 
 /** Runtime state is intentionally separate from versioned task Markdown. */
 export class TaskflowStateStore {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    // updated_at は挙動の一部 (再試行の順序判定に使う) なので、 テストから固定できる seam に
+    // しておく。 実行時は既定の Date.now をそのまま使う。
+    private readonly now: () => number = Date.now,
+  ) {}
 
   readOrMigrate(document: TaskDocument): TaskRuntimeState {
     const key = taskKey(document);
@@ -31,7 +36,7 @@ export class TaskflowStateStore {
     `).run(
       key.repoPath, key.taskPath, legacy.status, legacy.source_session, legacy.assignee, legacy.owner,
       legacy.delegation_run_id, legacy.pr_number, legacy.memoria_task_id, legacy.actio_task_id,
-      legacy.memoria_task_id ? "created" : "idle", Date.now(),
+      legacy.memoria_task_id ? "created" : "idle", this.now(),
     );
     return this.readOrMigrate(document);
   }
@@ -44,17 +49,41 @@ export class TaskflowStateStore {
          SET memoria_registration_state = 'creating', updated_at = ?
        WHERE repo_path = ? AND task_path = ?
          AND memoria_task_id IS NULL AND memoria_registration_state = 'idle'
-    `).run(Date.now(), key.repoPath, key.taskPath);
+    `).run(this.now(), key.repoPath, key.taskPath);
     return result.changes === 1;
   }
 
-  recordMemoriaTaskId(document: TaskDocument, id: string | number): void {
+  /**
+   * 取得した登録権を返す。 Memoria 登録が失敗したときに呼ぶ。
+   *
+   * これが無いと、 一度失敗した task は `creating` のまま残り、 以後 `claimMemoriaCreation`
+   * が永久に false を返して二度と登録されない (再起動でも直らない — 状態は DB にある)。
+   */
+  releaseMemoriaCreation(document: TaskDocument): void {
     const key = taskKey(document);
     this.db.prepare(`
       UPDATE taskflow_task_state
+         SET memoria_registration_state = 'idle', updated_at = ?
+       WHERE repo_path = ? AND task_path = ?
+         AND memoria_task_id IS NULL AND memoria_registration_state = 'creating'
+    `).run(this.now(), key.repoPath, key.taskPath);
+  }
+
+  /**
+   * ID の記録は claim を取った側だけが行える。 claim を持たない書き込みを通すと、
+   * release 済み (別 tick が取り直した) の task へ古い ID を上書きしてしまう。
+   */
+  recordMemoriaTaskId(document: TaskDocument, id: string | number): void {
+    const key = taskKey(document);
+    const result = this.db.prepare(`
+      UPDATE taskflow_task_state
          SET memoria_task_id = ?, memoria_registration_state = 'created', updated_at = ?
        WHERE repo_path = ? AND task_path = ?
-    `).run(String(id), Date.now(), key.repoPath, key.taskPath);
+         AND memoria_registration_state = 'creating'
+    `).run(String(id), this.now(), key.repoPath, key.taskPath);
+    if (result.changes !== 1) {
+      throw new Error(`Memoria task ID cannot be recorded because the claim is not active: ${key.taskPath}`);
+    }
   }
 }
 

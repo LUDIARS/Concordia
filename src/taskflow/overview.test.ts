@@ -28,7 +28,7 @@ describe("taskflow overview", () => {
     expect(overview.counts).toMatchObject({ total: 1, delegated: 1, ci_failure: 1 });
   });
 
-  it("prefers explicit frontmatter assignment and PR number", () => {
+  it("prefers explicit runtime assignment and PR number", () => {
     const overview = buildTaskflowOverview({
       documents: [task({ assignee: "neco", pr_number: 42 })],
       relativePath: () => "spec/tasks/one.md",

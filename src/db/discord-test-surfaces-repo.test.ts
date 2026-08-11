@@ -59,12 +59,15 @@ describe("DiscordTestSurfacesRepo", () => {
 
     repo.updateContent(row.id, { headSha: "def456", contentHash: "hash-2", checkStatus: "test_ok" });
     repo.setQaRun(row.id, "run-qa-1");
+    repo.setControlsMessageId(row.id, "controls-42");
+    repo.clearControlsMessageId(row.id);
 
     expect(repo.listOpen()).toEqual([expect.objectContaining({
       id: row.id,
       head_sha: "def456",
       content_hash: "hash-2",
       qa_run_id: "run-qa-1",
+      controls_message_id: null,
       thread_id: "thread-42",
     })]);
   });

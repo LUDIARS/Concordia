@@ -223,17 +223,24 @@ describe("parseLocalPrDetail", () => {
       baseRef: "main",
       body: "説明",
       decision: {
+        state: "needs_human",
         label: "人間の判断が必要",
-        mergeable: true,
         blockers: ["動作確認が必要", 42, "リスク超過"],
         riskScore: 57,
         riskThreshold: 30,
         riskBandLabel: "high",
         runtimeVerificationRequired: true,
+        mergeable: false,
       },
       ci: [
         { name: "unit", status: "passed" },
-        { name: "lint", status: "failed" },
+        {
+          name: "lint",
+          status: "failed",
+          exitCode: 1,
+          reason: "lint error",
+          output: { text: "masked failure output", truncated: true },
+        },
         { name: "e2e", status: "skipped" },
       ],
       security: { status: "passed" },
@@ -244,8 +251,8 @@ describe("parseLocalPrDetail", () => {
       headRef: "feat/x",
       baseRef: "main",
       body: "説明",
+      decisionState: "needs_human",
       decisionLabel: "人間の判断が必要",
-      mergeable: true,
       blockers: ["動作確認が必要", "リスク超過"],
       riskScore: 57,
       riskThreshold: 30,
@@ -253,7 +260,15 @@ describe("parseLocalPrDetail", () => {
       runtimeVerificationRequired: true,
       testsPassed: 1,
       testsRan: 2,
+      failedTests: [{
+        name: "lint",
+        exitCode: 1,
+        reason: "lint error",
+        output: { text: "masked failure output", truncated: true },
+      }],
+      reviewError: null,
       securityStatus: "passed",
+      mergeable: false,
       autoMerge: { merged: false, reason: "閾値超過" },
     });
   });
@@ -262,10 +277,12 @@ describe("parseLocalPrDetail", () => {
     const detail = parseLocalPrDetail({ author: "neco" });
     expect(detail).toMatchObject({
       decisionLabel: null,
-      mergeable: false,
       blockers: [],
       riskScore: null,
       testsRan: null,
+      failedTests: [],
+      reviewError: null,
+      mergeable: false,
       autoMerge: null,
     });
     expect(parseLocalPrDetail(null)).toBeNull();

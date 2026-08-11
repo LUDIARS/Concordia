@@ -61,7 +61,52 @@ function threadName(candidate: TestForumCandidate): string {
   return clip(`[${repo} #${candidate.prNumber}] ${candidate.title}`.replace(/\s+/g, " "), 100);
 }
 
-function detailLines(detail: RevisorLocalPrDetail): string[] {
+function blockquote(value: string, max: number): string {
+  return clip(redactSecrets(value), max)
+    .split(/\r?\n/)
+    .map((line) => `> ${line}`)
+    .join("\n");
+}
+
+/** Revisor のマスクが不完全でも、Discord へ資格情報を転載しないための最後の境界。 */
+function redactSecrets(value: string): string {
+  return value
+    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:sk|gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
+      "$1=[REDACTED]",
+    );
+}
+
+function failureDetailLines(detail: RevisorLocalPrDetail): string[] {
+  const lines: string[] = [];
+  if (detail.reviewError) {
+    lines.push("**審査エラー**");
+    lines.push(blockquote(detail.reviewError, 500));
+  }
+  if (detail.blockers.length > 0) {
+    lines.push("**審査失敗の理由**");
+    for (const blocker of detail.blockers.slice(0, 8)) lines.push(`- ${clip(redactSecrets(blocker), 220)}`);
+    if (detail.blockers.length > 8) lines.push(`- 他 ${detail.blockers.length - 8} 件`);
+  }
+  if (detail.failedTests.length > 0) {
+    lines.push("**失敗したテスト**");
+    for (const test of detail.failedTests.slice(0, 3)) {
+      const exitCode = test.exitCode === null ? "" : ` (exit ${test.exitCode})`;
+      const reason = test.reason ? ` — ${clip(redactSecrets(test.reason), 160)}` : "";
+      lines.push(`- ${clip(redactSecrets(test.name), 100)}${exitCode}${reason}`);
+      if (test.output?.text) {
+        const tail = test.output.truncated ? "[末尾のみ・秘匿値はマスク済み]\n" : "[秘匿値はマスク済み]\n";
+        lines.push(blockquote(`${tail}${test.output.text}`, 650));
+      }
+    }
+    if (detail.failedTests.length > 3) lines.push(`- 他 ${detail.failedTests.length - 3} 件`);
+  }
+  return lines;
+}
+
+function detailLines(detail: RevisorLocalPrDetail, includeFailureDetails = false): string[] {
   const lines: string[] = [];
   if (detail.decisionLabel) lines.push(`**判定** ${detail.decisionLabel}`);
   if (detail.riskScore !== null) {
@@ -77,7 +122,10 @@ function detailLines(detail: RevisorLocalPrDetail): string[] {
   if (detail.autoMerge) {
     lines.push(`**オートマージ** ${detail.autoMerge.merged ? "済み" : "見送り"} — ${detail.autoMerge.reason}`);
   }
-  if (detail.blockers.length > 0) {
+  lines.push(`**マージ可否** ${detail.mergeable ? "マージOK" : "保留"}`);
+  if (includeFailureDetails || detail.decisionState === "failed") {
+    lines.push(...failureDetailLines(detail));
+  } else if (detail.blockers.length > 0) {
     lines.push("**判断事項**");
     // Discord のメッセージ上限 (2000 字) に収める。 判断事項が主役なので 8 件まで。
     for (const blocker of detail.blockers.slice(0, 8)) lines.push(`- ${clip(blocker, 180)}`);
@@ -98,17 +146,36 @@ const CHECK_STATUS_LABELS: Record<string, string> = {
   action_required: "人間の判断が必要",
 };
 
-export function checkStatusLabel(checkStatus: string): string {
+export function checkStatusLabel(
+  checkStatus: string,
+  detail: RevisorLocalPrDetail | null = null,
+): string {
+  if (checkStatus === "action_required" && detail?.decisionState === "failed") {
+    return "審査失敗";
+  }
   return CHECK_STATUS_LABELS[checkStatus] ?? checkStatus;
 }
 
 export function statusChangeMessage(candidate: TestForumCandidate): string {
   if (candidate.checkStatus === "test_ok") {
-    return "✅ 審査を通過しました (Test OK)。操作面の「テスト開始」でセッションを起動、「マージ」で squash merge できます。";
+    // 操作面は detail が明示的に mergeable と判定した場合だけ出す。詳細を取得できない
+    // 途中状態で「マージOK」と案内すると、実際には実行できない操作を約束してしまう。
+    const mergeable = candidate.detail?.mergeable === true;
+    return [
+      "✅ 審査を通過しました (Test OK)。",
+      mergeable
+        ? "🧪 テスト開始OK: 操作面の「テスト開始」で確認セッションを起動できます。"
+        : "🧪 テスト開始OK: このスレッドへ確認指示を投稿するとセッションを起動できます。",
+      !mergeable
+        ? "⏸️ マージ保留: Revisor のブロック理由を解消してください。"
+        : "🔀 マージOK: 確認後、操作面の「マージ」で squash merge できます。",
+    ].join("\n");
   }
-  if (candidate.checkStatus === "failed") {
-    const reason = candidate.detail?.blockers[0] ? `\n> ${clip(candidate.detail.blockers[0], 300)}` : "";
-    return `❌ 審査に失敗しました。${reason}`;
+  if (candidate.checkStatus === "failed" || candidate.detail?.decisionState === "failed") {
+    return clip([
+      "❌ 審査に失敗しました。対応セッションは以下の投稿内容を先に確認してください。",
+      ...(candidate.detail ? failureDetailLines(candidate.detail) : []),
+    ].join("\n"), 2000);
   }
   const blockers = (candidate.detail?.blockers ?? []).slice(0, 3).map((b) => `> ${clip(b, 200)}`).join("\n");
   return `⚠️ 審査は完了しましたが人間の判断が必要です。\n${blockers}`;
@@ -128,11 +195,13 @@ export function starterContent(candidate: TestForumCandidate): string {
   const lines = [
     `**Test candidate** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
     `**Repo** \`${candidate.repoOrigin}\``,
-    `**状態** ${checkStatusLabel(candidate.checkStatus)}`,
+    `**状態** ${checkStatusLabel(candidate.checkStatus, candidate.detail)}`,
     `**Head** \`${candidate.headBranch}\` @ \`${candidate.headSha}\``,
     `**Spawn root** \`${candidate.repoRootPath}\``,
     `**Active worktree** ${candidate.worktreePath ? `\`${candidate.worktreePath}\`` : "テスト開始時に解決"}`,
-    ...(candidate.detail ? detailLines(candidate.detail) : []),
+    ...(candidate.detail
+      ? detailLines(candidate.detail, candidate.checkStatus === "failed")
+      : []),
     "Revisor に登録された時点で掲載されます。内容が変わると Cc がこの投稿を編集で更新し、マージ・取り下げで対象外になると閉じます。このスレッドに書き込むとテストセッションが対応します。",
   ];
   return clip(lines.join("\n"), 2000);
@@ -243,6 +312,17 @@ export async function refreshTestForumControls(
   });
 }
 
+async function clearTestForumControls(
+  guild: Guild,
+  surface: DiscordTestSurfaceRow,
+): Promise<void> {
+  if (!surface.controls_message_id) return;
+  await writeToSurfaceThread(guild, surface.thread_id, "Concordia test controls removed", async (thread) => {
+    const message = await thread.messages.fetch(surface.controls_message_id!);
+    await message.edit({ content: "この候補の操作面は現在利用できません。", components: [] });
+  });
+}
+
 export function createTestForumDiscordAdapter(
   guild: Guild,
   forumId: string,
@@ -265,7 +345,7 @@ export function createTestForumDiscordAdapter(
       if (candidate.mentionUserIds.length > 0) {
         const mentions = candidate.mentionUserIds.map((id) => `<@${id}>`).join(" ");
         await thread.send({
-          content: `${mentions} ${candidate.repoOrigin} #${candidate.prNumber} が Revisor に登録されました (${checkStatusLabel(candidate.checkStatus)})。`,
+          content: `${mentions} ${candidate.repoOrigin} #${candidate.prNumber} が Revisor に登録されました (${checkStatusLabel(candidate.checkStatus, candidate.detail)})。`,
           allowedMentions: { users: [...candidate.mentionUserIds] },
         }).catch(() => undefined);
       }
@@ -301,6 +381,9 @@ export function createTestForumDiscordAdapter(
         (thread) => thread.send(renderTestForumControls(surface)),
       );
       return { controlsMessageId: message.id };
+    },
+    async clearControls(surface) {
+      await clearTestForumControls(guild, surface);
     },
     async postStatusChange(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate) {
       const thread = await resolveThread(guild, surface.thread_id);

@@ -58,6 +58,8 @@ export interface DiscordTestSurfacesRepo {
   setLocalPrId(id: number, localPrId: string): void;
   markMerged(id: number): void;
   setControlsMessageId(id: number, messageId: string): void;
+  /** 操作を許可しない候補から、表示済みの操作面を取り外す。 */
+  clearControlsMessageId(id: number): void;
 }
 
 export function makeDiscordTestSurfacesRepo(
@@ -164,6 +166,11 @@ export function makeDiscordTestSurfacesRepo(
       db.prepare(
         `UPDATE discord_test_surfaces SET controls_message_id = ? WHERE id = ? AND scope = ?`,
       ).run(messageId, id, scope);
+    },
+    clearControlsMessageId(id) {
+      db.prepare(
+        `UPDATE discord_test_surfaces SET controls_message_id = NULL WHERE id = ? AND scope = ?`,
+      ).run(id, scope);
     },
   };
 }

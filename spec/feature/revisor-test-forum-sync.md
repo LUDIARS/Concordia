@@ -22,6 +22,9 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   候補にする (checkStatus は問わない)。ポートは設定やソースへ固定しない。
 - 各行の decision (判定・判断事項 blockers・マージリスク・テスト結果・
   セキュリティスキャン・動作確認要否) と checkStatus を投稿本文に描画する。
+  `failed` と、decision が `failed` と分類した `action_required` では、worker error、
+  失敗テスト名・exit code・理由・Revisor 側で秘匿値をマスク済みの出力も掲載する。
+  客観的な失敗を「人間の判断が必要」と読み替えない。
   確認sessionを安全に起動できるよう、local PRのhead refとRevisor登録済み
   repository rootを結合する。骨格 (id/repository/番号/head/rootPath) が欠けた
   行は候補から外す。
@@ -34,9 +37,11 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   checkStatus・詳細) が変わった場合は投稿を閉じず、スターターメッセージの
   編集でリフレッシュする**。指紋が一致する限りDiscordへ編集を投げない (rate limit保護)。
 - checkStatus の決着遷移 (→ test_ok / failed / action_required) は、
-  スレッドへ通常メッセージで知らせる。
-- 操作面 (provider/effort セレクタ + テスト開始 / マージ) は **Test OK の候補だけ**
-  に付ける (spec/feature/test-forum-controls.md)。審査前・失敗・判断待ちの候補には
+  スレッドへ通常メッセージで知らせる。失敗遷移はその時点の詳細証跡を載せ、
+  Test OK 遷移は「テスト開始OK」と「マージOK」を同じ投稿で明示する。
+- 操作面 (provider/effort セレクタ + テスト開始 / マージ) は **Test OK かつ Revisor が
+  mergeable と判定した候補だけ**に付ける (spec/feature/test-forum-controls.md)。
+  審査前・失敗・判断待ち・draft の候補には
   出さない。
 - repository rootまたはhead refが変わった場合は、安全なspawn targetを更新するため
   旧投稿を閉じて現在の候補を作り直す。
@@ -69,6 +74,8 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   人間の明示 merge は Cc の権限付き構造化操作、オートマージは Revisor の状態機械が
   処理する。同一スレッドの自然言語は検証 session への指示であって mutation command
   には変換しない。
+- 起動プロンプトには、対応を始める前に紐づいた TestWorkflow フォーラムの既存投稿
+  (審査失敗理由・エラーログ・失敗テストを含む) を読むよう明記する。
 - テストセッションは end-session で終了できるが、**投稿はクローズしない**。
   投稿を閉じるのは同期 (候補消滅) だけ。
 - 候補がマージ等で消えて投稿を閉じるとき、旧経路の `qa_run_id` の child session と

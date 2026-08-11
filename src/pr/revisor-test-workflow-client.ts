@@ -28,9 +28,10 @@ export interface RevisorLocalPrDetail {
   headRef: string | null;
   baseRef: string | null;
   body: string | null;
+  decisionState: string | null;
   decisionLabel: string | null;
   /** 現在の base に対して競合なくマージできるか。 */
-  mergeable?: boolean;
+  mergeable: boolean;
   /** 人間の判断が必要な理由 (判断事項)。 */
   blockers: readonly string[];
   riskScore: number | null;
@@ -40,8 +41,18 @@ export interface RevisorLocalPrDetail {
   /** 登録テストの通過数 / 実行数 (skip 除く)。 */
   testsPassed: number | null;
   testsRan: number | null;
+  /** 審査失敗時に Test Forum へ載せられる、Revisor 側でマスク済みの失敗証跡。 */
+  failedTests: readonly RevisorFailedTest[];
+  reviewError: string | null;
   securityStatus: string | null;
   autoMerge: { merged: boolean; reason: string } | null;
+}
+
+export interface RevisorFailedTest {
+  name: string;
+  exitCode: number | null;
+  reason: string | null;
+  output: { text: string; truncated: boolean } | null;
 }
 
 /**
@@ -394,6 +405,20 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
     : [];
   const ci = Array.isArray(pr.ci) ? pr.ci as Array<Record<string, unknown>> : null;
   const skipped = ci?.filter((entry) => entry.status === "skipped").length ?? 0;
+  const failedTests = (ci ?? []).flatMap((entry): RevisorFailedTest[] => {
+    if (entry.status !== "failed" || !nonEmptyString(entry.name)) return [];
+    const output = entry.output && typeof entry.output === "object"
+      ? entry.output as Record<string, unknown>
+      : null;
+    return [{
+      name: entry.name,
+      exitCode: asNumberOrNull(entry.exitCode),
+      reason: asStringOrNull(entry.reason),
+      output: output && typeof output.text === "string"
+        ? { text: output.text, truncated: output.truncated === true }
+        : null,
+    }];
+  });
   const security = (pr.security && typeof pr.security === "object"
     ? pr.security
     : null) as Record<string, unknown> | null;
@@ -405,6 +430,7 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
     headRef: asStringOrNull(pr.headRef),
     baseRef: asStringOrNull(pr.baseRef),
     body: asStringOrNull(pr.body),
+    decisionState: asStringOrNull(decision.state),
     decisionLabel: asStringOrNull(decision.label),
     mergeable: decision.mergeable === true,
     blockers,
@@ -414,6 +440,8 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
     runtimeVerificationRequired: decision.runtimeVerificationRequired === true,
     testsPassed: ci ? ci.filter((entry) => entry.status === "passed").length : null,
     testsRan: ci ? ci.length - skipped : null,
+    failedTests,
+    reviewError: asStringOrNull(pr.error),
     securityStatus: security ? asStringOrNull(security.status) : null,
     autoMerge: autoMerge && typeof autoMerge.merged === "boolean"
       ? { merged: autoMerge.merged, reason: asStringOrNull(autoMerge.reason) ?? "" }

@@ -15,6 +15,7 @@ function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDe
     headRef: "feat/forum",
     baseRef: "main",
     body: null,
+    decisionState: "auto_ok",
     decisionLabel: "自動マージ可",
     blockers: [],
     riskScore: 12,
@@ -23,7 +24,10 @@ function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDe
     runtimeVerificationRequired: false,
     testsPassed: 3,
     testsRan: 3,
+    failedTests: [],
+    reviewError: null,
     securityStatus: "passed",
+    mergeable: true,
     autoMerge: null,
     ...overrides,
   };
@@ -124,11 +128,16 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
     setLocalPrId: vi.fn(),
     markMerged: vi.fn(),
     setControlsMessageId: vi.fn(),
+    clearControlsMessageId: vi.fn((id) => {
+      const row = rows.find((entry) => entry.id === id);
+      if (row) row.controls_message_id = null;
+    }),
   };
   const adapter: TestForumSurfaceAdapter = {
     create: vi.fn(async () => ({ threadId: `thread-${rows.length + 1}` })),
     update: vi.fn(async () => undefined),
     render: vi.fn(async (row) => ({ controlsMessageId: `controls-${row.id}` })),
+    clearControls: vi.fn(async () => undefined),
     postStatusChange: vi.fn(async () => undefined),
     postMerged: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
@@ -174,11 +183,16 @@ describe("reconcileTestForum", () => {
     const result = await reconcileTestForum({ candidates: [built], ...h });
     expect(result).toEqual({ scanned: 0, kept: 0, updated: 0, created: 1, closed: 0, failed: 0 });
     expect(h.surfaces.create).toHaveBeenCalledWith(expect.objectContaining({
-      contentHash: built.contentHash,
-      checkStatus: "queued",
+      contentHash: null,
+      checkStatus: null,
       repoRootPath: "E:/Document/Ars/Concordia",
       headBranch: "feat/test-forum",
     }));
+    expect(h.surfaces.updateContent).toHaveBeenCalledWith(10, {
+      headSha: "sha-1",
+      contentHash: built.contentHash,
+      checkStatus: "queued",
+    });
     // テストセッションの起動点はボタン / スレッド投稿。 掲載だけでは起動しない。
     expect(h.qa.start).not.toHaveBeenCalled();
     // 審査前の候補には操作面 (テスト開始/マージ) を出さない。
@@ -187,8 +201,53 @@ describe("reconcileTestForum", () => {
 
   it("attaches the control message only to a Test OK candidate", async () => {
     const h = harness();
-    await reconcileTestForum({ candidates: [candidate({ checkStatus: "test_ok" })], ...h });
+    const passed = candidate({ checkStatus: "test_ok" });
+    await reconcileTestForum({ candidates: [passed], ...h });
     expect(h.surfaces.setControlsMessageId).toHaveBeenCalledWith(10, "controls-10");
+    // 最初の同期より先に審査が終わっていても「テスト開始OK / マージOK」の投稿を落とさない。
+    expect(h.adapter.postStatusChange).toHaveBeenCalledWith(expect.anything(), passed);
+
+    const blocked = harness();
+    await reconcileTestForum({
+      candidates: [candidate({ detail: detail({ mergeable: false }) })],
+      ...blocked,
+    });
+    expect(blocked.adapter.render).not.toHaveBeenCalled();
+  });
+
+  it("removes existing controls when a candidate is no longer mergeable", async () => {
+    const previous = candidate();
+    const h = harness([surface({
+      content_hash: previous.contentHash,
+      check_status: "test_ok",
+      controls_message_id: "controls-7",
+    })]);
+    const blocked = candidate({ detail: detail({ mergeable: false }) });
+
+    await reconcileTestForum({ candidates: [blocked], ...h });
+
+    expect(h.adapter.clearControls).toHaveBeenCalledWith(expect.objectContaining({ id: 7 }));
+    expect(h.surfaces.clearControlsMessageId).toHaveBeenCalledWith(7);
+    expect(h.adapter.render).not.toHaveBeenCalled();
+  });
+
+  it("retries the initial settled-status post when Discord rejects it", async () => {
+    const h = harness();
+    const passed = candidate({ checkStatus: "test_ok" });
+    (h.adapter.postStatusChange as ReturnType<typeof vi.fn>)
+      .mockRejectedValueOnce(new Error("rate limited"));
+
+    const first = await reconcileTestForum({ candidates: [passed], ...h });
+    expect(first).toMatchObject({ created: 1, failed: 1 });
+    expect(h.rows[0]).toMatchObject({ content_hash: null, check_status: null });
+
+    const second = await reconcileTestForum({ candidates: [passed], ...h });
+    expect(second).toMatchObject({ updated: 1, failed: 0 });
+    expect(h.rows[0]).toMatchObject({
+      content_hash: passed.contentHash,
+      check_status: "test_ok",
+    });
+    expect(h.adapter.postStatusChange).toHaveBeenCalledTimes(2);
   });
 
   it("closes a surface and ends its QA session when the PR leaves the open list", async () => {
@@ -285,7 +344,7 @@ describe("reconcileTestForum", () => {
     const result = await reconcileTestForum({ candidates: [fresh, other], ...h, log: { warn } });
     // 失敗した投稿は kept のまま (二重投稿しない) で DB も据え置き、 次周期で再試行する。
     expect(result).toEqual({ scanned: 1, kept: 1, updated: 0, created: 1, closed: 0, failed: 1 });
-    expect(h.surfaces.updateContent).not.toHaveBeenCalled();
+    expect(h.surfaces.updateContent).not.toHaveBeenCalledWith(7, expect.anything());
     expect(h.adapter.create).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalled();
   });

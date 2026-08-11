@@ -37,6 +37,8 @@ export interface TestForumSurfaceAdapter {
   update(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
   /** DB id を customId に埋めるため、作成後に操作面を追加する。 */
   render?(surface: DiscordTestSurfaceRow): Promise<{ controlsMessageId: string }>;
+  /** 審査状態が戻った候補から、既存の特権操作を取り外す。 */
+  clearControls?(surface: DiscordTestSurfaceRow): Promise<void>;
   /** 審査の決着遷移をスレッドへ通常メッセージとして知らせる。 */
   postStatusChange(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
   /** 実際にマージされた PR を archive 前にスレッドへ記録する。 */
@@ -120,9 +122,19 @@ function contentHashOf(pullRequest: RevisorOpenLocalPr): string {
 }
 
 /** スレッドへ知らせる価値のある遷移: 審査の決着 (通過 / 失敗 / 判断待ち)。 */
+function isSettledStatus(checkStatus: string): boolean {
+  return checkStatus === "test_ok"
+    || checkStatus === "failed"
+    || checkStatus === "action_required";
+}
+
 function isAnnouncedTransition(previous: string | null, next: string): boolean {
-  if (!previous || previous === next) return false;
-  return next === "test_ok" || next === "failed" || next === "action_required";
+  if (previous === next) return false;
+  return isSettledStatus(next);
+}
+
+function hasTestControls(candidate: TestForumCandidate): boolean {
+  return candidate.checkStatus === "test_ok" && candidate.detail?.mergeable === true;
 }
 
 function prKey(origin: string, number: number): string {
@@ -208,9 +220,17 @@ export async function reconcileTestForum(input: {
     // 更新に失敗しても投稿は生きている扱いにする (kept に入れないと下の作成ループが
     // 同じ PR の投稿を二重に立ててしまう)。
     keptKeys.add(key);
+    // 操作面は Test OK かつ mergeable の間だけ許可する。既に表示したボタンを残すと、
+    // 審査が失効した後にも特権 spawn / merge を誘導してしまう。
+    if (surface.controls_message_id && !hasTestControls(candidate) && input.adapter.clearControls) {
+      await isolate(`${key}:clear-controls`, async () => {
+        await input.adapter.clearControls!(surface);
+        input.surfaces.clearControlsMessageId(surface.id);
+      });
+    }
     // 操作面の導入前に立った投稿 (controls_message_id 未設定) には、 head が変わるまで
     // 操作が一切出ない。 保持する候補にも遅れて操作面を足す。
-    if (!surface.controls_message_id && candidate.checkStatus === "test_ok" && input.adapter.render) {
+    if (!surface.controls_message_id && hasTestControls(candidate) && input.adapter.render) {
       await isolate(`${key}:controls`, async () => {
         const rendered = await input.adapter.render!(surface);
         input.surfaces.setControlsMessageId(surface.id, rendered.controlsMessageId);
@@ -247,15 +267,25 @@ export async function reconcileTestForum(input: {
         headBranch: candidate.headBranch,
         worktreePath: candidate.worktreePath,
         threadId: createdSurface.threadId,
+        // 決着済み候補を初めて見た周期でも通常の状態投稿を出す。投稿に失敗した
+        // 場合は null のまま残し、次周期の update 経路で同じ投稿を再試行する。
+        contentHash: null,
+        checkStatus: null,
+      });
+      created += 1;
+      if (isSettledStatus(candidate.checkStatus)) {
+        await input.adapter.postStatusChange(row, candidate);
+      }
+      input.surfaces.updateContent(row.id, {
+        headSha: candidate.headSha,
         contentHash: candidate.contentHash,
         checkStatus: candidate.checkStatus,
       });
-      created += 1;
       // テスト・QA セッションの起動点は「テスト開始」ボタンとスレッドへのユーザ投稿。
       // 掲載は登録時点 (審査前) に起きるので、 ここでは自動起動しない。
-      // 操作面 (テスト開始/マージ) は Test OK の候補だけに付ける。
+      // 操作面 (テスト開始/マージ) は Test OK かつ mergeable な候補だけに付ける。
       // 失敗しても投稿は残り、 次周期の backfill が操作面を貼り直す。
-      if (candidate.checkStatus === "test_ok" && input.adapter.render) {
+      if (hasTestControls(candidate) && input.adapter.render) {
         await isolate(`${key}:controls`, async () => {
           const rendered = await input.adapter.render!(row);
           input.surfaces.setControlsMessageId(row.id, rendered.controlsMessageId);

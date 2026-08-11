@@ -17,6 +17,7 @@ function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDe
     headRef: "feat/forum",
     baseRef: "main",
     body: null,
+    decisionState: "needs_human",
     decisionLabel: "人間の判断が必要",
     blockers: ["動作確認が必要"],
     riskScore: 57,
@@ -25,7 +26,10 @@ function detail(overrides: Partial<RevisorLocalPrDetail> = {}): RevisorLocalPrDe
     runtimeVerificationRequired: true,
     testsPassed: 3,
     testsRan: 4,
+    failedTests: [],
+    reviewError: null,
     securityStatus: "passed",
+    mergeable: true,
     autoMerge: { merged: false, reason: "閾値超過" },
     ...overrides,
   };
@@ -60,6 +64,7 @@ describe("starterContent", () => {
     expect(content).toContain("**セキュリティスキャン** passed");
     expect(content).toContain("**動作確認** 人間による動作確認が必要");
     expect(content).toContain("**オートマージ** 見送り — 閾値超過");
+    expect(content).toContain("**マージ可否** マージOK");
     expect(content).toContain("- 動作確認が必要");
   });
 
@@ -68,6 +73,38 @@ describe("starterContent", () => {
     expect(content).toContain("**Repo** `LUDIARS/Concordia`");
     expect(content).toContain("**Head** `feat/forum` @ `sha-1`");
     expect(content).not.toContain("**判定**");
+  });
+
+  it("includes failure evidence when the check status is failed", () => {
+    const content = starterContent(candidate({
+      checkStatus: "failed",
+      detail: detail({
+        decisionState: "needs_human",
+        failedTests: [{
+          name: "unit",
+          exitCode: 1,
+          reason: "assertion failed",
+          output: { text: "not ok 4", truncated: false },
+        }],
+      }),
+    }));
+
+    expect(content).toContain("**失敗したテスト**");
+    expect(content).toContain("unit (exit 1)");
+    expect(content).toContain("not ok 4");
+  });
+
+  it("redacts credentials from failure evidence before posting to Discord", () => {
+    const content = starterContent(candidate({
+      checkStatus: "failed",
+      detail: detail({
+        reviewError: "Bearer never-post-this token=also-never-post-this",
+      }),
+    }));
+
+    expect(content).toContain("Bearer [REDACTED]");
+    expect(content).not.toContain("never-post-this");
+    expect(content).not.toContain("also-never-post-this");
   });
 
   it("stays within the Discord message limit even for a huge PR", () => {
@@ -92,11 +129,46 @@ describe("starterContent", () => {
 
 describe("statusChangeMessage", () => {
   it("tells the thread what the review concluded", () => {
-    expect(statusChangeMessage(candidate({ checkStatus: "test_ok" }))).toContain("審査を通過");
+    const passed = statusChangeMessage(candidate({ checkStatus: "test_ok" }));
+    expect(passed).toContain("審査を通過");
+    expect(passed).toContain("テスト開始OK");
+    expect(passed).toContain("マージOK");
     expect(statusChangeMessage(candidate({ checkStatus: "failed" }))).toContain("動作確認が必要");
     const actionRequired = statusChangeMessage(candidate({ checkStatus: "action_required" }));
     expect(actionRequired).toContain("人間の判断が必要");
     expect(actionRequired).toContain("> 動作確認が必要");
+
+    const draft = statusChangeMessage(candidate({
+      checkStatus: "test_ok",
+      detail: detail({ mergeable: false }),
+    }));
+    expect(draft).toContain("マージ保留");
+    expect(draft).not.toContain("マージOK");
+
+    const unavailable = statusChangeMessage(candidate({ detail: null }));
+    expect(unavailable).toContain("マージ保留");
+    expect(unavailable).not.toContain("マージOK");
+  });
+
+  it("posts concrete action_required failures with test output instead of calling them a human decision", () => {
+    const content = statusChangeMessage(candidate({
+      checkStatus: "action_required",
+      detail: detail({
+        decisionState: "failed",
+        decisionLabel: "審査が失敗",
+        blockers: ["1 registered test case(s) failed"],
+        failedTests: [{
+          name: "unit",
+          exitCode: 1,
+          reason: null,
+          output: { text: "not ok 4", truncated: false },
+        }],
+      }),
+    }));
+    expect(content).toContain("審査に失敗");
+    expect(content).toContain("unit (exit 1)");
+    expect(content).toContain("not ok 4");
+    expect(content).not.toContain("人間の判断が必要です");
   });
 
   it("survives a candidate with no detail", () => {
@@ -133,6 +205,7 @@ describe("mergedMessage", () => {
 
 function fakeThread(archived = false) {
   const starter = { edit: vi.fn(async (_payload: { allowedMentions?: unknown }) => undefined) };
+  const controls = { edit: vi.fn(async (_payload: unknown) => undefined) };
   const thread = {
     id: "thread-42",
     type: ChannelType.PublicThread,
@@ -143,9 +216,10 @@ function fakeThread(archived = false) {
     }),
     setName: vi.fn(async (_name: string, _reason?: string) => undefined),
     fetchStarterMessage: vi.fn(async () => starter),
+    messages: { fetch: vi.fn(async () => controls) },
     send: vi.fn(async (_payload: unknown) => ({ id: "controls-1" })),
   };
-  return { thread, starter };
+  return { thread, starter, controls };
 }
 
 function guildWith(thread: ReturnType<typeof fakeThread>["thread"]): Guild {
@@ -154,7 +228,7 @@ function guildWith(thread: ReturnType<typeof fakeThread>["thread"]): Guild {
   } as unknown as Guild;
 }
 
-function surfaceRow(): DiscordTestSurfaceRow {
+function surfaceRow(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSurfaceRow {
   return {
     id: 7,
     scope: "",
@@ -179,6 +253,7 @@ function surfaceRow(): DiscordTestSurfaceRow {
     local_pr_id: null,
     controls_message_id: null,
     check_status: null,
+    ...overrides,
   };
 }
 
@@ -303,6 +378,16 @@ describe("createTestForumDiscordAdapter", () => {
     })).rejects.toThrow("temporarily unavailable");
   });
 
+  it("un-archives before posting a settled status", async () => {
+    const { thread } = fakeThread(true);
+    await createTestForumDiscordAdapter(guildWith(thread), "forum-1")
+      .postStatusChange(surfaceRow(), candidate({ checkStatus: "failed" }));
+
+    expect(thread.setArchived).toHaveBeenCalledWith(false, expect.any(String));
+    expect(thread.setArchived.mock.invocationCallOrder[0])
+      .toBeLessThan(thread.send.mock.invocationCallOrder[0]);
+  });
+
   it("un-archives before editing a still-listed post", async () => {
     const { thread, starter } = fakeThread(true);
     const adapter = createTestForumDiscordAdapter(guildWith(thread), "forum-1");
@@ -327,6 +412,17 @@ describe("createTestForumDiscordAdapter", () => {
     expect(thread.setArchived.mock.invocationCallOrder[0])
       .toBeLessThan(thread.send.mock.invocationCallOrder[0]);
     expect(rendered).toEqual({ controlsMessageId: "controls-1" });
+  });
+
+  it("removes existing controls when the candidate is no longer actionable", async () => {
+    const { thread, controls } = fakeThread();
+    await createTestForumDiscordAdapter(guildWith(thread), "forum-1")
+      .clearControls!(surfaceRow({ controls_message_id: "controls-1" }));
+
+    expect(controls.edit).toHaveBeenCalledWith({
+      content: "この候補の操作面は現在利用できません。",
+      components: [],
+    });
   });
 
   it("archives on close and leaves an already-archived thread alone", async () => {

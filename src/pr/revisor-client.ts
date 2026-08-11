@@ -91,7 +91,7 @@ export interface RevisorLocalPrCloser {
   closeLocalPr(id: string, reason?: string): Promise<void>;
 }
 
-/** Revisor の queued local PR を提出元セッションの明示指示で fast lane へ移す。 */
+/** Revisor の queued local PR を active session の明示指示で fast lane へ移す。 */
 export interface RevisorLocalPrPromoter {
   promoteLocalPr(id: string, sessionId: string): Promise<void>;
 }

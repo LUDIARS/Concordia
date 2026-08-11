@@ -199,7 +199,11 @@ fast opt-in は manual / direct / implementation-tools の全経路で active se
 終了済み・lost・存在しない session から予約枠を使用させない。
 
 同じブランチの queued PR が既にある状態で fast を明示した場合は、新しい PR を作らず
-promotion を呼ぶ。独立した `POST /v1/prs/local/:id/fast-lane` は、Revisor の PR に記録
-された `sessionId` と要求セッションが一致し、そのセッションが active のときだけ通す。
-成功は `pr-fast-lane` session event に記録する。マージ権限は不要だが、別セッションの
-予約枠を操作することはできない。
+promotion を呼ぶ。独立した `POST /v1/prs/local/:id/fast-lane` は**提出元セッションに
+限らず、どの active session からでも通す**。急がせたい人と出した人は同じとは限らない —
+提出元だけに限ると、委託先が出した PR を委託元が昇格できず、提出元セッションが終了した
+PR は誰も昇格できなくなる。要求セッションが active であることは、存在しない ID での操作を
+通さないための名乗りとして要求する。
+
+共有予約枠を消費する操作なので、成功は `pr-fast-lane` session event に記録し、提出元
+(`submitted_by`) と昇格者 (`session_id`) の両方を残す。マージ権限は不要。

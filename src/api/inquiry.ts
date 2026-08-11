@@ -32,6 +32,13 @@ interface InquiryRecord {
   supervisor: ReturnType<typeof resolveSupervisor>;
 }
 
+interface InquiryCacheEntry {
+  expires: number;
+  record: InquiryRecord;
+  /** タスク instruction を session へ送信済みか。block 中の再試行判定に使う。 */
+  instructionInjected: boolean;
+}
+
 /**
  * `GET /v1/inquiry/:id` は監査の即時参照用で、 正本は session_events の
  * `kind: "inquiry"`。 Cc は常駐プロセスなので、 in-memory 側は上限を切って
@@ -50,9 +57,32 @@ export function inquiryRouter(deps: {
 }): Hono {
   const app = new Hono();
   const records = new Map<string, InquiryRecord>();
-  const cache = new Map<string, { expires: number; record: InquiryRecord }>();
+  const cache = new Map<string, InquiryCacheEntry>();
   const genius = deps.genius ?? new CatalogGeniusClient(new ExcubitorClient());
   const now = deps.now ?? (() => Math.floor(Date.now() / 1000));
+
+  const injectTaskInstruction = (record: InquiryRecord): boolean => {
+    if (record.category !== "タスク" || !allowAutoInject({
+      probe: deps.hasPendingQuestion,
+      sessionId: record.session_id,
+      source: "auto:inquiry",
+    })) return false;
+    const ts = now();
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: record.session_id,
+      text: record.instruction,
+      source: "auto:inquiry",
+      ts,
+    });
+    deps.sessions.appendEvent({
+      session_id: record.session_id,
+      ts,
+      kind: "inject",
+      payload: { text: record.instruction, source: "auto:inquiry" },
+    });
+    return true;
+  };
 
   app.post("/", async (c) => {
     const parsed = RequestSchema.safeParse(await c.req.json().catch(() => null));
@@ -66,7 +96,14 @@ export function inquiryRouter(deps: {
     // 同一 (session, category) の再送はキャッシュで畳む (spec §3)。
     const key = `${input.session_id}:${category}`;
     const cached = cache.get(key);
-    if (cached && cached.expires > now()) return c.json(cached.record);
+    if (cached && cached.expires > now()) {
+      // 最初の問い合わせが未回答質問に block された場合、回答後の再送で一度だけ配信する。
+      // この判定なしでは cache expiry まで instruction が永久に未送信になる。
+      if (!cached.instructionInjected) {
+        cached.instructionInjected = injectTaskInstruction(cached.record);
+      }
+      return c.json(cached.record);
+    }
 
     const cards = await genius.query({
       text: `[${category}] ${input.context}`,
@@ -107,7 +144,12 @@ export function inquiryRouter(deps: {
       if (oldest.done) break;
       records.delete(oldest.value);
     }
-    cache.set(key, { expires: now() + deps.config.inquiryCacheSec, record });
+    const cacheEntry: InquiryCacheEntry = {
+      expires: now() + deps.config.inquiryCacheSec,
+      record,
+      instructionInjected: false,
+    };
+    cache.set(key, cacheEntry);
     for (const [cacheKey, entry] of cache) {
       if (entry.expires <= now()) cache.delete(cacheKey);
     }
@@ -130,25 +172,7 @@ export function inquiryRouter(deps: {
     // idle の clear 契機にならない。
     // 未回答の質問が残っているセッションへは「進め」を返さない。 record は返すので
     // 呼び出し側は判断結果を読めるが、 pty へは流さない (回答するまで止まる)。
-    if (category === "タスク" && allowAutoInject({
-      probe: deps.hasPendingQuestion,
-      sessionId: input.session_id,
-      source: "auto:inquiry",
-    })) {
-      eventBus.emit({
-        type: "session.inject",
-        target_session_id: input.session_id,
-        text: record.instruction,
-        source: "auto:inquiry",
-        ts: now(),
-      });
-      deps.sessions.appendEvent({
-        session_id: input.session_id,
-        ts: now(),
-        kind: "inject",
-        payload: { text: record.instruction, source: "auto:inquiry" },
-      });
-    }
+    cacheEntry.instructionInjected = injectTaskInstruction(record);
     return c.json(record);
   });
 

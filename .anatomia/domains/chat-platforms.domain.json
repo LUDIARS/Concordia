@@ -11,15 +11,13 @@
     { "pathPattern": "(^|/)src/platform/[^/]+$" },
     { "pathPattern": "(^|/)src/shared/option-code(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)web/src/lib/option-code(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)web/src/pages/session-detail/SessionModals\\.tsx$" },
-    { "pathPattern": "(^|/)src/pr/revisor-test-workflow-client(\\.test)?\\.ts$" }
+    { "pathPattern": "(^|/)web/src/pages/session-detail/SessionModals\\.tsx$" }
   ],
   "cardTemplate": "Summarise the \"chat-platforms\" domain: Discord / Slack bidirectional integration, transcript relay, and fail-loud question delivery.",
   "source": "manual",
   "lockedFields": ["*"],
   "specRefs": [
     "spec/feature/discord-lictor-relay.md#ask-マーカーの-fail-loud-中継",
-    "spec/feature/question-option-codes.md#規則",
-    "spec/feature/revisor-test-forum-sync.md#runtime-boundary"
+    "spec/feature/question-option-codes.md#規則"
   ]
 }

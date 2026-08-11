@@ -61,7 +61,7 @@ export interface PrsApiDeps {
   revisorMerger?: RevisorLocalPrMerger;
   /** Revisor local PR の取り下げ操作。未注入時は fail-closed。 */
   revisorCloser?: RevisorLocalPrCloser;
-  /** queued local PR を、その提出元セッションの明示指示で fast lane へ移す。 */
+  /** queued local PR を active session の明示指示で fast lane へ移す。 */
   revisorPromoter?: RevisorLocalPrPromoter;
   /**
    * session 非依存の direct 提出 (repo_path + branch)。 未注入なら
@@ -181,10 +181,14 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   });
 
   /**
-   * POST /v1/prs/local/:id/fast-lane — queued PR を提出元セッション自身が昇格する。
+   * POST /v1/prs/local/:id/fast-lane — queued PR を昇格する。
    *
-   * Cc の loopback API は session_id を受け取るため、Revisor の記録した submitter と
-   * 照合してから変更する。別セッションの ID だけで共有予約枠を奪えないよう fail-closed。
+   * 昇格は提出元セッションに限らない。提出元だけに限ると、委託先が出した PR を委託元が
+   * 昇格できず、提出元セッションが終了した PR は誰も昇格できなくなる (2026-08-11 に
+   * Rv #451 で発生し、Revisor CLI から迂回した)。急がせたい人と出した人は同じとは限らない。
+   *
+   * 共有予約枠を消費する操作なので、誰が昇格したかは session イベントに残す。呼び出し元の
+   * 名乗りとして active session であることは要求する (存在しない ID での操作を通さない)。
    */
   app.post("/local/:id/fast-lane", async (c) => {
     if (!deps.revisor || !deps.sessions || !deps.revisorPromoter) {
@@ -206,9 +210,6 @@ export function prsRouter(deps: PrsApiDeps): Hono {
       return c.json({ error: "local_pr_fast_lane_failed" }, 502);
     }
     if (!target) return c.json({ error: "local_pr_not_found" }, 404);
-    if (!target.sessionId || target.sessionId !== sessionId) {
-      return c.json({ error: "local_pr_fast_lane_not_owner" }, 403);
-    }
     if (target.status !== "open" || target.checkStatus !== "queued") {
       return c.json({ error: "local_pr_fast_lane_not_queued" }, 409);
     }
@@ -217,8 +218,14 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     } catch {
       return c.json({ error: "local_pr_fast_lane_failed" }, 502);
     }
-    const audit = { local_pr_id: localPrId, session_id: sessionId };
-    log.info(audit, "local PR promoted to fast lane by submitting session");
+    // 誰が急がせたかは、提出元と違いうるので両方残す。共有予約枠の消費者を後から辿れる。
+    const audit = {
+      local_pr_id: localPrId,
+      session_id: sessionId,
+      submitted_by: target.sessionId ?? null,
+      by_submitter: target.sessionId === sessionId,
+    };
+    log.info(audit, "local PR promoted to fast lane");
     deps.sessions.appendEvent({
       session_id: sessionId,
       ts: Math.floor(Date.now() / 1000),

@@ -162,7 +162,7 @@ export interface CoreDelegationDeps {
   revisorLocalPrMerger?: PrsApiDeps["revisorMerger"];
   /** Revisor local PR を、session の直近人間指示者の権限で取り下げる。 */
   revisorLocalPrCloser?: RevisorLocalPrCloser;
-  /** queued local PR を提出元セッションの明示指示で fast lane へ移す。 */
+  /** queued local PR を active session の明示指示で fast lane へ移す。 */
   revisorLocalPrPromoter?: PrsApiDeps["revisorPromoter"];
   /** repo_path + branch 直指定の direct 提出 (session 非依存)。 */
   submitDirectLocalPr?: PrsApiDeps["submitDirectLocalPr"];

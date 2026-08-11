@@ -90,6 +90,29 @@ describe("POST /v1/inquiry", () => {
     unsubscribe();
   });
 
+  it("injects a cached inquiry once after the pending question is answered", async () => {
+    let blocked = true;
+    let calls = 0;
+    const app = appWith({
+      genius: { query: async () => { calls += 1; return null; } },
+      hasPendingQuestion: () => blocked,
+      now: () => 100,
+    });
+    const injected: string[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === "auto:inquiry") injected.push(event.text);
+    });
+
+    await post(app, {});
+    blocked = false;
+    await post(app, {});
+    await post(app, {});
+
+    expect(calls).toBe(1);
+    expect(injected).toHaveLength(1);
+    unsubscribe();
+  });
+
   it("serves the cached record for the same (session, category) within the window", async () => {
     let calls = 0;
     const genius: GeniusClient = {

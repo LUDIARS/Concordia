@@ -236,7 +236,7 @@ describe("POST /v1/prs/local and fast-lane promotion", () => {
     expect(submitLocalPr).toHaveBeenCalledTimes(1);
   });
 
-  it("lets only the active submitting session promote a queued PR and audits it", async () => {
+  it("lets any active session promote a queued PR and audits submitter and promoter", async () => {
     const env = makeTestApp();
     addSession(env);
     const promoteLocalPr = vi.fn(async () => undefined);
@@ -277,12 +277,25 @@ describe("POST /v1/prs/local and fast-lane promotion", () => {
       payload: expect.stringContaining("local-1"),
     });
 
+    // 急がせたい人と出した人は同じとは限らない。委託先が出した PR を委託元が昇格でき、
+    // 提出元セッションが終了した PR も他セッションから救える。
     addSession(env, "session-other");
-    const denied = await app.request(
+    const byOther = await app.request(
       "/v1/prs/local/local-1/fast-lane",
       closeRequest({ session_id: "session-other" }),
     );
-    expect(denied.status).toBe(403);
+    expect(byOther.status).toBe(200);
+    expect(promoteLocalPr).toHaveBeenCalledWith("local-1", "session-other");
+    // 共有予約枠を消費した記録は、提出元と昇格者の両方が辿れること。
+    expect(env.repo.recentEvents("session-other", 1)[0]?.payload)
+      .toEqual(expect.stringContaining("session-1"));
+
+    // 名乗りとして active session であることは要求する。
+    const unknown = await app.request(
+      "/v1/prs/local/local-1/fast-lane",
+      closeRequest({ session_id: "session-missing" }),
+    );
+    expect(unknown.status).toBe(403);
   });
 });
 

@@ -1,11 +1,12 @@
-/**
+﻿/**
  * Concordia SQLite schema. spec/service-schema.md §2 に準拠.
  */
 
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
+import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 58;
+export const SCHEMA_VERSION = 59;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1533,6 +1534,46 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_client ON web_push_subscriptions(client_id, disabled_at);
     `);
+  },
+}, {
+  version: 59,
+  name: "taskflow-inject-state-in-db",
+  source: "harness_rules / inject_manuals — task md 書き戻しの禁止",
+  up(db) {
+    // seed は既存行を上書きしない。既定文言のままの行だけを更新して、
+    // Web UI で個別編集された運用ルールは変更しない。
+    const replace = (sql: string, next: string, previous: string): void => {
+      db.prepare(sql).run(next, previous);
+    };
+    replace(
+      `UPDATE harness_rules SET description = ?, updated_at = strftime('%s','now') * 1000
+         WHERE builtin = 1 AND title = '実装前の task md 分解を必須化' AND description = ?`,
+      `実装タスクは着手前に分解保存してから作業する。${TASK_MD_CONTENT_RULE}${TASK_STATE_DB_RULE}`,
+      "実装タスクは着手前に対象リポの spec/tasks/ へ md で分解保存してから作業する。md がタスクの正本である。",
+    );
+    replace(
+      `UPDATE harness_rules SET description = ?, updated_at = strftime('%s','now') * 1000
+         WHERE builtin = 1 AND title = '作業ブランチ + worktree 必須' AND description = ?`,
+      "実装作業は main / develop の直編集・直コミットで行わない。作業内容を解析して作業ブランチを確定し、" +
+      "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (spec/tasks/ への新規保存) に積み、コミット → PR 作成まで行う。" +
+      "PR 作成後は停止し、ユーザの明示指示がないレビュー・テスト・マージへ進まない。" +
+      "ルートフォルダ (リポ本体) のブランチ切り替え自体は判定対象にしない (不問)。" +
+      "判定するのは main/develop への直コミットと、完了フロー (タスク分解 → コミット → PR) の欠落である。",
+      "実装作業は main / develop の直編集・直コミットで行わない。作業内容を解析して作業ブランチを確定し、" +
+      "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (task md) に積み、コミット → PR 作成まで行う。" +
+      "PR 作成後は停止し、ユーザの明示指示がないレビュー・テスト・マージへ進まない。" +
+      "ルートフォルダ (リポ本体) のブランチ切り替え自体は判定対象にしない (不問)。" +
+      "判定するのは main/develop への直コミットと、完了フロー (task md → コミット → PR) の欠落である。",
+    );
+    replace(
+      `UPDATE inject_manuals SET content = ?, updated_at = strftime('%s','now') * 1000
+         WHERE kind = '実装' AND content = ?`,
+      "作業ブランチを確定 → worktree を生成 → 作業 → タスクを spec/tasks/ に新規保存で分解 → コミット → PR 作成まで行う。" +
+      "進行状態 (status / 担当 / PR 番号 / 外部タスク ID) は Concordia の DB が正本なので、既存 task md へ書き戻さない。" +
+      "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
+      "作業ブランチを確定 → worktree を生成 → 作業 → task md (spec/tasks/) に分解 → コミット → PR 作成まで行う。" +
+      "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
+    );
   },
 }];
 

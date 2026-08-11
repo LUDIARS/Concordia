@@ -44,8 +44,10 @@ updated: 2026-07-13
 4. **意味判断 (実装完了の検知・残作業の有無) は成長型ブラックボックス** (`@ludiars/blackbox` =
    決定論 seed rule + LLM フォールバック + ルール昇格 + ok/ng 学習) に寄せる (§6, §7)。
    Cc 本体は LLM を内包しない (goal-and-go と同じ思想)。
-5. **タスクの正本は md ローカルファイル。** Memoria / Actio は登録先であって正本ではない。
-   サービスが死んでいても md だけでワークフローは止まらない (§2)。
+5. **タスク本文の正本は md ローカルファイル、 進行状態の正本は Cc DB。** Memoria / Actio は
+   登録先であって正本ではない。 サービスが死んでいても md だけでワークフローは止まらない (§2)。
+   md は分解時に**新規保存するだけ**で、 status や PR 番号を書き戻さない
+   (書き戻すと task md が更新差分を作り、 実装 PR に無関係な diff が載る — 2026-08-09 neco 指示)。
 
 ## 1. 全体フロー
 
@@ -86,9 +88,9 @@ delegation の子セッションに限らず、 **対話セッションが自ら
   マージは人間の明示操作、 または confirm フロー (§5) を経た明示マージのみ。
   ハーネス builtin ルール (`src/subsidiary/harness-seed.ts`) で deny する。
 
-## 2. タスク管理 — md 正本 + Memoria / Actio 登録
+## 2. タスク管理 — 本文 md 正本 + 状態 DB 正本 + Memoria / Actio 登録
 
-### 2.1 md 正本
+### 2.1 md 正本 (本文のみ)
 
 - 置き場: **対象プロジェクトのリポ内** `<repo>/spec/tasks/<YYYY-MM-DD>-<slug>.md`
   (2026-07-13 neco 確定。 ワークスペース共有ディレクトリではなく各リポの spec 配下に持つ —
@@ -115,6 +117,14 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 ## スコープ (編集可ディレクトリ)
 ```
 
+- **frontmatter はこの 5 キーだけ。** `status` / `assignee` / `owner` / `delegation_run_id` /
+  `pr_number` / `memoria_task_id` / `actio_task_id` は runtime state であり、
+  `taskflow_task_state` (Cc DB) が正本 (§2.2)。 md には書かず、 進行に応じた書き戻しもしない。
+- md への書き込みは**分解時の新規作成 1 回だけ**。 タスクが進むたびに md を更新すると、
+  実装 PR に無関係な更新差分が載り、 Cc から見たタスクの状態も二重管理になる。
+- 分解 inject / ハーネスルール / kind 別 inject マニュアルが使う規範文言は
+  `src/taskflow/task-instructions.ts` に集約する (経路ごとに文言がずれないようにする)。
+
 ### 2.2 登録 (reconcile)
 
 - Cc の **task-md reconciler** (定期 tick) が全リポの `spec/tasks/` を走査し、
@@ -133,7 +143,8 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 ### 2.3 md 未出力 / タスク無しの扱い
 
 - 実装完了イベント (§5, §6) の時点で当該セッション/プロジェクトに対応する task md が無い場合、
-  Cc は**分解プロンプトを inject** する (「作業内容を §2.1 形式で `<repo>/spec/tasks/` に分解保存せよ」)。
+  Cc は**分解プロンプトを inject** する (「作業内容を §2.1 形式で `<repo>/spec/tasks/` に新規保存せよ。
+  進行状態は Cc DB が正本なので md へ書き戻すな」)。 文言は `src/taskflow/task-instructions.ts`。
 - 分解の結果「タスクが無い」(残作業なし・依頼が空) と分かったら、
   **ユーザへメンション付きで判断を仰ぐ** (§10)。 Cc が勝手にタスクを発明しない。
 
@@ -193,15 +204,17 @@ predicates.ts の思想を踏襲する: 純関数、 判定不能なら null (�
 > **worktree での動作テストは絶対禁止。** 実装セッションの責務は
 > 「実装 → PR → 完了 status 報告」まで。
 >
-> タスクは着手前に **対象リポの `spec/tasks/` に md で分解保存**してから作業する
+> タスクは着手前に **対象リポの `spec/tasks/` に md で新規保存**してから作業する
 > (形式は Concordia spec/feature/task-workflow.md §2.1)。 保存した md は Concordia が
 > Memoria / Actio へ登録する — サービスが落ちていても md が正本なので作業は止めない。
+> **進行状態 (status / 担当 / PR 番号 / 外部タスク ID) は Concordia の DB が正本**であり、
+> md へ書き戻さない。
 
 **Cc ハーネス側** にも同旨を持つ:
 
 - 決定論 (A 層): §4.1 の述語 + §2.3 の分解 inject (md 未出力の機械検知) が強制面。
 - 自然文 (B 層): `harness_rules` の既定 seed に
-  「実装タスクは着手前に対象リポ `spec/tasks/` へ md 分解保存する」
+  「実装タスクは着手前に対象リポ `spec/tasks/` へ md で新規保存する (状態は DB 正本、書き戻さない)」
   「セッション内・worktree での動作テストは禁止 (confirm キューのみ)」を追加する
   (subsidiary ガード / gate 黒箱の判断根拠に載せる)。
 

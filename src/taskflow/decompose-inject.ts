@@ -3,9 +3,12 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { TaskMdStore } from "./md-store.js";
 import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
+import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "./task-instructions.js";
 
 export const DECOMPOSE_PROMPT = [
-  "作業内容を task-workflow spec §2.1 の frontmatter 形式で、対象リポの spec/tasks/ に分解保存してください。",
+  "作業内容を task-workflow spec §2.1 の形式で分解保存してください。",
+  TASK_MD_CONTENT_RULE,
+  TASK_STATE_DB_RULE,
   "残作業として保存すべきタスクが無い場合は『タスク無し』と報告してください。",
 ].join("\n");
 

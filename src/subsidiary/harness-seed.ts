@@ -7,6 +7,7 @@
  */
 
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
+import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
 export function seedHarnessRules(repo: HarnessRulesRepo): void {
   // allow: ディレクトリ横断を許可 (Pictor/Ergo 等の横断依存実装は正当)。
@@ -65,7 +66,7 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
   repo.ensureBuiltin({
     kind: "block",
     title: "実装前の task md 分解を必須化",
-    description: "実装タスクは着手前に対象リポの spec/tasks/ へ md で分解保存してから作業する。md がタスクの正本である。",
+    description: `実装タスクは着手前に分解保存してから作業する。${TASK_MD_CONTENT_RULE}${TASK_STATE_DB_RULE}`,
     sort_order: 60,
   });
 
@@ -95,10 +96,10 @@ export function seedHarnessRules(repo: HarnessRulesRepo): void {
     title: "作業ブランチ + worktree 必須",
     description:
       "実装作業は main / develop の直編集・直コミットで行わない。作業内容を解析して作業ブランチを確定し、" +
-      "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (task md) に積み、コミット → PR 作成まで行う。" +
+      "ワークツリーを生成してから作業する。作業完了はタスクワークフロー (spec/tasks/ への新規保存) に積み、コミット → PR 作成まで行う。" +
       "PR 作成後は停止し、ユーザの明示指示がないレビュー・テスト・マージへ進まない。" +
       "ルートフォルダ (リポ本体) のブランチ切り替え自体は判定対象にしない (不問)。" +
-      "判定するのは main/develop への直コミットと、完了フロー (task md → コミット → PR) の欠落である。",
+      "判定するのは main/develop への直コミットと、完了フロー (タスク分解 → コミット → PR) の欠落である。",
     sort_order: 80,
   });
 

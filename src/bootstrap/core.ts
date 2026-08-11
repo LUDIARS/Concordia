@@ -89,6 +89,7 @@ import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
+import { loadSessionTaskPrContent } from "../pr/session-task-pr-content.js";
 import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
@@ -594,6 +595,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const localPrDeps = {
     revisor: revisorLocalPrs,
     listBranchCommits,
+    loadSessionTaskPrContent: (repoPath: string, sessionId: string) =>
+      loadSessionTaskPrContent(repoPath, sessionId),
     resolveSourceLinks: (sessionId: string) => resolveSessionSourceLinks({
       discordChannels,
       slackChannels,

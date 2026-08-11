@@ -114,11 +114,26 @@ repository 名と base ref の照合は大文字小文字を無視する。 head
 
 ## 4. 提出内容
 
-- `title`: `base..branch` の**最新コミット件名**。Revisor の内容契約に合わせ、件名が英語だけなら
-  `変更: ` を先頭に補い、全体を 200 文字で切り詰める。
-- `body`: 呼び出し側が `pr_content` を渡した場合はその本文 (最大 65,536 文字)。省略時は
-  セッション ID / 提出経路、`## 実装内容`、コミット件名一覧、`## 受け入れ条件` を含む本文を
-  自動生成する。自動生成の各節は空にせず、日本語を含む Revisor 契約を満たす。
+内容の出所は 3 段で決める。上の段が使えるときは下の段を見ない。
+
+1. 呼び出し側が `pr_content` を渡した場合はその本文 (最大 65,536 文字)。中身を知っているのは
+   書き手なので、渡された文章はそのまま使い、提出経路のような由来行を混ぜない。
+2. `pr_content` 省略時、作業ブランチの `spec/tasks/` に `source_session` が提出 session と
+   一致する task md があれば、その設計を写す。`## 実装内容` には task 本文から `## 完了条件` /
+   `## 受け入れ条件` を除いた内容、`## 受け入れ条件` にはその条件本文を入れ、提出 session と
+   実装コミット件名を補足する。task md は worktree 側のコミット対象ファイルを直接読む
+   (main clone だけを対象にする taskflow の周期スキャンへは依存しない)。リポジトリ外の内容を
+   PR へ取り込まないよう、シンボリックリンクは対象外にする。
+3. task md が無い、受け入れ条件が空、切り詰め後のタイトル・必須節が日本語契約を満たさない、
+   提出情報込みで 65,536 文字を超える、または session を持たない direct 提出では、
+   コミット件名から自動生成する。
+
+- `title`: 段 2 が使えるときは task md の `# タイトル` (200 文字で切り詰め、複数タスクなら
+  日本語の複数タスク題名)。それ以外は `base..branch` の**最新コミット件名**で、Revisor の内容契約に
+  合わせ、件名が英語だけなら `変更: ` を先頭に補い、全体を 200 文字で切り詰める。
+- `body`: 上の 3 段で決めた本文。どの段でも `## 実装内容` と `## 受け入れ条件` が両方あり、
+  どちらも非空かつ日本語を含む Revisor 契約を満たす。自動生成のフォールバックが契約から外れると
+  Cc 経由の提出がそのまま 400 になる (2026-08-10 に全セッションで発生)。
 - `author`: `concordia`
 - `session_id`: 提出した Concordia セッション ID。Revisor はこれを PR に保存し、審査が
   終局状態になった時だけ `session.inject` をそのセッションへ送る。`failed` /
@@ -157,6 +172,7 @@ env だけだと配布のたびにプロセス再起動が要り、 平文の置
 - `src/pr/revisor-local-pr-client.ts` — local PR API クライアント (登録一覧 / PR 一覧 / 提出)。
   ポート解決は Excubitor catalog が正本 (port-source-rule)
 - `src/pr/local-pr-submission.ts` — 判定 (純関数) と提出の実行
+- `src/pr/session-task-pr-content.ts` — worktree の task md 読み取りと PR 用セクション生成
 - `src/pr/branch-commits.ts` — `base..branch` のコミット件名読み取り (読み取り専用 git、
   5 秒タイムアウト・50 件上限、 revision/path 曖昧回避の末尾 `--`、 先頭 `-` 等の
   ref をオプションとして解釈させないための ref 検証)
@@ -193,8 +209,9 @@ Lictor 未ラップの bg job・終了済みセッションのブランチ・手
 
 通常の提出は必ず Revisor の `standard` lane を使う。セッションが早期確認を必要と
 するときだけ、手動 `POST /v1/prs/local`、direct 提出、implementation-tools review の
-`fast_lane: true` を Revisor の `fast_lane: true` へ渡す。`session.ended` 自動提出は
+`fast_lane: true` を Revisor の `fast_lane: true` へ渡す。session.ended 自動提出は
 `fastLane: false` を明示し、fast lane を推測しない。
+
 fast opt-in は manual / direct / implementation-tools の全経路で active session に限定し、
 終了済み・lost・存在しない session から予約枠を使用させない。
 

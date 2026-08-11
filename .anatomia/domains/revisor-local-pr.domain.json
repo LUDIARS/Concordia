@@ -8,6 +8,7 @@
     { "pathPattern": "(^|/)src/api/register-core\\.ts$" },
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/pr/local-pr-submission(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/pr/session-task-pr-content(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/revisor-local-pr-client(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome|test-workflow-client)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$" },
@@ -18,6 +19,7 @@
   "mechanics": [
     "local-pr-submission-plan",
     "local-pr-submit-client",
+    "session-task-pr-content",
     "branch-commit-read",
     "session-authorized-merge"
   ],

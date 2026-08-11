@@ -126,7 +126,8 @@ describe("cleanupRepo (real git)", () => {
       expect(after).toContain("main");
       expect(applied.actions.join("\n")).toMatch(/merged-feat|ghost-feat/);
     } finally {
-      rmSync(root, { recursive: true, force: true });
+      // Git can release Windows file handles a moment after its process exits.
+      rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   }, 120_000);
 });

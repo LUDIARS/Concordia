@@ -144,6 +144,16 @@ function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPr
 }
 
 const log = { info: () => {}, warn: () => {} };
+const PR_CONTENT = {
+  title: "PR 内容の構造化契約を追加する",
+  body: [
+    "## 実装内容",
+    "- task md の設計を PR 本文へ写す。",
+    "",
+    "## 受け入れ条件",
+    "- 実装内容と受け入れ条件が独立して読める。",
+  ].join("\n"),
+};
 
 describe("submitSessionLocalPr", () => {
   const request = {
@@ -153,7 +163,7 @@ describe("submitSessionLocalPr", () => {
     branch: "feat/thing",
   };
 
-  it("submits with the newest commit subject as the title", async () => {
+  it("submits Japanese PR content built from the session task", async () => {
     let sent: { title: string; body: string } | null = null;
     const submitLocalPullRequest = vi.fn(async (input: { title: string; body: string }) => {
       sent = { title: input.title, body: input.body };
@@ -169,6 +179,7 @@ describe("submitSessionLocalPr", () => {
     const result = await submitSessionLocalPr({
       revisor: gateway({ submitLocalPullRequest }),
       listBranchCommits: async () => ["feat: 後の変更", "feat: 最初の変更"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, request);
 
@@ -178,12 +189,15 @@ describe("submitSessionLocalPr", () => {
       headRef: "feat/thing",
       baseRef: "main",
       sessionId: "s-1",
-      title: "feat: 後の変更",
+      title: "PR 内容の構造化契約を追加する",
       author: "concordia",
     }));
     expect(submitLocalPullRequest).not.toHaveBeenCalledWith(
       expect.objectContaining({ fastLane: true }),
     );
+    expect(sent!.body).toContain("## 実装内容");
+    expect(sent!.body).toContain("## 受け入れ条件");
+    expect(sent!.body.indexOf("## 提出情報")).toBeGreaterThan(sent!.body.indexOf("## 受け入れ条件"));
     expect(sent!.body).toContain("s-1");
     expect(sent!.body).toContain("feat: 最初の変更");
   });
@@ -218,6 +232,7 @@ describe("submitSessionLocalPr", () => {
       listBranchCommits: async () => ["feat: 早期確認"],
       log,
     }, { ...request, fastLane: true });
+
     expect(promoteLocalPullRequest).toHaveBeenCalledWith("pr-9", "s-1");
     expect(result).toEqual({
       submitted: false,
@@ -247,6 +262,99 @@ describe("submitSessionLocalPr", () => {
 
     expect(result).toEqual({ submitted: false, reason: "already_open" });
     expect(promoteLocalPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("falls back when task-derived content violates the Japanese contract", async () => {
+    const sent: Array<{ title: string; body: string }> = [];
+    const submitLocalPullRequest = vi.fn(async (input: { title: string; body: string }) => {
+      sent.push({ title: input.title, body: input.body });
+      return {
+        id: `pr-${sent.length}`,
+        number: sent.length,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open" as const,
+        checkStatus: "queued" as const,
+      };
+    });
+    const invalidTaskContents = [
+      { ...PR_CONTENT, title: "Structured PR content" },
+      {
+        title: PR_CONTENT.title,
+        body: [
+          "## 実装内容",
+          "### PR 内容の構造化契約を追加する",
+          "- Copy the task design.",
+          "",
+          "## 受け入れ条件",
+          "### PR 内容の構造化契約を追加する",
+          "- Keep sections separate.",
+        ].join("\n"),
+      },
+    ];
+
+    for (const taskContent of invalidTaskContents) {
+      await submitSessionLocalPr({
+        revisor: gateway({ submitLocalPullRequest }),
+        listBranchCommits: async () => ["feat: 契約外の task をフォールバックする"],
+        loadSessionTaskPrContent: async () => taskContent,
+        log,
+      }, request);
+    }
+
+    expect(sent).toHaveLength(2);
+    for (const submission of sent) {
+      expect(submission.title).toBe("feat: 契約外の task をフォールバックする");
+      expect(submission.body).toContain("Concordia session");
+      expect(submission.body).not.toContain("## 提出情報");
+    }
+  });
+
+  it("falls back instead of truncating an oversized task before its acceptance section", async () => {
+    let sent: { body: string } | null = null;
+    const submitLocalPullRequest = vi.fn(async (input: { body: string }) => {
+      sent = { body: input.body };
+      return {
+        id: "pr-large",
+        number: 12,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open" as const,
+        checkStatus: "queued" as const,
+      };
+    });
+
+    await submitSessionLocalPr({
+      revisor: gateway({ submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: 過大な task を安全に扱う"],
+      loadSessionTaskPrContent: async () => ({
+        title: PR_CONTENT.title,
+        body: `## 実装内容\n${"あ".repeat(66_000)}\n\n## 受け入れ条件\n- 条件を保持する。`,
+      }),
+      log,
+    }, request);
+
+    expect(sent!.body).toContain("Concordia session");
+    expect(sent!.body).toContain("## 受け入れ条件");
+    expect(sent!.body).not.toContain("## 提出情報");
+  });
+
+  it("does not leak the loader error or local path into warning logs", async () => {
+    const warn = vi.fn();
+
+    await submitSessionLocalPr({
+      revisor: gateway(),
+      listBranchCommits: async () => ["feat: 読み込み失敗を処理する"],
+      loadSessionTaskPrContent: async () => { throw new Error("credential=do-not-log"); },
+      log: { info: vi.fn(), warn },
+    }, request);
+
+    expect(warn).toHaveBeenCalledWith({
+      session_id: "s-1",
+      error_type: "Error",
+    }, "task md からの PR 内容生成に失敗した");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("do-not-log");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(request.repoPath);
   });
 
   it("uses the author's PR content verbatim instead of generating a body", async () => {
@@ -342,6 +450,7 @@ describe("submitSessionLocalPr", () => {
     const result = await submitSessionLocalPr({
       revisor: gateway({ submitLocalPullRequest }),
       listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       resolveSourceLinks: async () => { throw new Error("Slack unavailable"); },
       log: { info: vi.fn(), warn },
     }, request);
@@ -362,6 +471,7 @@ describe("submitSessionLocalPr", () => {
     const result = await submitSessionLocalPr({
       revisor: gateway({ submitLocalPullRequest }),
       listBranchCommits,
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, { ...request, repository: "git@github.com:LUDIARS/Concordia.git" });
 
@@ -380,6 +490,7 @@ describe("submitSessionLocalPr", () => {
     const result = await submitSessionLocalPr({
       revisor: gateway(),
       listBranchCommits,
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, { ...request, repository: "LUDIARS/Unregistered" });
 
@@ -391,6 +502,7 @@ describe("submitSessionLocalPr", () => {
     const result = await submitSessionLocalPr({
       revisor: gateway(),
       listBranchCommits: async () => [],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, request);
     expect(result).toEqual({ submitted: false, reason: "no_commits" });
@@ -413,6 +525,7 @@ describe("submitSessionLocalPr", () => {
         submitLocalPullRequest,
       }),
       listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, request);
 
@@ -449,7 +562,11 @@ describe("submitSessionLocalPr", () => {
       log,
     }, { ...request, fastLane: true });
 
-    expect(result).toEqual({ submitted: false, resubmitted: true, pullRequest: expect.objectContaining({ id: "pr-9" }) });
+    expect(result).toEqual({
+      submitted: false,
+      resubmitted: true,
+      pullRequest: expect.objectContaining({ id: "pr-9" }),
+    });
     expect(promoteLocalPullRequest).not.toHaveBeenCalled();
   });
 
@@ -460,6 +577,7 @@ describe("submitSessionLocalPr", () => {
         submitLocalPullRequest: async () => { throw new Error("worktree is no longer clean"); },
       }),
       listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
     }, request);
     expect(result).toEqual({

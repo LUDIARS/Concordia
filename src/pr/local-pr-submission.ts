@@ -15,6 +15,7 @@
 import { normalizeRepoOrigin } from "./normalize.js";
 import type { RevisorLocalPrGateway, RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-client.js";
 import type { PrSourceLink } from "./session-source-links.js";
+import type { SessionTaskPrContent } from "./session-task-pr-content.js";
 
 /** 提出しない理由。 ログと API 応答でそのまま使う (無言でスキップしない)。 */
 export type SkipReason =
@@ -118,6 +119,13 @@ export interface LocalPrSubmissionDeps {
   revisor: RevisorLocalPrGateway;
   /** base..branch のコミット件名を新しい順で返す (空なら commits 無し)。 */
   listBranchCommits(repoPath: string, baseRef: string, branch: string): Promise<string[]>;
+  /**
+   * 作業ブランチにある task md から、Revisor 提出用の日本語 PR 内容を組み立てる。
+   *
+   * 省略可能にしてあるのは direct 提出の呼び出し側 (session を持たない) のため。
+   * 渡されていても、`pr_content` が明示されたときと session が無いときは呼ばない。
+   */
+  loadSessionTaskPrContent?: (repoPath: string, sessionId: string) => Promise<SessionTaskPrContent>;
   resolveSourceLinks?: (sessionId: string) => Promise<readonly PrSourceLink[]>;
   log: { info: (o: unknown, m: string) => void; warn: (o: unknown, m: string) => void };
 }
@@ -149,6 +157,26 @@ export type LocalPrSubmissionResult =
 const MAX_PR_CONTENT_LENGTH = 65_536;
 const MAX_PR_TITLE_LENGTH = 200;
 const JAPANESE_TEXT_PATTERN = /[぀-ヿ㐀-鿿]/;
+const REQUIRED_TASK_SECTIONS = ["## 実装内容", "## 受け入れ条件"] as const;
+
+/**
+ * task md 由来の内容が Revisor の契約を満たすか。切り詰め後のタイトルと必須 2 節が
+ * それぞれ日本語を含むことまで確認し、満たさない内容はコミット件名からの自動生成へ落とす。
+ */
+function satisfiesTaskContentContract(content: SessionTaskPrContent): boolean {
+  if (!JAPANESE_TEXT_PATTERN.test(content.title.slice(0, MAX_PR_TITLE_LENGTH))) return false;
+  return REQUIRED_TASK_SECTIONS.every((heading) => {
+    const headingMatch = new RegExp(`^${heading}\\s*$`, "m").exec(content.body);
+    if (!headingMatch) return false;
+    const rest = content.body.slice(headingMatch.index + headingMatch[0].length);
+    const nextHeading = rest.search(/^##\s/m);
+    const section = (nextHeading < 0 ? rest : rest.slice(0, nextHeading)).trim();
+    // buildSessionTaskPrContent が付ける日本語の H3 タスク名だけで通過させず、
+    // 目的・完了条件そのものが日本語で設計されていることを確認する。
+    const sectionWithoutHeadings = section.replace(/^#{1,6}\s+.*$/gm, "").trim();
+    return sectionWithoutHeadings.length > 0 && JAPANESE_TEXT_PATTERN.test(sectionWithoutHeadings);
+  });
+}
 
 /**
  * コミット件名から PR タイトルと本文を作る。 先頭 (最新) をタイトルにする。
@@ -156,6 +184,12 @@ const JAPANESE_TEXT_PATTERN = /[぀-ヿ㐀-鿿]/;
  * `prContent` が渡されたときは本文の自動生成を行わず、 書き手の文章をそのまま使う。
  * 提出の由来 (session / direct) は本文の意味に関わらないので付け足さない — 付けると
  * 書き手が構成した見出し構造の外に行が混ざる。
+ *
+ * `prContent` が無いときは、設計の正本である task md (`taskContent`) を次に見る。
+ * コミット件名は「何をしたか」しか持たないので、 task md があるならそちらが PR 内容として
+ * 正しい。 ただし task md が無い / 受け入れ条件が空のときはコミット件名からの自動生成へ
+ * 落とす — 空セクションのまま送ると Revisor の内容契約で 400 になり、 session を持たない
+ * direct 提出が一切通らなくなる。
  *
  * 省略時の自動生成も Revisor の PR 内容契約 (`local-contracts.mjs` の `prContent`) を
  * 満たす形にする — `## 実装内容` と `## 受け入れ条件` が両方あり、どちらも非空かつ日本語を
@@ -169,6 +203,7 @@ function describe(
   commits: readonly string[],
   sessionId: string | null,
   prContent?: string | null,
+  taskContent?: SessionTaskPrContent | null,
 ): { title: string; body: string } {
   const subjects = commits.map((line) => line.trim()).filter((line) => line.length > 0);
   const subjectTitle = subjects[0] ?? "ローカルブランチの審査";
@@ -181,6 +216,22 @@ function describe(
   const authored = typeof prContent === "string" ? prContent.trim() : "";
   if (authored) {
     return { title, body: authored.slice(0, MAX_PR_CONTENT_LENGTH) };
+  }
+  if (taskContent && satisfiesTaskContentContract(taskContent)) {
+    // 設計 (task md) は本文の主部、 提出の事実 (session / コミット) は末尾の付記。
+    // 順序を逆にすると審査側が最初に読むのが設計ではなく提出メタになる。
+    const submissionInfo = [
+      "",
+      "## 提出情報",
+      `- Concordia セッション: \`${sessionId}\``,
+      ...(subjects.length > 0 ? ["- 実装コミット:", ...subjects.map((subject) => `  - ${subject}`)] : []),
+    ].join("\n");
+    const body = `${taskContent.body.trimEnd()}\n${submissionInfo}`;
+    // 先頭から単純に切ると末尾側の受け入れ条件を失い、Revisor が 400 を返す。
+    // 過大な task は契約準拠の自動生成へ落とし、壊れた task 本文を送らない。
+    if (body.length <= MAX_PR_CONTENT_LENGTH) {
+      return { title: taskContent.title.slice(0, MAX_PR_TITLE_LENGTH), body };
+    }
   }
   const body = [
     sessionId
@@ -279,7 +330,21 @@ export async function submitSessionLocalPr(
       return { submitted: false, reason: plan.reason };
     }
 
-    const { title, body } = describe(commits, request.sessionId, request.prContent);
+    // task md は `pr_content` が無いときだけ読む。 読めなくても提出は止めない
+    // (コミット件名の自動生成へ落とす) — 設計の写しは本文の質の問題であって、
+    // レビューを発火させない理由にはならない。
+    const authoredContent = typeof request.prContent === "string" ? request.prContent.trim() : "";
+    const taskContent = !authoredContent && request.sessionId && deps.loadSessionTaskPrContent
+      ? await deps.loadSessionTaskPrContent(request.repoPath, request.sessionId).catch((error) => {
+        // 例外本文やローカル絶対パスは、資格情報・個人名を含み得るためログへ載せない。
+        deps.log.warn({
+          session_id: request.sessionId,
+          error_type: error instanceof Error ? error.name : typeof error,
+        }, "task md からの PR 内容生成に失敗した");
+        return null;
+      })
+      : null;
+    const { title, body } = describe(commits, request.sessionId, request.prContent, taskContent);
     // Source links are supplemental navigation metadata. A transient Discord/Slack
     // lookup failure must not prevent the local PR itself from being submitted.
     let sourceLinks: readonly PrSourceLink[] = [];

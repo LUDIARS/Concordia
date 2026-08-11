@@ -55,5 +55,7 @@ describe("buildDelegationContext", () => {
     expect(ctx).toContain("## 言語ポリシー (required)");
     expect(ctx).toContain("人間が読む出力は日本語で書きます");
     expect(ctx).toContain("実装内容は効率が良ければ英語で構いません");
+    expect(ctx).toContain("spec/tasks/");
+    expect(ctx).toContain("# タイトル、## 目的、## 完了条件を日本語で空欄なく設計");
   });
 });

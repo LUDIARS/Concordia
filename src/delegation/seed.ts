@@ -111,6 +111,17 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
   },
 ];
 
+/**
+ * パートタイマー (category: "parttimer") 共通の完了時ステップ (2026-08-08 neco 指示:
+ * 「パートタイマーは完了後に管理者にメンションする」)。 各テンプレの最終手順の直後に差し込む。
+ * mention_user_id は Concordia の `GET /v1/admin/state` が正本 (未設定なら null)。
+ */
+const MENTION_ADMIN_STEP = [
+  "### 完了時 (必須)",
+  "- Excubitor catalog で解決した Concordia endpoint へ `GET /v1/admin/state` を投げ、`mention_user_id` を確認する。",
+  "  値があれば最終報告の先頭に `<@${mention_user_id}> ` を付けて投稿する (値が null/未設定なら付けずに通常通り報告する)。",
+].join("\n");
+
 /** Provider を切り替えても日次レビューの対象・突合・保存規約を同一に保つ正本。 */
 const DAILY_REVIEW_RECONCILIATION_PROMPT = [
   "## デイリー突合レビュー — ${date}",
@@ -144,8 +155,8 @@ const DAILY_REVIEW_RECONCILIATION_PROMPT = [
 ].join("\n");
 
 /** 新方式の対象・差分・保存規約を使い、オーケストレータ自身が1回レビューする通常版。 */
-const DAILY_REVIEW_PROMPT = [
-  "## デイリーレビュー — ${date}",
+const WEEKLY_REVIEW_PROMPT = [
+  "## 週次レビュー — ${date}",
   "",
   "### 正本 (最初に必ず読む)",
   "- レビュー観点・出力契約: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md`",
@@ -154,7 +165,7 @@ const DAILY_REVIEW_PROMPT = [
   "### 手順",
   "1. service-map.json から対象リポを列挙。今回 HEAD はローカル `refs/heads/<default-branch>` の SHA を正本とし、その SHA から detached の一時 review worktree を作る。",
   "   `git fetch` / `git pull` / `origin/*` / `gh` / GitHub API と現在 checkout 中の `HEAD` は使わない。",
-  "   前回レビュー日時 (`latest.json.reviewed_at`、無ければ24時間前) 以降の main commit を一時 worktreeで確認し、無ければ変更なしとする。",
+  "   前回レビュー日時 (`latest.json.reviewed_at`、無ければ7日前) 以降の main commit を一時 worktreeで確認し、無ければ変更なしとする。",
   "2. 前回 HEAD == 今回 HEAD は変更なし、今回 HEAD が前回 HEAD の祖先なら range_reversed としてレビューせず記録する。",
   "3. REVIEW-PROMPTS.md の入力・JSON契約・Claudeレビュー観点を使い、オーケストレータ自身が各リポを1回レビューする。別AIは起動しない。",
   "4. file:line の実在を検証し、結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存して `latest.json` の `head` と `reviewed_at` を更新する。",
@@ -163,6 +174,8 @@ const DAILY_REVIEW_PROMPT = [
   "6. 最終サマリ (対象数 / 変更なし数 / 指摘数 / resolved_checks / failed) を報告する。",
   "",
   "自分でコード修正やIssue作成はしない。JSON契約を満たせないリポはfailedとして記録し、他リポを続行する。",
+  "",
+  MENTION_ADMIN_STEP,
 ].join("\n");
 
 // ── Genius (判断カード DB) の ingest 運用 ────────────────────────────────
@@ -228,6 +241,8 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
       "   「夜間 run 継続中のため Tier 1 は見送り」と報告して終了する (kill も強制実行もしない)。",
       "3. 上記「run の完了確認」に従って polling する。Tier 1 は通常数分程度で終わる。",
       "4. 最終報告: run id / status / 取り込み件数 / 未解決失敗件数 / 取った対処。",
+      "",
+      MENTION_ADMIN_STEP,
     ].join("\n"),
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
@@ -259,6 +274,8 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
       "3. 待ち切れないほど長引く場合も run を kill せず、run id と最後に観測した進捗を添えて",
       "   「継続中」として報告し、翌朝の実行で確認できるようにする。",
       "4. 最終報告: run id / status / 取り込み件数 / 未解決失敗件数 / 所要時間 / 取った対処。",
+      "",
+      MENTION_ADMIN_STEP,
     ].join("\n"),
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
@@ -472,6 +489,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "6. サマリ投稿後に `/session-end`。",
       "",
       "注意: 破壊的なDB操作・本番への影響が不明な操作は実行せず ask で確認する。",
+      "",
+      MENTION_ADMIN_STEP,
     ].join("\n"),
     input_schema: [
       { name: "task_list", type: "string" as const, required: true, description: "今日期限の未完タスク一覧 (MorningSchedulerが整形して渡す)" },
@@ -513,17 +532,103 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // 単一オーケストレータ (Claude) 版。2026-07-27 neco 指示で dual (ちょいつよ) から
-  // 日次 cron の既定へ巻き戻し。dual テンプレート自体は手動起動用に残す。
+  // 単一オーケストレータ (Claude) 版。2026-08-08 neco 指示で毎日 → 週次へ変更 (形骸化した
+  // デイリーレビューを廃止し、空いた朝枠は vulnerability-response-daily に譲った)。
+  // dual テンプレート自体は手動起動用に残す。
   {
-    call_name: "ludiars-review-daily",
-    title: "毎日レビュー",
-    description: "Tier 1 リポの日次レビュー。単一オーケストレータ (Claude) が AIFormat に沿ってレビューし、Review/<repo>/<date>/ に保存する。ludiars-review-daily-dual (ちょいつよ版、Sol Ultra 突合) は手動起動用に残るが、日次 cron の既定はこちらに戻した。",
+    call_name: "ludiars-review-weekly",
+    title: "週次レビュー",
+    description: "Tier 1 リポの週次レビュー。単一オーケストレータ (Claude) が AIFormat に沿ってレビューし、Review/<repo>/<date>/ に保存する。ludiars-review-daily-dual (ちょいつよ版、Sol Ultra 突合) は手動起動用に残る。2026-08-08 neco 指示で毎日 → 週次 (毎週月曜) へ変更。",
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "📋",
-    prompt_template: DAILY_REVIEW_PROMPT,
+    prompt_template: WEEKLY_REVIEW_PROMPT,
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: "E:\\Document\\Ars\\Concordia",
+    is_active: true,
+  },
+  {
+    call_name: "vulnerability-response-daily",
+    title: "脆弱性対応 (毎朝)",
+    description: "Tier 1 リポを AIFormat REVIEW_VULNERABILITY.md の観点だけで毎朝スキャンし、安全カテゴリの指摘は Codex に自動修正委託、Critical/High は自動修正せず管理者へメンションして報告する。2026-08-08 neco 指示で新設 (デイリーレビュー廃止で空いた 5:10 枠を引き継ぐ)。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "🛡️",
+    prompt_template: [
+      "## 脆弱性対応 — ${date}",
+      "",
+      "### 正本 (最初に必ず読む)",
+      "- 脆弱性観点テンプレ: `E:\\Document\\Ars\\AIFormat\\common\\REVIEW_VULNERABILITY.md`",
+      "- 対象リポ: `E:\\Document\\Ars\\LUDIARS\\service-map.json` の `daily_review: true` (Tier 1)",
+      "- 差分・保存規約: `E:\\Document\\Ars\\LUDIARS\\docs\\REVIEW-PROMPTS.md` (§1 入力構築 / §出力契約はそのまま流用し、観点だけ REVIEW_VULNERABILITY.md に絞る)",
+      "",
+      "### 手順",
+      "1. service-map.json から対象リポを列挙。今回 HEAD はローカル `refs/heads/<default-branch>` の SHA を正本とし、その SHA から detached の一時 review worktree を作る。",
+      "   `git fetch` / `git pull` / `origin/*` / `gh` / GitHub API と現在 checkout 中の `HEAD` は使わない。",
+      "   前回実行日時 (`E:\\Document\\Ars\\Review\\<repo>\\latest.json` の `vulnerability_reviewed_at`、無ければ24時間前) 以降の main commit を確認し、無ければ変更なしとする。",
+      "2. 前回 HEAD == 今回 HEAD は変更なし、今回 HEAD が前回 HEAD の祖先なら range_reversed としてスキャンせず記録する。",
+      "3. REVIEW_VULNERABILITY.md の観点だけでオーケストレータ自身が各リポを1回スキャンする (設計/実装/品質等の他観点は扱わない)。別AIは起動しない。",
+      "4. file:line の実在を検証し、指摘を Critical/High/Medium/Low で分類する。",
+      "5. **安全カテゴリ** (依存パッケージの既知脆弱性バージョン更新のうち breaking change を伴わないもの、機密情報のログ出力停止、明らかな入力検証漏れの追加等、既存挙動を壊さない修正に限る) は `daily-review-autofix` と同じ要領で Codex に1リポ1PRで自動修正委託してよい。",
+      "6. **Critical/High、または安全カテゴリの判断に自信が持てない指摘**は自動修正せず、file:line + 内容 + 推奨対応を記録するだけにとどめる。",
+      "7. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}-vulnerability\\` に保存し、`latest.json` に `vulnerability_reviewed_at` と `head` を記録する (既存の週次レビュー用フィールドは上書きしない)。",
+      "   Review/ への書き込みはローカルのみ。GitHub へのアクセスや push は行わず、一時 worktree は全経路で削除する。",
+      "8. 最終サマリ (対象数 / 変更なし数 / 自動修正委託数 / Critical・High件数 / 未対応日数) を報告する。Critical/High が1件でもあれば報告冒頭で明示する。",
+      "",
+      "自分でコード修正はしない (Codexへの委託のみ)。JSON契約を満たせないリポはfailedとして記録し、他リポを続行する。",
+      "",
+      MENTION_ADMIN_STEP,
+    ].join("\n"),
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: "E:\\Document\\Ars\\Concordia",
+    is_active: true,
+  },
+  {
+    call_name: "kaizen-daily",
+    title: "カイゼン (毎朝)",
+    description: "前日の session-logs とメモリの蓄積から、アルゴリズム/スクリプト/ツールで解決できる非効率・やらかしを見つけて改善案を提案する (実装はしない)。2026-08-08 neco 指示で新設。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "📈",
+    prompt_template: [
+      "## カイゼン — ${date}",
+      "",
+      "前日にあった session-log 上のやらかし・非効率と、現在メモリに蓄積されている繰り返しパターンから、",
+      "**アルゴリズム・スクリプト・ツールで機械的に解決できるもの**を見つけて改善案を提案する回です。",
+      "実装はしません (提案のみ)。",
+      "",
+      "### 材料",
+      "- 前日の session-log: `E:\\Document\\Ars\\session-logs\\<前日日付>*.md` (同日に複数ファイルがある場合は全部読む)。",
+      "  前日分が無ければ前々日まで遡って直近1日分を対象にする。",
+      "- 現在のメモリ索引: `~/.claude/projects/E--Document-Ars/memory/MEMORY.md` とそこから",
+      "  リンクされる feedback系メモリ (同じ非効率・同じ失敗が繰り返し記録されていないか確認する)。",
+      "- session-log とメモリは機密扱いにする。認証情報・個人情報・内部 endpoint・生の本文は、保存する改善案と最終報告のどちらにも転記しない。",
+      "",
+      "### 探す対象の例 (機械化できるものだけに絞る)",
+      "- 同じ確認・同じmiss検知を毎回人力でやっている (→ hook / lint / スクリプトで自動検知できないか)。",
+      "- 同じ種類の判断ミス・手順飛ばしが繰り返されている (→ CLAUDE.md / スキル / harness gate に固定できないか)。",
+      "- 同じ調査を毎回イチからやり直している (→ キャッシュ・索引・定型スクリプト化できないか)。",
+      "- 人間の判断が必須ではないのに毎回 ask で止まっている箇所 (→ 安全に自動化できる境界か見極める)。",
+      "",
+      "**対象外**: 個別のバグ修正・設計判断・人間の意思決定が本質的に必要なもの (これらは通常のタスク/レビューで扱う)。",
+      "",
+      "### 手順",
+      "1. 前日の session-log を読み、やらかし・手戻り・非効率と思われる箇所を洗い出す。",
+      "2. メモリ索引と feedback 系メモリを確認し、同じパターンが過去にも記録されていないか (繰り返しなら優先度を上げる)。",
+      "3. 洗い出した項目のうち、アルゴリズム・スクリプト・ツール (hook / lint / CI check / 定型コマンド等) で解決できそうなものだけを絞り込む。",
+      "4. 各提案について: 症状 (何が起きたか) / 原因 / 提案する機械的対策 / 対象リポジトリ or 汎用設定、を1件ずつ整理する。",
+      "5. 提案を `E:\\Document\\Ars\\session-logs\\kaizen\\${date}.md` に保存する (実装はしない。コードは書かない)。",
+      "6. 保存したファイルパスと提案件数・要約を報告する。",
+      "",
+      MENTION_ADMIN_STEP,
+    ].join("\n"),
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
@@ -533,7 +638,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "daily-review-autofix",
     title: "日次レビュー安全修正委託 (Codex)",
-    description: "ludiars-review-daily が見つけた安全範囲の指摘 (lint/typo/unused_import/dead_code/gitignore/toc/spec_gen) をまとめて Codex に適用させ、1 PR にする。call_only (人間向けドロップダウンには出さない)。",
+    description: "ludiars-review-weekly / vulnerability-response-daily が見つけた安全範囲の指摘 (lint/typo/unused_import/dead_code/gitignore/toc/spec_gen) をまとめて Codex に適用させ、1 PR にする。call_only (人間向けドロップダウンには出さない)。",
     target_provider: "codex",
     call_only: true,
     category: "freelancer",
@@ -576,6 +681,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "依存関係の更新、コード修正、テスト実行、サービスの起動・再起動、commit、push、PR 作成はしない。",
       "",
       "最終報告には、確認したリポジトリ、更新候補、想定される影響、対応が必要な事項を簡潔にまとめる。",
+      "",
+      MENTION_ADMIN_STEP,
     ].join("\n"),
     input_schema: [],
     default_cwd: "E:\\Document\\Ars",
@@ -585,13 +692,13 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "ludiars-review-daily-dual",
     title: "毎日レビューちょいつよ版",
-    description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-5.6 Sol Ultra のオーケストレータを Timer Delegation が毎朝 5:10 JST に invoke する。",
+    description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-5.6 Sol Ultra のオーケストレータ版。cron の既定は単一オーケストレータ版 (ludiars-review-weekly、毎週月曜 4:40 JST) なので、こちらは手動起動用。",
     target_provider: "codex",
     model: "gpt-5.6-sol",
     runtime_options: { model_reasoning_effort: "ultra" },
     category: "parttimer",
     emoji: "⚖️",
-    prompt_template: DAILY_REVIEW_RECONCILIATION_PROMPT,
+    prompt_template: [DAILY_REVIEW_RECONCILIATION_PROMPT, MENTION_ADMIN_STEP].join("\n\n"),
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
@@ -781,4 +888,7 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   if (legacyOpus) repo.deactivateTemplate(legacyOpus.id);
   const legacyDailyReconciliation = repo.findTemplateByCallName("daily-review-reconciliation");
   if (legacyDailyReconciliation) repo.deactivateTemplate(legacyDailyReconciliation.id);
+  // 2026-08-08 neco 指示: 毎日 → 週次へ変更。旧 call_name は ludiars-review-weekly に置き換えたため deactivate。
+  const legacyDailyReview = repo.findTemplateByCallName("ludiars-review-daily");
+  if (legacyDailyReview) repo.deactivateTemplate(legacyDailyReview.id);
 }

@@ -1,6 +1,6 @@
-import { relative } from "node:path";
+import { isAbsolute, relative, sep } from "node:path";
 import type Database from "better-sqlite3";
-import type { TaskDocument, TaskRuntimeState, TaskStatus } from "./types.js";
+import { isTaskStatus, type TaskDocument, type TaskRuntimeState, type TaskStatus } from "./types.js";
 
 export type { TaskRuntimeState } from "./types.js";
 
@@ -88,9 +88,13 @@ export class TaskflowStateStore {
 }
 
 function taskKey(document: TaskDocument): { repoPath: string; taskPath: string } {
+  const taskPath = relative(document.repoPath, document.path);
+  if (isAbsolute(taskPath) || taskPath === ".." || taskPath.startsWith(`..${sep}`)) {
+    throw new Error("task path must be inside its repository");
+  }
   return {
     repoPath: normalizePath(document.repoPath),
-    taskPath: relative(document.repoPath, document.path).replace(/\\/g, "/"),
+    taskPath: taskPath.replace(/\\/g, "/"),
   };
 }
 
@@ -108,7 +112,9 @@ function legacyRuntime(frontmatter: TaskDocument["frontmatter"]): Omit<TaskRunti
 }
 
 function taskStatus(value: unknown): TaskStatus {
-  return value === "delegated" || value === "done" || value === "cancelled" ? value : "pending";
+  if (value === undefined) return "pending";
+  if (isTaskStatus(value)) return value;
+  throw new Error("legacy task status is invalid");
 }
 
 function stringValue(value: unknown): string | null {

@@ -22,17 +22,19 @@ const EXPECTED_SEED_CALLS = [
   "morning-tasks",
   "gemma4-12-impl",
   "test-qa",
-  // 日次レビュー + タスク種別別 Caller (sort_order 未指定 → 既定 1000、 call_name ASC 順)
+  // レビュー・脆弱性対応・カイゼン + タスク種別別 Caller (sort_order 未指定 → 既定 1000、 call_name ASC 順)
   "daily-review-autofix",
   "deps-sweep-daily",
   "design-analysis-opus",
   "design-hard-fable5",
   "genius-ingest-daily",
   "genius-ingest-tier2-nightly",
-  "ludiars-review-daily",
+  "kaizen-daily",
   "ludiars-review-daily-dual",
+  "ludiars-review-weekly",
+  "vulnerability-response-daily",
   // review-sonnet5 は review-duo へ一本化して無効化 (2026-07-17)
-  // ludiars-review-daily は 2026-07-27 neco 指示で dual からの日次 cron 巻き戻しに伴い再有効化
+  // ludiars-review-daily は 2026-08-08 neco 指示で毎日 → 週次 (ludiars-review-weekly) へ改名し deactivate
 ] as const;
 
 interface Template {
@@ -53,7 +55,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "codex-5-6-sol")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-luna")?.emoji).toBe("🌙");

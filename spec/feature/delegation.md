@@ -91,6 +91,9 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
 - `GET /v1/delegation/templates?category=<値>` で絞り込み可 (不正値は 400)。
 - category は表示・分類のためのメタデータで、 spawn 経路の挙動は変えない
   (spawn 可否の制御は従来どおり `call_only`)。
+- `parttimer` の各テンプレは完了時、`GET /v1/admin/state` の `mention_user_id` が設定されていれば
+  最終報告の先頭に `<@${mention_user_id}>` を付けて管理者へメンションする
+  (2026-08-08 neco 指示。プロンプト本文側の共通節は `src/delegation/seed.ts` の `MENTION_ADMIN_STEP`)。
 
 ## 3. テンプレ render
 
@@ -234,8 +237,12 @@ delegation テンプレ選択ベースで起動する:
 時限起動 (parttimer) の二重レビュー版 `ludiars-review-daily-dual` は GPT-5.6 Sol / Ultraを
 オーケストレータとして、Codex × Claude Opus の独立差分レビュー + 突合を行う。対象は
 `LUDIARS/service-map.json` の Tier 1、 プロンプト正本は `LUDIARS/docs/REVIEW-PROMPTS.md`
-(テンプレ側に本文を二重管理しない)。単一オーケストレータ版 `ludiars-review-daily` は
-2026-07-27 neco 指示で毎朝5:10の cron 既定へ巻き戻した (dual 版は is_active のまま手動起動用に残る)。
+(テンプレ側に本文を二重管理しない)。単一オーケストレータ版は 2026-08-08 neco 指示で
+`ludiars-review-daily` (毎日 5:10) から `ludiars-review-weekly` (毎週月曜 4:40) へ変更した
+(dual 版は is_active のまま手動起動用に残る)。空いた毎朝 5:10 枠には `vulnerability-response-daily`
+(AIFormat REVIEW_VULNERABILITY.md の観点だけで Tier 1 をスキャンし、安全カテゴリのみ自動修正・
+Critical/High は管理者へメンションして報告) を新設した。同じく 2026-08-08 neco 指示で、毎朝 9:00 に
+前日の session-logs とメモリの蓄積から機械化できる改善案を提案する `kaizen-daily` も新設した。
 
 レビュー対象の最新状態は GitHub や `origin/*` ではなく各リポジトリのローカル
 `refs/heads/<default-branch>` を正本とする。固定した main SHA から detached の一時

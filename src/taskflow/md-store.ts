@@ -3,7 +3,7 @@ import { basename, join, relative } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
 import type { TaskflowStateStore } from "./state-store.js";
-import type { TaskDocument, TaskFrontmatter, TaskRuntimeState, TaskStatus } from "./types.js";
+import { isTaskStatus, type TaskDocument, type TaskFrontmatter, type TaskRuntimeState, type TaskStatus } from "./types.js";
 
 export type { TaskDocument, TaskFrontmatter, TaskRuntimeState, TaskStatus } from "./types.js";
 
@@ -26,6 +26,12 @@ export function parseTaskMarkdown(
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const fm = value as TaskFrontmatter;
     if (typeof fm.task !== "string" || typeof fm.project !== "string" || typeof fm.kind !== "string") return null;
+    const created = fm.created as unknown;
+    if (created instanceof Date) fm.created = created.toISOString().slice(0, 10);
+    if (fm.status !== undefined && !isTaskStatus(fm.status)) {
+      onInvalid?.("legacy task status is invalid");
+      return null;
+    }
     const body = match[2] ?? "";
     const title = /^#\s+(.+)$/m.exec(body)?.[1]?.trim() || fm.task;
     return { path, title, frontmatter: fm, body };
@@ -99,19 +105,22 @@ export class TaskMdStore {
         try { files = (await readdir(tasksDir)).filter((name) => name.endsWith(".md")); } catch { continue; }
         for (const file of files) {
           const path = join(tasksDir, file);
+          let content: string;
           try {
-            const parsed = parseTaskMarkdown(await readFile(path, "utf8"), path, (reason) =>
-              this.warnOnce(path, "invalid task frontmatter skipped", { error: reason }),
-            );
-            if (parsed) {
-              const document = { ...parsed, repoPath };
-              documents.push(this.state ? { ...document, runtime: this.state.readOrMigrate(document) } : document);
-              this.warnedPaths.delete(path); // 直ったら次の失敗はまた報告する
-            } else {
-              this.warnOnce(path, "invalid task markdown skipped");
-            }
+            content = await readFile(path, "utf8");
           } catch (error) {
             this.warnOnce(path, "task markdown read failed", { error: (error as Error).message });
+            continue;
+          }
+          const parsed = parseTaskMarkdown(content, path, (reason) =>
+            this.warnOnce(path, "invalid task frontmatter skipped", { error: reason }),
+          );
+          if (parsed) {
+            const document = { ...parsed, repoPath };
+            documents.push(this.state ? { ...document, runtime: this.state.readOrMigrate(document) } : document);
+            this.warnedPaths.delete(path); // 直ったら次の失敗はまた報告する
+          } else {
+            this.warnOnce(path, "invalid task markdown skipped");
           }
         }
       }

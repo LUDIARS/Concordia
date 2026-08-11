@@ -294,7 +294,7 @@ describe("admin API", () => {
     const r = await env.app.request("/v1/admin/cron-jobs");
     expect(r.status).toBe(200);
     const { jobs } = (await r.json()) as { jobs: Array<{ name: string; call_name: string; default_call_name: string }> };
-    const dailyReview = jobs.find((j) => j.name === "ludiars-review-daily");
+    const dailyReview = jobs.find((j) => j.name === "ludiars-review-weekly");
     expect(dailyReview).toBeDefined();
     expect(dailyReview?.call_name).toBe(dailyReview?.default_call_name);
   });
@@ -309,7 +309,7 @@ describe("admin API", () => {
       is_active: true,
     });
 
-    const put = await env.app.request("/v1/admin/cron-jobs/ludiars-review-daily", {
+    const put = await env.app.request("/v1/admin/cron-jobs/ludiars-review-weekly", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ call_name: "cron-target-active-template" }),
@@ -319,19 +319,19 @@ describe("admin API", () => {
 
     const list = await env.app.request("/v1/admin/cron-jobs");
     const { jobs } = (await list.json()) as { jobs: Array<{ name: string; call_name: string; default_call_name: string }> };
-    const dailyReview = jobs.find((j) => j.name === "ludiars-review-daily");
+    const dailyReview = jobs.find((j) => j.name === "ludiars-review-weekly");
     expect(dailyReview?.call_name).toBe("cron-target-active-template");
-    expect(dailyReview?.default_call_name).toBe("ludiars-review-daily");
+    expect(dailyReview?.default_call_name).toBe("ludiars-review-weekly");
 
     // schema_meta 永続化なので、同じ DB を指す新しい AdminState でも読めること。
-    expect(env.adminState.getCronJobOverride("ludiars-review-daily")).toBe("cron-target-active-template");
+    expect(env.adminState.getCronJobOverride("ludiars-review-weekly")).toBe("cron-target-active-template");
   });
 
   it("PUT /v1/admin/cron-jobs/:name rejects an unknown job", async () => {
     const r = await env.app.request("/v1/admin/cron-jobs/not-a-real-job", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ call_name: "ludiars-review-daily" }),
+      body: JSON.stringify({ call_name: "ludiars-review-weekly" }),
     });
     expect(r.status).toBe(404);
   });
@@ -345,7 +345,7 @@ describe("admin API", () => {
       input_schema: [],
       is_active: false,
     });
-    const r = await env.app.request("/v1/admin/cron-jobs/ludiars-review-daily", {
+    const r = await env.app.request("/v1/admin/cron-jobs/ludiars-review-weekly", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ call_name: "inactive-template" }),
@@ -354,14 +354,14 @@ describe("admin API", () => {
   });
 
   it("PUT /v1/admin/cron-jobs/:name with call_name: null resets to the code default", async () => {
-    env.adminState.setCronJobOverride("ludiars-review-daily", "ludiars-review-daily");
-    const r = await env.app.request("/v1/admin/cron-jobs/ludiars-review-daily", {
+    env.adminState.setCronJobOverride("ludiars-review-weekly", "ludiars-review-weekly");
+    const r = await env.app.request("/v1/admin/cron-jobs/ludiars-review-weekly", {
       method: "PUT",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ call_name: null }),
     });
     expect(r.status).toBe(200);
-    expect(env.adminState.getCronJobOverride("ludiars-review-daily")).toBeNull();
+    expect(env.adminState.getCronJobOverride("ludiars-review-weekly")).toBeNull();
   });
 
   it("GET /v1/admin/reaction-workflow reports no authorized users when the roster is empty", async () => {

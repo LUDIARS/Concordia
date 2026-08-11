@@ -1,5 +1,9 @@
 export type TaskStatus = "pending" | "delegated" | "done" | "cancelled";
 
+export function isTaskStatus(value: unknown): value is TaskStatus {
+  return value === "pending" || value === "delegated" || value === "done" || value === "cancelled";
+}
+
 export interface TaskFrontmatter {
   task: string;
   project: string;

@@ -64,9 +64,30 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("impl-from-design")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("review-sonnet5")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
-    expect(repo.findTemplateByCallName("ludiars-review-daily")?.category).toBe("parttimer");
+    expect(repo.findTemplateByCallName("ludiars-review-weekly")?.category).toBe("parttimer");
+    expect(repo.findTemplateByCallName("vulnerability-response-daily")?.category).toBe("parttimer");
+    expect(repo.findTemplateByCallName("kaizen-daily")?.category).toBe("parttimer");
     // Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md)。
     expect(repo.findTemplateByCallName("test-qa")?.category).toBe("test-qa");
+  });
+
+  it("adds the required administrator-mention step to every parttimer template", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    for (const template of repo.listTemplates().filter((template) => template.category === "parttimer")) {
+      expect(template.prompt_template).toContain("### 完了時 (必須)");
+    }
+  });
+
+  it("keeps kaizen's confidential sources out of its output", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const prompt = repo.findTemplateByCallName("kaizen-daily")?.prompt_template ?? "";
+    expect(prompt).toContain("機密扱い");
+    expect(prompt).toContain("認証情報・個人情報・内部 endpoint・生の本文");
+    expect(prompt).not.toContain("C:\\Users\\raury");
   });
 
   it("seeds argument-free launch templates for Session forum posts", () => {
@@ -183,13 +204,13 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("review-sonnet5")?.is_active).toBe(0);
   });
 
-  it("reactivates the single-AI Claude definition as the daily cron default", () => {
+  it("reactivates the single-AI Claude definition as the weekly cron default", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    const claude = repo.findTemplateByCallName("ludiars-review-daily");
+    const claude = repo.findTemplateByCallName("ludiars-review-weekly");
     expect(claude?.target_provider).toBe("claude");
-    expect(claude?.title).toBe("毎日レビュー");
+    expect(claude?.title).toBe("週次レビュー");
     expect(claude?.is_active).toBe(1);
     expect(claude?.model).toBe("claude-sonnet-5");
     expect(claude?.prompt_template).toContain("service-map.json");
@@ -201,6 +222,19 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.prompt_template).toContain("refs/heads/<default-branch>");
     expect(claude?.prompt_template).toContain("reviewed_at");
     expect(claude?.prompt_template).not.toContain("git fetch origin");
+  });
+
+  it("deactivates the legacy ludiars-review-daily call_name after the weekly rename", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    repo.createTemplate({
+      call_name: "ludiars-review-daily",
+      title: "Legacy daily review",
+      target_provider: "claude",
+      prompt_template: "old",
+    });
+    seedDelegationTemplates(repo);
+
+    expect(repo.findTemplateByCallName("ludiars-review-daily")?.is_active).toBe(0);
   });
 
   it("seeds the Genius ingest templates for the cron jobs", () => {

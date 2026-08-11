@@ -2,7 +2,9 @@ import { Route, Routes } from "react-router-dom";
 import { Nav, type NavItem } from "./components/Nav.js";
 import { Monitor } from "./pages/Monitor.js";
 import { Work } from "./pages/Work.js";
-import { SessionDetail } from "./pages/SessionDetail.js";
+import { SessionChat } from "./pages/session-chat/SessionChat.js";
+import { SessionLogs as SessionLogDetail } from "./pages/session-logs/SessionLogs.js";
+import { Sessions } from "./pages/Sessions.js";
 import { ReportView } from "./pages/ReportView.js";
 import { Reports } from "./pages/Reports.js";
 import { SessionLogs } from "./pages/SessionLogs.js";
@@ -59,7 +61,9 @@ export function App() {
           <Route path="/work" element={<Work />} />
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
-          <Route path="/sessions/:id" element={<SessionDetail />} />
+          <Route path="/sessions" element={<Sessions />} />
+          <Route path="/sessions/:id/logs" element={<SessionLogDetail />} />
+          <Route path="/sessions/:id" element={<SessionChat />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/reports/:id" element={<ReportView />} />
           <Route path="/session-logs" element={<SessionLogs />} />

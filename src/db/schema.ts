@@ -5,7 +5,7 @@
 import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 
-export const SCHEMA_VERSION = 57;
+export const SCHEMA_VERSION = 58;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1518,6 +1518,20 @@ const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX idx_director_decisions_step_sequence
         ON director_decisions(step_id, audit_sequence ASC);
       DROP INDEX IF EXISTS idx_director_steps_case_sequence;
+    `);
+  },
+}, {
+  version: 58,
+  name: "web-push-subscriptions",
+  source: "web_push_config + web_push_subscriptions v1",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS web_push_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS web_push_subscriptions (
+        endpoint TEXT PRIMARY KEY, client_id TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+        created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, disabled_at INTEGER
+      );
+      CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_client ON web_push_subscriptions(client_id, disabled_at);
     `);
   },
 }];

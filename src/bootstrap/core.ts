@@ -24,7 +24,9 @@ import { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js";
 import { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
+import { WebPushRepo } from "../db/web-push-repo.js";
 import { SessionMessageService } from "../messages/service.js";
+import { WebPushService } from "../push/service.js";
 import {
   makeDiscordPendingQuestionsRepo,
   makeDiscordSessionChannelsRepo,
@@ -414,6 +416,9 @@ export async function startBackend(): Promise<BackendHandle> {
   const transcriptLogs = new TranscriptLogsRepo(db);
   const sessionMessages = new SessionMessagesRepo(db);
   const sessionMessageReads = new SessionMessageReadsRepo(db);
+  const webPush = new WebPushRepo(db);
+  const webPushService = new WebPushService(webPush);
+  const stopWebPushService = webPushService.start();
   const messageService = new SessionMessageService({ repo: sessionMessages });
   const stopMessageService = messageService.start();
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
@@ -975,6 +980,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionMessages,
     sessionMessageReads,
     projectSessionEvent: (event) => messageService.project(event),
+    webPush,
+    webPushService,
     pendingQuestions,
     discordChannels,
     costSamples: usageSamplesRepo,
@@ -1524,6 +1531,7 @@ export async function startBackend(): Promise<BackendHandle> {
 
   const resources = new ResourceOwner((message) => log.warn(message));
   resources.own("workflow bindings", () => workflowBindings.stop());
+  resources.own("web push", () => stopWebPushService());
   resources.own("sweeper", () => sweeper.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("post-listen handles", () => {

@@ -41,9 +41,11 @@ import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
 import { SessionMessageReadsRepo } from "../../src/db/session-message-reads-repo.js";
 import { SessionMessageService } from "../../src/messages/service.js";
+import { WebPushRepo } from "../../src/db/web-push-repo.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
 import { ProcessManager } from "../../src/processes/manager.js";
+import { WebPushService } from "../../src/push/service.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
 import type { SpawnRequest } from "../../src/control/spawner.js";
 import type { ConcordiaEvent } from "../../src/events.js";
@@ -116,6 +118,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const sessionMessageReads = new SessionMessageReadsRepo(db);
   const sessionMessageService = new SessionMessageService({ repo: sessionMessages });
   const projectSessionEvent = (event: ConcordiaEvent): void => sessionMessageService.project(event);
+  const webPush = new WebPushRepo(db);
+  const webPushService = new WebPushService(webPush);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
@@ -150,7 +154,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   const deps: AppDeps = {
     repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads,
+    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, webPush, webPushService,
     projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,

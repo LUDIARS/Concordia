@@ -107,6 +107,15 @@ export interface SessionEvent {
   payload: any;
 }
 
+export interface SessionMessage {
+  id: number; session_id: string; ts: number; edited_ts: number | null;
+  author_type: "user" | "assistant" | "thinking" | "tool" | "task" | "system" | "delegation" | "question" | "permission" | "summary";
+  author_label: string; author_platform: string | null; content: string;
+  embeds: Array<{ title?: string; description?: string; fields?: Array<{ name: string; value: string }> }> | null;
+  components: Array<Record<string, unknown>> | null; attachments: unknown[] | null;
+  reference_id: number | null; metadata: Record<string, unknown> | null; dedupe_key: string | null;
+}
+
 export interface MonitorPayload {
   active: SessionRow[];
   lost: SessionRow[];
@@ -601,6 +610,13 @@ export const api = {
       text,
       ...(source ? { source } : {}),
     }),
+  sessions: () => get<{ sessions: SessionRow[] }>("/v1/sessions"),
+  sessionMessages: (id: string, after?: number) => get<{ messages: SessionMessage[] }>(`/v1/sessions/${encodeURIComponent(id)}/messages${after ? `?after=${after}` : ""}`),
+  sessionUnread: (id: string, clientId: string) => get<{ last_read_id: number; unread: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/unread?client_id=${encodeURIComponent(clientId)}`),
+  sessionMarkRead: (id: string, clientId: string, lastReadId: number) => post<{ ok: true; last_read_id: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/read`, { client_id: clientId, last_read_id: lastReadId }),
+  sessionRename: (id: string, text: string) => post<{ ok: true }>(`/v1/sessions/${encodeURIComponent(id)}/title`, { text }),
+  pushPublicKey: () => get<{ public_key: string }>("/v1/push/vapid-public-key"),
+  pushSubscribe: (clientId: string, subscription: PushSubscriptionJSON) => post<{ ok: true }>("/v1/push/subscriptions", { client_id: clientId, subscription }),
   sessionFork: (id: string, body: { claude_uuid: string; cwd?: string; mode?: "tab" | "window" }) =>
     post<{ ok: boolean; pid: number | null; command: string[] }>(
       `/v1/sessions/${encodeURIComponent(id)}/fork`,

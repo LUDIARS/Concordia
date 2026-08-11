@@ -32,6 +32,9 @@ import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
 import type { ConcordiaEvent } from "../events.js";
+import type { WebPushRepo } from "../db/web-push-repo.js";
+import type { WebPushService } from "../push/service.js";
+import { pushRouter } from "./push.js";
 import type {
   DiscordPendingQuestionsRepo,
   DiscordSessionChannelsRepo,
@@ -137,6 +140,8 @@ export interface CoreSessionDeps {
   sessionMessageReads: SessionMessageReadsRepo;
   /** Lifecycle-owned projector used when a transcript frame is intentionally not emitted. */
   projectSessionEvent: (event: ConcordiaEvent) => void;
+  webPush: WebPushRepo;
+  webPushService: WebPushService;
 }
 
 export interface CoreDelegationDeps {
@@ -242,6 +247,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       harnessAudit: deps.harnessAudit,
     }),
   );
+  app.route("/v1/push", pushRouter({ repo: deps.webPush, service: deps.webPushService }));
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
   app.route(
     "/v1/reports",

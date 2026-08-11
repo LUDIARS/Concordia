@@ -32,8 +32,8 @@ codex-code-mode-host / powershell) が終了せず、数日単位で積み上が
 ### 1. Lictor が stale worktree のビルドで起動していた (回収コードが物理的に不在)
 
 生存していた Lictor 全 35 本 (active 14 + 残留 21) が
-`E:\Document\Ars\.wt-Lictor-runtime-repair\bin\lictor.mjs` から起動していた。
-`E:\Document\Ars\Lictor` (main) 起動は 0 本。
+`$ARS_ROOT/.wt-Lictor-runtime-repair/bin/lictor.mjs` から起動していた。
+`$ARS_ROOT/Lictor` (main) 起動は 0 本。
 
 この worktree は detached HEAD `74005f4` (2026-07-30) で `dist/process-tree.js` が
 存在しない。すなわち Lictor `7fa28be` "fix(session): reap wrapped process tree on
@@ -115,7 +115,7 @@ spawn は `cmd /d /s /c "node ...\lictor.mjs ..."` の形なので、`cmd.exe` �
 
 ## 実施した対処 (2026-08-08)
 
-1. `PUT /v1/admin/lictor` で `lictor_dev_path` を `E:/Document/Ars/Lictor` へ復帰。
+1. `PUT /v1/admin/lictor` で `lictor_dev_path` を `$ARS_ROOT/Lictor` へ復帰。
    `resolveLictorLauncher` は spawn ごとに評価されるため Cc 再起動は不要。
    以後 spawn される新規セッションから `7fa28be` が効く。
    稼働中プロセスは旧コードのままなので入れ替わるまで残留は続く。

@@ -121,6 +121,33 @@ describe("reapExpiredSessionEnds", () => {
     expect(r.stopped).toEqual([]);
   });
 
+  it("skips a session whose pending marker was cleared or renewed after listing", async () => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 0, metadata: meta(GRACE + 60) }]);
+    const { deps, stopProcess } = stopDeps();
+    const listed = repo.findEndedWithPendingMarkerOlderThan;
+    repo.findEndedWithPendingMarkerOlderThan = (cutoff: number, key: string) => {
+      const out = listed.call(repo, cutoff, key);
+      repo.rows[0]!.metadata = meta(GRACE - 60);
+      return out;
+    };
+
+    const r = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: GRACE });
+
+    expect(r.candidates).toEqual(["s1"]);
+    expect(stopProcess).not.toHaveBeenCalled();
+    expect(repo.merged).toEqual([]);
+  });
+
+  it("fails safe when the destructive grace setting is invalid", async () => {
+    const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 0, metadata: meta(GRACE + 60) }]);
+    const { deps, stopProcess } = stopDeps();
+
+    const r = await reapExpiredSessionEnds({ repo: asRepo(repo), stopDeps: deps }, { dryRun: false, nowSec: NOW, graceSec: -1 });
+
+    expect(r.candidates).toEqual([]);
+    expect(stopProcess).not.toHaveBeenCalled();
+  });
+
   it("lists candidates without stopping on dryRun", async () => {
     const repo = fakeRepo([{ id: "s1", status: "ended", ws_clients: 0, metadata: meta(GRACE + 60) }]);
     const { deps, stopProcess } = stopDeps();

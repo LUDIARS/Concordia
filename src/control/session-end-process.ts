@@ -19,13 +19,23 @@ export interface CompletedSessionStopDeps {
 }
 
 export function isSessionEndPending(metadata: string | null): boolean {
-  if (!metadata) return false;
+  return sessionEndPendingAt(metadata) !== null;
+}
+
+/** `session_end_pending_at` が cutoff より前なら true。猶予切れ回収の再検証に使う。 */
+export function isSessionEndPendingOlderThan(metadata: string | null, cutoff: number): boolean {
+  const pendingAt = sessionEndPendingAt(metadata);
+  return pendingAt !== null && Number.isFinite(cutoff) && pendingAt < cutoff;
+}
+
+function sessionEndPendingAt(metadata: string | null): number | null {
+  if (!metadata) return null;
   try {
     const parsed = JSON.parse(metadata) as Record<string, unknown>;
     const value = parsed[SESSION_END_PENDING_AT_KEY];
-    return typeof value === "number" && Number.isFinite(value) && value >= 0;
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

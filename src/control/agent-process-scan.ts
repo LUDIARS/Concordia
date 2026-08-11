@@ -27,8 +27,10 @@ export function runningAgentProcessesFromSnapshot(
   const out: RunningAgentProc[] = [];
   for (const process of snapshot.processes) {
     const cmd = process.command_line;
+    // image 名が取れる経路なので shell ラッパ判定に併用する (cmd.exe を Lictor 本体と誤認しない)。
     const kind = classifyKind(cmd, process.name);
     if (!kind) continue;
+    // 起動時刻が取れないプロセスは age=0 とし、reaper の minAgeSec ガードで保護する。
     const ageSec = process.started_at == null
       ? 0
       : Math.max(0, Math.floor((nowMs - process.started_at) / 1000));

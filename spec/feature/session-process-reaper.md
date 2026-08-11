@@ -101,6 +101,8 @@ control worker が動いた瞬間に作業中のセッションが子ごと tree
 ラッパ自体は本体を tree-kill すれば子の終了に伴って自然終了するので、追跡しない。
 
 判定材料は Excubitor snapshot の `name` (image 名) とコマンドラインの `/c` / `-c` 委譲形。
+snapshot の取得・age 算出は `agent-process-scan.ts`、分類は
+`agent-process-classify.ts` に分離し、session-end 回収も同じ検証済みプロセス情報を使う。
 
 ## SPEC-SESSION-END-GRACE: 完了通知が来ない場合の保険回収
 

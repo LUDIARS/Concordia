@@ -4,10 +4,10 @@ import { classifyKind, extractSessionId, isShellWrapperCommand } from "./agent-p
 // 2026-08-08 に実測した実コマンドライン。spawn は cmd /d /s /c 経由で Lictor を起動するため、
 // ラッパと本体の両方に lictor.mjs が現れる。
 const SHELL_WRAPPER =
-  'cmd.exe /d /s /c "^"node^" ^"E:\\Document\\Ars\\Lictor\\bin\\lictor.mjs^" ^"claude^" ^"--model^" ^"claude-opus-5^" & exit 0"';
-const LICTOR_BODY = '"node"  "E:\\Document\\Ars\\Lictor\\bin\\lictor.mjs" "claude" "--model" "claude-opus-5"';
+  'cmd.exe /d /s /c "^"node^" ^"C:\\workspace\\Lictor\\bin\\lictor.mjs^" ^"claude^" ^"--model^" ^"claude-opus-5^" & exit 0"';
+const LICTOR_BODY = '"node"  "C:\\workspace\\Lictor\\bin\\lictor.mjs" "claude" "--model" "claude-opus-5"';
 const AGENT_CLIENT =
-  '"C:\\Program Files\\nodejs\\node.exe" E:/Document/Ars/Concordia/tools/concordia-agent-client.mjs --session abc-123 --url ws://127.0.0.1:11111/ws';
+  '"C:\\Program Files\\nodejs\\node.exe" C:/workspace/Concordia/tools/concordia-agent-client.mjs --session abc-123 --url ws://127.0.0.1:11111/ws';
 
 describe("isShellWrapperCommand", () => {
   it("detects the cmd /d /s /c wrapper used by spawn", () => {

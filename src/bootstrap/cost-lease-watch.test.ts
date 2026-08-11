@@ -112,7 +112,6 @@ describe("createCostLeaseWatchTick", () => {
     expect(calls.started).toBe(0);
     expect(calls.reported).toHaveLength(0);
   });
-
   it("workflow.cost 再有効化の最初の tick では lease 再取得待ちを worker down と誤報しない", () => {
     let enabled = false;
     const { deps, calls, setLease } = makeDeps({
@@ -134,5 +133,9 @@ describe("createCostLeaseWatchTick", () => {
     setLease(LEASE);
     tick();
     expect(calls.reported).toEqual([null]);
+
+    setLease(null);
+    tick();
+    expect(calls.reported).toEqual([null, LEASE]);
   });
 });

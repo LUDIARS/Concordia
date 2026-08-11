@@ -4,6 +4,7 @@ import type { DiscordTestSurfaceRow } from "../db/discord-test-surfaces-repo.js"
 import type { RevisorLocalPrDetail } from "../pr/revisor-test-workflow-client.js";
 import {
   createTestForumDiscordAdapter,
+  mergedMessage,
   renderTestForumControls,
   starterContent,
   statusChangeMessage,
@@ -101,6 +102,32 @@ describe("statusChangeMessage", () => {
   it("survives a candidate with no detail", () => {
     expect(statusChangeMessage(candidate({ checkStatus: "failed", detail: null }))).toContain("審査に失敗");
     expect(statusChangeMessage(candidate({ checkStatus: "action_required", detail: null }))).toContain("判断が必要");
+  });
+});
+
+describe("mergedMessage", () => {
+  it("records the merge and its commit before the thread is closed", () => {
+    const message = mergedMessage({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: "a".repeat(40),
+    });
+    expect(message).toContain("マージしました");
+    expect(message).toContain("統合コミット");
+  });
+
+  it("does not interpolate a malformed commit value into Discord Markdown", () => {
+    const message = mergedMessage({
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: `${"a".repeat(2_000)}\n@everyone`,
+    });
+    expect(message).toContain("マージしました");
+    expect(message).not.toContain("統合コミット");
+    expect(message).not.toContain("@everyone");
+    expect(message.length).toBeLessThanOrEqual(2_000);
   });
 });
 
@@ -213,6 +240,67 @@ describe("createTestForumDiscordAdapter", () => {
     const payload = thread.send.mock.calls[0][0] as { content: string; allowedMentions: unknown };
     expect(payload.content).toContain("審査に失敗");
     expect(payload.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it("posts the merge result before the thread is archived", async () => {
+    const { thread } = fakeThread(true);
+    const adapter = createTestForumDiscordAdapter(guildWith(thread), "forum-1");
+    await adapter.postMerged(surfaceRow(), {
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: "a".repeat(40),
+    });
+    expect(thread.setArchived).toHaveBeenCalledWith(false, expect.any(String));
+    const payload = thread.send.mock.calls[0][0] as { content: string; allowedMentions: unknown };
+    expect(payload.content).toContain("マージしました");
+    expect(payload.allowedMentions).toEqual({ parse: [] });
+  });
+
+  it("treats a deleted thread as already closed so session cleanup can continue", async () => {
+    const guild = {
+      channels: { cache: new Map(), fetch: vi.fn(async () => null) },
+    } as unknown as Guild;
+    await expect(createTestForumDiscordAdapter(guild, "forum-1").postMerged(surfaceRow(), {
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: "a".repeat(40),
+    })).resolves.toBeUndefined();
+  });
+
+  it("treats Discord Unknown Channel as already closed", async () => {
+    const guild = {
+      channels: {
+        cache: new Map(),
+        fetch: vi.fn(async () => {
+          throw Object.assign(new Error("Unknown Channel"), { code: 10_003 });
+        }),
+      },
+    } as unknown as Guild;
+    await expect(createTestForumDiscordAdapter(guild, "forum-1").postMerged(surfaceRow(), {
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: "a".repeat(40),
+    })).resolves.toBeUndefined();
+  });
+
+  it("propagates transient thread lookup failures so reconciliation can retry", async () => {
+    const guild = {
+      channels: {
+        cache: new Map(),
+        fetch: vi.fn(async () => {
+          throw new Error("temporarily unavailable");
+        }),
+      },
+    } as unknown as Guild;
+    await expect(createTestForumDiscordAdapter(guild, "forum-1").postMerged(surfaceRow(), {
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged",
+      mergeCommitSha: "a".repeat(40),
+    })).rejects.toThrow("temporarily unavailable");
   });
 
   it("un-archives before editing a still-listed post", async () => {

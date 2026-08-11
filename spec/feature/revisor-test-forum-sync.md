@@ -3,7 +3,7 @@ title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
 domain: release-coordination
-updated: 2026-08-07
+updated: 2026-08-08
 ---
 
 # Revisor Test Workflow synchronization
@@ -40,8 +40,10 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   出さない。
 - repository rootまたはhead refが変わった場合は、安全なspawn targetを更新するため
   旧投稿を閉じて現在の候補を作り直す。
-- Revisor一覧から消えた候補 (マージ・取り下げ) は理由を推測せず投稿を閉じ、
-  関連するテストセッションも終わらせる。
+- Revisor一覧から消えた候補は投稿を閉じ、関連するテストセッションも終わらせる。
+  終局一覧で **merged** と確認できる場合は、archive 前に「マージしました」と
+  統合コミットをスレッドへ通常メッセージで残す。closed / 終局状態を取得できない場合は
+  終局理由を推測して投稿せず、従来どおり close だけを行う。
 - Revisorへの接続または応答検証に失敗した場合は同期全体を失敗として扱い、
   既存投稿を一括で閉じない。
 - Discord側の失敗 (自動archive・権限・rate limit) は投稿1件の範囲に閉じ込め、

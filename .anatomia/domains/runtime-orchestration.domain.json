@@ -8,6 +8,9 @@
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
   "source": "spec",
-  "specRefs": ["spec/feature/delegation.md#dependency-sweep-parttimer"],
+  "specRefs": [
+    "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
+    "spec/feature/delegation.md#dependency-sweep-parttimer"
+  ],
   "lockedFields": ["*"]
 }

@@ -197,6 +197,8 @@ describe("RevisorClient", () => {
     expect(error).toBeInstanceOf(RevisorMergeError);
     expect((error as RevisorMergeError).status).toBe(409);
     expect((error as RevisorMergeError).revisorError).toContain("conflicts");
+    expect((error as RevisorMergeError).message).not.toContain("conflicts");
+    expect(Object.keys(error as RevisorMergeError)).not.toContain("revisorError");
     expect((error as RevisorMergeError).timedOut).toBe(false);
   });
 

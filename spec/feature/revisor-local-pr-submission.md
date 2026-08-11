@@ -67,11 +67,13 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 2. 社員名簿を live 参照し、Discord の TestWorkflow マージボタンと同じ共通 capability
    判定で指示者の `merge_pr` を検証する。持たなければ 403
    `merge_not_authorized` を返す。
-3. 通過時だけ `RevisorClient.mergeLocalPr(id)` を実行する。Revisor の失敗は 502 と
-   安定した非機密の `detail` を返す。上流からの生の失敗文字列は endpoint や設定情報を
-   含み得るため、クライアントへは返さない。
-4. 成功時は、指示者、local PR ID、session ID を構造化ログと session event
-   `pr-merged` に監査記録する。
+3. 通過後に Revisor の実状態を読み、既に merged なら変更要求を重ねず成功として扱う。
+   open なら `RevisorClient.mergeLocalPr(id)` を実行する。タイムアウト後も実状態を再確認し、
+   merged を確認できた場合だけ成功へ確定する。Revisor の失敗は 502 と安定した非機密の
+   `reason` / `detail` を返す。上流からの生の失敗文字列は endpoint・credentials・
+   ローカルパスを含み得るため、分類中のメモリにだけ留め、クライアントにもログにも返さない。
+4. 通常成功・既に merged・タイムアウト後の確認成功のいずれでも、指示者、local PR ID、
+   session ID と結果種別を構造化ログと session event `pr-merged` に監査記録する。
 
 `POST /v1/prs/local/:id/close { session_id, reason? }` は同じ `merge_pr` capability と
 直近人間指示者の検証を通し、Revisor の local PR を明示的に取り下げる。board 整理のため

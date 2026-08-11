@@ -63,10 +63,23 @@ export interface RevisorOpenLocalPr {
   detail: RevisorLocalPrDetail;
 }
 
+/** Test Forum の終局投稿に使う、Revisor で決着済みの local PR。 */
+export interface RevisorTerminalLocalPr {
+  repository: string;
+  number: number;
+  status: "merged" | "closed";
+  mergeCommitSha: string | null;
+}
+
 export interface RevisorTestWorkflowSource {
   listProducts(): Promise<readonly RevisorTestWorkflowProduct[]>;
   /** open な local PR の全件 (詳細・spawn target 込み)。 Test Forum の候補正本。 */
   listOpenLocalPrs(): Promise<readonly RevisorOpenLocalPr[]>;
+  /**
+   * 掲載済みスレッドの終局理由を解決するための merged / closed PR 一覧。
+   * 実装されない source でも、従来どおり候補から消えた投稿を閉じられる。
+   */
+  listTerminalLocalPrs?(): Promise<readonly RevisorTerminalLocalPr[]>;
   /**
    * 単一 PR の詳細。 取得や解析に失敗しても同期全体は止めない前提の
    * 追加情報なので、 呼出側は失敗を null として扱ってよい (throw はする)。
@@ -204,6 +217,20 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
     return open;
   }
 
+  async listTerminalLocalPrs(): Promise<readonly RevisorTerminalLocalPr[]> {
+    const body = await this.getJson("/v1/local-prs") as Record<string, unknown> | null;
+    const rows = body?.pullRequests;
+    if (!Array.isArray(rows)) {
+      throw new Error("Revisor returned an invalid local PR list response");
+    }
+    const terminal: RevisorTerminalLocalPr[] = [];
+    for (const row of rows) {
+      const parsed = parseTerminalLocalPr(row);
+      if (parsed) terminal.push(parsed);
+    }
+    return terminal;
+  }
+
   async getProductDetail(pullRequestId: string): Promise<RevisorLocalPrDetail> {
     const body = await this.getJson(
       `/v1/local-prs/${encodeURIComponent(pullRequestId)}`,
@@ -284,6 +311,12 @@ function asNumberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function asGitObjectIdOrNull(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(trimmed) ? trimmed : null;
+}
+
 /**
  * open 行だけを掲載候補にする。 骨格 (id/repository/番号/head/rootPath) が欠けた行は
  * 候補から外す (null)。 detail の欠落フィールドは parseLocalPrDetail が null へ落とす。
@@ -322,6 +355,26 @@ function parseOpenLocalPr(
     checkStatus: row.checkStatus,
     sessionId: nonEmptyString(row.sessionId) ? row.sessionId : null,
     detail,
+  };
+}
+
+function parseTerminalLocalPr(value: unknown): RevisorTerminalLocalPr | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    !nonEmptyString(row.repository)
+    || typeof row.number !== "number"
+    || !Number.isInteger(row.number)
+    || row.number <= 0
+    || (row.status !== "merged" && row.status !== "closed")
+  ) {
+    return null;
+  }
+  return {
+    repository: row.repository,
+    number: row.number,
+    status: row.status,
+    mergeCommitSha: asGitObjectIdOrNull(row.mergeCommitSha),
   };
 }
 

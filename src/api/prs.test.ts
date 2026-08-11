@@ -145,7 +145,7 @@ describe("POST /v1/prs/local/:id/merge", () => {
     expect(await response.json()).toEqual({
       error: "local_pr_merge_failed",
       reason: "unknown",
-      detail: "Revisor がマージを拒否しました。詳細は Concordia のログを参照してください。",
+      detail: "Revisor がマージを拒否しました。Concordia の管理者に確認してください。",
     });
   });
 

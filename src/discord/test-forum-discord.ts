@@ -26,6 +26,7 @@ import {
 import type {
   TestForumCandidate,
   TestForumSurfaceAdapter,
+  TestForumTerminalPr,
   TestSurfaceCloseReason,
 } from "./test-forum-reconcile.js";
 import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
@@ -34,6 +35,14 @@ import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
 // 外部由来テキストなので、 `@everyone` 等が混ざっても誰にも通知が飛ばないようにする
 // (Bot 発言の既定作法: ingress.ts / forum-spawn-session.ts と同じ)。
 const NO_MENTIONS = { parse: [] as never[] };
+/** Discord REST の Unknown Channel。削除済み thread だけを正常な欠落として扱う。 */
+const UNKNOWN_CHANNEL_ERROR_CODE = 10_003;
+
+function isUnknownChannelError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = (error as { code?: unknown }).code;
+  return code === UNKNOWN_CHANNEL_ERROR_CODE || code === String(UNKNOWN_CHANNEL_ERROR_CODE);
+}
 
 /**
  * 素の `slice` はサロゲートペア (絵文字等) の途中で切れて壊れた文字を作り、
@@ -104,6 +113,16 @@ export function statusChangeMessage(candidate: TestForumCandidate): string {
   return `⚠️ 審査は完了しましたが人間の判断が必要です。\n${blockers}`;
 }
 
+export function mergedMessage(terminal: TestForumTerminalPr): string {
+  // Source の差し替え時にも外部文字列を無制限に Discord へ渡さない。Git SHA-1 / SHA-256
+  // 以外は表示せず、Markdown 注入と 2,000 文字上限超過による close の永久失敗を防ぐ。
+  const mergeCommitSha = terminal.mergeCommitSha?.trim();
+  const commit = mergeCommitSha && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(mergeCommitSha)
+    ? `\n統合コミット: \`${mergeCommitSha}\``
+    : "";
+  return `✅ #${terminal.prNumber} をマージしました。テスト・QA セッションを終了して、このスレッドを閉じます。${commit}`;
+}
+
 export function starterContent(candidate: TestForumCandidate): string {
   const lines = [
     `**Test candidate** ${candidate.url ? `[#${candidate.prNumber}](${candidate.url})` : `#${candidate.prNumber}`}`,
@@ -123,7 +142,12 @@ async function resolveThread(
   threadId: string,
 ): Promise<AnyThreadChannel | null> {
   const cached = guild.channels.cache.get(threadId);
-  const channel = cached ?? await guild.channels.fetch(threadId).catch(() => null);
+  const channel = cached ?? await guild.channels.fetch(threadId).catch((error: unknown) => {
+    // Unknown Channel は既に削除済みなので cleanup を続ける。一時的な REST 障害や
+    // rate limit は投げ直し、reconcile が DB を close せず次周期に再試行できるようにする。
+    if (isUnknownChannelError(error)) return null;
+    throw error;
+  });
   if (!channel) return null;
   if (channel.type !== ChannelType.PublicThread && channel.type !== ChannelType.PrivateThread) {
     throw new Error(`Test surface is not a thread: ${threadId}`);
@@ -275,6 +299,16 @@ export function createTestForumDiscordAdapter(
       const thread = await resolveThread(guild, surface.thread_id);
       if (!thread) return;
       await thread.send({ content: statusChangeMessage(candidate), allowedMentions: NO_MENTIONS });
+    },
+    async postMerged(surface: DiscordTestSurfaceRow, terminal: TestForumTerminalPr) {
+      // 削除済み thread は既に閉じたものとして扱い、QA/session と DB の cleanup を止めない。
+      // 存在する thread の unarchive/send 失敗は throw のままにして次周期で再試行する。
+      const thread = await resolveThread(guild, surface.thread_id);
+      if (!thread) return;
+      if (thread.archived) {
+        await thread.setArchived(false, "Concordia merged test candidate notice");
+      }
+      await thread.send({ content: mergedMessage(terminal), allowedMentions: NO_MENTIONS });
     },
     async close(surface: DiscordTestSurfaceRow, reason: TestSurfaceCloseReason) {
       const thread = await resolveThread(guild, surface.thread_id);

@@ -28,7 +28,7 @@ export type RevisorMergeFailureReason =
   | "unreachable"
   /** 応答が返る前に打ち切った。 Revisor 側は続行している可能性がある。 */
   | "timeout"
-  /** 上記に当てはまらない。 詳細はサーバ側ログを見る。 */
+  /** 上記に当てはまらない。管理者が upstream 状態を確認する。 */
   | "unknown";
 
 export interface RevisorMergeFailure {
@@ -40,7 +40,7 @@ export interface RevisorMergeFailure {
 export interface RevisorMergeErrorOptions {
   /** Revisor が返した HTTP status。 到達しなかった場合は null。 */
   status?: number | null;
-  /** Revisor の `error` フィールド原文。 ログ専用で、 そのまま外へ出さない。 */
+  /** Revisor の `error` フィールド原文。 分類専用で、応答やログへ出さない。 */
   revisorError?: string | null;
   /** タイムアウトで打ち切ったか。 */
   timedOut?: boolean;
@@ -52,15 +52,20 @@ export interface RevisorMergeErrorOptions {
  */
 export class RevisorMergeError extends Error {
   readonly status: number | null;
-  readonly revisorError: string | null;
   readonly timedOut: boolean;
+  #revisorError: string | null;
 
   constructor(message: string, options: RevisorMergeErrorOptions = {}) {
     super(message);
     this.name = "RevisorMergeError";
     this.status = options.status ?? null;
-    this.revisorError = options.revisorError ?? null;
+    this.#revisorError = options.revisorError ?? null;
     this.timedOut = options.timedOut === true;
+  }
+
+  /** 分類器だけが明示的に読む。private field なので Error の構造化ログへ列挙されない。 */
+  get revisorError(): string | null {
+    return this.#revisorError;
   }
 }
 
@@ -89,7 +94,7 @@ const DETAIL: Record<RevisorMergeFailureReason, string> = {
   unauthorized: "Revisor がマージを認可しませんでした (workflow token を確認してください)。",
   unreachable: "Revisor に到達できませんでした。",
   timeout: "Revisor の応答を待ち切れませんでした。Revisor 側は処理を継続している可能性があります。",
-  unknown: "Revisor がマージを拒否しました。詳細は Concordia のログを参照してください。",
+  unknown: "Revisor がマージを拒否しました。Concordia の管理者に確認してください。",
 };
 
 /**
@@ -106,8 +111,9 @@ export function classifyMergeFailure(error: unknown): RevisorMergeFailure {
     return { reason: "unauthorized", detail: DETAIL.unauthorized };
   }
 
-  const raw = error.revisorError ?? "";
-  const reason = reasonFromText(raw);
+  // 状態競合の説明は Revisor の 409 契約でのみ信用する。5xx 等の任意文言に
+  // "already merged" が含まれても成功へ誤分類しない。
+  const reason = error.status === 409 ? reasonFromText(error.revisorError ?? "") : null;
   if (reason) {
     // Revisor の原文には credentials、パス、private endpoint など任意の情報が混入し得る。
     // 文字列ベースの伏せ字では網羅できないため、行動を示す定型文だけを返す。

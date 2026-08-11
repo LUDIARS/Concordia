@@ -279,21 +279,6 @@ export function prsRouter(deps: PrsApiDeps): Hono {
       await deps.revisorMerger.mergeLocalPr(localPrId);
     } catch (error) {
       const failure = classifyMergeFailure(error);
-      // 生の失敗内容は credentials / endpoint / ローカルパスを含み得るため永続ログにも残さない。
-      // status と分類は診断可能性を保ちつつ、Revisor 側ログとの突合キーになる。
-      log.warn(
-        {
-          local_pr_id: localPrId,
-          session_id: sessionId,
-          reason: failure.reason,
-          revisor_status: error instanceof RevisorMergeError ? error.status : null,
-          timed_out: error instanceof RevisorMergeError && error.timedOut,
-          error_type: error instanceof RevisorMergeError
-            ? "RevisorMergeError"
-            : error instanceof Error ? "Error" : typeof error,
-        },
-        "local PR merge failed",
-      );
       // 事前確認の直後に auto-merge が成立する競合があり得る。この場合は要求だけが
       // 遅れたので、Revisor の 409 を API の失敗として返さない。
       if (failure.reason === "already_merged") {
@@ -308,6 +293,22 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         );
         return merged("timed_out");
       }
+      // 生の失敗内容は credentials / endpoint / ローカルパスを含み得るため、分類にだけ使い、
+      // API 応答にも永続ログにも残さない。status と型は Revisor 側ログとの突合に使える。
+      // 成功へ確定した競合・timeout は上で返しているので、失敗として警告しない。
+      log.warn(
+        {
+          local_pr_id: localPrId,
+          session_id: sessionId,
+          reason: failure.reason,
+          revisor_status: error instanceof RevisorMergeError ? error.status : null,
+          timed_out: error instanceof RevisorMergeError && error.timedOut,
+          error_type: error instanceof RevisorMergeError
+            ? "RevisorMergeError"
+            : error instanceof Error ? "Error" : typeof error,
+        },
+        "local PR merge failed",
+      );
       return c.json({ error: "local_pr_merge_failed", reason: failure.reason, detail: failure.detail }, 502);
     }
 

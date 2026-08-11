@@ -140,6 +140,33 @@ describe("RevisorTestWorkflowClient", () => {
     expect(sent).toMatchObject({ "x-concordia-actor": "concordia" });
   });
 
+  it("reads terminal local PRs for Test Forum close announcements", async () => {
+    const client = new RevisorTestWorkflowClient({
+      excubitor: {
+        findService: vi.fn(async () => ({ code: "revisor", name: "Revisor", port: 4240, state: "running" })),
+      },
+      fetchImpl: vi.fn(async (input: string | URL | Request) => {
+        if (String(input).endsWith("/v1/local-prs")) {
+          return new Response(JSON.stringify({
+            pullRequests: [
+              { repository: "LUDIARS/Concordia", number: 42, status: "merged", mergeCommitSha: "a".repeat(40) },
+              { repository: "LUDIARS/Lictor", number: 43, status: "closed", mergeCommitSha: null },
+              { repository: "LUDIARS/Augur", number: 45, status: "merged", mergeCommitSha: "not-a-git-object-id" },
+              { repository: "LUDIARS/Revisor", number: 44, status: "open", mergeCommitSha: null },
+            ],
+          }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+      }),
+    });
+
+    await expect(client.listTerminalLocalPrs()).resolves.toEqual([
+      { repository: "LUDIARS/Concordia", number: 42, status: "merged", mergeCommitSha: "a".repeat(40) },
+      { repository: "LUDIARS/Lictor", number: 43, status: "closed", mergeCommitSha: null },
+      { repository: "LUDIARS/Augur", number: 45, status: "merged", mergeCommitSha: null },
+    ]);
+  });
+
   it("rejects malformed products instead of silently dropping them", async () => {
     const client = new RevisorTestWorkflowClient({
       excubitor: {

@@ -47,6 +47,7 @@ describe("startVestigiumErrorWatch in-flight guard", () => {
     // 2周目が「同じ in-flight」 を共有すること。
     const first = handle.runOnce();
     const second = handle.runOnce();
+    await Promise.resolve();
     expect(listVestigiumServices).toHaveBeenCalledTimes(1);
 
     resolveServices([]);

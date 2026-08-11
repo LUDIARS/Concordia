@@ -39,7 +39,16 @@ export interface TestForumSurfaceAdapter {
   render?(surface: DiscordTestSurfaceRow): Promise<{ controlsMessageId: string }>;
   /** 審査の決着遷移をスレッドへ通常メッセージとして知らせる。 */
   postStatusChange(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate): Promise<void>;
+  /** 実際にマージされた PR を archive 前にスレッドへ記録する。 */
+  postMerged(surface: DiscordTestSurfaceRow, terminal: TestForumTerminalPr): Promise<void>;
   close(surface: DiscordTestSurfaceRow, reason: TestSurfaceCloseReason): Promise<void>;
+}
+
+export interface TestForumTerminalPr {
+  repoOrigin: string;
+  prNumber: number;
+  status: "merged" | "closed";
+  mergeCommitSha: string | null;
 }
 
 /**
@@ -48,6 +57,7 @@ export interface TestForumSurfaceAdapter {
  */
 export type TestSurfaceCloseReason =
   | "candidate-unavailable"
+  | "merged"
   | "head-updated"
   | "spawn-target-updated";
 
@@ -137,6 +147,7 @@ function hasChangedSpawnTarget(
 
 export async function reconcileTestForum(input: {
   candidates: readonly TestForumCandidate[];
+  terminalPullRequests?: readonly TestForumTerminalPr[];
   surfaces: DiscordTestSurfacesRepo;
   adapter: TestForumSurfaceAdapter;
   qa?: TestForumQaHooks;
@@ -145,6 +156,10 @@ export async function reconcileTestForum(input: {
   const candidatesByPr = new Map(input.candidates.map((candidate) => [
     prKey(candidate.repoOrigin, candidate.prNumber),
     candidate,
+  ]));
+  const terminalByPr = new Map((input.terminalPullRequests ?? []).map((pullRequest) => [
+    prKey(pullRequest.repoOrigin, pullRequest.prNumber),
+    pullRequest,
   ]));
   const existing = input.surfaces.listOpen();
   const keptKeys = new Set<string>();
@@ -170,9 +185,13 @@ export async function reconcileTestForum(input: {
       // マージ・取り下げ・再審査落ちで候補から消えた。 投稿を閉じ、 関連する
       // テスト・QA セッションも一緒に終わらせる (end-session で先に閉じていれば no-op)。
       await isolate(key, async () => {
-        await input.adapter.close(surface, "candidate-unavailable");
+        const terminal = terminalByPr.get(key);
+        const closeReason = terminal?.status === "merged" ? "merged" : "candidate-unavailable";
+        // archive 後は通常メッセージを送れない。終局通知を先に残してから閉じる。
+        if (terminal?.status === "merged") await input.adapter.postMerged(surface, terminal);
+        await input.adapter.close(surface, closeReason);
         if (input.qa) await input.qa.end(surface);
-        input.surfaces.close(surface.id, "candidate-unavailable");
+        input.surfaces.close(surface.id, closeReason);
         closed += 1;
       });
       continue;

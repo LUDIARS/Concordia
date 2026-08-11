@@ -130,6 +130,7 @@ function harness(open: DiscordTestSurfaceRow[] = []) {
     update: vi.fn(async () => undefined),
     render: vi.fn(async (row) => ({ controlsMessageId: `controls-${row.id}` })),
     postStatusChange: vi.fn(async () => undefined),
+    postMerged: vi.fn(async () => undefined),
     close: vi.fn(async () => undefined),
   };
   const qa: TestForumQaHooks = {
@@ -197,6 +198,22 @@ describe("reconcileTestForum", () => {
     expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "candidate-unavailable");
     expect(h.qa.end).toHaveBeenCalledWith(expect.objectContaining({ qa_run_id: "run-qa-9" }));
     expect(h.adapter.create).not.toHaveBeenCalled();
+  });
+
+  it("announces a confirmed merge before closing the thread and its QA session", async () => {
+    const h = harness([surface({ qa_run_id: "run-qa-9" })]);
+    const terminal = {
+      repoOrigin: "LUDIARS/Concordia",
+      prNumber: 42,
+      status: "merged" as const,
+      mergeCommitSha: "a".repeat(40),
+    };
+    await reconcileTestForum({ candidates: [], terminalPullRequests: [terminal], ...h });
+    expect(h.adapter.postMerged).toHaveBeenCalledWith(expect.anything(), terminal);
+    expect(h.adapter.close).toHaveBeenCalledWith(expect.anything(), "merged");
+    expect(h.qa.end).toHaveBeenCalledWith(expect.objectContaining({ qa_run_id: "run-qa-9" }));
+    expect((h.adapter.postMerged as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0])
+      .toBeLessThan((h.adapter.close as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]);
   });
 
   it("refreshes a changed post by editing and announces a review pass", async () => {

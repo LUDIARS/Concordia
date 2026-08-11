@@ -342,8 +342,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
       if (!response.ok) {
         const revisorError = typeof body?.error === "string" ? body.error : null;
         throw new RevisorMergeError(
-          `Revisor local PR ${request.label} failed (${response.status})`
-          + (revisorError ? `: ${revisorError}` : ""),
+          `Revisor local PR ${request.label} failed (${response.status})`,
           { status: response.status, revisorError },
         );
       }
@@ -357,7 +356,7 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
       }
       // 到達できなかった (接続拒否など)。 status を持たないことが「届いていない」の印。
       throw new RevisorMergeError(
-        error instanceof Error ? error.message : `Revisor local PR ${request.label} failed`,
+        `Revisor local PR ${request.label} request failed before a response was received`,
       );
     } finally {
       clearTimeout(timer);

@@ -788,6 +788,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const source = deps.revisorTestWorkflow;
         // 掲載対象は Test OK 限定ではなく open な local PR 全件 (登録・審査時点で載せる)。
         const openPullRequests = await source.listOpenLocalPrs();
+        // 終局状態は archive 前の「マージしました」通知にだけ使う。取得不能でも従来どおり
+        // 候補外の投稿と関連セッションを閉じ、原因はログへ残す。
+        const terminalPullRequests = source.listTerminalLocalPrs
+          ? await source.listTerminalLocalPrs().catch(() => {
+            // Upstream の error body は credentials / private endpoint / local path を
+            // 含み得るため、同期を継続する事実だけを記録する。
+            log.warn(`test-forum ${reason} terminal PR lookup failed; continuing without terminal status`);
+            return [];
+          })
+          : [];
         // 新規掲載時に提出セッションの操作者へメンションする。 解決失敗は掲載を止めない。
         const mentions = resolveSessionMentions(
           (sessionId, limit) => deps.sessionsRepo.recentEvents(sessionId, limit),
@@ -795,6 +805,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         );
         const result = await reconcileTestForum({
           candidates: buildTestForumCandidates(openPullRequests, mentions),
+          terminalPullRequests: terminalPullRequests.map((pullRequest) => ({
+            repoOrigin: pullRequest.repository,
+            prNumber: pullRequest.number,
+            status: pullRequest.status,
+            mergeCommitSha: pullRequest.mergeCommitSha,
+          })),
           surfaces: testSurfacesRepo,
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
           qa: testForumQa,

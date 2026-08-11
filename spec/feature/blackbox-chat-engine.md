@@ -15,11 +15,18 @@ tags:
   - lifecycle
   - delegation
 status: planned
-updated: 2026-06-30
+updated: 2026-08-12
 ---
 
 
 # ブラックボックス チャットエンジン + 中央 Haiku 描画
+
+> **移管 (2026-08-12 neco 決定)**: 本 spec の発話判定・描画・persona 系
+> (`chat/render` `chat/responder` `rules/*` `personas/*`) の実装先は **Histrio**
+> (`Histrio/spec/feature/persona-chat-engine.md`) に変更された。Concordia 側に残るのは
+> プラットフォーム接続・タスク注入の実行系・投稿受け口 (`POST /v1/chat`) と
+> Histrio へのイベントフィードのみ。
+> 本 spec は判定・描画の要件定義として引き続き有効 (実装は Histrio で行う)。
 
 2026-06 の方針転換。 Concordia のエージェント間チャットを **低コスト** に復活させる。
 

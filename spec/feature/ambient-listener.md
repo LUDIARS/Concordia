@@ -17,10 +17,18 @@ related:
   - feature/boyaki-channel.md
   - feature/participants.md
   - feature/cost-observability.md
-updated: 2026-08-11
+updated: 2026-08-12
 ---
 
 # アンビエント リスナー — 人間の会話を傍聴して自然参加する
+
+> **移管 (2026-08-12 neco 決定)**: 実装先は **Histrio** に変更された
+> (`Histrio/spec/tasks/2026-08-12-ambient-listener.md`。Concordia で予定していた
+> ambient listener task は撤回)。buffer/gate/judge は Histrio が持ち、
+> 参加判定は Histrio のロールモデルエンジン (`Histrio/spec/feature/role-model-engine.md`)
+> を通る。Concordia 側は allowlist channel の人間発言をイベントフィードで配信し
+> (Histrio 向けイベントフィード)、投稿・タスク注入の受け口を提供するのみ。
+> 本 spec の要件・受け入れ基準は Histrio 実装に対して引き続き有効。
 
 ## 0. 位置づけと原則
 

@@ -1123,7 +1123,12 @@ export function applyMigrations(db: Database.Database): void {
   runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
 }
 
-const MIGRATIONS: readonly NumberedMigration[] = [{
+/**
+ * 適用済みの内容を後から編集してはいけない (checksum 台帳が一致しなくなり、 次の
+ * 再起動で起動不能になる)。 新しいテーブル / 列は必ず末尾に番号付き migration を
+ * 足すこと。 `migration-ledger.ts` の凍結値がこの規律をテストで守る。
+ */
+export const MIGRATIONS: readonly NumberedMigration[] = [{
   version: 41,
   name: "baseline-v41",
   source: JSON.stringify({ statements: STATEMENTS, columns: COLUMN_ADDITIONS, indexes: DELEGATION_COORDINATION_INDEXES }),

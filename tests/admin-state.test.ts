@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto";
 import { makeTestDb } from "./helpers/db.js";
 import { AdminState } from "../src/admin/state.js";
 import { SecretBox, isEncrypted } from "../src/shared/secret-box.js";
+import { DEFAULT_MAIN_PUSH_ALLOWLIST } from "../src/harness/main-push-allowlist.js";
 
 function boot() {
   const db = makeTestDb();
@@ -53,6 +54,8 @@ describe("AdminState", () => {
       delegation_max_concurrency: 4,
       harness_strong_impl_models: ["fable", "sol-ultra"],
       mention_user_id: null,
+      // main 直 push 許可リスト (MELPOT 例外)。 設定 / env 未指定なので既定シード。
+      harness_main_push_allowlist: [...DEFAULT_MAIN_PUSH_ALLOWLIST],
       cron_job_overrides: {},
       delegation_watchdog_enabled: true,
       delegation_watchdog_idle_sec: 1800,

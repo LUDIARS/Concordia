@@ -260,6 +260,18 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
 
 export const HARNESS_SETTINGS: readonly SettingDefinition[] = [
   {
+    key: "harness.main_push_allowlist",
+    section: "harness",
+    label: "main 直 push 許可リスト",
+    description: "main への直接 push を許可するリポジトリ名または絶対パスの一覧。 空配列は例外なしを明示する。",
+    kind: "string-list",
+    envName: "HARNESS_MAIN_PUSH_ALLOWLIST",
+    dbKey: "harness.main_push_allowlist",
+    defaultValue: ["KuzuSurvivors", "MakaiNui"],
+    editable: true,
+    listEnvFormat: "comma-or-newline",
+  },
+  {
     key: "harness.strong_impl_models",
     section: "harness",
     label: "強推論の実装モデル",

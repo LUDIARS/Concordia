@@ -47,7 +47,7 @@ function parseStored(definition: SettingDefinition, raw: string): SettingValue {
       return Number.isFinite(parsed) ? Math.trunc(parsed) : null;
     }
     case "string-list":
-      return parseList(raw);
+      return parseList(raw, definition.listEnvFormat);
     case "json":
       return parseJsonMap(raw);
     case "secret":
@@ -60,10 +60,10 @@ function parseStored(definition: SettingDefinition, raw: string): SettingValue {
 }
 
 /**
- * 一覧値は保存形式が 2 通りある: DB は JSON 配列、 env は `;` 区切り。
- * どちらも受けて配列にする。
+ * 一覧値は保存形式が 2 通りある: DB は JSON 配列、 env は定義ごとの区切り形式。
+ * どちらも受けて配列にする (既定の env 形式は `;` 区切り)。
  */
-function parseList(raw: string): string[] {
+function parseList(raw: string, format: SettingDefinition["listEnvFormat"] = "semicolon"): string[] {
   const trimmed = raw.trim();
   if (trimmed.startsWith("[")) {
     try {
@@ -74,6 +74,9 @@ function parseList(raw: string): string[] {
     } catch {
       // JSON として壊れている場合は `;` 区切りとして読み直す (下へ落ちる)。
     }
+  }
+  if (format === "comma-or-newline") {
+    return trimmed.split(/[,\n]/).map((item) => item.trim()).filter(Boolean);
   }
   return splitSemicolonList(trimmed);
 }

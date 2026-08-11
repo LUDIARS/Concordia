@@ -412,6 +412,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           };
         },
         strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),
+        mainPushAllowlist: () => deps.adminState.getHarnessMainPushAllowlist(),
         mentionUserId: () => deps.adminState.getMentionUserId(),
       }),
     );

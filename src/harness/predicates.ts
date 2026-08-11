@@ -12,6 +12,8 @@
  * fail-closed (deny) で確実に止める。
  */
 
+import { isMainPushAllowlisted, MAIN_PUSH_ALLOWLIST_ENV } from "./main-push-allowlist.js";
+
 export type Decision = "allow" | "deny" | "warn";
 
 export interface HarnessAction {
@@ -76,29 +78,49 @@ export function repoLeaf(pathOrName?: string): string {
   return trimmed.slice(Math.max(slash, back) + 1).toLowerCase();
 }
 
+/** main/master を直接更新する Git push か。blackbox 特徴量もこの判定を共有する。 */
+export function commandPushesMain(command: string | undefined, branch: string | undefined): boolean {
+  if (!command || !/\bgit\b[\s\S]*\bpush\b/i.test(command)) return false;
+  const targetsMain =
+    /\borigin\s+(?:\S+\s+)?(?:main|master|refs\/heads\/(?:main|master))\b/i.test(command) ||
+    /\bHEAD:(?:refs\/heads\/)?(?:main|master)\b/i.test(command) ||
+    /:(?:refs\/heads\/)?(?:main|master)\b/i.test(command) ||
+    /\bpush\b[\s\S]*--(?:all|mirror)\b/i.test(command);
+  const explicitOtherRef = /\borigin\s+\S+/i.test(command) && !targetsMain;
+  return targetsMain || (!explicitOtherRef && isMainBranch(branch));
+}
+
 /**
  * main 直 push 禁止 (deny)。 変更はブランチ → PR 経由。
- * - `origin main` / `origin master` / `HEAD:main` を明示している
+ * - `origin main` / `HEAD:refs/heads/main` 等を明示、または `--all` / `--mirror` を使う
  * - または ref 省略で現在ブランチが main/master (= main を push する)
+ *
+ * 許可リスト (MELPOT 等、 main 直 push してよいリポ) に該当する場合は deny せず、
+ * 追跡用の warn (`main-push-allowlisted`) に落とす — 黙って素通しにしない。
  */
-export const noMainPush: Predicate = (a) => {
-  if (a.tool !== "Bash" || !a.command) return null;
-  const cmd = a.command;
-  if (!/\bgit\b[\s\S]*\bpush\b/.test(cmd)) return null;
-  const targetsMain = /\borigin\s+(?:\S+\s+)?(?:main|master)\b/.test(cmd) || /\bHEAD:(?:main|master)\b/.test(cmd) || /:(?:main|master)\b/.test(cmd);
-  // ref を明示せず現在ブランチが main/master → main を push する。 他ブランチを明示している場合は対象外。
-  const explicitOtherRef = /\borigin\s+\S+/.test(cmd) && !targetsMain;
-  const pushesCurrentMain = !explicitOtherRef && isMainBranch(a.branch);
-  if (targetsMain || pushesCurrentMain) {
+export function makeNoMainPushPredicate(allowlist: readonly string[] = []): Predicate {
+  return function noMainPush(a) {
+    if (a.tool !== "Bash" || !a.command) return null;
+    if (!commandPushesMain(a.command, a.branch)) return null;
+    if (isMainPushAllowlisted(a, allowlist)) {
+      return {
+        rule: "main-push-allowlisted",
+        decision: "warn",
+        reason: "許可リスト対象リポのため main 直 push を許可しました。",
+        suggestion: `許可リストは ${MAIN_PUSH_ALLOWLIST_ENV} (Cc 設定 harness.main_push_allowlist) で管理します。`,
+      };
+    }
     return {
       rule: "no-main-push",
       decision: "deny",
       reason: "main ブランチへ直接 push しようとしています (main 直 push 禁止)。",
-      suggestion: "feat/... 等のブランチを切り、 PR 経由でマージしてください。",
+      suggestion: `feat/... 等のブランチを切り、 PR 経由でマージしてください (許可リスト: ${MAIN_PUSH_ALLOWLIST_ENV})。`,
     };
-  }
-  return null;
-};
+  };
+}
+
+/** 許可リスト無し (= 全リポで main 直 push 禁止) の既定述語。 */
+export const noMainPush: Predicate = makeNoMainPushPredicate();
 
 /**
  * 編集前ブランチ (warn)。 main/master 上でコードを編集している。 ハード deny にすると
@@ -173,3 +195,16 @@ export const DEFAULT_PREDICATES: Predicate[] = [
   maxReposWarn,
   outsideScope,
 ];
+
+/**
+ * 述語セットの `noMainPush` を許可リスト付きのものへ差し替えた複製を返す。
+ * 許可リストが空なら既定セットのまま (= 従来どおり全リポで deny)。
+ */
+export function withMainPushAllowlist(
+  allowlist: readonly string[],
+  predicates: readonly Predicate[] = DEFAULT_PREDICATES,
+): Predicate[] {
+  if (allowlist.length === 0) return [...predicates];
+  const allowlisted = makeNoMainPushPredicate(allowlist);
+  return predicates.map((p) => (p === noMainPush ? allowlisted : p));
+}

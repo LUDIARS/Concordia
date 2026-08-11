@@ -12,7 +12,15 @@ import {
 } from "@ludiars/blackbox";
 import type Database from "better-sqlite3";
 import type { PromptAnalyzerSource, PromptAnalysis } from "./local-prompt-analyzer.js";
-import { isEditTool, MAX_REPOS, type Decision as GateDecision, type HarnessAction, type PredicateHit } from "./predicates.js";
+import { isMainPushAllowlisted, MAIN_PUSH_ALLOWLIST_ENV } from "./main-push-allowlist.js";
+import {
+  commandPushesMain,
+  isEditTool,
+  MAX_REPOS,
+  type Decision as GateDecision,
+  type HarnessAction,
+  type PredicateHit,
+} from "./predicates.js";
 import type { PromptIntentVerdict } from "./prompt-intent.js";
 import type { GateVerdict } from "./session-gate.js";
 
@@ -42,6 +50,8 @@ export interface HarnessBlackboxGateInput {
   verdict: GateVerdict;
   session_id?: string;
   hook?: string;
+  /** main 直 push を許可するリポ (未指定なら例外なし)。 特徴量 main_push_allowlisted の材料。 */
+  mainPushAllowlist?: readonly string[];
 }
 
 export interface HarnessBlackboxIntentInput {
@@ -73,16 +83,6 @@ function branchKind(branch?: string): "main" | "topic" | "unknown" {
   return isMainBranch(branch) ? "main" : "topic";
 }
 
-function commandPushesMain(command: string | undefined, branch: string | undefined): boolean {
-  if (!command || !/\bgit\b[\s\S]*\bpush\b/.test(command)) return false;
-  const targetsMain =
-    /\borigin\s+(?:\S+\s+)?(?:main|master)\b/.test(command) ||
-    /\bHEAD:(?:main|master)\b/.test(command) ||
-    /:(?:main|master)\b/.test(command);
-  const explicitOtherRef = /\borigin\s+\S+/.test(command) && !targetsMain;
-  return targetsMain || (!explicitOtherRef && isMainBranch(branch));
-}
-
 function commandFamily(command: string | undefined): string {
   const cmd = (command ?? "").trim().toLowerCase();
   if (!cmd) return "none";
@@ -101,15 +101,23 @@ function and(...clauses: Condition[]): Condition {
   return { op: "and", clauses };
 }
 
-function gateFeatures(action: HarnessAction, editedRepos: string[], verdict: GateVerdict): FeatureMap {
+function gateFeatures(
+  action: HarnessAction,
+  editedRepos: string[],
+  verdict: GateVerdict,
+  mainPushAllowlist: readonly string[] = [],
+): FeatureMap {
   const lead = verdict.hits.find((h) => h.decision === verdict.decision) ?? verdict.hits[0];
+  const pushesMain = commandPushesMain(action.command, action.branch);
   return {
     tool: action.tool,
     branch_kind: branchKind(action.branch),
     is_edit_tool: isEditTool(action.tool),
     has_command: Boolean(action.command?.trim()),
     command_family: commandFamily(action.command),
-    command_pushes_main: commandPushesMain(action.command, action.branch),
+    command_pushes_main: pushesMain,
+    // 許可リスト該当リポへの main 直 push (MELPOT 例外)。 no-main-push ルールの除外条件。
+    main_push_allowlisted: pushesMain && isMainPushAllowlisted(action, mainPushAllowlist),
     edit_on_main: isEditTool(action.tool) && isMainBranch(action.branch),
     edited_repo_count: new Set(editedRepos.map((r) => r.trim()).filter(Boolean)).size,
     deterministic_decision: verdict.decision,
@@ -125,11 +133,18 @@ function gateVerdict(decision: GateDecision, hits: PredicateHit[], reason: strin
   return { decision, hits, blocked: decision === "deny", reason };
 }
 
-const SEEDED_GATE_RULES: Array<RuleDraft & { domain: HarnessBlackboxDomain }> = [
+/**
+ * コード側で固定するシードルール。 `key` は再シード時の同一性キー (fingerprint は
+ * when/output を変えると変わるため、 旧版を retire して差し替えるのに使う)。
+ */
+type SeededGateRule = RuleDraft & { domain: HarnessBlackboxDomain; key: string };
+
+const SEEDED_GATE_RULES: SeededGateRule[] = [
   {
     domain: HARNESS_BLACKBOX_DOMAINS.gate,
-    description: "Block direct pushes to main/master from local session hooks.",
-    when: eq("command_pushes_main", true),
+    key: "no-main-push",
+    description: "Block direct pushes to main/master from local session hooks (allowlisted repos excepted).",
+    when: and(eq("command_pushes_main", true), eq("main_push_allowlisted", false)),
     output: gateVerdict(
       "deny",
       [
@@ -137,7 +152,7 @@ const SEEDED_GATE_RULES: Array<RuleDraft & { domain: HarnessBlackboxDomain }> = 
           "no-main-push",
           "deny",
           "Direct push to main/master is blocked by the Concordia harness.",
-          "Push a topic branch and merge through review.",
+          `Push a topic branch and merge through review (allowlist: ${MAIN_PUSH_ALLOWLIST_ENV}).`,
         ),
       ],
       "[no-main-push] Direct push to main/master is blocked by the Concordia harness.",
@@ -149,6 +164,7 @@ const SEEDED_GATE_RULES: Array<RuleDraft & { domain: HarnessBlackboxDomain }> = 
   },
   {
     domain: HARNESS_BLACKBOX_DOMAINS.gate,
+    key: "branch-before-edit",
     description: "Warn before editing files on main/master.",
     when: and(eq("is_edit_tool", true), eq("branch_kind", "main")),
     output: gateVerdict(
@@ -170,6 +186,7 @@ const SEEDED_GATE_RULES: Array<RuleDraft & { domain: HarnessBlackboxDomain }> = 
   },
   {
     domain: HARNESS_BLACKBOX_DOMAINS.gate,
+    key: "max-repos",
     description: "Warn when one session edits more repositories than the harness limit.",
     when: { op: "cmp", feature: "edited_repo_count", cmp: ">", value: MAX_REPOS },
     output: gateVerdict(
@@ -190,6 +207,14 @@ const SEEDED_GATE_RULES: Array<RuleDraft & { domain: HarnessBlackboxDomain }> = 
     priority: 100,
   },
 ];
+
+/** 既存ルールのシード同一性キー = 出力 verdict の代表 predicate 名 (無ければ空文字)。 */
+function seedRuleKey(rule: Rule): string {
+  const output = rule.output;
+  if (!isRecord(output) || !Array.isArray(output.hits)) return "";
+  const first = output.hits.find(isRecord);
+  return typeof first?.rule === "string" ? first.rule : "";
+}
 
 function gateRuleProposal(features: FeatureMap, verdict: GateVerdict): Omit<RuleDraft, "domain" | "state" | "source"> | undefined {
   const lead = verdict.hits.find((h) => h.decision === verdict.decision) ?? verdict.hits[0];
@@ -302,7 +327,7 @@ export class HarnessBlackboxService {
 
   async decideGate(input: HarnessBlackboxGateInput): Promise<{ verdict: GateVerdict; meta: HarnessBlackboxMeta }> {
     const domain = this.domains.gate;
-    const features = gateFeatures(input.action, input.editedRepos, input.verdict);
+    const features = gateFeatures(input.action, input.editedRepos, input.verdict, input.mainPushAllowlist ?? []);
     const llmFallback = async (): Promise<LlmJudgement<GateVerdict>> => ({
       output: sanitizeGateVerdict(input.verdict, input.verdict),
       confidence: input.verdict.decision === "allow" ? 0.72 : 0.92,
@@ -393,10 +418,34 @@ export class HarnessBlackboxService {
     }
   }
 
-  private ensureRule(draft: RuleDraft & { domain: HarnessBlackboxDomain }): void {
+  /**
+   * シードルールの upsert。 `when` / `output` を書き換えると fingerprint が変わり別ルールに
+   * なるため、 insert-once ではコード変更が既存 DB に反映されない (旧ルールが発火し続ける)。
+   * ここでは **コード側の seed を正本**として:
+   *  1. 同じ key を持つ旧 seed (別 fingerprint) を retired にする → 発火しなくなる
+   *  2. 現行 fingerprint が未登録なら追加、 登録済みなら auto へ戻す (撤回/降格からの復帰)
+   * これにより Cc の再起動だけで新しい seed が確実に効く。
+   */
+  private ensureRule(draft: SeededGateRule): void {
     const fingerprint = ruleFingerprint(draft.when, draft.output);
-    if (this.box.rules.findByFingerprint(draft.domain, fingerprint)) return;
-    this.box.engine.addRule(draft);
+    this.retireStaleSeeds(draft, fingerprint);
+    const existing = this.box.rules.findByFingerprint(draft.domain, fingerprint);
+    if (existing) {
+      if (existing.state !== "auto") this.box.engine.setRuleState(existing.id, "auto");
+      return;
+    }
+    const { key: _key, ...rule } = draft;
+    this.box.engine.addRule(rule);
+  }
+
+  /** 同 key の旧シード (現行 fingerprint 以外) を retired にする。 */
+  private retireStaleSeeds(draft: SeededGateRule, keepFingerprint: string): void {
+    for (const rule of this.box.engine.listRules(draft.domain)) {
+      if (rule.source !== "seed" || rule.state === "retired") continue;
+      if (rule.fingerprint === keepFingerprint) continue;
+      if (seedRuleKey(rule) !== draft.key) continue;
+      this.box.engine.setRuleState(rule.id, "retired");
+    }
   }
 }
 

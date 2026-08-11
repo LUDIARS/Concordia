@@ -72,6 +72,7 @@ export class AdminState {
   setDelegationMaxConcurrency(value: number): void { this.runtime.setDelegationMaxConcurrency(value); }
   getHarnessStrongImplModels(): string[] { return this.runtime.getHarnessStrongImplModels(); }
   setHarnessStrongImplModels(models: string[]): void { this.runtime.setHarnessStrongImplModels(models); }
+  getHarnessMainPushAllowlist(): string[] { return this.runtime.getHarnessMainPushAllowlist(); }
   getMentionUserId(): string | null { return this.runtime.getMentionUserId(); }
   setMentionUserId(value: string | null): void { this.runtime.setMentionUserId(value); }
   getDelegationWatchdogEnabled(): boolean { return this.runtime.getDelegationWatchdogEnabled(); }
@@ -96,6 +97,7 @@ export class AdminState {
       lictor_dev_path: this.getLictorDevPath(), lictor_prod_exe: this.getLictorProdExe(),
       daily_token_budget: this.getDailyTokenBudget(), delegation_max_concurrency: this.getDelegationMaxConcurrency(),
       harness_strong_impl_models: this.getHarnessStrongImplModels(), mention_user_id: this.getMentionUserId(),
+      harness_main_push_allowlist: this.getHarnessMainPushAllowlist(),
       cron_job_overrides: this.getCronJobOverrides(),
       delegation_watchdog_enabled: this.getDelegationWatchdogEnabled(),
       delegation_watchdog_idle_sec: this.getDelegationWatchdogIdleSec(),

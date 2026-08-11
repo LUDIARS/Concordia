@@ -91,6 +91,16 @@ describe("出所 (source) の解決", () => {
     const setting = getSetting("discord.guild_id", reader(), env({ CONCORDIA_DISCORD_GUILD_ID: "   " }));
     expect(setting?.source).toBe("none");
   });
+
+  it("main push allowlist の env は gate と同じカンマ / 改行区切りで解決する", () => {
+    const setting = getSetting(
+      "harness.main_push_allowlist",
+      reader(),
+      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "KuzuSurvivors, MakaiNui\nThirdRepo" }),
+    );
+    expect(setting?.source).toBe("env");
+    expect(setting?.value).toEqual(["KuzuSurvivors", "MakaiNui", "ThirdRepo"]);
+  });
 });
 
 describe("secret の redaction", () => {
@@ -190,6 +200,20 @@ describe("更新の検証", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("harness.strong_impl_models", [" fable ", "", "sol-ultra"], writer).ok).toBe(true);
     expect(writer.calls).toEqual([["writeMeta", "harness.strong_impl_models", '["fable","sol-ultra"]']]);
+  });
+
+  it("main push allowlist の空配列は DB 上書きとして保持する", () => {
+    const writer = recordingWriter();
+    expect(applySettingUpdate("harness.main_push_allowlist", [], writer).ok).toBe(true);
+    expect(writer.calls).toEqual([["writeMeta", "harness.main_push_allowlist", "[]"]]);
+
+    const setting = getSetting(
+      "harness.main_push_allowlist",
+      reader({ meta: { "harness.main_push_allowlist": "[]" } }),
+      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "KuzuSurvivors" }),
+    );
+    expect(setting?.source).toBe("db");
+    expect(setting?.value).toEqual([]);
   });
 
   it("Discord の secret は暗号化経路へ回す", () => {

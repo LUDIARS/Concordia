@@ -15,7 +15,7 @@ import { z } from "zod";
 import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "../db/harness-audit-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { evaluateAction } from "../harness/session-gate.js";
-import { DEFAULT_PREDICATES, isEditTool, type HarnessAction } from "../harness/predicates.js";
+import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
 import type { IntentHarnessRule, PromptIntentContext } from "../harness/prompt-intent.js";
@@ -110,6 +110,11 @@ export interface HarnessSessionApiDeps {
   sessionScope?: (sessionId: string) => string | null;
   sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean } | null;
   strongImplModels?: () => string[];
+  /**
+   * main 直 push を許可するリポ (ディレクトリ名 or 絶対パス)。 未注入なら例外なし =
+   * 従来どおり全リポで no-main-push が deny する。
+   */
+  mainPushAllowlist?: () => string[];
   mentionUserId?: () => string | null;
 }
 
@@ -183,9 +188,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       implUnlocked: sessionContext?.implUnlocked,
       isWorktree: action.isWorktree ?? sessionContext?.isWorktree,
     };
+    // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
+    const mainPushAllowlist = deps.mainPushAllowlist?.() ?? [];
+    const basePredicates = withMainPushAllowlist(mainPushAllowlist, DEFAULT_PREDICATES);
     const predicates = deps.strongImplModels
-      ? [...DEFAULT_PREDICATES, makeStrongModelImplPredicate(deps.strongImplModels())]
-      : DEFAULT_PREDICATES;
+      ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]
+      : basePredicates;
     const deterministic = evaluateAction(enrichedAction, predicates);
     let verdict = deterministic;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;
@@ -198,6 +206,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
           verdict: deterministic,
           session_id,
           hook: hook ?? "gate",
+          mainPushAllowlist,
         });
         verdict = blackbox.verdict;
       } catch (e) {

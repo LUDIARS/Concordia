@@ -1,3 +1,8 @@
+import {
+  DEFAULT_MAIN_PUSH_ALLOWLIST,
+  MAIN_PUSH_ALLOWLIST_ENV,
+  parseMainPushAllowlist,
+} from "../harness/main-push-allowlist.js";
 import type { SettingsStore } from "./settings-store.js";
 
 const KEYS = {
@@ -5,6 +10,7 @@ const KEYS = {
   lictorMode: "admin.lictor_mode", lictorDev: "admin.lictor_dev_path", lictorProd: "admin.lictor_prod_exe",
   dailyBudget: "admin.daily_token_budget", delegationMax: "admin.delegation_max_concurrency",
   strongModels: "harness.strong_impl_models", mentionUser: "admin.mention_user_id",
+  mainPushAllowlist: "harness.main_push_allowlist",
   cronJobOverrides: "admin.cron_job_overrides",
   watchdogEnabled: "admin.delegation_watchdog_enabled",
   watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
@@ -48,6 +54,25 @@ export class RuntimeSettingsStore {
     return ["fable", "sol-ultra"];
   }
   setHarnessStrongImplModels(models: string[]): void { this.store.set(KEYS.strongModels, JSON.stringify(models.map((model) => model.trim()).filter(Boolean))); }
+  /**
+   * main 直 push を許可するリポ (MELPOT 例外)。 解決順は 設定 (WebUI) → env
+   * {@link MAIN_PUSH_ALLOWLIST_ENV} → 既定シード。 設定に空配列を保存した場合は
+   * 「例外なし」の明示指定として尊重する (env / 既定へフォールバックしない)。
+   */
+  getHarnessMainPushAllowlist(): string[] {
+    const raw = this.store.get(KEYS.mainPushAllowlist);
+    if (raw !== null) {
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (!Array.isArray(parsed) || parsed.some((item) => typeof item !== "string")) return [];
+        return parsed.map((item) => item.trim()).filter(Boolean);
+      } catch {
+        // 明示設定の破損時に既定例外を有効化しない (fail-closed)。
+        return [];
+      }
+    }
+    return parseMainPushAllowlist(process.env[MAIN_PUSH_ALLOWLIST_ENV]) ?? [...DEFAULT_MAIN_PUSH_ALLOWLIST];
+  }
   getMentionUserId(): string | null { return this.store.get(KEYS.mentionUser)?.trim() || null; }
   setMentionUserId(value: string | null): void { this.store.set(KEYS.mentionUser, value?.trim() ?? ""); }
   // 委託 run watchdog (spec/tasks/2026-08-08-delegation-run-watchdog.md)。

@@ -13,14 +13,17 @@ import { harnessSessionRouter } from "./harness-session.js";
 
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 
-function makeApp(runClaude?: RunClaudeFn) {
+function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[]) {
   const db = makeTestDb();
   const audit = new HarnessAuditRepo(db);
   const rules = new HarnessRulesRepo(db);
   const blackbox = createHarnessBlackbox(db);
   seedHarnessRules(rules);
   const app = new Hono();
-  app.route("/v1/harness", harnessSessionRouter({ audit, rules, runClaude, blackbox }));
+  app.route("/v1/harness", harnessSessionRouter({
+    audit, rules, runClaude, blackbox,
+    ...(mainPushAllowlist ? { mainPushAllowlist: () => mainPushAllowlist } : {}),
+  }));
   return { app, audit, rules, blackbox };
 }
 
@@ -64,6 +67,54 @@ describe("/v1/harness route", () => {
     expect(audit[0].event).toBe("block");
     expect(audit[0].rule).toBe("no-main-push");
     expect(ctx.blackbox.snapshot("concordia.harness.gate").stats.window).toBe(1);
+  });
+
+  it("許可リポ (MELPOT 例外) への main 直 push は block せず allowlisted として記録する", async () => {
+    const melpot = makeApp(undefined, ["KuzuSurvivors", "MakaiNui"]);
+    const res = await post(melpot.app, "/v1/harness/gate", {
+      action: {
+        tool: "Bash",
+        command: "git -C C:/repos/KuzuSurvivors push origin main",
+        cwd: "C:/repos/Concordia",
+        branch: "feat/x",
+      },
+      session_id: "melpot-1",
+    });
+    const v = await readJson(res);
+    expect(v.decision).not.toBe("deny");
+    expect(v.blocked).toBe(false);
+    expect(v.hits.some((h: { rule: string }) => h.rule === "main-push-allowlisted")).toBe(true);
+
+    const audit = melpot.audit.recent({ session_id: "melpot-1" });
+    expect(audit[0].event).toBe("gate");
+    expect(audit[0].rule).toBe("main-push-allowlisted");
+  });
+
+  it("許可リスト外のリポは許可リスト設定下でも deny", async () => {
+    const melpot = makeApp(undefined, ["KuzuSurvivors"]);
+    const res = await post(melpot.app, "/v1/harness/gate", {
+      action: { tool: "Bash", command: "git push origin main", cwd: "C:/repos/Figmentum", branch: "main" },
+      session_id: "melpot-2",
+    });
+    const v = await readJson(res);
+    expect(v.decision).toBe("deny");
+    expect(v.blocked).toBe(true);
+  });
+
+  it("allowlisted な decoy -C を混ぜた複合コマンドは deny", async () => {
+    const melpot = makeApp(undefined, ["KuzuSurvivors"]);
+    const res = await post(melpot.app, "/v1/harness/gate", {
+      action: {
+        tool: "Bash",
+        command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+        cwd: "C:/repos/Figmentum",
+        branch: "main",
+      },
+      session_id: "melpot-3",
+    });
+    const v = await readJson(res);
+    expect(v.decision).toBe("deny");
+    expect(v.blocked).toBe(true);
   });
 
   it("違反なし操作は allow し gate イベントを記録する", async () => {

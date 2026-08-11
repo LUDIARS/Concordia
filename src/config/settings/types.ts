@@ -93,6 +93,8 @@ export interface SettingDefinition {
   /** `kind: "integer"` のときに受け付ける下限・上限。 */
   minValue?: number;
   maxValue?: number;
+  /** `kind: "string-list"` の env 表現。 既定は既存設定と同じ `;` 区切り。 */
+  listEnvFormat?: "semicolon" | "comma-or-newline";
   /**
    * 編集を担う専用 UI / API がある場合、 その場所を示す文字列 (例 `"設定 > cron ジョブ"`)。
    * `editable: false` の項目が 「なぜここで編集できないか」 を UI が説明できるようにする。

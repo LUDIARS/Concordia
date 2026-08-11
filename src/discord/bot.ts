@@ -977,6 +977,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         messageMap,
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
+        isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,
         resolveReactionMappings: deps.resolveReactionMappings,
         // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。

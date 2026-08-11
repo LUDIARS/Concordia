@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { reapExpiredSessionEnds, type ExpiredSessionEndRepo } from "./expired-session-end-reaper.js";
 import { SESSION_END_PENDING_AT_KEY } from "./session-end-process.js";
+import type { StopResult } from "./stop-session.js";
 
 const NOW = 2_000_000;
 const GRACE = 300;

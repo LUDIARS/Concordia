@@ -44,6 +44,11 @@ export {
 } from "./agent-process-classify.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
+import {
+  scanAgentProcesses,
+  type RunningAgentProc,
+} from "./agent-process-scan.js";
+export { runningAgentProcessesFromSnapshot, scanAgentProcesses, type RunningAgentProc } from "./agent-process-scan.js";
 
 const log = createChildLogger("reaper");
 

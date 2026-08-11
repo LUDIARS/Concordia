@@ -84,6 +84,32 @@ describe("discord ingress chat routing", () => {
     expect(fetchMock.mock.calls[0][0]).toBe("http://concordia.test/v1/sessions/s1/inject");
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("inject ok"));
   });
+
+  it("marks an authorized spoken session-end request after a successful inject", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.isSessionEndUserAllowed = () => true;
+
+    await handleMessage(deps, makeMessage({ content: "セッションを終了してください" }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(deps.sessionsRepo.mergeMetadata).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ session_end_requested_at: expect.any(Number) }),
+    );
+  });
+
+  it("fails closed for a spoken session-end request when authorization is not wired", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    const msg = makeMessage({ content: "session-end してください" });
+
+    await handleMessage(deps, msg);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deps.sessionsRepo.mergeMetadata).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({ content: expect.stringContaining("終了権限") }));
+  });
 });
 
 function stubSuccessfulFetch() {
@@ -101,6 +127,7 @@ function makeDeps(provider: string): IngressDeps {
     sessionsRepo: {
       findSession: vi.fn(() => ({ id: "s1", provider, status: "active", repo_path: "/repo" })),
       listSessions: vi.fn(() => []),
+      mergeMetadata: vi.fn(),
     } as unknown as IngressDeps["sessionsRepo"],
     concordiaUrl: "http://concordia.test",
     log: { info: vi.fn(), warn: vi.fn() },

@@ -30,6 +30,7 @@ import type {
   TestSurfaceCloseReason,
 } from "./test-forum-reconcile.js";
 import { reconcileTestForumTagIds } from "./test-forum-status-tags.js";
+import { writeKeepingArchiveState } from "./thread-archive.js";
 
 // 投稿本文には PR タイトル・説明・判断事項がそのまま載る。 これらは Revisor 経由の
 // 外部由来テキストなので、 `@everyone` 等が混ざっても誰にも通知が飛ばないようにする
@@ -215,18 +216,19 @@ export function renderTestForumControls(surface: DiscordTestSurfaceRow): {
 }
 
 /**
- * 操作面の書き込み先スレッド。 Forum thread は無操作で自動 archive され、 archive 中は
- * 投稿も編集も拒否されるので (update と同じ理由)、 書き込む前に解除する。
+ * 操作面のスレッドへ書き込む。 Forum thread は無操作で自動 archive され、 archive 中は
+ * 投稿も編集も拒否されるので、 書き込む前に解除する。 閉じていたスレッドは書き終えたら
+ * 閉じ直す (Discord は書き込みで勝手に open へ戻すため)。
  */
-async function requireWritableThread(
+async function writeToSurfaceThread<T>(
   guild: Guild,
   threadId: string,
   reason: string,
-): Promise<AnyThreadChannel> {
+  write: (thread: AnyThreadChannel) => Promise<T>,
+): Promise<T> {
   const thread = await resolveThread(guild, threadId);
   if (!thread) throw new Error(`Test surface thread is unavailable: ${threadId}`);
-  if (thread.archived) await thread.setArchived(false, reason);
-  return thread;
+  return writeKeepingArchiveState(thread, reason, () => write(thread));
 }
 
 /** Persisted controls_message_id identifies the one message whose controls change with run_state. */
@@ -235,9 +237,10 @@ export async function refreshTestForumControls(
   surface: DiscordTestSurfaceRow,
 ): Promise<void> {
   if (!surface.controls_message_id) throw new Error(`Test surface controls message is missing: ${surface.id}`);
-  const thread = await requireWritableThread(guild, surface.thread_id, "Concordia test controls refreshed");
-  const message = await thread.messages.fetch(surface.controls_message_id);
-  await message.edit(renderTestForumControls(surface));
+  await writeToSurfaceThread(guild, surface.thread_id, "Concordia test controls refreshed", async (thread) => {
+    const message = await thread.messages.fetch(surface.controls_message_id!);
+    await message.edit(renderTestForumControls(surface));
+  });
 }
 
 export function createTestForumDiscordAdapter(
@@ -272,33 +275,39 @@ export function createTestForumDiscordAdapter(
       const thread = await resolveThread(guild, surface.thread_id);
       if (!thread) return;
       // Forum thread は無操作で自動 archive される。 archive 中は編集も rename も
-      // 拒否されるので、 掲載継続中の候補は先に解除してから書き換える。
-      if (thread.archived) {
-        await thread.setArchived(false, "Concordia test candidate refreshed");
-      }
-      const starter = await thread.fetchStarterMessage().catch(() => null);
-      if (starter) {
-        await starter.edit({ content: starterContent(candidate), allowedMentions: NO_MENTIONS });
-      }
-      const name = threadName(candidate);
-      if (thread.name !== name) {
-        await thread.setName(name, "Concordia test candidate refreshed");
-      }
-      const currentTags = thread.appliedTags ?? [];
-      const tags = appliedStatusTags(findTestForum(guild, forumId), candidate, currentTags);
-      if (tags && [...currentTags].sort().join("\0") !== [...tags].sort().join("\0")) {
-        await thread.setAppliedTags(tags, "Concordia test candidate status refreshed");
-      }
+      // 拒否されるので、 掲載継続中の候補は先に解除してから書き換え、 閉じていたものは
+      // 書き終えたら閉じ直す。
+      await writeKeepingArchiveState(thread, "Concordia test candidate refreshed", async () => {
+        const starter = await thread.fetchStarterMessage().catch(() => null);
+        if (starter) {
+          await starter.edit({ content: starterContent(candidate), allowedMentions: NO_MENTIONS });
+        }
+        const name = threadName(candidate);
+        if (thread.name !== name) {
+          await thread.setName(name, "Concordia test candidate refreshed");
+        }
+        const currentTags = thread.appliedTags ?? [];
+        const tags = appliedStatusTags(findTestForum(guild, forumId), candidate, currentTags);
+        if (tags && [...currentTags].sort().join("\0") !== [...tags].sort().join("\0")) {
+          await thread.setAppliedTags(tags, "Concordia test candidate status refreshed");
+        }
+      });
     },
     async render(surface) {
-      const thread = await requireWritableThread(guild, surface.thread_id, "Concordia test controls posted");
-      const message = await thread.send(renderTestForumControls(surface));
+      const message = await writeToSurfaceThread(
+        guild,
+        surface.thread_id,
+        "Concordia test controls posted",
+        (thread) => thread.send(renderTestForumControls(surface)),
+      );
       return { controlsMessageId: message.id };
     },
     async postStatusChange(surface: DiscordTestSurfaceRow, candidate: TestForumCandidate) {
       const thread = await resolveThread(guild, surface.thread_id);
       if (!thread) return;
-      await thread.send({ content: statusChangeMessage(candidate), allowedMentions: NO_MENTIONS });
+      // 送信そのものが Discord 側で unarchive を起こすので、閉じていたなら閉じ直す。
+      await writeKeepingArchiveState(thread, "Concordia test candidate status posted", () =>
+        thread.send({ content: statusChangeMessage(candidate), allowedMentions: NO_MENTIONS }));
     },
     async postMerged(surface: DiscordTestSurfaceRow, terminal: TestForumTerminalPr) {
       // 削除済み thread は既に閉じたものとして扱い、QA/session と DB の cleanup を止めない。

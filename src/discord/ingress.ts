@@ -6,6 +6,7 @@ import { isControlTrigger, postControlPanel } from "./control.js";
 import { metaKindToChatChannel, type MetaChannelKind } from "./types.js";
 import { recordInjectAck } from "./inject-ack.js";
 import { injectSession } from "../platform/session-inject.js";
+import { detectsEndSessionRequest, markEndSessionRequested } from "../shared/end-session-request.js";
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
@@ -50,6 +51,8 @@ export interface IngressDeps {
    * 指示の中身が要求する権限は runner 側 (`hasCapability`) で判定する。
    */
   isWorkflowUserAllowed?: (userId: string) => boolean;
+  /** セッション終了発話の認可。未注入は deny (slash command と同じ fail-closed)。 */
+  isSessionEndUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
@@ -207,6 +210,19 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       } catch {}
       return;
     }
+    const isEndSessionRequest = detectsEndSessionRequest(text);
+    if (isEndSessionRequest && deps.isSessionEndUserAllowed?.(msg.author.id) !== true) {
+      deps.log.warn(
+        `ingress: spoken session-end rejected unauthorized session=${sessionRow.session_id}`,
+      );
+      try {
+        await msg.reply({
+          content: "このユーザーにはセッション終了権限がありません (管理職以上が必要)。",
+          allowedMentions: { parse: [], repliedUser: false },
+        });
+      } catch { /* denial reply is best-effort */ }
+      return;
+    }
     try {
       // Session channel の通常発言は /inject と等価に扱う。
       // author_label を付けて Concordia に participants 登録 + 相手PFミラーの発言者明示に使う。
@@ -230,6 +246,17 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
           try { await msg.reply({ content: `network error: ${result.message}`, allowedMentions: { repliedUser: false } }); } catch {}
         }
         return;
+      }
+      // 「セッション終了」の発言は、指示の最後で /end-session 相当まで到達させる印を付ける
+      // (終了はターンが静かになってから watcher が行う)。 セッション任せだとプロセスが
+      // 残り続けることがあるため。
+      if (isEndSessionRequest) {
+        try {
+          markEndSessionRequested(deps.sessionsRepo, sessionRow.session_id);
+          deps.log.info(`ingress: session-end requested by speech session=${sessionRow.session_id}`);
+        } catch (error) {
+          deps.log.warn(`ingress: session-end mark failed session=${sessionRow.session_id}: ${(error as Error).message}`);
+        }
       }
       let acceptedReactionApplied = false;
       if (isCodexSession) {

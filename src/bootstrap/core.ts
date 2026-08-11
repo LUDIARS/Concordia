@@ -63,6 +63,8 @@ import { ProcessManager } from "../processes/manager.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
 import { releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
+import { startEndSessionRequestWatch } from "../control/end-session-request.js";
+import { endSessionNow } from "../control/end-session-command.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
@@ -1139,6 +1141,26 @@ export async function startBackend(): Promise<BackendHandle> {
           retentionHours: cfg.metricsRetentionHours,
         },
       ),
+    );
+    // 「セッション終了」の発言をターン終了後に /end-session 相当まで持っていく。
+    // セッション自身が session-end を回しきれなくてもプロセスを残さないための保険なので、
+    // ワークフロートグルではなくセッション制御基盤として常時動かす。
+    trackPostListenHandle(
+      startEndSessionRequestWatch({
+        sessions: repo,
+        endSession: (session, reason) => endSessionNow(
+          {
+            repo,
+            chat,
+            config: cfg,
+            harnessAudit: harnessAuditRepo,
+            transcriptLogs,
+            questionState: pendingQuestions,
+          },
+          session,
+          reason,
+        ),
+      }),
     );
     trackPostListenHandle(
       startStalledSessionNudge({

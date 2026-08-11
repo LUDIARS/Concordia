@@ -10,8 +10,8 @@ import {
   SESSION_WORK_POLICY_SOURCE,
   WORKSPACE_ROOT_METADATA_KEY,
 } from "../../control/session-work-policy.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
-import { isSessionEndPending, SESSION_END_PENDING_AT_KEY } from "../../control/session-end-process.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { endSessionNow } from "../../control/end-session-command.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
@@ -495,47 +495,19 @@ app.delete("/:id", async (c) => {
     const id = c.req.param("id");
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
-    const now = nowSec();
-    // fire-and-forget: Lictor WS が無い / failure でも report 生成は続行
-    try {
-      const injected = emitAutoSessionEndInject(s);
-      if (injected) {
-        deps.repo.appendEvent({
-          session_id: id,
-          ts: now,
-          kind: "inject",
-          payload: {
-            text: pickSessionEndInjectText(s.provider),
-            source: AUTO_SESSION_END_INJECT_SOURCE,
-            reason: "auto on DELETE /v1/sessions/:id",
-          },
-        });
-      }
-    } catch { /* swallow — best effort */ }
-    const alreadyPending = isSessionEndPending(s.metadata);
-    if (s.status === "active" && !alreadyPending) {
-      deps.repo.mergeMetadata(id, { [SESSION_END_PENDING_AT_KEY]: now });
-    }
-    deps.repo.setStatus(id, "ended", now, now);
-    deps.repo.appendEvent({
-      session_id: id,
-      ts: now,
-      kind: "end",
-      payload: { duration_sec: now - s.started_at },
-    });
-    const ended = deps.repo.findSession(id)!;
-    const { report } = await runSessionEndFlow(
+    // 終了の副作用は endSessionNow に集約する (発話由来の終了要求も同じ関数を通る)。
+    const { session: ended, report } = await endSessionNow(
       {
         repo: deps.repo,
         chat: deps.chat,
         config: deps.config,
         harnessAudit: deps.harnessAudit,
-        // codex-sdk の usage は transcript frame にしか無い。 こちらが通常の
-        // 終了経路なので、 admin stop と同じく frame ソースを渡す。
-        usageFrames: deps.transcriptLogs,
+        transcriptLogs: deps.transcriptLogs,
         questionState: deps.channelDirectory,
       },
-      ended,
+      s,
+      "auto on DELETE /v1/sessions/:id",
+      nowSec,
     );
     return c.json({ ok: true, session: serializeSession(ended), report });
   });

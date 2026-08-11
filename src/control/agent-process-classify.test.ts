@@ -17,6 +17,7 @@ describe("isShellWrapperCommand", () => {
   it("detects POSIX sh -c delegation", () => {
     expect(isShellWrapperCommand("/bin/sh -c 'node bin/lictor.mjs claude'")).toBe(true);
     expect(isShellWrapperCommand("bash -lc 'node bin/lictor.mjs claude'")).toBe(true);
+    expect(isShellWrapperCommand("bash -x -c 'node bin/lictor.mjs claude'")).toBe(true);
   });
 
   it("does not treat the agent process itself as a wrapper", () => {

@@ -4,6 +4,7 @@ import { api, fmtTs, statusBadge } from "../../api.js";
 import type { SessionEvent, SessionRow } from "../../api.js";
 import { useLiveQuery, useWsEvent } from "../../hooks/useWsEvent.js";
 import { projectCodeFor, repoBasename } from "../../project-codes.js";
+import { labelWithOptionCode } from "../../lib/option-code.js";
 
 // ─── permission modal ────────────────────────────────────────────────
 
@@ -242,7 +243,7 @@ export function AskUserQuestionModal({ sessionId, events }: { sessionId: string;
                   onChange={() => toggle(idx)}
                 />
                 <span>
-                  <span className="block font-medium">{opt.label}</span>
+                  <span className="block font-medium">{labelWithOptionCode(idx, opt.label)}</span>
                   {opt.description && <span className="block text-xs text-subtle">{opt.description}</span>}
                 </span>
               </label>
@@ -254,7 +255,7 @@ export function AskUserQuestionModal({ sessionId, events }: { sessionId: string;
                 onClick={() => void answerSingle(idx)}
                 className="w-full text-left border border-border rounded px-3 py-2 text-sm hover:border-accent hover:bg-accent/10 disabled:opacity-50"
               >
-                <span className="block font-medium">{opt.label}</span>
+                <span className="block font-medium">{labelWithOptionCode(idx, opt.label)}</span>
                 {opt.description && <span className="block text-xs text-subtle">{opt.description}</span>}
               </button>
             )

@@ -307,7 +307,14 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
         { status: 401 },
       );
     }
-    const port = await this.resolvePort();
+    let port: number;
+    try {
+      port = await this.resolvePort();
+    } catch (error) {
+      throw new RevisorMergeError(
+        error instanceof Error ? error.message : `Revisor local PR ${request.label} is unreachable`,
+      );
+    }
     const controller = new AbortController();
     // 打ち切りを自前の旗で覚える。 AbortError は「呼び出し側が打ち切った」以外でも
     // 起き得るので、 error の種類だけで timeout と断定しない。

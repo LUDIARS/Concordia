@@ -34,7 +34,7 @@ import type {
   RevisorLocalPrPromoter,
   RevisorLocalPrReader,
 } from "../pr/revisor-client.js";
-import { classifyMergeFailure } from "../pr/revisor-merge-outcome.js";
+import { classifyMergeFailure, RevisorMergeError } from "../pr/revisor-merge-outcome.js";
 import { isAlreadyMerged } from "../pr/revisor-merge-confirm.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
@@ -233,7 +233,8 @@ export function prsRouter(deps: PrsApiDeps): Hono {
    * 指示者や capability を解決できない構成は、実行せず明示的に deny する。
    */
   app.post("/local/:id/merge", async (c) => {
-    if (!deps.sessions || !deps.staff || !deps.revisorMerger) {
+    const sessions = deps.sessions;
+    if (!sessions || !deps.staff || !deps.revisorMerger) {
       return c.json({ error: "local_pr_merge_unavailable" }, 503);
     }
     const localPrId = c.req.param("id").trim();
@@ -242,39 +243,61 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
     if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
 
-    const requester = lastHumanRequester(deps.sessions.recentEvents(sessionId, 100));
+    const requester = lastHumanRequester(sessions.recentEvents(sessionId, 100));
     if (!requester) return c.json({ error: "merge_authorizer_unknown" }, 403);
 
     const authorization = authorizeStaffCapability(deps.staff, requester.platform, requester.userId, "merge_pr");
     if (!authorization.allowed) {
       return c.json({ error: "merge_not_authorized", detail: authorization.detail }, 403);
     }
+    const merged = (outcome: "merged" | "already_merged" | "timed_out") => {
+      const ts = Math.floor(Date.now() / 1000);
+      const audit = {
+        local_pr_id: localPrId,
+        session_id: sessionId,
+        outcome,
+        authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
+      };
+      log.info(audit, "local PR merge request completed with session requester authorization");
+      sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-merged", payload: audit });
+      return c.json({
+        merged: true,
+        local_pr_id: localPrId,
+        ...(outcome === "already_merged" ? { already_merged: true } : {}),
+        ...(outcome === "timed_out" ? { timed_out: true } : {}),
+      });
+    };
     // 要求を出す前に実状態を読む。 Test OK 到達時点で auto-merge が成立していることが
     // あり、 その PR へ明示マージを出すと Revisor は拒否する。 目的は達成済みなので、
     // 拒否を待ってから解釈するより先に確定させる。
     if (await isAlreadyMerged(deps.revisor, localPrId)) {
       log.info({ local_pr_id: localPrId, session_id: sessionId }, "local PR was already merged; skipping merge request");
-      return c.json({ merged: true, local_pr_id: localPrId, already_merged: true });
+      return merged("already_merged");
     }
 
     try {
       await deps.revisorMerger.mergeLocalPr(localPrId);
     } catch (error) {
       const failure = classifyMergeFailure(error);
-      // 生の失敗内容は endpoint / 設定情報を含み得るので、 サーバ側ログにだけ残す。
+      // 生の失敗内容は credentials / endpoint / ローカルパスを含み得るため永続ログにも残さない。
+      // status と分類は診断可能性を保ちつつ、Revisor 側ログとの突合キーになる。
       log.warn(
         {
           local_pr_id: localPrId,
           session_id: sessionId,
           reason: failure.reason,
-          error: error instanceof Error ? error.message : String(error),
+          revisor_status: error instanceof RevisorMergeError ? error.status : null,
+          timed_out: error instanceof RevisorMergeError && error.timedOut,
+          error_type: error instanceof RevisorMergeError
+            ? "RevisorMergeError"
+            : error instanceof Error ? "Error" : typeof error,
         },
         "local PR merge failed",
       );
       // 事前確認の直後に auto-merge が成立する競合があり得る。この場合は要求だけが
       // 遅れたので、Revisor の 409 を API の失敗として返さない。
       if (failure.reason === "already_merged") {
-        return c.json({ merged: true, local_pr_id: localPrId, already_merged: true });
+        return merged("already_merged");
       }
       // 打ち切りは「失敗」ではなく「結果不明」。 Revisor 側は処理を続けているので、
       // 実状態を読み直してから確定させる。
@@ -283,20 +306,12 @@ export function prsRouter(deps: PrsApiDeps): Hono {
           { local_pr_id: localPrId, session_id: sessionId },
           "local PR merge timed out on the client but Revisor completed it",
         );
-        return c.json({ merged: true, local_pr_id: localPrId, timed_out: true });
+        return merged("timed_out");
       }
       return c.json({ error: "local_pr_merge_failed", reason: failure.reason, detail: failure.detail }, 502);
     }
 
-    const ts = Math.floor(Date.now() / 1000);
-    const audit = {
-      local_pr_id: localPrId,
-      session_id: sessionId,
-      authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
-    };
-    log.info(audit, "local PR merged with session requester authorization");
-    deps.sessions.appendEvent({ session_id: sessionId, ts, kind: "pr-merged", payload: audit });
-    return c.json({ merged: true, local_pr_id: localPrId });
+    return merged("merged");
   });
 
   /**

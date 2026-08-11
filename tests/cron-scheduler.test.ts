@@ -145,12 +145,13 @@ describe("startCronScheduler", () => {
     expect(new Set(minuteHour).size).toBe(minuteHour.length);
   });
 
-  it("passes the run date to the scheduled jobs that require it", () => {
-    for (const name of ["genius-ingest-daily", "genius-ingest-tier2-nightly", "deps-sweep-daily"]) {
+  it("passes the run date only to scheduled jobs that require it", () => {
+    for (const name of ["genius-ingest-daily", "genius-ingest-tier2-nightly"]) {
       const job = CRON_JOBS.find((j) => j.name === name);
       expect(job, `${name} must be registered`).toBeDefined();
       expect(job?.buildArgs()).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     }
+    expect(CRON_JOBS.find((j) => j.name === "deps-sweep-daily")?.buildArgs()).toEqual({});
   });
 
   it("invokes the Genius daily ingest delegation when its job fires", async () => {

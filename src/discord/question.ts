@@ -12,6 +12,7 @@ import {
   type Interaction,
   type TextChannel,
 } from "discord.js";
+import { labelWithOptionCode } from "../shared/option-code.js";
 import type { DiscordCommandDeps } from "./command-port.js";
 import type { AnswerQuestionBody } from "../platform/answer-question.js";
 import type {
@@ -49,7 +50,10 @@ function buildQuestionEmbed(
     .setDescription(question)
     .addFields(
       options.map((o, i) => ({
-        name: `${i}. ${o.label}`,
+        // `[A]` はテキスト返信で選択肢を指すためのコード (spec/feature/question-option-codes.md)。
+        // Discord の field name は 256 文字まで。コード追加で既存の上限ちょうどの
+        // ラベルが投稿失敗にならないよう、コード込みで制限する。
+        name: labelWithOptionCode(i, o.label).slice(0, 256),
         // description があれば本文に出す。 無ければ label を再掲してフィールド空回避.
         value: (o.description ?? "—").slice(0, 1024),
       })),
@@ -96,7 +100,7 @@ export async function postQuestion(
 
   const selectOptions = options.slice(0, 25).map((o, i) => {
     const opt: { label: string; value: string; description?: string } = {
-      label: o.label.slice(0, 100),
+      label: labelWithOptionCode(i, o.label).slice(0, 100),
       value: String(i),
     };
     if (o.description) opt.description = o.description.slice(0, 100);
@@ -118,7 +122,7 @@ export async function postQuestion(
       rowComp.addComponents(
         new ButtonBuilder()
           .setCustomId(`q:${ev.question_id}:${idx}`)
-          .setLabel(opt.label.slice(0, 80))
+          .setLabel(labelWithOptionCode(idx, opt.label).slice(0, 80))
           .setStyle(ButtonStyle.Secondary),
       );
     });

@@ -205,66 +205,6 @@ const GENIUS_INGEST_COMMON_STEPS = [
   "- コードの修正・テスト実行・PR 作成はしない。原因が実装バグらしい場合も報告に留める。",
 ].join("\n");
 
-/** LUDIARS 全リポを横断する sweep なので cwd は Ars root (Castra checkout)。 */
-const ARS_ROOT_PATH = "E:\\Document\\Ars";
-
-/**
- * 依存横断 sweep。 手順の正本は Castra の `.claude/skills/deps-sweep/SKILL.md` で、
- * ここには「skill を読ませる」ことと**踏み外してはいけない境界**だけを書く。
- * 手順詳細を二重管理すると、 skill を直したのにジョブが古い手順で走る事故になる。
- */
-const DEPS_SWEEP_TEMPLATES: CreateTemplateInput[] = [
-  {
-    call_name: "deps-sweep-daily",
-    title: "依存横断 sweep (安全な更新のみ)",
-    description:
-      "LUDIARS 全リポの Dependabot alert を棚卸しし、semver 非破壊の範囲だけを更新して typecheck/build を通ったものだけ Revisor local PR にする。major 更新は実施せず報告のみ。Timer Delegation が毎朝 7:10 JST に invoke する。",
-    target_provider: "claude",
-    model: "claude-sonnet-5",
-    category: "parttimer",
-    emoji: "📦",
-    prompt_template: [
-      "## 依存横断 sweep — ${date}",
-      "",
-      "LUDIARS 全リポの依存を棚卸しし、**安全な範囲だけ**更新する運用ジョブです。",
-      "",
-      "**最初に `deps-sweep` skill を読み、その手順に従ってください。**",
-      "手順の正本は skill 側にあります (`.claude/skills/deps-sweep/SKILL.md`)。",
-      "skill を読めない場合は更新・PR 作成をせず、未実行として理由を報告して終了してください。",
-      "",
-      "### 踏み外してはいけない境界",
-      "",
-      "- **対象は org 全リポ。リポ数で上限を切らない。** リポは増えるので数の上限を軸にすると",
-      "  増えた分が取りこぼしになる。絞る軸は数ではなく脆弱性の内容。",
-      "  **critical / high は件数を制限せず当日中に対応する。**繰り越してよいのは medium / low のみ。",
-      "- 安全判定は `npm audit fix` (**`--force` を付けない**) に任せる。semver 判定を自前で書かない。",
-      "  cargo のリポでは `cargo update` (breaking を付けない)。",
-      "- **major 更新は実施しない。** 解消に major が要る残件は一覧にして報告するだけ。",
-      "- **typecheck と build が通ったものだけ PR にする。** 落ちたリポは PR を出さず、",
-      "  失敗内容を報告する。「Revisor が見るから」で通さない。",
-      "- GitHub PR は作らない。提出は Revisor local PR のみ。merge は行わない。",
-      "- サービスの起動・再起動はしない。",
-      "- Castra には commit しない。成果物は各サービスリポの PR と、この報告。",
-      "",
-      "### 報告に必ず含めるもの",
-      "",
-      "1. PR を出したリポと PR 番号",
-      "2. typecheck/build で落ちて見送ったリポと失敗内容",
-      "3. major が必要で残した件数 (リポ / パッケージ / 現在 → 必要バージョン)",
-      "4. alert を読めなかったリポ (**0 件ではなく未計測**として)",
-      "5. **critical / high の残件があるならゼロになっていない理由** (繰り越し不可のため必須)",
-      "6. medium / low を翌日へ繰り越した場合は、その残数と内訳",
-      "",
-      "更新が 1 件も無ければ「差分なし」と報告して終了してください。空振りは正常です。",
-    ].join("\n"),
-    input_schema: [
-      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
-    ],
-    default_cwd: ARS_ROOT_PATH,
-    is_active: true,
-  },
-];
-
 const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "genius-ingest-daily",
@@ -621,6 +561,26 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  {
+    call_name: "deps-sweep-daily",
+    title: "日次依存関係点検",
+    description: "LUDIARS の依存関係を日次で点検し、更新が必要なものを報告する。Timer Delegation が毎朝 7:10 JST に invoke する。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "🔍",
+    prompt_template: [
+      "## 日次依存関係点検",
+      "",
+      "LUDIARS の各リポジトリにある依存関係について、更新候補と影響を確認して報告する。",
+      "依存関係の更新、コード修正、テスト実行、サービスの起動・再起動、commit、push、PR 作成はしない。",
+      "",
+      "最終報告には、確認したリポジトリ、更新候補、想定される影響、対応が必要な事項を簡潔にまとめる。",
+    ].join("\n"),
+    input_schema: [],
+    default_cwd: "E:\\Document\\Ars",
+    is_active: true,
+  },
   // ── Sol Ultra オーケストレータ版のデイリー突合レビュー ────────────
   {
     call_name: "ludiars-review-daily-dual",
@@ -794,7 +754,6 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     is_active: true,
   },
   ...GENIUS_INGEST_TEMPLATES,
-  ...DEPS_SWEEP_TEMPLATES,
 ];
 
 export function seedDelegationTemplates(repo: DelegationRepo): void {

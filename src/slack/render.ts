@@ -2,6 +2,7 @@
 // 副作用 (Web API 呼び出し) は bot.ts 側。ここはテスト可能なロジックだけ。
 
 import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
+import { formatOptionCode, labelWithOptionCode } from "../shared/option-code.js";
 
 /** Slack section text の実用上限に合わせた truncate（block text は 3000 字制限）。 */
 const MAX_TEXT = 2900;
@@ -247,7 +248,7 @@ export function buildQuestionBlocks(
   const norm = options.map((o) => (typeof o === "string" ? { label: o } : o));
   const elements = norm.slice(0, 24).map((o, i) => ({
     type: "button",
-    text: { type: "plain_text", text: truncateForSlack(o.label, 75), emoji: true },
+    text: { type: "plain_text", text: truncateForSlack(labelWithOptionCode(i, o.label), 75), emoji: true },
     value: String(i),
     action_id: `${ANSWER_ACTION_PREFIX}:${questionId}:${i}`,
   }));
@@ -258,7 +259,7 @@ export function buildQuestionBlocks(
     action_id: `${OTHER_ACTION_PREFIX}:${questionId}`,
   });
   const optionLines = norm
-    .map((o, i) => `*${i + 1}.* ${o.label}${o.description ? ` — ${o.description}` : ""}`)
+    .map((o, i) => `*[${formatOptionCode(i)}]* ${o.label}${o.description ? ` — ${o.description}` : ""}`)
     .join("\n");
   return {
     text: `❓ ${question}`,

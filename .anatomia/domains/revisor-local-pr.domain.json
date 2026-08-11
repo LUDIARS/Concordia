@@ -9,6 +9,7 @@
     { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
     { "pathPattern": "(^|/)src/pr/local-pr-submission(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/revisor-local-pr-client(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome)(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/staff/capability-authorization(\\.test)?\\.ts$" }
   ],
@@ -24,7 +25,8 @@
     "spec/feature/revisor-local-pr-submission.md#管理者の指示に基づくセッションからのマージ",
     "spec/feature/revisor-local-pr-submission.md#3-判定-planlocalprsubmission-純関数",
     "spec/feature/revisor-local-pr-submission.md#4-提出内容",
-    "spec/feature/revisor-local-pr-submission.md#6-token"
+    "spec/feature/revisor-local-pr-submission.md#6-token",
+    "spec/tasks/revisor-merge-feedback.md#完了条件"
   ],
   "rationale": "Local PR review and merge operations are separate from GitHub PR synchronization. Session-derived requester identity is checked against the live staff roster before Revisor receives a merge request.",
   "lockedFields": ["*"],

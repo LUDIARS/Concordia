@@ -36,7 +36,7 @@ memory_links:
 - [x] マージ失敗が、呼び出し側の行動が変わる単位に分類されて返ること
       (`already_merged` / `not_open` / `conflict` / `gate_not_passed` / `unauthorized` /
       `unreachable` / `timeout` / `unknown`)
-- [x] 返す文面にパスと URL が含まれないこと。生メッセージはサーバ側ログにだけ残ること
+- [x] 返す文面と Concordia ログにパス・URL・credentials を含めず、分類と status だけを残すこと
 - [x] 既にマージ済みの PR へのマージ要求が、失敗ではなく成功 (`already_merged: true`) を返すこと
 - [x] マージの上限が読み取りと分かれ、打ち切り後に実状態を読み直して確定させること
 - [x] 状態を確認できないときはマージ済みへ寄せないこと (fail-closed)
@@ -56,11 +56,11 @@ memory_links:
 
 ## 設計判断
 
-**なぜ生メッセージをそのまま返さないか。** 元の実装のコメントが挙げていた懸念
-(endpoint / 設定情報の混入) は妥当で、そこは変えない。分類できた失敗でも、原文には
-credentials・個人情報・private endpoint など未知の情報が混入し得る。パスと URL だけを
-文字列で伏せても網羅できないため、API には行動を示す定型文だけを返し、生メッセージは
-サーバ側ログにだけ残す。
+**なぜ生メッセージをそのまま返したり記録したりしないか。** 元の実装のコメントが挙げていた
+懸念 (endpoint / 設定情報の混入) は妥当で、分類できた失敗でも、原文には credentials・
+個人情報・private endpoint など未知の情報が混入し得る。パスと URL だけを文字列で伏せても
+網羅できないため、API と Concordia のログには行動を示す分類・HTTP status・timeout の有無
+だけを残す。原文が必要な診断は Revisor 側ログで行う。
 
 **なぜ打ち切りを「失敗」と呼ばないか。** Concordia が接続を切っても Revisor の
 マージ処理は止まらない。打ち切りは Concordia 側の都合であって Revisor 側の結果ではない。

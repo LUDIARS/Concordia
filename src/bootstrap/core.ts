@@ -966,6 +966,7 @@ export async function startBackend(): Promise<BackendHandle> {
     transcriptLogs,
     sessionMessages,
     sessionMessageReads,
+    projectSessionEvent: (event) => messageService.project(event),
     pendingQuestions,
     discordChannels,
     costSamples: usageSamplesRepo,

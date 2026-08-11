@@ -36,6 +36,24 @@ describe("classifyMergeFailure", () => {
     expect(failure.reason).toBe("already_merged");
   });
 
+  it("open でない PR と未通過ゲートを区別する", () => {
+    expect(classifyMergeFailure(new RevisorMergeError("x", {
+      status: 409,
+      revisorError: "The pull request is closed and not open.",
+    })).reason).toBe("not_open");
+    expect(classifyMergeFailure(new RevisorMergeError("x", {
+      status: 409,
+      revisorError: "Required checks have not reached test_ok.",
+    })).reason).toBe("gate_not_passed");
+  });
+
+  it("incidental check substrings do not masquerade as a gate failure", () => {
+    expect(classifyMergeFailure(new RevisorMergeError("x", {
+      status: 500,
+      revisorError: "checkout failed",
+    })).reason).toBe("unknown");
+  });
+
   it("分類できた失敗でも原文を漏らさない", () => {
     const failure = classifyMergeFailure(new RevisorMergeError("x", {
       status: 409,

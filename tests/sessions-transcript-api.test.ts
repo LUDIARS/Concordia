@@ -71,6 +71,53 @@ describe("sessions API — transcript", () => {
     }
   });
 
+  it("inactive relay projection shares tool correlation state with the lifecycle projector", async () => {
+    const env = makeTestApp();
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf-shared", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const postFrame = (seq: number, kind: string, payload: unknown) => env.app.request(
+      "/v1/sessions/tf-shared/transcript-frame",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seq, kind, payload }),
+      },
+    );
+
+    // First inactive frame initializes the route-facing context.
+    await postFrame(0, "tool-use", {
+      name: "Task",
+      tool_use_id: "task-old",
+      task: { subagent_type: "Explore", description: "old" },
+    });
+    // This event represents an active-relay frame received through the lifecycle subscription.
+    env.projectSessionEvent({
+      type: "transcript.frame",
+      target_session_id: "tf-shared",
+      seq: 1,
+      kind: "tool-use",
+      payload: {
+        name: "Task",
+        tool_use_id: "task-new",
+        task: { subagent_type: "Explore", description: "new" },
+      },
+      ts: 2,
+    });
+    await postFrame(2, "tool-result", {
+      tool_use_id: "task-new",
+      is_error: false,
+      preview: "done",
+    });
+
+    const messages = env.sessionMessages.list("tf-shared");
+    expect(messages).toHaveLength(2);
+    expect(messages.find((message) => message.dedupe_key === "task:task-new"))
+      .toMatchObject({ content: "done" });
+  });
+
   it("POST /v1/sessions/:id/transcript-frame returns 400 on bad payload", async () => {
     await app.request("/v1/sessions", {
       method: "POST",

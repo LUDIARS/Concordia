@@ -40,11 +40,13 @@ import { TasksRepo } from "../../src/db/tasks-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
 import { SessionMessageReadsRepo } from "../../src/db/session-message-reads-repo.js";
+import { SessionMessageService } from "../../src/messages/service.js";
 import { DelegationService } from "../../src/delegation/service.js";
 import { seedDelegationTemplates } from "../../src/delegation/seed.js";
 import { ProcessManager } from "../../src/processes/manager.js";
 import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
 import type { SpawnRequest } from "../../src/control/spawner.js";
+import type { ConcordiaEvent } from "../../src/events.js";
 import { TaskMdStore } from "../../src/taskflow/md-store.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
@@ -80,6 +82,7 @@ export interface TestAppEnv {
   transcriptLogs: TranscriptLogsRepo;
   sessionMessages: SessionMessagesRepo;
   sessionMessageReads: SessionMessageReadsRepo;
+  projectSessionEvent: (event: ConcordiaEvent) => void;
   pendingQuestions: ReturnType<typeof makeDiscordPendingQuestionsRepo>;
   discordChannels: ReturnType<typeof makeDiscordSessionChannelsRepo>;
   discordConfig: ReturnType<typeof makeDiscordConfigRepo>;
@@ -111,6 +114,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const transcriptLogs = new TranscriptLogsRepo(db);
   const sessionMessages = new SessionMessagesRepo(db);
   const sessionMessageReads = new SessionMessageReadsRepo(db);
+  const sessionMessageService = new SessionMessageService({ repo: sessionMessages });
+  const projectSessionEvent = (event: ConcordiaEvent): void => sessionMessageService.project(event);
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   const discordChannels = makeDiscordSessionChannelsRepo(db);
   const discordConfig = makeDiscordConfigRepo(db);
@@ -145,7 +150,9 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   const deps: AppDeps = {
     repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
+    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads,
+    projectSessionEvent,
+    pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
     taskStore,
@@ -169,7 +176,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   return {
     app,
     db, repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
-    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, pendingQuestions, discordChannels, discordConfig,
+    sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, projectSessionEvent,
+    pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
     processManager, config, logsDir,

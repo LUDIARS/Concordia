@@ -8,8 +8,8 @@
  * 誤診断が続いた。
  *
  * ここでは分類を行動が変わる単位の enum に落とす (再 rebase が要る / もう終わっている / 等)。
- * Revisor の原文は未知の機密情報を含み得るため、分類済みの場合にも API 応答へは返さない。
- * 生メッセージはサーバ側ログにだけ残す。
+ * Revisor の原文は未知の機密情報を含み得るため、分類済みの場合にも API 応答や
+ * Concordia のログへは返さない。診断には status・分類・Revisor 側ログを使う。
  */
 
 /** 呼び出し側の次の行動が変わる単位。 */
@@ -71,7 +71,13 @@ function reasonFromText(text: string): RevisorMergeFailureReason | null {
   if (lower.includes("conflict")) return "conflict";
   if (lower.includes("rebase")) return "conflict";
   if (lower.includes("not open") || lower.includes("closed")) return "not_open";
-  if (lower.includes("test_ok") || lower.includes("check") || lower.includes("gate")) return "gate_not_passed";
+  if (
+    lower.includes("test_ok")
+    || lower.includes("gate")
+    || lower.includes("check status")
+    || lower.includes("required check")
+    || lower.includes("checks have not")
+  ) return "gate_not_passed";
   return null;
 }
 

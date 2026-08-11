@@ -236,7 +236,7 @@ describe("seedDelegationTemplates", () => {
     }
   });
 
-  it("seeds the dependency sweep as a fail-closed cross-repository cron template", () => {
+  it("seeds the dependency sweep as a report-only cross-repository cron template", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
@@ -248,14 +248,12 @@ describe("seedDelegationTemplates", () => {
       model: "claude-sonnet-5",
       default_cwd: "E:\\Document\\Ars",
     });
-    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
-      { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
-    ]);
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
     const prompt = template?.prompt_template ?? "";
-    expect(prompt).toContain("`.claude/skills/deps-sweep/SKILL.md`");
-    expect(prompt).toContain("更新・PR 作成をせず");
-    expect(prompt).toContain("GitHub PR は作らない");
-    expect(prompt).toContain("major 更新は実施しない");
+    expect(prompt).toContain("更新候補と影響を確認して報告");
+    expect(prompt).toContain("依存関係の更新、コード修正、テスト実行");
+    expect(prompt).toContain("commit、push、PR 作成はしない");
+    expect(prompt).not.toContain("npm audit fix");
   });
 
   it("keeps the Genius Tier 1 and Tier 2 ingest commands in separate templates", () => {

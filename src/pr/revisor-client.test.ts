@@ -200,6 +200,19 @@ describe("RevisorClient", () => {
     expect((error as RevisorMergeError).timedOut).toBe(false);
   });
 
+  it("classifies service discovery failure as an unreachable merge", async () => {
+    const client = new RevisorClient({
+      excubitor: { findService: vi.fn(async () => { throw new Error("catalog unavailable"); }) },
+      token: "local-secret",
+      fetchImpl: vi.fn(),
+    });
+
+    const error = await client.mergeLocalPr("pr-1").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(RevisorMergeError);
+    expect((error as RevisorMergeError).status).toBeNull();
+    expect((error as RevisorMergeError).timedOut).toBe(false);
+  });
+
   it("marks a merge that ran past its own deadline as timed out", async () => {
     const fetchImpl = vi.fn((_url: string, init?: { signal?: AbortSignal }) => new Promise<Response>((_resolve, reject) => {
       init?.signal?.addEventListener("abort", () => reject(new Error("The operation was aborted.")));

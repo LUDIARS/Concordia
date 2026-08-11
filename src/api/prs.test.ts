@@ -4,6 +4,7 @@ import { Hono } from "hono";
 import { prsRouter } from "./prs.js";
 import { makeTestApp } from "../../tests/helpers/test-app.js";
 import { RevisorMergeError } from "../pr/revisor-merge-outcome.js";
+import type { RevisorLocalPr, RevisorLocalPrReader } from "../pr/revisor-client.js";
 
 function addSession(env: ReturnType<typeof makeTestApp>, sessionId = "session-1"): void {
   env.repo.insertSession({
@@ -35,6 +36,7 @@ function makePrsApp(
   env: ReturnType<typeof makeTestApp>,
   mergeLocalPr: (id: string) => Promise<void>,
   closeLocalPr?: (id: string, reason?: string) => Promise<void>,
+  revisor?: RevisorLocalPrReader,
 ): Hono {
   const app = new Hono();
   app.route("/v1/prs", prsRouter({
@@ -42,9 +44,27 @@ function makePrsApp(
     sessions: env.repo,
     staff: env.staff,
     revisorMerger: { mergeLocalPr },
+    revisor,
     ...(closeLocalPr ? { revisorCloser: { closeLocalPr } } : {}),
   }));
   return app;
+}
+
+function revisorPr(status: string): RevisorLocalPr {
+  return {
+    id: "local-1",
+    number: 1,
+    repository: "LUDIARS/Concordia",
+    title: "test",
+    author: "session",
+    status,
+    checkStatus: "test_ok",
+    headRef: "feat/test",
+    baseRef: "main",
+    headSha: "a".repeat(40),
+    createdAt: "2026-08-10T00:00:00.000Z",
+    updatedAt: "2026-08-10T00:00:00.000Z",
+  };
 }
 
 function closeRequest(body: unknown): RequestInit {
@@ -148,6 +168,41 @@ describe("POST /v1/prs/local/:id/merge", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ merged: true, local_pr_id: "local-1", already_merged: true });
+    expect(env.repo.recentEvents("session-1", 1)[0]).toMatchObject({
+      kind: "pr-merged",
+      payload: expect.stringContaining("already_merged"),
+    });
+  });
+
+  it("confirms a timed-out merge from the latest Revisor state and records the outcome", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const listLocalPrs = vi.fn<() => Promise<RevisorLocalPr[]>>()
+      .mockResolvedValueOnce([revisorPr("open")])
+      .mockResolvedValueOnce([revisorPr("merged")]);
+    const revisor: RevisorLocalPrReader = {
+      listLocalPrs,
+      baseUrl: async () => "http://127.0.0.1:4240",
+    };
+    const mergeLocalPr = vi.fn(async () => {
+      throw new RevisorMergeError("timed out", { timedOut: true });
+    });
+
+    const response = await makePrsApp(env, mergeLocalPr, undefined, revisor)
+      .request("/v1/prs/local/local-1/merge", {
+        method: "POST",
+        body: JSON.stringify({ session_id: "session-1" }),
+        headers: { "content-type": "application/json" },
+      });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ merged: true, local_pr_id: "local-1", timed_out: true });
+    expect(listLocalPrs).toHaveBeenCalledTimes(2);
+    expect(env.repo.recentEvents("session-1", 1)[0]).toMatchObject({
+      kind: "pr-merged",
+      payload: expect.stringContaining("timed_out"),
+    });
   });
 });
 

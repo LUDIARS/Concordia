@@ -4,7 +4,8 @@
   "presetRules": [],
   "templateRules": [],
   "membership": [
-    { "pathPattern": "(^|/)tests/[^/]+$" }
+    { "pathPattern": "(^|/)tests/[^/]+$" },
+    { "pathPattern": "(^|/)tests/helpers/[^/]+$" }
   ],
   "cardTemplate": "Summarise the tooling domain: automated tests and shared test support.",
   "source": "spec",

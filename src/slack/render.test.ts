@@ -253,11 +253,19 @@ describe("buildQuestionBlocks", () => {
       "B",
     ]);
     expect(text).toContain("Which?");
-    const actions = (blocks as Array<{ type: string; elements?: Array<{ action_id: string; value: string }> }>).find(
+    const actions = (blocks as Array<{
+      type: string;
+      elements?: Array<{ action_id: string; value: string; text?: { text: string } }>;
+    }>).find(
       (b) => b.type === "actions",
     );
     expect(actions?.elements?.map((e) => e.action_id)).toEqual(["cc_answer:42:0", "cc_answer:42:1", "cc_answer_other:42"]);
     expect(actions?.elements?.slice(0, 2).map((e) => e.value)).toEqual(["0", "1"]);
+    expect(actions?.elements?.slice(0, 2).map((e) => e.text?.text)).toEqual(["[A] A", "[B] B"]);
+    const optionSection = (blocks as Array<{ type: string; text?: { text: string } }>).find(
+      (block) => block.type === "section" && block.text?.text.includes("do a"),
+    );
+    expect(optionSection?.text?.text).toBe("*[A]* A — do a\n*[B]* B");
   });
 });
 

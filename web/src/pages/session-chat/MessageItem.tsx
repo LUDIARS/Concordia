@@ -69,6 +69,7 @@ function QuestionMessage({ message, onAnswer }: {
   const [handled, setHandled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const metadata = message.metadata ?? {};
+  const answerText = typeof metadata.answer_text === "string" ? metadata.answer_text : null;
   const question = questionComponent(message);
   const isClosed = handled || metadata.answered === true || metadata.resolved === true;
 
@@ -89,7 +90,7 @@ function QuestionMessage({ message, onAnswer }: {
   return (
     <article className="rounded border border-warn/50 p-3">
       <div>{message.content}</div>
-      {metadata.answer_text && <div className="mt-2 text-sm text-ok">回答: {String(metadata.answer_text)}</div>}
+      {answerText !== null && <div className="mt-2 text-sm text-ok">回答: {answerText}</div>}
       {!isClosed && (
         <div className="mt-2 flex flex-wrap gap-2">
           {question.options.map((option) => question.multiSelect ? (

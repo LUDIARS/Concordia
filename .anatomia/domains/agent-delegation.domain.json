@@ -6,6 +6,8 @@
   "membership": [
     { "pathPattern": "(^|/)src/delegation/persona-context(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/delegation/seed(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/delegation/session-links(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)tests/delegation-session-links\\.test\\.ts$" },
     { "pathPattern": "(^|/)src/subsidiary/harness-seed\\.ts$" }
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",

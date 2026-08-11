@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     { "pathPattern": "(^|/)src/messages/(project|service)(\\.test)?\\.ts$" },
-    { "pathPattern": "(^|/)src/db/session-message(s|-reads)-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/session-message(s|-reads|-delivery)-repo(\\.test)?\\.ts$" },
     { "pathPattern": "(^|/)src/api/sessions/(messages|index|deps|relay|routes\\.test)\\.ts$" },
     { "pathPattern": "(^|/)src/(events|sweeper)\\.ts$" },
     { "pathPattern": "(^|/)src/shared/(event-schema|session-message-types)\\.ts$" },

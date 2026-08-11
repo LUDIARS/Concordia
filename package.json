@@ -21,6 +21,7 @@
     "start": "node dist/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json",
     "lint": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.test.json && npm run depcruise",
     "depcruise": "depcruise src --config .dependency-cruiser.cjs",
     "sync:skill": "node tools/sync-skill.mjs"

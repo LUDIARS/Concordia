@@ -347,15 +347,19 @@ function projectPermissionRequest(
 function projectDelegationMirror(
   ev: Extract<ConcordiaEvent, { type: "delegation.mirror" }>,
 ): ProjectedMessage {
+  const linkSide = ev.link_side;
   return {
     op: "create",
-    dedupe_key: `delegation:${ev.run_id}`,
+    dedupe_key: linkSide
+      ? `delegation:${ev.run_id}:${linkSide}`
+      : `delegation:${ev.run_id}`,
     author_type: "delegation",
     author_label: "Delegation",
     author_platform: null,
     content: ev.text,
     metadata: {
       run_id: ev.run_id,
+      ...(ev.parent_session_id ? { parent_session_id: ev.parent_session_id } : {}),
       ...(ev.child_session_id ? { child_session_id: ev.child_session_id } : {}),
     },
   };

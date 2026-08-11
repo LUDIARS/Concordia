@@ -32,6 +32,30 @@ const ReadSchema = z.object({
 });
 
 export function registerMessagesRoutes(app: Hono, deps: SessionsApiDeps): void {
+  app.get("/:id/links", (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    if (!deps.delegation) return c.json({ error: "delegation_unavailable" }, 503);
+
+    const parents = deps.delegation.listRunsByChildSession(id)
+      .filter((run) => run.parent_session_id !== null)
+      .map((run) => ({
+        run_id: run.id,
+        session_id: run.parent_session_id,
+        child_session_id: run.child_session_id,
+        status: run.status,
+      }));
+    const children = deps.delegation.listRunsByParentSession(id)
+      .filter((run) => run.child_session_id !== null)
+      .map((run) => ({
+        run_id: run.id,
+        session_id: run.child_session_id,
+        parent_session_id: run.parent_session_id,
+        status: run.status,
+      }));
+    return c.json({ parents, children });
+  });
+
   app.get("/:id/messages", (c) => {
     const id = c.req.param("id");
     if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);

@@ -616,6 +616,15 @@ export class DelegationRepo {
     ).all(parentSessionId, limit) as DelegationRunRow[];
   }
 
+  /** A child may have been delegated more than once, so retain every parent link. */
+  listRunsByChildSession(childSessionId: string, limit = 100): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs
+       WHERE child_session_id = ?
+       ORDER BY created_at DESC LIMIT ?`,
+    ).all(childSessionId, limit) as DelegationRunRow[];
+  }
+
   claimChildSession(runId: string, childSessionId: string): DelegationRunRow | null {
     const nowStatus = this.findRun(runId)?.status;
     if (!nowStatus) return null;

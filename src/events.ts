@@ -56,7 +56,9 @@ type ConcordiaEventPayload =
       type: "delegation.mirror";
       target_session_id: string;
       run_id: string;
+      parent_session_id?: string | null;
       child_session_id: string | null;
+      link_side?: "parent" | "child";
       text: string;
       ts: number;
     }

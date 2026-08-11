@@ -2,7 +2,7 @@
 task: session-message-layer-d3-delegation-links
 project: Concordia
 kind: 実装
-status: pending
+status: completed
 created: 2026-08-07T00:00:00.000Z
 source_session: lictor-7a639cae-6283-4d6d-a324-6cba7ab0f592
 memoria_task_id: 772
@@ -33,3 +33,8 @@ memory_links: []
 
 - `src/delegation/`, `src/messages/`, `src/api/`, `src/db/` (Concordia repo 内)
 - D1 (`session_messages` 基盤) の PR #293 がマージされてから着手する。
+
+## 検証
+
+- `npm run typecheck`
+- `npm test` (344 files / 2394 tests)

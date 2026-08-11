@@ -1,5 +1,6 @@
 import type { Hono } from "hono";
 import type { ProcessManager } from "../../processes/manager.js";
+import type { DelegationRunRow } from "../../db/delegation-repo.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
@@ -14,6 +15,7 @@ import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, genera
 import { endSessionNow } from "../../control/end-session-command.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
+import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
 import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
 
@@ -83,6 +85,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // delegation spawn 由来なら、 spawn 時に記録した (cwd, emoji) を repo_path で
       // claim してテンプレ絵文字を metadata へ焼く (Slack ライブカードの先頭アイコン)。
       const meta: Record<string, unknown> = { ...(input.metadata ?? {}) };
+      let claimedDelegationRun: DelegationRunRow | null = null;
       if (isWorkspaceRootCwd(input.repo_path, workspaceRoots)) {
         meta[WORKSPACE_ROOT_METADATA_KEY] = input.repo_path;
       }
@@ -120,6 +123,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (delegationRunId) {
         meta.delegation_run_id = delegationRunId;
         const claimedRun = deps.delegation?.claimChildSession(delegationRunId, input.id) ?? null;
+        claimedDelegationRun = claimedRun;
         if (claimedRun?.call_name) meta.delegation_call_name = claimedRun.call_name;
         const parentSessionId = claimedRun?.parent_session_id ?? claimed?.parentSessionId ?? null;
         if (parentSessionId) {
@@ -203,6 +207,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         branch: workPolicy.registeredBranch,
         ts: now,
       });
+      if (claimedDelegationRun?.child_session_id === input.id) {
+        projectDelegationSessionLinks(claimedDelegationRun, deps.projectSessionEvent, now);
+      }
     }
 
     const session = deps.repo.findSession(input.id)!;

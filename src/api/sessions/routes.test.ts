@@ -19,6 +19,7 @@ describe("sessionsRouter route table", () => {
       "GET /:id/fs/read",
       "GET /:id/goal",
       "GET /:id/goal-and-go",
+      "GET /:id/links",
       "GET /:id/messages",
       "GET /:id/messages/unread",
       "GET /:id/skills",

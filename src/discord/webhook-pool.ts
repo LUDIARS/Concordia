@@ -204,7 +204,7 @@ export class WebhookPool {
           method: "PATCH",
           signal: webhookSendAbortSignal(),
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
         },
       );
       if (res.ok) return true;

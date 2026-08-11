@@ -4,36 +4,26 @@ import path from "node:path";
 import type { Guild } from "discord.js";
 import type { ChatMessageRelay, ChatReadModel } from "../platform/chat-read-model.js";
 import type { DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import type { SessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
 import type { ConcordiaEvent } from "../events.js";
+import type { Attachment, SessionMessagePayload } from "../shared/session-message-types.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import { formatAuthorName } from "./formatter.js";
 import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
-import { extractRelayableTextFrame } from "../platform/transcript-relay.js";
 import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
-import { buildDelegationMirrorText } from "../delegation/coordination.js";
-import { isTranscriptCompletion } from "../platform/transcript-completion.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
 import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
 import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
 
 const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
-
-const CODEX_DUP_WINDOW_MS = 90_000;
-const codexRelayDedup = new Map<string, number>();
-const INACTIVE_TRANSCRIPT_LOG_WINDOW_MS = 30_000;
-const inactiveTranscriptLogState = new Map<string, { lastAt: number; suppressed: number }>();
-const dedupStats = {
-  skipped_chat_posted: 0,
-  skipped_transcript_frame: 0,
-};
+const BASE64_BYTES_PER_QUARTET = 3;
+const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
 
 export function getEgressDedupStats(): { skipped_chat_posted: number; skipped_transcript_frame: number; total: number } {
-  return {
-    skipped_chat_posted: dedupStats.skipped_chat_posted,
-    skipped_transcript_frame: dedupStats.skipped_transcript_frame,
-    total: dedupStats.skipped_chat_posted + dedupStats.skipped_transcript_frame,
-  };
+  // D6 以降、transcript.frame と chat.posted を内容で突き合わせる時間窓 dedupe は不要。
+  // Canonical session messages are idempotent through (session_id, dedupe_key).
+  return { skipped_chat_posted: 0, skipped_transcript_frame: 0, total: 0 };
 }
 
 export interface EgressDeps {
@@ -43,10 +33,11 @@ export interface EgressDeps {
   readModel: ChatReadModel;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   messageMap: DiscordMessageMapRepo;
+  deliveryRepo: SessionMessageDeliveryRepo;
   messageOptimizationEnabled?: boolean;
   resolveWorkspaceRoots?: () => string[];
-  /** A transcript frame reached Discord (or was deduplicated against an already-posted copy). */
-  onTranscriptPosted?: (input: { sessionId: string; completion: boolean }) => void;
+  /** A canonical session message reached Discord. */
+  onSessionMessagePosted?: (input: { sessionId: string; completion: boolean }) => void;
   log: { warn: (m: string) => void };
 }
 
@@ -57,9 +48,9 @@ export function handleEvent(deps: EgressDeps, ev: ConcordiaEvent): void {
     });
     return;
   }
-  if (ev.type === "transcript.frame") {
-    void handleTranscriptFrame(deps, ev).catch((err) => {
-      deps.log.warn(`egress: transcript.frame dispatch failed session=${ev.target_session_id} seq=${ev.seq}: ${(err as Error).message}`);
+  if (ev.type === "session.message") {
+    void handleSessionMessage(deps, ev).catch((err) => {
+      deps.log.warn(`egress: session.message dispatch failed session=${ev.target_session_id} message=${ev.message.id}: ${(err as Error).message}`);
     });
   }
 }
@@ -127,11 +118,6 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
 
   const author = resolveAuthor(row);
-  const provider = sessionId ? session?.provider ?? null : null;
-  if (provider === "codex-cli" && shouldSkipCodexDuplicate(channelId, author, row.text)) {
-    dedupStats.skipped_chat_posted += 1;
-    return;
-  }
   const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log, deps.resolveWorkspaceRoots?.() ?? []);
   const identity = session
     ? buildDiscordWebhookIdentity({
@@ -159,180 +145,116 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   deps.log.warn(`egress: chat.posted relay returned empty response message_id=${row.id} channel=${channelId}`);
 }
 
-async function handleTranscriptFrame(deps: EgressDeps, ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>): Promise<void> {
-  const originalSession = deps.readModel.getSessionRelayState(ev.target_session_id);
-  let sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
-  let session = originalSession;
-  let relaySessionId = ev.target_session_id;
-  let mirroredFromChild = false;
-  const directSessionStatus = session?.status ?? null;
-  const directDiscordStatus = sessionRow?.status ?? null;
-  if (!isActiveRelayTarget(directSessionStatus, directDiscordStatus, originalSession?.endedAt ?? null) && originalSession?.delegationParentSessionId) {
-    const parent = deps.readModel.getSessionRelayState(originalSession.delegationParentSessionId);
-    const parentRow = deps.sessionChannelsRepo.findBySessionId(originalSession.delegationParentSessionId);
-    if (isActiveRelayTarget(parent?.status ?? null, parentRow?.status ?? null, parent?.endedAt ?? null)) {
-      relaySessionId = originalSession.delegationParentSessionId;
-      session = parent;
-      sessionRow = parentRow;
-      mirroredFromChild = true;
-    }
-  }
-  const sessionStatus = session?.status ?? null;
-  const discordStatus = sessionRow?.status ?? null;
-  if (!isActiveRelayTarget(sessionStatus, discordStatus, session?.endedAt ?? null)) {
-    logInactiveTranscriptFrame(deps, ev, {
-      sessionStatus: directSessionStatus,
-      discordStatus: directDiscordStatus,
-      sessionChannelId: sessionRow?.channel_id ?? null,
-    });
+async function handleSessionMessage(
+  deps: EgressDeps,
+  ev: Extract<ConcordiaEvent, { type: "session.message" }>,
+): Promise<void> {
+  const session = deps.readModel.getSessionRelayState(ev.target_session_id);
+  const sessionRow = deps.sessionChannelsRepo.findBySessionId(ev.target_session_id);
+  if (!isActiveRelayTarget(session?.status ?? null, sessionRow?.status ?? null, session?.endedAt ?? null)) return;
+  if (!session) {
+    deps.log.warn(`egress: session.message active check inconsistent session=${ev.target_session_id} message=${ev.message.id}`);
     return;
   }
-  if (!sessionRow || !session) {
-    deps.log.warn(`egress: transcript.frame active check inconsistent session=${ev.target_session_id} seq=${ev.seq}`);
-    return;
-  }
+  // Discord ingress is already the original message on its channel. Reposting its
+  // canonical projection would create an immediate self-echo.
+  if (ev.message.author_platform === "discord") return;
+  // Questions and permission requests retain their interactive Discord adapters.
+  // Their canonical records remain the WebUI source of truth; the specialized
+  // adapter owns buttons and their state transitions until it is migrated.
+  if (ev.message.author_type === "question" || ev.message.author_type === "permission") return;
+  if (ev.message.author_type === "thinking" && deps.messageOptimizationEnabled) return;
 
-  // Per 2026-05-27 ユーザ指示 (2026-07-18 neco 指示で範囲を縮小): relay
-  // "人間向けの回答" — concretely:
-  //   1) kind=text && role=assistant : AI が user に返す本文。 message optimization
-  //      が OFF (既定) のときは Codex の commentary phase も含め作業中メッセージを
-  //      全て中継する (中間進捗を Discord で見えるようにする)。 optimization が ON の
-  //      ときだけ「人間向けの最終回答のみ」に絞る (Codex は phase=final_answer のみ、
-  //      他 provider は代替の最適化済み経路に任せて生 text frame を出さない)。
-  //   2) kind=summary                 : 会話要約 (PreCompact / wrap 時)
-  // Everything else (tool-use / tool-result / thinking / raw / user prompts)
-  // is dropped here. User prompts are NOT relayed via transcript.frame because
-  // a separate `session.event(kind=prompt)` handler in bot.ts already posts
-  // them as "CLI User" — keeping both would duplicate every prompt.
-  let role: string | null = null;
-  let text: string | null = null;
-  if (ev.kind === "text") {
-    const p = ev.payload as { role?: string; text?: string; phase?: string } | null | undefined;
-    if (!p || typeof p.text !== "string" || !p.text) return;
-    if (p.role !== "assistant") return;
-    role = "assistant";
-    text = p.text;
-  } else if (ev.kind === "summary") {
-    const p = ev.payload as { text?: string; summary?: string } | null | undefined;
-    const candidate = typeof p?.text === "string" ? p.text : typeof p?.summary === "string" ? p.summary : null;
-    if (!candidate) return;
-    role = "summary";
-    text = candidate;
-  } else if (ev.kind === "image") {
-    const p = ev.payload as { media_type?: string; data?: string } | null | undefined;
-    if (!p?.data) return;
-    const client = await deps.webhooks.getForSession(relaySessionId);
-    if (!client) {
-      deps.log.warn(`egress: transcript.frame image no webhook session=${relaySessionId}`);
+  const content = formatSessionMessageContent(ev.message);
+  const existingDiscordId = deps.deliveryRepo.findExternalId(ev.message.id, "discord");
+  if (ev.op === "update" && existingDiscordId) {
+    const edited = await deps.webhooks.editForSession(ev.target_session_id, existingDiscordId, content);
+    if (edited) {
+      deps.onSessionMessagePosted?.({ sessionId: ev.target_session_id, completion: isCompletionMessage(ev.message) });
       return;
     }
-    const author = formatAuthorName(null, session?.roleLabel ?? null);
-    const identity = buildDiscordWebhookIdentity({
-      model: session?.model,
-      provider: session?.provider,
-      configuredName: session?.webhookName,
-      currentTask: session?.currentTask,
-      roleLabel: session?.roleLabel,
-      fallbackName: author,
-      delegationEmoji: session?.delegationEmoji,
-    });
-    const ext = (p.media_type ?? "").includes("png") ? "png" : "jpg";
-    const buf = Buffer.from(p.data, "base64");
-    const res = await deps.webhooks.send(client, {
-      content: "",
-      username: identity.username,
-      ...(identity.avatarURL || session.webhookAvatarUrl?.trim()
-        ? { avatarURL: identity.avatarURL || session.webhookAvatarUrl!.trim() }
-        : {}),
-      files: [{ attachment: buf, name: `image.${ext}` }],
-    });
-    if (!res) {
-      deps.log.warn(`egress: transcript.frame image relay empty session=${ev.target_session_id} seq=${ev.seq}`);
-    }
-    return;
-  } else {
+    deps.log.warn(`egress: session.message edit failed session=${ev.target_session_id} message=${ev.message.id}`);
     return;
   }
+  if (existingDiscordId) return;
 
-  const relayable = extractRelayableTextFrame(ev.kind, ev.payload, {
-    messageOptimizationEnabled: deps.messageOptimizationEnabled,
-    provider: session.provider,
-  });
-  if (!relayable) return;
-  role = relayable.role;
-  text = relayable.text;
-
-  const client = await deps.webhooks.getForSession(relaySessionId);
+  const client = await deps.webhooks.getForSession(ev.target_session_id);
   if (!client) {
-    deps.log.warn(`egress: transcript.frame no webhook client session=${relaySessionId} source_session=${ev.target_session_id} seq=${ev.seq}`);
+    deps.log.warn(`egress: session.message no webhook client session=${ev.target_session_id} message=${ev.message.id}`);
     return;
   }
-
-  const author = mirroredFromChild
-    ? "Cc delegation"
-    : role === "summary"
-      ? "Conversation summary"
-      : formatAuthorName(null, session.roleLabel);
-  const content = mirroredFromChild && originalSession?.delegationRunId
-    ? buildDelegationMirrorText({
-        runId: originalSession.delegationRunId,
-        childSessionId: ev.target_session_id,
-        text,
-      })
-    : text;
   const identity = buildDiscordWebhookIdentity({
     model: session.model,
     provider: session.provider,
-    callName: mirroredFromChild || role === "summary" ? author : null,
+    callName: messageCallName(ev.message),
     configuredName: session.webhookName,
     currentTask: session.currentTask,
     roleLabel: session.roleLabel,
-    fallbackName: author,
+    fallbackName: ev.message.author_label || formatAuthorName(null, session.roleLabel),
     delegationEmoji: session.delegationEmoji,
   });
-  if (session?.provider === "codex-cli" && shouldSkipCodexDuplicate(sessionRow.channel_id, author, content)) {
-    dedupStats.skipped_transcript_frame += 1;
-    deps.onTranscriptPosted?.({
-      sessionId: relaySessionId,
-      completion: isTranscriptCompletion(ev.kind, ev.payload),
-    });
-    return;
-  }
+  const files = filesFromAttachments(ev.message.attachments);
   const res = await deps.webhooks.send(client, {
     content,
     username: identity.username,
+    allowedMentions: { parse: [] },
     ...(identity.avatarURL || session.webhookAvatarUrl?.trim()
       ? { avatarURL: identity.avatarURL || session.webhookAvatarUrl!.trim() }
       : {}),
+    ...(files.length > 0
+      ? { files }
+      : {}),
   });
   if (!res) {
-    deps.log.warn(`egress: transcript.frame relay returned empty response session=${ev.target_session_id} seq=${ev.seq} role=${role}`);
+    deps.log.warn(`egress: session.message relay returned empty response session=${ev.target_session_id} message=${ev.message.id}`);
     return;
   }
-  deps.onTranscriptPosted?.({
-    sessionId: relaySessionId,
-    completion: isTranscriptCompletion(ev.kind, ev.payload),
-  });
+  deps.deliveryRepo.put({ message_id: ev.message.id, platform: "discord", external_id: res.id, ts: ev.ts });
+  deps.onSessionMessagePosted?.({ sessionId: ev.target_session_id, completion: isCompletionMessage(ev.message) });
 }
 
-function logInactiveTranscriptFrame(
-  deps: EgressDeps,
-  ev: Extract<ConcordiaEvent, { type: "transcript.frame" }>,
-  status: { sessionStatus: string | null; discordStatus: string | null; sessionChannelId: string | null },
-): void {
-  const now = Date.now();
-  const prev = inactiveTranscriptLogState.get(ev.target_session_id);
-  if (prev && now - prev.lastAt < INACTIVE_TRANSCRIPT_LOG_WINDOW_MS) {
-    prev.suppressed += 1;
-    return;
+function formatSessionMessageContent(message: SessionMessagePayload): string {
+  const content = message.content || "(attachment)";
+  if (message.author_type === "thinking") return content.split("\n").map((line) => `> ${line}`).join("\n");
+  if (message.author_type === "task") return `**Task**\n${content}`;
+  return content;
+}
+
+function messageCallName(message: SessionMessagePayload): string | null {
+  if (message.author_type === "summary") return "Conversation summary";
+  if (message.author_type === "delegation") return "Cc delegation";
+  if (message.author_type === "task") return "Task";
+  return null;
+}
+
+function filesFromAttachments(attachments: Attachment[] | null): Array<{ attachment: Buffer; name: string }> {
+  const files: Array<{ attachment: Buffer; name: string }> = [];
+  let totalBytes = 0;
+  for (const [index, attachment] of (attachments ?? []).entries()) {
+    // Attachment data originates outside the Discord adapter. Bound the encoded
+    // input before decoding so an oversized canonical record cannot allocate an
+    // unbounded Buffer in the egress process.
+    if (attachment.data.length > MAX_DISCORD_ATTACH_BASE64_LENGTH) continue;
+    const data = Buffer.from(attachment.data, "base64");
+    if (
+      data.length === 0
+      || data.length > DISCORD_ATTACH_MAX_BYTES
+      || totalBytes + data.length > DISCORD_ATTACH_MAX_BYTES
+    ) continue;
+    files.push({
+      attachment: data,
+      name: `attachment-${index + 1}.${attachment.media_type.includes("png") ? "png" : "jpg"}`,
+    });
+    totalBytes += data.length;
   }
-  const suppressed = prev?.suppressed ?? 0;
-  inactiveTranscriptLogState.set(ev.target_session_id, { lastAt: now, suppressed: 0 });
-  deps.log.warn(
-    `egress: transcript.frame skipped inactive session=${ev.target_session_id} seq=${ev.seq} kind=${ev.kind} ` +
-    `session_status=${status.sessionStatus ?? "null"} discord_status=${status.discordStatus ?? "null"} ` +
-    `session_channel=${status.sessionChannelId ?? "null"} suppressed=${suppressed}`,
-  );
+  return files;
+}
+
+function isCompletionMessage(message: SessionMessagePayload): boolean {
+  if (message.author_type !== "task") return false;
+  return message.metadata?.is_error === true || message.embeds?.some((embed) =>
+    embed.fields?.some((field) => field.name === "status" && (field.value === "completed" || field.value === "failed")),
+  ) === true;
 }
 
 function mapChannelKind(rowChannel: string, evChannel: string): MetaChannelKind {
@@ -344,23 +266,6 @@ function mapChannelKind(rowChannel: string, evChannel: string): MetaChannelKind 
 
 function resolveAuthor(row: ChatMessageRelay): string {
   return row.authorLabel?.trim() || "Concordia";
-}
-
-function shouldSkipCodexDuplicate(channelId: string, author: string, text: string): boolean {
-  const now = Date.now();
-  const key = `${channelId}|${author}|${normalizeDedupText(text)}`;
-  const last = codexRelayDedup.get(key);
-  codexRelayDedup.set(key, now);
-  if (codexRelayDedup.size > 5000) {
-    for (const [k, at] of codexRelayDedup) {
-      if (now - at > CODEX_DUP_WINDOW_MS) codexRelayDedup.delete(k);
-    }
-  }
-  return !!last && now - last <= CODEX_DUP_WINDOW_MS;
-}
-
-function normalizeDedupText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
 }
 
 export function trustedDiscordChannelId(input: {

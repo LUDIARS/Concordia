@@ -13,6 +13,7 @@ import {
   makeDiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 import { makeDiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
+import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
 import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-client.js";
 import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
@@ -66,7 +67,6 @@ import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
-import { renderOperationalClaimMessage } from "../platform/operational-claim.js";
 import { eventSessionId } from "./projection.js";
 import { resolveIntake } from "./intake-router.js";
 import type { ChatPlatform } from "../platform/chat-platform.js";
@@ -157,9 +157,6 @@ async function sessionWorkStateApply(
   await onSessionWorkState(deps, input);
 }
 
-export function shouldRelaySessionPromptToDiscord(provider: string | null | undefined): boolean {
-  return provider === "codex-cli";
-}
 // 許可要求の投稿可否は「都度解決」 の形で持つ (W6)。 判定本体と resolver は
 // permission-request-flag.ts に置き、 ここは既存の import 経路を保つ再輸出。
 export { shouldPostPermissionRequestToDiscord } from "./permission-request-flag.js";
@@ -407,6 +404,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     return isActiveRelayTarget(session?.status ?? null, row?.status ?? null);
   };
   const messageMap = makeDiscordMessageMapRepo(deps.db);
+  const sessionMessageDeliveryRepo = makeSessionMessageDeliveryRepo(deps.db);
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
   const permissionActions: PermissionActionStore = new Map();
@@ -461,9 +459,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
   let errorPoster: ErrorChannelPoster | null = null;
   let errorMonitor: ErrorMonitorHandle | null = null;
-  const promptRelayLast = new Map<string, { text: string; at: number }>();
   let channelWorkState: ChannelWorkState | null = null;
-  const onTranscriptPosted = (input: { sessionId: string; completion: boolean }): void => {
+  const onSessionMessagePosted = (input: { sessionId: string; completion: boolean }): void => {
     if (input.completion) channelWorkState?.noteCompletion(input.sessionId);
     else channelWorkState?.noteProgress(input.sessionId);
   };
@@ -1435,15 +1432,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void testForumRefresh?.("pr.changed");
       return;
     }
-    if (ev.type === "delegation.mirror") {
-      if (!isActiveDiscordSession(ev.target_session_id)) return;
-      void (async () => {
-        const client = await webhooks.getForSession(ev.target_session_id);
-        if (!client) return;
-        await webhooks.send(client, { content: ev.text.slice(0, 1900), username: "Cc delegation" });
-      })().catch((e) => log.warn(`delegation mirror post failed session=${ev.target_session_id}: ${(e as Error).message}`));
-      return;
-    }
     if (ev.type === "delegation.run_changed") {
       if (!isActiveDiscordSession(ev.parent_session_id)) return;
       void upsertSessionStatusCard({
@@ -1487,19 +1475,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((e) => log.warn(`delegation thread link failed run=${ev.run_id}: ${(e as Error).message}`));
       return;
     }
-    if (ev.type === "operational.claim.opened" || ev.type === "operational.claim.released") {
-      if (ev.type === "operational.claim.opened" && !isActiveDiscordSession(ev.target_session_id)) return;
-      void (async () => {
-        const client = await webhooks.getForSession(ev.target_session_id);
-        if (!client) return;
-        await webhooks.send(client, {
-          content: renderOperationalClaimMessage(ev).slice(0, 1900),
-          username: "Cc claims",
-          allowedMentions: { parse: [] },
-        });
-      })().catch((e) => log.warn(`claim lifecycle post failed session=${ev.target_session_id}: ${(e as Error).message}`));
-      return;
-    }
     if (ev.type === "taskflow.user_decision") {
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void (async () => {
@@ -1512,7 +1487,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((e) => log.warn(`taskflow decision post failed: ${(e as Error).message}`));
       return;
     }
-    if (ev.type === "chat.posted" || ev.type === "transcript.frame") {
+    if (ev.type === "chat.posted" || ev.type === "session.message") {
       handleEgressEvent({
         guild,
         layout,
@@ -1520,20 +1495,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         readModel: deps.readModel,
         sessionChannelsRepo,
         messageMap,
+        deliveryRepo: sessionMessageDeliveryRepo,
         messageOptimizationEnabled: env.messageOptimizationEnabled,
         resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
-        onTranscriptPosted,
+        onSessionMessagePosted,
         log,
       }, ev);
-      // final frame の送信中も「作業中」を維持する。解除は egress が実際の投稿成功を
+      // canonical message の配送中も「作業中」を維持する。解除は egress が実際の投稿成功を
       // 通知した後だけ行う。chat.posted は出力の別経路なので作業開始シグナルにしない。
-      if (ev.type === "transcript.frame" && isActiveDiscordSession(ev.target_session_id)) {
+      if (ev.type === "session.message" && isActiveDiscordSession(ev.target_session_id)) {
         channelWorkState?.noteProgress(ev.target_session_id);
       }
-      // 指示 (Discord inject) → transcript が動いた最初のタイミングで ✅ を付ける。
-      // takeInjectAck は delete-on-read なので、 後続フレームや codex prompt 経路と
-      // 二重に付かない。 Enter 未送信で transcript が動かなければ ✅ は付かない。
-      if (ev.type === "transcript.frame") {
+      // 指示 (Discord inject) → canonical message が動いた最初のタイミングで ✅ を付ける。
+      // takeInjectAck は delete-on-read なので、 後続メッセージや codex prompt 経路と
+      // 二重に付かない。 Enter 未送信で出力がなければ ✅ は付かない。
+      if (ev.type === "session.message") {
         const ack = takeInjectAck(ev.target_session_id);
         if (ack) {
           void (async () => {
@@ -1557,15 +1533,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const row = sessionChannelsRepo.findBySessionId(ev.session_id);
       if (!isActiveRelayTarget(prompt.status, row?.status ?? null)) return;
       channelWorkState?.noteProgress(ev.session_id);
-      if (!shouldRelaySessionPromptToDiscord(prompt.provider)) return;
-      const text = prompt.text;
       const source = prompt.source;
-      if (!text) return;
-      // Discord session channel からの inject は元メッセージがすでに表示済み。
-      // ここで再 relay すると Codex だけ二重投稿になりやすいため除外する。
+      // Prompt 本文は canonical session.message が唯一の egress 経路。
+      // ここでは Discord inject の受領リアクションだけを処理する。
       if (parseInjectSource(source).platform === "discord" || source === "discord-enter" || source === "discord-enter-fallback") {
-        // codex: prompt が受理された = transcript が動いた。 保留中の ✅ を 1 回だけ付ける
-        // (takeInjectAck は delete-on-read なので transcript.frame 経路と二重にならない)。
+        // Prompt が受理されたら、保留中の ✅ を 1 回だけ付ける。
         const ack = takeInjectAck(ev.session_id);
         if (ack) {
           void (async () => {
@@ -1579,29 +1551,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             }
           })();
         }
-        return;
       }
-      const now = Date.now();
-      const prev = promptRelayLast.get(ev.session_id);
-      if (prev && prev.text === text && now - prev.at < 60_000) {
-        log.info(`prompt relay: dedup skipped session=${ev.session_id}`);
-        return;
-      }
-      void (async () => {
-        const client = await webhooks.getForSession(ev.session_id);
-        if (!client) {
-          log.warn(`prompt relay: webhook missing session=${ev.session_id}`);
-          return;
-        }
-        const msg = text.length > 1900 ? `${text.slice(0, 1900)}...` : text;
-        const sent = await webhooks.send(client, { content: msg, username: "CLI User" });
-        if (!sent) {
-          log.warn(`prompt relay: send failed session=${ev.session_id}`);
-          return;
-        }
-        promptRelayLast.set(ev.session_id, { text, at: now });
-        log.info(`prompt relay: sent session=${ev.session_id} event_ts=${ev.ts}`);
-      })().catch((e) => log.warn(`prompt relay failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.event" && ev.kind === "title_renamed") {
@@ -1762,19 +1712,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       );
     },
     async relayFrame(input) {
-      if (gatewayClosed || stopping || !activeGuild || !layout || !webhooks) return;
-      handleEgressEvent({
-        guild: activeGuild,
-        layout,
-        webhooks,
-        readModel: deps.readModel,
-        sessionChannelsRepo,
-        messageMap,
-        messageOptimizationEnabled: env.messageOptimizationEnabled,
-        resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
-        onTranscriptPosted,
-        log,
-      }, {
+      if (gatewayClosed || stopping) return;
+      // D6 egress consumes canonical session.message events. Re-enter raw
+      // federation frames through the projector instead of passing them to the
+      // retired transcript-frame egress branch.
+      eventBus.emit({
         type: "transcript.frame",
         target_session_id: input.target_session_id,
         kind: input.kind as never,

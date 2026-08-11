@@ -89,7 +89,7 @@ export class TaskflowStateStore {
 
 function taskKey(document: TaskDocument): { repoPath: string; taskPath: string } {
   const taskPath = relative(document.repoPath, document.path);
-  if (isAbsolute(taskPath) || taskPath === ".." || taskPath.startsWith(`..${sep}`)) {
+  if (taskPath === "" || isAbsolute(taskPath) || taskPath === ".." || taskPath.startsWith(`..${sep}`)) {
     throw new Error("task path must be inside its repository");
   }
   return {

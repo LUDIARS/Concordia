@@ -30,7 +30,7 @@ import {
   type WorkflowResultRelay,
   type WorkflowAction,
 } from "../platform/reaction-workflow.js";
-import { getRwf } from "../platform/reaction-workflow-loader.js";
+import { buildRwfAckPanel, buildRwfResultPanel } from "./rwf-panel.js";
 
 /** 📌 で transcript relay を /clear なしで再束縛する built-in アクションのトリガー絵文字。 */
 const REPIN_EMOJI = "📌";
@@ -38,6 +38,33 @@ const REPIN_EMOJI = "📌";
 /** session の作業ディレクトリ / 状態を引く最小インタフェース (SessionsRepo の部分)。 */
 export interface SessionLookup {
   findSession(sessionId: string): { repo_path: string; status: string } | null;
+}
+
+/** channelId から解決した RWF の実行文脈。 */
+export interface ReactionSessionContext {
+  sessionId: string | null;
+  repoPath: string | null;
+  sessionActive: boolean;
+}
+
+/**
+ * channelId → session 文脈 (chat_messages に無くても引ける)。 リアクションと
+ * 操作パネルの双方が同じ解決規則を使うため、 ここ 1 箇所に置く。
+ */
+export function resolveReactionSessionContext(
+  deps: { sessionChannels?: DiscordSessionChannelsRepo; sessions?: SessionLookup },
+  channelId: string | null | undefined,
+): ReactionSessionContext {
+  const empty: ReactionSessionContext = { sessionId: null, repoPath: null, sessionActive: false };
+  if (!channelId || !deps.sessionChannels || !deps.sessions) return empty;
+  const channel = deps.sessionChannels.findByChannelId(channelId);
+  if (!channel) return empty;
+  const session = deps.sessions.findSession(channel.session_id);
+  return {
+    sessionId: channel.session_id,
+    repoPath: session?.repo_path ?? null,
+    sessionActive: session?.status === "active",
+  };
 }
 
 export interface ReactionsDeps {
@@ -104,20 +131,7 @@ export async function handleReactionAdd(
   const channelId = message.channelId;
 
   // channelId → session 解決 (chat_messages に無くても文脈が取れる)。
-  let repoPath: string | null = null;
-  let sessionActive = false;
-  let sessionId: string | null = null;
-  if (channelId && deps.sessionChannels && deps.sessions) {
-    const sc = deps.sessionChannels.findByChannelId(channelId);
-    if (sc) {
-      sessionId = sc.session_id;
-      const s = deps.sessions.findSession(sc.session_id);
-      if (s) {
-        repoPath = s.repo_path;
-        sessionActive = s.status === "active";
-      }
-    }
-  }
+  const { sessionId, repoPath, sessionActive } = resolveReactionSessionContext(deps, channelId);
 
   // 📌 re-pin (built-in): セッションチャンネルで pushpin → その Lictor の transcript relay を
   // /clear なしで再束縛する。 stall (Concordia 再起動で中継が止まった等) からの手動復帰口。
@@ -143,17 +157,21 @@ export async function handleReactionAdd(
       .handle(
         { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
         (action) => {
+          // 受付 / 結果の描画は操作パネルの共通部品を通す (画面ごとに描画を書かない)。
+          const panel = buildRwfAckPanel({ action, emoji, targetMessageId: discordMessageId, actorId: user.id });
           void message
-            .reply({ content: getRwf().reactionAckText(action, emoji), allowedMentions: { repliedUser: false } })
+            .reply({ ...panel, allowedMentions: { repliedUser: false } })
             .catch((e) => deps.log.info(`reactions: ack reply failed: ${(e as Error).message}`));
         },
         (action, result) => {
-          const prefix = result.ok ? "✅" : "⚠️";
+          const panel = buildRwfResultPanel({
+            action,
+            ok: result.ok,
+            text: result.text,
+            targetMessageId: discordMessageId,
+          });
           void message
-            .reply({
-              content: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
-              allowedMentions: { repliedUser: false },
-            })
+            .reply({ ...panel, allowedMentions: { repliedUser: false } })
             .catch((e) => deps.log.info(`reactions: result reply failed: ${(e as Error).message}`));
         },
       )

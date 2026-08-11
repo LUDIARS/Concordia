@@ -70,6 +70,35 @@ export function findRegistration(
 }
 
 /**
+ * セッションの (リポジトリ, ブランチ) に一致する open な local PR を探す。
+ *
+ * 「そのセッションが提出した PR はどれか」の同定規則の正本。 提出の二重防止と、
+ * RWF / Discord 操作面からのマージ対象選択が同じ規則を使う (片方だけずれると
+ * 「提出済みなのにマージ対象が見つからない」という無言の食い違いになる)。
+ * リポジトリは表記ゆれを正規化して比較し、 ブランチ名は git と同じく大文字小文字を区別する。
+ */
+export function findOpenLocalPrForBranch(
+  repository: string | null,
+  branch: string | null,
+  pullRequests: readonly RevisorLocalPrSummary[],
+): RevisorLocalPrSummary | undefined {
+  const head = branch?.trim() ?? "";
+  if (!head) return undefined;
+  return listOpenLocalPrsForRepository(repository, pullRequests).find((pr) => pr.headRef === head);
+}
+
+/** 同じリポジトリの open な local PR (操作面の選択肢に出す)。 表記ゆれは正規化して比較する。 */
+export function listOpenLocalPrsForRepository(
+  repository: string | null,
+  pullRequests: readonly RevisorLocalPrSummary[],
+): RevisorLocalPrSummary[] {
+  const key = repository ? normalizeRepoOrigin(repository).toLowerCase() : "";
+  if (!key) return [];
+  return pullRequests.filter((pr) =>
+    pr.status === "open" && normalizeRepoOrigin(pr.repository).toLowerCase() === key);
+}
+
+/**
  * 提出すべきかを決める。 スキップは必ず理由付きで返す — 「何も起きなかった」を
  * 無言にすると、 発火経路が死んでいても誰も気づけない (それが今回の元の障害)。
  */
@@ -86,12 +115,8 @@ export function planLocalPrSubmission(input: LocalPrPlanInput): LocalPrPlan {
   if (!input.hasCommits) return { submit: false, reason: "no_commits" };
 
   // 同じブランチの open な local PR が既にあるなら二重提出しない (再実行しても安全)。
-  // ブランチ名だけは git と同じく大文字小文字を区別する (別ブランチなので)。
-  const registeredKey = normalizeRepoOrigin(registration.repository).toLowerCase();
-  const duplicate = input.openPullRequests.find((pr) =>
-    pr.status === "open"
-    && normalizeRepoOrigin(pr.repository).toLowerCase() === registeredKey
-    && pr.headRef === branch);
+  // 同定規則は findOpenLocalPrForBranch が正本 (マージ対象の選択と同じ規則を使う)。
+  const duplicate = findOpenLocalPrForBranch(registration.repository, branch, input.openPullRequests);
   if (duplicate) {
     if (duplicate.checkStatus === "failed" || duplicate.checkStatus === "action_required") {
       return { submit: false, retry: true, pullRequestId: duplicate.id };
@@ -152,6 +177,14 @@ export type LocalPrSubmissionResult =
   | { submitted: true; pullRequest: RevisorLocalPrSummary }
   | { submitted: false; resubmitted: true; pullRequest: RevisorLocalPrSummary }
   | { submitted: false; reason: SkipReason | "error"; detail?: string };
+
+/** RWF と操作パネルが共有する、セッション単位の提出結果。 */
+export type SessionLocalPrSubmission =
+  | { submitted: true; pullRequest: RevisorLocalPrSummary }
+  | { submitted: false; resubmitted: true; pullRequest: RevisorLocalPrSummary }
+  | { submitted: false; reason: string; detail?: string };
+
+export type SessionLocalPrSubmitter = (sessionId: string) => Promise<SessionLocalPrSubmission>;
 
 /** PR 本文の上限。 Revisor 側の受け入れ上限 (65536) に合わせる。 */
 const MAX_PR_CONTENT_LENGTH = 65_536;

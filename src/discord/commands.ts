@@ -23,6 +23,7 @@ import { dispatchPermissionInteraction, isPermissionInteraction, type Permission
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
 import { interactionAgeMs } from "./interaction-diagnostics.js";
 import { parseTestControlId } from "./test-forum-controls.js";
+import { handlePanelInteraction, isPanelInteraction } from "./panel-interactions.js";
 import { handleTestForumControl } from "./test-forum-actions.js";
 import {
   dispatchModelReviewInteraction,
@@ -199,6 +200,18 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       concordiaUrl: deps.concordiaUrl,
       sessionsRepo: deps.sessionsRepo,
       sessionChannelsRepo: deps.sessionChannelsRepo,
+      log: deps.log,
+    });
+    return;
+  }
+  // PR 提出 / マージ・RWF アクション選択の操作パネル (embed + select + button)。
+  if (isPanelInteraction(interaction)) {
+    await handlePanelInteraction(interaction, {
+      sessionChannelsRepo: deps.sessionChannelsRepo,
+      sessionsRepo: deps.sessionsRepo,
+      prOperations: deps.prOperations,
+      isMergeUserAllowed: deps.isMergeUserAllowed,
+      reactionWorkflow: deps.reactionWorkflow,
       log: deps.log,
     });
     return;

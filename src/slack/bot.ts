@@ -64,6 +64,7 @@ import {
   PROMPT_BLOCK,
 } from "./delegation-modal.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
+import type { RwfPrOperations } from "../platform/reaction-workflow-pr.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { buildSlackSessionTopic } from "./projection.js";
 import { listWorkdirOptions, readSlackInputValue } from "./modal.js";
@@ -127,6 +128,11 @@ export interface SlackBotDeps {
   isSessionEndUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Slack ユーザを社員名簿へ記録する。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
+  /**
+   * 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。 Slack の名簿で役職を引く
+   * インスタンスを渡す。 未注入なら PR 操作は実行せず理由を返す。
+   */
+  prOperations?: RwfPrOperations;
   runHeadless: (prompt: string, opts?: RwfRunOptions) => Promise<RwfRunResult>;
   /** Unit/integration test boundary. Production constructs official Slack clients. */
   webClient?: WebClient;
@@ -186,6 +192,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
+    // 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
+    prOperations: deps.prOperations,
     log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
   });
 

@@ -90,6 +90,7 @@ import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
+import { SessionPrOperations } from "../pr/session-pr-operations.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
 import { loadSessionTaskPrContent } from "../pr/session-task-pr-content.js";
 import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
@@ -641,6 +642,32 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     );
   };
+  // PR 提出 / マージ (RWF 📮 🔀 と Discord 操作パネル) の実体。 提出は上の
+  // submitLocalPrForSession をそのまま使い、 マージは指示者 (押した人) の役職を
+  // 名簿で確認してから Revisor へ流す。 監査は構造化ログ + session event。
+  const makeSessionPrOperations = (platform: "discord" | "slack") => new SessionPrOperations({
+    platform,
+    sessions: repo,
+    submit: submitLocalPrForSession,
+    listLocalPullRequests: () => revisorLocalPrs.listLocalPullRequests(),
+    merge: {
+      staff: staffRepo,
+      merger: revisorClient,
+      audit: (record) => {
+        localPrLog.info(record, "local PR merged with reaction/panel requester authorization");
+        repo.appendEvent({
+          session_id: record.session_id,
+          ts: Math.floor(Date.now() / 1000),
+          kind: "pr-merged",
+          payload: record,
+        });
+      },
+      logError: (message) => localPrLog.warn({ err: message }, "local PR merge failed"),
+    },
+    source: `${platform}-reaction-workflow`,
+  });
+  const discordPrOperations = makeSessionPrOperations("discord");
+  const slackPrOperations = makeSessionPrOperations("slack");
   const implementationTools = new ImplementationToolsService({
     sessions: repo,
     claims: testingClaims,
@@ -862,6 +889,8 @@ export async function startBackend(): Promise<BackendHandle> {
         profileName: input.profileName,
       });
     },
+    // 📮 PR 提出 / 🔀 マージ (リアクションと操作パネルの共通実体)。
+    prOperations: discordPrOperations,
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     modelReview,
@@ -915,6 +944,8 @@ export async function startBackend(): Promise<BackendHandle> {
         profileName: input.profileName,
       });
     },
+    // 📮 PR 提出 / 🔀 マージ。 役職は Slack の名簿で引く (platform 束縛が違うだけ)。
+    prOperations: slackPrOperations,
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),

@@ -23,6 +23,7 @@ export type WorkflowAction =
   | "run-goal-tasks"
   | "handoff-document"
   | "resume-work"
+  | "submit-pr"
   | "merge-pr"
   | "sync-project-main-after-merge"
   | "add-as-workflow";

@@ -17,8 +17,11 @@ import type { WorkflowAction } from "./reaction-workflow-action.js";
 const ACTION_CAPABILITY: Partial<Record<WorkflowAction, StaffCapability>> = {
   // 🤝 は delegation invoke = 別セッションを起動する。
   "delegate-task": "session_spawn",
-  // 🔀 / 🚀 は PR を実際に着地させる。
+  // 🔀 / 🚀 は PR を実際に着地させる。 Revisor local PR / GitHub squash merge のどちらの
+  // 経路でも同じ権限を要求する (経路で権限が変わると抜け道になる)。
   "merge-pr": "merge_pr",
+  // 📮 / 📬 (submit-pr) はここに載せない。 提出はレビュー待ち行列に並べるだけで着地させず、
+  // 破壊的でないので ヒラ社員 でも押せる (spec W2 §認可)。 実行者は提出処理側で必ず記録する。
   // 🔄 はマージ後に main を書き換える (マージと同じ重さ)。
   "sync-project-main-after-merge": "merge_pr",
   // 🛠️ は「指示」ではなく設定の永続化 — 任意プロンプトを絵文字に束ねて JSON に保存する。

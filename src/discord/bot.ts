@@ -240,6 +240,12 @@ export interface DiscordBotDeps {
     displayName?: string;
     profileName?: string;
   }) => void;
+  /**
+   * PR 提出 / マージ (📮 / 🔀 と操作パネル) の実体。 Revisor local PR の提出は
+   * `POST /v1/prs/local` と同じ関数、 マージは指示者ベースの認可を通す。
+   * 未注入なら PR 操作は実行せず、 その理由を返す (無言スキップにしない)。
+   */
+  prOperations?: DiscordCommandDeps["prOperations"];
   runHeadless: DiscordHeadlessRunner;
   repinSession: DiscordRepinSession;
   /**
@@ -428,6 +434,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
+    // 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
+    prOperations: deps.prOperations,
     log,
   });
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
@@ -1147,6 +1155,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         ? (userId) => deps.hasStaffCapability!(userId, "merge_pr")
         : undefined,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
+      // PR 操作パネル / RWF アクション選択パネル。 実処理はリアクション経由と同じ口を使う。
+      prOperations: deps.prOperations,
+      reactionWorkflow,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(

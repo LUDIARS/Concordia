@@ -36,6 +36,12 @@ import { join } from "node:path";
 import type { StaffCapability } from "../staff/roles.js";
 import type { WorkflowAction } from "./reaction-workflow-action.js";
 import { workflowActionCapability, workflowDenialMessage } from "./reaction-workflow-capability.js";
+import {
+  describeMergeFallback,
+  describePrMergeOutcome,
+  describePrSubmitOutcome,
+  type RwfPrOperations,
+} from "./reaction-workflow-pr.js";
 import { readFile, stat } from "node:fs/promises";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
 
@@ -134,7 +140,10 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "handoff-document": ["👌", "👋"],
   // 中断していた作業を再開する「続けて」 (play / fast-forward 系)
   "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
-  // 当該リポの open PR を CI green 確認の上 squash merge + ブランチ削除 + main 同期 (merge / rocket)
+  // 対象セッションの作業ブランチを Revisor local PR として提出 (postbox / mailbox)
+  "submit-pr": ["📮", "📬"],
+  // 対象セッションが提出した open な Revisor local PR をマージする。 local PR が無いときだけ
+  // 従来の GitHub squash merge 経路へ落とす (merge / rocket)
   "merge-pr": ["🔀", "🚀"],
   // 対応マージ後、メッセージで指定されたプロジェクトコードを main 最新に同期
   "sync-project-main-after-merge": ["🔄", "🔃"],
@@ -144,6 +153,14 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
 export const WORKFLOW_ACTIONS = Object.keys(WORKFLOW_EMOJI) as WorkflowAction[];
+
+/**
+ * アクションの代表絵文字 (写像の先頭)。 GUI から「絵文字を押した」のと同じ経路で
+ * アクションを起こすために使う — 操作面ごとに別の実行経路を作らないための入口。
+ */
+export function primaryEmojiForAction(action: WorkflowAction): string {
+  return WORKFLOW_EMOJI[action][0] ?? "";
+}
 
 /** 1 アクションのヘルプ (GUI / API で「このコマンドが何をするか」を見せる)。 */
 export interface WorkflowActionHelp {
@@ -240,10 +257,15 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     summary: "投稿内容 (直近の作業 / 中断点) を起点に『中断していた作業の続きを再開せよ』に変換して渡す。",
     mode: "active へ inject / 非active は headless sonnet (当該リポ、 git 痕跡 + session-logs から文脈復元)",
   },
+  "submit-pr": {
+    label: "PR を提出する",
+    summary: "対象セッションの作業ブランチを Revisor の local PR として提出する (POST /v1/prs/local と同じ実体)。 提出しなかった場合も理由を返す。",
+    mode: "API (Concordia の local PR 提出をそのまま呼ぶ)",
+  },
   "merge-pr": {
     label: "PR をマージする",
-    summary: "投稿内容を起点に『当該リポの open PR を CI green 確認の上で squash merge し、 ブランチ削除 + main 同期まで行え』に変換して渡す。",
-    mode: "active へ inject / 非active は headless sonnet (当該リポ)",
+    summary: "対象セッションが提出した open な Revisor local PR を、 押した人の権限 (merge_pr) で確認した上でマージする。 local PR が無いときだけ『当該リポの open PR を squash merge せよ』という GitHub 経路の指示に変換して渡す。",
+    mode: "API (Revisor local PR マージ) / local PR が無ければ active へ inject・非active は headless sonnet",
   },
   "sync-project-main-after-merge": {
     label: "対応マージ後に main 最新化",
@@ -715,7 +737,14 @@ export function planWorkflow(
       };
     }
 
+    case "submit-pr":
+      // handle() で prOperations (Revisor local PR 提出) を直接呼ぶ。 planWorkflow は呼ばれない。
+      // ここは TypeScript の網羅性チェックのためのプレースホルダー。
+      return { action, mode: "headless" as const, prompt: "" };
+
     case "merge-pr": {
+      // 既定は Revisor local PR のマージ (handle() が prOperations で実行する)。 このプロンプトは
+      // 「open な local PR が無い」ときにだけ使う GitHub squash merge 経路のフォールバック。
       const prompt =
         `🔀 このメッセージを起点に、 **当該リポジトリの open PR をマージ**してください。\n` +
         `手順 (merge-clean-pr / ship 相当):\n` +
@@ -808,6 +837,12 @@ export interface ReactionWorkflowDeps {
   workspaceRoot: string;
   /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
   concordiaUrl?: string;
+  /**
+   * 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR の提出とマージ)。 エンジンは
+   * Revisor も社員名簿も知らないので、 ホスト側が実装を注入する。 未注入なら PR 操作は
+   * 実行せず、 その旨を理由として返す (無言スキップにしない)。
+   */
+  prOperations?: RwfPrOperations;
   /**
    * 発火者がその操作を実行できるか。 リアクション自体は誰でも押せるが、 中身が
    * セッション起動やマージを要求するなら改めて役職を問う (neco 2026-08-01)。
@@ -1013,12 +1048,41 @@ export class ReactionWorkflowRunner {
     }
     this.lastFired.set(key, now);
 
+    // 発火確定 → platform 側へ即時通知 (slow な inject/headless を待たせない)。
+    // merge-pr は「local PR を試す → 無ければ GitHub 経路へ続行」と 2 段になるので、
+    // 二重通知しないよう 1 度だけ発火する形にまとめる。
+    let accepted = false;
+    const notifyAccept = (): void => {
+      if (accepted || !onAccept) return;
+      accepted = true;
+      try {
+        onAccept(action);
+      } catch (e) {
+        this.deps.log.warn(`reaction-workflow: onAccept failed: ${(e as Error).message}`);
+      }
+    };
+
     // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
     if (action === "channel-rename") {
-      // 発火確定通知
-      if (onAccept) try { onAccept(action); } catch { /* best-effort */ }
+      notifyAccept();
       await this.handleChannelRename(input);
       return;
+    }
+
+    // 📮 submit-pr: Revisor local PR の提出。 headless/inject は経由しない。
+    if (action === "submit-pr") {
+      notifyAccept();
+      await this.handleSubmitPr(input, onResult);
+      return;
+    }
+
+    // 🔀 merge-pr: 既定は Revisor local PR のマージ。 open な local PR が無いときだけ
+    // 従来の GitHub squash merge 経路 (プロンプト) へ落とす。 どちらを実行したかは
+    // handleMergePr が必ず応答に出す。
+    if (action === "merge-pr") {
+      notifyAccept();
+      const handledByLocalPr = await this.handleMergePr(input, onResult);
+      if (handledByLocalPr) return;
     }
 
     // 文脈は呼び出し側 (Discord/Slack bot) がプラットフォーム API で解決済。
@@ -1039,14 +1103,7 @@ export class ReactionWorkflowRunner {
       `cwd=${plan.cwd ?? "-"} dedupeKey=${input.dedupeKey} emoji=${input.emoji}`,
     );
 
-    // 発火確定 → platform 側へ即時通知 (slow な inject/headless を待たせない)。
-    if (onAccept) {
-      try {
-        onAccept(action);
-      } catch (e) {
-        this.deps.log.warn(`reaction-workflow: onAccept failed: ${(e as Error).message}`);
-      }
-    }
+    notifyAccept();
 
     try {
       if (plan.mode === "inject") {
@@ -1065,6 +1122,117 @@ export class ReactionWorkflowRunner {
         duration_ms: 0,
       }, onResult);
     }
+  }
+
+  /** PR 操作の結果を発火元へ返す。 相手が居ない構成でも例外にしない。 */
+  private relayPrResult(
+    action: WorkflowAction,
+    ok: boolean,
+    text: string,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+  ): void {
+    if (!onResult) return;
+    try {
+      onResult(action, { ok, text });
+    } catch (e) {
+      this.deps.log.warn(`reaction-workflow: pr result relay failed: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * 📮 submit-pr — 対象セッションの作業ブランチを Revisor local PR として提出する。
+   * 提出しなかった場合も理由を返す (無言スキップ禁止)。 実行者は必ずログに残す。
+   */
+  private async handleSubmitPr(
+    input: ReactionWorkflowInput,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+  ): Promise<void> {
+    const actor = { userId: input.userId };
+    if (!input.sessionId) {
+      this.deps.log.warn("reaction-workflow: submit-pr skipped (no sessionId — not a session channel)");
+      this.relayPrResult("submit-pr", false, describePrSubmitOutcome(
+        { ok: false, kind: "unavailable", reason: "no_session" },
+        actor,
+      ), onResult);
+      return;
+    }
+    if (!this.deps.prOperations) {
+      this.deps.log.warn("reaction-workflow: submit-pr skipped (prOperations not injected)");
+      this.relayPrResult("submit-pr", false, describePrSubmitOutcome(
+        { ok: false, kind: "unavailable", reason: "operations_unavailable" },
+        actor,
+      ), onResult);
+      return;
+    }
+    try {
+      const outcome = await this.deps.prOperations.submitLocalPr({ sessionId: input.sessionId, actor });
+      this.deps.log.info(
+        `reaction-workflow: submit-pr session=${input.sessionId.slice(0, 8)} actor=${input.userId} ` +
+        `kind=${outcome.kind}${outcome.ok ? "" : ` reason=${outcome.reason}`}`,
+      );
+      this.relayPrResult("submit-pr", outcome.ok, describePrSubmitOutcome(outcome, actor), onResult);
+    } catch (e) {
+      const detail = (e as Error).message;
+      this.deps.log.warn(`reaction-workflow: submit-pr failed: ${detail}`);
+      this.relayPrResult("submit-pr", false, describePrSubmitOutcome(
+        { ok: false, kind: "skipped", reason: "error", detail },
+        actor,
+      ), onResult);
+    }
+  }
+
+  /**
+   * 🔀 merge-pr の既定経路 — セッションが提出した open な Revisor local PR をマージする。
+   *
+   * 戻り値 true = ここで決着した (マージ済 / 権限不足 / マージ失敗)。 false = local PR が
+   * 無いので呼び出し側が従来の GitHub squash merge 経路へ落とす。 どちらの場合も
+   * 「どちらを実行するのか」を必ず応答に出す。
+   */
+  private async handleMergePr(
+    input: ReactionWorkflowInput,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+  ): Promise<boolean> {
+    const actor = { userId: input.userId };
+    if (!input.sessionId) {
+      this.deps.log.info("reaction-workflow: merge-pr local PR route skipped (no sessionId) → GitHub fallback");
+      this.relayPrResult("merge-pr", true, describeMergeFallback({
+        ok: false,
+        kind: "unavailable",
+        detail: "リアクション先がセッションチャンネルではないため、対象の local PR を特定できません",
+      }), onResult);
+      return false;
+    }
+    if (!this.deps.prOperations) {
+      this.deps.log.info("reaction-workflow: merge-pr local PR route skipped (prOperations not injected) → GitHub fallback");
+      this.relayPrResult("merge-pr", true, describeMergeFallback({
+        ok: false,
+        kind: "unavailable",
+        detail: "local PR のマージ経路がこの構成では有効になっていません",
+      }), onResult);
+      return false;
+    }
+
+    let outcome;
+    try {
+      outcome = await this.deps.prOperations.mergeLocalPr({ sessionId: input.sessionId, actor });
+    } catch (e) {
+      const detail = (e as Error).message;
+      this.deps.log.warn(`reaction-workflow: merge-pr local PR merge failed: ${detail}`);
+      this.relayPrResult("merge-pr", false, describePrMergeOutcome({ ok: false, kind: "failed", detail }, actor), onResult);
+      return true;
+    }
+
+    this.deps.log.info(
+      `reaction-workflow: merge-pr session=${input.sessionId.slice(0, 8)} actor=${input.userId} kind=${outcome.kind}`,
+    );
+    if (outcome.kind === "no_local_pr" || outcome.kind === "unavailable") {
+      // 経路を落とすこと自体を必ず伝える。 落ちた先 (GitHub 経路) は呼び出し側が実行する。
+      this.relayPrResult("merge-pr", true, describeMergeFallback(outcome), onResult);
+      return false;
+    }
+    // 権限不足はフォールバックしない — 権限の無い人が GitHub 経路で押し通せてはいけない。
+    this.relayPrResult("merge-pr", outcome.ok, describePrMergeOutcome(outcome, actor), onResult);
+    return true;
   }
 
   private async handleChannelRename(input: ReactionWorkflowInput): Promise<void> {
@@ -1140,7 +1308,8 @@ export class ReactionWorkflowRunner {
 }
 
 function shouldRelayHeadlessResult(action: WorkflowAction): boolean {
-  return action === "handoff-document";
+  // merge-pr は GitHub 経路へ落ちたときの実行結果まで返す (フォールバック先の顛末を隠さない)。
+  return action === "handoff-document" || action === "merge-pr";
 }
 
 function clipWorkflowRelayText(text: string, max = 1800): string {

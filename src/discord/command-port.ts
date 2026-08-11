@@ -8,6 +8,12 @@ import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.j
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { ModelReviewPort, RuntimeModelReviewApplyResult } from "../model-review/contracts.js";
 import type { WorkflowKey } from "../workflow/keys.js";
+import type { SessionPrPort } from "../pr/session-pr-operations.js";
+import type {
+  ReactionWorkflowInput,
+  WorkflowAction,
+  WorkflowResultRelay,
+} from "../platform/reaction-workflow.js";
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -45,8 +51,24 @@ export interface DiscordCommandDeps {
   /**
    * ワークフロー有効化フラグの都度解決。 コマンド登録は無効時に外すが、 guild 側に
    * 残った登録から実行されうるので dispatch でも同じ判定を通す (二段防御)。
-   */
+  */
   isWorkflowEnabled?: (key: WorkflowKey) => boolean;
+  /**
+   * PR 提出 / マージ操作パネルの実体。 リアクションワークフロー (📮 / 🔀) と同じ口を
+   * 使う。 未注入なら操作パネルは「使えない」と明示して返す (無言で何も起きない、にしない)。
+   */
+  prOperations?: SessionPrPort;
+  /**
+   * RWF アクション選択パネルからワークフローを起こす口。 絵文字リアクションと同じ
+   * runner を通すので、 権限判定・再発火抑制も共通になる。
+   */
+  reactionWorkflow?: {
+    handle(
+      input: ReactionWorkflowInput,
+      onAccept?: (action: WorkflowAction) => void,
+      onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+     ): Promise<void>;
+   };
 }
 
 export interface DiscordCommandSpec {

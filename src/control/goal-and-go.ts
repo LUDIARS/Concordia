@@ -3,6 +3,7 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import { shouldClearIdleNudgeFromFrame } from "./idle-nudge.js";
 import { describeGoal, readGoalFromMetadata, type Goal } from "./goal.js";
 import { parseRequesterSource } from "./requester.js";
+import { allowAutoInject, type PendingQuestionProbe } from "./pending-question-blocker.js";
 
 export const GOAL_AND_GO_SOURCE = "auto:goal-and-go";
 
@@ -24,6 +25,11 @@ const DEFAULT_STATUS: GoalAndGoStatus = {
 
 export interface StartGoalAndGoOptions {
   repo: SessionsRepo;
+  /**
+   * 未回答の質問があるセッションは自走継続しない (blocker)。未注入なら従来どおり継続。
+   * @see ./pending-question-blocker.js
+   */
+  hasPendingQuestion?: PendingQuestionProbe;
   seconds: number;
   maxContinuations: number;
   maxRuntimeSec: number;
@@ -158,6 +164,13 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     if (!session || session.status !== "active") return;
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled || status.stopped_reason !== null) return;
+    // 人間の回答待ちなら自走しない。continuation_count も消費せず、回答後の継続を残す。
+    if (!allowAutoInject({
+      probe: opts.hasPendingQuestion,
+      sessionId,
+      source: GOAL_AND_GO_SOURCE,
+      log: opts.log,
+    })) return;
     const at = now();
     if (status.continuation_count >= maxContinuations) {
       markStopped(sessionId, status, "continuation_limit");

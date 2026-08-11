@@ -59,6 +59,41 @@ describe("finishAutonomousTaskflow", () => {
     unsubscribe();
   });
 
+  it("未回答の質問がある間は完了お伺いを送らず、記録も残さない", () => {
+    const row = session("claude-code");
+    const events: Array<{ kind: string; payload: string }> = [];
+    const sessions = {
+      findSession: vi.fn(() => row),
+      recentEvents: vi.fn(() => events),
+      appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
+    };
+    const emitted: string[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject") emitted.push(event.text);
+    });
+
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      goalOutcome: "open",
+      residualOutcome: "none",
+      hasPendingQuestion: () => true,
+    })).toBe(false);
+    expect(emitted).toHaveLength(0);
+    expect(sessions.appendEvent).not.toHaveBeenCalled();
+
+    // 回答が付けば、次の周回で本来どおり送られる (記録を残していないので抑止されない)。
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      goalOutcome: "open",
+      residualOutcome: "none",
+      hasPendingQuestion: () => false,
+    })).toBe(true);
+    expect(emitted).toHaveLength(1);
+    unsubscribe();
+  });
+
   it.each([
     ["next-task", "open"],
     ["decompose", "open"],

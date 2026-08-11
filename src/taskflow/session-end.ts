@@ -3,6 +3,7 @@ import type { GoalMachineOutcome } from "./goal-machine.js";
 import type { ResidualOutcome } from "./residual-blackbox.js";
 import { readGoalAndGoStatus } from "../control/goal-and-go.js";
 import { eventBus } from "../events.js";
+import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 
 const INQUIRY_INJECT_SOURCE = "auto:inquiry";
 const PART_TIMER_CATEGORY = "パートタイマー";
@@ -40,6 +41,8 @@ export function finishAutonomousTaskflow(input: {
   goalOutcome: GoalMachineOutcome;
   residualOutcome: ResidualOutcome;
   nowSec?: () => number;
+  /** 未回答の質問があるセッションには完了お伺いを送らない (blocker)。 */
+  hasPendingQuestion?: PendingQuestionProbe;
 }): boolean {
   const session = input.sessions.findSession(input.sessionId);
   if (!session || !shouldEndAutonomousTaskflow({
@@ -48,6 +51,12 @@ export function finishAutonomousTaskflow(input: {
     goalAndGoEnabled: readGoalAndGoStatus(session.metadata).enabled,
   })) return false;
   if (hasRecordedInquiry(input.sessions, input.sessionId)) return false;
+  // 回答待ちの間は完了お伺いを送らない (記録も残さないので、回答後に改めて送られる)。
+  if (!allowAutoInject({
+    probe: input.hasPendingQuestion,
+    sessionId: input.sessionId,
+    source: INQUIRY_INJECT_SOURCE,
+  })) return false;
 
   const text = "作業完了のお伺いです。残タスクを確認し、残タスクが無ければ session-end を実行してください。終了は自分で判断してください。";
   // 記録と emit で ts がずれないよう 1 回だけ読む。

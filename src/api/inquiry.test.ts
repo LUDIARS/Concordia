@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { inquiryRouter } from "./inquiry.js";
 import type { GeniusClient } from "../inquiry/genius-client.js";
+import { eventBus } from "../events.js";
+import type { PendingQuestionProbe } from "../control/pending-question-blocker.js";
 
 function appWith(input: {
   genius: GeniusClient;
   metadata?: string | null;
   now?: () => number;
+  hasPendingQuestion?: PendingQuestionProbe;
 }) {
   return inquiryRouter({
     sessions: {
@@ -15,6 +18,7 @@ function appWith(input: {
     config: { inquiryScoreMin: 0.6, inquiryCacheSec: 60, defaultSupervisor: "" } as never,
     genius: input.genius,
     now: input.now,
+    hasPendingQuestion: input.hasPendingQuestion,
   });
 }
 
@@ -68,6 +72,22 @@ describe("POST /v1/inquiry", () => {
     const response = await post(app, {});
 
     await expect(response.json()).resolves.toMatchObject({ decision: "ask_human" });
+  });
+
+  it("does not inject an automatic inquiry while a question is unanswered", async () => {
+    const app = appWith({
+      genius: { query: async () => null },
+      hasPendingQuestion: () => true,
+    });
+    const injected: string[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === "auto:inquiry") injected.push(event.text);
+    });
+
+    await post(app, {});
+
+    expect(injected).toEqual([]);
+    unsubscribe();
   });
 
   it("serves the cached record for the same (session, category) within the window", async () => {

@@ -132,6 +132,31 @@ describe("startGoalAndGo", () => {
     unsubscribe();
   });
 
+  it("does not continue while an unanswered question blocks the session", async () => {
+    // 未回答の ask カードがある間に自走継続を流すと、モデルが自分の質問に自分で答える。
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      hasPendingQuestion: () => true,
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+      now: () => 100,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次のタスク", ts: 1 });
+
+    expect(injected).toHaveLength(0);
+    // 継続回数も消費しない — 回答後に本来の回数だけ自走できる。
+    expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(0);
+    handle.stop();
+    unsubscribe();
+  });
+
   it("does nothing while the session flag is OFF", async () => {
     vi.useFakeTimers();
     const env = fakeRepo(null);

@@ -7,6 +7,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { TaskMdStore } from "../taskflow/md-store.js";
 import { injectDecompositionWhenMissing } from "../taskflow/decompose-inject.js";
+import type { PendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
@@ -172,6 +173,8 @@ export interface DelegationApiDeps {
     setDelegationMaxConcurrency: (value: number) => void;
   };
   taskStore?: TaskMdStore;
+  /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
+  hasPendingQuestion?: PendingQuestionProbe;
   onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
   syncForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
@@ -569,7 +572,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       void deps.queue?.drain();
     }
     if (updated.status === "completed" && deps.sessions && deps.taskStore) {
-      void injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore });
+      void injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
     }
     if (updated.status === "completed") void deps.onTaskflowCompleted?.(updated);
     return c.json({ ok: true, run: serializeRun(updated) });

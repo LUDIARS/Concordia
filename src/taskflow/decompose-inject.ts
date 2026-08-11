@@ -2,6 +2,7 @@ import { eventBus } from "../events.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { TaskMdStore } from "./md-store.js";
+import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 
 export const DECOMPOSE_PROMPT = [
   "作業内容を task-workflow spec §2.1 の frontmatter 形式で、対象リポの spec/tasks/ に分解保存してください。",
@@ -32,6 +33,8 @@ export async function injectDecompositionWhenMissing(input: {
   run: DelegationRunRow;
   sessions: SessionsRepo;
   store: TaskMdStore;
+  /** 未回答の質問があるセッションには分解プロンプトを送らない (blocker)。 */
+  hasPendingQuestion?: PendingQuestionProbe;
 }): Promise<boolean> {
   if (injectedRuns.has(input.run.id)) return false;
   let args: Record<string, unknown> = {};
@@ -47,6 +50,12 @@ export async function injectDecompositionWhenMissing(input: {
     injectedRuns.add(input.run.id);
     return false;
   }
+  // 回答待ちの間は送らない。injectedRuns にも入れないので、回答後に改めて送られる。
+  if (!allowAutoInject({
+    probe: input.hasPendingQuestion,
+    sessionId: target,
+    source: `taskflow:${input.run.id}:decompose`,
+  })) return false;
   injectedRuns.add(input.run.id);
   input.sessions.appendEvent({ session_id: target, ts: Math.floor(Date.now() / 1000), kind: "inject", payload: { text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose` } });
   eventBus.emit({ type: "session.inject", target_session_id: target, text: DECOMPOSE_PROMPT, source: `taskflow:${input.run.id}:decompose`, ts: Math.floor(Date.now() / 1000) });

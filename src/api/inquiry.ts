@@ -10,6 +10,7 @@ import { CatalogGeniusClient, type GeniusClient } from "../inquiry/genius-client
 import { decideInquiry, geniusCategories, isInquiryCategory, type InquiryDecision } from "../inquiry/decision.js";
 import { resolveSupervisor } from "../inquiry/supervisor.js";
 import { ExcubitorClient } from "../excubitor/client.js";
+import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 
 const RequestSchema = z.object({
   session_id: z.string().min(1),
@@ -44,6 +45,8 @@ export function inquiryRouter(deps: {
   delegation?: DelegationRepo;
   genius?: GeniusClient;
   now?: () => number;
+  /** 未回答の質問があるセッションには自動 inject を返さない (blocker)。 */
+  hasPendingQuestion?: PendingQuestionProbe;
 }): Hono {
   const app = new Hono();
   const records = new Map<string, InquiryRecord>();
@@ -125,7 +128,13 @@ export function inquiryRouter(deps: {
     // 作業完了時の自動お伺い (spec §6): タスク カテゴリだけは応答の instruction を
     // そのままセッションへ流す。 auto:inquiry は requester inject ではないので
     // idle の clear 契機にならない。
-    if (category === "タスク") {
+    // 未回答の質問が残っているセッションへは「進め」を返さない。 record は返すので
+    // 呼び出し側は判断結果を読めるが、 pty へは流さない (回答するまで止まる)。
+    if (category === "タスク" && allowAutoInject({
+      probe: deps.hasPendingQuestion,
+      sessionId: input.session_id,
+      source: "auto:inquiry",
+    })) {
       eventBus.emit({
         type: "session.inject",
         target_session_id: input.session_id,

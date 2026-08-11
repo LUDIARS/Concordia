@@ -10,6 +10,7 @@ import { findSessionLocalPr, findSessionPr, runGoalMachine } from "./goal-machin
 import { checkResidual } from "./residual-blackbox.js";
 import { eventBus } from "../events.js";
 import { finishAutonomousTaskflow } from "./session-end.js";
+import type { PendingQuestionProbe } from "../control/pending-question-blocker.js";
 
 export interface TaskflowRuntimeDeps {
   db: Database.Database;
@@ -21,6 +22,8 @@ export interface TaskflowRuntimeDeps {
   /** Revisor local PR の読み取り口。 未注入なら GitHub PR のみで判断する (従来互換)。 */
   revisor?: RevisorLocalPrReader;
   mentionUserId: () => string | null;
+  /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
+  hasPendingQuestion?: PendingQuestionProbe;
 }
 
 export class TaskflowRuntime {
@@ -31,8 +34,8 @@ export class TaskflowRuntime {
     const sessionId = run.child_session_id ?? run.parent_session_id;
     if (!sessionId) return;
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
-    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome });
+    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 
   start(): { stop(): void } {
@@ -62,8 +65,8 @@ export class TaskflowRuntime {
       : null;
     if (pr?.state !== "merged" && localPr?.status !== "merged") return;
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
-    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome });
+    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 
   private async handleInteractiveCompletion(sessionId: string): Promise<void> {
@@ -96,7 +99,7 @@ export class TaskflowRuntime {
     if (decision.verdict !== "completed") return;
     eventBus.emit({ type: "taskflow.completion_detected", session_id: sessionId, pr_number: pr?.number ?? null, outcome: pr?.state ?? "unknown", decision_id: decision.decisionId, ts: Math.floor(Date.now() / 1000) });
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
-    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId() });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome });
+    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 }

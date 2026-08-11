@@ -11,7 +11,7 @@ tags:
   - autonomous
   - safety
 status: implemented
-updated: 2026-07-13
+updated: 2026-08-11
 related:
   - feature/task-workflow.md
 ---
@@ -49,6 +49,25 @@ opt-inしたAIセッション自身の自走継続につなげる。
   内包せず、待機・opt-in・安全上限を決定論的に管理する。
 - 続行は既存の`session.inject`経路を使う。新しいセッションは作らない。
 
+## 未回答の質問は blocker (2026-08-11)
+
+セッションが ask カードを出して人間の判断を待っている間は、**自走継続を送らない**。
+
+- 判定の正本は `discord_pending_questions` の未回答行
+  (`findLatestUnanswered`)。ask マーカー / picker / WebUI のどの経路で出した質問でも同じ。
+- 送らなかった場合、`continuation_count` も消費しない。回答が付けば本来の回数だけ自走できる。
+- 同じ blocker を taskflow の自動 inject (分解プロンプト / 完了お伺い) と
+  `POST /v1/inquiry` のタスク自動 inject にも適用する
+  (`src/control/pending-question-blocker.ts`)。
+- **止めないもの**: 人間の発言 (Discord/Slack チャット)、回答そのもの
+  (`answer-question`)、終了指示 (`auto:session-end`)。
+- 取りこぼしは Lictor 側の pending-question gate が pty 直前で保留する
+  (`Lictor/spec/feature/askquestion-pending-gate.md`)。Cc 側は「そもそも送らない」層。
+
+**なぜ必要か**: 自動 inject は pty には user メッセージとして届く。質問が開いたまま
+これを流すと、モデルは自分の質問に自分で答えて先へ進んでしまい、人間から見ると
+「答えていないのに勝手に決まった」状態になる。
+
 ## 暴走防止
 
 - 人間入力1サイクル当たり既定6回まで
@@ -68,3 +87,4 @@ opt-inしたAIセッション自身の自走継続につなげる。
 - [x] 人間入力はタイマを解除し、安全予算をリセットする。
 - [x] 回数・時間上限を超えてinjectしない。
 - [x] APIとdelegation runtime optionからopt-inできる。
+- [x] 未回答の質問があるセッションへは自走継続injectを送らず、継続回数も消費しない。

@@ -106,6 +106,7 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
 import { inquiryRouter } from "./inquiry.js";
+import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { directorRouter } from "./director.js";
 import type { DirectorService } from "../director/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
@@ -202,6 +203,8 @@ export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
 
 export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   const sessionSpawn = deps.sessionSpawn ?? spawnSession;
+  // 未回答の質問は blocker: 回答が来るまで自動 inject を出さない。
+  const hasPendingQuestion = pendingQuestionProbe(deps.pendingQuestions);
   // ワークフローに属する API は、 設定で無効なら 404 ではなく 409 + 理由を返す。
   // 判定はリクエストごとの都度解決なので、 設定変更が再起動なしで次から効く。
   const gate = (key: Parameters<typeof workflowGate>[0]) =>
@@ -328,9 +331,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     taskStore: deps.taskStore,
     onTaskflowCompleted: deps.onTaskflowCompleted,
     syncForumTags: deps.syncDiscordForumTags,
+    hasPendingQuestion,
   }));
   app.route("/v1/model-catalog", modelCatalogRouter({ repo: deps.modelCatalog }));
-  app.route("/v1/inquiry", inquiryRouter({ sessions: deps.repo, config: deps.config, delegation: deps.delegation }));
+  app.route("/v1/inquiry", inquiryRouter({
+    sessions: deps.repo,
+    config: deps.config,
+    delegation: deps.delegation,
+    hasPendingQuestion,
+  }));
   if (deps.testingClaims) {
     app.route("/v1/testing", testingRouter({ claims: deps.testingClaims, sessions: deps.repo }));
   }

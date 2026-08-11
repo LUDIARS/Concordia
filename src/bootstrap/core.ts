@@ -69,6 +69,7 @@ import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
+import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { startAutoCompaction } from "../control/auto-compaction.js";
 import { runCompaction, makeCompactionIO } from "../control/compaction.js";
 import { MetricsStore } from "../metrics/store.js";
@@ -548,6 +549,8 @@ export async function startBackend(): Promise<BackendHandle> {
     // Revisor 運用 (GitHub PR を作らない) でもゴール判断が空転しないよう local PR を見る。
     revisor: revisorClient,
     mentionUserId: () => adminState.getMentionUserId(),
+    // 未回答の質問は blocker: 回答が来るまで taskflow の自動 inject を出さない。
+    hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
   });
 
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
@@ -1177,6 +1180,8 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(
       startGoalAndGo({
         repo,
+        // 人間の回答待ちのセッションは自走継続しない (未回答質問が blocker)。
+        hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
         seconds: cfg.goalAndGoIdleSec,
         maxContinuations: cfg.goalAndGoMaxContinuations,
         maxRuntimeSec: cfg.goalAndGoMaxRuntimeSec,

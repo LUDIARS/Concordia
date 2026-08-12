@@ -54,6 +54,18 @@ describe("TaskflowStateStore", () => {
     expect(() => store.recordMemoriaTaskId(document, 43)).toThrow("claim is not active");
   });
 
+  it("rejects non-positive and unsafe numeric Memoria IDs without consuming the claim", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskflowStateStore(db);
+    const document = task({});
+
+    expect(store.claimMemoriaCreation(document)).toBe(true);
+    expect(() => store.recordMemoriaTaskId(document, -1)).toThrow("positive integer");
+    expect(() => store.recordMemoriaTaskId(document, Number.MAX_SAFE_INTEGER + 1)).toThrow("positive integer");
+    store.recordMemoriaTaskId(document, 42);
+  });
+
   it("releases a definitely failed registration for a later retry", () => {
     const db = new Database(":memory:");
     applyMigrations(db);

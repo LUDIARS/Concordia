@@ -22,12 +22,16 @@ export function parseTaskMarkdown(
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(content);
   if (!match) return null;
   try {
-    const value = yaml.load(match[1]!) as unknown;
+    // JSON_SCHEMA keeps unquoted ISO dates as strings, matching TaskFrontmatter.created.
+    const value = yaml.load(match[1]!, { schema: yaml.JSON_SCHEMA }) as unknown;
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const fm = value as TaskFrontmatter;
-    if (typeof fm.task !== "string" || typeof fm.project !== "string" || typeof fm.kind !== "string") return null;
     const created = fm.created as unknown;
     if (created instanceof Date) fm.created = created.toISOString().slice(0, 10);
+    if (!nonEmptyString(fm.task) || !nonEmptyString(fm.project) || !nonEmptyString(fm.kind) || !nonEmptyString(fm.created)) return null;
+    if (fm.memory_links !== undefined && (
+      !Array.isArray(fm.memory_links) || fm.memory_links.some((link) => !nonEmptyString(link))
+    )) return null;
     if (fm.status !== undefined && !isTaskStatus(fm.status)) {
       onInvalid?.("legacy task status is invalid");
       return null;
@@ -102,7 +106,12 @@ export class TaskMdStore {
         if (!(await isMainClone(repoPath))) continue;
         const tasksDir = join(repoPath, "spec", "tasks");
         let files: string[];
-        try { files = (await readdir(tasksDir)).filter((name) => name.endsWith(".md")); } catch { continue; }
+        try {
+          // A committed symlink must not let task scanning read outside spec/tasks.
+          files = (await readdir(tasksDir, { withFileTypes: true }))
+            .filter((candidate) => candidate.isFile() && candidate.name.endsWith(".md"))
+            .map((candidate) => candidate.name);
+        } catch { continue; }
         for (const file of files) {
           const path = join(tasksDir, file);
           let content: string;
@@ -115,13 +124,13 @@ export class TaskMdStore {
           const parsed = parseTaskMarkdown(content, path, (reason) =>
             this.warnOnce(path, "invalid task frontmatter skipped", { error: reason }),
           );
-          if (parsed) {
-            const document = { ...parsed, repoPath };
-            documents.push(this.state ? { ...document, runtime: this.state.readOrMigrate(document) } : document);
-            this.warnedPaths.delete(path); // 直ったら次の失敗はまた報告する
-          } else {
+          if (!parsed) {
             this.warnOnce(path, "invalid task markdown skipped");
+            continue;
           }
+          const document = { ...parsed, repoPath };
+          documents.push(this.state ? { ...document, runtime: this.state.readOrMigrate(document) } : document);
+          this.warnedPaths.delete(path); // 直ったら次の失敗はまた報告する
         }
       }
     }
@@ -154,4 +163,8 @@ export class TaskMdStore {
   relativePath(document: TaskDocument): string {
     return relative(document.repoPath, document.path).replace(/\\/g, "/");
   }
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }

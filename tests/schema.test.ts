@@ -189,6 +189,65 @@ describe("schema", () => {
   });
 });
 
+describe("migration 60: taskflow runtime-state constraints", () => {
+  it("upgrades an applied v54 table without changing its migration checksum", () => {
+    const db = makeRawTestDb();
+    db.exec(`
+      CREATE TABLE schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        checksum TEXT NOT NULL,
+        applied_at INTEGER NOT NULL
+      );
+      CREATE TABLE taskflow_task_state (
+        repo_path TEXT NOT NULL,
+        task_path TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        source_session TEXT,
+        assignee TEXT,
+        owner TEXT,
+        delegation_run_id TEXT,
+        pr_number INTEGER,
+        memoria_task_id TEXT,
+        actio_task_id TEXT,
+        memoria_registration_state TEXT NOT NULL DEFAULT 'idle',
+        updated_at INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (repo_path, task_path)
+      );
+      INSERT INTO taskflow_task_state VALUES
+        ('E:/repo', 'spec/tasks/valid.md', 'delegated', NULL, NULL, NULL, NULL, 367, 'memoria-1', NULL, 'created', 1),
+        ('E:/repo', 'spec/tasks/legacy.md', 'invalid', NULL, NULL, NULL, NULL, 0, NULL, NULL, 'created', 2);
+    `);
+    const v54 = {
+      version: 54,
+      name: "taskflow-runtime-state",
+      source: "taskflow_task_state v1",
+    };
+    db.prepare(`
+      INSERT INTO schema_migrations(version, name, checksum, applied_at) VALUES (?, ?, ?, ?)
+    `).run(v54.version, v54.name, migrationChecksum(v54), 1);
+
+    applyMigrations(db);
+
+    expect(db.prepare(`
+      SELECT status, pr_number, memoria_task_id, memoria_registration_state
+        FROM taskflow_task_state WHERE task_path = 'spec/tasks/valid.md'
+    `).get()).toEqual({
+      status: "delegated", pr_number: 367, memoria_task_id: "memoria-1", memoria_registration_state: "created",
+    });
+    expect(db.prepare(`
+      SELECT status, pr_number, memoria_task_id, memoria_registration_state
+        FROM taskflow_task_state WHERE task_path = 'spec/tasks/legacy.md'
+    `).get()).toEqual({
+      status: "pending", pr_number: null, memoria_task_id: null, memoria_registration_state: "idle",
+    });
+    expect(() => db.prepare(`
+      INSERT INTO taskflow_task_state(repo_path, task_path, status, memoria_registration_state)
+      VALUES ('E:/repo', 'spec/tasks/bad.md', 'paused', 'idle')
+    `).run()).toThrow();
+  });
+});
+
 // migration 44 は「旧リアクションWF allowlist → 社員名簿の管理職」の一度きりの移行。
 // ここが落ちるとアップグレード直後に spawn / 発火できる人間が 0 人になるので、
 // 取り込み・`*` 破棄・env フォールバックの 3 点を固定する

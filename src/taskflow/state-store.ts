@@ -8,7 +8,10 @@ type TaskRuntimeRow = Omit<TaskRuntimeState, "memoria_registration_state"> & {
   memoria_registration_state: TaskRuntimeState["memoria_registration_state"];
 };
 
-/** Runtime state is intentionally separate from versioned task Markdown. */
+/**
+ * Runtime state is intentionally separate from versioned task Markdown.
+ * @implements spec/feature/task-workflow.md — 2.2 登録 (reconcile)
+ */
 export class TaskflowStateStore {
   constructor(
     private readonly db: Database.Database,
@@ -75,12 +78,14 @@ export class TaskflowStateStore {
    */
   recordMemoriaTaskId(document: TaskDocument, id: string | number): void {
     const key = taskKey(document);
+    const normalizedId = externalId(id);
+    if (normalizedId === null) throw new Error("Memoria task ID must be a non-empty string or positive integer");
     const result = this.db.prepare(`
       UPDATE taskflow_task_state
          SET memoria_task_id = ?, memoria_registration_state = 'created', updated_at = ?
        WHERE repo_path = ? AND task_path = ?
-         AND memoria_registration_state = 'creating'
-    `).run(String(id), this.now(), key.repoPath, key.taskPath);
+         AND memoria_task_id IS NULL AND memoria_registration_state = 'creating'
+    `).run(normalizedId, this.now(), key.repoPath, key.taskPath);
     if (result.changes !== 1) {
       throw new Error(`Memoria task ID cannot be recorded because the claim is not active: ${key.taskPath}`);
     }
@@ -112,7 +117,7 @@ function legacyRuntime(frontmatter: TaskDocument["frontmatter"]): Omit<TaskRunti
 }
 
 function taskStatus(value: unknown): TaskStatus {
-  if (value === undefined) return "pending";
+  if (value === undefined || value === null) return "pending";
   if (isTaskStatus(value)) return value;
   throw new Error("legacy task status is invalid");
 }
@@ -122,12 +127,13 @@ function stringValue(value: unknown): string | null {
 }
 
 function externalId(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : typeof value === "number" ? String(value) : null;
+  if (typeof value === "string") return value.trim() || null;
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? String(value) : null;
 }
 
 function positiveInteger(value: unknown): number | null {
   const number = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value.trim()) ? Number(value) : NaN;
-  return Number.isInteger(number) && number > 0 ? number : null;
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
 function normalizePath(value: string): string {

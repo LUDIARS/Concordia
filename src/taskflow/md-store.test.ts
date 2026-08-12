@@ -67,6 +67,14 @@ describe("TaskMdStore.scan", () => {
     expect(parseTaskMarkdown(validTaskMarkdown())?.frontmatter.created).toBe("2026-08-03");
   });
 
+  it("rejects incomplete frontmatter and malformed memory links", () => {
+    expect(parseTaskMarkdown(validTaskMarkdown().replace("task: fixture", "task:  "))).toBeNull();
+    expect(parseTaskMarkdown(validTaskMarkdown().replace(
+      "memoria_task_id: null",
+      "memory_links: [valid, '']",
+    ))).toBeNull();
+  });
+
   it("invalid legacy status is skipped instead of becoming a pending task", async () => {
     await writeFile(broken, validTaskMarkdown().replace("status: pending", "status: paused"), "utf8");
     const store = new TaskMdStore(() => [root], { warn });

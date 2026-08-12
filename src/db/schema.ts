@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 59;
+export const SCHEMA_VERSION = 60;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1538,6 +1538,61 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, fail_count INTEGER NOT NULL DEFAULT 0, disabled_at INTEGER
       );
       CREATE INDEX IF NOT EXISTS idx_web_push_subscriptions_client ON web_push_subscriptions(client_id, disabled_at);
+    `);
+  },
+}, {
+  version: 60,
+  name: "taskflow-runtime-state-constraints",
+  source: "taskflow_task_state v2 status/PR/Memoria constraints",
+  up(db) {
+    // Migration 54 is already applied in deployed databases. Rebuild rather than edit it so
+    // the migration ledger remains valid and existing rows gain the new invariants.
+    db.exec(`
+      CREATE TABLE taskflow_task_state_v60 (
+        repo_path                    TEXT NOT NULL,
+        task_path                    TEXT NOT NULL,
+        status                       TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'delegated', 'done', 'cancelled')),
+        source_session               TEXT,
+        assignee                     TEXT,
+        owner                        TEXT,
+        delegation_run_id            TEXT,
+        pr_number                    INTEGER
+          CHECK (pr_number IS NULL OR (typeof(pr_number) = 'integer' AND pr_number > 0)),
+        memoria_task_id              TEXT,
+        actio_task_id                TEXT,
+        memoria_registration_state   TEXT NOT NULL DEFAULT 'idle'
+          CHECK (memoria_registration_state IN ('idle', 'creating', 'created')),
+        updated_at                   INTEGER NOT NULL DEFAULT 0,
+        CHECK ((memoria_registration_state = 'created') = (memoria_task_id IS NOT NULL)),
+        PRIMARY KEY (repo_path, task_path)
+      );
+      INSERT INTO taskflow_task_state_v60(
+        repo_path, task_path, status, source_session, assignee, owner, delegation_run_id,
+        pr_number, memoria_task_id, actio_task_id, memoria_registration_state, updated_at
+      )
+      SELECT
+        repo_path,
+        task_path,
+        CASE WHEN status IN ('pending', 'delegated', 'done', 'cancelled') THEN status ELSE 'pending' END,
+        source_session,
+        assignee,
+        owner,
+        delegation_run_id,
+        CASE WHEN typeof(pr_number) = 'integer' AND pr_number > 0 THEN pr_number ELSE NULL END,
+        memoria_task_id,
+        actio_task_id,
+        CASE
+          WHEN memoria_task_id IS NOT NULL THEN 'created'
+          WHEN memoria_registration_state = 'creating' THEN 'creating'
+          ELSE 'idle'
+        END,
+        updated_at
+      FROM taskflow_task_state;
+      DROP TABLE taskflow_task_state;
+      ALTER TABLE taskflow_task_state_v60 RENAME TO taskflow_task_state;
+      CREATE INDEX idx_taskflow_task_state_status
+        ON taskflow_task_state(status, updated_at DESC);
     `);
   },
 }, {

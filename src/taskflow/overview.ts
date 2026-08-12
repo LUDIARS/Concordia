@@ -115,7 +115,7 @@ function resolveTaskPr(
   sessionId: string | null,
   prs: readonly PrRecordRow[],
 ): PrRecordRow | null {
-    const explicitNumber = document.runtime?.pr_number ?? null;
+  const explicitNumber = document.runtime?.pr_number ?? null;
   if (explicitNumber !== null) {
     const repoMatches = prs.filter((pr) => sameRepo(document, session, pr));
     return repoMatches.find((pr) => pr.number === explicitNumber)

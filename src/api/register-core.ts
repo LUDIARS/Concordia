@@ -110,6 +110,7 @@ import { runWsCleanup } from "../control/ws-cleanup.js";
 import { runSessionEndFlow } from "../control/end-session-flow.js";
 import { startDetachedBackendRestart } from "../control/backend-restart.js";
 import type { TaskMdStore } from "../taskflow/md-store.js";
+import type { TaskflowStateStore } from "../taskflow/state-store.js";
 import { taskflowRouter } from "./taskflow.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
@@ -200,6 +201,8 @@ export interface CoreRuntimeDeps {
   /** 設定レジストリが Slack 設定を読み書きするために使う。 未注入なら Slack 設定は env / 既定のみ。 */
   slackConfig?: SlackConfigRepo;
   taskStore: TaskMdStore;
+  /** taskflow runtime state の書き込み口 (PATCH /v1/taskflow/tasks/state)。 */
+  taskflowState: TaskflowStateStore;
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
   /** Direct interactive session launcher. Tests inject a host-independent stub. */
@@ -317,6 +320,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   }
   app.route("/v1/taskflow", taskflowRouter({
     store: deps.taskStore,
+    state: deps.taskflowState,
     sessions: deps.repo,
     delegation: deps.delegation,
     prs: deps.prs,

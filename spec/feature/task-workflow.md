@@ -135,6 +135,17 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 - Memoria 登録の開始 claim も state に永続化する。登録結果が不明な通信失敗では claim を保持して再 POST せず、
   同じ task の重複作成を防ぐ。
 - 接続拒否など HTTP request が Memoria に到達していないと確定できる失敗だけは claim を解除し、次の tick で再試行する。
+- **状態遷移の write 経路は `PATCH /v1/taskflow/tasks/state`**
+  (`{repo_path, task_path, status?, assignee?, owner?, source_session?, delegation_run_id?, pr_number?}`)。
+  md へ書き戻さない運用にした結果、移行 INSERT 以外に状態を進める手段が無く、全タスクが移行時点の
+  status で凍結して done / cancelled へ到達できなくなっていた (delegation #797 レビュー High)。
+  未指定フィールドは変更せず、明示 `null` は消去。行が無い task は 404 (md が正本なので state だけ先に作らない)。
+- **rename / 移動は slug で引き継ぐ。** state の主キーは `(repo_path, task_path)` なので、ファイル名を
+  変えると新規行になり status を失い、`memoria_registration_state=idle` から再 claim して Memoria へ
+  二重登録される。同じリポに同じ `task` slug の行が **1 件だけ** あれば、その行を新しい task_path へ
+  付け替える (複数あるときは触らない — 別タスクの `memoria_task_id` を奪うため)。
+  付け替え後は旧行を残さない。scan に現れない孤児行は reconcile の対象外なので放置してよい
+  (reconcile は走査で見つかった md からしか動かない)。
 - Memoria が落ちていても md は正本としてそのまま使える。 復帰後の tick で後追い登録される
   (= 「サービスが死んでいるときも動作」の実現)。
 - backend は interface (`TaskBackend`) で抽象化する。 今回は Memoria 実装のみ。

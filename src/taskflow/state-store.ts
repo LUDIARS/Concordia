@@ -8,6 +8,22 @@ type TaskRuntimeRow = Omit<TaskRuntimeState, "memoria_registration_state"> & {
   memoria_registration_state: TaskRuntimeState["memoria_registration_state"];
 };
 
+/** state 行の同定キー。 repo は絶対パス、 task は repo からの相対パス。 */
+export interface TaskStateKey {
+  repoPath: string;
+  taskPath: string;
+}
+
+/** 更新可能な runtime 値。 undefined のフィールドは変更しない。 */
+export interface TaskRuntimePatch {
+  status?: TaskStatus;
+  assignee?: string | null;
+  owner?: string | null;
+  source_session?: string | null;
+  delegation_run_id?: string | null;
+  pr_number?: number | null;
+}
+
 /**
  * Runtime state is intentionally separate from versioned task Markdown.
  * @implements spec/feature/task-workflow.md — 2.2 登録 (reconcile)
@@ -22,26 +38,92 @@ export class TaskflowStateStore {
 
   readOrMigrate(document: TaskDocument): TaskRuntimeState {
     const key = taskKey(document);
-    const existing = this.db.prepare(`
-      SELECT status, source_session, assignee, owner, delegation_run_id, pr_number,
-             memoria_task_id, actio_task_id, memoria_registration_state
-        FROM taskflow_task_state WHERE repo_path = ? AND task_path = ?
-    `).get(key.repoPath, key.taskPath) as TaskRuntimeRow | undefined;
+    const existing = this.read(key);
     if (existing) return existing;
+
+    // rename / 移動で task_path が変わっただけなら、同じリポの同じ slug の行を引き継ぐ。
+    // 新規行として扱うと status が失われ、 memoria_registration_state が idle に戻って
+    // 同じタスクが Memoria へ二重登録される (旧実装は memoria_task_id が md と一緒に
+    // 移動していたので起きなかった後退)。
+    const slug = taskSlug(document);
+    if (slug && this.rekeyBySlug(key, slug)) {
+      const carried = this.read(key);
+      if (carried) return carried;
+    }
 
     const legacy = legacyRuntime(document.frontmatter);
     this.db.prepare(`
       INSERT INTO taskflow_task_state(
-        repo_path, task_path, status, source_session, assignee, owner, delegation_run_id,
+        repo_path, task_path, task_slug, status, source_session, assignee, owner, delegation_run_id,
         pr_number, memoria_task_id, actio_task_id, memoria_registration_state, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repo_path, task_path) DO NOTHING
     `).run(
-      key.repoPath, key.taskPath, legacy.status, legacy.source_session, legacy.assignee, legacy.owner,
+      key.repoPath, key.taskPath, slug, legacy.status, legacy.source_session, legacy.assignee, legacy.owner,
       legacy.delegation_run_id, legacy.pr_number, legacy.memoria_task_id, legacy.actio_task_id,
       legacy.memoria_task_id ? "created" : "idle", this.now(),
     );
     return this.readOrMigrate(document);
+  }
+
+  /**
+   * runtime state を更新する唯一の書き込み口。
+   *
+   * md へ status を書き戻さない運用にした結果、 状態を進める手段が移行 INSERT しか
+   * 無くなり、 全タスクが移行時点の status に凍結されていた (delegation #797 レビュー High)。
+   * done / cancelled へ到達できず、 residual-blackbox が完了済みタスクを再提案し続ける。
+   *
+   * 渡されなかったフィールドは変更しない。 行が無ければ false。
+   */
+  update(key: TaskStateKey, patch: TaskRuntimePatch): boolean {
+    const columns: string[] = [];
+    const values: unknown[] = [];
+    for (const [column, value] of Object.entries(patch)) {
+      if (value === undefined) continue;
+      columns.push(`${column} = ?`);
+      values.push(value);
+    }
+    if (columns.length === 0) return false;
+    const result = this.db.prepare(`
+      UPDATE taskflow_task_state
+         SET ${columns.join(", ")}, updated_at = ?
+       WHERE repo_path = ? AND task_path = ?
+    `).run(...values, this.now(), normalizePath(key.repoPath), normalizeTaskPath(key.taskPath));
+    return result.changes > 0;
+  }
+
+  /** 更新後の値を読み直す (API の応答用)。 */
+  find(key: TaskStateKey): TaskRuntimeState | null {
+    return this.read({ repoPath: normalizePath(key.repoPath), taskPath: normalizeTaskPath(key.taskPath) });
+  }
+
+  private read(key: { repoPath: string; taskPath: string }): TaskRuntimeState | null {
+    const row = this.db.prepare(`
+      SELECT status, source_session, assignee, owner, delegation_run_id, pr_number,
+             memoria_task_id, actio_task_id, memoria_registration_state
+        FROM taskflow_task_state WHERE repo_path = ? AND task_path = ?
+    `).get(key.repoPath, key.taskPath) as TaskRuntimeRow | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * 同じリポで同じ slug の行を新しい task_path へ付け替える。 付け替えたら true。
+   *
+   * 候補が複数あるときは触らない — どれが移動元か決められない状態で引き継ぐと、
+   * 別タスクの memoria_task_id を奪ってしまう。
+   */
+  private rekeyBySlug(key: { repoPath: string; taskPath: string }, slug: string): boolean {
+    const rows = this.db.prepare(`
+      SELECT task_path FROM taskflow_task_state WHERE repo_path = ? AND task_slug = ?
+    `).all(key.repoPath, slug) as Array<{ task_path: string }>;
+    if (rows.length !== 1) return false;
+    const from = rows[0]!.task_path;
+    if (from === key.taskPath) return false;
+    const result = this.db.prepare(`
+      UPDATE taskflow_task_state SET task_path = ?, updated_at = ?
+       WHERE repo_path = ? AND task_path = ?
+    `).run(key.taskPath, this.now(), key.repoPath, from);
+    return result.changes > 0;
   }
 
   claimMemoriaCreation(document: TaskDocument): boolean {
@@ -99,8 +181,18 @@ function taskKey(document: TaskDocument): { repoPath: string; taskPath: string }
   }
   return {
     repoPath: normalizePath(document.repoPath),
-    taskPath: taskPath.replace(/\\/g, "/"),
+    taskPath: normalizeTaskPath(taskPath),
   };
+}
+
+function normalizeTaskPath(value: string): string {
+  return value.replace(/\\/g, "/");
+}
+
+/** rename 追跡のキー。 frontmatter の task (slug) が無い md は追跡しない。 */
+function taskSlug(document: TaskDocument): string | null {
+  const value = document.frontmatter.task;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function legacyRuntime(frontmatter: TaskDocument["frontmatter"]): Omit<TaskRuntimeState, "memoria_registration_state"> {

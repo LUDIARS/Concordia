@@ -89,6 +89,66 @@ describe("TaskflowStateStore", () => {
       path: "E:/outside/task.md",
     })).toThrow("inside its repository");
   });
+  it("moves the task through its lifecycle instead of freezing it at migration", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskflowStateStore(db);
+    const document = task({});
+    store.readOrMigrate(document);
+    const key = { repoPath: "E:/repo", taskPath: "spec/tasks/task.md" };
+
+    expect(store.update(key, { status: "delegated", delegation_run_id: "run-1" })).toBe(true);
+    expect(store.readOrMigrate(document)).toMatchObject({ status: "delegated", delegation_run_id: "run-1" });
+    expect(store.update(key, { status: "done", pr_number: 12 })).toBe(true);
+    expect(store.find(key)).toMatchObject({ status: "done", pr_number: 12, delegation_run_id: "run-1" });
+    // 明示 null は消去、 未指定は据え置き。
+    expect(store.update(key, { delegation_run_id: null })).toBe(true);
+    expect(store.find(key)).toMatchObject({ status: "done", delegation_run_id: null });
+  });
+
+  it("reports a miss instead of creating a row for an unknown task", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskflowStateStore(db);
+    expect(store.update({ repoPath: "E:/repo", taskPath: "spec/tasks/missing.md" }, { status: "done" })).toBe(false);
+    expect(store.find({ repoPath: "E:/repo", taskPath: "spec/tasks/missing.md" })).toBeNull();
+  });
+
+  it("carries state across a rename so Memoria is not registered twice", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskflowStateStore(db);
+    const before = task({});
+    store.readOrMigrate(before);
+    store.claimMemoriaCreation(before);
+    store.recordMemoriaTaskId(before, 42);
+    store.update({ repoPath: "E:/repo", taskPath: "spec/tasks/task.md" }, { status: "delegated" });
+
+    const renamed: TaskDocument = { ...before, path: "E:/repo/spec/tasks/2026-08-08-task.md" };
+    expect(store.readOrMigrate(renamed)).toMatchObject({
+      status: "delegated", memoria_task_id: "42", memoria_registration_state: "created",
+    });
+    // 移動元の行は残さない (孤児行が二重登録の種になる)。
+    expect(store.find({ repoPath: "E:/repo", taskPath: "spec/tasks/task.md" })).toBeNull();
+    expect(store.claimMemoriaCreation(renamed)).toBe(false);
+  });
+
+  it("does not guess when two tasks in a repo share a slug", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const store = new TaskflowStateStore(db);
+    const first = task({});
+    const second: TaskDocument = { ...first, path: "E:/repo/spec/tasks/task-2.md" };
+    store.readOrMigrate(first);
+    store.readOrMigrate(second);
+    store.claimMemoriaCreation(first);
+    store.recordMemoriaTaskId(first, 1);
+
+    const third: TaskDocument = { ...first, path: "E:/repo/spec/tasks/task-3.md" };
+    // 候補が複数なので引き継がない = 別タスクの memoria_task_id を奪わない。
+    expect(store.readOrMigrate(third)).toMatchObject({ memoria_task_id: null, status: "pending" });
+    expect(store.find({ repoPath: "E:/repo", taskPath: "spec/tasks/task.md" })).toMatchObject({ memoria_task_id: "1" });
+  });
 });
 
 function task(legacy: Record<string, unknown>): TaskDocument {

@@ -540,7 +540,8 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorClient = createRevisorClientFromEnv(excubitorClient, process.env, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
-  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, new TaskflowStateStore(db));
+  const taskflowState = new TaskflowStateStore(db);
+  const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, taskflowState);
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
   const resolveServiceCode = (repoName: string) => serviceMap.resolve(repoName);
   const confirmService = new ConfirmService({
@@ -1068,6 +1069,7 @@ export async function startBackend(): Promise<BackendHandle> {
     federation: federation.apiDeps,
     director,
     taskStore,
+    taskflowState,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
     syncDiscordForumTags: async (templates) => {
       const config = resolveDiscordConfig(discordConfig, secretBox);

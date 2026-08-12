@@ -1635,6 +1635,20 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
     );
   },
+}, {
+  version: 60,
+  name: "taskflow-task-state-slug",
+  source: "taskflow_task_state.task_slug",
+  up(db) {
+    // task md の rename / 移動で state 行が孤児化し、 同じタスクが Memoria へ二重登録される
+    // のを防ぐための引き継ぎキー。 (repo_path, task_path) だけでは移動を追えない。
+    const columns = db.prepare("PRAGMA table_info(taskflow_task_state)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "task_slug")) {
+      db.exec("ALTER TABLE taskflow_task_state ADD COLUMN task_slug TEXT");
+    }
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_slug
+               ON taskflow_task_state(repo_path, task_slug)`);
+  },
 }];
 
 /**

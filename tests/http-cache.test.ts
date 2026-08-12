@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SessionsRepo } from "../src/db/sessions-repo.js";
 import { clearHttpCacheForTest } from "../src/shared/http-cache.js";
 import { makeTestApp } from "./helpers/test-app.js";
@@ -57,22 +57,27 @@ describe("Concordia HTTP cache", () => {
   });
 
   it("isolates the in-process layer between app instances", async () => {
-    const firstEnv = makeTestApp();
-    seedSession(firstEnv.repo, "first");
-    const first = await firstEnv.app.request("/v1/monitor");
-    expect(first.headers.get("x-concordia-cache")).toBe("miss");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    try {
+      const firstEnv = makeTestApp();
+      seedSession(firstEnv.repo, "first");
+      const first = await firstEnv.app.request("/v1/monitor");
+      expect(first.headers.get("x-concordia-cache")).toBe("miss");
 
-    const secondEnv = makeTestApp();
-    seedSession(secondEnv.repo, "second-1");
-    seedSession(secondEnv.repo, "second-2");
-    const second = await secondEnv.app.request("/v1/monitor");
+      const secondEnv = makeTestApp();
+      seedSession(secondEnv.repo, "second-1");
+      seedSession(secondEnv.repo, "second-2");
+      const second = await secondEnv.app.request("/v1/monitor");
 
-    expect(second.headers.get("x-concordia-cache")).toBe("miss");
-    expect(((await second.json()) as any).active).toHaveLength(2);
+      expect(second.headers.get("x-concordia-cache")).toBe("miss");
+      expect(((await second.json()) as any).active).toHaveLength(2);
 
-    const firstAgain = await firstEnv.app.request("/v1/monitor");
-    expect(firstAgain.headers.get("x-concordia-cache")).toBe("l1");
-    expect(((await firstAgain.json()) as any).active).toHaveLength(1);
+      const firstAgain = await firstEnv.app.request("/v1/monitor");
+      expect(firstAgain.headers.get("x-concordia-cache")).toBe("l1");
+      expect(((await firstAgain.json()) as any).active).toHaveLength(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("honors request cache-control bypass", async () => {

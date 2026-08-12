@@ -15,6 +15,10 @@ import {
 import { DelegationEffortBlackbox } from "./effort-blackbox.js";
 import { spawnSession } from "../control/spawner.js";
 
+// The test creates and removes a real Git worktree. Keep a finite timeout, but
+// do not make a busy Windows review worker fail a correct worktree operation.
+const REAL_GIT_WORKTREE_TIMEOUT_MS = 60_000;
+
 describe("resolveDelegationSpawner", () => {
   it("uses the normal Lictor session spawner for Codex Delegation by default", () => {
     expect(resolveDelegationSpawner()).toBe(spawnSession);
@@ -518,7 +522,7 @@ describe("DelegationService.invoke", () => {
       rmSync(worktreeRoot, { recursive: true, force: true });
       rmSync(repoRoot, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, REAL_GIT_WORKTREE_TIMEOUT_MS);
 });
 
 describe("DelegationService.invokeDefinition", () => {

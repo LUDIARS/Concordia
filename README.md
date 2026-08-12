@@ -110,8 +110,10 @@ hook を持たない CLI 用に、 `tools/concordia-hook.mjs` の汎用 wrapper 
 ```bash
 git clone https://github.com/LUDIARS/Concordia.git
 cd Concordia
-npm install
+npm run bootstrap
 ```
+
+`bootstrap` は Git submodule を初期化し、Vestigium をビルドしてから本体と Web の開発依存をインストールする。クリーンな clone / worktree でも、`NODE_ENV=production` が設定されている環境でもこの手順を使う。
 
 Machine-specific non-secret settings are optional. Copy the tracked example when local
 server or Web host overrides are needed; `concordia.config.json` is ignored by Git.

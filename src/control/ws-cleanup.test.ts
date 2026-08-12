@@ -11,6 +11,12 @@ import {
 } from "./ws-cleanup.js";
 import type { RepoStatus } from "../work/repo-scan.js";
 
+// This is a real Git end-to-end test. Each production Git command is already
+// bounded to 30 seconds; allow enough total budget for a loaded Windows review
+// worker to execute its deliberate sequence without turning scheduler pressure
+// into a false product failure.
+const REAL_GIT_CLEANUP_TIMEOUT_MS = 5 * 60_000;
+
 describe("classifyBranch", () => {
   const base = { branch: "feat", inUse: false, mergedAncestor: false, hasUpstream: false, remoteGone: false, ahead: 1 };
   it("in-use wins over everything", () => {
@@ -129,5 +135,5 @@ describe("cleanupRepo (real git)", () => {
       // Git can release Windows file handles a moment after its process exits.
       rmSync(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
-  }, 120_000);
+  }, REAL_GIT_CLEANUP_TIMEOUT_MS);
 });

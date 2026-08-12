@@ -50,6 +50,7 @@ import { loadConfig, type ConcordiaConfig } from "../../src/shared/config.js";
 import type { SpawnRequest } from "../../src/control/spawner.js";
 import type { ConcordiaEvent } from "../../src/events.js";
 import { TaskMdStore } from "../../src/taskflow/md-store.js";
+import { TaskflowStateStore } from "../../src/taskflow/state-store.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
@@ -95,6 +96,7 @@ export interface TestAppEnv {
   injectManuals: InjectManualsRepo;
   staff: StaffRepo;
   adminState: AdminState;
+  taskflowState: TaskflowStateStore;
   processManager: ProcessManager;
   config: ConcordiaConfig;
   logsDir: string;
@@ -134,8 +136,9 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   seedInjectManuals(injectManuals);
   const staff = new StaffRepo(db);
   const adminState = new AdminState(db);
+  const taskflowState = new TaskflowStateStore(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
-  const taskStore = new TaskMdStore(() => []);
+  const taskStore = new TaskMdStore(() => [], undefined, taskflowState);
 
   // 副作用の隔離: logsDir / spawn token / delegation prompt を全て tmpdir に向ける。
   const logsDir = makeTestDir("concordia-test-logs-");
@@ -160,6 +163,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
     taskStore,
+    taskflowState,
     sessionSpawn: opts.sessionSpawn,
     spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},
@@ -184,6 +188,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
     staff,
+    taskflowState,
     processManager, config, logsDir,
   };
 }

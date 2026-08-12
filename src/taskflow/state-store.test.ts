@@ -140,7 +140,14 @@ describe("TaskflowStateStore", () => {
     const first = task({});
     const second: TaskDocument = { ...first, path: "E:/repo/spec/tasks/task-2.md" };
     store.readOrMigrate(first);
-    store.readOrMigrate(second);
+    // A single changed path is a rename and is intentionally rekeyed. Seed a
+    // second persisted row to model the only ambiguous case: two live task
+    // documents with the same slug already exist in the state table.
+    db.prepare(`
+      INSERT INTO taskflow_task_state(
+        repo_path, task_path, task_slug, status, memoria_registration_state, updated_at
+      ) VALUES (?, ?, ?, 'pending', 'idle', ?)
+    `).run("e:/repo", "spec/tasks/task-2.md", second.frontmatter.task, Date.now());
     store.claimMemoriaCreation(first);
     store.recordMemoriaTaskId(first, 1);
 

@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 60;
+export const SCHEMA_VERSION = 61;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1636,7 +1636,11 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     );
   },
 }, {
-  version: 60,
+  // This migration was originally numbered 60 on a parallel branch, which
+  // collided with taskflow-runtime-state-constraints and prevented every DB
+  // backed test from starting. That earlier migration is already deployed, so
+  // leave it immutable and assign this later migration 61 instead.
+  version: 61,
   name: "taskflow-task-state-slug",
   source: "taskflow_task_state.task_slug",
   up(db) {

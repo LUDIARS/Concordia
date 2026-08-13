@@ -293,6 +293,26 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).not.toContain("npm audit fix");
   });
 
+  it("seeds the active Steam persona collection template without leaking collected data", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("steam-persona-daily");
+    expect(template).toMatchObject({
+      is_active: 1,
+      category: "parttimer",
+      target_provider: "claude",
+      model: "claude-haiku-4-5-20251001",
+      default_cwd: "E:\\Document\\Ars\\Discutere",
+    });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
+      { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
+    ]);
+    const prompt = template?.prompt_template ?? "";
+    expect(prompt).toContain("`npm run steam-persona`");
+    expect(prompt).toContain("Steam アカウント ID・レビュー本文・認証情報・内部 endpoint・絶対パスは最終報告に載せない");
+  });
+
   it("keeps the Genius Tier 1 and Tier 2 ingest commands in separate templates", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

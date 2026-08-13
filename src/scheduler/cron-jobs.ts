@@ -46,6 +46,9 @@ const AI_NOTE_REVIEW_CRON = "10 6 1,15 * *";
 
 const DEPS_SWEEP_DAILY_CRON = "10 7 * * *";
 
+/** Steam persona source collection. Discutere's STEAM-PERSONA.md defines the pipeline. */
+const STEAM_PERSONA_DAILY_CRON = "40 7 * * *";
+
 /**
  * Genius (判断カード DB) の ingest。 Genius spec `spec/feature/operations.md` §7 の
  * 「Timer Delegation の実登録」に対応する (テンプレは delegation/seed.ts)。
@@ -89,6 +92,12 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     call_name: "deps-sweep-daily",
     buildArgs: () => ({}),
     cwd: ARS_ROOT,
+}, {
+    // Discutere で動かす必要があるため cwd はテンプレートの default_cwd に委ねる。
+    name: "steam-persona-daily",
+    cron: STEAM_PERSONA_DAILY_CRON,
+    call_name: "steam-persona-daily",
+    buildArgs: () => ({ date: todayIso() }),
 }, {
     name: "kaizen-daily",
     cron: KAIZEN_CRON,

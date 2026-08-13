@@ -60,6 +60,12 @@ export const PatchSchema = z.object({
   repo_path: z.string().min(1).optional(),
   repo_origin: z.string().nullable().optional(),
   /**
+   * provider が実際に書いている transcript JSONL の絶対パス。 Lictor が SessionStart hook
+   * の権威報告を受けて post-spawn に届ける (register 時点では未確定のことがある)。
+   * コンテキスト推定 (cost/context-estimate.ts) が時刻マッチ推測より優先して読む。
+   */
+  transcript_path: z.string().nullable().optional(),
+  /**
    * 作業衝突監視のスコープ宣言。 cwd がワークスペースルート (umbrella) でも、 ここで
    * 個別プロジェクト (repo path 推奨) を宣言すればそのプロジェクト単位で衝突判定する。
    * null で宣言解除 (repo_path 判定に戻す)。 (conflict-scope.ts)

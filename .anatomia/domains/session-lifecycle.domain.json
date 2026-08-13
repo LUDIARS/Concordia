@@ -1,0 +1,26 @@
+{
+  "name": "session-lifecycle",
+  "description": "Concordia の session 行そのもの (登録 → patch → heartbeat → end/purge) を所有する層。sessions テーブルの repo (SessionsRepo)、/v1/sessions の登録・patch・イベント・スキーマ (StartSchema / PatchSchema)、および Lictor が post-spawn に届ける実行時メタデータ (branch / repo_path / transcript_path / metadata) の受け口から成る。session の表示・中継 (session-message-layer) や委託 (agent-delegation) はここに載る行を読む側で、行の生成・更新はこのドメインだけが行う。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/db/sessions-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/sessions/(lifecycle|shared|events|end|runtime|skills|title-goal|qa)(\\.test)?\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the \"session-lifecycle\" domain: sessions 行の登録・patch・heartbeat・終了と、その API スキーマ / repo の所有。",
+  "source": "spec",
+  "mechanics": [
+    "session-registration",
+    "session-patch-and-metadata-merge",
+    "heartbeat-and-status-transitions",
+    "transcript-path-authority-intake"
+  ],
+  "specRefs": [
+    "spec/feature/session-shutdown.md",
+    "spec/feature/session-process-reaper.md",
+    "spec/feature/session-compaction.md"
+  ],
+  "rationale": "sessions 行は全機能 (中継・委託・コスト・ハーネス) が参照する正本だが、書き込み経路 (register/patch) を所有するドメイン宣言が無く、この層だけを触る PR が Anatomia review gate (target domain missing) で止まっていた (2026-08-13 Cc #494)。読み手のドメイン (session-message-layer 等) と重ねず、行の生成・更新だけを切り出して宣言する。",
+  "lockedFields": ["*"],
+  "updatedAt": "2026-08-13T00:00:00.000Z"
+}

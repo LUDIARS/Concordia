@@ -131,6 +131,7 @@ export class SessionsRepo {
       branch?: string;
       repo_path?: string;
       repo_origin?: string | null;
+      transcript_path?: string | null;
       target_project?: string | null;
       active_repos?: string[];
     },
@@ -141,6 +142,7 @@ export class SessionsRepo {
     if (patch.branch !== undefined)       { sets.push("branch = ?");       args.push(patch.branch); }
     if (patch.repo_path !== undefined)    { sets.push("repo_path = ?");    args.push(patch.repo_path); }
     if (patch.repo_origin !== undefined)  { sets.push("repo_origin = ?");  args.push(patch.repo_origin); }
+    if (patch.transcript_path !== undefined) { sets.push("transcript_path = ?"); args.push(patch.transcript_path); }
     if (patch.target_project !== undefined) { sets.push("target_project = ?"); args.push(patch.target_project); }
     if (patch.active_repos !== undefined) { sets.push("active_repos = ?"); args.push(JSON.stringify(patch.active_repos)); }
     if (sets.length === 0) return;

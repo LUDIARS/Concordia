@@ -182,8 +182,8 @@ const WEEKLY_REVIEW_PROMPT = [
 // Genius 側 spec (`E:\Document\Ars\Genius\spec\feature\operations.md` §7) の
 // 「Timer Delegation の実登録」は Concordia 側の実装項目である (Genius には自己申告
 // できる設定ファイルも API も無く、cron は本ファイルと scheduler/cron-jobs.ts の
-// 固定リストが正本)。本ブロックの 2 テンプレ + CRON_JOBS の 2 ジョブ
-// (genius-ingest-tier2-nightly 3:10 / genius-ingest-daily 4:10 JST) でその登録は完了。
+// 固定リストが正本)。Tier 1 は genius-ingest-daily (4:10 JST) として登録する。Tier 2 は
+// 歩留まり不足で停止中のためテンプレートだけを残し、CRON_JOBS には登録しない。
 //
 // 注意:
 // - どちらも「ingest を回して run を polling し、結果を報告する」だけの運用ジョブ。
@@ -281,7 +281,8 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
     default_cwd: GENIUS_REPO_PATH,
-    is_active: true,
+    // 2026-08-13: pause Tier 2 due to insufficient yield; retain the template for reactivation.
+    is_active: false,
   },
 ];
 

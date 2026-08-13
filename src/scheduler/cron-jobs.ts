@@ -50,12 +50,10 @@ const DEPS_SWEEP_DAILY_CRON = "10 7 * * *";
  * Genius (判断カード DB) の ingest。 Genius spec `spec/feature/operations.md` §7 の
  * 「Timer Delegation の実登録」に対応する (テンプレは delegation/seed.ts)。
  *
- * 時刻は既存ジョブ (脆弱性対応 5:10 / AI ノートレビュー 6:10) と重ねず、
- * 「Tier 2 夜間 (3:10) → Tier 1 日次 (4:10) → 脆弱性対応 (5:10)」の順になるよう置く。
- * Tier 2 は全量 run で長時間かかりうるため最も早い枠にし、脆弱性対応が読む
- * Review/ 系の処理と時間帯が重ならないようにしている。
+ * Tier 2 の夜間 ingest は 2026-08-13 に歩留まり不足のため停止した。
+ * テンプレートは再開に備えて残すが cron には登録しない。Tier 1 は既存ジョブ
+ * (脆弱性対応 5:10 / AI ノートレビュー 6:10) と重ならない 4:10 に実行する。
  */
-const GENIUS_INGEST_TIER2_NIGHTLY_CRON = "10 3 * * *";
 const GENIUS_INGEST_DAILY_CRON = "10 4 * * *";
 
 /** カイゼン (2026-08-08 neco 指示で新設)。 毎朝 9:00 JST、前日の session-logs とメモリを棚卸しして改善提案する。 */
@@ -81,11 +79,6 @@ export const CRON_JOBS: CronJobDefinition[] = [{
 }, {
     // Genius ingest は Genius repository で動かす必要があるため cwd を指定せず、
     // テンプレート (delegation/seed.ts) の default_cwd に委ねる。
-    name: "genius-ingest-tier2-nightly",
-    cron: GENIUS_INGEST_TIER2_NIGHTLY_CRON,
-    call_name: "genius-ingest-tier2-nightly",
-    buildArgs: () => ({ date: todayIso() }),
-}, {
     name: "genius-ingest-daily",
     cron: GENIUS_INGEST_DAILY_CRON,
     call_name: "genius-ingest-daily",

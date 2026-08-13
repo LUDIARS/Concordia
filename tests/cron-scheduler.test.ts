@@ -114,12 +114,11 @@ describe("startCronScheduler", () => {
     );
   });
 
-  it("runs the weekly review, vulnerability response, AI note review, Genius ingest, dependency sweep, and kaizen jobs by default", () => {
+  it("runs the weekly review, vulnerability response, AI note review, active Genius ingest, dependency sweep, and kaizen jobs by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-weekly", cron: "40 4 * * 1", call_name: "ludiars-review-weekly" },
       { name: "vulnerability-response-daily", cron: "10 5 * * *", call_name: "vulnerability-response-daily" },
       { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
-      { name: "genius-ingest-tier2-nightly", cron: "10 3 * * *", call_name: "genius-ingest-tier2-nightly" },
       { name: "genius-ingest-daily", cron: "10 4 * * *", call_name: "genius-ingest-daily" },
       { name: "deps-sweep-daily", cron: "10 7 * * *", call_name: "deps-sweep-daily" },
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
@@ -133,6 +132,7 @@ describe("startCronScheduler", () => {
       "deps-sweep-daily",
       "kaizen-daily",
     ]);
+    expect(CRON_JOBS.some((j) => j.name === "genius-ingest-tier2-nightly")).toBe(false);
   });
 
   it("gives every job a distinct name, call_name, and firing time", () => {
@@ -155,7 +155,6 @@ describe("startCronScheduler", () => {
       "vulnerability-response-daily",
       "ai-note-biweekly-review",
       "genius-ingest-daily",
-      "genius-ingest-tier2-nightly",
       "kaizen-daily",
     ]) {
       const job = CRON_JOBS.find((j) => j.name === name);
@@ -183,7 +182,7 @@ describe("startCronScheduler", () => {
     );
   });
 
-  it("leaves the Genius ingest cwd to the template's default_cwd (Genius repository)", async () => {
+  it("leaves the active Genius ingest cwd to the template's default_cwd (Genius repository)", async () => {
     // caller 指定の cwd は template.default_cwd より優先されるため、Ars root を渡すと
     // ingest が Genius repository の外で走ってしまう。cron 側は cwd を渡さないこと。
     const seenCwds: Array<string | undefined> = [];
@@ -192,7 +191,7 @@ describe("startCronScheduler", () => {
       return okResult();
     });
     const jobs = CRON_JOBS.filter((j) => j.name.startsWith("genius-ingest-"));
-    expect(jobs).toHaveLength(2);
+    expect(jobs.map((j) => j.name)).toEqual(["genius-ingest-daily"]);
     handle = startCronScheduler(
       { delegationService: fakeDelegationService(invoke) },
       jobs.map((j) => ({ ...j, cron: NEVER_FIRES })),
@@ -200,6 +199,6 @@ describe("startCronScheduler", () => {
 
     await handle.triggerNow();
 
-    expect(seenCwds).toEqual([undefined, undefined]);
+    expect(seenCwds).toEqual([undefined]);
   });
 });

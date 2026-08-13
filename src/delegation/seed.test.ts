@@ -237,13 +237,15 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("ludiars-review-daily")?.is_active).toBe(0);
   });
 
-  it("seeds the Genius ingest templates for the cron jobs", () => {
+  it("seeds the active Genius daily cron template and retains the disabled Tier 2 template", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
     for (const callName of ["genius-ingest-daily", "genius-ingest-tier2-nightly"]) {
       const tpl = repo.findTemplateByCallName(callName);
-      expect(tpl?.is_active).toBe(1);
+      // tier2 は 2026-08-13 に停止 (歩留まり不足)。テンプレート自体は残し、
+      // 再開できるよう内容の検証は続ける。cron 登録も外してある。
+      expect(tpl?.is_active).toBe(callName === "genius-ingest-tier2-nightly" ? 0 : 1);
       // 時限起動なので parttimer (spec/feature/delegation.md の category 表)。
       expect(tpl?.category).toBe("parttimer");
       expect(tpl?.target_provider).toBe("claude");

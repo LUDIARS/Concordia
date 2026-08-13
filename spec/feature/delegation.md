@@ -260,27 +260,25 @@ Delegation は Castra で `git add` / `git commit` / `git push` を行わない�
 
 ### Genius ingest (parttimer)
 
-Genius (判断カード DB) の ingest も Timer Delegation で回す。Genius 側 spec
+Genius (判断カード DB) の Tier 1 ingest は Timer Delegation で回す。Genius 側 spec
 `Genius/spec/feature/operations.md` §7 の運用タスク「Timer Delegation の実登録」は、
 Concordia には他リポが自己申告できる設定ファイルも API も無いため Concordia 側の実装項目で、
-下記 2 本の追加をもって**完了**している。
+下記の登録をもって**完了**している。
 
 | cron (JST) | job / call_name | 内容 |
 |---|---|---|
-| 3:10 毎日 | `genius-ingest-tier2-nightly` | Tier 2 (Claude / Codex 生 JSONL) を budget 無制限で ingest |
 | 4:10 毎日 | `genius-ingest-daily` | Tier 1 の日次 ingest (`node dist/cli.js ingest`) |
 
-いずれも `node dist/cli.js ingest` / `npm run ingest:tier2-nightly` を実行して返る run id を
+Tier 2 の `genius-ingest-tier2-nightly` は歩留まり不足のため 2026-08-13 にテンプレートを
+無効化し、cron 登録から外した。テンプレートは再開時の参照用に残すが、定時起動しない。
+
+Tier 1 は `node dist/cli.js ingest` を実行して返る run id を
 `GET /api/clone/ingest/runs/:id` で polling し、**`completed` と `completed-with-errors` の
 両方を完了条件**とする (後者は文書単位で失敗を隔離した正常終了なので失敗扱いにしない)。
 未解決の失敗が残る場合は `ingest --sources <失敗ソース> --retry-failed` を 1 回試すか人間へ
 上げるかを LLM が判断し、自動リトライは行わない。Genius サービスが停止している場合の起動は
-Excubitor / 人間の担当で、Delegation 側では報告のみを行う。時刻は日次レビュー (5:10) と
-AI ノートレビュー (6:10) に重ならないよう Tier 2 → Tier 1 → レビューの順に並べている。
-
-ただし重ならないのは**起動時刻だけ**で、Tier 2 の全量 run は 4:10 を跨いで継続しうる。
-Concordia 側に delegation の同時実行制限は無い (§10) ため、Tier 1 側のテンプレに
-「実行中の run を検知したら重ねて起動せず見送って報告する」判断を持たせて重複 ingest を防ぐ。
+Excubitor / 人間の担当で、Delegation 側では報告のみを行う。時刻は脆弱性対応 (5:10) と
+AI ノートレビュー (6:10) に重ならない 4:10 に置く。
 
 作業ディレクトリは Genius repository (`E:\Document\Ars\Genius`) で、テンプレの `default_cwd`
 が正本。cron ジョブ側の `cwd` は caller 指定として `default_cwd` を上書きするため、

@@ -22,9 +22,10 @@ const OPEN_PR: RevisorLocalPrSummary = {
 function makeOperations(options: {
   role?: StaffRole | null;
   pullRequests?: RevisorLocalPrSummary[];
-  session?: typeof SESSION | null;
+  session?: ReturnType<SessionPrOperationsDeps["sessions"]["findSession"]>;
   submit?: Awaited<ReturnType<SessionPrOperationsDeps["submit"]>>;
   mergeThrows?: boolean;
+  listReader?: SessionPrOperationsDeps["listReader"];
 } = {}) {
   const audits: LocalPrMergeAudit[] = [];
   const mergeLocalPr = vi.fn(async () => {
@@ -42,6 +43,7 @@ function makeOperations(options: {
       audit: (record) => audits.push(record),
     },
     source: "discord-reaction-workflow",
+    ...(options.listReader ? { listReader: options.listReader } : {}),
   });
   return { operations, audits, mergeLocalPr, submit };
 }
@@ -158,5 +160,106 @@ describe("SessionPrOperations.listOpenLocalPrs", () => {
     const { operations } = makeOperations({ pullRequests: [OPEN_PR, foreign, closed] });
 
     expect(await operations.listOpenLocalPrs("sess-1")).toEqual([OPEN_PR]);
+  });
+});
+
+describe("SessionPrOperations.listLocalPrs (RWF 📋)", () => {
+  const fullPr = (overrides: Record<string, unknown> = {}) => ({
+    id: "lpr-1",
+    number: 42,
+    repository: "LUDIARS/Concordia",
+    title: "feat: rwf listing",
+    author: "session",
+    status: "open",
+    checkStatus: "queued",
+    headRef: "feat/rwf-pr-merge-ui",
+    baseRef: "main",
+    headSha: "abc",
+    createdAt: "2026-08-13T00:00:00Z",
+    updatedAt: "2026-08-13T00:00:00Z",
+    ...overrides,
+  });
+
+  it("is unavailable when no list reader is wired", async () => {
+    const { operations } = makeOperations();
+    const outcome = await operations.listLocalPrs({ sessionId: "sess-1", actor });
+    expect(outcome).toMatchObject({ ok: false, kind: "unavailable" });
+  });
+
+  it("scopes to the session repository when fired from a session channel", async () => {
+    const { operations } = makeOperations({
+      listReader: {
+        listLocalPrs: async () => [
+          fullPr(),
+          fullPr({ id: "lpr-2", number: 7, repository: "LUDIARS/Memoria", title: "other repo" }),
+        ] as never,
+      },
+    });
+    const outcome = await operations.listLocalPrs({ sessionId: "sess-1", actor });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.openCount).toBe(1);
+      expect(outcome.markdown).toContain("#42");
+      expect(outcome.markdown).not.toContain("other repo");
+    }
+  });
+
+  it("lists all repositories when there is no session", async () => {
+    const { operations } = makeOperations({
+      listReader: {
+        listLocalPrs: async () => [
+          fullPr(),
+          fullPr({ id: "lpr-2", number: 7, repository: "LUDIARS/Memoria", title: "other repo" }),
+        ] as never,
+      },
+    });
+    const outcome = await operations.listLocalPrs({ sessionId: null, actor });
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.openCount).toBe(2);
+      expect(outcome.markdown).toContain("other repo");
+    }
+  });
+
+  it("does not broaden an unknown session to all repositories", async () => {
+    const listLocalPrs = vi.fn(async () => [fullPr()] as never);
+    const { operations } = makeOperations({
+      session: null,
+      listReader: { listLocalPrs },
+    });
+
+    const outcome = await operations.listLocalPrs({ sessionId: "missing", actor });
+
+    expect(outcome).toMatchObject({ ok: false, kind: "unavailable" });
+    expect(listLocalPrs).not.toHaveBeenCalled();
+  });
+
+  it("does not list every repository when the session has no repository", async () => {
+    const listLocalPrs = vi.fn(async () => [fullPr()] as never);
+    const { operations } = makeOperations({
+      session: { ...SESSION, repo_origin: null },
+      listReader: { listLocalPrs },
+    });
+
+    const outcome = await operations.listLocalPrs({ sessionId: "sess-1", actor });
+
+    expect(outcome).toMatchObject({ ok: false, kind: "unavailable" });
+    expect(listLocalPrs).not.toHaveBeenCalled();
+  });
+
+  it("reports reader failures without leaking raw service details", async () => {
+    const { operations } = makeOperations({
+      listReader: {
+        listLocalPrs: async () => { throw new Error("connect failed at http://secret.invalid/private"); },
+      },
+    });
+
+    const outcome = await operations.listLocalPrs({ sessionId: "sess-1", actor });
+
+    expect(outcome).toMatchObject({ ok: false, kind: "unavailable" });
+    expect((outcome as { detail: string }).detail).not.toContain("secret.invalid");
+    expect((outcome as { detail: string }).detail).not.toContain("/private");
+    expect((outcome as { markdown: string }).markdown).toContain("Revisor local PR 一覧");
+    expect((outcome as { markdown: string }).markdown).toContain("GitHub PR のキューは別系統");
   });
 });

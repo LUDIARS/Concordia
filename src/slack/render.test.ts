@@ -159,9 +159,10 @@ describe("slackReactionToUnicode", () => {
   it("skin-tone 接尾を除去して解決", () => {
     expect(slackReactionToUnicode("+1::skin-tone-3")).toBe("👍");
   });
-  it("white_check_mark → ✅ / memo → 📝 / -1 → 👎", () => {
+  it("white_check_mark → ✅ / memo → 📝 / clipboard → 📋 / -1 → 👎", () => {
     expect(slackReactionToUnicode("white_check_mark")).toBe("✅");
     expect(slackReactionToUnicode("memo")).toBe("📝");
+    expect(slackReactionToUnicode("clipboard")).toBe("📋");
     expect(slackReactionToUnicode("-1")).toBe("👎");
   });
   it("ワークフロー対象外は null", () => {

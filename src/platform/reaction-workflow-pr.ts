@@ -1,14 +1,15 @@
 /**
- * リアクションワークフローの PR 操作 (📮 提出 / 🔀 マージ) の契約と結果文言。
+ * リアクションワークフローの PR 操作 (📋 一覧 / 📮 提出 / 🔀 マージ) の契約と結果文言。
  *
  * RWF エンジンは Concordia 内部 (Revisor クライアント / 社員名簿) を直接触らない。
- * ここで「セッション単位の PR 提出・マージ」を構造的なインタフェースとして宣言し、
+ * ここで「セッション単位の PR 一覧・提出・マージ」を構造的なインタフェースとして宣言し、
  * 実体はホスト側 (`src/pr/session-pr-operations.ts`) が注入する。
  *
- * 文言をここに集約するのは **無言スキップを作らないため**。 提出しなかった / マージ
- * しなかった場合も、 押した人に「なぜそうなったか」がそのまま返る形にする。
+ * 文言をここに集約するのは **無言スキップを作らないため**。 一覧を出せなかった / 提出・
+ * マージしなかった場合も、 押した人に「なぜそうなったか」がそのまま返る形にする。
  *
- * @implements spec/feature/workflow-toggles-and-permission-noise.md — W2 (RWF の PR 提出とマージ)
+ * @implements spec/tasks/2026-08-08-rwf-pr-actions-and-panel-ui.md — RWF の PR 提出とマージ
+ * @implements spec/tasks/2026-08-13-rv-prs-command-rwf.md — RWF の PR 一覧
  */
 
 /** 操作対象になった Revisor local PR の最小情報 (応答文言に出す分だけ)。 */
@@ -24,6 +25,9 @@ export interface RwfPrActor {
   /** platform 上のユーザ ID (Discord / Slack)。 */
   userId: string;
 }
+
+const MAX_PR_LIST_RELAY_LENGTH = 1_750;
+const PR_LIST_TRUNCATION_SUFFIX = "\n…(truncated)";
 
 export type RwfPrSubmitOutcome =
   /** 新規提出 / 失敗していた PR の再提出。 */
@@ -42,6 +46,12 @@ export type RwfPrMergeOutcome =
   /** マージ経路そのものが使えない (未注入 / セッション未特定)。 */
   | { ok: false; kind: "unavailable"; detail: string };
 
+export type RwfPrListOutcome =
+  /** 一覧を描画できた (markdown は共有 renderer が作る)。 */
+  | { ok: true; markdown: string; openCount: number }
+  /** 一覧経路そのものが使えない (未注入 / Revisor 未構成)。 */
+  | { ok: false; kind: "unavailable"; detail: string; markdown?: string };
+
 /**
  * セッション単位の PR 操作。 実体は `POST /v1/prs/local` と同じ提出関数と、
  * PR #297 が切り出した指示者ベースの認可付きマージを使う (ロジックを複製しない)。
@@ -49,6 +59,12 @@ export type RwfPrMergeOutcome =
 export interface RwfPrOperations {
   submitLocalPr(input: { sessionId: string; actor: RwfPrActor }): Promise<RwfPrSubmitOutcome>;
   mergeLocalPr(input: { sessionId: string; actor: RwfPrActor }): Promise<RwfPrMergeOutcome>;
+  /**
+   * 📋 Revisor local PR 一覧。 セッションチャンネルならそのリポジトリに絞り、
+   * それ以外は全件を返す。 読み取り専用なので権限は要らない。 optional なのは
+   * 既存の注入実装 (テスト含む) を一斉に壊さないため — 未実装は unavailable 扱い。
+   */
+  listLocalPrs?(input: { sessionId: string | null; actor: RwfPrActor }): Promise<RwfPrListOutcome>;
 }
 
 /**
@@ -85,6 +101,23 @@ export function describePrSubmitOutcome(outcome: RwfPrSubmitOutcome, actor: RwfP
   const reason = describeSubmitSkipReason(outcome.reason);
   const detail = outcome.detail ? `\n詳細: ${outcome.detail}` : "";
   return `PR を提出しませんでした — ${reason}。${detail}\n${by}`;
+}
+
+/** 📋 の結果文言。 一覧が出せなかった場合も必ず理由を書く。 */
+export function describePrListOutcome(outcome: RwfPrListOutcome, actor: RwfPrActor): string {
+  const by = `実行者: <@${actor.userId}>`;
+  if (!outcome.ok && !outcome.markdown) {
+    return `Revisor local PR 一覧を出せませんでした — ${outcome.detail}\n${by}`;
+  }
+  const rendered = outcome.markdown ?? "";
+  const suffix = `\n${by}`;
+  const maxMarkdownLength = Math.max(0, MAX_PR_LIST_RELAY_LENGTH - suffix.length);
+  const markdown = rendered.length <= maxMarkdownLength
+    ? rendered
+    : `${rendered
+      .slice(0, Math.max(0, maxMarkdownLength - PR_LIST_TRUNCATION_SUFFIX.length))
+      .trimEnd()}${PR_LIST_TRUNCATION_SUFFIX}`;
+  return `${markdown}${suffix}`;
 }
 
 /** 🔀 で Revisor local PR を実際にマージしたときの文言 (どちらの経路かを明記する)。 */

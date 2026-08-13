@@ -1,7 +1,7 @@
 /**
  * Discord slash command とワークフローの対応、 およびフラグ変化に応じた再登録。
  *
- * @implements spec/feature/workflow-toggles-and-permission-noise.md — W1-2 / W6
+ * @implements spec/tasks/workflow-toggles.md — W1-2 / W6
  *
  * 無効なワークフローのコマンドは guild へ **登録しない**。 「登録したまま実行時に
  * 断る」 のではなく、 コマンド一覧から消す。 フラグは都度解決なので、 変化を検知して
@@ -19,6 +19,7 @@ const COMMAND_WORKFLOWS: Record<string, WorkflowKey> = {
   mmtask: "task",
   confirm: "test",
   prs: "review",
+  "rv-prs": "review",
 };
 
 export function workflowForCommand(name: string): WorkflowKey | null {

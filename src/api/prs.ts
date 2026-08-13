@@ -19,6 +19,9 @@
  *    Revisor (ローカル PR レビューサービス) の local PR 一覧を代理取得する
  *    ({ configured, base_url, pull_requests, error })。 GitHub PR とは別系統.
  *
+ *  GET /v1/prs/revisor/digest?repository=
+ *    上記を Markdown 1 枚にした AI/Discord 共用ダイジェスト ({ markdown, open_count, error }).
+ *
  * 認証は loopback 想定で無し (他 /v1 と同じ).
  */
 
@@ -27,6 +30,8 @@ import type { PrRecordsRepo, PrState } from "../db/pr-records-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
 import { buildPrQueue } from "../pr/queue.js";
+import { buildRevisorLocalPrDigest } from "../pr/local-pr-listing.js";
+import { isOwnerRepo } from "../pr/normalize.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
 import type {
   RevisorLocalPrCloser,
@@ -85,6 +90,13 @@ const log = createChildLogger("prs-api");
 
 /** 取り下げ理由は監査ログと Revisor 双方に載るので、素性の知れない長文は切り詰める。 */
 const MAX_CLOSE_REASON_LENGTH = 500;
+const MAX_REPOSITORY_FILTER_LENGTH = 255;
+
+function isValidRepositoryFilter(repository: string): boolean {
+  if (repository.length > MAX_REPOSITORY_FILTER_LENGTH || !isOwnerRepo(repository)) return false;
+  const [owner, name] = repository.split("/");
+  return owner !== "." && owner !== ".." && name !== "." && name !== "..";
+}
 
 export function prsRouter(deps: PrsApiDeps): Hono {
   const app = new Hono();
@@ -149,6 +161,27 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         error: error instanceof Error ? error.message : "Revisor request failed",
       });
     }
+  });
+
+  /**
+   * GET /v1/prs/revisor/digest — Revisor local PR 一覧の Markdown ダイジェスト。
+   *
+   * Discord の /rv-prs と RWF 📋 が使う。 描画は `src/pr/local-pr-listing.ts` に
+   * 一本化し、 「PR = Revisor local PR」の注記もそこが必ず付ける。 未構成・停止中も
+   * 200 + 説明 markdown (無言スキップ禁止)。 クエリ: repository (任意、 owner/repo)。
+   */
+  app.get("/revisor/digest", async (c) => {
+    const repository = (c.req.query("repository") ?? "").trim() || null;
+    // Public callers only need the documented owner/repo form. Accepting local paths here would
+    // let a caller associate otherwise-redacted PR titles with guessed workstation paths.
+    if (repository && !isValidRepositoryFilter(repository)) {
+      return c.json({ error: "repository_invalid" }, 400);
+    }
+    const digest = await buildRevisorLocalPrDigest(
+      deps.revisor,
+      { repository },
+    );
+    return c.json({ markdown: digest.markdown, open_count: digest.openCount, error: digest.error });
   });
 
   /**

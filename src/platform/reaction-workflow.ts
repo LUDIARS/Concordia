@@ -38,6 +38,7 @@ import type { WorkflowAction } from "./reaction-workflow-action.js";
 import { workflowActionCapability, workflowDenialMessage } from "./reaction-workflow-capability.js";
 import {
   describeMergeFallback,
+  describePrListOutcome,
   describePrMergeOutcome,
   describePrSubmitOutcome,
   type RwfPrOperations,
@@ -143,6 +144,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
   // 対象セッションの作業ブランチを Revisor local PR として提出 (postbox / mailbox)
   "submit-pr": ["📮", "📬"],
+  // Revisor local PR の一覧を出す (clipboard)。 セッションチャンネルならそのリポに絞る
+  "list-local-prs": ["📋"],
   // 対象セッションが提出した open な Revisor local PR をマージする。 local PR が無いときだけ
   // 従来の GitHub squash merge 経路へ落とす (merge / rocket)
   "merge-pr": ["🔀", "🚀"],
@@ -267,6 +270,13 @@ export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = 
     label: "PR を提出する",
     summary: "対象セッションの作業ブランチを Revisor の local PR として提出する (POST /v1/prs/local と同じ実体)。 提出しなかった場合も理由を返す。",
     mode: "API (Concordia の local PR 提出をそのまま呼ぶ)",
+  },
+  "list-local-prs": {
+    label: "Revisor local PR 一覧",
+    summary:
+      "Revisor local PR (LUDIARS で「PR」と言えば原則こちら) の一覧を表示する。" +
+      " セッションチャンネルならそのリポジトリに絞る。 GitHub PR のキューは /prs で別系統。",
+    mode: "API (Concordia の Revisor 読み取り口をそのまま呼ぶ、読み取り専用)",
   },
   "merge-pr": {
     label: "PR をマージする",
@@ -752,6 +762,10 @@ export function planWorkflow(
       // ここは TypeScript の網羅性チェックのためのプレースホルダー。
       return { action, mode: "headless" as const, prompt: "" };
 
+    case "list-local-prs":
+      // handle() で prOperations (Revisor local PR 一覧) を直接呼ぶ。 planWorkflow は呼ばれない。
+      return { action, mode: "headless" as const, prompt: "" };
+
     case "merge-pr": {
       // 既定は Revisor local PR のマージ (handle() が prOperations で実行する)。 このプロンプトは
       // 「open な local PR が無い」ときにだけ使う GitHub squash merge 経路のフォールバック。
@@ -850,7 +864,7 @@ export interface ReactionWorkflowDeps {
   /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
   concordiaUrl?: string;
   /**
-   * 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR の提出とマージ)。 エンジンは
+   * 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR の一覧・提出・マージ)。 エンジンは
    * Revisor も社員名簿も知らないので、 ホスト側が実装を注入する。 未注入なら PR 操作は
    * 実行せず、 その旨を理由として返す (無言スキップにしない)。
    */
@@ -1104,6 +1118,14 @@ export class ReactionWorkflowRunner {
       return;
     }
 
+    // 📋 list-local-prs: Revisor local PR の一覧。 読み取り専用の API 直呼びで、
+    // セッションチャンネルでなくても発火できる (その場合は全リポジトリ)。
+    if (action === "list-local-prs") {
+      notifyAccept();
+      await this.handleListLocalPrs(input, onResult);
+      return;
+    }
+
     // 🔀 merge-pr: 既定は Revisor local PR のマージ。 open な local PR が無いときだけ
     // 従来の GitHub squash merge 経路 (プロンプト) へ落とす。 どちらを実行したかは
     // handleMergePr が必ず応答に出す。
@@ -1204,6 +1226,41 @@ export class ReactionWorkflowRunner {
       this.deps.log.warn(`reaction-workflow: submit-pr failed: ${detail}`);
       this.relayPrResult("submit-pr", false, describePrSubmitOutcome(
         { ok: false, kind: "skipped", reason: "error", detail },
+        actor,
+      ), onResult);
+    }
+  }
+
+  /**
+   * 📋 list-local-prs — Revisor local PR の一覧を返す。 読み取り専用なので権限判定は
+   * 通らない。 出せなかった場合も理由を返す (無言スキップ禁止)。
+   */
+  private async handleListLocalPrs(
+    input: ReactionWorkflowInput,
+    onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
+  ): Promise<void> {
+    const actor = { userId: input.userId };
+    const listLocalPrs = this.deps.prOperations?.listLocalPrs?.bind(this.deps.prOperations);
+    if (!listLocalPrs) {
+      this.deps.log.warn("reaction-workflow: list-local-prs skipped (listLocalPrs not injected)");
+      this.relayPrResult("list-local-prs", false, describePrListOutcome(
+        { ok: false, kind: "unavailable", detail: "local PR 一覧経路がこの構成では有効になっていません" },
+        actor,
+      ), onResult);
+      return;
+    }
+    try {
+      const outcome = await listLocalPrs({ sessionId: input.sessionId, actor });
+      this.deps.log.info(
+        `reaction-workflow: list-local-prs session=${input.sessionId?.slice(0, 8) ?? "-"} ` +
+        `actor=${input.userId} ok=${outcome.ok}${outcome.ok ? ` open=${outcome.openCount}` : ""}`,
+      );
+      this.relayPrResult("list-local-prs", outcome.ok, describePrListOutcome(outcome, actor), onResult);
+    } catch (e) {
+      const errorKind = e instanceof Error ? e.name : "unknown";
+      this.deps.log.warn(`reaction-workflow: list-local-prs failed (${errorKind})`);
+      this.relayPrResult("list-local-prs", false, describePrListOutcome(
+        { ok: false, kind: "unavailable", detail: "一覧処理中にエラーが発生しました" },
         actor,
       ), onResult);
     }

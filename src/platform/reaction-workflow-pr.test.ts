@@ -8,7 +8,7 @@ import {
   type WorkflowAction,
   type WorkflowResultRelay,
 } from "./reaction-workflow.js";
-import type { RwfPrMergeOutcome, RwfPrSubmitOutcome } from "./reaction-workflow-pr.js";
+import type { RwfPrListOutcome, RwfPrMergeOutcome, RwfPrSubmitOutcome } from "./reaction-workflow-pr.js";
 
 const PR = { id: "lpr-1", number: 12, repository: "LUDIARS/Concordia", headRef: "feat/x" };
 
@@ -19,12 +19,16 @@ interface Harness {
   headless: Array<{ prompt: string; cwd?: string }>;
   submit: ReturnType<typeof vi.fn>;
   merge: ReturnType<typeof vi.fn>;
+  list: ReturnType<typeof vi.fn>;
 }
 
 function makeHarness(options: {
   submit?: RwfPrSubmitOutcome;
   merge?: RwfPrMergeOutcome;
+  list?: RwfPrListOutcome;
+  listError?: Error;
   withOperations?: boolean;
+  withList?: boolean;
   hasCapability?: boolean;
 } = {}): Harness {
   const results: Harness["results"] = [];
@@ -32,6 +36,14 @@ function makeHarness(options: {
   const headless: Harness["headless"] = [];
   const submit = vi.fn(async () => options.submit ?? { ok: true, kind: "submitted", pullRequest: PR } as RwfPrSubmitOutcome);
   const merge = vi.fn(async () => options.merge ?? { ok: true, kind: "merged", pullRequest: PR, authorizerRole: "管理職" } as RwfPrMergeOutcome);
+  const list = vi.fn(async () => {
+    if (options.listError) throw options.listError;
+    return options.list ?? {
+      ok: true,
+      markdown: "## Revisor local PR 一覧\n- ✅ #12",
+      openCount: 1,
+    } as RwfPrListOutcome;
+  });
 
   const deps: ReactionWorkflowDeps = {
     runHeadless: async (prompt, opts) => {
@@ -44,11 +56,17 @@ function makeHarness(options: {
     hasCapability: () => options.hasCapability ?? true,
     ...(options.withOperations === false
       ? {}
-      : { prOperations: { submitLocalPr: submit, mergeLocalPr: merge } }),
+      : {
+        prOperations: {
+          submitLocalPr: submit,
+          mergeLocalPr: merge,
+          ...(options.withList === false ? {} : { listLocalPrs: list }),
+        },
+      }),
     log: { info: () => { /* silent */ }, warn: () => { /* silent */ } },
   };
   const runner = new ReactionWorkflowRunner(deps);
-  return { runner, results, injects, headless, submit, merge };
+  return { runner, results, injects, headless, submit, merge, list };
 }
 
 function input(emoji: string, overrides: Partial<ReactionWorkflowInput> = {}): ReactionWorkflowInput {
@@ -126,6 +144,83 @@ describe("submit-pr (📮)", () => {
     const h = makeHarness({ withOperations: false });
     await run(h, input("📮"));
     expect(h.results[0].result.text).toContain("有効になっていません");
+  });
+});
+
+describe("list-local-prs (📋)", () => {
+  it("maps 📋 to list-local-prs", () => {
+    expect(classifyReactionWorkflow("📋")).toBe("list-local-prs");
+    expect(primaryEmojiForAction("list-local-prs")).toBe("📋");
+  });
+
+  it("returns the Revisor local PR list markdown with the actor", async () => {
+    const h = makeHarness();
+    await run(h, input("📋"));
+
+    expect(h.list).toHaveBeenCalledWith({ sessionId: "sess-1", actor: { userId: "u-1" } });
+    expect(h.results).toHaveLength(1);
+    expect(h.results[0].action).toBe("list-local-prs");
+    expect(h.results[0].result.ok).toBe(true);
+    expect(h.results[0].result.text).toContain("Revisor local PR 一覧");
+    expect(h.results[0].result.text).toContain("<@u-1>");
+    // headless / inject 経路は通らない (API 実体を直接呼ぶ)。
+    expect(h.headless).toHaveLength(0);
+    expect(h.injects).toHaveLength(0);
+  });
+
+  it("works outside a session channel (lists all repositories)", async () => {
+    const h = makeHarness();
+    await run(h, input("📋", { sessionId: null }));
+    expect(h.list).toHaveBeenCalledWith({ sessionId: null, actor: { userId: "u-1" } });
+    expect(h.results[0].result.ok).toBe(true);
+  });
+
+  it("reports when the listing route is not wired", async () => {
+    const h = makeHarness({ withList: false });
+    await run(h, input("📋"));
+    expect(h.list).not.toHaveBeenCalled();
+    expect(h.results[0].result.ok).toBe(false);
+    expect(h.results[0].result.text).toContain("有効になっていません");
+  });
+
+  it("reports a listing failure instead of staying silent", async () => {
+    const h = makeHarness({ list: { ok: false, kind: "unavailable", detail: "Revisor down" } });
+    await run(h, input("📋"));
+    expect(h.results[0].result.ok).toBe(false);
+    expect(h.results[0].result.text).toContain("Revisor down");
+  });
+
+  it("relays the shared guidance markdown while keeping fetch failures unsuccessful", async () => {
+    const h = makeHarness({
+      list: {
+        ok: false,
+        kind: "unavailable",
+        detail: "Revisor down",
+        markdown: "## Revisor local PR 一覧\nGitHub PR のキューは別系統 (`/prs`)。",
+      },
+    });
+    await run(h, input("📋"));
+    expect(h.results[0].result.ok).toBe(false);
+    expect(h.results[0].result.text).toContain("Revisor local PR 一覧");
+    expect(h.results[0].result.text).toContain("GitHub PR のキューは別系統");
+  });
+
+  it("does not relay raw exceptions from the listing port", async () => {
+    const h = makeHarness({ listError: new Error("sensitive-diagnostic-marker") });
+    await run(h, input("📋"));
+    expect(h.results[0].result.ok).toBe(false);
+    expect(h.results[0].result.text).not.toContain("sensitive-diagnostic-marker");
+    expect(h.results[0].result.text).toContain("エラーが発生しました");
+  });
+
+  it("clips a long listing to the platform-safe relay size", async () => {
+    const h = makeHarness({
+      list: { ok: true, markdown: "x".repeat(3_000), openCount: 20 },
+    });
+    await run(h, input("📋"));
+    expect(h.results[0].result.text.length).toBeLessThanOrEqual(1_750);
+    expect(h.results[0].result.text).toContain("truncated");
+    expect(h.results[0].result.text).toContain("<@u-1>");
   });
 });
 

@@ -6,6 +6,7 @@ import {
 import spawnCommand from "./commands/spawn.js";
 import statCommand from "./commands/stat.js";
 import prsCommand from "./commands/prs.js";
+import rvPrsCommand from "./commands/rv-prs.js";
 import endSessionCommand from "./commands/end-session.js";
 import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
@@ -50,6 +51,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   spawnCommand,
   statCommand,
   prsCommand,
+  rvPrsCommand,
   endSessionCommand,
   enterCommand,
   cleanCommand,

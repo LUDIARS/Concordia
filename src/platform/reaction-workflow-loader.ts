@@ -5,7 +5,7 @@
  * Concordia コアは起動時にこのローダで **外部プラグインを動的 import** し、 在れば外部を、
  * 無ければ **同梱エンジン (./reaction-workflow.js) にフォールバック**する。
  *  - 外部優先: `CONCORDIA_RWF_PLUGIN_PATH` (既定 `<workspaceRoot>/Concordia-RWF/dist/index.js`)。
- *  - 契約検証: 期待シンボル (ReactionWorkflowRunner / classify / isStandaloneEmoji) が揃うか。
+ *  - 契約検証: 期待シンボルと、core が必須とする built-in action が揃うか。
  *  - 失敗時は同梱にフォールバックし、 RWF が止まらないようにする (no-silent-fallback: warn ログを出す)。
  *
  * 型はビルド時に同梱モジュールから取る (外部は構造的に同一)。 実装は getRwf() で実行時解決。
@@ -33,9 +33,17 @@ function isValidRwfModule(m: unknown): m is RwfModule {
     typeof (o as RwfModule).ReactionWorkflowRunner === "function" &&
     typeof (o as RwfModule).classifyReactionWorkflow === "function" &&
     typeof (o as RwfModule).isStandaloneEmoji === "function" &&
-    typeof (o as RwfModule).reactionAckText === "function"
+    typeof (o as RwfModule).reactionAckText === "function" &&
+    typeof (o as RwfModule).primaryEmojiForAction === "function" &&
+    Array.isArray((o as RwfModule).WORKFLOW_ACTIONS) &&
+    (o as RwfModule).WORKFLOW_ACTIONS.includes("list-local-prs") &&
+    (o as RwfModule).classifyReactionWorkflow("📋") === "list-local-prs" &&
+    typeof (o as RwfModule).WORKFLOW_ACTION_HELP?.["list-local-prs"]?.label === "string"
   );
 }
+
+/** Test hook for the pure compatibility check; does not load or execute a plugin module. */
+export const _isValidRwfModule = isValidRwfModule;
 
 /** 外部プラグイン entry の既定パス (env 優先)。 */
 function resolvePluginPath(_workspaceRoot: string | null | undefined): string {

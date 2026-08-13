@@ -1,24 +1,28 @@
 /**
- * セッション単位の PR 操作 (Revisor local PR の提出とマージ) の実体。
+ * セッション単位の PR 操作 (Revisor local PR の一覧・提出・マージ) の実体。
  *
- * RWF (📮 / 🔀) と Discord の操作パネルは、 どちらもこのクラスを通す。 提出は
+ * RWF (📋 / 📮 / 🔀) と Discord の操作パネルは、 どちらもこのクラスを通す。 提出は
  * `POST /v1/prs/local` と同じ submitter を受け取って呼ぶだけで、 提出判定を複製しない。
  * マージは PR #297 が切り出した指示者ベースの認可 (`mergeLocalPrForRequester`) を使う。
  *
  * platform (discord / slack) は生成時に束縛する。 リアクションを付けた人の役職は、
  * その platform の名簿で引かなければ意味が無いため。
  *
- * @implements spec/feature/workflow-toggles-and-permission-noise.md — W2
+ * @implements spec/tasks/2026-08-08-rwf-pr-actions-and-panel-ui.md — RWF の PR 提出とマージ
+ * @implements spec/tasks/2026-08-13-rv-prs-command-rwf.md — RWF の PR 一覧
  */
 
 import type { StaffPlatform } from "../db/staff-repo.js";
 import { STAFF_ROLE_LABEL } from "../staff/roles.js";
 import type {
   RwfPrActor,
+  RwfPrListOutcome,
   RwfPrMergeOutcome,
   RwfPrOperations,
   RwfPrSubmitOutcome,
 } from "../platform/reaction-workflow-pr.js";
+import { buildRevisorLocalPrDigest } from "./local-pr-listing.js";
+import type { RevisorLocalPrReader } from "./revisor-client.js";
 import {
   findOpenLocalPrForBranch,
   listOpenLocalPrsForRepository,
@@ -47,6 +51,12 @@ export interface SessionPrOperationsDeps {
   merge: LocalPrMergeDeps;
   /** この操作の出所 (監査記録に残る)。 */
   source: string;
+  /**
+   * 📋 一覧用の全件読み取り口 (title 付きの `RevisorLocalPr` を返す方)。
+   * `listLocalPullRequests` (summary) と別なのは、 一覧表示にはタイトルが要るため。
+   * 未注入なら一覧は unavailable (提出・マージには影響しない)。
+   */
+  listReader?: Pick<RevisorLocalPrReader, "listLocalPrs">;
 }
 
 /**
@@ -104,6 +114,35 @@ export class SessionPrOperations implements SessionPrPort {
     }
 
     return this.authorizeAndMerge(session.id, target, input.actor);
+  }
+
+  /**
+   * 📋 Revisor local PR の一覧。 セッションチャンネルから発火されたときはそのセッションの
+   * リポジトリに絞り、 セッション外 (共有チャンネル等) は全リポジトリを出す。
+   */
+  async listLocalPrs(input: { sessionId: string | null; actor: RwfPrActor }): Promise<RwfPrListOutcome> {
+    if (!this.deps.listReader) {
+      return { ok: false, kind: "unavailable", detail: "Revisor の読み取り口がこの構成では有効になっていません" };
+    }
+    const session = input.sessionId ? this.deps.sessions.findSession(input.sessionId) : null;
+    if (input.sessionId && !session) {
+      return { ok: false, kind: "unavailable", detail: "対象セッションが Concordia に見つかりません" };
+    }
+    if (input.sessionId && !session?.repo_origin) {
+      return { ok: false, kind: "unavailable", detail: "対象セッションのリポジトリを特定できません" };
+    }
+    const digest = await buildRevisorLocalPrDigest(this.deps.listReader, {
+      repository: session?.repo_origin ?? null,
+    });
+    if (digest.error) {
+      return {
+        ok: false,
+        kind: "unavailable",
+        detail: "Revisor から一覧を取得できませんでした",
+        markdown: digest.markdown,
+      };
+    }
+    return { ok: true, markdown: digest.markdown, openCount: digest.openCount };
   }
 
   async listOpenLocalPrs(sessionId: string): Promise<RevisorLocalPrSummary[]> {

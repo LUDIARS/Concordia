@@ -730,7 +730,7 @@ export async function startBackend(): Promise<BackendHandle> {
       },
     );
   };
-  // PR 提出 / マージ (RWF 📮 🔀 と Discord 操作パネル) の実体。 提出は上の
+  // PR 一覧 / 提出 / マージ (RWF 📋 📮 🔀 と Discord 操作パネル) の実体。 提出は上の
   // submitLocalPrForSession をそのまま使い、 マージは指示者 (押した人) の役職を
   // 名簿で確認してから Revisor へ流す。 監査は構造化ログ + session event。
   const makeSessionPrOperations = (platform: "discord" | "slack") => new SessionPrOperations({
@@ -738,6 +738,8 @@ export async function startBackend(): Promise<BackendHandle> {
     sessions: repo,
     submit: submitLocalPrForSession,
     listLocalPullRequests: () => revisorLocalPrs.listLocalPullRequests(),
+    // 📋 一覧 (title 付き全件)。 提出・マージの summary 口とは別に読み取りクライアントを使う。
+    listReader: revisorClient,
     merge: {
       staff: staffRepo,
       merger: revisorClient,
@@ -977,7 +979,7 @@ export async function startBackend(): Promise<BackendHandle> {
         profileName: input.profileName,
       });
     },
-    // 📮 PR 提出 / 🔀 マージ (リアクションと操作パネルの共通実体)。
+    // 📋 一覧 / 📮 PR 提出 / 🔀 マージ (リアクションと操作パネルの共通実体)。
     prOperations: discordPrOperations,
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
@@ -1032,7 +1034,7 @@ export async function startBackend(): Promise<BackendHandle> {
         profileName: input.profileName,
       });
     },
-    // 📮 PR 提出 / 🔀 マージ。 役職は Slack の名簿で引く (platform 束縛が違うだけ)。
+    // 📋 一覧 / 📮 PR 提出 / 🔀 マージ。 役職は Slack の名簿で引く (platform 束縛が違うだけ)。
     prOperations: slackPrOperations,
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。

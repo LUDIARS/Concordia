@@ -25,6 +25,7 @@ export type WorkflowAction =
   | "handoff-document"
   | "resume-work"
   | "submit-pr"
+  | "list-local-prs"
   | "merge-pr"
   | "sync-project-main-after-merge"
   | "add-as-workflow";

@@ -1,5 +1,10 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { getRwf, initReactionWorkflow, _resetReactionWorkflowLoader } from "./reaction-workflow-loader.js";
+import {
+  getRwf,
+  initReactionWorkflow,
+  _isValidRwfModule,
+  _resetReactionWorkflowLoader,
+} from "./reaction-workflow-loader.js";
 
 const silentLog = { info: () => {}, warn: () => {} };
 
@@ -12,6 +17,18 @@ describe("reaction-workflow-loader", () => {
     expect(typeof rwf.classifyReactionWorkflow).toBe("function");
     expect(typeof rwf.isStandaloneEmoji).toBe("function");
     expect(typeof rwf.reactionAckText).toBe("function");
+    expect(_isValidRwfModule(rwf)).toBe(true);
+  });
+
+  it("rejects an external engine that predates the required local-PR listing action", () => {
+    const rwf = getRwf();
+    const stale = {
+      ...rwf,
+      WORKFLOW_ACTIONS: rwf.WORKFLOW_ACTIONS.filter((action) => action !== "list-local-prs"),
+      classifyReactionWorkflow: (emoji: string) => emoji === "📋" ? null : rwf.classifyReactionWorkflow(emoji),
+    };
+
+    expect(_isValidRwfModule(stale)).toBe(false);
   });
 
   it("外部プラグインが存在しないパスなら同梱にフォールバック (throw しない)", async () => {

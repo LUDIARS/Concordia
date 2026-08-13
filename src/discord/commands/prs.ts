@@ -5,7 +5,7 @@ import { callConcordia } from "./_util.js";
 const prsCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder()
     .setName("prs")
-    .setDescription("各セッションが作った PR のキューを表示する"),
+    .setDescription("GitHub PR のキューを表示する — Revisor local PR は /rv-prs (通常「PR」はそちら)"),
   async execute(interaction, deps) {
     await interaction.deferReply({ ephemeral: true });
     const r = await callConcordia<{ markdown: string }>(

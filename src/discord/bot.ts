@@ -246,7 +246,7 @@ export interface DiscordBotDeps {
     profileName?: string;
   }) => void;
   /**
-   * PR 提出 / マージ (📮 / 🔀 と操作パネル) の実体。 Revisor local PR の提出は
+   * PR 一覧 / 提出 / マージ (📋 / 📮 / 🔀 と操作パネル) の実体。 Revisor local PR の提出は
    * `POST /v1/prs/local` と同じ関数、 マージは指示者ベースの認可を通す。
    * 未注入なら PR 操作は実行せず、 その理由を返す (無言スキップにしない)。
    */
@@ -444,7 +444,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
-    // 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
+    // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log,
   });

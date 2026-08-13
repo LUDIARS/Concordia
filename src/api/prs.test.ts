@@ -402,3 +402,88 @@ describe("POST /v1/prs/local/:id/close", () => {
     expect(await response.json()).toEqual({ error: "local_pr_close_failed", detail: "Revisor local PR close failed" });
   });
 });
+
+describe("GET /v1/prs/revisor/digest", () => {
+  it("renders the Revisor local PR digest with the teaching note", async () => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs: async () => [revisorPr("open"), revisorPr("merged")],
+      baseUrl: async () => { throw new Error("digest must not resolve the Revisor UI URL"); },
+    });
+    const res = await app.request("/v1/prs/revisor/digest");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { markdown: string; open_count: number; error: string | null };
+    expect(body.error).toBeNull();
+    expect(body.open_count).toBe(1);
+    expect(body.markdown).toContain("Revisor local PR 一覧");
+    expect(body.markdown).toContain("GitHub PR のキューは別系統");
+  });
+
+  it("filters by repository", async () => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs: async () => [
+        revisorPr("open"),
+        { ...revisorPr("open"), id: "local-2", number: 2, repository: "LUDIARS/Lictor", title: "other" },
+      ],
+      baseUrl: async () => { throw new Error("digest must not resolve the Revisor UI URL"); },
+    });
+    const res = await app.request("/v1/prs/revisor/digest?repository=LUDIARS%2FConcordia");
+    const body = await res.json() as { markdown: string; open_count: number };
+    expect(body.open_count).toBe(1);
+    expect(body.markdown).not.toContain("other");
+  });
+
+  it("rejects local-path repository filters without querying Revisor", async () => {
+    const env = makeTestApp();
+    const listLocalPrs = vi.fn(async () => [revisorPr("open")]);
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs,
+      baseUrl: async () => { throw new Error("digest must not resolve the Revisor UI URL"); },
+    });
+
+    const res = await app.request("/v1/prs/revisor/digest?repository=C%3A%2Fworkspace%2Fprivate-repo");
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "repository_invalid" });
+    expect(listLocalPrs).not.toHaveBeenCalled();
+  });
+
+  it("rejects traversal-shaped repository filters", async () => {
+    const env = makeTestApp();
+    const listLocalPrs = vi.fn(async () => [revisorPr("open")]);
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs,
+      baseUrl: async () => { throw new Error("digest must not resolve the Revisor UI URL"); },
+    });
+
+    const res = await app.request("/v1/prs/revisor/digest?repository=..%2Fprivate-repo");
+
+    expect(res.status).toBe(400);
+    expect(listLocalPrs).not.toHaveBeenCalled();
+  });
+
+  it("answers 200 with an explanation when Revisor is not configured", async () => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined);
+    const res = await app.request("/v1/prs/revisor/digest");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { markdown: string; error: string | null };
+    expect(body.error).toBe("revisor_not_configured");
+    expect(body.markdown).toContain("有効になっていません");
+  });
+
+  it("answers 200 with the failure reason when Revisor is down", async () => {
+    const env = makeTestApp();
+    const app = makePrsApp(env, async () => undefined, undefined, {
+      listLocalPrs: async () => { throw new Error("connect ECONNREFUSED"); },
+      baseUrl: async () => { throw new Error("digest must not resolve the Revisor UI URL"); },
+    });
+    const res = await app.request("/v1/prs/revisor/digest");
+    expect(res.status).toBe(200);
+    const body = await res.json() as { markdown: string; error: string | null };
+    expect(body.error).toBe("revisor_request_failed");
+    expect(body.markdown).toContain("取得できませんでした");
+    expect(body.markdown).not.toContain("ECONNREFUSED");
+  });
+});

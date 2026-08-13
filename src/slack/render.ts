@@ -177,6 +177,8 @@ const SLACK_REACTION_UNICODE: Record<string, string> = {
   white_check_mark: "✅",
   heavy_check_mark: "✔️",
   ballot_box_with_check: "☑️",
+  // list-local-prs（📋）
+  clipboard: "📋",
   // repo-memory-bad（😡 / 👎 系）
   rage: "😡",
   angry: "😠",

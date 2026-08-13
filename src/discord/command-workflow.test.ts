@@ -13,6 +13,7 @@ describe("コマンドとワークフローの対応", () => {
     expect(workflowForCommand("mmtask")).toBe("task");
     expect(workflowForCommand("confirm")).toBe("test");
     expect(workflowForCommand("prs")).toBe("review");
+    expect(workflowForCommand("rv-prs")).toBe("review");
     // セッションコントロール基盤のコマンドはワークフローに属さない。
     expect(workflowForCommand("spawn")).toBeNull();
     expect(workflowForCommand("end-session")).toBeNull();
@@ -30,6 +31,7 @@ describe("commandNamesForRegistration", () => {
     expect(names).toContain("mmtask");
     expect(names).toContain("confirm");
     expect(names).toContain("prs");
+    expect(names).toContain("rv-prs");
     expect(names).toContain("spawn");
   });
 
@@ -45,6 +47,7 @@ describe("commandNamesForRegistration", () => {
     expect(names).not.toContain("mmtask");
     expect(names).not.toContain("confirm");
     expect(names).not.toContain("prs");
+    expect(names).not.toContain("rv-prs");
     expect(names).toContain("spawn");
     expect(names).toContain("end-session");
   });

@@ -16,6 +16,7 @@ describe("Discord command registration", () => {
   it("keeps the full command set for head-office guilds", () => {
     const names = commandNamesForRegistration();
     expect(names).toContain("cc-skill");
+    expect(names).toContain("rv-prs");
     expect(names).toContain("spawn");
     expect(names).toContain("ch_name");
     expect(names).toContain("ex-run");

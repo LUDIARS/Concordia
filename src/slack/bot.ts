@@ -129,7 +129,7 @@ export interface SlackBotDeps {
   /** LLM に届く発言をした Slack ユーザを社員名簿へ記録する。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /**
-   * 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。 Slack の名簿で役職を引く
+   * 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。 Slack の名簿で役職を引く
    * インスタンスを渡す。 未注入なら PR 操作は実行せず理由を返す。
    */
   prOperations?: RwfPrOperations;
@@ -192,7 +192,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
-    // 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
+    // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },
   });

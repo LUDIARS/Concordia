@@ -1,4 +1,5 @@
-// 内部 cron (毎日レビュー等) がどの delegation テンプレを起動するかを WebUI から切り替える。
+// 内部 cron がどの delegation テンプレを起動するかを WebUI から切り替える。
+// Spec: spec/feature/delegation.md §9「初期 seed」。
 // 既定値はコード側 (src/scheduler/cron-jobs.ts) のまま。ここでの変更は schema_meta へ
 // 永続化され、再起動不要で次回発火から反映される (デプロイなしで切り戻せる)。
 

@@ -88,6 +88,9 @@ export class AdminState {
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
   setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }
+  migrateCronJobOverride(oldJobName: string, newJobName: string, oldDefaultCallName: string, newDefaultCallName: string): void {
+    this.runtime.migrateCronJobOverride(oldJobName, newJobName, oldDefaultCallName, newDefaultCallName);
+  }
 
   snapshot() {
     return {

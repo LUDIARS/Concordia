@@ -125,6 +125,23 @@ export class RuntimeSettingsStore {
     else overrides[jobName] = callName.trim();
     this.store.set(KEYS.cronJobOverrides, JSON.stringify(overrides));
   }
+
+  /**
+   * Renames a cron job's persisted override without discarding an administrator's
+   * explicit template choice. If the old override selected the retired default,
+   * use the new default instead.
+   */
+  migrateCronJobOverride(oldJobName: string, newJobName: string, oldDefaultCallName: string, newDefaultCallName: string): void {
+    const overrides = this.getCronJobOverrides();
+    const oldCallName = overrides[oldJobName];
+    if (!oldCallName) return;
+
+    if (!overrides[newJobName]) {
+      overrides[newJobName] = oldCallName === oldDefaultCallName ? newDefaultCallName : oldCallName;
+    }
+    delete overrides[oldJobName];
+    this.store.set(KEYS.cronJobOverrides, JSON.stringify(overrides));
+  }
 }
 
 function positiveOrZero(raw: string | null, fallback: number): number {

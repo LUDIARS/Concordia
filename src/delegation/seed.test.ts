@@ -222,6 +222,7 @@ describe("seedDelegationTemplates", () => {
     expect(claude?.prompt_template).toContain("refs/heads/<default-branch>");
     expect(claude?.prompt_template).toContain("reviewed_at");
     expect(claude?.prompt_template).not.toContain("git fetch origin");
+    expect(repo.findTemplateByCallName("daily-review-autofix")?.title).toBe("週次レビュー安全修正委託 (Codex)");
   });
 
   it("deactivates the legacy ludiars-review-daily call_name after the weekly rename", () => {

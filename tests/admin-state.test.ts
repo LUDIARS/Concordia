@@ -83,6 +83,49 @@ describe("AdminState", () => {
     expect(() => env.state.setDailyTokenBudget(Infinity)).toThrow();
   });
 
+  it("migrates a renamed cron job override without losing a custom template", () => {
+    env.state.setCronJobOverride("ludiars-review-daily", "custom-review-template");
+
+    env.state.migrateCronJobOverride(
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+    );
+
+    expect(env.state.getCronJobOverride("ludiars-review-daily")).toBeNull();
+    expect(env.state.getCronJobOverride("ludiars-review-weekly")).toBe("custom-review-template");
+  });
+
+  it("replaces a retired cron default while migrating its override", () => {
+    env.state.setCronJobOverride("ludiars-review-daily", "ludiars-review-daily");
+
+    env.state.migrateCronJobOverride(
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+    );
+
+    expect(env.state.getCronJobOverride("ludiars-review-daily")).toBeNull();
+    expect(env.state.getCronJobOverride("ludiars-review-weekly")).toBe("ludiars-review-weekly");
+  });
+
+  it("keeps an existing override for the renamed cron job", () => {
+    env.state.setCronJobOverride("ludiars-review-daily", "stale-custom-template");
+    env.state.setCronJobOverride("ludiars-review-weekly", "current-custom-template");
+
+    env.state.migrateCronJobOverride(
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+      "ludiars-review-daily",
+      "ludiars-review-weekly",
+    );
+
+    expect(env.state.getCronJobOverride("ludiars-review-daily")).toBeNull();
+    expect(env.state.getCronJobOverride("ludiars-review-weekly")).toBe("current-custom-template");
+  });
+
   it("workspace roots: multi set / get + primary + dedupe + legacy fallback", () => {
     // 既定 (config) フォールバック。
     const withDefaults = new AdminState(env.db, { workspaceRoots: ["E:\\Document\\Ars", "D:\\Other"] });

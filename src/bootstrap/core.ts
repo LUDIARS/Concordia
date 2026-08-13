@@ -1397,6 +1397,12 @@ export async function startBackend(): Promise<BackendHandle> {
         run: () => {
           seedDefaultRules(rules);
           seedDelegationTemplates(delegationRepo);
+          adminState.migrateCronJobOverride(
+            "ludiars-review-daily",
+            "ludiars-review-weekly",
+            "ludiars-review-daily",
+            "ludiars-review-weekly",
+          );
           seedModelCatalog(modelCatalog);
           seedHarnessRules(harnessRepo);
           seedInjectManuals(injectManualsRepo);

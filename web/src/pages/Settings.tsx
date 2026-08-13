@@ -85,7 +85,7 @@ const SECTIONS: SettingsSection[] = [
   {
     id: "cron-jobs",
     label: "定期実行",
-    hint: "毎日レビュー等、内部 cron が呼ぶテンプレの切り替え",
+    hint: "週次レビュー等、内部 cron が呼ぶテンプレの切り替え",
     render: () => <section className="border border-border rounded p-4"><CronJobsSection /></section>,
   },
   {

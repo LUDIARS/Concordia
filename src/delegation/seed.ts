@@ -638,7 +638,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   },
   {
     call_name: "daily-review-autofix",
-    title: "日次レビュー安全修正委託 (Codex)",
+    title: "週次レビュー安全修正委託 (Codex)",
     description: "ludiars-review-weekly / vulnerability-response-daily が見つけた安全範囲の指摘 (lint/typo/unused_import/dead_code/gitignore/toc/spec_gen) をまとめて Codex に適用させ、1 PR にする。call_only (人間向けドロップダウンには出さない)。",
     target_provider: "codex",
     call_only: true,

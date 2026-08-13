@@ -16,7 +16,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-08-03
+updated: 2026-08-11
 ---
 
 
@@ -243,6 +243,10 @@ delegation テンプレ選択ベースで起動する:
 (AIFormat REVIEW_VULNERABILITY.md の観点だけで Tier 1 をスキャンし、安全カテゴリのみ自動修正・
 Critical/High は管理者へメンションして報告) を新設した。同じく 2026-08-08 neco 指示で、毎朝 9:00 に
 前日の session-logs とメモリの蓄積から機械化できる改善案を提案する `kaizen-daily` も新設した。
+
+Timer Delegation の job 名を変更するときは、`schema_meta` に保存済みの管理者 override も
+新しい job 名へ移行する。旧既定を明示していた override は新既定へ読み替え、管理者が選んだ
+別テンプレートと、すでに新 job 側にある override は維持する。
 
 レビュー対象の最新状態は GitHub や `origin/*` ではなく各リポジトリのローカル
 `refs/heads/<default-branch>` を正本とする。固定した main SHA から detached の一時

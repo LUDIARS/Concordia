@@ -5,7 +5,7 @@ describe("resolveManualKind", () => {
   it("call_name に review を含む → レビュー", () => {
     expect(resolveManualKind({ call_name: "review-duo", title: "Review Duo" })).toBe("レビュー");
     expect(resolveManualKind({ call_name: "review-sonnet5", title: "x" })).toBe("レビュー");
-    expect(resolveManualKind({ call_name: "ludiars-review-weekly", title: "週次レビュー" })).toBe("レビュー");
+    expect(resolveManualKind({ call_name: "ludiars-review-daily", title: "日次レビュー" })).toBe("レビュー");
   });
 
   it("title に レビュー を含む → レビュー (大文字小文字を無視)", () => {

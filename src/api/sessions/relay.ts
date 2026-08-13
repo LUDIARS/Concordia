@@ -14,6 +14,9 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     const body = await c.req.json().catch(() => null);
     const parsed = TranscriptFrameSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    // thinking は既定で Concordia の DB / WebUI / 中継へ載せない。保持先は provider
+    // 自身のローカル transcript に限り、設定を明示的に有効化したときだけ流通させる。
+    const relayThinking = parsed.data.kind !== "thinking" || deps.isThinkingEnabled?.() === true;
     const ts = nowSec();
     if (session.status === "active") deps.repo.updateHeartbeat(id, ts);
     const discordRow = deps.channelDirectory.findSessionChannel(id);
@@ -29,19 +32,21 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     // 永続化: 失敗してもログ流通は止めず、 続けて WS broadcast に進む
     // (永続化失敗は dispatcher / 監視への副作用が無いため安全)
     let persisted = false;
-    try {
-      persisted = deps.transcriptLogs.insert({
-        session_id: id,
-        seq: parsed.data.seq,
-        ts,
-        kind: parsed.data.kind,
-        payload: parsed.data.payload,
-      });
-    } catch (err) {
-      log.warn(
-        { session_id: id, seq: parsed.data.seq, err: (err as Error).message },
-        "transcript_logs insert failed; falling back to WS-only broadcast",
-      );
+    if (relayThinking) {
+      try {
+        persisted = deps.transcriptLogs.insert({
+          session_id: id,
+          seq: parsed.data.seq,
+          ts,
+          kind: parsed.data.kind,
+          payload: parsed.data.payload,
+        });
+      } catch (err) {
+        log.warn(
+          { session_id: id, seq: parsed.data.seq, err: (err as Error).message },
+          "transcript_logs insert failed; falling back to WS-only broadcast",
+        );
+      }
     }
 
     const transcriptEvent = {
@@ -58,13 +63,13 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
     if (!activeRelayTarget) {
       // External relay suppression must not suppress the canonical internal work stream.
       // Active relay targets reach the same projector through eventBus below.
-      deps.projectSessionEvent(transcriptEvent);
+      if (relayThinking) deps.projectSessionEvent(transcriptEvent);
       logInactiveTranscriptPost(id, parsed.data.seq, parsed.data.kind, {
         sessionStatus: session.status,
         discordStatus: discordRow?.status ?? null,
         persisted,
       });
-      return c.json({ ok: true, persisted, inactive: true });
+      return c.json({ ok: true, persisted, inactive: true, suppressed: !relayThinking });
     }
 
     if (parsed.data.kind === "text") {
@@ -80,8 +85,8 @@ export function registerRelayRoutes(app: Hono, deps: SessionsApiDeps): void {
         );
       }
     }
-    eventBus.emit(transcriptEvent);
-    return c.json({ ok: true, persisted });
+    if (relayThinking) eventBus.emit(transcriptEvent);
+    return c.json({ ok: true, persisted, suppressed: !relayThinking });
   });
 
 app.get("/:id/discord-channels", (c) => {

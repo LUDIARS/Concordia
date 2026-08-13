@@ -11,10 +11,10 @@
  * (2026-07-16/17 障害: readdirSync+readFileSync の全量走査で 8〜110 秒停止)。
  */
 
-import { open, readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, realpath, stat } from "node:fs/promises";
 import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join, relative, sep } from "node:path";
 import type { SessionRow } from "../shared/types.js";
 
 function isObj(v: unknown): v is Record<string, unknown> {
@@ -36,6 +36,12 @@ export const CODEX_SESSIONS_ROOT = join(homedir(), ".codex", "sessions");
 /** head 読み (limit 付き readLines) で読む先頭チャンクのバイト数。 */
 const HEAD_CHUNK_BYTES = 256 * 1024;
 
+/**
+ * transcript とセッションを開始時刻で突き合わせるときの許容ずれ (秒)。
+ * 同一ホストなので時計は一致するが、 登録と最初の書き込みの順序ゆらぎだけ吸収する。
+ */
+const LOG_MATCH_CLOCK_SLACK_SEC = 120;
+
 /** path が存在するか (async existsSync 代替)。 */
 export async function pathExists(path: string): Promise<boolean> {
   try {
@@ -43,6 +49,23 @@ export async function pathExists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * セッション登録で報告された transcript が、このホストの provider 正本ログ配下に
+ * 実在するときだけ返す。register API の入力を任意ファイル読取へ流さないため、
+ * symlink 解決後の実体パスで判定する。
+ */
+export async function resolveTrustedTranscriptPath(path: string | null, root: string): Promise<string | null> {
+  if (!path?.endsWith(".jsonl")) return null;
+  try {
+    const [resolvedPath, resolvedRoot] = await Promise.all([realpath(path), realpath(root)]);
+    const rel = relative(resolvedRoot, resolvedPath);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+    return resolvedPath;
+  } catch {
+    return null;
   }
 }
 
@@ -184,7 +207,9 @@ export async function findCodexLog(s: SessionRow): Promise<string | null> {
       return;
     }
     if (head.cwd && head.cwd !== s.repo_path) return;
-    const score = head.started ? -Math.abs(head.started - s.started_at) : -1e9;
+    // findClaudeLog と同じ理由で、 セッション開始より前に始まった transcript は候補にしない。
+    if (head.started === null || head.started < s.started_at - LOG_MATCH_CLOCK_SLACK_SEC) return;
+    const score = -Math.abs(head.started - s.started_at);
     if (score > bestScore) {
       bestScore = score;
       bestPath = p;
@@ -214,7 +239,12 @@ export async function findClaudeLog(s: SessionRow): Promise<string | null> {
   let best: { p: string; score: number } | null = null;
   for (const p of files) {
     const ts = await readFirstTs(p);
-    const score = ts ? -Math.abs(ts - s.started_at) : -1e9;
+    // このセッションより前に始まった transcript は別セッションのもの (transcript の
+    // 先頭時刻がセッション開始より前になることはない)。 起動直後 (自分の transcript が
+    // まだ無い) に他セッションの古い巨大 transcript を拾うと、 コンテキスト占有 100% の
+    // 誤警告になる。 検証不能 (先頭時刻なし) も候補にしない。
+    if (ts === null || ts < s.started_at - LOG_MATCH_CLOCK_SLACK_SEC) continue;
+    const score = -Math.abs(ts - s.started_at);
     if (!best || score > best.score) best = { p, score };
   }
   return best?.p ?? null;

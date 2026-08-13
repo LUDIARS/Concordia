@@ -48,6 +48,32 @@ describe("SessionMessageService", () => {
     expect(summaryEvents).toHaveLength(1);
   });
 
+  it("drops thinking frames by default, and projects them only when enabled", () => {
+    const thinking: ConcordiaEvent = {
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 1,
+      kind: "thinking",
+      payload: { text: "private reasoning" },
+      ts: 111,
+    };
+    dispatch(thinking);
+    expect(repo.list("s1")).toHaveLength(0);
+
+    const enabled = new SessionMessageService({
+      repo,
+      isThinkingEnabled: () => true,
+      subscribe: (next) => {
+        listener = next;
+        return () => { listener = null; };
+      },
+      emit: (ev) => emitted.push(ev),
+    });
+    enabled.start();
+    dispatch(thinking);
+    expect(repo.list("s1")).toHaveLength(1);
+  });
+
   it("routes Task create + tool-result completion to the same row via op=update", () => {
     dispatch({
       type: "transcript.frame",

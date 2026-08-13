@@ -131,15 +131,15 @@ function projectTranscriptFrame(
       }];
     }
     case "thinking": {
-      const preview = typeof p.preview === "string" ? p.preview : "";
-      if (!preview) return [];
+      const text = typeof p.text === "string" ? p.text : typeof p.preview === "string" ? p.preview : "";
+      if (!text) return [];
       return [{
         op: "create",
         dedupe_key: frameDedupeKey,
         author_type: "thinking",
         author_label: "Assistant",
         author_platform: null,
-        content: preview,
+        content: text,
       }];
     }
     case "summary": {

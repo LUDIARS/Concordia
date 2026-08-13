@@ -83,6 +83,8 @@ export class AdminState {
   setDelegationWatchdogMaxNudges(value: number): void { this.runtime.setDelegationWatchdogMaxNudges(value); }
   getReaperSessionEndGraceSec(): number { return this.runtime.getReaperSessionEndGraceSec(); }
   setReaperSessionEndGraceSec(value: number): void { this.runtime.setReaperSessionEndGraceSec(value); }
+  getThinkingMessagesEnabled(): boolean { return this.runtime.getThinkingMessagesEnabled(); }
+  setThinkingMessagesEnabled(value: boolean): void { this.runtime.setThinkingMessagesEnabled(value); }
   getCronJobOverrides(): Record<string, string> { return this.runtime.getCronJobOverrides(); }
   getCronJobOverride(jobName: string): string | null { return this.runtime.getCronJobOverride(jobName); }
   setCronJobOverride(jobName: string, callName: string | null): void { this.runtime.setCronJobOverride(jobName, callName); }

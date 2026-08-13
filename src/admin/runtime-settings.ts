@@ -16,6 +16,7 @@ const KEYS = {
   watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
   watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
   reaperSessionEndGraceSec: "admin.reaper_session_end_grace_sec",
+  thinkingMessages: "admin.thinking_messages_enabled",
 } as const;
 
 export type LictorMode = "auto" | "dev" | "prod";
@@ -84,6 +85,18 @@ export class RuntimeSettingsStore {
   setDelegationWatchdogMaxNudges(value: number): void { this.store.set(KEYS.watchdogMaxNudges, String(requirePositive(value, "delegation_watchdog_max_nudges"))); }
   getReaperSessionEndGraceSec(): number { return positiveOrDefault(this.store.get(KEYS.reaperSessionEndGraceSec), this.reaperSessionEndGraceDefault); }
   setReaperSessionEndGraceSec(value: number): void { this.store.set(KEYS.reaperSessionEndGraceSec, String(requirePositive(value, "reaper_session_end_grace_sec"))); }
+  /**
+   * assistant の thinking を session_messages に流すか (既定 OFF — 2026-08-12 neco 指示:
+   * 中継面に thinking が出るのは不要なことが多い)。 解決順は DB (WebUI 設定) → env → 既定。
+   */
+  getThinkingMessagesEnabled(): boolean {
+    const raw = this.store.get(KEYS.thinkingMessages);
+    if (raw !== null && raw.trim() !== "") return raw === "1" || raw === "true";
+    const env = process.env.CONCORDIA_THINKING_MESSAGES_ENABLED?.trim();
+    if (env !== undefined && env !== "") return env === "1" || env === "true";
+    return false;
+  }
+  setThinkingMessagesEnabled(value: boolean): void { this.store.setBoolean(KEYS.thinkingMessages, value); }
 
   /**
    * 内部 cron (src/scheduler/cron-jobs.ts) の call_name を、コード再デプロイなしで

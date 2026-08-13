@@ -12,6 +12,12 @@ const TASK_CONTEXT_RESTORE_LIMIT = 200;
 
 export interface SessionMessageServiceDeps {
   repo: SessionMessagesRepo;
+  /**
+   * assistant の thinking frame を session_messages に落とすか (既定 OFF —
+   * 2026-08-12 neco 指示: 中継面に thinking が出るのは不要なことが多い)。
+   * 未注入時も OFF。値は都度解決 (WebUI から再起動なしで切替可)。
+   */
+  isThinkingEnabled?: () => boolean;
   /** テスト差し替え用。 既定は eventBus.subscribe。 */
   subscribe?: (listener: (ev: ConcordiaEvent) => void) => () => void;
   /** テスト差し替え用。 既定は eventBus.emit。 */
@@ -31,6 +37,10 @@ export class SessionMessageService {
   project(ev: ConcordiaEvent): void {
     const sessionId = eventSessionId(ev);
     if (!sessionId) return;
+    // thinking は既定で記録しない (記録しなければ WebUI / Discord / Slack の全面から消える)。
+    if (ev.type === "transcript.frame" && ev.kind === "thinking" && !this.deps.isThinkingEnabled?.()) {
+      return;
+    }
     const ctx = this.contextFor(sessionId);
     for (const msg of projectEvent(ev, ctx)) {
       this.persistAndEmit(sessionId, ev.ts, msg);

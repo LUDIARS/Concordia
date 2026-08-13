@@ -136,6 +136,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
     minValue: 1,
   },
+  {
+    key: "session.thinking_messages_enabled",
+    section: "session",
+    label: "thinking をチャットへ流す",
+    description:
+      "assistant の thinking を session_messages に記録して WebUI / Discord へ出すか。 OFF (既定) では thinking frame を落とす。",
+    kind: "boolean",
+    envName: "CONCORDIA_THINKING_MESSAGES_ENABLED",
+    dbKey: "admin.thinking_messages_enabled",
+    defaultValue: false,
+    editable: true,
+  },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
   envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 neco 指示)。"),

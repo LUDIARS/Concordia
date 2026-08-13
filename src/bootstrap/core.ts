@@ -421,7 +421,12 @@ export async function startBackend(): Promise<BackendHandle> {
   const webPush = new WebPushRepo(db);
   const webPushService = new WebPushService(webPush);
   const stopWebPushService = webPushService.start();
-  const messageService = new SessionMessageService({ repo: sessionMessages });
+  // isThinkingEnabled は後方で作る adminState を遅延参照する (購読は同期 bootstrap 中に
+  // 完了し、 イベントが流れ始めるのは adminState 初期化後なので TDZ にはならない)。
+  const messageService = new SessionMessageService({
+    repo: sessionMessages,
+    isThinkingEnabled: () => adminState.getThinkingMessagesEnabled(),
+  });
   const stopMessageService = messageService.start();
   const pendingQuestions = makeDiscordPendingQuestionsRepo(db);
   // Discord channel/config repos は bot 起動とは独立に (bot OFF でも) Lictor の

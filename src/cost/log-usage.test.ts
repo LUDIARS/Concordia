@@ -1,7 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { existsSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { findClaudeLog, CLAUDE_PROJECTS_ROOT } from "./log-usage.js";
+import { tmpdir } from "node:os";
+import { findClaudeLog, CLAUDE_PROJECTS_ROOT, resolveTrustedTranscriptPath } from "./log-usage.js";
 import type { SessionRow } from "../shared/types.js";
 
 // CLAUDE_PROJECTS_ROOT は ~/.claude/projects 固定なので、 そこに一時プロジェクトフォルダを
@@ -40,5 +41,25 @@ describe("findClaudeLog encoding", () => {
     expect(await findClaudeLog(sess(id, "E:/Document/Ars"))).toBe(p);
     // バックスラッシュ表記でも同じ encoded に落ちる。
     expect(await findClaudeLog(sess(id, "E:\\Document\\Ars"))).toBe(p);
+  });
+});
+
+describe("resolveTrustedTranscriptPath", () => {
+  it("accepts only an existing JSONL below the provider transcript root", async () => {
+    const nonce = `${Date.now()}-${Math.random()}`;
+    const root = join(tmpdir(), `trusted-transcript-${nonce}`);
+    const transcript = join(root, "nested", "session.jsonl");
+    const outside = join(tmpdir(), `untrusted-transcript-${nonce}.jsonl`);
+    try {
+      mkdirSync(join(root, "nested"), { recursive: true });
+      writeFileSync(transcript, "{}\n", "utf8");
+      writeFileSync(outside, "{}\n", "utf8");
+      await expect(resolveTrustedTranscriptPath(transcript, root)).resolves.toBeTruthy();
+      await expect(resolveTrustedTranscriptPath(outside, root)).resolves.toBeNull();
+      await expect(resolveTrustedTranscriptPath(join(root, "not-jsonl.txt"), root)).resolves.toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { force: true });
+    }
   });
 });

@@ -118,7 +118,11 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const transcriptLogs = new TranscriptLogsRepo(db);
   const sessionMessages = new SessionMessagesRepo(db);
   const sessionMessageReads = new SessionMessageReadsRepo(db);
-  const sessionMessageService = new SessionMessageService({ repo: sessionMessages });
+  const adminState = new AdminState(db);
+  const sessionMessageService = new SessionMessageService({
+    repo: sessionMessages,
+    isThinkingEnabled: () => adminState.getThinkingMessagesEnabled(),
+  });
   const projectSessionEvent = (event: ConcordiaEvent): void => sessionMessageService.project(event);
   const webPush = new WebPushRepo(db);
   const webPushService = new WebPushService(webPush);
@@ -135,7 +139,6 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const injectManuals = new InjectManualsRepo(db);
   seedInjectManuals(injectManuals);
   const staff = new StaffRepo(db);
-  const adminState = new AdminState(db);
   const taskflowState = new TaskflowStateStore(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
   const taskStore = new TaskMdStore(() => [], undefined, taskflowState);

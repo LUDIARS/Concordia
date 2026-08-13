@@ -71,6 +71,50 @@ describe("sessions API — transcript", () => {
     }
   });
 
+  it("does not persist, project, or emit thinking frames while the setting is disabled", async () => {
+    const env = makeTestApp();
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf-thinking", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    env.discordChannels.upsert({ session_id: "tf-thinking", channel_id: "ch-thinking", status: "active" });
+    const { eventBus } = await import("../src/events.js");
+    const captured: unknown[] = [];
+    const unsub = eventBus.subscribe((ev) => { if (ev.type === "transcript.frame") captured.push(ev); });
+    try {
+      const response = await env.app.request("/v1/sessions/tf-thinking/transcript-frame", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ seq: 0, kind: "thinking", payload: { text: "private reasoning" } }),
+      });
+      expect(await response.json()).toMatchObject({ ok: true, persisted: false, suppressed: true });
+      expect(captured).toHaveLength(0);
+      expect(env.transcriptLogs.listBySession("tf-thinking")).toHaveLength(0);
+      expect(env.sessionMessages.list("tf-thinking")).toHaveLength(0);
+    } finally {
+      unsub();
+    }
+  });
+
+  it("relays thinking frames after the setting is enabled", async () => {
+    const env = makeTestApp();
+    env.adminState.setThinkingMessagesEnabled(true);
+    await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "tf-thinking-enabled", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const response = await env.app.request("/v1/sessions/tf-thinking-enabled/transcript-frame", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ seq: 0, kind: "thinking", payload: { text: "deliberate" } }),
+    });
+    expect(await response.json()).toMatchObject({ ok: true, persisted: true, suppressed: false });
+    expect(env.transcriptLogs.listBySession("tf-thinking-enabled")).toHaveLength(1);
+    expect(env.sessionMessages.list("tf-thinking-enabled")).toHaveLength(1);
+  });
+
   it("inactive relay projection shares tool correlation state with the lifecycle projector", async () => {
     const env = makeTestApp();
     await env.app.request("/v1/sessions", {

@@ -253,6 +253,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       sessionMessages: deps.sessionMessages,
       sessionMessageReads: deps.sessionMessageReads,
       projectSessionEvent: deps.projectSessionEvent,
+      isThinkingEnabled: () => deps.adminState.getThinkingMessagesEnabled(),
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
       harnessAudit: deps.harnessAudit,

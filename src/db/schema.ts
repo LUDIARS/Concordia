@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 61;
+export const SCHEMA_VERSION = 62;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1652,6 +1652,35 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     }
     db.exec(`CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_slug
                ON taskflow_task_state(repo_path, task_slug)`);
+  },
+}, {
+  version: 62,
+  name: "delegation-staged-injection",
+  source: "delegation_runs staged injection columns v1",
+  up(db) {
+    // 段階注入 (実装委託の 初回=調査ブリーフ / 後追い=実装タスク) の永続状態。
+    // 二重配信の抑止と Memoria タスクの関連付けは、 Cc の再起動をまたいでも外れては
+    // ならないので in-memory ではなく列に持つ (run-watchdog の watchdog_* と同方針)。
+    // COLUMN_ADDITIONS (baseline-v41) には足さない — 適用済み migration の source を
+    // 変えると checksum mismatch で Cc が起動しなくなるため、 forward-only で足す。
+    // spec/feature/delegation-staged-injection.md。
+    const columns = db.prepare("PRAGMA table_info(delegation_runs)").all() as Array<{ name: string }>;
+    const has = (name: string): boolean => columns.some((column) => column.name === name);
+    if (!has("staged_injection")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN staged_injection INTEGER NOT NULL DEFAULT 0");
+    }
+    if (!has("staged_followup_at")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN staged_followup_at INTEGER");
+    }
+    if (!has("investigation_summary")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN investigation_summary TEXT");
+    }
+    if (!has("memoria_task_id")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN memoria_task_id TEXT");
+    }
+    if (!has("memoria_task_url")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN memoria_task_url TEXT");
+    }
   },
 }];
 

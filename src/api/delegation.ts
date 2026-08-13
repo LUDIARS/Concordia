@@ -33,6 +33,10 @@ import {
 } from "../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
+import {
+  deliverStagedFollowup,
+  type StagedFollowupMemoriaPort,
+} from "../delegation/staged-followup.js";
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
 
@@ -155,6 +159,13 @@ const RunCommitSchema = z.object({
   paths: z.array(z.string().min(1).max(1000)).max(200).optional(),
 });
 
+/** 段階注入の調査完了報告 (spec/feature/delegation-staged-injection.md §3)。 */
+const RunInvestigatedSchema = z.object({
+  summary: z.string().min(1).max(8000),
+  files: z.array(z.string().min(1).max(500)).max(100).optional(),
+  blockers: z.array(z.string().min(1).max(1000)).max(20).optional(),
+});
+
 export interface DelegationApiDeps {
   repo: DelegationRepo;
   service: DelegationService;
@@ -175,6 +186,10 @@ export interface DelegationApiDeps {
   taskStore?: TaskMdStore;
   /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
+  /** 段階注入の第2段階で関連付ける Memoria タスクの作成口 (未注入なら追跡タスク無しで進む)。 */
+  memoria?: StagedFollowupMemoriaPort;
+  /** 委託先へ配る協調 API のベース URL (follow-up 本文の endpoint 表記に使う)。 */
+  concordiaUrl?: string;
   onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
   syncForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
@@ -603,44 +618,47 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     return c.json({ ok: true, sha: outcome.sha, files: outcome.files });
   });
 
-  app.post("/runs/:id/inject", async (c) => {
-    const id = c.req.param("id");
-    const row = deps.repo.findRun(id);
-    if (!row) return c.json({ error: "not_found" }, 404);
-    if (!row.child_session_id) return c.json({ error: "child_session_not_claimed" }, 409);
+  /**
+   * 子セッションが inject を受け取れる状態か。 eventBus 経由の session.inject は /ws に
+   * 接続中の WS client (Lictor 側の pty 書き込み口) にしか届かない (api/ws.ts の
+   * target_session_id フィルタ)。 session 行は在っても ws_clients===0 (再接続待ち/未接続)
+   * の間は書き込み先が無く inject が静かに消えるため、 無条件に ok:true を返さない
+   * (設定不備/未接続の無言フォールバック禁止 — coding-conventions §6)。
+   */
+  function checkChildInjectable(
+    row: DelegationRunRow,
+  ): { ok: true; childSessionId: string } | { ok: false; status: 404 | 409; error: string; detail?: string } {
+    if (!row.child_session_id) return { ok: false, status: 409, error: "child_session_not_claimed" };
     if (deps.sessions) {
       const childSession = deps.sessions.findSession(row.child_session_id);
-      if (!childSession) {
-        return c.json({ error: "child_session_not_found" }, 404);
-      }
-      // eventBus 経由の session.inject は /ws に接続中の WS client (Lictor 側の
-      // pty 書き込み口) にしか届かない (api/ws.ts の target_session_id フィルタ)。
-      // session 行は在っても ws_clients===0 (再接続待ち/未接続) の間は書き込み先が
-      // 無く inject が静かに消えるため、 ここで無条件に ok:true を返さない
-      // (設定不備/未接続の無言フォールバック禁止 — coding-conventions §6)。
+      if (!childSession) return { ok: false, status: 404, error: "child_session_not_found" };
       if (childSession.ws_clients <= 0) {
-        return c.json({
+        return {
+          ok: false,
+          status: 409,
           error: "child_session_not_connected",
           detail: "no live pty/ws client is attached to this session; inject would be silently dropped",
-        }, 409);
+        };
       }
     }
-    const body = await c.req.json().catch(() => null);
-    const parsed = RunInjectSchema.safeParse(body);
-    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
-    const text = buildDelegationInjectText({ runId: row.id, text: parsed.data.text });
+    return { ok: true, childSessionId: row.child_session_id };
+  }
+
+  /** 子セッションへ 1 通 inject し、 親セッションへ写す (parent / followup 共通)。 */
+  function injectToChild(row: DelegationRunRow, childSessionId: string, rawText: string, source: string): number {
+    const text = buildDelegationInjectText({ runId: row.id, text: rawText });
     const ts = nowSec();
     deps.sessions?.appendEvent({
-      session_id: row.child_session_id,
+      session_id: childSessionId,
       ts,
       kind: "inject",
-      payload: { text, source: `delegation:${row.id}:parent` },
+      payload: { text, source: `delegation:${row.id}:${source}` },
     });
     eventBus.emit({
       type: "session.inject",
-      target_session_id: row.child_session_id,
+      target_session_id: childSessionId,
       text,
-      source: `delegation:${row.id}:parent`,
+      source: `delegation:${row.id}:${source}`,
       ts,
     });
     if (row.parent_session_id) {
@@ -648,12 +666,64 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         type: "delegation.mirror",
         target_session_id: row.parent_session_id,
         run_id: row.id,
-        child_session_id: row.child_session_id,
+        child_session_id: childSessionId,
         text,
         ts,
       });
     }
-    return c.json({ ok: true, target_session_id: row.child_session_id, ts });
+    return ts;
+  }
+
+  app.post("/runs/:id/inject", async (c) => {
+    const id = c.req.param("id");
+    const row = deps.repo.findRun(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+    const target = checkChildInjectable(row);
+    if (!target.ok) return c.json({ error: target.error, detail: target.detail }, target.status);
+    const body = await c.req.json().catch(() => null);
+    const parsed = RunInjectSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const ts = injectToChild(row, target.childSessionId, parsed.data.text, "parent");
+    return c.json({ ok: true, target_session_id: target.childSessionId, ts });
+  });
+
+  /**
+   * 段階注入の第2段階トリガ。 委託先が調査完了を報告すると、 Concordia が理由 (why) +
+   * 実装タスク + Memoria タスク + 完了条件を 1 通にまとめて後追い inject する。
+   * 何度呼ばれても実装タスクの配信は 1 度きり (delegation_runs の列で保証)。
+   */
+  app.post("/runs/:id/investigated", async (c) => {
+    const id = c.req.param("id");
+    const row = deps.repo.findRun(id);
+    if (!row) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = RunInvestigatedSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    if (!row.staged_injection) {
+      return c.json({
+        error: "run_not_staged",
+        detail: "this run was not launched with staged injection; the task was delivered in the initial prompt",
+      }, 409);
+    }
+    const target = checkChildInjectable(row);
+    if (!target.ok) return c.json({ error: target.error, detail: target.detail }, target.status);
+    const outcome = await deliverStagedFollowup(row.id, parsed.data, {
+      runs: deps.repo,
+      memoria: deps.memoria,
+      inject: (text, sourceSuffix) => { injectToChild(row, target.childSessionId, text, sourceSuffix); },
+      concordiaUrl: deps.concordiaUrl ?? "http://127.0.0.1:11111",
+    });
+    if (!outcome.ok) return c.json({ error: outcome.error }, 409);
+    return c.json({
+      ok: true,
+      target_session_id: target.childSessionId,
+      delivered: outcome.delivered,
+      already_delivered: outcome.already_delivered,
+      memoria_task_id: outcome.memoria?.id ?? null,
+      memoria_task_url: outcome.memoria?.url ?? null,
+      memoria_error: outcome.memoria_error,
+      supplement_delivered: outcome.supplement_delivered,
+    });
   });
 
   return app;

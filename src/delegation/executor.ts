@@ -46,6 +46,7 @@ export async function executeQueuedRun(input: {
     spawn_worktree_path: launch.worktree_path,
     spawn_worktree_created: launch.worktree_created,
     effort_decision_id: launch.effort_decision_id,
+    staged_injection: launch.staged_injection,
   };
   emitDelegationRunChanged(input.repo.markRunSpawned(input.run.id, outcome, claim));
 }

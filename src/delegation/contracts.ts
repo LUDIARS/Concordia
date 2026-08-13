@@ -83,5 +83,7 @@ export type LaunchResult =
       effective_model: string | null;
       fast_mode: boolean;
       effort_decision_id: number | null;
+      /** 段階注入 (初回=調査ブリーフ) で起動したか。 run 行へ焼く。 */
+      staged_injection: boolean;
     }
   | { ok: false; error: string };

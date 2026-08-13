@@ -108,6 +108,15 @@ export interface DelegationRunRow {
   watchdog_last_nudge_at?: number | null;
   /** 親へのエスカレーション通知を送った時刻 (epoch-ms)。 null = 未送 (1 回きりの保証)。 */
   watchdog_escalated_at?: number | null;
+  /** 1 = 段階注入 (初回=調査ブリーフ / 後追い=実装タスク) で起動した run。 */
+  staged_injection?: number;
+  /** 実装タスク (第2段階) を配信した時刻 (epoch-ms)。 null = 未配信 (1 回きりの保証)。 */
+  staged_followup_at?: number | null;
+  /** 委託先から届いた調査報告 (証跡)。 */
+  investigation_summary?: string | null;
+  /** 関連付けた Memoria タスク id。 null = 未作成。 */
+  memoria_task_id?: string | null;
+  memoria_task_url?: string | null;
   created_at: number;
 }
 
@@ -188,6 +197,8 @@ export interface CreateRunInput {
   spawn_worktree_created?: boolean;
   effort_decision_id?: number | null;
   finished_at?: number | null;
+  /** 段階注入で起動したか (spec/feature/delegation-staged-injection.md)。 */
+  staged_injection?: boolean;
 }
 
 /** spawn 試行後に run へ焼き戻す結果 (キュー払い出し時も同じ形)。 */
@@ -206,6 +217,8 @@ export interface RunSpawnOutcome {
   spawn_worktree_path?: string | null;
   spawn_worktree_created?: boolean;
   effort_decision_id?: number | null;
+  /** queued → spawn の払い出し経路でも段階注入の別を焼き戻す。 */
+  staged_injection?: boolean;
 }
 
 export class DelegationRepo {
@@ -354,8 +367,9 @@ export class DelegationRepo {
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
         effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
-        spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at,
+        staged_injection, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -383,6 +397,7 @@ export class DelegationRepo {
       input.spawn_worktree_created ? 1 : 0,
       input.effort_decision_id ?? null,
       input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
+      input.staged_injection ? 1 : 0,
       now,
     );
     return this.findRun(id)!;
@@ -448,6 +463,39 @@ export class DelegationRepo {
       `UPDATE delegation_runs SET watchdog_escalated_at = ?, watchdog_last_check_at = ?
        WHERE id = ? AND watchdog_escalated_at IS NULL`,
     ).run(nowMs, nowMs, id);
+    return result.changes > 0;
+  }
+
+  // ── 段階注入の永続状態 (spec/feature/delegation-staged-injection.md) ──
+
+  /**
+   * 委託先から届いた調査報告を証跡として残す (最新で上書き)。 watchdog の列は触らない
+   * — 進捗監視の判断は run-watchdog.ts の責務で、 ここで肩代わりしない。
+   */
+  recordInvestigationReport(id: string, summary: string, _nowMs: number): void {
+    this.db.prepare(`UPDATE delegation_runs SET investigation_summary = ? WHERE id = ?`).run(summary, id);
+  }
+
+  /**
+   * Memoria タスクを run に関連付ける。 未関連 (NULL) のときだけ書き、 書けたかを返す —
+   * 同じ run への二重起票を DB 側で防ぐ (プロセス再起動をまたいでも 1 回きり)。
+   */
+  recordMemoriaTask(id: string, taskId: string, taskUrl: string): boolean {
+    const result = this.db.prepare(
+      `UPDATE delegation_runs SET memoria_task_id = ?, memoria_task_url = ?
+       WHERE id = ? AND memoria_task_id IS NULL`,
+    ).run(taskId, taskUrl, id);
+    return result.changes > 0;
+  }
+
+  /**
+   * 実装タスク (第2段階) の配信を記録する。 未配信のときだけ書き、 書けたかを返す。
+   * 呼び出し側は true のときだけ inject する (二重配信の抑止)。
+   */
+  markStagedFollowupDelivered(id: string, nowMs: number): boolean {
+    const result = this.db.prepare(
+      `UPDATE delegation_runs SET staged_followup_at = ? WHERE id = ? AND staged_followup_at IS NULL`,
+    ).run(nowMs, id);
     return result.changes > 0;
   }
 
@@ -547,6 +595,7 @@ export class DelegationRepo {
              spawn_worktree_path = COALESCE(?, spawn_worktree_path),
              spawn_worktree_created = COALESCE(?, spawn_worktree_created),
              effort_decision_id = COALESCE(?, effort_decision_id),
+             staged_injection = COALESCE(?, staged_injection),
              finished_at = CASE WHEN ? IN ('spawn_failed', 'completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
              queue_payload_json = NULL,
              queue_owner = NULL,
@@ -568,6 +617,7 @@ export class DelegationRepo {
       outcome.spawn_worktree_path ?? null,
       outcome.spawn_worktree_created === undefined ? null : (outcome.spawn_worktree_created ? 1 : 0),
       outcome.effort_decision_id ?? null,
+      outcome.staged_injection === undefined ? null : (outcome.staged_injection ? 1 : 0),
       outcome.status,
       Date.now(),
       runId,

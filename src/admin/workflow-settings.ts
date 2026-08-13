@@ -7,12 +7,16 @@ const CC_ENABLED = "admin.cc_workflow_enabled";
 const EMOJI_OVERRIDES = "admin.reaction_emoji_overrides";
 // セッション終了時に作業ブランチを Revisor の local PR として自動提出するか。
 const REVISOR_AUTO_SUBMIT = "admin.revisor_auto_submit_enabled";
+// 実装委託の初回 inject を調査ブリーフにし、 実装タスクを調査報告後に後追いで配るか。
+const STAGED_INJECTION = "admin.delegation_staged_injection_enabled";
 
 export interface WorkflowSettingsDefaults {
   reactionWorkflowEnabled?: boolean;
   ccWorkflowEnabled?: boolean;
   /** 既定 true。 レビュー発火が黙って無くなる状態を作らないため、 明示 OFF のみ止める。 */
   revisorAutoSubmitEnabled?: boolean;
+  /** 既定 true (spec/feature/delegation-staged-injection.md)。 明示 OFF で従来の一括注入に戻る。 */
+  delegationStagedInjectionEnabled?: boolean;
 }
 
 export class WorkflowSettingsStore {
@@ -25,6 +29,12 @@ export class WorkflowSettingsStore {
 
   getRevisorAutoSubmitEnabled(): boolean { return this.store.getBoolean(REVISOR_AUTO_SUBMIT, this.defaults.revisorAutoSubmitEnabled ?? true); }
   setRevisorAutoSubmitEnabled(value: boolean): void { this.store.setBoolean(REVISOR_AUTO_SUBMIT, value); }
+
+  /** 既定 true。 明示 OFF にすると実装委託の初回 inject が従来どおりタスク一括になる。 */
+  getDelegationStagedInjectionEnabled(): boolean {
+    return this.store.getBoolean(STAGED_INJECTION, this.defaults.delegationStagedInjectionEnabled ?? true);
+  }
+  setDelegationStagedInjectionEnabled(value: boolean): void { this.store.setBoolean(STAGED_INJECTION, value); }
 
   getEmojiOverrides(): Record<string, string> {
     try {

@@ -58,6 +58,15 @@ export class MemoriaClient {
     return body.task;
   }
 
+  /**
+   * タスクの API リソース URL。 委託先へ「関連 Memoria タスク」として渡す。
+   * Web UI の画面パスは Memoria 側の実装詳細なので推測せず、 契約済みの
+   * `/api/tasks/:id` (createTask / completeTask と同じ面) を指す。
+   */
+  taskApiUrl(id: string | number): string {
+    return `${this.baseUrl}/api/tasks/${id}`;
+  }
+
   async completeTask(id: number): Promise<void> {
     await this.request("PATCH", `/api/tasks/${id}`, { status: "done" });
     log.info({ task_id: id }, "memoria task completed");

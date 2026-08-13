@@ -470,17 +470,6 @@ export async function startBackend(): Promise<BackendHandle> {
   const excubitorClient = new ExcubitorClient();
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
-  const delegationService = new DelegationService({
-    repo: delegationRepo,
-    concordiaUrl: publicUrlForDelegation,
-    effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
-    // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
-    injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
-    // task 文面に一致する Genius command-pattern カードを手順としてプロンプトへ渡す
-    // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
-    commandPatterns: (taskText) =>
-      buildCommandPatternBlock({ genius: commandPatternGenius, scoreMin: cfg.inquiryScoreMin }, taskText),
-  });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -492,6 +481,19 @@ export async function startBackend(): Promise<BackendHandle> {
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
     reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
   }, secretBox);
+  const delegationService = new DelegationService({
+    repo: delegationRepo,
+    concordiaUrl: publicUrlForDelegation,
+    effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+    // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
+    injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
+    // task 文面に一致する Genius command-pattern カードを手順としてプロンプトへ渡す
+    // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
+    commandPatterns: (taskText) =>
+      buildCommandPatternBlock({ genius: commandPatternGenius, scoreMin: cfg.inquiryScoreMin }, taskText),
+    // 段階注入 (初回=調査ブリーフ / 後追い=実装タスク)。設定は都度解決する。
+    resolveStagedInjectionEnabled: () => adminState.getDelegationStagedInjectionEnabled(),
+  });
   // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
   // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して
   // 登録側を張り替える。 spec/feature/workflow-toggles-and-permission-noise.md
@@ -1082,6 +1084,8 @@ export async function startBackend(): Promise<BackendHandle> {
     director,
     taskStore,
     taskflowState,
+    // 段階注入の第2段階で関連付ける Memoria タスクの作成口 (既存の公式 API のみ使う)。
+    memoria: memoriaClient,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
     syncDiscordForumTags: async (templates) => {
       const config = resolveDiscordConfig(discordConfig, secretBox);

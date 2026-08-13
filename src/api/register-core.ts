@@ -55,6 +55,7 @@ import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
 import { delegationRouter } from "./delegation.js";
+import type { StagedFollowupMemoriaPort } from "../delegation/staged-followup.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import type { DelegationQueue } from "../delegation/queue.js";
@@ -187,6 +188,11 @@ export interface CoreDelegationDeps {
   harnessBlackbox?: HarnessBlackboxService;
   subsidiaryManager?: SubsidiaryBotManager;
   subsidiaryBudget?: SubsidiaryBudgetTracker;
+  /**
+   * 段階注入の第2段階で関連付ける Memoria タスクの作成口。 未注入なら追跡タスク無しで
+   * 実装タスクを配る (実装は止めない)。 spec/feature/delegation-staged-injection.md。
+   */
+  memoria?: StagedFollowupMemoriaPort;
 }
 
 export interface CoreRuntimeDeps {
@@ -364,6 +370,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       : undefined,
     adminState: deps.adminState,
     taskStore: deps.taskStore,
+    memoria: deps.memoria,
+    concordiaUrl: deps.publicUrl,
     onTaskflowCompleted: deps.onTaskflowCompleted,
     syncForumTags: deps.syncDiscordForumTags,
     hasPendingQuestion,

@@ -27,6 +27,7 @@ import {
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
+import { buildInvestigationBrief, decideStagedInjection } from "./staged-injection.js";
 import { createChildLogger } from "../shared/logger.js";
 import { baselineEffort, classifyTaskEffort, supportsAutomaticEffort, type EffortTaskBucket } from "./effort-policy.js";
 import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
@@ -113,6 +114,12 @@ export interface DelegationServiceDeps {
    * task 文面に一致した定型手順ブロックを返す。 不在・不一致・失敗は null (fail-soft)。
    */
   commandPatterns?: (taskText: string) => Promise<string | null>;
+  /**
+   * 段階注入 (初回=調査ブリーフ / 後追い=実装タスク) を使うか。 毎回評価するので
+   * 設定変更が再起動なしで効く。 未注入なら有効 (既定 ON)。
+   * spec/feature/delegation-staged-injection.md。
+   */
+  resolveStagedInjectionEnabled?: () => boolean;
 }
 
 export class DelegationService {
@@ -237,6 +244,7 @@ export class DelegationService {
       spawn_worktree_path: launch.worktree_path,
       spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
+      staged_injection: launch.staged_injection,
     });
 
     return {
@@ -415,11 +423,32 @@ export class DelegationService {
         // Command patterns are advisory; Genius failure must not block delegation launch.
       }
     }
+    // 実装委託は 2 段階に割る: 初回は調査ブリーフだけを渡し、 タスク本文 (rendered_prompt)
+    // は run 行に置いたまま伏せる。 委託先の調査報告を受けて第2段階で配信する。
+    const staged = decideStagedInjection({
+      manualKind,
+      repoPath: cwd ?? null,
+      enabled: this.deps.resolveStagedInjectionEnabled?.() ?? true,
+    });
     const contextBlock = buildDelegationContext(
       this.deps.concordiaUrl,
       manualContent ? { kind: manualKind, content: manualContent } : null,
       commandPatternBlock,
+      staged.staged ? "investigation" : "approval",
     );
+    const promptSection = staged.staged
+      ? buildInvestigationBrief({
+        runId,
+        title: def.title,
+        renderedPrompt,
+        repoPath: cwd as string,
+        branch: spawnBranch,
+        concordiaUrl: this.deps.concordiaUrl ?? "http://127.0.0.1:11111",
+      })
+      : renderedPrompt;
+    if (!staged.staged) {
+      log.info({ run_id: runId, call_name: def.call_name, reason: staged.reason }, "delegation staged injection skipped");
+    }
     try {
       await mkdir(this.promptsDir, { recursive: true });
     } catch (err) {
@@ -428,7 +457,7 @@ export class DelegationService {
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const promptBody = renderPromptFile(
       def,
-      renderedPrompt,
+      promptSection,
       input.args ?? {},
       effectiveOptions,
       runId,
@@ -462,7 +491,9 @@ export class DelegationService {
         cwd,
         branch: spawnBranch,
         promptPath,
-        startupInjectText: renderedPrompt,
+        // Discord surface / 再送に写るのも第1段階の本文。 伏せたタスク本文をここから
+        // 漏らすと段階注入の意味が無くなる。
+        startupInjectText: promptSection,
         spawner: this.deps.spawn as DelegationSpawner | undefined,
       });
       spawnPid = result.spawnPid;
@@ -490,6 +521,7 @@ export class DelegationService {
       effective_model: spawn.effectiveModel,
       fast_mode: effectiveOptions.fast_mode === true,
       effort_decision_id: effortDecisionId,
+      staged_injection: staged.staged,
     };
   }
 }

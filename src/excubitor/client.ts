@@ -86,9 +86,14 @@ export class ExcubitorClient {
     return this.request<ExcubitorProcessSnapshot>("GET", "/api/v1/processes/snapshot", undefined, timeoutMs);
   }
 
-  async findService(code: string): Promise<ExcubitorService | null> {
+  async findService(code: string, timeoutMs = this.timeoutMs): Promise<ExcubitorService | null> {
     try {
-      return await this.request<ExcubitorService>("GET", `/api/v1/services/${encodeURIComponent(code)}`);
+      return await this.request<ExcubitorService>(
+        "GET",
+        `/api/v1/services/${encodeURIComponent(code)}`,
+        undefined,
+        timeoutMs,
+      );
     } catch (e) {
       if (e instanceof ExcubitorNotFound) return null;
       throw e;

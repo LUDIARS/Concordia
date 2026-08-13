@@ -1,4 +1,5 @@
 import type { Hono } from "hono";
+import { existsSync } from "node:fs";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { DelegationRunRow } from "../../db/delegation-repo.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
@@ -226,17 +227,21 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     // dev-process.md 由来のプロセスを auto-start (既に running なら skip).
     // FS / spawn を伴うので失敗は飲み込んで session 登録は完了させる.
     let processStartup: Awaited<ReturnType<ProcessManager["startFromRepo"]>> | null = null;
-    try {
-      processStartup = await deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
-    } catch (err) {
-      processStartup = {
-        started: [],
-        skipped: [],
-        failed: [{ name: "*", reason: (err as Error).message }],
-        warnings: [`startFromRepo error: ${(err as Error).message}`],
-        marker_only: false,
-        devProcessMdPath: null,
-      };
+    const canStartProcesses =
+      !isWorkspaceRootCwd(input.repo_path, workspaceRoots) && existsSync(input.repo_path);
+    if (canStartProcesses) {
+      try {
+        processStartup = await deps.processManager.startFromRepo(input.repo_path, input.repo_origin ?? null);
+      } catch (err) {
+        processStartup = {
+          started: [],
+          skipped: [],
+          failed: [{ name: "*", reason: (err as Error).message }],
+          warnings: [`startFromRepo error: ${(err as Error).message}`],
+          marker_only: false,
+          devProcessMdPath: null,
+        };
+      }
     }
 
     const freshSession = deps.repo.findSession(input.id)!;

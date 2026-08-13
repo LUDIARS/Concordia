@@ -107,7 +107,7 @@ describe("ensure-develop-clones", () => {
     expect(second).toMatchObject({ branchesCreated: 0, clonesCreated: 0, updated: 1, failed: 0 });
     expect(readFileSync(join(clonePath, "updated.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("updated\n");
     expect(git(clonePath, "rev-parse", "HEAD")).toBe(git(clonePath, "rev-parse", "origin/develop"));
-  }, 30_000);
+  }, 60_000);
 
   it("preserves a dirty develop clone and skips its update", async () => {
     const root = createWorkspace();

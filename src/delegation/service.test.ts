@@ -239,6 +239,42 @@ describe("DelegationService.invoke", () => {
     expect(readFileSync(r.prompt_file_path, "utf8")).not.toContain("## 作業マニュアル");
   });
 
+  it("commandPatterns に render 済み task を渡して prompt file に注入する", async () => {
+    const requestedTasks: string[] = [];
+    const svcWithPatterns = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      commandPatterns: async (taskText) => {
+        requestedTasks.push(taskText);
+        return "## コマンドパターン (Genius)\n\n### 定型作業\n\ncommand";
+      },
+    });
+
+    const r = await svcWithPatterns.invoke({ call_name: "echo", args: { msg: "hi" } });
+
+    if (!r.ok) throw new Error("expected ok");
+    expect(requestedTasks).toEqual(["echo hi"]);
+    expect(readFileSync(r.prompt_file_path, "utf8")).toContain("### 定型作業\n\ncommand");
+  });
+
+  it("commandPatterns の失敗は委託を止めない", async () => {
+    const svcWithPatterns = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      commandPatterns: async () => {
+        throw new Error("Genius unavailable");
+      },
+    });
+
+    const r = await svcWithPatterns.invoke({ call_name: "echo", args: { msg: "hi" } });
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(readFileSync(r.prompt_file_path, "utf8")).not.toContain("## コマンドパターン (Genius)");
+  });
+
   it("file name matches run.id", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "x" } });
     if (!r.ok) throw new Error("expected ok");
@@ -519,8 +555,9 @@ describe("DelegationService.invoke", () => {
       expect(git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(sourceBranch);
       expect(git(worktreeRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feat/delegation-wt");
     } finally {
-      rmSync(worktreeRoot, { recursive: true, force: true });
-      rmSync(repoRoot, { recursive: true, force: true });
+      // Git can release Windows file handles a moment after its process exits.
+      rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+      rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }
   }, REAL_GIT_WORKTREE_TIMEOUT_MS);
 });

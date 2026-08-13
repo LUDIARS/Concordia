@@ -18,7 +18,7 @@ export interface GeniusClient {
   query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null>;
 }
 
-/** healthz + query を合わせた上限 (spec/feature/inquiry.md §10-1)。 */
+/** catalog 解決 + healthz + query を合わせた上限 (spec/feature/inquiry.md §10-1)。 */
 const QUERY_BUDGET_MS = 2_000;
 
 /**
@@ -29,39 +29,60 @@ export class CatalogGeniusClient implements GeniusClient {
   constructor(private readonly excubitor: Pick<ExcubitorClient, "findService">, private readonly fetchImpl: typeof fetch = fetch) {}
 
   async query(input: { text: string; categories?: string[]; k: number }): Promise<GeniusCard[] | null> {
-    const url = await this.resolveUrl();
-    if (!url) return null;
-    // 予算は healthz + query の合計で 2s (spec §10-1)。 各要求に 2s ずつ与えると
-    // Genius 不在時に呼び出し元が倍待たされる。
     const deadline = Date.now() + QUERY_BUDGET_MS;
     try {
-      const health = await this.request(`${url}/healthz`, { method: "GET" }, deadline);
-      if (!health.ok) return null;
-      const response = await this.request(`${url}/api/clone/query`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(input),
-      }, deadline);
-      if (!response.ok) return null;
-      const body = await response.json() as { cards?: unknown };
+      const url = await this.resolveUrl(deadline);
+      if (!url || Date.now() >= deadline) return null;
+      const health = await this.request(
+        `${url}/healthz`,
+        { method: "GET" },
+        deadline,
+        async (response) => response,
+      );
+      if (!health.ok || Date.now() >= deadline) return null;
+      const result = await this.request(
+        `${url}/api/clone/query`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(input),
+        },
+        deadline,
+        async (response) => ({
+          ok: response.ok,
+          body: response.ok ? await response.json() as { cards?: unknown } : null,
+        }),
+      );
+      if (!result.ok || !result.body) return null;
+      const body = result.body;
       return Array.isArray(body.cards) ? body.cards.flatMap(asCard) : [];
     } catch {
+      // Genius is optional; discovery, timeout, transport, and parse failures are fail-soft.
       return null;
     }
   }
 
-  private async resolveUrl(): Promise<string | null> {
-    const service = await this.excubitor.findService("genius").catch(() => null);
+  private async resolveUrl(deadline: number): Promise<string | null> {
+    const remainingMs = Math.max(0, deadline - Date.now());
+    if (remainingMs === 0) return null;
+    const service = await this.excubitor.findService("genius", remainingMs).catch(() => null);
     const provides = service?.catalog_snapshot?.provides;
     const value = typeof provides?.GENIUS_URL === "string" ? provides.GENIUS_URL.trim() : "";
     return /^https?:\/\//.test(value) ? value.replace(/\/+$/, "") : null;
   }
 
-  private async request(url: string, init: RequestInit, deadline: number): Promise<Response> {
+  private async request<T>(
+    url: string,
+    init: RequestInit,
+    deadline: number,
+    consume: (response: Response) => Promise<T>,
+  ): Promise<T> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), Math.max(0, deadline - Date.now()));
     try {
-      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+      // Query bodies can contain task text. Never forward them to a redirect target.
+      const response = await this.fetchImpl(url, { ...init, redirect: "error", signal: controller.signal });
+      return await consume(response);
     } finally {
       clearTimeout(timer);
     }

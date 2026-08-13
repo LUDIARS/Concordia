@@ -40,6 +40,24 @@ describe("buildDelegationContext", () => {
     expect(ctx).not.toContain("## 作業マニュアル");
   });
 
+  it("command-pattern は作業マニュアル直後かつ固定の振る舞い説明より前に置く", () => {
+    const ctx = buildDelegationContext(
+      "http://127.0.0.1:11111",
+      { kind: "実装", content: "manual" },
+      "## コマンドパターン (Genius)\n\ncommand",
+    );
+    const manualIdx = ctx.indexOf("## 作業マニュアル");
+    const patternIdx = ctx.indexOf("## コマンドパターン (Genius)");
+    const behaviorIdx = ctx.indexOf("### 起動後の振る舞い");
+    expect(patternIdx).toBeGreaterThan(manualIdx);
+    expect(patternIdx).toBeLessThan(behaviorIdx);
+  });
+
+  it("空白のみの command-pattern は差し込まない", () => {
+    const ctx = buildDelegationContext("http://127.0.0.1:11111", null, "   ");
+    expect(ctx).not.toContain("## コマンドパターン (Genius)");
+  });
+
   it("Codex/Claude native child task を使わず Cc Delegation へ統一する契約を含む", () => {
     const ctx = buildDelegationContext("http://127.0.0.1:11111");
     expect(ctx).toContain("Codex/Claude 固有の子エージェント起動機能は使いません");

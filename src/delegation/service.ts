@@ -108,6 +108,11 @@ export interface DelegationServiceDeps {
    * kind は resolveManualKind (manual-kind.ts) がテンプレから解決する。
    */
   injectManual?: (kind: string) => string | null;
+  /**
+   * Genius command-pattern の push 注入 (delegation/command-patterns.ts)。
+   * task 文面に一致した定型手順ブロックを返す。 不在・不一致・失敗は null (fail-soft)。
+   */
+  commandPatterns?: (taskText: string) => Promise<string | null>;
 }
 
 export class DelegationService {
@@ -400,9 +405,20 @@ export class DelegationService {
     // kind 別 Inject マニュアル (inject_manuals) をテンプレから解決して差し込む。
     const manualKind = resolveManualKind({ call_name: def.call_name, title: def.title });
     const manualContent = this.deps.injectManual?.(manualKind) ?? null;
+    // Genius command-pattern (定型作業のコマンド列) を task 文面で照会して差し込む。
+    // Genius 不在・不一致・失敗は注入なしで委託を続行する (fail-soft)。
+    let commandPatternBlock: string | null = null;
+    if (this.deps.commandPatterns) {
+      try {
+        commandPatternBlock = await this.deps.commandPatterns(renderedPrompt);
+      } catch {
+        // Command patterns are advisory; Genius failure must not block delegation launch.
+      }
+    }
     const contextBlock = buildDelegationContext(
       this.deps.concordiaUrl,
       manualContent ? { kind: manualKind, content: manualContent } : null,
+      commandPatternBlock,
     );
     try {
       await mkdir(this.promptsDir, { recursive: true });

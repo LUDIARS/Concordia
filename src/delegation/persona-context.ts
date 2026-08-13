@@ -18,10 +18,13 @@ export interface DelegationManual {
  * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:11111)
  * @param manual        kind 別作業マニュアル。 渡されたら先頭付近に
  *                      「## 作業マニュアル (kind: …)」節として差し込む。
+ * @param commandPatternBlock  Genius command-pattern の整形済みブロック
+ *                      (delegation/command-patterns.ts)。 マニュアルの直後に置く。
  */
 export function buildDelegationContext(
   concordiaUrl = "http://127.0.0.1:11111",
   manual?: DelegationManual | null,
+  commandPatternBlock?: string | null,
 ): string {
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",
@@ -44,6 +47,12 @@ export function buildDelegationContext(
       manual.content.trim(),
       "",
     );
+  }
+
+  // Genius command-pattern (定型作業のコマンド列)。 task 文面に一致した手順を最初から
+  // 渡し、 弱いモデルが自前手順を組み立てて処理がばらつくのを防ぐ (push 型注入)。
+  if (commandPatternBlock && commandPatternBlock.trim()) {
+    lines.push(commandPatternBlock.trim(), "");
   }
 
   lines.push(

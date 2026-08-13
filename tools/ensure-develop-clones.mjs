@@ -125,7 +125,19 @@ function createDevelopBranch(repository, sourceBranch) {
 function createDevelopClone(originUrl, clonePath) {
   const parent = resolve(clonePath, "..");
   mkdirSync(parent, { recursive: true });
-  runGit(parent, ["clone", "--branch", "develop", originUrl, clonePath]);
+  // A generated develop clone must not run user template hooks (for example
+  // Git LFS hooks) while this maintenance operation is creating it.
+  runGit(parent, [
+    "-c",
+    "core.hooksPath=NUL",
+    "-c",
+    "init.templateDir=NUL",
+    "clone",
+    "--branch",
+    "develop",
+    originUrl,
+    clonePath,
+  ]);
 }
 
 function updateDevelopClone(clonePath) {

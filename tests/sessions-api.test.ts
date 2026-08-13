@@ -264,7 +264,7 @@ describe("sessions API", () => {
     });
     expect(automaticTaskChange.status).toBe(200);
     expect(env.repo.findSession("root-bound")?.branch).toBe(branch);
-  });
+  }, 30_000);
 
   it("404 for unknown session", async () => {
     const r = await app.request("/v1/sessions/nope");

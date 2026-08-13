@@ -99,6 +99,7 @@ import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
 import { CatalogGeniusClient } from "../inquiry/genius-client.js";
+import { buildCommandPatternBlock } from "../delegation/command-patterns.js";
 import { DirectorRepo } from "../director/repo.js";
 import { DirectorService } from "../director/service.js";
 import { GeniusModelReviewService } from "../model-review/service.js";
@@ -461,12 +462,19 @@ export async function startBackend(): Promise<BackendHandle> {
   // ログから直接合算する (グローバル予算と違い delta 累積は不要 = 冪等)。
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: repo });
   const publicUrlForDelegation = `http://${cfg.host}:${cfg.port}`;
+  const excubitorClient = new ExcubitorClient();
+  // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
+  const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const delegationService = new DelegationService({
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
+    // task 文面に一致する Genius command-pattern カードを手順としてプロンプトへ渡す
+    // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
+    commandPatterns: (taskText) =>
+      buildCommandPatternBlock({ genius: commandPatternGenius, scoreMin: cfg.inquiryScoreMin }, taskText),
   });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
@@ -519,7 +527,6 @@ export async function startBackend(): Promise<BackendHandle> {
   // 起動・停止は必ず Excubitor 経由 (catalog 登録済みサービスのみ)。
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
-  const excubitorClient = new ExcubitorClient();
   const director = new DirectorService({
     repo: new DirectorRepo(db),
     genius: new CatalogGeniusClient(excubitorClient),

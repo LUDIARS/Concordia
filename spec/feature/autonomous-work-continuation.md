@@ -75,7 +75,12 @@ in-memory タイムスタンプで抑止)。 消えた session の記録は毎�
 ### 設定 (env)
 - `CONCORDIA_STALL_NUDGE_ENABLED` (既定 `1`)
 - `CONCORDIA_STALL_NUDGE_INTERVAL_MS` (既定 `600000` = 10 分)
-- `CONCORDIA_STALL_IDLE_SEC` (既定 `3600` = 1 時間)
+- `CONCORDIA_STALL_IDLE_SEC` (既定 `600` = 10 分)
 - `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 `CONCORDIA_STALL_IDLE_SEC` と同じ)
+
+idle 閾値は巡回間隔と同じ 10 分に揃える (2026-08-09 neco 指示)。 「ゴールへ進んでいない
+セッションを 10 分ごとに確認する」が成立するのはこの組み合わせのときだけで、 従来の 1 時間では
+止まったセッションを丸 1 時間放置してから初めて声をかけていた。 cooldown も同じ 10 分なので、
+1 セッションあたりの催促は最短 10 分に 1 回に収まる。
 
 fire-and-forget: WS 未接続なら inject は silent drop。 status 変更は行わない。

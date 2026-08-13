@@ -11,7 +11,7 @@
  *   - 各 session の **transcript の最終更新時刻** (= 最後に応答した時刻) を見る。
  *     last_seen_at は WS ハートビート由来で「プロセス生存」 signal にすぎず、
  *     idle を表さない。 transcript mtime こそが「応答が止まった」 の真の signal。
- *   - idleSec (既定 3600) 以上無更新で、 かつ **ask マーカーで人間判断待ちでない**
+ *   - idleSec (既定 600 = 巡回間隔と同じ 10 分) 以上無更新で、 かつ **ask マーカーで人間判断待ちでない**
  *     セッションにだけ、 「状態を見直して小さく再実装 / 判断が要るなら ask で停止」 を
  *     `session.inject` で流し込む。
  *   - 一度 nudge したら cooldownSec (既定 idleSec と同じ) は再 nudge しない
@@ -42,7 +42,7 @@ export interface StalledSessionNudgeOptions {
   repo: SessionsRepo;
   /** scan 周期 (ms)。 既定 10 分。 */
   intervalMs?: number;
-  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 既定 3600 (1h)。 */
+  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 既定 600 (10 分)。 */
   idleSec?: number;
   /** 一度 nudge したら次の nudge までこの秒数空ける。 既定 idleSec と同じ。 */
   cooldownSec?: number;
@@ -172,7 +172,7 @@ function extractAllText(msg: Record<string, unknown>): string {
  */
 export function buildNudgeText(_provider: string): string {
   return [
-    "[自動確認] 1 時間ほど応答が止まっているようです。",
+    "[自動確認] しばらく応答が止まっているようです。",
     "",
     "- 直近の diff / 失敗ログ / テスト結果を見直し、止まった原因を 1 行で整理してください。",
     "- まだ実装できるなら、範囲を小さく切って別アプローチで再実装してください。",
@@ -206,7 +206,7 @@ export function startStalledSessionNudge(
   opts: StalledSessionNudgeOptions,
 ): StalledSessionNudgeHandle {
   const intervalMs = opts.intervalMs ?? 10 * 60 * 1000;
-  const idleSec = opts.idleSec ?? 3600;
+  const idleSec = opts.idleSec ?? 600;
   const cooldownSec = opts.cooldownSec ?? idleSec;
   const enabled = opts.enabled ?? true;
   const now = opts.now ?? Date.now;

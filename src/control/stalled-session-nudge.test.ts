@@ -172,7 +172,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "fresh" })]),
       now: () => NOW,
-      transcriptMtimeMs: async () => NOW - 1_000_000, // ~16 分前
+      transcriptMtimeMs: async () => NOW - 300_000, // 5 分前 (既定 idle 閾値 600 秒未満)
       readTranscriptTail: async () => "",
       intervalMs: 1_000_000,
     });

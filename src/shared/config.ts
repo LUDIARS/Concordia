@@ -67,7 +67,7 @@ export interface ConcordiaConfig {
   stallNudgeEnabled: boolean;
   /** 停止 nudge の走査間隔 (ms)。 env `CONCORDIA_STALL_NUDGE_INTERVAL_MS` (既定 10 分)。 */
   stallNudgeIntervalMs: number;
-  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 env `CONCORDIA_STALL_IDLE_SEC` (既定 3600=1h)。 */
+  /** transcript 無更新がこの秒数を超えたら「停止」 とみなす。 env `CONCORDIA_STALL_IDLE_SEC` (既定 600=10 分)。 */
   stallIdleSec: number;
   /** 一度 nudge したら次まで空ける秒数。 env `CONCORDIA_STALL_NUDGE_COOLDOWN_SEC` (既定 stallIdleSec と同じ)。 */
   stallNudgeCooldownSec: number;
@@ -216,9 +216,12 @@ export function loadConfig(env = process.env, probe: ConfigProbe = {}): Concordi
     reaperSessionEndGraceSec: Number(env.CONCORDIA_REAPER_SESSION_END_GRACE_SEC ?? "300"),
     stallNudgeEnabled: (env.CONCORDIA_STALL_NUDGE_ENABLED ?? "1") !== "0",
     stallNudgeIntervalMs: Number(env.CONCORDIA_STALL_NUDGE_INTERVAL_MS ?? "600000"),
-    stallIdleSec: Number(env.CONCORDIA_STALL_IDLE_SEC ?? "3600"),
+    // 10 分。 巡回間隔 (stallNudgeIntervalMs) と揃えて「ゴールへ進んでいないセッションを
+    // 10 分ごとに確認する」を成立させる (2026-08-09 neco 指示)。 1 時間では、 止まっている
+    // セッションを丸 1 時間放置してから初めて声をかけることになっていた。
+    stallIdleSec: Number(env.CONCORDIA_STALL_IDLE_SEC ?? "600"),
     stallNudgeCooldownSec: Number(
-      env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "3600",
+      env.CONCORDIA_STALL_NUDGE_COOLDOWN_SEC ?? env.CONCORDIA_STALL_IDLE_SEC ?? "600",
     ),
     delegationWatchdogIntervalMs: readPositiveIntegerEnv(env.CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS, 1_800_000),
     idleNudgeSec: readIntegerEnv(env.CONCORDIA_IDLE_NUDGE_SEC, 120),

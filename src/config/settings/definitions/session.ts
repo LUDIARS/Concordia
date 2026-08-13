@@ -138,8 +138,8 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
   },
   envBoolean("session.stall_nudge_enabled", "session", "停止セッションの続行 nudge", "CONCORDIA_STALL_NUDGE_ENABLED", true, "停止したセッションに続行を促す。"),
   envInteger("session.stall_nudge_interval_ms", "session", "停止 nudge の走査間隔 (ms)", "CONCORDIA_STALL_NUDGE_INTERVAL_MS", 600_000, "停止判定の走査周期。"),
-  envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 3600, "transcript がこの秒数更新されなければ停止とみなす。"),
-  envInteger("session.stall_nudge_cooldown_sec", "session", "停止 nudge の cooldown (秒)", "CONCORDIA_STALL_NUDGE_COOLDOWN_SEC", 3600, "一度 nudge したら次まで空ける秒数。 既定は停止判定と同じ。"),
+  envInteger("session.stall_idle_sec", "session", "停止とみなす無更新 (秒)", "CONCORDIA_STALL_IDLE_SEC", 600, "transcript がこの秒数更新されなければ停止とみなす。 既定は巡回間隔と同じ 10 分 (2026-08-09 neco 指示)。"),
+  envInteger("session.stall_nudge_cooldown_sec", "session", "停止 nudge の cooldown (秒)", "CONCORDIA_STALL_NUDGE_COOLDOWN_SEC", 600, "一度 nudge したら次まで空ける秒数。 既定は停止判定と同じ。"),
   envInteger("session.idle_nudge_sec", "session", "完了後の催促 (秒)", "CONCORDIA_IDLE_NUDGE_SEC", 120, "final_answer から依頼元へ通知するまでの秒数。 0 以下で無効。"),
   envInteger("session.inquiry_cache_sec", "session", "お伺いの再送抑止 (秒)", "CONCORDIA_INQUIRY_CACHE_SEC", 60, "同一 session / category のお伺いを抑える秒数。"),
   {

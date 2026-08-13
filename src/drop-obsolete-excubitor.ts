@@ -60,6 +60,20 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const options = parseOptions(argv);
   if (!existsSync(options.dbPath)) throw new Error(`database not found: ${options.dbPath}`);
 
+  if (options.apply && !options.confirmServicesStopped) {
+    throw new Error("--confirm-services-stopped is required for --apply");
+  }
+  if (options.apply && !options.backupPath) {
+    throw new Error("--backup <path> is required for --apply");
+  }
+  const backupPath = options.backupPath;
+  if (options.apply && options.backupPath === options.dbPath) {
+    throw new Error("backup path must differ from database path");
+  }
+  if (options.apply && options.backupPath && existsSync(options.backupPath)) {
+    throw new Error(`backup already exists: ${options.backupPath}`);
+  }
+
   const db = new Database(options.dbPath, {
     readonly: !options.apply,
     fileMustExist: true,
@@ -70,15 +84,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       process.stdout.write(`${JSON.stringify({ mode: "dry-run", db: options.dbPath, tables })}\n`);
       return;
     }
-    if (!options.confirmServicesStopped) {
-      throw new Error("--confirm-services-stopped is required for --apply");
-    }
-    if (!options.backupPath) throw new Error("--backup <path> is required for --apply");
-    if (options.backupPath === options.dbPath) throw new Error("backup path must differ from database path");
-    if (existsSync(options.backupPath)) throw new Error(`backup already exists: ${options.backupPath}`);
-
     const beforeBytes = statSync(options.dbPath).size;
-    await verifyBackup(db, options.backupPath);
+    await verifyBackup(db, backupPath!);
     const dropped = dropObsoleteExcubitorTables(db);
     const afterBytes = statSync(options.dbPath).size;
     process.stdout.write(`${JSON.stringify({

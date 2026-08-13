@@ -13,7 +13,7 @@ import { harnessSessionRouter } from "./harness-session.js";
 
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 
-function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[]) {
+function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[], teamId?: string) {
   const db = makeTestDb();
   const audit = new HarnessAuditRepo(db);
   const rules = new HarnessRulesRepo(db);
@@ -23,6 +23,7 @@ function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[]) {
   app.route("/v1/harness", harnessSessionRouter({
     audit, rules, runClaude, blackbox,
     ...(mainPushAllowlist ? { mainPushAllowlist: () => mainPushAllowlist } : {}),
+    ...(teamId ? { sessionContext: () => ({ teamId }) } : {}),
   }));
   return { app, audit, rules, blackbox };
 }
@@ -140,6 +141,17 @@ describe("/v1/harness route", () => {
     expect(languagePolicy.description).toContain("PR");
     expect(body.blackbox.domain).toBe("concordia.harness.gate");
     expect(ctx.audit.recent({ event: "inject" })).toHaveLength(1);
+  });
+
+  it("context は global と選択チームのルールだけを返す", async () => {
+    const teamCtx = makeApp(undefined, undefined, "team-a");
+    teamCtx.rules.create({ kind: "allow", title: "team-a", description: "selected", team_id: "team-a" });
+    teamCtx.rules.create({ kind: "block", title: "team-b", description: "other", team_id: "team-b" });
+
+    const response = await post(teamCtx.app, "/v1/harness/context", { task: "実装する", session_id: "team-session" });
+    const body = await readJson(response);
+    expect(body.rules).toEqual(expect.arrayContaining([expect.objectContaining({ title: "team-a" })]));
+    expect(body.rules).not.toEqual(expect.arrayContaining([expect.objectContaining({ title: "team-b" })]));
   });
 
   it("audit エンドポイントで decision フィルタ + summary が取れる", async () => {

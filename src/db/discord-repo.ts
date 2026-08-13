@@ -401,6 +401,7 @@ export interface DiscordPendingQuestionsRepo {
     multiSelect?: boolean;
   }): DiscordPendingQuestionRow;
   setDiscordMessageId(id: number, discordMessageId: string, discordChannelId?: string): void;
+  appendQuestionNotice(id: number, notice: string): DiscordPendingQuestionRow | null;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
   /** 複数選択回答。answer_index には先頭 index、answer_indices_json に全 index を記録。 */
   markAnsweredMulti(id: number, answerIndices: number[], answerText: string): void;
@@ -482,6 +483,13 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       db.prepare(
         `UPDATE discord_pending_questions SET discord_message_id = ?, discord_channel_id = ? WHERE id = ?`,
       ).run(discordMessageId, discordChannelId ?? null, id);
+    },
+    appendQuestionNotice(id, notice) {
+      const row = this.findById(id);
+      if (!row) return null;
+      const question = row.question.includes(notice) ? row.question : `${row.question}\n\n${notice}`;
+      db.prepare("UPDATE discord_pending_questions SET question = ? WHERE id = ?").run(question, id);
+      return this.findById(id);
     },
     markAnswered(id, answerIndex, answerText) {
       db.prepare(

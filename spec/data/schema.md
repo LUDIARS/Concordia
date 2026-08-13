@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=62、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=66、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -24,7 +24,7 @@ updated: 2026-08-13
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 62`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 66`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -102,8 +102,15 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `delegation_templates` | 委託テンプレ | id PK / call_name UNIQUE / target_provider / prompt_template / input_schema / default_cwd |
-| `delegation_runs` | 委託実行履歴とqueue状態機械 | id PK / template_id / call_name / target_provider / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / queue_owner / queue_lease_until / queue_fencing_token / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / staged_injection / staged_followup_at / investigation_summary / memoria_task_id / memoria_task_url / finished_at |
+| `delegation_runs` | 委託実行履歴とqueue状態機械 | id PK / template_id / call_name / target_provider / team_id / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / queue_owner / queue_lease_until / queue_fencing_token / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / staged_injection / staged_followup_at / investigation_summary / memoria_task_id / memoria_task_url / finished_at |
 | `delegation_outbox` | claimと同時に永続化するlaunch intent | run_id / kind / payload_json / status / owner / fencing_token / delivered_at。UNIQUE(run_id, kind) |
+
+## Teams
+| テーブル | 用途 | 主要列 |
+|---|---|---|
+| `teams` | チーム設定と Discord category の正本 | id PK / name / slug UNIQUE / settings_json / rules_text / discord_category_id / created_at / updated_at |
+| `team_repos` | チームと repository origin の関連 | team_id / repo_origin。PK(team_id, repo_origin) |
+| `team_surfaces` | チーム面ごとの Discord channel | team_id / surface / channel_id。PK(team_id, surface) |
 
 > マイグレーションは番号・名前・SHA-256 checksumを `schema_migrations` に記録する。
 > `src/db/migrator.ts` の単一 migrator が `BEGIN IMMEDIATE` でwriterを直列化し、DDL、冪等ALTER、

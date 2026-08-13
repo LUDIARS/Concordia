@@ -107,7 +107,13 @@ describe("delegation seed regression", () => {
 
         const promptFile = readFileSync(json.prompt_file_path, "utf8");
         expect(promptFile).toContain(`# Delegation: ${template.call_name}`);
-        expect(promptFile).toContain(json.rendered_prompt.trim().split(/\r?\n/)[0]);
+        // 実装委託は初回に調査ブリーフだけを渡す。タスク本文は DB に保存し、
+        // investigated 後の第 2 段階 inject まで prompt file に載せない。
+        if (promptFile.includes("## 第 1 段階: 調査ブリーフ")) {
+          expect(promptFile).not.toContain(json.rendered_prompt.trim());
+        } else {
+          expect(promptFile).toContain(json.rendered_prompt.trim().split(/\r?\n/)[0]);
+        }
 
         const req = spawnCalls.at(-1);
         expect(req, template.call_name).toBeDefined();

@@ -18,6 +18,7 @@ import type { RevisorTestWorkflowSource } from "../pr/revisor-test-workflow-clie
 import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type DiscordConfigSnapshot, type EnsureLayoutOptions } from "./config.js";
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
+import { DirectorRepo } from "../director/repo.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import { shouldRestartDiscordBot } from "./gateway-policy.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
@@ -106,6 +107,10 @@ import {
   renderModelReviewMiss,
   stageRuntimeModelReview,
 } from "./model-review-dialog.js";
+import { buildContextReport } from "./context-report.js";
+import { renderPlanCard } from "./plan-card.js";
+import { ensureTeamDiscordLayout } from "./team-provision.js";
+import { TeamsRepo } from "../db/teams-repo.js";
 
 /**
  * スレッドタイトルに載せる作業リポ群。 Lictor が active repo を 1 本も報告して
@@ -426,6 +431,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     runHeadless: deps.runHeadless,
     emitInject: deps.emitSessionInject ?? ((sessionId, text, source) =>
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) })),
+    contextReport: async (sessionId) => {
+      const session = deps.sessionsRepo.findSession(sessionId);
+      if (!session) throw new Error("session_not_found");
+      return buildContextReport(session);
+    },
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     // 安全弁 (設定 GUI) と ワークフロー有効化フラグ (workflow.reaction) の AND。
@@ -439,6 +449,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     log,
   });
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
+  const ingressDirectorRepo = new DirectorRepo(deps.db);
   const measuredHandleReactionAdd = instrumentDiscord("reactionAdd", handleReactionAdd);
   const measuredHandleReactionRemove = instrumentDiscord("reactionRemove", handleReactionRemove);
   const measuredDispatchInteraction = instrumentDiscord("dispatchInteraction", dispatchInteraction);
@@ -543,6 +554,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
+      if (!deps.subsidiary) {
+        const teams = new TeamsRepo(deps.db).list();
+        for (const team of teams) {
+          await ensureTeamDiscordLayout({
+            guild,
+            db: deps.db,
+            teamId: team.id,
+            name: team.name,
+          }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
+        }
+      }
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
         try {
@@ -983,6 +1005,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
         isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
+        isPlanDecisionUserAllowed: deps.isLaunchUserAllowed,
         recordStaffAccess: deps.recordStaffAccess,
         resolveReactionMappings: deps.resolveReactionMappings,
         // 窓口: 子会社 Bot なら受付チャンネル、 本社 Bot なら desk のタスク依頼チャンネル。
@@ -990,6 +1013,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // (子会社 Bot に desk は配線されない)。
         intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
         subsidiary: Boolean(deps.subsidiary),
+        handlePlanReply: async (sessionId, text, authorId) => {
+          const match = text.match(/^\s*\[([ABC])\](?:\s+([\s\S]+))?\s*$/i);
+          if (!match) return { handled: false };
+          const directorCase = ingressDirectorRepo.findLatestCaseForSession(sessionId);
+          if (!directorCase) return { handled: false };
+          const plan = ingressDirectorRepo.listDecisions(directorCase.id)
+            .filter((decision) => decision.plan_version != null)
+            .at(-1);
+          if (!plan?.plan_version) return { handled: false };
+          if (deps.isLaunchUserAllowed?.(authorId) !== true) {
+            return {
+              handled: true,
+              reply: "このユーザーにはプラン判断権限がありません (管理職以上が必要)。",
+            };
+          }
+          const code = match[1]!.toUpperCase();
+          const action = code === "A" ? "approve" : code === "B" ? "revise" : "discard";
+          const instruction = match[2]?.trim();
+          if (action === "revise" && !instruction) return { handled: true, reply: "Use `[B] <required changes>` to revise this plan." };
+          const response = await fetch(`${deps.concordiaUrl}/v1/director/cases/${directorCase.id}/plan/action`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ action, version: plan.plan_version, ...(instruction ? { instruction } : {}) }),
+          });
+          if (!response.ok) return { handled: true, reply: `Plan action failed (${response.status}).` };
+          return { handled: true, reply: action === "approve" ? "Plan approved." : action === "revise" ? "Revision requested; the previous card is superseded." : "Plan discarded." };
+        },
       }, msg);
     })().catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
@@ -1415,6 +1465,39 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
       })().catch((error: unknown) =>
         log.warn(`task model review failed session=${ev.session_id}: ${(error as Error).message}`));
+      return;
+    }
+    if(ev.type==="director.plan_submitted"){
+      void (async()=>{const client=await webhooks.getForSession(ev.target_session_id);if(!client)return;await webhooks.send(client,{...renderPlanCard({caseId:ev.case_id,version:ev.version,markdown:ev.markdown}),username:"Cc plan gate"});})().catch(error=>log.warn(`plan card failed: ${(error as Error).message}`));return;
+    }
+    if (!deps.subsidiary && ev.type === "team.created") {
+      void ensureTeamDiscordLayout({
+        guild,
+        db: deps.db,
+        teamId: ev.team_id,
+        name: ev.name,
+      }).catch((error) => log.warn(`team provision failed: ${(error as Error).message}`));
+      return;
+    }
+    if (!deps.subsidiary && ev.type === "team.changed") {
+      const team = new TeamsRepo(deps.db).find(ev.team_id);
+      if (team) {
+        void ensureTeamDiscordLayout({
+          guild,
+          db: deps.db,
+          teamId: team.id,
+          name: team.name,
+        }).catch((error) => log.warn(`team provision update failed team=${team.id}: ${(error as Error).message}`));
+      }
+      void (async () => {
+        const channel = await guild.channels.fetch(layout.activityChannelId).catch(() => null);
+        if (channel?.isTextBased() && "send" in channel) {
+          await channel.send({
+            content: `Team settings changed: \`${ev.team_id}\`\nFields: ${ev.fields.join(", ")}\nReview direction and injected rules before the next spawn.`,
+            allowedMentions: { parse: [] },
+          });
+        }
+      })().catch((error) => log.warn(`team audit card failed: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "session.lost") {

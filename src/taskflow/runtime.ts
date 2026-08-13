@@ -11,6 +11,11 @@ import { checkResidual } from "./residual-blackbox.js";
 import { eventBus } from "../events.js";
 import { finishAutonomousTaskflow } from "./session-end.js";
 import type { PendingQuestionProbe } from "../control/pending-question-blocker.js";
+import { startTeardownLadderWatch } from "./teardown-ladder.js";
+import type { SessionRow } from "../shared/types.js";
+import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
+import type { DelegationService } from "../delegation/service.js";
+import { startAskDetachWatch } from "./ask-detach.js";
 
 export interface TaskflowRuntimeDeps {
   db: Database.Database;
@@ -24,6 +29,9 @@ export interface TaskflowRuntimeDeps {
   mentionUserId: () => string | null;
   /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
+  endSession?: (session: SessionRow, reason: string) => Promise<unknown>;
+  pendingQuestions?: DiscordPendingQuestionsRepo;
+  delegationService?: DelegationService;
 }
 
 export class TaskflowRuntime {
@@ -52,7 +60,10 @@ export class TaskflowRuntime {
         void this.handleRevisorNotice(event.target_session_id);
       }
     });
-    return { stop: unsubscribe };
+    const ladder = this.deps.endSession ? startTeardownLadderWatch({ sessions: this.deps.sessions, endSession: this.deps.endSession }) : null;
+    const askDetach = this.deps.pendingQuestions && this.deps.delegationService
+      ? startAskDetachWatch({ sessions: this.deps.sessions, runs: this.deps.delegation, questions: this.deps.pendingQuestions, service: this.deps.delegationService }) : null;
+    return { stop: () => { unsubscribe(); ladder?.stop(); askDetach?.stop(); } };
   }
 
   private async handleRevisorNotice(sessionId: string): Promise<void> {

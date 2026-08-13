@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 62;
+export const SCHEMA_VERSION = 66;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1682,7 +1682,55 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       db.exec("ALTER TABLE delegation_runs ADD COLUMN memoria_task_url TEXT");
     }
   },
-}];
+}, {
+  version: 63,
+  name: "director-plan-version",
+  source: "director_decisions plan_version + plan_md_ref",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(director_decisions)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "plan_version")) db.exec("ALTER TABLE director_decisions ADD COLUMN plan_version INTEGER");
+    if (!columns.some((column) => column.name === "plan_md_ref")) db.exec("ALTER TABLE director_decisions ADD COLUMN plan_md_ref TEXT");
+  },
+}, {
+  version: 64,
+  name: "director-case-session",
+  source: "director_cases.session_id nullable",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(director_cases)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "session_id")) db.exec("ALTER TABLE director_cases ADD COLUMN session_id TEXT");
+    db.exec("CREATE INDEX IF NOT EXISTS idx_director_cases_session ON director_cases(session_id, updated_at DESC)");
+  },
+}, {
+  version: 65,
+  name: "teams-core",
+  source: "teams + team_repos + nullable team ownership",
+  up(db) {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS teams(id TEXT PRIMARY KEY,name TEXT NOT NULL,slug TEXT NOT NULL UNIQUE,settings_json TEXT NOT NULL DEFAULT '{}',rules_text TEXT NOT NULL DEFAULT '',discord_category_id TEXT,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS team_repos(team_id TEXT NOT NULL,repo_origin TEXT NOT NULL,PRIMARY KEY(team_id,repo_origin));
+    CREATE INDEX IF NOT EXISTS idx_team_repos_origin ON team_repos(repo_origin);
+    CREATE TABLE IF NOT EXISTS team_surfaces(team_id TEXT NOT NULL,surface TEXT NOT NULL,channel_id TEXT NOT NULL,PRIMARY KEY(team_id,surface));
+    `);
+    for (const table of ["sessions", "delegation_runs", "director_cases"]) {
+      const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "team_id")) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN team_id TEXT`);
+      }
+    }
+  },
+}, {
+  version: 66,
+  name: "harness-rules-team-scope",
+  source: "harness_rules.team_id",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(harness_rules)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "team_id")) {
+      db.exec("ALTER TABLE harness_rules ADD COLUMN team_id TEXT");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_harness_rules_team ON harness_rules(team_id,enabled,sort_order)");
+  },
+},
+];
 
 /**
  * 旧 allowlist (admin.reaction_workflow_{discord,slack}_users) の ID を「管理職」として

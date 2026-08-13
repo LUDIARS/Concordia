@@ -8,7 +8,7 @@
  *    クエリ:
  *      - repo_path        : sessions.repo_path で完全一致 filter (省略=全 repo)
  *      - repo_origin      : sessions.repo_origin で完全一致 filter (省略=全 repo)
- *      - status           : "active" | "ended" | "lost" | "abandoned" (省略=全 status)
+ *      - status           : "active" | "blocked" | "ended" | "lost" | "abandoned" (省略=全 status)
  *      - limit_per_session: 1..500 (default 100). 1 session あたり拾う frame 数
  *      - max_sessions     : 1..100 (default 30).  返す session 数の上限
  *
@@ -63,8 +63,8 @@ export function workRouter(deps: WorkApiDeps): Hono {
 
     // 1. 母集団 — status filter は repo に依存しないので前段で適用
     let pool = deps.sessions.listSessions(
-      status && ["active", "ended", "lost", "abandoned"].includes(status)
-        ? { status: status as "active" | "ended" | "lost" | "abandoned" }
+      status && ["active", "blocked", "ended", "lost", "abandoned"].includes(status)
+        ? { status: status as "active" | "blocked" | "ended" | "lost" | "abandoned" }
         : {},
     );
 

@@ -25,6 +25,7 @@ const baseCtx: WorkflowContext = {
 describe("classifyReactionWorkflow", () => {
   it.each([
     ["👍", "start-impl"],
+    ["🧠", "context"],
     ["🆗", "start-impl"],
     ["🙏", "enumerate-remaining"],
     ["🫶", "memoria-remaining"],

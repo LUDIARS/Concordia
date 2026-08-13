@@ -106,5 +106,19 @@ describe("buildDelegationContext", () => {
       expect(ctx).toContain("## Delegation status / inject protocol (required)");
       expect(ctx).toContain("## 言語ポリシー (required)");
     });
+
+    it("investigation posture と team rules を同じ委託文脈へ保持する", () => {
+      const ctx = buildDelegationContext(
+        "http://127.0.0.1:11111",
+        null,
+        null,
+        "investigation",
+        { team: "Concordia", rules: "Use the team-owned worktree." },
+      );
+      expect(ctx).toContain("## Team rules (Concordia)");
+      expect(ctx).toContain("Use the team-owned worktree.");
+      expect(ctx).toContain("### まず調べる");
+      expect(ctx).not.toContain("### 勝手に作業しない (重要)");
+    });
   });
 });

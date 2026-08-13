@@ -2,7 +2,7 @@
  * Concordia core types. spec/service-schema.md と整合.
  */
 
-export type SessionStatus = "active" | "ended" | "lost" | "abandoned";
+export type SessionStatus = "active" | "blocked" | "ended" | "lost" | "abandoned";
 
 export type ProviderName =
   | "claude-code"
@@ -35,6 +35,7 @@ export interface SessionRow {
    * 個別プロジェクト単位で衝突判定する。 null なら repo_path に委ねる (conflict-scope.ts)。
    */
   target_project: string | null;
+  team_id?: string | null;
   active_repos?: string;
 }
 

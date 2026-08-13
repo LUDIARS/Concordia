@@ -14,6 +14,8 @@ describe("DirectorRepo", () => {
       title: "判断監査",
       goal: "更新時刻を保つ",
       project: "Cc",
+      session_id: null,
+      team_id: null,
       created_at: 100,
       updated_at: 100,
     }, [{
@@ -65,6 +67,55 @@ describe("DirectorRepo", () => {
       created_at: 150,
     });
     expect(repo.findCase("case-1")?.updated_at).toBe(200);
+    db.close();
+  });
+
+  it("returns the latest persisted case for only the requested session", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new DirectorRepo(db);
+    repo.createCase({
+      id: "older-case",
+      title: "古い計画",
+      goal: "同じセッションの履歴を残す",
+      project: "Cc",
+      session_id: "session-1",
+      team_id: null,
+      created_at: 100,
+      updated_at: 100,
+    }, []);
+    repo.createCase({
+      id: "latest-case",
+      title: "最新の計画",
+      goal: "承認対象を特定する",
+      project: "Cc",
+      session_id: "session-1",
+      team_id: null,
+      created_at: 200,
+      updated_at: 300,
+    }, []);
+    repo.createCase({
+      id: "other-session-case",
+      title: "別セッションの計画",
+      goal: "セッション境界を守る",
+      project: "Cc",
+      session_id: "session-2",
+      team_id: null,
+      created_at: 250,
+      updated_at: 400,
+    }, []);
+
+    expect(repo.findLatestCaseForSession("session-1")).toEqual({
+      id: "latest-case",
+      title: "最新の計画",
+      goal: "承認対象を特定する",
+      project: "Cc",
+      session_id: "session-1",
+      team_id: null,
+      created_at: 200,
+      updated_at: 300,
+    });
+    expect(repo.findLatestCaseForSession("unknown-session")).toBeNull();
     db.close();
   });
 

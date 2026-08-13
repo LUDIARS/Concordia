@@ -186,6 +186,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         metadata: Object.keys(meta).length ? JSON.stringify(meta) : null,
         target_project: input.target_project ?? claimedProjectTarget?.cwd ?? null,
         active_repos: input.active_repos ?? [],
+        team_id: claimed?.teamId ?? claimedDelegationRun?.team_id ?? null,
       });
       deps.repo.appendEvent({
         session_id: input.id,

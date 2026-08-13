@@ -26,6 +26,8 @@ interface DirectorDecisionRow {
   genius_available: number;
   genius_cards_json: string;
   created_at: number;
+  plan_version: number | null;
+  plan_md_ref: string | null;
 }
 
 export class DirectorRepo {
@@ -34,9 +36,9 @@ export class DirectorRepo {
   createCase(input: DirectorCase, steps: DirectorStep[]): DirectorCaseDetail {
     const create = this.db.transaction(() => {
       this.db.prepare(`
-        INSERT INTO director_cases(id, title, goal, project, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(input.id, input.title, input.goal, input.project, input.created_at, input.updated_at);
+        INSERT INTO director_cases(id, title, goal, project, session_id, team_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(input.id, input.title, input.goal, input.project, input.session_id, input.team_id, input.created_at, input.updated_at);
       const insertStep = this.db.prepare(`
         INSERT INTO director_steps(
           id, case_id, sequence, kind, title, status, task_path, delegation_run_id,
@@ -57,9 +59,16 @@ export class DirectorRepo {
 
   findCase(id: string): DirectorCase | null {
     const row = this.db.prepare(`
-      SELECT id, title, goal, project, created_at, updated_at FROM director_cases WHERE id = ?
+      SELECT id, title, goal, project, session_id, team_id, created_at, updated_at FROM director_cases WHERE id = ?
     `).get(id) as DirectorCaseRow | undefined;
     return row ?? null;
+  }
+
+  findLatestCaseForSession(sessionId: string): DirectorCase | null {
+    return (this.db.prepare(`
+      SELECT id, title, goal, project, session_id, team_id, created_at, updated_at
+      FROM director_cases WHERE session_id = ? ORDER BY updated_at DESC LIMIT 1
+    `).get(sessionId) as DirectorCaseRow | undefined) ?? null;
   }
 
   findCaseDetail(id: string): DirectorCaseDetail | null {
@@ -117,12 +126,12 @@ export class DirectorRepo {
       this.db.prepare(`
         INSERT INTO director_decisions(
           id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
-          instruction, genius_available, genius_cards_json, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          instruction, genius_available, genius_cards_json, created_at, plan_version, plan_md_ref
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         input.id, input.case_id, input.step_id, input.kind, input.question,
         JSON.stringify(input.facts), JSON.stringify(input.options), input.impact, input.decision,
-        input.instruction, input.genius_available ? 1 : 0, JSON.stringify(geniusCards), input.created_at,
+        input.instruction, input.genius_available ? 1 : 0, JSON.stringify(geniusCards), input.created_at, input.plan_version ?? null, input.plan_md_ref ?? null,
       );
       // 判断の追加も case の監査履歴を変更する。step 遷移を伴わない proceed / self_judge
       // でも read model の更新時刻が進むよう、同じ transaction で case を touch する。
@@ -136,7 +145,7 @@ export class DirectorRepo {
   listDecisions(caseId: string): DirectorDecisionRecord[] {
     const rows = this.db.prepare(`
       SELECT id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
-             instruction, genius_available, genius_cards_json, created_at
+             instruction, genius_available, genius_cards_json, created_at, plan_version, plan_md_ref
         FROM director_decisions WHERE case_id = ? ORDER BY audit_sequence ASC
     `).all(caseId) as DirectorDecisionRow[];
     return rows.map((row) => ({
@@ -153,6 +162,8 @@ export class DirectorRepo {
       genius_available: row.genius_available === 1,
       genius_cards: readCards(row.genius_cards_json),
       created_at: row.created_at,
+      plan_version: row.plan_version,
+      plan_md_ref: row.plan_md_ref,
     }));
   }
 }

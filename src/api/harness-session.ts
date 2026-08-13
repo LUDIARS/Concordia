@@ -108,7 +108,7 @@ export interface HarnessSessionApiDeps {
    * gate ハンドラがこれを {@link HarnessAction.targetProject} に注入する。
    */
   sessionScope?: (sessionId: string) => string | null;
-  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean } | null;
+  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean; contractComplete?: boolean; planApproved?: boolean; contractMode?: "plan" | "vibes"; contractScopeDirs?: string[]; vibesClaimActive?: boolean; teamId?: string | null } | null;
   strongImplModels?: () => string[];
   /**
    * main 直 push を許可するリポ (ディレクトリ名 or 絶対パス)。 未注入なら例外なし =
@@ -116,6 +116,7 @@ export interface HarnessSessionApiDeps {
    */
   mainPushAllowlist?: () => string[];
   mentionUserId?: () => string | null;
+  onVibesFileLimit?: (sessionId: string) => void;
 }
 
 function compactBlackboxMeta(meta: HarnessBlackboxMeta | undefined): Record<string, unknown> | undefined {
@@ -172,6 +173,10 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // イベントが触ったリポ root の集合に、 今回が編集ツールなら現在 repo を足して maxReposWarn に渡す。
     const repo = action.cwd ?? "";
     const editedRepos = [...deps.audit.distinctEditedRepos(session_id ?? "")];
+    const editedFiles = session_id ? deps.audit.recent({ session_id, limit: 1000 })
+      .filter((row) => isEditTool(row.tool) && row.action)
+      .map((row) => row.action) : [];
+    if (isEditTool(action.tool) && action.filePath && !editedFiles.includes(action.filePath)) editedFiles.push(action.filePath);
     if (repo && isEditTool(action.tool) && !editedRepos.includes(repo)) editedRepos.push(repo);
 
     // 作業対象スコープ (outside-scope 述語用)。 hook が action.project を明示していればそれを
@@ -187,6 +192,12 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       sessionModel: sessionContext?.model,
       implUnlocked: sessionContext?.implUnlocked,
       isWorktree: action.isWorktree ?? sessionContext?.isWorktree,
+      contractComplete: sessionContext?.contractComplete,
+      planApproved: sessionContext?.planApproved,
+      contractMode: sessionContext?.contractMode,
+      contractScopeDirs: sessionContext?.contractScopeDirs,
+      vibesClaimActive: sessionContext?.vibesClaimActive,
+      editedFiles,
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
     const mainPushAllowlist = deps.mainPushAllowlist?.() ?? [];
@@ -217,6 +228,7 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     const event: HarnessAuditEvent = verdict.decision === "deny" ? "block" : "gate";
     // 当たった hit の代表 rule (最悪 decision のもの)。
     const lead = verdict.hits.find((h) => h.decision === verdict.decision);
+    if (lead?.rule === "vibes-file-limit" && session_id) deps.onVibesFileLimit?.(session_id);
     if (lead?.rule === "strong-model-impl" && session_id) {
       notifyUserDecision({
         kind: "impl-unlock",
@@ -271,7 +283,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { task, project, session_id } = parsed.data;
 
-    const rules = deps.rules.list().map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
+    const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
+    const rules = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
 
     recordSafe(deps.audit, {
@@ -297,7 +310,8 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const { prompt, project, branch, session_id } = parsed.data;
 
-    const rules: IntentHarnessRule[] = deps.rules.list().map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
+    const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
+    const rules: IntentHarnessRule[] = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
     const intentContext: PromptIntentContext = { prompt, project, branch, rules, gates };
     const mode = promptAnalyzerMode();

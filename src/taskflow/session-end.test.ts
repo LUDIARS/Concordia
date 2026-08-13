@@ -3,7 +3,7 @@ import { eventBus } from "../events.js";
 import type { SessionRow } from "../shared/types.js";
 import { finishAutonomousTaskflow } from "./session-end.js";
 
-function session(provider: SessionRow["provider"]): SessionRow {
+function session(provider: SessionRow["provider"], goalAndGoEnabled = true): SessionRow {
   return {
     id: `session-${provider}`,
     provider,
@@ -15,12 +15,18 @@ function session(provider: SessionRow["provider"]): SessionRow {
     ended_at: null,
     status: "active",
     last_seen_at: 1,
-    current_task: null,
+    current_task: "task-one",
     transcript_path: null,
-    metadata: JSON.stringify({ goal_and_go: { enabled: true } }),
+    metadata: JSON.stringify({ goal_and_go: { enabled: goalAndGoEnabled, continuation_count: 0 } }),
     ws_clients: 1,
     target_project: null,
   };
+}
+
+function mergeMetadata(row: SessionRow) {
+  return vi.fn((_id: string, patch: Record<string, unknown>) => {
+    row.metadata = JSON.stringify({ ...JSON.parse(row.metadata ?? "{}") as Record<string, unknown>, ...patch });
+  });
 }
 
 describe("finishAutonomousTaskflow", () => {
@@ -34,10 +40,11 @@ describe("finishAutonomousTaskflow", () => {
       findSession: vi.fn(() => row),
       recentEvents: vi.fn(() => events),
       appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
+      mergeMetadata: mergeMetadata(row),
     };
     const emitted: string[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
-      if (event.type === "session.inject") emitted.push(event.text);
+      if (event.type === "session.inject" && event.target_session_id === row.id) emitted.push(event.text);
     });
 
     expect(finishAutonomousTaskflow({
@@ -59,6 +66,40 @@ describe("finishAutonomousTaskflow", () => {
     unsubscribe();
   });
 
+  it("sends completion inquiry even when goal-and-go is disabled", () => {
+    const row = session("codex-cli", false);
+    const sessions = {
+      findSession: vi.fn(() => row),
+      recentEvents: vi.fn(() => []),
+      appendEvent: vi.fn(),
+      mergeMetadata: mergeMetadata(row),
+    };
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      goalOutcome: "open",
+      residualOutcome: "none",
+    })).toBe(true);
+  });
+
+  it("allows another inquiry after the task/run boundary changes", () => {
+    const row = session("codex-cli");
+    const events: Array<{ kind: string; payload: string }> = [];
+    const sessions = {
+      findSession: vi.fn(() => row),
+      recentEvents: vi.fn(() => events),
+      appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
+      mergeMetadata: mergeMetadata(row),
+    };
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id, sessions: sessions as any, goalOutcome: "open", residualOutcome: "none",
+    })).toBe(true);
+    row.current_task = "task-two";
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id, sessions: sessions as any, goalOutcome: "open", residualOutcome: "none",
+    })).toBe(true);
+  });
+
   it("未回答の質問がある間は完了お伺いを送らず、記録も残さない", () => {
     const row = session("claude-code");
     const events: Array<{ kind: string; payload: string }> = [];
@@ -66,10 +107,11 @@ describe("finishAutonomousTaskflow", () => {
       findSession: vi.fn(() => row),
       recentEvents: vi.fn(() => events),
       appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
+      mergeMetadata: mergeMetadata(row),
     };
     const emitted: string[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
-      if (event.type === "session.inject") emitted.push(event.text);
+      if (event.type === "session.inject" && event.target_session_id === row.id) emitted.push(event.text);
     });
 
     expect(finishAutonomousTaskflow({
@@ -105,6 +147,7 @@ describe("finishAutonomousTaskflow", () => {
       findSession: vi.fn(() => row),
       recentEvents: vi.fn(() => []),
       appendEvent: vi.fn(),
+      mergeMetadata: mergeMetadata(row),
     };
     expect(finishAutonomousTaskflow({
       sessionId: row.id,

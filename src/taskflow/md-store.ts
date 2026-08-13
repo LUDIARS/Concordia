@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
@@ -163,6 +163,74 @@ export class TaskMdStore {
   relativePath(document: TaskDocument): string {
     return relative(document.repoPath, document.path).replace(/\\/g, "/");
   }
+
+  async writeRemainingTasks(input: {
+    repoPath: string;
+    sourceRunId: string;
+    project: string;
+    remaining: ReadonlyArray<{ title: string; note?: string; scope_dirs?: string[] }>;
+  }): Promise<string[]> {
+    const dir = join(input.repoPath, "spec", "tasks");
+    await mkdir(dir, { recursive: true });
+    const created: string[] = [];
+    const sourceSlug = taskSlug(input.sourceRunId, "run", 48);
+    const createdDate = new Date().toISOString().slice(0, 10);
+    for (const [index, item] of input.remaining.entries()) {
+      const slug = taskSlug(item.title, `remaining-${index + 1}`, 60);
+      const path = join(dir, `${createdDate}-${sourceSlug}-${index + 1}-${slug}.md`);
+      const markdown = renderRemainingTask({
+        item,
+        slug,
+        project: input.project,
+        sourceRunId: input.sourceRunId,
+        repoPath: input.repoPath,
+        createdDate,
+      });
+      await writeFile(path, markdown, { encoding: "utf8", flag: "wx" }).catch(
+        (error: NodeJS.ErrnoException) => {
+          if (error.code !== "EEXIST") throw error;
+        },
+      );
+      created.push(path);
+    }
+    return created;
+  }
+}
+
+function taskSlug(value: string, fallback: string, maxLength: number): string {
+  return value.toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, maxLength) || fallback;
+}
+
+function renderRemainingTask(input: {
+  item: { title: string; note?: string; scope_dirs?: string[] };
+  slug: string;
+  project: string;
+  sourceRunId: string;
+  repoPath: string;
+  createdDate: string;
+}): string {
+  return [
+    "---",
+    `task: ${JSON.stringify(input.slug)}`,
+    `project: ${JSON.stringify(input.project)}`,
+    `kind: ${JSON.stringify("実装")}`,
+    `created: ${JSON.stringify(input.createdDate)}`,
+    "---",
+    `# ${input.item.title}`,
+    "",
+    "## 目的",
+    input.item.note?.trim() || `delegation run ${input.sourceRunId} の残作業を完了する。`,
+    "",
+    "## 完了条件",
+    `- ${input.item.title} が完了している。`,
+    "",
+    "## スコープ (編集可ディレクトリ)",
+    ...(input.item.scope_dirs?.map((scope) => `- ${scope}`) ?? [`- ${input.repoPath}`]),
+    "",
+  ].join("\n");
 }
 
 function nonEmptyString(value: unknown): value is string {

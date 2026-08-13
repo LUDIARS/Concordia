@@ -63,10 +63,18 @@ import { resolveLictorLauncher } from "../control/lictor-launcher.js";
 import type { WorkflowAction } from "../platform/reaction-workflow.js";
 import { ProcessManager } from "../processes/manager.js";
 import { TestingClaimsRepo } from "../db/testing-claims-repo.js";
-import { releaseTestingClaims } from "../testing/claim-lifecycle.js";
+import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { startBranchWatch } from "../testing/branch-watch.js";
 import { startEndSessionRequestWatch } from "../control/end-session-request.js";
 import { endSessionNow } from "../control/end-session-command.js";
+import { startContractLifecycle } from "../contract/lifecycle.js";
+import { ModelReviewContractAdapter } from "../contract/model-review-adapter.js";
+import { parseContractMetadata } from "../contract/schema.js";
+import { TeamsRepo } from "../db/teams-repo.js";
+import { startPhaseCompaction } from "../control/phase-compaction.js";
+import { estimateContextTokens } from "../cost/context-estimate.js";
+import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
+import { deliverDirectorInstruction } from "../director/session-instruction.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
@@ -470,6 +478,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const excubitorClient = new ExcubitorClient();
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
+  const teamsRepo = new TeamsRepo(db);
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -491,6 +500,10 @@ export async function startBackend(): Promise<BackendHandle> {
     // (弱いモデルの処理ばらつき対策。 spec/feature/genius-command-patterns.md)。
     commandPatterns: (taskText) =>
       buildCommandPatternBlock({ genius: commandPatternGenius, scoreMin: cfg.inquiryScoreMin }, taskText),
+    teamRules: (value) => {
+      const team = teamsRepo.findByIdOrSlug(value);
+      return team ? { id: team.id, team: team.name, rules: team.rules_text } : null;
+    },
     // 段階注入 (初回=調査ブリーフ / 後追い=実装タスク)。設定は都度解決する。
     resolveStagedInjectionEnabled: () => adminState.getDelegationStagedInjectionEnabled(),
   });
@@ -529,15 +542,67 @@ export async function startBackend(): Promise<BackendHandle> {
     producerOnly: () => workflowMode === "worker" || hasLiveWorkflowWorkerLease(),
   });
   delegationService.setQueue(delegationQueue);
-
   // 確認フロー (develop に入った変更をユーザが動作確認 → main へ反映)。
   // 起動・停止は必ず Excubitor 経由 (catalog 登録済みサービスのみ)。
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
+  const directorRepo = new DirectorRepo(db);
   const director = new DirectorService({
-    repo: new DirectorRepo(db),
+    repo: directorRepo,
     genius: new CatalogGeniusClient(excubitorClient),
     scoreMin: cfg.inquiryScoreMin,
+    onPlanApproved: (directorCase, _step, plan) => {
+      if (!directorCase.session_id) return;
+      const markdown = plan.facts[0] ?? "";
+      repo.mergeMetadata(directorCase.session_id, { plan_approved: true, director_case_id: directorCase.id, plan_version: plan.plan_version ?? null, plan_md_ref: plan.plan_md_ref ?? null });
+      const text = [`プランが承認されました。`, `以下の「タスク分解」節を対象リポの spec/tasks/ に task md として保存し、taskflow reconciler に委ねてください。`, markdown].join("\n\n");
+      const ts = Math.floor(Date.now() / 1000);
+      repo.appendEvent({ session_id: directorCase.session_id, ts, kind: "contract", payload: { reason: "plan-approved", case_id: directorCase.id, plan_version: plan.plan_version ?? null } });
+      deliverDirectorInstruction({ sessions: repo, sessionId: directorCase.session_id, text, source: `director:${directorCase.id}:plan-approved`, ts });
+      eventBus.emit({ type: "session.event", session_id: directorCase.session_id, kind: "taskflow:plan-approved", ts });
+    },
+    onPlanRevisionRequested: (directorCase, _step, plan, instruction) => {
+      if (!directorCase.session_id) return;
+      const ts = Math.floor(Date.now() / 1000);
+      const text = [
+        `プラン v${plan.plan_version ?? "?"} に修正指示が届きました。`,
+        instruction,
+        "修正版を新しいプラン版として再提出してください。承認までは実装を開始しないでください。",
+      ].join("\n\n");
+      repo.appendEvent({
+        session_id: directorCase.session_id,
+        ts,
+        kind: "contract",
+        payload: {
+          reason: "plan-revision-requested",
+          case_id: directorCase.id,
+          plan_version: plan.plan_version ?? null,
+          instruction,
+        },
+      });
+      deliverDirectorInstruction({ sessions: repo, sessionId: directorCase.session_id, text, source: `director:${directorCase.id}:plan-revision`, ts });
+    },
+    onPlanDiscarded: (directorCase, _step, plan) => {
+      if (!directorCase.session_id) return;
+      const ts = Math.floor(Date.now() / 1000);
+      repo.appendEvent({
+        session_id: directorCase.session_id,
+        ts,
+        kind: "contract",
+        payload: {
+          reason: "plan-discarded",
+          case_id: directorCase.id,
+          plan_version: plan.plan_version ?? null,
+        },
+      });
+      deliverDirectorInstruction({
+        sessions: repo,
+        sessionId: directorCase.session_id,
+        text: "プランは破棄されました。実装には進まず、次の指示を待ってください。",
+        source: `director:${directorCase.id}:plan-discarded`,
+        ts,
+      });
+    },
   });
   const modelReview = new GeniusModelReviewService({
     genius: new CatalogGeniusClient(excubitorClient),
@@ -576,6 +641,13 @@ export async function startBackend(): Promise<BackendHandle> {
     mentionUserId: () => adminState.getMentionUserId(),
     // 未回答の質問は blocker: 回答が来るまで taskflow の自動 inject を出さない。
     hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
+    endSession: (session, reason) => endSessionNow(
+      { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
+      session,
+      reason,
+    ),
+    pendingQuestions,
+    delegationService,
   });
 
   // spawn の Lictor launcher を AdminState 設定から live 解決する (dev/prod/auto)。
@@ -1038,6 +1110,7 @@ export async function startBackend(): Promise<BackendHandle> {
     participants,
     delegation: delegationRepo,
     delegationService,
+    teams: teamsRepo,
     confirmService,
     delegationQueue,
     modelCatalog,
@@ -1222,6 +1295,60 @@ export async function startBackend(): Promise<BackendHandle> {
         ),
       }),
     );
+    trackPostListenHandle(startContractLifecycle({
+      sessions: repo,
+      supervisor: () => process.env.CONCORDIA_DEFAULT_SUPERVISOR?.trim() || `discord:${adminState.getMentionUserId() ?? "unassigned"}`,
+      questions: pendingQuestions,
+      reviewFor: (provider) => new ModelReviewContractAdapter(modelReview, provider),
+      resolveService: resolveServiceCode,
+      resolveTeams: (repoOrigin) => teamsRepo.forRepo(repoOrigin).map(team=>({id:team.id,name:team.name})),
+      onCompleted: (sessionId, contract) => {
+        if (contract.mode?.value !== "vibes") return;
+        const service = contract.testing_claim?.value.service;
+        if (!service) return;
+        const session = repo.findSession(sessionId);
+        openTestingClaim(testingClaims, {
+          service,
+          sessionId,
+          branch: session?.branch ?? null,
+          note: "Automatically acquired for completed vibes-mode contract",
+          now: Math.floor(Date.now() / 1000),
+        });
+      },
+    }));
+    trackPostListenHandle(startPhaseCompaction({
+      sessions: repo,
+      compact: (id) => runCompaction({
+        sessions: repo,
+        transcriptLogs,
+        runClaude,
+        ...makeCompactionIO({ sessions: repo, chat }),
+      }, id),
+      estimateContextPct: async (session) => (await estimateContextTokens(session))?.pct ?? null,
+    }));
+    trackPostListenHandle(startVibesLifecycle({ sessions: repo, claims: testingClaims, questions: pendingQuestions }));
+    trackPostListenHandle({ stop: eventBus.subscribe((event) => {
+      if (event.type !== "vibes.ok") return;
+      const session = repo.findSession(event.session_id);
+      const contract = session ? parseContractMetadata(session.metadata) : null;
+      if (!session || session.status !== "active" || contract?.mode?.value !== "vibes") return;
+      void (async () => {
+        repo.appendEvent({ session_id: session.id, ts: event.ts, kind: "vibes-human-ok", payload: { source: event.source } });
+        const submitted = await submitLocalPrForSession(session.id, { fastLane: false });
+        const accepted = submitted.submitted === true || ("resubmitted" in submitted && submitted.resubmitted === true);
+        if (!accepted) {
+          repo.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "vibes-pr-failed", payload: submitted });
+          return;
+        }
+        releaseTestingClaims(testingClaims, { sessionId: session.id, now: Math.floor(Date.now() / 1000) });
+        repo.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "vibes-completed", payload: { source: event.source } });
+        await endSessionNow(
+          { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
+          session,
+          "vibes-human-ok",
+        );
+      })().catch((error) => localPrLog.warn({ error, session_id: event.session_id }, "vibes completion failed"));
+    }) });
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

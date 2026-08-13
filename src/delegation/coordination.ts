@@ -1,15 +1,17 @@
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 
-export type DelegationStatus = "running" | "completed" | "failed";
+export type DelegationStatus = "running" | "completed" | "partial" | "failed";
 
 export interface DelegationStatusPayload {
   status: DelegationStatus;
   detail?: string;
   result?: string;
+  remaining?: Array<{ title: string; note?: string; scope_dirs?: string[] }>;
+  acceptance_report?: Array<{ criterion: string; met: boolean; note?: string }>;
 }
 
 export function normalizeDelegationStatus(value: unknown): DelegationStatus | null {
-  return value === "running" || value === "completed" || value === "failed" ? value : null;
+  return value === "running" || value === "completed" || value === "partial" || value === "failed" ? value : null;
 }
 
 export function resolveDelegationRunIdForSession(input: {
@@ -28,6 +30,8 @@ export function buildDelegationStatusNotification(
 ): string {
   const title = payload.status === "completed"
     ? "Delegation completed"
+    : payload.status === "partial"
+      ? "Delegation partial — continuation scheduled"
     : payload.status === "failed"
       ? "Delegation failed"
       : "Delegation running";
@@ -38,6 +42,9 @@ export function buildDelegationStatusNotification(
   if (run.child_session_id) lines.push(`child_session_id: ${run.child_session_id}`);
   if (payload.detail?.trim()) lines.push(`detail: ${payload.detail.trim()}`);
   if (payload.result?.trim()) lines.push(`result: ${payload.result.trim()}`);
+  if (payload.remaining?.length) lines.push(`remaining: ${payload.remaining.map((item) => item.title).join(", ")}`);
+  const unmet = payload.acceptance_report?.filter((item) => !item.met) ?? [];
+  if (unmet.length) lines.push(`unmet acceptance: ${unmet.map((item) => item.criterion).join(", ")}`);
   return lines.join("\n");
 }
 

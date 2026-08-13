@@ -138,4 +138,27 @@ describe("Discord command registration", () => {
       ephemeral: true,
     }));
   });
+
+  it("denies plan decisions when manager authorization is not wired", async () => {
+    const reply = vi.fn(async () => undefined);
+    const interaction = {
+      type: 3,
+      customId: "dirplan:approve:case-1:1",
+      user: { id: "discord-user" },
+      isAutocomplete: () => false,
+      isRepliable: () => true,
+      isChatInputCommand: () => false,
+      isButton: () => true,
+      isModalSubmit: () => false,
+      isStringSelectMenu: () => false,
+      reply,
+    };
+    await dispatchInteraction(interaction as never, {
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("プラン承認・受け入れ権限"),
+      ephemeral: true,
+    }));
+  });
 });

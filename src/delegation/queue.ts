@@ -22,7 +22,11 @@
  * キューを流すのに必要なのはスロット計上から外すことだけなので、 そこに留める。
  */
 
-import type { DelegationRepo, DelegationRunRow } from "../db/delegation-repo.js";
+import {
+  PARTIAL_REQUEUE_CLAIM_ERROR,
+  type DelegationRepo,
+  type DelegationRunRow,
+} from "../db/delegation-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { randomUUID } from "node:crypto";
 import { delegationQueueClaim, QUEUE_CLAIM_LEASE_MS } from "./lease.js";
@@ -81,7 +85,7 @@ export class DelegationQueue {
   /** スロットを占有している run (stale を除く)。 */
   activeRuns(): DelegationRunRow[] {
     const now = this.now;
-    return this.deps.repo.listActiveRuns().filter((run) => !this.isStale(run, now));
+    return this.deps.repo.listSlotOccupyingRuns().filter((run) => !this.isStale(run, now));
   }
 
   activeCount(): number {
@@ -177,14 +181,14 @@ export class DelegationQueue {
    * claim した瞬間から 「紐付け待ちのまま TTL 超過」 に見え (子セッションはまだ無い)、
    * 1 本も計上されないまま backlog を一気に spawn してしまう。
    *
-   * 母集合は `listActiveRuns` (launching/spawned/running) のままなので、 払い出した直後に
+   * 母集合は `listSlotOccupyingRuns` (active + partial replacement claim) なので、 払い出した直後に
    * spawn_failed / completed へ倒れた run は同じ drain パスの中で枠を返す。 払い出し済みを
    * 無条件に 1 枠と数えると、 spawn 失敗が続く backlog が 1 drain あたり上限本ずつしか
    * 流れなくなる (executeQueuedRun は payload 欠損などを throw せず spawn_failed に倒す)。
    */
   private countOccupiedSlots(claimedHere: ReadonlySet<string>): number {
     const now = this.now;
-    return this.deps.repo.listActiveRuns()
+    return this.deps.repo.listSlotOccupyingRuns()
       .filter((run) => claimedHere.has(run.id) || !this.isStale(run, now))
       .length;
   }
@@ -194,6 +198,7 @@ export class DelegationQueue {
    * 子セッションが終了済み / 紐付かないまま TTL 超過 の 2 パターン。
    */
   private isStale(run: DelegationRunRow, now: number): boolean {
+    if (run.status === "blocked" && run.error === PARTIAL_REQUEUE_CLAIM_ERROR) return false;
     if (run.child_session_id) {
       const session = this.deps.sessions.findSession(run.child_session_id);
       return !session || session.status !== "active";

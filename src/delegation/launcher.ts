@@ -80,6 +80,7 @@ export function launchDelegationProcess(input: {
     sourceDiscordChannelId: input.invocation.source_discord_channel_id ?? null,
     parentSessionId: input.invocation.parent_session_id ?? null,
     goalAndGo: goalAndGoRequested(input.effectiveOptions),
+    teamId: typeof input.effectiveOptions.team === "string" ? input.effectiveOptions.team : null,
   });
   const result = spawner(request);
   if (result.ok) {

@@ -114,6 +114,7 @@ export interface DelegationServiceDeps {
    * task 文面に一致した定型手順ブロックを返す。 不在・不一致・失敗は null (fail-soft)。
    */
   commandPatterns?: (taskText: string) => Promise<string | null>;
+  teamRules?: (teamIdOrSlug: string) => { id: string; team: string; rules: string } | null;
   /**
    * 段階注入 (初回=調査ブリーフ / 後追い=実装タスク) を使うか。 毎回評価するので
    * 設定変更が再起動なしで効く。 未注入なら有効 (既定 ON)。
@@ -172,6 +173,14 @@ export class DelegationService {
 
   private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
     input = normalizeInvocationPaths(input);
+    const requestedTeamValue = typeof input.options?.team === "string" ? input.options.team.trim() : "";
+    const requestedTeam = requestedTeamValue ? this.deps.teamRules?.(requestedTeamValue) ?? null : null;
+    if (requestedTeamValue && !requestedTeam) {
+      return { ok: false, error: `unknown team: ${requestedTeamValue}` };
+    }
+    if (requestedTeam) {
+      input = { ...input, options: { ...input.options, team: requestedTeam.id } };
+    }
     const plan = buildInvocationPlan(def, input);
     if (!plan.ok) return plan;
     const renderedPrompt = plan.renderedPrompt;
@@ -198,6 +207,7 @@ export class DelegationService {
         triggered_by: input.triggered_by ?? null,
         status: "queued",
         queue_payload_json: JSON.stringify(payload),
+        team_id: requestedTeam?.id ?? null,
       });
       const position = this.queue.position(run.id);
       log.info({ run_id: run.id, call_name: def.call_name, queue_position: position }, "delegation queued (at concurrency limit)");
@@ -244,6 +254,7 @@ export class DelegationService {
       spawn_worktree_path: launch.worktree_path,
       spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
+      team_id: requestedTeam?.id ?? null,
       staged_injection: launch.staged_injection,
     });
 
@@ -435,6 +446,7 @@ export class DelegationService {
       manualContent ? { kind: manualKind, content: manualContent } : null,
       commandPatternBlock,
       staged.staged ? "investigation" : "approval",
+      typeof effectiveOptions.team === "string" ? this.deps.teamRules?.(effectiveOptions.team) ?? null : null,
     );
     const promptSection = staged.staged
       ? buildInvestigationBrief({

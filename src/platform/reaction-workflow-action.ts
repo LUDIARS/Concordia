@@ -7,6 +7,7 @@
  */
 
 export type WorkflowAction =
+  | "context"
   | "start-impl"
   | "enumerate-remaining"
   | "memoria-remaining"

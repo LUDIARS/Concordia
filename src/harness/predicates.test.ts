@@ -126,15 +126,16 @@ describe("withMainPushAllowlist", () => {
   it("noMainPush だけを差し替え、他の述語は同一参照のまま", () => {
     const swapped = withMainPushAllowlist(["KuzuSurvivors"]);
     expect(swapped).toHaveLength(DEFAULT_PREDICATES.length);
-    expect(swapped[0]).not.toBe(noMainPush);
-    expect(swapped[0](action)?.decision).toBe("warn");
-    expect(swapped.slice(1)).toEqual(DEFAULT_PREDICATES.slice(1));
+    const noMainPushIndex = DEFAULT_PREDICATES.indexOf(noMainPush);
+    expect(swapped[noMainPushIndex]).not.toBe(noMainPush);
+    expect(swapped[noMainPushIndex]!(action)?.decision).toBe("warn");
+    expect(swapped.filter((_, index) => index !== noMainPushIndex)).toEqual(DEFAULT_PREDICATES.filter((_, index) => index !== noMainPushIndex));
   });
 
   it("許可リストが空なら既定セットの複製 (従来判定)", () => {
     const same = withMainPushAllowlist([]);
     expect(same).toEqual(DEFAULT_PREDICATES);
-    expect(same[0](action)?.decision).toBe("deny");
+    expect(same[DEFAULT_PREDICATES.indexOf(noMainPush)]!(action)?.decision).toBe("deny");
   });
 });
 

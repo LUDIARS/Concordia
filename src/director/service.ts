@@ -5,6 +5,7 @@ import { DirectorRepo } from "./repo.js";
 import type {
   CreateDirectorCaseInput,
   DirectorCaseDetail,
+  DirectorCase,
   DirectorDecisionKind,
   DirectorDecisionRecord,
   DirectorStep,
@@ -22,6 +23,14 @@ export class DirectorService {
     genius: GeniusClient;
     scoreMin: number;
     now?: () => number;
+    onPlanApproved?: (directorCase: DirectorCase, step: DirectorStep, plan: DirectorDecisionRecord) => void;
+    onPlanRevisionRequested?: (
+      directorCase: DirectorCase,
+      step: DirectorStep,
+      plan: DirectorDecisionRecord,
+      instruction: string,
+    ) => void;
+    onPlanDiscarded?: (directorCase: DirectorCase, step: DirectorStep, plan: DirectorDecisionRecord) => void;
   }) {}
 
   createCase(input: CreateDirectorCaseInput): DirectorCaseDetail {
@@ -47,6 +56,8 @@ export class DirectorService {
       title: input.title,
       goal: input.goal,
       project: input.project,
+      session_id: input.session_id ?? null,
+      team_id: input.team_id ?? null,
       created_at: now,
       updated_at: now,
     }, steps);
@@ -123,6 +134,72 @@ export class DirectorService {
     return { decision: savedRecord, step: resolvedStep };
   }
 
+  submitPlan(input: { case_id: string; step_id: string; markdown: string; md_ref?: string | null }): { decision: DirectorDecisionRecord; step: DirectorStep } {
+    const step = this.requireCaseStep(input.case_id, input.step_id);
+    if (step.kind !== "plan") throw new DirectorTransitionError("step is not plan");
+    if (step.status === "completed" || step.status === "cancelled") {
+      throw new DirectorTransitionError("plan step is closed");
+    }
+    const acceptance = markdownSection(input.markdown, "受け入れ条件");
+    if (!acceptance) throw new DirectorTransitionError("acceptance criteria required");
+    const prior = this.deps.repo.listDecisions(input.case_id).filter((decision) => decision.step_id === step.id && decision.plan_version);
+    const version = Math.max(0, ...prior.map((decision) => decision.plan_version ?? 0)) + 1;
+    const record: DirectorDecisionRecord = { id: id("ddc"), case_id: input.case_id, step_id: step.id, kind: "design", question: `plan v${version}`, facts: [input.markdown], options: ["approve", "revise", "discard"], impact: acceptance, decision: "ask_human", instruction: "プランの承認・修正・破棄を選択してください。", genius_available: false, genius_cards: [], created_at: this.now(), plan_version: version, plan_md_ref: input.md_ref ?? null };
+    const decision = this.deps.repo.createDecision(record);
+    const blocked = step.status === "blocked" ? step : this.updateStep({ case_id: input.case_id, step_id: step.id, status: "blocked" });
+    return { decision, step: blocked };
+  }
+
+  decidePlan(input: {
+    case_id: string;
+    step_id: string;
+    action: "approve" | "revise" | "discard";
+    version: number;
+    instruction?: string;
+  }): DirectorStep {
+    const step = this.requireCaseStep(input.case_id, input.step_id);
+    if (step.kind !== "plan") throw new DirectorTransitionError("step is not plan");
+    if (step.status === "completed" || step.status === "cancelled") {
+      throw new DirectorTransitionError("plan step is closed");
+    }
+    const plan = latestSubmittedPlan(this.deps.repo.listDecisions(input.case_id), step.id);
+    if (!plan || plan.plan_version !== input.version) {
+      throw new DirectorTransitionError("plan version superseded");
+    }
+    const directorCase = this.deps.repo.findCase(input.case_id);
+    if (!directorCase) throw new DirectorNotFoundError("director case not found");
+    if (input.action === "discard") {
+      const updated = this.updateStep({
+        case_id: input.case_id,
+        step_id: step.id,
+        status: "cancelled",
+        handoff_note: "plan-discarded",
+      });
+      this.deps.onPlanDiscarded?.(directorCase, updated, plan);
+      return updated;
+    }
+    if (input.action === "revise") {
+      const instruction = input.instruction?.trim();
+      if (!instruction) throw new DirectorTransitionError("revision instruction required");
+      const updated = this.updateStep({
+        case_id: input.case_id,
+        step_id: step.id,
+        status: "blocked",
+        handoff_note: instruction,
+      });
+      this.deps.onPlanRevisionRequested?.(directorCase, updated, plan, instruction);
+      return updated;
+    }
+    const updated = this.updateStep({
+      case_id: input.case_id,
+      step_id: step.id,
+      status: "completed",
+      handoff_note: "plan-approved",
+    });
+    this.deps.onPlanApproved?.(directorCase, updated, plan);
+    return updated;
+  }
+
   private requireCaseStep(caseId: string, stepId: string): DirectorStep {
     if (!this.deps.repo.findCase(caseId)) throw new DirectorNotFoundError("director case not found");
     const step = this.deps.repo.findStep(stepId);
@@ -135,6 +212,31 @@ export class DirectorService {
   }
 }
 
+function latestSubmittedPlan(
+  decisions: readonly DirectorDecisionRecord[],
+  stepId: string,
+): DirectorDecisionRecord | null {
+  return decisions
+    .filter((decision) => decision.step_id === stepId && decision.plan_version != null)
+    .at(-1) ?? null;
+}
+
+function markdownSection(markdown: string, heading: string): string | null {
+  const lines = markdown.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => {
+    const match = /^##[ \t]+(.+?)[ \t]*$/.exec(line);
+    return match?.[1] === heading;
+  });
+  if (headingIndex < 0) return null;
+  const sectionEnd = lines.findIndex((line, index) =>
+    index > headingIndex && /^##(?:[ \t]+|$)/.test(line));
+  const content = lines
+    .slice(headingIndex + 1, sectionEnd < 0 ? undefined : sectionEnd)
+    .join("\n")
+    .trim();
+  return content ? content : null;
+}
+
 function id(prefix: string): string {
   return `${prefix}_${randomUUID().replace(/-/g, "")}`;
 }
@@ -143,7 +245,7 @@ function canTransition(from: DirectorStepStatus, to: DirectorStepStatus): boolea
   if (from === to) return true;
   if (from === "pending") return to === "active" || to === "blocked" || to === "cancelled";
   if (from === "active") return to === "blocked" || to === "completed" || to === "cancelled";
-  if (from === "blocked") return to === "active" || to === "cancelled";
+  if (from === "blocked") return to === "active" || to === "completed" || to === "cancelled";
   return false;
 }
 

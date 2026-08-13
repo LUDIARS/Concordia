@@ -20,6 +20,7 @@ export interface HarnessRuleRow {
   sort_order: number;
   created_at: number;
   updated_at: number;
+  team_id: string | null;
 }
 
 export interface CreateHarnessRuleInput {
@@ -29,6 +30,7 @@ export interface CreateHarnessRuleInput {
   enabled?: boolean;
   builtin?: boolean;
   sort_order?: number;
+  team_id?: string | null;
 }
 
 export interface UpdateHarnessRuleInput {
@@ -46,8 +48,8 @@ export class HarnessRulesRepo {
     const id = randomUUID();
     const now = Date.now();
     this.db.prepare(`
-      INSERT INTO harness_rules(id, kind, title, description, enabled, builtin, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO harness_rules(id, kind, title, description, enabled, builtin, sort_order, created_at, updated_at, team_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.kind,
@@ -58,6 +60,7 @@ export class HarnessRulesRepo {
       input.sort_order ?? 0,
       now,
       now,
+      input.team_id ?? null,
     );
     return this.find(id)!;
   }
@@ -100,6 +103,7 @@ export class HarnessRulesRepo {
       : `SELECT * FROM harness_rules WHERE enabled = 1 ORDER BY sort_order ASC, created_at ASC`;
     return this.db.prepare(sql).all() as HarnessRuleRow[];
   }
+  listForTeam(teamId: string | null): HarnessRuleRow[] { return this.db.prepare("SELECT * FROM harness_rules WHERE enabled=1 AND (team_id IS NULL OR team_id=?) ORDER BY sort_order,created_at").all(teamId) as HarnessRuleRow[]; }
 
   /** builtin の既定ルールが (title 一致で) 無ければ作る。 既存は description を上書きしない。 */
   ensureBuiltin(input: Required<Pick<CreateHarnessRuleInput, "kind" | "title" | "description">> & { sort_order: number }): void {

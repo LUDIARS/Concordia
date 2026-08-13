@@ -36,7 +36,7 @@ export interface FrozenMigration {
  * (tsx / esbuild / tsc) ごとに出力が変わって偽陽性で落ちるため — 実測で tsx と vitest が
  * 別の値を出した。 スキーマそのものならツールチェインに依存しない。
  */
-export const SCHEMA_FINGERPRINT = "0712dac252bd750483173c9e7c4d7037f348d7622d42153294ebcb4fad66fd66";
+export const SCHEMA_FINGERPRINT = "f502e47089d86d2e43a572db9b6ef0860be0c34522e487c3119a5603299070c5";
 
 /**
  * 適用済み DB のスキーマ指紋。 sqlite_master を種別・名前で整列し、 空白を潰してから
@@ -163,6 +163,26 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
   {
     version: 62,
     name: "delegation-staged-injection",
-    checksum: "a318a71d78005fd822b5c57cd737a8987e59db2f1ffc0cd24fa8cd260ff75777",
+    checksum: "adc375079f4653c155956df3ef62eb1ad35f6703c7c5f1f29f1edf933ab324ac",
+  },
+  {
+    version: 63,
+    name: "director-plan-version",
+    checksum: "9370690504779925e8d7dc7b5d15314af1ae97a15d72c2a3863d16d154f1006c",
+  },
+  {
+    version: 64,
+    name: "director-case-session",
+    checksum: "af60948ddba191ec778fc06d6a05f17238698fe5bba8262fece4c5576da51f5d",
+  },
+  {
+    version: 65,
+    name: "teams-core",
+    checksum: "4f0ffac855008ea2d46cd666c9d43ef37c130e76fa164d847fdb096526ef320f",
+  },
+  {
+    version: 66,
+    name: "harness-rules-team-scope",
+    checksum: "44d89501efe0df21d32fc4bf2b92f1d291dfcaf1bde38762f04edcd08140972d",
   },
 ];

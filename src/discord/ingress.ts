@@ -10,6 +10,7 @@ import { detectsEndSessionRequest, markEndSessionRequested } from "../shared/end
 import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
+import { eventBus } from "../events.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const ACCEPTED_INJECT_REACTION = "✅";
@@ -53,6 +54,8 @@ export interface IngressDeps {
   isWorkflowUserAllowed?: (userId: string) => boolean;
   /** セッション終了発話の認可。未注入は deny (slash command と同じ fail-closed)。 */
   isSessionEndUserAllowed?: (userId: string) => boolean;
+  /** Plan decisions and vibes acceptance unblock implementation/review, so require manager authority. */
+  isPlanDecisionUserAllowed?: (userId: string) => boolean;
   /** LLM に届く発言をした Discord ユーザを社員名簿へ記録する (プロファイル名付き)。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する (単発絵文字の判定に使う)。 */
@@ -70,6 +73,11 @@ export interface IngressDeps {
   };
   /** True only for a subsidiary guild; head-office desk intake remains false. */
   subsidiary?: boolean;
+  handlePlanReply?: (
+    sessionId: string,
+    text: string,
+    authorId: string,
+  ) => Promise<{ handled: boolean; reply?: string }>;
   /** federation は Discord を import しないため、部署ルーティングだけを外から注入する。 */
   routeFederationIngress?: (input: {
     guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number;
@@ -208,6 +216,23 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       try {
         await msg.reply({ content: `This session is ${sessionRow.status}; inject is disabled.`, allowedMentions: { repliedUser: false } });
       } catch {}
+      return;
+    }
+    if (/^\s*\[OK\]\s*$/i.test(text)) {
+      if (deps.isPlanDecisionUserAllowed?.(msg.author.id) !== true) {
+        await msg.reply({
+          content: "このユーザーには受け入れ権限がありません (管理職以上が必要)。",
+          allowedMentions: { parse: [], repliedUser: false },
+        }).catch(() => { /* denial reply is best-effort */ });
+        return;
+      }
+      eventBus.emit({ type: "vibes.ok", session_id: sessionRow.session_id, source: `discord:${msg.author.id}:${msg.id}`, ts: Math.floor(Date.now() / 1000) });
+      await msg.reply({ content: "Acceptance recorded. Submitting the existing working branch for review.", allowedMentions: { parse: [], repliedUser: false } });
+      return;
+    }
+    const planReply = await deps.handlePlanReply?.(sessionRow.session_id, text, msg.author.id);
+    if (planReply?.handled) {
+      if (planReply.reply) await msg.reply({ content: planReply.reply, allowedMentions: { parse: [], repliedUser: false } });
       return;
     }
     const isEndSessionRequest = detectsEndSessionRequest(text);

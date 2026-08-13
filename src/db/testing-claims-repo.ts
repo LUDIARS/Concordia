@@ -86,6 +86,13 @@ export class TestingClaimsRepo {
       .all(now - TEST_CLAIM_TTL_SEC) as TestClaimRow[];
   }
 
+  /** Lifecycle supervision also needs expired-but-unreleased rows so it can ask/release deterministically. */
+  listUnreleased(): TestClaimRow[] {
+    return this.db.prepare(
+      `SELECT * FROM service_test_claims WHERE released_at IS NULL ORDER BY started_at DESC`,
+    ).all() as TestClaimRow[];
+  }
+
   /** セッションが active な claim を持つか (branch-watch のリマインド抑止に使う)。 */
   hasActiveClaim(sessionId: string, now: number): boolean {
     const row = this.db

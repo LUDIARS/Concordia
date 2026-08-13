@@ -22,25 +22,27 @@ import { CostFeed } from "./pages/CostFeed.js";
 import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
 import { RuntimeVersion } from "./components/RuntimeVersion.js";
+import { Teams } from "./pages/Teams.js";
 
 const NAV: NavItem[] = [
-  { to: "/", label: "Monitor" },
-  { to: "/work", label: "Work" },
-  { to: "/taskflow", label: "Taskflow" },
-  { to: "/prs", label: "PRs" },
-  { to: "/cost", label: "Cost" },
-  { to: "/reports", label: "Reports" },
-  { to: "/session-logs", label: "作業ログ" },
-  { to: "/skills", label: "Skills" },
-  { to: "/ws-cleanup", label: "整理" },
-  { to: "/library", label: "記憶整理" },
-  { to: "/delegation", label: "Delegation" },
-  { to: "/manuals", label: "マニュアル" },
-  { to: "/staff", label: "社員" },
-  { to: "/subsidiaries", label: "子会社" },
-  { to: "/federation", label: "拠点" },
-  { to: "/setup", label: "Setup" },
-  { to: "/settings", label: "設定" },
+  { to: "/teams", label: "Teams", section: "チーム" },
+  { to: "/", label: "Monitor", section: "チーム" },
+  { to: "/work", label: "Work", section: "チーム" },
+  { to: "/taskflow", label: "Taskflow", section: "チーム" },
+  { to: "/staff", label: "社員", section: "チーム" },
+  { to: "/subsidiaries", label: "子会社", section: "チーム" },
+  { to: "/prs", label: "PRs", section: "レビュー・PR" },
+  { to: "/reports", label: "Reports", section: "レビュー・PR" },
+  { to: "/delegation", label: "Delegation", section: "レビュー・PR" },
+  { to: "/cost", label: "Cost", section: "運用" },
+  { to: "/session-logs", label: "作業ログ", section: "運用" },
+  { to: "/ws-cleanup", label: "整理", section: "運用" },
+  { to: "/library", label: "記憶整理", section: "運用" },
+  { to: "/federation", label: "拠点", section: "運用" },
+  { to: "/skills", label: "Skills", section: "設定" },
+  { to: "/manuals", label: "マニュアル", section: "設定" },
+  { to: "/setup", label: "Setup", section: "設定" },
+  { to: "/settings", label: "設定", section: "設定" },
 ];
 
 export function App() {
@@ -52,12 +54,13 @@ export function App() {
         </span>
         <RuntimeVersion />
         <span className="text-subtle text-xs hidden md:inline">multi-agent session coordinator</span>
-        <Nav items={NAV} />
       </header>
-
-      <main className="flex-1 px-3 sm:px-6 py-4">
+      <div className="flex min-h-0 flex-1">
+        <Nav items={NAV} />
+      <main className="min-w-0 flex-1 px-3 sm:px-6 py-4">
         <Routes>
           <Route path="/" element={<Monitor />} />
+          <Route path="/teams" element={<Teams />} />
           <Route path="/work" element={<Work />} />
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
@@ -80,6 +83,7 @@ export function App() {
           <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
+      </div>
 
       <footer className="border-t border-border bg-surface px-3 sm:px-6 py-2 text-xs text-subtle">
         <a href="https://github.com/LUDIARS/Concordia" target="_blank" rel="noreferrer">

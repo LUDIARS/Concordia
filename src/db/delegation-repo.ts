@@ -80,7 +80,7 @@ export interface DelegationRunRow {
    * queued = 同時実行上限に達していたため spawn を保留した状態 (queue_payload_json に
    * 起動入力一式を持ち、 スロットが空き次第 FIFO で spawn される)。
    */
-  status: "queued" | "launching" | "pending" | "spawned" | "spawn_failed" | "running" | "completed" | "failed";
+  status: "queued" | "launching" | "pending" | "spawned" | "spawn_failed" | "running" | "blocked" | "completed" | "failed";
   error: string | null;
   /** queued の間だけ入る起動入力 (JSON)。 spawn 後は null に落とす。 */
   queue_payload_json: string | null;
@@ -98,6 +98,7 @@ export interface DelegationRunRow {
   spawn_worktree_created?: number;
   effort_decision_id?: number | null;
   finished_at?: number | null;
+  team_id?: string | null;
   supervisor_platform?: string | null;
   supervisor_user_id?: string | null;
   /** watchdog が最後にこの run を点検した時刻 (epoch-ms)。 */
@@ -122,6 +123,7 @@ export interface DelegationRunRow {
 
 /** spawn 中/実行中とみなす status (= 同時実行スロットを 1 つ占有する)。 */
 export const DELEGATION_ACTIVE_STATUSES: readonly DelegationRunRow["status"][] = ["launching", "spawned", "running"];
+export const PARTIAL_REQUEUE_CLAIM_ERROR = "partial_requeue_in_progress";
 
 export interface InputSchemaItem {
   name: string;
@@ -197,6 +199,7 @@ export interface CreateRunInput {
   spawn_worktree_created?: boolean;
   effort_decision_id?: number | null;
   finished_at?: number | null;
+  team_id?: string | null;
   /** 段階注入で起動したか (spec/feature/delegation-staged-injection.md)。 */
   staged_injection?: boolean;
 }
@@ -368,8 +371,8 @@ export class DelegationRepo {
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
         effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
         spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at,
-        staged_injection, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        team_id, staged_injection, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -397,6 +400,7 @@ export class DelegationRepo {
       input.spawn_worktree_created ? 1 : 0,
       input.effort_decision_id ?? null,
       input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
+      input.team_id ?? null,
       input.staged_injection ? 1 : 0,
       now,
     );
@@ -432,6 +436,16 @@ export class DelegationRepo {
     return this.db.prepare(
       `SELECT * FROM delegation_runs WHERE status IN ('launching', 'spawned', 'running') ORDER BY created_at ASC`,
     ).all() as DelegationRunRow[];
+  }
+
+  /** Queue capacity also remains occupied while a partial replacement is being launched. */
+  listSlotOccupyingRuns(): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs
+       WHERE status IN ('launching', 'spawned', 'running')
+          OR (status = 'blocked' AND error = ?)
+       ORDER BY created_at ASC`,
+    ).all(PARTIAL_REQUEUE_CLAIM_ERROR) as DelegationRunRow[];
   }
 
   // ── run watchdog の永続状態 (spec/tasks/2026-08-08-delegation-run-watchdog.md) ──
@@ -650,6 +664,36 @@ export class DelegationRepo {
       .prepare(`SELECT * FROM delegation_runs WHERE triggered_by = ? ORDER BY created_at DESC LIMIT 1`)
       .get(triggeredBy) as DelegationRunRow | undefined;
     return row ?? null;
+  }
+
+  /**
+   * Partial report の residual 起動権を原子的に確保する。
+   *
+   * API 側の read → spawn → update だけでは同時 POST が両方 spawn できるため、
+   * source run を一時的に blocked 化して単一 caller だけを通す。queue の launching
+   * 状態は queue lease 専用なので流用しない。
+   */
+  claimPartialRequeue(runId: string): DelegationRunRow | null {
+    const updated = this.db.prepare(`
+      UPDATE delegation_runs
+         SET status = 'blocked', error = ?
+       WHERE id = ? AND status IN ('pending', 'spawned', 'running')
+    `).run(PARTIAL_REQUEUE_CLAIM_ERROR, runId);
+    return updated.changes === 1 ? this.findRun(runId) : null;
+  }
+
+  /** residual 起動失敗時だけ claim 前の状態へ戻し、status retry を可能にする。 */
+  releasePartialRequeueClaim(
+    runId: string,
+    previousStatus: DelegationRunRow["status"],
+    previousError: string | null,
+  ): boolean {
+    const updated = this.db.prepare(`
+      UPDATE delegation_runs
+         SET status = ?, error = ?
+       WHERE id = ? AND status = 'blocked' AND error = ?
+    `).run(previousStatus, previousError, runId, PARTIAL_REQUEUE_CLAIM_ERROR);
+    return updated.changes === 1;
   }
 
   recentRuns(limit = 100): DelegationRunRow[] {

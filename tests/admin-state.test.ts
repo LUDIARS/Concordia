@@ -47,6 +47,7 @@ describe("AdminState", () => {
       reaction_workflow_enabled: false,
       cc_workflow_enabled: false,
       revisor_auto_submit_enabled: true,
+      delegation_staged_injection_enabled: true,
       lictor_mode: "auto",
       lictor_dev_path: "",
       lictor_prod_exe: "",

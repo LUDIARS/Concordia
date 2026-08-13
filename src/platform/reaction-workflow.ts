@@ -108,6 +108,7 @@ export type { WorkflowAction };
  * 「ok=🆗 → 着手」「check=✅ → 残作業タスク」のように細かく分岐する。
  */
 const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
+  "context": ["🧠"],
   // 「良い」→ そのまま実装着手 (thumbsup / ok)
   "start-impl": ["👍", "🆗"],
   // 🙏 → 残作業を洗い出して報告 (2 段 WF の前段)
@@ -177,6 +178,11 @@ export interface WorkflowActionHelp {
  * summary は「投稿内容を <どんな指示> に変換する」という形で書く。
  */
 export const WORKFLOW_ACTION_HELP: Record<WorkflowAction, WorkflowActionHelp> = {
+  "context": {
+    label: "コンテキスト残量",
+    summary: "対象セッションのコンテキスト占有と残量をその場で再推定してスレッドへ返す。",
+    mode: "Concordia read model (LLM を起動しない)",
+  },
   "start-impl": {
     label: "実装着手",
     summary: "投稿内容 (直前の提案 / 計画) を『そのまま実装に着手せよ』という指示に変換して渡す。",
@@ -411,6 +417,10 @@ export function planWorkflow(
   const msgRef = `\n\n--- 対象メッセージデータ ---\n${framedMessage}`;
 
   switch (action) {
+    case "context":
+      // Runner が read-model port で処理する。この返値は純粋関数の全域性を保つための
+      // fail-safe であり、通常経路では実行されない。
+      return { action, mode: "inject", prompt: "現在のコンテキスト残量を報告してください。" };
     case "start-impl": {
       const prompt =
         `👍 このメッセージ (直前の提案 / 計画) が承認されました。 提案内容を**そのまま実装に着手**してください。\n` +
@@ -833,6 +843,8 @@ export interface ReactionWorkflowDeps {
    * engine を Concordia 内部 (events) から切り離すため、 ホスト側が実装を注入する。
    */
   emitInject: (sessionId: string, text: string, source: string) => void;
+  /** 🧠 context の read-model port。未配線時は明示的に unavailable を返す。 */
+  contextReport?: (sessionId: string) => Promise<string>;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
   workspaceRoot: string;
   /** Concordia の HTTP エンドポイント。 channel-rename 等の API 直接呼び出しに使う。 */
@@ -1061,6 +1073,22 @@ export class ReactionWorkflowRunner {
         this.deps.log.warn(`reaction-workflow: onAccept failed: ${(e as Error).message}`);
       }
     };
+
+    // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
+    if (action === "context") {
+      notifyAccept();
+      if (!input.sessionId || !this.deps.contextReport) {
+        onResult?.(action, { ok: false, text: "対象セッションのコンテキスト推定を利用できません。" });
+        return;
+      }
+      try {
+        onResult?.(action, { ok: true, text: await this.deps.contextReport(input.sessionId) });
+      } catch (error) {
+        this.deps.log.warn(`reaction-workflow: context failed: ${(error as Error).message}`);
+        onResult?.(action, { ok: false, text: `コンテキスト推定に失敗しました: ${(error as Error).message}` });
+      }
+      return;
+    }
 
     // channel-rename: headless/inject ではなく Concordia API を直接呼ぶ。
     if (action === "channel-rename") {

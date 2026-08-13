@@ -13,6 +13,7 @@ import mmtaskCommand from "./commands/mmtask.js";
 import projectsCommand from "./commands/projects.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
+import contextCommand, { CONTEXT_COMPACT_PREFIX } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import confirmCommand from "./commands/confirm.js";
@@ -32,6 +33,7 @@ import {
 import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow.js";
 import type { WorkflowKey } from "../workflow/keys.js";
+import { handlePlanButton, handlePlanModal, PLAN_PREFIX } from "./plan-card.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 /** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
@@ -55,6 +57,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   projectsCommand,
   chNameCommand,
   compactionCommand,
+  contextCommand,
   goalCommand,
   relictorCommand,
   confirmCommand,
@@ -184,7 +187,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     await dispatchPermissionInteraction(interaction, deps);
     return;
   }
-  if (isModelReviewInteraction(interaction)) {
+  if (interaction.isButton() && isModelReviewInteraction(interaction)) {
     await dispatchModelReviewInteraction(interaction, {
       concordiaUrl: deps.concordiaUrl,
       applyRuntimeReview: deps.applyRuntimeModelReview,
@@ -217,6 +220,19 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    if(interaction.isButton()&&interaction.customId.startsWith(PLAN_PREFIX)){await handlePlanButton(interaction,deps.concordiaUrl);return;}
+    if (interaction.isButton() && interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)) {
+      const sessionId = interaction.customId.slice(CONTEXT_COMPACT_PREFIX.length).trim();
+      if (!sessionId || !deps.sessionsRepo.findSession(sessionId)) {
+        await interaction.reply({ content: "対象セッションが見つかりません。", ephemeral: true });
+        return;
+      }
+      await interaction.deferUpdate();
+      const result = await fetch(`${deps.concordiaUrl.replace(/\/$/, "")}/v1/sessions/${encodeURIComponent(sessionId)}/compact`, { method: "POST" });
+      const payload = await result.json().catch(() => ({})) as { error?: string };
+      await interaction.followUp({ content: result.ok ? "✅ コンパクション完了。" : `⚠️ 失敗: ${payload.error ?? result.status}`, ephemeral: true });
+      return;
+    }
     const control = parseTestControlId(interaction.customId);
     if (control) {
       if (!deps.testSurfacesRepo || !deps.revisor) {
@@ -246,6 +262,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     await dispatchQuestionInteraction(interaction, deps);
     return;
   }
+  if(interaction.isModalSubmit()&&interaction.customId.startsWith(`${PLAN_PREFIX}revise-modal:`)){await handlePlanModal(interaction,deps.concordiaUrl);return;}
   if (interaction.isModalSubmit() && interaction.customId.startsWith("ctrl:")) {
     await handleControlModalSubmit(interaction, { concordiaUrl: deps.concordiaUrl, log: deps.log });
   }
@@ -277,6 +294,11 @@ const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
   denyMessage: "このユーザーにはサービス操作権限がありません (執行役員のみ)。",
   check: (deps) => deps.isKillSwitchUserAllowed,
 };
+const PRIVILEGED_PLAN_DECISION: PrivilegedInteraction = {
+  capability: "session_spawn",
+  denyMessage: "このユーザーにはプラン承認・受け入れ権限がありません (管理職以上が必要)。",
+  check: (deps) => deps.isLaunchUserAllowed,
+};
 
 /** キルスイッチ相当 = Excubitor 経由でサービスを起動 / 再起動するコマンド。 */
 const KILL_SWITCH_COMMANDS = new Set(["ex-run", "ex-reboot"]);
@@ -301,6 +323,7 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   }
   if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
     const id = interaction.customId;
+    if (id.startsWith(PLAN_PREFIX)) return PRIVILEGED_PLAN_DECISION;
     if (id.startsWith("ctrl:spawn:") || id.startsWith("ctrl:spawn-modal:")) {
       return PRIVILEGED_SESSION_SPAWN;
     }

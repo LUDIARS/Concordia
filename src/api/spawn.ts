@@ -33,6 +33,7 @@ import {
   forgetPendingDelegationSpawnBySpawnId,
   recordPendingDelegationSpawn,
 } from "../control/pending-delegation-spawns.js";
+import type { TeamsRepo } from "../db/teams-repo.js";
 
 const log = createChildLogger("api/spawn");
 
@@ -50,6 +51,7 @@ export interface SpawnApiDeps {
    * 拒否する (Concordia 発の新規セッション起動を止める)。 未指定なら無効。
    */
   isCostBlocked?: () => boolean;
+  teams?: TeamsRepo;
 }
 
 export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
@@ -101,6 +103,14 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
         400,
       );
     }
+    const requestedTeamValue = typeof body.team === "string" ? body.team.trim() : "";
+    const requestedTeam = requestedTeamValue ? deps.teams?.findByIdOrSlug(requestedTeamValue) ?? null : null;
+    if (requestedTeamValue && !deps.teams) {
+      return c.json({ error: "team registry unavailable" }, 503);
+    }
+    if (requestedTeamValue && !requestedTeam) {
+      return c.json({ error: `unknown team: ${requestedTeamValue}` }, 400);
+    }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const target = await prepareSpawnTarget({
       cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),
@@ -117,6 +127,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       cwd: target.cwd,
       cwdProvided: typeof body.cwd === "string" && body.cwd.trim().length > 0,
       title: typeof body.title === "string" ? body.title : undefined,
+      env: requestedTeam ? { CONCORDIA_TEAM_ID: requestedTeam.id } : undefined,
       // env は外部入力からは受け取らない (CWE-78 RCE 対策)。 spawn child に渡る env は
       // Concordia 内部が設定する allowlist key のみ (spawner.sanitizeSpawnEnv)。
     };
@@ -127,6 +138,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
       spawnId: id,
       branch: target.branch,
       callName: "spawn-api",
+      teamId: requestedTeam?.id ?? null,
     });
     request.spawnId = id;
     const result = spawnSession(request);

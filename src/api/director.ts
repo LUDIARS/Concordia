@@ -10,11 +10,14 @@ import {
   DirectorService,
   DirectorTransitionError,
 } from "../director/service.js";
+import { eventBus } from "../events.js";
 
 const CreateCaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(4_000),
   project: z.string().trim().min(1).max(200),
+  session_id: z.string().trim().min(1).max(200).nullable().optional(),
+  team_id: z.string().trim().min(1).max(200).nullable().optional(),
   steps: z.array(z.object({
     kind: z.enum(DIRECTOR_STEP_KINDS),
     title: z.string().trim().min(1).max(300),
@@ -37,6 +40,23 @@ const DecisionSchema = z.object({
   facts: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
   options: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
   impact: z.string().trim().min(1).max(4_000),
+});
+const PlanSchema = z.object({
+  markdown: z.string().min(1).max(100_000),
+  md_ref: z.string().max(2_000).nullable().optional(),
+});
+const PlanActionSchema = z.object({
+  action: z.enum(["approve", "revise", "discard"]),
+  version: z.number().int().positive(),
+  instruction: z.string().trim().min(1).max(8_000).optional(),
+}).superRefine((value, ctx) => {
+  if (value.action === "revise" && !value.instruction) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["instruction"],
+      message: "revision instruction required",
+    });
+  }
 });
 
 export function directorRouter(deps: { service: DirectorService }): Hono {
@@ -76,6 +96,47 @@ export function directorRouter(deps: { service: DirectorService }): Hono {
         step_id: c.req.param("stepId"),
         ...parsed.data,
       }), 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+  app.post("/cases/:caseId/plan", async (c) => {
+    const parsed = PlanSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_plan" }, 400);
+    try {
+      const detail = deps.service.getCase(c.req.param("caseId"));
+      const step = detail?.steps.find((candidate) => candidate.kind === "plan");
+      if (!step || !detail) return c.json({ error: "plan_step_not_found" }, 404);
+      const result = deps.service.submitPlan({ case_id: detail.case.id, step_id: step.id, ...parsed.data });
+      if (detail.case.session_id) {
+        eventBus.emit({
+          type: "director.plan_submitted",
+          target_session_id: detail.case.session_id,
+          case_id: detail.case.id,
+          version: result.decision.plan_version!,
+          markdown: parsed.data.markdown,
+          ts: Math.floor(Date.now() / 1000),
+        });
+      }
+      return c.json(result, 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+  app.post("/cases/:caseId/plan/action", async (c) => {
+    const parsed = PlanActionSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_action" }, 400);
+    try {
+      const detail = deps.service.getCase(c.req.param("caseId"));
+      const step = detail?.steps.find((candidate) => candidate.kind === "plan");
+      if (!step || !detail) return c.json({ error: "plan_step_not_found" }, 404);
+      return c.json({
+        step: deps.service.decidePlan({
+          case_id: detail.case.id,
+          step_id: step.id,
+          ...parsed.data,
+        }),
+      });
     } catch (error) {
       return errorResponse(c, error);
     }

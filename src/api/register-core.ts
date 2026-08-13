@@ -31,7 +31,7 @@ import type { SessionTaskRecordsRepo } from "../db/session-task-records-repo.js"
 import type { TranscriptLogsRepo } from "../db/transcript-logs-repo.js";
 import type { SessionMessagesRepo } from "../db/session-messages-repo.js";
 import type { SessionMessageReadsRepo } from "../db/session-message-reads-repo.js";
-import type { ConcordiaEvent } from "../events.js";
+import { eventBus, type ConcordiaEvent } from "../events.js";
 import type { WebPushRepo } from "../db/web-push-repo.js";
 import type { WebPushService } from "../push/service.js";
 import { pushRouter } from "./push.js";
@@ -123,7 +123,10 @@ import type { DirectorService } from "../director/service.js";
 import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
 import { workflowGate } from "../workflow/api-gate.js";
+import { isContractComplete, parseContractMetadata } from "../contract/schema.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
+import { teamsRouter } from "./teams.js";
+import type { TeamsRepo } from "../db/teams-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -155,6 +158,7 @@ export interface CoreSessionDeps {
 export interface CoreDelegationDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
+  teams?: TeamsRepo;
   /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
   confirmService?: ConfirmService;
   /** delegation 実行キュー (同時実行上限 + 待ち行列)。 未注入なら /v1/delegation/queue は 503。 */
@@ -348,6 +352,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       // (実行時解決) を採用する。 設定 GUI での workspace root 変更が即反映される。
       resolveDefaultCwd: () => deps.adminState.getWorkspaceRoot(),
       isCostBlocked: () => deps.costStatus?.().blocked ?? false,
+      teams: deps.teams,
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
@@ -393,6 +398,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.staff) {
     app.route("/v1/staff", staffRouter({ repo: deps.staff }));
   }
+  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams));
   // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
   if (deps.injectManuals) {
@@ -418,15 +424,34 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           let metadata: Record<string, unknown> = {};
           try { metadata = s.metadata ? JSON.parse(s.metadata) as Record<string, unknown> : {}; } catch { /* allow unknown */ }
           const model = typeof metadata.model === "string" ? metadata.model : s.provider;
+          const contract = parseContractMetadata(s.metadata);
+          const testingService = contract?.testing_claim?.value.service ?? null;
+          const vibesClaimActive = contract?.mode?.value === "vibes" && !!testingService && !!deps.testingClaims?.listActive(Math.floor(Date.now() / 1000))
+            .some((claim) => claim.session_id === id && claim.service === testingService);
           return {
             model: `${s.provider}/${model}`,
             implUnlocked: metadata.impl_unlocked === true,
             isWorktree: typeof metadata.is_worktree === "boolean" ? metadata.is_worktree : undefined,
+            contractComplete: isContractComplete(contract),
+            planApproved: contract?.mode?.value === "plan" ? metadata.plan_approved === true : undefined,
+            contractMode: contract?.mode?.value,
+            contractScopeDirs: contract?.scope_dirs?.value,
+            vibesClaimActive,
+            teamId: contract?.team?.value ?? s.team_id ?? null,
           };
         },
         strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),
         mainPushAllowlist: () => deps.adminState.getHarnessMainPushAllowlist(),
         mentionUserId: () => deps.adminState.getMentionUserId(),
+        onVibesFileLimit: (sessionId) => {
+          const questionText = "Vibes mode reached its edited-file limit. Promote this task to plan mode?";
+          if (deps.pendingQuestions.findUnansweredByQuestion(sessionId, questionText)) return;
+          const row = deps.pendingQuestions.insert({ session_id: sessionId, question: questionText, options: [
+            { label: "Promote to plan", description: "Release the testing claim and enter design approval." },
+            { label: "Stop", description: "Keep the current branch and block this run." },
+          ] });
+          eventBus.emit({ type: "question.posted", target_session_id: sessionId, question_id: row.id, question: row.question, options: JSON.parse(row.options_json), ts: row.ts });
+        },
       }),
     );
   }
@@ -490,6 +515,15 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const projectName = typeof body.project === "string" ? body.project.trim() : "";
     const requestedBranch = typeof body.branch === "string" ? body.branch.trim() : undefined;
     const requestedWorktree = body.worktree;
+    const requestedTeamValue = typeof body.team === "string" && body.team.trim() ? body.team.trim() : null;
+    const requestedTeam = requestedTeamValue ? deps.teams?.findByIdOrSlug(requestedTeamValue) ?? null : null;
+    if (requestedTeamValue && !deps.teams) {
+      return c.json({ error: "team_registry_unavailable" }, 503);
+    }
+    if (requestedTeamValue && !requestedTeam) {
+      return c.json({ error: `unknown team: ${requestedTeamValue}` }, 400);
+    }
+    const requestedTeamId = requestedTeam?.id ?? null;
     let projectCwd: string | null = null;
     if (projectName) {
       if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(projectName)) {
@@ -536,6 +570,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       const runtimeOptions = {
         ...parseRuntimeOptions(tpl.runtime_options_json),
         ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
+        ...(requestedTeamId ? { team: requestedTeamId } : {}),
       };
       const cwdOverride = projectCwd ?? (typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined);
 
@@ -630,6 +665,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         sourceDiscordGuildId,
         sourceDiscordChannelId,
         goalAndGo: goalAndGoRequested(runtimeOptions),
+        teamId: requestedTeamId,
       });
       const result = sessionSpawn({
         provider: spawn.provider,
@@ -642,6 +678,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         env: {
           ...(spawn.env ?? {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
+          ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
         },
         spawnId,
       });
@@ -686,6 +723,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     const spawnEnv: Record<string, string> = {
       ...resolved.env,
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
+      ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
     };
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);
@@ -712,6 +750,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       sourceDiscordChannelId,
       goalAndGo: goalAndGoRequested(effectiveDirectOptions),
       testSurfaceId,
+      teamId: requestedTeamId,
     });
     const result = sessionSpawn({
       provider: resolved.provider,

@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import {
   DELEGATION_PROVIDERS,
   DELEGATION_CATEGORIES,
+  PARTIAL_REQUEUE_CLAIM_ERROR,
   type DelegationRepo,
   type DelegationRunRow,
   type DelegationProvider,
@@ -31,6 +32,8 @@ import {
   buildDelegationStatusNotification,
   normalizeDelegationStatus,
 } from "../delegation/coordination.js";
+import { requeuePartialRun } from "../delegation/partial-requeue.js";
+import { parseContractMetadata } from "../contract/schema.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
 import {
@@ -144,10 +147,29 @@ const InvokeSchema = z.object({
   }).optional(),
 });
 
+const RemainingSchema = z.object({
+  title: z.string().min(1).max(300),
+  note: z.string().max(4000).optional(),
+  scope_dirs: z.array(z.string().min(1).max(1000)).max(100).optional(),
+});
+const AcceptanceReportSchema = z.object({
+  criterion: z.string().min(1).max(1000),
+  met: z.boolean(),
+  note: z.string().max(4000).optional(),
+});
 const StatusSchema = z.object({
-  status: z.enum(["running", "completed", "failed"]),
+  status: z.enum(["running", "completed", "partial", "failed"]),
   detail: z.string().max(4000).optional(),
   result: z.string().max(4000).optional(),
+  remaining: z.array(RemainingSchema).max(100).optional(),
+  acceptance_report: z.array(AcceptanceReportSchema).max(200).optional(),
+}).superRefine((value, ctx) => {
+  if (value.status === "partial" && (!value.remaining || value.remaining.length === 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["remaining"], message: "partial requires remaining[]" });
+  }
+  if (value.status === "completed" && value.remaining?.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["remaining"], message: "completed remaining must be empty" });
+  }
 });
 
 const RunInjectSchema = z.object({
@@ -499,19 +521,25 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = InvokeSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const parentSessionId = resolveParentSessionId(c.req, parsed.data.parent_session_id);
+    const contract = parentSessionId && deps.sessions ? parseContractMetadata(deps.sessions.findSession(parentSessionId)?.metadata ?? null) : null;
     const result = await deps.service.invoke({
       call_name: parsed.data.call_name,
       args: parsed.data.args,
-      cwd: parsed.data.cwd,
-      branch: parsed.data.branch,
-      worktree: parsed.data.worktree,
+      cwd: contract?.work_location?.value === "repo-root" ? deps.sessions?.findSession(parentSessionId!)?.repo_path : parsed.data.cwd,
+      branch: contract?.work_branch?.value ?? parsed.data.branch,
+      worktree: contract ? contract.work_location?.value === "worktree" : parsed.data.worktree,
       extra_prompt: parsed.data.extra_prompt,
       memory_links: parsed.data.memory_links,
       triggered_by: parsed.data.triggered_by,
       spawn: parsed.data.spawn,
       options: parsed.data.options,
-      overrides: parsed.data.overrides,
-      parent_session_id: resolveParentSessionId(c.req, parsed.data.parent_session_id),
+      overrides: contract ? {
+        ...parsed.data.overrides,
+        model: contract.model?.value ?? parsed.data.overrides?.model,
+        reasoning_effort: contract.effort?.value ?? parsed.data.overrides?.reasoning_effort,
+      } : parsed.data.overrides,
+      parent_session_id: parentSessionId,
       subsidiary_id: parsed.data.subsidiary_id ?? null,
       project: parsed.data.project ?? null,
       requester_discord_user_id: parsed.data.requester_discord_user_id ?? null,
@@ -546,20 +574,83 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
     const status = normalizeDelegationStatus(parsed.data.status);
     if (!status) return c.json({ error: "invalid_status" }, 400);
+    if (row.status === "completed" || row.status === "failed") {
+      return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
+    }
+    const unmet = parsed.data.acceptance_report?.filter((item) => !item.met) ?? [];
+    const effectiveRemaining = status === "completed" && unmet.length > 0
+      ? unmet.map((item) => ({ title: `未達受け入れ条件: ${item.criterion}`, note: item.note }))
+      : parsed.data.remaining ?? [];
+    const isPartial = status === "partial" || effectiveRemaining.length > 0;
+    const continuation = isPartial ? readRunContinuation(deps.sessions, row.child_session_id) : "requeue";
+    let requeuedRun = null;
+    let partialRequeueClaimed = false;
+    if (isPartial) {
+      if (continuation === "requeue") {
+        const claimed = deps.repo.claimPartialRequeue(id);
+        if (!claimed) {
+          const current = deps.repo.findRun(id);
+          if (current?.status === "completed" || current?.status === "failed") {
+            return c.json({ ok: true, run: serializeRun(current), requeued_run: null, duplicate: true });
+          }
+          if (current?.status === "blocked" && current.error === PARTIAL_REQUEUE_CLAIM_ERROR) {
+            return c.json({ error: PARTIAL_REQUEUE_CLAIM_ERROR }, 409);
+          }
+          return c.json({ error: "run_not_reportable", status: current?.status ?? null }, 409);
+        }
+        partialRequeueClaimed = true;
+      }
+      try {
+        if (deps.taskStore && effectiveRemaining.length > 0) {
+          const repoPath = row.spawn_worktree_path ?? row.spawn_cwd;
+          if (!repoPath) {
+            if (partialRequeueClaimed) deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
+            return c.json({ error: "partial_task_repo_unknown" }, 409);
+          }
+          await deps.taskStore.writeRemainingTasks({ repoPath, sourceRunId: row.id, project: row.call_name, remaining: effectiveRemaining });
+        }
+        if (continuation === "requeue") {
+          const requeued = await requeuePartialRun({ run: row, remaining: effectiveRemaining, service: deps.service });
+          if (!requeued.ok) {
+            deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
+            return c.json({ error: "partial_requeue_failed", detail: requeued.error }, 500);
+          }
+          requeuedRun = requeued.run;
+          emitDelegationRunChanged(requeued.run);
+        } else if (row.child_session_id) {
+          const text = `残作業を同一セッションで継続してください。\n${effectiveRemaining.map((item, index) => `${index + 1}. ${item.title}${item.note ? ` — ${item.note}` : ""}`).join("\n")}`;
+          const ts = nowSec();
+          const source = `delegation:${row.id}:continue`;
+          deps.sessions?.appendEvent({
+            session_id: row.child_session_id,
+            ts,
+            kind: "inject",
+            payload: { text, source },
+          });
+          eventBus.emit({ type: "session.inject", target_session_id: row.child_session_id, text, source, ts });
+        }
+      } catch (error) {
+        if (partialRequeueClaimed) deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
+        throw error;
+      }
+    }
+    const persistedStatus: "running" | "completed" | "failed" = isPartial
+      ? (continuation === "in-session" ? "running" : "completed")
+      : parsed.data.status === "partial" ? "completed" : status;
     const updated = deps.repo.updateRunStatus(
       id,
-      status,
-      status === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
+      persistedStatus,
+      persistedStatus === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
     )!;
     emitDelegationRunChanged(updated);
-    if ((status === "completed" || status === "failed") && row.status !== "completed" && row.status !== "failed") {
-      deps.service.recordEffortOutcome(updated, status);
+    if (!isPartial && (persistedStatus === "completed" || persistedStatus === "failed")) {
+      deps.service.recordEffortOutcome(updated, persistedStatus);
       // 終了時に依頼ファイルを掃き出す。 サンドボックス下の委託先は `.git` に書けないので、
       // 「実装は済んだがコミットできないまま failed」 を最後に拾う経路がここ。
       void sweepCommitRequest(updated, deps);
     }
-    if ((status === "completed" || status === "failed") && updated.parent_session_id) {
-      const text = buildDelegationStatusNotification(updated, parsed.data);
+    if ((status === "completed" || status === "partial" || status === "failed") && updated.parent_session_id) {
+      const text = buildDelegationStatusNotification(updated, { ...parsed.data, status: isPartial ? "partial" : status });
       deps.sessions?.appendEvent({
         session_id: updated.parent_session_id,
         ts: nowSec(),
@@ -586,11 +677,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (updated.status === "completed" || updated.status === "failed") {
       void deps.queue?.drain();
     }
-    if (updated.status === "completed" && deps.sessions && deps.taskStore) {
+    if (updated.status === "completed" && !isPartial && deps.sessions && deps.taskStore) {
       void injectDecompositionWhenMissing({ run: updated, sessions: deps.sessions, store: deps.taskStore, hasPendingQuestion: deps.hasPendingQuestion });
     }
-    if (updated.status === "completed") void deps.onTaskflowCompleted?.(updated);
-    return c.json({ ok: true, run: serializeRun(updated) });
+    if (updated.status === "completed" && !isPartial) void deps.onTaskflowCompleted?.(updated);
+    return c.json({ ok: true, run: serializeRun(updated), requeued_run: requeuedRun ? serializeRun(requeuedRun) : null });
   });
 
   // 委託先の代わりにコミットする。 Codex は sandbox_mode=workspace-write で走るため
@@ -809,6 +900,12 @@ function resolveParentSessionId(req: { header: (name: string) => string | undefi
 
 function nowSec(): number {
   return Math.floor(Date.now() / 1000);
+}
+
+function readRunContinuation(sessions: SessionsRepo | undefined, childSessionId: string | null): "requeue" | "in-session" {
+  if (!sessions || !childSessionId) return "requeue";
+  const contract = parseContractMetadata(sessions.findSession(childSessionId)?.metadata ?? null);
+  return contract?.continuation?.value === "in-session" ? "in-session" : "requeue";
 }
 
 /**

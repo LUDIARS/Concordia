@@ -53,6 +53,7 @@ const spawnCommand: DiscordCommandSpec = {
           { name: "max", value: "max" },
         ))
     .addStringOption((o) => o.setName("project").setDescription("project/repository name under workspace roots").setRequired(false))
+    .addStringOption((o) => o.setName("team").setDescription("team id or slug for the session contract").setRequired(false))
     .addStringOption((o) => o.setName("branch").setDescription("requested working branch (Cc に登録)").setRequired(false))
     .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false)),
 
@@ -86,6 +87,7 @@ const spawnCommand: DiscordCommandSpec = {
     const effort = interaction.options.getString("effort")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
     const project = interaction.options.getString("project")?.trim() || undefined;
+    const team = interaction.options.getString("team")?.trim() || undefined;
     const branch = interaction.options.getString("branch")?.trim() || undefined;
 
     deps.log.info(
@@ -115,6 +117,7 @@ const spawnCommand: DiscordCommandSpec = {
         template,
         inject_prompt: inject,
         project,
+        team,
         cwd,
         branch,
         subsidiary_id: deps.subsidiaryId ?? null,
@@ -182,6 +185,7 @@ const spawnCommand: DiscordCommandSpec = {
       prompt,
       model,
       project,
+      team,
       cwd,
       branch,
       ...(effort ? { options: effortOptions(provider, effort) } : {}),

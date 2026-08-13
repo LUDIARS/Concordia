@@ -2,6 +2,7 @@ import type { GeniusCard } from "../inquiry/genius-client.js";
 import type { InquiryDecision } from "../inquiry/decision.js";
 
 export const DIRECTOR_STEP_KINDS = [
+  "plan",
   "decompose",
   "delegate",
   "implement",
@@ -31,6 +32,8 @@ export interface DirectorCase {
   title: string;
   goal: string;
   project: string;
+  session_id: string | null;
+  team_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -65,6 +68,8 @@ export interface DirectorDecisionRecord {
   genius_available: boolean;
   genius_cards: GeniusCard[];
   created_at: number;
+  plan_version?: number | null;
+  plan_md_ref?: string | null;
 }
 
 export interface DirectorCaseDetail {
@@ -87,6 +92,8 @@ export interface CreateDirectorCaseInput {
   title: string;
   goal: string;
   project: string;
+  session_id?: string | null;
+  team_id?: string | null;
   steps: CreateDirectorStepInput[];
 }
 

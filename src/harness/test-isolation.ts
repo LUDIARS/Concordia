@@ -2,6 +2,7 @@ interface TestIsolationAction {
   tool: string;
   command?: string;
   isWorktree?: boolean;
+  vibesClaimActive?: boolean;
 }
 
 interface TestIsolationHit {
@@ -34,6 +35,7 @@ export function isOperationalTestCommand(command: string): boolean {
 }
 
 export const noServiceStartInSession: TestIsolationPredicate = (action) => {
+  if (action.vibesClaimActive === true) return null;
   if (action.tool !== "Bash" || !action.command || !isServiceStartCommand(action.command)) return null;
   return {
     rule: "no-service-start-in-session",
@@ -44,6 +46,7 @@ export const noServiceStartInSession: TestIsolationPredicate = (action) => {
 };
 
 export const noOpTestInWorktree: TestIsolationPredicate = (action) => {
+  if (action.vibesClaimActive === true) return null;
   if (action.isWorktree !== true || action.tool !== "Bash" || !action.command) return null;
   if (!isOperationalTestCommand(action.command)) return null;
   return {

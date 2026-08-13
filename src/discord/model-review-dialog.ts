@@ -40,7 +40,7 @@ export interface ModelReviewMessage {
   allowedMentions: typeof NO_MENTIONS;
 }
 
-export function isModelReviewInteraction(interaction: Interaction): interaction is ButtonInteraction {
+export function isModelReviewInteraction(interaction: Interaction): boolean {
   return interaction.isButton() && interaction.customId.startsWith(PREFIX);
 }
 

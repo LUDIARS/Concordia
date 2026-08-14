@@ -31,20 +31,81 @@ describe("buildPhaseContext", () => {
     expect(result).toContain("Implement the approved plan");
   });
 
-  it("compacts at the phase threshold using the injected context estimate", async () => {
+  it("indexes recorded card message ids from session metadata", () => {
+    const session = activeSession();
+    session.metadata = JSON.stringify({
+      plan_version: 3,
+      discord_plan_message_id: "msg-plan-1",
+      discord_question_message_id: "msg-question-1",
+    });
+    const result = buildPhaseContext(session, "taskflow:plan-approved");
+    expect(result).toContain('"discord_plan_message_id": "msg-plan-1"');
+    expect(result).toContain('"discord_question_message_id": "msg-question-1"');
+  });
+
+  it("includes answered questions and the latest handoff in the index", () => {
+    const session = activeSession();
+    session.metadata = JSON.stringify({
+      plan_version: 3,
+      last_handoff: "### 現在のタスク\n残タスク B から再開",
+    });
+    const result = buildPhaseContext(session, "taskflow:next-task", {
+      answeredQuestions: () => [
+        { question: "どの DB を使う?\n(複数行)", answer_text: "SQLite", discord_message_id: "msg-q-9" },
+        { question: "命名は?", answer_text: null, discord_message_id: null },
+      ],
+    });
+    expect(result).toContain("## Answered questions");
+    expect(result).toContain("- Q: どの DB を使う? (複数行) / A: SQLite [message_id=msg-q-9]");
+    expect(result).toContain("- Q: 命名は? / A: (no answer text)");
+    expect(result).toContain("## Latest handoff");
+    expect(result).toContain("残タスク B から再開");
+  });
+
+  it("renders empty index sections as None without card lookups", () => {
+    const result = buildPhaseContext(activeSession(), "taskflow:residual-sweep");
+    expect(result).toContain("## Answered questions\n\nNone");
+    expect(result).toContain("## Latest handoff\n\nNone");
+  });
+
+  it("compacts at the phase threshold and then injects the durable phase context", async () => {
     const compact = vi.fn(async () => ({ ok: true }));
     const appendEvent = vi.fn();
+    let sessionReadCount = 0;
     const handle = startPhaseCompaction({
-      sessions: { findSession: () => activeSession(), appendEvent },
+      sessions: {
+        findSession: () => {
+          const session = activeSession();
+          if (sessionReadCount++ > 0) {
+            session.metadata = JSON.stringify({
+              plan_version: 3,
+              plan_md_ref: "spec/tasks/example.md",
+              last_handoff: "compact 中に更新された handoff",
+            });
+          }
+          return session;
+        },
+        appendEvent,
+      },
       compact,
       estimateContextPct: async () => 0.35,
       threshold: 0.35,
+      contextSources: {
+        answeredQuestions: () => [{ question: "命名は?", answer_text: "kebab-case", discord_message_id: "msg-q-1" }],
+      },
     });
 
     await handle.runOnce("session-1", "taskflow:plan-approved");
 
     expect(compact).toHaveBeenCalledWith("session-1");
-    expect(appendEvent).not.toHaveBeenCalled();
+    expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      session_id: "session-1",
+      kind: "inject",
+      payload: expect.objectContaining({
+        source: "phase-compaction:taskflow:plan-approved",
+        text: expect.stringMatching(/kebab-case[\s\S]*compact 中に更新された handoff/),
+      }),
+    }));
     handle.stop();
   });
 
@@ -56,6 +117,9 @@ describe("buildPhaseContext", () => {
       compact,
       estimateContextPct: async () => 0.34,
       threshold: 0.35,
+      contextSources: {
+        answeredQuestions: () => [{ question: "命名は?", answer_text: "kebab-case", discord_message_id: "msg-q-1" }],
+      },
     });
 
     await handle.runOnce("session-1", "taskflow:next-task");
@@ -64,7 +128,30 @@ describe("buildPhaseContext", () => {
     expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       session_id: "session-1",
       kind: "inject",
-      payload: expect.objectContaining({ source: "phase-compaction:taskflow:next-task" }),
+      payload: expect.objectContaining({
+        source: "phase-compaction:taskflow:next-task",
+        text: expect.stringContaining("kebab-case"),
+      }),
+    }));
+    handle.stop();
+  });
+
+  it("falls back to metadata-only context when an optional index source fails", async () => {
+    const appendEvent = vi.fn();
+    const handle = startPhaseCompaction({
+      sessions: { findSession: () => activeSession(), appendEvent },
+      compact: vi.fn(async () => ({ ok: true })),
+      estimateContextPct: async () => 0.1,
+      contextSources: {
+        answeredQuestions: () => { throw new Error("db unavailable"); },
+      },
+    });
+
+    await expect(handle.runOnce("session-1", "taskflow:residual-sweep")).resolves.toBeUndefined();
+    expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        text: expect.stringContaining("## Answered questions\n\nNone"),
+      }),
     }));
     handle.stop();
   });

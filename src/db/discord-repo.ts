@@ -433,6 +433,11 @@ export interface DiscordPendingQuestionsRepo {
     question: string,
     sinceTs: number,
   ): DiscordPendingQuestionRow | null;
+  /**
+   * 回答済み設問を新しい順に返す (フェーズ文脈索引 — phase-compaction §2 参照層)。
+   * 契約カードも同じ pending question 基盤に載るため、契約回答もここに含まれる。
+   */
+  listAnsweredBySession(sessionId: string, limit?: number): DiscordPendingQuestionRow[];
 }
 
 /** options_json を `PendingQuestionOption[]` にパースする (旧形式 string[] も対応). */
@@ -559,6 +564,15 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
           )
           .get(sessionId, question, sinceTs) as DiscordPendingQuestionRow | undefined) ?? null
       );
+    },
+    listAnsweredBySession(sessionId, limit = 10) {
+      return db
+        .prepare(
+          `SELECT * FROM discord_pending_questions
+           WHERE session_id = ? AND answered_at IS NOT NULL
+           ORDER BY answered_at DESC, id DESC LIMIT ?`,
+        )
+        .all(sessionId, limit) as DiscordPendingQuestionRow[];
     },
   };
 }

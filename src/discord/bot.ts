@@ -109,6 +109,7 @@ import {
 } from "./model-review-dialog.js";
 import { buildContextReport } from "./context-report.js";
 import { renderPlanCard } from "./plan-card.js";
+import { recordPlanCardMessageId, recordQuestionCardMessageId } from "./phase-index.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
@@ -461,19 +462,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     return resolveTeamCardChannel(teamsRepo, teamId, kind);
   };
   /**
-   * カードをチーム面へ投稿する。 true = 投稿済み。 false = チーム未設定 / 面欠落 /
-   * チャンネル取得失敗 — 呼び出し側が現行チャンネルへフォールバックする。
+   * カードをチーム面へ投稿する。 投稿済みなら message id を、 チーム未設定 / 面欠落 /
+   * チャンネル取得失敗なら null を返す — 呼び出し側が現行チャンネルへフォールバックする。
    */
   const postToTeamSurface = async (
     guild: Guild,
     channelId: string | null,
     payload: Parameters<TextChannel["send"]>[0],
-  ): Promise<boolean> => {
-    if (!channelId) return false;
+  ): Promise<string | null> => {
+    if (!channelId) return null;
     const channel = await guild.channels.fetch(channelId).catch(() => null);
-    if (channel?.type !== ChannelType.GuildText) return false;
-    await channel.send(payload);
-    return true;
+    if (channel?.type !== ChannelType.GuildText) return null;
+    const sent = await channel.send(payload);
+    return sent.id;
   };
   const measuredHandleReactionAdd = instrumentDiscord("reactionAdd", handleReactionAdd);
   const measuredHandleReactionRemove = instrumentDiscord("reactionRemove", handleReactionRemove);
@@ -1500,10 +1501,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const caseTeamId = deps.subsidiary ? null : ingressDirectorRepo.findCase(ev.case_id)?.team_id ?? null;
         const channelId = (caseTeamId ? resolveTeamCardChannel(teamsRepo, caseTeamId, "director-plan") : null)
           ?? teamCardChannelForSession(ev.target_session_id, "director-plan");
-        if (await postToTeamSurface(guild, channelId, { ...card, allowedMentions: { parse: [] } })) return;
+        // フェーズ文脈索引: プランカードの message id を metadata に残す (探索なしで索引を組む)。
+        const teamMessageId = await postToTeamSurface(guild, channelId, { ...card, allowedMentions: { parse: [] } });
+        if (teamMessageId) {
+          recordPlanCardMessageId(deps.sessionsRepo, ev.target_session_id, teamMessageId, log);
+          return;
+        }
         const client = await webhooks.getForSession(ev.target_session_id);
         if (!client) return;
-        await webhooks.send(client, { ...card, username: "Cc plan gate" });
+        const sent = await webhooks.send(client, { ...card, username: "Cc plan gate" });
+        recordPlanCardMessageId(deps.sessionsRepo, ev.target_session_id, sent?.id, log);
       })().catch(error => log.warn(`plan card failed: ${(error as Error).message}`));
       return;
     }
@@ -1761,6 +1768,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         isActiveSession: isActiveDiscordSession,
         // ask_human / 契約質問カードはチームの direction 面へ (teams.md §2)。
         resolveTeamChannelId: (sessionId) => teamCardChannelForSession(sessionId, "question"),
+        recordQuestionMessageId: (sessionId, messageId) =>
+          recordQuestionCardMessageId(deps.sessionsRepo, sessionId, messageId, log),
       }, ev);
       return;
     }
@@ -1862,6 +1871,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           log,
           // EventBus 経由だけでなく ChatPlatform API 経由の質問も同じチーム面へ出す。
           resolveTeamChannelId: (sessionId) => teamCardChannelForSession(sessionId, "question"),
+          recordQuestionMessageId: (sessionId, messageId) =>
+            recordQuestionCardMessageId(deps.sessionsRepo, sessionId, messageId, log),
         },
         { target_session_id: input.target_session_id, question_id: input.question_id, question: input.question, options: input.options },
       );

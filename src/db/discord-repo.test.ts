@@ -150,6 +150,25 @@ describe("discord_pending_questions repo", () => {
     expect(after?.answer_text).toBe("A");
   });
 
+  it("listAnsweredBySession は回答済みだけを新しい順に返す (フェーズ文脈索引用)", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q1 = repo.insert({ session_id: "s1", question: "Q1", options: ["A"] });
+    const q2 = repo.insert({ session_id: "s1", question: "Q2", options: ["A"] });
+    const unanswered = repo.insert({ session_id: "s1", question: "Q3", options: ["A"] });
+    const otherSession = repo.insert({ session_id: "s2", question: "Q4", options: ["A"] });
+    repo.markAnswered(q1.id, 0, "A1");
+    repo.markAnswered(q2.id, 0, "A2");
+    repo.markAnswered(otherSession.id, 0, "A4");
+
+    const rows = repo.listAnsweredBySession("s1");
+    // answered_at 同秒でも id DESC で後発 (Q2) が先頭に来る。未回答・別 session は含まない。
+    expect(rows.map((row) => row.question)).toEqual(["Q2", "Q1"]);
+    expect(rows.map((row) => row.answer_text)).toEqual(["A2", "A1"]);
+    expect(rows.some((row) => row.id === unanswered.id)).toBe(false);
+    expect(repo.listAnsweredBySession("s1", 1).map((row) => row.question)).toEqual(["Q2"]);
+  });
+
   it("findUnansweredByQuestion は同一文の未回答だけ返す (冪等化用)", () => {
     const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);

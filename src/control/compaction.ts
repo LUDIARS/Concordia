@@ -30,6 +30,10 @@ const ELICIT_TIMEOUT_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_TIMEOUT
 const ELICIT_QUIET_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_QUIET_MS ?? "8000") || 8000;
 const ELICIT_POLL_MS = Number(process.env.CONCORDIA_COMPACTION_ELICIT_POLL_MS ?? "2000") || 2000;
 
+// metadata に残す直近 handoff の上限。 索引 (フェーズ文脈) 用の抜粋であり、
+// 全文は Discord のチャンネル投稿が正本。 metadata blob の肥大を防ぐ。
+const LAST_HANDOFF_METADATA_LIMIT = 4000;
+
 export interface CompactionDeps {
   sessions: SessionsRepo;
   transcriptLogs: TranscriptLogsRepo;
@@ -352,9 +356,13 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
     return { ok: false, handoff, error: "reinject failed" };
   }
 
-  // 5) コンパクション時刻を記録 (auto-compaction のクールダウン判定に使う)。
+  // 5) コンパクション時刻と直近 handoff を記録する (時刻は auto-compaction の
+  //    クールダウン判定、 handoff はフェーズ文脈索引 — phase-compaction §2 参照層)。
   try {
-    deps.sessions.mergeMetadata(sessionId, { last_compaction_at: Date.now() });
+    deps.sessions.mergeMetadata(sessionId, {
+      last_compaction_at: Date.now(),
+      last_handoff: handoff.slice(0, LAST_HANDOFF_METADATA_LIMIT),
+    });
   } catch (e) {
     deps.log?.warn(`compaction: metadata 記録失敗 session=${sessionId}: ${(e as Error).message}`);
   }

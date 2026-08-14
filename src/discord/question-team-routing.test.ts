@@ -41,6 +41,7 @@ function makeHarness(input: { teamChannelExists?: boolean } = {}) {
 async function post(
   harness: ReturnType<typeof makeHarness>,
   resolveTeamChannelId: ((sessionId: string) => string | null) | undefined,
+  recordQuestionMessageId?: (sessionId: string, messageId: string) => void,
 ) {
   vi.useFakeTimers();
   const posting = postQuestion({
@@ -49,6 +50,7 @@ async function post(
     pendingQuestionsRepo: harness.pendingQuestionsRepo,
     log: { warn: vi.fn() },
     resolveTeamChannelId,
+    recordQuestionMessageId,
   }, {
     target_session_id: "session-1",
     question_id: 7,
@@ -85,5 +87,14 @@ describe("postQuestion team surface routing", () => {
 
     expect(harness.sessionSend).toHaveBeenCalledTimes(1);
     expect(harness.setDiscordMessageId).toHaveBeenCalledWith(7, "msg-session", "chan-session");
+  });
+
+  it("records the posted card message id for the phase context index", async () => {
+    const harness = makeHarness();
+    const record = vi.fn();
+    await post(harness, () => "chan-direction", record);
+
+    // フェーズ文脈索引 (phase-compaction §2): 対象セッションの metadata へ記録する層が呼ばれる。
+    expect(record).toHaveBeenCalledWith("session-1", "msg-team");
   });
 });

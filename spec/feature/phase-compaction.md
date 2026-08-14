@@ -65,6 +65,17 @@ session-compaction.md (implemented) の拡張。 `runCompaction` / `estimateCont
    機械で付ける — 契約カード / プラン最新版 / 設問カードの回答 / 直近 handoff への
    jump link。 リンクは Cc が投稿時に記録した message id から組む (探索しない)。
 
+   索引の正本 (2026-08-14 実装):
+   - プランカード投稿時に session metadata `discord_plan_message_id`、 設問カード
+     (契約カード含む) 投稿時に `discord_question_message_id` を記録する
+     (`discord/phase-index.ts`)。
+   - 設問回答は `discord_pending_questions` (answer_text + discord_message_id) を
+     `listAnsweredBySession` で引く。 契約カード回答も同基盤に載る。
+   - 直近 handoff はコンパクション完了時に metadata `last_handoff` (抜粋 4000 字) へ
+     記録する。 全文は Discord チャンネル投稿が正本。
+   - `buildPhaseContext` は上記だけで索引 (Durable references / Answered questions /
+     Latest handoff) を組み、 カード探索を行わない。
+
 **実装調整の原則**: durable にしたい判断は必ずカードとして Discord に出す。 Cc 内部だけで
 完結する判断 (契約更新・プラン承認・teardown 強制) を作らない — ログが正本代わりに遡れる
 ことが本方向性の前提のため。

@@ -1428,6 +1428,14 @@ export async function startBackend(): Promise<BackendHandle> {
         ...makeCompactionIO({ sessions: repo, chat }),
       }, id),
       estimateContextPct: async (session) => (await estimateContextTokens(session))?.pct ?? null,
+      // 索引 (参照層): 設問回答は pending question 基盤が正本 (契約カード回答含む)。
+      contextSources: {
+        answeredQuestions: (sessionId) => pendingQuestions.listAnsweredBySession(sessionId).map((row) => ({
+          question: row.question,
+          answer_text: row.answer_text,
+          discord_message_id: row.discord_message_id,
+        })),
+      },
     }));
     trackPostListenHandle(directorAskBridge.start());
     trackPostListenHandle(startVibesLifecycle({

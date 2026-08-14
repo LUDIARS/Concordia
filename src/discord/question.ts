@@ -76,6 +76,11 @@ export async function postQuestion(
      * セッションチャンネルへ出す。
      */
     resolveTeamChannelId?: (sessionId: string) => string | null;
+    /**
+     * 投稿した設問カードの message id をセッション metadata へ記録する
+     * (フェーズ文脈索引 — phase-compaction §2 参照層)。 未注入なら記録しない。
+     */
+    recordQuestionMessageId?: (sessionId: string, messageId: string) => void;
   },
   ev: {
     target_session_id: string;
@@ -183,6 +188,8 @@ export async function postQuestion(
   // 投稿先チャンネルも保存する — 親面フォールバック時、 解決 (ボタン除去) は子の面
   // ではなくこの値で辿る。
   input.pendingQuestionsRepo.setDiscordMessageId(ev.question_id, msg.id, tc.id);
+  // フェーズ文脈索引: 最新の設問カード message id をセッション metadata に残す。
+  input.recordQuestionMessageId?.(ev.target_session_id, msg.id);
 }
 
 /** 質問カードを地の文の後に出すための遅延 (ms)。 env CONCORDIA_QUESTION_POST_DELAY_MS で上書き。 */

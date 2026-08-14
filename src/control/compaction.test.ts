@@ -165,7 +165,24 @@ describe("runCompaction", () => {
     expect(injects[3].text).toBe(ENTER_KEY_TEXT);
     expect(injects[4].text).toContain("引き継ぎ資料");
     expect(injects[4].text).toContain("セッション自筆の引き継ぎ");
-    expect(deps.sessions.mergeMetadata).toHaveBeenCalled();
+    // フェーズ文脈索引: 直近 handoff の抜粋を metadata に残す。
+    expect(deps.sessions.mergeMetadata).toHaveBeenCalledWith("s1", expect.objectContaining({
+      last_compaction_at: expect.any(Number),
+      last_handoff: expect.stringContaining("セッション自筆の引き継ぎ"),
+    }));
+  });
+
+  it("metadata に保存する自筆 handoff から資格情報を除去する", async () => {
+    const credential = "credential-candidate";
+    const { deps } = makeDeps({
+      transcriptLogs: makeTranscript([assistantFrame(10, `access_token=${credential}`)]),
+    });
+
+    await runCompaction(deps, "s1");
+
+    expect(deps.sessions.mergeMetadata).toHaveBeenCalledWith("s1", expect.objectContaining({
+      last_handoff: "access_token=[REDACTED]",
+    }));
   });
 
   it("捕捉失敗時は切り離し生成 (generateHandoff) にフォールバックする", async () => {

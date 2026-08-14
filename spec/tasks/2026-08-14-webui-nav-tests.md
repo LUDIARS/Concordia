@@ -27,3 +27,18 @@ green」が未達。`web/src/components/Nav.tsx` を参照するテストが存�
 
 - `web/`
 - テスト設定ファイル (`web/package.json` / vitest 設定)
+- root `package.json` / `package-lock.json` (下記制約のため jsdom の追加のみ)
+
+## 制約: registered test は root vitest で走る
+
+Revisor の registered test は repo root の `npm test` (root vitest) で実行され、
+`web/` 配下のテストも同じ 1 回の実行に収集される。 vitest の environment
+パッケージ (`jsdom`) は vitest 本体 (root `node_modules/vitest`) 起点の bare
+import で解決されるため、 `web/package.json` の devDependencies だけでは届かず、
+root の devDependencies にも `jsdom` (web と同版) が必要。
+
+同様に、 root vitest 実行では `web/vitest.config.ts` の `setupFiles`
+(`web/src/setupTests.ts` = jest-dom マッチャ登録) も読まれない。 そのため
+jest-dom のマッチャ登録は `Nav.test.tsx` 自身の先頭で
+`import "@testing-library/jest-dom/vitest"` して行う (web ローカル実行・root
+実行のどちらの config でも有効になる自己完結型)。

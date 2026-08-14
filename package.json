@@ -55,6 +55,7 @@
     "@types/web-push": "^3.6.4",
     "concurrently": "^10.0.3",
     "dependency-cruiser": "^18.0.0",
+    "jsdom": "^30.0.1",
     "tsx": "^4.22.4",
     "typescript": "^5.7.0",
     "vitest": "^3.2.6"

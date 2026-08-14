@@ -143,8 +143,8 @@ describe("SessionMessagesRepo / countAfter, latest, findIdByDedupeKey", () => {
   });
 });
 
-describe("SessionMessagesRepo / listRecentTaskDedupeKeys", () => {
-  it("returns only task: dedupe_key rows for the session, newest first", () => {
+describe("SessionMessagesRepo / listRecentToolUseDedupeKeys", () => {
+  it("returns tool and Task dedupe_key rows for the session, newest first", () => {
     repo.upsert({ session_id: "s1", ts: 1, author_type: "user", author_label: "User", content: "x", dedupe_key: "frame:1" });
     repo.upsert({
       session_id: "s1",
@@ -164,9 +164,18 @@ describe("SessionMessagesRepo / listRecentTaskDedupeKeys", () => {
       dedupe_key: "task:t2",
       metadata: { tool_use_id: "t2" },
     });
-    const recent = repo.listRecentTaskDedupeKeys("s1", 10);
-    expect(recent.map((r) => r.dedupe_key)).toEqual(["task:t2", "task:t1"]);
-    expect(recent[0].metadata?.tool_use_id).toBe("t2");
+    repo.upsert({
+      session_id: "s1",
+      ts: 4,
+      author_type: "tool",
+      author_label: "Bash",
+      content: "実行中",
+      dedupe_key: "frame:4",
+      metadata: { tool_use_id: "t3" },
+    });
+    const recent = repo.listRecentToolUseDedupeKeys("s1", 10);
+    expect(recent.map((r) => r.dedupe_key)).toEqual(["frame:4", "task:t2", "task:t1"]);
+    expect(recent[0].metadata?.tool_use_id).toBe("t3");
   });
 });
 

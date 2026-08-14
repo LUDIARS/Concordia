@@ -191,18 +191,18 @@ export class SessionMessagesRepo {
   }
 
   /**
-   * `ProjectContext` の起動時復元用: セッションの直近 `task:` dedupe_key を新しい順に返す。
-   * 再起動でメモリ上の LRU が失われても、 直後の tool-result frame が Task の
-   * create/update 紐付けを続けられるようにする。
+   * `ProjectContext` の起動時復元用: 直近 tool-use の dedupe_key を新しい順に返す。
+   * 再起動でメモリ上の LRU が失われても、直後の tool-result frame が元の tool / Task
+   * message を更新し、入力や結果本文を新しい行として再掲しないようにする。
    */
-  listRecentTaskDedupeKeys(
+  listRecentToolUseDedupeKeys(
     session_id: string,
     limit: number,
   ): Array<{ dedupe_key: string; metadata: Record<string, unknown> | null }> {
     const rows = this.db
       .prepare(
         `SELECT dedupe_key, metadata FROM session_messages
-          WHERE session_id = ? AND dedupe_key LIKE 'task:%'
+          WHERE session_id = ? AND author_type IN ('tool', 'task') AND dedupe_key IS NOT NULL
           ORDER BY id DESC LIMIT ?`,
       )
       .all(session_id, limit) as Array<{ dedupe_key: string; metadata: string | null }>;

@@ -79,15 +79,26 @@ describe("projectEvent / transcript.frame", () => {
     expect(msg.author_type).toBe("tool");
     expect(msg.author_label).toBe("Bash");
     expect(msg.dedupe_key).toBe("frame:1");
+    expect(msg.content).toBe("実行中");
   });
 
-  it("kind=tool-result (other) → author_type=tool, references the prior tool-use frame", () => {
+  it("kind=tool-result (other) updates the prior tool-use with its outcome only", () => {
     projectEvent(frame("tool-use", { name: "Bash", tool_use_id: "tu-2", input_preview: "ls" }, 5), ctx);
     const [msg] = projectEvent(frame("tool-result", { tool_use_id: "tu-2", is_error: false, preview: "out" }, 6), ctx);
     expect(msg.author_type).toBe("tool");
-    expect(msg.op).toBe("create");
-    expect(msg.dedupe_key).toBe("frame:6");
-    expect(msg.reference_dedupe_key).toBe("frame:5");
+    expect(msg.op).toBe("update");
+    expect(msg.dedupe_key).toBe("frame:5");
+    expect(msg.content).toBe("成功");
+    expect(msg.metadata).toEqual({ tool_use_id: "tu-2", is_error: false });
+  });
+
+  it("kind=tool-use Skill keeps only its skill name as the label", () => {
+    const [msg] = projectEvent(
+      frame("tool-use", { name: "Skill", tool_use_id: "tu-3", input_preview: '{"skill":"cc-test"}' }),
+      ctx,
+    );
+    expect(msg.author_label).toBe("Skill: cc-test");
+    expect(msg.content).toBe("実行中");
   });
 
   it("unknown frame kind projects to nothing", () => {

@@ -164,6 +164,10 @@ async function handleSessionMessage(
   // adapter owns buttons and their state transitions until it is migrated.
   if (ev.message.author_type === "question" || ev.message.author_type === "permission") return;
   if (ev.message.author_type === "thinking" && deps.messageOptimizationEnabled) return;
+  // A tool-use is updated with its final outcome. Posting the create event would
+  // expose a transient "running" entry and leave the final state in a second
+  // Discord message, so only relay the final update.
+  if (ev.message.author_type === "tool" && ev.op === "create") return;
 
   const content = formatSessionMessageContent(ev.message);
   const existingDiscordId = deps.deliveryRepo.findExternalId(ev.message.id, "discord");
@@ -217,7 +221,13 @@ function formatSessionMessageContent(message: SessionMessagePayload): string {
   const content = message.content || "(attachment)";
   if (message.author_type === "thinking") return content.split("\n").map((line) => `> ${line}`).join("\n");
   if (message.author_type === "task") return `**Task**\n${content}`;
+  if (message.author_type === "tool") return `${formatToolLabel(message.author_label)}: ${content}`;
   return content;
+}
+
+function formatToolLabel(label: string): string {
+  if (!/(?:^|[^a-z0-9])(?:cc|concordia|ludiars)(?:$|[^a-z0-9])/i.test(label)) return label;
+  return `\`${label.replaceAll("`", "\\`")}\``;
 }
 
 function messageCallName(message: SessionMessagePayload): string | null {

@@ -7,8 +7,8 @@ import { eventBus, eventSessionId, type ConcordiaEvent, type SessionMessagePaylo
 import type { SessionMessagesRepo, SessionMessageRow } from "../db/session-messages-repo.js";
 import { projectEvent, ToolUseDedupeContext, type ProjectContext, type ProjectedMessage } from "./project.js";
 
-/** ProjectContext 起動時復元 (Task dedupe_key) で遡る最大件数。 project.ts の LRU 上限と揃える。 */
-const TASK_CONTEXT_RESTORE_LIMIT = 200;
+/** ProjectContext 起動時復元 (tool-use dedupe_key) で遡る最大件数。 project.ts の LRU 上限と揃える。 */
+const TOOL_USE_CONTEXT_RESTORE_LIMIT = 200;
 
 export interface SessionMessageServiceDeps {
   repo: SessionMessagesRepo;
@@ -58,12 +58,12 @@ export class SessionMessageService {
   }
 
   /**
-   * 再起動でメモリ上の LRU が失われても、 直後の tool-result frame が Task の
-   * create/update 紐付けを続けられるよう、 直近の `task:` dedupe_key を repo から復元する。
+   * 再起動でメモリ上の LRU が失われても、直後の tool-result frame が元の tool / Task
+   * message を更新し続けられるよう、直近 tool-use の dedupe_key を repo から復元する。
    * repo は新しい順で返すため、 逆順に詰め直して LRU の新しさ順序を保つ。
    */
   private hydrateContext(sessionId: string, ctx: ProjectContext): void {
-    const recent = this.deps.repo.listRecentTaskDedupeKeys(sessionId, TASK_CONTEXT_RESTORE_LIMIT);
+    const recent = this.deps.repo.listRecentToolUseDedupeKeys(sessionId, TOOL_USE_CONTEXT_RESTORE_LIMIT);
     for (const entry of recent.slice().reverse()) {
       const toolUseId = typeof entry.metadata?.tool_use_id === "string" ? entry.metadata.tool_use_id : null;
       if (toolUseId) ctx.rememberToolUseDedupeKey(toolUseId, entry.dedupe_key);

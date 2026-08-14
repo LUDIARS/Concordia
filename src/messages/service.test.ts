@@ -102,6 +102,30 @@ describe("SessionMessageService", () => {
     expect(ops).toEqual(["create", "update"]);
   });
 
+  it("updates a normal tool message with only its outcome", () => {
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 1,
+      kind: "tool-use",
+      payload: { name: "Bash", tool_use_id: "tu-1", input_preview: '{"command":"secret output"}' },
+      ts: 100,
+    });
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 2,
+      kind: "tool-result",
+      payload: { tool_use_id: "tu-1", is_error: false, preview: "secret result" },
+      ts: 200,
+    });
+
+    const rows = repo.list("s1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ author_label: "Bash", content: "成功", edited_ts: 200 });
+    expect(rows[0].metadata).toEqual({ tool_use_id: "tu-1", is_error: false });
+  });
+
   it("preserves the question prompt, options, platform, and metadata across state updates", () => {
     dispatch({
       type: "question.posted",
@@ -176,14 +200,14 @@ describe("SessionMessageService", () => {
     expect(repo.list("s1").map((row) => row.content)).toEqual(["repeat", "repeat"]);
   });
 
-  it("restores the Task tool_use_id → dedupe_key context from persisted rows for a session seen again", () => {
+  it("restores normal tool tool_use_id → dedupe_key context from persisted rows for a session seen again", () => {
     repo.upsert({
       session_id: "s1",
       ts: 50,
-      author_type: "task",
-      author_label: "Task",
-      content: "",
-      dedupe_key: "task:tu-9",
+      author_type: "tool",
+      author_label: "Bash",
+      content: "実行中",
+      dedupe_key: "frame:9",
       metadata: { tool_use_id: "tu-9" },
     });
 
@@ -208,7 +232,48 @@ describe("SessionMessageService", () => {
 
     const rows = repo.list("s1");
     expect(rows).toHaveLength(1);
-    expect(rows[0].dedupe_key).toBe("task:tu-9");
-    expect(rows[0].content).toBe("done after restart");
+    expect(rows[0].dedupe_key).toBe("frame:9");
+    expect(rows[0].content).toBe("成功");
+  });
+
+  it("restores Task tool_use_id → dedupe_key context from persisted rows for a session seen again", () => {
+    repo.upsert({
+      session_id: "s1",
+      ts: 50,
+      author_type: "task",
+      author_label: "Explore",
+      content: "find the issue",
+      dedupe_key: "task:tu-10",
+      metadata: { tool_use_id: "tu-10" },
+    });
+
+    // Fresh service instance simulates a process restart: Task mappings must
+    // remain available alongside normal tool mappings.
+    const restarted = new SessionMessageService({
+      repo,
+      subscribe: (l) => { listener = l; return () => { listener = null; }; },
+      emit: (ev) => emitted.push(ev),
+    });
+    restarted.start();
+    emitted = [];
+
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 11,
+      kind: "tool-result",
+      payload: { tool_use_id: "tu-10", is_error: false, preview: "found it after restart" },
+      ts: 300,
+    });
+
+    const rows = repo.list("s1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      dedupe_key: "task:tu-10",
+      author_type: "task",
+      author_label: "Explore",
+      content: "found it after restart",
+      edited_ts: 300,
+    });
   });
 });

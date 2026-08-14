@@ -65,6 +65,29 @@ describe("handleEvent session.message relay", () => {
     expect(optimized.webhooks.send).not.toHaveBeenCalled();
   });
 
+  it("posts only a tool outcome after its create event and code-formats Cc/LUDIARS tools", async () => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 12,
+      author_type: "tool",
+      author_label: "Bash",
+      content: "実行中",
+    }));
+    await flushEgress();
+    expect(webhooks.send).not.toHaveBeenCalled();
+
+    handleEvent(deps, sessionMessage(sessionId, "update", {
+      id: 12,
+      author_type: "tool",
+      author_label: "Skill: cc-test",
+      content: "成功",
+    }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      content: "`Skill: cc-test`: 成功",
+    }));
+  });
+
   it("drops oversized attachment data before decoding it for Discord", async () => {
     const { deps, webhooks, sessionId } = makeSessionMessageDeps();
     handleEvent(deps, sessionMessage(sessionId, "create", {

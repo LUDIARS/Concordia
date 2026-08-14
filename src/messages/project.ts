@@ -62,6 +62,9 @@ export interface ProjectContext {
 }
 
 const DEFAULT_CONTEXT_LIMIT = 200;
+const TOOL_RUNNING = "実行中";
+const TOOL_SUCCEEDED = "成功";
+const TOOL_FAILED = "失敗";
 
 export class ToolUseDedupeContext implements ProjectContext {
   private readonly map = new Map<string, string>();
@@ -216,9 +219,11 @@ function projectToolUse(
     op: "create",
     dedupe_key: frameDedupeKey,
     author_type: "tool",
-    author_label: name,
+    author_label: toolDisplayLabel(name, inputPreview),
     author_platform: null,
-    content: inputPreview,
+    // Tool arguments stay in the provider transcript / diagnostic relay. The
+    // user-facing session_messages stream records only the tool lifecycle.
+    content: TOOL_RUNNING,
     metadata: toolUseId ? { tool_use_id: toolUseId } : undefined,
   }];
 }
@@ -250,16 +255,37 @@ function projectToolResult(
     }];
   }
 
+  if (knownDedupeKey) {
+    return [{
+      op: "update",
+      dedupe_key: knownDedupeKey,
+      author_type: "tool",
+      content: isError ? TOOL_FAILED : TOOL_SUCCEEDED,
+      metadata: { tool_use_id: toolUseId, is_error: isError },
+    }];
+  }
+
   return [{
     op: "create",
     dedupe_key: frameDedupeKey,
     author_type: "tool",
     author_label: "Tool",
     author_platform: null,
-    content: preview,
-    ...(knownDedupeKey ? { reference_dedupe_key: knownDedupeKey } : {}),
+    content: isError ? TOOL_FAILED : TOOL_SUCCEEDED,
     metadata: toolUseId ? { tool_use_id: toolUseId, is_error: isError } : { is_error: isError },
   }];
+}
+
+/** Extract only a skill name from its input; other tool arguments never reach the user-facing stream. */
+function toolDisplayLabel(name: string, inputPreview: string): string {
+  if (name !== "Skill") return name;
+  try {
+    const parsed = JSON.parse(inputPreview) as { skill?: unknown };
+    const skill = typeof parsed.skill === "string" ? parsed.skill.trim() : "";
+    return skill ? `Skill: ${skill}` : name;
+  } catch {
+    return name;
+  }
 }
 
 function projectSessionInject(

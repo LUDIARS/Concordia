@@ -14,7 +14,7 @@ import mmtaskCommand from "./commands/mmtask.js";
 import projectsCommand from "./commands/projects.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
-import contextCommand, { CONTEXT_COMPACT_PREFIX } from "./commands/context.js";
+import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
 import handoverCommand from "./commands/handover.js";
@@ -214,15 +214,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
     if(interaction.isButton()&&interaction.customId.startsWith(PLAN_PREFIX)){await handlePlanButton(interaction,deps.concordiaUrl);return;}
     if (interaction.isButton() && interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)) {
-      const sessionId = interaction.customId.slice(CONTEXT_COMPACT_PREFIX.length).trim();
-      if (!sessionId || !deps.sessionsRepo.findSession(sessionId)) {
-        await interaction.reply({ content: "対象セッションが見つかりません。", ephemeral: true });
-        return;
-      }
-      await interaction.deferUpdate();
-      const result = await fetch(`${deps.concordiaUrl.replace(/\/$/, "")}/v1/sessions/${encodeURIComponent(sessionId)}/compact`, { method: "POST" });
-      const payload = await result.json().catch(() => ({})) as { error?: string };
-      await interaction.followUp({ content: result.ok ? "✅ コンパクション完了。" : `⚠️ 失敗: ${payload.error ?? result.status}`, ephemeral: true });
+      await handleContextCompactButton(interaction, { sessionsRepo: deps.sessionsRepo, concordiaUrl: deps.concordiaUrl });
       return;
     }
     const control = parseTestControlId(interaction.customId);

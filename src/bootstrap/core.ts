@@ -70,13 +70,13 @@ import { endSessionNow } from "../control/end-session-command.js";
 import { startContractLifecycle } from "../contract/lifecycle.js";
 import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/model-review-adapter.js";
-import { parseContractMetadata } from "../contract/schema.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
 import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
+import { startVibesCompletion } from "../control/vibes-completion.js";
 import { deliverDirectorInstruction } from "../director/session-instruction.js";
 import { DirectorAskBridge } from "../director/ask-bridge.js";
 import { startSweeper } from "../sweeper.js";
@@ -1450,28 +1450,17 @@ export async function startBackend(): Promise<BackendHandle> {
         return claimSec ?? null;
       },
     }));
-    trackPostListenHandle({ stop: eventBus.subscribe((event) => {
-      if (event.type !== "vibes.ok") return;
-      const session = repo.findSession(event.session_id);
-      const contract = session ? parseContractMetadata(session.metadata) : null;
-      if (!session || session.status !== "active" || contract?.mode?.value !== "vibes") return;
-      void (async () => {
-        repo.appendEvent({ session_id: session.id, ts: event.ts, kind: "vibes-human-ok", payload: { source: event.source } });
-        const submitted = await submitLocalPrForSession(session.id, { fastLane: false });
-        const accepted = submitted.submitted === true || ("resubmitted" in submitted && submitted.resubmitted === true);
-        if (!accepted) {
-          repo.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "vibes-pr-failed", payload: submitted });
-          return;
-        }
-        releaseTestingClaims(testingClaims, { sessionId: session.id, now: Math.floor(Date.now() / 1000) });
-        repo.appendEvent({ session_id: session.id, ts: Math.floor(Date.now() / 1000), kind: "vibes-completed", payload: { source: event.source } });
-        await endSessionNow(
-          { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
-          session,
-          "vibes-human-ok",
-        );
-      })().catch((error) => localPrLog.warn({ error, session_id: event.session_id }, "vibes completion failed"));
-    }) });
+    trackPostListenHandle(startVibesCompletion({
+      sessions: repo,
+      claims: testingClaims,
+      submitLocalPr: (sessionId) => submitLocalPrForSession(sessionId, { fastLane: false }),
+      endSession: (session, reason) => endSessionNow(
+        { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
+        session,
+        reason,
+      ),
+      log: localPrLog,
+    }));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

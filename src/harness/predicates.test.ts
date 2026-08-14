@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   noMainPush,
+  vibesFileLimit,
   makeNoMainPushPredicate,
   withMainPushAllowlist,
   DEFAULT_PREDICATES,
@@ -284,6 +285,42 @@ describe("outsideScope", () => {
     expect(
       outsideScope({ tool: "Bash", command: "ls", cwd: "/x/Memoria", targetProject: "Lictor" }),
     ).toBeNull();
+  });
+});
+
+describe("vibesFileLimit", () => {
+  const files = (n: number) => Array.from({ length: n }, (_, i) => `E:/repo/src/file-${i}.ts`);
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("vibes モードで既定上限 (20) を超えた編集を deny", () => {
+    const hit = vibesFileLimit({ tool: "Edit", filePath: "E:/repo/src/a.ts", contractMode: "vibes", editedFiles: files(21) });
+    expect(hit?.decision).toBe("deny");
+    expect(hit?.rule).toBe("vibes-file-limit");
+  });
+
+  it("上限以内なら素通し (重複パスは 1 件として数える)", () => {
+    expect(vibesFileLimit({ tool: "Edit", contractMode: "vibes", editedFiles: files(20) })).toBeNull();
+    const duplicated = [...files(20), ...files(20)];
+    expect(vibesFileLimit({ tool: "Write", contractMode: "vibes", editedFiles: duplicated })).toBeNull();
+  });
+
+  it("CONCORDIA_VIBES_MAX_FILES で上限を上書きできる", () => {
+    vi.stubEnv("CONCORDIA_VIBES_MAX_FILES", "2");
+    expect(vibesFileLimit({ tool: "Edit", contractMode: "vibes", editedFiles: files(3) })?.decision).toBe("deny");
+    expect(vibesFileLimit({ tool: "Edit", contractMode: "vibes", editedFiles: files(2) })).toBeNull();
+  });
+
+  it("vibes 契約でない / 編集系でないツールは対象外", () => {
+    expect(vibesFileLimit({ tool: "Edit", contractMode: "plan", editedFiles: files(30) })).toBeNull();
+    expect(vibesFileLimit({ tool: "Edit", editedFiles: files(30) })).toBeNull();
+    expect(vibesFileLimit({ tool: "Bash", command: "ls", contractMode: "vibes", editedFiles: files(30) })).toBeNull();
+  });
+
+  it("editedFiles 未提供 (0 件扱い) は素通し", () => {
+    expect(vibesFileLimit({ tool: "Edit", contractMode: "vibes" })).toBeNull();
   });
 });
 

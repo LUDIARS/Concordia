@@ -33,6 +33,13 @@ PR #516 で実装された機能のうち、元タスクの受け入れ条件が
   単体テストが green。
 - 既存テストがすべて green のまま。
 
+## 実装メモ (テスト容易化の抽出)
+
+- vibes `[OK]` 終了連鎖は `src/bootstrap/core.ts` のインライン `eventBus.subscribe` から
+  `src/control/vibes-completion.ts` (`startVibesCompletion`) へ抽出した (挙動同一、依存注入のみ追加)。
+- `/co-context` コンパクションボタン handler は `src/discord/commands.ts` のインライン実装から
+  `src/discord/commands/context.ts` (`handleContextCompactButton`) へ抽出した (挙動同一)。
+
 ## スコープ (編集可ディレクトリ)
 
 - `src/taskflow/`

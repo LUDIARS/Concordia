@@ -24,6 +24,13 @@ export const RELICTOR_REINJECT_HEADER =
   "直前にこのチャンネルへ投稿した引き継ぎ資料 (🔁) に従って作業を続行してください。" +
   "細部は前セッションのチャンネル / Slack スレッド履歴を遡れば確認できます。\n\n";
 
+/** /co-handover で移行した次セッションへ流す引き継ぎ inject の source と文言。 */
+export const HANDOVER_INJECT_SOURCE = "auto:handover-handoff";
+export const HANDOVER_REINJECT_HEADER =
+  "【セッション移行・引き継ぎ】前のセッションからこのセッションへ作業を移行しました。" +
+  "直前にチャンネルへ投稿された引き継ぎ資料 (🤝) に従って作業を続行してください。" +
+  "細部は前セッションのチャンネル / Slack スレッド履歴を遡れば確認できます。\n\n";
+
 /** Concordia の provider 名 → spawn (Lictor launcher) provider 名。 spawn 不可は null。 */
 export function toSpawnProvider(provider: string): SpawnProvider | null {
   switch (provider) {

@@ -17,6 +17,7 @@ import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX } from "./commands/context.js";
 import goalCommand from "./commands/goal.js";
 import relictorCommand from "./commands/relictor.js";
+import handoverCommand from "./commands/handover.js";
 import confirmCommand from "./commands/confirm.js";
 import ccSkillCommand from "./commands/cc-skill.js";
 import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
@@ -62,6 +63,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   contextCommand,
   goalCommand,
   relictorCommand,
+  handoverCommand,
   confirmCommand,
   ccSkillCommand,
   exRunCommand,
@@ -275,7 +277,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
  * ここに載らない操作 (会話 / 状況確認など) はヒラ社員でも通す。
  */
 interface PrivilegedInteraction {
-  capability: "session_spawn" | "session_end" | "kill_switch";
+  capability: "session_spawn" | "session_end" | "session_succession" | "kill_switch";
   /** 拒否時に本人へ返す ephemeral メッセージ。 */
   denyMessage: string;
   check: (deps: DiscordCommandDeps) => ((userId: string) => boolean) | undefined;
@@ -291,6 +293,16 @@ const PRIVILEGED_SESSION_END: PrivilegedInteraction = {
   denyMessage: "このユーザーにはセッション終了権限がありません (管理職以上が必要)。",
   check: (deps) => deps.isSessionEndUserAllowed,
 };
+const PRIVILEGED_SESSION_SUCCESSION: PrivilegedInteraction = {
+  capability: "session_succession",
+  denyMessage: "このユーザーにはセッション移行権限がありません (起動・終了の両権限が必要)。",
+  check: (deps) => {
+    const canLaunch = deps.isLaunchUserAllowed;
+    const canEnd = deps.isSessionEndUserAllowed;
+    if (!canLaunch || !canEnd) return undefined;
+    return (userId) => canLaunch(userId) && canEnd(userId);
+  },
+};
 const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
   capability: "kill_switch",
   denyMessage: "このユーザーにはサービス操作権限がありません (執行役員のみ)。",
@@ -304,6 +316,8 @@ const PRIVILEGED_PLAN_DECISION: PrivilegedInteraction = {
 
 /** キルスイッチ相当 = Excubitor 経由でサービスを起動 / 再起動するコマンド。 */
 const KILL_SWITCH_COMMANDS = new Set(["ex-run", "ex-reboot"]);
+/** 新セッションを起動して旧セッションを終了するため、両 capability が必要。 */
+const SESSION_SUCCESSION_COMMANDS = new Set(["co-relictor", "co-handover"]);
 
 /**
  * そのコマンドが「無効なワークフロー」に属していれば、 そのワークフローキーを返す。
@@ -320,6 +334,7 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
+    if (SESSION_SUCCESSION_COMMANDS.has(interaction.commandName)) return PRIVILEGED_SESSION_SUCCESSION;
     if (KILL_SWITCH_COMMANDS.has(interaction.commandName)) return PRIVILEGED_KILL_SWITCH;
     return null;
   }

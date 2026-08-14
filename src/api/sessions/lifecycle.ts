@@ -12,7 +12,7 @@ import {
   SESSION_WORK_POLICY_SOURCE,
   WORKSPACE_ROOT_METADATA_KEY,
 } from "../../control/session-work-policy.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, HANDOVER_INJECT_SOURCE, HANDOVER_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, reviveIfLost, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { endSessionNow } from "../../control/end-session-command.js";
 import { resolveDelegationRunIdForSession } from "../../delegation/coordination.js";
 import { emitDelegationRunChanged } from "../../delegation/run-events.js";
@@ -34,8 +34,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     // never an implementation binding. Remember that origin so a later child
     // worktree claim is not overwritten by root-derived Lictor updates.
     const now = nowSec();
-    // /co-relictor 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
+    // /co-relictor・/co-handover 由来の新セッションなら、 cwd 一致で引き継ぎ資料を claim して後段で inject する。
     let relictorHandoff: string | null = null;
+    let relictorKind: "relictor" | "handover" = "relictor";
     // 全ての新規 Session に共通の fail-closed 作業ポリシーを 1 回だけ inject する。
     let sessionWorkPolicyText: string | null = null;
 
@@ -92,10 +93,12 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }
       const spawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
       const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
+      const successor = claimPendingRelictor(input.repo_path, Date.now(), spawnId);
       // concordia_spawn_id is a one-time enrollment secret placed only in the
       // spawned Lictor environment. Supplying an unknown or already-consumed
-      // value is never allowed to degrade into an unowned registration.
-      if (spawnId && !claimed) {
+      // value is never allowed to degrade into an unowned registration. A
+      // relictor/handover successor owns a separate pending enrollment.
+      if (spawnId && !claimed && !successor) {
         return c.json({ error: "invalid_or_consumed_session_enrollment" }, 401);
       }
       const workPolicy = buildSessionWorkPolicy({
@@ -166,12 +169,11 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
           stopped_reason: null,
         };
       }
-      // /co-relictor 再起動の引き継ぎ: cwd 一致で claim し、 旧ゴールを metadata へ引き継ぐ。
-      // handoff 本文は後段で inject する。
-      const relictor = claimPendingRelictor(input.repo_path);
-      if (relictor) {
-        relictorHandoff = relictor.handoff;
-        if (relictor.goal) meta.goal = relictor.goal;
+      // /co-relictor・/co-handover の引き継ぎ。handoff 本文は後段で inject する。
+      if (successor) {
+        relictorHandoff = successor.handoff;
+        relictorKind = successor.kind;
+        if (successor.goal) meta.goal = successor.goal;
       }
       deps.repo.insertSession({
         id: input.id,
@@ -276,21 +278,23 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       }, 1500).unref?.();
     }
 
-    // /co-relictor 再起動なら、引き継ぎ資料だけを inject して文脈を復元する。
+    // /co-relictor 再起動・/co-handover 移行なら、引き継ぎ資料だけを inject して文脈を復元する。
     if (relictorHandoff) {
-      const handoffText = `${RELICTOR_REINJECT_HEADER}${relictorHandoff}`;
+      const header = relictorKind === "handover" ? HANDOVER_REINJECT_HEADER : RELICTOR_REINJECT_HEADER;
+      const source = relictorKind === "handover" ? HANDOVER_INJECT_SOURCE : RELICTOR_INJECT_SOURCE;
+      const handoffText = `${header}${relictorHandoff}`;
       deps.repo.appendEvent({
         session_id: input.id,
         ts: nowSec(),
         kind: "inject",
-        payload: { text: handoffText, source: RELICTOR_INJECT_SOURCE },
+        payload: { text: handoffText, source },
       });
       setTimeout(() => {
         eventBus.emit({
           type: "session.inject",
           target_session_id: input.id,
           text: handoffText,
-          source: RELICTOR_INJECT_SOURCE,
+          source,
           ts: nowSec(),
         });
       }, 1500).unref?.();

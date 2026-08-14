@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { recordPendingRelictor, claimPendingRelictor, _resetPendingRelictor } from "./pending-relictor.js";
+import {
+  recordPendingRelictor,
+  claimPendingRelictor,
+  forgetPendingRelictorBySpawnId,
+  _resetPendingRelictor,
+} from "./pending-relictor.js";
 
 beforeEach(() => _resetPendingRelictor());
 
@@ -36,5 +41,34 @@ describe("pending-relictor", () => {
   it("空 cwd は記録しない", () => {
     recordPendingRelictor({ cwd: "  ", handoff: "h" });
     expect(claimPendingRelictor("")).toBeNull();
+  });
+});
+
+describe("pending relictor kind", () => {
+  it("defaults to relictor and preserves an explicit handover kind", () => {
+    recordPendingRelictor({ cwd: "E:/repo/K1", handoff: "h" });
+    expect(claimPendingRelictor("E:/repo/K1")?.kind).toBe("relictor");
+    recordPendingRelictor({ cwd: "E:/repo/K2", handoff: "h", kind: "handover" });
+    expect(claimPendingRelictor("E:/repo/K2")?.kind).toBe("handover");
+  });
+
+  it("claims concurrent same-cwd successors only by enrollment ID", () => {
+    recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-relictor", handoff: "r" });
+    recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-handover", handoff: "h", kind: "handover" });
+
+    expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-relictor")?.handoff).toBe("r");
+    expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-handover")?.handoff).toBe("h");
+  });
+
+  it("does not let a cwd-only registration claim an ID-bound handoff", () => {
+    recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-owned", handoff: "secret" });
+    expect(claimPendingRelictor("E:/repo/K")).toBeNull();
+    expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-owned")?.handoff).toBe("secret");
+  });
+
+  it("forgets the pending handoff when spawn fails synchronously", () => {
+    recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-failed", handoff: "h" });
+    forgetPendingRelictorBySpawnId("spawn-failed");
+    expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-failed")).toBeNull();
   });
 });

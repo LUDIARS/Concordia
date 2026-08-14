@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   buildHandoffPrompt,
   buildSessionEndHandoffPrompt,
+  buildSessionHandoverPrompt,
   elicitHandoffFromSession,
   generateHandoff,
   runCompaction,
@@ -27,6 +28,16 @@ describe("buildSessionEndHandoffPrompt", () => {
     // セッション自身が /clear しないよう明示する。
     expect(p).toContain("`/clear`");
     expect(p).toMatch(/しないで/);
+  });
+});
+
+describe("buildSessionHandoverPrompt", () => {
+  it("addresses the next session as a migration and does not claim /clear continuation", () => {
+    const p = buildSessionHandoverPrompt("ゴール体系の実装");
+    expect(p).toContain("次のセッション");
+    expect(p).toContain("移行");
+    expect(p).toContain("ゴール体系の実装");
+    expect(p).not.toContain("`/clear` 後の自分自身");
   });
 });
 
@@ -60,6 +71,16 @@ describe("elicitHandoffFromSession", () => {
     expect(h).toBe("### 現在のタスク\nゴール体系");
   });
 
+  it("masks credentials before captured handoff text leaves the session", async () => {
+    const credential = "credential-candidate";
+    const transcriptLogs = makeTranscript([
+      assistantFrame(2, ["Bearer", credential, ["token", credential].join("=")].join(" ")),
+    ]);
+    const h = await elicitHandoffFromSession({ transcriptLogs, ...timing }, "s1", 1);
+    expect(h).toContain("[REDACTED]");
+    expect(h).not.toContain(credential);
+  });
+
   it("watermark 以前の frame は無視する", async () => {
     const transcriptLogs = makeTranscript([assistantFrame(5, "古い地の文")]);
     const h = await elicitHandoffFromSession({ transcriptLogs, ...timing }, "s1", 5);
@@ -76,6 +97,17 @@ describe("generateHandoff", () => {
   it("LLM 成功時は出力をそのまま使う", async () => {
     const h = await generateHandoff({ runClaude: async () => ({ ok: true, stdout: "### 現在のタスク\nX", stderr: "" }) }, "t", "ctx");
     expect(h).toContain("### 現在のタスク");
+  });
+  it("LLM output credentials are masked", async () => {
+    const credential = "credential-candidate";
+    const h = await generateHandoff({
+      runClaude: async () => ({
+        ok: true,
+        stdout: ["access_token", credential].join("="),
+        stderr: "",
+      }),
+    }, "t", "ctx");
+    expect(h).toBe("access_token=[REDACTED]");
   });
   it("LLM 失敗時はフォールバック資料 (空にしない)", async () => {
     const h = await generateHandoff({ runClaude: async () => ({ ok: false, stdout: "", stderr: "boom" }) }, "タスクA", "ctx");

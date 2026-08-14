@@ -152,9 +152,31 @@ function fallbackHandoff(currentTask: string, recentContext: string): string {
  * transcript-tail 経由で transcript_logs に入り、 Concordia が since_id で捕捉する。
  */
 export function buildSessionEndHandoffPrompt(currentTask: string): string {
+  return buildSessionTransitionHandoffPrompt(currentTask, {
+    heading: "【コンパクション】このセッションのコンテキストをまもなく `/clear` します。",
+    audience: "`/clear` 後の自分自身",
+    finalInstruction:
+      "資料を書き終えたら、 `/clear` 等の操作は **しないで** ください (Concordia が続けて行います)。",
+  });
+}
+
+/** 次セッションへ移す handoff を、旧セッション自身に書かせるプロンプト。 */
+export function buildSessionHandoverPrompt(currentTask: string): string {
+  return buildSessionTransitionHandoffPrompt(currentTask, {
+    heading: "【セッション移行】この作業をまもなく次のセッションへ移行します。",
+    audience: "作業を引き継ぐ次のセッション",
+    finalInstruction:
+      "資料を書き終えたら、セッション終了や spawn は **しないで** ください (Concordia が続けて行います)。",
+  });
+}
+
+function buildSessionTransitionHandoffPrompt(
+  currentTask: string,
+  transition: { heading: string; audience: string; finalInstruction: string },
+): string {
   return [
-    "【コンパクション】このセッションのコンテキストをまもなく `/clear` します。",
-    "session-end と同等の振り返りを行い、 `/clear` 後の自分自身が会話の細部を失っても",
+    transition.heading,
+    `session-end と同等の振り返りを行い、 ${transition.audience} が会話の細部を失っても`,
     "作業を続けられる **タスク引き継ぎ資料** を Markdown で書いてください。",
     "",
     "重要: あなたは実作業を行った当人です。 計画段階の発言ではなく **今この時点の実状**",
@@ -174,8 +196,19 @@ export function buildSessionEndHandoffPrompt(currentTask: string): string {
     "## 既知の current_task (参考。 実状と違えば実状を優先)",
     currentTask || "(未設定)",
     "",
-    "資料を書き終えたら、 `/clear` 等の操作は **しないで** ください (Concordia が続けて行います)。",
+    transition.finalInstruction,
   ].join("\n");
+}
+
+/** transcript / LLM 出力を Discord や後継セッションへ渡す前の最終資格情報マスク。 */
+function redactHandoffSecrets(value: string): string {
+  return value
+    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:sk|gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(
+      /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
+      "$1=[REDACTED]",
+    );
 }
 
 /** transcript frame からセッション (assistant) の地の文を取り出す。 user 指示・tool 系は除外。 */
@@ -236,7 +269,7 @@ export async function elicitHandoffFromSession(
     else if (++emptyStreak >= quietPolls) break; // 地の文が途絶えた = 書き終わり
   }
 
-  const handoff = collected.join("\n").trim();
+  const handoff = redactHandoffSecrets(collected.join("\n").trim());
   return handoff.length > 0 ? handoff : null;
 }
 
@@ -250,12 +283,12 @@ export async function generateHandoff(
   try {
     const res = await deps.runClaude(prompt, { model: HANDOFF_MODEL, timeoutMs: HANDOFF_TIMEOUT_MS });
     const out = (res.stdout ?? "").trim();
-    if (res.ok && out.length > 0) return out;
+    if (res.ok && out.length > 0) return redactHandoffSecrets(out);
     deps.log?.warn(`compaction: handoff LLM 失敗 (ok=${res.ok}) → フォールバック`);
   } catch (e) {
     deps.log?.warn(`compaction: handoff LLM 例外 → フォールバック: ${(e as Error).message}`);
   }
-  return fallbackHandoff(currentTask, recentContext);
+  return redactHandoffSecrets(fallbackHandoff(currentTask, recentContext));
 }
 
 /**

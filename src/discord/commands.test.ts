@@ -17,6 +17,7 @@ describe("Discord command registration", () => {
     const names = commandNamesForRegistration();
     expect(names).toContain("cc-skill");
     expect(names).toContain("rv-prs");
+    expect(names).toContain("co-handover");
     expect(names).toContain("spawn");
     expect(names).toContain("ch_name");
     expect(names).toContain("ex-run");
@@ -90,6 +91,8 @@ describe("Discord command registration", () => {
 
   it.each([
     { commandName: "end-session", deny: "セッション終了権限がありません" },
+    { commandName: "co-relictor", deny: "セッション移行権限がありません" },
+    { commandName: "co-handover", deny: "セッション移行権限がありません" },
     { commandName: "ex-run", deny: "サービス操作権限がありません" },
     { commandName: "ex-reboot", deny: "サービス操作権限がありません" },
   ])("denies /$commandName when only spawn permission is granted", async ({ commandName, deny }) => {

@@ -126,6 +126,14 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
   (A 層 typed form + B 層自然文リスト。 harness_rules エディタの流用)。
 - すべて read model。 既存 Sessions / Taskflow / CostFeed のクエリに team フィルタを
   足すのが実装の大半で、 新しい集計正本は作らない。
+- 実装 (2026-08-14, teams-webui): カードメトリクスは `GET /v1/teams` が
+  `metrics` (src/db/team-metrics-repo.ts の read model) を同梱。 コストグラフは
+  `GET /v1/teams/:id/cost` = cost_usage_samples の累積 cost_tokens をセッション毎
+  差分でバケット化したチーム畳み込み。 kanban は `GET /v1/director/cases?team_id=`、
+  セッションは `GET /v1/sessions?team_id=`、 B 層は `GET /v1/harness-rules?team_id=`
+  (グローバル + 当該チームのマージ)。 チーム選択はヘッダ常設の
+  `web/src/lib/TeamFilterContext.tsx` (localStorage 永続) で、 Sessions / Taskflow /
+  CostFeed が購読する。 Taskflow の team 帰属は run.team_id → session.team_id の順。
 
 ### 4.2 メニュー改修 — 左サイドバー化
 

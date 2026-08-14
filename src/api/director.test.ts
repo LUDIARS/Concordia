@@ -29,6 +29,40 @@ describe("directorRouter", () => {
     expect(await detail.json()).toMatchObject({ case: { title: "原稿フロー" } });
   });
 
+  it("lists cases with steps and filters them by team", async () => {
+    const app = makeApp();
+    await app.request("/v1/director/cases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "チーム案件",
+        goal: "kanban を出す",
+        project: "Cc",
+        team_id: "team-1",
+        steps: [{ kind: "implement", title: "実装" }],
+      }),
+    });
+    await createCase(app); // team 無所属の case
+
+    const all = await app.request("/v1/director/cases");
+    expect(((await all.json()) as { cases: unknown[] }).cases).toHaveLength(2);
+
+    const filtered = await app.request("/v1/director/cases?team_id=team-1");
+    const body = await filtered.json() as {
+      cases: Array<{ case: { team_id: string }; steps: Array<Record<string, unknown>> }>;
+    };
+    expect(body.cases).toHaveLength(1);
+    expect(body.cases[0].case.team_id).toBe("team-1");
+    expect(body.cases[0].steps).toHaveLength(1);
+    expect(body.cases[0].steps[0]).toEqual({
+      id: expect.any(String),
+      sequence: 1,
+      kind: "implement",
+      title: "実装",
+      status: "pending",
+    });
+  });
+
   it("rejects invalid input and invalid transitions with stable status codes", async () => {
     const app = makeApp();
     const invalid = await app.request("/v1/director/cases", {

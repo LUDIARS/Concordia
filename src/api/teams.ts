@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
+import type { TeamMetrics, TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import { eventBus } from "../events.js";
 
@@ -55,10 +56,33 @@ export function parseTeamSettings(row: TeamRow): TeamSettings {
   return SettingsSchema.parse(JSON.parse(row.settings_json) as unknown);
 }
 
-export function teamsRouter(repo: TeamsRepo): Hono {
+export function teamsRouter(repo: TeamsRepo, metrics?: TeamMetricsRepo): Hono {
   const app = new Hono();
 
-  app.get("/", (c) => c.json({ teams: repo.list().map((team) => serializeTeam(repo, team)) }));
+  app.get("/", (c) => {
+    const byTeam = metrics?.collect() ?? null;
+    return c.json({
+      teams: repo.list().map((team) => ({
+        ...serializeTeam(repo, team),
+        ...(byTeam ? { metrics: byTeam.get(team.id) ?? EMPTY_METRICS } : {}),
+      })),
+    });
+  });
+
+  // チーム詳細タブのコストグラフ用時系列 (cost_usage_samples の read model)。
+  app.get("/:id/cost", (c) => {
+    if (!metrics) return c.json({ error: "metrics_unavailable" }, 503);
+    const team = repo.find(c.req.param("id"));
+    if (!team) return c.json({ error: "not_found" }, 404);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const since = readPositiveInt(c.req.query("since")) ?? nowSec - 7 * 86_400;
+    const bucket = readPositiveInt(c.req.query("bucket")) ?? 3600;
+    return c.json({
+      team_id: team.id,
+      bucketSec: bucket,
+      points: metrics.costSeries(team.id, since, bucket),
+    });
+  });
 
   // Concordia binds to loopback and this route shares the existing admin UI trust boundary.
   app.post("/", async (c) => {
@@ -94,6 +118,18 @@ export function teamsRouter(repo: TeamsRepo): Hono {
   });
 
   return app;
+}
+
+const EMPTY_METRICS: TeamMetrics = {
+  goal_count: 0,
+  active_case_count: 0,
+  active_session_count: 0,
+  today_cost_tokens: 0,
+};
+
+function readPositiveInt(value: string | undefined): number | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function serializeTeam(repo: TeamsRepo, row: TeamRow): TeamRow & { settings: TeamSettings; repos: string[] } {

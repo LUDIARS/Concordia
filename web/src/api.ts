@@ -74,6 +74,7 @@ export interface SessionRow {
   target_project?: string | null;
   branch: string | null;
   host: string;
+  team_id?: string | null;
   started_at: number;
   ended_at: number | null;
   status: "active" | "ended" | "lost" | "abandoned";
@@ -142,6 +143,7 @@ export interface TaskflowOverviewTask {
   child_session_id: string | null;
   delegation_run_id: string | null;
   delegation_status: string | null;
+  team_id: string | null;
   pr: { number: number; title: string; url: string | null; state: string } | null;
   ci_status: TaskflowCiStatus;
 }
@@ -664,7 +666,12 @@ export const api = {
     return get<LimitTimeseries>(`/v1/cost/limit-timeseries${qs ? "?" + qs : ""}`);
   },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
-  taskflowOverview: () => get<TaskflowOverviewResult>("/v1/taskflow/overview"),
+  taskflowOverview: (opts: { teamId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.teamId) q.set("team_id", opts.teamId);
+    const qs = q.toString();
+    return get<TaskflowOverviewResult>(`/v1/taskflow/overview${qs ? "?" + qs : ""}`);
+  },
   metrics: () => get<{ snapshot: HostSnapshot | null }>("/v1/monitor/metrics"),
   session: (id: string) =>
     get<{ session: SessionRow; events: SessionEvent[] }>(`/v1/sessions/${encodeURIComponent(id)}`),
@@ -673,7 +680,12 @@ export const api = {
       text,
       ...(source ? { source } : {}),
     }),
-  sessions: () => get<{ sessions: SessionRow[] }>("/v1/sessions"),
+  sessions: (opts: { teamId?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.teamId) q.set("team_id", opts.teamId);
+    const qs = q.toString();
+    return get<{ sessions: SessionRow[] }>(`/v1/sessions${qs ? "?" + qs : ""}`);
+  },
   sessionMessages: (id: string, after?: number) => get<{ messages: SessionMessage[] }>(`/v1/sessions/${encodeURIComponent(id)}/messages${after ? `?after=${after}` : ""}`),
   sessionUnread: (id: string, clientId: string) => get<{ last_read_id: number; unread: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/unread?client_id=${encodeURIComponent(clientId)}`),
   sessionMarkRead: (id: string, clientId: string, lastReadId: number) => post<{ ok: true; last_read_id: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/read`, { client_id: clientId, last_read_id: lastReadId }),
@@ -917,9 +929,35 @@ export const api = {
       { blocks },
     ),
 
+  // ── チーム (可視化 + ルールスコープ) ──
+  teamsList: () => get<{ teams: Team[] }>("/v1/teams"),
+  teamCreate: (body: { name: string; slug: string; repos?: string[]; settings?: TeamSettings; rules_text?: string }) =>
+    post<{ team: Team }>("/v1/teams", body),
+  teamUpdate: (id: string, body: Partial<{ name: string; slug: string; repos: string[]; settings: TeamSettings; rules_text: string }>) =>
+    patch<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}`, body),
+  teamCost: (id: string, opts: { sinceSec?: number; bucketSec?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.sinceSec !== undefined) q.set("since", String(opts.sinceSec));
+    if (opts.bucketSec !== undefined) q.set("bucket", String(opts.bucketSec));
+    const qs = q.toString();
+    return get<TeamCostSeries>(`/v1/teams/${encodeURIComponent(id)}/cost${qs ? "?" + qs : ""}`);
+  },
+  directorCases: (opts: { teamId?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.teamId) q.set("team_id", opts.teamId);
+    if (opts.limit !== undefined) q.set("limit", String(opts.limit));
+    const qs = q.toString();
+    return get<{ cases: DirectorCaseSummary[] }>(`/v1/director/cases${qs ? "?" + qs : ""}`);
+  },
+
   // ── 共通ハーネスルール (子会社ガードのポリシー) ──
-  harnessRulesList: (all = false) =>
-    get<{ rules: HarnessRule[] }>(`/v1/harness-rules${all ? "?all=1" : ""}`),
+  harnessRulesList: (all = false, teamId?: string) => {
+    const q = new URLSearchParams();
+    if (all) q.set("all", "1");
+    if (teamId) q.set("team_id", teamId);
+    const qs = q.toString();
+    return get<{ rules: HarnessRule[] }>(`/v1/harness-rules${qs ? "?" + qs : ""}`);
+  },
   harnessRuleCreate: (body: Partial<HarnessRule> & { kind: "allow" | "block"; description: string }) =>
     post<{ rule: HarnessRule }>("/v1/harness-rules", body),
   harnessRuleUpdate: (id: string, body: Partial<HarnessRule>) =>
@@ -1098,6 +1136,64 @@ export interface HarnessRule {
   sort_order: number;
   created_at: number;
   updated_at: number;
+  /** null = グローバル (全チーム共通)。 backend harness_rules.team_id と対。 */
+  team_id: string | null;
+}
+
+// ─── チーム (/v1/teams) — backend src/api/teams.ts と対 ─────────────────────
+export interface TeamSettings {
+  revisor_lane?: "local" | "github";
+  pr_rules?: { base: string; push: "revisor" };
+  test_policy?: "confirm-queue" | "custos-unity";
+  worktree?: "allowed" | "repo-root-only";
+  visibility?: "public" | "private";
+  vibes_defaults?: { claim_sec: number };
+}
+
+export interface TeamMetrics {
+  goal_count: number;
+  active_case_count: number;
+  active_session_count: number;
+  today_cost_tokens: number;
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  slug: string;
+  settings: TeamSettings;
+  rules_text: string;
+  repos: string[];
+  metrics?: TeamMetrics;
+}
+
+export interface TeamCostSeries {
+  team_id: string;
+  bucketSec: number;
+  points: Array<{ ts: number; cost_tokens: number }>;
+}
+
+// ─── Director case 一覧 (/v1/director/cases) — kanban 用 read model ────────
+export type DirectorStepStatus = "pending" | "active" | "blocked" | "completed" | "cancelled";
+
+export interface DirectorCaseSummary {
+  case: {
+    id: string;
+    title: string;
+    goal: string;
+    project: string;
+    session_id: string | null;
+    team_id: string | null;
+    created_at: number;
+    updated_at: number;
+  };
+  steps: Array<{
+    id: string;
+    sequence: number;
+    kind: string;
+    title: string;
+    status: DirectorStepStatus;
+  }>;
 }
 
 export type HarnessAuditEvent = "inject" | "gate" | "block" | "start_prompt" | "override";

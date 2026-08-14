@@ -15,6 +15,8 @@ const CreateSchema = z.object({
   description: z.string().min(1).max(8000),
   enabled: z.boolean().optional(),
   sort_order: z.number().int().optional(),
+  // チームスコープ (spec/feature/teams.md §3.2)。 省略 = グローバルルール。
+  team_id: z.string().trim().min(1).max(200).nullable().optional(),
 });
 
 const PatchSchema = z.object({
@@ -36,7 +38,10 @@ export function harnessRulesRouter(deps: HarnessRulesApiDeps): Hono {
 
   app.get("/", (c) => {
     const all = c.req.query("all") === "1";
-    return c.json({ rules: deps.repo.list({ includeDisabled: all }).map(serialize) });
+    const teamId = (c.req.query("team_id") ?? "").trim();
+    return c.json({
+      rules: deps.repo.list({ includeDisabled: all, teamId: teamId || undefined }).map(serialize),
+    });
   });
 
   app.post("/", async (c) => {

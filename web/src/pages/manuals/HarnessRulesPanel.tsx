@@ -142,7 +142,12 @@ function RuleCard({
   );
 }
 
-export function HarnessRulesPanel() {
+/**
+ * teamId を渡すとチームスコープで動く (spec/feature/teams.md §3.2):
+ * グローバル (team_id NULL) + 当該チームのルールを併記し、 追加は当該チーム所属になる。
+ * 省略時は従来どおり全ルールのグローバル編集。
+ */
+export function HarnessRulesPanel({ teamId }: { teamId?: string } = {}) {
   const [rules, setRules] = useState<HarnessRule[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -154,9 +159,12 @@ export function HarnessRulesPanel() {
   });
 
   const load = useCallback(() => {
-    api.harnessRulesList(true).then((r) => setRules(r.rules)).catch((e) => setError(String(e)));
-  }, []);
+    void api.harnessRulesList(true, teamId).then((r) => setRules(r.rules)).catch((e) => setError(String(e)));
+  }, [teamId]);
   useEffect(load, [load]);
+
+  const teamRules = teamId ? rules.filter((rule) => rule.team_id === teamId) : rules;
+  const globalRules = teamId ? rules.filter((rule) => rule.team_id === null) : [];
 
   // GET /v1/harness-rules は HTTP キャッシュ (5s) に乗るので、 保存直後に再取得すると
   // 更新前の本文が返って「保存できていない」ように見える。 変更は API 応答の行を
@@ -195,7 +203,11 @@ export function HarnessRulesPanel() {
         </div>
       )}
 
-      {rules.map((rule) => (
+      {teamId && <div className="text-sm font-medium">チームのルール ({teamRules.length})</div>}
+      {teamId && teamRules.length === 0 && (
+        <div className="text-subtle text-sm">このチーム専用のルールはまだありません。</div>
+      )}
+      {teamRules.map((rule) => (
         <RuleCard
           key={rule.id}
           rule={rule}
@@ -226,8 +238,46 @@ export function HarnessRulesPanel() {
         />
       ))}
 
+      {teamId && globalRules.length > 0 && (
+        <details className="border border-border rounded p-3 bg-muted/20">
+          <summary className="text-sm cursor-pointer text-subtle">
+            グローバルルール ({globalRules.length}) — 全チーム共通。 ここでの編集は全体に効きます。
+          </summary>
+          <div className="mt-2 space-y-3">
+            {globalRules.map((rule) => (
+              <RuleCard
+                key={rule.id}
+                rule={rule}
+                busy={busyId === rule.id}
+                onSave={(draft) => void mutate(
+                  rule.id,
+                  () => api.harnessRuleUpdate(rule.id, draft).then((r) => applyRule(r.rule)),
+                )}
+                onToggle={() => void mutate(
+                  rule.id,
+                  () => api.harnessRuleUpdate(rule.id, { enabled: !rule.enabled }).then((r) => applyRule(r.rule)),
+                )}
+                onRemove={() => void mutate(
+                  rule.id,
+                  async () => {
+                    await api.harnessRuleDelete(rule.id).catch((e: unknown) => {
+                      const message = e instanceof Error ? e.message : String(e);
+                      throw new Error(message.startsWith("409")
+                        ? "既定ルールは削除できません (無効化のみ可)"
+                        : message);
+                    });
+                    setRules((prev) => prev.filter((r) => r.id !== rule.id));
+                  },
+                  { confirmMessage: `ルール「${rule.title || rule.id}」を削除しますか?` },
+                )}
+              />
+            ))}
+          </div>
+        </details>
+      )}
+
       <section className="border border-border rounded p-3 space-y-2 bg-muted/40">
-        <div className="text-sm font-medium">ルールを追加</div>
+        <div className="text-sm font-medium">{teamId ? "チームルールを追加" : "ルールを追加"}</div>
         <div className="flex items-center gap-2 flex-wrap">
           <select
             value={adding.kind}
@@ -266,7 +316,7 @@ export function HarnessRulesPanel() {
           onClick={() => void runMutation({
             setBusy: (value) => setBusyId(value ? "create" : null),
             setError,
-            action: () => api.harnessRuleCreate(adding),
+            action: () => api.harnessRuleCreate(teamId ? { ...adding, team_id: teamId } : adding),
             onSuccess: (created) => {
               setAdding({ kind: "block", title: "", description: "", sort_order: 0 });
               applyRule(created.rule);

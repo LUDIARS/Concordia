@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
@@ -6,6 +6,7 @@ import {
   type TaskflowOverviewResult,
   type TaskflowTaskStatus,
 } from "../api.js";
+import { useTeamFilter } from "../lib/TeamFilterContext.js";
 
 const STATUS_LABEL: Record<TaskflowTaskStatus, string> = {
   pending: "未着手",
@@ -29,29 +30,39 @@ const CI_BADGE: Record<TaskflowCiStatus, string> = {
 };
 
 export function Taskflow() {
+  const { teamId, team } = useTeamFilter();
   const [data, setData] = useState<TaskflowOverviewResult | null>(null);
   const [project, setProject] = useState("");
   const [status, setStatus] = useState<TaskflowTaskStatus | "">("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestGenerationRef = useRef(0);
 
-  async function load() {
+  const load = useCallback(async () => {
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
     try {
-      setData(await api.taskflowOverview());
+      const nextData = await api.taskflowOverview({ teamId: teamId ?? undefined });
+      if (generation !== requestGenerationRef.current) return;
+      setData(nextData);
       setError(null);
     } catch (nextError) {
-      setError(String(nextError));
+      if (generation === requestGenerationRef.current) setError(String(nextError));
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) setLoading(false);
     }
-  }
+  }, [teamId]);
 
   useEffect(() => {
+    setData(null);
+    setError(null);
     void load();
     const timer = setInterval(() => void load(), 30_000);
-    return () => clearInterval(timer);
-  }, []);
+    return () => {
+      clearInterval(timer);
+      requestGenerationRef.current += 1;
+    };
+  }, [load]);
 
   const projects = useMemo(
     () => [...new Set(data?.tasks.map((task) => task.project) ?? [])].sort(),
@@ -68,7 +79,10 @@ export function Taskflow() {
     <div className="max-w-7xl space-y-4">
       <header className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Taskflow</h1>
+          <h1 className="text-xl font-semibold">
+            Taskflow
+            {team && <span className="ml-2 text-xs font-normal text-subtle">チーム: {team.name}</span>}
+          </h1>
           <p className="text-xs text-subtle">task md を正本に、担当・状態・PR・CI を 1 画面で確認します。</p>
         </div>
         <button

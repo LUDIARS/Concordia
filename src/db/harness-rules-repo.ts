@@ -97,11 +97,14 @@ export class HarnessRulesRepo {
     return (this.db.prepare(`SELECT * FROM harness_rules WHERE id = ?`).get(id) as HarnessRuleRow | undefined) ?? null;
   }
 
-  list(options: { includeDisabled?: boolean } = {}): HarnessRuleRow[] {
-    const sql = options.includeDisabled
-      ? `SELECT * FROM harness_rules ORDER BY sort_order ASC, created_at ASC`
-      : `SELECT * FROM harness_rules WHERE enabled = 1 ORDER BY sort_order ASC, created_at ASC`;
-    return this.db.prepare(sql).all() as HarnessRuleRow[];
+  list(options: { includeDisabled?: boolean; teamId?: string } = {}): HarnessRuleRow[] {
+    const where: string[] = [];
+    const args: unknown[] = [];
+    if (!options.includeDisabled) where.push("enabled = 1");
+    // team scope: グローバル (team_id NULL) + 当該チームのルールを併せて返す (§3.2 のマージ規則)。
+    if (options.teamId) { where.push("(team_id IS NULL OR team_id = ?)"); args.push(options.teamId); }
+    const sql = `SELECT * FROM harness_rules ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY sort_order ASC, created_at ASC`;
+    return this.db.prepare(sql).all(...args) as HarnessRuleRow[];
   }
   listForTeam(teamId: string | null): HarnessRuleRow[] { return this.db.prepare("SELECT * FROM harness_rules WHERE enabled=1 AND (team_id IS NULL OR team_id=?) ORDER BY sort_order,created_at").all(teamId) as HarnessRuleRow[]; }
 

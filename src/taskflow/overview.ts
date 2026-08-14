@@ -21,6 +21,8 @@ export interface TaskflowOverviewRow {
   child_session_id: string | null;
   delegation_run_id: string | null;
   delegation_status: DelegationRunRow["status"] | null;
+  /** チーム帰属 (run → session の順で引く read model。 未所属は null)。 */
+  team_id: string | null;
   pr: {
     number: number;
     title: string;
@@ -97,6 +99,7 @@ export function buildTaskflowOverview(input: {
       child_session_id: run?.child_session_id ?? null,
       delegation_run_id: run?.id ?? explicitRunId ?? null,
       delegation_status: run?.status ?? null,
+      team_id: run?.team_id ?? session?.team_id ?? null,
       pr: pr ? { number: pr.number, title: pr.title, url: pr.url, state: pr.state } : null,
       ci_status: pr?.ci_status ?? "unknown",
     };

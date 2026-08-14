@@ -9,6 +9,7 @@ import type {
   DirectorDecisionKind,
   DirectorDecisionRecord,
   DirectorStep,
+  DirectorStepSummary,
   DirectorStepStatus,
   RequestDirectorDecisionInput,
 } from "./types.js";
@@ -65,6 +66,11 @@ export class DirectorService {
 
   getCase(id: string): DirectorCaseDetail | null {
     return this.deps.repo.findCaseDetail(id);
+  }
+
+  /** 一覧 (kanban) 用の read model。 decisions は含めず case + steps だけ返す。 */
+  listCases(filter: { team_id?: string; limit?: number } = {}): Array<{ case: DirectorCase; steps: DirectorStepSummary[] }> {
+    return this.deps.repo.listCasesWithSteps({ teamId: filter.team_id, limit: filter.limit });
   }
 
   updateStep(input: {

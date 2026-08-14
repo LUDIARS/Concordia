@@ -72,6 +72,7 @@ import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter } from "../contract/model-review-adapter.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
@@ -481,6 +482,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const teamsRepo = new TeamsRepo(db);
+  const teamMetricsRepo = new TeamMetricsRepo(db);
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -1131,6 +1133,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegation: delegationRepo,
     delegationService,
     teams: teamsRepo,
+    teamMetrics: teamMetricsRepo,
     confirmService,
     delegationQueue,
     modelCatalog,

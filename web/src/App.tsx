@@ -23,6 +23,7 @@ import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
 import { RuntimeVersion } from "./components/RuntimeVersion.js";
 import { Teams } from "./pages/Teams.js";
+import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
   { to: "/teams", label: "Teams", section: "チーム" },
@@ -47,6 +48,7 @@ const NAV: NavItem[] = [
 
 export function App() {
   return (
+    <TeamFilterProvider>
     <div className="min-h-full flex flex-col">
       <header className="border-b border-border bg-surface px-3 sm:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="text-lg font-semibold whitespace-nowrap">
@@ -54,6 +56,7 @@ export function App() {
         </span>
         <RuntimeVersion />
         <span className="text-subtle text-xs hidden md:inline">multi-agent session coordinator</span>
+        <span className="ml-auto"><TeamSelect /></span>
       </header>
       <div className="flex min-h-0 flex-1">
         <Nav items={NAV} />
@@ -92,5 +95,6 @@ export function App() {
         {" · "}loopback 11111
       </footer>
     </div>
+    </TeamFilterProvider>
   );
 }

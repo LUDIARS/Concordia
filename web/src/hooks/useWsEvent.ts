@@ -51,20 +51,30 @@ export function useLiveQuery<T>(
   const [error, setError] = useState<Error | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
-  const cancelledRef = useRef(false);
+  const requestGenerationRef = useRef(0);
 
   const doFetch = useCallback(() => {
+    const generation = ++requestGenerationRef.current;
     void fetcherRef.current()
-      .then((d) => { if (!cancelledRef.current) { setData(d); setError(null); } })
-      .catch((e) => { if (!cancelledRef.current) setError(e as Error); });
+      .then((d) => {
+        if (generation !== requestGenerationRef.current) return;
+        setData(d);
+        setError(null);
+      })
+      .catch((e) => {
+        if (generation === requestGenerationRef.current) {
+          setError(e instanceof Error ? e : new Error(String(e)));
+        }
+      });
   }, []);
 
   const eventsKey = events.join("|");
 
   useEffect(() => {
-    cancelledRef.current = false;
+    setData(null);
+    setError(null);
     doFetch();
-    return () => { cancelledRef.current = true; };
+    return () => { requestGenerationRef.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventsKey, refreshKey]);
 

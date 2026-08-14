@@ -24,3 +24,7 @@ memory_links:
 ## スコープ (編集可ディレクトリ)
 - web/src/
 - src/api/
+- src/db/ (チーム別 read model と既存一覧フィルタ)
+- src/director/ (case kanban 用 read model)
+- src/taskflow/ (task のチーム帰属)
+- src/bootstrap/core.ts (read model の依存注入)

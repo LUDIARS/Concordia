@@ -68,6 +68,13 @@ export function directorRouter(deps: { service: DirectorService }): Hono {
     return c.json(deps.service.createCase(parsed.data), 201);
   });
 
+  app.get("/cases", (c) => {
+    const teamId = (c.req.query("team_id") ?? "").trim();
+    const limitRaw = Number(c.req.query("limit"));
+    const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? limitRaw : undefined;
+    return c.json({ cases: deps.service.listCases({ team_id: teamId || undefined, limit }) });
+  });
+
   app.get("/cases/:caseId", (c) => {
     const detail = deps.service.getCase(c.req.param("caseId"));
     return detail ? c.json(detail) : c.json({ error: "not_found" }, 404);

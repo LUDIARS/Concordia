@@ -321,6 +321,7 @@ app.get("/", (c) => {
       status: (q.status as SessionStatus) || undefined,
       provider: (q.provider as ProviderName) || undefined,
       subsidiary_id: subsidiaryId || undefined,
+      team_id: (q.team_id ?? "").trim() || undefined,
     });
     return c.json({ sessions: list.map(serializeSession) });
   });

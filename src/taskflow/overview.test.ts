@@ -28,6 +28,28 @@ describe("taskflow overview", () => {
     expect(overview.counts).toMatchObject({ total: 1, delegated: 1, ci_failure: 1 });
   });
 
+  it("attributes the task to a team via the run first, then the session", () => {
+    const overviewByRun = buildTaskflowOverview({
+      documents: [task({ status: "delegated", source_session: "session-1" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [{ ...session(), team_id: "team-session" }],
+      runs: [{ ...run(), team_id: "team-run" }],
+      prs: [],
+      now: 123,
+    });
+    expect(overviewByRun.tasks[0].team_id).toBe("team-run");
+
+    const overviewBySession = buildTaskflowOverview({
+      documents: [task({ status: "delegated", source_session: "session-1" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [{ ...session(), team_id: "team-session" }],
+      runs: [],
+      prs: [],
+      now: 123,
+    });
+    expect(overviewBySession.tasks[0].team_id).toBe("team-session");
+  });
+
   it("prefers explicit runtime assignment and PR number", () => {
     const overview = buildTaskflowOverview({
       documents: [task({ assignee: "neco", pr_number: 42 })],

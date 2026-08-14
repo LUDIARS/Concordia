@@ -79,6 +79,7 @@ export function taskflowRouter(input: {
   app.get("/overview", async (c) => {
     const project = c.req.query("project")?.trim().toLowerCase();
     const status = c.req.query("status")?.trim() as TaskStatus | undefined;
+    const teamId = c.req.query("team_id")?.trim();
     if (status && !STATUSES.includes(status)) return c.json({ error: "invalid_status" }, 400);
     const overview = buildTaskflowOverview({
       documents: await input.store.scan(),
@@ -89,6 +90,7 @@ export function taskflowRouter(input: {
     });
     const tasks = overview.tasks.filter((task) => {
       if (project && task.project.toLowerCase() !== project) return false;
+      if (teamId && task.team_id !== teamId) return false;
       return !status || task.status === status;
     });
     return c.json({

@@ -129,6 +129,7 @@ import { isContractComplete, parseContractMetadata } from "../contract/schema.js
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
+import type { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 
@@ -161,6 +162,8 @@ export interface CoreDelegationDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   teams?: TeamsRepo;
+  /** チームカードのメトリクス read model。 未注入なら GET /v1/teams は metrics 無しで返す。 */
+  teamMetrics?: TeamMetricsRepo;
   /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
   confirmService?: ConfirmService;
   /** delegation 実行キュー (同時実行上限 + 待ち行列)。 未注入なら /v1/delegation/queue は 503。 */
@@ -413,7 +416,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.staff) {
     app.route("/v1/staff", staffRouter({ repo: deps.staff }));
   }
-  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams));
+  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics));
   // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
   if (deps.injectManuals) {

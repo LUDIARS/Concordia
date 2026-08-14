@@ -54,6 +54,12 @@ export interface DirectorStep {
   updated_at: number;
 }
 
+/** kanban 一覧で公開する最小 step 契約。内部参照や handoff note は含めない。 */
+export type DirectorStepSummary = Pick<
+  DirectorStep,
+  "id" | "sequence" | "kind" | "title" | "status"
+>;
+
 export interface DirectorDecisionRecord {
   id: string;
   case_id: string;

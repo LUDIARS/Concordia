@@ -1,46 +1,126 @@
-import { useEffect, useState } from "react";
+/**
+ * /teams — チーム一覧 (メトリクスカード) + 詳細タブ (spec/feature/teams.md §4.1)。
+ * 一覧はカードに 目標数 / 進行中 case / active セッション / 今日のコスト を出し、
+ * 詳細は 目標 kanban / セッション / コスト / ルールエディタ / 設定 の 5 タブ。
+ * チーム一覧の正本 fetch は TeamFilterProvider と共有する。
+ */
 
-type TeamSettings = {
-  revisor_lane?: "local" | "github";
-  worktree?: "allowed" | "repo-root-only";
-  visibility?: "public" | "private";
-  pr_rules?: { base: string; push: "revisor" };
-  test_policy?: "confirm-queue" | "custos-unity";
-  vibes_defaults?: { claim_sec: number };
-};
-type Team = { id: string; name: string; slug: string; settings: TeamSettings; rules_text: string; repos: string[] };
+import { useState } from "react";
+import type { Team } from "../api.js";
+import { useTeamFilter } from "../lib/TeamFilterContext.js";
+import { fmtTokensShort } from "./teams/model.js";
+import { TeamKanban } from "./teams/TeamKanban.js";
+import { TeamSessions } from "./teams/TeamSessions.js";
+import { TeamCost } from "./teams/TeamCost.js";
+import { TeamRulesEditor } from "./teams/TeamRulesEditor.js";
+import { TeamSettingsForm } from "./teams/TeamSettingsForm.js";
+
+type TabKey = "goals" | "sessions" | "cost" | "rules" | "settings";
+
+const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "goals", label: "目標" },
+  { key: "sessions", label: "セッション" },
+  { key: "cost", label: "コスト" },
+  { key: "rules", label: "ルール" },
+  { key: "settings", label: "設定" },
+];
 
 export function Teams() {
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [selected, setSelected] = useState<Team | null>(null);
-  const [draft, setDraft] = useState<Team | null>(null);
-  useEffect(() => { void fetch("/v1/teams").then((r) => r.json()).then((v) => setTeams(v.teams ?? [])); }, []);
-  const choose = (team: Team) => { setSelected(team); setDraft(structuredClone(team)); };
-  const save = async () => {
-    if (!selected || !draft) return;
-    const response = await fetch(`/v1/teams/${selected.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: draft.name, repos: draft.repos, rules_text: draft.rules_text, settings: draft.settings }),
-    });
-    if (!response.ok) return;
-    const updated = { ...draft };
-    setSelected(updated);
-    setTeams((current) => current.map((team) => team.id === updated.id ? updated : team));
-  };
-  const setSetting = <K extends keyof TeamSettings>(key: K, value: TeamSettings[K]) => {
-    setDraft((current) => current ? { ...current, settings: { ...current.settings, [key]: value } } : current);
-  };
-  return <div className="grid gap-4 md:grid-cols-[18rem_1fr]">
-    <section><h1 className="mb-3 text-xl font-semibold">Teams</h1>{teams.map((team) => <button key={team.id} className="mb-2 block w-full rounded border border-border p-3 text-left hover:bg-muted" onClick={() => choose(team)}><strong>{team.name}</strong><div className="text-xs text-subtle">{team.repos.length} repositories</div></button>)}</section>
-    <section>{draft && <><h2 className="text-lg font-semibold">{draft.name}</h2><div className="mt-4 grid max-w-3xl gap-3">
-      <label>Name<input className="block w-full rounded border border-border bg-surface p-2" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} /></label>
-      <label>Repositories (one per line)<textarea className="block min-h-24 w-full rounded border border-border bg-surface p-2" value={draft.repos.join("\n")} onChange={(e) => setDraft({ ...draft, repos: e.target.value.split("\n").map((v) => v.trim()).filter(Boolean) })} /></label>
-      <label>Revisor lane<select className="block w-full rounded border border-border bg-surface p-2" value={draft.settings.revisor_lane ?? "local"} onChange={(e) => setSetting("revisor_lane", e.target.value as TeamSettings["revisor_lane"])}><option value="local">Local</option><option value="github">GitHub</option></select></label>
-      <label>Worktree policy<select className="block w-full rounded border border-border bg-surface p-2" value={draft.settings.worktree ?? "allowed"} onChange={(e) => setSetting("worktree", e.target.value as TeamSettings["worktree"])}><option value="allowed">Allowed</option><option value="repo-root-only">Repository root only</option></select></label>
-      <label>Visibility<select className="block w-full rounded border border-border bg-surface p-2" value={draft.settings.visibility ?? "private"} onChange={(e) => setSetting("visibility", e.target.value as TeamSettings["visibility"])}><option value="private">Private</option><option value="public">Public</option></select></label>
-      <label>Natural-language rules<textarea className="block min-h-48 w-full rounded border border-border bg-surface p-2" value={draft.rules_text} onChange={(e) => setDraft({ ...draft, rules_text: e.target.value })} /></label>
-      <button className="justify-self-start rounded bg-accent px-4 py-2 text-white" onClick={() => void save()}>Save team</button>
-    </div></>}</section>
-  </div>;
+  const { teams, teamsLoaded, teamsError, reloadTeams } = useTeamFilter();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [tab, setTab] = useState<TabKey>("goals");
+  const selected = teams.find((team) => team.id === selectedId) ?? null;
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
+      <section>
+        <h1 className="mb-3 text-xl font-semibold">Teams</h1>
+        {!teamsLoaded && <div className="text-subtle text-sm">loading…</div>}
+        {teamsError && <div className="text-danger text-sm">load error: {teamsError.message}</div>}
+        {teamsLoaded && !teamsError && teams.length === 0 && (
+          <div className="text-subtle text-sm">
+            チームはまだありません (POST /v1/teams か /co-team-create で作成)。
+          </div>
+        )}
+        {teams.map((team) => (
+          <TeamCard
+            key={team.id}
+            team={team}
+            selected={team.id === selectedId}
+            onSelect={() => { setSelectedId(team.id); setTab("goals"); }}
+          />
+        ))}
+      </section>
+
+      <section>
+        {!selected && teams.length > 0 && (
+          <div className="text-subtle text-sm py-8">チームを選択すると詳細タブが表示されます。</div>
+        )}
+        {selected && (
+          <>
+            <header className="flex flex-wrap items-center gap-3">
+              <h2 className="text-lg font-semibold">{selected.name}</h2>
+              <span className="text-xs text-subtle">{selected.slug} · {selected.repos.length} repositories</span>
+            </header>
+            <nav className="mt-3 flex gap-1 border-b border-border">
+              {TABS.map((entry) => (
+                <button
+                  key={entry.key}
+                  onClick={() => setTab(entry.key)}
+                  className={
+                    "px-3 py-1.5 text-sm rounded-t border border-b-0 " +
+                    (tab === entry.key
+                      ? "border-border bg-surface font-medium"
+                      : "border-transparent text-subtle hover:text-text")
+                  }
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </nav>
+            <div className="mt-4">
+              {tab === "goals" && <TeamKanban teamId={selected.id} />}
+              {tab === "sessions" && <TeamSessions teamId={selected.id} />}
+              {tab === "cost" && <TeamCost teamId={selected.id} metrics={selected.metrics} />}
+              {tab === "rules" && <TeamRulesEditor team={selected} onSaved={reloadTeams} />}
+              {tab === "settings" && <TeamSettingsForm team={selected} onSaved={reloadTeams} />}
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function TeamCard({ team, selected, onSelect }: { team: Team; selected: boolean; onSelect: () => void }) {
+  const metrics = team.metrics;
+  return (
+    <button
+      className={
+        "mb-2 block w-full rounded border p-3 text-left hover:bg-muted " +
+        (selected ? "border-accent" : "border-border")
+      }
+      onClick={onSelect}
+    >
+      <strong>{team.name}</strong>
+      <div className="text-xs text-subtle">{team.repos.length} repositories</div>
+      {metrics && (
+        <div className="mt-2 grid grid-cols-4 gap-1 text-center">
+          <Metric label="目標" value={String(metrics.goal_count)} />
+          <Metric label="進行中" value={String(metrics.active_case_count)} />
+          <Metric label="稼働" value={String(metrics.active_session_count)} />
+          <Metric label="今日💰" value={fmtTokensShort(metrics.today_cost_tokens)} />
+        </div>
+      )}
+    </button>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded bg-muted/40 px-1 py-0.5">
+      <div className="text-[10px] text-subtle">{label}</div>
+      <div className="text-sm font-semibold">{value}</div>
+    </div>
+  );
 }

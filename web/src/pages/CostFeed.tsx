@@ -7,17 +7,20 @@
  *   - 10 分毎サンプルの時系列グラフ (使用量 / コンテキスト / セッション数)
  * 下段: 他サービス (Discutere 等) が POST /v1/cost-feed で push した横断コスト。
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   type CostFeedReport,
   type CostAgg,
   type CostOverview,
+  type TeamCostSeries,
   type UsageTimeseries,
   type LimitTimeseries,
   type OrgCostReport,
 } from "../api.js";
 import { TimeSeriesChart } from "../components/TimeSeriesChart.js";
+import { useTeamFilter } from "../lib/TeamFilterContext.js";
+import { filterChannelsByTeam } from "./teams/model.js";
 
 const usd = (v: number) => "$" + (Number(v) || 0).toFixed(4);
 const n = (v: number) => (Number(v) || 0).toLocaleString();
@@ -75,39 +78,59 @@ function FeedRow({ label, a }: { label: string; a: CostAgg }) {
 }
 
 export function CostFeed() {
+  const { teamId, team } = useTeamFilter();
   const [overview, setOverview] = useState<CostOverview | null>(null);
   const [series, setSeries] = useState<UsageTimeseries | null>(null);
   const [limits, setLimits] = useState<LimitTimeseries | null>(null);
   const [feed, setFeed] = useState<CostFeedReport | null>(null);
+  const [teamSessionIds, setTeamSessionIds] = useState<string[] | null>(null);
+  const [teamSeries, setTeamSeries] = useState<TeamCostSeries | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const requestGenerationRef = useRef(0);
 
   const load = useCallback(async () => {
+    const generation = ++requestGenerationRef.current;
     setLoading(true);
     setError(null);
+    setTeamSessionIds(teamId ? [] : null);
+    setTeamSeries(null);
     const started = performance.now();
     try {
-      const [ov, ts, lim, fd] = await Promise.all([
+      const [ov, ts, lim, fd, teamSessions, teamCost] = await Promise.all([
         timed("overview", () => api.costOverview()),
         timed("timeseries", () => api.costTimeseries({ bucketSec: 600 })),
         timed("limit-timeseries", () => api.costLimitTimeseries()),
         timed("cost-feed", () => api.costFeed().catch(() => null)),
+        teamId ? timed("team-sessions", () => api.sessions({ teamId })) : Promise.resolve(null),
+        teamId ? timed("team-cost", () => api.teamCost(teamId, { bucketSec: 3600 })) : Promise.resolve(null),
       ]);
+      if (generation !== requestGenerationRef.current) return;
       setOverview(ov);
       setSeries(ts);
       setLimits(lim);
       setFeed(fd);
+      setTeamSessionIds(teamSessions ? teamSessions.sessions.map((s) => s.id) : null);
+      setTeamSeries(teamCost);
       console.info(`[CostFeed] total loaded in ${Math.round(performance.now() - started)}ms`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (generation === requestGenerationRef.current) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
     } finally {
-      setLoading(false);
+      if (generation === requestGenerationRef.current) setLoading(false);
     }
-  }, []);
+  }, [teamId]);
 
   useEffect(() => {
     void load();
+    return () => { requestGenerationRef.current += 1; };
   }, [load]);
+
+  const visibleChannels = useMemo(
+    () => filterChannelsByTeam(overview?.channels ?? [], teamSessionIds),
+    [overview, teamSessionIds],
+  );
 
   const feedEmpty = !feed || feed.total.calls === 0;
   const points = series?.points ?? [];
@@ -143,7 +166,10 @@ export function CostFeed() {
   return (
     <div className="max-w-3xl space-y-6">
       <header className="flex items-center gap-3">
-        <h1 className="font-semibold">Cost</h1>
+        <h1 className="font-semibold">
+          Cost
+          {team && <span className="ml-2 text-xs font-normal text-subtle">チーム表示: {team.name}</span>}
+        </h1>
         <button
           onClick={() => void load()}
           disabled={loading}
@@ -155,20 +181,38 @@ export function CostFeed() {
 
       {error && <div className="text-danger text-sm">load error: {error}</div>}
 
+      {/* チーム選択時: 当該チームの消費トークン系列 (/v1/teams/:id/cost) */}
+      {team && teamSeries && (
+        <section className="bg-surface border border-border rounded p-4 space-y-2">
+          <h2 className="text-sm font-semibold text-text">チーム消費 ({team.name})</h2>
+          {teamSeries.points.length === 0 ? (
+            <div className="text-subtle text-sm">このチームのコストサンプルはまだありません。</div>
+          ) : (
+            <TimeSeriesChart
+              xLabels={teamSeries.points.map((p) =>
+                new Date(p.ts * 1000).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", hour12: false }),
+              )}
+              series={[{ label: "💰 消費/時", color: "#f59e0b", values: teamSeries.points.map((p) => p.cost_tokens), fmt: tok }]}
+              height={160}
+            />
+          )}
+        </section>
+      )}
+
       <section className="bg-surface border border-border rounded p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (週間)</h2>
+        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (週間・全体)</h2>
         <TimeSeriesChart xLabels={limitLabels} series={weeklyLimitSeries} height={180} maxValue={100} />
       </section>
 
       <section className="bg-surface border border-border rounded p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (日別/5H)</h2>
+        <h2 className="text-sm font-semibold text-text">Provider 利用制限 (日別/5H・全体)</h2>
         <TimeSeriesChart xLabels={limitLabels} series={shortLimitSeries} height={180} maxValue={100} />
       </section>
 
       {/* ① 本社/子会社別 (本日・週間) */}
       {overview && (
         <section className="bg-surface border border-border rounded p-4 space-y-3">
-          <h2 className="text-sm font-semibold text-text">本社 / 子会社別 (トークン)</h2>
+          <h2 className="text-sm font-semibold text-text">本社 / 子会社別 (トークン・全体)</h2>
           <div className="grid sm:grid-cols-2 gap-4">
             <OrgBlock report={overview.windows.daily} heading="本日" />
             <OrgBlock report={overview.windows.weekly} heading="週間" />
@@ -178,7 +222,7 @@ export function CostFeed() {
 
       {/* ② 時系列グラフ */}
       <section className="bg-surface border border-border rounded p-4 space-y-2">
-        <h2 className="text-sm font-semibold text-text">使用量の推移 (10 分毎)</h2>
+        <h2 className="text-sm font-semibold text-text">使用量の推移 (10 分毎・全体)</h2>
         <TimeSeriesChart
           xLabels={xLabels}
           series={[
@@ -199,12 +243,14 @@ export function CostFeed() {
           <h2 className="text-sm font-semibold text-text">
             チャンネル別 <span className="text-subtle font-normal text-xs">🧠 コンテキスト占有 / 💰 累積コスト</span>
           </h2>
-          {overview.channels.length === 0 ? (
-            <div className="text-subtle text-sm">アクティブセッションはありません。</div>
+          {visibleChannels.length === 0 ? (
+            <div className="text-subtle text-sm">
+              {team ? "このチームのアクティブセッションはありません。" : "アクティブセッションはありません。"}
+            </div>
           ) : (
             <table className="w-full text-sm border-collapse">
               <tbody>
-                {overview.channels.map((c) => (
+                {visibleChannels.map((c) => (
                   <tr key={c.sessionId} className="border-t border-border/50">
                     <td className="py-1 text-text font-mono text-xs">
                       {c.channelId ? `#${c.channelId.slice(-6)}` : c.sessionId.slice(0, 8)}
@@ -224,6 +270,7 @@ export function CostFeed() {
       <section className="space-y-2">
         <h2 className="text-sm font-semibold text-text">
           LLM Cost (cross-service)
+          <span className="ml-1 text-subtle font-normal">(全体)</span>
           {feed && !feedEmpty && (
             <span className="ml-2 text-subtle font-normal">
               {usd(feed.total.costUsd)} ({feed.total.calls} calls)

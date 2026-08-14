@@ -5,12 +5,17 @@ import type {
   DirectorCaseDetail,
   DirectorDecisionRecord,
   DirectorStep,
+  DirectorStepSummary,
   DirectorStepStatus,
 } from "./types.js";
 
 interface DirectorCaseRow extends DirectorCase {}
 
 interface DirectorStepRow extends DirectorStep {}
+
+interface DirectorStepSummaryRow extends DirectorStepSummary {
+  case_id: string;
+}
 
 interface DirectorDecisionRow {
   id: string;
@@ -62,6 +67,49 @@ export class DirectorRepo {
       SELECT id, title, goal, project, session_id, team_id, created_at, updated_at FROM director_cases WHERE id = ?
     `).get(id) as DirectorCaseRow | undefined;
     return row ?? null;
+  }
+
+  /** kanban / 一覧用。 team 指定で絞り、 未指定なら全件を更新順で返す。 */
+  listCases(filter: { teamId?: string; limit?: number } = {}): DirectorCase[] {
+    const limit = Math.min(Math.max(filter.limit ?? 200, 1), 500);
+    if (filter.teamId) {
+      return this.db.prepare(`
+        SELECT id, title, goal, project, session_id, team_id, created_at, updated_at
+        FROM director_cases WHERE team_id = ? ORDER BY updated_at DESC LIMIT ?
+      `).all(filter.teamId, limit) as DirectorCaseRow[];
+    }
+    return this.db.prepare(`
+      SELECT id, title, goal, project, session_id, team_id, created_at, updated_at
+      FROM director_cases ORDER BY updated_at DESC LIMIT ?
+    `).all(limit) as DirectorCaseRow[];
+  }
+
+  /** kanban 用 read model。case と step を件数に依存しない 2 クエリで取得する。 */
+  listCasesWithSteps(
+    filter: { teamId?: string; limit?: number } = {},
+  ): Array<{ case: DirectorCase; steps: DirectorStepSummary[] }> {
+    const cases = this.listCases(filter);
+    if (cases.length === 0) return [];
+    const placeholders = cases.map(() => "?").join(", ");
+    const steps = this.db.prepare(`
+      SELECT id, case_id, sequence, kind, title, status
+        FROM director_steps
+       WHERE case_id IN (${placeholders})
+       ORDER BY case_id, sequence ASC
+    `).all(...cases.map((row) => row.id)) as DirectorStepSummaryRow[];
+    const stepsByCase = new Map<string, DirectorStepSummary[]>();
+    for (const step of steps) {
+      const grouped = stepsByCase.get(step.case_id) ?? [];
+      grouped.push({
+        id: step.id,
+        sequence: step.sequence,
+        kind: step.kind,
+        title: step.title,
+        status: step.status,
+      });
+      stepsByCase.set(step.case_id, grouped);
+    }
+    return cases.map((row) => ({ case: row, steps: stepsByCase.get(row.id) ?? [] }));
   }
 
   findLatestCaseForSession(sessionId: string): DirectorCase | null {

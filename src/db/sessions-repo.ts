@@ -96,6 +96,7 @@ export class SessionsRepo {
     status?: SessionStatus;
     provider?: ProviderName;
     subsidiary_id?: string;
+    team_id?: string;
   }): SessionRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
@@ -103,6 +104,7 @@ export class SessionsRepo {
     if (filter.host)        { where.push("host = ?");        args.push(filter.host); }
     if (filter.status)      { where.push("status = ?");      args.push(filter.status); }
     if (filter.provider)    { where.push("provider = ?");    args.push(filter.provider); }
+    if (filter.team_id)     { where.push("team_id = ?");     args.push(filter.team_id); }
     if (filter.subsidiary_id) {
       where.push("json_extract(metadata, '$.subsidiary_id') = ?");
       args.push(filter.subsidiary_id);

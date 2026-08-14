@@ -187,8 +187,8 @@ const eventSchemas = {
   "taskflow.residual_checked": z.object({ type: z.literal("taskflow.residual_checked"), session_id: z.string(), outcome: z.enum(["next-task", "decompose", "none"]), pending_count: z.number(), ts: z.number() }).passthrough(),
   "taskflow.continue_requested": z.object({ type: z.literal("taskflow.continue_requested"), target_session_id: z.string(), text: z.string(), ts: z.number() }).passthrough(),
   "director.plan_submitted": z.object({ type: z.literal("director.plan_submitted"), target_session_id: z.string(), case_id: z.string(), version: z.number(), markdown: z.string(), ts: z.number() }).passthrough(),
-  "team.created": z.object({ type: z.literal("team.created"), team_id: z.string(), name: z.string(), slug: z.string(), ts: z.number() }).passthrough(),
-  "team.changed": z.object({ type: z.literal("team.changed"), team_id: z.string(), fields: z.array(z.string()), ts: z.number() }).passthrough(),
+  "team.created": z.object({ type: z.literal("team.created"), event_id: z.string(), team_id: z.string(), name: z.string(), slug: z.string(), ts: z.number() }).passthrough(),
+  "team.changed": z.object({ type: z.literal("team.changed"), event_id: z.string(), team_id: z.string(), fields: z.array(z.string()), ts: z.number() }).passthrough(),
   "vibes.ok": z.object({ type: z.literal("vibes.ok"), session_id: z.string(), source: z.string(), ts: z.number() }).passthrough(),
   "process.started": z.object({
     type: z.literal("process.started"),

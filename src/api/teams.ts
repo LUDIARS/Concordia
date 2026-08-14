@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
@@ -49,6 +50,7 @@ export function teamsRouter(repo: TeamsRepo): Hono {
     repo.setRepos(row.id, parsed.data.repos);
     eventBus.emit({
       type: "team.created",
+      event_id: randomUUID(),
       team_id: row.id,
       name: row.name,
       slug: row.slug,
@@ -65,6 +67,7 @@ export function teamsRouter(repo: TeamsRepo): Hono {
     if (parsed.data.repos) repo.setRepos(row.id, parsed.data.repos);
     eventBus.emit({
       type: "team.changed",
+      event_id: randomUUID(),
       team_id: row.id,
       fields: Object.keys(parsed.data),
       ts: Math.floor(Date.now() / 1000),

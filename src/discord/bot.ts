@@ -110,6 +110,7 @@ import {
 import { buildContextReport } from "./context-report.js";
 import { renderPlanCard } from "./plan-card.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
+import { postTeamAuditCard } from "./team-audit-card.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 
 /**
@@ -1471,33 +1472,36 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       void (async()=>{const client=await webhooks.getForSession(ev.target_session_id);if(!client)return;await webhooks.send(client,{...renderPlanCard({caseId:ev.case_id,version:ev.version,markdown:ev.markdown}),username:"Cc plan gate"});})().catch(error=>log.warn(`plan card failed: ${(error as Error).message}`));return;
     }
     if (!deps.subsidiary && ev.type === "team.created") {
-      void ensureTeamDiscordLayout({
-        guild,
-        db: deps.db,
-        teamId: ev.team_id,
-        name: ev.name,
-      }).catch((error) => log.warn(`team provision failed: ${(error as Error).message}`));
+      void (async () => {
+        await ensureTeamDiscordLayout({
+          guild,
+          db: deps.db,
+          teamId: ev.team_id,
+          name: ev.name,
+        });
+        await postTeamAuditCard(
+          { guild, teamsRepo: new TeamsRepo(deps.db), log, subsidiary: Boolean(deps.subsidiary) },
+          { kind: "created", eventId: ev.event_id, teamId: ev.team_id, name: ev.name, slug: ev.slug, ts: ev.ts },
+        );
+      })().catch((error) => log.warn(`team provision failed: ${(error as Error).message}`));
       return;
     }
     if (!deps.subsidiary && ev.type === "team.changed") {
-      const team = new TeamsRepo(deps.db).find(ev.team_id);
-      if (team) {
-        void ensureTeamDiscordLayout({
-          guild,
-          db: deps.db,
-          teamId: team.id,
-          name: team.name,
-        }).catch((error) => log.warn(`team provision update failed team=${team.id}: ${(error as Error).message}`));
-      }
       void (async () => {
-        const channel = await guild.channels.fetch(layout.activityChannelId).catch(() => null);
-        if (channel?.isTextBased() && "send" in channel) {
-          await channel.send({
-            content: `Team settings changed: \`${ev.team_id}\`\nFields: ${ev.fields.join(", ")}\nReview direction and injected rules before the next spawn.`,
-            allowedMentions: { parse: [] },
+        const team = new TeamsRepo(deps.db).find(ev.team_id);
+        if (team) {
+          await ensureTeamDiscordLayout({
+            guild,
+            db: deps.db,
+            teamId: team.id,
+            name: team.name,
           });
         }
-      })().catch((error) => log.warn(`team audit card failed: ${(error as Error).message}`));
+        await postTeamAuditCard(
+          { guild, teamsRepo: new TeamsRepo(deps.db), log, subsidiary: Boolean(deps.subsidiary) },
+          { kind: "changed", eventId: ev.event_id, teamId: ev.team_id, fields: ev.fields, ts: ev.ts },
+        );
+      })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "session.lost") {

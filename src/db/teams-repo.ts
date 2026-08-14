@@ -94,4 +94,19 @@ export class TeamsRepo {
       ORDER BY teams.name
     `).all(repoOrigin) as TeamRow[];
   }
+
+  surfaceChannelId(teamId: string, surface: string): string | null {
+    const row = this.db.prepare(
+      "SELECT channel_id FROM team_surfaces WHERE team_id = ? AND surface = ?",
+    ).get(teamId, surface) as { channel_id: string } | undefined;
+    return row?.channel_id ?? null;
+  }
+
+  /** dedupe_key を初回だけ記録する。true = 初回 (投稿してよい)、false = 既出 (skip)。 */
+  claimAuditPost(dedupeKey: string, teamId: string): boolean {
+    const result = this.db.prepare(
+      "INSERT INTO team_audit_posts(dedupe_key, team_id, posted_at) VALUES (?, ?, ?) ON CONFLICT(dedupe_key) DO NOTHING",
+    ).run(dedupeKey, teamId, Date.now());
+    return result.changes > 0;
+  }
 }

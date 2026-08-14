@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 66;
+export const SCHEMA_VERSION = 67;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1728,6 +1728,15 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       db.exec("ALTER TABLE harness_rules ADD COLUMN team_id TEXT");
     }
     db.exec("CREATE INDEX IF NOT EXISTS idx_harness_rules_team ON harness_rules(team_id,enabled,sort_order)");
+  },
+}, {
+  version: 67,
+  name: "team-audit-posts",
+  source: "team_audit_posts dedupe table for team.created/team.changed audit cards",
+  up(db) {
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS team_audit_posts(dedupe_key TEXT PRIMARY KEY,team_id TEXT NOT NULL,posted_at INTEGER NOT NULL);
+    `);
   },
 },
 ];

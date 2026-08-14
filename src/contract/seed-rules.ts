@@ -5,10 +5,30 @@ function decided<T>(value: T, rationale: string) { return { value, decided_by: "
 function slug(value: string): string { return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48) || "task"; }
 const PLAN_PATTERN = /(?:migration|schema|auth|認証|削除|delete|複数リポ|new service|新規サービス)/iu;
 
-export function seedSessionContract(session: SessionRow, task: string, defaultSupervisor: string, teamId?: string | null): SessionContract {
+/**
+ * team settings の `worktree` (teams §3.1) を work_location の許容値へ写す。
+ * `repo-root-only` なら plan mode の既定 (`worktree`) より優先して repo-root に固定する
+ * (MakaiNui/Unity のように worktree 運用が成立しないチーム向け)。 未所属・未指定は既存の
+ * plan/vibes 既定を変えない。
+ */
+export interface TeamContractSettings {
+  worktree?: "allowed" | "repo-root-only";
+}
+
+export function resolveTeamWorkLocation(
+  mode: "plan" | "vibes" | null,
+  teamSettings?: TeamContractSettings | null,
+): "worktree" | "repo-root" | null {
+  if (teamSettings?.worktree === "repo-root-only") return "repo-root";
+  if (mode === "vibes") return "repo-root";
+  return mode === "plan" ? "worktree" : null;
+}
+
+export function seedSessionContract(session: SessionRow, task: string, defaultSupervisor: string, teamId?: string | null, teamSettings?: TeamContractSettings | null): SessionContract {
   const mode = PLAN_PATTERN.test(task) ? "plan" : null;
   const model = metadataString(session.metadata, "model");
   const effort = metadataString(session.metadata, "effort_level");
+  const workLocation = resolveTeamWorkLocation(mode, teamSettings);
   return {
     version: 1,
     mode: mode ? decided(mode, "高リスク作業を決定論で検出") : null,
@@ -16,7 +36,9 @@ export function seedSessionContract(session: SessionRow, task: string, defaultSu
     model: decided(model ?? session.provider, model ? "現在の session runtime" : "現在の session provider"),
     effort: decided(effort ?? "medium", effort ? "現在の session runtime" : "既定 effort"),
     work_branch: decided(session.branch ?? `feat/${slug(task)}`, "checkout branch または task slug"),
-    work_location: mode ? decided("worktree", "plan mode の決定論規則") : null,
+    work_location: workLocation
+      ? decided(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "plan mode の決定論規則")
+      : null,
     scope_dirs: decided(["."], "登録 repo root からの相対スコープ"),
     acceptance: mode ? decided("plan", "plan mode の受け入れ経路") : null,
     goal_and_go: decided({ enabled: metadataBoolean(session.metadata, "goal_and_go", "enabled") ?? false }, "spawn option"),

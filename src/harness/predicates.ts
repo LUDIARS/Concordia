@@ -51,6 +51,10 @@ export interface HarnessAction {
   contractScopeDirs?: string[];
   vibesClaimActive?: boolean;
   editedFiles?: string[];
+  /** チーム所属セッションの team settings (teams §3.1)。 未所属は undefined。 */
+  teamTestPolicy?: "confirm-queue" | "custos-unity";
+  teamWorktreePolicy?: "allowed" | "repo-root-only";
+  teamVisibility?: "public" | "private";
 }
 
 export interface PredicateHit {
@@ -247,6 +251,48 @@ export const vibesFileLimit: Predicate = (a) => {
   return { rule: "vibes-file-limit", decision: "deny", reason: `Vibes mode is limited to ${limit} edited files.`, suggestion: "Promote this task to plan mode and approve the expanded design." };
 };
 
+/**
+ * team settings `worktree: "repo-root-only"` (teams §3.1) の強制。 Unity など worktree
+ * 運用が成立しないチームでは、 linked worktree 内での編集を deny して repo root へ戻す。
+ * isWorktree が未解決 (hook が渡さない/判定不能) のときは強制しない。
+ */
+export const teamWorktreeRestriction: Predicate = (a) => {
+  if (a.teamWorktreePolicy !== "repo-root-only" || !isEditTool(a.tool) || a.isWorktree !== true) return null;
+  return {
+    rule: "team-worktree-restriction",
+    decision: "deny",
+    reason: "このチームの設定 (worktree: repo-root-only) は worktree 内での編集を許可していません。",
+    suggestion: "リポジトリ本体 (repo root) の checkout で作業してください。",
+  };
+};
+
+const EXTERNAL_PUBLICATION = [
+  /\bnpm\s+publish\b/i,
+  /\bgh\s+release\s+create\b/i,
+  /\bdocker\s+push\b/i,
+  /\btwine\s+upload\b/i,
+  /\bcargo\s+publish\b/i,
+  /\bdotnet\s+nuget\s+push\b/i,
+  /\bhelm\s+push\b/i,
+];
+
+/** teams §3.1: private teams require a visibility check before common public artifact uploads. */
+export const privateTeamPublication: Predicate = (a) => {
+  const command = a.command;
+  if (
+    a.teamVisibility !== "private" ||
+    a.tool !== "Bash" ||
+    !command ||
+    !EXTERNAL_PUBLICATION.some((pattern) => pattern.test(command))
+  ) return null;
+  return {
+    rule: "private-team-publication",
+    decision: "warn",
+    reason: "private チームから対外公開につながる操作を実行しようとしています。",
+    suggestion: "公開先のアクセス制御と、成果物に機密情報・個人情報が含まれないことを確認してください。",
+  };
+};
+
 /** 既定の述語セット (登録順)。 */
 import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js";
 
@@ -255,6 +301,8 @@ export const DEFAULT_PREDICATES: Predicate[] = [
   planUnapproved,
   vibesScope,
   vibesFileLimit,
+  teamWorktreeRestriction,
+  privateTeamPublication,
   noMainPush,
   noServiceStartInSession,
   noOpTestInWorktree,

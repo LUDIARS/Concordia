@@ -4,6 +4,7 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isContractComplete, parseContractMetadata, type SessionContract } from "./schema.js";
 import { saveContract } from "./store.js";
+import { resolveTeamWorkLocation, type TeamContractSettings } from "./seed-rules.js";
 
 export const TEAM_PREFIX = "Select the team for this repository";
 const log = createChildLogger("contract-question-bridge");
@@ -66,6 +67,7 @@ export function startContractQuestionAnswers(input: {
   questions: DiscordPendingQuestionsRepo;
   resolveService?: (repoName: string) => string | null | Promise<string | null>;
   resolveTeam?: (repo: string, name: string) => string | null;
+  resolveTeamSettings?: (teamId: string) => TeamContractSettings | null;
   onCompleted?: (sessionId: string, contract: SessionContract) => void;
 }): { stop(): void } {
   const answer = async (event: ConcordiaEvent): Promise<void> => {
@@ -86,10 +88,21 @@ export function startContractQuestionAnswers(input: {
       const teamId = input.resolveTeam?.(session.repo_origin ?? session.repo_path, event.answer_text) ?? null;
       if (!teamId) return;
       input.sessions.patchSession(event.target_session_id, { team_id: teamId });
+      const teamSettings = input.resolveTeamSettings?.(teamId) ?? null;
+      const workLocation = resolveTeamWorkLocation(contract.mode?.value ?? null, teamSettings);
       const updated = saveContract(
         input.sessions,
         event.target_session_id,
-        { ...contract, team: human(teamId, "Discord team direction answer") },
+        {
+          ...contract,
+          team: human(teamId, "Discord team direction answer"),
+          ...(workLocation ? {
+            work_location: human(
+              workLocation,
+              teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode回答から導出",
+            ),
+          } : {}),
+        },
         "team-question-answer",
         event.ts,
       );
@@ -101,12 +114,18 @@ export function startContractQuestionAnswers(input: {
     if (normalizedAnswer !== "vibes" && normalizedAnswer !== "plan") return;
     const mode = normalizedAnswer;
     const service = mode === "vibes" ? await input.resolveService?.(session.target_project ?? session.repo_path) ?? null : null;
+    // worktree=repo-root-only のチームは plan mode でも worktree を許さない
+    // (seedSessionContract の team 既定と同じ規則をここでも適用する)。
+    const teamSettings = contract.team?.value
+      ? input.resolveTeamSettings?.(contract.team.value) ?? null
+      : null;
+    const workLocation = resolveTeamWorkLocation(mode, teamSettings)!;
     const completed: SessionContract = {
       ...contract,
       mode: human(mode, "契約カード回答"),
       model: contract.model ?? human(session.provider, "契約カードで現runtime維持"),
       effort: contract.effort ?? human("medium", "契約カードで既定effort維持"),
-      work_location: human(mode === "vibes" ? "repo-root" : "worktree", "mode回答から導出"),
+      work_location: human(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode回答から導出"),
       acceptance: human(mode === "vibes" ? "human-ok" : "plan", "mode回答から導出"),
       testing_claim: service || mode === "plan"
         ? human({ required: mode === "vibes", service }, "Excubitor catalog service resolver")

@@ -18,6 +18,18 @@ describe("session contract", () => {
     expect(SessionContractSchema.safeParse({ version: 1, mode: { value: "magic" } }).success).toBe(false);
   });
 
+  it("team settings worktree=repo-root-only overrides plan mode's default worktree location", () => {
+    const session = { provider: "codex-cli", repo_path: "E:/repo", branch: "feat/x", metadata: "{}", target_project: "Cc" } as SessionRow;
+    const contract = seedSessionContract(session, "schema migration", "discord:1", "team-unity", { worktree: "repo-root-only" });
+    expect(contract.work_location?.value).toBe("repo-root");
+  });
+
+  it("team-unset sessions keep the existing plan-mode worktree default (fallback)", () => {
+    const session = { provider: "codex-cli", repo_path: "E:/repo", branch: "feat/x", metadata: "{}", target_project: "Cc" } as SessionRow;
+    const contract = seedSessionContract(session, "schema migration", "discord:1");
+    expect(contract.work_location?.value).toBe("worktree");
+  });
+
   it("seeds the explicitly persisted session team", () => {
     const session = {
       provider: "codex-cli",
@@ -54,7 +66,7 @@ describe("session contract", () => {
       "discord:1",
       undefined,
       undefined,
-      () => [{ id: "team-a", name: "A" }, { id: "team-b", name: "B" }],
+      () => [{ id: "team-a", name: "A", settings: {} }, { id: "team-b", name: "B", settings: {} }],
     );
 
     const contract = parseContractMetadata(sessions.findSession("multi-team-session")?.metadata ?? null);

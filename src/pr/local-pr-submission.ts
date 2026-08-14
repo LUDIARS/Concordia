@@ -23,7 +23,8 @@ export type SkipReason =
   | "on_base_branch"
   | "repository_not_registered"
   | "no_commits"
-  | "already_open";
+  | "already_open"
+  | "team_revisor_lane_github";
 
 export interface LocalPrPlanInput {
   /**
@@ -43,6 +44,12 @@ export interface LocalPrPlanInput {
   hasCommits: boolean;
   /** 予約済みの審査枠を使うというセッションからの明示指示。 */
   fastLane?: boolean;
+  /**
+   * team settings `revisor_lane` (teams §3.1)。 `"github"` のチーム (MELPOT 相当) は
+   * Revisor local PR 経路を使わない — 通常の GitHub PR 運用に委ねるため、 ここでは
+   * 提出せず理由付きでスキップする。 未指定 (チーム未所属) は従来どおり local 提出。
+   */
+  revisorLane?: "local" | "github";
 }
 
 export type LocalPrPlan =
@@ -105,6 +112,8 @@ export function listOpenLocalPrsForRepository(
 export function planLocalPrSubmission(input: LocalPrPlanInput): LocalPrPlan {
   const branch = input.branch?.trim() ?? "";
   if (!branch) return { submit: false, reason: "no_branch" };
+
+  if (input.revisorLane === "github") return { submit: false, reason: "team_revisor_lane_github" };
 
   const registration = findRegistration(input.repository, input.registrations);
   if (!registration) return { submit: false, reason: "repository_not_registered" };
@@ -171,6 +180,8 @@ export interface LocalPrSubmissionRequest {
   prContent?: string | null;
   /** 明示時だけ fast lane を使う。セッション終了時の自動提出は指定しない。 */
   fastLane?: boolean;
+  /** team settings `revisor_lane`。 未指定 (チーム未所属) は従来どおり local 提出。 */
+  revisorLane?: "local" | "github";
 }
 
 export type LocalPrSubmissionResult =
@@ -296,6 +307,15 @@ export async function submitSessionLocalPr(
     if (request.fastLane === true && !request.sessionId) {
       return { submitted: false, reason: "error", detail: "fast lane requires a Concordia session" };
     }
+    // GitHub lane is a route choice, not a Revisor planning outcome. Decide it before any
+    // Revisor read so an unavailable local service cannot turn the intended skip into an error.
+    if (request.revisorLane === "github") {
+      deps.log.info(
+        { session_id: request.sessionId, repository: request.repository, branch: request.branch, reason: "team_revisor_lane_github" },
+        "local PR submission skipped",
+      );
+      return { submitted: false, reason: "team_revisor_lane_github" };
+    }
     const [registrations, openPullRequests] = await Promise.all([
       deps.revisor.listRepositories(),
       deps.revisor.listLocalPullRequests(),
@@ -318,6 +338,7 @@ export async function submitSessionLocalPr(
       openPullRequests,
       hasCommits: commits.length > 0,
       fastLane: request.fastLane === true,
+      revisorLane: request.revisorLane,
     });
     if (!plan.submit && "retry" in plan) {
       let pullRequest = await deps.revisor.retryLocalPullRequest(plan.pullRequestId);

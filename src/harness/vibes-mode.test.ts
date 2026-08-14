@@ -10,6 +10,22 @@ describe("vibes mode harness", () => {
     expect(noOpTestInWorktree({ ...command, vibesClaimActive: true })).toBeNull();
   });
 
+  it("team settings test_policy=custos-unity keeps direct starts denied and routes them to Custos", () => {
+    const command = { tool: "Bash", command: "npm run dev", isWorktree: true };
+    const service = noServiceStartInSession({ ...command, teamTestPolicy: "custos-unity" as const });
+    const operational = noOpTestInWorktree({ ...command, teamTestPolicy: "custos-unity" as const });
+    expect(service).toEqual(expect.objectContaining({ rule: "custos-unity-required", decision: "deny" }));
+    expect(operational).toEqual(expect.objectContaining({ rule: "custos-unity-required", decision: "deny" }));
+    expect(service?.suggestion).toContain("Custos");
+    expect(operational?.suggestion).toContain("Custos");
+  });
+
+  it("team settings test_policy=confirm-queue does not bypass the hard denies (fallback to current behavior)", () => {
+    const command = { tool: "Bash", command: "npm run dev", isWorktree: true };
+    expect(noServiceStartInSession({ ...command, teamTestPolicy: "confirm-queue" as const })?.decision).toBe("deny");
+    expect(noOpTestInWorktree({ ...command, teamTestPolicy: "confirm-queue" as const })?.decision).toBe("deny");
+  });
+
   it("denies edits outside scope and protected edits inside scope", () => {
     const base = { tool: "Edit", contractMode: "vibes" as const, contractScopeDirs: ["web/src"] };
     expect(vibesScope({ ...base, filePath: "web/src/pages/Home.tsx" })).toBeNull();

@@ -108,7 +108,7 @@ export interface HarnessSessionApiDeps {
    * gate ハンドラがこれを {@link HarnessAction.targetProject} に注入する。
    */
   sessionScope?: (sessionId: string) => string | null;
-  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean; contractComplete?: boolean; planApproved?: boolean; contractMode?: "plan" | "vibes"; contractScopeDirs?: string[]; vibesClaimActive?: boolean; teamId?: string | null } | null;
+  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean; contractComplete?: boolean; planApproved?: boolean; contractMode?: "plan" | "vibes"; contractScopeDirs?: string[]; vibesClaimActive?: boolean; teamId?: string | null; teamTestPolicy?: "confirm-queue" | "custos-unity"; teamWorktreePolicy?: "allowed" | "repo-root-only"; teamVisibility?: "public" | "private" } | null;
   strongImplModels?: () => string[];
   /**
    * main 直 push を許可するリポ (ディレクトリ名 or 絶対パス)。 未注入なら例外なし =
@@ -197,6 +197,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       contractMode: sessionContext?.contractMode,
       contractScopeDirs: sessionContext?.contractScopeDirs,
       vibesClaimActive: sessionContext?.vibesClaimActive,
+      teamTestPolicy: sessionContext?.teamTestPolicy,
+      teamWorktreePolicy: sessionContext?.teamWorktreePolicy,
+      teamVisibility: sessionContext?.teamVisibility,
       editedFiles,
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。

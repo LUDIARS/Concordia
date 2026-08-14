@@ -16,15 +16,18 @@ export function startVibesLifecycle(input: {
   claimSec?: number;
   responseSec?: number;
   intervalMs?: number;
+  /** team settings の vibes_defaults.claim_sec (teams §3.1)。 未所属・未設定は既定 claimSec。 */
+  resolveTeamClaimSec?: (session: { team_id?: string | null; repo_origin: string | null; repo_path: string }) => number | null;
 }): { stop(): void } {
-  const claimSec = input.claimSec ?? Number(process.env.CONCORDIA_VIBES_CLAIM_SEC ?? 3600);
+  const defaultClaimSec = input.claimSec ?? Number(process.env.CONCORDIA_VIBES_CLAIM_SEC ?? 3600);
   const responseSec = input.responseSec ?? 300;
   const tick = () => {
     const now = Math.floor(Date.now() / 1000);
     for (const claim of input.claims.listUnreleased()) {
-      if (now - claim.started_at < claimSec) continue;
       const session = input.sessions.findSession(claim.session_id);
       if (!session || session.status !== "active") continue;
+      const claimSec = input.resolveTeamClaimSec?.(session) ?? defaultClaimSec;
+      if (now - claim.started_at < claimSec) continue;
       let metadata: Record<string, unknown> = {};
       try { metadata = session.metadata ? JSON.parse(session.metadata) as Record<string, unknown> : {}; } catch { /* legacy metadata */ }
       const requestedAt = typeof metadata.vibes_extension_requested_at === "number" ? metadata.vibes_extension_requested_at : null;

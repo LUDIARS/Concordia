@@ -57,4 +57,88 @@ describe("startVibesLifecycle", () => {
       handle.stop();
     }
   });
+
+  it("uses the team's vibes_defaults.claim_sec instead of the global default when resolved", async () => {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const claims = new TestingClaimsRepo(db);
+    const questions = makeDiscordPendingQuestionsRepo(db);
+    const now = Math.floor(Date.now() / 1000);
+    sessions.insertSession({
+      id: "session-team",
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      repo_origin: "LUDIARS/Concordia",
+      branch: "feat/vibes",
+      host: "test-host",
+      started_at: now,
+      last_seen_at: now,
+      transcript_path: null,
+      metadata: null,
+      team_id: "team-short-claim",
+    });
+    // claim が始まったのは十分過去 (グローバル既定 3600 秒未満・チーム既定 5 秒は超過)。
+    claims.claim({ service: "service-a", session_id: "session-team", now: now - 30 });
+
+    const handle = startVibesLifecycle({
+      sessions,
+      claims,
+      questions,
+      intervalMs: 20,
+      resolveTeamClaimSec: (session) => (session.team_id === "team-short-claim" ? 5 : null),
+    });
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const question = questions.findUnansweredByQuestion(
+        "session-team",
+        "Vibes testing claim has reached its time limit: service-a",
+      );
+      expect(question).not.toBeNull();
+    } finally {
+      handle.stop();
+    }
+  });
+
+  it("falls back to the global default claimSec when the session has no team (fallback)", async () => {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const claims = new TestingClaimsRepo(db);
+    const questions = makeDiscordPendingQuestionsRepo(db);
+    const now = Math.floor(Date.now() / 1000);
+    sessions.insertSession({
+      id: "session-no-team",
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      repo_origin: "LUDIARS/Concordia",
+      branch: "feat/vibes",
+      host: "test-host",
+      started_at: now,
+      last_seen_at: now,
+      transcript_path: null,
+      metadata: null,
+    });
+    // claim が始まったのはごく直近 (短い明示 claimSec=5 未満なので extend 質問は出ないはず)。
+    claims.claim({ service: "service-a", session_id: "session-no-team", now });
+
+    const handle = startVibesLifecycle({
+      sessions,
+      claims,
+      questions,
+      claimSec: 5,
+      intervalMs: 20,
+      resolveTeamClaimSec: () => null,
+    });
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      const question = questions.findUnansweredByQuestion(
+        "session-no-team",
+        "Vibes testing claim has reached its time limit: service-a",
+      );
+      expect(question).toBeNull();
+    } finally {
+      handle.stop();
+    }
+  });
 });

@@ -35,6 +35,8 @@ export type DelegationPosture = "approval" | "investigation";
  *                      (delegation/command-patterns.ts)。 マニュアルの直後に置く。
  * @param posture       起動直後の振る舞い方針 (既定 approval)。
  * @param teamRules     選択チームの委託ルール。 posture と独立して同じ文脈へ差し込む。
+ * @param prRules       選択チームの typed PR ルール (teams §3.1 A層)。 base branch 案内を
+ *                      ヒューリスティック推測からチーム設定優先に切り替える。
  */
 export function buildDelegationContext(
   concordiaUrl = "http://127.0.0.1:11111",
@@ -42,6 +44,7 @@ export function buildDelegationContext(
   commandPatternBlock?: string | null,
   posture: DelegationPosture = "approval",
   teamRules?: { team: string; rules: string } | null,
+  prRules?: { base: string; push: "revisor" } | null,
 ): string {
   const lines: string[] = [
     "## Concordia コンテキスト (この委託セッションについて)",
@@ -92,8 +95,11 @@ export function buildDelegationContext(
     "  Codex はコミットを忘れがちなので、 「動いた/直した」 で止めず必ずコミットまで行います。",
     "- ブランチ運用 (作業ブランチで作業 → push → PR) は委託プロンプト / Cc workflow の completion",
     "  ルールに従います。 コミットメッセージは『何を・なぜ』が分かる粒度で書きます。",
-    "- 起動後は最新の origin base から新規 worktree を作成して実装します。base は origin/develop があれば",
-    "  develop、無ければ main とし、PR base も同じにします。",
+    "- 起動後は最新の origin base から新規 worktree を作成して実装します。" + (
+      prRules?.base
+        ? `base はこのチームの設定により \`${prRules.base}\` に固定します。PR base も同じにします。`
+        : "base は origin/develop があれば develop、無ければ main とし、PR base も同じにします。"
+    ),
     "- ユーザが明示的に指示しない限り、単体・統合・動作・起動を含むテストを実行しません。",
     "- 実装完了の責務は commit + push + PR + delegation status 報告までです。PR 作成後は停止します。",
     "- ユーザが明示的に指示しない限り、merge・squash merge・auto-merge・main 更新を行いません。",

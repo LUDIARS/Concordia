@@ -125,7 +125,7 @@ import type { ImplementationToolsService } from "../implementation-tools/service
 import { workflowGate } from "../workflow/api-gate.js";
 import { isContractComplete, parseContractMetadata } from "../contract/schema.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
-import { teamsRouter } from "./teams.js";
+import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
@@ -428,6 +428,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const testingService = contract?.testing_claim?.value.service ?? null;
           const vibesClaimActive = contract?.mode?.value === "vibes" && !!testingService && !!deps.testingClaims?.listActive(Math.floor(Date.now() / 1000))
             .some((claim) => claim.session_id === id && claim.service === testingService);
+          const teamId = contract?.team?.value ?? s.team_id ?? null;
+          const teamRow = teamId ? deps.teams?.find(teamId) ?? null : null;
+          const teamSettings = teamRow ? parseTeamSettings(teamRow) : null;
           return {
             model: `${s.provider}/${model}`,
             implUnlocked: metadata.impl_unlocked === true,
@@ -437,7 +440,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             contractMode: contract?.mode?.value,
             contractScopeDirs: contract?.scope_dirs?.value,
             vibesClaimActive,
-            teamId: contract?.team?.value ?? s.team_id ?? null,
+            teamId,
+            teamTestPolicy: teamSettings?.test_policy,
+            teamWorktreePolicy: teamSettings?.worktree,
+            teamVisibility: teamSettings?.visibility,
           };
         },
         strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),

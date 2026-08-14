@@ -7,7 +7,9 @@ import {
   branchBeforeEdit,
   maxReposWarn,
   outsideScope,
+  privateTeamPublication,
   repoLeaf,
+  teamWorktreeRestriction,
   MAX_REPOS,
   type HarnessAction,
 } from "./predicates.js";
@@ -184,6 +186,69 @@ describe("repoLeaf", () => {
     expect(repoLeaf("/home/x/Concordia/")).toBe("concordia"); // 末尾スラッシュを無視
     expect(repoLeaf("Lictor")).toBe("lictor"); // プロジェクト名そのまま
     expect(repoLeaf(undefined)).toBe("");
+  });
+});
+
+describe("teamWorktreeRestriction", () => {
+  it("worktree=repo-root-only のチームは worktree 内編集を deny", () => {
+    const hit = teamWorktreeRestriction({
+      tool: "Edit",
+      filePath: "/repo/a.ts",
+      isWorktree: true,
+      teamWorktreePolicy: "repo-root-only",
+    });
+    expect(hit?.decision).toBe("deny");
+    expect(hit?.rule).toBe("team-worktree-restriction");
+  });
+
+  it("同じチームでも repo root (非 worktree) の編集は素通し", () => {
+    expect(teamWorktreeRestriction({
+      tool: "Edit",
+      filePath: "/repo/a.ts",
+      isWorktree: false,
+      teamWorktreePolicy: "repo-root-only",
+    })).toBeNull();
+  });
+
+  it("team 未所属 (teamWorktreePolicy 未指定) は worktree 内編集でも強制しない (フォールバック)", () => {
+    expect(teamWorktreeRestriction({ tool: "Edit", filePath: "/repo/a.ts", isWorktree: true })).toBeNull();
+  });
+
+  it("worktree=allowed のチームは worktree 内編集を強制しない", () => {
+    expect(teamWorktreeRestriction({
+      tool: "Edit",
+      filePath: "/repo/a.ts",
+      isWorktree: true,
+      teamWorktreePolicy: "allowed",
+    })).toBeNull();
+  });
+
+  it("編集系でないツールは対象外", () => {
+    expect(teamWorktreeRestriction({
+      tool: "Bash",
+      command: "ls",
+      isWorktree: true,
+      teamWorktreePolicy: "repo-root-only",
+    })).toBeNull();
+  });
+});
+
+describe("privateTeamPublication", () => {
+  it("warns before a private team's artifact is published externally", () => {
+    expect(privateTeamPublication({
+      tool: "Bash",
+      command: "gh release create v1.0.0",
+      teamVisibility: "private",
+    })).toEqual(expect.objectContaining({
+      rule: "private-team-publication",
+      decision: "warn",
+    }));
+  });
+
+  it("does not change public or team-unset behavior", () => {
+    const action = { tool: "Bash", command: "gh release create v1.0.0" };
+    expect(privateTeamPublication({ ...action, teamVisibility: "public" })).toBeNull();
+    expect(privateTeamPublication(action)).toBeNull();
   });
 });
 

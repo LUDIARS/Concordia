@@ -108,6 +108,16 @@ describe("planLocalPrSubmission", () => {
     }];
     expect(plan({ openPullRequests })).toEqual({ submit: false, reason: "already_open" });
   });
+
+  it("skips submission with a named reason when the team's revisor_lane is github", () => {
+    expect(plan({ revisorLane: "github" }))
+      .toEqual({ submit: false, reason: "team_revisor_lane_github" });
+  });
+
+  it("submits as usual when revisor_lane is local or unset (team-unset fallback)", () => {
+    expect(plan({ revisorLane: "local" }).submit).toBe(true);
+    expect(plan({ revisorLane: undefined }).submit).toBe(true);
+  });
 });
 
 function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPrGateway {
@@ -568,6 +578,23 @@ describe("submitSessionLocalPr", () => {
       pullRequest: expect.objectContaining({ id: "pr-9" }),
     });
     expect(promoteLocalPullRequest).not.toHaveBeenCalled();
+  });
+
+  it("does not submit local PR for a team configured with revisor_lane=github", async () => {
+    const listRepositories = vi.fn(gateway().listRepositories);
+    const listLocalPullRequests = vi.fn(gateway().listLocalPullRequests);
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+    const result = await submitSessionLocalPr({
+      revisor: gateway({ listRepositories, listLocalPullRequests, submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, { ...request, revisorLane: "github" });
+
+    expect(result).toEqual({ submitted: false, reason: "team_revisor_lane_github" });
+    expect(listRepositories).not.toHaveBeenCalled();
+    expect(listLocalPullRequests).not.toHaveBeenCalled();
+    expect(submitLocalPullRequest).not.toHaveBeenCalled();
   });
 
   // セッション終了処理をレビュー発火の失敗で壊さない。

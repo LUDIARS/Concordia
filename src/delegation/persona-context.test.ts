@@ -121,4 +121,25 @@ describe("buildDelegationContext", () => {
       expect(ctx).not.toContain("### 勝手に作業しない (重要)");
     });
   });
+
+  describe("pr_rules (team settings)", () => {
+    it("pr_rules.base が渡されると base branch 案内をそのブランチに固定する", () => {
+      const ctx = buildDelegationContext(
+        "http://127.0.0.1:11111",
+        null,
+        null,
+        "approval",
+        null,
+        { base: "develop", push: "revisor" },
+      );
+      expect(ctx).toContain("base はこのチームの設定により `develop` に固定します。");
+      expect(ctx).not.toContain("base は origin/develop があれば");
+    });
+
+    it("prRules 未指定は従来どおりのヒューリスティック文言 (team 未所属フォールバック)", () => {
+      const ctx = buildDelegationContext("http://127.0.0.1:11111");
+      expect(ctx).toContain("base は origin/develop があれば");
+      expect(ctx).toContain("develop、無ければ main とし");
+    });
+  });
 });

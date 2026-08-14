@@ -115,6 +115,8 @@ export interface DelegationServiceDeps {
    */
   commandPatterns?: (taskText: string) => Promise<string | null>;
   teamRules?: (teamIdOrSlug: string) => { id: string; team: string; rules: string } | null;
+  /** team settings `pr_rules` (teams §3.1)。 委託 brief の base branch 案内へ反映する。 */
+  teamPrRules?: (teamIdOrSlug: string) => { base: string; push: "revisor" } | null;
   /**
    * 段階注入 (初回=調査ブリーフ / 後追い=実装タスク) を使うか。 毎回評価するので
    * 設定変更が再起動なしで効く。 未注入なら有効 (既定 ON)。
@@ -447,6 +449,7 @@ export class DelegationService {
       commandPatternBlock,
       staged.staged ? "investigation" : "approval",
       typeof effectiveOptions.team === "string" ? this.deps.teamRules?.(effectiveOptions.team) ?? null : null,
+      typeof effectiveOptions.team === "string" ? this.deps.teamPrRules?.(effectiveOptions.team) ?? null : null,
     );
     const promptSection = staged.staged
       ? buildInvestigationBrief({

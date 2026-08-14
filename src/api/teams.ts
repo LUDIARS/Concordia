@@ -5,7 +5,8 @@ import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import { eventBus } from "../events.js";
 
 const PrRulesSchema = z.object({
-  base: z.string().trim().min(1).max(200),
+  base: z.string().trim().min(1).max(200)
+    .refine(isSafeGitBranchName, "invalid git branch name"),
   push: z.literal("revisor"),
 }).strict();
 
@@ -36,6 +37,23 @@ const CreateSchema = z.object({
 const PatchSchema = CreateSchema.partial();
 
 export type TeamSettings = z.infer<typeof SettingsSchema>;
+
+/**
+ * `pr_rules.base` is rendered into delegation instructions and may later be passed to Git.
+ * Keep the accepted subset deliberately conservative so control characters, Markdown escapes,
+ * and refname metacharacters cannot turn a typed setting into prompt or command syntax.
+ */
+function isSafeGitBranchName(value: string): boolean {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value)) return false;
+  if (value === "@" || value.includes("..") || value.includes("//") || value.includes("@{")) return false;
+  return value.split("/").every((segment) =>
+    segment.length > 0 && !segment.startsWith(".") && !segment.endsWith(".") && !segment.endsWith(".lock"));
+}
+
+/** teams.settings_json を typed TeamSettings へ解決する。下流の消費経路の共通入口。 */
+export function parseTeamSettings(row: TeamRow): TeamSettings {
+  return SettingsSchema.parse(JSON.parse(row.settings_json) as unknown);
+}
 
 export function teamsRouter(repo: TeamsRepo): Hono {
   const app = new Hono();
@@ -79,6 +97,5 @@ export function teamsRouter(repo: TeamsRepo): Hono {
 }
 
 function serializeTeam(repo: TeamsRepo, row: TeamRow): TeamRow & { settings: TeamSettings; repos: string[] } {
-  const settings = SettingsSchema.parse(JSON.parse(row.settings_json) as unknown);
-  return { ...row, settings, repos: repo.repos(row.id) };
+  return { ...row, settings: parseTeamSettings(row), repos: repo.repos(row.id) };
 }

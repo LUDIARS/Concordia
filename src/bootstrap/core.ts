@@ -71,6 +71,7 @@ import { startContractLifecycle } from "../contract/lifecycle.js";
 import { ModelReviewContractAdapter } from "../contract/model-review-adapter.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
 import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
@@ -504,6 +505,10 @@ export async function startBackend(): Promise<BackendHandle> {
       const team = teamsRepo.findByIdOrSlug(value);
       return team ? { id: team.id, team: team.name, rules: team.rules_text } : null;
     },
+    teamPrRules: (value) => {
+      const team = teamsRepo.findByIdOrSlug(value);
+      return team ? parseTeamSettings(team).pr_rules ?? null : null;
+    },
     // 段階注入 (初回=調査ブリーフ / 後追い=実装タスク)。設定は都度解決する。
     resolveStagedInjectionEnabled: () => adminState.getDelegationStagedInjectionEnabled(),
   });
@@ -713,6 +718,17 @@ export async function startBackend(): Promise<BackendHandle> {
       { ...localPrDeps, resolveWorkspaceRoots: () => adminState.getWorkspaceRoots() },
       request,
     );
+  const resolveSessionTeam = (session: { team_id?: string | null; repo_origin: string | null; repo_path: string }) => {
+    if (session.team_id) return teamsRepo.find(session.team_id) ?? undefined;
+    const teams = teamsRepo.forRepo(session.repo_origin ?? session.repo_path);
+    return teams.length === 1 ? teams[0] : undefined;
+  };
+  // team settings `revisor_lane` (teams §3.1) の解決。 session.team_id が無ければ
+  // repo_origin/repo_path から一意なチームを引く (contract seed と同じ既定規則)。
+  const resolveSessionRevisorLane = (session: { team_id?: string | null; repo_origin: string | null; repo_path: string }): "local" | "github" | undefined => {
+    const team = resolveSessionTeam(session);
+    return team ? parseTeamSettings(team).revisor_lane : undefined;
+  };
   const submitLocalPrForSession = async (
     sessionId: string,
     options: { fastLane?: boolean } = {},
@@ -727,6 +743,7 @@ export async function startBackend(): Promise<BackendHandle> {
         repository: session.repo_origin,
         branch: session.branch,
         fastLane: options.fastLane === true,
+        revisorLane: resolveSessionRevisorLane(session),
       },
     );
   };
@@ -1303,7 +1320,15 @@ export async function startBackend(): Promise<BackendHandle> {
       questions: pendingQuestions,
       reviewFor: (provider) => new ModelReviewContractAdapter(modelReview, provider),
       resolveService: resolveServiceCode,
-      resolveTeams: (repoOrigin) => teamsRepo.forRepo(repoOrigin).map(team=>({id:team.id,name:team.name})),
+      resolveTeams: (repoOrigin) => teamsRepo.forRepo(repoOrigin).map((team) => ({
+        id: team.id,
+        name: team.name,
+        settings: parseTeamSettings(team),
+      })),
+      resolveTeamSettings: (teamId) => {
+        const team = teamsRepo.find(teamId);
+        return team ? parseTeamSettings(team) : null;
+      },
       onCompleted: (sessionId, contract) => {
         if (contract.mode?.value !== "vibes") return;
         const service = contract.testing_claim?.value.service;
@@ -1328,7 +1353,16 @@ export async function startBackend(): Promise<BackendHandle> {
       }, id),
       estimateContextPct: async (session) => (await estimateContextTokens(session))?.pct ?? null,
     }));
-    trackPostListenHandle(startVibesLifecycle({ sessions: repo, claims: testingClaims, questions: pendingQuestions }));
+    trackPostListenHandle(startVibesLifecycle({
+      sessions: repo,
+      claims: testingClaims,
+      questions: pendingQuestions,
+      resolveTeamClaimSec: (session) => {
+        const team = resolveSessionTeam(session);
+        const claimSec = team ? parseTeamSettings(team).vibes_defaults?.claim_sec : undefined;
+        return claimSec ?? null;
+      },
+    }));
     trackPostListenHandle({ stop: eventBus.subscribe((event) => {
       if (event.type !== "vibes.ok") return;
       const session = repo.findSession(event.session_id);

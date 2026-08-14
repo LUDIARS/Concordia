@@ -117,6 +117,21 @@ updated: 2026-08-13
 - plan の設問・設計中に「実は軽微」と判明したら、 人間承認でのみ vibes へ降格できる
   (自動降格はしない — 封鎖を開ける方向は常に人間)。
 
+### 実装 (contract-mode-switch)
+
+- 切替は `src/contract/mode-switch.ts` が契約更新 (human tier) として行い、
+  `preserveHumanDecisions` で task-change 再シードでも保持される。
+- 昇格: vibes-file-limit の質問カード回答 (`startModeSwitchAnswers` が消費)、 または
+  `POST /v1/sessions/:id/contract/mode-switch {target:"plan"}` で即時適用。 適用時に
+  testing claim release + `plan_approved=false` で plan gate (`plan-unapproved`) を立て直す。
+  カードの Stop 回答は claim release + session blocked。
+- 降格: `POST /v1/sessions/:id/contract/mode-switch {target:"vibes"}` は承認カードを
+  投稿するだけで契約を変更しない。 人間の承認回答だけが vibes へ書き換え、 確定時に
+  testing claim を自動取得する。 汎用 `PATCH /v1/sessions/:id/contract` は `mode` を
+  受け付けない (`mode_switch_required`) — 無承認降格の抜け道を残さない。
+- 切替カードの状態遷移は明示した選択肢の回答だけを受理し、自由入力は承認や Stop として
+  解釈しない。
+
 ## 6. 受け入れ基準
 
 - [ ] mode=plan のセッションは承認済みプランが出るまでコード編集が deny される。

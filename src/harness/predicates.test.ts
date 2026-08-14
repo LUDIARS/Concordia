@@ -7,6 +7,7 @@ import {
   branchBeforeEdit,
   maxReposWarn,
   outsideScope,
+  planUnapproved,
   privateTeamPublication,
   repoLeaf,
   teamWorktreeRestriction,
@@ -283,5 +284,26 @@ describe("outsideScope", () => {
     expect(
       outsideScope({ tool: "Bash", command: "ls", cwd: "/x/Memoria", targetProject: "Lictor" }),
     ).toBeNull();
+  });
+});
+
+describe("planUnapproved", () => {
+  it("プラン未承認 (planApproved=false) のコード編集を deny する", () => {
+    const hit = planUnapproved({ tool: "Edit", filePath: "E:/repo/src/a.ts", planApproved: false });
+    expect(hit?.decision).toBe("deny");
+    expect(hit?.rule).toBe("plan-unapproved");
+    expect(planUnapproved({ tool: "Write", filePath: "E:/repo/src/b.ts", planApproved: false })?.decision).toBe("deny");
+  });
+
+  it(".md / spec / docs はプラン未承認でも編集できる (プラン自体・調査メモ)", () => {
+    expect(planUnapproved({ tool: "Edit", filePath: "E:/repo/plan.md", planApproved: false })).toBeNull();
+    expect(planUnapproved({ tool: "Edit", filePath: "E:/repo/spec/feature/x.ts", planApproved: false })).toBeNull();
+    expect(planUnapproved({ tool: "Write", filePath: "E:\\repo\\docs\\note.txt", planApproved: false })).toBeNull();
+  });
+
+  it("承認済み / 判定不能 (undefined) / 非編集ツールは強制しない", () => {
+    expect(planUnapproved({ tool: "Edit", filePath: "E:/repo/src/a.ts", planApproved: true })).toBeNull();
+    expect(planUnapproved({ tool: "Edit", filePath: "E:/repo/src/a.ts" })).toBeNull();
+    expect(planUnapproved({ tool: "Bash", command: "git status", planApproved: false })).toBeNull();
   });
 });

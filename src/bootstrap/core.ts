@@ -68,6 +68,7 @@ import { startBranchWatch } from "../testing/branch-watch.js";
 import { startEndSessionRequestWatch } from "../control/end-session-request.js";
 import { endSessionNow } from "../control/end-session-command.js";
 import { startContractLifecycle } from "../contract/lifecycle.js";
+import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter } from "../contract/model-review-adapter.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { TeamsRepo } from "../db/teams-repo.js";
@@ -1339,6 +1340,30 @@ export async function startBackend(): Promise<BackendHandle> {
           sessionId,
           branch: session?.branch ?? null,
           note: "Automatically acquired for completed vibes-mode contract",
+          now: Math.floor(Date.now() / 1000),
+        });
+      },
+    }));
+    // vibes ↔ plan モード切替カード (昇格 / 降格承認) の回答を契約更新へ接続する。
+    // 降格確定時の testing claim 自動取得は onCompleted (上の契約確定時) と同じ形。
+    trackPostListenHandle(startModeSwitchAnswers({
+      sessions: repo,
+      questions: pendingQuestions,
+      claims: testingClaims,
+      resolveService: resolveServiceCode,
+      resolveTeamSettings: (teamId) => {
+        const team = teamsRepo.find(teamId);
+        return team ? parseTeamSettings(team) : null;
+      },
+      onDemoted: (sessionId, contract) => {
+        const service = contract.testing_claim?.value.service;
+        if (!service) return;
+        const session = repo.findSession(sessionId);
+        openTestingClaim(testingClaims, {
+          service,
+          sessionId,
+          branch: session?.branch ?? null,
+          note: "Automatically acquired for human-approved vibes demotion",
           now: Math.floor(Date.now() / 1000),
         });
       },

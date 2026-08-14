@@ -9,6 +9,8 @@ import type { TasksRepo } from "../db/tasks-repo.js";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { ConcordiaConfig } from "../shared/config.js";
 import { sessionsRouter } from "./sessions.js";
+import { contractModeSwitchRouter } from "./contract-mode-switch.js";
+import { VIBES_PROMOTION_QUESTION, VIBES_PROMOTION_OPTIONS } from "../contract/mode-switch.js";
 import { reportsRouter } from "./reports.js";
 import { sessionLogsRouter } from "./session-logs.js";
 import { setupRouter } from "./setup.js";
@@ -269,6 +271,19 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       harnessAudit: deps.harnessAudit,
     }),
   );
+  // vibes ↔ plan の契約モード切替 (昇格=即時 / 降格=承認カード経由のみ)。
+  app.route(
+    "/v1/sessions",
+    contractModeSwitchRouter({
+      sessions: deps.repo,
+      questions: deps.pendingQuestions,
+      claims: deps.testingClaims,
+      resolveTeamSettings: (teamId) => {
+        const team = deps.teams?.find(teamId);
+        return team ? parseTeamSettings(team) : null;
+      },
+    }),
+  );
   app.route("/v1/push", pushRouter({ repo: deps.webPush, service: deps.webPushService }));
   app.route("/v1/processes", processesRouter({ manager: deps.processManager, repo: deps.processes }));
   app.route(
@@ -450,12 +465,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         mainPushAllowlist: () => deps.adminState.getHarnessMainPushAllowlist(),
         mentionUserId: () => deps.adminState.getMentionUserId(),
         onVibesFileLimit: (sessionId) => {
-          const questionText = "Vibes mode reached its edited-file limit. Promote this task to plan mode?";
-          if (deps.pendingQuestions.findUnansweredByQuestion(sessionId, questionText)) return;
-          const row = deps.pendingQuestions.insert({ session_id: sessionId, question: questionText, options: [
-            { label: "Promote to plan", description: "Release the testing claim and enter design approval." },
-            { label: "Stop", description: "Keep the current branch and block this run." },
-          ] });
+          // 質問文・選択肢は contract/mode-switch.ts と共有 — 回答の消費側 (startModeSwitchAnswers)
+          // が文面一致で契約更新へ接続する。
+          if (deps.pendingQuestions.findUnansweredByQuestion(sessionId, VIBES_PROMOTION_QUESTION)) return;
+          const row = deps.pendingQuestions.insert({ session_id: sessionId, question: VIBES_PROMOTION_QUESTION, options: [...VIBES_PROMOTION_OPTIONS] });
           eventBus.emit({ type: "question.posted", target_session_id: sessionId, question_id: row.id, question: row.question, options: JSON.parse(row.options_json), ts: row.ts });
         },
       }),

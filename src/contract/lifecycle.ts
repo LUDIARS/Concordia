@@ -9,6 +9,7 @@ import { postContractQuestion, postTeamQuestion, startContractQuestionAnswers } 
 import { undecidedFields } from "./seed-rules.js";
 import type { ContractReviewPort } from "./review-port.js";
 import { SessionContractSchema } from "./schema.js";
+import { applyContractModelEffort, type ApplyModelEffortFn } from "./runtime-apply.js";
 import { createChildLogger } from "../shared/logger.js";
 const log = createChildLogger("session-contract");
 
@@ -25,6 +26,8 @@ interface ContractLifecycleInput {
   resolveService?: (repoName: string) => string | null | Promise<string | null>;
   resolveTeams?: ResolveTeams;
   resolveTeamSettings?: ResolveTeamSettings;
+  /** 契約の model / effort 決定 (llm / human) を Lictor runtime へ反映する口。 */
+  applyModelEffort?: ApplyModelEffortFn;
   onCompleted?: (sessionId: string, contract: SessionContract) => void;
 }
 
@@ -37,6 +40,8 @@ export async function ensureSessionContract(
   review?: ContractReviewPort,
   resolveTeams?: ResolveTeams,
   resolveTeamSettings?: ResolveTeamSettings,
+  applyModelEffort?: ApplyModelEffortFn,
+  trigger?: "spawn" | "task-change",
 ): Promise<void> {
   const row = sessions.findSession(sessionId); if (!row) return;
   const existing = parseContractMetadata(row.metadata);
@@ -50,11 +55,21 @@ export async function ensureSessionContract(
   if (!selectedTeamId && teams.length > 1) seeded.team = null;
   let merged = existing ? preserveHumanDecisions(seeded, existing) : seeded;
   if (review) {
-    const reviewed = await review.review({ task, repoPath: row.repo_path, unresolved: undecidedFields(merged) as import("./schema.js").ContractField[], seeded: merged });
+    const reviewed = await review.review({
+      trigger: trigger ?? (existing ? "task-change" : "spawn"),
+      task,
+      repoPath: row.repo_path,
+      unresolved: undecidedFields(merged) as import("./schema.js").ContractField[],
+      seeded: merged,
+    });
     const parsed = SessionContractSchema.safeParse({ ...merged, ...reviewed });
     if (parsed.success) merged = parsed.data;
   }
   saveContract(sessions, sessionId, merged, existing ? "task-change" : "spawn-or-first-instruction");
+  if (applyModelEffort) {
+    const applied = await applyContractModelEffort({ sessions, sessionId, contract: merged, apply: applyModelEffort });
+    if (applied.ok === false) log.warn({ session_id: sessionId, message: applied.message }, "contract model/effort runtime apply failed");
+  }
   if (questions) postContractQuestion({ questions, sessionId, unresolved: undecidedFields(merged) });
   if (questions && !selectedTeamId && teams.length > 1) {
     postTeamQuestion({ questions, sessionId, teams });
@@ -72,14 +87,14 @@ function preserveHumanDecisions(seeded: SessionContract, existing: SessionContra
 
 export function startContractLifecycle(input: ContractLifecycleInput): { stop(): void } {
   for (const row of input.sessions.listSessions({ status: "active" })) {
-    if (!parseContractMetadata(row.metadata)) void ensureSessionContract(input.sessions, row.id, row.current_task ?? "session", input.supervisor(), input.questions, input.reviewFor?.(row.provider), input.resolveTeams, input.resolveTeamSettings).catch((error) => log.warn({ error, session_id: row.id }, "initial contract failed"));
+    if (!parseContractMetadata(row.metadata)) void ensureSessionContract(input.sessions, row.id, row.current_task ?? "session", input.supervisor(), input.questions, input.reviewFor?.(row.provider), input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn").catch((error) => log.warn({ error, session_id: row.id }, "initial contract failed"));
   }
   const unsubscribe = eventBus.subscribe((event) => {
     const row = "session_id" in event && typeof event.session_id === "string"
       ? input.sessions.findSession(event.session_id)
       : null;
-    if (event.type === "session.started") void ensureSessionContract(input.sessions, event.session_id, row?.current_task ?? "session", input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings).catch((error) => log.warn({ error }, "spawn contract failed"));
-    if (event.type === "session.task_changed" && event.current_task) void ensureSessionContract(input.sessions, event.session_id, event.current_task, input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings).catch((error) => log.warn({ error }, "task contract failed"));
+    if (event.type === "session.started") void ensureSessionContract(input.sessions, event.session_id, row?.current_task ?? "session", input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn").catch((error) => log.warn({ error }, "spawn contract failed"));
+    if (event.type === "session.task_changed" && event.current_task) void ensureSessionContract(input.sessions, event.session_id, event.current_task, input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "task-change").catch((error) => log.warn({ error }, "task contract failed"));
   });
   const answers = input.questions ? startContractQuestionAnswers({
     sessions: input.sessions,
@@ -87,6 +102,7 @@ export function startContractLifecycle(input: ContractLifecycleInput): { stop():
     resolveService: input.resolveService,
     resolveTeam: (repo, name) => input.resolveTeams?.(repo).find((team) => team.name === name)?.id ?? null,
     resolveTeamSettings: input.resolveTeamSettings,
+    applyModelEffort: input.applyModelEffort,
     onCompleted: input.onCompleted,
   }) : null;
   return { stop: () => { unsubscribe(); answers?.stop(); } };

@@ -125,4 +125,65 @@ describe("startContractQuestionAnswers", () => {
       handle.stop();
     }
   });
+
+  it("applies model/effort decisions completed by a human answer to the runtime", async () => {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const questions = makeDiscordPendingQuestionsRepo(db);
+    const session = {
+      id: "session-runtime-apply",
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      repo_origin: "LUDIARS/Concordia",
+      branch: "feat/contract",
+      host: "test-host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: JSON.stringify({ model: "gpt-5-codex", effort_level: "medium" }),
+    } as SessionRow;
+    const contract = seedSessionContract(session, "small fix", "discord:1");
+    contract.model = {
+      value: "gpt-5.3-codex",
+      decided_by: "llm",
+      rationale: "review result",
+      genius_card_ids: ["card-1"],
+    };
+    sessions.insertSession({ ...session, active_repos: [], metadata: JSON.stringify({
+      model: "gpt-5-codex",
+      effort_level: "medium",
+      contract,
+    }) });
+    const question = questions.insert({
+      session_id: session.id,
+      question: "セッション契約の未決項目: mode",
+      options: ["plan", "vibes"],
+    });
+    const apply = vi.fn().mockResolvedValue({ ok: true, message: "switched" });
+    const handle = startContractQuestionAnswers({
+      sessions,
+      questions,
+      applyModelEffort: apply,
+    });
+
+    try {
+      eventBus.emit({
+        type: "question.answered",
+        target_session_id: session.id,
+        question_id: question.id,
+        answer_index: 0,
+        answer_text: "plan",
+        ts: 2,
+      });
+      await vi.waitFor(() => {
+        expect(apply).toHaveBeenCalledWith({
+          sessionId: session.id,
+          model: "gpt-5.3-codex",
+          effort: "medium",
+        });
+      });
+    } finally {
+      handle.stop();
+    }
+  });
 });

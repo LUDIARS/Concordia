@@ -26,15 +26,18 @@ export function resolveTeamWorkLocation(
 
 export function seedSessionContract(session: SessionRow, task: string, defaultSupervisor: string, teamId?: string | null, teamSettings?: TeamContractSettings | null): SessionContract {
   const mode = PLAN_PATTERN.test(task) ? "plan" : null;
-  const model = metadataString(session.metadata, "model");
-  const effort = metadataString(session.metadata, "effort_level");
+  const model = readRuntimeModel(session.metadata);
+  const effort = readRuntimeEffort(session.metadata);
   const workLocation = resolveTeamWorkLocation(mode, teamSettings);
   return {
     version: 1,
     mode: mode ? decided(mode, "高リスク作業を決定論で検出") : null,
     team: decided(teamId ?? null, teamId ? "repository has one configured team" : "team 未導入・未所属を明示"),
-    model: decided(model ?? session.provider, model ? "現在の session runtime" : "現在の session provider"),
-    effort: decided(effort ?? "medium", effort ? "現在の session runtime" : "既定 effort"),
+    // runtime が実際に報告した model / effort だけを seed とする。 不明なら null のまま
+    // 残し、 LLM tier (review-port) → 質問カード (human tier) が決める。 provider 名や
+    // 固定 "medium" の埋め草 seed は LLM tier を恒久的に不発にしていたため廃止 (2026-08-14)。
+    model: model ? decided(model, "現在の session runtime") : null,
+    effort: effort ? decided(effort, "現在の session runtime") : null,
     work_branch: decided(session.branch ?? `feat/${slug(task)}`, "checkout branch または task slug"),
     work_location: workLocation
       ? decided(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "plan mode の決定論規則")
@@ -49,6 +52,10 @@ export function seedSessionContract(session: SessionRow, task: string, defaultSu
 }
 
 function metadataString(raw: string | null, key: string): string | null { try { const value = raw ? (JSON.parse(raw) as Record<string, unknown>)[key] : null; return typeof value === "string" && value ? value : null; } catch { return null; } }
+
+/** Lictor 登録時は `model` / `effort_level`、 runtime 切替後は `effort` に載る。 両方読む。 */
+export function readRuntimeModel(metadata: string | null): string | null { return metadataString(metadata, "model"); }
+export function readRuntimeEffort(metadata: string | null): string | null { return metadataString(metadata, "effort") ?? metadataString(metadata, "effort_level"); }
 function metadataBoolean(raw: string | null, key: string, nested: string): boolean | null { try { const root = raw ? (JSON.parse(raw) as Record<string, unknown>)[key] : null; const value = root && typeof root === "object" ? (root as Record<string, unknown>)[nested] : null; return typeof value === "boolean" ? value : null; } catch { return null; } }
 
 export function undecidedFields(contract: SessionContract): string[] { return CONTRACT_FIELDS.filter((field) => contract[field] === null); }

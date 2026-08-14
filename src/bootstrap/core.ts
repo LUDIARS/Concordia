@@ -69,7 +69,7 @@ import { startEndSessionRequestWatch } from "../control/end-session-request.js";
 import { endSessionNow } from "../control/end-session-command.js";
 import { startContractLifecycle } from "../contract/lifecycle.js";
 import { startModeSwitchAnswers } from "../contract/mode-switch.js";
-import { ModelReviewContractAdapter } from "../contract/model-review-adapter.js";
+import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/model-review-adapter.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
@@ -1051,8 +1051,6 @@ export async function startBackend(): Promise<BackendHandle> {
     prOperations: discordPrOperations,
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
-    modelReview,
-    applyRuntimeModelReview: (input) => applyRuntimeModelReview(repo, input),
     onRuntimeState: (state) => {
       discordBotLastStatus = state.status;
       discordBotLastError = state.error ?? null;
@@ -1370,7 +1368,11 @@ export async function startBackend(): Promise<BackendHandle> {
       sessions: repo,
       supervisor: () => process.env.CONCORDIA_DEFAULT_SUPERVISOR?.trim() || `discord:${adminState.getMentionUserId() ?? "unassigned"}`,
       questions: pendingQuestions,
-      reviewFor: (provider) => new ModelReviewContractAdapter(modelReview, provider),
+      reviewFor: (provider) => {
+        const normalized = modelReviewProvider(provider);
+        return normalized ? new ModelReviewContractAdapter(modelReview, normalized) : undefined;
+      },
+      applyModelEffort: (input) => applyRuntimeModelReview(repo, input),
       resolveService: resolveServiceCode,
       resolveTeams: (repoOrigin) => teamsRepo.forRepo(repoOrigin).map((team) => ({
         id: team.id,

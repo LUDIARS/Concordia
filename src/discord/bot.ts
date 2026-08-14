@@ -102,11 +102,6 @@ import { callConcordia } from "./commands/_util.js";
 import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
-import type { ModelReviewPort, RuntimeModelReviewApplyResult } from "../model-review/contracts.js";
-import {
-  renderModelReviewMiss,
-  stageRuntimeModelReview,
-} from "./model-review-dialog.js";
 import { buildContextReport } from "./context-report.js";
 import { renderPlanCard } from "./plan-card.js";
 import { recordPlanCardMessageId, recordQuestionCardMessageId } from "./phase-index.js";
@@ -183,12 +178,6 @@ export interface DiscordBotDeps {
   /** Revisor の Open / Test OK 一覧。Test Forum の候補正本として使う。 */
   revisorTestWorkflow?: RevisorTestWorkflowSource;
   revisor?: RevisorLocalPrReader & RevisorLocalPrMerger;
-  modelReview?: ModelReviewPort;
-  applyRuntimeModelReview?: (input: {
-    sessionId: string;
-    model: string;
-    effort: string;
-  }) => Promise<RuntimeModelReviewApplyResult>;
   /**
    * channel 作成前に届いた transcript frame の埋め戻し (transcript-replay) に使う。
    * 省略時は replay をスキップ (standalone worker 等、 repo を持たない構成)。
@@ -1213,8 +1202,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       pendingQuestionsRepo,
       testSurfacesRepo,
       revisor: deps.revisor,
-      modelReview: deps.modelReview,
-      applyRuntimeModelReview: deps.applyRuntimeModelReview,
       answerQuestion: deps.answerQuestion,
       guild: interaction.guild!,
       layout,
@@ -1462,37 +1449,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })();
       return;
     }
-    if (ev.type === "session.task_changed" && deps.modelReview) {
-      const state = deps.readModel.getSessionRelayState(ev.session_id);
-      const provider = modelReviewProvider(state?.provider ?? null);
-      if (!provider || !ev.current_task?.trim()) return;
-      void (async () => {
-        const outcome = await deps.modelReview!.review({
-          trigger: "task-change",
-          provider,
-          task: ev.current_task!,
-          currentModel: state?.model ?? null,
-          currentEffort: state?.effortLevel ?? null,
-        });
-        const client = await webhooks.getForSession(ev.session_id);
-        if (!client) return;
-        if (outcome.status === "miss") {
-          await webhooks.send(client, {
-            content: renderModelReviewMiss(outcome.reason, "task-change"),
-            username: "Cc model review",
-          });
-          return;
-        }
-        if (outcome.status === "proposal") {
-          await webhooks.send(client, {
-            ...stageRuntimeModelReview({ sessionId: ev.session_id, proposal: outcome }),
-            username: "Cc model review",
-          });
-        }
-      })().catch((error: unknown) =>
-        log.warn(`task model review failed session=${ev.session_id}: ${(error as Error).message}`));
-      return;
-    }
+    // model / effort の task-change 再評価は契約 lifecycle (LLM tier + runtime 反映) に
+    // 吸収された (contract-absorb-model-review)。 単発 mreview ダイアログは撤去済み。
     if (ev.type === "director.plan_submitted") {
       void (async () => {
         const card = renderPlanCard({ caseId: ev.case_id, version: ev.version, markdown: ev.markdown });
@@ -1908,10 +1866,4 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       deps.onRuntimeState?.({ running: false, status: "stopped" });
     },
   };
-}
-
-function modelReviewProvider(provider: string | null): "claude" | "codex" | null {
-  if (provider === "claude" || provider === "claude-code") return "claude";
-  if (provider === "codex" || provider === "codex-cli") return "codex";
-  return null;
 }

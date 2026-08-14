@@ -12,7 +12,35 @@ describe("session contract", () => {
     const contract = seedSessionContract(session, "schema migration", "discord:1");
     expect(contract.mode?.value).toBe("plan");
     expect(contract.work_location?.value).toBe("worktree");
+    // runtime が model / effort を報告していないので seed では決まらない (LLM/human tier 行き)。
+    expect(contract.model).toBeNull();
+    expect(contract.effort).toBeNull();
+    expect(isContractComplete(contract)).toBe(false);
+  });
+
+  it("seeds model/effort only from actually reported runtime metadata", () => {
+    const session = {
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      branch: "feat/x",
+      metadata: JSON.stringify({ model: "gpt-5.3-codex", effort_level: "high" }),
+      target_project: "Cc",
+    } as SessionRow;
+    const contract = seedSessionContract(session, "schema migration", "discord:1");
+    expect(contract.model).toMatchObject({ value: "gpt-5.3-codex", decided_by: "seed" });
+    expect(contract.effort).toMatchObject({ value: "high", decided_by: "seed" });
     expect(isContractComplete(contract)).toBe(true);
+  });
+  it("prefers runtime-switch effort metadata over the launch-time effort", () => {
+    const session = {
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      branch: "feat/x",
+      metadata: JSON.stringify({ model: "gpt-5.3-codex", effort_level: "medium", effort: "high" }),
+      target_project: "Cc",
+    } as SessionRow;
+    const contract = seedSessionContract(session, "schema migration", "discord:1");
+    expect(contract.effort).toMatchObject({ value: "high", decided_by: "seed" });
   });
   it("rejects untyped LLM-shaped values", () => {
     expect(SessionContractSchema.safeParse({ version: 1, mode: { value: "magic" } }).success).toBe(false);

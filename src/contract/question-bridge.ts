@@ -4,7 +4,13 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isContractComplete, parseContractMetadata, type SessionContract } from "./schema.js";
 import { saveContract } from "./store.js";
-import { resolveTeamWorkLocation, type TeamContractSettings } from "./seed-rules.js";
+import {
+  readRuntimeEffort,
+  readRuntimeModel,
+  resolveTeamWorkLocation,
+  type TeamContractSettings,
+} from "./seed-rules.js";
+import { applyContractModelEffort, type ApplyModelEffortFn } from "./runtime-apply.js";
 
 export const TEAM_PREFIX = "Select the team for this repository";
 const log = createChildLogger("contract-question-bridge");
@@ -68,6 +74,7 @@ export function startContractQuestionAnswers(input: {
   resolveService?: (repoName: string) => string | null | Promise<string | null>;
   resolveTeam?: (repo: string, name: string) => string | null;
   resolveTeamSettings?: (teamId: string) => TeamContractSettings | null;
+  applyModelEffort?: ApplyModelEffortFn;
   onCompleted?: (sessionId: string, contract: SessionContract) => void;
 }): { stop(): void } {
   const answer = async (event: ConcordiaEvent): Promise<void> => {
@@ -106,6 +113,7 @@ export function startContractQuestionAnswers(input: {
         "team-question-answer",
         event.ts,
       );
+      await applyModelEffortDecision(input, event.target_session_id, updated);
       if (isContractComplete(updated)) input.onCompleted?.(event.target_session_id, updated);
       return;
     }
@@ -123,8 +131,8 @@ export function startContractQuestionAnswers(input: {
     const completed: SessionContract = {
       ...contract,
       mode: human(mode, "契約カード回答"),
-      model: contract.model ?? human(session.provider, "契約カードで現runtime維持"),
-      effort: contract.effort ?? human("medium", "契約カードで既定effort維持"),
+      model: contract.model ?? human(readRuntimeModel(session.metadata) ?? session.provider, "契約カードで現runtime維持"),
+      effort: contract.effort ?? human(readRuntimeEffort(session.metadata) ?? "medium", "契約カードで現runtime維持"),
       work_location: human(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode回答から導出"),
       acceptance: human(mode === "vibes" ? "human-ok" : "plan", "mode回答から導出"),
       testing_claim: service || mode === "plan"
@@ -132,6 +140,7 @@ export function startContractQuestionAnswers(input: {
         : null,
     };
     const updated = saveContract(input.sessions, event.target_session_id, completed, "contract-question-answer", event.ts);
+    await applyModelEffortDecision(input, event.target_session_id, updated);
     if (isContractComplete(updated)) input.onCompleted?.(event.target_session_id, updated);
   };
   return {
@@ -139,4 +148,21 @@ export function startContractQuestionAnswers(input: {
       void answer(event).catch((error) => log.warn({ error }, "contract question answer failed"));
     }),
   };
+}
+
+async function applyModelEffortDecision(
+  input: { sessions: SessionsRepo; applyModelEffort?: ApplyModelEffortFn },
+  sessionId: string,
+  contract: SessionContract,
+): Promise<void> {
+  if (!input.applyModelEffort) return;
+  const result = await applyContractModelEffort({
+    sessions: input.sessions,
+    sessionId,
+    contract,
+    apply: input.applyModelEffort,
+  });
+  if (result.ok === false) {
+    log.warn({ session_id: sessionId, message: result.message }, "contract question model/effort runtime apply failed");
+  }
 }

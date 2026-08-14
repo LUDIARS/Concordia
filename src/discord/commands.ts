@@ -28,10 +28,6 @@ import { interactionAgeMs } from "./interaction-diagnostics.js";
 import { parseTestControlId } from "./test-forum-controls.js";
 import { handlePanelInteraction, isPanelInteraction } from "./panel-interactions.js";
 import { handleTestForumControl } from "./test-forum-actions.js";
-import {
-  dispatchModelReviewInteraction,
-  isModelReviewInteraction,
-} from "./model-review-dialog.js";
 import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow.js";
 import type { WorkflowKey } from "../workflow/keys.js";
@@ -191,14 +187,6 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     await dispatchPermissionInteraction(interaction, deps);
     return;
   }
-  if (interaction.isButton() && isModelReviewInteraction(interaction)) {
-    await dispatchModelReviewInteraction(interaction, {
-      concordiaUrl: deps.concordiaUrl,
-      applyRuntimeReview: deps.applyRuntimeModelReview,
-      log: deps.log,
-    });
-    return;
-  }
   if (
     (interaction.isButton() || interaction.isStringSelectMenu()) &&
     interaction.customId.startsWith("ctrl:")
@@ -344,7 +332,6 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
     if (id.startsWith("ctrl:spawn:") || id.startsWith("ctrl:spawn-modal:")) {
       return PRIVILEGED_SESSION_SPAWN;
     }
-    if (id.startsWith("mreview:")) return PRIVILEGED_SESSION_SPAWN;
     // コントロールパネルの End Session (ボタン → 選択 → confirm の全段)。
     if (id.startsWith("ctrl:end-session")) {
       return PRIVILEGED_SESSION_END;

@@ -10,19 +10,30 @@ status: implemented
 DiscordからのSession Spawnと、LictorがCcへ通知するtask変更を対象に、同じprovider内の
 model / reasoning effortがタスクに適切かを再評価する。
 
-## Flow
+## Flow (2026-08-14 契約吸収後)
 
-1. Spawn要求または`session.task_changed`を受ける。
-2. 現在のmodel / effortとtaskをGeniusへ問い合わせる。
-3. score閾値以上のカードが無い、またはGenius不在ならcache missとしてDiscordへ記録し、
-   現在値を維持する。missからjudgeへフォールバックしない。
-4. Genius hit時だけ、Ccの小型judgeがmodel catalogとprovider別effort候補から一組を選ぶ。
-5. 現在値と異なる場合だけDiscordに「候補へ切替 / 現在設定を維持」の確認を出す。
-6. Spawn前の承認は候補を明示optionへ変換してから起動する。task変更後の承認はLictorの
-   provider-native endpointへ渡す。
+model / effort 判定はセッション契約 (session-contract) の三段判定へ吸収された
+(contract-absorb-model-review)。 単発の `mreview:` 確認ダイアログと spawn 前 /
+task-change 後の独立経路は撤去済み。
+
+1. `session.started` / `session.task_changed` で契約 lifecycle が走る。
+2. seed tier: runtime が実際に報告した model / effort (`sessions.metadata`) があれば
+   現在値として契約に載せ、 LLM tier の比較対象にする。 不明なら null (未決) のまま渡す。
+3. LLM tier (`src/contract/model-review-adapter.ts`): human 決定で固定されていない model / effort を
+   Genius へ問い合わせる。 miss (score閾値未満 / Genius不在) は未決に戻し、 judge へ
+   フォールバックしない。 Genius hit 時だけ Cc の小型 judge が model catalog と provider 別
+   effort 候補から一組を選び、 `decided_by: "llm"` として契約に記録される。
+4. human tier: なお未決なら契約質問カード (1 枚) に束ねられ、 回答が
+   `decided_by: "human"` で契約に載る。 human 決定は以後の再判定でも最優先で保持される
+   (`preserveHumanDecisions` / `patchContractHuman`)。
+5. 契約の model / effort 決定 (llm / human) が現 runtime と異なる場合、
+   `src/contract/runtime-apply.ts` が Lictor `/v1/runtime/model-effort` へ反映する
+   (旧 `applyRuntimeModelReview` 経路を契約側から呼ぶ)。
 
 ## Runtime switch boundary
 
+- model / effort は英数字と `._:/-` だけからなる識別子に限定し、 改行・制御文字を含む
+  human override を Lictor へ渡さない。
 - Claude: Lictorが`/model <id>`、続いて`/effort <level>`を送る。
 - Codex TUI: `/model`は選択UIであり、正確な非対話指定を保証できない。Lictorは409と
   再Spawn/手動選択案内を返し、catalog順を仮定したキー操作はしない。

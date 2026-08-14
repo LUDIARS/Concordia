@@ -71,6 +71,13 @@ CREATE TABLE team_repos (
 
 - 既存のグローバル forum は「チーム未所属」用として残す。 チーム側へは新規分から流す
   (既存スレッドの引っ越しはしない)。
+- **カードのチーム面ルーティング** (`src/discord/team-card-routing.ts`): プラン設計カード →
+  目標、 判断ログ (taskflow.user_decision) / ask_human・契約質問カード → direction。
+  team_id 未設定・surface 未プロビジョニング・チャンネル取得失敗は現行チャンネル
+  (セッション webhook / セッションチャンネル) へフォールバックする。 プラン設計カードの
+  team は case の team_id を正とし、 無ければセッションの team_id で引く。
+  taskflow kanban 状態カードとコスト日次のチーム畳み込みは投稿元カード自体が未実装
+  (surface 対応 `タスクボード` / `コスト` はルータ側で予約済み)。
 - **spawn 時のチーム選択**: セッション契約に `team` フィールド (session-contract §1)。
   repo からチームが一意なら seed で自動確定、 複数候補・新規は契約の未決フィールドとして
   direction チャンネルへ質問カード。 `/co-spawn` にも team オプションを足す。

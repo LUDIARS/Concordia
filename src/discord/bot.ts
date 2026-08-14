@@ -1,4 +1,4 @@
-import { ChannelType, Client, Events, GatewayIntentBits, Partials, type Guild } from "discord.js";
+import { ChannelType, Client, Events, GatewayIntentBits, Partials, type Guild, type TextChannel } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -111,6 +111,7 @@ import { buildContextReport } from "./context-report.js";
 import { renderPlanCard } from "./plan-card.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
+import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 
 /**
@@ -451,6 +452,29 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   });
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
   const ingressDirectorRepo = new DirectorRepo(deps.db);
+  const teamsRepo = new TeamsRepo(deps.db);
+  // チーム面ルーティング (team-card-routing.ts): セッションの team_id からカード種別の
+  // 投稿先チャンネルを引く。 子会社 bot はチーム面 (本社 guild) を持たないので常に null。
+  const teamCardChannelForSession = (sessionId: string, kind: TeamCardKind): string | null => {
+    if (deps.subsidiary) return null;
+    const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+    return resolveTeamCardChannel(teamsRepo, teamId, kind);
+  };
+  /**
+   * カードをチーム面へ投稿する。 true = 投稿済み。 false = チーム未設定 / 面欠落 /
+   * チャンネル取得失敗 — 呼び出し側が現行チャンネルへフォールバックする。
+   */
+  const postToTeamSurface = async (
+    guild: Guild,
+    channelId: string | null,
+    payload: Parameters<TextChannel["send"]>[0],
+  ): Promise<boolean> => {
+    if (!channelId) return false;
+    const channel = await guild.channels.fetch(channelId).catch(() => null);
+    if (channel?.type !== ChannelType.GuildText) return false;
+    await channel.send(payload);
+    return true;
+  };
   const measuredHandleReactionAdd = instrumentDiscord("reactionAdd", handleReactionAdd);
   const measuredHandleReactionRemove = instrumentDiscord("reactionRemove", handleReactionRemove);
   const measuredDispatchInteraction = instrumentDiscord("dispatchInteraction", dispatchInteraction);
@@ -1468,8 +1492,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.warn(`task model review failed session=${ev.session_id}: ${(error as Error).message}`));
       return;
     }
-    if(ev.type==="director.plan_submitted"){
-      void (async()=>{const client=await webhooks.getForSession(ev.target_session_id);if(!client)return;await webhooks.send(client,{...renderPlanCard({caseId:ev.case_id,version:ev.version,markdown:ev.markdown}),username:"Cc plan gate"});})().catch(error=>log.warn(`plan card failed: ${(error as Error).message}`));return;
+    if (ev.type === "director.plan_submitted") {
+      void (async () => {
+        const card = renderPlanCard({ caseId: ev.case_id, version: ev.version, markdown: ev.markdown });
+        // プラン設計カードはチームの目標面へ (teams.md §2)。 case の team_id を正とし、
+        // 未設定ならセッションの team_id で引く。 どちらも無ければ現行どおりセッション面へ。
+        const caseTeamId = deps.subsidiary ? null : ingressDirectorRepo.findCase(ev.case_id)?.team_id ?? null;
+        const channelId = (caseTeamId ? resolveTeamCardChannel(teamsRepo, caseTeamId, "director-plan") : null)
+          ?? teamCardChannelForSession(ev.target_session_id, "director-plan");
+        if (await postToTeamSurface(guild, channelId, { ...card, allowedMentions: { parse: [] } })) return;
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        await webhooks.send(client, { ...card, username: "Cc plan gate" });
+      })().catch(error => log.warn(`plan card failed: ${(error as Error).message}`));
+      return;
     }
     if (!deps.subsidiary && ev.type === "team.created") {
       void (async () => {
@@ -1576,12 +1612,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "taskflow.user_decision") {
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       void (async () => {
-        const client = await webhooks.getForSession(ev.target_session_id);
-        if (!client) return;
-        await webhooks.send(client, buildTaskflowDecisionMessage({
+        const message = buildTaskflowDecisionMessage({
           text: ev.text,
           mentionUserId: ev.mention_user_id,
-        }));
+        });
+        // 判断ログはチームの direction 面へ (teams.md §2)。 チーム未設定・面欠落は
+        // 現行どおりセッション webhook へ。 username は webhook 専用なので面送信では外す。
+        const { username: _username, ...channelPayload } = message;
+        const channelId = teamCardChannelForSession(ev.target_session_id, "decision-log");
+        if (await postToTeamSurface(guild, channelId, channelPayload)) return;
+        const client = await webhooks.getForSession(ev.target_session_id);
+        if (!client) return;
+        await webhooks.send(client, message);
       })().catch((e) => log.warn(`taskflow decision post failed: ${(e as Error).message}`));
       return;
     }
@@ -1711,7 +1753,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const deliverable = isActiveDiscordSession(ev.target_session_id)
         || (ev.parent_session_id ? isActiveDiscordSession(ev.parent_session_id) : false);
       if (!deliverable) return;
-      void postQuestion({ guild, sessionChannelsRepo, pendingQuestionsRepo, log, isActiveSession: isActiveDiscordSession }, ev);
+      void postQuestion({
+        guild,
+        sessionChannelsRepo,
+        pendingQuestionsRepo,
+        log,
+        isActiveSession: isActiveDiscordSession,
+        // ask_human / 契約質問カードはチームの direction 面へ (teams.md §2)。
+        resolveTeamChannelId: (sessionId) => teamCardChannelForSession(sessionId, "question"),
+      }, ev);
       return;
     }
     if (ev.type === "session.permission_request") {
@@ -1805,7 +1855,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     async postQuestion(input) {
       if (gatewayClosed || stopping || !activeGuild) return;
       await postQuestion(
-        { guild: activeGuild, sessionChannelsRepo, pendingQuestionsRepo, log },
+        {
+          guild: activeGuild,
+          sessionChannelsRepo,
+          pendingQuestionsRepo,
+          log,
+          // EventBus 経由だけでなく ChatPlatform API 経由の質問も同じチーム面へ出す。
+          resolveTeamChannelId: (sessionId) => teamCardChannelForSession(sessionId, "question"),
+        },
         { target_session_id: input.target_session_id, question_id: input.question_id, question: input.question, options: input.options },
       );
     },

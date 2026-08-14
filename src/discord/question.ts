@@ -70,6 +70,12 @@ export async function postQuestion(
     log: { warn: (m: string) => void };
     /** relay 状態まで見た活性判定 (bot の isActiveDiscordSession)。 未注入なら面の有無だけで判定。 */
     isActiveSession?: (sessionId: string) => boolean;
+    /**
+     * チーム面ルーティング (team-card-routing.ts)。 対象セッションの team が確定していて
+     * direction 面がある場合にその channel_id を返す。 null / 未注入なら現行どおり
+     * セッションチャンネルへ出す。
+     */
+    resolveTeamChannelId?: (sessionId: string) => string | null;
   },
   ev: {
     target_session_id: string;
@@ -90,10 +96,22 @@ export async function postQuestion(
   const childActive = input.isActiveSession ? input.isActiveSession(ev.target_session_id) : true;
   const row = (childActive ? input.sessionChannelsRepo.findBySessionId(ev.target_session_id) : null)
     ?? (ev.parent_session_id ? input.sessionChannelsRepo.findBySessionId(ev.parent_session_id) : null);
-  if (!row) return;
-  const channel = await input.guild.channels.fetch(row.channel_id);
-  if (!channel || (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.PublicThread)) return;
-  const tc = channel;
+  // チーム面 (direction) が引ければそちらへ出す。 面の fetch 失敗はセッションチャンネルへ
+  // フォールバック (投稿先は setDiscordMessageId で保存されるため解決フローは追従する)。
+  const teamChannelId = input.resolveTeamChannelId?.(ev.target_session_id) ?? null;
+  const teamChannel = teamChannelId ? await input.guild.channels.fetch(teamChannelId).catch(() => null) : null;
+  const routedTeamChannel =
+    teamChannel && (teamChannel.type === ChannelType.GuildText || teamChannel.type === ChannelType.PublicThread)
+      ? teamChannel
+      : null;
+  if (!routedTeamChannel && !row) return;
+  const tc = routedTeamChannel ?? await (async () => {
+    const channel = await input.guild.channels.fetch(row!.channel_id);
+    return channel && (channel.type === ChannelType.GuildText || channel.type === ChannelType.PublicThread)
+      ? channel
+      : null;
+  })();
+  if (!tc) return;
   const options = normalizeOptions(ev.options);
   const embed = buildQuestionEmbed(ev.question_id, ev.question, options);
   const components: Array<ActionRowBuilder<ButtonBuilder | StringSelectMenuBuilder>> = [];

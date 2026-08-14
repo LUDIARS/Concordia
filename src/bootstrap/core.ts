@@ -78,6 +78,7 @@ import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
 import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
 import { deliverDirectorInstruction } from "../director/session-instruction.js";
+import { DirectorAskBridge } from "../director/ask-bridge.js";
 import { startSweeper } from "../sweeper.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
@@ -559,6 +560,9 @@ export async function startBackend(): Promise<BackendHandle> {
     repo: directorRepo,
     genius: new CatalogGeniusClient(excubitorClient),
     scoreMin: cfg.inquiryScoreMin,
+    // ask_human の設問カード束ね (plan-gate §2.1)。 bridge は director の後で定義されるが、
+    // requestDecision は listen 後の HTTP 経由でしか届かないため TDZ には当たらない。
+    onAskHuman: (directorCase, step, decision) => directorAskBridge.enqueue(directorCase, step, decision),
     onPlanApproved: (directorCase, _step, plan) => {
       if (!directorCase.session_id) return;
       const markdown = plan.facts[0] ?? "";
@@ -608,6 +612,50 @@ export async function startBackend(): Promise<BackendHandle> {
         sessionId: directorCase.session_id,
         text: "プランは破棄されました。実装には進まず、次の指示を待ってください。",
         source: `director:${directorCase.id}:plan-discarded`,
+        ts,
+      });
+    },
+  });
+  // ask_human 判断を設問カード 1 枚に束ねて投稿し、回答を decision へ反映して工程を進める。
+  const directorAskBridge = new DirectorAskBridge({
+    repo: directorRepo,
+    questions: pendingQuestions,
+    log: { warn: (message) => log.warn(message) },
+    unblockStep: (caseId, stepId) => {
+      try {
+        director.updateStep({ case_id: caseId, step_id: stepId, status: "active" });
+      } catch (error) {
+        // 既に completed / cancelled へ進んだ工程は回答を監査記録に留める (再遷移しない)。
+        log.warn(`director ask unblock skipped case=${caseId} step=${stepId}: ${(error as Error).message}`);
+      }
+    },
+    onAnswered: (directorCase, step, answers, resumed) => {
+      if (!directorCase.session_id) return;
+      const ts = Math.floor(Date.now() / 1000);
+      repo.appendEvent({
+        session_id: directorCase.session_id,
+        ts,
+        kind: "contract",
+        payload: {
+          reason: "ask-human-answered",
+          case_id: directorCase.id,
+          step_id: step.id,
+          decision_ids: answers.map((entry) => entry.decision.id),
+        },
+      });
+      const lines = answers.map((entry) => `- ${entry.decision.question}\n  回答: ${entry.answer}`);
+      const text = [
+        "Director 判断依頼に人間の回答が届きました。",
+        lines.join("\n"),
+        resumed
+          ? "回答に従って作業を再開してください。"
+          : "工程はまだ再開されていません。残りの判断依頼があれば、その回答まで待機してください。",
+      ].join("\n\n");
+      deliverDirectorInstruction({
+        sessions: repo,
+        sessionId: directorCase.session_id,
+        text,
+        source: `director:${directorCase.id}:ask-human-answered`,
         ts,
       });
     },
@@ -1381,6 +1429,7 @@ export async function startBackend(): Promise<BackendHandle> {
       }, id),
       estimateContextPct: async (session) => (await estimateContextTokens(session))?.pct ?? null,
     }));
+    trackPostListenHandle(directorAskBridge.start());
     trackPostListenHandle(startVibesLifecycle({
       sessions: repo,
       claims: testingClaims,

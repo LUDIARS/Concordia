@@ -76,6 +76,11 @@ export interface DirectorDecisionRecord {
   created_at: number;
   plan_version?: number | null;
   plan_md_ref?: string | null;
+  /** ask_human 分を束ねた設問カード (discord_pending_questions) の id。未投稿は null。 */
+  pending_question_id?: number | null;
+  /** 人間の回答 (選択肢テキストまたは自由文)。未回答は null。 */
+  human_answer?: string | null;
+  human_answered_at?: number | null;
 }
 
 export interface DirectorCaseDetail {

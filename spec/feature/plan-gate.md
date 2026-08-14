@@ -68,6 +68,18 @@ updated: 2026-08-13
   答えられた分は人間に見せない。 `ask_human` 分だけを**設問カード 1 枚**に束ねて
   direction チャンネル (teams §2。 未導入時はセッションスレッド) へ投稿する。
 - 設問カードは既存 `discord_pending_questions` 基盤 (ボタン / セレクト / `[A]` テキスト返信)。
+- 実装: `src/director/ask-bridge.ts`。 `DirectorService.onAskHuman` が ask_human 判断を
+  step 単位の短い束ね窓 (既定 1.5s) で集め、 1 枚の pending question として発行する
+  (複数項目は `Q1:` 前置の選択肢 + 複数選択メニュー)。 カードと判断の対応は
+  `director_decisions.pending_question_id` が正本で、 回答 (`question.answered`) は
+  `human_answer` / `human_answered_at` へ監査保存し、 工程を blocked → active に戻して
+  担当セッションへ inject する。 選択が付かない項目には回答本文をそのまま充てる
+  (自由文回答は束ね全体への指示として扱う)。 plan 提出由来の ask_human (設計カード経路)
+  は束ねの対象外。個別 Decision Request は Discord と同じ 25 選択肢・ラベル 80 文字を上限とする。
+  束ね結果が Discord の 1 カード 25 選択肢上限または本文上限を超える場合は
+  複数カードに分け、同じ step の全カードが回答済みになるまで blocked を保つ。
+  束ね窓中に停止した未投稿判断と、回答保存後に decision 反映前で停止した行は
+  次回起動時に回収する。
 
 ### 2.2 設計フェーズ
 
@@ -136,7 +148,7 @@ updated: 2026-08-13
 
 - [ ] mode=plan のセッションは承認済みプランが出るまでコード編集が deny される。
 - [ ] 受け入れ条件の無いプランは承認ボタンが表示されず、 差し戻し inject が飛ぶ。
-- [ ] 設問カードの ask_human 分だけが人間に届き、 Genius が答えた分はカードに載らない
+- [x] 設問カードの ask_human 分だけが人間に届き、 Genius が答えた分はカードに載らない
       (監査ログには残る)。
 - [ ] 修正指示 Modal の内容がセッションへ inject され、 v2 の設計カードが投稿される。
 - [ ] 承認でプランのタスク分解が task md 群として保存され、 ワンショット委託が起案される。

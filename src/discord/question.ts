@@ -125,7 +125,7 @@ export async function postQuestion(
     return opt;
   });
 
-  if (ev.multi_select) {
+  if (ev.multi_select && selectOptions.length > 0) {
     // 複数選択: min1 / maxN のメニュー。確定はメニュー送信 (1 操作)。
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`qmul:${ev.question_id}`)
@@ -134,7 +134,7 @@ export async function postQuestion(
       .setMaxValues(Math.max(1, selectOptions.length))
       .addOptions(selectOptions);
     components.push(new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(menu));
-  } else if (options.length <= 5) {
+  } else if (options.length > 0 && options.length <= 5) {
     const rowComp = new ActionRowBuilder<ButtonBuilder>();
     options.forEach((opt, idx) => {
       rowComp.addComponents(
@@ -145,7 +145,7 @@ export async function postQuestion(
       );
     });
     components.push(rowComp);
-  } else {
+  } else if (options.length > 5) {
     const menu = new StringSelectMenuBuilder()
       .setCustomId(`qsel:${ev.question_id}`)
       .setPlaceholder("Select an answer")

@@ -27,7 +27,10 @@ ask_human 分だけが設問カード 1 枚に束ねられて投稿される」�
 
 ## スコープ (編集可ディレクトリ)
 
+- `src/bootstrap/`
+- `src/db/`
 - `src/director/`
 - `src/discord/`
 - `src/api/`
+- `spec/feature/`
 - 対応するテストファイル

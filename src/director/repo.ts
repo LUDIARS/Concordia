@@ -33,6 +33,9 @@ interface DirectorDecisionRow {
   created_at: number;
   plan_version: number | null;
   plan_md_ref: string | null;
+  pending_question_id: number | null;
+  human_answer: string | null;
+  human_answered_at: number | null;
 }
 
 export class DirectorRepo {
@@ -192,28 +195,109 @@ export class DirectorRepo {
 
   listDecisions(caseId: string): DirectorDecisionRecord[] {
     const rows = this.db.prepare(`
-      SELECT id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
-             instruction, genius_available, genius_cards_json, created_at, plan_version, plan_md_ref
+      SELECT ${DECISION_COLUMNS}
         FROM director_decisions WHERE case_id = ? ORDER BY audit_sequence ASC
     `).all(caseId) as DirectorDecisionRow[];
-    return rows.map((row) => ({
-      id: row.id,
-      case_id: row.case_id,
-      step_id: row.step_id,
-      kind: row.kind,
-      question: row.question,
-      facts: readStringArray(row.facts_json),
-      options: readStringArray(row.options_json),
-      impact: row.impact,
-      decision: row.decision,
-      instruction: row.instruction,
-      genius_available: row.genius_available === 1,
-      genius_cards: readCards(row.genius_cards_json),
-      created_at: row.created_at,
-      plan_version: row.plan_version,
-      plan_md_ref: row.plan_md_ref,
-    }));
+    return rows.map(toDecisionRecord);
   }
+
+  /** ask_human 束ねカード投稿後、載せた decision へカード id を刻む (回答マッピングの正本)。 */
+  assignPendingQuestion(decisionIds: readonly string[], pendingQuestionId: number): void {
+    const update = this.db.prepare(`
+      UPDATE director_decisions SET pending_question_id = ? WHERE id = ?
+    `);
+    const assign = this.db.transaction(() => {
+      for (const id of decisionIds) update.run(pendingQuestionId, id);
+    });
+    assign();
+  }
+
+  /** 設問カード 1 枚に束ねられた decision 群を投稿時と同じ順序 (audit_sequence) で返す。 */
+  listDecisionsByPendingQuestion(pendingQuestionId: number): DirectorDecisionRecord[] {
+    const rows = this.db.prepare(`
+      SELECT ${DECISION_COLUMNS}
+        FROM director_decisions WHERE pending_question_id = ? ORDER BY audit_sequence ASC
+    `).all(pendingQuestionId) as DirectorDecisionRow[];
+    return rows.map(toDecisionRecord);
+  }
+
+  /** 停止や flush 失敗の後に回収する、未投稿の Decision Request 由来 ask_human。 */
+  listUnpostedAskHumanDecisions(): DirectorDecisionRecord[] {
+    const rows = this.db.prepare(`
+      SELECT ${DECISION_COLUMNS}
+        FROM director_decisions
+       WHERE decision = 'ask_human'
+         AND plan_version IS NULL
+         AND pending_question_id IS NULL
+         AND human_answered_at IS NULL
+       ORDER BY audit_sequence ASC
+    `).all() as DirectorDecisionRow[];
+    return rows.map(toDecisionRecord);
+  }
+
+  /** question は回答済みだが decision 反映前に停止した場合の再適用候補。 */
+  listPendingQuestionIdsAwaitingAnswerApplication(): number[] {
+    const rows = this.db.prepare(`
+      SELECT DISTINCT pending_question_id
+        FROM director_decisions
+       WHERE decision = 'ask_human'
+         AND plan_version IS NULL
+         AND pending_question_id IS NOT NULL
+         AND human_answered_at IS NULL
+       ORDER BY pending_question_id ASC
+    `).all() as Array<{ pending_question_id: number }>;
+    return rows.map((row) => row.pending_question_id);
+  }
+
+  /** plan 提出分を除き、step に未回答の人間判断が残っているか。 */
+  hasUnansweredAskHumanDecisions(stepId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1
+        FROM director_decisions
+       WHERE step_id = ?
+         AND decision = 'ask_human'
+         AND plan_version IS NULL
+         AND human_answered_at IS NULL
+       LIMIT 1
+    `).get(stepId);
+    return row !== undefined;
+  }
+
+  /** 人間の回答を監査保存する。既回答は上書きしない (最初の回答が正)。 */
+  recordHumanAnswer(decisionId: string, answer: string, answeredAt: number): boolean {
+    const info = this.db.prepare(`
+      UPDATE director_decisions SET human_answer = ?, human_answered_at = ?
+       WHERE id = ? AND human_answered_at IS NULL
+    `).run(answer, answeredAt, decisionId);
+    return info.changes > 0;
+  }
+}
+
+const DECISION_COLUMNS = `id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,
+             instruction, genius_available, genius_cards_json, created_at, plan_version, plan_md_ref,
+             pending_question_id, human_answer, human_answered_at`;
+
+function toDecisionRecord(row: DirectorDecisionRow): DirectorDecisionRecord {
+  return {
+    id: row.id,
+    case_id: row.case_id,
+    step_id: row.step_id,
+    kind: row.kind,
+    question: row.question,
+    facts: readStringArray(row.facts_json),
+    options: readStringArray(row.options_json),
+    impact: row.impact,
+    decision: row.decision,
+    instruction: row.instruction,
+    genius_available: row.genius_available === 1,
+    genius_cards: readCards(row.genius_cards_json),
+    created_at: row.created_at,
+    plan_version: row.plan_version,
+    plan_md_ref: row.plan_md_ref,
+    pending_question_id: row.pending_question_id,
+    human_answer: row.human_answer,
+    human_answered_at: row.human_answered_at,
+  };
 }
 
 function readStringArray(value: string): string[] {

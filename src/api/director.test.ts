@@ -108,6 +108,28 @@ describe("directorRouter", () => {
       step: { status: "blocked" },
     });
   });
+
+  it("rejects option sets that cannot be represented by one Discord question", async () => {
+    const app = makeApp();
+    const created = await createCase(app);
+    const response = await app.request(
+      `/v1/director/cases/${created.caseId}/steps/${created.stepId}/decisions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "authority",
+          question: "選択肢上限を検査する",
+          facts: [],
+          options: Array.from({ length: 26 }, (_, index) => `option-${index}`),
+          impact: "Discord カードの index 対応に影響する",
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "invalid_decision" });
+  });
 });
 
 function makeApp(): Hono {

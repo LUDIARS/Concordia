@@ -38,7 +38,9 @@ const DecisionSchema = z.object({
   kind: z.enum(DIRECTOR_DECISION_KINDS),
   question: z.string().trim().min(1).max(4_000),
   facts: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
-  options: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
+  // Discord の質問カード契約と同じ上限。ここを超えると表示と
+  // decision への index マッピングが一致しなくなるため、入口で拒否する。
+  options: z.array(z.string().trim().min(1).max(80)).max(25).default([]),
   impact: z.string().trim().min(1).max(4_000),
 });
 const PlanSchema = z.object({

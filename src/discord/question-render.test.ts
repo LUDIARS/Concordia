@@ -82,4 +82,15 @@ describe("postQuestion option codes", () => {
     expect(payload.components[0]!.toJSON().components?.[0]?.options?.map((option) => option.label))
       .toEqual(["[A] First", "[B] Second"]);
   });
+
+  it("renders only the free-text action when a question has no options", async () => {
+    const { send } = await renderQuestion([]);
+    const payload = send.mock.calls[0]![0] as {
+      components: Array<{ toJSON(): { components?: Array<{ label?: string }> } }>;
+    };
+
+    expect(payload.components).toHaveLength(1);
+    expect(payload.components[0]!.toJSON().components?.map((button) => button.label))
+      .toEqual(["✏️ その他 (自由入力)"]);
+  });
 });

@@ -1738,6 +1738,25 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     CREATE TABLE IF NOT EXISTS team_audit_posts(dedupe_key TEXT PRIMARY KEY,team_id TEXT NOT NULL,posted_at INTEGER NOT NULL);
     `);
   },
+}, {
+  version: 68,
+  name: "director-ask-human-bundle",
+  source: "director_decisions pending_question_id + human answer audit",
+  up(db) {
+    // ask_human 判断は discord_pending_questions のカード 1 枚に束ねて投稿される。
+    // どのカードに載ったか (pending_question_id) と人間の回答を監査保存する。
+    const columns = db.prepare("PRAGMA table_info(director_decisions)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "pending_question_id")) {
+      db.exec("ALTER TABLE director_decisions ADD COLUMN pending_question_id INTEGER");
+    }
+    if (!columns.some((column) => column.name === "human_answer")) {
+      db.exec("ALTER TABLE director_decisions ADD COLUMN human_answer TEXT");
+    }
+    if (!columns.some((column) => column.name === "human_answered_at")) {
+      db.exec("ALTER TABLE director_decisions ADD COLUMN human_answered_at INTEGER");
+    }
+    db.exec("CREATE INDEX IF NOT EXISTS idx_director_decisions_pending_question ON director_decisions(pending_question_id)");
+  },
 },
 ];
 

@@ -32,6 +32,11 @@ export class DirectorService {
       instruction: string,
     ) => void;
     onPlanDiscarded?: (directorCase: DirectorCase, step: DirectorStep, plan: DirectorDecisionRecord) => void;
+    /**
+     * Decision Request が ask_human で確定し工程を止めたときに呼ぶ (設問カード束ね投稿用)。
+     * plan 提出由来の ask_human (設計カード経路) では呼ばない。
+     */
+    onAskHuman?: (directorCase: DirectorCase, step: DirectorStep, decision: DirectorDecisionRecord) => void;
   }) {}
 
   createCase(input: CreateDirectorCaseInput): DirectorCaseDetail {
@@ -137,6 +142,10 @@ export class DirectorService {
     const resolvedStep = shouldBlock && currentStep.status !== "blocked"
       ? this.updateStep({ case_id: input.case_id, step_id: currentStep.id, status: "blocked" })
       : currentStep;
+    if (shouldBlock) {
+      const directorCase = this.deps.repo.findCase(input.case_id);
+      if (directorCase) this.deps.onAskHuman?.(directorCase, resolvedStep, savedRecord);
+    }
     return { decision: savedRecord, step: resolvedStep };
   }
 

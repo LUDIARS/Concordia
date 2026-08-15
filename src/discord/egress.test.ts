@@ -65,7 +65,7 @@ describe("handleEvent session.message relay", () => {
     expect(optimized.webhooks.send).not.toHaveBeenCalled();
   });
 
-  it("posts only a tool outcome after its create event and code-formats Cc/LUDIARS tools", async () => {
+  it("drops running and successful tool messages, posting only failures", async () => {
     const { deps, webhooks, sessionId } = makeSessionMessageDeps();
     handleEvent(deps, sessionMessage(sessionId, "create", {
       id: 12,
@@ -73,18 +73,40 @@ describe("handleEvent session.message relay", () => {
       author_label: "Bash",
       content: "実行中",
     }));
+    handleEvent(deps, sessionMessage(sessionId, "update", {
+      id: 12,
+      author_type: "tool",
+      author_label: "Bash",
+      content: "成功",
+      metadata: { is_error: false },
+    }));
     await flushEgress();
     expect(webhooks.send).not.toHaveBeenCalled();
 
     handleEvent(deps, sessionMessage(sessionId, "update", {
-      id: 12,
+      id: 18,
       author_type: "tool",
       author_label: "Skill: cc-test",
-      content: "成功",
+      content: "失敗",
+      metadata: { is_error: true },
     }));
     await flushEgress();
     expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
-      content: "`Skill: cc-test`: 成功",
+      content: "`Skill: cc-test`: 失敗",
+    }));
+
+    // An unmapped result is emitted as a create event and must still expose its
+    // failure to the Discord relay.
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 19,
+      author_type: "tool",
+      author_label: "Tool",
+      content: "失敗",
+      metadata: { is_error: true },
+    }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      content: "Tool: 失敗",
     }));
   });
 

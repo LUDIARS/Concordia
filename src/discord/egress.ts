@@ -164,10 +164,11 @@ async function handleSessionMessage(
   // adapter owns buttons and their state transitions until it is migrated.
   if (ev.message.author_type === "question" || ev.message.author_type === "permission") return;
   if (ev.message.author_type === "thinking" && deps.messageOptimizationEnabled) return;
-  // A tool-use is updated with its final outcome. Posting the create event would
-  // expose a transient "running" entry and leave the final state in a second
-  // Discord message, so only relay the final update.
-  if (ev.message.author_type === "tool" && ev.op === "create") return;
+  // A successful tool call carries no information the reader acts on, and one line
+  // per call buries the assistant's own messages in the thread. Only failures are
+  // relayed; the full lifecycle (running / succeeded / failed) stays in the
+  // canonical stream that the WebUI renders.
+  if (ev.message.author_type === "tool" && !isToolFailure(ev.message)) return;
   // Terminal keystrokes, slash commands, harness injections and skill bootstrap
   // text all land in the canonical stream as `user` messages carrying no
   // originating platform. Discord already posts its own ingress, so relaying
@@ -273,6 +274,15 @@ function filesFromAttachments(attachments: Attachment[] | null): Array<{ attachm
     totalBytes += data.length;
   }
   return files;
+}
+
+/**
+ * A tool message reports failure only through `metadata.is_error`, which the
+ * projection sets on the tool-result frame. The `running` create event has no
+ * outcome yet and is therefore never a failure.
+ */
+function isToolFailure(message: SessionMessagePayload): boolean {
+  return message.metadata?.is_error === true;
 }
 
 function isCompletionMessage(message: SessionMessagePayload): boolean {

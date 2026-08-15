@@ -25,6 +25,10 @@ function runNpm(args, cwd) {
 }
 
 function initializeSubmodules() {
+  execFileSync("git", ["submodule", "sync", "--recursive"], {
+    cwd: root,
+    stdio: "inherit",
+  });
   execFileSync("git", ["submodule", "update", "--init", "--recursive"], {
     cwd: root,
     stdio: "inherit",

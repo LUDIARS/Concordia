@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     env: {
       CONCORDIA_DISABLE_CLAUDE: "1",
+      NODE_ENV: "test",
     },
     exclude: [
       ...configDefaults.exclude,

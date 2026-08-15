@@ -5,11 +5,12 @@
  */
 
 import type { InjectManualsRepo, InjectManualKind } from "../db/inject-manuals-repo.js";
+import { TASK_STATE_DB_RULE_SHORT } from "../taskflow/task-instructions.js";
 
 const DEFAULT_MANUALS: Record<InjectManualKind, string> = {
   実装:
     "作業ブランチを確定 → worktree を生成 → 作業 → タスクを spec/tasks/ に新規保存で分解 → コミット → PR 作成まで行う。" +
-    "進行状態 (status / 担当 / PR 番号 / 外部タスク ID) は Concordia の DB が正本なので、既存 task md へ書き戻さない。" +
+    TASK_STATE_DB_RULE_SHORT +
     "main/develop へ直コミットしない。PR 作成後は停止する。ユーザの明示指示がないテスト・マージ・オートマージは禁止。",
   レビュー:
     "worktree の生成・ブランチ切り替えは不要。main 最新、または指定されたブランチ/worktree の上で読む。" +

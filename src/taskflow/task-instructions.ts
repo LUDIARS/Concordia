@@ -21,3 +21,15 @@ export const TASK_STATE_DB_RULE =
   "status・assignee・owner・delegation_run_id・pr_number・memoria_task_id などの進行状態は " +
   "Concordia の DB (taskflow_task_state) が正本である。md には書かず、 後から書き戻しもしない " +
   "(task md が更新差分を作らないようにするため)。";
+
+/**
+ * kind 別 inject マニュアル向けの短縮版。 マニュアルは 1 行の手順文の中に収める必要があり
+ * `TASK_STATE_DB_RULE` の列挙をそのまま置くと長すぎるため、 同じ規範を要約した別文を持つ。
+ *
+ * **この値は migration 59 (taskflow-inject-state-in-db) が書き込むリテラルと一致していること。**
+ * seed (`inject-manual-seed.ts`) は既存行を上書きしないので、 稼働中 DB の既定行は migration が
+ * 書いた文字列のまま残る。 ここを変えるだけでは既存 DB に反映されない — 文言を変えるときは
+ * 既定行を差し替える migration を別途足すこと (適用済み migration は書き換えない)。
+ */
+export const TASK_STATE_DB_RULE_SHORT =
+  "進行状態 (status / 担当 / PR 番号 / 外部タスク ID) は Concordia の DB が正本なので、既存 task md へ書き戻さない。";

@@ -286,6 +286,42 @@ const GENIUS_INGEST_TEMPLATES: CreateTemplateInput[] = [
   },
 ];
 
+const VULTUS_REPO_PATH = "E:\\Document\\Ars\\Vultus";
+
+const VULTUS_CATALOG_TEMPLATES: CreateTemplateInput[] = [{
+  call_name: "vultus-catalog-refresh-daily",
+  title: "Vultus 女優カタログ日次更新",
+  description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。",
+  target_provider: "claude",
+  model: "claude-haiku-4-5-20251001",
+  category: "parttimer",
+  emoji: "🖼️",
+  prompt_template: [
+    "## Vultus 女優カタログ日次更新 — ${date}",
+    "",
+    `作業ディレクトリは Vultus 本体 (\`${VULTUS_REPO_PATH}\`)。worktree・複製フォルダでは実行しない。`,
+    "このジョブはデータ更新専用。コード編集、git操作、テスト、サービス起動・停止・再起動は行わない。",
+    "DMM / MGStage の各クライアントが持つ1秒以上のアクセス間隔を短縮しない。",
+    "",
+    "### 手順",
+    "1. `analyzer` で `.venv\\Scripts\\python.exe -m vultus_analyzer.dmm.cli --output-dir ..\\server\\data\\dmm-catalog --permission-confirmed` を実行する。",
+    "2. 続けて `.venv\\Scripts\\python.exe -m vultus_analyzer.mgstage.cli --catalog-url https://www.mgstage.com/list/actress_list.php --output-dir ..\\server\\data\\mgstage-catalog --permission-confirmed` を実行する。",
+    "3. crawler / ingest のどの段階でも、一方が失敗しても他方の処理は続行する。失敗したcrawlerだけをproviderごとに最大1回リトライし、それ以上は繰り返さない。",
+    "4. `server` で `npm run cli -- sources:list --realm catalog` を実行し、`dmm-actress-catalog` と `mgstage-actress-catalog` が有効か確認する。欠けていれば登録を推測せず報告し、対応するproviderのingestは行わない。",
+    "5. crawlerが成功し、かつsourceが有効なproviderのmanifestだけを次のコマンドで取り込む。",
+    "   - `npm run cli -- ingest:catalog-manifest --realm catalog --source dmm-actress-catalog --manifest data\\dmm-catalog\\manifest.json`",
+    "   - `npm run cli -- ingest:catalog-manifest --realm catalog --source mgstage-actress-catalog --manifest data\\mgstage-catalog\\manifest.json`",
+    "6. crawlerとingestの出力から、provider別にmanifest件数、解析成功/品質除外/エラー、追加/更新/skip件数を報告する。氏名・画像URL・顔特徴量は報告へ載せない。",
+    "",
+    MENTION_ADMIN_STEP,
+  ].join("\n"),
+  input_schema: [
+    { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+  ],
+  default_cwd: VULTUS_REPO_PATH,
+  is_active: true,
+}];
+
 const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "impl-from-design",
@@ -894,6 +930,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  ...VULTUS_CATALOG_TEMPLATES,
   ...GENIUS_INGEST_TEMPLATES,
 ];
 

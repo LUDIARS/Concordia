@@ -114,7 +114,7 @@ describe("startCronScheduler", () => {
     );
   });
 
-  it("runs the weekly review, vulnerability response, AI note review, active Genius ingest, dependency sweep, Steam persona collection, and kaizen jobs by default", () => {
+  it("runs the registered review, maintenance, catalog, and kaizen jobs by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
       { name: "ludiars-review-weekly", cron: "40 4 * * 1", call_name: "ludiars-review-weekly" },
       { name: "vulnerability-response-daily", cron: "10 5 * * *", call_name: "vulnerability-response-daily" },
@@ -122,6 +122,7 @@ describe("startCronScheduler", () => {
       { name: "genius-ingest-daily", cron: "10 4 * * *", call_name: "genius-ingest-daily" },
       { name: "deps-sweep-daily", cron: "10 7 * * *", call_name: "deps-sweep-daily" },
       { name: "steam-persona-daily", cron: "40 7 * * *", call_name: "steam-persona-daily" },
+      { name: "vultus-catalog-refresh-daily", cron: "20 8 * * *", call_name: "vultus-catalog-refresh-daily" },
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
@@ -157,6 +158,7 @@ describe("startCronScheduler", () => {
       "ai-note-biweekly-review",
       "genius-ingest-daily",
       "steam-persona-daily",
+      "vultus-catalog-refresh-daily",
       "kaizen-daily",
     ]) {
       const job = CRON_JOBS.find((j) => j.name === name);

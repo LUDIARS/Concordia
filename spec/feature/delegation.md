@@ -16,7 +16,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-08-11
+updated: 2026-08-15
 ---
 
 
@@ -84,7 +84,7 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
 |----|--------|------|-----|
 | `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `claude-*-impl`, `codex-5-6-*`, `task-process` |
 | `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-sonnet5` |
-| `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily-dual` |
+| `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily-dual`, `vultus-catalog-refresh-daily` |
 | `test-qa` | テスト・QA | Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md) | `test-qa` |
 
 - 既定は `employee` (既存 DB の行は列追加 migration で employee に埋まる。 seed テンプレは boot upsert で正しい値に上書き)。
@@ -296,6 +296,18 @@ AI ノートレビュー (6:10) に重ならない 4:10 に置く。
 この定時ジョブは報告専用とし、更新候補、その影響、対応が必要な事項をまとめる。依存関係や
 コードの変更、テスト実行、サービスの起動・再起動、commit、push、PR 作成は行わない。
 登録済みテストは、報告専用テンプレートと引数なしの cron 配線を検証する。
+
+### Vultus catalog refresh (parttimer)
+
+`vultus-catalog-refresh-daily` は毎日 8:20 JST に Vultus 本体から起動し、DMM と
+MGStage の女優一覧を50音順の最後まで巡回する。クローラは1秒以上の間隔、ローカル画像
+キャッシュ、解析済みmanifest、途中再開ジャーナルを使うため、日次実行では新人・画像変更・
+前回エラーだけを取得・解析する。成功したmanifestは `dmm-actress-catalog` と
+`mgstage-actress-catalog` へ取り込む。
+
+このジョブはデータ更新専用で、コード編集、git操作、テスト、サービスの起動・停止・再起動、
+source登録を行わない。片方のproviderが失敗しても他方を続行し、各providerのcrawlerは
+1回の実行につき1回までリトライできる。報告には集計だけを載せ、氏名、画像URL、顔特徴量は載せない。
 
 ## 10. v0.1 で やらないこと
 

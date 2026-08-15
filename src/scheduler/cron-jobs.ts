@@ -49,6 +49,9 @@ const DEPS_SWEEP_DAILY_CRON = "10 7 * * *";
 /** Steam persona source collection. Discutere's STEAM-PERSONA.md defines the pipeline. */
 const STEAM_PERSONA_DAILY_CRON = "40 7 * * *";
 
+/** Vultus external actress catalogs: scan all syllabary pages and ingest only deltas. */
+const VULTUS_CATALOG_REFRESH_DAILY_CRON = "20 8 * * *";
+
 /**
  * Genius (判断カード DB) の ingest。 Genius spec `spec/feature/operations.md` §7 の
  * 「Timer Delegation の実登録」に対応する (テンプレは delegation/seed.ts)。
@@ -97,6 +100,12 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     name: "steam-persona-daily",
     cron: STEAM_PERSONA_DAILY_CRON,
     call_name: "steam-persona-daily",
+    buildArgs: () => ({ date: todayIso() }),
+}, {
+    // Vultus 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
+    name: "vultus-catalog-refresh-daily",
+    cron: VULTUS_CATALOG_REFRESH_DAILY_CRON,
+    call_name: "vultus-catalog-refresh-daily",
     buildArgs: () => ({ date: todayIso() }),
 }, {
     name: "kaizen-daily",

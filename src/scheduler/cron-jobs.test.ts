@@ -12,4 +12,15 @@ describe("CRON_JOBS", () => {
     expect(job?.cwd).toBeUndefined();
     expect(job?.buildArgs()).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
+
+  it("schedules the Vultus catalog refresh at 8:20 JST using the template cwd", () => {
+    const job = CRON_JOBS.find(({ name }) => name === "vultus-catalog-refresh-daily");
+
+    expect(job).toMatchObject({
+      cron: "20 8 * * *",
+      call_name: "vultus-catalog-refresh-daily",
+    });
+    expect(job?.cwd).toBeUndefined();
+    expect(job?.buildArgs()).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+  });
 });

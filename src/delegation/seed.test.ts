@@ -66,6 +66,7 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("ludiars-review-weekly")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("vulnerability-response-daily")?.category).toBe("parttimer");
+    expect(repo.findTemplateByCallName("vultus-catalog-refresh-daily")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("kaizen-daily")?.category).toBe("parttimer");
     // Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md)。
     expect(repo.findTemplateByCallName("test-qa")?.category).toBe("test-qa");
@@ -311,6 +312,33 @@ describe("seedDelegationTemplates", () => {
     const prompt = template?.prompt_template ?? "";
     expect(prompt).toContain("`npm run steam-persona`");
     expect(prompt).toContain("Steam アカウント ID・レビュー本文・認証情報・内部 endpoint・絶対パスは最終報告に載せない");
+  });
+
+  it("seeds the Vultus catalog refresh as a data-only daily parttimer", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("vultus-catalog-refresh-daily");
+    expect(template).toMatchObject({
+      is_active: 1,
+      category: "parttimer",
+      target_provider: "claude",
+      model: "claude-haiku-4-5-20251001",
+      default_cwd: "E:\\Document\\Ars\\Vultus",
+    });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
+      { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
+    ]);
+    const prompt = template?.prompt_template ?? "";
+    expect(prompt).toContain("vultus_analyzer.dmm.cli");
+    expect(prompt).toContain("vultus_analyzer.mgstage.cli");
+    expect(prompt).toContain("dmm-actress-catalog");
+    expect(prompt).toContain("mgstage-actress-catalog");
+    expect(prompt).toContain("コード編集、git操作、テスト、サービス起動・停止・再起動は行わない");
+    expect(prompt).not.toContain("git branch --show-current");
+    expect(prompt).toContain("失敗したcrawlerだけをproviderごとに最大1回リトライ");
+    expect(prompt).toContain("対応するproviderのingestは行わない");
+    expect(prompt).toContain("氏名・画像URL・顔特徴量は報告へ載せない");
   });
 
   it("keeps the Genius Tier 1 and Tier 2 ingest commands in separate templates", () => {

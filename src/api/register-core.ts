@@ -1085,7 +1085,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     });
   });
 
-  // ワークフロー個別有効化フラグ (workflow.task / test / reaction / review / daily / cost)。
+  // ワークフロー個別有効化フラグ
+  // (workflow.task / test / reaction / review / daily / morning / cost)。
   // 既定は全て有効。 無効化は明示設定のときだけ効く。 値は都度解決なので再起動不要。
   // spec/feature/workflow-toggles-and-permission-noise.md — W1
   app.get("/v1/admin/workflows", (c) => {

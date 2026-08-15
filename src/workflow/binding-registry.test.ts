@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { WorkflowBindingRegistry } from "./binding-registry.js";
 import type { WorkflowKey } from "./keys.js";
+import { createMorningSchedulerBinding } from "./morning-binding.js";
 
 function makeCountingBinding(key: WorkflowKey, name: string) {
   const calls = { started: 0, stopped: 0 };
@@ -64,6 +65,32 @@ describe("WorkflowBindingRegistry", () => {
     registry.sync();
     expect(review.calls.started).toBe(2);
     expect(registry.isRunning("pr-reconciler")).toBe(true);
+  });
+
+  it("morning-scheduler は daily ではなく morning の状態だけに追従する", () => {
+    const enabled = new Set<WorkflowKey>(["daily"]);
+    const registry = new WorkflowBindingRegistry({ isEnabled: (key) => enabled.has(key) });
+    const morningCalls = { started: 0, stopped: 0 };
+    const daily = makeCountingBinding("daily", "cron-scheduler");
+    registry.register(createMorningSchedulerBinding(() => {
+      morningCalls.started += 1;
+      return { stop: () => { morningCalls.stopped += 1; } };
+    }));
+    registry.register(daily.binding);
+
+    registry.sync();
+    expect(morningCalls.started).toBe(0);
+    expect(daily.calls.started).toBe(1);
+
+    enabled.delete("daily");
+    enabled.add("morning");
+    registry.sync();
+    expect(daily.calls.stopped).toBe(1);
+    expect(morningCalls.started).toBe(1);
+
+    enabled.delete("morning");
+    registry.sync();
+    expect(morningCalls.stopped).toBe(1);
   });
 
   it("stop() は稼働中の binding を全て止める", () => {

@@ -69,6 +69,7 @@ describe("AdminState", () => {
         reaction: { enabled: true, source: "default" },
         review: { enabled: true, source: "default" },
         daily: { enabled: true, source: "default" },
+        morning: { enabled: true, source: "default" },
         cost: { enabled: true, source: "default" },
       },
     });

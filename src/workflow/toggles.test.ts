@@ -78,3 +78,29 @@ describe("WorkflowToggles 都度解決", () => {
     expect(toggles.isSessionControlOnly()).toBe(true);
   });
 });
+
+describe("morning ワークフロー", () => {
+  it("daily を無効にしても morning は独立して有効なまま (cron と朝タスクを別々に切れる)", () => {
+    const toggles = new WorkflowToggles({ store: makeStore(), env: {} });
+    toggles.setEnabled("daily", false);
+
+    expect(toggles.isEnabled("daily")).toBe(false);
+    expect(toggles.isEnabled("morning")).toBe(true);
+  });
+
+  it("morning だけ無効にしても daily の cron は動いたまま", () => {
+    const toggles = new WorkflowToggles({ store: makeStore(), env: {} });
+    toggles.setEnabled("morning", false);
+
+    expect(toggles.isEnabled("morning")).toBe(false);
+    expect(toggles.isEnabled("daily")).toBe(true);
+  });
+
+  it("env でも morning を切れる", () => {
+    const toggles = new WorkflowToggles({
+      store: makeStore(),
+      env: { [workflowEnvName("morning")]: "0" },
+    });
+    expect(toggles.state("morning")).toEqual({ enabled: false, source: "env" });
+  });
+});

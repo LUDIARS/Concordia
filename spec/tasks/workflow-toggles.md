@@ -23,7 +23,7 @@ Concordia を「セッションコントロールのみ」でも使えるよう�
 
 ## 完了条件
 
-- [x] `workflow.task` / `test` / `reaction` / `review` / `daily` / `cost` を
+- [x] `workflow.task` / `test` / `reaction` / `review` / `daily` / `morning` / `cost` を
       DB (`admin.workflow.<key>.enabled`) + env (`CONCORDIA_WORKFLOW_<KEY>_ENABLED`)
       フォールバックで持つ。 既定は全て有効。
 - [x] 無効時は該当ワークフローのイベント購読・スケジューラ登録・Discord コマンド登録を
@@ -68,6 +68,8 @@ Concordia を「セッションコントロールのみ」でも使えるよう�
   pr-ingest-watcher / pr-reconciler / pr-full-sync / task-reconciler /
   taskflow-runtime / morning-scheduler / cron-scheduler / daily-report-scheduler /
   cost-sampler)。
+  morning-scheduler だけは `daily` ではなく専用の `morning` キーに紐付ける
+  (日次レビュー / cron を残したまま朝タスクの自動起動だけ止められるようにするため)。
 - Discord: `mmtask`→task / `confirm`→test / `prs`→review を無効時は guild へ登録せず、
   dispatch 側でも二段で断る。 リアクション購読は `client.on/off` で張り替える。
 - W6: `src/discord/permission-request-flag.ts` の `toPermissionRequestsResolver` で

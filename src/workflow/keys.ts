@@ -8,7 +8,7 @@
  * 持つ (値の解決は toggles.ts、 実体の起動/停止は binding-registry.ts)。
  */
 
-export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "cost"] as const;
+export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost"] as const;
 
 export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
 
@@ -22,7 +22,8 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   test: "TestWorkflow (テストフォーラム・テスト候補)",
   reaction: "ReactionWorkflow (絵文字リアクション)",
   review: "レビュー通知・Revisor 連携",
-  daily: "日次レビュー / morning tasks",
+  daily: "日次レビュー / cron スケジューラ",
+  morning: "朝タスク (morning-tasks の自動起動)",
   cost: "コスト集計・予算通知",
 };
 

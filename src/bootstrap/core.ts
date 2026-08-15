@@ -181,6 +181,7 @@ import {
   workflowEmbeddedEnabled,
 } from "./workflow.js";
 import { WorkflowBindingRegistry } from "../workflow/binding-registry.js";
+import { createMorningSchedulerBinding } from "../workflow/morning-binding.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
@@ -1545,11 +1546,11 @@ export async function startBackend(): Promise<BackendHandle> {
       name: "testing-branch-watch",
       start: () => startBranchWatch({ sessions: repo, claims: testingClaims, log }),
     });
-    workflowBindings.register({
-      key: "daily",
-      name: "morning-scheduler",
-      start: () => startMorningScheduler({ delegationService }),
-    });
+    // 朝タスクは cron スケジューラと寿命が違う (日次レビュー等は残したまま朝の
+    // 自動起動だけ止めたい)。 daily と束ねず専用フラグで切り替える。
+    workflowBindings.register(
+      createMorningSchedulerBinding(() => startMorningScheduler({ delegationService })),
+    );
     workflowBindings.register({
       key: "daily",
       name: "cron-scheduler",

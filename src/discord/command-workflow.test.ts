@@ -6,7 +6,7 @@ import {
   workflowCommandSignature,
   workflowForCommand,
 } from "./command-workflow.js";
-import type { WorkflowKey } from "../workflow/keys.js";
+import { WORKFLOW_KEYS, type WorkflowKey } from "../workflow/keys.js";
 
 describe("コマンドとワークフローの対応", () => {
   it("ワークフローに属するコマンドだけキーを持つ", () => {
@@ -57,7 +57,7 @@ describe("startCommandRegistrationWatch", () => {
   const silentLog = { info: () => {}, warn: () => {} };
 
   it("フラグが変わったときだけ再登録する", async () => {
-    const enabled = new Set<WorkflowKey>(["task", "test", "reaction", "review", "daily", "cost"]);
+    const enabled = new Set<WorkflowKey>(WORKFLOW_KEYS);
     let reregistered = 0;
     const watch = startCommandRegistrationWatch({
       signature: () => workflowCommandSignature((key) => enabled.has(key)),

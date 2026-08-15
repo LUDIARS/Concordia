@@ -91,7 +91,13 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (isWorkspaceRootCwd(input.repo_path, workspaceRoots)) {
         meta[WORKSPACE_ROOT_METADATA_KEY] = input.repo_path;
       }
-      const spawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
+      const rawSpawnId = typeof meta.concordia_spawn_id === "string" ? meta.concordia_spawn_id : null;
+      const spawnId = rawSpawnId?.trim() || null;
+      // An explicitly supplied blank enrollment value must not degrade into the
+      // legacy cwd-only claim path. Treat it as malformed/consumed fail-closed.
+      if (rawSpawnId !== null && spawnId === null) {
+        return c.json({ error: "invalid_or_consumed_session_enrollment" }, 401);
+      }
       const claimed = claimPendingDelegationSpawn(input.repo_path, Date.now(), spawnId);
       const successor = claimPendingRelictor(input.repo_path, Date.now(), spawnId);
       // concordia_spawn_id is a one-time enrollment secret placed only in the

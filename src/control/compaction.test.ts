@@ -72,7 +72,7 @@ describe("elicitHandoffFromSession", () => {
   });
 
   it("masks credentials before captured handoff text leaves the session", async () => {
-    const credential = "credential-candidate";
+    const credential = "credential-candidate@segment";
     const transcriptLogs = makeTranscript([
       assistantFrame(2, ["Bearer", credential, ["token", credential].join("=")].join(" ")),
     ]);
@@ -108,6 +108,24 @@ describe("generateHandoff", () => {
       }),
     }, "t", "ctx");
     expect(h).toBe("access_token=[REDACTED]");
+  });
+  it("masks prefixed environment credentials and URL userinfo", async () => {
+    const credential = "credential-candidate@segment";
+    const h = await generateHandoff({
+      runClaude: async () => ({
+        ok: true,
+        stdout: [
+          `CONCORDIA_REVISOR_WORKFLOW_TOKEN=${credential}`,
+          `https://user:${credential}@private.example/repo`,
+          `Authorization: Basic ${credential}`,
+        ].join("\n"),
+        stderr: "",
+      }),
+    }, "t", "ctx");
+    expect(h).not.toContain(credential);
+    expect(h).toContain("CONCORDIA_REVISOR_WORKFLOW_TOKEN=[REDACTED]");
+    expect(h).toContain("https://user:[REDACTED]@private.example/repo");
+    expect(h).toContain("Authorization: Basic [REDACTED]");
   });
   it("LLM 失敗時はフォールバック資料 (空にしない)", async () => {
     const h = await generateHandoff({ runClaude: async () => ({ ok: false, stdout: "", stderr: "boom" }) }, "タスクA", "ctx");

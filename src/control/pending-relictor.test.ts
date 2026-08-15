@@ -66,6 +66,12 @@ describe("pending relictor kind", () => {
     expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-owned")?.handoff).toBe("secret");
   });
 
+  it("does not consume an ID-bound handoff from a different cwd", () => {
+    recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-owned", handoff: "secret" });
+    expect(claimPendingRelictor("E:/repo/Other", Date.now(), "spawn-owned")).toBeNull();
+    expect(claimPendingRelictor("E:/repo/K", Date.now(), "spawn-owned")?.handoff).toBe("secret");
+  });
+
   it("forgets the pending handoff when spawn fails synchronously", () => {
     recordPendingRelictor({ cwd: "E:/repo/K", spawnId: "spawn-failed", handoff: "h" });
     forgetPendingRelictorBySpawnId("spawn-failed");

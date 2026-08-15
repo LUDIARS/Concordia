@@ -63,8 +63,8 @@ export function recordPendingRelictor(
 }
 
 /**
- * session.started で呼ぶ。enrollment ID があれば ID だけで照合し、cwd へは
- * フォールバックしない。同 cwd の並行 spawn や handoff の横取りを防ぐ。
+ * session.started で呼ぶ。enrollment ID があれば ID + cwd で照合し、cwd だけへは
+ * フォールバックしない。同 cwd の並行 spawn や enrollment ID 漏洩時の handoff 横取りを防ぐ。
  * ID が無い旧 caller だけ cwd 完全一致 → 祖先一致で照合する。
  */
 export function claimPendingRelictor(
@@ -75,7 +75,9 @@ export function claimPendingRelictor(
   prune(now);
   const id = (spawnId ?? "").trim();
   if (id) {
-    const index = pending.findIndex((item) => item.spawnId === id);
+    const rp = normalize((repoPath ?? "").trim());
+    if (!rp) return null;
+    const index = pending.findIndex((item) => item.spawnId === id && item.cwd === rp);
     return index >= 0 ? pending.splice(index, 1)[0] : null;
   }
   const rp = normalize((repoPath ?? "").trim());
@@ -87,7 +89,7 @@ export function claimPendingRelictor(
     if (p.spawnId) continue;
     let score = -1;
     if (p.cwd === rp) score = 2;
-    else if (rp.startsWith(`${p.cwd}/`)) score = 1;
+    else if (isSameOrDescendantPath(p.cwd, rp)) score = 1;
     if (score < 0) continue;
     if (score > bestScore || (score === bestScore && (bestIdx < 0 || p.at > pending[bestIdx].at))) {
       bestScore = score;
@@ -110,6 +112,10 @@ export function forgetPendingRelictorBySpawnId(spawnId: string | null | undefine
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function isSameOrDescendantPath(parent: string, candidate: string): boolean {
+  return candidate === parent || candidate.startsWith(`${parent}/`);
 }
 
 function prune(now: number): void {

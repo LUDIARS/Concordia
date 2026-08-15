@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { makeTestApp } from "../../../tests/helpers/test-app.js";
 import {
   _resetPendingRelictor,
+  claimPendingRelictor,
   recordPendingRelictor,
 } from "../../control/pending-relictor.js";
 
@@ -60,5 +61,50 @@ describe("session succession enrollment", () => {
     });
 
     expect(response.status).toBe(401);
+  });
+
+  it("rejects a successor enrollment from the wrong cwd without consuming it", async () => {
+    const env = makeTestApp();
+    recordPendingRelictor({
+      cwd: "/workspace/Concordia",
+      spawnId: "successor-cwd-bound",
+      handoff: "private handoff",
+      kind: "handover",
+    });
+
+    const register = (id: string, repoPath: string) => env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id,
+        provider: "codex-cli",
+        repo_path: repoPath,
+        host: "test-host",
+        metadata: { concordia_spawn_id: "successor-cwd-bound" },
+      }),
+    });
+
+    expect((await register("wrong-cwd", "/workspace/Other")).status).toBe(401);
+    expect((await register("correct-cwd", "/workspace/Concordia")).status).toBe(200);
+  });
+
+  it("does not let a blank enrollment value claim a legacy cwd-only handoff", async () => {
+    const env = makeTestApp();
+    recordPendingRelictor({ cwd: "/workspace/Concordia", handoff: "legacy private handoff" });
+
+    const response = await env.app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: "blank-enrollment",
+        provider: "codex-cli",
+        repo_path: "/workspace/Concordia",
+        host: "test-host",
+        metadata: { concordia_spawn_id: "   " },
+      }),
+    });
+
+    expect(response.status).toBe(401);
+    expect(claimPendingRelictor("/workspace/Concordia")?.handoff).toBe("legacy private handoff");
   });
 });

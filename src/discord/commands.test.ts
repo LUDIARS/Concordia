@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   commandNamesForRegistration,
   dispatchInteraction,
@@ -7,6 +7,10 @@ import {
 } from "./commands.js";
 
 describe("Discord command registration", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("registers only safe session commands for subsidiary guilds", () => {
     expect(commandNamesForRegistration({ subsidiary: true })).toEqual(["ch_name"]);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
@@ -104,6 +108,56 @@ describe("Discord command registration", () => {
     } as never);
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.stringContaining(deny),
+      ephemeral: true,
+    }));
+  });
+
+  it.each(["co-relictor", "co-handover"])(
+    "denies /%s when only session-end permission is granted",
+    async (commandName) => {
+      const reply = vi.fn(async () => undefined);
+      await dispatchInteraction(slash(commandName, "discord-allowed", reply) as never, {
+        isLaunchUserAllowed: () => false,
+        isSessionEndUserAllowed: () => true,
+        log: { info: vi.fn(), warn: vi.fn() },
+      } as never);
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+        content: expect.stringContaining("セッション移行権限がありません"),
+        ephemeral: true,
+      }));
+    },
+  );
+
+  it("allows /co-handover only with both permissions and encodes the session path", async () => {
+    const reply = vi.fn(async () => undefined);
+    const followUp = vi.fn(async () => undefined);
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ ok: true }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await dispatchInteraction({
+      ...slash("co-handover", "discord-allowed", reply),
+      channelId: "session-channel",
+      followUp,
+    } as never, {
+      concordiaUrl: "http://concordia",
+      sessionChannelsRepo: {
+        findByChannelId: () => ({ row_id: 1, session_id: "session/with space", channel_id: "session-channel" }),
+      },
+      isLaunchUserAllowed: () => true,
+      isSessionEndUserAllowed: () => true,
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://concordia/v1/sessions/session%2Fwith%20space/handover",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(followUp).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("次のセッションを起動しました"),
       ephemeral: true,
     }));
   });

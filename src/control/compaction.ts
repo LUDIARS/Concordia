@@ -207,10 +207,22 @@ function buildSessionTransitionHandoffPrompt(
 /** transcript / LLM 出力を Discord や後継セッションへ渡す前の最終資格情報マスク。 */
 function redactHandoffSecrets(value: string): string {
   return value
-    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:sk|gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
     .replace(
-      /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
+      /-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----[\s\S]*?-----END \1-----/g,
+      "-----BEGIN $1-----\n[REDACTED]\n-----END $1-----",
+    )
+    .replace(
+      /\b((?:proxy-)?authorization)\s*[:=]\s*((?:basic|bearer)\s+)\S+/gi,
+      "$1: $2[REDACTED]",
+    )
+    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:sk|gh[pousr]|glpat|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
+    .replace(/\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g, "[REDACTED]")
+    .replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED]")
+    .replace(/\bnpm_[A-Za-z0-9]{36}\b/g, "[REDACTED]")
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/[^/\s:@]+:)(?:[^@\s/]*@)+/gi, "$1[REDACTED]@")
+    .replace(
+      /\b((?:[A-Za-z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|refresh[_-]?token|session[_-]?(?:id|token)|token|secret|password))\s*[:=]\s*(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,;]+)/gi,
       "$1=[REDACTED]",
     );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionRow } from "../../shared/types.js";
-import { serializeSession } from "./shared.js";
+import { PatchSchema, serializeSession } from "./shared.js";
 
 function session(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -31,5 +31,14 @@ describe("serializeSession", () => {
     expect(serializeSession(session({ target_project: null }))).toMatchObject({
       target_project: null,
     });
+  });
+});
+
+describe("PatchSchema", () => {
+  it("accepts a transcript_path update or clearing it", () => {
+    expect(PatchSchema.parse({ transcript_path: "/provider/sessions/a.jsonl" }))
+      .toMatchObject({ transcript_path: "/provider/sessions/a.jsonl" });
+    expect(PatchSchema.parse({ transcript_path: null }))
+      .toMatchObject({ transcript_path: null });
   });
 });

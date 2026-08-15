@@ -51,16 +51,24 @@ describe("SessionsRepo", () => {
     expect(repo.findLostCandidates("/other-path", "h1")).toEqual([]);
   });
 
-  it("patchSession can update repo_path and repo_origin", () => {
+  it("patchSession can update repo_path, repo_origin, and transcript_path", () => {
     repo.insertSession({
       id: "a", provider: "claude-code", repo_path: "/x", repo_origin: null,
       branch: null, host: "h", started_at: 1, last_seen_at: 1,
       transcript_path: null, metadata: null,
     });
-    repo.patchSession("a", { repo_path: "/x/sub", repo_origin: "https://example/r.git" });
+    repo.patchSession("a", {
+      repo_path: "/x/sub",
+      repo_origin: "https://example/r.git",
+      transcript_path: "/provider/sessions/a.jsonl",
+    });
     const s = repo.findSession("a");
     expect(s?.repo_path).toBe("/x/sub");
     expect(s?.repo_origin).toBe("https://example/r.git");
+    expect(s?.transcript_path).toBe("/provider/sessions/a.jsonl");
+
+    repo.patchSession("a", { transcript_path: null });
+    expect(repo.findSession("a")?.transcript_path).toBeNull();
   });
 
   it("appendEvent + recentEvents", () => {

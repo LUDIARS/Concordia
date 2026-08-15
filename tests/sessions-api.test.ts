@@ -177,22 +177,38 @@ describe("sessions API", () => {
     expect(detail.session.status).toBe("active");
   });
 
-  it("PATCH updates current_task", async () => {
-    await app.request("/v1/sessions", {
+  it("PATCH updates current_task and transcript_path", async () => {
+    const env = makeTestApp();
+    const { app: testApp } = env;
+    await testApp.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         id: "p", provider: "claude-code", repo_path: "/x", host: "h",
       }),
     });
-    const r = await app.request("/v1/sessions/p", {
+    const r = await testApp.request("/v1/sessions/p", {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ current_task: "doing X" }),
+      body: JSON.stringify({
+        current_task: "doing X",
+        transcript_path: "/provider/sessions/p.jsonl",
+      }),
     });
     expect(r.status).toBe(200);
-    const detail = await (await app.request("/v1/sessions/p")).json() as any;
+    const detail = await (await testApp.request("/v1/sessions/p")).json() as any;
     expect(detail.session.current_task).toBe("doing X");
+    // The transcript path is deliberately omitted from public session views;
+    // verify persistence through the repository instead.
+    expect(env.repo.findSession("p")?.transcript_path).toBe("/provider/sessions/p.jsonl");
+
+    const clear = await testApp.request("/v1/sessions/p", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ transcript_path: null }),
+    });
+    expect(clear.status).toBe(200);
+    expect(env.repo.findSession("p")?.transcript_path).toBeNull();
   });
 
   it("keeps an explicit child binding when a Castra-rooted session reports root state again", async () => {

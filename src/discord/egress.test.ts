@@ -88,6 +88,57 @@ describe("handleEvent session.message relay", () => {
     }));
   });
 
+  it("drops terminal and injected user messages while relaying web and Slack ingress", async () => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 13,
+      author_type: "user",
+      author_label: "User",
+      author_platform: null,
+      content: "/session-end",
+    }));
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 14,
+      author_type: "user",
+      author_label: "User",
+      author_platform: "lictor",
+      content: "[自動確認] しばらく応答が止まっているようです。",
+    }));
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 17,
+      author_type: "user",
+      author_label: "User",
+      author_platform: "discord",
+      content: "Discord から送った指示",
+    }));
+    await flushEgress();
+    expect(webhooks.send).not.toHaveBeenCalled();
+
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 15,
+      author_type: "user",
+      author_label: "User",
+      author_platform: "web",
+      content: "WebUI から送った指示",
+    }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      content: "WebUI から送った指示",
+    }));
+
+    handleEvent(deps, sessionMessage(sessionId, "create", {
+      id: 16,
+      author_type: "user",
+      author_label: "User",
+      author_platform: "slack",
+      content: "Slack から送った指示",
+    }));
+    await flushEgress();
+    expect(webhooks.send).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({
+      content: "Slack から送った指示",
+    }));
+  });
+
   it("drops oversized attachment data before decoding it for Discord", async () => {
     const { deps, webhooks, sessionId } = makeSessionMessageDeps();
     handleEvent(deps, sessionMessage(sessionId, "create", {

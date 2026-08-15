@@ -125,6 +125,19 @@ describe("projectEvent / other event types", () => {
     expect(msg.metadata).toBeUndefined();
   });
 
+  it("does not classify platform control injections as human ingress", () => {
+    const ev: ConcordiaEvent = {
+      type: "session.inject",
+      target_session_id: "s1",
+      text: "\\n",
+      source: "slack-enter-fallback",
+      ts: 500,
+    };
+
+    const [msg] = projectEvent(ev, ctx);
+    expect(msg.author_platform).toBeNull();
+  });
+
   it("question.posted → author_type=question + components", () => {
     const ev: ConcordiaEvent = {
       type: "question.posted",

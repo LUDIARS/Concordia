@@ -431,8 +431,11 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 function derivePlatformFromSource(source: string | null): string | null {
   if (!source) return null;
-  if (source.startsWith("discord")) return "discord";
-  if (source.startsWith("slack")) return "slack";
+  // A platform is an ingress identity only when the source carries its
+  // user-id delimiter. Control injections such as `slack-enter-fallback`
+  // must not inherit Slack's relay permissions.
+  if (source.startsWith("discord:")) return "discord";
+  if (source.startsWith("slack:")) return "slack";
   if (source.startsWith("web")) return "web";
   if (source.startsWith("lictor")) return "lictor";
   return null;

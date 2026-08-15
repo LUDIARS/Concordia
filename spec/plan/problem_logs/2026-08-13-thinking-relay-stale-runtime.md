@@ -1,7 +1,7 @@
 # Fable Discord tool-input relay was mistaken for thinking
 
 - Date: 2026-08-13
-- Status: fix implemented; pending deployment verification
+- Status: fix implemented; **not deployed** — the live `dist` predates the merge (see the 2026-08-15 update)
 - Area: Concordia Discord session-message egress
 - Severity: user-visible chat and Discord noise
 
@@ -52,6 +52,23 @@ The historic `thinking` rows remain unattributable because neither the setting's
 - A matching `tool-result` updates that same record to `成功` or `失敗`, without storing or relaying its result body. Context hydration now restores normal tool mappings as well as Task mappings after a process restart.
 - Discord skips the transient tool create event and posts the final `tool name: 成功/失敗` update. Tool and skill labels containing `Cc`, `Concordia`, or `LUDIARS` are rendered as inline code.
 - Verified with 54 focused unit tests and full TypeScript type checking.
+
+## 2026-08-15 Update — the fix is merged but not running, and `user` echoes were a second source
+
+The 2026-08-13 implementation was merged, but the running compiled output predated that
+merge and still projected raw tool arguments. No runtime setting gates the `tool`
+projection, so a rebuild plus an Excubitor restart is required to load the merged
+behaviour.
+
+Operational audit also found `user` rows that were not Discord ingress. They originate
+from transcript `text` frames with `role=user` and `session.inject` control paths, and
+can contain terminal commands, harness bootstrap text, automated nudges, and echoed
+instructions. This path was never covered by the 2026-08-13 fix.
+
+`user` messages are now relayed only when they entered through an ingress Discord does
+not already carry (`web` / `slack`). `discord` was already dropped as a self-echo;
+`lictor` and a null platform are terminal input or automated injection and stay in the
+WebUI record only.
 
 ## Follow-up
 

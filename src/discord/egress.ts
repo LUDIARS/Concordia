@@ -168,6 +168,12 @@ async function handleSessionMessage(
   // expose a transient "running" entry and leave the final state in a second
   // Discord message, so only relay the final update.
   if (ev.message.author_type === "tool" && ev.op === "create") return;
+  // Terminal keystrokes, slash commands, harness injections and skill bootstrap
+  // text all land in the canonical stream as `user` messages carrying no
+  // originating platform. Discord already posts its own ingress, so relaying
+  // these echoes raw command input back into the thread. The WebUI keeps the
+  // full record; only an ingress Discord has not already seen is relayed.
+  if (ev.message.author_type === "user" && !isRelayableUserOrigin(ev.message.author_platform)) return;
 
   const content = formatSessionMessageContent(ev.message);
   const existingDiscordId = deps.deliveryRepo.findExternalId(ev.message.id, "discord");
@@ -223,6 +229,15 @@ function formatSessionMessageContent(message: SessionMessagePayload): string {
   if (message.author_type === "task") return `**Task**\n${content}`;
   if (message.author_type === "tool") return `${formatToolLabel(message.author_label)}: ${content}`;
   return content;
+}
+
+/**
+ * A `user` message is relayed only when it entered through an ingress Discord
+ * itself does not carry. `discord` is dropped earlier as a self-echo; `lictor`
+ * and a null platform are terminal input or automated injection.
+ */
+function isRelayableUserOrigin(platform: string | null): boolean {
+  return platform === "web" || platform === "slack";
 }
 
 function formatToolLabel(label: string): string {

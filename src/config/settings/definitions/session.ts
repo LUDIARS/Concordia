@@ -187,6 +187,54 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: ["satelles"],
     editable: false,
   },
+  {
+    key: "session.satelles_codex_runtime",
+    section: "session",
+    label: "Satelles codex 実行環境",
+    description:
+      "codex-sdk (Satelles) が内部の codex をどこで動かすか。 native (既定) は Windows 上で直接、" +
+      " wsl は WSL 内の Linux codex を起動する (Windows 版 codex の CreateProcessWithLogonW 経由" +
+      " lsass ログオンセッションリーク — upstream #33356 / #35940 — の回避策)。",
+    kind: "enum",
+    envName: "CONCORDIA_SATELLES_CODEX_RUNTIME",
+    dbKey: null,
+    defaultValue: "native",
+    editable: false,
+    enumValues: ["native", "wsl"],
+  },
+  {
+    key: "session.satelles_wsl_distro",
+    section: "session",
+    label: "Satelles WSL ディストリビューション",
+    description: "runtime=wsl のときに codex を起動する WSL ディストリ名。",
+    kind: "string",
+    envName: "CONCORDIA_SATELLES_WSL_DISTRO",
+    dbKey: null,
+    defaultValue: "Ubuntu",
+    editable: false,
+  },
+  {
+    key: "session.satelles_wsl_user",
+    section: "session",
+    label: "Satelles WSL ユーザー",
+    description: "runtime=wsl のときに codex を起動する WSL 内ユーザー名。",
+    kind: "string",
+    envName: "CONCORDIA_SATELLES_WSL_USER",
+    dbKey: null,
+    defaultValue: "ubuntu",
+    editable: false,
+  },
+  {
+    key: "session.satelles_wsl_codex_binary",
+    section: "session",
+    label: "Satelles WSL codex バイナリ",
+    description: "runtime=wsl のときに WSL 内で起動する codex 実行ファイル名 / パス。",
+    kind: "string",
+    envName: "CONCORDIA_SATELLES_WSL_CODEX_BINARY",
+    dbKey: null,
+    defaultValue: "codex",
+    editable: false,
+  },
 ] as const;
 
 export const COMPACTION_SETTINGS: readonly SettingDefinition[] = [

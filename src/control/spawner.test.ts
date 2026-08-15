@@ -9,7 +9,11 @@ import {
   escapeCmdArg,
   CONCORDIA_SPAWN_CWD_MODE_ENV,
   CONCORDIA_SPAWN_ID_ENV,
+  currentSatellesCodexRuntime,
   currentSatellesLauncher,
+  currentSatellesWslCodexBinary,
+  currentSatellesWslDistro,
+  currentSatellesWslUser,
   HEADLESS_SPAWN_PROVIDERS,
   resolveSpawnCwd,
   resolveAgentHomeCwd,
@@ -131,6 +135,100 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("concordia_revisor_workflow_token");
     expect(environment).not.toHaveProperty("concordia_revisor_token");
   });
+
+  it("codex-sdk + runtime既定(native): SATELLES_* を一切注入しない (完全後方互換)", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk" },
+      { KEEP: "yes" } as unknown as NodeJS.ProcessEnv,
+      "spawn-native",
+    );
+    expect(environment).not.toHaveProperty("SATELLES_CODEX_RUNTIME");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_DISTRO");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_USER");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_CODEX_BINARY");
+  });
+
+  it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk" },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl",
+        CONCORDIA_SATELLES_WSL_DISTRO: "Debian",
+        CONCORDIA_SATELLES_WSL_USER: "dev",
+        CONCORDIA_SATELLES_WSL_CODEX_BINARY: "/usr/local/bin/codex",
+      } as unknown as NodeJS.ProcessEnv,
+      "spawn-wsl",
+    );
+    expect(environment).toEqual(expect.objectContaining({
+      SATELLES_CODEX_RUNTIME: "wsl",
+      SATELLES_WSL_DISTRO: "Debian",
+      SATELLES_WSL_USER: "dev",
+      SATELLES_WSL_CODEX_BINARY: "/usr/local/bin/codex",
+    }));
+  });
+
+  it("codex-sdk + runtime=wsl: 大文字小文字の異なる継承値で明示設定を上書きさせない", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk" },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl",
+        CONCORDIA_SATELLES_WSL_USER: "configured-user",
+        satelles_wsl_user: "inherited-user",
+      } as unknown as NodeJS.ProcessEnv,
+      "spawn-wsl-case-insensitive",
+    );
+    expect(environment.SATELLES_WSL_USER).toBe("configured-user");
+    expect(environment).not.toHaveProperty("satelles_wsl_user");
+  });
+
+  it("codex-sdk + runtime=wsl + 既定値: distro/user/binary は既定にフォールバック", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk" },
+      { CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as unknown as NodeJS.ProcessEnv,
+      "spawn-wsl-defaults",
+    );
+    expect(environment).toEqual(expect.objectContaining({
+      SATELLES_CODEX_RUNTIME: "wsl",
+      SATELLES_WSL_DISTRO: "Ubuntu",
+      SATELLES_WSL_USER: "ubuntu",
+      SATELLES_WSL_CODEX_BINARY: "codex",
+    }));
+  });
+
+  it("codex-sdk 以外の provider は runtime=wsl でも SATELLES_* を混入しない", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "claude" },
+      { CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as unknown as NodeJS.ProcessEnv,
+      "spawn-claude",
+    );
+    expect(environment).not.toHaveProperty("SATELLES_CODEX_RUNTIME");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_DISTRO");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_USER");
+    expect(environment).not.toHaveProperty("SATELLES_WSL_CODEX_BINARY");
+  });
+
+  it("不正な CONCORDIA_SATELLES_CODEX_RUNTIME は spawn env 構築時に例外", () => {
+    expect(() =>
+      buildSessionSpawnEnvironment(
+        { provider: "codex-sdk" },
+        { CONCORDIA_SATELLES_CODEX_RUNTIME: "linux" } as unknown as NodeJS.ProcessEnv,
+        "spawn-bad-runtime",
+      ),
+    ).toThrow(/^invalid CONCORDIA_SATELLES_CODEX_RUNTIME \(expected "native" or "wsl"\)$/);
+  });
+
+  it("不正な distro/user/codex binary は spawn env 構築時に例外", () => {
+    expect(() =>
+      buildSessionSpawnEnvironment(
+        { provider: "codex-sdk" },
+        {
+          CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl",
+          CONCORDIA_SATELLES_WSL_DISTRO: "Ubuntu & calc.exe",
+        } as unknown as NodeJS.ProcessEnv,
+        "spawn-bad-distro",
+      ),
+    ).toThrow(/^unsafe character in CONCORDIA_SATELLES_WSL_DISTRO$/);
+  });
 });
 
 describe("buildSpawnIdentityEnv", () => {
@@ -181,6 +279,33 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     expect(
       currentSatellesLauncher({ CONCORDIA_SATELLES_LAUNCHER: " ; ; " } as NodeJS.ProcessEnv),
     ).toEqual(["satelles"]);
+  });
+
+  it("currentSatellesCodexRuntime: 既定 native、明示 wsl を受理、不正値は例外", () => {
+    expect(currentSatellesCodexRuntime({} as NodeJS.ProcessEnv)).toBe("native");
+    expect(
+      currentSatellesCodexRuntime({ CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl" } as NodeJS.ProcessEnv),
+    ).toBe("wsl");
+    expect(() =>
+      currentSatellesCodexRuntime({ CONCORDIA_SATELLES_CODEX_RUNTIME: "docker" } as NodeJS.ProcessEnv),
+    ).toThrow(/^invalid CONCORDIA_SATELLES_CODEX_RUNTIME \(expected "native" or "wsl"\)$/);
+  });
+
+  it("currentSatellesWslDistro/User/CodexBinary: 既定値と危険文字の拒否", () => {
+    expect(currentSatellesWslDistro({} as NodeJS.ProcessEnv)).toBe("Ubuntu");
+    expect(currentSatellesWslUser({} as NodeJS.ProcessEnv)).toBe("ubuntu");
+    expect(currentSatellesWslCodexBinary({} as NodeJS.ProcessEnv)).toBe("codex");
+    expect(
+      currentSatellesWslDistro({ CONCORDIA_SATELLES_WSL_DISTRO: "Debian" } as NodeJS.ProcessEnv),
+    ).toBe("Debian");
+    expect(() =>
+      currentSatellesWslUser({ CONCORDIA_SATELLES_WSL_USER: "user & whoami" } as NodeJS.ProcessEnv),
+    ).toThrow(/^unsafe character in CONCORDIA_SATELLES_WSL_USER$/);
+    expect(() =>
+      currentSatellesWslCodexBinary(
+        { CONCORDIA_SATELLES_WSL_CODEX_BINARY: "codex\ninject" } as NodeJS.ProcessEnv,
+      ),
+    ).toThrow(/^unsafe character in CONCORDIA_SATELLES_WSL_CODEX_BINARY$/);
   });
 
   it("buildHeadlessCmdArgs: wt.exe 経路と同じ escapeCmdArg で cmd.exe へ渡す", () => {

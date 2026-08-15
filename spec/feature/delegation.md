@@ -430,6 +430,32 @@ wt.exe 経路をバイパスして detached child として spawn される (Win
   ではない)。
 - 記録・ログ・プロンプトヘッダ・GUI ドロップダウンは**論理名 `gemma4-12`** で表示する。
 
+#### WSL runtime (lsass ログオンセッションリーク回避)
+
+Windows 版 codex CLI は `CreateProcessWithLogonW` 経由の `CodexSandboxOffline` 起動で
+lsass ログオンセッションをリークする既知の未修正バグを持つ (upstream #33356 /
+#35940)。 Satelles は `SATELLES_CODEX_RUNTIME=wsl` を渡すと内部の codex を WSL 内の
+Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済み)。
+
+- Cc 設定 4 つ (`src/config/settings/definitions/session.ts` の `SESSION_SETTINGS`、
+  `editable: false`、 env のみ):
+  - `session.satelles_codex_runtime` (`CONCORDIA_SATELLES_CODEX_RUNTIME`、
+    `"native"` (既定) / `"wsl"`)
+  - `session.satelles_wsl_distro` (`CONCORDIA_SATELLES_WSL_DISTRO`、既定 `Ubuntu`)
+  - `session.satelles_wsl_user` (`CONCORDIA_SATELLES_WSL_USER`、既定 `ubuntu`)
+  - `session.satelles_wsl_codex_binary` (`CONCORDIA_SATELLES_WSL_CODEX_BINARY`、既定 `codex`)
+- 実効値は `spawner.ts` の `currentSatellesCodexRuntime` / `currentSatellesWslDistro` /
+  `currentSatellesWslUser` / `currentSatellesWslCodexBinary` が `process.env` を直接読む
+  (`currentSatellesLauncher` と同じパターン。 設定レジストリは表示専用)。
+- 注入は `buildSessionSpawnEnvironment()` が `req.provider === "codex-sdk"` かつ
+  runtime が `wsl` のときだけ行う。 `sanitizeSpawnEnv` の allowlist (`LICTOR_`/
+  `CONCORDIA_` prefix) には `SATELLES_*` が乗らないため、 allowlist 適用後にここで
+  明示的に子 env へ合成する。 runtime 既定 (`native`) や `codex-sdk` 以外の provider
+  では何も注入しない (既存 spawn env に対して完全後方互換)。
+- `CONCORDIA_SATELLES_CODEX_RUNTIME` が `native`/`wsl` 以外、 または distro/user/codex
+  binary に cmd.exe メタ文字 (`HEADLESS_ARG_UNSAFE_RE` と同じ集合) を含む場合は
+  spawn env 構築時に例外で fail-fast する (無言で `native` へフォールバックしない)。
+
 ### 13.2 前提と既知の制約
 
 - **ホスト要件**: Ollama が `http://localhost:11434` で稼働し、 指定モデルを pull 済み。

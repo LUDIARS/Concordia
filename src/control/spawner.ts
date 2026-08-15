@@ -124,6 +124,70 @@ export function currentSatellesLauncher(env: NodeJS.ProcessEnv = process.env): s
 }
 
 /**
+ * headless spawn の argv / env トークン検証 (Windows では cmd.exe 経由で走る)。 argv の
+ * 実際の無害化は buildHeadlessCmdArgs の escapeCmdArg が行い、 これはその手前の
+ * fail-fast な追加防御。 Satelles WSL runtime env (distro/user/codex binary) の
+ * バリデーションにも同じ危険文字集合を使う (validateSatellesWslToken 参照)。
+ * `%` を落とすのが要点: cmd.exe の `%VAR%` 展開は `^` エスケープより前段で走るため
+ * escapeCmdArg でも塞ぎきれず、 通せば親プロセスの環境変数値 (認証情報を含み得る) が
+ * 子のコマンドラインへ混入する。
+ */
+const HEADLESS_ARG_UNSAFE_RE = /[\0\r\n&|<>^"%]/u;
+
+export type SatellesCodexRuntime = "native" | "wsl";
+
+/**
+ * codex-sdk (Satelles) が内部の codex をどこで動かすか。 既定 `native` は Windows 上で
+ * 直接、 `wsl` は WSL 内の Linux codex を起動する (Windows 版 codex の
+ * CreateProcessWithLogonW 経由 lsass ログオンセッションリーク — upstream #33356 /
+ * #35940 — の回避策。 Satelles 側は PR#579 で実装済み)。
+ *
+ * `CONCORDIA_SATELLES_CODEX_RUNTIME` が `native`/`wsl` 以外なら fail-fast する
+ * (§無言のフォールバック禁止: 誤字った値が黙って native 扱いになると、 リーク回避が
+ * 効いていないまま気付かれない)。
+ */
+export function currentSatellesCodexRuntime(env: NodeJS.ProcessEnv = process.env): SatellesCodexRuntime {
+  const raw = env.CONCORDIA_SATELLES_CODEX_RUNTIME?.trim();
+  if (!raw) return "native";
+  if (raw === "native" || raw === "wsl") return raw;
+  throw new Error('invalid CONCORDIA_SATELLES_CODEX_RUNTIME (expected "native" or "wsl")');
+}
+
+/** runtime=wsl のときに codex を起動する WSL ディストリ名 (既定 Ubuntu)。 */
+export function currentSatellesWslDistro(env: NodeJS.ProcessEnv = process.env): string {
+  return validateSatellesWslToken("CONCORDIA_SATELLES_WSL_DISTRO", env.CONCORDIA_SATELLES_WSL_DISTRO, "Ubuntu");
+}
+
+/** runtime=wsl のときに codex を起動する WSL 内ユーザー名 (既定 ubuntu)。 */
+export function currentSatellesWslUser(env: NodeJS.ProcessEnv = process.env): string {
+  return validateSatellesWslToken("CONCORDIA_SATELLES_WSL_USER", env.CONCORDIA_SATELLES_WSL_USER, "ubuntu");
+}
+
+/** runtime=wsl のときに WSL 内で起動する codex 実行ファイル名 / パス (既定 codex)。 */
+export function currentSatellesWslCodexBinary(env: NodeJS.ProcessEnv = process.env): string {
+  return validateSatellesWslToken(
+    "CONCORDIA_SATELLES_WSL_CODEX_BINARY",
+    env.CONCORDIA_SATELLES_WSL_CODEX_BINARY,
+    "codex",
+  );
+}
+
+/**
+ * WSL runtime env 値の共通バリデーション。 これらは buildSessionSpawnEnvironment を
+ * 経由して子プロセスの env にそのまま入り、 headless spawn は cmd.exe 経由で
+ * 起動する (HEADLESS_ARG_UNSAFE_RE と同じ危険文字集合を禁止して CWE-78 を防ぐ)。
+ * 不正な値は fail-fast (無言で既定へ差し替えない)。
+ */
+function validateSatellesWslToken(envName: string, raw: string | undefined, fallback: string): string {
+  const value = raw?.trim();
+  if (!value) return fallback;
+  if (HEADLESS_ARG_UNSAFE_RE.test(value)) {
+    throw new Error(`unsafe character in ${envName}`);
+  }
+  return value;
+}
+
+/**
  * spawn する Lictor へ「接続先 Concordia の住所」を渡すための resolver。 server 起動時に
  * 自分の listen アドレス (cfg.host / cfg.port) を束ねて注入する (setConcordiaAddress)。
  * 未注入なら何も足さない (= Lictor 側の既定 / 既存 env にフォールバック)。
@@ -345,10 +409,42 @@ export function buildSessionSpawnEnvironment(
       delete env[key];
     }
   }
+  const satellesWslEnv = currentSatellesWslEnv(req.provider, inheritedEnv);
+  // Windows environment-variable names are case-insensitive. Remove any
+  // differently-cased inherited copy before adding the validated values, so
+  // an ambient `satelles_wsl_user` cannot override `SATELLES_WSL_USER`.
+  for (const key of Object.keys(env)) {
+    if (Object.hasOwn(satellesWslEnv, key.toUpperCase())) delete env[key];
+  }
   return {
     ...env,
     ...buildSpawnIdentityEnv(req, spawnId),
     ...currentConcordiaAddressEnv(),
+    ...satellesWslEnv,
+  };
+}
+
+/**
+ * `codex-sdk` (Satelles) provider かつ runtime=wsl のときだけ、 Satelles が読む
+ * `SATELLES_CODEX_RUNTIME` / `SATELLES_WSL_DISTRO` / `SATELLES_WSL_USER` /
+ * `SATELLES_WSL_CODEX_BINARY` を子 env に明示注入する (pure)。
+ *
+ * `sanitizeSpawnEnv` の allowlist prefix (`LICTOR_`/`CONCORDIA_`) には乗らない
+ * キー名なので、 req.env を経由させず buildSessionSpawnEnvironment がここで直接
+ * 合成する。 既定 (runtime=native) や他 provider (claude/codex/gemini 等) では
+ * 何も返さない = 既存の spawn env を 1 バイトも変えない後方互換を保つ。
+ */
+function currentSatellesWslEnv(
+  provider: SpawnProvider,
+  env: NodeJS.ProcessEnv,
+): Record<string, string> {
+  if (provider !== "codex-sdk") return {};
+  if (currentSatellesCodexRuntime(env) !== "wsl") return {};
+  return {
+    SATELLES_CODEX_RUNTIME: "wsl",
+    SATELLES_WSL_DISTRO: currentSatellesWslDistro(env),
+    SATELLES_WSL_USER: currentSatellesWslUser(env),
+    SATELLES_WSL_CODEX_BINARY: currentSatellesWslCodexBinary(env),
   };
 }
 
@@ -419,16 +515,6 @@ export function buildSatellesArgs(req: SpawnRequest, launcher: string[] = ["sate
 }
 
 /**
- * headless spawn の argv トークン検証 (Windows では cmd.exe 経由で走る)。 実際の
- * 無害化は buildHeadlessCmdArgs の escapeCmdArg が行い、 これはその手前の
- * fail-fast な追加防御。
- * `%` を落とすのが要点: cmd.exe の `%VAR%` 展開は `^` エスケープより前段で走るため
- * escapeCmdArg でも塞ぎきれず、 通せば親プロセスの環境変数値 (認証情報を含み得る) が
- * 子のコマンドラインへ混入する。
- */
-const HEADLESS_ARG_UNSAFE_RE = /[\0\r\n&|<>^"%]/u;
-
-/**
  * Pure: headless spawn を Windows の cmd.exe 経由で起動するときの argv。
  *
  * wt.exe 経路 (buildWtArgs) と同じく全トークンを escapeCmdArg で無害化してから
@@ -456,7 +542,15 @@ function spawnHeadlessSession(req: SpawnRequest): SpawnResult {
       return { ok: false, error: `unsafe character in headless spawn token: ${token.slice(0, 40)}` };
     }
   }
-  const env = buildSessionSpawnEnvironment(req);
+  let env: NodeJS.ProcessEnv;
+  try {
+    env = buildSessionSpawnEnvironment(req);
+  } catch (err) {
+    const msg = `satelles spawn env invalid: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
   const isWindows = process.platform === "win32";
   const file = isWindows ? process.env.ComSpec ?? "cmd.exe" : tokens[0]!;
   const args = isWindows ? buildHeadlessCmdArgs(tokens) : tokens.slice(1);

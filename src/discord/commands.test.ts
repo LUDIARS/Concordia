@@ -78,6 +78,28 @@ describe("Discord command registration", () => {
     }));
   });
 
+  it("does not expose /spawn autocomplete choices to an unauthorized user", async () => {
+    const respond = vi.fn(async () => undefined);
+    const interaction = {
+      type: 4,
+      commandName: "spawn",
+      user: { id: "discord-denied" },
+      isAutocomplete: () => true,
+      isRepliable: () => false,
+      isChatInputCommand: () => false,
+      isButton: () => false,
+      isModalSubmit: () => false,
+      isStringSelectMenu: () => false,
+      respond,
+    };
+    await dispatchInteraction(interaction as never, {
+      isLaunchUserAllowed: () => false,
+      memoria: { listOpenTasks: vi.fn() },
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(respond).toHaveBeenCalledWith([]);
+  });
+
   // 社員名簿の役職ゲート (spec/feature/staff-roster.md §3)。 capability ごとに別の判定関数を
   // 引くこと、 未注入なら deny (fail-closed) になることを固定する。
   const slash = (commandName: string, userId: string, reply: () => Promise<undefined>) => ({

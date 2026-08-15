@@ -35,6 +35,12 @@ export interface PendingDelegationSpawn {
   goalAndGo: boolean;
   /** Canonical team id selected before launch. */
   teamId: string | null;
+  /**
+   * spawn 時に選ばれた Memoria タスク。 session.started で current_task と
+   * metadata へ焼き、 正常終了時の done 化 (end-session-flow) の根拠にする。
+   */
+  memoriaTaskId: number | null;
+  memoriaTaskTitle: string | null;
   /** Discord TestWorkflow surface that requested this direct session spawn. */
   testSurfaceId: number | null;
   at: number;
@@ -61,6 +67,8 @@ export function recordPendingDelegationSpawn(
     goalAndGo?: boolean;
     teamId?: string | null;
     testSurfaceId?: number | null;
+    memoriaTaskId?: number | null;
+    memoriaTaskTitle?: string | null;
   },
   now = Date.now(),
 ): void {
@@ -86,6 +94,11 @@ export function recordPendingDelegationSpawn(
       typeof input.testSurfaceId === "number" && Number.isInteger(input.testSurfaceId) && input.testSurfaceId > 0
         ? input.testSurfaceId
         : null,
+    memoriaTaskId:
+      typeof input.memoriaTaskId === "number" && Number.isInteger(input.memoriaTaskId) && input.memoriaTaskId > 0
+        ? input.memoriaTaskId
+        : null,
+    memoriaTaskTitle: (input.memoriaTaskTitle ?? "").trim() || null,
     at: now,
   });
   prune(now);

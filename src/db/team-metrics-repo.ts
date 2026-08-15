@@ -38,6 +38,10 @@ interface StoredTeamSampleRow extends TeamSampleRow {
   sample_id: number;
 }
 
+interface SessionCostSampleRow {
+  cost_tokens: number;
+}
+
 const EMPTY: TeamMetrics = {
   goal_count: 0,
   active_case_count: 0,
@@ -89,6 +93,16 @@ function sumTeamCostByTeam(samples: readonly TeamDailySampleRow[]): Map<string, 
   return totalByTeam;
 }
 
+function sumPositiveCostDeltas(samples: readonly SessionCostSampleRow[]): number {
+  let previous: number | null = null;
+  let total = 0;
+  for (const sample of samples) {
+    if (previous !== null) total += Math.max(0, sample.cost_tokens - previous);
+    previous = sample.cost_tokens;
+  }
+  return total;
+}
+
 export class TeamMetricsRepo {
   constructor(private readonly db: Database.Database) {}
 
@@ -136,6 +150,34 @@ export class TeamMetricsRepo {
     }
 
     return metrics;
+  }
+
+  /**
+   * セッション 1 本の消費トークン。 終了時のチームコスト報告 (teams.md §2 コスト面) 用。
+   *
+   * cost_usage_samples.cost_tokens は累積値なので、 時系列の正の差分を足す。
+   * カウンタ巻き戻りを跨いでも collect() と同じ規則になり、サンプル 1 件以下なら 0。
+   */
+  sessionCost(sessionId: string): number {
+    const samples = this.db.prepare(`
+      SELECT cost_tokens FROM cost_usage_samples
+       WHERE session_id = ?
+       ORDER BY ts ASC, id ASC
+    `).all(sessionId) as SessionCostSampleRow[];
+    return sumPositiveCostDeltas(samples);
+  }
+
+  /** 当日 (local 00:00〜) のチーム合計。 collect() と同じ差分規則を使う。 */
+  teamCostToday(teamId: string, nowMs: number = Date.now()): number {
+    const samples = this.db.prepare(`
+      SELECT s.team_id AS team_id, c.session_id AS session_id, c.ts AS ts,
+             c.cost_tokens AS cost_tokens
+        FROM cost_usage_samples c
+        JOIN sessions s ON s.id = c.session_id
+       WHERE s.team_id = ? AND c.ts >= ? AND c.ts <= ?
+       ORDER BY c.session_id, c.ts ASC, c.id ASC
+    `).all(teamId, localMidnightSec(nowMs), Math.floor(nowMs / 1000)) as TeamDailySampleRow[];
+    return sumTeamCostByTeam(samples).get(teamId) ?? 0;
   }
 
   /** 1 チームのコスト時系列 (チーム詳細タブのグラフ用)。 */

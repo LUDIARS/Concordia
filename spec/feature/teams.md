@@ -81,6 +81,24 @@ CREATE TABLE team_repos (
 - **spawn 時のチーム選択**: セッション契約に `team` フィールド (session-contract §1)。
   repo からチームが一意なら seed で自動確定、 複数候補・新規は契約の未決フィールドとして
   direction チャンネルへ質問カード。 `/co-spawn` にも team オプションを足す。
+- **起動時に決める (2026-08-15 neco 指示)**: セッションはほぼ workspace root (Castra) から
+  起動されるため、 起動後にチーム・タスクを付け替える運用では取りこぼす。 `/spawn` の時点で
+  以下を確定させる。
+  - `team` は登録済みチームの autocomplete (`src/discord/team-choices.ts`)。 値は canonical な
+    team id なので slug 改名で壊れない。
+  - team 未指定なら**実行チャンネルからチームを引く** (`src/discord/team-channel-binding.ts`)。
+    優先順位は 実行チャンネル自身が面 → スレッド親が面 → 所属カテゴリ。 どれにも当たらなければ
+    チーム未所属のまま (現行動作)。
+  - `task` オプションで **Memoria の未完了タスク**を選べる (`src/discord/memoria-task-cache.ts`、
+    Discord の 3 秒制限に合わせて stale-while-revalidate)。 選んだタスクは
+    ①`current_task` に登録 ②`details` を初回 prompt へ注入 ③`metadata.memoria_task_id` に記録。
+  - **正常終了時のみ** Memoria タスクを done にする (`end-session-flow.ts`)。 `session.lost`
+    (クラッシュ・切断) では done にしない — 落ちただけで残作業が消えるのを避ける。
+- **セッション終了時のチームコスト報告**: team 所属セッションが終了したら、 そのセッション 1 本の
+  消費と当日のチーム累計をチームの `コスト` 面へ投稿する (`src/discord/team-cost-report.ts`、
+  カード種別 `cost-session`)。 集計は `team-metrics-repo` の既存 read model を畳むだけで、
+  新しい集計正本は作らない (§0)。 チーム未所属・面未プロビジョニングなら投稿しない
+  (個人セッションのコストを無関係なチャンネルへ流さない)。
 - phase-compaction の message link 索引は、 チーム面の各カードへのリンクになる
   (「不明点は Discord を遡る」の遡り先が構造化される)。
 

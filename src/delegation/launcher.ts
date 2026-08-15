@@ -81,6 +81,12 @@ export function launchDelegationProcess(input: {
     parentSessionId: input.invocation.parent_session_id ?? null,
     goalAndGo: goalAndGoRequested(input.effectiveOptions),
     teamId: typeof input.effectiveOptions.team === "string" ? input.effectiveOptions.team : null,
+    memoriaTaskId: typeof input.invocation.memoria_task_id === "number"
+      ? input.invocation.memoria_task_id
+      : null,
+    memoriaTaskTitle: typeof input.invocation.memoria_task_title === "string"
+      ? input.invocation.memoria_task_title
+      : null,
   });
   const result = spawner(request);
   if (result.ok) {

@@ -58,6 +58,7 @@ import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
 import { delegationRouter } from "./delegation.js";
 import type { StagedFollowupMemoriaPort } from "../delegation/staged-followup.js";
+import type { MemoriaClient, MemoriaTask } from "../memoria/client.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import type { DelegationQueue } from "../delegation/queue.js";
@@ -132,6 +133,7 @@ import type { TeamsRepo } from "../db/teams-repo.js";
 import type { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
+const spawnMemoriaLog = createChildLogger("api/spawn-memoria");
 
 export interface CoreSessionDeps {
   repo: SessionsRepo;
@@ -200,8 +202,10 @@ export interface CoreDelegationDeps {
   /**
    * 段階注入の第2段階で関連付ける Memoria タスクの作成口。 未注入なら追跡タスク無しで
    * 実装タスクを配る (実装は止めない)。 spec/feature/delegation-staged-injection.md。
+   * `/spawn` の `memoria_task_id` 解決と正常終了時の完了にも使う。
+   * `getTask` は実クライアントだけが持つので optional (テスト用の細いポートを壊さない)。
    */
-  memoria?: StagedFollowupMemoriaPort;
+  memoria?: StagedFollowupMemoriaPort & Partial<Pick<MemoriaClient, "getTask" | "completeTask">>;
 }
 
 export interface CoreRuntimeDeps {
@@ -574,7 +578,20 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           `- ${projectName} 以外の作業を指示された場合は、実行せずその旨を報告すること。`,
         ].join("\n")
       : "";
-    const adHocPrompt = [restriction, userPrompt].filter(Boolean).join("\n\n");
+    // Memoria の既存タスクを起点に起動する経路 (spec/feature/teams.md §2)。
+    // 選んだタスクは ①current_task として登録 ②本文を初回 prompt に載せる
+    // ③正常終了時に done にする、の 3 つを担う。 Memoria が引けなくても spawn は
+    // 続行し、タスク連携だけを諦める (起動できない方が困る)。
+    const memoriaTask = await resolveSpawnMemoriaTask(deps, body.memoria_task_id);
+    if (memoriaTask.error) return c.json({ error: memoriaTask.error }, 400);
+    const taskPrompt = memoriaTask.task
+      ? [
+          `## 今回のタスク (Memoria #${memoriaTask.task.id})`,
+          memoriaTask.task.title,
+          memoriaTask.task.details?.trim() ? `\n${memoriaTask.task.details.trim()}` : "",
+        ].filter(Boolean).join("\n")
+      : "";
+    const adHocPrompt = [restriction, taskPrompt, userPrompt].filter(Boolean).join("\n\n");
 
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
@@ -619,6 +636,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           requester_discord_user_id: requesterDiscordUserId,
           source_discord_guild_id: sourceDiscordGuildId,
           source_discord_channel_id: sourceDiscordChannelId,
+          memoria_task_id: memoriaTask.task?.id ?? null,
+          memoria_task_title: memoriaTask.task?.title ?? null,
         });
         if (!result.ok) return c.json({ error: result.error, detail: result.details }, 400);
         if (result.run.status === "spawn_failed") {
@@ -641,7 +660,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         });
       }
 
-      // prompt 注入なし = provider + model だけ採用した素のセッション。
+      // テンプレ prompt 注入なし = provider + model だけ採用した素のセッション。
+      // Memoria task が明示された場合だけ、その task 本文は初回指示として別途注入する。
       // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (auto-model の
       // ヒント用に resolveDelegationSpawn より先に解決)。展開後が空 / 未解決 (`${` 残存) なら
       // undefined にして spawnDefaultCwd に委ねる。
@@ -664,6 +684,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       );
       const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
       const spawnArgs = [...spawn.args, ...runtimeArgs];
+      const taskPromptPath = taskPrompt
+        ? await deps.delegationService.writeAdHocPrompt(taskPrompt)
+        : null;
       const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const spawnTarget = await prepareSpawnTarget({
         cwd: spawnCwd,
@@ -683,11 +706,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         subsidiaryId,
         project: projectName || null,
         requesterDiscordUserId,
-        startupInjectText: null,
+        startupInjectText: taskPrompt || null,
         sourceDiscordGuildId,
         sourceDiscordChannelId,
         goalAndGo: goalAndGoRequested(runtimeOptions),
         teamId: requestedTeamId,
+        memoriaTaskId: memoriaTask.task?.id ?? null,
+        memoriaTaskTitle: memoriaTask.task?.title ?? null,
       });
       const result = sessionSpawn({
         provider: spawn.provider,
@@ -701,6 +726,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           ...(spawn.env ?? {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
+          ...(taskPromptPath ? { CONCORDIA_DELEGATION_PROMPT_FILE: taskPromptPath } : {}),
         },
         spawnId,
       });
@@ -712,7 +738,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ok: true,
         pid: result.pid,
         command: result.command,
-        injected_prompt: false,
+        injected_prompt: Boolean(taskPrompt),
         project: projectName || null,
         cwd: spawnTarget.cwd ?? null,
         branch: spawnTarget.branch,
@@ -773,6 +799,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       goalAndGo: goalAndGoRequested(effectiveDirectOptions),
       testSurfaceId,
       teamId: requestedTeamId,
+      memoriaTaskId: memoriaTask.task?.id ?? null,
+      memoriaTaskTitle: memoriaTask.task?.title ?? null,
     });
     const result = sessionSpawn({
       provider: resolved.provider,
@@ -852,6 +880,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         harnessAudit: deps.harnessAudit,
         usageFrames: deps.transcriptLogs,
         questionState: deps.channelDirectory,
+        memoria: deps.memoria,
       },
       ended,
     );
@@ -1212,4 +1241,34 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {
   return !!x && typeof x === "object" && !Array.isArray(x);
+}
+
+/**
+ * `/spawn` の `memoria_task_id` を実タスクへ解決する。
+ *
+ * 不正な id は 400 で弾く (打ち間違いを黙って無視すると、タスク連携が付いていない
+ * ことに気づけない)。 一方 Memoria への到達失敗は spawn を止めない — 起動できない
+ * 方が損失が大きいので、タスク連携だけを諦めて null を返す。
+ */
+async function resolveSpawnMemoriaTask(
+  deps: { memoria?: { getTask?: (id: number) => Promise<MemoriaTask | null> } },
+  raw: unknown,
+): Promise<{ task: MemoriaTask | null; error?: string }> {
+  if (raw === undefined || raw === null || raw === "") return { task: null };
+  const id = Number(raw);
+  if (!Number.isInteger(id) || id <= 0) return { task: null, error: `invalid memoria_task_id: ${String(raw)}` };
+  const getTask = deps.memoria?.getTask;
+  if (!getTask) return { task: null };
+  try {
+    const task = await getTask.call(deps.memoria, id);
+    if (!task) return { task: null, error: `memoria task not found: ${id}` };
+    if (task.status === "done") return { task: null, error: `memoria task already completed: ${id}` };
+    return { task };
+  } catch (error) {
+    spawnMemoriaLog.warn(
+      { task_id: id, err: (error as Error).message },
+      "memoria task lookup failed; spawning without task link",
+    );
+    return { task: null };
+  }
 }

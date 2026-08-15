@@ -231,6 +231,17 @@ export class SessionsRepo {
     return r.n;
   }
 
+  /**
+   * `sinceTs` 以降に開始したチーム所属セッション数。
+   * セッション終了時のコスト報告で「本日 N セッション中の 1 本」を示すのに使う。
+   */
+  countTeamSessionsSince(teamId: string, sinceTs: number): number {
+    const r = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM sessions WHERE team_id = ? AND started_at >= ?`)
+      .get(teamId, sinceTs) as { n: number };
+    return r.n;
+  }
+
   /** started_at が [startTs, endTs) の session 集合. day_report 集計用. */
   listSessionsInRange(startTs: number, endTs: number): SessionRow[] {
     return this.db

@@ -63,6 +63,8 @@ export interface SessionsApiDeps {
   delegation?: DelegationRepo;
   controlJobs: ControlJobsRepo;
   channelDirectory: ChannelDirectory;
+  /** spawn で紐付いた Memoria タスクを正常終了時に完了させる口 (spec/feature/teams.md §2)。 */
+  memoria?: { completeTask?(id: number): Promise<void> };
   participants: ParticipantsRepo;
   sessionMessages: SessionMessagesRepo;
   sessionMessageReads: SessionMessageReadsRepo;

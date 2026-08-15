@@ -95,6 +95,32 @@ export class TeamsRepo {
     `).all(repoOrigin) as TeamRow[];
   }
 
+  /**
+   * Discord のカテゴリ id からチームを引く。 spawn がチャンネル起点でチームを
+   * 決めるときの入口 (spec/feature/teams.md §2)。
+   */
+  findByDiscordCategoryId(categoryId: string): TeamRow | null {
+    if (!categoryId) return null;
+    return (this.db.prepare(
+      "SELECT * FROM teams WHERE discord_category_id = ? LIMIT 1",
+    ).get(categoryId) as TeamRow | undefined) ?? null;
+  }
+
+  /**
+   * チーム面 (team_surfaces) の channel_id からチームを引く。 カテゴリ配下でなく
+   * 面そのもので spawn された場合に使う。
+   */
+  findBySurfaceChannelId(channelId: string): TeamRow | null {
+    if (!channelId) return null;
+    return (this.db.prepare(`
+      SELECT teams.*
+      FROM teams
+      JOIN team_surfaces ON team_surfaces.team_id = teams.id
+      WHERE team_surfaces.channel_id = ?
+      LIMIT 1
+    `).get(channelId) as TeamRow | undefined) ?? null;
+  }
+
   surfaceChannelId(teamId: string, surface: string): string | null {
     const row = this.db.prepare(
       "SELECT channel_id FROM team_surfaces WHERE team_id = ? AND surface = ?",

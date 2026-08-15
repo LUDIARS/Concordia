@@ -702,7 +702,7 @@ export async function startBackend(): Promise<BackendHandle> {
     // 未回答の質問は blocker: 回答が来るまで taskflow の自動 inject を出さない。
     hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
     endSession: (session, reason) => endSessionNow(
-      { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
+      { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions, memoria: memoriaClient },
       session,
       reason,
     ),
@@ -1459,7 +1459,7 @@ export async function startBackend(): Promise<BackendHandle> {
       claims: testingClaims,
       submitLocalPr: (sessionId) => submitLocalPrForSession(sessionId, { fastLane: false }),
       endSession: (session, reason) => endSessionNow(
-        { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions },
+        { repo, chat, config: cfg, harnessAudit: harnessAuditRepo, transcriptLogs, questionState: pendingQuestions, memoria: memoriaClient },
         session,
         reason,
       ),

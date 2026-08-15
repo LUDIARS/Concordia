@@ -2,6 +2,9 @@ import { ChannelType, SlashCommandBuilder, type PublicThreadChannel } from "disc
 import type { DiscordCommandSpec } from "../command-port.js";
 import { callConcordia } from "./_util.js";
 import { delegationTemplateCache } from "../delegation-template-cache.js";
+import { memoriaTaskCache, toTaskChoices } from "../memoria-task-cache.js";
+import { toTeamChoices } from "../team-choices.js";
+import { resolveTeamFromChannel, type SpawnChannelChain } from "../team-channel-binding.js";
 import {
   markForumThreadAsConcordiaManaged,
   type EditableForumThread,
@@ -48,16 +51,45 @@ const spawnCommand: DiscordCommandSpec = {
           { name: "max", value: "max" },
         ))
     .addStringOption((o) => o.setName("project").setDescription("project/repository name under workspace roots").setRequired(false))
-    .addStringOption((o) => o.setName("team").setDescription("team id or slug for the session contract").setRequired(false))
+    .addStringOption((o) =>
+      o.setName("team")
+        .setDescription("登録済みチーム (未指定ならチーム面での実行から自動判定)")
+        .setRequired(false)
+        .setAutocomplete(true))
+    .addStringOption((o) =>
+      o.setName("task")
+        .setDescription("Memoria の未完了タスク。 本文を注入し、正常終了時に done にする")
+        .setRequired(false)
+        .setAutocomplete(true))
     .addStringOption((o) => o.setName("branch").setDescription("requested working branch (Cc に登録)").setRequired(false))
     .addStringOption((o) => o.setName("cwd").setDescription("individual project working directory").setRequired(false)),
 
   async autocomplete(interaction, deps) {
-    const focused = interaction.options.getFocused().toLowerCase();
+    const focusedOption = interaction.options.getFocused(true);
+    const focused = String(focusedOption.value ?? "").toLowerCase();
     deps.log.info(
-      `spawn autocomplete start guild=${interaction.guildId ?? "-"} channel=${interaction.channelId ?? "-"} ` +
-      `focused_len=${focused.length}`,
+      `spawn autocomplete start option=${focusedOption.name} guild=${interaction.guildId ?? "-"} ` +
+      `channel=${interaction.channelId ?? "-"} focused_len=${focused.length}`,
     );
+
+    // team / task はテンプレとは別の候補源。 option 名で分岐しないと、どの欄を
+    // 編集していてもテンプレ一覧が出る (2026-08-15 まではその状態だった)。
+    if (focusedOption.name === "team") {
+      const teams = deps.teams?.list() ?? [];
+      await interaction.respond(toTeamChoices(teams, focused));
+      return;
+    }
+    if (focusedOption.name === "task") {
+      const memoria = deps.memoria;
+      if (!memoria) {
+        await interaction.respond([]);
+        return;
+      }
+      const tasks = await memoriaTaskCache.get(() => memoria.listOpenTasks(), deps.log);
+      await interaction.respond(toTaskChoices(tasks, focused));
+      return;
+    }
+
     const cached = await delegationTemplateCache.get(deps.concordiaUrl, deps.log);
     const templates = cached.templates;
     const choices = templates
@@ -82,8 +114,21 @@ const spawnCommand: DiscordCommandSpec = {
     const effort = interaction.options.getString("effort")?.trim() || undefined;
     const cwd = interaction.options.getString("cwd") ?? undefined;
     const project = interaction.options.getString("project")?.trim() || undefined;
-    const team = interaction.options.getString("team")?.trim() || undefined;
+    const requestedTeam = interaction.options.getString("team")?.trim() || undefined;
+    const task = interaction.options.getString("task")?.trim() || undefined;
     const branch = interaction.options.getString("branch")?.trim() || undefined;
+
+    // 明示指定が最優先。 未指定のときだけ「どのチーム面で実行したか」から補う。
+    // セッションはほぼ workspace root から起動されるので、起動後の付け替えでは
+    // 取りこぼす (spec/feature/teams.md §2)。
+    const channelTeam = requestedTeam ? null : resolveSpawnChannelTeam(interaction, deps);
+    const team = requestedTeam ?? channelTeam?.teamId;
+    if (channelTeam) {
+      deps.log.info(
+        `spawn team resolved from channel team=${channelTeam.teamId} via=${channelTeam.via} ` +
+        `channel=${interaction.channelId}`,
+      );
+    }
 
     deps.log.info(
       `spawn command execute provider=${provider ?? "-"} template=${template ?? "-"} inject=${inject ? 1 : 0} ` +
@@ -112,6 +157,7 @@ const spawnCommand: DiscordCommandSpec = {
         inject_prompt: inject,
         project,
         team,
+        memoria_task_id: task,
         cwd,
         branch,
         subsidiary_id: deps.subsidiaryId ?? null,
@@ -168,6 +214,7 @@ const spawnCommand: DiscordCommandSpec = {
       model,
       project,
       team,
+      memoria_task_id: task,
       cwd,
       branch,
       ...(effort ? { options: effortOptions(provider, effort) } : {}),
@@ -196,6 +243,32 @@ const spawnCommand: DiscordCommandSpec = {
     });
   },
 };
+
+/**
+ * `/spawn` 実行チャンネルからチームを引く。 Discord 側の階層解決だけをここで行い、
+ * 突き合わせ規則は team-channel-binding.ts の純関数に置く。
+ * teams 未注入・ギルド外・一致なしはすべて null (現行どおりチーム未所属)。
+ */
+function resolveSpawnChannelTeam(
+  interaction: Parameters<DiscordCommandSpec["execute"]>[0],
+  deps: Parameters<DiscordCommandSpec["execute"]>[1],
+): ReturnType<typeof resolveTeamFromChannel> {
+  const teams = deps.teams;
+  if (!teams) return null;
+  const channel = interaction.channel;
+  const chain: SpawnChannelChain = channel?.isThread()
+    ? {
+        channelId: channel.id,
+        parentId: channel.parentId,
+        categoryId: channel.parent?.parentId ?? null,
+      }
+    : {
+        channelId: interaction.channelId,
+        parentId: null,
+        categoryId: channel && "parentId" in channel ? channel.parentId ?? null : null,
+      };
+  return resolveTeamFromChannel(teams, chain);
+}
 
 function effortOptions(provider: string | null, effort: string): Record<string, string> {
   return provider === "claude" ? { effort } : { model_reasoning_effort: effort };

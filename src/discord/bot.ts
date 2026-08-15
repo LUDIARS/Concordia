@@ -109,6 +109,9 @@ import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { MemoriaClient } from "../memoria/client.js";
+import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
+import { renderTeamCostReport } from "./team-cost-report.js";
 
 /**
  * スレッドタイトルに載せる作業リポ群。 Lictor が active repo を 1 本も報告して
@@ -123,6 +126,9 @@ function readActiveRepos(state: SessionRelayState | null | undefined): string[] 
 }
 
 const discordLog = createChildLogger("discord");
+// Discord autocomplete must acknowledge within three seconds. Leave time for
+// formatting and the gateway response even when the local Memoria service stalls.
+const AUTOCOMPLETE_MEMORIA_TIMEOUT_MS = 2_000;
 // warn/error のうち「失敗」 を表すものは reportError 経由で errors チャンネルへも転記.
 // (cost channel unavailable 等の非失敗 warn はノイズになるので looksLikeFailure で除外)
 const log = {
@@ -443,12 +449,48 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
   const ingressDirectorRepo = new DirectorRepo(deps.db);
   const teamsRepo = new TeamsRepo(deps.db);
+  // `/spawn` の task 候補 (Memoria の未完了タスク)。 Memoria が落ちていても spawn は
+  // 続けられるよう、 補完側でキャッシュと失敗吸収を行う。
+  const spawnTaskSource = new MemoriaClient({ timeoutMs: AUTOCOMPLETE_MEMORIA_TIMEOUT_MS });
   // チーム面ルーティング (team-card-routing.ts): セッションの team_id からカード種別の
   // 投稿先チャンネルを引く。 子会社 bot はチーム面 (本社 guild) を持たないので常に null。
   const teamCardChannelForSession = (sessionId: string, kind: TeamCardKind): string | null => {
     if (deps.subsidiary) return null;
     const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
     return resolveTeamCardChannel(teamsRepo, teamId, kind);
+  };
+  const teamMetricsRepo = new TeamMetricsRepo(deps.db);
+  /**
+   * セッション終了時のチームコスト報告 (spec/feature/teams.md §2)。
+   *
+   * チーム未所属・コスト面未プロビジョニングなら何もしない (フォールバック投稿は
+   * しない — 個人セッションのコストを無関係なチャンネルへ流さないため)。
+   */
+  const postTeamCostReport = async (sessionId: string, nowMs: number): Promise<void> => {
+    if (deps.subsidiary) return;
+    const guild = activeGuild;
+    if (!guild) return;
+    const session = deps.sessionsRepo.findSession(sessionId);
+    const teamId = session?.team_id ?? null;
+    if (!session || !teamId) return;
+    const channelId = resolveTeamCardChannel(teamsRepo, teamId, "cost-session");
+    if (!channelId) return;
+    const team = teamsRepo.find(teamId);
+    if (!team) return;
+    await postToTeamSurface(guild, channelId, {
+      content: renderTeamCostReport({
+        teamName: team.name,
+        sessionLabel: session.current_task?.trim()
+          || `${session.provider} (${sessionId.slice(0, 12)})`,
+        sessionCostTokens: teamMetricsRepo.sessionCost(sessionId),
+        teamTodayCostTokens: teamMetricsRepo.teamCostToday(teamId, nowMs),
+        teamTodaySessionCount: deps.sessionsRepo.countTeamSessionsSince(
+          teamId,
+          localMidnightSec(nowMs),
+        ),
+      }),
+      allowedMentions: { parse: [] },
+    });
   };
   /**
    * カードをチーム面へ投稿する。 投稿済みなら message id を、 チーム未設定 / 面欠落 /
@@ -1201,6 +1243,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       sessionChannelsRepo,
       pendingQuestionsRepo,
       testSurfacesRepo,
+      // `/spawn` の team 候補・チャンネル起点のチーム帰属・task 候補の供給元。
+      teams: teamsRepo,
+      memoria: spawnTaskSource,
       revisor: deps.revisor,
       answerQuestion: deps.answerQuestion,
       guild: interaction.guild!,
@@ -1522,6 +1567,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)
         .catch((e) => log.warn(`status-card delete on ended failed session=${ev.session_id}: ${(e as Error).message}`));
+      // チーム所属セッションなら、 1 本分の実績をチームのコスト面へ報告する。
+      void postTeamCostReport(ev.session_id, ev.ts * 1000)
+        .catch((e) => log.warn(`team cost report failed session=${ev.session_id}: ${(e as Error).message}`));
       return;
     }
     // stat.collected での状態カード更新は撤去 (更新は 10 分毎の定期 tick のみ)。

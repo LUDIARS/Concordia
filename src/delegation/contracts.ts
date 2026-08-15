@@ -58,6 +58,9 @@ export interface InvokeInput {
   requester_discord_user_id?: string | null;
   source_discord_guild_id?: string | null;
   source_discord_channel_id?: string | null;
+  /** `/spawn` で選ばれた Memoria タスク。session.started まで pending claim で運ぶ。 */
+  memoria_task_id?: number | null;
+  memoria_task_title?: string | null;
 }
 
 export interface QueuePayload {

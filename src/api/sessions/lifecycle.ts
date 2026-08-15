@@ -149,6 +149,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // project 限定 spawn は project を焼く (作業範囲の監査 / UI 表示用)。
       if (claimed?.project) meta.project = claimed.project;
       if (claimed?.testSurfaceId) meta.test_surface_id = claimed.testSurfaceId;
+      // spawn で選ばれた Memoria タスク。 end-session-flow が正常終了時にこれを見て
+      // done にするので、 セッション側に id を残すのが唯一の紐付け (spec/feature/teams.md §2)。
+      if (claimed?.memoriaTaskId) meta.memoria_task_id = claimed.memoriaTaskId;
       if (claimed?.requesterDiscordUserId) {
         meta.discord_requester_user_id = claimed.requesterDiscordUserId;
       }
@@ -196,6 +199,11 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
         active_repos: input.active_repos ?? [],
         team_id: claimed?.teamId ?? claimedDelegationRun?.team_id ?? null,
       });
+      // タスク名は insertSession の引数に無いので、登録直後に patch で入れる。
+      // Discord / WebUI のセッション表示がそのまま「何をしている session か」になる。
+      if (claimed?.memoriaTaskTitle) {
+        deps.repo.patchSession(input.id, { current_task: claimed.memoriaTaskTitle });
+      }
       deps.repo.appendEvent({
         session_id: input.id,
         ts: now,
@@ -528,6 +536,7 @@ app.delete("/:id", async (c) => {
         harnessAudit: deps.harnessAudit,
         transcriptLogs: deps.transcriptLogs,
         questionState: deps.channelDirectory,
+        memoria: deps.memoria,
       },
       s,
       "auto on DELETE /v1/sessions/:id",

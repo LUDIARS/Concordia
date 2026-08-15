@@ -1,6 +1,8 @@
 import type { AutocompleteInteraction, ChatInputCommandInteraction, Guild } from "discord.js";
 import type { DiscordPendingQuestionsRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { TeamsRepo } from "../db/teams-repo.js";
+import type { MemoriaClient } from "../memoria/client.js";
 import type { AnswerQuestionFn } from "../platform/answer-question.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type { PermissionActionStore } from "./permission-port.js";
@@ -17,6 +19,10 @@ import type {
 export interface DiscordCommandDeps {
   concordiaUrl: string;
   sessionsRepo: SessionsRepo;
+  /** チーム候補の補完と、チャンネル起点のチーム帰属に使う (spec/feature/teams.md §2)。 */
+  teams?: TeamsRepo;
+  /** `/spawn` の task 候補。 未注入なら task 補完は空を返す (spawn 自体は続行できる)。 */
+  memoria?: Pick<MemoriaClient, "listOpenTasks">;
   sessionChannelsRepo: DiscordSessionChannelsRepo;
   pendingQuestionsRepo: DiscordPendingQuestionsRepo;
   testSurfacesRepo?: DiscordTestSurfacesRepo;

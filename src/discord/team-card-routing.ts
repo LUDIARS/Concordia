@@ -17,6 +17,7 @@ export type TeamCardKind =
   | "decision-log"
   | "question"
   | "cost-daily"
+  | "cost-session"
   | "task-kanban";
 
 export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
@@ -24,6 +25,8 @@ export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   "decision-log": "direction",
   "question": "direction",
   "cost-daily": "コスト",
+  // セッション終了時の 1 本分の実績。 日次サマリ (cost-daily) と同じ面に出す。
+  "cost-session": "コスト",
   "task-kanban": "タスクボード",
 };
 

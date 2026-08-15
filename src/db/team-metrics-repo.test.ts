@@ -107,6 +107,18 @@ describe("TeamMetricsRepo", () => {
     db.close();
   });
 
+  it("uses reset-safe positive deltas for a single session cost", () => {
+    const db = makeDb();
+    seedSession(db, "s1", null);
+    seedSample(db, "s1", 100, 1000);
+    seedSample(db, "s1", 200, 1200);
+    seedSample(db, "s1", 300, 100);
+    seedSample(db, "s1", 400, 250);
+
+    expect(new TeamMetricsRepo(db).sessionCost("s1")).toBe(350);
+    db.close();
+  });
+
   it("builds the team cost series from per-session deltas", () => {
     const db = makeDb();
     const team = new TeamsRepo(db).create({ name: "T", slug: "t" });

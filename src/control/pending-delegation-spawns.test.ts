@@ -118,6 +118,19 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.teamId).toBe("team_123");
   });
 
+  it("round-trips the linked Memoria task", () => {
+    recordPendingDelegationSpawn({
+      cwd: "/a",
+      callName: "impl-from-design",
+      memoriaTaskId: 42,
+      memoriaTaskTitle: "GLab task",
+    }, 1000);
+    expect(claimPendingDelegationSpawn("/a", 1001)).toMatchObject({
+      memoriaTaskId: 42,
+      memoriaTaskTitle: "GLab task",
+    });
+  });
+
   it("round-trips the TestWorkflow surface correlation", () => {
     recordPendingDelegationSpawn({ cwd: "/a", callName: "spawn", testSurfaceId: 42 }, 1000);
     expect(claimPendingDelegationSpawn("/a", 1001)?.testSurfaceId).toBe(42);

@@ -128,7 +128,11 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
       `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
     );
-    if (interaction.isRepliable()) {
+    if (interaction.isAutocomplete()) {
+      // Autocomplete can contain private task/team labels, so reject it through
+      // its own acknowledgement API instead of letting it reach the command.
+      await interaction.respond([]).catch(() => { /* interaction may have expired; best-effort */ });
+    } else if (interaction.isRepliable()) {
       await interaction.reply({
         content: privileged.denyMessage,
         ephemeral: true,
@@ -311,6 +315,11 @@ function disabledWorkflowForCommand(name: string, deps: DiscordCommandDeps): Wor
 }
 
 function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInteraction | null {
+  if (interaction.isAutocomplete()) {
+    // `/spawn` choices include Memoria task titles. Apply the same fail-closed
+    // authorization as execution so autocomplete cannot become a read bypass.
+    return interaction.commandName === "spawn" ? PRIVILEGED_SESSION_SPAWN : null;
+  }
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;

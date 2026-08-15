@@ -74,6 +74,13 @@ export interface EndSessionFlowDeps {
   usageFrames?: Pick<TranscriptLogsRepo, "listUsagePayloads">;
   /** 回答 event 欠落時も質問の durable state を report へ反映する。 */
   questionState?: SummaryQuestionStateReader;
+  /**
+   * spawn 時に選ばれた Memoria タスクを完了にする口 (spec/feature/teams.md §2)。
+   *
+   * **この経路にしか置かない**のが重要で、`session.lost` (クラッシュ・切断) では
+   * done にしない。 落ちただけのセッションでタスクが消えると、 残作業が見えなくなる。
+   */
+  memoria?: { completeTask?(id: number): Promise<void> };
 }
 
 export interface SessionEndFlowResult {
@@ -157,13 +164,58 @@ export async function runSessionEndFlow(
     }
   }
 
-  // 4. session.ended + report.generated events
+  // 4. spawn で紐付いた Memoria タスクを完了にする。 正常終了の経路だけがここを通る。
+  await completeLinkedMemoriaTask(deps, endedSession);
+
+  // 5. session.ended + report.generated events
   eventBus.emit({ type: "session.ended", session_id: id, ts: now });
   if (report) {
     eventBus.emit({ type: "report.generated", session_id: id, ts: now });
   }
 
   return { report, postedMessageId };
+}
+
+/**
+ * セッション metadata の `memoria_task_id` を読み、そのタスクを done にする。
+ *
+ * 失敗は握って warn に留める — タスク管理の都合でセッション終了処理を落とさない。
+ */
+export async function completeLinkedMemoriaTask(
+  deps: Pick<EndSessionFlowDeps, "memoria">,
+  session: Pick<SessionRow, "id" | "metadata">,
+): Promise<number | null> {
+  const completeTask = deps.memoria?.completeTask;
+  if (!completeTask) return null;
+  const taskId = readMemoriaTaskId(session.metadata);
+  if (taskId === null) return null;
+  try {
+    await completeTask.call(deps.memoria, taskId);
+    log.info({ session_id: session.id, task_id: taskId }, "memoria task completed on session end");
+    return taskId;
+  } catch (err) {
+    log.warn(
+      { session_id: session.id, task_id: taskId, err: (err as Error).message },
+      "memoria task completion failed",
+    );
+    return null;
+  }
+}
+
+/** metadata は TEXT 列なので JSON として読めないことがある。 読めなければ紐付け無しとみなす。 */
+function readMemoriaTaskId(metadata: unknown): number | null {
+  const raw = typeof metadata === "string"
+    ? (() => {
+        try {
+          return JSON.parse(metadata) as unknown;
+        } catch {
+          return null;
+        }
+      })()
+    : metadata;
+  if (!raw || typeof raw !== "object") return null;
+  const value = (raw as { memoria_task_id?: unknown }).memoria_task_id;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }
 
 /**

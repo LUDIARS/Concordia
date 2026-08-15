@@ -30,6 +30,8 @@ export interface EndSessionCommandDeps {
   harnessAudit?: HarnessAuditRepo;
   transcriptLogs: TranscriptLogsRepo;
   questionState: SummaryQuestionStateReader;
+  /** spawn で紐付いた Memoria タスクの完了口 (正常終了時のみ)。 */
+  memoria?: { completeTask?(id: number): Promise<void> };
 }
 
 export interface EndSessionCommandResult {
@@ -96,6 +98,7 @@ export async function endSessionNow(
       // 終了経路なので、 admin stop と同じく frame ソースを渡す。
       usageFrames: deps.transcriptLogs,
       questionState: deps.questionState,
+      memoria: deps.memoria,
     },
     ended,
   );

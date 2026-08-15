@@ -24,12 +24,20 @@ function codex56Template(opts: {
   reasoning: "medium" | "high" | "xhigh" | "ultra";
   /** fast モード (出力高速化)。 Sol の既定は high + fast (2026-07-17 neco 指示)。 */
   fastMode?: boolean;
+  /**
+   * codex 実行系の provider。 既定 `"codex"` は codex-cli (Lictor wrap)。
+   * `"codex-sdk"` は Satelles ヘッドレスランナー経由で、 Cc 側の
+   * `CONCORDIA_SATELLES_CODEX_RUNTIME=wsl` と組み合わせると WSL 内 Linux codex で
+   * 走り、 Windows 版 codex の CreateProcessWithLogonW 経由 lsass ログオンセッション
+   * リーク (upstream openai/codex #33356 / #35940) を回避できる。
+   */
+  provider?: "codex" | "codex-sdk";
 }): CreateTemplateInput {
   return {
     call_name: `codex-5-6-${opts.callSuffix}`,
     title: `Implementation delegation (GPT-5.6 ${opts.label})`,
     description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
-    target_provider: "codex",
+    target_provider: opts.provider ?? "codex",
     model: `gpt-5.6-${opts.modelName}`,
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
@@ -67,7 +75,9 @@ const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
   // Sol の既定は high + fast (2026-07-17 neco 指示)。
   codex56Template({ callSuffix: "sol", modelName: "sol", label: "Sol", emoji: "☀️", sort_order: 20, reasoning: "high", fastMode: true }),
   // 最上位推論が要る難所用に Sol Ultra を明示的に用意する (同指示)。
-  codex56Template({ callSuffix: "sol-ultra", modelName: "sol", label: "Sol Ultra", emoji: "🌞", sort_order: 25, reasoning: "ultra" }),
+  // provider=codex-sdk: Satelles 経由 (Cc の CONCORDIA_SATELLES_CODEX_RUNTIME=wsl と
+  // 組み合わせて WSL 内 Linux codex で走らせ、 lsass リークを回避する — neco 指示)。
+  codex56Template({ callSuffix: "sol-ultra", modelName: "sol", label: "Sol Ultra", emoji: "🌞", sort_order: 25, reasoning: "ultra", provider: "codex-sdk" }),
   codex56Template({ callSuffix: "terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 50, reasoning: "xhigh" }),
   codex56Template({ callSuffix: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 70, reasoning: "medium" }),
 ];

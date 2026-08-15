@@ -172,6 +172,13 @@ describe("seedDelegationTemplates", () => {
 
   it("codex Sol defaults to high + fast and Sol Ultra is explicit (2026-07-17)", () => {
     const repo = new DelegationRepo(makeTestDb());
+    // 既存 seed は boot 時の upsert で置換されるため、provider 変更も反映する。
+    repo.createTemplate({
+      call_name: "codex-5-6-sol-ultra",
+      title: "old Sol Ultra",
+      target_provider: "codex",
+      prompt_template: "old",
+    });
     seedDelegationTemplates(repo);
 
     const sol = repo.findTemplateByCallName("codex-5-6-sol");
@@ -186,6 +193,11 @@ describe("seedDelegationTemplates", () => {
     expect(JSON.parse(ultra?.runtime_options_json ?? "null")).toMatchObject({
       model_reasoning_effort: "ultra",
     });
+    // Sol Ultra は Satelles (codex-sdk) 経由。 Cc の CONCORDIA_SATELLES_CODEX_RUNTIME=wsl
+    // と組み合わせて WSL 内 Linux codex で走らせ lsass リークを回避する (neco 指示)。
+    expect(ultra?.target_provider).toBe("codex-sdk");
+    // 他の Sol は従来どおり codex-cli のまま (回避策は Sol Ultra に限定)。
+    expect(sol?.target_provider).toBe("codex");
   });
 
   it("review launch is consolidated into review-duo (Opus x Sol xhigh)", () => {

@@ -20,22 +20,23 @@ completion 側にも適用し、 再起動だけでコード側のシードが�
 
 ## 完了条件
 
-- [ ] `CompletionBlackbox` のシード投入を upsert 化する。 同一性キーは harness gate と同様に
+- [x] `CompletionBlackbox` のシード投入を upsert 化する。 同一性キーは harness gate と同様に
       出力から導ける安定値を使い、 `when` / `output` 変更時に旧シードを `retired` にする。
-- [ ] 現行 fingerprint が既に存在し `auto` 以外なら `auto` へ戻す (撤回/降格からの復帰)。
-- [ ] 旧シード入りの DB から再シードすると新 `when` が効くこと・再シードが冪等であることを
+- [x] 現行 fingerprint が既に存在し `auto` 以外なら `auto` へ戻す (撤回/降格からの復帰)。
+- [x] 旧シード入りの DB から再シードすると新 `when` が効くこと・再シードが冪等であることを
       テストで裏取りする (`src/harness/blackbox-engine.test.ts` の「シード upsert」節と同流儀)。
-- [ ] 共通化できるなら upsert ロジックを 1 箇所へ寄せる (harness / taskflow で二重実装しない)。
+- [x] 共通化できるなら upsert ロジックを 1 箇所へ寄せる (harness / taskflow で二重実装しない)。
       `@ludiars/blackbox` 側に置くか利用側ヘルパにするかは実装時に判断する。
 
 ## 備考
 
 `RuleStore` に delete は無く `setRuleState(id, "retired")` が撤回手段 (retired は発火せず、
-同一内容の再提案もブロックされる)。 harness gate 側の実装は
-`src/harness/blackbox-engine.ts` の `ensureRule` / `retireStaleSeeds` を参照。
+同一内容の再提案もブロックされる)。 共通 upsert 実装は
+`src/shared/blackbox-seed-upsert.ts` を参照。
 
 ## スコープ (編集可ディレクトリ)
 
 - `src/taskflow/`
 - `src/harness/` (共通化する場合のみ)
+- `src/shared/` (共通化する場合のみ)
 - `lib/blackbox/` (共通化先として選ぶ場合のみ)

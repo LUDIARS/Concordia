@@ -11,6 +11,7 @@ import {
   type RuleDraft,
 } from "@ludiars/blackbox";
 import type Database from "better-sqlite3";
+import { upsertSeedRules, type KeyedSeed } from "../shared/blackbox-seed-upsert.js";
 import type { PromptAnalyzerSource, PromptAnalysis } from "./local-prompt-analyzer.js";
 import { isMainPushAllowlisted, MAIN_PUSH_ALLOWLIST_ENV } from "./main-push-allowlist.js";
 import {
@@ -137,7 +138,7 @@ function gateVerdict(decision: GateDecision, hits: PredicateHit[], reason: strin
  * コード側で固定するシードルール。 `key` は再シード時の同一性キー (fingerprint は
  * when/output を変えると変わるため、 旧版を retire して差し替えるのに使う)。
  */
-type SeededGateRule = RuleDraft & { domain: HarnessBlackboxDomain; key: string };
+type SeededGateRule = KeyedSeed<RuleDraft & { domain: HarnessBlackboxDomain }>;
 
 const SEEDED_GATE_RULES: SeededGateRule[] = [
   {
@@ -413,40 +414,9 @@ export class HarnessBlackboxService {
   }
 
   private seedGateRules(): void {
-    for (const draft of SEEDED_GATE_RULES) {
-      this.ensureRule(draft);
-    }
+    upsertSeedRules({ box: this.box, keyOf: seedRuleKey }, SEEDED_GATE_RULES);
   }
 
-  /**
-   * シードルールの upsert。 `when` / `output` を書き換えると fingerprint が変わり別ルールに
-   * なるため、 insert-once ではコード変更が既存 DB に反映されない (旧ルールが発火し続ける)。
-   * ここでは **コード側の seed を正本**として:
-   *  1. 同じ key を持つ旧 seed (別 fingerprint) を retired にする → 発火しなくなる
-   *  2. 現行 fingerprint が未登録なら追加、 登録済みなら auto へ戻す (撤回/降格からの復帰)
-   * これにより Cc の再起動だけで新しい seed が確実に効く。
-   */
-  private ensureRule(draft: SeededGateRule): void {
-    const fingerprint = ruleFingerprint(draft.when, draft.output);
-    this.retireStaleSeeds(draft, fingerprint);
-    const existing = this.box.rules.findByFingerprint(draft.domain, fingerprint);
-    if (existing) {
-      if (existing.state !== "auto") this.box.engine.setRuleState(existing.id, "auto");
-      return;
-    }
-    const { key: _key, ...rule } = draft;
-    this.box.engine.addRule(rule);
-  }
-
-  /** 同 key の旧シード (現行 fingerprint 以外) を retired にする。 */
-  private retireStaleSeeds(draft: SeededGateRule, keepFingerprint: string): void {
-    for (const rule of this.box.engine.listRules(draft.domain)) {
-      if (rule.source !== "seed" || rule.state === "retired") continue;
-      if (rule.fingerprint === keepFingerprint) continue;
-      if (seedRuleKey(rule) !== draft.key) continue;
-      this.box.engine.setRuleState(rule.id, "retired");
-    }
-  }
 }
 
 export function createHarnessBlackbox(db: Database.Database): HarnessBlackboxService {

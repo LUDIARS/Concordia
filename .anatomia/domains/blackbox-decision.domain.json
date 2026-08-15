@@ -1,0 +1,26 @@
+{
+  "name": "blackbox-decision",
+  "description": "@ludiars/blackbox を使った学習型判定層。ハーネス gate 判定 (harness/blackbox-engine)、タスク完了判定 (taskflow/completion-blackbox)、残作業提案判定 (taskflow/residual-blackbox)、およびそれらが共有するシード upsert (shared/blackbox-seed-upsert) から成る。決定論的な述語評価 (harness/predicates・session-gate) はここではなく呼び出し側が持ち、この層は「決定論の結果と特徴量を受けてルール/LLM で判定し、判定を学習させる」ことだけを担う。コード側のシード定義がルールの正本で、DB 上の旧シードは再シード時に retire される。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/harness/blackbox-engine(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/taskflow/(completion|residual)-blackbox(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/shared/blackbox-seed-upsert(\\.test)?\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the \"blackbox-decision\" domain: gate / 完了 / 残作業の学習型判定と、コード側シードを正本にする upsert。",
+  "source": "spec",
+  "mechanics": [
+    "seed-rule-upsert-and-retire",
+    "fingerprint-based-rule-identity",
+    "deterministic-features-to-rule-decision",
+    "llm-fallback-with-verdict-feedback"
+  ],
+  "specRefs": [
+    "spec/plan/harness-melpot-allowlist-design.md",
+    "spec/feature/task-workflow.md"
+  ],
+  "rationale": "blackbox を使う判定層はハーネス (src/harness) とタスクワークフロー (src/taskflow) に分かれて置かれており、どのドメインにも属していなかった。この層だけを触る PR が Anatomia review gate (target domain missing) で止まる (2026-08-15 Cc #565)。シード upsert を src/shared へ共通化したことで 3 ファイルが 1 つの責務を共有する形になったため、まとめて 1 ドメインとして宣言する。",
+  "lockedFields": ["*"],
+  "updatedAt": "2026-08-15T00:00:00.000Z"
+}

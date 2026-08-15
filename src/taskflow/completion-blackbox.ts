@@ -1,12 +1,24 @@
-import { makeSqliteBlackBox, ruleFingerprint, type BlackBox, type RuleDraft } from "@ludiars/blackbox";
+import { makeSqliteBlackBox, type BlackBox, type Rule } from "@ludiars/blackbox";
 import type Database from "better-sqlite3";
+import { upsertSeedRules, type KeyedSeed } from "../shared/blackbox-seed-upsert.js";
 
 export const COMPLETION_DOMAIN = "concordia.workflow.completion";
 export type CompletionVerdict = "completed" | "not-implementation" | "unknown";
 
-const seeds: RuleDraft[] = [
+/**
+ * completion ドメインのシード同一性キー = ルールの出力 verdict。
+ *
+ * 1 verdict につきシードは 1 本という前提なので、 `when` を書き換えても
+ * 「同じ verdict を出す旧シード」 として旧版を特定できる。
+ */
+function seedRuleKey(rule: Rule): string {
+  return typeof rule.output === "string" ? rule.output : "";
+}
+
+const seeds: KeyedSeed[] = [
   {
     domain: COMPLETION_DOMAIN,
+    key: "completed",
     description: "A merged linked PR deterministically completes implementation.",
     when: { op: "cmp", feature: "pr_state", cmp: "==", value: "merged" },
     output: "completed",
@@ -17,6 +29,7 @@ const seeds: RuleDraft[] = [
   },
   {
     domain: COMPLETION_DOMAIN,
+    key: "not-implementation",
     description: "No push, commit, or diff means the final answer is not an implementation completion.",
     when: { op: "and", clauses: [
       { op: "cmp", feature: "has_push_or_commit", cmp: "==", value: false },
@@ -34,9 +47,9 @@ export class CompletionBlackbox {
   private readonly box: BlackBox;
   constructor(db: Database.Database) {
     this.box = makeSqliteBlackBox(db, { reviewLlmDecisions: false });
-    for (const seed of seeds) {
-      if (!this.box.rules.findByFingerprint(COMPLETION_DOMAIN, ruleFingerprint(seed.when, seed.output))) this.box.engine.addRule(seed);
-    }
+    // insert-once ではなく upsert。 when/output を書き換えたときに旧シードを retire
+    // しないと、 既存 DB では旧ルールが auto のまま発火し続ける。
+    upsertSeedRules({ box: this.box, keyOf: seedRuleKey }, seeds);
   }
 
   async decide(input: { sessionId: string; prState: string; hasPushOrCommit: boolean; hasDiff: boolean; finalText: string; reportBullets: number }): Promise<{ verdict: CompletionVerdict; decisionId: number }> {

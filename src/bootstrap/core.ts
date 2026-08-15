@@ -53,6 +53,7 @@ import { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import { runClaude } from "../rules/claude-runner.js";
 import { repinSession } from "../control/repin-session.js";
 import { AdminState } from "../admin/state.js";
+import { SqliteSettingsStore } from "../admin/settings-store.js";
 import {
   resolveAgentHomeCwd,
   setLictorLauncherResolver,
@@ -457,13 +458,15 @@ export async function startBackend(): Promise<BackendHandle> {
     keyFile: join(process.cwd(), "concordia.secret.key"),
   });
   // マルチ拠点連合 (spec/plan/multi-site-federation.md) Phase 1。
-  // listener / 拠点クライアントの起動は opt-in (env、startRoles で後述)。管理 API は
+  // listener / 拠点クライアントの起動は opt-in (DB → env、startRoles で後述)。管理 API は
   // 常時マウントし、listener 有効化前に拠点登録 (トークン発行) できるようにする。
-  // env の設定不備 (LISTEN=1 かつ PORT 未指定) はここで throw = 起動前に落とす。
+  // 解決後の設定不備 (enabled かつ port 未指定) はここで throw = 起動前に落とす。
   const federation = createFederationRuntime({
     db,
     secretBox,
     version: process.env.npm_package_version ?? "dev",
+    // listener の有効化は Cc の設定 (schema_meta) で完結させる。 env は代替手段。
+    settings: new SqliteSettingsStore(db),
   });
   const participants = makeParticipantsRepo(db);
   const delegationRepo = new DelegationRepo(db);

@@ -18,6 +18,12 @@ import type { FederationSitesRepo } from "../db/federation-sites-repo.js";
 import type { FederationOutboxRepo } from "../db/federation-outbox-repo.js";
 import type { FederationConnections } from "../federation/hq-connections.js";
 import { SITE_ID_PATTERN } from "../federation/protocol.js";
+import type {
+  FederationListenerConfig,
+  FederationListenerPatch,
+  FederationSiteConfig,
+  FederationSitePatch,
+} from "../federation/listener-settings.js";
 import { reportError } from "../errors.js";
 
 const CreateSiteSchema = z.object({
@@ -28,20 +34,81 @@ const DepartmentsSchema = z.object({
   departments: z.array(z.string().min(1).max(100)).max(100),
 });
 const VillaPcSchema = z.object({ villa_pc_id: z.string().min(1).max(200).nullable() });
+const SiteRoleSchema = z.object({
+  hq_url: z.string().trim().min(1).max(500).nullable().optional(),
+  site_id: z.string().regex(SITE_ID_PATTERN).nullable().optional(),
+  token: z.string().trim().min(1).max(500).nullable().optional(),
+}).strict();
+const ListenerSchema = z.object({
+  enabled: z.boolean().optional(),
+  port: z.number().int().min(1).max(65535).nullable().optional(),
+  host: z.string().trim().min(1).max(200).nullable().optional(),
+}).strict();
 
 export interface FederationApiDeps {
   sites: FederationSitesRepo;
   outbox: FederationOutboxRepo;
   connections: FederationConnections;
-  /** listener が有効か (env)。WebUI 表示用。 */
+  /** listener が有効か。動的 status 未供給時の後方互換表示用。 */
   listenerEnabled: boolean;
   /** 接続中拠点の強制切断 (listener 起動時のみ供給)。 */
   disconnectSite?: (siteId: string, code: "revoked") => void;
   redistributeConfig?: (siteId: string) => boolean;
+  /** listener の設定と実待ち受け状態。 */
+  listenerStatus?: () => { config: FederationListenerConfig; running: { host: string; port: number } | null };
+  /** listener 設定の更新 (即時に張り替える)。 */
+  updateListener?: (patch: FederationListenerPatch) => Promise<
+    | { ok: true; config: FederationListenerConfig; running: { host: string; port: number } | null }
+    | { ok: false; error: string }
+  >;
+  /** 拠点ロールの設定と実接続状態 (token は含まない)。 */
+  siteStatus?: () => {
+    config: FederationSiteConfig;
+    running: { hqUrl: string; siteId: string } | null;
+  };
+  /** 拠点ロール設定の更新 (即時に張り替える)。 */
+  updateSite?: (patch: FederationSitePatch) => Promise<
+    | { ok: true; config: FederationSiteConfig; running: { hqUrl: string; siteId: string } | null }
+    | { ok: false; error: string }
+  >;
 }
 
 export function federationRouter(deps: FederationApiDeps): Hono {
   const app = new Hono();
+
+  // listener の有効化は Concordia の設定で完結させる (env は代替手段)。
+  // 設定変更は即時に張り替わるので、拠点を受け始めるのに再起動は要らない。
+  app.get("/listener", (c) => {
+    if (!deps.listenerStatus) return c.json({ error: "listener control is unavailable" }, 503);
+    const status = deps.listenerStatus();
+    return c.json({ ...status.config, running: status.running });
+  });
+
+  app.put("/listener", async (c) => {
+    if (!deps.updateListener) return c.json({ error: "listener control is unavailable" }, 503);
+    const parsed = ListenerSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const result = await deps.updateListener(parsed.data);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json({ ...result.config, running: result.running });
+  });
+
+  // 拠点ロール (本社へ繋ぎに行く側) も Concordia の設定で完結させる。
+  // token は書き込み専用 — 応答には設定済みかどうかしか出さない。
+  app.get("/site", (c) => {
+    if (!deps.siteStatus) return c.json({ error: "site control is unavailable" }, 503);
+    const status = deps.siteStatus();
+    return c.json({ ...status.config, running: status.running });
+  });
+
+  app.put("/site", async (c) => {
+    if (!deps.updateSite) return c.json({ error: "site control is unavailable" }, 503);
+    const parsed = SiteRoleSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const result = await deps.updateSite(parsed.data);
+    if (!result.ok) return c.json({ error: result.error }, 400);
+    return c.json({ ...result.config, running: result.running });
+  });
 
   app.get("/", (c) => {
     const sites = deps.sites.list().map((row) => {
@@ -62,7 +129,10 @@ export function federationRouter(deps: FederationApiDeps): Hono {
         revoked_at: row.revoked_at,
       };
     });
-    return c.json({ listener_enabled: deps.listenerEnabled, sites });
+    return c.json({
+      listener_enabled: deps.listenerStatus?.().config.enabled ?? deps.listenerEnabled,
+      sites,
+    });
   });
 
   app.post("/sites", async (c) => {

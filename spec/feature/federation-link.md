@@ -46,9 +46,9 @@ updated: 2026-07-31
 - 連合 listener は `node:http` の専用サーバ + `WebSocketServer` で、既存 `/v1`
   (loopback 信頼境界) とは**別ポート・別 origin**。`isLoopbackHost` の起動時拒否は
   変更していない。
-- 既定 OFF。`CONCORDIA_FEDERATION_LISTEN=1` + `CONCORDIA_FEDERATION_LISTEN_PORT`
-  (明示必須、暗黙の既定 port なし) で有効化。port は Excubitor catalog に登録してから
-  運用する。
+- 既定 OFF。`federation-role-settings.md` の DB → env 解決後に enabled + port
+  (明示必須、暗黙の既定 port なし) が揃った場合だけ有効化。port は Excubitor catalog に
+  登録してから運用する。
 - HTTP リクエストは全て 404 — 連合面で受け付ける操作は protocol.ts のフレームのみで、
   `/v1` への透過転送経路は存在しない。
 - TLS は前段のトンネル / 逆プロキシで終端する。拠点クライアントは loopback 以外への
@@ -117,7 +117,9 @@ hq → site : {"v":1,"type":"error","code":"auth_failed|unsupported_version|inva
   これを使う。link 後は本社の値が唯一の正本として必ずキャッシュを置き換える。
   壊れた / 形式違反のキャッシュは読み捨てて未設定として起動する。
 
-## 設定 (env、全て opt-in)
+## 設定 (ロール設定は DB → env、全て opt-in)
+
+listener と拠点クライアントの DB キー/API は [federation-role-settings.md](federation-role-settings.md) を正本とし、下表の env はフォールバックとして残す。outbox / Villa は従来どおり env で解決する。
 
 | 変数 | 意味 |
 |---|---|

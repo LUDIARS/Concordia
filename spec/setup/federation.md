@@ -12,22 +12,31 @@ tags:
 status: implemented
 related:
   - ../feature/federation-link.md
+  - ../feature/federation-role-settings.md
   - ../plan/multi-site-federation.md
   - config-reference.md
-updated: 2026-08-01
+updated: 2026-08-15
 ---
 
 # Concordia federation setup
 
 ## Scope
 
-Federation connects a headquarters (HQ) Concordia service to registered remote sites over WebSocket. It is opt-in: no federation listener starts unless `CONCORDIA_FEDERATION_LISTEN=1` is set.
+Federation connects a headquarters (HQ) Concordia service to registered remote sites over WebSocket. It is opt-in: no federation listener starts unless the resolved DB → environment setting enables it.
 
 The ordinary loopback management API remains on port `11111`. The federation listener uses port **`11112`**. This repository's `excubitor.catalog.yaml` fragment only records that intent as a comment — `ServiceSchema` allows one primary port per service, so the fragment declares no service and therefore does not machine-reserve `11112`. The authoritative allocation still lives in `Excubitor/catalog/services.yaml`; keep it, the fragment comment, and the listener environment in sync, and do not replace or edit the existing catalog `concordia` entry for port `11111`.
 
 ## 1. Configure the HQ listener
 
-Set these values in the HQ service environment or its private `.env` file. Do not commit the file.
+Use the loopback management API to save and immediately apply the HQ setting without restarting Concordia:
+
+```bash
+curl -sS -X PUT http://127.0.0.1:11111/v1/federation/listener \
+  -H 'content-type: application/json' \
+  -d '{"enabled":true,"host":"127.0.0.1","port":11112}'
+```
+
+The environment remains a fallback for deployments that cannot call the settings API. Do not commit a private `.env` file.
 
 ```dotenv
 CONCORDIA_FEDERATION_LISTEN=1
@@ -37,14 +46,15 @@ CONCORDIA_FEDERATION_LISTEN_PORT=11112
 
 The listener speaks plaintext WebSocket and carries site tokens on the wire, so keep the loopback bind above unless a TLS-terminating tunnel or reverse proxy already fronts it. To accept remote sites, put that TLS front end in place first, then widen the bind to the narrowest address that reaches it — the specific interface the proxy connects from, and `0.0.0.0` only when no narrower address works.
 
-After the service owner starts the configured service, check the ordinary loopback API:
+Check both the desired setting and the actual bind state through the ordinary loopback API:
 
 ```bash
+curl -s http://127.0.0.1:11111/v1/federation/listener
 curl -s http://127.0.0.1:11111/v1/federation
 node tools/federation-check.mjs
 ```
 
-`listener_enabled: true` (and `Listener: enabled` in the script) confirms that the HQ accepted the listener configuration. This check does not itself start or restart a service. The script reads `http://127.0.0.1:11111` unless `CONCORDIA_URL` points at another loopback base URL.
+`enabled: true` with a non-null `running` bind confirms that the HQ applied the listener configuration. The legacy list response also reports the current value as `listener_enabled: true`. The script reads `http://127.0.0.1:11111` unless `CONCORDIA_URL` points at another loopback base URL.
 
 ## 2. Register a site and save its token
 
@@ -62,7 +72,17 @@ There is no token-reissue or delete endpoint, and a revoked registration keeps i
 
 ## 3. Configure the remote site
 
-Set the following private environment values at the remote site:
+Prefer the remote site's loopback management API so the client is replaced immediately:
+
+```bash
+read -r -s -p 'Federation token: ' FEDERATION_TOKEN; echo
+printf '{"hq_url":"wss://hq.example.invalid/federation/ws","site_id":"osaka-dev","token":"%s"}' "$FEDERATION_TOKEN" \
+  | curl -sS -X PUT http://127.0.0.1:11111/v1/federation/site \
+      -H 'content-type: application/json' --data-binary @-
+unset FEDERATION_TOKEN
+```
+
+The generated token is base64url, so this stdin flow avoids both shell history and process arguments. The response exposes only `hasToken`, never the plaintext token. Environment values remain a fallback:
 
 ```dotenv
 CONCORDIA_FEDERATION_HQ_URL=wss://hq.example.invalid/federation/ws
@@ -144,9 +164,9 @@ Revoking an unknown or already-revoked `site_id` returns `404 site_not_found_or_
 | `replaced` | A newer connection for the same site ID took over. | Check for duplicate site processes or duplicate credentials; keep only the intended connection running. |
 | `revoked` | The HQ invalidated this registration. | Register a replacement site under a new `site_id` at the HQ and replace both the site ID and the token in the remote secret before reconnecting. |
 
-## Related environment keys
+## Related environment fallback keys
 
-Defaults and the reading code path are canonical in [`config-reference.md` §10](config-reference.md); this table only records which role sets each key.
+Defaults and the reading code path are canonical in [`config-reference.md` §10](config-reference.md); DB values managed by the role APIs take precedence over this table's environment fallbacks.
 
 | Key | Used by | Notes |
 |---|---|---|

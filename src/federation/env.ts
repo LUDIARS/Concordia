@@ -33,11 +33,19 @@ function readPositiveInt(value: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-export function readFederationEnv(env: NodeJS.ProcessEnv = process.env): FederationEnv {
+export interface ReadFederationEnvOptions {
+  /** DB と組み合わせる場合、port 必須判定は DB → env の解決後に呼び元で行う。 */
+  deferListenerPortValidation?: boolean;
+}
+
+export function readFederationEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  options: ReadFederationEnvOptions = {},
+): FederationEnv {
   const listenEnabled = env.CONCORDIA_FEDERATION_LISTEN === "1";
   const portRaw = Number(env.CONCORDIA_FEDERATION_LISTEN_PORT);
   const listenPort = Number.isInteger(portRaw) && portRaw > 0 && portRaw < 65536 ? portRaw : null;
-  if (listenEnabled && listenPort === null) {
+  if (!options.deferListenerPortValidation && listenEnabled && listenPort === null) {
     throw new Error(
       "CONCORDIA_FEDERATION_LISTEN=1 requires CONCORDIA_FEDERATION_LISTEN_PORT (no implicit default port)",
     );

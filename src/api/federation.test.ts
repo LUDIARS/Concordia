@@ -63,4 +63,63 @@ describe("federation management API", () => {
     expect((await put("site-a", { villa_pc_id: "" })).status).toBe(400);
     expect((await put("missing", { villa_pc_id: "pc-haster" })).status).toBe(404);
   });
+
+  it("listener の動的状態を一覧へ反映し、未知の更新キーを拒否する", async () => {
+    let enabled = false;
+    const app = federationRouter({
+      sites,
+      outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
+      connections: createFederationConnections(),
+      listenerEnabled: false,
+      listenerStatus: () => ({
+        config: {
+          enabled,
+          port: enabled ? 11112 : null,
+          host: "127.0.0.1",
+          source: { enabled: "db", port: "db", host: "default" },
+        },
+        running: null,
+      }),
+      updateListener: async () => ({ ok: false, error: "not used" }),
+    });
+
+    enabled = true;
+    const list = await app.request("http://local/");
+    expect(await list.json()).toMatchObject({ listener_enabled: true });
+
+    const invalid = await app.request("http://local/listener", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ enabeld: true }),
+    });
+    expect(invalid.status).toBe(400);
+  });
+
+  it("拠点トークンを更新応答へ含めない", async () => {
+    const app = federationRouter({
+      sites,
+      outbox: makeFederationOutboxRepo(db, { maxRows: 10, ttlSec: 60 }),
+      connections: createFederationConnections(),
+      listenerEnabled: false,
+      updateSite: async () => ({
+        ok: true,
+        config: {
+          hqUrl: "wss://hq.example",
+          siteId: "site-a",
+          hasToken: true,
+          source: { hqUrl: "db", siteId: "db", token: "db" },
+        },
+        running: null,
+      }),
+    });
+    const response = await app.request("http://local/site", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "private-test-token" }),
+    });
+    const body = JSON.stringify(await response.json());
+    expect(response.status).toBe(200);
+    expect(body).not.toContain("private-test-token");
+    expect(body).toContain('"hasToken":true');
+  });
 });

@@ -12,6 +12,9 @@
  */
 
 import type Database from "better-sqlite3";
+import { createChildLogger } from "../shared/logger.js";
+
+const log = createChildLogger("transcript-logs-repo");
 
 export interface TranscriptLogRow {
   id: number;
@@ -31,19 +34,50 @@ export interface TranscriptLogEntry {
   payload: unknown;
 }
 
+interface QueuedFrame {
+  session_id: string;
+  seq: number;
+  ts: number;
+  kind: string;
+  payload: string;
+}
+
+/** 1 回の setImmediate tick で flush する最大行数. これを超える分は次 tick に回し、
+ *  イベントループを長時間ブロックしないよう書き込みを分割する. */
+const FLUSH_BATCH_SIZE = 200;
+const FLUSH_RETRY_DELAY_MS = 1_000;
+
 export class TranscriptLogsRepo {
+  private readonly queue: QueuedFrame[] = [];
+  private flushScheduled = false;
+  private flushTimer: NodeJS.Immediate | null = null;
+  private flushRetryTimer: NodeJS.Timeout | null = null;
+  private lastFlushError: Error | null = null;
+  private insertStmt: Database.Statement | null = null;
+  private closed = false;
+
   constructor(private readonly db: Database.Database) {}
 
   /**
    * Insert one transcript frame.
    *
-   * UNIQUE(session_id, seq) 違反 (= 重複 POST) は黙って ignore する.
+   * 同期 DB 書き込みが Cc のイベントループを長時間止めていた実障害
+   * ([[2026-08-09-transcript-frame-event-loop-stall]]) を受け、実際の SQLite
+   * 書き込みはメモリキューに積んで setImmediate ごとに分割 flush する。
+   * 呼び出し元へは「キューに載った (=いずれ確実に書かれる)」時点で応答する。
+   *
+   * UNIQUE(session_id, seq) 違反 (= 重複 POST) は flush 側で黙って ignore する.
    * Lictor の transcript sink は timeout / ネットワーク失敗時に same seq で
    * 再送する (at-least-once)。 再送の 1 回目が実はサーバに届いていた場合、
    * 2 回目は重複になる — これは呼び出し側から見れば「永続化は完了している」
-   * 正常系なので、 戻り値は「新規挿入か」ではなく **「行が存在するか」** を返す
-   * (冪等成功)。 重複を false で返すと、 requirePersisted な書き手 (codex
+   * 正常系なので、 戻り値は「新規挿入か」ではなく **「引き受けたか」** を返す
+   * (冪等成功)。 false を返すと、 requirePersisted な書き手 (codex
    * bootstrap の session binding) が再送のたびに失敗する (2026-07-12 実障害)。
+   *
+   * キュー投入から flush までの間にプロセスが落ちると、その間の frame は
+   * ロストしうる (同期 insert 時代も commit 前クラッシュで同様のリスクは
+   * あった)。 FLUSH_BATCH_SIZE を小さく保ち setImmediate 単位で即 flush する
+   * ことで、この窓を実用上無視できる長さに抑える。
    */
   insert(input: {
     session_id: string;
@@ -52,25 +86,128 @@ export class TranscriptLogsRepo {
     kind: string;
     payload: unknown;
   }): boolean {
-    const result = this.db
-      .prepare(
+    if (this.closed) throw new Error("TranscriptLogsRepo is closed");
+    if (this.lastFlushError) throw this.lastFlushError;
+
+    // JSON 化できない値を setImmediate 内で初めて発見すると、HTTP 応答後に
+    // uncaught exception となる。受理前に検証し、呼び出し元の通常の失敗経路へ返す。
+    const payload = JSON.stringify(input.payload ?? null);
+    if (payload === undefined) throw new TypeError("transcript payload must be JSON serializable");
+    this.queue.push({
+      session_id: input.session_id,
+      seq: input.seq,
+      ts: input.ts,
+      kind: input.kind,
+      payload,
+    });
+    this.scheduleFlush();
+    return true;
+  }
+
+  /** キューにある frame を同期 DB へ書き切る (テスト / graceful shutdown 用). */
+  flushSync(): void {
+    try {
+      while (this.queue.length > 0) this.flushBatch();
+      this.markFlushRecovered();
+    } catch (error) {
+      this.recordFlushFailure(error);
+      throw error;
+    }
+  }
+
+  /**
+   * 保留中の setImmediate flush を止めて DB ハンドルへの参照を手放す.
+   *
+   * insert() 後、DB が close される前に必ず呼ぶこと。呼ばずに db.close() すると
+   * 予約済みの flush tick が閉じたハンドルへ prepare() し、
+   * "The database connection is not open" で落ちる (テストの afterEach で実際に発生)。
+   * close 前にキューへ残っている frame は flushSync してから閉じる。
+   */
+  close(): void {
+    if (this.flushTimer) clearImmediate(this.flushTimer);
+    if (this.flushRetryTimer) clearTimeout(this.flushRetryTimer);
+    this.flushTimer = null;
+    this.flushRetryTimer = null;
+    this.flushScheduled = false;
+    this.closed = true;
+    this.flushSync();
+    this.insertStmt = null;
+  }
+
+  private scheduleFlush(): void {
+    if (this.flushScheduled || this.closed) return;
+    this.flushScheduled = true;
+    this.flushTimer = setImmediate(() => this.runScheduledFlush());
+  }
+
+  private runScheduledFlush(): void {
+    this.flushTimer = null;
+    this.flushScheduled = false;
+    if (this.closed || this.queue.length === 0) return;
+    try {
+      this.flushBatch();
+      this.markFlushRecovered();
+    } catch (error) {
+      this.recordFlushFailure(error);
+      return;
+    }
+    if (this.queue.length > 0) this.scheduleFlush();
+  }
+
+  private recordFlushFailure(error: unknown): void {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    const canRetry = !this.closed && this.db.open;
+    if (!this.lastFlushError) {
+      log.error(
+        { error: failure.message, queued_frames: this.queue.length, retry_scheduled: canRetry },
+        "transcript log flush failed",
+      );
+    }
+    this.lastFlushError = failure;
+    if (!canRetry || this.flushRetryTimer) return;
+    this.flushRetryTimer = setTimeout(() => {
+      this.flushRetryTimer = null;
+      this.scheduleFlush();
+    }, FLUSH_RETRY_DELAY_MS);
+    this.flushRetryTimer.unref?.();
+  }
+
+  private markFlushRecovered(): void {
+    if (!this.lastFlushError) return;
+    if (this.flushRetryTimer) clearTimeout(this.flushRetryTimer);
+    this.flushRetryTimer = null;
+    log.info({ queued_frames: this.queue.length }, "transcript log flush recovered");
+    this.lastFlushError = null;
+  }
+
+  private flushBatch(): void {
+    const batch = this.queue.slice(0, FLUSH_BATCH_SIZE);
+    if (batch.length === 0) return;
+    const stmt = this.getInsertStmt();
+    const insertMany = this.db.transaction((frames: QueuedFrame[]) => {
+      for (const frame of frames) {
+        stmt.run(
+          frame.session_id,
+          frame.seq,
+          frame.ts,
+          frame.kind,
+          frame.payload,
+        );
+      }
+    });
+    insertMany(batch);
+    // transaction が失敗した場合は受理済み frame を失わない。成功後にだけ除去する。
+    this.queue.splice(0, batch.length);
+  }
+
+  private getInsertStmt(): Database.Statement {
+    if (!this.insertStmt) {
+      this.insertStmt = this.db.prepare(
         `INSERT OR IGNORE INTO transcript_logs(session_id, seq, ts, kind, payload)
          VALUES (?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.session_id,
-        input.seq,
-        input.ts,
-        input.kind,
-        JSON.stringify(input.payload ?? null),
       );
-    if (result.changes > 0) return true;
-    // IGNORE された = ほぼ確実に UNIQUE(session_id, seq) 重複。 既存行が
-    // あることを確認できれば冪等成功として true を返す。
-    const row = this.db
-      .prepare(`SELECT 1 AS x FROM transcript_logs WHERE session_id = ? AND seq = ?`)
-      .get(input.session_id, input.seq);
-    return row !== undefined;
+    }
+    return this.insertStmt;
   }
 
   /**
@@ -89,6 +226,9 @@ export class TranscriptLogsRepo {
     session_id: string,
     opts: { since_id?: number; limit?: number; tail?: boolean } = {},
   ): TranscriptLogEntry[] {
+    // flush 前の未反映 frame を読み逃さないよう、読み取り直前に同期 flush する.
+    // 読み取りは一覧表示/compaction 契機のみで高頻度パスではないため許容する.
+    this.flushSync();
     const limit = clampLimit(opts.limit);
     const hasSince =
       typeof opts.since_id === "number" && Number.isFinite(opts.since_id);
@@ -132,6 +272,7 @@ export class TranscriptLogsRepo {
    * 閲覧用の synthetic session (開始/終了時刻) を組み立てるのに使う.
    */
   tsSpan(session_id: string): { first_ts: number; last_ts: number } | null {
+    this.flushSync();
     const row = this.db
       .prepare(
         `SELECT MIN(ts) AS f, MAX(ts) AS l FROM transcript_logs WHERE session_id = ?`,
@@ -146,6 +287,7 @@ export class TranscriptLogsRepo {
    * compaction の elicit が inject 前の watermark を取り、 以後の frame だけ捕捉するのに使う.
    */
   maxId(session_id: string): number {
+    this.flushSync();
     const row = this.db
       .prepare(`SELECT MAX(id) AS m FROM transcript_logs WHERE session_id = ?`)
       .get(session_id) as { m: number | null };
@@ -153,6 +295,7 @@ export class TranscriptLogsRepo {
   }
 
   countBySession(session_id: string): number {
+    this.flushSync();
     const row = this.db
       .prepare(`SELECT COUNT(*) AS n FROM transcript_logs WHERE session_id = ?`)
       .get(session_id) as { n: number };
@@ -182,6 +325,7 @@ export class TranscriptLogsRepo {
    * (レポート表示用の概算なので許容。 正確さが要るなら limit を上げる)。
    */
   listUsagePayloads(session_id: string, limit = 500): unknown[] {
+    this.flushSync();
     const rows = this.db
       .prepare(
         `SELECT payload FROM transcript_logs
@@ -195,6 +339,8 @@ export class TranscriptLogsRepo {
 
   /** Storage 管理用: 全 session の cutoff より古い frame を削除する. */
   purgeOlderThan(cutoffTs: number): number {
+    // purge must include frames accepted by insert() but not yet flushed.
+    this.flushSync();
     const result = this.db.prepare(`DELETE FROM transcript_logs WHERE ts < ?`).run(cutoffTs);
     return Number(result.changes ?? 0);
   }

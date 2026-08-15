@@ -116,6 +116,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const prs = new PrRecordsRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
+  registerCleanup(() => transcriptLogs.close());
   const sessionMessages = new SessionMessagesRepo(db);
   const sessionMessageReads = new SessionMessageReadsRepo(db);
   const adminState = new AdminState(db);

@@ -1856,6 +1856,11 @@ export async function startBackend(): Promise<BackendHandle> {
   await federation.startRoles();
   resources.own("federation", () => federation.stop());
   resources.own("http server", () => { server.close(); });
+  // transcriptLogs は insert() を setImmediate 経由の非同期 flush にしている
+  // ([[2026-08-09-transcript-frame-event-loop-stall]])。 closeDb() より先に
+  // close() して保留中の flush を同期的に書き切らないと、閉じた DB ハンドルへ
+  // flush が飛んで例外になる (かつキュー中の frame がロストする)。
+  resources.own("transcript logs flush", () => transcriptLogs.close());
   resources.own("database", () => closeDb());
 
   return {

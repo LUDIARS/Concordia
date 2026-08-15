@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { TranscriptLogsRepo } from "./transcript-logs-repo.js";
 
@@ -8,6 +8,12 @@ let repo: TranscriptLogsRepo;
 beforeEach(() => {
   db = makeTestDb();
   repo = new TranscriptLogsRepo(db);
+});
+
+afterEach(() => {
+  // DB close (registerCleanup 側) より先に、保留中の setImmediate flush を
+  // 止めてハンドル参照を手放す。 呼ばないと閉じた DB へ flush が飛んで落ちる。
+  repo.close();
 });
 
 function add(session_id: string, seq: number, kind = "text") {
@@ -69,5 +75,100 @@ describe("TranscriptLogsRepo.insert idempotency", () => {
     expect(repo.insert({ session_id: "s2", seq: 0, ts: 1, kind: "raw", payload: null })).toBe(true);
     expect(repo.countBySession("s1")).toBe(1);
     expect(repo.countBySession("s2")).toBe(1);
+  });
+});
+
+describe("TranscriptLogsRepo async flush", () => {
+  it("insert はキュー投入のみで同期的に DB へ書かない (即時 countBySession は 0)", () => {
+    // insert() が同期 db.prepare().run() を直接呼ばず setImmediate に委譲していることの
+    // 回帰検知。 flushSync を経由しない生カウントで確認する。
+    repo.insert({ session_id: "s1", seq: 0, ts: 1, kind: "raw", payload: null });
+    const rawCount = (db.prepare(`SELECT COUNT(*) AS n FROM transcript_logs`).get() as { n: number }).n;
+    expect(rawCount).toBe(0);
+  });
+
+  it("flushSync 後は queued frame が DB に反映される", () => {
+    repo.insert({ session_id: "s1", seq: 0, ts: 1, kind: "raw", payload: { a: 1 } });
+    repo.insert({ session_id: "s1", seq: 1, ts: 2, kind: "raw", payload: { a: 2 } });
+    repo.flushSync();
+    expect(repo.countBySession("s1")).toBe(2);
+  });
+
+  it("大量 insert (バッチサイズ超過) でも flushSync で全件反映される (順序逆転なし)", () => {
+    const total = 450; // FLUSH_BATCH_SIZE(200) をまたぐ件数
+    for (let i = 0; i < total; i += 1) {
+      repo.insert({ session_id: "s1", seq: i, ts: i, kind: "raw", payload: { i } });
+    }
+    repo.flushSync();
+    const entries = repo.listBySession("s1", { limit: total });
+    expect(entries).toHaveLength(total);
+    expect(entries.map((e) => e.seq)).toEqual(Array.from({ length: total }, (_, i) => i));
+    expect(entries.every((entry, index) => index === 0 || entry.id > entries[index - 1].id)).toBe(true);
+  });
+
+  it("setImmediate ごとに最大 200 件ずつ flush する", async () => {
+    for (let i = 0; i < 450; i += 1) {
+      repo.insert({ session_id: "s1", seq: i, ts: i, kind: "raw", payload: null });
+    }
+    const rawCount = (): number => (
+      db.prepare(`SELECT COUNT(*) AS n FROM transcript_logs`).get() as { n: number }
+    ).n;
+
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(rawCount()).toBe(200);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(rawCount()).toBe(400);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(rawCount()).toBe(450);
+  });
+
+  it("listBySession / maxId / tsSpan / countBySession はいずれも未 flush の frame を読み逃さない", () => {
+    repo.insert({ session_id: "s1", seq: 0, ts: 10, kind: "raw", payload: null });
+    expect(repo.countBySession("s1")).toBe(1);
+    expect(repo.maxId("s1")).toBeGreaterThan(0);
+    expect(repo.tsSpan("s1")).toEqual({ first_ts: 10, last_ts: 10 });
+    expect(repo.listBySession("s1")).toHaveLength(1);
+  });
+
+  it("flush 失敗時は queued frame を保持し、次の flush で再試行できる", () => {
+    db.exec(`
+      CREATE TRIGGER reject_transcript_insert
+      BEFORE INSERT ON transcript_logs
+      BEGIN
+        SELECT RAISE(ABORT, 'temporary failure');
+      END
+    `);
+    repo.insert({ session_id: "s1", seq: 0, ts: 1, kind: "raw", payload: null });
+    expect(() => repo.flushSync()).toThrow("temporary failure");
+
+    db.exec(`DROP TRIGGER reject_transcript_insert`);
+    repo.flushSync();
+    expect(repo.countBySession("s1")).toBe(1);
+  });
+
+  it("JSON 化できない payload は非同期 callback へ持ち越さず insert で拒否する", () => {
+    const payload: { self?: unknown } = {};
+    payload.self = payload;
+    expect(() => repo.insert({
+      session_id: "s1",
+      seq: 0,
+      ts: 1,
+      kind: "raw",
+      payload,
+    })).toThrow();
+  });
+
+  it("close は queued frame を書き切り、以後の insert を拒否する", () => {
+    repo.insert({ session_id: "s1", seq: 0, ts: 1, kind: "raw", payload: null });
+    repo.close();
+    const rawCount = (db.prepare(`SELECT COUNT(*) AS n FROM transcript_logs`).get() as { n: number }).n;
+    expect(rawCount).toBe(1);
+    expect(() => repo.insert({
+      session_id: "s1",
+      seq: 1,
+      ts: 2,
+      kind: "raw",
+      payload: null,
+    })).toThrow("closed");
   });
 });

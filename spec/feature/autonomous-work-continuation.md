@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "自走継続 — 朝タスク仕分け + 停止セッション nudge"
-description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、transcript mtime を基準に 1 時間応答のないセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。ask 待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
+description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、transcript mtime を基準に応答が止まったセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。質問待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
 service: concordia
 domain: session-coordination
 tags:
@@ -14,7 +14,7 @@ tags:
   - resume
   - monitoring
 status: implemented
-updated: 2026-06-30
+updated: 2026-08-17
 ---
 
 
@@ -25,7 +25,7 @@ updated: 2026-06-30
 > **確認系 (人間がやる) タスクは整理して提示するだけ。 実装系 (AI がやれる) タスクは
 > 残作業がなくなるまで実装する。 人間の判断が必要になったら ask で止める。**
 
-「止まっている」 の定義 = **transcript が 1 時間更新されていない** こと。
+「止まっている」 の定義 = **transcript が設定された idle 閾値以上更新されていない** こと。
 
 ---
 
@@ -51,7 +51,7 @@ updated: 2026-06-30
 
 ## 2. 停止セッションの続行 nudge (`src/control/stalled-session-nudge.ts`)
 
-全 active セッションを周期走査し、 **1 時間応答が無い** ものに「残作業を確認して続行 /
+全 active セッションを周期走査し、 **設定された idle 閾値以上応答が無い** ものに「残作業を確認して続行 /
 判断が要るなら ask で停止」 を `session.inject` で流し込む watcher。
 
 ### idle 判定は transcript mtime
@@ -59,18 +59,26 @@ updated: 2026-06-30
 **transcript ファイルの mtime** を「最後に応答した時刻」 として使う。
 
 ### ask 待ちは除外
-意図的に人間判断を仰いで止まっている (最後の assistant メッセージが ```ask フェンス) は
-nudge 対象から外す — 「続行しろ」 と被せると人間の判断停止を踏み潰すため。
-ask の後に user 回答が来ていれば「回答済み」 とみなし除外しない。
-判定は `isAwaitingHumanInput()` (純関数、 transcript 末尾 64KB のみ読む)。
+意図的に人間判断を仰いで止まっているセッションは nudge 対象から外す — 「続行しろ」 と
+被せると人間の判断停止を踏み潰すため。待ち判定には次の 2 signal を使う。
+
+- 最後の assistant メッセージにある ```ask フェンス。ask の後に user 回答が来ていれば
+  「回答済み」とみなす。判定は `isAwaitingHumanInput()` (純関数、transcript 末尾 64KB
+  のみ読む)。
+- `discord_pending_questions` に残る未回答の質問カード。AskUserQuestion 由来のカードは
+  transcript に ask フェンスを残さないため、DB の未回答行を正本として先に確認する。
+
+質問カード状態を照会できない場合は安全側でそのセッションを除外し、他セッションの走査は
+続ける。
 
 ### cooldown
 一度 nudge したら `cooldownSec` (既定 = idleSec) は再 nudge しない (per-session の
 in-memory タイムスタンプで抑止)。 消えた session の記録は毎周掃除する。
 
 ### nudge 本文
-全 provider 共通の自然言語: ①未完があれば残作業ゼロまで実装を続行 ②判断が要れば ask で
-停止 ③残作業が無ければ `/session-end`。
+全 provider 共通の自然言語: ①未完があれば範囲を小さくして再実装 ②判断が要れば ask で
+停止 ③これは終了指示ではなく、残作業が無い場合も自発的に `/session-end` せず、人間へ
+終了可否を質問して待機する。
 
 ### 設定 (env)
 - `CONCORDIA_STALL_NUDGE_ENABLED` (既定 `1`)

@@ -1473,6 +1473,8 @@ export async function startBackend(): Promise<BackendHandle> {
         intervalMs: cfg.stallNudgeIntervalMs,
         idleSec: cfg.stallIdleSec,
         cooldownSec: cfg.stallNudgeCooldownSec,
+        // 質問カードを出して回答を待っているセッションは「停止」 ではない。
+        hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
       }),
     );
     // 委託 run の進捗確認 (30 分周期)。 状態は delegation_runs の watchdog_* 列に永続。

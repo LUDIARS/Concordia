@@ -107,13 +107,21 @@ describe("shouldNudge", () => {
 });
 
 describe("buildNudgeText", () => {
-  it("再実装の後押し / ask 停止 / session-end の指示を含む", async () => {
+  it("再実装の後押し / ask 停止の指示を含む", async () => {
     const t = buildNudgeText("claude-code");
     expect(t).toContain("再実装");
     expect(t).toContain("worktree");
     expect(t).toContain("delegation");
     expect(t).toContain("ask");
-    expect(t).toContain("/session-end");
+  });
+
+  it("終了指示ではないことを明示し、自発 session-end を禁じる", async () => {
+    const t = buildNudgeText("claude-code");
+    expect(t).toContain("終了指示ではありません");
+    // 「残作業が無ければ /session-end しろ」 という終了許可の読み方を残さない。
+    expect(t).not.toMatch(/残作業が無ければ.*session-end/);
+    expect(t).toContain("自分で `/session-end` を実行しないでください");
+    expect(t).toContain("待機");
   });
 });
 
@@ -192,6 +200,56 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual([]);
     h.stop();
     expect(injects().length).toBe(0);
+  });
+
+  it("未回答の Cc 質問カードがある session は除外する (ask マーカーが無くても)", async () => {
+    let tailReads = 0;
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([fakeSession({ id: "card-waiting" })]),
+      now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 7_200_000, // 2h idle
+      readTranscriptTail: async () => {
+        tailReads++;
+        return jsonl({ role: "assistant", content: "どうしますか。" });
+      },
+      hasPendingQuestion: () => true,
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual([]);
+    h.stop();
+    expect(injects().length).toBe(0);
+    // 質問カード判定は transcript 読みより前に効く (無駄な tail 読みをしない)。
+    expect(tailReads).toBe(0);
+  });
+
+  it("質問カードが回答済みなら通常どおり nudge する", async () => {
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([fakeSession({ id: "card-answered" })]),
+      now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 7_200_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
+      hasPendingQuestion: () => false,
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual(["card-answered"]);
+    h.stop();
+  });
+
+  it("質問カードの照会に失敗した session は安全側で除外し、走査を続ける", async () => {
+    const sessions = [fakeSession({ id: "lookup-failed" }), fakeSession({ id: "next-session" })];
+    const h = startStalledSessionNudge({
+      repo: fakeRepo(sessions),
+      now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 7_200_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
+      hasPendingQuestion: (sessionId) => {
+        if (sessionId === "lookup-failed") throw new Error("question lookup failed");
+        return false;
+      },
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual(["next-session"]);
+    h.stop();
   });
 
   it("transcript 不明 (mtime null) は計測不能としてスキップ", async () => {

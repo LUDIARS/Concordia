@@ -11,14 +11,19 @@
  *   - 各 session の **transcript の最終更新時刻** (= 最後に応答した時刻) を見る。
  *     last_seen_at は WS ハートビート由来で「プロセス生存」 signal にすぎず、
  *     idle を表さない。 transcript mtime こそが「応答が止まった」 の真の signal。
- *   - idleSec (既定 600 = 巡回間隔と同じ 10 分) 以上無更新で、 かつ **ask マーカーで人間判断待ちでない**
+ *   - idleSec (既定 600 = 巡回間隔と同じ 10 分) 以上無更新で、 かつ **人間判断待ちでない**
  *     セッションにだけ、 「状態を見直して小さく再実装 / 判断が要るなら ask で停止」 を
  *     `session.inject` で流し込む。
  *   - 一度 nudge したら cooldownSec (既定 idleSec と同じ) は再 nudge しない
  *     (per-session の in-memory タイムスタンプで抑止)。
  *
- * 意図的に人間判断を仰いで止まっている (ask マーカーを出して待っている) セッションは
- * 除外する — そこへ「続行しろ」 と被せると人間の判断停止を踏み潰すため。
+ * 意図的に人間判断を仰いで止まっているセッションは除外する — そこへ「続行しろ」 と
+ * 被せると人間の判断停止を踏み潰すため。待ちの signal は 2 系統あり、 どちらでも除外する:
+ *
+ *   1. transcript 末尾の ask マーカー (Lictor relay の ```ask フェンス)。
+ *   2. Cc の未回答質問カード (discord_pending_questions に answered_at IS NULL の行)。
+ *      AskUserQuestion 由来のカードは transcript に ask フェンスを残さないため、
+ *      1 だけでは「カードを出して回答を待っている」 セッションを拾えない。
  *
  * fire-and-forget: WS 未接続なら inject は silent drop。 status 変更は行わない。
  */
@@ -30,6 +35,10 @@ import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
+import {
+  isBlockedByPendingQuestion,
+  type PendingQuestionProbe,
+} from "./pending-question-blocker.js";
 
 const log = createChildLogger("stall-nudge");
 
@@ -54,6 +63,12 @@ export interface StalledSessionNudgeOptions {
   transcriptMtimeMs?: (s: SessionRow) => Promise<number | null>;
   /** transcript 末尾テキストを返す seam (テスト用)。 既定 fs。 */
   readTranscriptTail?: (s: SessionRow) => Promise<string | null>;
+  /**
+   * そのセッションに未回答の Cc 質問カードがあるか。 true なら人間の回答待ちとして
+   * nudge しない。照会失敗時も安全側で除外する。未指定なら判定しない
+   * (= この経路では除外しない)。
+   */
+  hasPendingQuestion?: PendingQuestionProbe;
 }
 
 export interface StalledSessionNudgeHandle {
@@ -169,6 +184,12 @@ function extractAllText(msg: Record<string, unknown>): string {
 /**
  * nudge 本文。goal は注入しない。Cc は止まった作業を「実装し直すための状況整理」
  * に戻すだけで、単独 agent を無期限に走らせる指示は出さない。
+ *
+ * **これは終了指示ではない** ことを本文で明示する。 以前は「残作業が無ければ
+ * `/session-end` で終了してください」 と書いていたため、 人間の目視確認を待って
+ * 待機していただけのセッションが nudge を終了許可と解釈し、 自分で session-end →
+ * Lictor shutdown まで走って勝手に閉じる事故が起きた (2026-08-17)。 nudge は
+ * 「止まった理由を説明せよ」 までしか要求せず、 終了の可否は必ず人間に投げさせる。
  */
 export function buildNudgeText(_provider: string): string {
   return [
@@ -178,7 +199,11 @@ export function buildNudgeText(_provider: string): string {
     "- まだ実装できるなら、範囲を小さく切って別アプローチで再実装してください。",
     "- 同じ branch が混んでいる、または作業が大きすぎる場合は worktree 分割や delegation を提案してください。",
     "- 方針が割れる / 破壊的操作 / 本番影響不明 / 仕様が曖昧な場合は、決め打ちせず ask マーカーで質問して進行を止めてください。",
-    "- 残作業が無ければ `/session-end` で終了してください。",
+    "",
+    "これは自動巡回による確認であって、**終了指示ではありません**。",
+    "- 人間の確認待ちで待機していただけなら、その旨を 1 行で答えてそのまま待機してください。",
+    "- 残作業が無いと判断した場合も、自分で `/session-end` を実行しないでください。",
+    "  終了してよいかを ask マーカーで質問し、人間の回答を待ってから終了処理に入ってください。",
   ].join("\n");
 }
 
@@ -212,7 +237,6 @@ export function startStalledSessionNudge(
   const now = opts.now ?? Date.now;
   const mtimeOf = opts.transcriptMtimeMs ?? defaultMtimeMs;
   const readTail = opts.readTranscriptTail ?? readSessionTranscriptTail;
-
   const idleThresholdMs = idleSec * 1000;
   const cooldownMs = cooldownSec * 1000;
   /** per-session の最終 nudge 時刻 (epoch-ms)。 */
@@ -245,6 +269,14 @@ export function startStalledSessionNudge(
           nowMs,
         })
       ) {
+        continue;
+      }
+      // Cc の質問カード待ちは DB 1 本で判る。 transcript 末尾読みより安いので先に見る。
+      if (isBlockedByPendingQuestion(opts.hasPendingQuestion, s.id)) {
+        log.debug(
+          { session_id: s.id },
+          "skip nudge: pending question card or question state unavailable",
+        );
         continue;
       }
       const awaiting = isAwaitingHumanInput(await readTail(s));

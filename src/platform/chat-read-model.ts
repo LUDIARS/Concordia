@@ -45,6 +45,16 @@ export interface SessionRelayState {
   requesterDiscordUserId?: string | null;
   startupInjectText?: string | null;
   startupContextPosted?: boolean;
+  /** spawn 時に渡したタスク本文。 タスク未指定の Cc spawn は「何もするな」。 */
+  startupTaskText?: string | null;
+  /** タスク本文 message を投稿済みか。 */
+  taskPosted?: boolean;
+  /** 最初のタスク本文 message を pin 済みか。 */
+  taskPinned?: boolean;
+  /** この run が段階注入か (第 1 段階は調査ブリーフでタスク本文ではない)。 */
+  stagedInjection?: boolean;
+  /** 段階注入の第 2 段階 (実装タスク) が配信済みか。 */
+  stagedFollowupDelivered?: boolean;
   sourceDiscordGuildId?: string | null;
   sourceDiscordChannelId?: string | null;
   /** ended_at (epoch sec)。 teardown 猶予窓 (egress の relay 判定) に使う。 */

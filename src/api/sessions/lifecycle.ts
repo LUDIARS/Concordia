@@ -19,6 +19,7 @@ import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
 import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
+import { BLANK_SESSION_TASK } from "../../shared/session-task.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/", async (c) => {
@@ -161,8 +162,14 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       if (claimed?.sourceDiscordChannelId) {
         meta.discord_source_channel_id = claimed.sourceDiscordChannelId;
       }
+      // タスク本文と作業ポリシーは Discord 上で別 message にする。 混ぜると本文が定型文に
+      // 埋もれて「補足」に見え、 タスク未指定の spawn では何も写らなくなる。
+      // Cc が spawn したセッション (= claimed あり) はタスク未指定でも空にせず、
+      // 「何もするな」を明示のタスクとして渡す。
+      if (claimed) {
+        meta.discord_startup_task = claimed.startupInjectText?.trim() || BLANK_SESSION_TASK;
+      }
       const startupInjectText = [
-        claimed?.startupInjectText,
         sessionWorkPolicyText,
         deps.resolveCcWorkflowEnabled?.()
           ? renderCcWorkflowStartupInject(input.id)

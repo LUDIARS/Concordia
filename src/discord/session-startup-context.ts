@@ -5,7 +5,11 @@ export const DISCORD_STARTUP_CONTEXT_POSTED_KEY = "discord_startup_context_poste
 
 export interface SessionStartupContext {
   requesterUserId: string | null;
-  startupInjectText: string;
+  /**
+   * 作業ポリシー等の定型 inject。 タスク本文はここに混ぜない
+   * (session-task-post.ts が独立 message として投稿し pin する)。
+   */
+  startupInjectText: string | null;
   surfaceLabel: "Session" | "TaskWorkflow";
   sessionChannelId: string;
   sourceGuildId: string | null;
@@ -32,7 +36,8 @@ export function buildSessionStartupContextMessage(input: SessionStartupContext):
       `https://discord.com/channels/${input.sourceGuildId}/${input.sourceChannelId}`,
     );
   }
-  lines.push("**起動時 Inject**", input.startupInjectText.trim());
+  const policy = input.startupInjectText?.trim();
+  if (policy) lines.push("**起動時 Inject**", policy);
   return {
     content: lines.join("\n\n"),
     allowedMentions: {
@@ -48,12 +53,19 @@ export async function postSessionStartupContext(input: {
   webhooks: Pick<WebhookPool, "getForSession" | "send">;
   sessionsRepo: Pick<SessionsRepo, "mergeMetadata">;
 }): Promise<boolean> {
+  const message = buildSessionStartupContextMessage(input.context);
+  // タスク本文を別 message に分けた結果、 写す補足が何も無いことがある。 空 message は
+  // Discord が拒否するので投稿しないが、 「済み」は立てる — 立てないとセッション登録の
+  // たびに再入して失敗ログを吐き続ける。
+  if (!message.content.trim()) {
+    input.sessionsRepo.mergeMetadata(input.sessionId, {
+      [DISCORD_STARTUP_CONTEXT_POSTED_KEY]: true,
+    });
+    return true;
+  }
   const client = await input.webhooks.getForSession(input.sessionId);
   if (!client) return false;
-  const sent = await input.webhooks.send(
-    client,
-    buildSessionStartupContextMessage(input.context),
-  );
+  const sent = await input.webhooks.send(client, message);
   if (!sent) return false;
   input.sessionsRepo.mergeMetadata(input.sessionId, {
     [DISCORD_STARTUP_CONTEXT_POSTED_KEY]: true,

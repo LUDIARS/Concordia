@@ -48,4 +48,30 @@ describe("session startup context", () => {
       [DISCORD_STARTUP_CONTEXT_POSTED_KEY]: true,
     });
   });
+
+  it("marks an empty context without sending an invalid Discord message", async () => {
+    const mergeMetadata = vi.fn();
+    const send = vi.fn();
+    const result = await postSessionStartupContext({
+      sessionId: "session-1",
+      context: {
+        requesterUserId: null,
+        startupInjectText: null,
+        surfaceLabel: "Session",
+        sessionChannelId: "222222222",
+        sourceGuildId: null,
+        sourceChannelId: null,
+      },
+      webhooks: {
+        getForSession: vi.fn(async () => ({}) as never),
+        send,
+      },
+      sessionsRepo: { mergeMetadata },
+    });
+    expect(result).toBe(true);
+    expect(send).not.toHaveBeenCalled();
+    expect(mergeMetadata).toHaveBeenCalledWith("session-1", {
+      [DISCORD_STARTUP_CONTEXT_POSTED_KEY]: true,
+    });
+  });
 });

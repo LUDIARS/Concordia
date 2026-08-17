@@ -90,6 +90,11 @@ import {
   resolveForumSessionSurface,
 } from "./forum-session.js";
 import { postSessionStartupContext } from "./session-startup-context.js";
+import {
+  postSessionTaskBody,
+  stripDelegationInjectHeader,
+  taskKindForInjectSource,
+} from "./session-task-post.js";
 import { bindForumSpawnSession } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
@@ -515,6 +520,23 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let webhooks: WebhookPool | null = null;
   let activeGuild: Guild | null = null;
   let unsubscribe: (() => void) | null = null;
+  /**
+   * webhook 投稿を pin する (best-effort)。 webhook client は pin API を持たないので
+   * Bot 権限で channel → message を引き直す。 権限不足や message 消失では false を返す。
+   */
+  const pinChannelMessage = async (channelId: string, messageId: string): Promise<boolean> => {
+    const guild = activeGuild;
+    if (!guild) return false;
+    try {
+      const channel = await guild.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return false;
+      const message = await channel.messages.fetch(messageId);
+      await message.pin();
+      return true;
+    } catch {
+      return false;
+    }
+  };
   let costTimer: ReturnType<typeof setInterval> | null = null;
   let monitorTimer: ReturnType<typeof setInterval> | null = null;
   let prQueueTimer: ReturnType<typeof setInterval> | null = null;
@@ -1415,28 +1437,50 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             }
           }
           const sessionSurface = sessionChannelsRepo.findBySessionId(sessionId);
+          const needsStartupTaskPost = Boolean(state?.startupTaskText && !state.taskPosted);
+          const needsStartupContextPost = !state?.startupContextPosted;
           if (
             sessionSurface
-            && state?.startupInjectText
-            && !state.startupContextPosted
+            && (state?.startupInjectText || state?.startupTaskText)
+            // タスク本文と起動コンテキストの成功は独立して記録する。前者だけが失敗しても
+            // 後者の投稿済みフラグによって再試行不能にしてはいけない。
+            && (needsStartupTaskPost || needsStartupContextPost)
             && !startupContextInflight.has(sessionId)
           ) {
             startupContextInflight.add(sessionId);
             try {
-              const posted = await postSessionStartupContext({
-                sessionId,
-                context: {
-                  requesterUserId: state.requesterDiscordUserId ?? null,
-                  startupInjectText: state.startupInjectText,
-                  surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
-                  sessionChannelId: sessionSurface.channel_id,
-                  sourceGuildId: state.sourceDiscordGuildId ?? forumSpawn?.guildId ?? null,
-                  sourceChannelId: state.sourceDiscordChannelId ?? forumSpawn?.threadId ?? null,
-                },
-                webhooks,
-                sessionsRepo: deps.sessionsRepo,
-              });
-              if (!posted) log.warn(`session startup context post failed session=${sessionId}`);
+              // タスク本文が先。 pin する 1 通目が thread の先頭に来るようにする。
+              if (needsStartupTaskPost && state?.startupTaskText) {
+                const taskPosted = await postSessionTaskBody({
+                  sessionId,
+                  channelId: sessionSurface.channel_id,
+                  kind: "startup",
+                  taskText: state.startupTaskText,
+                  stagedPending: state.stagedInjection === true && state.stagedFollowupDelivered !== true,
+                  alreadyPinned: state.taskPinned === true,
+                  webhooks,
+                  sessionsRepo: deps.sessionsRepo,
+                  pin: pinChannelMessage,
+                  log,
+                });
+                if (!taskPosted) log.warn(`session task post failed session=${sessionId}`);
+              }
+              if (needsStartupContextPost) {
+                const posted = await postSessionStartupContext({
+                  sessionId,
+                  context: {
+                    requesterUserId: state?.requesterDiscordUserId ?? null,
+                    startupInjectText: state?.startupInjectText ?? null,
+                    surfaceLabel: delegationRun ? "TaskWorkflow" : "Session",
+                    sessionChannelId: sessionSurface.channel_id,
+                    sourceGuildId: state?.sourceDiscordGuildId ?? forumSpawn?.guildId ?? null,
+                    sourceChannelId: state?.sourceDiscordChannelId ?? forumSpawn?.threadId ?? null,
+                  },
+                  webhooks,
+                  sessionsRepo: deps.sessionsRepo,
+                });
+                if (!posted) log.warn(`session startup context post failed session=${sessionId}`);
+              }
             } finally {
               startupContextInflight.delete(sessionId);
             }
@@ -1793,10 +1837,36 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "session.inject") {
+      const src = ev.source ?? "";
+      // 委託 (delegation) 由来の inject は Cc がその場で組み立てたタスク本文であり、
+      // transcript には出ない。 段階注入の第 2 段階 (実装タスク) がここに来るので、
+      // 転記しないと「何を委託したか」が Discord にまったく残らない。
+      const delegationKind = taskKindForInjectSource(src);
+      if (delegationKind) {
+        if (!isActiveDiscordSession(ev.target_session_id)) return;
+        const surface = sessionChannelsRepo.findBySessionId(ev.target_session_id);
+        if (!surface || !webhooks) return;
+        const state = deps.readModel.getSessionRelayState(ev.target_session_id);
+        void postSessionTaskBody({
+          sessionId: ev.target_session_id,
+          channelId: surface.channel_id,
+          kind: delegationKind,
+          taskText: stripDelegationInjectHeader(ev.text),
+          // 第 2 段階が届いた時点で「伏せていた本文」は解禁済み。
+          stagedPending: false,
+          alreadyPinned: state?.taskPinned === true,
+          webhooks,
+          sessionsRepo: deps.sessionsRepo,
+          pin: pinChannelMessage,
+          log,
+        }).catch((e) => log.warn(
+          `delegation inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`,
+        ));
+        return;
+      }
       // 環境同期: 相手プラットフォーム(Slack)由来の inject を Discord の session channel
       // にも発言者付きで転記する。Discord 由来は元発言が既に表示済なので転記しない。
       // 制御 inject (/enter 等、source 例 "discord-enter") は ^slack: に一致せず除外。
-      const src = ev.source ?? "";
       if (parseInjectSource(src).platform !== "slack") return;
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       const who = ev.author_label?.trim() || "Slack user";

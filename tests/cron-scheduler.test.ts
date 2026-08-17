@@ -124,6 +124,8 @@ describe("startCronScheduler", () => {
       { name: "steam-persona-daily", cron: "40 7 * * *", call_name: "steam-persona-daily" },
       { name: "vultus-catalog-refresh-daily", cron: "20 8 * * *", call_name: "vultus-catalog-refresh-daily" },
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
+      { name: "team-standup-daily", cron: "30 9 * * *", call_name: "team-standup-daily" },
+      { name: "team-review-regular", cron: "0 13 * * 2,5", call_name: "team-review-regular" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
     // ジョブ定義側へ移したあとも消えていないことを回帰で押さえる。
@@ -133,6 +135,8 @@ describe("startCronScheduler", () => {
       "ai-note-biweekly-review",
       "deps-sweep-daily",
       "kaizen-daily",
+      "team-standup-daily",
+      "team-review-regular",
     ]);
     expect(CRON_JOBS.some((j) => j.name === "genius-ingest-tier2-nightly")).toBe(false);
   });
@@ -160,6 +164,8 @@ describe("startCronScheduler", () => {
       "steam-persona-daily",
       "vultus-catalog-refresh-daily",
       "kaizen-daily",
+      "team-standup-daily",
+      "team-review-regular",
     ]) {
       const job = CRON_JOBS.find((j) => j.name === name);
       expect(job, `${name} must be registered`).toBeDefined();

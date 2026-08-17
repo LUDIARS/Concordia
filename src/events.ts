@@ -83,6 +83,8 @@ type ConcordiaEventPayload =
   | { type: "director.plan_submitted"; target_session_id: string; case_id: string; version: number; markdown: string; ts: number }
   | { type: "team.created"; event_id: string; team_id: string; name: string; slug: string; ts: number }
   | { type: "team.changed"; event_id: string; team_id: string; fields: string[]; ts: number }
+  /** 朝礼 / 定例 delegation がチーム面へ載せる報告カード (POST /v1/teams/:id/cards)。 */
+  | { type: "team.card_requested"; team_id: string; kind: "standup" | "meeting"; title: string; body: string; ts: number }
   | { type: "vibes.ok"; session_id: string; source: string; ts: number }
   | { type: "inquiry.resolved"; target_session_id: string; category: string; decision: "proceed" | "ask_human" | "self_judge"; supervisor_user_id: string | null; ts: number }
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }

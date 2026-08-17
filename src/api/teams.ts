@@ -37,6 +37,16 @@ const CreateSchema = z.object({
 
 const PatchSchema = CreateSchema.partial();
 
+/**
+ * チーム面へ載せる報告カード。 種別は面へのルーティング (team-card-routing.ts) に
+ * 対応する固定集合に限る — 任意の面へ任意本文を投げられる口にはしない。
+ */
+const CardSchema = z.object({
+  kind: z.enum(["standup", "meeting"]),
+  title: z.string().trim().min(1).max(200),
+  body: z.string().trim().min(1).max(20_000),
+}).strict();
+
 export type TeamSettings = z.infer<typeof SettingsSchema>;
 
 /**
@@ -115,6 +125,29 @@ export function teamsRouter(repo: TeamsRepo, metrics?: TeamMetricsRepo): Hono {
       ts: Math.floor(Date.now() / 1000),
     });
     return c.json({ team: serializeTeam(repo, row) });
+  });
+
+  /**
+   * 朝礼 / 定例 delegation からチーム面へ報告カードを投稿する。
+   *
+   * 投稿自体は Discord bot 側 (team-post-card.ts) が team.card_requested を受けて行う。
+   * ここは「どのチームの、 どの種別のカードか」 を検証してイベントに載せるだけ。
+   */
+  app.post("/:id/cards", async (c) => {
+    const team = repo.findByIdOrSlug(c.req.param("id"));
+    if (!team) return c.json({ error: "not_found" }, 404);
+    const parsed = CardSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_card", detail: parsed.error.flatten() }, 400);
+    eventBus.emit({
+      type: "team.card_requested",
+      team_id: team.id,
+      kind: parsed.data.kind,
+      title: parsed.data.title,
+      body: parsed.data.body,
+      ts: Math.floor(Date.now() / 1000),
+    });
+    // 面が未プロビジョニングなら bot 側でスキップされるため、 ここでは受理のみを返す。
+    return c.json({ accepted: true, team_id: team.id, kind: parsed.data.kind }, 202);
   });
 
   return app;

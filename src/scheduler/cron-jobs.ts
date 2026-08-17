@@ -12,6 +12,12 @@ function todayIso(): string {
   return `${y}-${m}-${day}`;
 }
 
+/**
+ * 1 回の発火を対象ごとの複数 invoke へ展開する戦略名。 対象の列挙は DB を触るため
+ * この定義ファイルでは持たず、 cron-scheduler の `fanoutResolvers` が解決する。
+ */
+export type CronJobFanout = "teams";
+
 export interface CronJobDefinition {
   /** ログ・triggered_by 用の識別名 (delegation の call_name とは独立) */
   name: string;
@@ -27,6 +33,11 @@ export interface CronJobDefinition {
    * ジョブでは必ず省略する)。
    */
   cwd?: string;
+  /**
+   * 指定すると 1 回の発火で対象ごとに invoke する (例: チームごとの朝礼)。
+   * 対象が 0 件なら 1 度も invoke しない。
+   */
+  fanout?: CronJobFanout;
 }
 
 /** LUDIARS の全リポジトリを横断するジョブの作業ディレクトリ (Ars root)。 */
@@ -64,6 +75,20 @@ const GENIUS_INGEST_DAILY_CRON = "10 4 * * *";
 
 /** カイゼン (2026-08-08 neco 指示で新設)。 毎朝 9:00 JST、前日の session-logs とメモリを棚卸しして改善提案する。 */
 const KAIZEN_CRON = "0 9 * * *";
+
+/**
+ * チーム朝礼 (2026-08-17 neco 指示で新設)。 毎朝 9:30 JST、チームごとに 1 本ずつ起動する。
+ * 先行する日次ジョブ (脆弱性 5:10 / deps 7:10 / Steam 7:40 / Vultus 8:20 / カイゼン 9:00) の
+ * 後ろに置き、 朝礼がそれらの結果を引用できるようにする。
+ */
+const TEAM_STANDUP_DAILY_CRON = "30 9 * * *";
+
+/**
+ * チーム定例 (2026-08-17 neco 指示で新設)。 週 2 回 (火・金) 13:00 JST、チームごとに 1 本。
+ * タスクの確認と棚卸しを人間 (neco) と一緒に行うため、 朝礼と違って議題提示のあと
+ * 返信を待って反映するまでが 1 回分になる。
+ */
+const TEAM_REVIEW_REGULAR_CRON = "0 13 * * 2,5";
 export const CRON_JOBS: CronJobDefinition[] = [{
     name: "ludiars-review-weekly",
     cron: WEEKLY_REVIEW_CRON,
@@ -113,4 +138,19 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     call_name: "kaizen-daily",
     buildArgs: () => ({ date: todayIso() }),
     cwd: ARS_ROOT,
+}, {
+    // チームごとに横断調査するため cwd は Ars root。
+    name: "team-standup-daily",
+    cron: TEAM_STANDUP_DAILY_CRON,
+    call_name: "team-standup-daily",
+    buildArgs: () => ({ date: todayIso() }),
+    cwd: ARS_ROOT,
+    fanout: "teams",
+}, {
+    name: "team-review-regular",
+    cron: TEAM_REVIEW_REGULAR_CRON,
+    call_name: "team-review-regular",
+    buildArgs: () => ({ date: todayIso() }),
+    cwd: ARS_ROOT,
+    fanout: "teams",
 }];

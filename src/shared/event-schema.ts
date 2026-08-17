@@ -33,6 +33,7 @@ export const CONCORDIA_EVENT_TYPES = [
   "director.plan_submitted",
   "team.created",
   "team.changed",
+  "team.card_requested",
   "vibes.ok",
   "transcript.frame",
   "session.permission_request",
@@ -189,6 +190,7 @@ const eventSchemas = {
   "director.plan_submitted": z.object({ type: z.literal("director.plan_submitted"), target_session_id: z.string(), case_id: z.string(), version: z.number(), markdown: z.string(), ts: z.number() }).passthrough(),
   "team.created": z.object({ type: z.literal("team.created"), event_id: z.string(), team_id: z.string(), name: z.string(), slug: z.string(), ts: z.number() }).passthrough(),
   "team.changed": z.object({ type: z.literal("team.changed"), event_id: z.string(), team_id: z.string(), fields: z.array(z.string()), ts: z.number() }).passthrough(),
+  "team.card_requested": z.object({ type: z.literal("team.card_requested"), team_id: z.string(), kind: z.enum(["standup", "meeting"]), title: z.string(), body: z.string(), ts: z.number() }).passthrough(),
   "vibes.ok": z.object({ type: z.literal("vibes.ok"), session_id: z.string(), source: z.string(), ts: z.number() }).passthrough(),
   "process.started": z.object({
     type: z.literal("process.started"),

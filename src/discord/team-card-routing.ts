@@ -18,7 +18,9 @@ export type TeamCardKind =
   | "question"
   | "cost-daily"
   | "cost-session"
-  | "task-kanban";
+  | "task-kanban"
+  | "standup"
+  | "meeting";
 
 export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   "director-plan": "目標",
@@ -28,6 +30,10 @@ export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   // セッション終了時の 1 本分の実績。 日次サマリ (cost-daily) と同じ面に出す。
   "cost-session": "コスト",
   "task-kanban": "タスクボード",
+  // 朝礼は目標の進み方を報告するので、 director-plan と同じ 目標 面に出す。
+  "standup": "目標",
+  // 定例の開始通知。 本体の議論は定例セッションの thread で行い、 ここには入口だけ置く。
+  "meeting": "direction",
 };
 
 export interface TeamSurfaceSource {

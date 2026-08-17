@@ -12,6 +12,7 @@
     { "pathPattern": "(^|/)web/src/pages/settings/sections/CronJobsSection\\.tsx$" },
     { "pathPattern": "(^|/)tests/(admin-api|admin-state|cron-scheduler|delegation-regression)\\.test\\.ts$" },
     { "pathPattern": "(^|/)spec/feature/delegation\\.md$" },
+    { "pathPattern": "(^|/)spec/feature/team-standup-and-review\\.md$" },
     { "pathPattern": "(^|/)docs/manual/02-webui-guide\\.md$" }
   ],
   "cardTemplate": "Summarise the \"parttimer-review-scheduling\" domain: scheduled parttimer review templates, cron registration, settings UI labels, and legacy schedule migration.",
@@ -23,8 +24,9 @@
     "legacy-cron-override-migration"
   ],
   "specRefs": [
-    "spec/feature/delegation.md#9-初期-seed"
+    "spec/feature/delegation.md#9-初期-seed",
+    "spec/feature/team-standup-and-review.md#1-チームごとの-fanout"
   ],
   "rationale": "定期レビューの有効状態はテンプレートだけでは完結せず、cron の call_name と一致して初めて Timer Delegation が起動する。設定 UI の説明も同じ cron 設定を利用者へ示す境界に属する。旧日次テンプレートの無効化と、管理者が保存した cron override を新 job 名へ引き継ぐ処理もこの登録の移行規則であり、レビュー内容や実行キューの責務とは分離する。",
-  "updatedAt": "2026-08-11T00:00:00.000Z"
+  "updatedAt": "2026-08-17T00:00:00.000Z"
 }

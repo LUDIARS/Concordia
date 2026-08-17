@@ -112,6 +112,7 @@ import { renderPlanCard } from "./plan-card.js";
 import { recordPlanCardMessageId, recordQuestionCardMessageId } from "./phase-index.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
+import { postTeamCard } from "./team-post-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { MemoriaClient } from "../memoria/client.js";
@@ -1592,6 +1593,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           { kind: "changed", eventId: ev.event_id, teamId: ev.team_id, fields: ev.fields, ts: ev.ts },
         );
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
+      return;
+    }
+    if (!deps.subsidiary && ev.type === "team.card_requested") {
+      void postTeamCard(
+        { guild, teamsRepo: new TeamsRepo(deps.db), log, subsidiary: Boolean(deps.subsidiary) },
+        { teamId: ev.team_id, kind: ev.kind, title: ev.title, body: ev.body },
+      ).catch((error) => log.warn(`team card post failed team=${ev.team_id}: ${(error as Error).message}`));
       return;
     }
     if (ev.type === "session.lost") {

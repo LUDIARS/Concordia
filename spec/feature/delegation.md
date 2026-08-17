@@ -309,6 +309,21 @@ MGStage の女優一覧を50音順の最後まで巡回する。クローラは1
 source登録を行わない。片方のproviderが失敗しても他方を続行し、各providerのcrawlerは
 1回の実行につき1回までリトライできる。報告には集計だけを載せ、氏名、画像URL、顔特徴量は載せない。
 
+### チーム朝礼 / 定例 (parttimer、チームごとに fanout)
+
+2026-08-17 neco 指示で新設。**1 発火でチーム数だけ invoke する**唯一の cron で、
+定義側は `fanout: "teams"` を宣言するだけ、対象の列挙は cron-scheduler の
+`fanoutResolvers` が行う (正本は `spec/feature/team-standup-and-review.md`)。
+
+| cron (JST) | job / call_name | 内容 |
+|---|---|---|
+| 9:30 毎日 | `team-standup-daily` | チームの稼働 / 対応 / ズレ / 今日効く 3 点を 目標 面へ報告 (書き換え無し) |
+| 13:00 火・金 | `team-review-regular` | タスク棚卸しの議題を出し、neco の返信を Memoria / director step へ反映する |
+
+朝礼は先行する日次ジョブ (5:10 / 7:10 / 7:40 / 8:20 / 9:00) の結果を引用できるよう
+最後に置く。定例は人間の同席が要るため、完了時のメンションに加えて議題提示時にも
+管理者をメンションする。
+
 ## 10. v0.1 で やらないこと
 
 - Lictor / Codex CLI 側の prompt auto-inject (next PR)

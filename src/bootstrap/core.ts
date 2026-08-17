@@ -94,6 +94,7 @@ import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startMorningScheduler } from "../morning/scheduler.js";
+import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
 import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
@@ -1557,6 +1558,8 @@ export async function startBackend(): Promise<BackendHandle> {
       start: () => startCronScheduler({
         delegationService,
         resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
+        // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の登録チーム。
+        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.list()) },
       }),
     });
     workflowBindings.register({

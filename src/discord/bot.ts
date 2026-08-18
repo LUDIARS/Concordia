@@ -1320,6 +1320,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   });
 
   const startupContextInflight = new Set<string>();
+  // 起動時投稿と後追い delegation inject は別 event として並行に到着し得る。
+  // pin 済み metadata を各実行直前に読み直せるよう、同一 session のタスク投稿は直列化する。
+  const sessionTaskPostInflight = new Map<string, Promise<void>>();
+
+  function queueSessionTaskPost(sessionId: string, post: () => Promise<void>): Promise<void> {
+    const previous = sessionTaskPostInflight.get(sessionId) ?? Promise.resolve();
+    const run = previous.catch(() => undefined).then(post);
+    const tail = run.catch(() => undefined);
+    sessionTaskPostInflight.set(sessionId, tail);
+    void tail.finally(() => {
+      if (sessionTaskPostInflight.get(sessionId) === tail) {
+        sessionTaskPostInflight.delete(sessionId);
+      }
+    });
+    return run;
+  }
 
   function routeEvent(ev: ConcordiaEvent, guild: import("discord.js").Guild): void {
     if (gatewayClosed || stopping) return;
@@ -1440,31 +1456,38 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           const sessionSurface = sessionChannelsRepo.findBySessionId(sessionId);
           const needsStartupTaskPost = Boolean(state?.startupTaskText && !state.taskPosted);
           const needsStartupContextPost = !state?.startupContextPosted;
+          const startupTaskText = state?.startupTaskText;
+          const webhookPool = webhooks;
           if (
             sessionSurface
-            && (state?.startupInjectText || state?.startupTaskText)
+            && (state?.startupInjectText || startupTaskText)
             // タスク本文と起動コンテキストの成功は独立して記録する。前者だけが失敗しても
             // 後者の投稿済みフラグによって再試行不能にしてはいけない。
             && (needsStartupTaskPost || needsStartupContextPost)
             && !startupContextInflight.has(sessionId)
+            && webhookPool
           ) {
             startupContextInflight.add(sessionId);
             try {
               // タスク本文が先。 pin する 1 通目が thread の先頭に来るようにする。
-              if (needsStartupTaskPost && state?.startupTaskText) {
-                const taskPosted = await postSessionTaskBody({
-                  sessionId,
-                  channelId: sessionSurface.channel_id,
-                  kind: "startup",
-                  taskText: state.startupTaskText,
-                  stagedPending: state.stagedInjection === true && state.stagedFollowupDelivered !== true,
-                  alreadyPinned: state.taskPinned === true,
-                  webhooks,
-                  sessionsRepo: deps.sessionsRepo,
-                  pin: pinChannelMessage,
-                  log,
+              if (needsStartupTaskPost && startupTaskText) {
+                await queueSessionTaskPost(sessionId, async () => {
+                  const latestState = deps.readModel.getSessionRelayState(sessionId);
+                  const taskPosted = await postSessionTaskBody({
+                    sessionId,
+                    channelId: sessionSurface.channel_id,
+                    kind: "startup",
+                    taskText: startupTaskText,
+                    stagedPending: latestState?.stagedInjection === true
+                      && latestState.stagedFollowupDelivered !== true,
+                    alreadyPinned: latestState?.taskPinned === true,
+                    webhooks: webhookPool,
+                    sessionsRepo: deps.sessionsRepo,
+                    pin: pinChannelMessage,
+                    log,
+                  });
+                  if (!taskPosted) log.warn(`session task post failed session=${sessionId}`);
                 });
-                if (!taskPosted) log.warn(`session task post failed session=${sessionId}`);
               }
               if (needsStartupContextPost) {
                 const posted = await postSessionStartupContext({
@@ -1854,19 +1877,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         if (!isActiveDiscordSession(ev.target_session_id)) return;
         const surface = sessionChannelsRepo.findBySessionId(ev.target_session_id);
         if (!surface || !webhooks) return;
-        const state = deps.readModel.getSessionRelayState(ev.target_session_id);
-        void postSessionTaskBody({
-          sessionId: ev.target_session_id,
-          channelId: surface.channel_id,
-          kind: delegationKind,
-          taskText: stripDelegationInjectHeader(ev.text),
-          // 第 2 段階が届いた時点で「伏せていた本文」は解禁済み。
-          stagedPending: false,
-          alreadyPinned: state?.taskPinned === true,
-          webhooks,
-          sessionsRepo: deps.sessionsRepo,
-          pin: pinChannelMessage,
-          log,
+        const webhookPool = webhooks;
+        void queueSessionTaskPost(ev.target_session_id, async () => {
+          const state = deps.readModel.getSessionRelayState(ev.target_session_id);
+          await postSessionTaskBody({
+            sessionId: ev.target_session_id,
+            channelId: surface.channel_id,
+            kind: delegationKind,
+            taskText: stripDelegationInjectHeader(ev.text),
+            // 第 2 段階が届いた時点で「伏せていた本文」は解禁済み。
+            stagedPending: false,
+            alreadyPinned: state?.taskPinned === true,
+            webhooks: webhookPool,
+            sessionsRepo: deps.sessionsRepo,
+            pin: pinChannelMessage,
+            log,
+          });
         }).catch((e) => log.warn(
           `delegation inject mirror failed session=${ev.target_session_id}: ${(e as Error).message}`,
         ));

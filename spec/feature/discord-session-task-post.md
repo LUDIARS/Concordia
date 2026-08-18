@@ -10,7 +10,7 @@ tags:
   - inject
   - session
 status: implemented
-updated: 2026-08-17
+updated: 2026-08-18
 ---
 
 # Discord セッションのタスク本文投稿と pin
@@ -108,6 +108,13 @@ channel → message を引き直す (`ManageMessages` が要る)。失敗して�
 タスク本文を切り出した結果、起動コンテキスト message の中身が空になることがある。
 Discord は空 message を拒否するので投稿はしないが、`discord_startup_context_posted` は
 立てる — 立てないとセッション登録のたびに再入して失敗ログを吐き続ける。
+
+### 3.5 同時到着時の順序
+
+起動時投稿と委託 inject は別イベントとして並行に届き得るため、同一セッションの
+タスク本文投稿は直列化する。各投稿は実行直前に relay state を読み直し、先行投稿が
+記録した `discord_task_pinned` を後続投稿の pin 判定へ反映する。これにより、同一
+セッションで複数のタスク本文が同時に処理されても、pin 対象は最大 1 通に保たれる。
 
 ## 4. 関連
 

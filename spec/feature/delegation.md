@@ -482,6 +482,9 @@ Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済�
 - `CONCORDIA_SATELLES_CODEX_RUNTIME` が `native`/`wsl` 以外、 または distro/user/codex
   binary に cmd.exe メタ文字 (`HEADLESS_ARG_UNSAFE_RE` と同じ集合) を含む場合は
   spawn env 構築時に例外で fail-fast する (無言で `native` へフォールバックしない)。
+- seed テンプレのうち `codex-5-6-sol-ultra` / `codex-5-6-terra` は
+  `target_provider: "codex-sdk"` (Satelles 経由)。 上記 env が `wsl` の環境では
+  この 2 本が WSL 内 Linux codex で走る。 `sol` / `luna` は従来どおり codex-cli。
 
 ### 13.2 前提と既知の制約
 

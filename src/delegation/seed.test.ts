@@ -198,12 +198,18 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.prompt_template).toContain("range_reversed");
   });
 
-  it("codex Sol defaults to high + fast and Sol Ultra is explicit (2026-07-17)", () => {
+  it("routes Sol Ultra and Terra through Satelles while keeping Sol on codex-cli", () => {
     const repo = new DelegationRepo(makeTestDb());
     // 既存 seed は boot 時の upsert で置換されるため、provider 変更も反映する。
     repo.createTemplate({
       call_name: "codex-5-6-sol-ultra",
       title: "old Sol Ultra",
+      target_provider: "codex",
+      prompt_template: "old",
+    });
+    repo.createTemplate({
+      call_name: "codex-5-6-terra",
+      title: "old Terra",
       target_provider: "codex",
       prompt_template: "old",
     });
@@ -226,6 +232,17 @@ describe("seedDelegationTemplates", () => {
     expect(ultra?.target_provider).toBe("codex-sdk");
     // 他の Sol は従来どおり codex-cli のまま (回避策は Sol Ultra に限定)。
     expect(sol?.target_provider).toBe("codex");
+    expect(repo.findTemplateByCallName("codex-5-6-luna")?.target_provider).toBe("codex");
+
+    const terra = repo.findTemplateByCallName("codex-5-6-terra");
+    expect(terra).toMatchObject({
+      is_active: 1,
+      model: "gpt-5.6-terra",
+      target_provider: "codex-sdk",
+    });
+    expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({
+      model_reasoning_effort: "xhigh",
+    });
   });
 
   it("review launch is consolidated into review-duo (Opus x Sol xhigh)", () => {

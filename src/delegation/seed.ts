@@ -91,7 +91,8 @@ const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
   // provider=codex-sdk: Satelles 経由 (Cc の CONCORDIA_SATELLES_CODEX_RUNTIME=wsl と
   // 組み合わせて WSL 内 Linux codex で走らせ、 lsass リークを回避する — neco 指示)。
   codex56Template({ callSuffix: "sol-ultra", modelName: "sol", label: "Sol Ultra", emoji: "🌞", sort_order: 25, reasoning: "ultra", provider: "codex-sdk" }),
-  codex56Template({ callSuffix: "terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 50, reasoning: "xhigh" }),
+  // Terra も provider=codex-sdk: Satelles 経由で WSL 内 Linux codex を使う (neco 指示)。
+  codex56Template({ callSuffix: "terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 50, reasoning: "xhigh", provider: "codex-sdk" }),
   codex56Template({ callSuffix: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 70, reasoning: "medium" }),
 ];
 

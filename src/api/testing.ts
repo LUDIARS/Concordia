@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
+import { describeMojibakeRejection, hasReplacementChars } from "../shared/text-integrity.js";
 import { injectTestingNotice } from "../testing/notify.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 
@@ -21,7 +22,11 @@ const ClaimSchema = z.object({
   session_id: z.string().min(1),
   service: z.string().min(1).max(64),
   branch: z.string().max(200).nullable().optional(),
-  note: z.string().max(500).optional(),
+  // 送信経路で壊れた文字列をそのまま正本に残さない (shared/text-integrity.ts 参照)。
+  note: z.string().max(500).refine(
+    (value) => !hasReplacementChars(value),
+    (value) => ({ message: describeMojibakeRejection("note", value) }),
+  ).optional(),
 });
 
 const ReleaseSchema = z.object({

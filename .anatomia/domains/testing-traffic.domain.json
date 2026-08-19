@@ -1,0 +1,37 @@
+{
+  "name": "testing-traffic",
+  "description": "再起動・起動テストの「一報 (claim)」を Concordia が正本として持ち、交通整備する層。/v1/testing の API とスキーマ、service_test_claims の repo、claim の lifecycle event 公開、ブランチ切替を検知して運用ルールを inject する branch-watch、および claim 入力の文字コード検証から成る。claim は強制ロックではなく advisory であり、目的は排他ではなく衝突の可視化。delegation queue の lease や Lictor の transcript file claim のような実装内部の fencing は含めない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/api/testing(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/testing/(claim-lifecycle|notify|branch-watch)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/testing-claims-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/shared/text-integrity(\\.test)?\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"testing-traffic\" domain: 起動テストの claim 宣言・解放・競合警告と、その API / repo / lifecycle event / 入力検証の所有。",
+  "source": "spec",
+  "mechanics": [
+    "claim-declaration-and-conflict-warning",
+    "claim-release-and-ttl-expiry",
+    "claim-lifecycle-event-publication",
+    "branch-switch-rule-injection",
+    "claim-note-encoding-validation"
+  ],
+  "specRefs": [
+    "spec/feature/testing-traffic.md"
+  ],
+  "rationale": "testing claim の面はこれまでドメイン宣言が無く、この層だけを触る PR が Anatomia review gate (target domain missing) で止まった (2026-08-19 Cc #722)。spec/feature/testing-traffic.md が API・repo・投稿・branch-watch を 1 つの機構として定義しているため、同じ境界で 1 ドメインとして宣言する。claim note の文字コード検証 (src/shared/text-integrity.ts) は shared 配下に置くが、仕様上の所有はこの機構にあるためここへ含める。",
+  "lockedFields": [
+    "*"
+  ],
+  "updatedAt": "2026-08-19T00:00:00.000Z"
+}

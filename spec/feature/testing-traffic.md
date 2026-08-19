@@ -21,6 +21,23 @@
 - 放置 claim は TTL (60 分) で active から外れる。
 - テーブル: `service_test_claims` (schema.ts)。
 
+## note の文字コード検証
+
+**Requirement ID: `SPEC-TESTING-CLAIM-NOTE-ENCODING`**
+
+`claim` の `note` に U+FFFD (REPLACEMENT CHARACTER) が含まれていたら **400 で拒否する**。
+理由と送り直し方を `detail` に返し、呼び出し元が同じ壊れ方で再送しないようにする。
+
+- U+FFFD は「デコードに失敗した」痕跡であり、**元のバイトは既に失われている**。
+  受け取って保存すると復元不能な文字列が正本に残る。
+- 実際の混入経路は Windows / Git Bash から `curl -d '{"note":"日本語"}'` と
+  **argv へ直接埋め込む**送り方。MSYS の argv 変換で非 ASCII が潰れる
+  (UTF-8 ファイル + `curl --data-binary @file.json` なら無傷)。
+- 破損した claim が保存されると、壊れた文字列が黙って蓄積する。保存せず入口で
+  fail-fast する。
+- 実装: `src/shared/text-integrity.ts` (検査) / `src/api/testing.ts` (ClaimSchema で拒否)。
+- 既存レコードの遡及修復は行わない。
+
 ## 投稿
 
 testing claim の開始・再宣言・明示解放・セッション終了時の自動解放は、

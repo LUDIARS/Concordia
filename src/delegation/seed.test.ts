@@ -72,6 +72,34 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("test-qa")?.category).toBe("test-qa");
   });
 
+  it("requires portable, argument-safe Anatomia supply and verification for implementation templates", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const implementationTemplates = [
+      "codex-5-6-sol",
+      "codex-5-6-sol-ultra",
+      "codex-5-6-terra",
+      "codex-5-6-luna",
+      "impl-from-design",
+      "fix-bug",
+      "claude-opus-5-impl",
+      "claude-sonnet-5-impl",
+      "claude-fable-5-impl",
+      "claude-haiku-4-5-impl",
+      "gemma4-12-impl",
+    ];
+
+    for (const callName of implementationTemplates) {
+      const prompt = repo.findTemplateByCallName(callName)?.prompt_template ?? "";
+      expect(prompt).toContain("configured Anatomia CLI");
+      expect(prompt).toContain("do not download or guess a local installation");
+      expect(prompt).toContain("properly quoted shell argument");
+      expect(prompt).toContain("never interpolate it into a shell command");
+      expect(prompt).not.toContain("E:/Document/Ars/Anatomia");
+    }
+  });
+
   it("adds the required administrator-mention step to every parttimer template", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

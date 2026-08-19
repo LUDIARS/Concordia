@@ -13,6 +13,18 @@ const CLAUDE_TEMPLATE_SORT_ORDER = {
   "haiku-4-5": 60,
 } as const;
 
+/**
+ * Anatomia supply→verify を委託プロンプトの必須手順にする (2026-08-19 neco 指示:
+ * 「指示内容からまずドメインを確認して設計する / どのドメインにどう紐づけるかを一緒に考えて貼る」)。
+ * Claude Code の UserPromptSubmit/PostToolUse hook は Codex 委託には効かないので、テンプレ本文で縛る。
+ * CLI の解決方法は委託先ごとに異なるため、ローカルの絶対パスをテンプレートへ埋め込まない。
+ */
+const ANATOMIA_SUPPLY_VERIFY_STEPS = [
+  "- Before writing code, use the configured Anatomia CLI to ask where the change lands (`where --repo <target_repo> --task \"<what you will change>\"`, or `context`). If it is unavailable, stop and report the configuration issue; do not download or guess a local installation. Pass the repository path as a properly quoted shell argument (or an argument-array value); never interpolate it into a shell command. Design inside the existing domain/layer it reports; reuse the exemplars instead of reinventing.",
+  "- Domain binding first: decide which declared domain the change belongs to. If it opens a new directory / feature surface outside every declared membership, add the declaration in the SAME PR (`.anatomia/domains/<domain>.domain.json` or the project's ontology dir, `membership: [{ \"pathPattern\": \"(^|/)src/...\" }]`, src and tests paired) — Revisor blocks unbound code.",
+  "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
+];
+
 function codex56Template(opts: {
   /** call_name = `codex-5-6-${callSuffix}`。 model は `gpt-5.6-${modelName}`。 */
   callSuffix: string;
@@ -55,6 +67,7 @@ function codex56Template(opts: {
       "Requirements:",
       "- Create a feature branch (feat/<short-slug>) off origin/main.",
       "- Implement as specified; don't add scope.",
+      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -351,6 +364,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "Implementation requirements:",
       "- Create a feature branch (feat/<scope>) off origin/main.",
       "- Implement the design as written. Don't add scope.",
+      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the design needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (1 commit if possible) — squash mergeable.",
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -386,6 +400,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "Requirements:",
       "- Diagnose the issue from the available evidence before editing.",
       "- Apply the minimal fix; no unrelated refactors.",
+      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add regression coverage when practical, but do not run tests unless the user explicitly requested them.",
       "- Create a feature branch (fix/<short-slug>) + PR.",
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -458,6 +473,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
         "Requirements:",
         "- Create a feature branch (feat/<short-slug>) off origin/main.",
         "- Implement as specified; don't add scope.",
+        ...ANATOMIA_SUPPLY_VERIFY_STEPS,
         "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
         "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
         "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
@@ -564,6 +580,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "${context_extra:}", "",
       "Requirements:",
       "- Keep the change small and self-contained (local model — avoid sprawling multi-file edits).",
+      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Create a feature branch (feat/<short-slug>) off origin/main.",
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",

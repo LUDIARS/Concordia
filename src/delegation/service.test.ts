@@ -182,6 +182,29 @@ describe("DelegationService.invoke", () => {
     expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
+  it("gives codex-sdk implementation delegations the full prompt instead of an unreachable staged brief", async () => {
+    repo.createTemplate({
+      call_name: "satelles-impl",
+      title: "Satelles implementation",
+      target_provider: "codex-sdk",
+      prompt_template: "Implement ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+    });
+
+    const r = await svc.invoke({
+      call_name: "satelles-impl",
+      args: { task: "the complete feature" },
+      cwd: "E:/repo",
+      spawn: false,
+    });
+
+    if (!r.ok) throw new Error("expected ok");
+    expect(r.run.staged_injection).toBe(0);
+    const file = readFileSync(r.prompt_file_path, "utf8");
+    expect(file).toContain("Implement the complete feature");
+    expect(file).not.toContain("## 第 1 段階: 調査ブリーフ");
+  });
+
   it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {
     const r = await svc.invoke({
       call_name: "echo",

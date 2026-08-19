@@ -1,0 +1,21 @@
+{
+  "name": "delegation-staged-injection",
+  "description": "実装委託の段階注入 (調査ブリーフ → 調査報告 → 実装タスク後追い inject) の適用判定・文面組み立て・第2段階配信と Memoria 連携。非対話 runner (codex-sdk) は対象外。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/delegation/staged-injection(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/staged-followup(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/delegation-staged-injection\\.test\\.ts$"
+    }
+  ],
+  "source": "spec",
+  "specRefs": [
+    "spec/feature/delegation-staged-injection.md"
+  ]
+}

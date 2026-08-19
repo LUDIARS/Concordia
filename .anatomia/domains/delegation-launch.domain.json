@@ -1,0 +1,19 @@
+{
+  "name": "delegation-launch",
+  "description": "委託 run の起動オーケストレーション (template 解決 → prompt 描画 → effort/model/runtime option 解決 → 段階注入判定 → spawn → run 行の記録)。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/delegation/service(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/executor(\\.test)?\\.ts$"
+    }
+  ],
+  "source": "spec",
+  "specRefs": [
+    "spec/feature/delegation.md",
+    "spec/feature/delegation-staged-injection.md"
+  ]
+}

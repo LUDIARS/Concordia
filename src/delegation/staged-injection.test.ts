@@ -46,6 +46,16 @@ describe("decideStagedInjection", () => {
     expect(decideStagedInjection({ manualKind: "実装", repoPath: "   ", enabled: true }).staged).toBe(false);
   });
 
+  it("codex-sdk (Satelles run: 非対話・1 ターン) は対象外 — 第2段階が届かない", () => {
+    const decision = decideStagedInjection({ manualKind: "実装", repoPath: "E:/repo", enabled: true, provider: "codex-sdk" });
+    expect(decision.staged).toBe(false);
+    expect(decision.reason).toContain("codex-sdk");
+    // 対話 provider は従来どおり段階注入
+    for (const provider of ["claude", "codex", null, undefined]) {
+      expect(decideStagedInjection({ manualKind: "実装", repoPath: "E:/repo", enabled: true, provider }).staged).toBe(true);
+    }
+  });
+
   it("設定で無効化されていれば対象外 (理由を残す)", () => {
     const decision = decideStagedInjection({ manualKind: "実装", repoPath: "E:/repo", enabled: false });
     expect(decision.staged).toBe(false);

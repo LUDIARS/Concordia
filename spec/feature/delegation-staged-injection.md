@@ -54,12 +54,16 @@ Claude native auto permission の判断は Lictor #332 の責務。本仕様は�
 
 ### 2.1 適用条件
 
-`decideStagedInjection()` (純関数) が決める。3 つすべてを満たすときだけ段階注入。
+`decideStagedInjection()` (純関数) が決める。4 つすべてを満たすときだけ段階注入。
 
 - 設定 `admin.delegation_staged_injection_enabled` が有効 (既定 true)
 - Inject マニュアル kind が `実装` (レビュー / 設計相談 / テスト / 雑用 は対象外 —
   調査ブリーフの安全境界 (worktree / commit / PR) が噛み合わない)
 - 対象リポジトリ (cwd) が解決できている (「どこを調べるか」が書けないため)
+- `target_provider` が非対話 runner でない (`STAGED_INJECTION_EXCLUDED_PROVIDERS` = `codex-sdk`)。
+  Satelles `run` は 1 ターンで正常終了するため第2段階の inject が届かず、run は `completed`
+  なのに commit ゼロという沈黙故障になる。非対話 runner には
+  初回にタスク全文を渡す。調査が必要なタスクは非対話 runner に渡さない (運用ルール)。
 
 適用しなかった場合は理由付きで `log.info` に残す (無言フォールバック禁止)。
 

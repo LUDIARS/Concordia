@@ -438,10 +438,12 @@ export class DelegationService {
     }
     // 実装委託は 2 段階に割る: 初回は調査ブリーフだけを渡し、 タスク本文 (rendered_prompt)
     // は run 行に置いたまま伏せる。 委託先の調査報告を受けて第2段階で配信する。
+    // codex-sdk (Satelles run) は 1 ターンで終了するので段階注入は届かない → 初回に全文を渡す。
     const staged = decideStagedInjection({
       manualKind,
       repoPath: cwd ?? null,
       enabled: this.deps.resolveStagedInjectionEnabled?.() ?? true,
+      provider,
     });
     const contextBlock = buildDelegationContext(
       this.deps.concordiaUrl,

@@ -22,6 +22,16 @@
 /** 段階注入を適用する作業種別。 kind 語彙は inject_manuals と同じ (manual-kind.ts)。 */
 export const STAGED_INJECTION_MANUAL_KIND = "実装";
 
+/**
+ * 段階注入を適用しない target_provider。
+ *
+ * `codex-sdk` は Satelles `run` (非対話・1 ターンで終了) で spawn される。 第1段階の
+ * 調査報告を返した時点でプロセスが正常終了し、 第2段階の実装タスク inject は届かない
+ * (run は `completed`、 commit ゼロ — 見た目は成功する最悪の沈黙故障)。
+ * 非対話 runner にはタスク本文を初回に丸ごと渡す。 調査が要るタスクはそもそも渡さない。
+ */
+export const STAGED_INJECTION_EXCLUDED_PROVIDERS: ReadonlySet<string> = new Set(["codex-sdk"]);
+
 /** 調査テーマ見出しの最大長 (これを超えたら切り詰める)。 */
 const HEADLINE_MAX = 160;
 
@@ -38,13 +48,19 @@ export interface StagedInjectionDecision {
  *   安全境界 (worktree / PR / commit) が噛み合わない。
  * - 対象リポジトリ (cwd) が解決できない run も対象外。 「どこを調べるか」を書けない。
  * - 明示的に無効化されている場合も対象外。
+ * - 非対話 runner (codex-sdk = Satelles run) も対象外。 1 ターンで終了するため第2段階が届かない。
  */
 export function decideStagedInjection(input: {
   manualKind: string;
   repoPath: string | null;
   enabled: boolean;
+  /** run の target_provider (例 "claude", "codex", "codex-sdk")。 省略時は除外判定をしない。 */
+  provider?: string | null;
 }): StagedInjectionDecision {
   if (!input.enabled) return { staged: false, reason: "staged injection disabled by settings" };
+  if (input.provider && STAGED_INJECTION_EXCLUDED_PROVIDERS.has(input.provider)) {
+    return { staged: false, reason: `provider is non-interactive (single-turn runner): ${input.provider}` };
+  }
   if (input.manualKind !== STAGED_INJECTION_MANUAL_KIND) {
     return { staged: false, reason: `manual kind is not ${STAGED_INJECTION_MANUAL_KIND}: ${input.manualKind}` };
   }

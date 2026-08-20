@@ -71,6 +71,7 @@ describe("AdminState", () => {
         daily: { enabled: true, source: "default" },
         morning: { enabled: true, source: "default" },
         cost: { enabled: true, source: "default" },
+        director: { enabled: true, source: "default" },
       },
     });
   });

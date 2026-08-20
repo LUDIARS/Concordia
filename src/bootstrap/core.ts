@@ -183,6 +183,8 @@ import {
 } from "./workflow.js";
 import { WorkflowBindingRegistry } from "../workflow/binding-registry.js";
 import { createMorningSchedulerBinding } from "../workflow/morning-binding.js";
+import { createDirectorPatrolBinding } from "../workflow/director-binding.js";
+import { startDirectorPatrol } from "../director/patrol-runtime.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
@@ -1565,6 +1567,19 @@ export async function startBackend(): Promise<BackendHandle> {
     // 自動起動だけ止めたい)。 daily と束ねず専用フラグで切り替える。
     workflowBindings.register(
       createMorningSchedulerBinding(() => startMorningScheduler({ delegationService })),
+    );
+    // Director 巡回 (spec/feature/director-patrol.md §1): 30 分ごとにチームの
+    // director case を巡回し、実行可能な残 step があればチーム実装セッションを起動する。
+    workflowBindings.register(
+      createDirectorPatrolBinding(() => startDirectorPatrol({
+        teams: teamsRepo,
+        director: directorRepo,
+        runs: delegationRepo,
+        delegationService,
+        workspaceRoots: cfg.workspaceRoots.length
+          ? cfg.workspaceRoots
+          : (workspaceRootDefault ? [workspaceRootDefault] : []),
+      })),
     );
     workflowBindings.register({
       key: "daily",

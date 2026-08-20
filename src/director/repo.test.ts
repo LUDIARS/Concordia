@@ -5,6 +5,63 @@ import type { GeniusCard } from "../inquiry/genius-client.js";
 import { DirectorRepo } from "./repo.js";
 
 describe("DirectorRepo", () => {
+  it("does not overwrite a step that changed after a patrol read", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new DirectorRepo(db);
+    repo.createCase({
+      id: "case-cas",
+      title: "競合防止",
+      goal: "人間の更新を守る",
+      project: "Cc",
+      session_id: null,
+      team_id: "team-1",
+      created_at: 100,
+      updated_at: 100,
+    }, [{
+      id: "step-cas",
+      case_id: "case-cas",
+      sequence: 1,
+      kind: "implement",
+      title: "実装",
+      status: "pending",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: null,
+      created_at: 100,
+      updated_at: 100,
+    }]);
+
+    repo.updateStepStatus({
+      id: "step-cas",
+      status: "cancelled",
+      handoff_note: "human decision",
+      updated_at: 200,
+    });
+    expect(repo.assignStepRun({
+      id: "step-cas",
+      delegation_run_id: "run-late",
+      updated_at: 300,
+      expected_status: "pending",
+    })).toBeNull();
+    expect(repo.updateStepStatus({
+      id: "step-cas",
+      status: "completed",
+      handoff_note: undefined,
+      updated_at: 300,
+      expected_status: "active",
+    })).toBeNull();
+    expect(repo.findStep("step-cas")).toMatchObject({
+      status: "cancelled",
+      delegation_run_id: null,
+      handoff_note: "human decision",
+      updated_at: 200,
+    });
+    db.close();
+  });
+
   it("advances the case timestamp when a decision is recorded", () => {
     const db = new Database(":memory:");
     applyMigrations(db);

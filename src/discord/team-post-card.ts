@@ -14,6 +14,8 @@ const MAX_BODY = 3800;
 const CARD_COLOR: Partial<Record<TeamCardKind, number>> = {
   standup: 0x5865f2,
   meeting: 0xeb459e,
+  // Director 巡回の人間エスカレーション (spec/feature/director-patrol.md §1.4)。
+  question: 0xf0b232,
 };
 
 export interface TeamPostCardDeps {

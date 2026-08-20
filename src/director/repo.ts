@@ -154,17 +154,55 @@ export class DirectorRepo {
     status: DirectorStepStatus;
     handoff_note: string | null | undefined;
     updated_at: number;
+    /** 巡回など read→write 経路の競合防止。未指定なら従来どおり無条件更新。 */
+    expected_status?: DirectorStepStatus;
   }): DirectorStep | null {
     const update = this.db.transaction(() => {
       const existing = this.findStep(input.id);
       if (!existing) return null;
       const note = input.handoff_note === undefined ? existing.handoff_note : input.handoff_note;
-      this.db.prepare(`
-        UPDATE director_steps SET status = ?, handoff_note = ?, updated_at = ? WHERE id = ?
-      `).run(input.status, note, input.updated_at, input.id);
-      this.db.prepare(`UPDATE director_cases SET updated_at = ? WHERE id = ?`)
+      const updated = input.expected_status === undefined
+        ? this.db.prepare(`
+            UPDATE director_steps SET status = ?, handoff_note = ?, updated_at = ? WHERE id = ?
+          `).run(input.status, note, input.updated_at, input.id)
+        : this.db.prepare(`
+            UPDATE director_steps SET status = ?, handoff_note = ?, updated_at = ?
+             WHERE id = ? AND status = ?
+          `).run(input.status, note, input.updated_at, input.id, input.expected_status);
+      if (updated.changes !== 1) return null;
+      this.db.prepare(`UPDATE director_cases SET updated_at = MAX(updated_at, ?) WHERE id = ?`)
         .run(input.updated_at, existing.case_id);
       return { ...existing, status: input.status, handoff_note: note, updated_at: input.updated_at };
+    });
+    return update();
+  }
+
+  /**
+   * 巡回起動の記録: step へ委託 run の参照を焼き、active にする
+   * (spec/feature/director-patrol.md §1.2)。run の状態は複製しない。
+   */
+  assignStepRun(input: {
+    id: string;
+    delegation_run_id: string;
+    updated_at: number;
+    expected_status: "pending";
+  }): DirectorStep | null {
+    const update = this.db.transaction(() => {
+      const existing = this.findStep(input.id);
+      if (!existing) return null;
+      const updated = this.db.prepare(`
+        UPDATE director_steps SET delegation_run_id = ?, status = 'active', updated_at = ?
+         WHERE id = ? AND status = ? AND delegation_run_id IS NULL
+      `).run(input.delegation_run_id, input.updated_at, input.id, input.expected_status);
+      if (updated.changes !== 1) return null;
+      this.db.prepare(`UPDATE director_cases SET updated_at = MAX(updated_at, ?) WHERE id = ?`)
+        .run(input.updated_at, existing.case_id);
+      return {
+        ...existing,
+        delegation_run_id: input.delegation_run_id,
+        status: "active" as const,
+        updated_at: input.updated_at,
+      };
     });
     return update();
   }

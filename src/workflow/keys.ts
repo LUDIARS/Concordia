@@ -8,7 +8,7 @@
  * 持つ (値の解決は toggles.ts、 実体の起動/停止は binding-registry.ts)。
  */
 
-export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost"] as const;
+export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost", "director"] as const;
 
 export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
 
@@ -25,6 +25,7 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   daily: "日次レビュー / cron スケジューラ",
   morning: "朝タスク (morning-tasks の自動起動)",
   cost: "コスト集計・予算通知",
+  director: "Director 巡回 (30 分ごとのチーム監視と実装セッション起動)",
 };
 
 /** schema_meta 上の設定キー。 */

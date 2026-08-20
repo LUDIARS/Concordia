@@ -100,6 +100,7 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
   },
   envString("workflow.rwf_plugin_path", "workflow", "RWF プラグインパス", "CONCORDIA_RWF_PLUGIN_PATH", null, "リアクションワークフローの外部プラグイン読み込み先。"),
   envString("workflow.mode", "workflow", "ワークフローモード", "CONCORDIA_WORKFLOW_MODE", null, "workflow worker プロセスの動作モード識別子。"),
+  envString("workflow.director_impl_call_name", "workflow", "Director 実装委託テンプレ", "CONCORDIA_DIRECTOR_IMPL_CALL_NAME", "claude-sonnet-5-impl", "Director 巡回が実装工程の委託に使う call name。"),
 ] as const;
 
 export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [

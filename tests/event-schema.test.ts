@@ -46,4 +46,17 @@ describe("ws event schema", () => {
     expect(CONCORDIA_EVENT_TYPES).toContain("operational.claim.opened");
     expect(CONCORDIA_EVENT_TYPES).toContain("operational.claim.released");
   });
+
+  it("accepts Director question cards on the shared event contract", () => {
+    const parsed = parseWsFrame({
+      v: WS_EVENT_VERSION,
+      type: "team.card_requested",
+      team_id: "team-1",
+      kind: "question",
+      title: "判断が必要",
+      body: "確認してください",
+      ts: 1,
+    });
+    expect(parsed.ok).toBe(true);
+  });
 });

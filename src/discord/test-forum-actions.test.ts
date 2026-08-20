@@ -32,9 +32,16 @@ function row(overrides: Partial<DiscordTestSurfaceRow> = {}): DiscordTestSurface
   };
 }
 
-function button(userId = "user-1") {
+/**
+ * `messageId` は押されたボタンが載っている投稿。 操作面 (controls_message_id) と
+ * 「マージOK」通知の両方にマージボタンが出るので、 どちらを押したかで後処理が変わる。
+ * guild は通知側の操作面リフレッシュにしか使わないため、 既定は null (省略) にする。
+ */
+function button(userId = "user-1", messageId = "controls") {
   return {
     user: { id: userId },
+    message: { id: messageId },
+    guild: null,
     isButton: () => true,
     isStringSelectMenu: () => false,
     reply: vi.fn(async () => undefined),
@@ -128,8 +135,18 @@ describe("handleTestForumControl merge", () => {
     expect(interaction.editReply).toHaveBeenCalledWith(expect.objectContaining({ components: [] }));
   });
 
-  it("rejects a merge before the test session started", async () => {
+  it("merges from the マージOK notice before a test session starts, without overwriting that notice", async () => {
+    // 通知に添えたボタンを押しても操作面の描画で上書きしない (審査結果の記録が消える)。
     const h = deps(row({ run_state: "candidate" }));
+    const interaction = button("user-1", "status-notice");
+    await handleTestForumControl(interaction as unknown as ButtonInteraction, { action: "merge", surfaceId: 7 }, h.deps);
+    expect(h.revisor.mergeLocalPr).toHaveBeenCalledWith("local-1");
+    expect(h.state.run_state).toBe("merged");
+    expect(interaction.editReply).toHaveBeenCalledWith({ components: [] });
+  });
+
+  it("rejects a merge while the test session is still spawning", async () => {
+    const h = deps(row({ run_state: "starting" }));
     const interaction = button();
     await handleTestForumControl(interaction as unknown as ButtonInteraction, { action: "merge", surfaceId: 7 }, h.deps);
     expect(h.revisor.mergeLocalPr).not.toHaveBeenCalled();

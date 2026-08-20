@@ -114,6 +114,18 @@ export interface TestControlLayout {
   selectors: boolean;
 }
 
+/**
+ * マージ操作を受け付けてよい状態か。
+ *
+ * 「マージOK」の通知にはその場で押せるマージボタンを添える (test-forum-discord.ts)
+ * ため、 テスト開始前 (`candidate`) のマージも受け付ける。 Revisor が mergeable と
+ * 判定した PR に対して案内文だけ出し、 押せる場所が無い状態を作らないための対。
+ * `starting` は spawn 予約中なので受け付けない。
+ */
+export function isMergeAllowedState(state: TestSurfaceState): boolean {
+  return state === "candidate" || state === "testing";
+}
+
 export function testControlLayout(state: TestSurfaceState): TestControlLayout {
   switch (state) {
     case "candidate":

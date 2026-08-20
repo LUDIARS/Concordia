@@ -32,11 +32,22 @@ function addRequester(env: ReturnType<typeof makeTestApp>, role: "staff" | "mana
   });
 }
 
+/**
+ * マージはプロジェクト一致で認可するので、 読み取り口 (Revisor) は常に要る。
+ * 個別の状態遷移を見たいテストだけが reader を差し替える。
+ */
+function defaultRevisorReader(): RevisorLocalPrReader {
+  return {
+    listLocalPrs: async () => [revisorPr("open")],
+    baseUrl: async () => "http://127.0.0.1:4240",
+  };
+}
+
 function makePrsApp(
   env: ReturnType<typeof makeTestApp>,
   mergeLocalPr: (id: string) => Promise<void>,
   closeLocalPr?: (id: string, reason?: string) => Promise<void>,
-  revisor?: RevisorLocalPrReader,
+  revisor: RevisorLocalPrReader | null = defaultRevisorReader(),
 ): Hono {
   const app = new Hono();
   app.route("/v1/prs", prsRouter({
@@ -44,7 +55,7 @@ function makePrsApp(
     sessions: env.repo,
     staff: env.staff,
     revisorMerger: { mergeLocalPr },
-    revisor,
+    revisor: revisor ?? undefined,
     ...(closeLocalPr ? { revisorCloser: { closeLocalPr } } : {}),
   }));
   return app;
@@ -114,6 +125,7 @@ describe("POST /v1/prs/local/:id/merge", () => {
   });
 
   it("rejects an unknown requester without merging", async () => {
+    // マージは人間の判断が要る。 指示者を確認できないセッションが自分の判断でマージしない。
     const env = makeTestApp();
     addSession(env);
     const mergeLocalPr = vi.fn(async () => undefined);
@@ -126,6 +138,74 @@ describe("POST /v1/prs/local/:id/merge", () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({ error: "merge_authorizer_unknown" });
+    expect(mergeLocalPr).not.toHaveBeenCalled();
+  });
+
+  it("still finds the instruction after it falls out of the recent-event window", async () => {
+    // 長いセッションで最後の人間 inject が直近 100 件から溢れても、 指示が無かったことには
+    // しない (同じセッションで通ったり通らなかったりする原因だった)。
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    for (let i = 0; i < 150; i += 1) {
+      env.repo.appendEvent({ session_id: "session-1", ts: 10 + i, kind: "status", payload: { i } });
+    }
+    const mergeLocalPr = vi.fn(async () => undefined);
+
+    const response = await makePrsApp(env, mergeLocalPr).request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mergeLocalPr).toHaveBeenCalledWith("local-1");
+  });
+
+  it("refuses a session working on another project", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+    const revisor: RevisorLocalPrReader = {
+      listLocalPrs: async () => [{ ...revisorPr("open"), repository: "LUDIARS/Memoria" }],
+      baseUrl: async () => "http://127.0.0.1:4240",
+    };
+
+    const response = await makePrsApp(env, mergeLocalPr, undefined, revisor)
+      .request("/v1/prs/local/local-1/merge", {
+        method: "POST",
+        body: JSON.stringify({ session_id: "session-1" }),
+        headers: { "content-type": "application/json" },
+      });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: "merge_project_scope_denied",
+      reason: "project_mismatch",
+    });
+    expect(mergeLocalPr).not.toHaveBeenCalled();
+  });
+
+  it("refuses a session Concordia does not know", async () => {
+    // session 行が無ければ、 どのプロジェクトで作業しているのか名乗れていない。
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+
+    const response = await makePrsApp(env, mergeLocalPr).request("/v1/prs/local/local-2/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    // local-2 は Revisor 一覧に無いので所属を確認できない。
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({
+      error: "merge_project_scope_denied",
+      reason: "local_pr_repo_unknown",
+    });
     expect(mergeLocalPr).not.toHaveBeenCalled();
   });
 
@@ -178,7 +258,9 @@ describe("POST /v1/prs/local/:id/merge", () => {
     const env = makeTestApp();
     addSession(env);
     addRequester(env, "manager");
+    // 1 回目はプロジェクト一致の確認、 2 回目は要求前の実状態、 3 回目は打ち切り後の読み直し。
     const listLocalPrs = vi.fn<() => Promise<RevisorLocalPr[]>>()
+      .mockResolvedValueOnce([revisorPr("open")])
       .mockResolvedValueOnce([revisorPr("open")])
       .mockResolvedValueOnce([revisorPr("merged")]);
     const revisor: RevisorLocalPrReader = {
@@ -198,7 +280,7 @@ describe("POST /v1/prs/local/:id/merge", () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ merged: true, local_pr_id: "local-1", timed_out: true });
-    expect(listLocalPrs).toHaveBeenCalledTimes(2);
+    expect(listLocalPrs).toHaveBeenCalledTimes(3);
     expect(env.repo.recentEvents("session-1", 1)[0]).toMatchObject({
       kind: "pr-merged",
       payload: expect.stringContaining("timed_out"),
@@ -465,7 +547,7 @@ describe("GET /v1/prs/revisor/digest", () => {
 
   it("answers 200 with an explanation when Revisor is not configured", async () => {
     const env = makeTestApp();
-    const app = makePrsApp(env, async () => undefined);
+    const app = makePrsApp(env, async () => undefined, undefined, null);
     const res = await app.request("/v1/prs/revisor/digest");
     expect(res.status).toBe(200);
     const body = await res.json() as { markdown: string; error: string | null };

@@ -5,6 +5,7 @@ import {
   buildTestControlId,
   describeRunConfig,
   isEffortSupported,
+  isMergeAllowedState,
   parseProviderChoice,
   parseTestControlId,
   providerChoiceValue,
@@ -71,6 +72,15 @@ describe("test forum controls", () => {
     expect(isEffortSupported("claude", "minimal")).toBe(false);
     expect(isEffortSupported("claude", "xhigh")).toBe(true);
     expect(isEffortSupported("codex", "minimal")).toBe(true);
+  });
+
+  it("accepts a merge before the test session starts, but not while it is spawning", () => {
+    // 「マージOK」通知に添えたボタンは Test OK 直後 (candidate) に押される。 案内した
+    // 操作をその場で拒否しないための状態定義。
+    expect(isMergeAllowedState("candidate")).toBe(true);
+    expect(isMergeAllowedState("testing")).toBe(true);
+    expect(isMergeAllowedState("starting")).toBe(false);
+    expect(isMergeAllowedState("merged")).toBe(false);
   });
 
   it("shows the effective configuration in the post", () => {

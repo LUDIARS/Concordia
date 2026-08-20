@@ -55,25 +55,37 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 手動口として `POST /v1/prs/local { session_id }` も生やす。 セッション終了を待たずに
 レビューへ出したいときに使う。 提出しなかった場合も 200 で理由を返す。
 
-### 管理者の指示に基づくセッションからのマージ
+### 管理者の指示に基づく、同一プロジェクトのセッションからのマージ
 
 `POST /v1/prs/local/:id/merge { session_id }` は、AI セッションが管理者から受けた指示を
-実行するための local PR マージ口である。権限境界をセッションそのものへ渡すのではなく、
-呼び出しごとに次の順序で検証する。
+実行するための local PR マージ口である。**マージは人間の判断が要る操作**であり、
+セッションが自分の判断で (Genius や他の AI の助言を含め) マージすることは無い。
+権限境界をセッションそのものへ渡さず、呼び出しごとに次の順序で検証する。
 
-1. 対象 session の event から `lastHumanRequester` で直近の人間指示者
-   (`platform`, `user_id`) を解決する。解決できなければ 403
-   `merge_authorizer_unknown` で終了する。
+1. 対象 session の **inject event 全件** から `lastHumanRequester` で直近の人間指示者
+   (`platform`, `user_id`) を解決する。解決できなければ 403 `merge_authorizer_unknown`
+   で終了する。走査を直近 100 件の全 event ではなく inject 全件にするのは、長いセッションで
+   最後の人間 inject が窓から押し出され、「指示が無い」と「窓から溢れた」が区別できずに
+   同じセッションでもマージ可否が揺れていたため (neco 報告 2026-08-20)。
 2. 社員名簿を live 参照し、Discord の TestWorkflow マージボタンと同じ共通 capability
    判定で指示者の `merge_pr` を検証する。持たなければ 403
    `merge_not_authorized` を返す。
-3. 通過後に Revisor の実状態を読み、既に merged なら変更要求を重ねず成功として扱う。
+3. **加えて**、その session が対象 PR のプロジェクトで作業していることを要求する。
+   session 行と対象 local PR を引き、session の `repo_origin` と PR の `repository` を
+   `owner/repo` へ正規化して大小文字を無視して突き合わせる (同じリポジトリが URL 形式と
+   `owner/repo` の両方で流れてくるため)。一致しない・どちらかを解決できない場合は 403
+   `merge_project_scope_denied` を `reason` (`session_unknown` / `session_repo_unknown` /
+   `local_pr_repo_unknown` / `project_mismatch`) 付きで返す。Revisor 読み取り口が未構成なら
+   所属を確認できないので 503 で断る。これは指示者の権限判定の**代わりではなく追加**で、
+   権限のある指示者であっても他プロジェクトの PR を横から落とせないようにする。
+4. 通過後に Revisor の実状態を読み、既に merged なら変更要求を重ねず成功として扱う。
    open なら `RevisorClient.mergeLocalPr(id)` を実行する。タイムアウト後も実状態を再確認し、
    merged を確認できた場合だけ成功へ確定する。Revisor の失敗は 502 と安定した非機密の
    `reason` / `detail` を返す。上流からの生の失敗文字列は endpoint・credentials・
    ローカルパスを含み得るため、分類中のメモリにだけ留め、クライアントにもログにも返さない。
-4. 通常成功・既に merged・タイムアウト後の確認成功のいずれでも、指示者、local PR ID、
-   session ID と結果種別を構造化ログと session event `pr-merged` に監査記録する。
+5. 通常成功・既に merged・タイムアウト後の確認成功のいずれでも、指示者、プロジェクト、
+   local PR ID、session ID と結果種別を構造化ログと session event `pr-merged` に
+   監査記録する。
 
 `POST /v1/prs/local/:id/close { session_id, reason? }` は同じ `merge_pr` capability と
 直近人間指示者の検証を通し、Revisor の local PR を明示的に取り下げる。board 整理のため

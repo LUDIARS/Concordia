@@ -40,7 +40,8 @@ import type {
   RevisorLocalPrReader,
 } from "../pr/revisor-client.js";
 import { classifyMergeFailure, RevisorMergeError } from "../pr/revisor-merge-outcome.js";
-import { isAlreadyMerged } from "../pr/revisor-merge-confirm.js";
+import { findLocalPrById, isAlreadyMerged } from "../pr/revisor-merge-confirm.js";
+import { decideSessionMergeScope } from "../pr/session-merge-scope.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -59,7 +60,7 @@ export interface PrsApiDeps {
     | { submitted: false; reason: string; detail?: string }
   >;
   /** session の直近人間指示者を監査付きマージの認可者として解決する。 */
-  sessions?: Pick<SessionsRepo, "recentEvents" | "appendEvent" | "findSession">;
+  sessions?: Pick<SessionsRepo, "recentEvents" | "eventsByKind" | "appendEvent" | "findSession">;
   /** platform ごとの staff role を live 参照する。 */
   staff?: Pick<StaffRepo, "roleOf">;
   /** Revisor local PR の変更操作。未注入時は fail-closed。 */
@@ -269,12 +270,20 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   });
 
   /**
-   * POST /v1/prs/local/:id/merge — session の直近人間指示者の権限で local PR をマージする。
-   * 指示者や capability を解決できない構成は、実行せず明示的に deny する。
+   * POST /v1/prs/local/:id/merge — 人間の指示で、 同じプロジェクトの session が local PR をマージする。
+   *
+   * マージは人間の判断が要る操作である。 session が自分の判断で (Genius や他の AI の
+   * 助言を含め) マージすることは無い。 したがって「直近の人間指示者を解決できること」と
+   * その人の `merge_pr` は必須のまま残す。
+   *
+   * プロジェクト一致はそこに **追加** する制約で、 認可の代わりではない。 指示者が権限を
+   * 持っていても、 他プロジェクトの PR を横から落とせないようにする。
    */
   app.post("/local/:id/merge", async (c) => {
     const sessions = deps.sessions;
-    if (!sessions || !deps.staff || !deps.revisorMerger) {
+    // 読み取り口が無い構成では PR の所属プロジェクトを確認できない。 確認できないまま
+    // マージを通さない (プロジェクト一致が認可の土台なので、 これは可用性ではなく認可の問題)。
+    if (!sessions || !deps.staff || !deps.revisorMerger || !deps.revisor) {
       return c.json({ error: "local_pr_merge_unavailable" }, 503);
     }
     const localPrId = c.req.param("id").trim();
@@ -283,12 +292,32 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
     if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
 
-    const requester = lastHumanRequester(sessions.recentEvents(sessionId, 100));
+    // 人間の指示があったことが前提。 直近 100 件では、 長いセッションで最後の人間 inject が
+    // 窓から押し出され、 同じセッションでもマージできたりできなかったりしていた。
+    // inject だけを全期間から引き、 「指示が無い」と「窓から溢れた」を混同しない。
+    const requester = lastHumanRequester(sessions.eventsByKind(sessionId, "inject"));
     if (!requester) return c.json({ error: "merge_authorizer_unknown" }, 403);
 
     const authorization = authorizeStaffCapability(deps.staff, requester.platform, requester.userId, "merge_pr");
     if (!authorization.allowed) {
       return c.json({ error: "merge_not_authorized", detail: authorization.detail }, 403);
+    }
+
+    // 指示者の権限に加えて、 その session が対象 PR のプロジェクトで作業していることを要求する。
+    // どの project の PR かは Revisor が正本。 session 側の申告だけで突き合わせない。
+    const session = sessions.findSession(sessionId);
+    const targetPr = await findLocalPrById(deps.revisor, localPrId);
+    const scope = decideSessionMergeScope({
+      sessionFound: session !== null,
+      sessionRepoOrigin: session?.repo_origin ?? null,
+      localPrRepository: targetPr?.repository ?? null,
+    });
+    if (!scope.allowed) {
+      log.warn(
+        { local_pr_id: localPrId, session_id: sessionId, reason: scope.reason },
+        "local PR merge refused: the requesting session is not working on that project",
+      );
+      return c.json({ error: "merge_project_scope_denied", reason: scope.reason, detail: scope.detail }, 403);
     }
     const merged = (outcome: "merged" | "already_merged" | "timed_out") => {
       const ts = Math.floor(Date.now() / 1000);
@@ -296,6 +325,7 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         local_pr_id: localPrId,
         session_id: sessionId,
         outcome,
+        project: scope.project,
         authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
       };
       log.info(audit, "local PR merge request completed with session requester authorization");

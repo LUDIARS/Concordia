@@ -7,6 +7,7 @@ import {
   mergedMessage,
   renderTestForumControls,
   starterContent,
+  statusChangeComponents,
   statusChangeMessage,
 } from "./test-forum-discord.js";
 import type { TestForumCandidate } from "./test-forum-reconcile.js";
@@ -148,6 +149,26 @@ describe("statusChangeMessage", () => {
     const unavailable = statusChangeMessage(candidate({ detail: null }));
     expect(unavailable).toContain("マージ保留");
     expect(unavailable).not.toContain("マージOK");
+  });
+
+  it("carries a merge button on the post that announces マージOK", () => {
+    // 「操作面の『マージ』で squash merge できます」と案内しながら押せる場所が無い、
+    // という食い違いを塞ぐ (neco 報告 2026-08-20)。
+    const rows = statusChangeComponents(candidate({ checkStatus: "test_ok" }), 42);
+    expect(rows).toHaveLength(1);
+    const button = rows[0].toJSON().components[0] as { custom_id: string; label: string };
+    expect(button.custom_id).toBe("test:merge:42");
+    expect(button.label).toBe("マージ");
+  });
+
+  it("does not offer a merge button for a post that says マージ保留", () => {
+    // 実行できない操作を約束しない (mergeable でない候補・詳細を読めない候補)。
+    expect(statusChangeComponents(candidate({
+      checkStatus: "test_ok",
+      detail: detail({ mergeable: false }),
+    }), 42)).toEqual([]);
+    expect(statusChangeComponents(candidate({ detail: null }), 42)).toEqual([]);
+    expect(statusChangeComponents(candidate({ checkStatus: "failed" }), 42)).toEqual([]);
   });
 
   it("posts concrete action_required failures with test output instead of calling them a human decision", () => {

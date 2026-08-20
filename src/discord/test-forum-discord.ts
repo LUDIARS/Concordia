@@ -181,6 +181,30 @@ export function statusChangeMessage(candidate: TestForumCandidate): string {
   return `⚠️ 審査は完了しましたが人間の判断が必要です。\n${blockers}`;
 }
 
+/**
+ * 「🔀 マージOK」を知らせる投稿に添えるマージボタン。
+ *
+ * 案内文は「操作面の『マージ』で squash merge できます」と言うが、 操作面の主ボタンが
+ * マージに変わるのはテスト開始後で、 Test OK 直後には押せる場所が無かった。 案内した
+ * 操作をその場で押せるように、 通知そのものにボタンを載せる。 Revisor が mergeable と
+ * 判定していないときは何も出さない (実行できない操作を約束しない)。
+ */
+export function statusChangeComponents(
+  candidate: TestForumCandidate,
+  surfaceId: number,
+): ActionRowBuilder<MessageActionRowComponentBuilder>[] {
+  if (candidate.checkStatus !== "test_ok" || candidate.detail?.mergeable !== true) return [];
+  return [
+    new ActionRowBuilder<MessageActionRowComponentBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId(buildTestControlId("merge", surfaceId))
+        .setLabel("マージ")
+        .setEmoji("🔀")
+        .setStyle(ButtonStyle.Success),
+    ),
+  ];
+}
+
 export function mergedMessage(terminal: TestForumTerminalPr): string {
   // Source の差し替え時にも外部文字列を無制限に Discord へ渡さない。Git SHA-1 / SHA-256
   // 以外は表示せず、Markdown 注入と 2,000 文字上限超過による close の永久失敗を防ぐ。
@@ -390,7 +414,11 @@ export function createTestForumDiscordAdapter(
       if (!thread) return;
       // 送信そのものが Discord 側で unarchive を起こすので、閉じていたなら閉じ直す。
       await writeKeepingArchiveState(thread, "Concordia test candidate status posted", () =>
-        thread.send({ content: statusChangeMessage(candidate), allowedMentions: NO_MENTIONS }));
+        thread.send({
+          content: statusChangeMessage(candidate),
+          components: statusChangeComponents(candidate, surface.id),
+          allowedMentions: NO_MENTIONS,
+        }));
     },
     async postMerged(surface: DiscordTestSurfaceRow, terminal: TestForumTerminalPr) {
       // 削除済み thread は既に閉じたものとして扱い、QA/session と DB の cleanup を止めない。

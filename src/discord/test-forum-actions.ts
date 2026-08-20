@@ -6,8 +6,8 @@ import type { ButtonInteraction, StringSelectMenuInteraction } from "discord.js"
 import type { DiscordTestSurfaceRow, DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { callConcordia } from "./commands/_util.js";
-import { isEffortSupported, parseProviderChoice, type TestControlAction } from "./test-forum-controls.js";
-import { renderTestForumControls } from "./test-forum-discord.js";
+import { isEffortSupported, isMergeAllowedState, parseProviderChoice, type TestControlAction } from "./test-forum-controls.js";
+import { refreshTestForumControls, renderTestForumControls } from "./test-forum-discord.js";
 
 export interface TestForumActionDeps {
   concordiaUrl: string;
@@ -207,8 +207,13 @@ async function mergeTest(
     await interaction.reply({ content: "この候補は Test OK ではないためマージできません。", ephemeral: true });
     return;
   }
-  if (surface.run_state !== "testing") {
-    await interaction.reply({ content: "テスト開始済みの候補だけをマージできます。", ephemeral: true });
+  if (!isMergeAllowedState(surface.run_state)) {
+    await interaction.reply({
+      content: surface.run_state === "merged"
+        ? "この候補は既にマージ済みです。"
+        : "テストセッションの起動中はマージできません。起動が確定してからやり直してください。",
+      ephemeral: true,
+    });
     return;
   }
   if (deps.isMergeUserAllowed?.(interaction.user.id) !== true) {
@@ -227,7 +232,19 @@ async function mergeTest(
     deps.surfaces.markMerged(surface.id);
     const updated = deps.surfaces.findOpen(surface.id);
     if (!updated) throw new Error("マージ後のテスト候補を取得できませんでした");
-    await interaction.editReply(renderTestForumControls(updated));
+    // マージボタンは操作面の投稿と「マージOK」通知の両方に出る。 通知を操作面の内容で
+    // 上書きすると審査結果の記録が消えるので、 押された投稿はボタンだけ外し、 操作面は
+    // 本来の描画で更新する。
+    if (interaction.message.id === updated.controls_message_id) {
+      await interaction.editReply(renderTestForumControls(updated));
+      return;
+    }
+    await interaction.editReply({ components: [] });
+    if (updated.controls_message_id && interaction.guild) {
+      await refreshTestForumControls(interaction.guild, updated).catch((error: unknown) => {
+        deps.log.warn(`test-forum controls refresh after merge failed surface=${surface.id}: ${(error as Error).message}`);
+      });
+    }
   } catch (error) {
     const detail = (error as Error).message;
     deps.log.warn(`test-forum merge failed surface=${surface.id}: ${detail}`);

@@ -1,0 +1,33 @@
+{
+  "name": "governance",
+  "description": "Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/pr/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/rules/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/role/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/admin(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/release/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/projects/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/staff/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/villa/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles."
+}

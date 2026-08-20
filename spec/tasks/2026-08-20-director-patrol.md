@@ -33,4 +33,4 @@ memory_links:
 
 - `src/director/` `src/workflow/` `src/discord/team-post-card.ts` `src/events.ts`
 - `src/delegation/seed.ts` `src/bootstrap/core.ts`
-- `spec/feature/` `spec/tasks/` `.anatomia/domains/`
+- `spec/feature/` `spec/tasks/` `spec/domains/`

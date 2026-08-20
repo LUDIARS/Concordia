@@ -1,0 +1,20 @@
+{
+  "name": "configuration",
+  "description": "実行時設定の正本層。設定定義 (config/settings/definitions)、値の解決と保存、設定変更の反映経路を持つ。個々の機能の振る舞いそのものは各ドメインに属し、この層は「設定として何を持ちどう配るか」だけを所有する。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/config/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/config/settings/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/config/settings/definitions/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/settings/(?:.*/)?[^/]+$"
+    }
+  ]
+}

@@ -32,7 +32,7 @@ updated: 2026-08-11
 
 - **lifecycle 権限の正本は Excubitor**。Cc は自分のモジュールプロセスを spawn / kill しない。
   ON/OFF 操作は Excubitor API の代理実行に限定し、第二の監督者を作らない。
-- モジュール境界は `spec/data/anatomia-domains/` のドメイン境界に揃える。
+- モジュール境界は `spec/domains/` のドメイン境界に揃える。
 - 設定キーの正本は `setup/config-reference.md` のまま。manifest は解決結果の宣言であり、
   新しい設定系を作らない。
 

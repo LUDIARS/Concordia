@@ -1,0 +1,28 @@
+{
+  "name": "delegation-queue",
+  "description": "Delegation の実行キュー (同時実行上限 / FIFO 払い出し / claim + fencing token + outbox / 死んだ run のスロット解放)。run の永続化は src/db/delegation-repo.ts、払い出し判断は src/delegation/queue.ts が持つ。委託テンプレの描画や spawn 実体 (executor/service) とは別責務。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "src/delegation/queue"
+    },
+    {
+      "pathPattern": "src/db/delegation-repo"
+    },
+    {
+      "namePattern": "(claimNextQueuedRun|markRunSpawned|updateRunStatus|listActiveRuns|listQueuedRuns|countOccupiedSlots|drain)"
+    }
+  ],
+  "cardTemplate": "Summarise the \"delegation-queue\" domain: 委託 run の実行キュー (上限・FIFO 払い出し・claim/lease・スロット計上)。",
+  "mechanics": [
+    "concurrency-slot-accounting",
+    "fifo-claim-lease",
+    "launch-outbox"
+  ],
+  "specRefs": [
+    "Delegation 協働管理 — 親↔子 API + Status/Inject + Discord 挙動 / 6. 並列タスク / 実行キュー",
+    "Delegation 協働管理 — 親↔子 API + Status/Inject + Discord 挙動 / 3. 状態ライフサイクル + Status API"
+  ],
+  "rationale": "スロット占有の判定 (子セッションの生死 / TTL) は queue.ts に一本化し、DB 層 (claimNextQueuedRun) は status を生に数えず値を受け取るだけにする。DB 側で数えると報告せずに死んだ run が枠を占有し続け、キューが停止する (2026-07-31 の実障害)。"
+}

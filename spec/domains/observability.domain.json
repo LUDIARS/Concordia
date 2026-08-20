@@ -1,0 +1,61 @@
+{
+  "name": "observability",
+  "description": "自プロセスの観測レイヤー。AOP function metric (HTTP middleware / Discord callback wrapper / in-memory aggregate / snapshot API)、host・process メトリクス、Vestigium (Vg) への構造化ログ出力と保持期間、外部 Excubitor への監視クライアントを含む。業務ロジックではなく「動いているものを測り、運用可能な量で記録する」責務。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "src/instrumentation.ts"
+    },
+    {
+      "pathPattern": "tests/instrumentation-summary.test.ts"
+    },
+    {
+      "pathPattern": "src/metrics/"
+    },
+    {
+      "pathPattern": "src/shared/vestigium.ts"
+    },
+    {
+      "pathPattern": "src/excubitor/"
+    },
+    {
+      "pathPattern": "src/shared/(logger|log-file-rotation)\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/cost/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/metrics/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/daily/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/stat/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/morning/[^/]+$"
+    },
+    {
+      "namePattern": "([Mm]etric|[Ii]nstrument|vg[A-Z]|rotateLogFileIfOversize|resolveRotationPolicy|warnOnce|isMainClone)"
+    }
+  ],
+  "cardTemplate": "Summarise the \"observability\" domain: Concordia 自身の function metric / host metric / Vg ログ / bounded operational logs / サービス監視レイヤー。",
+  "mechanics": [
+    "function-metric-aop",
+    "metric-snapshot-api",
+    "vestigium-log-emit",
+    "excubitor-monitor-client",
+    "startup-log-rotation",
+    "bounded-log-retention",
+    "diagnostic-noise-suppression"
+  ],
+  "specRefs": [
+    "Runtime function metrics",
+    "Runtime function metrics / Vestigium 出力",
+    "Runtime function metrics / snapshot API",
+    "Operational log lifecycle — bounded cc-live retention"
+  ],
+  "rationale": "instrumentation と operational logging は業務ドメイン (chat / delegation / federation) のどれにも属さず、それら全てを横断して計測・記録する。observability として独立させることで、業務層 → 観測層の単方向依存 (観測層は業務層を import しない) を維持でき、計測点やログ寿命管理の追加が業務ドメインの結合度に混入しなくなる。"
+}

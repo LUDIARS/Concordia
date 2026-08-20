@@ -67,12 +67,9 @@ logs/
 web/logs/
 bash.exe.stackdump
 
-# Anatomia retune ローカル状態（反復カウンタ等）
+# Anatomia retune ローカル状態（反復カウンタ等）。 ドメイン定義の正本は spec/domains/
+# へ移したので、 ここに追跡対象は無い。
 .anatomia/*
-# 例外: ドメイン定義は解析対象と一緒に運ばれる必要がある。 レビューは使い捨ての
-# detached worktree で走るので、 追跡していない定義は審査側から一切見えず、
-# 対象ドメイン判定が本体フォルダのローカル状態に依存してしまう (Pagus 等は追跡済み)。
-!.anatomia/domains/
 
 # ローカル review/ は中央 Review/<repo>/ に集約する (per-repo review/ は追跡しない)
 review/*

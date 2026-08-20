@@ -21,7 +21,7 @@ const CLAUDE_TEMPLATE_SORT_ORDER = {
  */
 const ANATOMIA_SUPPLY_VERIFY_STEPS = [
   "- Before writing code, use the configured Anatomia CLI to ask where the change lands (`where --repo <target_repo> --task \"<what you will change>\"`, or `context`). If it is unavailable, stop and report the configuration issue; do not download or guess a local installation. Pass the repository path as a properly quoted shell argument (or an argument-array value); never interpolate it into a shell command. Design inside the existing domain/layer it reports; reuse the exemplars instead of reinventing.",
-  "- Domain binding first: decide which declared domain the change belongs to. If it opens a new directory / feature surface outside every declared membership, add the declaration in the SAME PR (`.anatomia/domains/<domain>.domain.json` or the project's ontology dir, `membership: [{ \"pathPattern\": \"(^|/)src/...\" }]`, src and tests paired) — Revisor blocks unbound code.",
+  "- Domain binding first: decide which declared domain the change belongs to. If it opens a new directory / feature surface outside every declared membership, add the declaration in the SAME PR (`spec/domains/<domain>.domain.json` or the project's documented canonical domain directory, `membership: [{ \"pathPattern\": \"(^|/)src/...\" }]`, src and tests paired) — Revisor blocks unbound code.",
   "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
 ];
 

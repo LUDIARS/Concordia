@@ -1,0 +1,43 @@
+{
+  "name": "agent-delegation",
+  "description": "Delegation prompt context, seeded operating templates, and subsidiary harness policies for coordinating work beyond a single session.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/delegation/persona-context(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/seed(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/session-links(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/delegation-session-links\\.test\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/subsidiary/harness-seed\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/subsidiary/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/harness/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/testing/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/implementation-tools/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",
+  "specRefs": [
+    "spec/feature/delegation.md#121-初期プロンプトへの-concordia-文脈--persona-注入",
+    "spec/feature/delegation.md#dependency-sweep-parttimer"
+  ]
+}

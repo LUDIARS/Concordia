@@ -1,0 +1,25 @@
+{
+  "name": "delegation-provider",
+  "description": "Delegation の論理 provider を実行経路へ解決する境界。provider ごとの model / effort / network 引数と、Satelles を Lictor・PTY を通さず headless child として起動する経路を扱う。テンプレートの永続化や実行キューはこのドメインに含めない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/control/provider-preset(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/spawner(\\.test)?\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"delegation-provider\" domain: delegation の論理 provider を CLI 引数・環境変数・headless spawn 経路へ解決する。",
+  "mechanics": [
+    "logical-provider-resolution",
+    "satelles-headless-spawn",
+    "provider-runtime-arguments"
+  ],
+  "specRefs": [
+    "spec/feature/delegation.md#132-codex-sdk-satelles-ヘッドレスレーン",
+    "spec/feature/delegation.md#131-なぜ論理プリセットか"
+  ],
+  "rationale": "provider ごとの CLI 引数・環境変数と Windows の headless 起動安全策は、一つの実行契約として変更する必要がある。一方、テンプレートの保存・委託 run の状態遷移・キュー制御は別の責務であり、ここから参照するだけに留める。"
+}

@@ -1,0 +1,61 @@
+{
+  "name": "chat-platforms",
+  "description": "Bidirectional chat-platform integration that surfaces session state and accepts control input over Discord and Slack, including transcript relay and ask-marker fallback.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "src/discord/"
+    },
+    {
+      "pathPattern": "src/db/discord-"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord/commands/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/slack/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/chat/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/platform/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/shared/option-code(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/lib/option-code(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/session-detail/SessionModals\\.tsx$"
+    },
+    {
+      "pathPattern": "(^|/)src/discord(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/slack(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/platform(?:/.*)?$"
+    },
+    {
+      "namePattern": "[Tt]est(Forum|Surface|Control)"
+    }
+  ],
+  "cardTemplate": "Summarise the \"chat-platforms\" domain: Discord / Slack のチャット面と、そこから駆動する操作 (Test Forum のテスト開始 / マージ) の責務。",
+  "mechanics": [
+    "forum-surface",
+    "interaction-dispatch",
+    "test-forum-controls"
+  ],
+  "specRefs": [
+    "テストフォーラムの操作面 — テスト開始 / マージ",
+    "Revisor Test Forum 同期"
+  ],
+  "rationale": "チャット面は Discord 固有 API をここに閉じ込め、状態遷移 (test-forum-controls.ts) と副作用 (test-forum-actions.ts / test-forum-discord.ts) を分ける。spawn / merge の実行そのものは Concordia API・Revisor クライアント側の責務で、この層は入口と描画だけを持つ。"
+}

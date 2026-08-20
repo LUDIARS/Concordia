@@ -30,7 +30,7 @@ memory_links: []
 - [ ] `src/curiosity/material.ts` — 素材の遠さ重みつきサンプリング。
       源 = 別リポの spec/feature・spec/tasks、直近マージ local PR、director case の
       goal/handoff_note、Excubitor カタログの稼働サービス。
-      遠さ = 別リポ最優先 → Anatomia ドメイン差 (`.anatomia/domains/*.json`、
+      遠さ = 別リポ最優先 → Anatomia ドメイン差 (`spec/domains/*.domain.json`、
       取れなければリポ差で代替) → 直近 N 日に使った組み合わせの種類を避ける。
 - [ ] `src/curiosity/instruction.ts` — 出力の型を固定した指示テンプレート
       (2 件の紹介 / 移す制約を 1 つ名指し / 結果 3 行以内・要否の結論は書かない /

@@ -1,0 +1,37 @@
+{
+  "name": "taskflow-instructions",
+  "description": "セッションへ配るタスクワークフローの規範文言の正本。task md に何を書き何を書かないか (task-instructions)、分解を促す inject 文 (decompose-inject)、kind 別 inject マニュアルの既定 seed とその永続化 (inject-manual-seed / inject-manuals-repo) から成る。進行状態は Cc DB (taskflow_task_state) が正本で md へ書き戻さない、という規範をここが一元的に述べる。状態そのものの読み書き (state-store) や走査・登録 (reconcile) はこのドメインではなく、ここは「何をセッションに指示するか」だけを持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/taskflow/(task-instructions|decompose-inject)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/subsidiary/harness-seed(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/inject-manual-seed(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/inject-manuals-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/taskflow/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/memoria/[^/]+$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"taskflow-instructions\" domain: task md の書き方・分解 inject・kind 別マニュアルという規範文言の一元管理。",
+  "mechanics": [
+    "shared-normative-wording-constants",
+    "kind-scoped-inject-manual-seeding",
+    "seed-preserves-user-edited-rows",
+    "migration-backed-default-wording-replacement"
+  ],
+  "specRefs": [
+    "spec/feature/task-workflow.md"
+  ],
+  "rationale": "規範文言は分解 inject・ハーネス builtin ルール・kind 別 inject マニュアルの 3 経路へ配られ、1 箇所に集約されていないと経路ごとにずれる (2026-08-09 neco 指示で md 書き戻し禁止へ切り替えた際の要件)。この層はどのドメインにも属しておらず、文言だけを触る PR が Anatomia review gate (target domain missing) で止まっていた (2026-08-15 Cc #566)。状態の読み書きと分けて、指示文の正本だけを宣言する。"
+}

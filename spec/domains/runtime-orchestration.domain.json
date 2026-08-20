@@ -1,0 +1,28 @@
+{
+  "name": "runtime-orchestration",
+  "description": "Process composition and periodic runtime loops, including the internal cron scheduler.",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/scheduler/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/bootstrap(?:/.*)?$"
+    },
+    {
+      "pathPattern": "(^|/)src/(app|server|events|errors|sweeper|chat-worker|cost-worker|discord-worker)\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/workflow/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/(chat-actionable|control-worker|workflow-worker|drop-obsolete-excubitor)(\\.test)?\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
+  "specRefs": [
+    "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
+    "spec/feature/delegation.md#dependency-sweep-parttimer"
+  ]
+}

@@ -4,7 +4,7 @@
 
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -186,6 +186,13 @@ import { createMorningSchedulerBinding } from "../workflow/morning-binding.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
+
+/**
+ * transcript / rules / session_stats の保持期間 (日)。 session_events の
+ * `CONCORDIA_PURGE_AFTER_DAYS` (90) とは別枠で、 ログ系はここで刈る。
+ * 刈った行は zip へ退避してから消す (spec/data/log-retention.md)。
+ */
+const LOG_RETENTION_DAYS_DEFAULT = 30;
 
 const log = createChildLogger("server");
 
@@ -908,18 +915,23 @@ export async function startBackend(): Promise<BackendHandle> {
     abandonedAfterSec: cfg.abandonedAfterSec,
     lostPurgeAfterSec: cfg.lostPurgeAfterSec,
     purgeAfterDays: cfg.purgeAfterDays,
+    // ログ系は session_events の保持期間 (90 日) と別に 30 日で刈る (neco 決定 2026-08-20)。
+    // 90 日では今の生成速度に追いつかず、 concordia.db が 11 日で 1.19GB → 1.50GB まで伸びた。
     transcriptRetentionDays: readPositiveIntEnv(
       "CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS",
-      cfg.purgeAfterDays,
+      LOG_RETENTION_DAYS_DEFAULT,
     ),
     rulesLogRetentionDays: readPositiveIntEnv(
       "CONCORDIA_RULES_LOG_RETENTION_DAYS",
-      cfg.purgeAfterDays,
+      LOG_RETENTION_DAYS_DEFAULT,
     ),
     sessionStatsRetentionDays: readPositiveIntEnv(
       "CONCORDIA_SESSION_STATS_RETENTION_DAYS",
-      cfg.purgeAfterDays,
+      LOG_RETENTION_DAYS_DEFAULT,
     ),
+    db,
+    logArchiveDir: process.env.CONCORDIA_LOG_ARCHIVE_DIR
+      || join(dirname(dbPath), "log-archive"),
   });
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。

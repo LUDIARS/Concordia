@@ -192,4 +192,15 @@ export const WORKSPACE_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: null,
     editable: false,
   },
+  {
+    key: "workspace.log_archive_dir",
+    section: "workspace",
+    label: "ログ退避先",
+    description: "保持期間を過ぎたログ行を刈る前に zip で退避する先。 未設定なら DB と同じ場所の log-archive。",
+    kind: "string",
+    envName: "CONCORDIA_LOG_ARCHIVE_DIR",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+  },
 ] as const;

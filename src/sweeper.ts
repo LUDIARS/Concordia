@@ -7,7 +7,9 @@
  */
 
 import { open } from "node:fs/promises";
+import type Database from "better-sqlite3";
 import type { SessionsRepo } from "./db/sessions-repo.js";
+import { archiveAndPurgeOlderThan, type ArchiveTableSpec } from "./db/log-archive.js";
 import type { TasksRepo } from "./db/tasks-repo.js";
 import type { RulesRepo } from "./db/rules-repo.js";
 import type { StatsRepo } from "./db/stats-repo.js";
@@ -24,7 +26,7 @@ const log = createChildLogger("sweeper");
 export interface SweeperOptions {
   repo: SessionsRepo;
   tasks: TasksRepo;
-  transcriptLogs: Pick<TranscriptLogsRepo, "purgeOlderThan">;
+  transcriptLogs: Pick<TranscriptLogsRepo, "purgeOlderThan" | "flushSync">;
   sessionMessages: Pick<SessionMessagesRepo, "purgeOlderThan">;
   rules: Pick<RulesRepo, "purgeLogsOlderThan">;
   stats: Pick<StatsRepo, "purgeOlderThan">;
@@ -37,7 +39,37 @@ export interface SweeperOptions {
   transcriptRetentionDays: number;
   rulesLogRetentionDays: number;
   sessionStatsRetentionDays: number;
+  /** ログ退避に使う DB ハンドル。 未指定なら退避せず、 従来どおり repo の DELETE で刈る。 */
+  db?: Database.Database;
+  /** 刈った行を残す zip の出力先。 `db` と対で指定する。 */
+  logArchiveDir?: string;
 }
+
+/**
+ * 退避対象。 テーブル名と時刻列を SQL へ埋めるため、 ここに書いた固定値だけを使う。
+ * 退避の順序は行数の多い順 (1 周期の上限に当たっても、 効く順に減らす)。
+ *
+ * `flushPending` は、 退避の前に書き切っておく必要があるバッファを持つテーブルだけ
+ * 指定する。 テーブル名の文字列比較で分岐すると、 対象が増えたときに書き忘れる。
+ */
+const ARCHIVED_LOG_TABLES: ReadonlyArray<{
+  spec: ArchiveTableSpec;
+  retention: (opts: SweeperOptions) => number;
+  flushPending?: (opts: SweeperOptions) => void;
+}> = [
+  {
+    spec: { table: "transcript_logs", tsExpression: "ts" },
+    retention: (o) => o.transcriptRetentionDays,
+    // insert() は setImmediate 待ちのキューを持つ。 退避対象から漏らさない。
+    flushPending: (o) => o.transcriptLogs.flushSync(),
+  },
+  {
+    spec: { table: "session_messages", tsExpression: "COALESCE(edited_ts, ts)" },
+    retention: (o) => o.transcriptRetentionDays,
+  },
+  { spec: { table: "rules_log", tsExpression: "ts" }, retention: (o) => o.rulesLogRetentionDays },
+  { spec: { table: "session_stats", tsExpression: "ts" }, retention: (o) => o.sessionStatsRetentionDays },
+];
 
 export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce: () => Promise<void> } {
   let timer: NodeJS.Timeout | null = null;
@@ -51,6 +83,57 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
 
   async function tick(): Promise<void> {
     await bulkhead.run(runOnce);
+  }
+
+  /**
+   * 保持期間を過ぎたログ行を刈る。 退避先が構成されていれば zip へ残してから消し、
+   * されていなければ従来どおり DELETE だけを行う (退避の失敗で刈り込みを止めない)。
+   */
+  async function purgeLogTables(now: number): Promise<void> {
+    const archiveDir = opts.logArchiveDir;
+    const db = opts.db;
+    if (db && archiveDir) {
+      for (const target of ARCHIVED_LOG_TABLES) {
+        const cutoff = now - target.retention(opts) * 86400;
+        try {
+          target.flushPending?.(opts);
+          const result = await archiveAndPurgeOlderThan(db, target.spec, cutoff, { archiveDir });
+          if (result.purged > 0) {
+            log.info(
+              {
+                table: target.spec.table,
+                purged: result.purged,
+                archive: result.archivePath,
+                truncated: result.truncated,
+              },
+              "old log rows archived and purged",
+            );
+          }
+        } catch (error) {
+          // 退避に失敗した周期は「刈らない」を選ぶ。 zip を残せないまま消すより溜める方が戻せる。
+          log.warn(
+            { table: target.spec.table, err: (error as Error).message },
+            "log archive failed; rows were kept for the next sweep",
+          );
+        }
+      }
+      return;
+    }
+
+    const transcriptPurged = opts.transcriptLogs.purgeOlderThan(
+      now - opts.transcriptRetentionDays * 86400,
+    );
+    const sessionMessagesPurged = opts.sessionMessages.purgeOlderThan(
+      now - opts.transcriptRetentionDays * 86400,
+    );
+    const rulesPurged = opts.rules.purgeLogsOlderThan(now - opts.rulesLogRetentionDays * 86400);
+    const statsPurged = opts.stats.purgeOlderThan(now - opts.sessionStatsRetentionDays * 86400);
+    if (transcriptPurged + sessionMessagesPurged + rulesPurged + statsPurged > 0) {
+      log.info(
+        { transcriptPurged, sessionMessagesPurged, rulesPurged, statsPurged },
+        "old transcript, session message, rule, and session stat rows purged",
+      );
+    }
   }
 
   async function runOnce(): Promise<void> {
@@ -120,20 +203,7 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
       log.info({ purged }, "old events purged");
     }
 
-    const transcriptPurged = opts.transcriptLogs.purgeOlderThan(
-      now - opts.transcriptRetentionDays * 86400,
-    );
-    const sessionMessagesPurged = opts.sessionMessages.purgeOlderThan(
-      now - opts.transcriptRetentionDays * 86400,
-    );
-    const rulesPurged = opts.rules.purgeLogsOlderThan(now - opts.rulesLogRetentionDays * 86400);
-    const statsPurged = opts.stats.purgeOlderThan(now - opts.sessionStatsRetentionDays * 86400);
-    if (transcriptPurged + sessionMessagesPurged + rulesPurged + statsPurged > 0) {
-      log.info(
-        { transcriptPurged, sessionMessagesPurged, rulesPurged, statsPurged },
-        "old transcript, session message, rule, and session stat rows purged",
-      );
-    }
+    await purgeLogTables(now);
 
     // 4. expired pending_tasks を purge
     const expired = opts.tasks.purgeExpired(now);

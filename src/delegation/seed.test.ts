@@ -360,7 +360,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-5",
       default_cwd: "E:\\Document\\Ars\\Discutere",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
@@ -369,6 +369,27 @@ describe("seedDelegationTemplates", () => {
     const prompt = template?.prompt_template ?? "";
     expect(prompt).toContain("`npm run steam-persona`");
     expect(prompt).toContain("Steam アカウント ID・レビュー本文・認証情報・内部 endpoint・絶対パスは最終報告に載せない");
+  });
+
+  it("migrates existing Claude parttimers away from Haiku", () => {
+    const repo = new DelegationRepo(makeTestDb());
+
+    for (const callName of ["steam-persona-daily", "vultus-catalog-refresh-daily"]) {
+      repo.createTemplate({
+        call_name: callName,
+        title: "Legacy parttimer",
+        target_provider: "claude",
+        model: "claude-haiku-4-5-20251001",
+        prompt_template: "old",
+        category: "parttimer",
+      });
+    }
+
+    seedDelegationTemplates(repo);
+
+    for (const callName of ["steam-persona-daily", "vultus-catalog-refresh-daily"]) {
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-sonnet-5");
+    }
   });
 
   it("seeds the Vultus catalog refresh as a data-only daily parttimer", () => {
@@ -380,7 +401,7 @@ describe("seedDelegationTemplates", () => {
       is_active: 1,
       category: "parttimer",
       target_provider: "claude",
-      model: "claude-haiku-4-5-20251001",
+      model: "claude-sonnet-5",
       default_cwd: "E:\\Document\\Ars\\Vultus",
     });
     expect(JSON.parse(template?.input_schema ?? "null")).toEqual([

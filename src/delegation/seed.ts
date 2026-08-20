@@ -315,9 +315,9 @@ const VULTUS_REPO_PATH = "E:\\Document\\Ars\\Vultus";
 const VULTUS_CATALOG_TEMPLATES: CreateTemplateInput[] = [{
   call_name: "vultus-catalog-refresh-daily",
   title: "Vultus 女優カタログ日次更新",
-  description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。",
+  description: "DMMとMGStageの全50音ページを低頻度で巡回し、ローカル画像・解析manifest・Vultus統合カタログへ新人と変更分だけを取り込む。Timer Delegationが毎朝8:20 JSTにinvokeする。2026-08-20 neco指示でパートタイマーからHaikuを除外 (auto-mode不可・処理能力不足) しSonnet 5へ変更。",
   target_provider: "claude",
-  model: "claude-haiku-4-5-20251001",
+  model: "claude-sonnet-5",
   category: "parttimer",
   emoji: "🖼️",
   prompt_template: [
@@ -849,9 +849,9 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "steam-persona-daily",
     title: "Steam 横断レビュアー収集 (毎朝)",
-    description: "Discutere の steam-persona パイプライン (新作レビュー定期取得 → 横断投稿者検出 → 集中収集、spec/feature/crawler/STEAM-PERSONA.md) を日次で 1 周回す。Timer Delegation が毎朝 7:40 JST に invoke する。2026-08-13 neco 指示で新設。",
+    description: "Discutere の steam-persona パイプライン (新作レビュー定期取得 → 横断投稿者検出 → 集中収集、spec/feature/crawler/STEAM-PERSONA.md) を日次で 1 周回す。Timer Delegation が毎朝 7:40 JST に invoke する。2026-08-13 neco 指示で新設。2026-08-20 neco 指示でパートタイマーから Haiku を除外 (auto-mode 不可・処理能力不足) し Sonnet 5 へ変更。",
     target_provider: "claude",
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "🎮",
     prompt_template: [

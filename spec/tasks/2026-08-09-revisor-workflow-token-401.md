@@ -25,22 +25,22 @@ local PR として提出できない状態を解消する。レビュー発火�
   → `{"submitted":false,"reason":"error","detail":"Revisor /v1/local-prs failed (401): unauthorized"}`
 - 一方 `GET /v1/prs/revisor` は成功し `base_url: http://127.0.0.1:4240` と open PR 一覧を返す。
   → Revisor 自体は稼働中で、**読み取りは通り書き込みだけが 401** = トークン未配布 / 失効。
-- 書き込みトークンは `revisor_config` (secret-box) が正本で env `CONCORDIA_REVISOR_WORKFLOW_TOKEN`
-  がフォールバック (`src/pr/revisor-config.ts` / `revisor-token.ts`)。解決は都度行うので、
-  設定を入れれば Concordia の再起動は不要のはず。
+- 書き込みトークンは `revisor_config` (secret-box) が唯一の正本
+  (`src/pr/revisor-config.ts` / `revisor-token.ts`)。旧 env は読まない。解決は都度行うので、
+  設定画面から値を入れれば Concordia の再起動は不要のはず。
 - 参考: `lictor cli` も同マシンで `node-pty` 未ビルドにより起動しない (別件だが CLI 経由の
   提出も使えない)。
 
 ## 完了条件
 
-- [ ] Revisor 側の現行トークンを確認し、Concordia の `revisor_config` (WebUI) か env に設定する。
+- [ ] Revisor 側の現行トークンを確認し、Concordia の `revisor_config` (WebUI) に設定する。
 - [ ] `POST /v1/prs/local` が `submitted: true` を返すことを実セッションで確認する。
 - [ ] 401 のまま放置されないよう、提出失敗が可視化されているか (ログ / 通知) を確認する。
       無ければ「レビュー発火が黙って死ぬ」再発防止として通知を足すか、別タスクに切り出す。
 
 ## スコープ (編集可ディレクトリ)
 
-- 設定投入のみ (WebUI の Revisor 設定 / env)。コード変更が要るのは可視化を足す場合だけで、
+- 設定投入のみ (WebUI の Revisor 設定)。コード変更が要るのは可視化を足す場合だけで、
   その場合も `src/pr/` に閉じる。
 
 ## 保留中の影響

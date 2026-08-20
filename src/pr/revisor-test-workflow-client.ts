@@ -449,20 +449,6 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
   };
 }
 
-export function createRevisorTestWorkflowClientFromEnv(
-  excubitor: Pick<ExcubitorClient, "findService">,
-  env: NodeJS.ProcessEnv = process.env,
-): RevisorTestWorkflowClient {
-  // Revisor の読み取りは loopback 限定で token 不要なので、 未設定でもクライアントを作る。
-  // これが null を返していたため、 token を配れないだけで Test Forum 同期が
-  // 「Revisor Test Workflow source unavailable」で永久にスキップされていた。
-  // trim は constructor 側で行う。
-  return new RevisorTestWorkflowClient({
-    excubitor,
-    token: env.CONCORDIA_REVISOR_WORKFLOW_TOKEN,
-  });
-}
-
 /**
  * DB 設定 (revisor_config) 込みで token を解決するクライアント。
  * `resolveToken` はリクエストごとに呼ばれるので、 Web UI での変更が再起動なしで効く。

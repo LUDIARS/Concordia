@@ -22,11 +22,11 @@ Revisor and are not written to Concordia's database.
 
 Cc resolves Revisor's loopback port from the live Excubitor catalog and never
 hardcodes it. The enqueue integration is enabled when Cc workflow is enabled
-and `CONCORDIA_REVISOR_TOKEN` is injected into the Concordia process. This
-secret must equal Revisor's configured PR-gate origin token and must be supplied
-through the local secret manager; it is never stored in Concordia's database or
-logged. If Revisor or Cc is unavailable, the GitHub Action path remains
-independent.
+and the workflow token is configured through Settings > Revisor. Concordia
+stores that token encrypted in `revisor_config` and resolves it for every
+request; legacy Revisor token environment variables are ignored. The token is
+never logged or returned by the status API. If Revisor or Cc is unavailable,
+the GitHub Action path remains independent.
 
 Cc does not enqueue drafts, fork PRs, PRs without successful ordinary CI, or
 PRs that already expose the `Revisor review` Check for the current head. The

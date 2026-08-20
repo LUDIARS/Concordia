@@ -3,7 +3,7 @@ title: "Cc workflow injection"
 status: implemented
 service: concordia
 domain: session-coordination
-updated: 2026-07-06
+updated: 2026-08-20
 ---
 
 # Cc workflow injection
@@ -33,12 +33,13 @@ a `pr-ci-followup` pending task for the author session. The hook prints that tas
 on the next prompt/heartbeat/session-end pull as a status report; it does not
 authorize tests, CI fixes, or merge work by itself.
 
-When Cc workflow is enabled and `CONCORDIA_REVISOR_TOKEN` is configured, the
-same reconciler asks the independent Revisor service to review a
-session-authored, non-fork PR after ordinary CI succeeds. Cc resolves Revisor
-through Excubitor and does not execute review code itself. An existing
-`Revisor review` Check suppresses repeat requests; Revisor also deduplicates
-Action/Cc races for the same exact head SHA.
+When Cc workflow is enabled and the Revisor workflow token is configured in
+`revisor_config` through Settings > Revisor, the same reconciler asks the
+independent Revisor service to review a session-authored, non-fork PR after
+ordinary CI succeeds. Legacy Revisor token environment variables are ignored.
+Cc resolves Revisor through Excubitor and does not execute review code itself.
+An existing `Revisor review` Check suppresses repeat requests; Revisor also
+deduplicates Action/Cc races for the same exact head SHA.
 
 Cc reads the exact head commit message before enqueueing. A
 `Revisor-Autofix: true` trailer selects verification-only mode so an autofix

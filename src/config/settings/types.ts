@@ -78,6 +78,12 @@ export interface SettingDefinition {
   envName: string | null;
   /** DB キー (schema_meta / discord_config 等)。 DB 上書きが無い項目は null。 */
   dbKey: string | null;
+  /**
+   * `dbKey` を引くストア。 省略時はセクション名から決まる (discord / slack / それ以外は
+   * schema_meta)。 セクションとストアが 1:1 でない項目 (pr-queue セクションにある
+   * Revisor の token は revisor_config に入る) だけが明示する。
+   */
+  dbStore?: "meta" | "discord" | "slack" | "revisor";
   /** コード上の既定値。 既定が無い (未設定なら機能しない) 項目は null。 */
   defaultValue: SettingValue;
   /**

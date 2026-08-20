@@ -365,21 +365,23 @@ implements RevisorReviewTrigger, RevisorLocalPrReader, RevisorLocalPrMerger,
 }
 
 /**
- * token は DB 正本の workflow token resolver を渡すのが本則 — Revisor は変更系
- * (merge 含む) を workflow token 1 本で認可するため、 merge 専用トークンは存在しない。
- * 旧 env `CONCORDIA_REVISOR_TOKEN` は deprecation フォールバック (どこにも注入されて
- * いないことが常態で、 マージボタンが実行時に必ず失敗する原因だった)。
+ * token は DB 正本 (revisor_config) の resolver から取る — Revisor は変更系 (merge 含む) を
+ * workflow token 1 本で認可するため、 merge 専用トークンは存在しない。
+ *
+ * 旧 env `CONCORDIA_REVISOR_TOKEN` フォールバックは廃止した。 spawner が子プロセスから
+ * この env を削除する一方で resolver を渡さない呼び出し (chat-worker) が残っており、
+ * 「設定画面には設定済みと出るのにチャット経由のマージだけ 401」という追いにくい
+ * 不整合を生んでいたため。 resolver は必須引数にして、 渡し忘れを型で止める。
  */
-export function createRevisorClientFromEnv(
+export function createRevisorClient(
   excubitor: Pick<ExcubitorClient, "findService">,
-  env: NodeJS.ProcessEnv = process.env,
-  resolveToken?: () => string | undefined,
+  resolveToken: () => string | undefined,
 ): RevisorClient {
   // token 未設定でもクライアントを作る。 PRs ページの Revisor セクションは読み取りだけで
   // 足り、 Revisor は loopback からの GET に token を要求しない。 null を返していたため
   // 「秘密を配れない」だけでセクションごと出ない (configured=false) 状態になっていた。
   return new RevisorClient({
     excubitor,
-    token: () => resolveToken?.()?.trim() || env.CONCORDIA_REVISOR_TOKEN?.trim() || "",
+    token: () => resolveToken()?.trim() || "",
   });
 }

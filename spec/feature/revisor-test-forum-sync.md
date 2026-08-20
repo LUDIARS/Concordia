@@ -3,7 +3,7 @@ title: "Revisor Test Workflow synchronization"
 status: implemented
 service: concordia
 domain: release-coordination
-updated: 2026-08-08
+updated: 2026-08-20
 ---
 
 # Revisor Test Workflow synchronization
@@ -28,8 +28,8 @@ CcのDiscord Test Forumは、Revisorに登録された時点のローカルPRを
   確認sessionを安全に起動できるよう、local PRのhead refとRevisor登録済み
   repository rootを結合する。骨格 (id/repository/番号/head/rootPath) が欠けた
   行は候補から外す。
-- 読取はloopback限定でRevisor側がtokenを要求しないため、`CONCORDIA_REVISOR_WORKFLOW_TOKEN`
-  は任意とする。設定されている場合だけBearerとして送る (未設定でも同期は動く)。
+- 読取はloopback限定でRevisor側がtokenを要求しない。設定画面から DB に workflow token が
+  保存されている場合だけBearerとして送り、未設定でも同期は動く。旧 env は読まない。
 - 新規掲載時、提出セッション (`sessionId`) の session_events から
   **操作していたDiscordユーザ全員** を解決し、スレッドへメンション付き
   メッセージを1回だけ投げる (starter本文は常にメンション抑制)。

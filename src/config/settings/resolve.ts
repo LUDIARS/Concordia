@@ -27,13 +27,22 @@ export interface SettingsDbReader {
   readDiscord(key: string): string | null;
   /** slack_config。 */
   readSlack(key: string): string | null;
+  /** revisor_config (workflow_token_enc)。 */
+  readRevisor(key: string): string | null;
 }
 
 /** 定義のセクションから DB の引き先を決める。 */
 function readDbRaw(definition: SettingDefinition, db: SettingsDbReader): string | null {
   if (definition.dbKey === null) return null;
-  if (definition.section === "discord") return db.readDiscord(definition.dbKey);
-  if (definition.section === "slack") return db.readSlack(definition.dbKey);
+  // 明示された store が最優先。 セクションとストアが一致しない項目 (pr-queue の
+  // Revisor token) は section 由来の推測では引けない。
+  const store = definition.dbStore
+    ?? (definition.section === "discord" || definition.section === "slack"
+      ? definition.section
+      : "meta");
+  if (store === "discord") return db.readDiscord(definition.dbKey);
+  if (store === "slack") return db.readSlack(definition.dbKey);
+  if (store === "revisor") return db.readRevisor(definition.dbKey);
   return db.readMeta(definition.dbKey);
 }
 

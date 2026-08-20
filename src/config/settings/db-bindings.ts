@@ -7,6 +7,7 @@
 
 import type { SettingsStore } from "../../admin/settings-store.js";
 import type { DiscordConfigRepo } from "../../db/discord-repo.js";
+import type { RevisorConfigRepo } from "../../db/revisor-config-repo.js";
 import type { SlackConfigRepo } from "../../db/slack-config-repo.js";
 import type { SecretBox } from "../../shared/secret-box.js";
 import { isEncrypted } from "../../shared/secret-box.js";
@@ -18,6 +19,8 @@ export interface SettingsStoreBindings {
   /** Discord bot 未構成の環境では省略可 (その場合 Discord 設定は常に env / 既定由来)。 */
   discord?: DiscordConfigRepo;
   slack?: SlackConfigRepo;
+  /** Revisor 連携 (workflow token)。 未注入なら Revisor 設定は常に未設定として出る。 */
+  revisor?: RevisorConfigRepo;
   /** secret の暗号化。 未注入なら secret の**書き込みを拒否**する (平文で置かない)。 */
   secretBox?: SecretBox;
 }
@@ -61,6 +64,12 @@ export function createSettingsDbReader(bindings: SettingsStoreBindings): Setting
     },
     readSlack: (key) => {
       const repo = bindings.slack;
+      return normalize(repo ? decrypt(repo.get(key), key, (value) => repo.set(key, value)) : null);
+    },
+    // 読み取り専用 (編集は 設定 > Revisor の専用 UI)。 値は redaction されるので、
+    // ここでは 「設定済みか」 を出すためだけに復号する。
+    readRevisor: (key) => {
+      const repo = bindings.revisor;
       return normalize(repo ? decrypt(repo.get(key), key, (value) => repo.set(key, value)) : null);
     },
   };

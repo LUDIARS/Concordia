@@ -50,7 +50,7 @@ import { ExcubitorClient } from "./excubitor/client.js";
 import { createRevisorTestWorkflowClient } from "./pr/revisor-test-workflow-client.js";
 import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
-import { createRevisorClientFromEnv } from "./pr/revisor-client.js";
+import { createRevisorClient } from "./pr/revisor-client.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -150,8 +150,9 @@ async function main(): Promise<void> {
     envValue: process.env.CONCORDIA_SECRET_KEY,
     keyFile: join(process.cwd(), "concordia.secret.key"),
   });
-  // Revisor workflow token は本体と同じ DB (revisor_config) を読む。 env はフォールバック。
+  // Revisor workflow token は本体と同じ DB (revisor_config) を読む。 env は読まない。
   const revisorConfigRepo = makeRevisorConfigRepo(db);
+  const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
   const workspaceRoot = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot,
@@ -243,9 +244,11 @@ async function main(): Promise<void> {
     sessionsRepo: sessions,
     revisorTestWorkflow: createRevisorTestWorkflowClient(
       excubitor,
-      () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox),
+      resolveRevisorToken,
     ),
-    revisor: createRevisorClientFromEnv(excubitor),
+    // resolver 必須。 以前ここだけ resolver 無しで env フォールバックに落ちており、
+    // spawner が子から env を消すのと相まってチャット経由のマージが常に 401 だった。
+    revisor: createRevisorClient(excubitor, resolveRevisorToken),
     listSubsidiaries: () => subsidiaryRepo.list().map((row) => ({
       id: row.id,
       name: row.display_name || row.name,

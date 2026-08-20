@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  createRevisorClientFromEnv,
+  createRevisorClient,
   RevisorClient,
   type RevisorReviewRequest,
 } from "./revisor-client.js";
@@ -61,7 +61,38 @@ describe("RevisorClient", () => {
   // 読み取り (local PR 一覧) に token は要らない。 null を返していたため、 秘密を配れない
   // だけで PRs ページの Revisor セクションが configured=false のまま出なかった。
   it("creates an integration even when the process secret is absent", () => {
-    expect(createRevisorClientFromEnv({ findService: vi.fn() }, {})).toBeInstanceOf(RevisorClient);
+    expect(createRevisorClient({ findService: vi.fn() }, () => "")).toBeInstanceOf(RevisorClient);
+  });
+
+  // resolver はリクエストごとに呼ぶ。 設定画面で入れた値が再起動なしで効く条件。
+  it("resolves the token on every request", async () => {
+    const tokens = ["", "later-secret"];
+    const fetchImpl = vi.fn(async () => new Response(
+      JSON.stringify({ id: "job-1", status: "queued" }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+    const client = new RevisorClient({
+      excubitor: {
+        findService: vi.fn(async () => ({
+          code: "revisor",
+          name: "Revisor",
+          port: 4240,
+          state: "running",
+        })),
+      },
+      fetchImpl,
+      token: () => tokens.shift() ?? "",
+    });
+
+    await expect(client.enqueue(request)).rejects.toThrow("token is required");
+    await expect(client.enqueue(request)).resolves.toMatchObject({ id: "job-1", status: "queued" });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "http://127.0.0.1:4240/v1/pr-gate/jobs",
+      expect.objectContaining({
+        headers: expect.objectContaining({ authorization: "Bearer later-secret" }),
+      }),
+    );
+    expect(tokens).toEqual([]);
   });
 
   // 読み取りが token 不要になっても書き込みは必須。 空の `Bearer ` を投げて 401 にせず、

@@ -15,22 +15,26 @@ interface Stores {
   meta: Record<string, string>;
   discord: Record<string, string>;
   slack: Record<string, string>;
+  /** revisor_config (workflow_token_enc)。 読み取り専用で、 汎用 PUT の対象にならない。 */
+  revisor: Record<string, string>;
 }
 
 function makeApp(
   initial: Partial<Stores> = {},
   options: { unavailableTarget?: "discord" | "slack"; failOnWrite?: "discord" | "slack" } = {},
 ) {
-  const stores: Stores = { meta: {}, discord: {}, slack: {}, ...initial };
+  const stores: Stores = { meta: {}, discord: {}, slack: {}, revisor: {}, ...initial };
   const reader: SettingsDbReader = {
     readMeta: (key) => stores.meta[key] ?? null,
     readDiscord: (key) => stores.discord[key] ?? null,
     readSlack: (key) => stores.slack[key] ?? null,
+    readRevisor: (key) => stores.revisor[key] ?? null,
   };
   const writer: SettingsDbWriter = {
     checkWritable: (target) => target === options.unavailableTarget ? `${target} backend is unavailable` : null,
     transaction: (update) => {
-      const before: Stores = {
+      // revisor は汎用 PUT の書き込み対象ではないので巻き戻し対象にも入れない。
+      const before: Omit<Stores, "revisor"> = {
         meta: { ...stores.meta },
         discord: { ...stores.discord },
         slack: { ...stores.slack },

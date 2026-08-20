@@ -14,11 +14,13 @@ function reader(values: {
   meta?: Record<string, string>;
   discord?: Record<string, string>;
   slack?: Record<string, string>;
+  revisor?: Record<string, string>;
 } = {}): SettingsDbReader {
   return {
     readMeta: (key) => values.meta?.[key] ?? null,
     readDiscord: (key) => values.discord?.[key] ?? null,
     readSlack: (key) => values.slack?.[key] ?? null,
+    readRevisor: (key) => values.revisor?.[key] ?? null,
   };
 }
 
@@ -119,8 +121,11 @@ describe("secret の redaction", () => {
 
   it("一覧に secret の実値がどこにも出ない", () => {
     const settings = listSettings(
-      reader({ discord: { conn_token_enc: "super-secret-token" } }),
-      env({ CONCORDIA_SLACK_BOT_TOKEN: "fixture-slack-credential", CONCORDIA_REVISOR_TOKEN: "rv-secret" }),
+      reader({
+        discord: { conn_token_enc: "super-secret-token" },
+        revisor: { workflow_token_enc: "rv-secret" },
+      }),
+      env({ CONCORDIA_SLACK_BOT_TOKEN: "fixture-slack-credential" }),
     );
     const serialized = JSON.stringify(settings);
     expect(serialized).not.toContain("super-secret-token");
@@ -130,6 +135,39 @@ describe("secret の redaction", () => {
       expect(setting.value).toBeNull();
       expect(typeof setting.set).toBe("boolean");
     }
+  });
+});
+
+describe("Revisor workflow token", () => {
+  // pr-queue セクションにありながら値は revisor_config に入る。 section 由来の
+  // 振り分けだけでは引けないので dbStore を見ていることを固定する。
+  it("revisor_config から読み、 出所は db になる", () => {
+    const setting = getSetting(
+      "pr_queue.revisor_workflow_token",
+      reader({ revisor: { workflow_token_enc: "rv-secret" } }),
+      NO_ENV,
+    );
+    expect(setting?.set).toBe(true);
+    expect(setting?.value).toBeNull();
+    expect(setting?.source).toBe("db");
+  });
+
+  // env は読まない。 「env に置いたから動く」 という抜け道を残さない。
+  it("env に置いても未設定のまま", () => {
+    const setting = getSetting(
+      "pr_queue.revisor_workflow_token",
+      reader(),
+      env({ CONCORDIA_REVISOR_WORKFLOW_TOKEN: "rv-secret" }),
+    );
+    expect(setting?.set).toBe(false);
+    expect(setting?.source).toBe("none");
+  });
+
+  // 編集は専用 UI 側。 汎用 PUT で壊せないことを固定する。
+  it("汎用 PUT では編集できない", () => {
+    const setting = getSetting("pr_queue.revisor_workflow_token", reader(), NO_ENV);
+    expect(setting?.editable).toBe(false);
+    expect(setting?.managedBy).toBe("設定 > Revisor");
   });
 });
 

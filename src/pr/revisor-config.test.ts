@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { applyMigrations } from "../db/schema.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
@@ -21,14 +21,19 @@ describe("revisor workflow token config", () => {
     repo = makeRevisorConfigRepo(db);
   });
 
-  afterEach(() => db.close());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    db.close();
+  });
 
-  it("DB 値を優先し、 無ければ env にフォールバックする", () => {
-    const env = { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "from-env" };
-    expect(resolveRevisorWorkflowToken(repo, box, env)).toBe("from-env");
+  // env フォールバックは廃止。 出所が 2 系統あると「設定画面は設定済みなのに一部の
+  // 経路だけ 401」という不整合になるため、 正本を DB 1 本に固定してある。
+  it("env は読まない (未設定なら空文字)", () => {
+    vi.stubEnv("CONCORDIA_REVISOR_WORKFLOW_TOKEN", "from-env");
+    expect(resolveRevisorWorkflowToken(repo, box)).toBe("");
 
     setRevisorConfig(repo, box, { workflowToken: "from-db" });
-    expect(resolveRevisorWorkflowToken(repo, box, env)).toBe("from-db");
+    expect(resolveRevisorWorkflowToken(repo, box)).toBe("from-db");
   });
 
   it("平文では保存しない (secret-box で暗号化)", () => {
@@ -37,29 +42,28 @@ describe("revisor workflow token config", () => {
     expect(stored).not.toBeNull();
     expect(stored).not.toContain("super-secret");
     // 復号すれば元に戻る。
-    expect(resolveRevisorWorkflowToken(repo, box, {})).toBe("super-secret");
+    expect(resolveRevisorWorkflowToken(repo, box)).toBe("super-secret");
   });
 
-  it("空文字でクリアすると env フォールバックに戻る", () => {
+  it("空文字でクリアすると未設定に戻る (env は拾わない)", () => {
+    vi.stubEnv("CONCORDIA_REVISOR_WORKFLOW_TOKEN", "from-env");
     setRevisorConfig(repo, box, { workflowToken: "from-db" });
     setRevisorConfig(repo, box, { workflowToken: "" });
-    expect(resolveRevisorWorkflowToken(repo, box, { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "from-env" }))
-      .toBe("from-env");
+    expect(resolveRevisorWorkflowToken(repo, box)).toBe("");
   });
 
   it("undefined は据え置き (誤って消さない)", () => {
     setRevisorConfig(repo, box, { workflowToken: "from-db" });
     setRevisorConfig(repo, box, {});
-    expect(resolveRevisorWorkflowToken(repo, box, {})).toBe("from-db");
+    expect(resolveRevisorWorkflowToken(repo, box)).toBe("from-db");
   });
 
-  it("status は値を返さず出所だけ示す", () => {
-    expect(revisorConfigStatus(repo, box, {})).toEqual({ workflow_token_set: false, source: "none" });
-    expect(revisorConfigStatus(repo, box, { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "x" }))
-      .toEqual({ workflow_token_set: true, source: "env" });
+  it("status は値を返さず出所だけ示す (db か none の 2 値)", () => {
+    vi.stubEnv("CONCORDIA_REVISOR_WORKFLOW_TOKEN", "x");
+    expect(revisorConfigStatus(repo, box)).toEqual({ workflow_token_set: false, source: "none" });
 
     setRevisorConfig(repo, box, { workflowToken: "from-db" });
-    const status = revisorConfigStatus(repo, box, {});
+    const status = revisorConfigStatus(repo, box);
     expect(status).toEqual({ workflow_token_set: true, source: "db" });
     expect(JSON.stringify(status)).not.toContain("from-db");
   });

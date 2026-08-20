@@ -385,8 +385,12 @@ export function sanitizeSpawnEnv(
  * Build the environment passed to an interactive child session.
  *
  * Revisor mutations belong to Concordia's deterministic service paths, never
- * an interactive LLM session. Strip both current Revisor credentials after
+ * an interactive LLM session. Strip both legacy Revisor credentials after
  * merging inherited and request env so no caller can opt a child back in.
+ *
+ * The service itself no longer reads either variable — the workflow token lives
+ * in revisor_config (see pr/revisor-config.ts). These deletes stay as a guard
+ * against a stale value in the operator's environment reaching a child.
  */
 export function buildSessionSpawnEnvironment(
   req: SpawnRequest,

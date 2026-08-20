@@ -3,7 +3,7 @@ title: "merge/PR の MCP ツール化と Revisor トークン一本化"
 status: implemented
 service: concordia
 domain: revisor-local-pr
-updated: 2026-08-08
+updated: 2026-08-20
 ---
 
 # merge/PR の MCP ツール化と Revisor トークン一本化
@@ -21,7 +21,9 @@ merge 用 `CONCORDIA_REVISOR_TOKEN` (env 直読み・起動時固定・どこに
 
 - `RevisorClient` の token をリクエスト毎解決 (`toTokenResolver`) に変更し、
   bootstrap で workflow token resolver を渡す。 設定画面の変更が再起動なしで効く。
-- env `CONCORDIA_REVISOR_TOKEN` は deprecation フォールバックとして残す。
+- 2026-08-20 に旧 env `CONCORDIA_REVISOR_TOKEN` の deprecation フォールバックも撤去した。
+  DB と env の二重正本により chat-worker だけ異なる token を使っていたため、全クライアントで
+  `revisor_config` の resolver を必須にした。
 
 ## MCP サーバ `concordia-pr` (`src/mcp/pr-server.ts`)
 

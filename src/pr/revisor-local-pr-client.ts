@@ -66,7 +66,7 @@ export interface RevisorLocalPrClientOptions {
   /**
    * 提出 (変更系) に必要。 空なら提出は失敗し、 一覧のみ利用できる。
    * 関数を渡すと **リクエストごとに解決**するので、 Web UI から設定した token が
-   * 再起動なしで効く (DB 設定 → env フォールバックの解決は revisor-config.ts)。
+   * 再起動なしで効く (DB 設定の解決は revisor-config.ts)。
    */
   token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
@@ -217,16 +217,12 @@ export class RevisorLocalPrClient implements RevisorLocalPrGateway {
 }
 
 /**
- * token の既定は env フォールバックのみ。 DB 設定 (revisor_config) を効かせたい呼び出し側は
- * `resolveToken` に `() => resolveRevisorWorkflowToken(repo, box)` を渡す。
+ * token の出所は DB 設定 (revisor_config) だけ。 呼び出し側は `resolveToken` に
+ * `() => resolveRevisorWorkflowToken(repo, box)` を渡す (env フォールバックは廃止)。
  */
 export function createRevisorLocalPrClient(
   excubitor: Pick<ExcubitorClient, "findService">,
-  resolveToken?: () => string | undefined,
-  env: NodeJS.ProcessEnv = process.env,
+  resolveToken: () => string | undefined,
 ): RevisorLocalPrClient {
-  return new RevisorLocalPrClient({
-    excubitor,
-    token: resolveToken ?? (() => env.CONCORDIA_REVISOR_WORKFLOW_TOKEN),
-  });
+  return new RevisorLocalPrClient({ excubitor, token: resolveToken });
 }

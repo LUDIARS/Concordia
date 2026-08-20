@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   parseLocalPrDetail,
   createRevisorTestWorkflowClient,
-  createRevisorTestWorkflowClientFromEnv,
   RevisorTestWorkflowClient,
 } from "./revisor-test-workflow-client.js";
 
@@ -82,17 +81,17 @@ describe("RevisorTestWorkflowClient", () => {
   // Revisor は loopback からの読み取りに token を要求しない。 秘密を配れないだけで
   // Test Forum 同期が止まっていた (source unavailable) ので、 未設定でも source を作る。
   it("creates a source even when no workflow secret is configured", () => {
-    expect(createRevisorTestWorkflowClientFromEnv(
+    expect(createRevisorTestWorkflowClient(
       { findService: vi.fn() },
-      {},
+      () => "",
     )).toBeInstanceOf(RevisorTestWorkflowClient);
   });
 
-  it("sends the configured env secret as a Bearer token", async () => {
+  it("sends the resolved secret as a Bearer token", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
     vi.stubGlobal("fetch", fetchMock);
     try {
-      const client = createRevisorTestWorkflowClientFromEnv(
+      const client = createRevisorTestWorkflowClient(
         {
           findService: vi.fn(async () => ({
             code: "revisor",
@@ -101,7 +100,7 @@ describe("RevisorTestWorkflowClient", () => {
             state: "running",
           })),
         },
-        { CONCORDIA_REVISOR_WORKFLOW_TOKEN: "  workflow-secret  " },
+        () => "  workflow-secret  ",
       );
 
       await expect(client.listProducts()).resolves.toEqual([]);

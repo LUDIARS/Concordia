@@ -100,7 +100,7 @@ import { startStatScheduler } from "../stat/scheduler.js";
 import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
-import { createRevisorClientFromEnv } from "../pr/revisor-client.js";
+import { createRevisorClient } from "../pr/revisor-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
@@ -678,13 +678,13 @@ export async function startBackend(): Promise<BackendHandle> {
     judge: runClaude,
     scoreMin: cfg.inquiryScoreMin,
   });
-  // Revisor workflow token は DB (revisor_config、 secret-box 暗号化) が正本で、 env は
-  // フォールバック。 クライアントはリクエストごとに解決するので Web UI の変更が即効く。
+  // Revisor workflow token の正本は DB (revisor_config、 secret-box 暗号化) だけ。 env は
+  // 読まない。 クライアントはリクエストごとに解決するので Web UI の変更が即効く。
   // Revisor は変更系 (merge 含む) を workflow token 1 本で認可するため、 merge 用の
-  // RevisorClient にも同じ resolver を渡す (旧 CONCORDIA_REVISOR_TOKEN の廃止方向)。
+  // RevisorClient にも同じ resolver を渡す。
   const revisorConfigRepo = makeRevisorConfigRepo(db);
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
-  const revisorClient = createRevisorClientFromEnv(excubitorClient, process.env, resolveRevisorToken);
+  const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
   const taskflowState = new TaskflowStateStore(db);

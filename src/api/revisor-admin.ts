@@ -2,7 +2,7 @@
  * /v1/admin/revisor — Revisor 連携 (workflow token) をサービス内 (Web UI / API) から設定する。
  *
  * - GET /config : redact 済み状態 (token 値は返さない)
- * - PUT /config : token を暗号化保存 / 空文字で env フォールバックへ戻す
+ * - PUT /config : token を暗号化保存 / 空文字で未設定へ戻す
  *
  * @implements spec/feature/revisor-local-pr-submission.md — 6. token
  *
@@ -22,8 +22,11 @@ export interface RevisorAdminDeps {
 }
 
 const PutSchema = z.object({
-  // null / 空文字 = クリア (env フォールバックに戻す)、 文字列 = 設定
-  workflow_token: z.string().max(512).nullable().optional(),
+  // null / 空文字 = クリア (未設定に戻す)、 文字列 = 設定
+  workflow_token: z.string().max(512).refine(
+    (value) => !/[\u0000-\u001f\u007f]/u.test(value),
+    { message: "workflow_token must not contain control characters" },
+  ).nullable().optional(),
 });
 
 export function revisorAdminRouter(deps: RevisorAdminDeps): Hono {

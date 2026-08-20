@@ -337,6 +337,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       meta: deps.adminState.store,
       discord: deps.discordConfig,
       slack: deps.slackConfig,
+      revisor: deps.revisorConfig,
       secretBox: deps.secretBox,
     };
     app.route(

@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./pr-queue.md
   - ./pr-local-gate.md
-updated: 2026-08-10
+updated: 2026-08-20
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
@@ -172,9 +172,20 @@ token 不要。 提出 (`POST /v1/local-prs`) は変更系なので token が要
 提出だけが失敗し、 その理由がログに残る。
 
 token の正本は **DB (`revisor_config.workflow_token_enc`、 secret-box で暗号化)**。
-設定画面 (`/v1/admin/revisor/config`) から入れる。 env `CONCORDIA_REVISOR_WORKFLOW_TOKEN` は
-フォールバックとして残す (bootstrap 用)。 Discord / Slack の bot token と同じ扱いに揃えたのは、
-env だけだと配布のたびにプロセス再起動が要り、 平文の置き場所も増えるため。
+設定画面 (設定 > Revisor、 API は `/v1/admin/revisor/config`) から入れる。 **env は読まない**
+(旧 `CONCORDIA_REVISOR_WORKFLOW_TOKEN` / `CONCORDIA_REVISOR_TOKEN` は廃止)。 Discord / Slack の
+bot token と同じ扱いに揃えたのは、 env だけだと配布のたびにプロセス再起動が要り、 平文の
+置き場所も増えるため。
+
+env フォールバックを残さないのは、 出所が 2 系統あると「設定画面には設定済みと出るのに
+一部の経路だけ 401」という不整合が起きるため。 実際 chat-worker の RevisorClient だけが
+resolver 未注入で env フォールバックに落ちており、 spawner が子プロセスからその env を
+削除する仕様と重なって、 チャット経由のマージが常に失敗していた。 token を受け取る
+クライアント生成関数は resolver を**必須引数**にして、 渡し忘れを型で止める。
+
+設定レジストリ (`/v1/admin/settings`) にも `pr_queue.revisor_workflow_token` として出るが、
+そちらは読み取り専用 (`editable: false` / `managedBy: 設定 > Revisor`) で、 出所は db か
+none の 2 値しか取らない。
 
 クライアントは token を保持せず **リクエストごとに解決**する (`resolveRevisorWorkflowToken`)。
 設定画面で入れた値がその場から効く。

@@ -536,7 +536,7 @@ const STATEMENTS = [
   )`,
 
   // Revisor 連携設定の key/value (discord_config / slack_config と対の構成)。
-  // env (CONCORDIA_REVISOR_*) はフォールバックに残し、DB 値が優先。
+  // このテーブルが唯一の正本。env (旧 CONCORDIA_REVISOR_*) は読まない。
   // ★ workflow token は secret-box で暗号化した値を workflow_token_enc に保存し、
   //   平文では持たない (AIFormat §7 / coding-conventions §14)。
   `CREATE TABLE IF NOT EXISTS revisor_config (

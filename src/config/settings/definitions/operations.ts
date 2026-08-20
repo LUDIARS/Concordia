@@ -109,27 +109,22 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
   envInteger("pr_queue.full_sync_min", "pr-queue", "全件同期の間隔 (分)", "CONCORDIA_PR_FULL_SYNC_MIN", null, "全件同期の実行間隔。"),
   envInteger("pr_queue.full_sync_limit", "pr-queue", "全件同期の取得上限", "CONCORDIA_PR_FULL_SYNC_LIMIT", null, "1 回の同期で取得する PR 数の上限。"),
   envString("pr_queue.sync_owner", "pr-queue", "同期対象の owner", "CONCORDIA_PR_SYNC_OWNER", null, "同期対象の GitHub owner。 未設定ならワークスペースの Organization に従う。"),
-  {
-    key: "pr_queue.revisor_token",
-    section: "pr-queue",
-    label: "Revisor トークン",
-    description: "Revisor API 呼び出しのトークン。 API には実値を返さない。",
-    kind: "secret",
-    envName: "CONCORDIA_REVISOR_TOKEN",
-    dbKey: null,
-    defaultValue: null,
-    editable: false,
-  },
+  // 旧 `pr_queue.revisor_token` (env CONCORDIA_REVISOR_TOKEN) は廃止。 Revisor は変更系を
+  // workflow token 1 本で認可するので、 別トークンは存在しない。
   {
     key: "pr_queue.revisor_workflow_token",
     section: "pr-queue",
     label: "Revisor ワークフロートークン",
-    description: "Revisor のワークフロー操作用トークン。 DB に暗号化保存され、 API には実値を返さない。",
+    description:
+      "local PR の提出・マージ・再審査に使う Revisor のトークン。 正本は DB (revisor_config) "
+      + "で、 secret-box 暗号化して保存する。 env からは読まない。 API には実値を返さない。",
     kind: "secret",
-    envName: "CONCORDIA_REVISOR_WORKFLOW_TOKEN",
-    dbKey: null,
+    envName: null,
+    dbKey: "workflow_token_enc",
+    dbStore: "revisor",
     defaultValue: null,
     editable: false,
+    managedBy: "設定 > Revisor",
   },
 ] as const;
 

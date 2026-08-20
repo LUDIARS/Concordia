@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, type RevisorConfigStatus } from "../api.js";
 
-// Revisor の workflow token をサービス内 (この画面) から設定する。
+// Revisor の workflow token をサービス内 (この画面) から設定する。ここが唯一の設定口で、
+// env からは読まない (旧 CONCORDIA_REVISOR_WORKFLOW_TOKEN は廃止)。
 // token は DB に暗号化保存され、値そのものは二度と返らない (set 済みと出所だけ表示)。
 // Revisor は loopback でも GET 以外 (local PR 提出 / merge / retry / リポ登録) に token を
 // 要求するので、これが未設定だと Cc から local PR を扱えない。
@@ -34,7 +35,9 @@ export function RevisorSettingsSection() {
     try {
       setStatus(await api.revisorConfigSet({ workflow_token: next }));
       setToken("");
-      setMsg(next === null ? "クリアしました (env フォールバックに戻ります)" : "保存しました");
+      setMsg(next === null
+        ? "クリアしました (未設定に戻ります。提出・マージは 401 になります)"
+        : "保存しました");
     } catch (e) {
       setMsg(`保存失敗: ${String(e)}`);
     } finally {
@@ -44,9 +47,7 @@ export function RevisorSettingsSection() {
 
   const sourceLabel = status?.source === "db"
     ? "この画面で設定した値 (DB / 暗号化)"
-    : status?.source === "env"
-      ? "env CONCORDIA_REVISOR_WORKFLOW_TOKEN"
-      : "未設定";
+    : "未設定";
 
   return (
     <div className="space-y-3">
@@ -56,6 +57,7 @@ export function RevisorSettingsSection() {
           local PR の提出・マージ・再審査に使う workflow token。Revisor 側の
           <code className="mx-1">revisor.config.json</code>
           に入っている値と同じものを入れる。保存は次のリクエストから効く (再起動不要)。
+          未設定だと提出・マージ・再審査がすべて 401 になる。
         </p>
       </div>
 

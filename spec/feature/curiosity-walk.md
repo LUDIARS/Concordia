@@ -12,6 +12,7 @@ tags:
   - chat-platforms
 status: draft
 related:
+  - feature/director-inquiry-session.md
   - feature/inquiry.md
   - feature/director.md
   - feature/boyaki-channel.md
@@ -27,7 +28,7 @@ updated: 2026-08-20
 
 ## 0. 何を装置にするのか
 
-[inquiry.md](inquiry.md) のお伺いは **1 つの
+[director-inquiry-session.md](director-inquiry-session.md) の問診セッションは **1 つの
 case の中で詰まった点**を人間に問う。決定を得るための問いであり、答えは必ず要る。
 
 散歩セッションはその双子で、目的が逆になる。**決定を求めない**。1 つの case の中を
@@ -108,7 +109,7 @@ case の中で詰まった点**を人間に問う。決定を得るための問�
 
 ## 6. 非対象
 
-- 決定の取得 (`inquiry` の持ち場)。
+- 決定の取得 (問診セッションと [inquiry.md](inquiry.md) のお伺いの持ち場)。
 - 自動でのタスク化・実装・PR 作成。
 - direction 面 / 質問カード / 催促タイマーの使用。
 - Cc 側での本文生成 (原則どおり行わない。生成は delegation 先のセッション)。

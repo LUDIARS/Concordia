@@ -13,7 +13,7 @@ memory_links: []
 # 散歩セッション — ランダムな組み合わせと他サービスへの興味から問いを起こす
 
 設計正本: `spec/feature/curiosity-walk.md`。
-対照となる機能: `spec/feature/inquiry.md` (決定を得る問い / こちらは決定を求めない問い)。
+双子の機能: `spec/feature/director-inquiry-session.md` (決定を得る問い / こちらは決定を求めない問い)。
 
 ## 目的
 

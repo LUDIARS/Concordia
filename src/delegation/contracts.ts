@@ -86,7 +86,7 @@ export type LaunchResult =
       effective_model: string | null;
       fast_mode: boolean;
       effort_decision_id: number | null;
-      /** 段階注入 (初回=調査ブリーフ) で起動したか。 run 行へ焼く。 */
-      staged_injection: boolean;
+      /** 起票できた Memoria 追跡タスク (実装委託のみ)。 run 行へ焼く。 */
+      memoria_task: { id: string; url: string } | null;
     }
   | { ok: false; error: string };

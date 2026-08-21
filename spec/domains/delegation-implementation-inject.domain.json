@@ -1,0 +1,17 @@
+{
+  "name": "delegation-implementation-inject",
+  "description": "実装委託の初回 inject (why + タスク本文 + Memoria 追跡タスク + 完了条件) の文面組み立てと Memoria 起票。段階注入 (調査ブリーフ → 後追い) は 2026-08-21 に廃止。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/delegation/implementation-inject(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/memoria-task(\\.test)?\\.ts$"
+    }
+  ],
+  "specRefs": [
+    "spec/feature/delegation-implementation-inject.md"
+  ]
+}

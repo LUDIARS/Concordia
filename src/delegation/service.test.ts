@@ -182,7 +182,10 @@ describe("DelegationService.invoke", () => {
     expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
-  it("gives codex-sdk implementation delegations the full prompt instead of an unreachable staged brief", async () => {
+  // 非対話 runner (codex-sdk = Satelles run) は 1 ターンで終了する。 段階注入時代は
+  // ここが「第 2 段階が届かず commit ゼロで completed」 の沈黙故障だった。 1 通注入に
+  // した今も、 タスク本文が初回 prompt file に載ることを引き続き守る。
+  it("gives codex-sdk implementation delegations the full task prompt in the first inject", async () => {
     repo.createTemplate({
       call_name: "satelles-impl",
       title: "Satelles implementation",
@@ -199,10 +202,12 @@ describe("DelegationService.invoke", () => {
     });
 
     if (!r.ok) throw new Error("expected ok");
+    // 新規 run は常に非段階 (列は既存行の読み出しのためだけに残置)。
     expect(r.run.staged_injection).toBe(0);
     const file = readFileSync(r.prompt_file_path, "utf8");
     expect(file).toContain("Implement the complete feature");
     expect(file).not.toContain("## 第 1 段階: 調査ブリーフ");
+    expect(file).not.toContain("/investigated");
   });
 
   it("extra_prompt: render 結果末尾に追記し、prompt file と rendered_prompt 両方に載る", async () => {

@@ -37,6 +37,12 @@ claim 対象サービスに限り条件付き allow」で成立させる。
 
 ## 1. 開始 (契約確定時)
 
+> 2026-08-21: mode は spawn 時の決定論 seed が決め切る (session-contract §3.3)。
+> 高リスク語 (migration / schema / 認証 / 削除 / 複数リポ / 新規サービス) に当たらない
+> タスクは vibes、 当たれば plan。 plan/vibes を人間に選ばせる契約カードは撤廃した。
+> vibes の testing claim 対象サービスは Excubitor catalog から解決できたときだけ
+> `required: true` になる (解決できなければ claim なしで開始し、 起動・再起動はしない)。
+
 契約が `mode: "vibes"` に確定すると:
 
 1. Cc が対象サービスの **testing claim を自動取得** (`POST /v1/testing/claim`、 既存の

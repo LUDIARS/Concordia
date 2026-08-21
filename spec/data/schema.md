@@ -16,7 +16,7 @@ tags:
 status: implemented
 related:
   - ../interface/service-schema.md
-  - ../feature/delegation-staged-injection.md
+  - ../feature/delegation-implementation-inject.md
 updated: 2026-08-13
 ---
 

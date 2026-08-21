@@ -13,19 +13,6 @@ export interface DelegationManual {
 }
 
 /**
- * 起動直後の振る舞い方針。
- *
- * - `approval` (既定): 従来どおり。 方針が複数あり得るなら着手前にユーザ承認を待つ。
- * - `investigation`: 段階注入の第1段階。 まず調べる。 通常の不明点で停止しない。
- *   実装タスクは調査報告のあとに後追いで届く (staged-injection.ts)。
- *
- * 両者は同時に成立しない。 `approval` の文言 (「方針が複数あり得る/影響が大きいなら
- * 承認を待つ」) を残したまま調査ブリーフを渡すと、 委託先は矛盾を安全側に解釈して
- * 初回ターンで質問を返し停止する。 ここで排他に切り替えるのはそのため。
- */
-export type DelegationPosture = "approval" | "investigation";
-
-/**
  * delegation prompt の冒頭に差し込む context ブロックを組み立てる。
  *
  * @param concordiaUrl  協調 API のベース URL (既定 http://127.0.0.1:11111)
@@ -33,8 +20,7 @@ export type DelegationPosture = "approval" | "investigation";
  *                      「## 作業マニュアル (kind: …)」節として差し込む。
  * @param commandPatternBlock  Genius command-pattern の整形済みブロック
  *                      (delegation/command-patterns.ts)。 マニュアルの直後に置く。
- * @param posture       起動直後の振る舞い方針 (既定 approval)。
- * @param teamRules     選択チームの委託ルール。 posture と独立して同じ文脈へ差し込む。
+ * @param teamRules     選択チームの委託ルール。 作業姿勢と独立して同じ文脈へ差し込む。
  * @param prRules       選択チームの typed PR ルール (teams §3.1 A層)。 base branch 案内を
  *                      ヒューリスティック推測からチーム設定優先に切り替える。
  */
@@ -42,7 +28,6 @@ export function buildDelegationContext(
   concordiaUrl = "http://127.0.0.1:11111",
   manual?: DelegationManual | null,
   commandPatternBlock?: string | null,
-  posture: DelegationPosture = "approval",
   teamRules?: { team: string; rules: string } | null,
   prRules?: { base: string; push: "revisor" } | null,
 ): string {
@@ -87,7 +72,7 @@ export function buildDelegationContext(
     "  直後も同様に、 まず受領と次の一手を短く宣言してから動きます。",
     "- 報告のあとに実作業へ進みます。 委託元/ユーザはこの宣言を見て次の行動を取ります。",
     "",
-    ...(posture === "investigation" ? investigationPostureLines() : approvalPostureLines()),
+    ...workPostureLines(),
     "### 作業が終わったらコミットする (重要)",
     "",
     "- 承認された作業が完了 / 一段落したら、 変更を **必ずコミットしてください** (未コミットのまま",
@@ -103,6 +88,13 @@ export function buildDelegationContext(
     "- ユーザが明示的に指示しない限り、単体・統合・動作・起動を含むテストを実行しません。",
     "- 実装完了の責務は commit + push + PR + delegation status 報告までです。PR 作成後は停止します。",
     "- ユーザが明示的に指示しない限り、merge・squash merge・auto-merge・main 更新を行いません。",
+    "",
+    "### 終わったら自分でセッションを閉じる (重要)",
+    "",
+    "- 完了 (または partial/failed) の status 報告まで終えたら、 **その場で session-end してください**。",
+    "  待機して次の指示を待つ / 別のタスクを自分で探して着手する、 のどちらもしません。",
+    "- 追加でやるべきことに気づいたら、 自分で始めずに status 報告の `remaining` へ書いて終了します。",
+    "- 終了処理は「作業ブランチのコミット + Revisor local PR 提出 + status 報告 → session-end」の順です。",
     "",
     "### 子タスクは Cc Delegation で起動する (重要)",
     "",
@@ -139,37 +131,27 @@ export function buildDelegationContext(
   return lines.join("\n");
 }
 
-/** 既定 (承認待ち) の姿勢。 段階注入を使わない委託はこれまでどおりこちら。 */
-function approvalPostureLines(): string[] {
-  return [
-    "### 勝手に作業しない (重要)",
-    "",
-    "- **明確な指示・承認がないまま実作業 (コード変更 / ファイル作成・削除 / コミット / 外部送信",
-    "  など) を勝手に始めないでください。** 委託プロンプトで与えられた範囲を超える追加作業も同様。",
-    "- 方針が複数あり得る / スコープが曖昧 / 影響が大きい場合は、 着手前に方針を 1〜3 行で示して",
-    "  ユーザの承認を待ちます。 「やっておきました」 ではなく 「こう進めてよいですか」 が既定。",
-    "- 調査・読み取りは進めてよいですが、 変更を伴う一歩はユーザの GO を確認してから踏み出します。",
-    "",
-  ];
-}
-
 /**
- * 段階注入 (第1段階) の姿勢。 「まず調べる」 を既定にし、 停止してよい条件を
- * 2 つに限定する。 approval 版の 「方針が複数あり得るなら承認を待つ」 とは併存させない。
+ * 作業姿勢。 通常の不明点では止まらず自分で決めて進み、 停止してよいのは外部権限と
+ * 本当に不可逆な選択の 2 つだけ、 とする。
+ *
+ * 以前の「方針が複数あり得るなら着手前に承認を待つ」 は、 委託先 (特に Claude/Opus) が
+ * 初回ターンで質問を返して止まる原因だった。 委託元は答えを持っていないので、 その質問は
+ * 誰にも解けず run が宙に浮く。 段階注入 (調査ブリーフ) はその回避策だったが、 段階自体が
+ * 別の停止点になったため 2026-08-21 に廃止し、 姿勢の側を一本化した。
  */
-function investigationPostureLines(): string[] {
+function workPostureLines(): string[] {
   return [
-    "### まず調べる — 通常の不明点で停止しない (重要)",
+    "### 通常の不明点で停止しない (重要)",
     "",
-    "- この委託は **調査 → 実装** の 2 段階です。 いま渡されているのは調査ブリーフで、",
-    "  実装タスク本文・理由・完了条件は調査報告のあとに Concordia が inject します。",
-    "- 調査中に出てくる通常の不明点 (どのファイルか / 命名 / 実装順序 / テストの粒度 / 既存実装の意図)",
-    "  は、 **コードと spec を根拠に自分で判断して進めます**。 ユーザや親セッションに質問して停止しないでください。",
+    "- どのファイルを触るか / 命名 / 実装順序 / テストの粒度 / 既存実装の意図 といった不明点は、",
+    "  **コードと spec を根拠に自分で決めて進めます**。 ユーザや親セッションに聞いて止まらないでください。",
+    "- コードの配置・既存実装・影響範囲は **Anatomia の解析グラフ**から引きます",
+    "  (`/anatomia-analyze` の supply → CLI の `find` / `where` / `context`)。 事前の調査報告は要りません。",
     "- 停止して質問してよいのは次の 2 つだけです。 いずれも調べた事実を根拠として添えます。",
     "  - **外部権限が必要**なとき (未取得の credential、 外部サービスへの書き込み、 リポジトリ外への公開)",
     "  - **本当に不可逆な選択**のとき (データ破壊、 履歴書き換え、 公開済み成果物の削除)",
-    "- 上記に当たる事項も、 まず調査報告の `blockers` に載せて調査自体は完走させます。",
-    "- 調査の範囲では変更を伴う一歩 (コード変更・コミット) を踏み出しません。 実装は第 2 段階が届いてからです。",
+    "- 上記に当たる事項も、 まずは status 報告の detail / PR 本文へ書いて作業自体は完走させます。",
     "",
   ];
 }

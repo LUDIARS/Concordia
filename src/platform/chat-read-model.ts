@@ -45,7 +45,7 @@ export interface SessionRelayState {
   requesterDiscordUserId?: string | null;
   startupInjectText?: string | null;
   startupContextPosted?: boolean;
-  /** spawn 時に渡したタスク本文。 タスク未指定の Cc spawn は「何もするな」。 */
+  /** spawn 時に渡したタスク本文。 タスク未指定の Cc spawn は待機指示 (BLANK_SESSION_TASK)。 */
   startupTaskText?: string | null;
   /** タスク本文 message を投稿済みか。 */
   taskPosted?: boolean;

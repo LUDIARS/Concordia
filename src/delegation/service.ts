@@ -27,7 +27,14 @@ import {
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
-import { buildInvestigationBrief, decideStagedInjection } from "./staged-injection.js";
+import {
+  IMPLEMENTATION_MANUAL_KIND,
+  buildImplementationInject,
+  buildMemoriaTaskDraft,
+  resolveWhy,
+  type MemoriaTaskLink,
+} from "./implementation-inject.js";
+import { createDelegationMemoriaTask, type DelegationMemoriaPort } from "./memoria-task.js";
 import { createChildLogger } from "../shared/logger.js";
 import { baselineEffort, classifyTaskEffort, supportsAutomaticEffort, type EffortTaskBucket } from "./effort-policy.js";
 import type { DelegationEffortBlackbox } from "./effort-blackbox.js";
@@ -118,11 +125,10 @@ export interface DelegationServiceDeps {
   /** team settings `pr_rules` (teams §3.1)。 委託 brief の base branch 案内へ反映する。 */
   teamPrRules?: (teamIdOrSlug: string) => { base: string; push: "revisor" } | null;
   /**
-   * 段階注入 (初回=調査ブリーフ / 後追い=実装タスク) を使うか。 毎回評価するので
-   * 設定変更が再起動なしで効く。 未注入なら有効 (既定 ON)。
-   * spec/feature/delegation-staged-injection.md。
+   * 実装委託の追跡タスクを起票する Memoria の口。 composition root で遅延解決するため
+   * 関数で受ける。 未注入・失敗は fail-soft (委託は止めず、 未起票を本文へ書く)。
    */
-  resolveStagedInjectionEnabled?: () => boolean;
+  memoria?: () => DelegationMemoriaPort | null;
 }
 
 export class DelegationService {
@@ -257,8 +263,10 @@ export class DelegationService {
       spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
       team_id: requestedTeam?.id ?? null,
-      staged_injection: launch.staged_injection,
     });
+    if (launch.memoria_task) {
+      this.deps.repo.recordMemoriaTask(runId, launch.memoria_task.id, launch.memoria_task.url);
+    }
 
     return {
       ok: true,
@@ -436,35 +444,44 @@ export class DelegationService {
         // Command patterns are advisory; Genius failure must not block delegation launch.
       }
     }
-    // 実装委託は 2 段階に割る: 初回は調査ブリーフだけを渡し、 タスク本文 (rendered_prompt)
-    // は run 行に置いたまま伏せる。 委託先の調査報告を受けて第2段階で配信する。
-    // codex-sdk (Satelles run) は 1 ターンで終了するので段階注入は届かない → 初回に全文を渡す。
-    const staged = decideStagedInjection({
-      manualKind,
-      repoPath: cwd ?? null,
-      enabled: this.deps.resolveStagedInjectionEnabled?.() ?? true,
-      provider,
-    });
     const contextBlock = buildDelegationContext(
       this.deps.concordiaUrl,
       manualContent ? { kind: manualKind, content: manualContent } : null,
       commandPatternBlock,
-      staged.staged ? "investigation" : "approval",
       typeof effectiveOptions.team === "string" ? this.deps.teamRules?.(effectiveOptions.team) ?? null : null,
       typeof effectiveOptions.team === "string" ? this.deps.teamPrRules?.(effectiveOptions.team) ?? null : null,
     );
-    const promptSection = staged.staged
-      ? buildInvestigationBrief({
+    // 実装委託は 1 通で全部渡す (段階注入は 2026-08-21 に廃止)。 why + タスク本文 +
+    // Memoria タスク + 完了条件を初回 inject に載せ、 調査は委託先が Anatomia で自走する。
+    // spec/feature/delegation-implementation-inject.md。
+    let memoriaLink: MemoriaTaskLink | null = null;
+    let promptSection = renderedPrompt;
+    if (manualKind === IMPLEMENTATION_MANUAL_KIND) {
+      const why = resolveWhy({ args: input.args ?? {}, title: def.title });
+      const memoria = await createDelegationMemoriaTask(
+        this.deps.memoria?.() ?? null,
+        buildMemoriaTaskDraft({
+          runId,
+          callName: def.call_name,
+          title: def.title,
+          task: renderedPrompt,
+          why,
+          repoPath: cwd ?? null,
+        }),
+        runId,
+      );
+      memoriaLink = memoria.link;
+      promptSection = buildImplementationInject({
         runId,
         title: def.title,
-        renderedPrompt,
-        repoPath: cwd as string,
+        task: renderedPrompt,
+        why,
+        memoria: memoria.link,
+        memoriaError: memoria.error,
+        repoPath: cwd ?? null,
         branch: spawnBranch,
         concordiaUrl: this.deps.concordiaUrl ?? "http://127.0.0.1:11111",
-      })
-      : renderedPrompt;
-    if (!staged.staged) {
-      log.info({ run_id: runId, call_name: def.call_name, reason: staged.reason }, "delegation staged injection skipped");
+      });
     }
     try {
       await mkdir(this.promptsDir, { recursive: true });
@@ -538,7 +555,7 @@ export class DelegationService {
       effective_model: spawn.effectiveModel,
       fast_mode: effectiveOptions.fast_mode === true,
       effort_decision_id: effortDecisionId,
-      staged_injection: staged.staged,
+      memoria_task: memoriaLink,
     };
   }
 }

@@ -527,8 +527,8 @@ export async function startBackend(): Promise<BackendHandle> {
       const team = teamsRepo.findByIdOrSlug(value);
       return team ? parseTeamSettings(team).pr_rules ?? null : null;
     },
-    // 段階注入 (初回=調査ブリーフ / 後追い=実装タスク)。設定は都度解決する。
-    resolveStagedInjectionEnabled: () => adminState.getDelegationStagedInjectionEnabled(),
+    // 実装委託の追跡タスク起票先。 memoriaClient はこの後で組むので遅延解決にする。
+    memoria: () => memoriaClient ?? null,
   });
   // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
   // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して

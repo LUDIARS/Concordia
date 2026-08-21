@@ -71,7 +71,7 @@ describe("session contract", () => {
       .toBe("team_explicit");
   });
 
-  it("keeps team undecided when a repository has multiple candidates", async () => {
+  it("keeps team undecided when a repository has multiple candidates, without blocking the contract", async () => {
     const db = makeTestDb();
     const sessions = new SessionsRepo(db);
     sessions.insertSession({
@@ -98,7 +98,10 @@ describe("session contract", () => {
     );
 
     const contract = parseContractMetadata(sessions.findSession("multi-team-session")?.metadata ?? null);
-    expect(contract?.team).toBeNull();
-    expect(isContractComplete(contract)).toBe(false);
+    // チームは未確定のまま (どちらの候補も勝手に選ばない)。
+    expect(contract?.team?.value).toBeNull();
+    // ただし契約は成立させる。 未決のまま残すと contract-incomplete が編集を全 deny し、
+    // 複数チーム repo だけ「カード待ちで止まる」 が復活する (2026-08-21 の撤廃対象)。
+    expect(isContractComplete(contract)).toBe(true);
   });
 });

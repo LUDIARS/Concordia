@@ -13,6 +13,6 @@
   ],
   "specRefs": [
     "spec/feature/delegation.md",
-    "spec/feature/delegation-staged-injection.md"
+    "spec/feature/delegation-implementation-inject.md"
   ]
 }

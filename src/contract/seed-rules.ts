@@ -24,14 +24,22 @@ export function resolveTeamWorkLocation(
   return mode === "plan" ? "worktree" : null;
 }
 
+/**
+ * mode は決定論で決め切る (2026-08-21 neco 指示で判断ダイアログを撤廃)。
+ *
+ * 以前は高リスク語に当たらないタスクの mode を null のまま残し、 Discord の契約カードで
+ * 人間に plan/vibes を選ばせていた。 未回答の間は契約が未確定 = harness の
+ * contract-incomplete が編集を全部 deny するため、 委託セッションはカードを待って止まった。
+ * 判断自体に意味が無い (回答は事実上いつも同じ) ので、 seed 側で決め切る。
+ */
 export function seedSessionContract(session: SessionRow, task: string, defaultSupervisor: string, teamId?: string | null, teamSettings?: TeamContractSettings | null): SessionContract {
-  const mode = PLAN_PATTERN.test(task) ? "plan" : null;
+  const mode: "plan" | "vibes" = PLAN_PATTERN.test(task) ? "plan" : "vibes";
   const model = readRuntimeModel(session.metadata);
   const effort = readRuntimeEffort(session.metadata);
   const workLocation = resolveTeamWorkLocation(mode, teamSettings);
   return {
     version: 1,
-    mode: mode ? decided(mode, "高リスク作業を決定論で検出") : null,
+    mode: decided(mode, mode === "plan" ? "高リスク作業を決定論で検出" : "高リスク語に当たらないため既定レーン"),
     team: decided(teamId ?? null, teamId ? "repository has one configured team" : "team 未導入・未所属を明示"),
     // runtime が実際に報告した model / effort だけを seed とする。 不明なら null のまま
     // 残し、 LLM tier (review-port) → 質問カード (human tier) が決める。 provider 名や
@@ -39,14 +47,20 @@ export function seedSessionContract(session: SessionRow, task: string, defaultSu
     model: model ? decided(model, "現在の session runtime") : null,
     effort: effort ? decided(effort, "現在の session runtime") : null,
     work_branch: decided(session.branch ?? `feat/${slug(task)}`, "checkout branch または task slug"),
-    work_location: workLocation
-      ? decided(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "plan mode の決定論規則")
-      : null,
+    work_location: decided(
+      workLocation ?? (mode === "vibes" ? "repo-root" : "worktree"),
+      teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode の決定論規則",
+    ),
     scope_dirs: decided(["."], "登録 repo root からの相対スコープ"),
-    acceptance: mode ? decided("plan", "plan mode の受け入れ経路") : null,
+    acceptance: decided(mode === "plan" ? "plan" : "human-ok", "mode から導出"),
     goal_and_go: decided({ enabled: metadataBoolean(session.metadata, "goal_and_go", "enabled") ?? false }, "spawn option"),
     continuation: decided("requeue", "プロセス使い捨てを既定とする"),
-    testing_claim: mode ? decided({ required: false, service: null }, "plan は testing claim 不要") : null,
+    // vibes の service は spawn 時点では解けない (Excubitor catalog 参照が非同期)。
+    // 解決できたら ensureSessionContract が seed の上から埋め直す。
+    testing_claim: decided(
+      { required: false, service: null },
+      mode === "plan" ? "plan は testing claim 不要" : "vibes: service 未解決 (必要なら claim を明示取得)",
+    ),
     supervisor: decided(defaultSupervisor, "CONCORDIA_DEFAULT_SUPERVISOR"),
   };
 }

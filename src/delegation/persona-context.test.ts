@@ -77,48 +77,54 @@ describe("buildDelegationContext", () => {
     expect(ctx).toContain("# タイトル、## 目的、## 完了条件を日本語で空欄なく設計");
   });
 
-  // 段階注入 (spec/feature/delegation-staged-injection.md)。 approval と investigation は
-  // 排他 — 併存させると委託先が矛盾を安全側に解釈して初回ターンで停止する。
-  describe("posture", () => {
-    it("既定 (approval) は従来どおり承認待ちの節を含む", () => {
+  // 作業姿勢は 1 つだけ (spec/feature/delegation-implementation-inject.md §3)。
+  // 「承認を待つ」姿勢は初回ターンの停止原因だったので廃止した。
+  describe("作業姿勢", () => {
+    it("通常の不明点では停止しない節を含み、承認待ちの節は含まない", () => {
       const ctx = buildDelegationContext("http://127.0.0.1:11111");
-      expect(ctx).toContain("### 勝手に作業しない (重要)");
-      expect(ctx).toContain("ユーザの承認を待ちます");
-      expect(ctx).not.toContain("### まず調べる");
-    });
-
-    it("investigation では承認待ちの節が消え、調査姿勢に置き換わる", () => {
-      const ctx = buildDelegationContext("http://127.0.0.1:11111", null, null, "investigation");
-      expect(ctx).toContain("### まず調べる — 通常の不明点で停止しない (重要)");
+      expect(ctx).toContain("### 通常の不明点で停止しない (重要)");
       expect(ctx).not.toContain("### 勝手に作業しない (重要)");
       expect(ctx).not.toContain("ユーザの承認を待ちます");
     });
 
-    it("investigation は停止してよい 2 条件だけを認める", () => {
-      const ctx = buildDelegationContext("http://127.0.0.1:11111", null, null, "investigation");
+    it("停止してよい 2 条件だけを認める", () => {
+      const ctx = buildDelegationContext("http://127.0.0.1:11111");
       expect(ctx).toContain("外部権限が必要");
       expect(ctx).toContain("本当に不可逆な選択");
-      expect(ctx).toContain("質問して停止しないでください");
+      expect(ctx).toContain("聞いて止まらないでください");
     });
 
-    it("posture を変えても status/inject プロトコルと言語ポリシーは残る", () => {
-      const ctx = buildDelegationContext("http://127.0.0.1:11111", null, null, "investigation");
+    it("調査は Anatomia の解析グラフへ寄せる (調査ブリーフ工程は無い)", () => {
+      const ctx = buildDelegationContext("http://127.0.0.1:11111");
+      expect(ctx).toContain("Anatomia の解析グラフ");
+      expect(ctx).toContain("/anatomia-analyze");
+      expect(ctx).toContain("事前の調査報告は要りません");
+    });
+
+    it("完了報告のあとは自分で session-end し、次のタスクを拾わない", () => {
+      const ctx = buildDelegationContext("http://127.0.0.1:11111");
+      expect(ctx).toContain("### 終わったら自分でセッションを閉じる (重要)");
+      expect(ctx).toContain("その場で session-end してください");
+      expect(ctx).toContain("別のタスクを自分で探して着手する、 のどちらもしません");
+      expect(ctx).toContain("`remaining` へ書いて終了");
+    });
+
+    it("status/inject プロトコルと言語ポリシーは残る", () => {
+      const ctx = buildDelegationContext("http://127.0.0.1:11111");
       expect(ctx).toContain("## Delegation status / inject protocol (required)");
       expect(ctx).toContain("## 言語ポリシー (required)");
     });
 
-    it("investigation posture と team rules を同じ委託文脈へ保持する", () => {
+    it("team rules と作業姿勢を同じ委託文脈へ保持する", () => {
       const ctx = buildDelegationContext(
         "http://127.0.0.1:11111",
         null,
         null,
-        "investigation",
         { team: "Concordia", rules: "Use the team-owned worktree." },
       );
       expect(ctx).toContain("## Team rules (Concordia)");
       expect(ctx).toContain("Use the team-owned worktree.");
-      expect(ctx).toContain("### まず調べる");
-      expect(ctx).not.toContain("### 勝手に作業しない (重要)");
+      expect(ctx).toContain("### 通常の不明点で停止しない (重要)");
     });
   });
 
@@ -128,7 +134,6 @@ describe("buildDelegationContext", () => {
         "http://127.0.0.1:11111",
         null,
         null,
-        "approval",
         null,
         { base: "develop", push: "revisor" },
       );

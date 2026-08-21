@@ -5,7 +5,7 @@ import type { SessionRow } from "../shared/types.js";
 import type { ModelReviewOutcome, ModelReviewPort } from "../model-review/contracts.js";
 import { ensureSessionContract } from "./lifecycle.js";
 import { ModelReviewContractAdapter } from "./model-review-adapter.js";
-import { parseContractMetadata } from "./schema.js";
+import { isContractComplete, parseContractMetadata } from "./schema.js";
 import { patchContractHuman } from "./store.js";
 
 function insertSession(sessions: SessionsRepo, id: string, metadata: Record<string, unknown> | null): void {
@@ -64,7 +64,9 @@ describe("ensureSessionContract (model-review absorption)", () => {
     expect(apply).toHaveBeenCalledWith({ sessionId: "s-absorb", model: "gpt-5.3-codex", effort: "high" });
   });
 
-  it("keeps fields unresolved (not current-value fallbacks) on a Genius miss", async () => {
+  // 質問カード撤廃後は未決を残せない (未決 = harness が編集を deny する)。
+  // Genius miss でも seed tier の runtime 既定で埋め切り、 runtime 切替はしない。
+  it("completes model/effort with seed-tier runtime defaults on a Genius miss", async () => {
     const sessions = new SessionsRepo(makeTestDb());
     insertSession(sessions, "s-miss", null);
     const apply = vi.fn();
@@ -82,9 +84,38 @@ describe("ensureSessionContract (model-review absorption)", () => {
     );
 
     const contract = parseContractMetadata(sessions.findSession("s-miss")?.metadata ?? null);
-    expect(contract?.model).toBeNull();
-    expect(contract?.effort).toBeNull();
+    expect(contract?.model?.decided_by).toBe("seed");
+    expect(contract?.effort?.decided_by).toBe("seed");
     expect(apply).not.toHaveBeenCalled();
+  });
+
+  // 契約カード撤廃で埋め残った唯一のフィールドが team だった。 複数チーム repo では
+  // ensureSessionContract が team を null に落とすため、 backstop が無いと
+  // isContractComplete が永久に false = harness の contract-incomplete が編集を全 deny する。
+  // 「委託セッションがカード待ちで止まる」 を潰すのがこの PR の目的なので、 そこを守る。
+  it("completes the contract on a multi-team repo even without a questions repo", async () => {
+    const sessions = new SessionsRepo(makeTestDb());
+    insertSession(sessions, "s-multi-team", null);
+    const teams = [
+      { id: "team-a", name: "Alpha", settings: {} },
+      { id: "team-b", name: "Bravo", settings: {} },
+    ];
+
+    await ensureSessionContract(
+      sessions,
+      "s-multi-team",
+      "small fix",
+      "discord:1",
+      undefined,
+      undefined,
+      () => teams,
+    );
+
+    const contract = parseContractMetadata(sessions.findSession("s-multi-team")?.metadata ?? null);
+    // team は「未選択」を明示した seed で埋まる (値は null のまま = チーム未確定)。
+    expect(contract?.team).toMatchObject({ value: null, decided_by: "seed" });
+    // 契約自体は成立する → contract-incomplete で編集が deny されない。
+    expect(isContractComplete(contract)).toBe(true);
   });
 
   it("re-reviews reported runtime model/effort and applies a different proposal", async () => {

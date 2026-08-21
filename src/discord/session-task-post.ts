@@ -69,15 +69,14 @@ export function stripDelegationInjectHeader(text: string): string {
 /**
  * この message を pin するか。
  *
- * - 「何もするな」は作業の宣言ではないので pin しない (thread 上部を占有させない)。
- * - 段階注入 run の第 1 段階は調査ブリーフであってタスク本文ではない。 pin は第 2 段階に譲る。
+ * - 待機指示 (BLANK_SESSION_TASK) は作業の宣言ではないので pin しない (thread 上部を占有させない)。
  * - 補足・追加指示は最初のタスク本文ではないので pin しない。
  * - 既に pin 済みなら 2 通目以降は pin しない (「最初のタスク本文」だけを定位置に置く)。
  */
 export function shouldPinSessionTask(input: {
   kind: SessionTaskKind;
   taskText: string;
-  /** この run が段階注入で、 実装タスク本文がまだ届いていないか。 */
+  /** 旧 (段階注入) run で実装タスク本文がまだ届いていないか。 新規 run は常に false。 */
   stagedPending: boolean;
   alreadyPinned: boolean;
 }): boolean {

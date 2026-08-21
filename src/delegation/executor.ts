@@ -46,7 +46,10 @@ export async function executeQueuedRun(input: {
     spawn_worktree_path: launch.worktree_path,
     spawn_worktree_created: launch.worktree_created,
     effort_decision_id: launch.effort_decision_id,
-    staged_injection: launch.staged_injection,
   };
+  // 起票できた追跡タスクは run へ焼く (未関連のときだけ書かれる = 二重起票なし)。
+  if (launch.memoria_task) {
+    input.repo.recordMemoriaTask(input.run.id, launch.memoria_task.id, launch.memoria_task.url);
+  }
   emitDelegationRunChanged(input.repo.markRunSpawned(input.run.id, outcome, claim));
 }

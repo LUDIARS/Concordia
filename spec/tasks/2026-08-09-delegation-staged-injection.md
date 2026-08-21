@@ -6,7 +6,7 @@ status: done
 service: concordia
 created: 2026-08-09
 updated: 2026-08-13
-spec: spec/feature/delegation-staged-injection.md
+spec: spec/feature/delegation-implementation-inject.md
 problem_log: spec/plan/problem_logs/2026-08-09-delegation-initial-inject-stall.md
 ---
 

@@ -76,17 +76,6 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
-    key: "workflow.delegation_staged_injection_enabled",
-    section: "workflow",
-    label: "実装委託の段階注入",
-    description: "実装委託は初回に調査ブリーフだけを渡し、調査報告後に実装タスクを配信する。",
-    kind: "boolean",
-    envName: null,
-    dbKey: "admin.delegation_staged_injection_enabled",
-    defaultValue: true,
-    editable: true,
-  },
-  {
     key: "workflow.reaction_emoji_overrides",
     section: "workflow",
     label: "絵文字 → アクション対応",

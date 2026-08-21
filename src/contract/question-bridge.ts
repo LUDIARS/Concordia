@@ -4,12 +4,7 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { isContractComplete, parseContractMetadata, type SessionContract } from "./schema.js";
 import { saveContract } from "./store.js";
-import {
-  readRuntimeEffort,
-  readRuntimeModel,
-  resolveTeamWorkLocation,
-  type TeamContractSettings,
-} from "./seed-rules.js";
+import { resolveTeamWorkLocation, type TeamContractSettings } from "./seed-rules.js";
 import { applyContractModelEffort, type ApplyModelEffortFn } from "./runtime-apply.js";
 
 export const TEAM_PREFIX = "Select the team for this repository";
@@ -42,36 +37,18 @@ export function postTeamQuestion(input: {
   });
 }
 
-const PREFIX = "セッション契約の未決項目";
-export function postContractQuestion(input: {
-  questions: DiscordPendingQuestionsRepo;
-  sessionId: string;
-  unresolved: string[];
-}): number | null {
-  if (input.unresolved.length === 0 || input.questions.findUnansweredByQuestion(input.sessionId, `${PREFIX}: ${input.unresolved.join(", ")}`)) return null;
-  const row = input.questions.insert({
-    session_id: input.sessionId,
-    question: `${PREFIX}: ${input.unresolved.join(", ")}`,
-    options: [
-      { label: "plan", description: "設問・設計・承認後に実装" },
-      { label: "vibes", description: "testing claim 下で目視調整" },
-    ],
-  });
-  eventBus.emit({
-    type: "question.posted",
-    target_session_id: input.sessionId,
-    question_id: row.id,
-    question: row.question,
-    options: JSON.parse(row.options_json),
-    ts: row.ts,
-  });
-  return row.id;
-}
+/**
+ * plan/vibes の判断ダイアログ (契約カード) は 2026-08-21 に撤廃した。
+ *
+ * 判断そのものに意味が無く (回答は事実上いつも同じ)、 未回答の間は契約が未確定として
+ * harness が編集を deny するため、 Task Workflow の委託セッションがカード待ちで止まる
+ * 停止バグになっていた。 mode は seedSessionContract が決定論で決め切る。
+ * 残るカードはチーム選択 (TEAM_PREFIX) だけ。
+ */
 
 export function startContractQuestionAnswers(input: {
   sessions: SessionsRepo;
   questions: DiscordPendingQuestionsRepo;
-  resolveService?: (repoName: string) => string | null | Promise<string | null>;
   resolveTeam?: (repo: string, name: string) => string | null;
   resolveTeamSettings?: (teamId: string) => TeamContractSettings | null;
   applyModelEffort?: ApplyModelEffortFn;
@@ -106,7 +83,7 @@ export function startContractQuestionAnswers(input: {
           ...(workLocation ? {
             work_location: human(
               workLocation,
-              teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode回答から導出",
+              teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "契約 mode から導出",
             ),
           } : {}),
         },
@@ -117,31 +94,6 @@ export function startContractQuestionAnswers(input: {
       if (isContractComplete(updated)) input.onCompleted?.(event.target_session_id, updated);
       return;
     }
-    if (!row.question.startsWith(PREFIX)) return;
-    const normalizedAnswer = event.answer_text.trim().toLowerCase();
-    if (normalizedAnswer !== "vibes" && normalizedAnswer !== "plan") return;
-    const mode = normalizedAnswer;
-    const service = mode === "vibes" ? await input.resolveService?.(session.target_project ?? session.repo_path) ?? null : null;
-    // worktree=repo-root-only のチームは plan mode でも worktree を許さない
-    // (seedSessionContract の team 既定と同じ規則をここでも適用する)。
-    const teamSettings = contract.team?.value
-      ? input.resolveTeamSettings?.(contract.team.value) ?? null
-      : null;
-    const workLocation = resolveTeamWorkLocation(mode, teamSettings)!;
-    const completed: SessionContract = {
-      ...contract,
-      mode: human(mode, "契約カード回答"),
-      model: contract.model ?? human(readRuntimeModel(session.metadata) ?? session.provider, "契約カードで現runtime維持"),
-      effort: contract.effort ?? human(readRuntimeEffort(session.metadata) ?? "medium", "契約カードで現runtime維持"),
-      work_location: human(workLocation, teamSettings?.worktree === "repo-root-only" ? "team settings: worktree=repo-root-only" : "mode回答から導出"),
-      acceptance: human(mode === "vibes" ? "human-ok" : "plan", "mode回答から導出"),
-      testing_claim: service || mode === "plan"
-        ? human({ required: mode === "vibes", service }, "Excubitor catalog service resolver")
-        : null,
-    };
-    const updated = saveContract(input.sessions, event.target_session_id, completed, "contract-question-answer", event.ts);
-    await applyModelEffortDecision(input, event.target_session_id, updated);
-    if (isContractComplete(updated)) input.onCompleted?.(event.target_session_id, updated);
   };
   return {
     stop: eventBus.subscribe((event) => {

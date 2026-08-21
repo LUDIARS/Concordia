@@ -55,8 +55,6 @@ export class AdminState {
   // 発火ユーザの allowlist は撤去済み (社員名簿 staff_members が判定の正本)。
   getRevisorAutoSubmitEnabled(): boolean { return this.workflow.getRevisorAutoSubmitEnabled(); }
   setRevisorAutoSubmitEnabled(value: boolean): void { this.workflow.setRevisorAutoSubmitEnabled(value); }
-  getDelegationStagedInjectionEnabled(): boolean { return this.workflow.getDelegationStagedInjectionEnabled(); }
-  setDelegationStagedInjectionEnabled(value: boolean): void { this.workflow.setDelegationStagedInjectionEnabled(value); }
   getCcWorkflowEnabled(): boolean { return this.workflow.getCcEnabled(); }
   setCcWorkflowEnabled(value: boolean): void { this.workflow.setCcEnabled(value); }
   getReactionEmojiOverrides(): Record<string, string> { return this.workflow.getEmojiOverrides(); }
@@ -101,7 +99,6 @@ export class AdminState {
       github_org: this.getGithubOrg(), reaction_workflow_enabled: this.getReactionWorkflowEnabled(),
       cc_workflow_enabled: this.getCcWorkflowEnabled(),
       revisor_auto_submit_enabled: this.getRevisorAutoSubmitEnabled(),
-      delegation_staged_injection_enabled: this.getDelegationStagedInjectionEnabled(),
       lictor_mode: this.getLictorMode(),
       lictor_dev_path: this.getLictorDevPath(), lictor_prod_exe: this.getLictorProdExe(),
       daily_token_budget: this.getDailyTokenBudget(), delegation_max_concurrency: this.getDelegationMaxConcurrency(),

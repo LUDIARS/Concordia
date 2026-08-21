@@ -29,7 +29,8 @@ updated: 2026-08-18
    本文というより「補足」に見える。
 
 2. **段階注入の第 2 段階が転記されていなかった。**
-   段階注入 (`spec/feature/delegation-staged-injection.md`) の run では、第 1 段階で渡すのは
+   段階注入 (2026-08-21 廃止。 現行は `spec/feature/delegation-implementation-inject.md`) の
+   run では、第 1 段階で渡すのは
    調査ブリーフだけで、タスク本文は伏せてある。本文は調査報告を受けた第 2 段階で
    `session.inject` イベントとして届く。ところが Discord bot はこのイベントを
    **Slack 由来のときだけ**転記していたため、委託由来の inject は 1 通も写らなかった。
@@ -118,5 +119,6 @@ Discord は空 message を拒否するので投稿はしないが、`discord_sta
 
 ## 4. 関連
 
-- `spec/feature/delegation-staged-injection.md` — 第 1/第 2 段階の本文そのもの
+- `spec/feature/delegation-implementation-inject.md` — 実装委託の初回 inject 本文そのもの
+  (旧 `delegation-staged-injection.md` は 2026-08-21 に廃止)
 - `src/discord/session-startup-context.ts` — 定型文側 (mention・委託元リンク・作業ポリシー)

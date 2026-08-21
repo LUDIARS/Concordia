@@ -200,7 +200,7 @@ export interface CreateRunInput {
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
-  /** 段階注入で起動したか (spec/feature/delegation-staged-injection.md)。 */
+  /** 旧: 段階注入で起動したか。 段階注入は 2026-08-21 に廃止 (新規 run は常に false)。 */
   staged_injection?: boolean;
 }
 
@@ -480,15 +480,12 @@ export class DelegationRepo {
     return result.changes > 0;
   }
 
-  // ── 段階注入の永続状態 (spec/feature/delegation-staged-injection.md) ──
-
-  /**
-   * 委託先から届いた調査報告を証跡として残す (最新で上書き)。 watchdog の列は触らない
-   * — 進捗監視の判断は run-watchdog.ts の責務で、 ここで肩代わりしない。
-   */
-  recordInvestigationReport(id: string, summary: string, _nowMs: number): void {
-    this.db.prepare(`UPDATE delegation_runs SET investigation_summary = ? WHERE id = ?`).run(summary, id);
-  }
+  // ── 委託 run の追跡タスク / 旧段階注入の残置列 ──
+  // 段階注入は 2026-08-21 に廃止 (spec/feature/delegation-implementation-inject.md §1)。
+  // `investigation_summary` / `staged_followup_at` / `staged_injection` の各列は既存行の
+  // 読み出し (Discord の旧 run 表示など) のためだけに残す。 書き手はもう無いので、
+  // 対応する writer (recordInvestigationReport / markStagedFollowupDelivered) は削除した。
+  // memoria_task_id だけは現行の起票経路が引き続き使う。
 
   /**
    * Memoria タスクを run に関連付ける。 未関連 (NULL) のときだけ書き、 書けたかを返す —
@@ -499,17 +496,6 @@ export class DelegationRepo {
       `UPDATE delegation_runs SET memoria_task_id = ?, memoria_task_url = ?
        WHERE id = ? AND memoria_task_id IS NULL`,
     ).run(taskId, taskUrl, id);
-    return result.changes > 0;
-  }
-
-  /**
-   * 実装タスク (第2段階) の配信を記録する。 未配信のときだけ書き、 書けたかを返す。
-   * 呼び出し側は true のときだけ inject する (二重配信の抑止)。
-   */
-  markStagedFollowupDelivered(id: string, nowMs: number): boolean {
-    const result = this.db.prepare(
-      `UPDATE delegation_runs SET staged_followup_at = ? WHERE id = ? AND staged_followup_at IS NULL`,
-    ).run(nowMs, id);
     return result.changes > 0;
   }
 

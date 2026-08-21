@@ -94,21 +94,33 @@ seed で埋まったフィールドは LLM に渡さない (コンテキスト�
 - Genius 照会は既存経路 (spawn/task-change の判断カード参照) をそのまま使う。
 - スキーマ検証に落ちたフィールド・confidence の無いフィールドは miss。
 
-### 3.3 Discord 質問カード (未決フィールドの束)
+### 3.3 Discord 質問カード — plan/vibes カードは撤廃 (2026-08-21)
 
-- 現行 model-review の「miss は記録して現状維持」をやめる。 **未決フィールドだけを 1 枚の
-  質問カード**に束ねて投稿する (既存 `discord_pending_questions` + 選択肢ボタン +
-  `[A]` テキスト返信。 relay 越しに回答可能)。 投稿先はチーム direction チャンネル
-  (未導入時はセッションチャンネル)。
-- 回答が付くたび契約に反映し (`decided_by: "human"`)、 全フィールド確定で封鎖解除。
-- 単発の `mreview:` 確認ダイアログは契約カードに統合し、 廃止する。
+> 2026-08-21 neco 指示。 plan か vibes かの判断ダイアログは撤廃する。 意味が無いうえ、
+> Task Workflow (委託セッション) 内で停止バグになっていた。
+
+- **契約カード (未決フィールドの束) は投稿しない。** mode は決定論 seed が決め切り
+  (§3.1)、 model / effort は LLM tier が決めなければ現 runtime を seed tier で採る。
+  `ensureSessionContract` は保存前に必ず全フィールドを埋める (backstop)。
+  未決が残った場合は warn ログだけ出す (封鎖はするが、 人間へ問い合わせはしない)。
+- 理由: 未回答の間は契約が未確定 = §4 の `contract-incomplete` が編集を全部 deny する。
+  委託セッションはカード待ちのまま何もできず、 回答内容も事実上いつも同じだった。
+- 残る質問カードは**チーム選択** (`Select the team for this repository`) だけ。 回答は
+  契約へ `decided_by: "human"` で反映する。
+- ただしチーム選択カードも**封鎖はしない**。 候補が複数ある repo では `team` を
+  `value: null` の seed で埋めて契約を成立させ、 カードの回答が来たら上書きする。
+  ここを未決のまま残すと、 撤廃したはずの `contract-incomplete` 停止が複数チーム repo
+  でだけ生き残る (チームは勝手に選ばない = 値は null のまま、 が両立点)。
+- 単発の `mreview:` 確認ダイアログは廃止のまま。
 
 ## 4. 封鎖 (ハーネス)
 
 - 新述語 `contract-incomplete` (**deny**): セッション契約に未決フィールドがある間、
   コードファイルの編集ツール実行を deny する (`strong-model-impl` と同型。 .md / spec /
   docs は対象外 — 契約前でも調査・設計メモは書ける)。
-- suggestion: 「セッション契約が未確定です。 direction チャンネルの契約カードに回答してください」。
+- suggestion: 「契約は spawn 時に決定論で確定するはずです。 未確定のままなら Cc 側の不具合として
+  報告してください」。 §3.3 のとおり mode/model/effort/team はすべて決定論で埋め切るため、
+  通常この deny は起きない (起きたら backstop の欠落なので Cc 側のバグとして扱う)。
 
 ## 5. API / データ差分
 

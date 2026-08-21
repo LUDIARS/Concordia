@@ -165,7 +165,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       // タスク本文と作業ポリシーは Discord 上で別 message にする。 混ぜると本文が定型文に
       // 埋もれて「補足」に見え、 タスク未指定の spawn では何も写らなくなる。
       // Cc が spawn したセッション (= claimed あり) はタスク未指定でも空にせず、
-      // 「何もするな」を明示のタスクとして渡す。
+      // 「追加指示まで待機」を明示のタスクとして渡す (質問・判断はさせない)。
       if (claimed) {
         meta.discord_startup_task = claimed.startupInjectText?.trim() || BLANK_SESSION_TASK;
       }

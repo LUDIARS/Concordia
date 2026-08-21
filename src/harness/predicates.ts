@@ -204,7 +204,10 @@ function isContractDocument(path: string | undefined): boolean {
 
 export const contractIncomplete: Predicate = (a) => {
   if (!isEditTool(a.tool) || a.contractComplete !== false || isContractDocument(a.filePath)) return null;
-  return { rule: "contract-incomplete", decision: "deny", reason: "セッション契約が未確定のためコード編集を開始できません。", suggestion: "direction チャンネルの契約カードに回答してください。" };
+  // mode/model/effort/team は ensureSessionContract の finalizeContract が決定論で埋め切るため、
+  // 通常この deny は起きない。 起きたら backstop の欠落 = Cc 側のバグ
+  // (spec/feature/session-contract.md §3.3 / §4)。
+  return { rule: "contract-incomplete", decision: "deny", reason: "セッション契約が未確定のためコード編集を開始できません。", suggestion: "契約は spawn 時に決定論で確定するはずです。 未確定のままなら Cc 側の不具合として報告してください。" };
 };
 export const planUnapproved: Predicate = (a) => {
   if (!isEditTool(a.tool) || a.planApproved !== false || isContractDocument(a.filePath)) return null;

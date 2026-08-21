@@ -76,6 +76,7 @@ import { harnessSessionRouter } from "./harness-session.js";
 import { injectManualsRouter } from "./inject-manuals.js";
 import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { testingRouter } from "./testing.js";
+import { checkoutsRouter } from "./checkouts.js";
 import type { HarnessAuditRepo } from "../db/harness-audit-repo.js";
 import type { HarnessBlackboxService } from "../harness/blackbox-engine.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
@@ -366,6 +367,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/confirm", confirmRouter({ service: deps.confirmService, testingClaims: deps.testingClaims }));
   }
   app.route("/v1/work", workRouter({ sessions: deps.repo, transcriptLogs: deps.transcriptLogs, resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
+  // 登録 checkout を前進させてよいかの照会 (読み取り専用)。 Revisor が fast-forward 前に叩く。
+  // ワークフローゲートには載せない: ゲートの 409 は Revisor 側で allowed:false と区別できず、
+  // 「掴み手が居ないのに降ろせない」 を無言の設定差で作ってしまうため。
+  // testingClaims 未注入でも生やす: 404 だと呼び出し側が「未実装だから降ろしてよい」 と
+  // 読み違えうるので、 生やしたうえで 503 + allowed:false で fail closed する。
+  app.route("/v1/checkouts", checkoutsRouter({
+      sessions: deps.repo,
+      claims: deps.testingClaims,
+      resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      log: createChildLogger("checkout-lock-api"),
+  }));
   } }, { name: "spawn-and-automation", mount: () => {
   app.route(
     "/v1/spawn",

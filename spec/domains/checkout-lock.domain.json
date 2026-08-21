@@ -1,0 +1,31 @@
+{
+  "name": "checkout-lock",
+  "description": "登録 checkout を前進させてよいかを Revisor へ答える読み取り専用の照会層。/v1/checkouts/lock の HTTP 境界、repo_origin の資格情報検証と canonical 化、active session claim と testing claim から掴み手 (holders) と拒否理由を導く純粋な判定から成る。claim を取らないこと・判断材料が無いまま allowed:true を返さないことが不変条件。claim の宣言と解放そのもの (testing-traffic ドメイン) や、降ろす git 操作 (Revisor 側) は含めない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/api/checkouts(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/checkouts/[^/]+(\\.test)?\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"checkout-lock\" domain: 登録 checkout の前進可否照会 — 掴み手の判定、拒否理由、資格情報を受け取らない入力検証、読み取り専用の保証。",
+  "source": "spec",
+  "mechanics": [
+    "checkout-lock-query-validation",
+    "repo-origin-credential-rejection",
+    "session-and-testing-claim-holder-resolution",
+    "deny-reason-classification",
+    "fail-closed-on-internal-error"
+  ],
+  "specRefs": [
+    "spec/feature/checkout-lock-api.md"
+  ],
+  "rationale": "Revisor の checkout-publication は Cc の照会結果だけを根拠に登録 checkout へ書き込む。判定の入力 (session claim / testing claim) と出力 (allowed / reason / holders) が 1 つの機構として閉じており、testing claim の宣言・解放を所有する testing-traffic とは責務が異なるため別ドメインとして宣言する。新規面のため宣言が無いと Anatomia review gate が target domain missing で止まる。",
+  "lockedFields": [
+    "*"
+  ],
+  "updatedAt": "2026-08-21T00:00:00.000Z"
+}

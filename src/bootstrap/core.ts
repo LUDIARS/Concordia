@@ -75,6 +75,7 @@ import { startModeSwitchAnswers } from "../contract/mode-switch.js";
 import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/model-review-adapter.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
+import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { estimateContextTokens } from "../cost/context-estimate.js";
@@ -502,6 +503,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const teamsRepo = new TeamsRepo(db);
   const teamMetricsRepo = new TeamMetricsRepo(db);
+  const projectCodesRepo = new ProjectCodesRepo(db);
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -849,8 +851,8 @@ export async function startBackend(): Promise<BackendHandle> {
     claims: testingClaims,
     excubitor: excubitorClient,
     submitLocalPr: submitLocalPrForSession,
+    projectCodes: projectCodesRepo,
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
-    log: { warn: (message) => localPrLog.warn({}, message) },
   });
   // レビュー発火の購読。 workflow.review が無効な間は購読自体を張らない
   // (安全弁 revisor_auto_submit とは別軸: あちらは「発火するか」、 こちらは「そもそも
@@ -1229,6 +1231,7 @@ export async function startBackend(): Promise<BackendHandle> {
     delegationService,
     teams: teamsRepo,
     teamMetrics: teamMetricsRepo,
+    projectCodes: projectCodesRepo,
     confirmService,
     delegationQueue,
     modelCatalog,

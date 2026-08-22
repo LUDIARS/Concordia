@@ -13,6 +13,7 @@ import type { ControlJobsRepo } from "../../db/control-jobs-repo.js";
 import type { SessionMessagesRepo } from "../../db/session-messages-repo.js";
 import type { SessionMessageReadsRepo } from "../../db/session-message-reads-repo.js";
 import type { ConcordiaEvent } from "../../events.js";
+import type { ProjectCodesRepo } from "../../db/project-codes-repo.js";
 
 export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system";
 
@@ -72,6 +73,8 @@ export interface SessionsApiDeps {
   sessionMessages: SessionMessagesRepo;
   sessionMessageReads: SessionMessageReadsRepo;
   projectSessionEvent: (event: ConcordiaEvent) => void;
+  /** Cc 所有の project-code 正本。未注入時は空 registry として扱う。 */
+  projectCodes?: ProjectCodesRepo;
   /** thinking frame を Concordia の表示・中継面へ流すか。未注入時は OFF。 */
   isThinkingEnabled?: () => boolean;
   resolveWorkspaceRoots?: () => string[];

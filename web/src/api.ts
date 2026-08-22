@@ -711,7 +711,7 @@ export const api = {
     }>("/v1/machines"),
   projectCodes: () =>
     get<{
-      source_path: string;
+      source: "concordia-db";
       categories: Array<{ name: string; entries: Array<[string, string]> }>;
     }>("/v1/project-codes"),
   adminSpawn: (body: {

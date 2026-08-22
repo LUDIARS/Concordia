@@ -39,9 +39,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const input = parsed.data;
     const workspaceRoots = deps.resolveWorkspaceRoots?.() ?? [];
-    const projectResolver = createProjectResolver(workspaceRoots, {
-      warn: (message) => log.warn(message),
-    });
+    const projectResolver = createProjectResolver(deps.projectCodes?.list() ?? []);
     // Cross-repo investigation may start at Castra, but it is an umbrella and
     // never an implementation binding. Remember that origin so a later child
     // worktree claim is not overwritten by root-derived Lictor updates.
@@ -412,9 +410,7 @@ app.patch("/:id", async (c) => {
     ].filter((value): value is string => Boolean(value?.trim())).join("\n");
     const inferredTargetProject =
       parsed.data.target_project === undefined && projectClaimText
-        ? createProjectResolver(deps.resolveWorkspaceRoots?.() ?? [], {
-            warn: (message) => log.warn(message),
-          }).targetFromText(projectClaimText)?.cwd
+        ? createProjectResolver(deps.projectCodes?.list() ?? []).targetFromText(projectClaimText)?.cwd
         : undefined;
     const { metadata, ...columnPatch } = {
       ...parsed.data,

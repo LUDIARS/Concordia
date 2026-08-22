@@ -116,6 +116,7 @@ import { postTeamCard } from "./team-post-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
 import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
+import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
 import { renderTeamCostReport } from "./team-cost-report.js";
@@ -353,7 +354,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   };
   const workspaceRoots = deps.resolveWorkspaceRoots?.()
     ?? [deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd()];
-  const projectResolver = createForumProjectResolver(workspaceRoots, log);
+  const projectCodesRepo = new ProjectCodesRepo(deps.db);
+  const projectResolver = createForumProjectResolver(() => projectCodesRepo.list());
   // 受付 (intake) チャンネル: 手動 channel_id があればそれを優先 (override)、 無ければ
   // ClientReady で自動作成して埋める。 ingress のゲートはこの値で受付チャンネルを判定する。
   let subsidiaryIntakeChannelId: string | null = deps.subsidiary?.intakeChannelId ?? null;

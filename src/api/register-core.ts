@@ -135,6 +135,7 @@ import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
 import type { TeamMetricsRepo } from "../db/team-metrics-repo.js";
+import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { EscalationRepo } from "../db/escalation-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
@@ -171,6 +172,7 @@ export interface CoreDelegationDeps {
   delegation: DelegationRepo;
   delegationService: DelegationService;
   teams?: TeamsRepo;
+  projectCodes: ProjectCodesRepo;
   /** チームカードのメトリクス read model。 未注入なら GET /v1/teams は metrics 無しで返す。 */
   teamMetrics?: TeamMetricsRepo;
   /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
@@ -280,6 +282,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       sessionMessages: deps.sessionMessages,
       sessionMessageReads: deps.sessionMessageReads,
       projectSessionEvent: deps.projectSessionEvent,
+      projectCodes: deps.projectCodes,
       isThinkingEnabled: () => deps.adminState.getThinkingMessagesEnabled(),
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
       resolveCcWorkflowEnabled: () => deps.adminState.getCcWorkflowEnabled(),
@@ -400,7 +403,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
   app.route(
     "/v1/project-codes",
-    projectCodesRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+    projectCodesRouter({
+      repo: deps.projectCodes,
+      resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+    }),
   );
   app.route("/v1/delegation", delegationRouter({
     repo: deps.delegation,

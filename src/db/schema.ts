@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 67;
+export const SCHEMA_VERSION = 71;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1799,6 +1799,24 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     );
     CREATE INDEX IF NOT EXISTS idx_escalation_events_session ON escalation_events(session_id, started_at DESC);
     CREATE INDEX IF NOT EXISTS idx_escalation_events_open ON escalation_events(ended_at, started_at DESC);
+    `);
+  },
+}, {
+  version: 71,
+  name: "project-code-registry",
+  source: "project_codes empty registry v1",
+  up(db) {
+    // Cc が唯一の正本。既存 Markdown や repository 一覧は seed せず、明示登録だけを保存する。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS project_codes (
+        code        TEXT PRIMARY KEY COLLATE BINARY,
+        project     TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        repo_path   TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        repo_origin TEXT COLLATE NOCASE UNIQUE,
+        added_by    TEXT NOT NULL,
+        created_at  INTEGER NOT NULL,
+        updated_at  INTEGER NOT NULL
+      )
     `);
   },
 },

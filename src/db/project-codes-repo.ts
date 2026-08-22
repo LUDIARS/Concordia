@@ -1,0 +1,99 @@
+import type Database from "better-sqlite3";
+
+export interface ProjectCodeRow {
+  code: string;
+  project: string;
+  repo_path: string;
+  repo_origin: string | null;
+  added_by: string;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ProjectCodeRegistration {
+  code: string;
+  project: string;
+  repoPath: string;
+  repoOrigin: string | null;
+  addedBy: string;
+}
+
+export class ProjectCodeConflictError extends Error {
+  constructor(readonly field: "code" | "project" | "repo_path" | "repo_origin") {
+    super(`project code registration conflicts on ${field}`);
+    this.name = "ProjectCodeConflictError";
+  }
+}
+
+/** Cc 所有の project-code registry。初期 seed は持たず、明示登録だけを保存する。 */
+export class ProjectCodesRepo {
+  constructor(private readonly db: Database.Database) {}
+
+  list(): ProjectCodeRow[] {
+    return this.db.prepare("SELECT * FROM project_codes ORDER BY code COLLATE BINARY")
+      .all() as ProjectCodeRow[];
+  }
+
+  findByCode(code: string): ProjectCodeRow | null {
+    return (this.db.prepare("SELECT * FROM project_codes WHERE code = ? COLLATE BINARY")
+      .get(code) as ProjectCodeRow | undefined) ?? null;
+  }
+
+  /**
+   * 検査と INSERT は 1 transaction に閉じる。 別々の statement のままだと、 同時に走った
+   * 2 つの登録が両方 assertUnclaimed を通過し、 片方が UNIQUE 制約の生エラー (= API 500) に
+   * なる。 transaction 内なら後発は必ず ProjectCodeConflictError として返る。
+   */
+  register(input: ProjectCodeRegistration): { row: ProjectCodeRow; created: boolean } {
+    // repo_path の UNIQUE は COLLATE NOCASE、 つまり大小文字しか畳まない。 `E:\...` と
+    // `E:/...` は SQLite から見ると別文字列なので、 生のまま入れると同じ repository が
+    // 別 code で二重登録できてしまう。 区切りだけ正規化してから保存し、 DB の制約が
+    // そのまま「1 repository = 1 code」を保証するようにする。
+    // 小文字化はしない — repo_path は spawn の cwd と表示にそのまま使う実パス。
+    const repoPath = canonicalSeparators(input.repoPath);
+    const run = this.db.transaction((): { row: ProjectCodeRow; created: boolean } => {
+      const existing = this.findByCode(input.code);
+      if (existing) {
+        if (sameRegistration(existing, input)) return { row: existing, created: false };
+        throw new ProjectCodeConflictError("code");
+      }
+      this.assertUnclaimed("project", input.project);
+      this.assertUnclaimed("repo_path", repoPath);
+      if (input.repoOrigin) this.assertUnclaimed("repo_origin", input.repoOrigin);
+
+      const now = Date.now();
+      this.db.prepare(`
+        INSERT INTO project_codes(code, project, repo_path, repo_origin, added_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(input.code, input.project, repoPath, input.repoOrigin, input.addedBy, now, now);
+      return { row: this.findByCode(input.code)!, created: true };
+    });
+    return run.immediate();
+  }
+
+  private assertUnclaimed(field: "project" | "repo_path" | "repo_origin", value: string): void {
+    // field は閉じた union のみ。 値は常に bind parameter で渡す。
+    const found = this.db.prepare(`SELECT code FROM project_codes WHERE ${field} = ? COLLATE NOCASE LIMIT 1`)
+      .get(value) as { code: string } | undefined;
+    if (found) throw new ProjectCodeConflictError(field);
+  }
+}
+
+function sameRegistration(row: ProjectCodeRow, input: ProjectCodeRegistration): boolean {
+  return row.project.toLowerCase() === input.project.toLowerCase()
+    && normalizePath(row.repo_path) === normalizePath(input.repoPath)
+    && normalizeOptional(row.repo_origin) === normalizeOptional(input.repoOrigin);
+}
+
+/** 区切りと末尾スラッシュだけ揃える。 大小文字は DB の COLLATE NOCASE に任せる。 */
+function canonicalSeparators(value: string): string {
+  return value.replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+function normalizePath(value: string): string {
+  return canonicalSeparators(value).toLowerCase();
+}
+
+function normalizeOptional(value: string | null): string {
+  return value?.trim().toLowerCase() ?? "";
+}

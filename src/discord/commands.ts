@@ -12,6 +12,7 @@ import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
 import mmtaskCommand from "./commands/mmtask.js";
 import projectsCommand from "./commands/projects.js";
+import projectCodeCommand from "./commands/project-code.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
 import contextCommand, { CONTEXT_COMPACT_PREFIX, handleContextCompactButton } from "./commands/context.js";
@@ -54,6 +55,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   cleanCommand,
   mmtaskCommand,
   projectsCommand,
+  projectCodeCommand,
   chNameCommand,
   compactionCommand,
   contextCommand,
@@ -323,6 +325,9 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   if (interaction.isChatInputCommand()) {
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
+    // `/project-code add` は repository binding の正本を書き換え、以後の spawn 先を
+    // 決めてしまう。 spawn と同じ管理職 capability で fail-closed に閉じる。
+    if (interaction.commandName === "project-code") return PRIVILEGED_SESSION_SPAWN;
     if (SESSION_SUCCESSION_COMMANDS.has(interaction.commandName)) return PRIVILEGED_SESSION_SUCCESSION;
     if (KILL_SWITCH_COMMANDS.has(interaction.commandName)) return PRIVILEGED_KILL_SWITCH;
     return null;

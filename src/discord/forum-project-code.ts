@@ -1,7 +1,5 @@
-import {
-  createProjectResolver,
-  type ProjectTarget,
-} from "../projects/project-resolver.js";
+import type { ProjectCodeRow } from "../db/project-codes-repo.js";
+import { createProjectResolver, type ProjectTarget } from "../projects/project-resolver.js";
 
 export type ForumProjectTarget = ProjectTarget;
 
@@ -11,24 +9,14 @@ export interface ForumProjectResolver {
   targetFromPost: (title: string, body: string) => ForumProjectTarget | null;
 }
 
-/** Canonical PROJECT-CODES.md を一度だけ読み、repo path から forum title 用コードを返す。 */
-export function createForumProjectCodeResolver(
-  workspaceRoots: readonly string[],
-  log: { warn: (message: string) => void },
-): (repoPath: string) => string {
-  return createForumProjectResolver(workspaceRoots, log).codeForRepo;
-}
-
+/** Registry を操作ごとに読み、command 登録を再起動なしで forum routing へ反映する。 */
 export function createForumProjectResolver(
-  workspaceRoots: readonly string[],
-  log: { warn: (message: string) => void },
+  listRows: () => readonly ProjectCodeRow[],
 ): ForumProjectResolver {
-  const resolver = createProjectResolver(workspaceRoots, {
-    warn: (message) => log.warn(`forum ${message}`),
-  });
+  const current = () => createProjectResolver(listRows());
   return {
-    codeForRepo: resolver.codeForRepo,
-    codesForRepos: resolver.codesForRepos,
-    targetFromPost: resolver.targetFromText,
+    codeForRepo: (repoPath) => current().codeForRepo(repoPath),
+    codesForRepos: (repoPaths) => current().codesForRepos(repoPaths),
+    targetFromPost: (title, body) => current().targetFromText(title, body),
   };
 }

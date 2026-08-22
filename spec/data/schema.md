@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=66、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=67、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・project code registry・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -17,14 +17,14 @@ status: implemented
 related:
   - ../interface/service-schema.md
   - ../feature/delegation-implementation-inject.md
-updated: 2026-08-13
+updated: 2026-08-22
 ---
 
 
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 66`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 67`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -111,6 +111,11 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | `teams` | チーム設定と Discord category の正本 | id PK / name / slug UNIQUE / settings_json / rules_text / discord_category_id / created_at / updated_at |
 | `team_repos` | チームと repository origin の関連 | team_id / repo_origin。PK(team_id, repo_origin) |
 | `team_surfaces` | チーム面ごとの Discord channel | team_id / surface / channel_id。PK(team_id, surface) |
+
+## Project code registry
+| テーブル | 用途 | 主要列 |
+|---|---|---|
+| `project_codes` | Cc が所有する project code と Git repository の対応。初期 seed なし | code PK（case-sensitive）/ project UNIQUE / repo_path UNIQUE / repo_origin UNIQUE / added_by / created_at / updated_at |
 
 > マイグレーションは番号・名前・SHA-256 checksumを `schema_migrations` に記録する。
 > `src/db/migrator.ts` の単一 migrator が `BEGIN IMMEDIATE` でwriterを直列化し、DDL、冪等ALTER、

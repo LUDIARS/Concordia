@@ -1,0 +1,29 @@
+{
+  "name": "project-code-registry",
+  "description": "Concordia が所有する project code と Git repository の対応、検証済み登録 API/command、session/forum の動的解決を扱う。初期 registry は空で、静的略称表を seed しない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/db/project-codes-repo(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/db/(schema|migration-ledger)\\.ts$" },
+    { "pathPattern": "(^|/)src/projects/project-resolver(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/project-codes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/(register-core|sessions/(deps|lifecycle|title-goal))\\.ts$" },
+    { "pathPattern": "(^|/)src/bootstrap/core\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/(forum-project-code|commands/project-code|commands/projects)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/implementation-tools/service(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/project-codes(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)web/src/api\\.ts$" },
+    { "pathPattern": "(^|/)web/src/pages/Setup\\.tsx$" }
+  ],
+  "cardTemplate": "Summarise the project-code-registry domain: empty initial state, validated idempotent registration, and restart-free repository resolution.",
+  "mechanics": [
+    "empty-initial-registry",
+    "case-sensitive-code",
+    "canonical-git-repository-inspection",
+    "idempotent-registration",
+    "runtime-resolution-without-restart"
+  ],
+  "specRefs": ["spec/feature/project-code-registry.md"],
+  "rationale": "project code は session binding、Discord forum、title 推定へ横断配信されるため、静的文書の複製ではなく Cc DB の単一正本として変更理由をまとめる。"
+}

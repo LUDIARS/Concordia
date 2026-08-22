@@ -1,8 +1,9 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { TestingClaimsRepo } from "../db/testing-claims-repo.js";
+import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { ExcubitorClient, ServiceAction } from "../excubitor/client.js";
 import type { LocalPrSubmissionResult } from "../pr/local-pr-submission.js";
-import { createProjectResolver, type ProjectResolver } from "../projects/project-resolver.js";
+import { createProjectResolver } from "../projects/project-resolver.js";
 import { openTestingClaim, releaseTestingClaims } from "../testing/claim-lifecycle.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "./repo-context.js";
 import {
@@ -21,15 +22,12 @@ export interface ImplementationToolsDeps {
     submitted: false;
     reason: "session_not_found";
   }>;
+  projectCodes: ProjectCodesRepo;
   resolveWorkspaceRoots: () => string[];
-  log: { warn(message: string): void };
 }
 
 /** Stateless fast paths over existing Cc / Ex / Revisor state owners. */
 export class ImplementationToolsService {
-  private projectResolver: ProjectResolver | null = null;
-  private projectResolverKey = "";
-
   constructor(private readonly deps: ImplementationToolsDeps) {}
 
   async bind(input: { sessionId: string; cwd: string; task: string }) {
@@ -44,7 +42,8 @@ export class ImplementationToolsService {
     if (!await isWithinWorkspace(context.repoPath, workspaceRoots)) {
       throw new Error("repository root must be within a configured workspace root");
     }
-    const resolver = this.resolveProjectResolver(workspaceRoots);
+    // 登録コマンドの直後から効かせるため、snapshot を cache せず bind ごとに DB を読む。
+    const resolver = createProjectResolver(this.deps.projectCodes.list());
     const projectCode = resolver.codeForRepo(context.repoPath);
     const project = resolver.targetFromText(`[${projectCode}]`);
     if (!project) throw new Error(`project code could not be resolved for ${context.repoPath}`);
@@ -111,17 +110,6 @@ export class ImplementationToolsService {
     if (!session) throw new Error(`session not found: ${sessionId}`);
     if (session.status !== "active") throw new Error("implementation tools require an active session");
     return session;
-  }
-
-  private resolveProjectResolver(roots = this.deps.resolveWorkspaceRoots()): ProjectResolver {
-    const key = JSON.stringify(roots);
-    if (!this.projectResolver || key !== this.projectResolverKey) {
-      this.projectResolver = createProjectResolver(roots, {
-        warn: (message) => this.deps.log.warn(message),
-      });
-      this.projectResolverKey = key;
-    }
-    return this.projectResolver;
   }
 }
 

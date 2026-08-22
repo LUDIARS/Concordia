@@ -30,6 +30,7 @@ import { seedInjectManuals } from "../../src/control/inject-manual-seed.js";
 import { ModelCatalogRepo } from "../../src/db/model-catalog-repo.js";
 import { makeParticipantsRepo } from "../../src/db/participants-repo.js";
 import { PrRecordsRepo } from "../../src/db/pr-records-repo.js";
+import { ProjectCodesRepo } from "../../src/db/project-codes-repo.js";
 import { ProcessesRepo } from "../../src/db/processes-repo.js";
 import { RulesRepo } from "../../src/db/rules-repo.js";
 import { SessionTaskRecordsRepo } from "../../src/db/session-task-records-repo.js";
@@ -117,6 +118,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const processes = new ProcessesRepo(db);
   const stats = new StatsRepo(db);
   const prs = new PrRecordsRepo(db);
+  const projectCodes = new ProjectCodesRepo(db);
   const sessionTaskRecords = new SessionTaskRecordsRepo(db);
   const transcriptLogs = new TranscriptLogsRepo(db);
   registerCleanup(() => transcriptLogs.close());
@@ -167,7 +169,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, webPush, webPushService,
     projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
-    participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
+    participants, delegation, delegationService, modelCatalog, injectManuals, projectCodes, adminState,
     staff,
     taskStore,
     taskflowState,

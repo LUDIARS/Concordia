@@ -124,7 +124,5 @@ app.post("/:id/goal-and-go", async (c) => {
 }
 
 function inferTargetProject(deps: SessionsApiDeps, text: string): string | null {
-  return createProjectResolver(deps.resolveWorkspaceRoots?.() ?? [], {
-    warn: (message) => log.warn(message),
-  }).targetFromText(text)?.cwd ?? null;
+  return createProjectResolver(deps.projectCodes?.list() ?? []).targetFromText(text)?.cwd ?? null;
 }

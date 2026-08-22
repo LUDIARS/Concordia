@@ -58,10 +58,12 @@ updated: 2026-08-02
 ### 2.2 Cc 側 — 全コードを並べる
 
 - `sessions.active_repos` (TEXT / JSON 配列) を新設し、 lifecycle で保存する。
-- `ForumProjectResolver` に `codesForRepos(repoPaths: string[]): string[]` を追加:
-  1. 各パスを `codeForRepo` で解決
-  2. **PROJECT-CODES に載っていない解決結果 (= 名前がそのまま返ったもの) は捨てる**
+- Cc DB の `project_codes` registry を正本とし、`ForumProjectResolver` に
+  `codesForRepos(repoPaths: string[]): string[]` を追加:
+  1. 各パスを registry の repo_path / worktree leaf と突き合わせて解決する
+  2. **registry に載っていないパスはコードを持たないので、そもそも出てこない**
      — worktree 名や一時ディレクトリがタイトルに出ることを構造的に防ぐ
+     (`codeForRepo` の leaf フォールバックは単独解決専用で、ここでは使わない)
   3. **ワークスペース root (`Ar` / Ars) は、 他に 1 つでもコードがあれば捨てる**
      — root は「wrap した場所」であって作業対象ではない
   4. 重複除去し、 `active_repos` の出現順 (= 触った順) を保つ

@@ -96,9 +96,6 @@ Memoria task id 526/527/528/538 の統合対応 (本 md 群) の一環として 
   ホットパスではない)
 - `src/api/skills.ts` / `src/api/setup.ts` (readFileSync だが module 内メモ化済みの
   スキル md 読み込み — 初回のみ、以後はメモリ上のキャッシュを返す)
-- `src/projects/project-codes.ts` / `src/discord/forum-project-code.ts`
-  (PROJECT-CODES.md 読み込み + existsSync — Discord bot 起動時の forum resolver
-  生成 1 回のみ、リクエストのたびには走らない)
 - `src/platform/reaction-workflow-loader.ts` (existsSync — RWF プラグイン有無判定、
   bot 起動時の `initReactionWorkflow` 1 回のみ)
 

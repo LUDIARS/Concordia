@@ -149,6 +149,8 @@ export interface SessionStatusSnapshot {
   costBadge: string;
   goalBadge: string;
   contextWarningRequesterUserId: string | null;
+  /** エスカレーション中かどうか (spec/feature/escalation-mode.md §1)。 */
+  escalation: { active: boolean; reason: string | null; started_at: number | null } | null;
 }
 
 export interface MonitorSnapshot {

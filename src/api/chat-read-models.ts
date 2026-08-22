@@ -20,6 +20,7 @@ import { formatAuthorName } from "../platform/formatter.js";
 import { buildPrQueue } from "../pr/queue.js";
 import { renderPrQueueMarkdown } from "../pr/render.js";
 import { projectDelegatedChildRun } from "../delegation/status-card-projection.js";
+import type { EscalationRepo } from "../db/escalation-repo.js";
 import type { ChatReadModel, ChatMessageMetadata, ChatMessageRelay, CostSnapshot, MonitorSnapshot, PrQueueSnapshot, SessionCardState, SessionRelayState, SessionStatusSnapshot, SlackSessionIndexEntry, WorkflowTargetSnapshot } from "../platform/chat-read-model.js";
 
 const PR_QUEUE_CONTENT_LIMIT = 2000;
@@ -29,6 +30,8 @@ export interface ChatReadModelDeps {
   sessionsRepo: SessionsRepo;
   sessionTaskRecordsRepo: SessionTaskRecordsRepo;
   tasksRepo: TasksRepo;
+  /** エスカレーション中の宣言を状態カードへ出すための読み口。 未注入なら非表示。 */
+  escalationsRepo?: EscalationRepo;
   prRecordsRepo: PrRecordsRepo;
   delegationRepo: DelegationRepo;
   /**
@@ -157,6 +160,7 @@ export function makeChatReadModel(deps: ChatReadModelDeps): ChatReadModel {
         contextPct: ctx?.pct ?? null,
         costBadge: formatCostBadge(cost),
         goalBadge: formatGoalBadge(readGoalFromMetadata(session.metadata)),
+        escalation: readEscalationStatus(deps, session),
         contextWarningRequesterUserId: requester?.platform === "discord" ? requester.userId : null,
       } satisfies SessionStatusSnapshot;
     },
@@ -378,4 +382,18 @@ function extractMonologue(summaryMd: string | null | undefined): string | null {
     .filter(Boolean);
   if (lines.length === 0) return null;
   return lines.slice(0, 4).join("\n").slice(0, 800);
+}
+
+/**
+ * 状態カード用のエスカレーション表示値。 session 行の escalation_mode を正、
+ * 理由と開始時刻は開いている escalation_event から読む
+ * (spec/feature/escalation-mode.md §1)。
+ */
+function readEscalationStatus(
+  deps: ChatReadModelDeps,
+  session: { id: string; escalation_mode?: number },
+): SessionStatusSnapshot["escalation"] {
+  if ((session.escalation_mode ?? 0) !== 1) return { active: false, reason: null, started_at: null };
+  const open = deps.escalationsRepo?.findOpen(session.id) ?? null;
+  return { active: true, reason: open?.reason ?? null, started_at: open?.started_at ?? null };
 }

@@ -324,6 +324,30 @@ export class TranscriptLogsRepo {
    * を超えるほど長いセッションでは、 古い thread が窓の外へ落ちて過少計上になる
    * (レポート表示用の概算なので許容。 正確さが要るなら limit を上げる)。
    */
+  /**
+   * payload 本文に needle を含む frame を新しい順に返す。
+   *
+   * Cc 停止中に transcript へ残された宣言 (spec/feature/escalation-mode.md §1) を
+   * 復帰後の tick が拾うための走査口。 LIKE の全表走査になるので、 呼び出し側は
+   * 必ず sinceTs で範囲を絞る。
+   */
+  listFramesContaining(
+    needle: string,
+    opts: { sinceTs?: number; limit?: number } = {},
+  ): TranscriptLogRow[] {
+    this.flushSync();
+    const limit = clampLimit(opts.limit);
+    const params: unknown[] = [`%${needle}%`];
+    let sql = `SELECT id, session_id, seq, ts, kind, payload FROM transcript_logs WHERE payload LIKE ?`;
+    if (typeof opts.sinceTs === "number" && Number.isFinite(opts.sinceTs)) {
+      sql += ` AND ts >= ?`;
+      params.push(opts.sinceTs);
+    }
+    sql += ` ORDER BY ts ASC, seq ASC LIMIT ?`;
+    params.push(limit);
+    return this.db.prepare(sql).all(...params) as TranscriptLogRow[];
+  }
+
   listUsagePayloads(session_id: string, limit = 500): unknown[] {
     this.flushSync();
     const rows = this.db

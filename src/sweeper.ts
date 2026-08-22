@@ -43,6 +43,12 @@ export interface SweeperOptions {
   db?: Database.Database;
   /** 刈った行を残す zip の出力先。 `db` と対で指定する。 */
   logArchiveDir?: string;
+  /**
+   * Cc 停止中に transcript へ残されたエスカレーション宣言を取り込む口
+   * (spec/feature/escalation-mode.md §1)。 未注入なら何もしない。
+   * sweeper は「復帰後に必ず回る周期」 なので、 取り込みの契機をここに借りる。
+   */
+  ingestEscalationRecords?: () => void;
 }
 
 /**
@@ -138,6 +144,17 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
 
   async function runOnce(): Promise<void> {
     const now = Math.floor(Date.now() / 1000);
+
+    // 0. Cc 停止中の transcript 宣言を監査記録へ取り込む。 他の刈り込みより先に走らせて、
+    //    「エスカレーション中」 の状態が復帰直後の判断に間に合うようにする。
+    if (opts.ingestEscalationRecords) {
+      try {
+        opts.ingestEscalationRecords();
+      } catch (error) {
+        // 取り込みの失敗で sweeper 本体 (lost 判定・刈り込み) を止めない。
+        log.warn({ err: (error as Error).message }, "escalation transcript intake failed");
+      }
+    }
 
     // 1. active → lost
     const lostCutoff = now - opts.lostAfterSec;

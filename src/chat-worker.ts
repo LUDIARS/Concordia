@@ -29,6 +29,7 @@ import { DEFAULT_DESK_CHANNEL_NAME } from "./discord/config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
 import { startSlackBot, type SlackBotDeps } from "./slack/bot.js";
 import { makeChatReadModel } from "./api/chat-read-models.js";
+import { EscalationRepo } from "./db/escalation-repo.js";
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
 import { runClaude } from "./rules/claude-runner.js";
@@ -231,6 +232,7 @@ async function main(): Promise<void> {
     sessionsRepo: sessions,
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
+    escalationsRepo: new EscalationRepo(db),
     prRecordsRepo: prs,
     usageFrames: transcriptLogs,
     hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,

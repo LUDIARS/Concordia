@@ -19,6 +19,17 @@ import { emitDelegationRunChanged } from "../../delegation/run-events.js";
 import { projectDelegationSessionLinks } from "../../delegation/session-links.js";
 import { createProjectResolver } from "../../projects/project-resolver.js";
 import { renderCcWorkflowStartupInject } from "../../control/collaboration-context.js";
+import type { EscalationDeclaration } from "../../control/escalation-workflow.js";
+
+/**
+ * 開いている escalation_event を文脈パケット用の宣言へ落とす。
+ * 解除済み / 未宣言なら null = 通常ワークフロー (spec/feature/escalation-mode.md §3)。
+ */
+function toEscalationDeclaration(deps: SessionsApiDeps, sessionId: string): EscalationDeclaration | null {
+  const open = deps.escalations?.findOpen(sessionId);
+  if (!open) return null;
+  return { reason: open.reason, started_at: open.started_at, actor: open.actor };
+}
 import { BLANK_SESSION_TASK } from "../../shared/session-task.js";
 
 export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void {
@@ -274,6 +285,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       session: freshSession,
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
       ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
+      escalation: toEscalationDeclaration(deps, input.id),
     });
 
     if (sessionWorkPolicyText) {
@@ -357,6 +369,7 @@ app.get("/:id/context", async (c) => {
         session: s,
         workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
         ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
+        escalation: toEscalationDeclaration(deps, id),
       }),
     });
   });

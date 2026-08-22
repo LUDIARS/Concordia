@@ -2,6 +2,7 @@ import type { SessionsRepo } from "../../db/sessions-repo.js";
 import type { ParticipantsRepo } from "../../db/participants-repo.js";
 import type { HarnessAuditRepo } from "../../db/harness-audit-repo.js";
 import type { TasksRepo } from "../../db/tasks-repo.js";
+import type { EscalationRepo } from "../../db/escalation-repo.js";
 import type { ChatRepo } from "../../db/chat-repo.js";
 import type { ConcordiaConfig } from "../../shared/config.js";
 import type { ProcessManager } from "../../processes/manager.js";
@@ -55,6 +56,8 @@ export interface ChannelDirectory {
 export interface SessionsApiDeps {
   repo: SessionsRepo;
   tasks: TasksRepo;
+  /** エスカレーションモードの状態 + 監査 (spec/feature/escalation-mode.md)。 */
+  escalations: EscalationRepo;
   chat: ChatRepo;
   config: ConcordiaConfig;
   processManager: ProcessManager;

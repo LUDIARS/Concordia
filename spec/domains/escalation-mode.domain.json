@@ -1,0 +1,35 @@
+{
+  "name": "escalation-mode",
+  "description": "インフラ (Concordia / Revisor / Excubitor) が停止し通常ワークフローでは復旧そのものが進められない期間だけ、task 登録・worktree 分離の規律を外し、外した事実を記録に残す層。宣言・解除の API (/v1/sessions/:id/escalation)、状態列 sessions.escalation_mode と監査テーブル escalation_events、他 active セッションへの作業停止 claim の配送と取り下げ、Cc 停止中の transcript record 宣言の復帰後取り込み、エスカレーション版ワークフローパケット、状態カード表示から成る。停止 claim は pending_tasks 経路 (taskflow-instructions) に載るが、優先度付き配送と取り下げの判断はこのドメインが持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/api/sessions/escalation(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/escalation-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/escalation-(mode|workflow|transcript-record|transcript-intake)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/harness/escalation-status(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/escalation-api\\.test\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"escalation-mode\" domain: エスカレーションの宣言・解除、停止 claim の配送と取り下げ、外す規律と外さない規律の境界。",
+  "mechanics": [
+    "escalation-declaration-and-release",
+    "stop-claim-fanout-and-withdrawal",
+    "transcript-record-intake-after-recovery",
+    "workflow-packet-substitution"
+  ],
+  "specRefs": [
+    "spec/feature/escalation-mode.md",
+    "spec/feature/cc-workflow.md"
+  ],
+  "rationale": "spec/feature/escalation-mode.md は定義だけ存在し実装が無かったため、インフラ停止時に規律を外す根拠も、外した記録も残らなかった (Memoria #836)。実装を入れるにあたり、session-lifecycle (行の生成・更新) や taskflow-instructions (pending task の一般経路) と重ねず、「規律を外す期間の宣言・記録・波及」だけを 1 ドメインとして切り出す。ここを分散させると、止まっていることを理由に外してはいけない規律 (GitHub 直 push、security finding、他セッションの変更破棄) が少しずつ外れる。"
+}

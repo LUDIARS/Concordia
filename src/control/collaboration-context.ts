@@ -12,6 +12,9 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { readSessionLogs, resolveSessionLogsDir } from "../session-logs/reader.js";
 import { findConflictPeers } from "./conflict-scope.js";
+import { buildEscalationCcWorkflow, type CcWorkflowPacket } from "./escalation-workflow.js";
+
+export type { CcWorkflowPacket } from "./escalation-workflow.js";
 
 export interface CollaborationContextPacket {
   session_id: string;
@@ -60,17 +63,17 @@ export interface CollaborationContextPacket {
     inject_source: string;
     guidance: string[];
   };
-  cc_workflow: {
-    inject_source: string;
-    task_api: {
-      update_todos: string;
-      list_todos: string;
-      list_pending: string;
-    };
-    rules: string[];
-    interrupt_policy: string;
-    completion_policy: string[];
-  } | null;
+  cc_workflow: CcWorkflowPacket | null;
+  /**
+   * エスカレーション中かどうか (spec/feature/escalation-mode.md §1)。
+   * true の間、 cc_workflow は task 登録要求と worktree 要求を外した版に差し替わる。
+   */
+  escalation: {
+    active: boolean;
+    reason: string | null;
+    started_at: number | null;
+    actor: string | null;
+  };
   suggested_next_actions: string[];
 }
 
@@ -80,12 +83,20 @@ export interface BuildCollaborationContextDeps {
   workspaceRoots?: string[];
   maxLogs?: number;
   ccWorkflowEnabled?: boolean;
+  /**
+   * エスカレーション中の宣言 (開いている escalation_event)。 渡されるとワークフローパケットが
+   * エスカレーション版へ差し替わる。 省略 = 通常運転。
+   */
+  escalation?: { reason: string; started_at: number; actor: string } | null;
 }
 
 export async function buildCollaborationContextPacket(
   deps: BuildCollaborationContextDeps,
 ): Promise<CollaborationContextPacket> {
   const { repo, session } = deps;
+  // session 行の escalation_mode と宣言の両方が揃ってはじめてエスカレーション版に差し替える。
+  // 片方だけ (解除済みの宣言が残っている等) では規律を外さない。
+  const escalation = deps.escalation && (session.escalation_mode ?? 0) === 1 ? deps.escalation : null;
   const peers = findConflictPeers(
     session,
     repo.listSessions({ status: "active" }),
@@ -134,8 +145,16 @@ export async function buildCollaborationContextPacket(
         "delegate or split to a worktree when the same branch is crowded",
       ],
     },
-    cc_workflow: deps.ccWorkflowEnabled ? buildCcWorkflow(session.id) : null,
-    suggested_next_actions: suggestedNextActions(conflicts.length > 0),
+    cc_workflow: deps.ccWorkflowEnabled
+      ? (escalation ? buildEscalationCcWorkflow(session.id, escalation) : buildCcWorkflow(session.id))
+      : null,
+    escalation: {
+      active: Boolean(escalation),
+      reason: escalation?.reason ?? null,
+      started_at: escalation?.started_at ?? null,
+      actor: escalation?.actor ?? null,
+    },
+    suggested_next_actions: suggestedNextActions(conflicts.length > 0, Boolean(escalation)),
   };
 }
 
@@ -146,7 +165,7 @@ export function renderCcWorkflowStartupInject(sessionId: string): string {
   ].join("\n");
 }
 
-function buildCcWorkflow(sessionId: string): NonNullable<CollaborationContextPacket["cc_workflow"]> {
+function buildCcWorkflow(sessionId: string): CcWorkflowPacket {
   const encoded = encodeURIComponent(sessionId);
   return {
     inject_source: "session-start:cc-workflow",
@@ -214,7 +233,15 @@ async function relevantLogs(workspaceRoots: string[], project: string, max: numb
     }));
 }
 
-function suggestedNextActions(hasConflict: boolean): string[] {
+function suggestedNextActions(hasConflict: boolean, escalated: boolean): string[] {
+  if (escalated) {
+    // エスカレーション中は worktree へ逃がす助言が逆効果 (本ブランチを直接触るのが前提)。
+    return [
+      "read this context packet before starting substantive edits",
+      "restore service availability first; record what you bypassed as you go",
+      "release escalation (DELETE /v1/sessions/:id/escalation) as soon as the outage is over",
+    ];
+  }
   const actions = [
     "read this context packet before starting substantive edits",
     "check active peers and avoid touching the same branch blindly",

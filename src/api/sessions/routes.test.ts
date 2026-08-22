@@ -10,11 +10,13 @@ describe("sessionsRouter route table", () => {
 
     expect(routes).toEqual([
       "DELETE /:id",
+      "DELETE /:id/escalation",
       "GET /",
       "GET /:id",
       "GET /:id/context",
       "GET /:id/contract",
       "GET /:id/discord-channels",
+      "GET /:id/escalation",
       "GET /:id/fs/grep",
       "GET /:id/fs/list",
       "GET /:id/fs/read",
@@ -33,6 +35,7 @@ describe("sessionsRouter route table", () => {
       "POST /:id/abandon",
       "POST /:id/answer-question",
       "POST /:id/compact",
+      "POST /:id/escalation",
       "POST /:id/event",
       "POST /:id/fork",
       "POST /:id/goal",

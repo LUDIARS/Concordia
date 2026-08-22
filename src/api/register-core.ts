@@ -133,6 +133,7 @@ import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
 import type { TeamMetricsRepo } from "../db/team-metrics-repo.js";
+import type { EscalationRepo } from "../db/escalation-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 const spawnMemoriaLog = createChildLogger("api/spawn-memoria");
@@ -141,6 +142,7 @@ export interface CoreSessionDeps {
   repo: SessionsRepo;
   controlJobs: ControlJobsRepo;
   tasks: TasksRepo;
+  escalations: EscalationRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
   rules: RulesRepo;
@@ -263,6 +265,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       repo: deps.repo,
       controlJobs: deps.controlJobs,
       tasks: deps.tasks,
+      escalations: deps.escalations,
       chat: deps.chat,
       config: deps.config,
       processManager: deps.processManager,

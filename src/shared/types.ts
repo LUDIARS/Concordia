@@ -37,6 +37,12 @@ export interface SessionRow {
   target_project: string | null;
   team_id?: string | null;
   active_repos?: string;
+  /**
+   * エスカレーションモード (spec/feature/escalation-mode.md)。 1 の間だけ通常ワークフローの
+   * task 登録要求と worktree 要求が外れる。 記録であって権限昇格ではない — 監査は
+   * escalation_events が持ち、 この列は「今そうであるか」だけを表す。
+   */
+  escalation_mode?: number;
 }
 
 export interface SessionEventRow {

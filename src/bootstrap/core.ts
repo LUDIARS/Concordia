@@ -13,6 +13,8 @@ import { SessionsRepo } from "../db/sessions-repo.js";
 import { ControlJobsRepo } from "../db/control-jobs-repo.js";
 import { makeParticipantsRepo } from "../db/participants-repo.js";
 import { TasksRepo } from "../db/tasks-repo.js";
+import { EscalationRepo } from "../db/escalation-repo.js";
+import { ingestEscalationTranscriptRecords } from "../control/escalation-transcript-intake.js";
 import { ChatRepo } from "../db/chat-repo.js";
 import { SkillsRepo } from "../db/skills-repo.js";
 import { RulesRepo, seedDefaultRules } from "../db/rules-repo.js";
@@ -431,6 +433,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // プロセス再起動時は in-memory の WS 接続が全部消えているので、
   // sessions.ws_clients を 0 にリセットして整合性を保つ.
   const tasks = new TasksRepo(db);
+  const escalations = new EscalationRepo(db);
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
@@ -908,6 +911,11 @@ export async function startBackend(): Promise<BackendHandle> {
   const sweeper = startSweeper({
     repo,
     tasks,
+    // Cc 停止中に transcript へ残された宣言を、 復帰後の周期で監査記録へ取り込む
+    // (spec/feature/escalation-mode.md §1)。
+    ingestEscalationRecords: () => {
+      ingestEscalationTranscriptRecords({ sessions: repo, escalations, tasks, transcriptLogs });
+    },
     transcriptLogs,
     sessionMessages,
     rules,
@@ -985,6 +993,7 @@ export async function startBackend(): Promise<BackendHandle> {
     sessionsRepo: repo,
     sessionTaskRecordsRepo: sessionTaskRecords,
     tasksRepo: tasks,
+    escalationsRepo: escalations,
     prRecordsRepo: prs,
     usageFrames: transcriptLogs,
     hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
@@ -1174,6 +1183,7 @@ export async function startBackend(): Promise<BackendHandle> {
     controlJobs,
     metrics: metricsStore,
     tasks,
+    escalations,
     chat,
     skills,
     rules,

@@ -37,6 +37,7 @@ import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { SkillsRepo } from "../../src/db/skills-repo.js";
 import { StatsRepo } from "../../src/db/stats-repo.js";
 import { TasksRepo } from "../../src/db/tasks-repo.js";
+import { EscalationRepo } from "../../src/db/escalation-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
 import { SessionMessageReadsRepo } from "../../src/db/session-message-reads-repo.js";
@@ -74,6 +75,7 @@ export interface TestAppEnv {
   repo: SessionsRepo;
   controlJobs: ControlJobsRepo;
   tasks: TasksRepo;
+  escalations: EscalationRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
   rules: RulesRepo;
@@ -107,6 +109,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const repo = new SessionsRepo(db);
   const controlJobs = new ControlJobsRepo(db);
   const tasks = new TasksRepo(db);
+  const escalations = new EscalationRepo(db);
   const chat = new ChatRepo(db);
   const skills = new SkillsRepo(db);
   const rules = new RulesRepo(db);
@@ -160,7 +163,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   };
 
   const deps: AppDeps = {
-    repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
+    repo, controlJobs, tasks, escalations, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, webPush, webPushService,
     projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
@@ -187,7 +190,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
 
   return {
     app,
-    db, repo, controlJobs, tasks, chat, skills, rules, dayReports, processes, stats, prs,
+    db, repo, controlJobs, tasks, escalations, chat, skills, rules, dayReports, processes, stats, prs,
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,

@@ -9,6 +9,7 @@ import { registerEndRoutes } from "./end.js";
 import { registerSkillRoutes } from "./skills.js";
 import { registerMessagesRoutes } from "./messages.js";
 import { registerContractRoutes } from "./contract.js";
+import { registerEscalationRoutes } from "./escalation.js";
 
 export type { SessionsApiDeps } from "./deps.js";
 
@@ -23,5 +24,6 @@ export function sessionsRouter(deps: SessionsApiDeps): Hono {
   registerSkillRoutes(app, deps);
   registerMessagesRoutes(app, deps);
   registerContractRoutes(app, deps);
+  registerEscalationRoutes(app, deps);
   return app;
 }

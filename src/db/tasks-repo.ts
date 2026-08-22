@@ -7,7 +7,9 @@ export type PendingTaskKind =
   | "peer-log-react"
   | "stat-collect"
   | "title-suggest"
-  | "pr-ci-followup";
+  | "pr-ci-followup"
+  // 他セッションのエスカレーション開始に伴う作業停止 claim (spec/feature/escalation-mode.md)
+  | "work-stop-claim";
 // 廃止: "daily-report" (report 経路が独白を担う) / "session-departed"
 // (離脱告知は中央 Haiku の司会発話に統合)。 2026-06 blackbox-chat 移行。
 
@@ -23,7 +25,12 @@ export interface PendingTaskRow {
   retries: number;
   /** 直近の配信試行 ts (delivered_at と同じ値か、 retry で更新). */
   last_attempt_at: number | null;
+  /** 大きいほど先に配信される. 既定 0. 作業停止 claim だけがキュー先頭へ割り込む. */
+  priority: number;
 }
+
+/** 作業停止 claim をキュー末尾に積まないための優先度 (spec/feature/escalation-mode.md §2). */
+export const STOP_CLAIM_PRIORITY = 100;
 
 const DEFAULT_TTL_SEC = 30 * 60; // 30 分
 const DEFAULT_RETRY_AFTER_SEC = 5 * 60; // 配信後 5 分応答なしで retry 対象
@@ -37,6 +44,8 @@ export class TasksRepo {
     kind: PendingTaskKind;
     payload: object;
     ttlSec?: number;
+    /** 大きいほど先に配信される. 省略時 0 (通常キュー). */
+    priority?: number;
     /** テスト用: created_at に使う epoch 秒. 省略時は Math.floor(Date.now() / 1000).
      *  expires_at は常に実 wall-clock ベースで計算するため、 模擬時刻を渡しても
      *  pull() の期限チェックには影響しない. */
@@ -47,10 +56,10 @@ export class TasksRepo {
     const ttl = input.ttlSec ?? DEFAULT_TTL_SEC;
     const r = this.db
       .prepare(
-        `INSERT INTO pending_tasks(session_id, kind, payload, created_at, delivered_at, expires_at)
-         VALUES (?, ?, ?, ?, NULL, ?)`,
+        `INSERT INTO pending_tasks(session_id, kind, payload, created_at, delivered_at, expires_at, priority)
+         VALUES (?, ?, ?, ?, NULL, ?, ?)`,
       )
-      .run(input.session_id, input.kind, JSON.stringify(input.payload), createdAt, wallNow + ttl);
+      .run(input.session_id, input.kind, JSON.stringify(input.payload), createdAt, wallNow + ttl, input.priority ?? 0);
     return this.find(Number(r.lastInsertRowid))!;
   }
 
@@ -64,7 +73,7 @@ export class TasksRepo {
       .prepare(
         `SELECT * FROM pending_tasks
          WHERE session_id = ? AND delivered_at IS NULL AND expires_at > ?
-         ORDER BY created_at ASC LIMIT ?`,
+         ORDER BY priority DESC, created_at ASC LIMIT ?`,
       )
       .all(sessionId, now, limit) as PendingTaskRow[];
     if (rows.length === 0) return [];
@@ -202,6 +211,39 @@ export class TasksRepo {
         .prepare(`SELECT * FROM pending_tasks WHERE id = ?`)
         .get(id) as PendingTaskRow | undefined) ?? null
     );
+  }
+
+  /**
+   * 指定 kind の task を破棄する (session を絞れる).
+   *
+   * エスカレーション解除で停止 claim を取り下げるための経路。 Cc が止まっていた間は
+   * enqueue 自体が起きないが、 開始後に Cc が落ちて未配信のまま残った claim は
+   * 復帰後の pull で遅れて配送されてしまう。 解除時にここで消すことで
+   * 「終わったエスカレーションの停止 claim が後から届く」 を塞ぐ
+   * (spec/feature/escalation-mode.md §2)。
+   *
+   * 配信済みの行も消す。 未配信だけを消すと、 配信済み claim が `requeueForRetry` で
+   * `delivered_at = NULL` に戻され、 解除後に再配送されてしまう (= 終わった停止で
+   * 相手をもう一度止める)。 戻り値は取り下げた未配信件数だけを数える —
+   * 配信済みの分は相手が既に停止しており、 「取り下げ」 ではないため。
+   */
+  discardByKind(kind: PendingTaskKind, sessionIds?: string[]): number {
+    if (sessionIds && sessionIds.length === 0) return 0;
+    const sessionFilter = sessionIds
+      ? ` AND session_id IN (${sessionIds.map(() => "?").join(",")})`
+      : "";
+    const args: unknown[] = [kind];
+    if (sessionIds) args.push(...sessionIds);
+    const undelivered = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM pending_tasks
+         WHERE kind = ? AND delivered_at IS NULL${sessionFilter}`,
+      )
+      .get(...args) as { n: number };
+    this.db
+      .prepare(`DELETE FROM pending_tasks WHERE kind = ?${sessionFilter}`)
+      .run(...args);
+    return undelivered.n;
   }
 
   purgeExpired(now = Math.floor(Date.now() / 1000)): number {

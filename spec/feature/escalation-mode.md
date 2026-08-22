@@ -1,9 +1,9 @@
 ---
 title: "Escalation mode"
-status: specified
+status: implemented
 service: concordia
 domain: session-coordination
-updated: 2026-08-10
+updated: 2026-08-21
 ---
 
 # エスカレーションモード
@@ -84,5 +84,23 @@ transcript record にこの未配送状態を明記し、Cc 復帰後に配送�
 
 ## 実装状況
 
-定義のみ。 API・DB・停止 claim の配送・停止中の transcript record 取り込み・ワークフローパケットの
-差し替えは未実装。
+実装済み (2026-08-21, Memoria #836)。
+
+| 節 | 実装 |
+|----|------|
+| §1 宣言と記録 | `POST /v1/sessions/:id/escalation { reason }` / `DELETE /v1/sessions/:id/escalation { note }` / `GET /v1/sessions/:id/escalation` (`src/api/sessions/escalation.ts`)。 `reason` が空なら 400。 状態は `sessions.escalation_mode`、 監査は `escalation_events` (`src/db/escalation-repo.ts`, migration 70)。 |
+| §1 transcript 宣言 | `src/control/escalation-transcript-record.ts` (パーサ) + `src/control/escalation-transcript-intake.ts` (取り込み)。 sweeper の周期 (`src/sweeper.ts` `ingestEscalationRecords`) が復帰後に走らせ、 同じ内容の `escalation_event` を冪等に作る。 |
+| §1 表示 | セッション文脈パケットの `escalation` (`src/control/collaboration-context.ts`) と状態カード (`src/harness/escalation-status.ts` → `src/discord/session-status-card.ts`)。 |
+| §2 停止 claim | `src/control/escalation-mode.ts`。 kind `work-stop-claim` を `pending_tasks` へ `priority` 付きで積む (`pull` は priority 降順)。 解除時に当該 kind の claim を未配送・配送済みとも破棄する — 配送済みを残すと retry 周期 (`requeueForRetry`) が未配送へ戻し、 終わった停止が再配送される。 報告する `withdrawn_claims` は未配送分のみ。 |
+| §3 ワークフロー差し替え | `src/control/escalation-workflow.ts`。 外すもの (`ESCALATION_RELAXED_RULES`) と外さないもの (`ESCALATION_RETAINED_RULES`) を 1 箇所に持つ。 |
+
+### transcript record の書式
+
+Cc が応答できないときの宣言 (§1) は次の行を transcript に残す。 `at` を省くと frame の時刻を使う。
+
+```
+ESCALATION start reason="Cc が落ちていて task 登録も PR も通らない" at=2026-08-21T09:00:00Z repo=E:/Document/Ars/Concordia
+ESCALATION end at=2026-08-21T10:30:00Z note="Cc 復帰、 バイパスマージ 2 件"
+```
+
+理由の無い `start` は取り込まない — API と同じ理由で、 理由の無い記録は後追いレビューの対象を特定できない。

@@ -205,6 +205,7 @@ export function serializeSession(s: SessionRow) {
     status: s.status,
     last_seen_at: s.last_seen_at,
     current_task: s.current_task,
+    escalation_mode: (s.escalation_mode ?? 0) === 1,
     metadata: s.metadata ? safeParse(s.metadata) : null,
   };
 }

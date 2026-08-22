@@ -15,6 +15,11 @@ import type {
 } from "../platform/chat-read-model.js";
 import type { ProjectSufficiency } from "../harness/data-sufficiency.js";
 import { formatFastMode, formatWorkingBranch } from "./runtime-metadata.js";
+import {
+  formatEscalationBadge,
+  formatEscalationField,
+  type EscalationStatus,
+} from "../harness/escalation-status.js";
 
 const ACTIVE_WINDOW_SEC = 60;
 const WAITING_WINDOW_SEC = 5 * 60;
@@ -144,6 +149,8 @@ export interface StatusEmbedInput {
   contextPct?: number | null;
   costBadge?: string;
   goalBadge?: string;
+  /** エスカレーション中かどうか (spec/feature/escalation-mode.md §1)。 */
+  escalation?: EscalationStatus | null;
 }
 
 export interface ContextWarningInput {
@@ -176,6 +183,9 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
   const delegatedChildren = formatDelegatedChildren(i.delegatedChildren ?? []);
 
   const descParts: string[] = [];
+  // エスカレーションは最上段。 規律を外していることは他のどの表示より先に読ませる。
+  const escalationBadge = formatEscalationBadge(i.escalation);
+  if (escalationBadge) descParts.push(escalationBadge);
   if (i.currentTask) descParts.push(`**${truncate(i.currentTask, 200)}**`);
   descParts.push(`<#${i.sessionChannelId}>`);
   if (i.goalBadge) descParts.push(i.goalBadge);
@@ -210,6 +220,9 @@ export function buildSessionStatusEmbed(i: StatusEmbedInput): EmbedBuilder {
       inline: false,
     });
   }
+
+  const escalationLine = formatEscalationField(i.escalation);
+  if (escalationLine) embed.addFields({ name: "エスカレーション", value: escalationLine, inline: false });
 
   const cacheLine = formatCacheField(i.cache);
   if (cacheLine) embed.addFields({ name: "Anatomia キャッシュ", value: cacheLine, inline: false });

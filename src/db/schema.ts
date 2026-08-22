@@ -1757,6 +1757,37 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     }
     db.exec("CREATE INDEX IF NOT EXISTS idx_director_decisions_pending_question ON director_decisions(pending_question_id)");
   },
+}, {
+  version: 70,
+  name: "escalation-mode",
+  source: "sessions.escalation_mode + escalation_events + pending_tasks.priority",
+  up(db) {
+    // エスカレーションモード (spec/feature/escalation-mode.md)。
+    // 状態は sessions 行に、 監査は escalation_events に持つ。 作業停止 claim は
+    // 既存 pending_tasks 経路へ載せるため、 キュー末尾に積まれないよう priority を足す。
+    const sessionColumns = db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+    if (!sessionColumns.some((column) => column.name === "escalation_mode")) {
+      db.exec("ALTER TABLE sessions ADD COLUMN escalation_mode INTEGER NOT NULL DEFAULT 0");
+    }
+    const pendingColumns = db.prepare("PRAGMA table_info(pending_tasks)").all() as Array<{ name: string }>;
+    if (!pendingColumns.some((column) => column.name === "priority")) {
+      db.exec("ALTER TABLE pending_tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0");
+    }
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS escalation_events(
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      started_at INTEGER NOT NULL,
+      ended_at INTEGER,
+      note TEXT,
+      source TEXT NOT NULL DEFAULT 'api'
+    );
+    CREATE INDEX IF NOT EXISTS idx_escalation_events_session ON escalation_events(session_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_escalation_events_open ON escalation_events(ended_at, started_at DESC);
+    `);
+  },
 },
 ];
 

@@ -58,7 +58,18 @@ export type PatrolAction =
   | { type: "advance"; caseId: string; stepId: string }
   | { type: "block"; caseId: string; stepId: string; note: string }
   | { type: "launch"; caseId: string; stepId: string }
-  | { type: "escalate"; caseId: string; reason: PatrolEscalationReason; detail: string };
+  /**
+   * 人間へ上げる事由。`stepId` は事由の対象 step が特定できるときだけ入る
+   * (予算超過・リポ未解決は case 単位なので null)。問診セッションの冪等キーは
+   * これを subject に使う (director-inquiry-session.md §2)。
+   */
+  | {
+    type: "escalate";
+    caseId: string;
+    reason: PatrolEscalationReason;
+    detail: string;
+    stepId?: string | null;
+  };
 
 /** 巡回が起動を担う step 種別。plan/decompose/review/confirm は他フローの持ち場。 */
 const LAUNCHABLE_KINDS: ReadonlySet<DirectorStep["kind"]> = new Set(["delegate", "implement"]);
@@ -110,6 +121,7 @@ export function planTeamPatrol(input: PatrolPlanInput): PatrolAction[] {
           type: "escalate",
           caseId: step.case_id,
           reason: "run-missing",
+          stepId: step.id,
           detail: `step「${step.title}」の委託 run (${step.delegation_run_id}) が見つかりません。`,
         });
         continue;
@@ -130,6 +142,7 @@ export function planTeamPatrol(input: PatrolPlanInput): PatrolAction[] {
           type: "escalate",
           caseId: step.case_id,
           reason: "run-failed",
+          stepId: step.id,
           // run.error は資格情報・ローカルパス等を含み得るためカードへ複製しない。
           detail: `step「${step.title}」の委託 run (${run.id}) が ${run.status} で終わりました。詳細は内部の run 記録を確認してください。`,
         });

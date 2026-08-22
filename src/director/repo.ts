@@ -330,6 +330,45 @@ export class DirectorRepo {
     `).run(answer, answeredAt, decisionId);
     return info.changes > 0;
   }
+
+  /**
+   * case 単位で未回答の ask_human decision が残っているか。
+   *
+   * 問診の起動ガード (spec/feature/director-inquiry-session.md §4) に使う。step 単位の
+   * {@link hasUnansweredAskHumanDecisions} と違い、停滞のように step を特定できない
+   * 事由でも判定できる必要があるため case で引く。
+   */
+  hasUnansweredAskHumanDecisionsForCase(caseId: string): boolean {
+    const row = this.db.prepare(`
+      SELECT 1
+        FROM director_decisions
+       WHERE case_id = ?
+         AND decision = 'ask_human'
+         AND plan_version IS NULL
+         AND human_answered_at IS NULL
+       LIMIT 1
+    `).get(caseId);
+    return row !== undefined;
+  }
+
+  /** 連続停滞 tick 数。未知の case は 0 (停滞していない扱い)。 */
+  getStallTicks(caseId: string): number {
+    const row = this.db.prepare(
+      "SELECT stall_ticks FROM director_cases WHERE id = ?",
+    ).get(caseId) as { stall_ticks: number } | undefined;
+    return row?.stall_ticks ?? 0;
+  }
+
+  /**
+   * 連続停滞 tick 数を書く。
+   *
+   * `updated_at` は触らない。これは巡回の内部カウンタであって case の前進ではなく、
+   * 更新すると listCases の並び (updated_at DESC) が「動いている case」に見えてしまう。
+   */
+  setStallTicks(caseId: string, ticks: number): void {
+    this.db.prepare("UPDATE director_cases SET stall_ticks = ? WHERE id = ?")
+      .run(Math.max(0, Math.trunc(ticks)), caseId);
+  }
 }
 
 const DECISION_COLUMNS = `id, case_id, step_id, kind, question, facts_json, options_json, impact, decision,

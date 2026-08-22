@@ -51,6 +51,19 @@ export interface HarnessAction {
   contractScopeDirs?: string[];
   vibesClaimActive?: boolean;
   editedFiles?: string[];
+  /**
+   * 問診セッション (director-inquiry-session.md §3) として起動された。
+   * true のときだけ読み取り専用契約を強制する。判定できないときは undefined。
+   */
+  readOnlyInquiry?: boolean;
+  /** 問診が所有する Director case。書き込み API の case 境界に使う。 */
+  inquiryCaseId?: string;
+  /** 問診に許可する Concordia API origin。外部 URL への curl を拒否する。 */
+  inquiryApiBaseUrl?: string;
+  /** 問診がファイルを読める、run 起動時に解決済みの target_repo。 */
+  inquiryReadRoot?: string;
+  /** 問診が GET できる、所有 case の step に紐づいた delegation run。 */
+  inquiryAllowedRunIds?: string[];
   /** チーム所属セッションの team settings (teams §3.1)。 未所属は undefined。 */
   teamTestPolicy?: "confirm-queue" | "custos-unity";
   teamWorktreePolicy?: "allowed" | "repo-root-only";
@@ -298,8 +311,10 @@ export const privateTeamPublication: Predicate = (a) => {
 
 /** 既定の述語セット (登録順)。 */
 import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js";
+import { inquiryReadOnly } from "./inquiry-readonly.js";
 
 export const DEFAULT_PREDICATES: Predicate[] = [
+  inquiryReadOnly,
   contractIncomplete,
   planUnapproved,
   vibesScope,

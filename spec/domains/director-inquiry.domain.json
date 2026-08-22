@@ -1,0 +1,27 @@
+{
+  "name": "director-inquiry",
+  "description": "Director 問診: 巡回が検出した停滞・失敗を、機械文の通知カードではなく読み取り専用の短命セッションの起動へ格上げし、そのセッションに Decision Request を組み立てさせる責務。問い文の生成そのものは委託先 LLM の持ち場で、ここは起動判断 (ガード・冪等・フォールバック) と指示テンプレートだけを持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/director/inquiry-(patrol|instruction|runtime)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/harness/inquiry-readonly(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)spec/feature/director-inquiry-session\\.md$" }
+  ],
+  "cardTemplate": "Summarise the \"director-inquiry\" domain: escalation-to-inquiry promotion, stall detection, launch guards (unanswered decision / daily quota / per-tick quota), the read-only session contract, and the machine-written card fallback.",
+  "source": "spec",
+  "mechanics": [
+    "escalation-promotion",
+    "inquiry-delegation-template",
+    "stall-detection",
+    "inquiry-launch-guards",
+    "read-only-session-contract",
+    "case-bound-read-and-write-authorization",
+    "machine-card-fallback"
+  ],
+  "specRefs": [
+    "spec/feature/director-inquiry-session.md"
+  ],
+  "rationale": "巡回 (director-patrol) と持ち場を分ける。patrol は「step を進める / 実装を起こす」、問診は「人間へ問いを起こす」。両者は同じ tick と同じ workflow binding key `director` に乗るが、判断材料もガードも別物なので、混ぜると patrol の計画が問診の枠管理に汚染される。決定は純関数 (inquiry-patrol)、永続カウンタ・invoke・フォールバックは inquiry-runtime に閉じる。`claude-sonnet-5-ask` は共有 delegation seed の統合点だが、実装テンプレートの共通手順を混ぜず問診 task だけを渡す。読み取り専用契約は harness 側の決定的述語として置き、configured ask template と起動時の triggered_by を正本に対象を決める。ファイル読み取りは run の target_repo、自 case の API 読み書きは owning case と紐づく run に閉じる。",
+  "updatedAt": "2026-08-20T00:00:00.000Z"
+}

@@ -499,6 +499,26 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: null,
     is_active: true,
   },
+  {
+    call_name: "claude-sonnet-5-ask",
+    title: "設計相談 (Director 問診)",
+    description: "Director が検出した停滞・失敗について、読み取り専用で Decision Request を組み立てる。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    call_only: true,
+    category: "freelancer",
+    sort_order: 45,
+    // task 本文が read-only 契約と出力 API をすべて持つ。実装テンプレートの共通手順を
+    // 混ぜると branch/編集/PR を促して契約と衝突するため、ここでは追加しない。
+    prompt_template: "${task}",
+    input_schema: [
+      { name: "task", type: "string", required: true, description: "Director 問診の指示本文" },
+      { name: "target_repo", type: "string", required: false, description: "読み取り対象 repo (解決できる場合のみ)" },
+    ],
+    // target_repo 未解決の問診も user-home で起動できるよう空 fallback を持たせる。
+    default_cwd: "${target_repo:}",
+    is_active: true,
+  },
   // ── 実装プロファイル ───────────────────────────────────────────────
   // call_name はモデル名ではなく、選ぶべき能力と effort を表す。起動側の
   // provider/model/runtime_options も同じプロファイル定義で固定する。

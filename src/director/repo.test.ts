@@ -348,3 +348,90 @@ describe("DirectorRepo", () => {
     db.close();
   });
 });
+
+describe("DirectorRepo inquiry guards", () => {
+  function seed() {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new DirectorRepo(db);
+    repo.createCase({
+      id: "case-inq",
+      title: "問診ガード",
+      goal: "人間への問いを重ねない",
+      project: "Cc",
+      session_id: null,
+      team_id: "team-1",
+      created_at: 100,
+      updated_at: 100,
+    }, [{
+      id: "step-inq",
+      case_id: "case-inq",
+      sequence: 1,
+      kind: "implement",
+      title: "実装",
+      status: "pending",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: null,
+      created_at: 100,
+      updated_at: 100,
+    }]);
+    return { db, repo };
+  }
+
+  function askHuman(repo: DirectorRepo, id: string, answeredAt: number | null) {
+    repo.createDecision({
+      id,
+      case_id: "case-inq",
+      step_id: "step-inq",
+      kind: "design",
+      question: "どちらを採るか",
+      facts: [],
+      options: ["A", "B"],
+      impact: "設計が変わる",
+      decision: "ask_human",
+      instruction: "人間に聞く",
+      genius_available: false,
+      genius_cards: [] as GeniusCard[],
+      created_at: 200,
+      human_answered_at: answeredAt,
+    });
+  }
+
+  it("reports an unanswered ask_human decision at the case level", () => {
+    const { repo } = seed();
+    expect(repo.hasUnansweredAskHumanDecisionsForCase("case-inq")).toBe(false);
+    askHuman(repo, "dec-1", null);
+    expect(repo.hasUnansweredAskHumanDecisionsForCase("case-inq")).toBe(true);
+  });
+
+  it("clears once the human has answered", () => {
+    const { repo } = seed();
+    askHuman(repo, "dec-1", null);
+    repo.recordHumanAnswer("dec-1", "A", 300);
+    expect(repo.hasUnansweredAskHumanDecisionsForCase("case-inq")).toBe(false);
+  });
+
+  it("does not leak another case's decisions", () => {
+    const { repo } = seed();
+    askHuman(repo, "dec-1", null);
+    expect(repo.hasUnansweredAskHumanDecisionsForCase("case-other")).toBe(false);
+  });
+
+  it("persists the stall counter across reads and defaults to 0", () => {
+    const { db, repo } = seed();
+    expect(repo.getStallTicks("case-inq")).toBe(0);
+    expect(repo.getStallTicks("case-missing")).toBe(0);
+    repo.setStallTicks("case-inq", 3);
+    expect(new DirectorRepo(db).getStallTicks("case-inq")).toBe(3);
+  });
+
+  it("does not touch updated_at when writing the stall counter", () => {
+    const { db, repo } = seed();
+    repo.setStallTicks("case-inq", 2);
+    const row = db.prepare("SELECT updated_at FROM director_cases WHERE id = ?").get("case-inq") as { updated_at: number };
+    expect(row.updated_at).toBe(100);
+  });
+});

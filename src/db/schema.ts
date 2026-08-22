@@ -1758,6 +1758,19 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     db.exec("CREATE INDEX IF NOT EXISTS idx_director_decisions_pending_question ON director_decisions(pending_question_id)");
   },
 }, {
+  version: 69,
+  name: "director-case-stall-ticks",
+  source: "director_cases stall_ticks for inquiry stall detection",
+  up(db) {
+    // 停滞判定 (spec/feature/director-inquiry-session.md §1) は「実行可能 step 無しが
+    // N tick 継続」で決まる。プロセス内カウンタだと再起動のたびに 0 へ戻り、
+    // 再起動が多い環境では閾値へ到達しない。case 側に持たせて跨がせる。
+    const columns = db.prepare("PRAGMA table_info(director_cases)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "stall_ticks")) {
+      db.exec("ALTER TABLE director_cases ADD COLUMN stall_ticks INTEGER NOT NULL DEFAULT 0");
+    }
+  },
+}, {
   version: 70,
   name: "escalation-mode",
   source: "sessions.escalation_mode + escalation_events + pending_tasks.priority",

@@ -13,7 +13,12 @@ import { harnessSessionRouter } from "./harness-session.js";
 
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 
-function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[], teamId?: string) {
+function makeApp(
+  runClaude?: RunClaudeFn,
+  mainPushAllowlist?: string[],
+  teamId?: string,
+  readOnlyInquiry?: boolean,
+) {
   const db = makeTestDb();
   const audit = new HarnessAuditRepo(db);
   const rules = new HarnessRulesRepo(db);
@@ -23,7 +28,16 @@ function makeApp(runClaude?: RunClaudeFn, mainPushAllowlist?: string[], teamId?:
   app.route("/v1/harness", harnessSessionRouter({
     audit, rules, runClaude, blackbox,
     ...(mainPushAllowlist ? { mainPushAllowlist: () => mainPushAllowlist } : {}),
-    ...(teamId ? { sessionContext: () => ({ teamId }) } : {}),
+    ...(teamId || readOnlyInquiry !== undefined
+      ? { sessionContext: () => ({
+          teamId: teamId ?? null,
+          readOnlyInquiry,
+          inquiryCaseId: "case-1",
+          inquiryApiBaseUrl: "http://127.0.0.1:11111",
+          inquiryReadRoot: "E:/repo",
+          inquiryAllowedRunIds: ["run-9"],
+        }) }
+      : {}),
   }));
   return { app, audit, rules, blackbox };
 }
@@ -129,6 +143,19 @@ describe("/v1/harness route", () => {
     const audit = ctx.audit.recent({ session_id: "sess-2" });
     expect(audit[0].event).toBe("gate");
     expect(audit[0].decision).toBe("allow");
+  });
+
+  it("injects inquiry session context into the real gate path", async () => {
+    const inquiry = makeApp(undefined, undefined, undefined, true);
+    const response = await post(inquiry.app, "/v1/harness/gate", {
+      action: { tool: "Edit", filePath: "C:/repo/src/a.ts" },
+      session_id: "inquiry-session",
+    });
+    const body = await readJson(response);
+    expect(body.decision).toBe("deny");
+    expect(body.hits).toEqual(expect.arrayContaining([
+      expect.objectContaining({ rule: "inquiry-read-only" }),
+    ]));
   });
 
   it("context は有効ハーネスルールを返し inject を記録する", async () => {

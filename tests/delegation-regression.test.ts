@@ -9,6 +9,7 @@ const EXPECTED_SEED_CALLS = [
   "opus-xhigh",
   "opus-mid",
   "fable-xhigh",
+  "claude-sonnet-5-ask",
   "claude-sonnet-5-impl",
   "codex-5-6-terra",
   "haiku",
@@ -63,7 +64,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 45, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
@@ -133,7 +134,9 @@ describe("delegation seed regression", () => {
 
     expect(withNoExternalAutoModel).toBeUndefined();
     expect(spawnCalls).toHaveLength(EXPECTED_SEED_CALLS.length);
-  });
+    // seed テンプレ 1 本ずつを invoke → prompt file 書き出し → DB 記録まで通す直列ループ。
+    // テンプレが増えるたびに既定 5s を超えるため、本数に見合う timeout を明示する。
+  }, 30000);
 });
 
 function argsFor(template: Template): Record<string, unknown> {
@@ -164,7 +167,10 @@ function valueFor(name: string, type: "string" | "number" | "boolean"): unknown 
 
 function expectedCwd(template: Template, args: Record<string, unknown>): string | undefined {
   if (!template.default_cwd) return undefined;
-  return template.default_cwd.replace(/\$\{target_repo\}/g, String(args.target_repo ?? ""));
+  return template.default_cwd.replace(
+    /\$\{target_repo(?::[^}]*)?\}/g,
+    String(args.target_repo ?? ""),
+  );
 }
 
 async function withFastFamulusFallback<T>(fn: () => Promise<T>): Promise<T> {

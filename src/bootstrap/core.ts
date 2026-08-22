@@ -1609,6 +1609,10 @@ export async function startBackend(): Promise<BackendHandle> {
         workspaceRoots: cfg.workspaceRoots.length
           ? cfg.workspaceRoots
           : (workspaceRootDefault ? [workspaceRootDefault] : []),
+        // 問診セッション (spec/feature/director-inquiry-session.md): 停滞・失敗を
+        // 検出したとき、機械文カードの代わりに読み取り専用セッションを起こして
+        // 人間への問いを組み立てさせる。同じ workflow binding key `director` に乗る。
+        mentionUserId: () => adminState.getMentionUserId(),
       })),
     );
     workflowBindings.register({

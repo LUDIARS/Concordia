@@ -70,10 +70,15 @@ function makeHarness(overrides: HarnessOverrides = {}) {
       findCaseDetail: () => ({ case: directorCase, steps }),
       updateStepStatus,
       assignStepRun,
+      // 問診の起動ガード。既定は「未回答なし・停滞なし」= 既存の巡回挙動のまま。
+      hasUnansweredAskHumanDecisionsForCase: () => false,
+      getStallTicks: () => 0,
+      setStallTicks: () => {},
     },
     runs: {
       findRun: () => null,
       findRunByTriggeredBy: () => overrides.runByTrigger ?? null,
+      countRunsByTriggeredByLike: () => 0,
     },
     delegationService: { invoke },
     workspaceRoots: [],
@@ -114,26 +119,37 @@ describe("startDirectorPatrol", () => {
     );
   });
 
-  it("escalates with a question card when the target repo cannot be resolved", async () => {
+  // spec/feature/director-inquiry-session.md §1: 従来カードで済ませていた事由は
+  // 問診セッションの起動事由へ格上げされた。カードはフォールバックとして残る。
+  it("raises an inquiry session instead of a card when the target repo cannot be resolved", async () => {
     const h = makeHarness({ resolveRepo: () => null });
     const patrol = startDirectorPatrol(h.deps);
     await patrol.runOnce();
     patrol.stop();
 
-    expect(h.invoke).not.toHaveBeenCalled();
-    expect(h.emit).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "team.card_requested", kind: "question", team_id: "team-1" }),
-    );
+    expect(h.invoke).toHaveBeenCalledTimes(1);
+    const input = h.invoke.mock.calls[0]![0];
+    expect(input.triggered_by).toMatch(/^director-inquiry:step-1:repo-unresolved:\d{4}-\d{2}-\d{2}$/);
+    expect(input.options).toMatchObject({ team: "team-1", goal_and_go: false });
+    // 読むだけなので、リポが解決できなくても target_repo 無しで起動する。
+    expect(input.args.target_repo).toBeUndefined();
+    expect(h.emit).not.toHaveBeenCalled();
   });
 
-  it("dedupes same-day escalations for the same case and reason", async () => {
+  it("does not start a second inquiry for the same case and reason on the same day", async () => {
     const h = makeHarness({ resolveRepo: () => null });
     const patrol = startDirectorPatrol(h.deps);
     await patrol.runOnce();
+    // 1 巡目で起動した run が triggered_by で見つかる状態を作る。走行中の run は
+    // それ自身が通知経路なので、カードは重ねない (死んだ run の扱いは
+    // inquiry-runtime.test.ts 側で固定する)。
+    h.deps.runs.findRunByTriggeredBy = (key: string) =>
+      key.startsWith("director-inquiry:") ? { id: "run-inquiry", status: "running" as const } : null;
     await patrol.runOnce();
     patrol.stop();
 
-    expect(h.emit).toHaveBeenCalledTimes(1);
+    expect(h.invoke).toHaveBeenCalledTimes(1);
+    expect(h.emit).not.toHaveBeenCalled();
   });
 
   it("does not record a run and escalates when the invoke fails", async () => {

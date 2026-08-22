@@ -129,6 +129,8 @@ import { implementationToolsRouter } from "./implementation-tools.js";
 import type { ImplementationToolsService } from "../implementation-tools/service.js";
 import { workflowGate } from "../workflow/api-gate.js";
 import { isContractComplete, parseContractMetadata } from "../contract/schema.js";
+import { inquirySubjectFromTriggeredBy } from "../harness/inquiry-readonly.js";
+import { concordiaBaseUrl } from "../config/service-urls.js";
 import { WORKFLOW_KEYS, isWorkflowKey } from "../workflow/keys.js";
 import { teamsRouter, parseTeamSettings } from "./teams.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
@@ -137,6 +139,7 @@ import type { EscalationRepo } from "../db/escalation-repo.js";
 
 const restartLog = createChildLogger("api/backend-restart");
 const spawnMemoriaLog = createChildLogger("api/spawn-memoria");
+const inquiryLog = createChildLogger("api/inquiry-context");
 
 export interface CoreSessionDeps {
   repo: SessionsRepo;
@@ -469,6 +472,48 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           const teamId = contract?.team?.value ?? s.team_id ?? null;
           const teamRow = teamId ? deps.teams?.find(teamId) ?? null : null;
           const teamSettings = teamRow ? parseTeamSettings(teamRow) : null;
+          const inquiryRun = deps.delegation.findRun(
+            typeof metadata.delegation_run_id === "string" ? metadata.delegation_run_id : "",
+          );
+          const configuredAskCall = (
+            process.env.CONCORDIA_DIRECTOR_ASK_CALL_NAME ?? "claude-sonnet-5-ask"
+          ).trim() || "claude-sonnet-5-ask";
+          const inquirySubject = inquiryRun?.call_name === configuredAskCall
+            ? inquirySubjectFromTriggeredBy(inquiryRun.triggered_by)
+            : null;
+          const inquiryCaseId = inquirySubject
+            ? deps.director?.resolveCaseIdForInquirySubject(inquirySubject) ?? null
+            : null;
+          const inquiryCase = inquiryCaseId ? deps.director?.getCase(inquiryCaseId) ?? null : null;
+          const inquiryAllowedRunIds = inquiryCase?.steps
+            .map((step) => step.delegation_run_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0) ?? [];
+          if (inquirySubject !== null && !inquiryCase) {
+            // read-only 契約は張られるが case が引けない = 読み取りも 2 つの書き込み API も
+            // 全部 deny になる (何もできない問診)。セッション側は shell を持たず自己診断
+            // できないので、運用者が気付ける記録をここに残す。
+            inquiryLog.warn(
+              { session_id: id, run: inquiryRun?.id, caseId: inquiryCaseId },
+              "inquiry session has no resolvable Director case; every read and write will be denied",
+            );
+          }
+          let inquiryReadRoot: string | undefined;
+          if (inquiryCaseId) {
+            try {
+              const args = JSON.parse(inquiryRun?.args_json ?? "{}") as Record<string, unknown>;
+              inquiryReadRoot = typeof args.target_repo === "string" && args.target_repo.trim()
+                ? args.target_repo.trim()
+                : undefined;
+            } catch {
+              // fail-closed: 読み取り root を決められない以上ファイル読み取りは一切許可しない。
+              // ただし問診セッション側は原因を自己診断できない (shell を持たない) ので、
+              // 運用者が気付けるよう記録だけ残す。args 本文はパスを含み得るため出さない。
+              inquiryLog.warn(
+                { session_id: id, run: inquiryRun?.id, caseId: inquiryCaseId },
+                "inquiry run args_json is malformed; denying all filesystem reads for this session",
+              );
+            }
+          }
           return {
             model: `${s.provider}/${model}`,
             implUnlocked: metadata.impl_unlocked === true,
@@ -482,6 +527,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             teamTestPolicy: teamSettings?.test_policy,
             teamWorktreePolicy: teamSettings?.worktree,
             teamVisibility: teamSettings?.visibility,
+            // 問診セッションかどうかは、そのセッションの自称ではなく起動時の
+            // ask template + triggered_by で決める (director-inquiry-session.md §3)。
+            readOnlyInquiry: inquirySubject !== null,
+            inquiryCaseId: inquiryCaseId ?? undefined,
+            inquiryApiBaseUrl: inquirySubject !== null ? concordiaBaseUrl() : undefined,
+            inquiryReadRoot,
+            inquiryAllowedRunIds,
           };
         },
         strongImplModels: () => deps.adminState.getHarnessStrongImplModels(),

@@ -75,6 +75,16 @@ export class DirectorService {
   }
 
   /**
+   * @implements spec/feature/director-inquiry-session.md §3
+   * 問診 triggered_by の subject (case id / step id) を所有 case へ解決する。
+   */
+  resolveCaseIdForInquirySubject(subject: string): string | null {
+    return this.deps.repo.findCase(subject)?.id
+      ?? this.deps.repo.findStep(subject)?.case_id
+      ?? null;
+  }
+
+  /**
    * 既存 case へ step を 1 件追加する (spec/feature/director-workflow.md §3)。
    * タスク整理が Memoria の実行可能タスクを巡回 (director-patrol) の実行単位へ
    * 落とすための入口。sequence は repo が末尾採番する。

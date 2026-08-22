@@ -22,6 +22,24 @@ describe("seedDelegationTemplates", () => {
     expect(sonnet5?.model).toBe("claude-sonnet-5");
   });
 
+  it("seeds the Director inquiry template as a non-implementation, read-only prompt", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const inquiry = repo.findTemplateByCallName("claude-sonnet-5-ask");
+    expect(inquiry).toMatchObject({
+      is_active: 1,
+      target_provider: "claude",
+      model: "claude-sonnet-5",
+      call_only: 1,
+      category: "freelancer",
+      prompt_template: "${task}",
+      default_cwd: "${target_repo:}",
+    });
+    expect(inquiry?.title).toContain("設計相談");
+    expect(inquiry?.prompt_template).not.toMatch(/implement|branch|commit|push|PR/i);
+  });
+
   it("replaces the Opus 4.8 implementation template with Opus 5", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({

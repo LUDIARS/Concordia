@@ -9,6 +9,7 @@
  * (invoke 成功 → step への記録前に落ちても、次 tick で既存 run を復元する)。
  */
 
+import { concordiaBaseUrl } from "../config/service-urls.js";
 import { resolveClonePaths, repoNameFromOrigin, isSafeRepoName } from "../release/clone-paths.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
@@ -20,16 +21,27 @@ import {
   type PatrolLimits,
   type PatrolRunView,
 } from "./patrol.js";
+import {
+  inquiryTriggeredBy,
+  type InquiryCandidate,
+  type InquiryLimits,
+  type InquiryReason,
+} from "./inquiry-patrol.js";
+import { createInquiryRuntime } from "./inquiry-runtime.js";
 import type { DirectorCase, DirectorStep } from "./types.js";
 
 const log = createChildLogger("director-patrol");
 const TICK_MS = 30 * 60 * 1000;
 const DEFAULT_IMPL_CALL_NAME = "claude-sonnet-5-impl";
+const DEFAULT_ASK_CALL_NAME = "claude-sonnet-5-ask";
 
 /** 巡回起動の triggered_by 固定キー (冪等性の正本)。 */
 export function patrolTriggeredBy(stepId: string): string {
   return `director-patrol:${stepId}`;
 }
+
+/** 問診起動の triggered_by (日付を含む。spec/feature/director-inquiry-session.md §2)。 */
+export { inquiryTriggeredBy };
 
 interface PatrolTeam {
   id: string;
@@ -53,6 +65,10 @@ interface PatrolDirectorRepo {
     updated_at: number;
     expected_status: "pending";
   }): DirectorStep | null;
+  /** 問診ガード: 当該 case に未回答の問診 decision が残っているか (spec §4)。 */
+  hasUnansweredAskHumanDecisionsForCase(caseId: string): boolean;
+  getStallTicks(caseId: string): number;
+  setStallTicks(caseId: string, ticks: number): void;
 }
 
 /** DelegationRunRow のうち巡回が読む最小形 (行の他カラムは任意)。 */
@@ -64,6 +80,8 @@ interface PatrolRunRowLike {
 interface PatrolDelegationRuns {
   findRun(id: string): PatrolRunRowLike | null;
   findRunByTriggeredBy(triggeredBy: string): PatrolRunRowLike | null;
+  /** 問診の日次上限を永続記録から数える (spec §4)。 */
+  countRunsByTriggeredByLike(patterns: readonly string[]): number;
 }
 
 interface PatrolDelegationService {
@@ -83,6 +101,13 @@ export interface DirectorPatrolDeps {
   workspaceRoots: string[];
   /** 実装委託テンプレ。既定 claude-sonnet-5-impl (env CONCORDIA_DIRECTOR_IMPL_CALL_NAME)。 */
   implCallName?: string;
+  /** 問診委託テンプレ。既定 claude-sonnet-5-ask (env CONCORDIA_DIRECTOR_ASK_CALL_NAME)。 */
+  askCallName?: string;
+  /** 問診指示に載せる Concordia endpoint。既定は service-urls の正本。 */
+  concordiaUrl?: string;
+  /** 問診指示の先頭に付けるメンション先 (spec §2 の呼び出し)。 */
+  mentionUserId?: () => string | null;
+  inquiryLimits?: Partial<InquiryLimits>;
   /** テスト用: 対象リポ解決の差し替え。既定は resolveTargetRepo (clone-paths)。 */
   resolveRepo?: (origins: readonly string[], directorCase: DirectorCase) => string | null;
   limits?: Partial<PatrolLimits>;
@@ -103,10 +128,29 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
   const implCallName = (
     deps.implCallName ?? process.env.CONCORDIA_DIRECTOR_IMPL_CALL_NAME ?? DEFAULT_IMPL_CALL_NAME
   ).trim() || DEFAULT_IMPL_CALL_NAME;
+  const askCallName = (
+    deps.askCallName ?? process.env.CONCORDIA_DIRECTOR_ASK_CALL_NAME ?? DEFAULT_ASK_CALL_NAME
+  ).trim() || DEFAULT_ASK_CALL_NAME;
+  const concordiaUrl = (deps.concordiaUrl ?? concordiaBaseUrl()).trim();
   const emit = deps.emit ?? ((event) => eventBus.emit(event));
   const now = deps.now ?? (() => Date.now());
   /** 同一 case × 理由のカード重複抑止 (プロセス内・日単位)。spec §1.4。 */
   const escalated = new Map<string, string>();
+  const resolveRepo = deps.resolveRepo
+    ?? ((origins: readonly string[], directorCase: DirectorCase) =>
+      resolveTargetRepo(origins, directorCase, deps.workspaceRoots));
+  const inquiryRuntime = createInquiryRuntime({
+    director: deps.director,
+    runs: deps.runs,
+    delegationService: deps.delegationService,
+    teamRepos: (teamId) => deps.teams.repos(teamId),
+    resolveRepo,
+    askCallName,
+    concordiaUrl,
+    mentionUserId: deps.mentionUserId,
+    limits: deps.inquiryLimits,
+    now,
+  });
 
   async function patrolTeam(team: PatrolTeam): Promise<void> {
     const cases: PatrolCaseView[] = deps.director
@@ -121,11 +165,15 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
       limits: deps.limits,
     });
 
+    // エスカレーション事由はここで機械文カードにせず、いったん問診の起動候補として溜める
+    // (spec/feature/director-inquiry-session.md §1)。問診を出すか機械文へ倒すかは
+    // ガードを通してから決まるので、判断を 1 箇所に集める。
+    const candidates: InquiryCandidate[] = [];
     const staleCases = new Set<string>();
     for (const action of actions) {
       if (staleCases.has(action.caseId)) continue;
       try {
-        const applied = await applyAction(team, cases, action);
+        const applied = await applyAction(team, cases, action, candidates);
         if (!applied) staleCases.add(action.caseId);
       } catch (error) {
         staleCases.add(action.caseId);
@@ -135,9 +183,22 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
         );
       }
     }
+
+    inquiryRuntime.collectStalls(cases, staleCases, candidates);
+    await inquiryRuntime.dispatch(
+      team,
+      cases,
+      candidates,
+      (candidate) => escalate(team, cases, candidate),
+    );
   }
 
-  async function applyAction(team: PatrolTeam, cases: PatrolCaseView[], action: PatrolAction): Promise<boolean> {
+  async function applyAction(
+    team: PatrolTeam,
+    cases: PatrolCaseView[],
+    action: PatrolAction,
+    candidates: InquiryCandidate[],
+  ): Promise<boolean> {
     if (action.type === "advance") {
       const updated = deps.director.updateStepStatus({
         id: action.stepId,
@@ -163,16 +224,22 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
       return true;
     }
     if (action.type === "escalate") {
-      escalate(team, cases, action);
+      candidates.push({
+        caseId: action.caseId,
+        reason: action.reason,
+        stepId: action.stepId ?? null,
+        detail: action.detail,
+      });
       return true;
     }
-    return launch(team, cases, action);
+    return launch(team, cases, action, candidates);
   }
 
   async function launch(
     team: PatrolTeam,
     cases: PatrolCaseView[],
     action: Extract<PatrolAction, { type: "launch" }>,
+    candidates: InquiryCandidate[],
   ): Promise<boolean> {
     const view = cases.find((candidate) => candidate.case.id === action.caseId);
     const step = view?.steps.find((candidate) => candidate.id === action.stepId);
@@ -193,15 +260,14 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
       return true;
     }
 
-    const resolveRepo = deps.resolveRepo
-      ?? ((origins: readonly string[], directorCase: DirectorCase) =>
-        resolveTargetRepo(origins, directorCase, deps.workspaceRoots));
     const targetRepo = resolveRepo(deps.teams.repos(team.id), view.case);
     if (!targetRepo) {
-      escalate(team, cases, {
-        type: "escalate",
+      // 起動時にしか分からない事由なので、ここで問診の起動候補へ積む。
+      // 実際に問診を出すか機械文へ倒すかは inquiry runtime のガードが決める。
+      candidates.push({
         caseId: view.case.id,
         reason: "repo-unresolved",
+        stepId: step.id,
         detail: `case「${view.case.title}」の対象リポジトリを team repos から解決できません (project=${view.case.project})。`,
       });
       return true;
@@ -219,10 +285,10 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
     if (!result.ok) {
       // service error はローカルパス・コマンド等を含み得るためログ/カードへ複製しない。
       log.warn({ team: team.slug, step: step.id, callName: implCallName }, "patrol launch failed");
-      escalate(team, cases, {
-        type: "escalate",
+      candidates.push({
         caseId: view.case.id,
         reason: "launch-failed",
+        stepId: step.id,
         detail: `step「${step.title}」の委託起動に失敗しました。詳細は内部ログを確認してください。`,
       });
       return true;
@@ -241,14 +307,25 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
     return true;
   }
 
+  /**
+   * 従来の機械文 question カード (patrol §1.4)。
+   *
+   * 問診セッションを起こさなかった / 起こせなかったときのフォールバックであり、
+   * 「人間への通知は落とさない」を担保する最後の砦。
+   */
   function escalate(
     team: PatrolTeam,
     cases: PatrolCaseView[],
-    action: Extract<PatrolAction, { type: "escalate" }>,
+    action: { caseId: string; reason: InquiryReason; detail: string },
   ): void {
     const day = new Date(now()).toISOString().slice(0, 10);
     const key = `${action.caseId}:${action.reason}`;
     if (escalated.get(key) === day) return;
+    // 日が変わったら前日までのキーは二度と一致しないので捨てる。放置すると
+    // case 数 × 事由数ぶん無限に積む (長時間動くプロセスなので実際に効く)。
+    for (const [staleKey, staleDay] of escalated) {
+      if (staleDay !== day) escalated.delete(staleKey);
+    }
     escalated.set(key, day);
     const title = cases.find((view) => view.case.id === action.caseId)?.case.title ?? action.caseId;
     emit({
@@ -283,7 +360,7 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
     initialDelayMs: 15_000,
     log: { warn: (message) => log.warn(message) },
   });
-  log.info({ tickMs: deps.tickMs ?? TICK_MS, implCallName }, "director patrol started");
+  log.info({ tickMs: deps.tickMs ?? TICK_MS, implCallName, askCallName }, "director patrol started");
 
   return {
     stop: () => {

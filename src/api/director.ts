@@ -33,9 +33,9 @@ const CreateCaseSchema = z.object({
 });
 
 const PatchStepSchema = z.object({
-  status: z.enum(DIRECTOR_STEP_STATUSES),
+  status: z.enum(DIRECTOR_STEP_STATUSES).optional(),
   handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
-});
+}).refine((value) => value.status !== undefined || value.handoff_note !== undefined);
 
 /**
  * 既存 case への step 追加 (spec/feature/director-workflow.md §3)。
@@ -54,6 +54,8 @@ const DecisionSchema = z.object({
   facts: z.array(z.string().trim().min(1).max(2_000)).max(30).default([]),
   // Discord の質問カード契約と同じ上限。ここを超えると表示と
   // decision への index マッピングが一致しなくなるため、入口で拒否する。
+  // 「2 件以上」は問診指示テンプレート側の努力目標に留める。ここを必須にすると
+  // 問診以外の既存呼び出し (選択肢を持たない decision) まで 400 になるため。
   options: z.array(z.string().trim().min(1).max(80)).max(25).default([]),
   impact: z.string().trim().min(1).max(4_000),
 });
@@ -113,11 +115,16 @@ export function directorRouter(deps: { service: DirectorService }): Hono {
     const parsed = PatchStepSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_step" }, 400);
     try {
-      return c.json({ step: deps.service.updateStep({
-        case_id: c.req.param("caseId"),
-        step_id: c.req.param("stepId"),
-        ...parsed.data,
-      }) });
+      const ids = { case_id: c.req.param("caseId"), step_id: c.req.param("stepId") };
+      let status = parsed.data.status;
+      if (status === undefined) {
+        const current = deps.service.getCase(ids.case_id)?.steps
+          .find((candidate) => candidate.id === ids.step_id);
+        if (!current) throw new DirectorNotFoundError("director step not found");
+        status = current.status;
+      }
+      const step = deps.service.updateStep({ ...ids, ...parsed.data, status });
+      return c.json({ step });
     } catch (error) {
       return errorResponse(c, error);
     }

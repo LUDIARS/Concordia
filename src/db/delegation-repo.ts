@@ -653,6 +653,23 @@ export class DelegationRepo {
   }
 
   /**
+   * triggered_by が指定 LIKE パターンのいずれかに一致する run の件数。
+   *
+   * 「1 case あたり 1 日 N 件まで」のような、起動キーの一部だけが分かっている枠の
+   * 判定に使う。プロセス内カウンタでは再起動で消えるため、run 行 (永続) を数える。
+   * パターンは呼び出し側が組み立てる。`\` を escape 文字として扱うので、id に `%`
+   * や `_` が混ざる場合は呼び出し側で escape すること ({@link escapeLikePattern})。
+   */
+  countRunsByTriggeredByLike(patterns: readonly string[]): number {
+    if (patterns.length === 0) return 0;
+    const where = patterns.map(() => `triggered_by LIKE ? ESCAPE '\\'`).join(" OR ");
+    const row = this.db
+      .prepare(`SELECT COUNT(*) AS n FROM delegation_runs WHERE ${where}`)
+      .get(...patterns) as { n: number } | undefined;
+    return row?.n ?? 0;
+  }
+
+  /**
    * Partial report の residual 起動権を原子的に確保する。
    *
    * API 側の read → spawn → update だけでは同時 POST が両方 spawn できるため、

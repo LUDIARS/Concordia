@@ -91,6 +91,26 @@ function promptResearchEnabled(): boolean {
   return process.env.CONCORDIA_PROMPT_RESEARCH === "1";
 }
 
+interface HarnessSessionContext {
+  model?: string;
+  implUnlocked?: boolean;
+  isWorktree?: boolean;
+  contractComplete?: boolean;
+  planApproved?: boolean;
+  contractMode?: "plan" | "vibes";
+  contractScopeDirs?: string[];
+  vibesClaimActive?: boolean;
+  teamId?: string | null;
+  teamTestPolicy?: "confirm-queue" | "custos-unity";
+  teamWorktreePolicy?: "allowed" | "repo-root-only";
+  teamVisibility?: "public" | "private";
+  readOnlyInquiry?: boolean;
+  inquiryCaseId?: string;
+  inquiryApiBaseUrl?: string;
+  inquiryReadRoot?: string;
+  inquiryAllowedRunIds?: string[];
+}
+
 export interface HarnessSessionApiDeps {
   audit: HarnessAuditRepo;
   /** 自然文ハーネスルール (Sonnet guard と共有)。 context 供給で列挙する。 */
@@ -108,7 +128,7 @@ export interface HarnessSessionApiDeps {
    * gate ハンドラがこれを {@link HarnessAction.targetProject} に注入する。
    */
   sessionScope?: (sessionId: string) => string | null;
-  sessionContext?: (sessionId: string) => { model?: string; implUnlocked?: boolean; isWorktree?: boolean; contractComplete?: boolean; planApproved?: boolean; contractMode?: "plan" | "vibes"; contractScopeDirs?: string[]; vibesClaimActive?: boolean; teamId?: string | null; teamTestPolicy?: "confirm-queue" | "custos-unity"; teamWorktreePolicy?: "allowed" | "repo-root-only"; teamVisibility?: "public" | "private" } | null;
+  sessionContext?: (sessionId: string) => HarnessSessionContext | null;
   strongImplModels?: () => string[];
   /**
    * main 直 push を許可するリポ (ディレクトリ名 or 絶対パス)。 未注入なら例外なし =
@@ -200,6 +220,11 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       teamTestPolicy: sessionContext?.teamTestPolicy,
       teamWorktreePolicy: sessionContext?.teamWorktreePolicy,
       teamVisibility: sessionContext?.teamVisibility,
+      readOnlyInquiry: sessionContext?.readOnlyInquiry,
+      inquiryCaseId: sessionContext?.inquiryCaseId,
+      inquiryApiBaseUrl: sessionContext?.inquiryApiBaseUrl,
+      inquiryReadRoot: sessionContext?.inquiryReadRoot,
+      inquiryAllowedRunIds: sessionContext?.inquiryAllowedRunIds,
       editedFiles,
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
@@ -222,7 +247,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
           hook: hook ?? "gate",
           mainPushAllowlist,
         });
-        verdict = blackbox.verdict;
+        // 決定的 deny は強制境界の正本。学習ルールが誤って allow/warn を返しても
+        // 問診 read-only や main push 禁止を降格させない。
+        verdict = deterministic.decision === "deny" ? deterministic : blackbox.verdict;
       } catch (e) {
         blackboxError = (e as Error).message;
         hlog.warn({ err: blackboxError, session_id, hook: hook ?? "gate" }, "harness blackbox gate failed");

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 
-import { prsRouter } from "./prs.js";
+import { prsRouter, type PrsApiDeps } from "./prs.js";
 import { makeTestApp } from "../../tests/helpers/test-app.js";
 import { RevisorMergeError } from "../pr/revisor-merge-outcome.js";
 import type { RevisorLocalPr, RevisorLocalPrReader } from "../pr/revisor-client.js";
@@ -290,27 +290,29 @@ describe("POST /v1/prs/local/:id/merge", () => {
 
 describe("POST /v1/prs/local and fast-lane promotion", () => {
   it("passes only a strict explicit fast_lane opt-in to manual submission", async () => {
-    const env = makeTestApp();
-    addSession(env);
+    const EMPTY_PRS = { list: () => [] } as never;
+    let active = true;
+    const sessions = {
+      findSession: (id: string) => id === "session-1" ? { id, status: active ? "active" : "ended" } : null,
+    } as unknown as NonNullable<PrsApiDeps["sessions"]>;
     const submitLocalPr = vi.fn(async () => ({ submitted: false as const, reason: "already_open" }));
-    const app = new Hono();
-    app.route("/v1/prs", prsRouter({ prs: env.prs, sessions: env.repo, submitLocalPr }));
+    const app = prsRouter({ prs: EMPTY_PRS, sessions, submitLocalPr });
 
-    const accepted = await app.request("/v1/prs/local", closeRequest({
+    const accepted = await app.request("/local", closeRequest({
       session_id: "session-1",
       fast_lane: true,
     }));
     expect(accepted.status).toBe(200);
     expect(submitLocalPr).toHaveBeenCalledWith("session-1", { fastLane: true });
 
-    const rejected = await app.request("/v1/prs/local", closeRequest({
+    const rejected = await app.request("/local", closeRequest({
       session_id: "session-1",
       fast_lane: "yes",
     }));
     expect(rejected.status).toBe(400);
 
-    env.repo.setStatus("session-1", "ended", 2, 2);
-    const inactive = await app.request("/v1/prs/local", closeRequest({
+    active = false;
+    const inactive = await app.request("/local", closeRequest({
       session_id: "session-1",
       fast_lane: true,
     }));

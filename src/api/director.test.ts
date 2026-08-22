@@ -96,6 +96,45 @@ describe("directorRouter", () => {
     expect(await conflict.json()).toEqual({ error: "invalid_transition" });
   });
 
+  it("updates only the handoff note without forcing a status transition", async () => {
+    const app = makeApp();
+    const created = await createCase(app);
+    const response = await app.request(
+      `/v1/director/cases/${created.caseId}/steps/${created.stepId}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ handoff_note: "問診で判明した事実" }),
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      step: { status: "pending", handoff_note: "問診で判明した事実" },
+    });
+  });
+
+  // 「選択肢は 2 件以上」は問診指示テンプレート側の努力目標であって API の契約ではない。
+  // ここを必須にすると、選択肢を持たない既存の decision まで 400 になる (neco 判断)。
+  it("accepts a decision with fewer than two options", async () => {
+    const app = makeApp();
+    const created = await createCase(app);
+    const response = await app.request(
+      `/v1/director/cases/${created.caseId}/steps/${created.stepId}/decisions`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          kind: "design",
+          question: "どちらを採るか",
+          facts: [],
+          options: ["A"],
+          impact: "設計が変わる",
+        }),
+      },
+    );
+    expect(response.status).toBe(201);
+  });
+
   it("blocks authority decisions when Genius is unavailable", async () => {
     const app = makeApp();
     const created = await createCase(app);

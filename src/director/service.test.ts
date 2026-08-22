@@ -22,6 +22,17 @@ describe("DirectorService", () => {
     })]);
   });
 
+  it("resolves an inquiry subject to its owning case", () => {
+    const service = makeService([]);
+    const created = service.createCase({
+      title: "問診対象", goal: "case 境界を守る", project: "Cc",
+      steps: [{ kind: "review", title: "レビュー" }],
+    });
+    expect(service.resolveCaseIdForInquirySubject(created.case.id)).toBe(created.case.id);
+    expect(service.resolveCaseIdForInquirySubject(created.steps[0].id)).toBe(created.case.id);
+    expect(service.resolveCaseIdForInquirySubject("missing")).toBeNull();
+  });
+
   it("uses the highest qualifying Genius judgment verbatim instead of inventing a Director decision", async () => {
     const service = makeService([card({ score: 0.91, judgment: "レビュー完了後に確認工程へ進める。" })]);
     const created = service.createCase({

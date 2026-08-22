@@ -40,3 +40,17 @@ Revisor は「降ろすところまで」で終える設計なので、build と
 
 - 自動マージや自動 checkout 前進の判断 (Revisor 側の責務)。
 - 再起動可否の判断ルールの変更 (共有インフラの lifecycle ルールはそのまま)。
+
+## 実装 (2026-08-21)
+
+`src/deploy/` を新設し、既存の Revisor → Cc inject (`session.inject`, source=`revisor`)
+から `checkout_published` を読み取って build → Excubitor 再起動へ繋いだ。
+設計は `spec/feature/checkout-published-deploy.md`。
+
+- 通知の読み取り: `src/deploy/notice.ts` (見送り通知は弾く / 読めなければ何もしない)
+- deploy の判断と実行: `src/deploy/deploy-service.ts`
+  (サービス無し・本体クローン無し・claim 衝突は見送り、実行は Excubitor 経由・
+  本体フォルダのみ・testing claim 付き)
+- 結果と 1 行記録: `src/deploy/outcome.ts` / `src/deploy/record.ts`
+  (build・再起動の失敗はマージや checkout 前進を巻き戻さず、失敗として報告するだけ)
+- 購読の起動: `src/deploy/watch.ts` (`workflowBindings` の `review` キー)

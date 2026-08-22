@@ -9,7 +9,7 @@
  * (invoke 成功 → step への記録前に落ちても、次 tick で既存 run を復元する)。
  */
 
-import { resolveClonePaths, repoNameFromOrigin } from "../release/clone-paths.js";
+import { resolveClonePaths, repoNameFromOrigin, isSafeRepoName } from "../release/clone-paths.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
 import { eventBus } from "../events.js";
@@ -320,18 +320,6 @@ export function resolveTargetRepo(
   }
   if (!repoName) return null;
   return resolveClonePaths(repoName, workspaceRoots).main;
-}
-
-/** workspace root からの traversal や絶対パス化を防ぐ単一ディレクトリ名。 */
-function isSafeRepoName(value: string): boolean {
-  return value.length > 0
-    && value.length <= 200
-    && value !== "."
-    && value !== ".."
-    && !value.includes("/")
-    && !value.includes("\\")
-    && !value.includes(":")
-    && !value.includes("\0");
 }
 
 /** 実装委託テンプレ (`task` 引数) へ渡す指示本文。 */

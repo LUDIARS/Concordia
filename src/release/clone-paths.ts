@@ -51,3 +51,34 @@ export function repoNameFromOrigin(repoOrigin: string): string {
   const parts = repoOrigin.split("/");
   return parts[parts.length - 1] ?? repoOrigin;
 }
+
+/**
+ * workspace root からの traversal や絶対パス化を防ぐ単一ディレクトリ名か。
+ *
+ * `resolveClonePaths` はリポ名を `join(root, repoName)` のパス片として使うので、
+ * リポ名が外部由来 (通知本文・API 入力・catalog) のときは必ずこれを通してから渡す。
+ * `..` や `C:` を素通しすると workspace 外のディレクトリを本体クローンとみなし、
+ * そこで build / 再起動を走らせてしまう。
+ */
+export function isSafeRepoName(value: string): boolean {
+  return value.length > 0
+    && value.length <= 200
+    && value !== "."
+    && value !== ".."
+    && !value.includes("/")
+    && !value.includes("\\")
+    && !value.includes(":")
+    && !value.includes("\0");
+}
+
+/**
+ * `owner/repo` ないし `repo` の全区間がパス片として安全か。
+ *
+ * `repoNameFromOrigin` は末尾だけを取るので、 その戻り値を `isSafeRepoName` にかけても
+ * `C:/Windows` や `../Concordia` のように **危険な前半 + 安全な末尾**の組み合わせは
+ * 素通ししてしまう。 分割前の文字列を扱うときはこちらを使う。
+ */
+export function isSafeRepoOrigin(value: string): boolean {
+  const parts = value.split("/");
+  return parts.length <= 2 && parts.every((part) => isSafeRepoName(part));
+}

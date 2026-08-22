@@ -4,7 +4,7 @@
 
 import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, normalize } from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import { loadConfig, isLoopbackHost } from "../shared/config.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -126,6 +126,7 @@ import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { MemoriaBackend } from "../taskflow/backend.js";
 import { startTaskReconciler } from "../taskflow/reconcile.js";
 import { TaskflowRuntime } from "../taskflow/runtime.js";
+import { startCheckoutPublishedDeployWatch } from "../deploy/watch.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
 import { ConfirmService } from "../release/confirm-service.js";
 import { ServiceMap } from "../release/service-map.js";
@@ -867,6 +868,25 @@ export async function startBackend(): Promise<BackendHandle> {
       });
       return { stop: unsubscribe };
     },
+  });
+
+  // Revisor が登録 checkout を前進させたら (lifecycle event checkout_published)、
+  // build → Excubitor 再起動まで繋ぐ。 通知経路は上と同じ Revisor → Cc inject を
+  // 使い、新しい通信路は作らない。 spec/feature/checkout-published-deploy.md
+  workflowBindings.register({
+    key: "review",
+    name: "checkout-published-deploy",
+    start: () => startCheckoutPublishedDeployWatch({
+      resolveServiceCode,
+      resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
+      excubitor: excubitorClient,
+      claims: testingClaims,
+      chat,
+      resolveSessionRepo: (sessionId) => {
+        const path = repo.findSession(sessionId)?.repo_path ?? null;
+        return path ? basename(normalize(path)) : null;
+      },
+    }),
   });
 
   // コスト予算 (日次トークン上限) — 全ログ走査でトークン消費を蓄積し、 超過で

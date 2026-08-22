@@ -1,0 +1,28 @@
+{
+  "name": "checkout-published-deploy",
+  "description": "Revisor が登録 checkout を merge commit へ前進させた通知 (lifecycle event checkout_published) を既存の Revisor → Cc inject から読み取り、Excubitor 登録のサービスを持つリポだけを build → Excubitor 再起動へ繋ぐ層。通知の読み取り (notice)、deploy の判断と実行 (deploy-service)、結果の型と 1 行表現 (outcome)、記録 (record)、購読の起動 (watch) から成る。起動は Excubitor 経由・プロジェクト本体フォルダのみ・testing claim 付きという既存ルールの利用者であって、そのルールの所有者ではない。マージ可否や checkout 前進可否の判断 (Revisor の責務)、develop 確認フロー (develop-confirm-flow) は含めない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/deploy/(notice|deploy-service|outcome|record|watch)(\.test)?\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"checkout-published-deploy\" domain: checkout 前進通知の購読と、サービスがあるリポだけの build → Excubitor 再起動、および実行有無の理由付き記録。",
+  "source": "spec",
+  "mechanics": [
+    "checkout-published-notice-parsing",
+    "service-presence-gating",
+    "build-and-excubitor-restart-under-testing-claim",
+    "stage-separated-failure-reporting",
+    "deploy-outcome-single-line-record"
+  ],
+  "specRefs": [
+    "spec/feature/checkout-published-deploy.md"
+  ],
+  "rationale": "checkout 前進後の deploy は既存のどのドメインにも属さない新しい機構である。Revisor 連携 (revisor-local-pr) は PR の提出と審査結果の受け取りを、testing-traffic は claim の宣言レジストリそのものを所有しており、どちらもサービスの build/再起動の起動判断は持たない。spec/feature/checkout-published-deploy.md が通知の受け口から記録までを 1 つの機構として定義しているため、同じ境界で 1 ドメインとして宣言する。",
+  "lockedFields": [
+    "*"
+  ],
+  "updatedAt": "2026-08-21T00:00:00.000Z"
+}

@@ -16,6 +16,8 @@ const CARD_COLOR: Partial<Record<TeamCardKind, number>> = {
   meeting: 0xeb459e,
   // Director 巡回の人間エスカレーション (spec/feature/director-patrol.md §1.4)。
   question: 0xf0b232,
+  // タスク整理の報告 (spec/feature/director-workflow.md §2)。
+  "task-kanban": 0x57f287,
 };
 
 export interface TeamPostCardDeps {

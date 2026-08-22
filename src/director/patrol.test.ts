@@ -211,4 +211,17 @@ describe("nextExecutableStep", () => {
     const pending = makeStep("c1", "implement", "pending", { sequence: 2 });
     expect(nextExecutableStep([cancelled, pending])?.id).toBe(pending.id);
   });
+
+  // pending なのに run 参照を持つのは異常形。assign ガード (delegation_run_id IS NULL) が
+  // 必ず弾くので、起動しても run だけが孤立する。候補にせず case を止める。
+  it("does not launch a pending step that already carries a run reference", () => {
+    const orphaned = makeStep("c1", "delegate", "pending", { sequence: 1, delegation_run_id: "run-1" });
+    expect(nextExecutableStep([orphaned])).toBeNull();
+  });
+
+  it("does not skip past an orphaned pending step to a later launchable one", () => {
+    const orphaned = makeStep("c1", "delegate", "pending", { sequence: 1, delegation_run_id: "run-1" });
+    const later = makeStep("c1", "implement", "pending", { sequence: 2 });
+    expect(nextExecutableStep([orphaned, later])).toBeNull();
+  });
 });

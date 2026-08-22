@@ -14,6 +14,9 @@
       "pathPattern": "(^|/)spec/feature/director-patrol\\.md$"
     },
     {
+      "pathPattern": "(^|/)spec/feature/director-workflow\\.md$"
+    },
+    {
       "pathPattern": "(^|/)src/director/[^/]+$"
     }
   ],
@@ -25,7 +28,8 @@
     "question-card-escalation"
   ],
   "specRefs": [
-    "spec/feature/director-patrol.md"
+    "spec/feature/director-patrol.md",
+    "spec/feature/director-workflow.md"
   ],
   "rationale": "巡回は director の正本 (case/step/decision) を読むが、その所有はしない。delegation run と PR の状態は既存テーブルが正本であり、巡回は参照 (delegation_run_id) の記録と工程遷移だけを持つ。起動の実体 (invoke/spawn) は agent-delegation の持ち場。"
 }

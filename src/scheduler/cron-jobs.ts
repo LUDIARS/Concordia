@@ -89,6 +89,13 @@ const TEAM_STANDUP_DAILY_CRON = "30 9 * * *";
  * 返信を待って反映するまでが 1 回分になる。
  */
 const TEAM_REVIEW_REGULAR_CRON = "0 13 * * 2,5";
+
+/**
+ * ディレクター タスク整理 (2026-08-20 neco 指示で新設、spec/feature/director-workflow.md §2)。
+ * 毎日 10:00 JST、チームごとに 1 本。朝礼 (9:30) の報告と台帳更新の後ろに置き、
+ * 整理が朝礼のズレ指摘を引用できるようにする。
+ */
+const DIRECTOR_TASK_ORGANIZE_CRON = "0 10 * * *";
 export const CRON_JOBS: CronJobDefinition[] = [{
     name: "ludiars-review-weekly",
     cron: WEEKLY_REVIEW_CRON,
@@ -150,6 +157,13 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     name: "team-review-regular",
     cron: TEAM_REVIEW_REGULAR_CRON,
     call_name: "team-review-regular",
+    buildArgs: () => ({ date: todayIso() }),
+    cwd: ARS_ROOT,
+    fanout: "teams",
+}, {
+    name: "director-task-organize-daily",
+    cron: DIRECTOR_TASK_ORGANIZE_CRON,
+    call_name: "director-task-organize",
     buildArgs: () => ({ date: todayIso() }),
     cwd: ARS_ROOT,
     fanout: "teams",

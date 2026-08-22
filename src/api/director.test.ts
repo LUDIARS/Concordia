@@ -73,12 +73,23 @@ describe("directorRouter", () => {
     expect(invalid.status).toBe(400);
 
     const created = await createCase(app);
-    const conflict = await app.request(
+    // pending → completed は「実態完了」として許可される。 terminal からの巻き戻しだけが 409。
+    const completed = await app.request(
       `/v1/director/cases/${created.caseId}/steps/${created.stepId}`,
       {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ status: "completed" }),
+      },
+    );
+    expect(completed.status).toBe(200);
+
+    const conflict = await app.request(
+      `/v1/director/cases/${created.caseId}/steps/${created.stepId}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "active" }),
       },
     );
     expect(conflict.status).toBe(409);
@@ -129,6 +140,46 @@ describe("directorRouter", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_decision" });
+  });
+
+  it("appends a step to an existing case with a tail sequence", async () => {
+    const app = makeApp();
+    const created = await createCase(app);
+    const response = await app.request(`/v1/director/cases/${created.caseId}/steps`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        kind: "delegate",
+        title: "Memoria #12 を実装する",
+        handoff_note: "Memoria #12: タスク整理からの追加",
+      }),
+    });
+    expect(response.status).toBe(201);
+    const body = await response.json() as { step: { sequence: number; status: string; kind: string } };
+    expect(body.step).toMatchObject({ kind: "delegate", status: "pending", sequence: 2 });
+
+    const detail = await app.request(`/v1/director/cases/${created.caseId}`);
+    const detailBody = await detail.json() as { steps: unknown[] };
+    expect(detailBody.steps).toHaveLength(2);
+  });
+
+  it("rejects step appends to an unknown case or with an invalid body", async () => {
+    const app = makeApp();
+    const notFound = await app.request("/v1/director/cases/dir_missing/steps", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "delegate", title: "どこにも入らない" }),
+    });
+    expect(notFound.status).toBe(404);
+
+    const created = await createCase(app);
+    const invalid = await app.request(`/v1/director/cases/${created.caseId}/steps`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ kind: "not-a-kind", title: "" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toEqual({ error: "invalid_step" });
   });
 });
 

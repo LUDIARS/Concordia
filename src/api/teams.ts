@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { TeamMetrics, TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import { eventBus } from "../events.js";
+import { TEAM_CARD_POST_KINDS } from "../shared/team-cards.js";
 
 const PrRulesSchema = z.object({
   base: z.string().trim().min(1).max(200)
@@ -42,7 +43,8 @@ const PatchSchema = CreateSchema.partial();
  * 対応する固定集合に限る — 任意の面へ任意本文を投げられる口にはしない。
  */
 const CardSchema = z.object({
-  kind: z.enum(["standup", "meeting"]),
+  // 受付種別の正本は shared/team-cards.ts (spec/feature/director-workflow.md §3)。
+  kind: z.enum(TEAM_CARD_POST_KINDS),
   title: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(20_000),
 }).strict();

@@ -170,12 +170,18 @@ export function planTeamPatrol(input: PatrolPlanInput): PatrolAction[] {
 /**
  * sequence 順で先行 step がすべて completed / cancelled の、最初の pending
  * delegate / implement step。先行に blocked / active が残る case は候補にしない。
+ * pending なのに run 参照を持つ step は異常形として起動しない (assign ガードの
+ * `delegation_run_id IS NULL` と矛盾し、run だけ孤立起動してしまうため)。
  */
 export function nextExecutableStep(steps: readonly DirectorStep[]): DirectorStep | null {
   const ordered = [...steps].sort((a, b) => a.sequence - b.sequence);
   for (const step of ordered) {
     if (step.status === "completed" || step.status === "cancelled") continue;
-    if (step.status === "pending" && LAUNCHABLE_KINDS.has(step.kind)) return step;
+    if (
+      step.status === "pending"
+      && LAUNCHABLE_KINDS.has(step.kind)
+      && step.delegation_run_id == null
+    ) return step;
     return null;
   }
   return null;

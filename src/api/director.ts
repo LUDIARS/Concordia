@@ -12,26 +12,40 @@ import {
 } from "../director/service.js";
 import { eventBus } from "../events.js";
 
+/** step 形の正本。case 起案 (steps 要素) と step 追加が同じ形を共有する。 */
+const StepSchema = z.object({
+  kind: z.enum(DIRECTOR_STEP_KINDS),
+  title: z.string().trim().min(1).max(300),
+  task_path: z.string().trim().min(1).max(1_000).nullable().optional(),
+  delegation_run_id: z.string().trim().min(1).max(200).nullable().optional(),
+  local_pr_id: z.string().trim().min(1).max(200).nullable().optional(),
+  confirm_run_id: z.string().trim().min(1).max(200).nullable().optional(),
+  handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
+});
+
 const CreateCaseSchema = z.object({
   title: z.string().trim().min(1).max(200),
   goal: z.string().trim().min(1).max(4_000),
   project: z.string().trim().min(1).max(200),
   session_id: z.string().trim().min(1).max(200).nullable().optional(),
   team_id: z.string().trim().min(1).max(200).nullable().optional(),
-  steps: z.array(z.object({
-    kind: z.enum(DIRECTOR_STEP_KINDS),
-    title: z.string().trim().min(1).max(300),
-    task_path: z.string().trim().min(1).max(1_000).nullable().optional(),
-    delegation_run_id: z.string().trim().min(1).max(200).nullable().optional(),
-    local_pr_id: z.string().trim().min(1).max(200).nullable().optional(),
-    confirm_run_id: z.string().trim().min(1).max(200).nullable().optional(),
-    handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
-  })).min(1).max(50),
+  steps: z.array(StepSchema).min(1).max(50),
 });
 
 const PatchStepSchema = z.object({
   status: z.enum(DIRECTOR_STEP_STATUSES),
   handoff_note: z.string().trim().min(1).max(4_000).nullable().optional(),
+});
+
+/**
+ * 既存 case への step 追加 (spec/feature/director-workflow.md §3)。
+ * 成果物参照 (run / PR / confirm) は持たせない — pending + run id 付きの step を
+ * 作れると巡回の assign ガード (delegation_run_id IS NULL) と矛盾するため。
+ */
+const AppendStepSchema = StepSchema.omit({
+  delegation_run_id: true,
+  local_pr_id: true,
+  confirm_run_id: true,
 });
 
 const DecisionSchema = z.object({
@@ -80,6 +94,19 @@ export function directorRouter(deps: { service: DirectorService }): Hono {
   app.get("/cases/:caseId", (c) => {
     const detail = deps.service.getCase(c.req.param("caseId"));
     return detail ? c.json(detail) : c.json({ error: "not_found" }, 404);
+  });
+
+  app.post("/cases/:caseId/steps", async (c) => {
+    const parsed = AppendStepSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_step" }, 400);
+    try {
+      return c.json({ step: deps.service.appendStep({
+        case_id: c.req.param("caseId"),
+        step: parsed.data,
+      }) }, 201);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
   });
 
   app.patch("/cases/:caseId/steps/:stepId", async (c) => {

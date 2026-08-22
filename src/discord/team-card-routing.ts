@@ -7,20 +7,22 @@
 //   呼び出し側が現行チャンネル (セッション webhook / セッションチャンネル) へ
 //   フォールバックする。 ここでは投稿しない — 決定だけを返す純関数。
 
+import type { TeamCardEventKind } from "../shared/team-cards.js";
+
 /**
  * ルーティング対象のカード種別。 surface 名は team-provision.ts が team_surfaces に
- * 保存するキーと一致させる。 cost-daily / task-kanban はチーム面側の張り替え先として
- * 予約済みだが、 投稿元カードが未実装のため呼び出しサイトはまだ無い。
+ * 保存するキーと一致させる。 event 経由の種別 (standup / meeting / question /
+ * task-kanban) は shared/team-cards.ts が正本で、 ここはそれに routing 専用の
+ * 予約種別を足した超集合。 cost-daily はチーム面側の張り替え先として予約済みだが、
+ * 投稿元カードが未実装のため呼び出しサイトはまだ無い
+ * (task-kanban はタスク整理が投稿する — spec/feature/director-workflow.md §2)。
  */
 export type TeamCardKind =
+  | TeamCardEventKind
   | "director-plan"
   | "decision-log"
-  | "question"
   | "cost-daily"
-  | "cost-session"
-  | "task-kanban"
-  | "standup"
-  | "meeting";
+  | "cost-session";
 
 export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   "director-plan": "目標",

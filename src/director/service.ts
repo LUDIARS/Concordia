@@ -4,6 +4,7 @@ import type { GeniusCard, GeniusClient } from "../inquiry/genius-client.js";
 import { DirectorRepo } from "./repo.js";
 import type {
   CreateDirectorCaseInput,
+  CreateDirectorStepInput,
   DirectorCaseDetail,
   DirectorCase,
   DirectorDecisionKind,
@@ -71,6 +72,31 @@ export class DirectorService {
 
   getCase(id: string): DirectorCaseDetail | null {
     return this.deps.repo.findCaseDetail(id);
+  }
+
+  /**
+   * 既存 case へ step を 1 件追加する (spec/feature/director-workflow.md §3)。
+   * タスク整理が Memoria の実行可能タスクを巡回 (director-patrol) の実行単位へ
+   * 落とすための入口。sequence は repo が末尾採番する。
+   */
+  appendStep(input: { case_id: string; step: CreateDirectorStepInput }): DirectorStep {
+    const now = this.now();
+    const appended = this.deps.repo.appendStep({
+      id: id("dst"),
+      case_id: input.case_id,
+      kind: input.step.kind,
+      title: input.step.title,
+      status: "pending",
+      task_path: input.step.task_path ?? null,
+      delegation_run_id: input.step.delegation_run_id ?? null,
+      local_pr_id: input.step.local_pr_id ?? null,
+      confirm_run_id: input.step.confirm_run_id ?? null,
+      handoff_note: input.step.handoff_note ?? null,
+      created_at: now,
+      updated_at: now,
+    });
+    if (!appended) throw new DirectorNotFoundError("director case not found");
+    return appended;
   }
 
   /** 一覧 (kanban) 用の read model。 decisions は含めず case + steps だけ返す。 */
@@ -258,7 +284,9 @@ function id(prefix: string): string {
 
 function canTransition(from: DirectorStepStatus, to: DirectorStepStatus): boolean {
   if (from === to) return true;
-  if (from === "pending") return to === "active" || to === "blocked" || to === "cancelled";
+  // pending → completed は「実態完了」の反映 (spec/feature/director-workflow.md §2):
+  // 巡回の外で終わった作業を、証跡を根拠に active を経由せず直接 completed へ落とす。
+  if (from === "pending") return to === "active" || to === "blocked" || to === "completed" || to === "cancelled";
   if (from === "active") return to === "blocked" || to === "completed" || to === "cancelled";
   if (from === "blocked") return to === "active" || to === "completed" || to === "cancelled";
   return false;

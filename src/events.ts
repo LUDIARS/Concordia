@@ -5,6 +5,7 @@
  */
 
 import type { SessionMessagePayload } from "./shared/session-message-types.js";
+import type { TeamCardEventKind } from "./shared/team-cards.js";
 export type { SessionMessagePayload } from "./shared/session-message-types.js";
 
 /**
@@ -84,11 +85,12 @@ type ConcordiaEventPayload =
   | { type: "team.created"; event_id: string; team_id: string; name: string; slug: string; ts: number }
   | { type: "team.changed"; event_id: string; team_id: string; fields: string[]; ts: number }
   /**
-   * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告
-   * (POST /v1/teams/:id/cards)、question は Director 巡回の人間エスカレーション
+   * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、
+   * task-kanban はタスク整理の報告 (いずれも POST /v1/teams/:id/cards、
+   * spec/feature/director-workflow.md §2)。question は Director 巡回の人間エスカレーション
    * (spec/feature/director-patrol.md §1.4、Cc 内部からの emit のみ)。
    */
-  | { type: "team.card_requested"; team_id: string; kind: "standup" | "meeting" | "question"; title: string; body: string; ts: number }
+  | { type: "team.card_requested"; team_id: string; kind: TeamCardEventKind; title: string; body: string; ts: number }
   | { type: "vibes.ok"; session_id: string; source: string; ts: number }
   | { type: "inquiry.resolved"; target_session_id: string; category: string; decision: "proceed" | "ask_human" | "self_judge"; supervisor_user_id: string | null; ts: number }
   | { type: "process.started";  process_name: string; pid: number; cwd: string; command: string; ts: number }

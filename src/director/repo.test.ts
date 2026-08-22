@@ -283,4 +283,68 @@ describe("DirectorRepo", () => {
     expect(repo.listDecisions("case-1")[0].genius_cards).toEqual(saved.genius_cards);
     db.close();
   });
+
+  it("appends a step with a tail sequence", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new DirectorRepo(db);
+    repo.createCase({
+      id: "case-app",
+      title: "タスク整理",
+      goal: "追加 step を巡回可能にする",
+      project: "Cc",
+      session_id: null,
+      team_id: "team-1",
+      created_at: 100,
+      updated_at: 100,
+    }, [{
+      id: "step-app-1",
+      case_id: "case-app",
+      sequence: 1,
+      kind: "implement",
+      title: "既存",
+      status: "completed",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: null,
+      created_at: 100,
+      updated_at: 100,
+    }]);
+
+    const appended = repo.appendStep({
+      id: "step-app-2",
+      case_id: "case-app",
+      kind: "delegate",
+      title: "Memoria #12",
+      status: "pending",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: "Memoria #12: タスク整理からの追加",
+      created_at: 200,
+      updated_at: 200,
+    });
+
+    expect(appended).toMatchObject({ id: "step-app-2", sequence: 2, status: "pending" });
+    expect(repo.listSteps("case-app").map((step) => step.sequence)).toEqual([1, 2]);
+    expect(repo.findCase("case-app")?.updated_at).toBe(200);
+    expect(repo.appendStep({
+      id: "step-app-3",
+      case_id: "case-none",
+      kind: "delegate",
+      title: "宛先なし",
+      status: "pending",
+      task_path: null,
+      delegation_run_id: null,
+      local_pr_id: null,
+      confirm_run_id: null,
+      handoff_note: null,
+      created_at: 300,
+      updated_at: 300,
+    })).toBeNull();
+    db.close();
+  });
 });

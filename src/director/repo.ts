@@ -47,22 +47,43 @@ export class DirectorRepo {
         INSERT INTO director_cases(id, title, goal, project, session_id, team_id, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(input.id, input.title, input.goal, input.project, input.session_id, input.team_id, input.created_at, input.updated_at);
-      const insertStep = this.db.prepare(`
-        INSERT INTO director_steps(
-          id, case_id, sequence, kind, title, status, task_path, delegation_run_id,
-          local_pr_id, confirm_run_id, handoff_note, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      for (const step of steps) {
-        insertStep.run(
-          step.id, step.case_id, step.sequence, step.kind, step.title, step.status, step.task_path,
-          step.delegation_run_id, step.local_pr_id, step.confirm_run_id, step.handoff_note,
-          step.created_at, step.updated_at,
-        );
-      }
+      for (const step of steps) this.insertStepRow(step);
     });
     create();
     return { case: input, steps, decisions: [] };
+  }
+
+  /** director_steps への行追加の単一実装 (createCase / appendStep が共有する)。 */
+  private insertStepRow(step: DirectorStep): void {
+    this.db.prepare(`
+      INSERT INTO director_steps(
+        id, case_id, sequence, kind, title, status, task_path, delegation_run_id,
+        local_pr_id, confirm_run_id, handoff_note, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      step.id, step.case_id, step.sequence, step.kind, step.title, step.status, step.task_path,
+      step.delegation_run_id, step.local_pr_id, step.confirm_run_id, step.handoff_note,
+      step.created_at, step.updated_at,
+    );
+  }
+
+  /**
+   * 既存 case への step 追加 (spec/feature/director-workflow.md §3)。
+   * sequence は transaction 内で末尾採番する (入力型に持たせない)。
+   */
+  appendStep(step: Omit<DirectorStep, "sequence">): DirectorStep | null {
+    const append = this.db.transaction(() => {
+      if (!this.findCase(step.case_id)) return null;
+      const next = (this.db.prepare(
+        `SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM director_steps WHERE case_id = ?`,
+      ).get(step.case_id) as { next: number }).next;
+      const resolved: DirectorStep = { ...step, sequence: next };
+      this.insertStepRow(resolved);
+      this.db.prepare(`UPDATE director_cases SET updated_at = MAX(updated_at, ?) WHERE id = ?`)
+        .run(resolved.updated_at, resolved.case_id);
+      return resolved;
+    });
+    return append();
   }
 
   findCase(id: string): DirectorCase | null {

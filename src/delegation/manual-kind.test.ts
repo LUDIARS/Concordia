@@ -31,7 +31,7 @@ describe("resolveManualKind", () => {
   });
 
   it("ヒント無しの既定は 実装", () => {
-    expect(resolveManualKind({ call_name: "codex-5-6-sol", title: "Codex Sol" })).toBe("実装");
+    expect(resolveManualKind({ call_name: "sol-mid", title: "Sol / mid" })).toBe("実装");
     expect(resolveManualKind({ call_name: "morning-tasks", title: "朝のタスク" })).toBe("実装");
   });
 

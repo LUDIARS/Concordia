@@ -65,7 +65,7 @@ describe("Fable delegation reasoning effort", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { templates: TemplateDto[] };
 
-    for (const callName of ["claude-fable-5-impl", "design-hard-fable5"]) {
+    for (const callName of ["fable-mid", "fable-xhigh", "design-hard-fable5"]) {
       const template = body.templates.find((item) => item.call_name === callName);
       expect(template?.model).toBe("claude-fable-5");
       const effort = template?.runtime_options.find((option) => option.key === "effort");
@@ -82,7 +82,7 @@ describe("Fable delegation reasoning effort", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          call_name: "claude-fable-5-impl",
+          call_name: "fable-mid",
           args: {
             task: `exercise ${effort} effort`,
             target_repo: process.cwd(),
@@ -109,7 +109,7 @@ describe("Fable delegation reasoning effort", () => {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        call_name: "claude-fable-5-impl",
+          call_name: "fable-mid",
         args: {
           task: "exercise invalid effort validation",
           target_repo: process.cwd(),

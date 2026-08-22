@@ -4,14 +4,15 @@ import { makeTestApp } from "./helpers/test-app.js";
 import type { SpawnRequest } from "../src/control/spawner.js";
 
 const EXPECTED_SEED_CALLS = [
-  "claude-fable-5-impl",
-  "codex-5-6-sol",
-  "codex-5-6-sol-ultra",
-  "claude-opus-5-impl",
+  "fable-mid",
+  "sol-mid",
+  "opus-xhigh",
+  "opus-mid",
+  "fable-xhigh",
   "claude-sonnet-5-impl",
   "codex-5-6-terra",
-  "claude-haiku-4-5-impl",
-  "codex-5-6-luna",
+  "haiku",
+  "luna",
   "forum-claude-session",
   "forum-codex-session",
   "impl-from-design",
@@ -62,10 +63,10 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
-    expect(json.templates.find((t) => t.call_name === "codex-5-6-sol")?.emoji).toBe("☀️");
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
-    expect(json.templates.find((t) => t.call_name === "codex-5-6-luna")?.emoji).toBe("🌙");
+    expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
     expect(json.templates.filter((t) => t.forum_tag).map((t) => t.call_name)).toEqual([
       "forum-claude-session",
       "forum-codex-session",

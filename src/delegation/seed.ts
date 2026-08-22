@@ -6,13 +6,6 @@
 
 import type { DelegationRepo, CreateTemplateInput } from "../db/delegation-repo.js";
 
-const CLAUDE_TEMPLATE_SORT_ORDER = {
-  "fable-5": 10,
-  "opus-5": 30,
-  "sonnet-5": 40,
-  "haiku-4-5": 60,
-} as const;
-
 /**
  * Anatomia supply→verify を委託プロンプトの必須手順にする (2026-08-19 neco 指示:
  * 「指示内容からまずドメインを確認して設計する / どのドメインにどう紐づけるかを一緒に考えて貼る」)。
@@ -26,15 +19,15 @@ const ANATOMIA_SUPPLY_VERIFY_STEPS = [
 ];
 
 function codex56Template(opts: {
-  /** call_name = `codex-5-6-${callSuffix}`。 model は `gpt-5.6-${modelName}`。 */
-  callSuffix: string;
+  /** 呼び出し契約となる call_name。 model は `gpt-5.6-${modelName}`。 */
+  callName: string;
   modelName: "sol" | "terra" | "luna";
   label: string;
   emoji: string;
   sort_order: number;
-  /** codex の model_reasoning_effort。 ultra は Sol の最上位推論。 */
+  /** codex の model_reasoning_effort。 ultra は Sol 限定の最上位推論。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
-  /** fast モード (出力高速化)。 Sol の既定は high + fast (2026-07-17 neco 指示)。 */
+  /** fast モード (出力高速化)。 Sol プロファイル (`sol-mid`) は medium + fast。 */
   fastMode?: boolean;
   /**
    * codex 実行系の provider。 既定 `"codex"` は codex-cli (Lictor wrap)。
@@ -46,7 +39,7 @@ function codex56Template(opts: {
   provider?: "codex" | "codex-sdk";
 }): CreateTemplateInput {
   return {
-    call_name: `codex-5-6-${opts.callSuffix}`,
+    call_name: opts.callName,
     title: `Implementation delegation (GPT-5.6 ${opts.label})`,
     description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
     target_provider: opts.provider ?? "codex",
@@ -85,16 +78,61 @@ function codex56Template(opts: {
 }
 
 const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
-  // Sol の既定は high + fast (2026-07-17 neco 指示)。
-  codex56Template({ callSuffix: "sol", modelName: "sol", label: "Sol", emoji: "☀️", sort_order: 20, reasoning: "high", fastMode: true }),
-  // 最上位推論が要る難所用に Sol Ultra を明示的に用意する (同指示)。
-  // provider=codex-sdk: Satelles 経由 (Cc の CONCORDIA_SATELLES_CODEX_RUNTIME=wsl と
-  // 組み合わせて WSL 内 Linux codex で走らせ、 lsass リークを回避する — neco 指示)。
-  codex56Template({ callSuffix: "sol-ultra", modelName: "sol", label: "Sol Ultra", emoji: "🌞", sort_order: 25, reasoning: "ultra", provider: "codex-sdk" }),
+  codex56Template({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium", fastMode: true }),
   // Terra も provider=codex-sdk: Satelles 経由で WSL 内 Linux codex を使う (neco 指示)。
-  codex56Template({ callSuffix: "terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 50, reasoning: "xhigh", provider: "codex-sdk" }),
-  codex56Template({ callSuffix: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 70, reasoning: "medium" }),
+  codex56Template({ callName: "codex-5-6-terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 60, reasoning: "xhigh", provider: "codex-sdk" }),
+  codex56Template({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "medium" }),
 ];
+
+/**
+ * Human-facing implementation profiles use concise call names.  The profile name
+ * is intentionally independent from its CLI/provider so callers can choose by
+ * capability and effort without guessing the underlying model.
+ */
+function claudeImplementationTemplate(opts: {
+  callName: string;
+  label: string;
+  note: string;
+  model: string;
+  emoji: string;
+  sortOrder: number;
+  runtimeOptions?: Record<string, unknown>;
+}): CreateTemplateInput {
+  return {
+    call_name: opts.callName,
+    title: `実装委託 (${opts.label})`,
+    description: `${opts.label} に実装を委託する。${opts.note} LUDIARS 規約 (feat branch + PR) を守らせる。`,
+    target_provider: "claude",
+    model: opts.model,
+    ...(opts.runtimeOptions ? { runtime_options: opts.runtimeOptions } : {}),
+    emoji: opts.emoji,
+    category: "employee",
+    sort_order: opts.sortOrder,
+    prompt_template: [
+      "Implement the following in ${target_repo}:",
+      "",
+      "${task}",
+      "",
+      "${context_extra:}", "",
+      "Requirements:",
+      "- Create a feature branch (feat/<short-slug>) off origin/main.",
+      "- Implement as specified; don't add scope.",
+      ...ANATOMIA_SUPPLY_VERIFY_STEPS,
+      "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
+      "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+      "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
+      "",
+      "Report the PR URL when done.",
+    ].join("\n"),
+    input_schema: [
+      { name: "task", type: "string", required: true, description: "What to implement" },
+      { name: "target_repo", type: "string", required: true, description: "Absolute path of the target repository" },
+      { name: "context_extra", type: "string", required: false, description: "Optional extra context to prepend" },
+    ],
+    default_cwd: "${target_repo}",
+    is_active: true,
+  };
+}
 
 const FORUM_SESSION_PROMPT = [
   "Discord Session フォーラムの投稿から起動されたセッションです。",
@@ -461,49 +499,60 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: null,
     is_active: true,
   },
-  // ── Claude (Opus / Sonnet / Fable) への汎用実装委託 ──────────────────
-  // target_provider=claude + model 指定 → spawn は `lictor claude --model <id>`。
-  // 同じ Claude Code でも上位/中位/高速モデルを選んで委託できるよう既定で 3 本入れる。
-  ...(["opus-5", "sonnet-5", "fable-5", "haiku-4-5"] as const).map((tier) => {
-    const meta = {
-      "opus-5": { id: "claude-opus-5", label: "Opus 5", note: "最上位。 設計判断や難所の実装向き。", emoji: "🧙‍♂️" },
-      "sonnet-5": { id: "claude-sonnet-5", label: "Sonnet 5", note: "中位。 一般的な実装の主力。", emoji: "🧑‍💼" },
-      "fable-5": { id: "claude-fable-5", label: "Fable 5", note: "高速。 軽量〜中規模タスク向き。", emoji: "🦸" },
-      "haiku-4-5": { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5", note: "超高速・軽量タスク向き。", emoji: "🗣️" },
-    }[tier];
-    return {
-      call_name: `claude-${tier}-impl`,
-      title: `実装委託 (Claude ${meta.label})`,
-      description: `Claude Code (${meta.label}) に実装を委託する。${meta.note} LUDIARS 規約 (feat branch + PR) を守らせる。`,
-      target_provider: "claude" as const,
-      model: meta.id,
-      emoji: meta.emoji,
-      category: "employee" as const,
-      sort_order: CLAUDE_TEMPLATE_SORT_ORDER[tier],
-      prompt_template: [
-        "Implement the following in ${target_repo}:",
-        "",
-        "${task}",
-        "",
-        "${context_extra:}", "",
-        "Requirements:",
-        "- Create a feature branch (feat/<short-slug>) off origin/main.",
-        "- Implement as specified; don't add scope.",
-        ...ANATOMIA_SUPPLY_VERIFY_STEPS,
-        "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
-        "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
-        "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
-        "",
-        "Report the PR URL when done.",
-      ].join("\n"),
-      input_schema: [
-        { name: "task", type: "string" as const, required: true, description: "What to implement" },
-        { name: "target_repo", type: "string" as const, required: true, description: "Absolute path of the target repository" },
-        { name: "context_extra", type: "string" as const, required: false, description: "Optional extra context to prepend" },
-      ],
-      default_cwd: "${target_repo}",
-      is_active: true,
-    };
+  // ── 実装プロファイル ───────────────────────────────────────────────
+  // call_name はモデル名ではなく、選ぶべき能力と effort を表す。起動側の
+  // provider/model/runtime_options も同じプロファイル定義で固定する。
+  claudeImplementationTemplate({
+    callName: "fable-mid",
+    label: "Fable / mid",
+    note: "高速。軽量〜中規模タスク向き。",
+    model: "claude-fable-5",
+    emoji: "🦸",
+    sortOrder: 10,
+    runtimeOptions: { effort: "medium", thinking: false },
+  }),
+  claudeImplementationTemplate({
+    callName: "opus-xhigh",
+    label: "Opus / xhigh",
+    note: "最上位の推論が必要な設計判断や難所の実装向き。",
+    model: "claude-opus-5",
+    emoji: "🧙‍♂️",
+    sortOrder: 25,
+    runtimeOptions: { effort: "xhigh", thinking: false },
+  }),
+  claudeImplementationTemplate({
+    callName: "opus-mid",
+    label: "Opus / mid",
+    note: "設計判断や難所の実装向き。",
+    model: "claude-opus-5",
+    emoji: "🧙‍♂️",
+    sortOrder: 30,
+    runtimeOptions: { effort: "medium", thinking: false },
+  }),
+  claudeImplementationTemplate({
+    callName: "fable-xhigh",
+    label: "Fable / xhigh",
+    note: "高速モデルが必要だが、深い推論も要する実装向き。",
+    model: "claude-fable-5",
+    emoji: "🦸",
+    sortOrder: 40,
+    runtimeOptions: { effort: "xhigh", thinking: false },
+  }),
+  claudeImplementationTemplate({
+    callName: "claude-sonnet-5-impl",
+    label: "Claude Sonnet 5",
+    note: "中位。一般的な実装の主力。",
+    model: "claude-sonnet-5",
+    emoji: "🧑‍💼",
+    sortOrder: 50,
+  }),
+  claudeImplementationTemplate({
+    callName: "haiku",
+    label: "Haiku",
+    note: "超高速・軽量タスク向き。",
+    model: "claude-haiku-4-5-20251001",
+    emoji: "🗣️",
+    sortOrder: 70,
   }),
   ...CODEX_56_TEMPLATES,
   {
@@ -1193,8 +1242,19 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   ...GENIUS_INGEST_TEMPLATES,
 ];
 
+/**
+ * パートタイマーはタイマー / 内部 invoke 専用なので、 通常の spawn ドロップダウンには
+ * 出さない (`call_only=1`)。 seed 定義側で立てることで upsert の一部として運ばれ、
+ * seed が所有する行にだけ適用される。 seed 外のカスタム行を毎 boot で上書きすると、
+ * WebUI/API で編集できる `call_only` が 「操作しても再起動で戻る」 状態になる
+ * (既定 forum_tag を毎 boot 上書きして Discord タグを消した過去の事故と同じ形)。
+ */
+function withParttimerCallOnly(templates: CreateTemplateInput[]): CreateTemplateInput[] {
+  return templates.map((tpl) => (tpl.category === "parttimer" ? { ...tpl, call_only: true } : tpl));
+}
+
 export function seedDelegationTemplates(repo: DelegationRepo): void {
-  for (const tpl of SEED_TEMPLATES) {
+  for (const tpl of withParttimerCallOnly(SEED_TEMPLATES)) {
     repo.upsertTemplate(tpl);
   }
   // 既定2件 (forum-claude-session / forum-codex-session) は forum_tag を常に維持し、
@@ -1221,4 +1281,19 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   // 2026-08-08 neco 指示: 毎日 → 週次へ変更。旧 call_name は ludiars-review-weekly に置き換えたため deactivate。
   const legacyDailyReview = repo.findTemplateByCallName("ludiars-review-daily");
   if (legacyDailyReview) repo.deactivateTemplate(legacyDailyReview.id);
+
+  // 2026-08-22 neco 指示: 実装プロファイルを能力/effort 名へ整理した。
+  // call_name は呼び出し契約なので既存行を削除せず、履歴として inactive に残す。
+  for (const callName of [
+    "claude-fable-5-impl",
+    "codex-5-6-sol-medium",
+    "codex-5-6-sol",
+    "claude-opus-5-impl",
+    "codex-5-6-sol-ultra",
+    "claude-haiku-4-5-impl",
+    "codex-5-6-luna",
+  ]) {
+    const legacyProfile = repo.findTemplateByCallName(callName);
+    if (legacyProfile) repo.deactivateTemplate(legacyProfile.id);
+  }
 }

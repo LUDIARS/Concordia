@@ -35,16 +35,18 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     expect(repo.findTemplateByCallName("claude-opus-4-8-impl")?.is_active).toBe(0);
-    const opus5 = repo.findTemplateByCallName("claude-opus-5-impl");
+    const opus5 = repo.findTemplateByCallName("opus-mid");
     expect(opus5?.is_active).toBe(1);
     expect(opus5?.model).toBe("claude-opus-5");
   });
 
-  it("uses Opus 5 across implementation, analysis, and review delegations", () => {
+  it("uses Opus 5 across implementation profiles, analysis, and review delegations", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("claude-opus-5-impl")?.model).toBe("claude-opus-5");
+    for (const callName of ["opus-mid", "opus-xhigh"]) {
+      expect(repo.findTemplateByCallName(callName)?.model).toBe("claude-opus-5");
+    }
     expect(repo.findTemplateByCallName("design-analysis-opus")?.model).toBe("claude-opus-5");
 
     for (const callName of ["review-duo", "ludiars-review-daily-dual"]) {
@@ -60,7 +62,7 @@ describe("seedDelegationTemplates", () => {
 
     // 代表例: spawn ワーカー = employee / caller 特化 = freelancer / 時限起動 = parttimer
     expect(repo.findTemplateByCallName("claude-sonnet-5-impl")?.category).toBe("employee");
-    expect(repo.findTemplateByCallName("codex-5-6-sol")?.category).toBe("employee");
+    expect(repo.findTemplateByCallName("sol-mid")?.category).toBe("employee");
     expect(repo.findTemplateByCallName("impl-from-design")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("review-sonnet5")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
@@ -77,16 +79,17 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     const implementationTemplates = [
-      "codex-5-6-sol",
-      "codex-5-6-sol-ultra",
+      "sol-mid",
       "codex-5-6-terra",
-      "codex-5-6-luna",
+      "luna",
       "impl-from-design",
       "fix-bug",
-      "claude-opus-5-impl",
+      "opus-xhigh",
+      "opus-mid",
       "claude-sonnet-5-impl",
-      "claude-fable-5-impl",
-      "claude-haiku-4-5-impl",
+      "fable-mid",
+      "fable-xhigh",
+      "haiku",
       "gemma4-12-impl",
     ];
 
@@ -105,8 +108,27 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     for (const template of repo.listTemplates().filter((template) => template.category === "parttimer")) {
+      expect(template.call_only).toBe(1);
       expect(template.prompt_template).toContain("### 完了時 (必須)");
     }
+  });
+
+  it("leaves call_only on user-owned parttimer rows alone across reseeds", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    const custom = repo.createTemplate({
+      call_name: "custom-parttimer",
+      title: "Custom parttimer",
+      target_provider: "claude",
+      prompt_template: "custom",
+      category: "parttimer",
+    });
+    // 運用者が WebUI/API でドロップダウンに出す判断をした状態を再現する。
+    repo.updateTemplate(custom.id, { call_only: false });
+    seedDelegationTemplates(repo);
+
+    // seed は自分が所有する行だけを固定する。 再起動のたびに操作が巻き戻ってはならない。
+    expect(repo.findTemplateByCallName("custom-parttimer")?.call_only).toBe(0);
+    expect(repo.findTemplateByCallName("morning-tasks")?.call_only).toBe(1);
   });
 
   it("keeps kaizen's confidential sources out of its output", () => {
@@ -198,51 +220,74 @@ describe("seedDelegationTemplates", () => {
     expect(tpl?.prompt_template).toContain("range_reversed");
   });
 
-  it("routes Sol Ultra and Terra through Satelles while keeping Sol on codex-cli", () => {
+  it("seeds the requested profiles with distinct providers, models, and efforts", () => {
     const repo = new DelegationRepo(makeTestDb());
-    // 既存 seed は boot 時の upsert で置換されるため、provider 変更も反映する。
-    repo.createTemplate({
-      call_name: "codex-5-6-sol-ultra",
-      title: "old Sol Ultra",
-      target_provider: "codex",
-      prompt_template: "old",
-    });
-    repo.createTemplate({
-      call_name: "codex-5-6-terra",
-      title: "old Terra",
-      target_provider: "codex",
-      prompt_template: "old",
-    });
+    for (const callName of [
+      "claude-fable-5-impl",
+      "codex-5-6-sol-medium",
+      "codex-5-6-sol",
+      "claude-opus-5-impl",
+      "codex-5-6-sol-ultra",
+      "claude-haiku-4-5-impl",
+      "codex-5-6-luna",
+    ]) {
+      repo.createTemplate({
+        call_name: callName,
+        title: `old ${callName}`,
+        target_provider: "claude",
+        prompt_template: "old",
+      });
+    }
     seedDelegationTemplates(repo);
 
-    const sol = repo.findTemplateByCallName("codex-5-6-sol");
-    expect(JSON.parse(sol?.runtime_options_json ?? "null")).toMatchObject({
-      model_reasoning_effort: "high",
-      fast_mode: true,
+    expect(repo.findTemplateByCallName("fable-mid")).toMatchObject({
+      is_active: 1,
+      target_provider: "claude",
+      model: "claude-fable-5",
     });
+    expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
+      is_active: 1,
+      target_provider: "codex",
+      model: "gpt-5.6-sol",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
+    expect(repo.findTemplateByCallName("opus-xhigh")).toMatchObject({
+      is_active: 1,
+      target_provider: "claude",
+      model: "claude-opus-5",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("opus-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
+    expect(repo.findTemplateByCallName("opus-mid")).toMatchObject({
+      is_active: 1,
+      target_provider: "claude",
+      model: "claude-opus-5",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("opus-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    expect(repo.findTemplateByCallName("fable-xhigh")).toMatchObject({
+      is_active: 1,
+      target_provider: "claude",
+      model: "claude-fable-5",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("fable-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
+    expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");
+    expect(repo.findTemplateByCallName("luna")?.model).toBe("gpt-5.6-luna");
 
-    const ultra = repo.findTemplateByCallName("codex-5-6-sol-ultra");
-    expect(ultra?.is_active).toBe(1);
-    expect(ultra?.model).toBe("gpt-5.6-sol");
-    expect(JSON.parse(ultra?.runtime_options_json ?? "null")).toMatchObject({
-      model_reasoning_effort: "ultra",
-    });
-    // Sol Ultra は Satelles (codex-sdk) 経由。 Cc の CONCORDIA_SATELLES_CODEX_RUNTIME=wsl
-    // と組み合わせて WSL 内 Linux codex で走らせ lsass リークを回避する (neco 指示)。
-    expect(ultra?.target_provider).toBe("codex-sdk");
-    // 他の Sol は従来どおり codex-cli のまま (回避策は Sol Ultra に限定)。
-    expect(sol?.target_provider).toBe("codex");
-    expect(repo.findTemplateByCallName("codex-5-6-luna")?.target_provider).toBe("codex");
+    for (const callName of [
+      "claude-fable-5-impl",
+      "codex-5-6-sol-medium",
+      "codex-5-6-sol",
+      "claude-opus-5-impl",
+      "codex-5-6-sol-ultra",
+      "claude-haiku-4-5-impl",
+      "codex-5-6-luna",
+    ]) {
+      expect(repo.findTemplateByCallName(callName)?.is_active).toBe(0);
+    }
 
     const terra = repo.findTemplateByCallName("codex-5-6-terra");
-    expect(terra).toMatchObject({
-      is_active: 1,
-      model: "gpt-5.6-terra",
-      target_provider: "codex-sdk",
-    });
-    expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({
-      model_reasoning_effort: "xhigh",
-    });
+    expect(terra).toMatchObject({ is_active: 1, model: "gpt-5.6-terra", target_provider: "codex-sdk" });
+    expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
   it("review launch is consolidated into review-duo (Opus x Sol xhigh)", () => {

@@ -16,7 +16,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-08-15
+updated: 2026-08-22
 ---
 
 
@@ -225,14 +225,23 @@ delegation テンプレ選択ベースで起動する:
 | `impl-from-design` | codex | — | 設計書 path を渡して実装させる |
 | `fix-bug` | codex | — | バグ説明 + 任意の再現手順から修正 PR を作らせる |
 | `refactor` | codex | — | 範囲指定リファクタ (behavior 維持) |
-| `claude-opus-5-impl` | claude | claude-opus-5 | Claude Opus に実装委託 (最上位 / 難所・設計判断向き) |
+| `fable-mid` | claude | claude-fable-5 | Fable / mid で実装委託 |
+| `sol-mid` | codex | gpt-5.6-sol | Sol / mid で実装委託 |
+| `opus-xhigh` | claude | claude-opus-5 | Opus / xhigh で実装委託 |
+| `opus-mid` | claude | claude-opus-5 | Opus / mid で実装委託 |
+| `fable-xhigh` | claude | claude-fable-5 | Fable / xhigh で実装委託 |
 | `claude-sonnet-5-impl` | claude | claude-sonnet-5 | Claude Sonnet に実装委託 (中位 / 一般実装の主力) |
-| `claude-fable-5-impl` | claude | claude-fable-5 | Claude Fable に実装委託 (高速 / 軽量〜中規模) |
+| `codex-5-6-terra` | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
+| `haiku` | claude | claude-haiku-4-5-20251001 | Haiku で実装委託 |
+| `luna` | codex | gpt-5.6-luna | Luna / mid で実装委託 |
 | `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Ollama) に実装委託、 API 課金ゼロ |
 
 `target_provider=claude` のテンプレは spawn 時に `lictor claude --model <id>` で起動する
 (`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
-1 PR 集約 等) を含める。 旧 `gamma-impl` (target=gamma) は seed 時に deactivate される。
+1 PR 集約 等) を含める。旧 `gamma-impl` に加え、2026-08-22 より前のモデル名を含む
+実装テンプレ call_name は seed 時に deactivate される。seed 由来の parttimer はすべて
+`call_only=true` で upsert され、通常の spawn 選択肢には出ない (seed 外のカスタム
+テンプレの `call_only` は運用者の設定を尊重し、 seed は上書きしない)。
 
 時限起動 (parttimer) の二重レビュー版 `ludiars-review-daily-dual` は GPT-5.6 Sol / Ultraを
 オーケストレータとして、Codex × Claude Opus の独立差分レビュー + 突合を行う。対象は
@@ -482,9 +491,9 @@ Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済�
 - `CONCORDIA_SATELLES_CODEX_RUNTIME` が `native`/`wsl` 以外、 または distro/user/codex
   binary に cmd.exe メタ文字 (`HEADLESS_ARG_UNSAFE_RE` と同じ集合) を含む場合は
   spawn env 構築時に例外で fail-fast する (無言で `native` へフォールバックしない)。
-- seed テンプレのうち `codex-5-6-sol-ultra` / `codex-5-6-terra` は
-  `target_provider: "codex-sdk"` (Satelles 経由)。 上記 env が `wsl` の環境では
-  この 2 本が WSL 内 Linux codex で走る。 `sol` / `luna` は従来どおり codex-cli。
+- seed テンプレのうち `codex-5-6-terra` は `target_provider: "codex-sdk"`
+  (Satelles 経由)。上記 env が `wsl` の環境では WSL 内 Linux codex で走る。
+  `sol-mid` / `luna` は従来どおり codex-cli。
 
 ### 13.2 前提と既知の制約
 

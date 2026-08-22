@@ -22,7 +22,7 @@ function makeInteraction(availableTags = [{ id: "managed-tag", name: CONCORDIA_M
     guildId: "guild-1",
     user: { id: "123456789" },
     options: {
-      getString: (name: string) => name === "template" ? "codex-5-6-sol" : null,
+      getString: (name: string) => name === "template" ? "sol-mid" : null,
       getBoolean: () => null,
     },
     deferReply: vi.fn(async () => undefined),

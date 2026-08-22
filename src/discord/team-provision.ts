@@ -1,10 +1,32 @@
 import type Database from "better-sqlite3";
-import { ChannelType, type Guild, type GuildBasedChannel } from "discord.js";
+import {
+  ChannelType,
+  type ForumChannel,
+  type Guild,
+  type GuildBasedChannel,
+  type GuildForumTagData,
+} from "discord.js";
+import { SESSION_STATE_TAG_NAMES } from "./config.js";
+import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
+import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
 
 /** @implements spec/feature/teams.md §2 */
 const SURFACES = ["目標", "タスクボード", "コスト", "direction", "セッション", "タスク"] as const;
 
 type TeamSurface = typeof SURFACES[number];
+
+const FORUM_SURFACES = new Set<TeamSurface>(["セッション", "タスク"]);
+
+/**
+ * チーム forum がセッションスレッドの受け皿になるための必須タグ。
+ * createForumSessionThread は状態タグと Cc管理タグが無い forum に対して throw するため、
+ * global forum (config.ts の ensureForum) と同じ必須集合をチーム forum にも用意する。
+ */
+const TEAM_FORUM_TAG_NAMES: readonly string[] = [
+  ...Object.values(SESSION_STATE_TAG_NAMES),
+  ...SESSION_RUNTIME_RULE_TAG_NAMES,
+  CONCORDIA_MANAGED_FORUM_TAG_NAME,
+];
 
 export async function ensureTeamDiscordLayout(input: {
   guild: Guild;
@@ -19,6 +41,9 @@ export async function ensureTeamDiscordLayout(input: {
 
   for (const surface of SURFACES) {
     const channel = await resolveSurface(input, category.id, surface);
+    // タグ付与は forum 生成と分けて毎回流す。 既存チーム (タグ無しで作られた forum) にも
+    // 追いつかせるため、 新規作成時だけでなく再解決時にも不足分を補う。
+    if (FORUM_SURFACES.has(surface)) await ensureTeamForumTags(channel as ForumChannel);
     input.db.prepare(`
       INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, ?, ?)
       ON CONFLICT(team_id, surface) DO UPDATE SET channel_id = excluded.channel_id
@@ -50,7 +75,7 @@ async function resolveSurface(
   categoryId: string,
   surface: TeamSurface,
 ): Promise<GuildBasedChannel> {
-  const desiredType = surface === "セッション" || surface === "タスク"
+  const desiredType = FORUM_SURFACES.has(surface)
     ? ChannelType.GuildForum
     : ChannelType.GuildText;
   const stored = input.db.prepare(
@@ -61,7 +86,7 @@ async function resolveSurface(
     if (existing?.parentId === categoryId && existing.type === desiredType) return existing;
   }
 
-  const name = surface === "セッション" || surface === "タスク" ? `${surface}フォーラム` : surface;
+  const name = FORUM_SURFACES.has(surface) ? `${surface}フォーラム` : surface;
   const existing = input.guild.channels.cache.find((channel) =>
     channel.parentId === categoryId && channel.name === name && channel.type === desiredType
   );
@@ -70,4 +95,26 @@ async function resolveSurface(
     type: desiredType,
     parent: categoryId,
   });
+}
+
+/**
+ * チーム forum に不足している必須タグだけを足す (既存タグ・利用者タグは保持)。
+ * ここで throw するとチーム面のプロビジョニング全体が止まるので、
+ * 呼び出し側の運用を守るため冪等・追加のみに限定する。
+ */
+async function ensureTeamForumTags(forum: ForumChannel): Promise<void> {
+  const missing = TEAM_FORUM_TAG_NAMES.filter(
+    (name) => !forum.availableTags.some((tag) => tag.name === name),
+  );
+  if (missing.length === 0) return;
+  const tags: GuildForumTagData[] = [
+    ...forum.availableTags.map((tag) => ({
+      id: tag.id,
+      name: tag.name,
+      moderated: tag.moderated,
+      emoji: tag.emoji ?? undefined,
+    })),
+    ...missing.map((name) => ({ name, moderated: false })),
+  ];
+  await forum.setAvailableTags(tags, "Concordia team forum layout sync");
 }

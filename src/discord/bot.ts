@@ -114,6 +114,7 @@ import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
 import { postTeamCard } from "./team-post-card.js";
 import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
+import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
@@ -857,8 +858,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           restoreMissing: async (sessionId) => {
             const state = deps.readModel.getSessionRelayState(sessionId);
             if (!state || state.status !== "active") return;
+            const surface = resolveForumSessionSurface(lay, state.delegationRunId);
+            const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+            const surfaceLayout = {
+              ...lay,
+              sessionForumId: resolveTeamSessionForumId(
+                teamsRepo,
+                teamId,
+                surface.label === "TaskWorkflow" ? "task" : "session",
+                surface.forumId,
+              ),
+            };
             await onSessionRegistered({
-              guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
+              guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
             }, {
               sessionId,
               agentType: state.provider,
@@ -1428,7 +1440,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             );
           } else {
             const surface = resolveForumSessionSurface(layout, delegationRun?.id);
-            const surfaceLayout = { ...layout, sessionForumId: surface.forumId };
+            const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+            const surfaceLayout = {
+              ...layout,
+              sessionForumId: resolveTeamSessionForumId(
+                teamsRepo,
+                teamId,
+                surface.label === "TaskWorkflow" ? "task" : "session",
+                surface.forumId,
+              ),
+            };
             await onSessionRegistered(
               { guild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks },
               {
@@ -1929,8 +1950,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     async ensureSessionSurface(sessionId) {
       if (gatewayClosed || stopping || !activeGuild || !layout) return;
       const state = deps.readModel.getSessionRelayState(sessionId);
+      const surface = resolveForumSessionSurface(layout, state?.delegationRunId ?? null);
+      const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+      const surfaceLayout = {
+        ...layout,
+        sessionForumId: resolveTeamSessionForumId(
+          teamsRepo,
+          teamId,
+          surface.label === "TaskWorkflow" ? "task" : "session",
+          surface.forumId,
+        ),
+      };
       await onSessionRegistered(
-        { guild: activeGuild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
+        { guild: activeGuild, layout: surfaceLayout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined },
         {
           sessionId,
           agentType: state?.provider ?? null,
@@ -1943,6 +1975,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           fastMode: state?.fastMode ?? null,
           currentTask: state?.currentTask ?? null,
           projectCodes: projectResolver.codesForRepos(readActiveRepos(state)),
+          surfaceLabel: surface.label,
+          delegationRunId: surface.delegationRunId,
         },
       );
       await upsertSessionStatusCard({

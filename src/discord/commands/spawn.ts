@@ -198,9 +198,9 @@ const spawnCommand: DiscordCommandSpec = {
       await interaction.reply({ content: "provider か template のどちらかを指定してください。", ephemeral: true });
       return;
     }
-    if (!project && !cwd) {
+    if (!project && !cwd && !team) {
       await interaction.reply({
-        content: "作業対象プロジェクトを特定できません。`project` または個別リポジトリの `cwd` を指定してください。Castra 直下では起動しません。",
+        content: "作業対象プロジェクトを特定できません。`project`、個別リポジトリの `cwd`、または `team` を指定してください。Castra 直下では起動しません。",
         ephemeral: true,
       });
       return;

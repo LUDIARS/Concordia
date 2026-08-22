@@ -101,6 +101,7 @@ import {
   type SpawnMode,
 } from "../control/spawner.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
+import { resolveTeamSpawnCwd } from "../control/team-spawn-cwd.js";
 import {
   goalAndGoRequested,
   resolveEffectiveDelegationRuntimeOptions,
@@ -581,6 +582,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         return c.json({ error: "cwd and project are mutually exclusive (project fixes the cwd)" }, 400);
       }
     }
+    const explicitCwd = typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : null;
+    let teamCwd: string | null = null;
+    if (requestedTeam && !projectCwd && !explicitCwd) {
+      const resolvedTeamCwd = await resolveTeamSpawnCwd({
+        teamName: requestedTeam.name,
+        repoOrigins: deps.teams!.repos(requestedTeam.id),
+        workspaceRoots: deps.adminState.getWorkspaceRoots(),
+      });
+      if (!resolvedTeamCwd.ok) return c.json({ error: resolvedTeamCwd.error }, 400);
+      teamCwd = resolvedTeamCwd.cwd;
+    }
     const userPrompt = typeof body.prompt === "string" && body.prompt.trim() ? body.prompt : "";
     const restriction = projectName
       ? [
@@ -623,7 +635,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ...(isPlainObject(body.options) ? (body.options as Record<string, unknown>) : {}),
         ...(requestedTeamId ? { team: requestedTeamId } : {}),
       };
-      const cwdOverride = projectCwd ?? (typeof body.cwd === "string" && body.cwd.trim() ? body.cwd.trim() : undefined);
+      const cwdOverride = projectCwd ?? explicitCwd ?? teamCwd ?? undefined;
 
       if (injectPrompt) {
         // prompt 注入あり = delegation invoke 本体に委譲 (render + prompt file + env + run 記録 + --model)。
@@ -788,8 +800,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     if (adHocPrompt) {
       spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);
     }
-    const directCwd =
-      projectCwd ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
+    const directCwd = projectCwd
+      ?? explicitCwd
+      ?? teamCwd
+      ?? resolveAgentHomeCwd(provider, body.cwd, deps.adminState.getWorkspaceRoot());
     const directTarget = await prepareSpawnTarget({
       cwd: directCwd,
       branch: requestedBranch,
@@ -821,6 +835,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       cwd: directTarget.cwd,
       cwdProvided:
         Boolean(projectCwd?.trim()) ||
+        Boolean(teamCwd?.trim()) ||
         (typeof body.cwd === "string" && body.cwd.trim().length > 0),
       title: typeof body.title === "string" ? body.title : undefined,
       env: Object.keys(spawnEnv).length > 0 ? spawnEnv : undefined,

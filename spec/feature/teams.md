@@ -89,6 +89,14 @@ CREATE TABLE team_repos (
   - team 未指定なら**実行チャンネルからチームを引く** (`src/discord/team-channel-binding.ts`)。
     優先順位は 実行チャンネル自身が面 → スレッド親が面 → 所属カテゴリ。 どれにも当たらなければ
     チーム未所属のまま (現行動作)。
+  - **team 指定 spawn の cwd / forum (2026-08-22 neco 指示)**: 明示 `project` / `cwd` が
+    無い場合、チームに登録された repo が一意ならそのローカル project root を cwd とする。
+    repo が 0 件または複数なら誤選択せず、`project` / `cwd` の明示を要求する。起動した direct
+    session はチームの「セッション」forum、delegation run は「タスク」forum に作成する。
+    対応面が未プロビジョニングなら既存 global forum へフォールバックする。
+    チーム forum には global forum と同じ必須タグ (状態タグ + `Cc管理`) を
+    `team-provision.ts` が冪等に用意する。 これが無いと `createForumSessionThread` が
+    throw し、 `onSessionRegistered` がそれを握り潰すため面が一切作られない。
   - `task` オプションで **Memoria の未完了タスク**を選べる (`src/discord/memoria-task-cache.ts`、
     Discord の 3 秒制限に合わせて stale-while-revalidate)。 選んだタスクは
     ①`current_task` に登録 ②`details` を初回 prompt へ注入 ③`metadata.memoria_task_id` に記録。

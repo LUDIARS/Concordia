@@ -3,24 +3,39 @@ import { describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
 
+interface FakeTag { id: string; name: string; moderated: boolean; emoji?: unknown }
+
 interface FakeChannel {
   id: string;
   name: string;
   type: ChannelType;
   parentId: string | null;
+  availableTags: FakeTag[];
   setName: (name: string) => Promise<FakeChannel>;
+  setAvailableTags: (tags: Array<{ id?: string; name: string; moderated: boolean }>) => Promise<FakeChannel>;
 }
 
 function makeGuild() {
   const channels: FakeChannel[] = [];
   let seq = 0;
+  let tagSeq = 0;
   const create = vi.fn(async (opts: { name: string; type: ChannelType; parent?: string }) => {
     const channel: FakeChannel = {
       id: `ch-${++seq}`,
       name: opts.name,
       type: opts.type,
       parentId: opts.parent ?? null,
+      // Discord が新規 forum に自動でタグを付けないのと同じく、既定は空。
+      availableTags: [],
       setName: async function (this: FakeChannel, name: string) { this.name = name; return this; },
+      setAvailableTags: async function (this: FakeChannel, tags) {
+        this.availableTags = tags.map((tag) => ({
+          id: tag.id ?? `tag-${++tagSeq}`,
+          name: tag.name,
+          moderated: tag.moderated,
+        }));
+        return this;
+      },
     };
     channels.push(channel);
     return channel;
@@ -76,6 +91,36 @@ describe("ensureTeamDiscordLayout", () => {
       if (channel === category) continue;
       expect(channel.parentId).toBe(category.id);
     }
+  });
+
+  it("チーム forum にセッションスレッド生成の必須タグを用意する", async () => {
+    const { guild, channels } = makeGuild();
+    const db = makeTeamDb();
+    await ensureTeamDiscordLayout({ guild, db, teamId: "team-1", name: "チームA" });
+
+    // createForumSessionThread は状態タグ (待機) と Cc管理タグが無い forum に対して throw し、
+    // onSessionRegistered がそれを握り潰すため、面が一切作られなくなる。
+    for (const forumName of ["セッションフォーラム", "タスクフォーラム"]) {
+      const forum = channels.find((c) => c.name === forumName)!;
+      const tagNames = forum.availableTags.map((tag) => tag.name);
+      expect(tagNames).toEqual(expect.arrayContaining(["作業中", "待機", "lost", "Cc管理"]));
+    }
+  });
+
+  it("タグ無しで作られた既存チーム forum にも不足タグを後追いで補う", async () => {
+    const { guild, channels } = makeGuild();
+    const db = makeTeamDb();
+    await ensureTeamDiscordLayout({ guild, db, teamId: "team-1", name: "チームA" });
+
+    // 旧バージョンが作った (= タグ無しの) forum を再現する。
+    const forum = channels.find((c) => c.name === "セッションフォーラム")!;
+    forum.availableTags = [{ id: "user-tag", name: "利用者タグ", moderated: false }];
+
+    await ensureTeamDiscordLayout({ guild, db, teamId: "team-1", name: "チームA" });
+    const tagNames = forum.availableTags.map((tag) => tag.name);
+    expect(tagNames).toEqual(expect.arrayContaining(["作業中", "待機", "lost", "Cc管理"]));
+    // 利用者が付けた既存タグは落とさない。
+    expect(tagNames).toContain("利用者タグ");
   });
 
   it("再実行しても保存済み ID を再利用し重複作成しない (冪等)", async () => {

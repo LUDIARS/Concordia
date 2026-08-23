@@ -91,6 +91,7 @@ import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
 import type { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import {
   isSpawnProvider,
+  isInteractiveSpawnPlatformSupported,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
   resolveSpawnCwd,
@@ -925,7 +926,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     return c.json({
       // 実際に spawn で使われる既定 cwd = プライマリ workspace ルート (実行時解決)。
       default_cwd: resolveCastraDefaultCwd(deps.adminState.getWorkspaceRoot()),
-      platform_supported: process.platform === "win32",
+      platform_supported: isInteractiveSpawnPlatformSupported(),
     });
   });
 

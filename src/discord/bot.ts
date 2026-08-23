@@ -44,7 +44,6 @@ import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
-import { ErrorChannelPoster } from "./error-channel.js";
 import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monitor.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
@@ -558,8 +557,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
   let testForumRefresh: ((reason: string) => Promise<void>) | null = null;
-  // error.reported を errors チャンネルへ転記する poster + Vestigium 監視.
-  let errorPoster: ErrorChannelPoster | null = null;
+  // Vestigium 監視は error.reported を Web / 本社ランタイムへ流すため維持する。
+  // Discord errors チャンネルへの poster は意図的に持たない。
   let errorMonitor: ErrorMonitorHandle | null = null;
   let channelWorkState: ChannelWorkState | null = null;
   const onSessionMessagePosted = (input: { sessionId: string; completion: boolean }): void => {
@@ -622,9 +621,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     clearRuntimeTimers();
     errorMonitor?.stop();
     errorMonitor = null;
-    const poster = errorPoster;
-    errorPoster = null;
-    if (poster) void poster.stop().catch(() => {});
     deps.onRuntimeState?.({ running: false, status, error });
     log.warn(`${status}: ${error}; stopped embedded Discord bot`);
     try { client.destroy(); } catch (e) { log.warn(`discord client destroy failed: ${(e as Error).message}`); }
@@ -824,17 +820,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       } else if (layout.prQueueChannelId) {
         log.info("pr-queue channel refresh disabled");
       }
-      // errors チャンネル: error.reported を転記する poster + Vestigium 監視を起動.
-      // errors を持たない構成 (子会社) では poster/監視を立てない (warn も出さない)。
+      // 本社ランタイムでは Vestigium 監視だけを起動する。error.reported はログ・WebSocket・
+      // 自動修正へ流すが、Discord errors チャンネルには転記しない。
+      // errors を持たない構成 (子会社) では監視を立てない。
       if (layout.errorChannelId) {
-        const errorCh = guild.channels.cache.get(layout.errorChannelId);
-        if (errorCh && errorCh.type === ChannelType.GuildText) {
-          errorPoster = new ErrorChannelPoster(errorCh);
-          errorPoster.start();
-          errorMonitor = startVestigiumErrorWatch();
-        } else {
-          log.warn(`errors channel unavailable id=${layout.errorChannelId}`);
-        }
+        errorMonitor = startVestigiumErrorWatch();
       }
       // 状態カードは 3 タイミングのみ更新: spawn=作成 / 10分毎=更新 / Session-End=削除。
       // 10分毎: アクティブな session のカードは更新 (作成はしない)、 非アクティブは削除。
@@ -1363,9 +1353,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         .catch((e) => log.warn(`delegation template cache refresh after invalidate failed: ${(e as Error).message}`));
       return;
     }
-    // error.reported は errors チャンネルへ (webhooks/layout 完備前でも poster があれば処理).
+    // error.reported は WebSocket / 本社ランタイム側で扱う。Discord にはリレーしない。
     if (ev.type === "error.reported") {
-      errorPoster?.enqueue({ source: ev.source, message: ev.message, detail: ev.detail, ts: ev.ts });
       return;
     }
     if (!layout || !webhooks) return;
@@ -2048,7 +2037,6 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         { name: "event subscription", stop: () => { unsubscribe?.(); unsubscribe = null; } },
         { name: "runtime timers", stop: () => clearRuntimeTimers() },
         { name: "error monitor", stop: () => { errorMonitor?.stop(); errorMonitor = null; } },
-        { name: "error poster", stop: async () => { await errorPoster?.stop(); errorPoster = null; } },
         { name: "discord client", stop: () => client.destroy() },
       ], (message) => log.warn(message));
       deps.onRuntimeState?.({ running: false, status: "stopped" });

@@ -1,7 +1,7 @@
 /**
- * Spawn a new lictor-wrapped agent session in a Windows Terminal tab or
- * window. v0.1 of this module is Windows-only (wt.exe is the launcher
- * dependency); other platforms return a structured error.
+ * Spawn a new lictor-wrapped agent session. Windows uses Windows Terminal;
+ * macOS starts Lictor directly as a detached process (Lictor owns the PTY for
+ * the wrapped agent). Other platforms return a structured error.
  */
 
 import { spawn } from "node:child_process";
@@ -32,6 +32,12 @@ export const SPAWN_PROVIDERS: readonly SpawnProvider[] = ["claude", "codex", "co
  * wt.exe 経路とは別に、 satelles CLI を detached child として直接起動する。
  */
 export const HEADLESS_SPAWN_PROVIDERS: ReadonlySet<SpawnProvider> = new Set(["codex-sdk"]);
+
+export function isInteractiveSpawnPlatformSupported(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "win32" || platform === "darwin";
+}
 
 export function isSpawnProvider(v: unknown): v is SpawnProvider {
   return typeof v === "string" && (SPAWN_PROVIDERS as readonly string[]).includes(v);
@@ -295,6 +301,20 @@ export function buildWtArgs(req: SpawnRequest, launcher: string[] = ["lictor"]):
   const escapedCommand = [...launcher, ...providerParts].map(escapeCmdArg).join(" ");
   out.push("cmd.exe", "/d", "/s", "/c", escapedCommand + " & exit 0");
   return out;
+}
+
+/**
+ * Pure: build the direct launcher argv used on macOS.
+ *
+ * Lictor creates the provider PTY itself, so it does not need Terminal.app or
+ * an AppleScript shell command around it. Keeping every token as an argv item
+ * also avoids introducing a POSIX-shell injection surface.
+ */
+export function buildDirectSpawnCommand(
+  req: SpawnRequest,
+  launcher: string[] = ["lictor"],
+): string[] {
+  return [...launcher, req.provider, ...(req.args ?? [])];
 }
 
 /**
@@ -591,16 +611,51 @@ function spawnHeadlessSession(req: SpawnRequest): SpawnResult {
   return { ok: true, command: tokens, pid: child.pid ?? null };
 }
 
+function spawnDirectSession(req: SpawnRequest): SpawnResult {
+  const command = buildDirectSpawnCommand(req, currentLictorLauncher());
+  const [file, ...args] = command;
+  if (!file) return { ok: false, error: "Lictor launcher is empty" };
+
+  const env = buildSessionSpawnEnvironment(req);
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(file, args, {
+      detached: true,
+      stdio: "ignore",
+      cwd: req.cwd,
+      env,
+      windowsHide: true,
+    });
+  } catch (err) {
+    const msg = `direct spawn failed: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  child.on("error", (err) => {
+    const msg = `direct spawn error: ${err.message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+  });
+  try {
+    child.unref();
+  } catch {
+    // best-effort
+  }
+  return { ok: true, command, pid: child.pid ?? null };
+}
+
 export function spawnSession(req: SpawnRequest): SpawnResult {
   const isHeadless = HEADLESS_SPAWN_PROVIDERS.has(req.provider);
-  if (!isHeadless && process.platform !== "win32") {
-    return { ok: false, error: "spawn currently requires Windows + Windows Terminal (wt.exe)" };
+  if (!isHeadless && !isInteractiveSpawnPlatformSupported()) {
+    return { ok: false, error: "interactive spawn currently requires Windows or macOS" };
   }
   const projectCwdErr = validateProjectCwd(req.cwd);
   if (projectCwdErr) return { ok: false, error: projectCwdErr };
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
   if (isHeadless) return spawnHeadlessSession(req);
+  if (process.platform === "darwin") return spawnDirectSession(req);
 
   const args = buildWtArgs(req, currentLictorLauncher());
   // CWE-78 対策: 外部入力 env を子プロセスへ素通ししない。 公開 spawn API は env を

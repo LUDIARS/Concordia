@@ -2,11 +2,8 @@
  * エラー報告の中央ヘルパ.
  *
  * 監視ロガーの検知 / Concordia 内部 (Discord 操作等) の失敗を `error.reported`
- * イベントとして 1 本に集約する. Discord bot がこれを購読して「エラー」 カテゴリの
- * errors チャンネルへ転記する (src/discord/error-channel.ts).
- *
- * 再帰防止: errors チャンネルへの投稿自体が失敗しても、 その poster は
- * このヘルパを呼ばない (専用 logger で握り潰す) ので無限ループしない.
+ * イベントとして 1 本に集約する. イベントは本社ランタイムのログ・WebSocket・
+ * 自動修正パイプラインで扱い、Discord チャンネルへは転記しない.
  */
 
 import { eventBus } from "./events.js";

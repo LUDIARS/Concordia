@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { AdminState } from "../admin/state.js";
 import { resolveLictorLauncher } from "./lictor-launcher.js";
@@ -11,7 +14,21 @@ function admin(defaults?: { lictorDevPath?: string }) {
 
 describe("resolveLictorLauncher", () => {
   it("auto (default) → bare lictor", () => {
-    expect(resolveLictorLauncher(admin())).toEqual(["lictor"]);
+    expect(resolveLictorLauncher(admin(), "win32")).toEqual(["lictor"]);
+  });
+
+  it("auto on macOS uses the configured source checkout when available", () => {
+    const devPath = mkdtempSync(join(tmpdir(), "lictor-launcher-"));
+    try {
+      mkdirSync(join(devPath, "bin"));
+      writeFileSync(join(devPath, "bin", "lictor.mjs"), "");
+      expect(resolveLictorLauncher(admin({ lictorDevPath: devPath }), "darwin")).toEqual([
+        process.execPath,
+        join(devPath, "bin", "lictor.mjs"),
+      ]);
+    } finally {
+      rmSync(devPath, { recursive: true, force: true });
+    }
   });
 
   it("dev → node <devPath>/bin/lictor.mjs", () => {

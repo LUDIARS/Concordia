@@ -1,19 +1,20 @@
 /**
  * /v1/spawn — orchestrator endpoint. Spawns a new lictor-wrapped Claude
- * Code / Codex session in a Windows Terminal tab or window.
+ * Code / Codex session in Windows Terminal or as a direct macOS process.
  *
  * Auth: Bearer token from `<cwd>/.spawn.token` (`Authorization: Bearer ...`
  * or `X-Concordia-Token: ...`). `GET /v1/spawn/info` (no auth) returns the
  * absolute path of the token file so callers can locate it without knowing
  * Concordia's cwd in advance.
  *
- * Concurrency is bounded by Windows Terminal itself.
+ * Concurrency is bounded by the platform launcher.
  */
 
 import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import {
   isSpawnProvider,
+  isInteractiveSpawnPlatformSupported,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
   spawnSession,
@@ -66,7 +67,7 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
   app.get("/info", (c) => {
     return c.json({
       token_path: spawnTokenPath(cwd),
-      platform_supported: process.platform === "win32",
+      platform_supported: isInteractiveSpawnPlatformSupported(),
       default_cwd: resolveCastraDefaultCwd(deps.resolveDefaultCwd?.()),
     });
   });

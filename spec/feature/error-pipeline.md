@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "エラー集約パイプライン + 自動修正"
-description: "Vestigium ログや Discord 操作失敗を error.reported イベントで集約し、Discord「エラー」チャンネルへ転記する (PR #81 済)。さらに常駐 error-fixer Codex セッションへ自動修正依頼を inject する経路を実装。レート制御・dedupe・spawn cooldown・安全弁 env を備える。"
+description: "Vestigium ログや Discord 操作失敗を error.reported イベントで集約し、本社ログ・WebSocket・自動修正へ流す。Discord チャンネルにはリレーしない。"
 service: concordia
 domain: observability
 tags:
@@ -21,8 +21,8 @@ updated: 2026-06-30
 
 # エラー集約パイプライン + 自動修正
 
-> 監視ロガー検知 / Concordia 内部失敗を Discord「エラー」カテゴリへ集約し、
-> さらに常駐 error-fixer Codex に自動修正させる経路。
+> 監視ロガー検知 / Concordia 内部失敗を本社ログ・WebSocketへ集約し、
+> 常駐 error-fixer Codex に自動修正させる経路。Discordにはリレーしない。
 
 ## 1. 集約 (PR #81, merged)
 
@@ -33,9 +33,8 @@ updated: 2026-06-30
     30s poll → `reportError("vestigium:<service>", …)`。 未指定なら no-op。
   - **Discord 操作失敗** — `bot.ts` の `log.warn`/`log.error` が失敗ログ
     (`looksLikeFailure`) を `reportError("discord", …)` へ転送。
-- 転記先: Discord「エラー」カテゴリ + `errors` チャンネル (`config.ts`)。
-  `src/discord/error-channel.ts` の `ErrorChannelPoster` がレート制御 + 同一畳み込み
-  + 自身の送信失敗は専用 logger で握り潰し (再帰ループ防止)。
+- 配送先: 本社ランタイムのログ、`/ws` の WebSocket、エラー自動修正。
+  Discord Bot は `error.reported` を明示的に無視し、チャンネルへ転記しない。
 
 ## 2. 自動修正 (本 PR)
 

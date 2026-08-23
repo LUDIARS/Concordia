@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildHeadlessCmdArgs,
+  buildDirectSpawnCommand,
   buildSatellesArgs,
   buildSpawnIdentityEnv,
   escapeCmdArg,
@@ -15,6 +16,7 @@ import {
   currentSatellesWslDistro,
   currentSatellesWslUser,
   HEADLESS_SPAWN_PROVIDERS,
+  isInteractiveSpawnPlatformSupported,
   resolveSpawnCwd,
   resolveAgentHomeCwd,
   resolveCastraDefaultCwd,
@@ -322,5 +324,29 @@ describe("codex-sdk (Satelles headless) spawn plumbing", () => {
     expect(HEADLESS_SPAWN_PROVIDERS.has("codex-sdk")).toBe(true);
     expect(HEADLESS_SPAWN_PROVIDERS.has("codex")).toBe(false);
     expect(SPAWN_PROVIDERS).toContain("codex-sdk");
+  });
+});
+
+describe("macOS direct spawn plumbing", () => {
+  it("marks Windows and macOS as supported interactive spawn platforms", () => {
+    expect(isInteractiveSpawnPlatformSupported("win32")).toBe(true);
+    expect(isInteractiveSpawnPlatformSupported("darwin")).toBe(true);
+    expect(isInteractiveSpawnPlatformSupported("linux")).toBe(false);
+  });
+
+  it("keeps launcher, provider, and user args as separate argv tokens", () => {
+    expect(
+      buildDirectSpawnCommand(
+        { provider: "codex", args: ["--model", "gpt-5.6-sol", "a & b"] },
+        ["/usr/local/bin/node", "/workspace/Lictor/bin/lictor.mjs"],
+      ),
+    ).toEqual([
+      "/usr/local/bin/node",
+      "/workspace/Lictor/bin/lictor.mjs",
+      "codex",
+      "--model",
+      "gpt-5.6-sol",
+      "a & b",
+    ]);
   });
 });

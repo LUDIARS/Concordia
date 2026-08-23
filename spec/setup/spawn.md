@@ -26,7 +26,7 @@ updated: 2026-07-25
 
 ## 目的
 
-Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッションを **Windows Terminal の tab / window** として起動する (管制 spawn)。 Web UI / Discord `/spawn` / MCP delegation から呼ぶ。 spawn 本体 (`src/control/spawner.ts`) は `wt.exe` ランチャを使うため **Windows 専用**。
+Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッションを起動する (管制 spawn)。 Web UI / Discord `/spawn` / MCP delegation から呼ぶ。Windows は Windows Terminal (`wt.exe`) の tab / window、macOS は Lictor を detached process として直接起動する (provider の PTY は Lictor が所有する)。
 
 ## エンドポイントは 2 系統
 
@@ -121,7 +121,7 @@ MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](
    - Discord / Slack: platform が認証した user ID の役職 (社員名簿 / 管理職以上) を確認後、内部 API を呼ぶ
 ## 注意点
 
-- **Windows 専用**: `wt.exe` 起動なので非 Windows では spawn できない (`GET /v1/spawn/info` の `platform_supported` が false)。
+- **対応 OS**: 対話 spawn は Windows (`wt.exe`) と macOS (Lictor direct) に対応する。`codex-sdk` headless spawn は従来どおり OS 非依存。
 - **token は機密**: `.spawn.token` は cwd 直下。 `.gitignore` 済。 値を共有しない。 壊れた (64-hex でない) ファイルは自動 rotate される。
 - **内部 API を直接公開しない**: `CONCORDIA_HOST` は loopback に固定し、Web は AccessControl 経由、
   Discord / Slack は社員名簿の役職判定 ([staff-roster](../feature/staff-roster.md)) 経由で起動する。
@@ -134,7 +134,7 @@ MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](
 | `/v1/spawn` が "missing or invalid token" | `.spawn.token` 未生成 / 値不一致。 本体起動と cwd を確認。 |
 | `/spawn` (Discord) が "token not found" | Concordia 未起動 or token ファイルが別 cwd。 |
 | spawn が cwd 違いで開く | `CONCORDIA_SPAWN_DEFAULT_CWD` か呼び出しの `cwd` を明示。 |
-| 非 Windows で spawn 不可 | 仕様 (wt.exe 専用)。 |
+| Linux で対話 spawn 不可 | 仕様 (Windows / macOS のみ)。headless `codex-sdk` は利用可能。 |
 
 ## 関連
 

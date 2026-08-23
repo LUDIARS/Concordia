@@ -13,11 +13,15 @@
  * 必須パスが空なら auto (= bare `lictor`) にフォールバックする。
  */
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { AdminState } from "../admin/state.js";
 
 /** AdminState の Lictor 設定から launcher トークン列を解決する。 */
-export function resolveLictorLauncher(admin: AdminState): string[] {
+export function resolveLictorLauncher(
+  admin: AdminState,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
   const mode = admin.getLictorMode();
   if (mode === "prod") {
     const exe = admin.getLictorProdExe().trim();
@@ -25,6 +29,14 @@ export function resolveLictorLauncher(admin: AdminState): string[] {
   } else if (mode === "dev") {
     const devPath = admin.getLictorDevPath().trim();
     if (devPath) return ["node", join(devPath, "bin", "lictor.mjs")];
+  } else if (platform === "darwin") {
+    // A source checkout is the normal macOS setup and there may be no global
+    // `lictor` shim on PATH. Prefer the configured/default dev checkout when
+    // its entrypoint exists; process.execPath avoids depending on Terminal's
+    // shell PATH for Node itself.
+    const devPath = admin.getLictorDevPath().trim();
+    const entrypoint = devPath ? join(devPath, "bin", "lictor.mjs") : "";
+    if (entrypoint && existsSync(entrypoint)) return [process.execPath, entrypoint];
   }
   return ["lictor"];
 }

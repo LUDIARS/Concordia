@@ -11,6 +11,12 @@ import { classifyReactionIngress } from "../platform/reaction-ingress.js";
 import { type WorkflowAction, type ReactionWorkflowInput, type WorkflowResultRelay } from "../platform/reaction-workflow.js";
 import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { eventBus } from "../events.js";
+import {
+  buildDiscordImageInjectText,
+  isReadableDiscordImage,
+  storeDiscordImages,
+  type DiscordImageAttachment,
+} from "./image-inbox.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const ACCEPTED_INJECT_REACTION = "✅";
@@ -36,6 +42,8 @@ export interface IngressDeps {
   sessionsRepo: SessionsRepo;
   concordiaUrl: string;
   log: { info: (m: string) => void; warn: (m: string) => void };
+  /** Discord CDN image persistence seam. Tests can replace filesystem/network I/O. */
+  storeImages?: typeof storeDiscordImages;
   /** standalone 絵文字 (🙏 等) を「直前メッセージへのリアクション」として扱うための解決系。 */
   chatRepo?: ChatRepo;
   messageMap?: DiscordMessageMapRepo;
@@ -104,13 +112,23 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     return;
   }
   const text = msg.content.trim();
-  if (!text) {
+  const imageAttachments = [...msg.attachments.values()]
+    .map((attachment): DiscordImageAttachment => ({
+      contentType: attachment.contentType,
+      name: attachment.name,
+      size: attachment.size,
+      url: attachment.url,
+    }))
+    .filter(isReadableDiscordImage);
+  const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
+  const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
+  if (!text && (!sessionRow || imageAttachments.length === 0)) {
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
     return;
   }
 
   const authorLabel = msg.member?.nickname?.trim() || msg.author.username;
-  if (deps.routeFederationIngress?.({
+  if (text && deps.routeFederationIngress?.({
     guildId: msg.guildId,
     channelId: msg.channelId,
     messageId: msg.id,
@@ -157,7 +175,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     return;
   }
 
-  const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
   deps.log.info(
     `ingress: routing channel=${msg.channelId} route_channel=${routeChannelId} ` +
     `type=${ChannelType[msg.channel.type] ?? msg.channel.type}`,
@@ -188,7 +205,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // 単発で投稿された絵文字 (🙏 / 🫶 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
-  if (deps.workflow) {
+  if (text && deps.workflow) {
     const reactionRoute = classifyReactionIngress({
       text,
       classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
@@ -206,7 +223,6 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     }
   }
 
-  const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
   if (sessionRow) {
     deps.log.info(
       `ingress: session channel matched route_channel=${routeChannelId} ` +
@@ -254,10 +270,29 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       const injectAuthor = msg.member?.nickname?.trim() || msg.author.username;
       const session = deps.sessionsRepo.findSession(sessionRow.session_id);
       const isCodexSession = session?.provider === "codex-cli";
+      let injectText = text;
+      if (imageAttachments.length > 0) {
+        try {
+          const imagePaths = await (deps.storeImages ?? storeDiscordImages)({
+            attachments: imageAttachments,
+            messageId: msg.id,
+            sessionId: sessionRow.session_id,
+          });
+          injectText = buildDiscordImageInjectText(text, imagePaths);
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}: ${reason}`);
+          await msg.reply({
+            content: `画像をセッションへ渡せませんでした: ${reason}`,
+            allowedMentions: { parse: [], repliedUser: false },
+          }).catch(() => { /* failure reply is best-effort */ });
+          return;
+        }
+      }
       const result = await injectSession({
         concordiaUrl: deps.concordiaUrl,
         sessionId: sessionRow.session_id,
-        text,
+        text: injectText,
         source: `discord:${msg.author.id}:${msg.channelId}:${msg.id}`,
         authorLabel: injectAuthor,
         enterFallbackSource: isCodexSession ? "discord-enter-fallback" : undefined,

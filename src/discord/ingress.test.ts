@@ -85,6 +85,46 @@ describe("discord ingress chat routing", () => {
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("inject ok"));
   });
 
+  it("stores image attachments and adds their local paths to the inject", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.storeImages = vi.fn(async () => ["C:\\Temp\\discord-image.png"]);
+    const attachments = new Map([["image-1", {
+      contentType: "image/png",
+      name: "capture.png",
+      size: 123,
+      url: "https://cdn.discordapp.com/attachments/1/2/capture.png",
+    }]]);
+
+    await handleMessage(deps, makeMessage({ content: "この画面を確認して", attachments }));
+
+    expect(deps.storeImages).toHaveBeenCalledWith(expect.objectContaining({
+      messageId: "msg1",
+      sessionId: "s1",
+    }));
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { text: string };
+    expect(body.text).toContain("この画面を確認して");
+    expect(body.text).toContain("C:\\Temp\\discord-image.png");
+  });
+
+  it("injects an image-only Discord message instead of dropping empty content", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.storeImages = vi.fn(async () => ["C:\\Temp\\discord-image.png"]);
+    const attachments = new Map([["image-1", {
+      contentType: "image/png",
+      name: "capture.png",
+      size: 123,
+      url: "https://cdn.discordapp.com/attachments/1/2/capture.png",
+    }]]);
+
+    await handleMessage(deps, makeMessage({ content: "", attachments }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { text: string };
+    expect(body.text).toContain("添付画像の内容を読み取って対応してください");
+  });
+
   it("marks an authorized spoken session-end request after a successful inject", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");
@@ -154,6 +194,7 @@ function makeMessage(overrides: Record<string, unknown> = {}): Message {
     id: "msg1",
     channel: { type: ChannelType.GuildText, send: vi.fn() },
     content: "hello",
+    attachments: new Map(),
     member: { nickname: "Kazumi" },
     react: vi.fn(async () => undefined),
     reply: vi.fn(async () => undefined),

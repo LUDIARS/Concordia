@@ -41,8 +41,9 @@ Concordia と同じ端末に保存され、Discord URL の有効期限後も処�
 - PNG / JPEG / GIF / WebP のみ、1 投稿 4 枚、1 枚 20 MiB を上限とする。
 - redirect は許可せず、取得は 15 秒で打ち切る。レスポンス本文も streaming 中に容量を検査する。
 - 一時ファイル名に session id / message id 以外の利用者入力を使わない。
+- inbox と画像ファイルは、同じ OS ユーザ以外へ公開しない権限で作成する。
 - inbox の 7 日より古いファイルは次回取り込み時に best-effort で削除する。
-- 画像取得に失敗した場合は本文だけへ劣化せず、Discord に理由を返信して fail loud にする。
+- 画像取得に失敗した場合は本文だけへ劣化せず、内部パスを含まない案内を Discord に返信して fail loud にする。
 
 ## 対象外
 

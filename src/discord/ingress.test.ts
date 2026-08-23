@@ -125,6 +125,31 @@ describe("discord ingress chat routing", () => {
     expect(body.text).toContain("添付画像の内容を読み取って対応してください");
   });
 
+  it("does not expose internal image storage errors in the Discord reply", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const deps = makeDeps("claude-code");
+    deps.storeImages = vi.fn(async () => {
+      throw new Error("EACCES: C:\\private\\concordia-discord-image-inbox");
+    });
+    const msg = makeMessage({
+      attachments: new Map([["image-1", {
+        contentType: "image/png",
+        name: "capture.png",
+        size: 123,
+        url: "https://cdn.discordapp.com/attachments/1/2/capture.png",
+      }]]),
+    });
+
+    await handleMessage(deps, msg);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(msg.reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.not.stringContaining("C:\\private"),
+    }));
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.not.stringContaining("C:\\private"));
+  });
+
   it("marks an authorized spoken session-end request after a successful inject", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");

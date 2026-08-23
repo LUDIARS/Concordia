@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -47,8 +47,7 @@ export async function storeDiscordImages(input: StoreDiscordImagesInput): Promis
 
   const root = input.inboxRoot ?? join(tmpdir(), INBOX_DIR_NAME);
   const now = input.now ?? Date.now;
-  // POSIX の共有 /tmp では inbox を所有者限定にする (Windows では mode は無視される)。
-  await mkdir(root, { recursive: true, mode: 0o700 });
+  await prepareInbox(root);
   await pruneExpiredImages(root, now()).catch(() => {
     // Cleanup is best-effort. A stale file must not prevent a new image from reaching the session.
   });
@@ -65,6 +64,15 @@ export async function storeDiscordImages(input: StoreDiscordImagesInput): Promis
     }));
   }
   return saved;
+}
+
+async function prepareInbox(root: string): Promise<void> {
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const info = await lstat(root);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new Error("画像inboxの保存先が安全なディレクトリではありません");
+  }
+  await chmod(root, 0o700);
 }
 
 export function buildDiscordImageInjectText(text: string, imagePaths: readonly string[]): string {
@@ -93,7 +101,11 @@ async function storeOneImage(input: {
   }
 
   const url = new URL(input.attachment.url);
-  if (url.protocol !== "https:" || !ALLOWED_HOSTS.has(url.hostname.toLowerCase())) {
+  if (
+    url.protocol !== "https:" ||
+    (url.port !== "" && url.port !== "443") ||
+    !ALLOWED_HOSTS.has(url.hostname.toLowerCase())
+  ) {
     throw new Error("Discord CDN以外の画像URLは受け付けられません");
   }
 
@@ -123,7 +135,7 @@ async function storeOneImage(input: {
   const target = join(input.root, `${prefix}${extension}`);
   const temporary = join(input.root, `${prefix}.${randomUUID()}.part`);
   try {
-    await writeFile(temporary, bytes, { flag: "wx" });
+    await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
     try {
       await rename(temporary, target);
     } catch (error) {

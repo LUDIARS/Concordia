@@ -279,11 +279,10 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
             sessionId: sessionRow.session_id,
           });
           injectText = buildDiscordImageInjectText(text, imagePaths);
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}: ${reason}`);
+        } catch {
+          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}`);
           await msg.reply({
-            content: `画像をセッションへ渡せませんでした: ${reason}`,
+            content: "画像をセッションへ渡せませんでした。画像の形式・容量・取得元を確認してください。",
             allowedMentions: { parse: [], repliedUser: false },
           }).catch(() => { /* failure reply is best-effort */ });
           return;

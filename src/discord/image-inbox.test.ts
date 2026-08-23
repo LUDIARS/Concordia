@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -30,6 +30,10 @@ describe("Discord image inbox", () => {
 
     expect(paths).toEqual([join(root, "session-1-message-1-1.png")]);
     expect(await readFile(paths[0])).toEqual(PNG);
+    if (process.platform !== "win32") {
+      expect((await stat(root)).mode & 0o777).toBe(0o700);
+      expect((await stat(paths[0])).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("stores an attachment whose type only the downloaded bytes reveal", async () => {
@@ -64,6 +68,34 @@ describe("Discord image inbox", () => {
       sessionId: "session-1",
     })).rejects.toThrow("Discord CDN以外");
   });
+
+  it("rejects a non-standard port on an allowed Discord host", async () => {
+    await expect(storeDiscordImages({
+      attachments: [image({ url: "https://cdn.discordapp.com:4443/attachments/1/2/capture.png" })],
+      fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
+      inboxRoot: await temporaryRoot(),
+      messageId: "message-1",
+      sessionId: "session-1",
+    })).rejects.toThrow("Discord CDN以外");
+  });
+
+  if (process.platform !== "win32") {
+    it("rejects a symbolic-link inbox", async () => {
+      const parent = await temporaryRoot();
+      const actual = join(parent, "actual");
+      const inbox = join(parent, "inbox");
+      await mkdir(actual);
+      await symlink(actual, inbox, "dir");
+
+      await expect(storeDiscordImages({
+        attachments: [image()],
+        fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
+        inboxRoot: inbox,
+        messageId: "message-1",
+        sessionId: "session-1",
+      })).rejects.toThrow("安全なディレクトリではありません");
+    });
+  }
 
   it("recognizes an image filename when Discord omitted contentType", () => {
     expect(isReadableDiscordImage(image({ contentType: null, name: "capture.PNG" }))).toBe(true);

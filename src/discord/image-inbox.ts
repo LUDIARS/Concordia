@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chmod, lstat, mkdir, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { chmod, link, lstat, mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
@@ -33,46 +33,67 @@ export interface StoreDiscordImagesInput {
   sessionId: string;
 }
 
-export function isReadableDiscordImage(attachment: DiscordImageAttachment): boolean {
+class DiscordImageInboxError extends Error {}
+
+export function isDiscordImageAttachment(attachment: DiscordImageAttachment): boolean {
   const contentType = normalizeContentType(attachment.contentType);
-  if (contentType && EXTENSION_BY_MIME.has(contentType)) return true;
-  return /\.(?:gif|jpe?g|png|webp)$/i.test(attachment.name ?? "");
+  if (contentType.startsWith("image/")) return true;
+  return /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(attachment.name ?? "");
+}
+
+export function publicDiscordImageError(error: unknown): string {
+  if (error instanceof DiscordImageInboxError) return error.message;
+  return "画像の取得または保存中に内部エラーが発生しました";
 }
 
 export async function storeDiscordImages(input: StoreDiscordImagesInput): Promise<string[]> {
   if (input.attachments.length === 0) return [];
   if (input.attachments.length > MAX_IMAGES) {
-    throw new Error(`画像は1投稿につき${MAX_IMAGES}枚までです`);
+    throw new DiscordImageInboxError(`画像は1投稿につき${MAX_IMAGES}枚までです`);
   }
 
   const root = input.inboxRoot ?? join(tmpdir(), INBOX_DIR_NAME);
   const now = input.now ?? Date.now;
-  await prepareInbox(root);
+  await ensureInboxRoot(root);
   await pruneExpiredImages(root, now()).catch(() => {
     // Cleanup is best-effort. A stale file must not prevent a new image from reaching the session.
   });
 
-  const saved: string[] = [];
-  for (const [index, attachment] of input.attachments.entries()) {
-    saved.push(await storeOneImage({
-      attachment,
-      fetchImpl: input.fetchImpl ?? fetch,
-      index,
-      messageId: input.messageId,
-      root,
-      sessionId: input.sessionId,
-    }));
-  }
-  return saved;
+  return storeImageBatch({
+    attachments: input.attachments,
+    fetchImpl: input.fetchImpl ?? fetch,
+    messageId: input.messageId,
+    root,
+    sessionId: input.sessionId,
+  });
 }
 
-async function prepareInbox(root: string): Promise<void> {
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  const info = await lstat(root);
-  if (!info.isDirectory() || info.isSymbolicLink()) {
-    throw new Error("画像inboxの保存先が安全なディレクトリではありません");
+async function storeImageBatch(input: {
+  attachments: readonly DiscordImageAttachment[];
+  fetchImpl: typeof fetch;
+  messageId: string;
+  root: string;
+  sessionId: string;
+}): Promise<string[]> {
+  const saved: Array<{ created: boolean; path: string }> = [];
+  try {
+    for (const [index, attachment] of input.attachments.entries()) {
+      saved.push(await storeOneImage({
+        attachment,
+        fetchImpl: input.fetchImpl,
+        index,
+        messageId: input.messageId,
+        root: input.root,
+        sessionId: input.sessionId,
+      }));
+    }
+  } catch (error) {
+    await Promise.all(saved.filter(({ created }) => created).map(({ path }) => unlink(path).catch(() => {
+      // A failed batch must not retain newly downloaded images; cleanup remains best-effort.
+    })));
+    throw error;
   }
-  await chmod(root, 0o700);
+  return saved.map(({ path }) => path);
 }
 
 export function buildDiscordImageInjectText(text: string, imagePaths: readonly string[]): string {
@@ -93,42 +114,57 @@ async function storeOneImage(input: {
   messageId: string;
   root: string;
   sessionId: string;
-}): Promise<string> {
+}): Promise<{ created: boolean; path: string }> {
   const rawDeclaredType = normalizeContentType(input.attachment.contentType);
   const declaredType = EXTENSION_BY_MIME.has(rawDeclaredType) ? rawDeclaredType : "";
+  if (rawDeclaredType.startsWith("image/") && !declaredType) {
+    throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
+  }
   if (input.attachment.size <= 0 || input.attachment.size > MAX_IMAGE_BYTES) {
-    throw new Error(`画像サイズが不正です（上限${MAX_IMAGE_BYTES / 1024 / 1024} MiB）`);
+    throw new DiscordImageInboxError(`画像サイズが不正です（上限${MAX_IMAGE_BYTES / 1024 / 1024} MiB）`);
   }
 
-  const url = new URL(input.attachment.url);
+  let url: URL;
+  try {
+    url = new URL(input.attachment.url);
+  } catch {
+    throw new DiscordImageInboxError("画像URLが不正です");
+  }
   if (
     url.protocol !== "https:" ||
+    !ALLOWED_HOSTS.has(url.hostname.toLowerCase()) ||
     (url.port !== "" && url.port !== "443") ||
-    !ALLOWED_HOSTS.has(url.hostname.toLowerCase())
+    url.username !== "" ||
+    url.password !== ""
   ) {
-    throw new Error("Discord CDN以外の画像URLは受け付けられません");
+    throw new DiscordImageInboxError("Discord CDN以外の画像URLは受け付けられません");
   }
 
-  const response = await input.fetchImpl(url, {
-    redirect: "error",
-    signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
-  });
-  if (!response.ok) throw new Error(`画像の取得に失敗しました（HTTP ${response.status}）`);
+  let response: Response;
+  try {
+    response = await input.fetchImpl(url, {
+      redirect: "error",
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS),
+    });
+  } catch {
+    throw new DiscordImageInboxError("Discordから画像を取得できませんでした");
+  }
+  if (!response.ok) throw new DiscordImageInboxError(`画像の取得に失敗しました（HTTP ${response.status}）`);
 
   const rawResponseType = normalizeContentType(response.headers.get("content-type"));
   const responseType = EXTENSION_BY_MIME.has(rawResponseType) ? rawResponseType : "";
   if (rawResponseType && !responseType && rawResponseType !== "application/octet-stream") {
-    throw new Error("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
+    throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
   }
   // 形式は実体のマジックバイトだけを正とする。Discord が contentType を欠いた添付
-  // (isReadableDiscordImage がファイル名だけで通したもの) もここで確定でき、申告値・
+  // (isDiscordImageAttachment がファイル名だけで通したもの) もここで確定でき、申告値・
   // ダウンロード結果・実体の三者不一致をまとめて弾ける。
   const bytes = await readLimitedBody(response, MAX_IMAGE_BYTES);
   const actualType = detectImageMime(bytes);
   const extension = actualType ? EXTENSION_BY_MIME.get(actualType) : undefined;
-  if (!actualType || !extension) throw new Error("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
+  if (!actualType || !extension) throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
   if ((declaredType && declaredType !== actualType) || (responseType && responseType !== actualType)) {
-    throw new Error("画像の内容とContent-Typeが一致しません");
+    throw new DiscordImageInboxError("画像の内容とContent-Typeが一致しません");
   }
 
   const prefix = `${safeId(input.sessionId)}-${safeId(input.messageId)}-${input.index + 1}`;
@@ -136,21 +172,24 @@ async function storeOneImage(input: {
   const temporary = join(input.root, `${prefix}.${randomUUID()}.part`);
   try {
     await writeFile(temporary, bytes, { flag: "wx", mode: 0o600 });
+    let created = false;
     try {
-      await rename(temporary, target);
+      // Publish a fully written file without replacing an earlier delivery.
+      await link(temporary, target);
+      created = true;
     } catch (error) {
-      if (!await fileExists(target)) throw error;
-      await unlink(temporary).catch(() => { /* target from an earlier delivery is authoritative */ });
+      if (!isNodeError(error, "EEXIST")) throw error;
     }
+    await unlink(temporary);
+    return { created, path: target };
   } catch (error) {
     await unlink(temporary).catch(() => { /* best-effort partial-file cleanup */ });
     throw error;
   }
-  return target;
 }
 
 async function readLimitedBody(response: Response, maxBytes: number): Promise<Buffer> {
-  if (!response.body) throw new Error("画像レスポンスの本文がありません");
+  if (!response.body) throw new DiscordImageInboxError("画像レスポンスの本文がありません");
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -160,7 +199,7 @@ async function readLimitedBody(response: Response, maxBytes: number): Promise<Bu
       const { done, value } = await reader.read();
       if (done) break;
       total += value.byteLength;
-      if (total > maxBytes) throw new Error(`画像が大きすぎます（上限${maxBytes / 1024 / 1024} MiB）`);
+      if (total > maxBytes) throw new DiscordImageInboxError(`画像が大きすぎます（上限${maxBytes / 1024 / 1024} MiB）`);
       chunks.push(value);
     }
     drained = true;
@@ -169,8 +208,25 @@ async function readLimitedBody(response: Response, maxBytes: number): Promise<Bu
     if (!drained) await reader.cancel().catch(() => { /* teardown is best-effort */ });
     reader.releaseLock();
   }
-  if (total === 0) throw new Error("画像が空です");
+  if (total === 0) throw new DiscordImageInboxError("画像が空です");
   return Buffer.concat(chunks, total);
+}
+
+async function ensureInboxRoot(root: string): Promise<void> {
+  // A fixed directory beneath a shared POSIX /tmp must be owned by this process user and
+  // must never be a symlink. chmod also repairs permissions on an inbox from an older run.
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const info = await lstat(root);
+  if (!info.isDirectory() || info.isSymbolicLink()) {
+    throw new DiscordImageInboxError("画像保存先を安全に準備できませんでした");
+  }
+  if (process.platform !== "win32") {
+    const uid = process.getuid?.();
+    if (uid !== undefined && info.uid !== uid) {
+      throw new DiscordImageInboxError("画像保存先を安全に準備できませんでした");
+    }
+    await chmod(root, 0o700);
+  }
 }
 
 async function pruneExpiredImages(root: string, now: number): Promise<void> {
@@ -208,11 +264,6 @@ function safeId(value: string): string {
   return normalized || "unknown";
 }
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
+function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === code;
 }

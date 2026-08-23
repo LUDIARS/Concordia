@@ -13,7 +13,8 @@ import { getRwf } from "../platform/reaction-workflow-loader.js";
 import { eventBus } from "../events.js";
 import {
   buildDiscordImageInjectText,
-  isReadableDiscordImage,
+  isDiscordImageAttachment,
+  publicDiscordImageError,
   storeDiscordImages,
   type DiscordImageAttachment,
 } from "./image-inbox.js";
@@ -119,7 +120,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       size: attachment.size,
       url: attachment.url,
     }))
-    .filter(isReadableDiscordImage);
+    .filter(isDiscordImageAttachment);
   const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
   const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
   if (!text && (!sessionRow || imageAttachments.length === 0)) {
@@ -279,10 +280,11 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
             sessionId: sessionRow.session_id,
           });
           injectText = buildDiscordImageInjectText(text, imagePaths);
-        } catch {
-          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}`);
+        } catch (error) {
+          const reason = publicDiscordImageError(error);
+          deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}: ${reason}`);
           await msg.reply({
-            content: "画像をセッションへ渡せませんでした。画像の形式・容量・取得元を確認してください。",
+            content: `画像をセッションへ渡せませんでした: ${reason}`,
             allowedMentions: { parse: [], repliedUser: false },
           }).catch(() => { /* failure reply is best-effort */ });
           return;

@@ -1,10 +1,11 @@
 import { mkdir, mkdtemp, readFile, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDiscordImageInjectText,
-  isReadableDiscordImage,
+  isDiscordImageAttachment,
+  publicDiscordImageError,
   storeDiscordImages,
   type DiscordImageAttachment,
 } from "./image-inbox.js";
@@ -59,6 +60,22 @@ describe("Discord image inbox", () => {
     })).rejects.toThrow("Content-Typeが一致しません");
   });
 
+  it("removes images already written when a later image in the batch is rejected", async () => {
+    const root = await temporaryRoot();
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(new Response(PNG, { headers: { "content-type": "image/png" } }))
+      .mockResolvedValueOnce(new Response(PNG, { headers: { "content-type": "image/gif" } }));
+
+    await expect(storeDiscordImages({
+      attachments: [image(), image({ contentType: "image/gif", name: "capture.gif" })],
+      fetchImpl,
+      inboxRoot: root,
+      messageId: "message-1",
+      sessionId: "session-1",
+    })).rejects.toThrow("Content-Typeが一致しません");
+    await expect(readFile(join(root, "session-1-message-1-1.png"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("rejects a non-Discord download host", async () => {
     await expect(storeDiscordImages({
       attachments: [image({ url: "https://example.com/image.png" })],
@@ -69,14 +86,39 @@ describe("Discord image inbox", () => {
     })).rejects.toThrow("Discord CDN以外");
   });
 
-  it("rejects a non-standard port on an allowed Discord host", async () => {
+  it("rejects credentials and non-standard ports on an otherwise allowed host", async () => {
+    const fetchImpl = vi.fn();
     await expect(storeDiscordImages({
-      attachments: [image({ url: "https://cdn.discordapp.com:4443/attachments/1/2/capture.png" })],
-      fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
+      attachments: [image({ url: "https://user@cdn.discordapp.com:4443/attachments/1/2/capture.png" })],
+      fetchImpl,
       inboxRoot: await temporaryRoot(),
       messageId: "message-1",
       sessionId: "session-1",
     })).rejects.toThrow("Discord CDN以外");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("recognizes supported and unsupported image candidates before validation", () => {
+    expect(isDiscordImageAttachment(image({ contentType: null, name: "capture.PNG" }))).toBe(true);
+    expect(isDiscordImageAttachment(image({ contentType: "image/svg+xml", name: "capture.svg" }))).toBe(true);
+    expect(isDiscordImageAttachment(image({ contentType: null, name: "notes.txt" }))).toBe(false);
+  });
+
+  it("rejects a declared unsupported image before downloading it", async () => {
+    const fetchImpl = vi.fn();
+    await expect(storeDiscordImages({
+      attachments: [image({ contentType: "image/svg+xml", name: "capture.svg" })],
+      fetchImpl,
+      inboxRoot: await temporaryRoot(),
+      messageId: "message-1",
+      sessionId: "session-1",
+    })).rejects.toThrow("対応していない画像形式");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("does not expose unexpected local errors to Discord users", () => {
+    expect(publicDiscordImageError(new Error("EACCES: C:\\private\\inbox")))
+      .toBe("画像の取得または保存中に内部エラーが発生しました");
   });
 
   if (process.platform !== "win32") {
@@ -93,14 +135,9 @@ describe("Discord image inbox", () => {
         inboxRoot: inbox,
         messageId: "message-1",
         sessionId: "session-1",
-      })).rejects.toThrow("安全なディレクトリではありません");
+      })).rejects.toThrow("画像保存先を安全に準備できませんでした");
     });
   }
-
-  it("recognizes an image filename when Discord omitted contentType", () => {
-    expect(isReadableDiscordImage(image({ contentType: null, name: "capture.PNG" }))).toBe(true);
-    expect(isReadableDiscordImage(image({ contentType: null, name: "notes.txt" }))).toBe(false);
-  });
 
   it("builds a usable instruction for an image-only message", () => {
     expect(buildDiscordImageInjectText("", ["C:\\Temp\\image.png"]))

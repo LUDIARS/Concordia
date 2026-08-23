@@ -124,6 +124,43 @@ export class SessionsRepo {
     ).all(limit) as SessionRow[];
   }
 
+  /** 1 run の明示リンクと旧形式の時刻窓候補だけを返す。 */
+  listDelegationSessionsForRun(input: {
+    runId: string;
+    childSessionId: string | null;
+    callName: string;
+    createdAtMs: number;
+  }): SessionRow[] {
+    const windowMs = 10 * 60 * 1000;
+    return this.db.prepare(
+      `SELECT * FROM sessions
+       WHERE id = @childSessionId
+          OR CASE WHEN json_valid(metadata) THEN
+            (
+              CASE WHEN json_type(metadata, '$.delegation_run_id') = 'text'
+                THEN NULLIF(trim(json_extract(metadata, '$.delegation_run_id')), '')
+              END = @runId
+              OR (
+                CASE WHEN json_type(metadata, '$.delegation_run_id') = 'text'
+                  THEN NULLIF(trim(json_extract(metadata, '$.delegation_run_id')), '')
+                END IS NULL
+                AND CASE WHEN json_type(metadata, '$.delegation_call_name') = 'text'
+                  THEN NULLIF(trim(json_extract(metadata, '$.delegation_call_name')), '')
+                END = @callName
+                AND started_at BETWEEN @startedAfter AND @startedBefore
+              )
+            )
+          ELSE 0 END
+       ORDER BY started_at DESC`,
+    ).all({
+      runId: input.runId,
+      childSessionId: input.childSessionId,
+      callName: input.callName,
+      startedAfter: Math.ceil((input.createdAtMs - windowMs) / 1000),
+      startedBefore: Math.floor((input.createdAtMs + windowMs) / 1000),
+    }) as SessionRow[];
+  }
+
   updateHeartbeat(id: string, ts: number): void {
     this.db.prepare(`UPDATE sessions SET last_seen_at = ? WHERE id = ?`).run(ts, id);
   }

@@ -1,7 +1,7 @@
 # Concordia event-loop instability under delegation and retention load
 
 - Date: 2026-08-23
-- Status: investigating
+- Status: mitigation implemented; verification and secondary causes pending
 - Area: HTTP API / SQLite read model / log retention / Discord relay
 - Severity: High — the health endpoint stays green while API and Discord work can pause for tens of seconds
 
@@ -112,6 +112,13 @@ is healthy.
 
 No unit, integration, load, or startup tests were run during this investigation, per session policy.
 
+The first mitigation replaces the per-run full session scan with a request-local read model. Session
+metadata is parsed once, exact `delegation_run_id` and `child_session_id` links are indexed, and legacy
+links use a call-name index plus binary-searched ±10-minute time window. The single-run endpoint now asks
+the repository only for its exact and bounded legacy candidates instead of loading up to 1,000 sessions.
+Regression tests were added for linkage compatibility, bounded candidate selection, malformed metadata,
+and the parse-once contract, but were not executed without explicit test authorization.
+
 Required regression coverage:
 
 - Benchmark the delegation runs read model with at least 1,000 sessions and 500 runs. Polling the endpoint
@@ -127,8 +134,8 @@ Required regression coverage:
 
 ## Follow-up
 
-- Implement the delegation read-model fix first; it has the strongest timestamp-level correlation with the
-  live stalls.
+- Verify the delegation read-model mitigation under production-shaped polling; it has the strongest
+  timestamp-level correlation with the live stalls.
 - Move or redesign archival work next, then compact the database during a separately claimed maintenance
   window.
 - Review Excubitor singleton reconciliation for the historical control-worker storm.

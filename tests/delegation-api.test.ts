@@ -228,6 +228,41 @@ describe("GET /v1/delegation/runs linked sessions", () => {
     const got = j.runs.find((x: any) => x.id === run.id);
     expect(got.sessions.map((s: any) => s.id)).toEqual(["sess-legacy"]);
   });
+
+  it("GET /runs/:id resolves bounded candidates through the single-run repository query", async () => {
+    const { app, repo, sessions } = makeApp();
+    const run = repo.createRun({
+      template_id: null,
+      call_name: "impl-from-design",
+      target_provider: "codex",
+      args: { target_repo: "C:/work/single" },
+      rendered_prompt: "prompt",
+      prompt_file_path: "prompt.md",
+      spawn_pid: 12,
+      spawn_command: [],
+      triggered_by: "test",
+      status: "spawned",
+    });
+    const startedAt = Math.floor(run.created_at / 1000);
+    sessions.insertSession({
+      id: "sess-single",
+      provider: "codex-cli",
+      repo_path: "C:/work/single/worktree",
+      repo_origin: null,
+      branch: "branch/single",
+      host: "host",
+      started_at: startedAt,
+      last_seen_at: startedAt,
+      transcript_path: null,
+      metadata: JSON.stringify({ delegation_call_name: " impl-from-design " }),
+    });
+
+    const response = await app.request(`/v1/delegation/runs/${run.id}`);
+    const body = (await response.json()) as any;
+
+    expect(response.status).toBe(200);
+    expect(body.run.sessions.map((session: any) => session.id)).toEqual(["sess-single"]);
+  });
 });
 
 describe("delegation coordination API", () => {

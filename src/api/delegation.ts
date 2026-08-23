@@ -38,6 +38,7 @@ import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
+import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 
@@ -319,10 +320,11 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       ? deps.repo.listRunsByParentSession(parentSession, limit)
       : deps.repo.recentRuns(limit);
     const sessions = deps.sessions?.listDelegationSessions() ?? [];
+    const sessionReadModel = new DelegationRunSessionReadModel(sessions);
     return c.json({
       runs: rows.map((row) => {
         const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
-        return serializeRun(row, linkedSessionsForRun(row, args, sessions));
+        return serializeRun(row, sessionReadModel.linkedSessions(row, args));
       }),
     });
   });
@@ -355,9 +357,15 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   app.get("/runs/:id", (c) => {
     const row = deps.repo.findRun(c.req.param("id"));
     if (!row) return c.json({ error: "not_found" }, 404);
-    const sessions = deps.sessions?.listDelegationSessions() ?? [];
+    const sessions = deps.sessions?.listDelegationSessionsForRun({
+      runId: row.id,
+      childSessionId: row.child_session_id,
+      callName: row.call_name,
+      createdAtMs: row.created_at,
+    }) ?? [];
+    const sessionReadModel = new DelegationRunSessionReadModel(sessions);
     const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
-    return c.json({ run: serializeRun(row, linkedSessionsForRun(row, args, sessions)) });
+    return c.json({ run: serializeRun(row, sessionReadModel.linkedSessions(row, args)) });
   });
 
   app.get("/options", (c) => {
@@ -768,30 +776,6 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
   return app;
 }
 
-function linkedSessionsForRun(
-  row: DelegationRunRow,
-  args: Record<string, unknown>,
-  sessions: SessionRow[],
-): SessionRow[] {
-  const targetRepo = firstString(args, ["target_repo", "repo_path", "cwd"]);
-  const normalizedTarget = targetRepo ? normalizePath(targetRepo) : null;
-  const runCreatedAt = row.created_at;
-  return sessions
-    .filter((session) => {
-      if (row.child_session_id && session.id === row.child_session_id) return true;
-      const metadata = parseSessionMetadata(session);
-      const runId = stringValue(metadata.delegation_run_id);
-      if (runId) return runId === row.id;
-
-      if (stringValue(metadata.delegation_call_name) !== row.call_name) return false;
-      if (!normalizedTarget) return false;
-      const sessionRepo = normalizePath(session.repo_path);
-      if (sessionRepo !== normalizedTarget && !sessionRepo.startsWith(`${normalizedTarget}/`)) return false;
-      return Math.abs(session.started_at * 1000 - runCreatedAt) <= 10 * 60 * 1000;
-    })
-    .sort((a, b) => b.started_at - a.started_at);
-}
-
 function serializeLinkedSession(s: SessionRow) {
   return {
     id: s.id,
@@ -809,24 +793,8 @@ function serializeLinkedSession(s: SessionRow) {
   };
 }
 
-function parseSessionMetadata(s: SessionRow): Record<string, unknown> {
-  return s.metadata ? safeJsonParse<Record<string, unknown>>(s.metadata, {}) : {};
-}
-
-function firstString(obj: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = stringValue(obj[key]);
-    if (value) return value;
-  }
-  return null;
-}
-
 function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function normalizePath(path: string): string {
-  return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
 
 function safeJsonParse<T>(s: string, fallback: T): T {

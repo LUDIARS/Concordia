@@ -326,8 +326,11 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
     if (interaction.commandName === "spawn") return PRIVILEGED_SESSION_SPAWN;
     if (interaction.commandName === "end-session") return PRIVILEGED_SESSION_END;
     // `/project-code add` は repository binding の正本を書き換え、以後の spawn 先を
-    // 決めてしまう。 spawn と同じ管理職 capability で fail-closed に閉じる。
-    if (interaction.commandName === "project-code") return PRIVILEGED_SESSION_SPAWN;
+    // 決めてしまう。読み取り専用の list は `/projects` と同じ一般参照面のままにする。
+    if (
+      interaction.commandName === "project-code"
+      && interaction.options.getSubcommand(false) === "add"
+    ) return PRIVILEGED_SESSION_SPAWN;
     if (SESSION_SUCCESSION_COMMANDS.has(interaction.commandName)) return PRIVILEGED_SESSION_SUCCESSION;
     if (KILL_SWITCH_COMMANDS.has(interaction.commandName)) return PRIVILEGED_KILL_SWITCH;
     return null;

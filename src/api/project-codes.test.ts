@@ -1,0 +1,102 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectCodeRow } from "../db/project-codes-repo.js";
+import { projectCodesRouter } from "./project-codes.js";
+
+const { inspectImplementationRepo, isWithinWorkspace } = vi.hoisted(() => ({
+  inspectImplementationRepo: vi.fn(),
+  isWithinWorkspace: vi.fn(),
+}));
+
+vi.mock("../implementation-tools/repo-context.js", () => ({
+  inspectImplementationRepo,
+  isWithinWorkspace,
+}));
+
+const storedRow: ProjectCodeRow = {
+  code: "Cc",
+  project: "Concordia",
+  repo_path: "E:/Document/Ars/Concordia",
+  repo_origin: "should-not-leak",
+  added_by: "test-actor",
+  created_at: 1,
+  updated_at: 2,
+};
+
+describe("projectCodesRouter", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("lists only fields needed by project-code consumers", async () => {
+    const app = projectCodesRouter({
+      repo: { list: () => [storedRow] } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+    });
+
+    const response = await app.request("/");
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toEqual({
+      source: "concordia-db",
+      project_codes: [{ code: "Cc", project: "Concordia", repo_path: storedRow.repo_path }],
+      categories: [{ name: "Concordia registry", entries: [["Cc", "Concordia"]] }],
+    });
+    expect(JSON.stringify(body)).not.toContain("should-not-leak");
+    expect(JSON.stringify(body)).not.toContain("test-actor");
+  });
+
+  it("registers the inspected canonical repository and redacts audit fields from the response", async () => {
+    isWithinWorkspace.mockResolvedValue(true);
+    inspectImplementationRepo.mockResolvedValue({
+      repoPath: storedRow.repo_path,
+      repoOrigin: storedRow.repo_origin,
+      branch: "main",
+    });
+    const register = vi.fn(() => ({ row: storedRow, created: true }));
+    const app = projectCodesRouter({
+      repo: { list: () => [], register } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        code: "Cc",
+        repo_path: "E:/Document/Ars/Concordia/src",
+        added_by: storedRow.added_by,
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(register).toHaveBeenCalledWith({
+      code: "Cc",
+      project: "Concordia",
+      repoPath: storedRow.repo_path,
+      repoOrigin: storedRow.repo_origin,
+      addedBy: storedRow.added_by,
+    });
+    expect(await response.json()).toEqual({
+      project_code: { code: "Cc", project: "Concordia", repo_path: storedRow.repo_path },
+      created: true,
+    });
+  });
+
+  it("rejects paths outside configured workspace roots before Git inspection", async () => {
+    isWithinWorkspace.mockResolvedValue(false);
+    const app = projectCodesRouter({
+      repo: { list: () => [] } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: "Cc", repo_path: "E:/private/Concordia" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "repository_outside_workspace" });
+    expect(inspectImplementationRepo).not.toHaveBeenCalled();
+  });
+});

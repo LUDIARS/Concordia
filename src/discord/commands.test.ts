@@ -23,6 +23,7 @@ describe("Discord command registration", () => {
     expect(names).toContain("rv-prs");
     expect(names).toContain("co-handover");
     expect(names).toContain("spawn");
+    expect(names).toContain("project-code");
     expect(names).toContain("ch_name");
     expect(names).toContain("ex-run");
     expect(names).toContain("ex-reboot");
@@ -100,8 +101,6 @@ describe("Discord command registration", () => {
     expect(respond).toHaveBeenCalledWith([]);
   });
 
-  // 社員名簿の役職ゲート (spec/feature/staff-roster.md §3)。 capability ごとに別の判定関数を
-  // 引くこと、 未注入なら deny (fail-closed) になることを固定する。
   const slash = (commandName: string, userId: string, reply: () => Promise<undefined>) => ({
     type: 2,
     commandName,
@@ -115,6 +114,44 @@ describe("Discord command registration", () => {
     reply,
   });
 
+  it("guards /project-code add but keeps its read-only list available", async () => {
+    const denied = vi.fn(async () => undefined);
+    await dispatchInteraction({
+      ...slash("project-code", "discord-denied", denied),
+      options: { getSubcommand: () => "add" },
+    } as never, {
+      isLaunchUserAllowed: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(denied).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("起動権限がありません"),
+      ephemeral: true,
+    }));
+
+    const listed = vi.fn(async () => undefined);
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ project_codes: [] }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    await dispatchInteraction({
+      ...slash("project-code", "discord-denied", listed),
+      options: { getSubcommand: () => "list" },
+    } as never, {
+      concordiaUrl: "http://concordia",
+      isLaunchUserAllowed: () => false,
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://concordia/v1/project-codes",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(listed).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+  });
+
+  // 社員名簿の役職ゲート (spec/feature/staff-roster.md §3)。 capability ごとに別の判定関数を
+  // 引くこと、 未注入なら deny (fail-closed) になることを固定する。
   it.each([
     { commandName: "end-session", deny: "セッション終了権限がありません" },
     { commandName: "co-relictor", deny: "セッション移行権限がありません" },

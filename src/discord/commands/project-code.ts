@@ -1,16 +1,24 @@
 import { SlashCommandBuilder } from "discord.js";
-import type { ProjectCodeRow } from "../../db/project-codes-repo.js";
 import type { DiscordCommandSpec } from "../command-port.js";
+import { clipProjectCodeList } from "../project-code-view.js";
 import { callConcordia } from "./_util.js";
 
+interface ProjectCodeView {
+  code: string;
+  project: string;
+  repo_path: string;
+}
+
 interface ProjectCodesResponse {
-  project_codes: ProjectCodeRow[];
+  project_codes: ProjectCodeView[];
 }
 
 interface ProjectCodeRegistrationResponse {
-  project_code: ProjectCodeRow;
+  project_code: ProjectCodeView;
   created: boolean;
 }
+
+const MAX_MESSAGE_CONTENT = 1_900;
 
 const projectCodeCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder()
@@ -34,13 +42,21 @@ const projectCodeCommand: DiscordCommandSpec = {
     if (subcommand === "list") {
       const result = await callConcordia<ProjectCodesResponse>(deps.concordiaUrl, "GET", "/v1/project-codes");
       if ("error" in result) {
-        await interaction.reply({ content: `⚠️ project code 一覧取得失敗: ${result.error}`, ephemeral: true });
+        await interaction.reply({
+          content: `⚠️ project code 一覧取得失敗: ${result.error}`,
+          ephemeral: true,
+          allowedMentions: { parse: [] },
+        });
         return;
       }
       const content = result.project_codes.length === 0
         ? "project code はまだ登録されていません。"
-        : result.project_codes.map((row) => `\`${row.code}\` ${row.project} — ${row.repo_path}`).join("\n");
-      await interaction.reply({ content, ephemeral: true });
+        : result.project_codes.map((row) => `\`${row.code}\` ${row.project}`).join("\n");
+      await interaction.reply({
+        content: clipProjectCodeList(content, MAX_MESSAGE_CONTENT),
+        ephemeral: true,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
 
@@ -54,12 +70,16 @@ const projectCodeCommand: DiscordCommandSpec = {
       { code, repo_path: repoPath, added_by: `discord:${interaction.user.id}` },
     );
     if ("error" in result) {
-      await interaction.editReply({ content: `⚠️ project code 登録失敗: ${result.error}` });
+      await interaction.editReply({
+        content: `⚠️ project code 登録失敗: ${result.error}`,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
     await interaction.editReply({
       content: `${result.created ? "✅ 登録しました" : "✅ 登録済みです"}: `
         + `\`${result.project_code.code}\` → ${result.project_code.project}\n${result.project_code.repo_path}`,
+      allowedMentions: { parse: [] },
     });
   },
 };

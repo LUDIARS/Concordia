@@ -3,9 +3,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   ProjectCodeConflictError,
+  type ProjectCodeRow,
   type ProjectCodesRepo,
 } from "../db/project-codes-repo.js";
 import { inspectImplementationRepo, isWithinWorkspace } from "../implementation-tools/repo-context.js";
+
+type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_path">;
 
 const RegisterSchema = z.object({
   code: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9-]{0,31}$/),
@@ -23,7 +26,7 @@ export function projectCodesRouter(deps: {
     const rows = deps.repo.list();
     return c.json({
       source: "concordia-db",
-      project_codes: rows,
+      project_codes: rows.map(toResponseRow),
       categories: rows.length === 0
         ? []
         : [{ name: "Concordia registry", entries: rows.map((row) => [row.code, row.project]) }],
@@ -53,7 +56,7 @@ export function projectCodesRouter(deps: {
         repoOrigin: context.repoOrigin,
         addedBy: parsed.data.added_by,
       });
-      return c.json({ project_code: result.row, created: result.created }, result.created ? 201 : 200);
+      return c.json({ project_code: toResponseRow(result.row), created: result.created }, result.created ? 201 : 200);
     } catch (error) {
       if (error instanceof ProjectCodeConflictError) {
         return c.json({ error: "project_code_conflict", field: error.field }, 409);
@@ -63,4 +66,9 @@ export function projectCodesRouter(deps: {
   });
 
   return app;
+}
+
+/** Resolution clients do not need audit identities, timestamps, or private remote origins. */
+function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
+  return { code: row.code, project: row.project, repo_path: row.repo_path };
 }

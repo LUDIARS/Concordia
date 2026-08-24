@@ -6,6 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { sdkSafeDelegationProvider } from "../delegation/provider-policy.js";
 
 // 論理 provider プリセット。 claude/codex/gemini は同名 CLI に 1:1。
 // gemma4-12 は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
@@ -267,7 +268,7 @@ export class DelegationRepo {
       input.call_name,
       input.title,
       input.description ?? "",
-      input.target_provider,
+      sdkSafeDelegationProvider(input.target_provider),
       input.model ?? null,
       JSON.stringify(normalizeRuntimeOptions(input.runtime_options)),
       input.prompt_template,
@@ -312,7 +313,7 @@ export class DelegationRepo {
     `).run(
       patch.title ?? cur.title,
       patch.description ?? cur.description,
-      patch.target_provider ?? cur.target_provider,
+      sdkSafeDelegationProvider(patch.target_provider ?? cur.target_provider),
       patch.model !== undefined ? patch.model : cur.model,
       patch.runtime_options !== undefined ? JSON.stringify(normalizeRuntimeOptions(patch.runtime_options)) : cur.runtime_options_json,
       patch.prompt_template ?? cur.prompt_template,
@@ -336,6 +337,18 @@ export class DelegationRepo {
       `UPDATE delegation_templates SET is_active = 0, updated_at = ? WHERE id = ?`,
     ).run(Date.now(), id);
     return r.changes > 0;
+  }
+
+  /**
+   * テンプレート定義だけを物理削除し、実行履歴は denormalized call_name と provider で残す。
+   * delegation_runs.template_id には FK が無い既存 DB もあるため、先に明示的に NULL 化する。
+   */
+  deleteTemplatePermanently(id: string): boolean {
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`UPDATE delegation_runs SET template_id = NULL WHERE template_id = ?`).run(id);
+      return this.db.prepare(`DELETE FROM delegation_templates WHERE id = ?`).run(id).changes > 0;
+    });
+    return tx();
   }
 
   findTemplate(id: string): DelegationTemplateRow | null {
@@ -377,7 +390,7 @@ export class DelegationRepo {
       id,
       input.template_id,
       input.call_name,
-      input.target_provider,
+      sdkSafeDelegationProvider(input.target_provider),
       input.parent_session_id ?? null,
       input.child_session_id ?? null,
       JSON.stringify(input.args ?? {}),

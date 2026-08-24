@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 72;
+export const SCHEMA_VERSION = 73;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1844,6 +1844,58 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_cc_tasks_status ON cc_tasks(status, updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_cc_tasks_actio_sync ON cc_tasks(actio_sync_state, updated_at ASC);
     `);
+  },
+}, {
+  version: 73,
+  name: "delegation-sdk-safety-and-legacy-delete",
+  source: "delete legacy global/subsidiary delegation definitions; null run template ids; codex templates to codex-sdk",
+  up(db) {
+    // 適用済み migration は編集できないため、旧 call_name の物理削除と provider の
+    // 全件変換を独立 migration にする。run は denormalized call_name/provider を持つので、
+    // template_id だけ NULL にして履歴を保持する。
+    const legacyCallNames = [
+      "gamma-impl",
+      "claude-sonnet-4-6-impl",
+      "claude-opus-4-8-impl",
+      "daily-review-reconciliation",
+      "ludiars-review-daily",
+      "claude-fable-5-impl",
+      "claude-fable-5-impl-2",
+      "codex-5-5",
+      "codex-5-5-2",
+      "codex-5-6-sol-medium",
+      "codex-5-6-sol",
+      "codex-5-6-sol-2",
+      "claude-opus-5-impl",
+      "codex-5-6-sol-ultra",
+      "claude-haiku-4-5-impl",
+      "codex-5-6-luna",
+      "claude-sonnet-5-impl",
+      "codex-5-6-terra",
+      "opus4-8",
+      "review-sonnet5",
+    ];
+    const placeholders = legacyCallNames.map(() => "?").join(",");
+    db.prepare(`
+      UPDATE delegation_runs
+      SET template_id = NULL
+      WHERE template_id IN (
+        SELECT id FROM delegation_templates WHERE call_name IN (${placeholders})
+      )
+    `).run(...legacyCallNames);
+    db.prepare(`DELETE FROM delegation_templates WHERE call_name IN (${placeholders})`)
+      .run(...legacyCallNames);
+    db.prepare(`DELETE FROM subsidiary_delegations WHERE call_name IN (${placeholders})`)
+      .run(...legacyCallNames);
+    db.prepare(`UPDATE delegation_templates SET target_provider = 'codex-sdk' WHERE target_provider = 'codex'`).run();
+    db.prepare(`UPDATE subsidiary_delegations SET target_provider = 'codex-sdk' WHERE target_provider = 'codex'`).run();
+    // 待機中 run は新 service が payload を起動時に再正規化する。run record も実際に
+    // 起動される provider と一致させ、過去の完了 run は監査履歴として変更しない。
+    db.prepare(`
+      UPDATE delegation_runs
+      SET target_provider = 'codex-sdk'
+      WHERE target_provider = 'codex' AND status IN ('queued', 'launching')
+    `).run();
   },
 },
 ];

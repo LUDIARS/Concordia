@@ -4,7 +4,7 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
-  it("replaces the Sonnet 4.6 implementation template with Sonnet 5", () => {
+  it("deletes the Sonnet 4.6 implementation template and seeds sonnet-mid", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "claude-sonnet-4-6-impl",
@@ -16,8 +16,8 @@ describe("seedDelegationTemplates", () => {
 
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("claude-sonnet-4-6-impl")?.is_active).toBe(0);
-    const sonnet5 = repo.findTemplateByCallName("claude-sonnet-5-impl");
+    expect(repo.findTemplateByCallName("claude-sonnet-4-6-impl")).toBeNull();
+    const sonnet5 = repo.findTemplateByCallName("sonnet-mid");
     expect(sonnet5?.is_active).toBe(1);
     expect(sonnet5?.model).toBe("claude-sonnet-5");
   });
@@ -40,7 +40,7 @@ describe("seedDelegationTemplates", () => {
     expect(inquiry?.prompt_template).not.toMatch(/implement|branch|commit|push|PR/i);
   });
 
-  it("replaces the Opus 4.8 implementation template with Opus 5", () => {
+  it("deletes the Opus 4.8 implementation template and seeds Opus 5", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "claude-opus-4-8-impl",
@@ -52,7 +52,7 @@ describe("seedDelegationTemplates", () => {
 
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("claude-opus-4-8-impl")?.is_active).toBe(0);
+    expect(repo.findTemplateByCallName("claude-opus-4-8-impl")).toBeNull();
     const opus5 = repo.findTemplateByCallName("opus-mid");
     expect(opus5?.is_active).toBe(1);
     expect(opus5?.model).toBe("claude-opus-5");
@@ -79,10 +79,10 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     // 代表例: spawn ワーカー = employee / caller 特化 = freelancer / 時限起動 = parttimer
-    expect(repo.findTemplateByCallName("claude-sonnet-5-impl")?.category).toBe("employee");
+    expect(repo.findTemplateByCallName("sonnet-mid")?.category).toBe("employee");
     expect(repo.findTemplateByCallName("sol-mid")?.category).toBe("employee");
     expect(repo.findTemplateByCallName("impl-from-design")?.category).toBe("freelancer");
-    expect(repo.findTemplateByCallName("review-sonnet5")?.category).toBe("freelancer");
+    expect(repo.findTemplateByCallName("review-duo")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("ludiars-review-weekly")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("vulnerability-response-daily")?.category).toBe("parttimer");
@@ -98,13 +98,14 @@ describe("seedDelegationTemplates", () => {
 
     const implementationTemplates = [
       "sol-mid",
-      "codex-5-6-terra",
+      "sol-xhigh",
+      "terra-xhigh",
       "luna",
       "impl-from-design",
       "fix-bug",
       "opus-xhigh",
       "opus-mid",
-      "claude-sonnet-5-impl",
+      "sonnet-mid",
       "fable-mid",
       "fable-xhigh",
       "haiku",
@@ -174,7 +175,7 @@ describe("seedDelegationTemplates", () => {
     });
     expect(codex).toMatchObject({
       title: "Codex起動",
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       is_active: 1,
       forum_tag: 1,
     });
@@ -212,7 +213,7 @@ describe("seedDelegationTemplates", () => {
     const tpl = repo.findTemplateByCallName("ludiars-review-daily-dual");
     expect(tpl?.is_active).toBe(1);
     expect(tpl?.category).toBe("parttimer");
-    expect(tpl?.target_provider).toBe("codex");
+    expect(tpl?.target_provider).toBe("codex-sdk");
     expect(tpl?.model).toBe("gpt-5.6-sol");
     expect(JSON.parse(tpl?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "ultra" });
     // プロンプト正本 (LUDIARS/docs/REVIEW-PROMPTS.md) を参照させる — 本文の二重管理をしない。
@@ -242,12 +243,20 @@ describe("seedDelegationTemplates", () => {
     const repo = new DelegationRepo(makeTestDb());
     for (const callName of [
       "claude-fable-5-impl",
+      "claude-fable-5-impl-2",
+      "codex-5-5",
+      "codex-5-5-2",
       "codex-5-6-sol-medium",
       "codex-5-6-sol",
+      "codex-5-6-sol-2",
       "claude-opus-5-impl",
       "codex-5-6-sol-ultra",
       "claude-haiku-4-5-impl",
       "codex-5-6-luna",
+      "claude-sonnet-5-impl",
+      "codex-5-6-terra",
+      "opus4-8",
+      "review-sonnet5",
     ]) {
       repo.createTemplate({
         call_name: callName,
@@ -266,10 +275,16 @@ describe("seedDelegationTemplates", () => {
     expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex",
+      target_provider: "codex-sdk",
       model: "gpt-5.6-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
+    expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
+      is_active: 1,
+      target_provider: "codex-sdk",
+      model: "gpt-5.6-sol",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
     expect(repo.findTemplateByCallName("opus-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
@@ -293,17 +308,25 @@ describe("seedDelegationTemplates", () => {
 
     for (const callName of [
       "claude-fable-5-impl",
+      "claude-fable-5-impl-2",
+      "codex-5-5",
+      "codex-5-5-2",
       "codex-5-6-sol-medium",
       "codex-5-6-sol",
+      "codex-5-6-sol-2",
       "claude-opus-5-impl",
       "codex-5-6-sol-ultra",
       "claude-haiku-4-5-impl",
       "codex-5-6-luna",
+      "claude-sonnet-5-impl",
+      "codex-5-6-terra",
+      "opus4-8",
+      "review-sonnet5",
     ]) {
-      expect(repo.findTemplateByCallName(callName)?.is_active).toBe(0);
+      expect(repo.findTemplateByCallName(callName)).toBeNull();
     }
 
-    const terra = repo.findTemplateByCallName("codex-5-6-terra");
+    const terra = repo.findTemplateByCallName("terra-xhigh");
     expect(terra).toMatchObject({ is_active: 1, model: "gpt-5.6-terra", target_provider: "codex-sdk" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
@@ -318,11 +341,14 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).not.toContain("claude-opus-4-8");
     expect(duo?.prompt_template).toContain("gpt-5.6-sol");
     expect(duo?.prompt_template).toContain("xhigh");
+    expect(duo?.prompt_template).toContain("sol-xhigh");
+    expect(duo?.prompt_template).toContain("codex-sdk");
+    expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
     expect(duo?.prompt_template).toContain("worktree の生成・ブランチ切り替えは行わない");
     expect(duo?.prompt_template).toContain("追加指示 (inject)");
 
-    expect(repo.findTemplateByCallName("review-sonnet5")?.is_active).toBe(0);
+    expect(repo.findTemplateByCallName("review-sonnet5")).toBeNull();
   });
 
   it("reactivates the single-AI Claude definition as the weekly cron default", () => {
@@ -346,7 +372,7 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("daily-review-autofix")?.title).toBe("週次レビュー安全修正委託 (Codex)");
   });
 
-  it("deactivates the legacy ludiars-review-daily call_name after the weekly rename", () => {
+  it("deletes the legacy ludiars-review-daily call_name after the weekly rename", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "ludiars-review-daily",
@@ -356,7 +382,7 @@ describe("seedDelegationTemplates", () => {
     });
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("ludiars-review-daily")?.is_active).toBe(0);
+    expect(repo.findTemplateByCallName("ludiars-review-daily")).toBeNull();
   });
 
   it("seeds the active Genius daily cron template and retains the disabled Tier 2 template", () => {
@@ -500,7 +526,7 @@ describe("seedDelegationTemplates", () => {
     expect(daily).toContain("見送り");
   });
 
-  it("deactivates the replaced daily-review-reconciliation call name", () => {
+  it("physically deletes the replaced daily-review-reconciliation call name", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({
       call_name: "daily-review-reconciliation",
@@ -511,7 +537,7 @@ describe("seedDelegationTemplates", () => {
 
     seedDelegationTemplates(repo);
 
-    expect(repo.findTemplateByCallName("daily-review-reconciliation")?.is_active).toBe(0);
+    expect(repo.findTemplateByCallName("daily-review-reconciliation")).toBeNull();
     expect(repo.findTemplateByCallName("ludiars-review-daily-dual")).toMatchObject({
       is_active: 1,
       title: "毎日レビューちょいつよ版",

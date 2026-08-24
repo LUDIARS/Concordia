@@ -50,6 +50,7 @@ import {
 } from "./contracts.js";
 import { executeQueuedRun } from "./executor.js";
 import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
+import { sdkSafeDelegationProvider } from "./provider-policy.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -201,11 +202,12 @@ export class DelegationService {
     // worktree だけ先に生えている、 という中途半端な状態を作らないため。
     if (shouldSpawn && this.queue?.enabled() && !this.queue.hasCapacity()) {
       const payload: QueuePayload = { def, input };
+      const targetProvider = sdkSafeDelegationProvider(input.overrides?.provider ?? def.target_provider);
       const run = this.deps.repo.createRun({
         id: runId,
         template_id: def.template_id,
         call_name: def.call_name,
-        target_provider: input.overrides?.provider ?? def.target_provider,
+        target_provider: targetProvider,
         parent_session_id: input.parent_session_id ?? null,
         args: input.args ?? {},
         rendered_prompt: renderedPrompt,
@@ -316,7 +318,8 @@ export class DelegationService {
     renderedPrompt: string,
     shouldSpawn: boolean,
   ): Promise<LaunchResult> {
-    const provider = input.overrides?.provider ?? def.target_provider;
+    const requestedProvider = input.overrides?.provider ?? def.target_provider;
+    const provider = sdkSafeDelegationProvider(requestedProvider);
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。
@@ -365,7 +368,7 @@ export class DelegationService {
       if (requestedEffort && !isAutoEffort(requestedEffort.value)) {
         const normalized = normalizeProviderEffort(provider, requestedEffort.value);
         if (!normalized) {
-          return { ok: false, error: `invalid ${provider} effort: ${String(requestedEffort.value)}` };
+          return { ok: false, error: `invalid ${requestedProvider} effort: ${String(requestedEffort.value)}` };
         }
         effortLevel = normalized;
         effortSource = requestedEffort.source;

@@ -22,6 +22,7 @@ describe("DelegationRepo / templates", () => {
     });
     expect(created.id).toBeTruthy();
     expect(created.call_name).toBe("fix-bug");
+    expect(created.target_provider).toBe("codex-sdk");
     const found = repo.findTemplateByCallName("fix-bug");
     expect(found?.id).toBe(created.id);
   });
@@ -85,6 +86,36 @@ describe("DelegationRepo / templates", () => {
     expect(repo.listTemplates().map((t) => t.call_name)).toEqual(["active"]);
     expect(repo.listTemplates({ includeInactive: true }).map((t) => t.call_name).sort())
       .toEqual(["active", "inactive"]);
+  });
+
+  it("physically deletes a legacy template while preserving its run history", () => {
+    const template = repo.createTemplate({
+      call_name: "legacy-profile",
+      title: "Legacy",
+      target_provider: "codex",
+      prompt_template: "legacy",
+    });
+    const run = repo.createRun({
+      template_id: template.id,
+      call_name: template.call_name,
+      target_provider: template.target_provider,
+      args: {},
+      rendered_prompt: "legacy",
+      prompt_file_path: "/legacy.md",
+      spawn_pid: null,
+      spawn_command: null,
+      triggered_by: null,
+      status: "completed",
+    });
+
+    expect(repo.deleteTemplatePermanently(template.id)).toBe(true);
+    expect(repo.findTemplateByCallName(template.call_name)).toBeNull();
+    expect(repo.findRun(run.id)).toMatchObject({
+      template_id: null,
+      call_name: "legacy-profile",
+      target_provider: "codex-sdk",
+      status: "completed",
+    });
   });
 
   it("listTemplates orders by sort_order then call_name", () => {
@@ -175,11 +206,12 @@ describe("DelegationRepo / runs", () => {
       rendered_prompt: "p",
       prompt_file_path: "/tmp/p.md",
       spawn_pid: 42,
-      spawn_command: ["wt.exe", "lictor", "codex"],
+      spawn_command: ["satelles", "run"],
       triggered_by: "claude",
       status: "spawned",
     });
     expect(run.id).toBe(id);
+    expect(run.target_provider).toBe("codex-sdk");
     expect(repo.findRun(id)?.spawn_pid).toBe(42);
   });
 

@@ -168,7 +168,7 @@ describe("DelegationService.invoke", () => {
     expect(readFileSync(path, "utf8")).toBe("自由テキストの初回指示\n2行目");
   });
 
-  it("invokes a template, writes prompt file, spawns by default", async () => {
+  it("normalizes a legacy codex template to the SDK spawner", async () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -179,6 +179,7 @@ describe("DelegationService.invoke", () => {
     expect(file).toContain("echo");
     expect(r.spawn_pid).toBe(999);
     expect(spawnCalls.length).toBe(1);
+    expect((spawnCalls[0] as { provider?: string }).provider).toBe("codex-sdk");
     expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
@@ -343,7 +344,7 @@ describe("DelegationService.invoke", () => {
     expect(r.error).toContain("inactive");
   });
 
-  it("passes template.model to spawn as --model args", async () => {
+  it("passes a legacy codex template model through the SDK lane", async () => {
     repo.createTemplate({
       call_name: "with-model",
       title: "With model",
@@ -355,8 +356,8 @@ describe("DelegationService.invoke", () => {
     const r = await svc.invoke({ call_name: "with-model", args: { x: "y" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[]; provider: string };
-    expect(req.provider).toBe("codex");
-    expect(req.args).toEqual(["--model", "gpt-5.5", "-c", 'model_reasoning_effort="low"']);
+    expect(req.provider).toBe("codex-sdk");
+    expect(req.args).toEqual(["--model", "gpt-5.5", "--effort", "low", "--network"]);
   });
 
   it("passes one-shot Codex runtime options to spawn args", async () => {
@@ -367,11 +368,31 @@ describe("DelegationService.invoke", () => {
     });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[]; provider: string };
-    expect(req.provider).toBe("codex");
-    expect(req.args).toEqual(["-c", 'model_reasoning_effort="high"']);
+    expect(req.provider).toBe("codex-sdk");
+    expect(req.args).toEqual(["--effort", "high", "--network"]);
     if (!r.ok) return;
     expect(r.run.effort_level).toBe("high");
     expect(r.run.effort_source).toBe("one-shot");
+  });
+
+  it("normalizes a legacy one-shot codex override to the SDK lane", async () => {
+    const r = await svc.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      overrides: { provider: "codex", model: "gpt-5.6-sol", reasoning_effort: "xhigh" },
+    });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const req = spawnCalls[0] as { provider: string; args?: string[] };
+    expect(req.provider).toBe("codex-sdk");
+    expect(req.args).toEqual([
+      "--model",
+      "gpt-5.6-sol",
+      "--effort",
+      "xhigh",
+      "--network",
+    ]);
+    expect(r.run.target_provider).toBe("codex-sdk");
   });
 
   it("rejects an invalid explicit effort instead of silently defaulting", async () => {
@@ -380,7 +401,7 @@ describe("DelegationService.invoke", () => {
       args: { msg: "hi" },
       options: { model_reasoning_effort: "impossible" },
     });
-    expect(r).toMatchObject({ ok: false, error: "invalid codex effort: impossible" });
+    expect(r).toMatchObject({ ok: false, error: "invalid codex-sdk effort: impossible" });
     expect(spawnCalls).toEqual([]);
   });
 
@@ -397,8 +418,9 @@ describe("DelegationService.invoke", () => {
     const r1 = await svc.invoke({ call_name: "with-default-options", args: { x: "y" } });
     expect(r1.ok).toBe(true);
     expect((spawnCalls[0] as { args?: string[] }).args).toEqual([
-      "-c",
-      'model_reasoning_effort="medium"',
+      "--effort",
+      "medium",
+      "--network",
     ]);
 
     const r2 = await svc.invoke({
@@ -408,8 +430,9 @@ describe("DelegationService.invoke", () => {
     });
     expect(r2.ok).toBe(true);
     expect((spawnCalls[1] as { args?: string[] }).args).toEqual([
-      "-c",
-      'model_reasoning_effort="high"',
+      "--effort",
+      "high",
+      "--network",
     ]);
   });
 
@@ -431,7 +454,7 @@ describe("DelegationService.invoke", () => {
     expect(r.run.effective_model).toBe("claude-sonnet-5");
     expect(r.run.fast_mode).toBe(1);
     expect(req.env?.CONCORDIA_DELEGATION_FAST_MODE).toBe("1");
-    expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex");
+    expect(repo.findTemplateByCallName("echo")?.target_provider).toBe("codex-sdk");
   });
 
   it("starts an Opus delegation with medium effort and extended thinking disabled by default", async () => {
@@ -468,7 +491,7 @@ describe("DelegationService.invoke", () => {
     const r = await svc.invoke({ call_name: "echo", args: { msg: "hi" } });
     expect(r.ok).toBe(true);
     const req = spawnCalls[0] as { args?: string[] };
-    expect(req.args).toEqual(["-c", 'model_reasoning_effort="low"']);
+    expect(req.args).toEqual(["--effort", "low", "--network"]);
     if (!r.ok) return;
     expect(r.run.effort_level).toBe("low");
     expect(r.run.effort_source).toBe("auto-baseline");
@@ -491,7 +514,7 @@ describe("DelegationService.invoke", () => {
     });
     const r = await blackboxService.invoke({ call_name: "echo", args: { msg: "hi" } });
     if (!r.ok) throw new Error("expected ok");
-    expect((spawnCalls[0] as { args?: string[] }).args).toEqual(["-c", 'model_reasoning_effort="high"']);
+    expect((spawnCalls[0] as { args?: string[] }).args).toEqual(["--effort", "high", "--network"]);
     expect(r.run.effort_source).toBe("blackbox-llm");
     expect(r.run.effort_decision_id).toEqual(expect.any(Number));
     blackboxService.recordEffortOutcome(r.run, "completed");

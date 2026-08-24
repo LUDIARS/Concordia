@@ -32,7 +32,7 @@ import type { DirectorCase, DirectorStep } from "./types.js";
 
 const log = createChildLogger("director-patrol");
 const TICK_MS = 30 * 60 * 1000;
-const DEFAULT_IMPL_CALL_NAME = "claude-sonnet-5-impl";
+const DEFAULT_IMPL_CALL_NAME = "sonnet-mid";
 const DEFAULT_ASK_CALL_NAME = "claude-sonnet-5-ask";
 
 /** 巡回起動の triggered_by 固定キー (冪等性の正本)。 */
@@ -99,7 +99,7 @@ export interface DirectorPatrolDeps {
   runs: PatrolDelegationRuns;
   delegationService: PatrolDelegationService;
   workspaceRoots: string[];
-  /** 実装委託テンプレ。既定 claude-sonnet-5-impl (env CONCORDIA_DIRECTOR_IMPL_CALL_NAME)。 */
+  /** 実装委託テンプレ。既定 sonnet-mid (env CONCORDIA_DIRECTOR_IMPL_CALL_NAME)。 */
   implCallName?: string;
   /** 問診委託テンプレ。既定 claude-sonnet-5-ask (env CONCORDIA_DIRECTOR_ASK_CALL_NAME)。 */
   askCallName?: string;

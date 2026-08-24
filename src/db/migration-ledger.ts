@@ -215,4 +215,9 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     name: "cc-task-fallback",
     checksum: "ea5af6ab41ddd08f0b46cc293b746e65353435ff6c81e75b29b430dfc115cc95",
   },
+  {
+    version: 73,
+    name: "delegation-sdk-safety-and-legacy-delete",
+    checksum: "fc0a07e1021a33863cc586afea93751eed0dcea168c38d52e486ab34f21ca80a",
+  },
 ];

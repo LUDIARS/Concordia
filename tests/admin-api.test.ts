@@ -53,8 +53,8 @@ describe("admin API", () => {
     expect(r.status).toBe(200);
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toEqual({
-      provider: "codex",
-      args: ["-c", 'model_reasoning_effort="high"'],
+      provider: "codex-sdk",
+      args: ["--effort", "high", "--network"],
     });
   });
 
@@ -195,8 +195,8 @@ describe("admin API", () => {
     expect(r.status).toBe(200);
     expect(spawnCalls).toHaveLength(1);
     expect(spawnCalls[0]).toEqual({
-      provider: "codex",
-      args: ["-c", 'model_reasoning_effort="low"'],
+      provider: "codex-sdk",
+      args: ["--effort", "low", "--network"],
     });
   });
 

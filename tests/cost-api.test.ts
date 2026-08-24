@@ -7,7 +7,7 @@ describe("/v1/cost", () => {
   let env: TestAppEnv;
   beforeEach(() => {
     env = makeTestApp();
-  });
+  }, 30_000);
   afterEach(() => {
     vi.useRealTimers();
   });

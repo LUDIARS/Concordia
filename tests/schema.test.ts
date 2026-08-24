@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { applyMigrations, SCHEMA_VERSION } from "../src/db/schema.js";
-import { migrationChecksum } from "../src/db/migrator.js";
+import { applyMigrations, MIGRATIONS, SCHEMA_VERSION } from "../src/db/schema.js";
+import { migrationChecksum, runMigrations } from "../src/db/migrator.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
@@ -245,6 +245,49 @@ describe("migration 60: taskflow runtime-state constraints", () => {
       INSERT INTO taskflow_task_state(repo_path, task_path, status, memoria_registration_state)
       VALUES ('E:/repo', 'spec/tasks/bad.md', 'paused', 'idle')
     `).run()).toThrow();
+  });
+});
+
+describe("migration 73: Delegation SDK safety and legacy deletion", () => {
+  it("deletes legacy definitions, preserves run history, and converts live Codex paths", () => {
+    const db = makeRawTestDb();
+    runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 72), 72);
+    db.exec(`
+      INSERT INTO delegation_templates(
+        id, call_name, title, target_provider, prompt_template, created_at, updated_at
+      ) VALUES
+        ('legacy-template', 'claude-sonnet-5-impl', 'Legacy', 'claude', 'old', 1, 1),
+        ('live-template', 'custom-codex', 'Custom', 'codex', 'new', 1, 1);
+      INSERT INTO delegation_runs(
+        id, template_id, call_name, target_provider, args_json,
+        rendered_prompt, prompt_file_path, status, created_at
+      ) VALUES
+        ('historical-run', 'legacy-template', 'claude-sonnet-5-impl', 'claude', '{}', 'old', '/old.md', 'completed', 1),
+        ('queued-run', 'live-template', 'custom-codex', 'codex', '{}', 'new', '/new.md', 'queued', 2),
+        ('completed-codex-run', 'live-template', 'custom-codex', 'codex', '{}', 'done', '/done.md', 'completed', 3);
+      INSERT INTO subsidiary_delegations(
+        subsidiary_id, call_name, target_provider, created_at, updated_at
+      ) VALUES
+        ('sub-1', 'codex-5-6-terra', 'codex', 1, 1),
+        ('sub-1', 'custom-codex', 'codex', 1, 1);
+    `);
+
+    applyMigrations(db);
+
+    expect(db.prepare(`SELECT id FROM delegation_templates WHERE id = 'legacy-template'`).get())
+      .toBeUndefined();
+    expect(db.prepare(`SELECT call_name FROM subsidiary_delegations WHERE call_name = 'codex-5-6-terra'`).get())
+      .toBeUndefined();
+    expect(db.prepare(`SELECT template_id, call_name FROM delegation_runs WHERE id = 'historical-run'`).get())
+      .toEqual({ template_id: null, call_name: "claude-sonnet-5-impl" });
+    expect(db.prepare(`SELECT target_provider FROM delegation_templates WHERE id = 'live-template'`).get())
+      .toEqual({ target_provider: "codex-sdk" });
+    expect(db.prepare(`SELECT target_provider FROM subsidiary_delegations WHERE call_name = 'custom-codex'`).get())
+      .toEqual({ target_provider: "codex-sdk" });
+    expect(db.prepare(`SELECT target_provider FROM delegation_runs WHERE id = 'queued-run'`).get())
+      .toEqual({ target_provider: "codex-sdk" });
+    expect(db.prepare(`SELECT target_provider FROM delegation_runs WHERE id = 'completed-codex-run'`).get())
+      .toEqual({ target_provider: "codex" });
   });
 });
 

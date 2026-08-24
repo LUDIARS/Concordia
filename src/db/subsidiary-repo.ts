@@ -7,6 +7,7 @@
 
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import { sdkSafeDelegationProvider } from "../delegation/provider-policy.js";
 
 export type SubsidiaryPlatform = "discord" | "slack";
 
@@ -289,7 +290,7 @@ export class SubsidiaryRepo {
         input.is_default === undefined ? cur.is_default : (input.is_default ? 1 : 0),
         input.title ?? cur.title,
         input.description ?? cur.description,
-        input.target_provider ?? cur.target_provider,
+        sdkSafeDelegationProvider(input.target_provider ?? cur.target_provider),
         input.model !== undefined ? input.model : cur.model,
         input.prompt_template ?? cur.prompt_template,
         input.input_schema ?? cur.input_schema,
@@ -307,7 +308,7 @@ export class SubsidiaryRepo {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         subsidiaryId, input.call_name, input.is_default ? 1 : 0,
-        input.title ?? "", input.description ?? "", input.target_provider ?? "claude",
+        input.title ?? "", input.description ?? "", sdkSafeDelegationProvider(input.target_provider ?? "claude"),
         input.model ?? null, input.prompt_template ?? "", input.input_schema ?? "[]",
         input.default_cwd ?? null, input.project ?? null, input.emoji ?? "", now, now,
       );

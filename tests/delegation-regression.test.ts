@@ -6,12 +6,13 @@ import type { SpawnRequest } from "../src/control/spawner.js";
 const EXPECTED_SEED_CALLS = [
   "fable-mid",
   "sol-mid",
+  "sol-xhigh",
   "opus-xhigh",
   "opus-mid",
   "fable-xhigh",
   "claude-sonnet-5-ask",
-  "claude-sonnet-5-impl",
-  "codex-5-6-terra",
+  "sonnet-mid",
+  "terra-xhigh",
   "haiku",
   "luna",
   "forum-claude-session",
@@ -42,8 +43,7 @@ const EXPECTED_SEED_CALLS = [
   "team-standup-daily",
   "vulnerability-response-daily",
   "vultus-catalog-refresh-daily",
-  // review-sonnet5 は review-duo へ一本化して無効化 (2026-07-17)
-  // ludiars-review-daily は 2026-08-08 neco 指示で毎日 → 週次 (ludiars-review-weekly) へ改名し deactivate
+  // review-sonnet5 / ludiars-review-daily は置換後に物理削除する。
 ] as const;
 
 interface Template {
@@ -64,9 +64,9 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 40, 45, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 35, 40, 45, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
-    expect(json.templates.find((t) => t.call_name === "codex-5-6-terra")?.emoji).toBe("🌏");
+    expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
     expect(json.templates.filter((t) => t.forum_tag).map((t) => t.call_name)).toEqual([
       "forum-claude-session",
@@ -96,7 +96,7 @@ describe("delegation seed regression", () => {
             args,
             triggered_by: "regression-test",
             spawn: true,
-            options: template.target_provider === "codex" ? { model_reasoning_effort: "high" } : undefined,
+            options: template.target_provider === "codex-sdk" ? { model_reasoning_effort: "high" } : undefined,
           }),
         });
         expect(invoke.status, template.call_name).toBe(200);

@@ -65,7 +65,7 @@ async function main(): Promise<void> {
     "delegation_list_templates",
     {
       description:
-        "List active delegation templates registered in Concordia. Each template has a call_name (used to invoke), target_provider (codex / claude / gemini), title, description, and input_schema.",
+        "List active delegation templates registered in Concordia. Each template has a call_name (used to invoke), target_provider (codex-sdk / claude / gemini / gemma4-12), title, description, and input_schema.",
       inputSchema: {
         include_inactive: z.boolean().optional().describe("Also return inactive templates"),
       },

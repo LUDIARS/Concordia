@@ -1,5 +1,5 @@
 /**
- * 初期 delegation テンプレート (3 本)。
+ * 初期 delegation テンプレート。
  * boot 時に upsert される (call_name が存在しなければ作成、 あれば content を上書き)。
  * ユーザが GUI で is_active を 0 にすれば disable できる。
  */
@@ -18,6 +18,30 @@ const ANATOMIA_SUPPLY_VERIFY_STEPS = [
   "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
 ];
 
+/** 置換済み call_name。履歴行ではなく定義行だけを物理削除する。 */
+const LEGACY_DELEGATION_CALL_NAMES = [
+  "gamma-impl",
+  "claude-sonnet-4-6-impl",
+  "claude-opus-4-8-impl",
+  "daily-review-reconciliation",
+  "ludiars-review-daily",
+  "claude-fable-5-impl",
+  "claude-fable-5-impl-2",
+  "codex-5-5",
+  "codex-5-5-2",
+  "codex-5-6-sol-medium",
+  "codex-5-6-sol",
+  "codex-5-6-sol-2",
+  "claude-opus-5-impl",
+  "codex-5-6-sol-ultra",
+  "claude-haiku-4-5-impl",
+  "codex-5-6-luna",
+  "claude-sonnet-5-impl",
+  "codex-5-6-terra",
+  "opus4-8",
+  "review-sonnet5",
+] as const;
+
 function codex56Template(opts: {
   /** 呼び出し契約となる call_name。 model は `gpt-5.6-${modelName}`。 */
   callName: string;
@@ -25,24 +49,18 @@ function codex56Template(opts: {
   label: string;
   emoji: string;
   sort_order: number;
-  /** codex の model_reasoning_effort。 ultra は Sol 限定の最上位推論。 */
+  /** Satelles が Codex へ渡す model_reasoning_effort。 ultra は Sol 限定。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
   /** fast モード (出力高速化)。 Sol プロファイル (`sol-mid`) は medium + fast。 */
   fastMode?: boolean;
-  /**
-   * codex 実行系の provider。 既定 `"codex"` は codex-cli (Lictor wrap)。
-   * `"codex-sdk"` は Satelles ヘッドレスランナー経由で、 Cc 側の
-   * `CONCORDIA_SATELLES_CODEX_RUNTIME=wsl` と組み合わせると WSL 内 Linux codex で
-   * 走り、 Windows 版 codex の CreateProcessWithLogonW 経由 lsass ログオンセッション
-   * リーク (upstream openai/codex #33356 / #35940) を回避できる。
-   */
-  provider?: "codex" | "codex-sdk";
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
     title: `Implementation delegation (GPT-5.6 ${opts.label})`,
     description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
-    target_provider: opts.provider ?? "codex",
+    // Windows native Codex の CreateProcessWithLogonW リークを避けるため全 profile を
+    // Satelles/SDK レーンへ固定する。呼び出し側に provider 選択を持たせない。
+    target_provider: "codex-sdk",
     model: `gpt-5.6-${opts.modelName}`,
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
@@ -79,8 +97,8 @@ function codex56Template(opts: {
 
 const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
   codex56Template({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium", fastMode: true }),
-  // Terra も provider=codex-sdk: Satelles 経由で WSL 内 Linux codex を使う (neco 指示)。
-  codex56Template({ callName: "codex-5-6-terra", modelName: "terra", label: "Terra", emoji: "🌏", sort_order: 60, reasoning: "xhigh", provider: "codex-sdk" }),
+  codex56Template({ callName: "sol-xhigh", modelName: "sol", label: "Sol / xhigh（高難度）", emoji: "☀️", sort_order: 25, reasoning: "xhigh" }),
+  codex56Template({ callName: "terra-xhigh", modelName: "terra", label: "Terra / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
   codex56Template({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "medium" }),
 ];
 
@@ -160,7 +178,7 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     call_name: "forum-codex-session",
     title: "Codex起動",
     description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     model: "gpt-5.6-sol",
     runtime_options: { model_reasoning_effort: "high" },
     prompt_template: FORUM_SESSION_PROMPT,
@@ -220,7 +238,7 @@ const DAILY_REVIEW_RECONCILIATION_PROMPT = [
   "   さらに `git merge-base --is-ancestor <今回HEAD> <前回HEAD>` が真になる場合 (範囲逆転: 今回 HEAD が",
   "   前回 HEAD の祖先) は、diff を作らずそのリポを",
   "   skip/no_change として記録し、理由 (range_reversed) を添えてレビュアーには一切投げない (early-exit)。",
-  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を一時 worktree だけから構築し、§3 のプロンプトで `codex exec` を、§4 のプロンプトで `claude -p --model claude-opus-5` を起動する (互いの所見は見せない)。",
+  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を一時 worktree だけから構築し、§3 のプロンプトは Cc `sol-xhigh` Delegation (`codex-sdk` / Satelles)、§4 のプロンプトは `claude -p --model claude-opus-5` で起動する (互いの所見は見せない)。",
   "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定。High 以上も外部 Issue 化せずローカル findings に記録する。",
   "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` をローカル main SHA、`reviewed_at` を実行日時へ更新する。",
   "   Review/ への書き込みはローカルのみ。GitHub へのアクセス、Castra での `git add` / `git commit` / `git push` は行わない。一時 worktree は全経路で削除する。",
@@ -404,7 +422,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "impl-from-design",
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR) を守らせる。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -440,7 +458,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "fix-bug",
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -473,7 +491,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "refactor",
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -537,7 +555,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     note: "最上位の推論が必要な設計判断や難所の実装向き。",
     model: "claude-opus-5",
     emoji: "🧙‍♂️",
-    sortOrder: 25,
+    sortOrder: 30,
     runtimeOptions: { effort: "xhigh", thinking: false },
   }),
   claudeImplementationTemplate({
@@ -546,7 +564,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     note: "設計判断や難所の実装向き。",
     model: "claude-opus-5",
     emoji: "🧙‍♂️",
-    sortOrder: 30,
+    sortOrder: 35,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
   claudeImplementationTemplate({
@@ -559,8 +577,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     runtimeOptions: { effort: "xhigh", thinking: false },
   }),
   claudeImplementationTemplate({
-    callName: "claude-sonnet-5-impl",
-    label: "Claude Sonnet 5",
+    callName: "sonnet-mid",
+    label: "Sonnet / mid",
     note: "中位。一般的な実装の主力。",
     model: "claude-sonnet-5",
     emoji: "🧑‍💼",
@@ -1004,7 +1022,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "daily-review-autofix",
     title: "週次レビュー安全修正委託 (Codex)",
     description: "ludiars-review-weekly / vulnerability-response-daily が見つけた安全範囲の指摘 (lint/typo/unused_import/dead_code/gitignore/toc/spec_gen) をまとめて Codex に適用させ、1 PR にする。call_only (人間向けドロップダウンには出さない)。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     call_only: true,
     category: "freelancer",
     emoji: "🛠️",
@@ -1091,7 +1109,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "ludiars-review-daily-dual",
     title: "毎日レビューちょいつよ版",
     description: "service-map.json の Tier 1 リポについて、ローカル main の一時 worktree と前回レビュー日時から累積 diff を作り、Codex と Claude Opus の所見を突合して E:DocumentArsReview に保存する。GitHub へはアクセスしない。プロンプト正本は LUDIARS/docs/REVIEW-PROMPTS.md。GPT-5.6 Sol Ultra のオーケストレータ版。cron の既定は単一オーケストレータ版 (ludiars-review-weekly、毎週月曜 4:40 JST) なので、こちらは手動起動用。",
-    target_provider: "codex",
+    target_provider: "codex-sdk",
     model: "gpt-5.6-sol",
     runtime_options: { model_reasoning_effort: "ultra" },
     category: "parttimer",
@@ -1162,20 +1180,6 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
-  // レビュー起動は review-duo に一本化 (2026-07-17 neco 指示)。旧テンプレは無効化して残す。
-  {
-    call_name: "review-sonnet5",
-    title: "レビュー委託 (Sonnet 5) [旧・review-duo に統合]",
-    description: "旧レビュー起動。review-duo (Opus × Sol xhigh 突合) に一本化したため無効。",
-    target_provider: "claude",
-    model: "claude-sonnet-5",
-    category: "freelancer",
-    emoji: "🔍",
-    prompt_template: "review-duo を使用してください。",
-    input_schema: [],
-    default_cwd: "${target_repo}",
-    is_active: false,
-  },
   // ── 既定のレビュー起動 (1 本だけ): Opus × Sol xhigh の突合 ──
   {
     call_name: "review-duo",
@@ -1196,7 +1200,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5`",
-      "- Reviewer B: `codex exec` — model gpt-5.6-sol, `model_reasoning_effort=\"${sol_effort:xhigh}\"`",
+      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex-sdk` / Satelles) — model gpt-5.6-sol, effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",
@@ -1287,33 +1291,10 @@ export function seedDelegationTemplates(repo: DelegationRepo): void {
   for (const template of FORUM_SESSION_TEMPLATES) {
     repo.upsertTemplate(template);
   }
-  // 旧 seed `gamma-impl` (target_provider=gamma) の置換。 新 seed は別 call_name
-  // (gemma4-12-impl) で upsert されるため、 既存 DB には旧行が残る。 重複を避けるため
-  // 旧行があれば deactivate する (削除はせず is_active=0 で残す)。 fresh DB では no-op。
-  const legacy = repo.findTemplateByCallName("gamma-impl");
-  if (legacy) repo.deactivateTemplate(legacy.id);
-  const legacySonnet = repo.findTemplateByCallName("claude-sonnet-4-6-impl");
-  if (legacySonnet) repo.deactivateTemplate(legacySonnet.id);
-  const legacyOpus = repo.findTemplateByCallName("claude-opus-4-8-impl");
-  if (legacyOpus) repo.deactivateTemplate(legacyOpus.id);
-  const legacyDailyReconciliation = repo.findTemplateByCallName("daily-review-reconciliation");
-  if (legacyDailyReconciliation) repo.deactivateTemplate(legacyDailyReconciliation.id);
-  // 2026-08-08 neco 指示: 毎日 → 週次へ変更。旧 call_name は ludiars-review-weekly に置き換えたため deactivate。
-  const legacyDailyReview = repo.findTemplateByCallName("ludiars-review-daily");
-  if (legacyDailyReview) repo.deactivateTemplate(legacyDailyReview.id);
-
-  // 2026-08-22 neco 指示: 実装プロファイルを能力/effort 名へ整理した。
-  // call_name は呼び出し契約なので既存行を削除せず、履歴として inactive に残す。
-  for (const callName of [
-    "claude-fable-5-impl",
-    "codex-5-6-sol-medium",
-    "codex-5-6-sol",
-    "claude-opus-5-impl",
-    "codex-5-6-sol-ultra",
-    "claude-haiku-4-5-impl",
-    "codex-5-6-luna",
-  ]) {
-    const legacyProfile = repo.findTemplateByCallName(callName);
-    if (legacyProfile) repo.deactivateTemplate(legacyProfile.id);
+  // 旧定義は archive せず物理削除する。run は deleteTemplatePermanently が
+  // template_id=NULL にして denormalized call_name/provider の履歴を維持する。
+  for (const callName of LEGACY_DELEGATION_CALL_NAMES) {
+    const legacy = repo.findTemplateByCallName(callName);
+    if (legacy) repo.deleteTemplatePermanently(legacy.id);
   }
 }

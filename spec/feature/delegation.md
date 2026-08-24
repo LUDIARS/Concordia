@@ -16,7 +16,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-08-22
+updated: 2026-08-24
 ---
 
 
@@ -46,7 +46,7 @@ delegation_templates
   call_name (unique, ^[a-z][a-z0-9_-]{0,63}$)
   title (人間向け 1 行)
   description (いつ使うか)
-  target_provider ("claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma) / codex-sdk=Satelles ヘッドレスレーン (§13.2)
+  target_provider ("claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma) / codex は入力互換 alias として保存時に codex-sdk へ正規化 / codex-sdk=Satelles ヘッドレスレーン (§13.2)
   model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gemma4-12 は gemma4:12b)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
@@ -82,8 +82,8 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
 
 | 値 | 表示名 | 意味 | 例 |
 |----|--------|------|-----|
-| `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `claude-*-impl`, `codex-5-6-*`, `task-process` |
-| `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-sonnet5` |
+| `employee` | 従業員 | セッションワーカー。 spawn で対話セッションとして起動する汎用実装レーン | `fable-mid`, `sol-xhigh`, `sonnet-mid`, `task-process` |
+| `freelancer` | フリーランサー | caller (`delegation_invoke` / call_only) で呼び出す特化型指示タスク | `impl-from-design`, `design-hard-fable5`, `review-duo` |
 | `parttimer` | パートタイマー | スケジューラ (cron / morning) が時限起動するタスク | `morning-tasks`, `ludiars-review-daily-dual`, `vultus-catalog-refresh-daily` |
 | `test-qa` | テスト・QA | Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md) | `test-qa` |
 
@@ -114,8 +114,8 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
 4. `spawn !== false` の場合: `/v1/spawn` 相当の処理を内部実行
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
-   - `codex-sdk` 以外の provider は Lictor の通常セッション経路で起動する。Codex は Lictor の App Server transport が thread 束縛、prompt 投入、transcript 永続化を担い、Concordia の headless worker は使用しない
-   - `codex-sdk` (Satelles) だけは wt.exe / Lictor を経由しないヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`)。 `satelles run` を detached child として直接起動する (§13.2)
+   - Claude / Gemini / gemma4-12 は Lictor の通常セッション経路で起動する
+   - Codex Delegation はすべて `codex-sdk` (Satelles) として、wt.exe / Lictor を経由しないヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`) を使う。`target_provider: "codex"` の既存・外部入力も永続化／起動境界で `codex-sdk` へ正規化し、`satelles run` を detached child として直接起動する (§13.2)
 5. delegation_runs に upsert
 6. response: `{ run_id, rendered_prompt, prompt_file_path, spawn_pid, spawn_command }`
 
@@ -222,24 +222,26 @@ delegation テンプレ選択ベースで起動する:
 
 | call_name | target | model | 用途 |
 |-----------|--------|-------|------|
-| `impl-from-design` | codex | — | 設計書 path を渡して実装させる |
-| `fix-bug` | codex | — | バグ説明 + 任意の再現手順から修正 PR を作らせる |
-| `refactor` | codex | — | 範囲指定リファクタ (behavior 維持) |
+| `impl-from-design` | codex-sdk | gpt-5.6-sol | 設計書 path を渡して実装させる |
+| `fix-bug` | codex-sdk | gpt-5.6-sol | バグ説明 + 任意の再現手順から修正 PR を作らせる |
+| `refactor` | codex-sdk | gpt-5.6-sol | 範囲指定リファクタ (behavior 維持) |
 | `fable-mid` | claude | claude-fable-5 | Fable / mid で実装委託 |
-| `sol-mid` | codex | gpt-5.6-sol | Sol / mid で実装委託 |
+| `sol-mid` | codex-sdk | gpt-5.6-sol | Sol / mid で実装委託 |
+| `sol-xhigh` | codex-sdk | gpt-5.6-sol | Sol / xhigh で高難度実装委託 |
 | `opus-xhigh` | claude | claude-opus-5 | Opus / xhigh で実装委託 |
 | `opus-mid` | claude | claude-opus-5 | Opus / mid で実装委託 |
 | `fable-xhigh` | claude | claude-fable-5 | Fable / xhigh で実装委託 |
-| `claude-sonnet-5-impl` | claude | claude-sonnet-5 | Claude Sonnet に実装委託 (中位 / 一般実装の主力) |
-| `codex-5-6-terra` | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
+| `sonnet-mid` | claude | claude-sonnet-5 | Sonnet / mid で実装委託 (一般実装の主力) |
+| `terra-xhigh` | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
 | `haiku` | claude | claude-haiku-4-5-20251001 | Haiku で実装委託 |
-| `luna` | codex | gpt-5.6-luna | Luna / mid で実装委託 |
+| `luna` | codex-sdk | gpt-5.6-luna | Luna / mid で実装委託 |
 | `gemma4-12-impl` | gemma4-12 | auto | ローカル LLM (Ollama) に実装委託、 API 課金ゼロ |
 
 `target_provider=claude` のテンプレは spawn 時に `lictor claude --model <id>` で起動する
 (`resolveDelegationSpawn`)。 prompt_template は LUDIARS の規約 (feat ブランチ + PR、 vitest、
-1 PR 集約 等) を含める。旧 `gamma-impl` に加え、2026-08-22 より前のモデル名を含む
-実装テンプレ call_name は seed 時に deactivate される。seed 由来の parttimer はすべて
+1 PR 集約 等) を含める。旧 `gamma-impl` に加え、置換済みの旧モデル名／旧用途の
+call_name は migration と seed 時の cleanup で物理削除される。参照する run は
+`template_id=NULL` にし、denormalized な call_name/provider の実行履歴は保持する。seed 由来の parttimer はすべて
 `call_only=true` で upsert され、通常の spawn 選択肢には出ない (seed 外のカスタム
 テンプレの `call_only` は運用者の設定を尊重し、 seed は上書きしない)。
 
@@ -420,7 +422,7 @@ API 課金ゼロでローカル LLM に委託するための **論理 provider �
 > **改名 (旧名 `gamma`)**: Lictor のローカル LLM 起動コマンドを `lictor gemma4-12`
 > に揃えたのに合わせ、 本プリセットも `gamma` → `gemma4-12` にリネームした。
 > `resolveDelegationSpawn` は DB に永続化済みの旧値 `gamma` も後方互換で受理する。
-> 旧 seed テンプレ `gamma-impl` は seed 時に deactivate される。
+> 旧 seed テンプレ `gamma-impl` は migration と seed cleanup で物理削除される。
 
 ### 13.1 なぜ「論理プリセット」か
 
@@ -491,9 +493,9 @@ Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済�
 - `CONCORDIA_SATELLES_CODEX_RUNTIME` が `native`/`wsl` 以外、 または distro/user/codex
   binary に cmd.exe メタ文字 (`HEADLESS_ARG_UNSAFE_RE` と同じ集合) を含む場合は
   spawn env 構築時に例外で fail-fast する (無言で `native` へフォールバックしない)。
-- seed テンプレのうち `codex-5-6-terra` は `target_provider: "codex-sdk"`
+- seed を含む永続化済み Codex Delegation はすべて `target_provider: "codex-sdk"`
   (Satelles 経由)。上記 env が `wsl` の環境では WSL 内 Linux codex で走る。
-  `sol-mid` / `luna` は従来どおり codex-cli。
+  `codex` 指定は後方互換入力として受理するが、DB と起動 request には残さない。
 
 ### 13.2 前提と既知の制約
 
@@ -513,7 +515,7 @@ Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済�
 
 `gemma4-12-impl`「ローカル LLM 実装委託 (gemma4-12 / auto)」 を seed に追加 (`delegation/seed.ts`)。
 target_provider=`gemma4-12` / **model="auto"** / default_cwd=`${target_repo}`。
-旧 seed `gamma-impl` (target_provider=gamma) は seed 時に deactivate される。
+旧 seed `gamma-impl` (target_provider=gamma) は migration と seed cleanup で物理削除される。
 
 ### 13.4 Cc 管理の model="auto"
 

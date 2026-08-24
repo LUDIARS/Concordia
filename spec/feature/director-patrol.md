@@ -16,7 +16,7 @@ related:
   - feature/director-goal-flow.md
   - feature/teams.md
   - feature/team-standup-and-review.md
-updated: 2026-08-20
+updated: 2026-08-24
 ---
 
 # Director 巡回 — 30 分ごとのチーム監視と実装セッションの自動起動
@@ -74,7 +74,7 @@ run 行が見つからない場合も `blocked` にする (参照破損は人間
 - 競合時は case の created_at 昇順 (古い目標を先に進める)。決定的で、Genius は呼ばない。
   優先順位を変えたい場合は人間が定例 / PATCH steps で並べ替える。
 
-起動は delegation `claude-sonnet-5-impl` (env `CONCORDIA_DIRECTOR_IMPL_CALL_NAME` で上書き可)
+起動は delegation `sonnet-mid` (env `CONCORDIA_DIRECTOR_IMPL_CALL_NAME` で上書き可)
 を `options: { team: <team_id>, goal_and_go: true }` で invoke する。args:
 
 - `task`: case title / goal / step title / task_path (あれば) を束ねた実装指示

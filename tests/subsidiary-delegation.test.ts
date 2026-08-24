@@ -98,10 +98,20 @@ describe("subsidiary owned-delegation API", () => {
       target_provider: "codex", title: "T", prompt_template: "do", default_cwd: "E:/q", project: "Ergo",
     });
     expect(put.status).toBe(200);
-    expect(put.body.delegation).toMatchObject({ call_name: "my-task", project: "Ergo" });
+    expect(put.body.delegation).toMatchObject({
+      call_name: "my-task",
+      project: "Ergo",
+      target_provider: "codex-sdk",
+    });
     const ex = await json(app, "GET", `/v1/subsidiaries/${subId}/delegations/my-task/export`);
     expect(ex.status).toBe(200);
-    expect(ex.body.delegation).toMatchObject({ kind: "concordia.delegation", call_name: "my-task", project: "Ergo", default_cwd: "E:/q" });
+    expect(ex.body.delegation).toMatchObject({
+      kind: "concordia.delegation",
+      call_name: "my-task",
+      project: "Ergo",
+      default_cwd: "E:/q",
+      target_provider: "codex-sdk",
+    });
   });
 
   it("default エンドポイントで既定を切り替え、 delete で消す", async () => {

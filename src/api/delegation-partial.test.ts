@@ -83,7 +83,7 @@ describe("delegation partial status", () => {
     expect(invoke).toHaveBeenCalledTimes(1);
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({
       options: { team: "team-a", fast_mode: true },
-      overrides: { provider: "codex", model: "gpt-5.6-sol", reasoning_effort: "high" },
+      overrides: { provider: "codex-sdk", model: "gpt-5.6-sol", reasoning_effort: "high" },
     }));
     expect(repo.findRun("residual-run")?.team_id).toBe("team-a");
     expect(onTaskflowCompleted).not.toHaveBeenCalled();

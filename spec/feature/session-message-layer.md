@@ -47,7 +47,7 @@ unsubscribe it before closing SQLite so a restart in the same process cannot ret
 to a closed database.
 
 The sweeper purges `session_messages` by last edit/creation time with the same retention window as
-`transcript_logs` (`CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS`, otherwise the general purge window).
+`transcript_logs` (`CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS`, with a 7-day default).
 
 ## 3. Storage contract
 

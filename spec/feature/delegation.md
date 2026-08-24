@@ -468,12 +468,17 @@ wt.exe 経路をバイパスして detached child として spawn される (Win
   ではない)。
 - 記録・ログ・プロンプトヘッダ・GUI ドロップダウンは**論理名 `gemma4-12`** で表示する。
 
-#### WSL runtime (lsass ログオンセッションリーク回避)
+#### Satelles Codex runtime と sandbox
 
 Windows 版 codex CLI は `CreateProcessWithLogonW` 経由の `CodexSandboxOffline` 起動で
 lsass ログオンセッションをリークする既知の未修正バグを持つ (upstream #33356 /
 #35940)。 Satelles は `SATELLES_CODEX_RUNTIME=wsl` を渡すと内部の codex を WSL 内の
 Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済み)。
+
+サービス catalog は運用上の WSL 経路の不安定性を避けて runtime を `native` に固定する。
+委託コードへホスト全体の権限を渡さないよう `SATELLES_CODEX_SANDBOX=workspace-write` を
+backend の継承環境として設定する。`SATELLES_*` は delegation request の env allowlist
+対象外なので、呼び出し側が sandbox を `danger-full-access` へ上書きすることはできない。
 
 - Cc 設定 4 つ (`src/config/settings/definitions/session.ts` の `SESSION_SETTINGS`、
   `editable: false`、 env のみ):

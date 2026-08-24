@@ -198,8 +198,10 @@ import { recordEventLoopStall } from "../instrumentation.js";
  * transcript / rules / session_stats の保持期間 (日)。 session_events の
  * `CONCORDIA_PURGE_AFTER_DAYS` (90) とは別枠で、 ログ系はここで刈る。
  * 刈った行は zip へ退避してから消す (spec/data/log-retention.md)。
+ * 30 日 → 7 日へ短縮 (neco 決定 2026-08-24): DB には直近 7 日だけ残し、
+ * それより古い分は zip アーカイブ側へ寄せて concordia.db の肥大を抑える。
  */
-const LOG_RETENTION_DAYS_DEFAULT = 30;
+const LOG_RETENTION_DAYS_DEFAULT = 7;
 
 const log = createChildLogger("server");
 
@@ -954,7 +956,7 @@ export async function startBackend(): Promise<BackendHandle> {
     abandonedAfterSec: cfg.abandonedAfterSec,
     lostPurgeAfterSec: cfg.lostPurgeAfterSec,
     purgeAfterDays: cfg.purgeAfterDays,
-    // ログ系は session_events の保持期間 (90 日) と別に 30 日で刈る (neco 決定 2026-08-20)。
+    // ログ系は session_events の保持期間 (90 日) と別に 7 日で刈る (neco 改定 2026-08-24)。
     // 90 日では今の生成速度に追いつかず、 concordia.db が 11 日で 1.19GB → 1.50GB まで伸びた。
     transcriptRetentionDays: readPositiveIntEnv(
       "CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS",

@@ -8,6 +8,12 @@ import { main } from "./drop-obsolete-excubitor.js";
 
 const tempDirs: string[] = [];
 
+/** 深夜帯 (23:00–05:00) 内の固定時刻。 テストの実行時刻に依存させない。 */
+const QUIET_HOURS_NOW = new Date(2026, 7, 24, 3, 0, 0);
+
+/** 深夜帯の外 (日中) の固定時刻。 */
+const DAYTIME_NOW = new Date(2026, 7, 24, 12, 0, 0);
+
 function makeDatabase(): { dbPath: string; root: string } {
   const root = mkdtempSync(join(tmpdir(), "concordia-obsolete-drop-"));
   tempDirs.push(root);
@@ -47,13 +53,35 @@ describe("drop obsolete Excubitor CLI", () => {
 
   it("requires both an explicit backup and stopped-services confirmation", async () => {
     const { dbPath, root } = makeDatabase();
-    await expect(main(["--db", dbPath, "--apply"])).rejects.toThrow("--confirm-services-stopped");
+    await expect(main(["--db", dbPath, "--apply"], QUIET_HOURS_NOW)).rejects.toThrow("--confirm-services-stopped");
     await expect(main([
       "--db", dbPath,
       "--apply",
       "--confirm-services-stopped",
-    ])).rejects.toThrow("--backup");
+    ], QUIET_HOURS_NOW)).rejects.toThrow("--backup");
     expect(existsSync(join(root, "backup.bak"))).toBe(false);
+  });
+
+  it("refuses --apply during daytime unless --allow-daytime is passed", async () => {
+    const { dbPath, root } = makeDatabase();
+    const backupPath = join(root, "backup.bak");
+    await expect(main([
+      "--db", dbPath,
+      "--backup", backupPath,
+      "--apply",
+      "--confirm-services-stopped",
+    ], DAYTIME_NOW)).rejects.toThrow("quiet hours");
+    expect(existsSync(backupPath)).toBe(false);
+
+    vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await main([
+      "--db", dbPath,
+      "--backup", backupPath,
+      "--apply",
+      "--confirm-services-stopped",
+      "--allow-daytime",
+    ], DAYTIME_NOW);
+    expect(existsSync(backupPath)).toBe(true);
   });
 
   it("backs up, verifies, drops and vacuums on explicit apply", async () => {
@@ -66,7 +94,7 @@ describe("drop obsolete Excubitor CLI", () => {
       "--backup", backupPath,
       "--apply",
       "--confirm-services-stopped",
-    ]);
+    ], QUIET_HOURS_NOW);
 
     expect(existsSync(backupPath)).toBe(true);
     const db = new Database(dbPath, { readonly: true });

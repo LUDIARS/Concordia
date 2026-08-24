@@ -150,6 +150,18 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment).not.toHaveProperty("SATELLES_WSL_CODEX_BINARY");
   });
 
+  it("codex-sdk: operator の sandbox 制約を継承し、request からの権限上書きを拒否する", () => {
+    const environment = buildSessionSpawnEnvironment(
+      {
+        provider: "codex-sdk",
+        env: { SATELLES_CODEX_SANDBOX: "danger-full-access" },
+      },
+      { SATELLES_CODEX_SANDBOX: "workspace-write" } as unknown as NodeJS.ProcessEnv,
+      "spawn-sandboxed",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
+  });
+
   it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },

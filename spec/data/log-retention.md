@@ -1,7 +1,7 @@
 ---
 type: data
 title: "ログ保持期間とアーカイブ"
-description: "concordia.db のログ系テーブル (transcript_logs / session_messages / rules_log / session_stats) の保持期間を 30 日と定め、刈る前に zip へ退避する。退避と削除はチャンク分割でイベントループを止めない。VACUUM は別運用。"
+description: "concordia.db のログ系テーブル (transcript_logs / session_messages / rules_log / session_stats) の保持期間を 7 日と定め、刈る前に zip へ退避する。退避と削除はチャンク分割でイベントループを止めない。VACUUM は別運用。"
 service: concordia
 domain: persistence
 tags:
@@ -14,7 +14,7 @@ status: implemented
 related:
   - ./schema.md
   - ../feature/crash-recovery.md
-updated: 2026-08-20
+updated: 2026-08-24
 ---
 
 
@@ -22,10 +22,10 @@ updated: 2026-08-20
 
 ## 決定
 
-ログ系テーブルの保持期間は **30 日**。刈った行は削除前に **zip で残す**。
+ログ系テーブルの保持期間は **7 日** (2026-08-24 に 30 日から短縮。DB は直近分だけ、過去分は zip アーカイブへ)。刈った行は削除前に **zip で残す**。
 `VACUUM` は行わない (別途、運用と合意したタイミングで実施する)。
 
-— neco 決定 2026-08-20
+— neco 決定 2026-08-20、保持期間改定 2026-08-24
 
 ## 背景
 
@@ -42,10 +42,10 @@ Cc は `better-sqlite3` の同期 API を使うため、テーブル規模がそ
 
 | テーブル | 時刻列 | 保持期間 | 環境変数 |
 | --- | --- | --- | --- |
-| `transcript_logs` | `ts` | 30 日 | `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` |
-| `session_messages` | `COALESCE(edited_ts, ts)` | 30 日 | 同上 |
-| `rules_log` | `ts` | 30 日 | `CONCORDIA_RULES_LOG_RETENTION_DAYS` |
-| `session_stats` | `ts` | 30 日 | `CONCORDIA_SESSION_STATS_RETENTION_DAYS` |
+| `transcript_logs` | `ts` | 7 日 | `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` |
+| `session_messages` | `COALESCE(edited_ts, ts)` | 7 日 | 同上 |
+| `rules_log` | `ts` | 7 日 | `CONCORDIA_RULES_LOG_RETENTION_DAYS` |
+| `session_stats` | `ts` | 7 日 | `CONCORDIA_SESSION_STATS_RETENTION_DAYS` |
 
 `session_events` は別枠で、従来どおり `CONCORDIA_PURGE_AFTER_DAYS` (既定 90 日)。
 セッションの経緯そのものなので、ログ系と同じ期間にはしない。
@@ -87,7 +87,9 @@ flush するので、実際に起こりうる)。退避前に、そうしたバ�
 
 ディスク実サイズの回収には `VACUUM` が要るが、長時間の排他ロックを伴う。今回の
 スコープには含めない。実施する場合はサービス停止を確認したうえで外部 CLI から行う
-(`src/db/obsolete-excubitor-cleanup.ts` の DROP と同じ制約)。
+(`src/db/obsolete-excubitor-cleanup.ts` の DROP と同じ制約)。CLI の `--apply` はサーバの
+ローカル時刻で 23:00–05:00 に限定し、やむを得ず日中に実施するときだけ
+`--allow-daytime` で明示的に上書きする。
 
 ## 実装
 

@@ -1,3 +1,4 @@
+/** @implements spec/data/log-retention.md — VACUUM の停止確認・時間帯ガード */
 import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -6,10 +7,13 @@ import {
   dropObsoleteExcubitorTables,
   findObsoleteExcubitorTables,
 } from "./db/obsolete-excubitor-cleanup.js";
+import { isQuietHours, QUIET_HOURS_END, QUIET_HOURS_START } from "./shared/quiet-hours.js";
 
 interface Options {
   apply: boolean;
   confirmServicesStopped: boolean;
+  /** 深夜帯 (23:00–05:00) 以外での --apply を明示的に許可する。 */
+  allowDaytime: boolean;
   dbPath: string;
   backupPath?: string;
 }
@@ -26,6 +30,7 @@ export function parseOptions(argv: string[]): Options {
   return {
     apply: argv.includes("--apply"),
     confirmServicesStopped: argv.includes("--confirm-services-stopped"),
+    allowDaytime: argv.includes("--allow-daytime"),
     dbPath: resolve(dbPath),
     backupPath: backupPath ? resolve(backupPath) : undefined,
   };
@@ -37,6 +42,8 @@ function usage(): string {
     "  npm run db:drop-obsolete-excubitor -- --db <concordia.db>",
     "Apply after stopping Concordia and every worker:",
     "  npm run db:drop-obsolete-excubitor -- --db <concordia.db> --backup <concordia.db.bak> --apply --confirm-services-stopped",
+    "Daytime override (only when the maintenance window cannot be used):",
+    "  append --allow-daytime",
   ].join("\n");
 }
 
@@ -51,7 +58,7 @@ async function verifyBackup(db: Database.Database, backupPath: string): Promise<
   }
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv = process.argv.slice(2), now: Date = new Date()): Promise<void> {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(`${usage()}\n`);
     return;
@@ -62,6 +69,15 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   if (options.apply && !options.confirmServicesStopped) {
     throw new Error("--confirm-services-stopped is required for --apply");
+  }
+  // VACUUM / DROP は数十秒〜分単位で DB を占有する。 日中に走ると、 復帰した
+  // サービス群の better-sqlite3 が同期ブロックされ event loop stall / health
+  // timeout を誘発するため、 既定では深夜帯 (QUIET_HOURS) だけに限定する。
+  if (options.apply && !options.allowDaytime && !isQuietHours(now)) {
+    throw new Error(
+      `--apply is limited to quiet hours (${QUIET_HOURS_START}:00–${String(QUIET_HOURS_END).padStart(2, "0")}:00). `
+      + "Pass --allow-daytime to override explicitly.",
+    );
   }
   if (options.apply && !options.backupPath) {
     throw new Error("--backup <path> is required for --apply");

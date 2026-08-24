@@ -59,9 +59,11 @@ services:
       CONCORDIA_SLACK_ENABLED: "0"
       CONCORDIA_PR_RECONCILE_ENABLED: "0"
       CONCORDIA_PR_FULL_SYNC_ENABLED: "0"
-      # codex-sdk (Satelles) 委託を WSL 内 Linux codex で走らせ、Windows lsass
-      # ログオンセッションリーク (upstream openai/codex #33356 / #35940) を回避する。
-      CONCORDIA_SATELLES_CODEX_RUNTIME: wsl
+      # codex-sdk (Satelles) 委託は WSL 経路の不安定性を避け、Windows native codex
+      # で走らせる。委託は workspace 内だけを書ける sandbox に固定し、それ以上の
+      # 権限が必要なら repository 共通 catalog ではなく、実行単位で明示する。
+      CONCORDIA_SATELLES_CODEX_RUNTIME: native
+      SATELLES_CODEX_SANDBOX: workspace-write
 
   # control_jobs (durable OS-control queue) の consumer。
   #

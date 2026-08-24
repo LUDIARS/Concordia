@@ -57,9 +57,9 @@ Concordia の **全 env 設定キー** をここに集約する。 各キーの�
 | `CONCORDIA_ABANDONED_AFTER_SEC` | `86400` (24h) | lost からこの秒数で `abandoned`。 |
 | `CONCORDIA_LOST_PURGE_AFTER_SEC` | `1800` | lost を purge するまでの猶予秒。 |
 | `CONCORDIA_PURGE_AFTER_DAYS` | `90` | session_events の auto-purge 期間 (日)。 |
-| `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | transcript_logs の保持期間 (日)。 |
-| `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | rules_log の保持期間 (日)。 |
-| `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `CONCORDIA_PURGE_AFTER_DAYS`（既定 `90`） | session_stats の保持期間 (日)。 |
+| `CONCORDIA_TRANSCRIPT_LOG_RETENTION_DAYS` | `7` | transcript_logs / session_messages の保持期間 (日)。 |
+| `CONCORDIA_RULES_LOG_RETENTION_DAYS` | `7` | rules_log の保持期間 (日)。 |
+| `CONCORDIA_SESSION_STATS_RETENTION_DAYS` | `7` | session_stats の保持期間 (日)。 |
 | `CONCORDIA_SWEEPER_INTERVAL_MS` | `60000` (60 秒) | sweeper (lost/abandoned/purge 判定) の周期。 |
 | `CONCORDIA_REAPER_ENABLED` | `1` | Lictor/agent-client process reaper。`0`で無効。 |
 | `CONCORDIA_REAPER_INTERVAL_MS` | `300000` (5 分) | process reaperの走査周期。 |
@@ -82,6 +82,7 @@ npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db
 ```
 
 適用時は未使用のバックアップパスと、停止済みであることの明示確認を必須とする。CLI はバックアップの `integrity_check` が成功してから旧テーブルを DROP し、VACUUM する。
+長時間の DB 占有を日中に誤実行しないよう、`--apply` はサーバのローカル時刻で 23:00–05:00 に限定する。保守上やむを得ず日中に実行する場合に限り、`--allow-daytime` を追加して明示的に上書きする。
 
 ```powershell
 npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db --backup E:\path\to\concordia.db.pre-excubitor-drop.bak --apply --confirm-services-stopped

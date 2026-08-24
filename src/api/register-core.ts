@@ -473,9 +473,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           try { metadata = s.metadata ? JSON.parse(s.metadata) as Record<string, unknown> : {}; } catch { /* allow unknown */ }
           const model = typeof metadata.model === "string" ? metadata.model : s.provider;
           const contract = parseContractMetadata(s.metadata);
-          const testingService = contract?.testing_claim?.value.service ?? null;
-          const vibesClaimActive = contract?.mode?.value === "vibes" && !!testingService && !!deps.testingClaims?.listActive(Math.floor(Date.now() / 1000))
-            .some((claim) => claim.session_id === id && claim.service === testingService);
           const teamId = contract?.team?.value ?? s.team_id ?? null;
           const teamRow = teamId ? deps.teams?.find(teamId) ?? null : null;
           const teamSettings = teamRow ? parseTeamSettings(teamRow) : null;
@@ -529,7 +526,6 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
             planApproved: contract?.mode?.value === "plan" ? metadata.plan_approved === true : undefined,
             contractMode: contract?.mode?.value,
             contractScopeDirs: contract?.scope_dirs?.value,
-            vibesClaimActive,
             teamId,
             teamTestPolicy: teamSettings?.test_policy,
             teamWorktreePolicy: teamSettings?.worktree,

@@ -32,6 +32,7 @@ import { makeChatReadModel } from "./api/chat-read-models.js";
 import { EscalationRepo } from "./db/escalation-repo.js";
 import { initReactionWorkflow } from "./platform/reaction-workflow-loader.js";
 import type { WorkflowAction } from "./platform/reaction-workflow.js";
+import { createDependencyReadinessChecker } from "./operations/dependency-readiness.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { repinSession } from "./control/repin-session.js";
 import { resolveAgentHomeCwd, setWorkspaceRootsResolver } from "./control/spawner.js";
@@ -218,6 +219,10 @@ async function main(): Promise<void> {
 
   const delegationRepo = new DelegationRepo(db);
   const excubitor = new ExcubitorClient();
+  const checkDependencies = createDependencyReadinessChecker({
+    excubitor,
+    hasRevisorWorkflowToken: () => Boolean(resolveRevisorToken()),
+  });
   const transcriptLogs = new TranscriptLogsRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
@@ -277,6 +282,10 @@ async function main(): Promise<void> {
       capabilityAllowed(staffRepo.roleOf("discord", userId), "session_end"),
     isKillSwitchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "kill_switch"),
+    listExecutiveDiscordUserIds: () => staffRepo.list({ platform: "discord" })
+      .filter((member) => member.role === "executive")
+      .map((member) => member.platform_user_id),
+    checkDependencies,
     recordStaffAccess: (input) => {
       staffRepo.touch({
         platform: "discord",

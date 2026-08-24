@@ -6,6 +6,7 @@ import type { MemoriaClient } from "../memoria/client.js";
 import type { AnswerQuestionFn } from "../platform/answer-question.js";
 import type { DiscordConfigSnapshot } from "./config.js";
 import type { PermissionActionStore } from "./permission-port.js";
+import type { DependencyReadinessReport } from "../operations/dependency-readiness.js";
 import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { WorkflowKey } from "../workflow/keys.js";
@@ -15,6 +16,17 @@ import type {
   WorkflowAction,
   WorkflowResultRelay,
 } from "../platform/reaction-workflow.js";
+
+export interface SpawnApprovalAction {
+  requesterUserId: string;
+  guildId: string;
+  channelId: string;
+  commandSignature: string;
+  status: "pending" | "approved";
+  createdAt: number;
+}
+
+export type SpawnApprovalStore = Map<string, SpawnApprovalAction>;
 
 export interface DiscordCommandDeps {
   concordiaUrl: string;
@@ -33,6 +45,12 @@ export interface DiscordCommandDeps {
   log: { info: (message: string) => void; warn: (message: string) => void };
   logsDir?: string;
   permissionActions?: PermissionActionStore;
+  /** `/spawn` 権限不足時の執行役員向け一回許可。Bot process 内で期限付き保持する。 */
+  spawnApprovals?: SpawnApprovalStore;
+  /** Discord 社員名簿から執行役員だけを live 解決する。 */
+  listExecutiveDiscordUserIds?: () => string[];
+  /** Cc が利用する兄弟サービスの catalog / liveness /資格情報を一括診断する。 */
+  checkDependencies?: () => Promise<DependencyReadinessReport>;
   resolveWorkspaceRoots?: () => string[];
   subsidiaryId?: string | null;
   /**

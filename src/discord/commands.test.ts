@@ -27,6 +27,9 @@ describe("Discord command registration", () => {
     expect(names).toContain("ch_name");
     expect(names).toContain("ex-run");
     expect(names).toContain("ex-reboot");
+    expect(names).toContain("co-go-and-go");
+    expect(names).toContain("co-mode");
+    expect(names).toContain("co-doctor");
     expect(names).not.toContain("skill");
     expect(names.length).toBeGreaterThan(1);
   });
@@ -275,6 +278,30 @@ describe("Discord command registration", () => {
     } as never);
     expect(reply).toHaveBeenCalledWith(expect.objectContaining({
       content: expect.stringContaining("プラン承認・受け入れ権限"),
+      ephemeral: true,
+    }));
+  });
+
+  it("denies spawn approval decisions when executive authorization is not wired", async () => {
+    const reply = vi.fn(async () => undefined);
+    const interaction = {
+      type: 3,
+      customId: "spawn-approval:allow:token",
+      user: { id: "discord-user" },
+      isAutocomplete: () => false,
+      isRepliable: () => true,
+      isChatInputCommand: () => false,
+      isButton: () => true,
+      isModalSubmit: () => false,
+      isStringSelectMenu: () => false,
+      reply,
+    };
+    await dispatchInteraction(interaction as never, {
+      log: { info: vi.fn(), warn: vi.fn() },
+    } as never);
+
+    expect(reply).toHaveBeenCalledWith(expect.objectContaining({
+      content: expect.stringContaining("執行役員のみ"),
       ephemeral: true,
     }));
   });

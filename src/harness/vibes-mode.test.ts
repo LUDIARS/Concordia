@@ -3,11 +3,10 @@ import { noOpTestInWorktree, noServiceStartInSession } from "./test-isolation.js
 import { vibesScope } from "./predicates.js";
 
 describe("vibes mode harness", () => {
-  it("allows operational commands only while the resolved claim is active", () => {
+  it("does not let a vibes claim bypass service-start or worktree-test isolation", () => {
     const command = { tool: "Bash", command: "npm run dev", isWorktree: true };
     expect(noServiceStartInSession(command)?.decision).toBe("deny");
-    expect(noServiceStartInSession({ ...command, vibesClaimActive: true })).toBeNull();
-    expect(noOpTestInWorktree({ ...command, vibesClaimActive: true })).toBeNull();
+    expect(noOpTestInWorktree(command)?.decision).toBe("deny");
   });
 
   it("team settings test_policy=custos-unity keeps direct starts denied and routes them to Custos", () => {

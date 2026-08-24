@@ -16,7 +16,7 @@ related:
   - feature/plan-gate.md
   - feature/testing-traffic.md
   - feature/deterministic-teardown.md
-updated: 2026-08-13
+updated: 2026-08-24
 ---
 
 # バイブスモード
@@ -32,8 +32,8 @@ updated: 2026-08-13
 「受け入れ条件必須」と一貫する。
 
 既存の絶対則 (worktree 動作テスト禁止 / セッション内サービス起動禁止 / 起動は Excubitor
-経由のみ) は**緩めない**。 vibes は「testing claim という機械的裏付けがあるときだけ、
-claim 対象サービスに限り条件付き allow」で成立させる。
+経由のみ) は**緩めない**。testing claim はテスト交通の予約と監査に使い、各 harness 操作の
+たびに claim を再照会して例外を開ける経路は持たない。
 
 ## 1. 開始 (契約確定時)
 
@@ -54,12 +54,11 @@ claim 対象サービスに限り条件付き allow」で成立させる。
    web-reflect-without-restart の判定 (直接配信 / ビルドのみ / 再起動) に従い、
    不要な再起動を避ける。
 
-## 2. ハーネス (条件付き allow)
+## 2. ハーネス
 
-- `no-op-test-in-worktree` / `no-service-start-in-session` (task-workflow §4.1) に、
-  「**有効な vibes claim を持つセッション × claim 対象サービス**」の組に限る allow 条件を
-  追加する。 無条件に deny の例外を開けない。 claim の実在は Cc の testing state から
-  決定論で解決する。
+- `no-op-test-in-worktree` / `no-service-start-in-session` (task-workflow §4.1) は vibes でも
+  常に適用する。claim の有無を各コマンドごとに確認する処理と、claim による bypass は置かない。
+  テストは本体フォルダから、起動・再起動は Excubitor 経由で行う。
 - スコープ: 契約の `scope_dirs` 外の編集は deny (session-contract §4 と共通述語)。
   UI をいじるつもりが migration に触れたら機械で止まる。 migration / schema / 認証 /
   削除系ファイルは scope_dirs に含めても deny (seed 側で plan 固定の対象なので、
@@ -91,8 +90,8 @@ claim 対象サービスに限り条件付き allow」で成立させる。
 
 ## 5. 受け入れ基準
 
-- [ ] mode=vibes の契約確定で testing claim が自動取得され、 claim 中のみ対象サービスの
-      起動系コマンドが allow される。 claim が無い同種セッションは従来どおり deny。
+- [ ] mode=vibes の契約確定で testing claim が自動取得される。claim は予約・監査・完了時 release
+      にだけ使い、起動系コマンドごとの照会や bypass には使わない。
 - [ ] scope_dirs 外・migration/schema/認証/削除系の編集が deny される。
 - [ ] claim 時間上限で延長お伺いが飛び、 応答が無ければ release + blocked になる。
 - [ ] 上長の OK → commit → PR → release → completed → 決定論終了まで人手の追加操作なしに

@@ -11,7 +11,7 @@ tags:
   - autonomous
   - safety
 status: implemented
-updated: 2026-08-11
+updated: 2026-08-24
 related:
   - feature/task-workflow.md
 ---
@@ -34,6 +34,8 @@ opt-inしたAIセッション自身の自走継続につなげる。
 
 - 既存セッション: `GET/POST /v1/sessions/:id/goal-and-go`。POST bodyは
   `{ "enabled": boolean }`。
+- Discord のセッションチャンネルでは `/co-go-and-go state:<on|off>` で切り替え、引数なしで
+  現在値と継続回数を確認できる。
 - 新規delegation/spawn: runtime option `goal_and_go: true`。Ccのpending spawn registryを
   介して、登録されたセッションmetadataへopt-inを焼く。Lictor向けenv
   `CONCORDIA_DELEGATION_GOAL_AND_GO=1`も併用する。

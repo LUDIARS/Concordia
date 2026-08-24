@@ -36,7 +36,8 @@ updated: 2026-08-13
    既存 model-review と同じ 1 往復) → 未決フィールドだけを束ねた Discord 質問カード 1 枚。
 3. **全フィールドが確定するまで実装着手はハーネスで封鎖する** (plan-gate の封鎖述語と共用)。
 4. **下流は契約だけを読む。** delegation invoke (model/effort/branch/cwd)、 ハーネス述語
-   (スコープ逸脱 deny・vibes 条件付き allow)、 testing claim 自動取得、 決定論終了の判定は、
+   (スコープ逸脱 deny。vibes でもテスト隔離ルールは常時適用)、 testing claim 自動取得、
+   決定論終了の判定は、
    それぞれ独自に推測せず `session_contract` を参照する。 条件の正本を 1 箇所にする。
 5. Cc は LLM を内包しない原則を維持する。 judge は既存 model-review の小型 judge 経路
    (黒箱側) を使い、 Cc 本体は seed 判定・スキーマ検証・質問カードの取り次ぎだけを行う。

@@ -49,7 +49,6 @@ export interface HarnessAction {
   planApproved?: boolean;
   contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
-  vibesClaimActive?: boolean;
   editedFiles?: string[];
   /**
    * 問診セッション (director-inquiry-session.md §3) として起動された。

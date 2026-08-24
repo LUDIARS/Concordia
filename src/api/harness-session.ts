@@ -99,7 +99,6 @@ interface HarnessSessionContext {
   planApproved?: boolean;
   contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
-  vibesClaimActive?: boolean;
   teamId?: string | null;
   teamTestPolicy?: "confirm-queue" | "custos-unity";
   teamWorktreePolicy?: "allowed" | "repo-root-only";
@@ -216,7 +215,6 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       planApproved: sessionContext?.planApproved,
       contractMode: sessionContext?.contractMode,
       contractScopeDirs: sessionContext?.contractScopeDirs,
-      vibesClaimActive: sessionContext?.vibesClaimActive,
       teamTestPolicy: sessionContext?.teamTestPolicy,
       teamWorktreePolicy: sessionContext?.teamWorktreePolicy,
       teamVisibility: sessionContext?.teamVisibility,

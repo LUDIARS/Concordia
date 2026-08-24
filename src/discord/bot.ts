@@ -65,6 +65,7 @@ import {
 } from "./delegation-template-cache.js";
 import { postQuestion, resolveQuestionMessage } from "./question.js";
 import { postPermissionRequest, type PermissionActionStore } from "./permission.js";
+import type { SpawnApprovalStore } from "./command-port.js";
 import { createChildLogger } from "../shared/logger.js";
 import { parseInjectSource } from "../shared/inject-source.js";
 import { eventSessionId } from "./projection.js";
@@ -241,6 +242,10 @@ export interface DiscordBotDeps {
   isSessionEndUserAllowed?: (userId: string) => boolean;
   /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
   isKillSwitchUserAllowed?: (userId: string) => boolean;
+  /** `/spawn` 一回許可の通知先。社員名簿の Discord 執行役員を live 解決する。 */
+  listExecutiveDiscordUserIds?: () => string[];
+  /** 兄弟サービスの設定・接続診断。 */
+  checkDependencies?: DiscordCommandDeps["checkDependencies"];
   /**
    * LLM にアクセスした Discord ユーザを社員名簿へ記録する。 記録時にサーバーでの
    * プロファイル名 (guild nickname) も渡す。
@@ -425,6 +430,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const reactionsRepo = makeChatMessageReactionsRepo(deps.db);
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
   const permissionActions: PermissionActionStore = new Map();
+  const spawnApprovals: SpawnApprovalStore = new Map();
 
   const resolveReactionSafetyValve =
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
@@ -1279,6 +1285,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       layout,
       log,
       permissionActions,
+      spawnApprovals,
+      listExecutiveDiscordUserIds: deps.listExecutiveDiscordUserIds,
+      checkDependencies: deps.checkDependencies,
       subsidiaryId,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,

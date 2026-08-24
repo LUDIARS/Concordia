@@ -122,6 +122,7 @@ import { DirectorService } from "../director/service.js";
 import { GeniusModelReviewService } from "../model-review/service.js";
 import { applyRuntimeModelReview } from "../model-review/runtime-switch.js";
 import { MemoriaClient } from "../memoria/client.js";
+import { createDependencyReadinessChecker } from "../operations/dependency-readiness.js";
 import { TaskMdStore } from "../taskflow/md-store.js";
 import { TaskflowStateStore } from "../taskflow/state-store.js";
 import { MemoriaBackend } from "../taskflow/backend.js";
@@ -695,6 +696,10 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
+  const checkDependencies = createDependencyReadinessChecker({
+    excubitor: excubitorClient,
+    hasRevisorWorkflowToken: () => Boolean(resolveRevisorToken()),
+  });
   const taskflowState = new TaskflowStateStore(db);
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, taskflowState);
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
@@ -1088,6 +1093,10 @@ export async function startBackend(): Promise<BackendHandle> {
       capabilityAllowed(staffRepo.roleOf("discord", userId), "session_end"),
     isKillSwitchUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "kill_switch"),
+    listExecutiveDiscordUserIds: () => staffRepo.list({ platform: "discord" })
+      .filter((member) => member.role === "executive")
+      .map((member) => member.platform_user_id),
+    checkDependencies,
     // LLM に触れた Discord ユーザを名簿へ記録する (サーバーでのプロファイル名も取る)。
     recordStaffAccess: (input) => {
       staffRepo.touch({

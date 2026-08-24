@@ -18,7 +18,7 @@ related:
   - task-workflow.md
   - trust-boundaries.md
   - reaction-workflow.md
-updated: 2026-07-30
+updated: 2026-08-24
 ---
 
 # 社員名簿 (役職権限登録リスト)
@@ -76,6 +76,11 @@ reaction_added) を通ったユーザを `staff_members` へ upsert する。
 
 判定関数が未注入の場合は **deny** (fail-closed)。 名簿が配線されていない環境で権限操作を
 通してはならない。
+
+`/spawn` だけは、管理職権限がない利用者から実行された場合に Discord の執行役員へ
+一回許可を申請できる。許可は申請者・guild・channel・コマンド引数の完全一致に束縛し、
+15 分以内の再実行で一度だけ消費する。許可・拒否ボタンを操作できるのは執行役員だけで、
+執行役員が未登録なら従来どおり fail-closed で拒否する。永続的な役職変更は行わない。
 
 ## 4. allowlist の廃止
 

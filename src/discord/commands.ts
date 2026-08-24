@@ -22,6 +22,9 @@ import handoverCommand from "./commands/handover.js";
 import confirmCommand from "./commands/confirm.js";
 import ccSkillCommand from "./commands/cc-skill.js";
 import { exRebootCommand, exRunCommand } from "./commands/excubitor.js";
+import goalAndGoCommand from "./commands/goal-and-go.js";
+import sessionModeCommand from "./commands/session-mode.js";
+import doctorCommand from "./commands/doctor.js";
 import { dispatchQuestionInteraction } from "./question.js";
 import { dispatchPermissionInteraction, isPermissionInteraction, type PermissionActionStore } from "./permission.js";
 import { handleControlInteraction, handleControlModalSubmit } from "./control.js";
@@ -33,6 +36,12 @@ import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { handlePlanButton, handlePlanModal, PLAN_PREFIX } from "./plan-card.js";
+import {
+  consumeApprovedSpawn,
+  dispatchSpawnApprovalInteraction,
+  isSpawnApprovalInteraction,
+  requestSpawnApproval,
+} from "./spawn-approval.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 /** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
@@ -66,6 +75,9 @@ const COMMANDS: DiscordCommandSpec[] = [
   ccSkillCommand,
   exRunCommand,
   exRebootCommand,
+  goalAndGoCommand,
+  sessionModeCommand,
+  doctorCommand,
 ];
 
 const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);
@@ -125,22 +137,33 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   const privileged = classifyPrivilegedInteraction(interaction);
   if (privileged && !isPrivilegedActorAllowed(interaction, deps, privileged)) {
-    const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
-    deps.log.warn(
-      `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
-      `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
-    );
-    if (interaction.isAutocomplete()) {
-      // Autocomplete can contain private task/team labels, so reject it through
-      // its own acknowledgement API instead of letting it reach the command.
-      await interaction.respond([]).catch(() => { /* interaction may have expired; best-effort */ });
-    } else if (interaction.isRepliable()) {
-      await interaction.reply({
-        content: privileged.denyMessage,
-        ephemeral: true,
-      }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
+    let approvedSpawn = false;
+    if (interaction.isChatInputCommand() && interaction.commandName === "spawn") {
+      approvedSpawn = consumeApprovedSpawn(interaction, deps.spawnApprovals);
+      if (!approvedSpawn) {
+        deps.log.warn(`discord session_spawn requesting executive approval user=${interaction.user.id || "-"}`);
+        await requestSpawnApproval(interaction, deps);
+        return;
+      }
     }
-    return;
+    if (!approvedSpawn) {
+      const userId = "user" in interaction ? interaction.user?.id ?? "" : "";
+      deps.log.warn(
+        `discord ${privileged.capability} rejected unauthorized user=${userId || "-"} ` +
+        `type=${interaction.type} name=${"commandName" in interaction ? String(interaction.commandName) : "-"}`,
+      );
+      if (interaction.isAutocomplete()) {
+        // Autocomplete can contain private task/team labels, so reject it through
+        // its own acknowledgement API instead of letting it reach the command.
+        await interaction.respond([]).catch(() => { /* interaction may have expired; best-effort */ });
+      } else if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: privileged.denyMessage,
+          ephemeral: true,
+        }).catch(() => { /* interaction may already be acknowledged; best-effort */ });
+      }
+      return;
+    }
   }
   if (interaction.isChatInputCommand()) {
     const age = interactionAgeMs(interaction);
@@ -191,6 +214,10 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   }
   if (isPermissionInteraction(interaction)) {
     await dispatchPermissionInteraction(interaction, deps);
+    return;
+  }
+  if (isSpawnApprovalInteraction(interaction)) {
+    await dispatchSpawnApprovalInteraction(interaction, deps);
     return;
   }
   if (
@@ -294,6 +321,11 @@ const PRIVILEGED_KILL_SWITCH: PrivilegedInteraction = {
   denyMessage: "このユーザーにはサービス操作権限がありません (執行役員のみ)。",
   check: (deps) => deps.isKillSwitchUserAllowed,
 };
+const PRIVILEGED_SPAWN_APPROVAL: PrivilegedInteraction = {
+  capability: "kill_switch",
+  denyMessage: "Spawn の一回許可は執行役員のみ回答できます。",
+  check: (deps) => deps.isKillSwitchUserAllowed,
+};
 const PRIVILEGED_PLAN_DECISION: PrivilegedInteraction = {
   capability: "session_spawn",
   denyMessage: "このユーザーにはプラン承認・受け入れ権限がありません (管理職以上が必要)。",
@@ -337,6 +369,7 @@ function classifyPrivilegedInteraction(interaction: Interaction): PrivilegedInte
   }
   if (interaction.isButton() || interaction.isModalSubmit() || interaction.isStringSelectMenu()) {
     const id = interaction.customId;
+    if (id.startsWith("spawn-approval:")) return PRIVILEGED_SPAWN_APPROVAL;
     if (id.startsWith(PLAN_PREFIX)) return PRIVILEGED_PLAN_DECISION;
     if (id.startsWith("ctrl:spawn:") || id.startsWith("ctrl:spawn-modal:")) {
       return PRIVILEGED_SESSION_SPAWN;

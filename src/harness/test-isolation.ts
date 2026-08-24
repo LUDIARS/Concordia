@@ -2,7 +2,6 @@ interface TestIsolationAction {
   tool: string;
   command?: string;
   isWorktree?: boolean;
-  vibesClaimActive?: boolean;
   /** team settings `test_policy` (teams §3.1)。拒否時に正しい実行経路を案内する。 */
   teamTestPolicy?: "confirm-queue" | "custos-unity";
 }
@@ -37,7 +36,6 @@ export function isOperationalTestCommand(command: string): boolean {
 }
 
 export const noServiceStartInSession: TestIsolationPredicate = (action) => {
-  if (action.vibesClaimActive === true) return null;
   if (action.tool !== "Bash" || !action.command || !isServiceStartCommand(action.command)) return null;
   return {
     rule: action.teamTestPolicy === "custos-unity" ? "custos-unity-required" : "no-service-start-in-session",
@@ -50,7 +48,6 @@ export const noServiceStartInSession: TestIsolationPredicate = (action) => {
 };
 
 export const noOpTestInWorktree: TestIsolationPredicate = (action) => {
-  if (action.vibesClaimActive === true) return null;
   if (action.isWorktree !== true || action.tool !== "Bash" || !action.command) return null;
   if (!isOperationalTestCommand(action.command)) return null;
   return {

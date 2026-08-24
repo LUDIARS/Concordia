@@ -18,7 +18,7 @@ related:
   - feature/director-goal-flow.md
   - feature/task-workflow.md
   - feature/deterministic-teardown.md
-updated: 2026-08-13
+updated: 2026-08-24
 ---
 
 # プランゲート — Discord 上のプランモード
@@ -143,6 +143,8 @@ updated: 2026-08-13
   受け付けない (`mode_switch_required`) — 無承認降格の抜け道を残さない。
 - 切替カードの状態遷移は明示した選択肢の回答だけを受理し、自由入力は承認や Stop として
   解釈しない。
+- Discord のセッションチャンネルでは `/co-mode target:<plan|vibes>` を同じ API へ接続する。
+  コマンド経由でも plan→vibes の人間承認を迂回しない。
 
 ## 6. 受け入れ基準
 

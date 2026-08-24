@@ -55,7 +55,7 @@ describe("templateToPortable", () => {
     const p = templateToPortable(tpl);
     expect(p.call_name).toBe("greet");
     expect(p.title).toBe("Greet");
-    expect(p.target_provider).toBe("codex-sdk");
+    expect(p.target_provider).toBe("codex");
     expect(p.prompt_template).toBe("Hello ${name}");
     expect(p.input_schema).toEqual([{ name: "name", type: "string", required: true }]);
   });
@@ -215,7 +215,7 @@ describe("export → JSON → parsePortable round-trip", () => {
     const parsed = parsePortable(JSON.parse(JSON.stringify(exported)));
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    expect(parsed.data.target_provider).toBe("codex-sdk");
+    expect(parsed.data.target_provider).toBe("codex");
     expect(parsed.data.call_name).toBe("roundtrip");
     expect(parsed.data.kind).toBe(PORTABLE_KIND);
     expect(parsed.data.version).toBe(PORTABLE_VERSION);

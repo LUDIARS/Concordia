@@ -292,6 +292,13 @@ export function startStalledSessionNudge(
         source: STALL_NUDGE_SOURCE,
         ts: Math.floor(nowMs / 1000),
       });
+      // Discord へ「自動確認を送った」事実だけを通知する (本文や個人識別子は載せない)。
+      eventBus.emit({
+        type: "session.stall_nudged",
+        target_session_id: s.id,
+        idle_sec: Math.round(idleMs / 1000),
+        ts: Math.floor(nowMs / 1000),
+      });
       nudged.push(s.id);
       log.info(
         { session_id: s.id, idle_sec: Math.round(idleMs / 1000) },

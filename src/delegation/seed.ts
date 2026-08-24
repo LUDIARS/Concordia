@@ -58,9 +58,12 @@ function codex56Template(opts: {
     call_name: opts.callName,
     title: `Implementation delegation (GPT-5.6 ${opts.label})`,
     description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
-    // Windows native Codex の CreateProcessWithLogonW リークを避けるため全 profile を
-    // Satelles/SDK レーンへ固定する。呼び出し側に provider 選択を持たせない。
-    target_provider: "codex-sdk",
+    // 2026-08-25: 実装 profile は Windows native Codex (ターミナル実行) へ復帰。
+    // WSL 経路は codex 認証ローテーションと lsass クラッシュ (RPCRT4 0xc0000005 →
+    // 強制再起動) で継続不能になった。native の CreateProcessWithLogonW リークは
+    // sandbox 起動を外す運用 (dangerously bypass、codex login は Windows 側) で踏まない。
+    // 最新の spawner は macOS でも OS 標準ターミナルで起動する。
+    target_provider: "codex",
     model: `gpt-5.6-${opts.modelName}`,
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
@@ -178,7 +181,8 @@ const FORUM_SESSION_TEMPLATES: CreateTemplateInput[] = [
     call_name: "forum-codex-session",
     title: "Codex起動",
     description: "Discord Session フォーラムの投稿から Codex セッションを起動する既定テンプレート。",
-    target_provider: "codex-sdk",
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    target_provider: "codex",
     model: "gpt-5.6-sol",
     runtime_options: { model_reasoning_effort: "high" },
     prompt_template: FORUM_SESSION_PROMPT,
@@ -238,7 +242,7 @@ const DAILY_REVIEW_RECONCILIATION_PROMPT = [
   "   さらに `git merge-base --is-ancestor <今回HEAD> <前回HEAD>` が真になる場合 (範囲逆転: 今回 HEAD が",
   "   前回 HEAD の祖先) は、diff を作らずそのリポを",
   "   skip/no_change として記録し、理由 (range_reversed) を添えてレビュアーには一切投げない (early-exit)。",
-  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を一時 worktree だけから構築し、§3 のプロンプトは Cc `sol-xhigh` Delegation (`codex-sdk` / Satelles)、§4 のプロンプトは `claude -p --model claude-opus-5` で起動する (互いの所見は見せない)。",
+  "3. リポごとに REVIEW-PROMPTS.md §1 の入力を一時 worktree だけから構築し、§3 のプロンプトは Cc `sol-xhigh` Delegation (`codex` / Windows native ターミナル)、§4 のプロンプトは `claude -p --model claude-opus-5` で起動する (互いの所見は見せない)。",
   "4. §5 の突合ルールで機械マージ: file:line 実在検証 → ±5 行一致判定。High 以上も外部 Issue 化せずローカル findings に記録する。",
   "5. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}\\` に保存し `latest.json` の `head` をローカル main SHA、`reviewed_at` を実行日時へ更新する。",
   "   Review/ への書き込みはローカルのみ。GitHub へのアクセス、Castra での `git add` / `git commit` / `git push` は行わない。一時 worktree は全経路で削除する。",
@@ -422,7 +426,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "impl-from-design",
     title: "設計書から実装 (Codex)",
     description: "Claude などが書いた設計書 / spec を Codex に渡して実装させる。 LUDIARS の規約 (feat branch + PR) を守らせる。",
-    target_provider: "codex-sdk",
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -458,7 +463,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "fix-bug",
     title: "バグ修正委託 (Codex)",
     description: "バグ説明 + 任意の再現手順を Codex に投げ、 修正 PR を作らせる。",
-    target_provider: "codex-sdk",
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -491,7 +497,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     call_name: "refactor",
     title: "局所リファクタ (Codex)",
     description: "範囲指定のリファクタ。 behavior 維持の規約を持たせる。",
-    target_provider: "codex-sdk",
+    // 2026-08-25: Windows native (ターミナル実行) へ復帰。経緯は codex56Template のコメント参照。
+    target_provider: "codex",
     model: "gpt-5.6-sol",
     call_only: true,
     category: "freelancer",
@@ -1200,7 +1207,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "${context_extra:}", "",
       "### レビュアー既定 (入力パラメータ / 起動後の追加指示で変更可)",
       "- Reviewer A: `claude -p --model claude-opus-5`",
-      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex-sdk` / Satelles) — model gpt-5.6-sol, effort `${sol_effort:xhigh}`",
+      "- Reviewer B: Cc の `sol-xhigh` Delegation (`codex` / Windows native ターミナル) — model gpt-5.6-sol, effort `${sol_effort:xhigh}`",
       "- 互いの所見は見せない (独立レビュー)。",
       "",
       "### レビュー作法 (遵守)",

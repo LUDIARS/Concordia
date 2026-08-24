@@ -36,7 +36,7 @@ describe("POST /v1/delegation/templates (空欄許容)", () => {
     const j = (await r.json()) as any;
     expect(j.template.call_name).toMatch(/^[a-z][a-z0-9_-]*$/);
     expect(j.template.prompt_template).toBe("");
-    expect(j.template.target_provider).toBe("codex-sdk");
+    expect(j.template.target_provider).toBe("codex");
     // title 空は call_name で代替
     expect(j.template.title).toBe(j.template.call_name);
   });

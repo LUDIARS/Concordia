@@ -50,7 +50,7 @@ import {
 } from "./contracts.js";
 import { executeQueuedRun } from "./executor.js";
 import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
-import { sdkSafeDelegationProvider } from "./provider-policy.js";
+import { applyDelegationProviderPolicy } from "./provider-policy.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -202,7 +202,7 @@ export class DelegationService {
     // worktree だけ先に生えている、 という中途半端な状態を作らないため。
     if (shouldSpawn && this.queue?.enabled() && !this.queue.hasCapacity()) {
       const payload: QueuePayload = { def, input };
-      const targetProvider = sdkSafeDelegationProvider(input.overrides?.provider ?? def.target_provider);
+      const targetProvider = applyDelegationProviderPolicy(input.overrides?.provider ?? def.target_provider);
       const run = this.deps.repo.createRun({
         id: runId,
         template_id: def.template_id,
@@ -319,7 +319,7 @@ export class DelegationService {
     shouldSpawn: boolean,
   ): Promise<LaunchResult> {
     const requestedProvider = input.overrides?.provider ?? def.target_provider;
-    const provider = sdkSafeDelegationProvider(requestedProvider);
+    const provider = applyDelegationProviderPolicy(requestedProvider);
     // cwd 解決 (auto-model のヒントにも使うので resolveDelegationSpawn より先に行う):
     // 1) caller 指定 → 2) definition.default_cwd を args で `${var}` 展開
     // → 3) どちらも無ければ undefined (= wt が user-home で開く)。

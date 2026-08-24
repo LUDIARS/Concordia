@@ -46,7 +46,7 @@ delegation_templates
   call_name (unique, ^[a-z][a-z0-9_-]{0,63}$)
   title (人間向け 1 行)
   description (いつ使うか)
-  target_provider ("claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma) / codex は入力互換 alias として保存時に codex-sdk へ正規化 / codex-sdk=Satelles ヘッドレスレーン (§13.2)
+  target_provider ("claude" | "codex" | "codex-sdk" | "gemini" | "gemma4-12")  -- gemma4-12=ローカル LLM レーン (§13、 旧名 gamma) / codex=Windows native ターミナルレーン (2026-08-25 に正規レーンへ復帰。保存時の codex-sdk への正規化は撤回し、入力値をそのまま保持する) / codex-sdk=Satelles ヘッドレスレーン (§13.2)
   model (NULLABLE TEXT — spawn する CLI に `--model` で渡す。 null = provider CLI の config 既定 / gemma4-12 は gemma4:12b)
   prompt_template (TEXT、 ${var} placeholder)
   input_schema (JSON 配列: [{name, type, required, description, default?}])
@@ -115,7 +115,7 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
    - `template.model` があれば spawn args に `--model <model>` を付与 (Lictor が下層 CLI へ透過)。 null なら付けず provider CLI の config 既定に委ねる
    - rendered_prompt の path を spawn 時 env `CONCORDIA_DELEGATION_PROMPT_FILE` で渡す
    - Claude / Gemini / gemma4-12 は Lictor の通常セッション経路で起動する
-   - Codex Delegation はすべて `codex-sdk` (Satelles) として、wt.exe / Lictor を経由しないヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`) を使う。`target_provider: "codex"` の既存・外部入力も永続化／起動境界で `codex-sdk` へ正規化し、`satelles run` を detached child として直接起動する (§13.2)
+   - Codex Delegation は `target_provider` の値どおりに起動する。`codex` は wt.exe / Lictor 経由の Windows native ターミナルレーン (2026-08-25 復帰 — WSL/Satelles 経路が codex 認証ローテーションと lsass クラッシュで継続不能になったため。native の CreateProcessWithLogonW リークは sandbox 起動を外す運用で回避)。`codex-sdk` は Satelles ヘッドレス spawn (`spawner.ts` の `HEADLESS_SPAWN_PROVIDERS`、`satelles run` を detached child として直接起動、§13.2)。かつて行っていた永続化／起動境界での `codex` → `codex-sdk` 正規化は撤回した (`applyDelegationProviderPolicy` は pass-through)
 5. delegation_runs に upsert
 6. response: `{ run_id, rendered_prompt, prompt_file_path, spawn_pid, spawn_command }`
 

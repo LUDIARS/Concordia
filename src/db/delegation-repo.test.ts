@@ -22,7 +22,7 @@ describe("DelegationRepo / templates", () => {
     });
     expect(created.id).toBeTruthy();
     expect(created.call_name).toBe("fix-bug");
-    expect(created.target_provider).toBe("codex-sdk");
+    expect(created.target_provider).toBe("codex");
     const found = repo.findTemplateByCallName("fix-bug");
     expect(found?.id).toBe(created.id);
   });
@@ -113,7 +113,7 @@ describe("DelegationRepo / templates", () => {
     expect(repo.findRun(run.id)).toMatchObject({
       template_id: null,
       call_name: "legacy-profile",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       status: "completed",
     });
   });
@@ -211,7 +211,7 @@ describe("DelegationRepo / runs", () => {
       status: "spawned",
     });
     expect(run.id).toBe(id);
-    expect(run.target_provider).toBe("codex-sdk");
+    expect(run.target_provider).toBe("codex");
     expect(repo.findRun(id)?.spawn_pid).toBe(42);
   });
 

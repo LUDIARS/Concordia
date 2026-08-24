@@ -214,6 +214,8 @@ export interface DiscordBotDeps {
   resolveWorkspaceRoot?: () => string;
   /** 複数ワークスペースルートを bot start 時に live 解決する (Memoria は実在ルートを採用)。 */
   resolveWorkspaceRoots?: () => string[];
+  /** 自動巡回通知でメンションする Discord user ID。通知時に live 解決する。 */
+  resolveMentionUserId?: () => string | null;
   /** Forum投稿spawnにも通常spawnと同じ provider別 cwd 解決を適用する。 */
   resolveSessionSpawnCwd?: ForumSpawnDeps["resolveSpawnCwd"];
   /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
@@ -1886,6 +1888,37 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (!isActiveDiscordSession(ev.target_session_id)) return;
       // picker がローカル回答で解決 → 投稿済み質問のボタンを外す（再クリック防止）。
       void resolveQuestionMessage({ guild, sessionChannelsRepo, pendingQuestionsRepo, log }, ev);
+      return;
+    }
+    if (ev.type === "session.stall_nudged") {
+      // 自動確認 (stall nudge) の発生通知。nudge 本文は転記しない — 「送った」事実
+      // だけを短文で知らせる (2026-08-25 neco 指示: 全文は通知しない)。
+      if (!isActiveDiscordSession(ev.target_session_id) || !webhooks) return;
+      const webhookPool = webhooks;
+      void (async () => {
+        const client = await webhookPool.getForSession(ev.target_session_id);
+        if (!client) return;
+        // 個人識別子は WS event に載せず、Discord 配信境界でだけ解決する。
+        let configuredMentionUserId: string | null = null;
+        try {
+          configuredMentionUserId = deps.resolveMentionUserId?.() ?? null;
+        } catch {
+          // 通知は best-effort。設定読み取り失敗時もメンションなしで本文を届ける。
+        }
+        // Admin setting の破損値で Discord API 送信全体を失敗させない。
+        const mentionUserId = configuredMentionUserId && /^\d{17,20}$/.test(configuredMentionUserId)
+          ? configuredMentionUserId
+          : null;
+        const mention = mentionUserId ? `<@${mentionUserId}> ` : "";
+        const idleMin = Math.max(1, Math.round(ev.idle_sec / 60));
+        await webhookPool.send(client, {
+          content: `${mention}🔔 [自動確認] 応答が約 ${idleMin} 分止まっていたため、セッションへ自動確認を送信しました。`,
+          username: "Concordia 自動巡回",
+          allowedMentions: mentionUserId
+            ? { parse: [], users: [mentionUserId] }
+            : { parse: [] },
+        });
+      })().catch((e) => log.warn(`stall nudge notice failed session=${ev.target_session_id}: ${(e as Error).message}`));
       return;
     }
     if (ev.type === "session.inject") {

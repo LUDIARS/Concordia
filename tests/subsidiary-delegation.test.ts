@@ -101,7 +101,7 @@ describe("subsidiary owned-delegation API", () => {
     expect(put.body.delegation).toMatchObject({
       call_name: "my-task",
       project: "Ergo",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
     });
     const ex = await json(app, "GET", `/v1/subsidiaries/${subId}/delegations/my-task/export`);
     expect(ex.status).toBe(200);
@@ -110,7 +110,7 @@ describe("subsidiary owned-delegation API", () => {
       call_name: "my-task",
       project: "Ergo",
       default_cwd: "E:/q",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
     });
   });
 

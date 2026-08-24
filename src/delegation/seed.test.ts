@@ -175,7 +175,7 @@ describe("seedDelegationTemplates", () => {
     });
     expect(codex).toMatchObject({
       title: "Codex起動",
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       is_active: 1,
       forum_tag: 1,
     });
@@ -275,13 +275,13 @@ describe("seedDelegationTemplates", () => {
     expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-5.6-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
     expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
       is_active: 1,
-      target_provider: "codex-sdk",
+      target_provider: "codex",
       model: "gpt-5.6-sol",
     });
     expect(JSON.parse(repo.findTemplateByCallName("sol-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
@@ -327,7 +327,7 @@ describe("seedDelegationTemplates", () => {
     }
 
     const terra = repo.findTemplateByCallName("terra-xhigh");
-    expect(terra).toMatchObject({ is_active: 1, model: "gpt-5.6-terra", target_provider: "codex-sdk" });
+    expect(terra).toMatchObject({ is_active: 1, model: "gpt-5.6-terra", target_provider: "codex" });
     expect(JSON.parse(terra?.runtime_options_json ?? "null")).toMatchObject({ model_reasoning_effort: "xhigh" });
   });
 
@@ -342,7 +342,7 @@ describe("seedDelegationTemplates", () => {
     expect(duo?.prompt_template).toContain("gpt-5.6-sol");
     expect(duo?.prompt_template).toContain("xhigh");
     expect(duo?.prompt_template).toContain("sol-xhigh");
-    expect(duo?.prompt_template).toContain("codex-sdk");
+    expect(duo?.prompt_template).toContain("Windows native");
     expect(duo?.prompt_template).not.toContain("codex exec");
     expect(duo?.prompt_template).toContain("E:\\Document\\Ars\\Review\\");
     expect(duo?.prompt_template).toContain("worktree の生成・ブランチ切り替えは行わない");

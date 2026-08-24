@@ -25,6 +25,7 @@ export const CONCORDIA_EVENT_TYPES = [
   "pr.changed",
   "error.reported",
   "session.inject",
+  "session.stall_nudged",
   "delegation.mirror",
   "delegation.run_changed",
   "taskflow.user_decision",
@@ -240,6 +241,12 @@ const eventSchemas = {
     text: z.string(),
     source: nullableString,
     author_label: nullableString.optional(),
+    ts: z.number(),
+  }).passthrough(),
+  "session.stall_nudged": z.object({
+    type: z.literal("session.stall_nudged"),
+    target_session_id: z.string(),
+    idle_sec: z.number(),
     ts: z.number(),
   }).passthrough(),
   "transcript.frame": z.object({

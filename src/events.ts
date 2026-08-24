@@ -121,6 +121,12 @@ type ConcordiaEventPayload =
   // source が "discord:<uid>:…" / "slack:<uid>:…" の人間メッセージのときに付く。
   | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; ts: number }
   /**
+   * 停滞セッションへ自動確認 (stall nudge) を注入した事実の通知。inject 本文は
+   * 含めない (Discord へは「送った」ことだけを短文で知らせる — 2026-08-25 neco 指示)。
+   * メンション先の個人識別子は WS へ流さず、Discord bot の配信境界で解決する。
+   */
+  | { type: "session.stall_nudged"; target_session_id: string; idle_sec: number; ts: number }
+  /**
    * One frame from a session's transcript stream. Lictor tails Claude's
    * JSONL session file and POSTs each line (after simplification) as a
    * frame. Forwarded via WS so the Web UI's transcript pane can render
@@ -224,6 +230,7 @@ export function eventSessionId(event: ConcordiaEvent): string | null {
       return event.session_id;
     case "transcript.frame":
     case "session.inject":
+    case "session.stall_nudged":
     case "session.permission_request":
     case "delegation.mirror":
     case "question.posted":

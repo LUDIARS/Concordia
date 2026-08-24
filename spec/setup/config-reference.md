@@ -88,6 +88,9 @@ npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db
 npm run db:drop-obsolete-excubitor -- --db E:\path\to\concordia.db --backup E:\path\to\concordia.db.pre-excubitor-drop.bak --apply --confirm-services-stopped
 ```
 
+`--apply` は既定でサーバーローカル時刻の深夜帯 (23:00–05:00) に限定される。日中に実施する
+必要があり、サービス停止と影響を確認済みの場合だけ `--allow-daytime` を追加する。
+
 ### 信頼境界 (trust boundary)
 
 Concordia の管理・変更 API (`/v1/admin/*`、`/v1/sweeper/run`、session inject/delete、

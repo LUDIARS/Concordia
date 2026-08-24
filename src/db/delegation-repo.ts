@@ -6,7 +6,7 @@
 
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { sdkSafeDelegationProvider } from "../delegation/provider-policy.js";
+import { applyDelegationProviderPolicy } from "../delegation/provider-policy.js";
 
 // 論理 provider プリセット。 claude/codex/gemini は同名 CLI に 1:1。
 // gemma4-12 は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
@@ -268,7 +268,7 @@ export class DelegationRepo {
       input.call_name,
       input.title,
       input.description ?? "",
-      sdkSafeDelegationProvider(input.target_provider),
+      applyDelegationProviderPolicy(input.target_provider),
       input.model ?? null,
       JSON.stringify(normalizeRuntimeOptions(input.runtime_options)),
       input.prompt_template,
@@ -313,7 +313,7 @@ export class DelegationRepo {
     `).run(
       patch.title ?? cur.title,
       patch.description ?? cur.description,
-      sdkSafeDelegationProvider(patch.target_provider ?? cur.target_provider),
+      applyDelegationProviderPolicy(patch.target_provider ?? cur.target_provider),
       patch.model !== undefined ? patch.model : cur.model,
       patch.runtime_options !== undefined ? JSON.stringify(normalizeRuntimeOptions(patch.runtime_options)) : cur.runtime_options_json,
       patch.prompt_template ?? cur.prompt_template,
@@ -390,7 +390,7 @@ export class DelegationRepo {
       id,
       input.template_id,
       input.call_name,
-      sdkSafeDelegationProvider(input.target_provider),
+      applyDelegationProviderPolicy(input.target_provider),
       input.parent_session_id ?? null,
       input.child_session_id ?? null,
       JSON.stringify(input.args ?? {}),

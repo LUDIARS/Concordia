@@ -160,6 +160,26 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(ev.source).toBe(STALL_NUDGE_SOURCE);
   });
 
+  it("nudge と同時に session.stall_nudged (本文・個人識別子なし) を emit する", async () => {
+    const s = fakeSession({ id: "idle-2" });
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([s]),
+      now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 3_700_000,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
+      intervalMs: 1_000_000,
+    });
+    await h.runOnce();
+    h.stop();
+    const notices = received.filter((e) => e.type === "session.stall_nudged");
+    expect(notices.length).toBe(1);
+    expect(notices[0].target_session_id).toBe("idle-2");
+    expect(typeof notices[0].idle_sec).toBe("number");
+    // 通知イベントは nudge 本文を持たない (Discord へ全文を出さない契約)。
+    expect("text" in notices[0]).toBe(false);
+    expect("mention_user_id" in notices[0]).toBe(false);
+  });
+
   it("goal metadata に関係なく同じ協働復帰 nudge を流す", async () => {
     const s = fakeSession({ id: "watch-1", metadata: JSON.stringify({ goal: { mode: "watch" } }) });
     const h = startStalledSessionNudge({

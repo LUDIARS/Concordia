@@ -476,9 +476,14 @@ lsass ログオンセッションをリークする既知の未修正バグを�
 Linux 版で起動しこれを回避する (Satelles 側は PR#579 で実装済み)。
 
 サービス catalog は運用上の WSL 経路の不安定性を避けて runtime を `native` に固定する。
-委託コードへホスト全体の権限を渡さないよう `SATELLES_CODEX_SANDBOX=workspace-write` を
-backend の継承環境として設定する。`SATELLES_*` は delegation request の env allowlist
-対象外なので、呼び出し側が sandbox を `danger-full-access` へ上書きすることはできない。
+上記リーク経路を避けるため `SATELLES_CODEX_SANDBOX=danger-full-access` を backend の
+継承環境として設定するが、ホスト全体の権限を渡すのは信頼済みローカル委託に限定する。
+`buildSessionSpawnEnvironment()` は provider が `codex-sdk`、runtime が `native`、かつ内部で
+付与した `CONCORDIA_DELEGATION_RUN_ID` が spawn id と一致する場合だけこの値を Satelles へ
+渡す。それ以外の Satelles spawn は `workspace-write` へ下げ、他 provider からは変数自体を
+除去する。
+`SATELLES_*` は delegation request の env allowlist 対象外なので、呼び出し側が sandbox を
+`danger-full-access` へ上書きすることはできない。Satelles 側でも同じ条件を検証する。
 
 - Cc 設定 4 つ (`src/config/settings/definitions/session.ts` の `SESSION_SETTINGS`、
   `editable: false`、 env のみ):

@@ -60,10 +60,13 @@ services:
       CONCORDIA_PR_RECONCILE_ENABLED: "0"
       CONCORDIA_PR_FULL_SYNC_ENABLED: "0"
       # codex-sdk (Satelles) 委託は WSL 経路の不安定性を避け、Windows native codex
-      # で走らせる。委託は workspace 内だけを書ける sandbox に固定し、それ以上の
-      # 権限が必要なら repository 共通 catalog ではなく、実行単位で明示する。
+      # で走らせる。Windows 版 codex の sandbox launcher (`CreateProcessWithLogonW`)
+      # には lsass ログオンセッションをリークする upstream issue (#33356 / #35940)
+      # があるため、信頼済みローカル委託に限って sandbox 起動を外す。
+      # Concordia と Satelles の両ガードにより、danger-full-access は委託 run
+      # (CONCORDIA_DELEGATION_RUN_ID あり) かつ runtime=native のときだけ有効になる。
       CONCORDIA_SATELLES_CODEX_RUNTIME: native
-      SATELLES_CODEX_SANDBOX: workspace-write
+      SATELLES_CODEX_SANDBOX: danger-full-access
 
   # control_jobs (durable OS-control queue) の consumer。
   #

@@ -162,6 +162,66 @@ describe("buildSessionSpawnEnvironment", () => {
     expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
   });
 
+  it("codex-sdk + native delegation: operator の danger-full-access を許可する", () => {
+    const environment = buildSessionSpawnEnvironment(
+      {
+        provider: "codex-sdk",
+        env: { CONCORDIA_DELEGATION_RUN_ID: "run-1" },
+      },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "native",
+        SATELLES_CODEX_SANDBOX: "danger-full-access",
+      } as unknown as NodeJS.ProcessEnv,
+      "run-1",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("danger-full-access");
+  });
+
+  it("codex-sdk: delegation run id と spawn id が違う場合は workspace-write に下げる", () => {
+    const environment = buildSessionSpawnEnvironment(
+      {
+        provider: "codex-sdk",
+        env: { CONCORDIA_DELEGATION_RUN_ID: "run-1" },
+      },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "another-spawn",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
+  });
+
+  it("codex-sdk: delegation marker がない danger-full-access は workspace-write に下げる", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "codex-sdk" },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "spawn-native-ad-hoc",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
+  });
+
+  it("codex-sdk + runtime=wsl: delegation でも danger-full-access は workspace-write に下げる", () => {
+    const environment = buildSessionSpawnEnvironment(
+      {
+        provider: "codex-sdk",
+        env: { CONCORDIA_DELEGATION_RUN_ID: "run-1" },
+      },
+      {
+        CONCORDIA_SATELLES_CODEX_RUNTIME: "wsl",
+        SATELLES_CODEX_SANDBOX: "danger-full-access",
+      } as unknown as NodeJS.ProcessEnv,
+      "spawn-wsl-delegation",
+    );
+    expect(environment.SATELLES_CODEX_SANDBOX).toBe("workspace-write");
+  });
+
+  it("codex-sdk 以外には ambient SATELLES_CODEX_SANDBOX を渡さない", () => {
+    const environment = buildSessionSpawnEnvironment(
+      { provider: "claude" },
+      { SATELLES_CODEX_SANDBOX: "danger-full-access" } as unknown as NodeJS.ProcessEnv,
+      "spawn-claude",
+    );
+    expect(environment).not.toHaveProperty("SATELLES_CODEX_SANDBOX");
+  });
+
   it("codex-sdk + runtime=wsl: SATELLES_* 4変数を子envに注入する", () => {
     const environment = buildSessionSpawnEnvironment(
       { provider: "codex-sdk" },

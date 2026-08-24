@@ -433,19 +433,51 @@ export function buildSessionSpawnEnvironment(
       delete env[key];
     }
   }
+  const satellesSandboxEnv = currentSatellesSandboxEnv(req, inheritedEnv, spawnId);
   const satellesWslEnv = currentSatellesWslEnv(req.provider, inheritedEnv);
   // Windows environment-variable names are case-insensitive. Remove any
-  // differently-cased inherited copy before adding the validated values, so
-  // an ambient `satelles_wsl_user` cannot override `SATELLES_WSL_USER`.
+  // differently-cased inherited copy before adding the validated values. This
+  // also prevents an ambient danger-full-access sandbox from reaching a
+  // non-delegation or non-Satelles child.
   for (const key of Object.keys(env)) {
-    if (Object.hasOwn(satellesWslEnv, key.toUpperCase())) delete env[key];
+    const normalized = key.toUpperCase();
+    if (
+      normalized === "SATELLES_CODEX_SANDBOX"
+      || Object.hasOwn(satellesWslEnv, normalized)
+    ) delete env[key];
   }
   return {
     ...env,
     ...buildSpawnIdentityEnv(req, spawnId),
     ...currentConcordiaAddressEnv(),
+    ...satellesSandboxEnv,
     ...satellesWslEnv,
   };
+}
+
+/**
+ * Host-wide Codex access is reserved for trusted native delegation runs. The
+ * operator setting is inherited by Concordia, but request env cannot set a
+ * SATELLES_* key; requiring the internally supplied run marker to match the
+ * spawn identity prevents admin/ad-hoc Satelles spawns from inheriting the
+ * elevated policy.
+ */
+function currentSatellesSandboxEnv(
+  req: SpawnRequest,
+  env: NodeJS.ProcessEnv,
+  spawnId: string,
+): Record<string, string> {
+  if (req.provider !== "codex-sdk") return {};
+  const configured = env.SATELLES_CODEX_SANDBOX?.trim();
+  if (!configured) return {};
+  if (configured !== "danger-full-access") return { SATELLES_CODEX_SANDBOX: configured };
+
+  const runId = req.env?.CONCORDIA_DELEGATION_RUN_ID?.trim();
+  const isDelegationRun = Boolean(runId && runId === spawnId);
+  if (isDelegationRun && currentSatellesCodexRuntime(env) === "native") {
+    return { SATELLES_CODEX_SANDBOX: "danger-full-access" };
+  }
+  return { SATELLES_CODEX_SANDBOX: "workspace-write" };
 }
 
 /**

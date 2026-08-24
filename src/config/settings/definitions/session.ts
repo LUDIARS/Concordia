@@ -203,6 +203,20 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     enumValues: ["native", "wsl"],
   },
   {
+    key: "session.satelles_codex_sandbox",
+    section: "session",
+    label: "Satelles Codex sandbox",
+    description:
+      "codex-sdk (Satelles) が起動する Codex セッションの sandbox 制約。" +
+      " danger-full-access は native delegation にだけ許可する。",
+    kind: "enum",
+    envName: "SATELLES_CODEX_SANDBOX",
+    dbKey: null,
+    defaultValue: null,
+    editable: false,
+    enumValues: ["read-only", "workspace-write", "danger-full-access"],
+  },
+  {
     key: "session.satelles_wsl_distro",
     section: "session",
     label: "Satelles WSL ディストリビューション",

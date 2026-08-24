@@ -368,8 +368,8 @@ export async function runCompaction(deps: CompactionDeps, sessionId: string): Pr
     return { ok: false, handoff, error: "reinject failed" };
   }
 
-  // 5) コンパクション時刻と直近 handoff を記録する (時刻は auto-compaction の
-  //    クールダウン判定、 handoff はフェーズ文脈索引 — phase-compaction §2 参照層)。
+  // 5) コンパクション時刻と直近 handoff を記録する (時刻はコンテキスト残量表示、
+  //    handoff はフェーズ文脈索引 — phase-compaction §2 参照層)。
   try {
     deps.sessions.mergeMetadata(sessionId, {
       last_compaction_at: Date.now(),

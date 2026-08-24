@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 71;
+export const SCHEMA_VERSION = 72;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1817,6 +1817,32 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         created_at  INTEGER NOT NULL,
         updated_at  INTEGER NOT NULL
       )
+    `);
+  },
+}, {
+  version: 72,
+  name: "cc-task-fallback",
+  source: "Cc durable task fallback and Actio outbox",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cc_tasks (
+        id TEXT PRIMARY KEY,
+        source_key TEXT UNIQUE,
+        title TEXT NOT NULL,
+        details TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        kind TEXT NOT NULL DEFAULT 'task',
+        creator_type TEXT NOT NULL DEFAULT 'human',
+        category TEXT,
+        due_at TEXT,
+        actio_task_id TEXT,
+        actio_sync_state TEXT NOT NULL DEFAULT 'pending',
+        actio_sync_error TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_cc_tasks_status ON cc_tasks(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_cc_tasks_actio_sync ON cc_tasks(actio_sync_state, updated_at ASC);
     `);
   },
 },

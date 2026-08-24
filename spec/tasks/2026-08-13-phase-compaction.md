@@ -15,8 +15,8 @@ memory_links:
 
 ## 完了条件
 - `taskflow:plan-approved` / `taskflow:next-task` / `taskflow:residual-sweep` で境界評価が
-  走り、`CONCORDIA_PHASE_COMPACT_PCT` (既定 0.35) 以上で compact、未満は再配置 inject のみ
-  になる (クールダウン・作業中ガードは現行維持)。
+  走り、2026-08-24 以降は占有率にかかわらず clear せず再配置 inject のみ
+  になる。
 - 再投入文脈が三層 (機械組み立て: 契約+プラン+タスク+PR / handoff 作文 / message link
   索引) で組まれ、索引に契約カード・プラン最新版・設問回答・直近 handoff が載る。
 - カード投稿時の message id 記録が揃い、索引が探索なしで組める。

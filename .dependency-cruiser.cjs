@@ -52,7 +52,6 @@ module.exports = {
           "\\.test\\.ts$",
           // Allowed exceptions — files with legitimate cost layer access:
           "^src/rules/claude-runner\\.ts$",     // records cost via one-shot-recorder
-          "^src/control/auto-compaction\\.ts$", // reads context-estimate for compaction
           "^src/report/generator\\.ts$",        // reads session-cost for report generation
           "^src/subsidiary/budget\\.ts$",       // reads log-usage / usage-tracker for budgeting
         ],

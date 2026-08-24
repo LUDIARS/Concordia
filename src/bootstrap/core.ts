@@ -78,7 +78,6 @@ import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
-import { estimateContextTokens } from "../cost/context-estimate.js";
 import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
 import { startVibesCompletion } from "../control/vibes-completion.js";
 import { deliverDirectorInstruction } from "../director/session-instruction.js";
@@ -90,8 +89,6 @@ import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
-import { startAutoCompaction } from "../control/auto-compaction.js";
-import { runCompaction, makeCompactionIO } from "../control/compaction.js";
 import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
@@ -111,6 +108,9 @@ import { SessionPrOperations } from "../pr/session-pr-operations.js";
 import { listBranchCommits } from "../pr/branch-commits.js";
 import { loadSessionTaskPrContent } from "../pr/session-task-pr-content.js";
 import { createRevisorTestWorkflowClient } from "../pr/revisor-test-workflow-client.js";
+import { CcTaskRepository } from "../fallback-tasks/repository.js";
+import { ActioTaskClient } from "../fallback-tasks/actio-client.js";
+import { startCcTaskSync } from "../fallback-tasks/sync.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
@@ -702,6 +702,8 @@ export async function startBackend(): Promise<BackendHandle> {
   });
   const taskflowState = new TaskflowStateStore(db);
   const taskStore = new TaskMdStore(() => adminState.getWorkspaceRoots(), undefined, taskflowState);
+  const fallbackTasks = new CcTaskRepository(db);
+  const actioTasks = new ActioTaskClient(excubitorClient);
   const serviceMap = new ServiceMap({ excubitor: excubitorClient });
   const resolveServiceCode = (repoName: string) => serviceMap.resolve(repoName);
   const confirmService = new ConfirmService({
@@ -1011,10 +1013,6 @@ export async function startBackend(): Promise<BackendHandle> {
   // CONCORDIA_MEMORIA_URL で Memoria の URL を上書き可 (既定 http://127.0.0.1:5180)。
   // 1 時間応答が無い (transcript 無更新) active セッションに「残作業を確認して続行 / 判断が
   // 要るなら ask で停止」 を inject する。 ask で人間判断待ちのセッションは踏み潰さないよう除外。
-  // 自動コンパクション: active セッションのコンテキスト占有 + 区切りを周期監視し、
-  // 閾値超え/区切りで引き継ぎ型コンパクションを発火する。安全弁 CONCORDIA_AUTO_COMPACTION=1
-  // (既定 OFF)。spec/feature/session-compaction.md
-  const compactionIO = makeCompactionIO({ sessions: repo, chat });
   const chatReadModel = makeChatReadModel({
     chatRepo: chat,
     sessionsRepo: repo,
@@ -1287,6 +1285,7 @@ export async function startBackend(): Promise<BackendHandle> {
     director,
     taskStore,
     taskflowState,
+    fallbackTasks,
     // 段階注入の第2段階で関連付ける Memoria タスクの作成口 (既存の公式 API のみ使う)。
     memoria: memoriaClient,
     onTaskflowCompleted: (run) => taskflowRuntime.handleCompletedRun(run),
@@ -1484,13 +1483,6 @@ export async function startBackend(): Promise<BackendHandle> {
     }));
     trackPostListenHandle(startPhaseCompaction({
       sessions: repo,
-      compact: (id) => runCompaction({
-        sessions: repo,
-        transcriptLogs,
-        runClaude,
-        ...makeCompactionIO({ sessions: repo, chat }),
-      }, id),
-      estimateContextPct: async (session) => (await estimateContextTokens(session))?.pct ?? null,
       // 索引 (参照層): 設問回答は pending question 基盤が正本 (契約カード回答含む)。
       contextSources: {
         answeredQuestions: (sessionId) => pendingQuestions.listAnsweredBySession(sessionId).map((row) => ({
@@ -1573,14 +1565,6 @@ export async function startBackend(): Promise<BackendHandle> {
           info: (message) => log.info(message),
           warn: (message) => log.warn(message),
         },
-      }),
-    );
-    trackPostListenHandle(
-      startAutoCompaction({
-        sessions: repo,
-        compact: (sessionId) =>
-          runCompaction({ sessions: repo, transcriptLogs, runClaude, ...compactionIO }, sessionId),
-        enabled: () => process.env.CONCORDIA_AUTO_COMPACTION === "1",
       }),
     );
     trackPostListenHandle(
@@ -1680,6 +1664,11 @@ export async function startBackend(): Promise<BackendHandle> {
       key: "task",
       name: "task-reconciler",
       start: () => startTaskReconciler({ store: taskStore, backend: new MemoriaBackend(memoriaClient) }),
+    });
+    workflowBindings.register({
+      key: "task",
+      name: "cc-task-actio-sync",
+      start: () => startCcTaskSync({ repo: fallbackTasks, actio: actioTasks }),
     });
     workflowBindings.register({
       key: "task",

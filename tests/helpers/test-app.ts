@@ -53,6 +53,7 @@ import type { SpawnRequest } from "../../src/control/spawner.js";
 import type { ConcordiaEvent } from "../../src/events.js";
 import { TaskMdStore } from "../../src/taskflow/md-store.js";
 import { TaskflowStateStore } from "../../src/taskflow/state-store.js";
+import { CcTaskRepository } from "../../src/fallback-tasks/repository.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
@@ -146,6 +147,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   seedInjectManuals(injectManuals);
   const staff = new StaffRepo(db);
   const taskflowState = new TaskflowStateStore(db);
+  const fallbackTasks = new CcTaskRepository(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
   const taskStore = new TaskMdStore(() => [], undefined, taskflowState);
 
@@ -173,6 +175,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     staff,
     taskStore,
     taskflowState,
+    fallbackTasks,
     sessionSpawn: opts.sessionSpawn,
     spawnTokenCwd: logsDir,
     onTaskflowCompleted: async () => {},

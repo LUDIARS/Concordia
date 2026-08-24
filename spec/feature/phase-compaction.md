@@ -1,7 +1,7 @@
 ---
 type: feature
-title: "フェーズ境界コンパクション + コンテキスト残量の可視化"
-description: "co-compaction (session-compaction.md、実装済み) の発火点を taskflow の確定イベント (プラン承認・タスク completed・残作業整理) に接続し、再投入文脈を契約・プラン・タスク正本から機械組み立てする。Discord ログを索引付き完全ログとして活かす。加えて /co-context コマンドと RWF アクションでコンテキスト残量をオンデマンド報告する。"
+title: "フェーズ境界の文脈再配置 + コンテキスト残量の可視化"
+description: "taskflow の確定イベントで、契約・プラン・タスク正本から機械組み立てした文脈を clear せず再投入する。"
 service: concordia
 domain: session-coordination
 tags:
@@ -16,10 +16,10 @@ related:
   - feature/session-contract.md
   - feature/plan-gate.md
   - feature/deterministic-teardown.md
-updated: 2026-08-13
+updated: 2026-08-24
 ---
 
-# フェーズ境界コンパクション + コンテキスト残量の可視化
+# フェーズ境界の文脈再配置 + コンテキスト残量の可視化
 
 > 2026-08-13 neco 指示。 「タスクがひと段落して次のフェーズへ進むとき」
 > 「残作業を確認して片づけるとき」にコンパクションしてコンテキストを再配置する。
@@ -28,14 +28,12 @@ updated: 2026-08-13
 
 ## 0. 位置づけ
 
-session-compaction.md (implemented) の拡張。 `runCompaction` / `estimateContextTokens` /
-質問カード基盤は流用し、 (1) 発火点の taskflow 接続、 (2) 再投入文脈の機械組み立て、
+質問カード基盤を使い、 (1) 発火点の taskflow 接続、 (2) 再投入文脈の機械組み立て、
 (3) 残量可視化の出口 2 つ、 を追加する。 既存 spec は変更しない。
 
 ## 1. 発火点 — ヒューリスティックから確定イベントへ
 
-現行の自動コンパクション (session-compaction §5) は「区切りシグナル + soft 閾値」の推測
-ベース。 これを taskflow の確定イベントへ直結する:
+taskflow の確定イベントへ直結する:
 
 | trigger source | タイミング | 再投入する文脈 |
 |---|---|---|
@@ -43,11 +41,8 @@ session-compaction.md (implemented) の拡張。 `runCompaction` / `estimateCont
 | `taskflow:next-task` | completed → residual が next-task (in-session 継続時) | 契約 + 次タスク md + 前タスク結果 (PR 番号のみ) |
 | `taskflow:residual-sweep` | 残作業確認・片づけフェーズに入るとき | 契約 + 残作業一覧 + 受け入れ条件の充足状況 |
 
-- 実行は既存 `runCompaction` に trigger source を渡すだけ。 クールダウン・作業中ガードは
-  現行のまま。
-- **境界閾値**: フェーズ境界では `context_pct >= CONCORDIA_PHASE_COMPACT_PCT` (既定 0.35)
-  なら compact、 未満なら /clear せず**再配置 inject のみ** (機械組み立て文脈を流すだけ)。
-  毎回 clear しない。
+- フェーズ境界は **再配置 inject のみ**を行い、context_pct にかかわらず `/clear` を実行しない。
+- `/clear` を伴うコンパクションは人間が明示した `/co-compaction` または REST 要求に限る。
 - 再キュー既定 (deterministic-teardown §3.2) のセッションはそもそも畳まれるので、 本機能が
   主に効くのは in-session 継続・長期タスク待ち・対話セッションである。
 
@@ -86,7 +81,7 @@ session-compaction.md (implemented) の拡張。 `runCompaction` / `estimateCont
 
 - **`/co-context`** (slash command): 実行時にその場で推定を叩き直し (10 分 tick の
   キャッシュ値ではなく)、 報告する — 占有トークン / window / **残量 (トークンと %)** /
-  前回コンパクション時刻 / 自動発火閾値までの余裕。 末尾に `[いまコンパクションする]`
+  前回コンパクション時刻 / 表示用基準までの余裕。 末尾に `[いまコンパクションする]`
   ボタン (`/co-compaction` 相当へ直結)。
 - **RWF アクション `context`**: RWF エンジンの語彙 (`WORKFLOW_ACTION_HELP`) に追加。
   セッションカード等へのリアクション (絵文字: 🧠) で同じ報告をスレッドへ投稿する。
@@ -94,8 +89,8 @@ session-compaction.md (implemented) の拡張。 `runCompaction` / `estimateCont
 
 ## 4. 受け入れ基準
 
-- [ ] plan 承認・next-task・residual-sweep の各イベントで境界評価が走り、 閾値以上なら
-      compact + 再投入、 未満なら再配置 inject のみが行われる。
+- [ ] plan 承認・next-task・residual-sweep の各イベントで、コンテキスト使用率にかかわらず
+      `/clear` を伴わない再配置 inject が行われる。
 - [ ] 再投入文脈の先頭に契約とプラン (受け入れ条件) が機械組み立てで含まれ、 セッション
       作文の欠落に影響されない。
 - [ ] 再投入文脈に契約カード・プラン・設問回答への message link 索引が含まれる。

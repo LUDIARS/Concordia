@@ -1,7 +1,7 @@
 import { estimateContextTokens, type ContextEstimate } from "../cost/context-estimate.js";
 import type { SessionRow } from "../shared/types.js";
 
-const DEFAULT_AUTO_THRESHOLD = 0.75;
+const DEFAULT_WARNING_THRESHOLD = 0.75;
 
 function readMetadata(raw: string | null): { last_compaction_at?: number } {
   if (!raw) return {};
@@ -26,14 +26,14 @@ export function formatContextReport(estimate: ContextEstimate, threshold: number
     "🧠 **コンテキスト残量**",
     `占有: ${estimate.tokens.toLocaleString()} / ${estimate.windowTokens.toLocaleString()} tokens (${Math.round(estimate.pct * 100)}%)`,
     `残量: ${remaining.toLocaleString()} tokens (${Math.round(remainingPct * 100)}%)`,
-    `自動発火しきい値まで: ${margin.toLocaleString()} tokens (${Math.round(threshold * 100)}% threshold)`,
+    `表示基準まで: ${margin.toLocaleString()} tokens (${Math.round(threshold * 100)}% threshold)`,
     `前回コンパクション: ${last}`,
   ].join("\n");
 }
 
 function readThreshold(): number {
   const raw = Number(process.env.CONCORDIA_COMPACTION_AUTO_PCT ?? "75");
-  if (!Number.isFinite(raw)) return DEFAULT_AUTO_THRESHOLD;
+  if (!Number.isFinite(raw)) return DEFAULT_WARNING_THRESHOLD;
   const ratio = raw > 1 ? raw / 100 : raw;
   return Math.max(0, Math.min(1, ratio));
 }

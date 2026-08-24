@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "セッション・コンパクション (引き継ぎ型) — 設計"
-description: "長いセッションを会話要約ではなくタスク引き継ぎ資料で圧縮する機能。セッション自身に handoff を書かせて Discord/Slack へ投稿後 /clear し、引き継ぎを読ませて続行する。自動コンパクション (context_pct 閾値監視) と手動トリガ (Discord スラッシュコマンド / REST API) の両方をサポート。"
+description: "人間が明示したときだけ、handoff 投稿後に /clear して続行する手動コンパクション。"
 service: concordia
 domain: session-coordination
 tags:
@@ -14,7 +14,7 @@ tags:
   - polling
   - state-machine
 status: implemented
-updated: 2026-06-30
+updated: 2026-08-24
 ---
 
 
@@ -25,7 +25,7 @@ updated: 2026-06-30
 > 不明点はチャンネル/スレッドのログを遡る。 **Discord チャンネルを durable な記憶として活かす**。
 >
 > 正本。 中核は `src/control/compaction.ts` / `src/cost/context-estimate.ts` /
-> `src/control/auto-compaction.ts`。
+> `/clear` を実行できるのは明示的な Discord コマンドまたは REST 要求だけ。
 
 ## 1. 動機
 
@@ -103,19 +103,10 @@ assistant メッセージの usage スナップショット** からコンテキ
 10 分毎の stat tick で `metadata.context_tokens` / `context_pct` を更新し、
 **状態カード (Discord session-status-card / Slack card)** に `🧠 ctx ~62% (124k)` を表示。
 
-## 5. 自動コンパクション (監視判断)
+## 5. 自動 clear の禁止
 
-`shouldAutoCompact(input)` が純粋関数で判定する:
-
-- **コンテキスト閾値**: `context_pct >= autoThreshold` (既定 0.75)。
-- **区切り (breakpoint)**: 直近に「タスク完了」シグナル (PR merged / session-end 的でない
-  task_update 完了 / 明示の節目) があり、 かつ `context_pct >= softThreshold` (既定 0.55)。
-  → 区切りの良いところで圧縮する (作業の途中をぶつ切りにしない)。
-- **クールダウン**: 直近コンパクションから `cooldownSec` (既定 1800s) 未満は抑止。
-- **作業中ガード**: 直近に inject/transcript が活発 (= 人間と対話中) なら見送る。
-
-`startAutoCompaction` スケジューラが active セッションを周期 (既定 5 分) で評価し、
-条件成立で `runCompaction` を発火。 安全弁 env `CONCORDIA_AUTO_COMPACTION=1` (既定 OFF)。
+Cc はコンテキスト使用率、taskflow の工程境界、時間経過その他の自動条件で
+`runCompaction` や `/clear` を発火しない。工程境界では durable context の再投入だけを行う。
 
 ## 6. 手動トリガ
 
@@ -133,12 +124,12 @@ assistant メッセージの usage スナップショット** からコンテキ
 - transcriptLogs.maxId: frame 無で 0 / セッション別に最大 id。
 - runCompaction: inject (mock) が handoff 依頼→`/clear`→Enter→再投入 の順で呼ばれること、
   捕捉失敗時に切り離し生成へフォールバックすること、 投稿が呼ばれること。
-- shouldAutoCompact: 閾値 / 区切り / クールダウン / 作業中ガードの各分岐。
 
 ## 8. 設計判断
 
 - clear は専用 API ではなく `inject "/clear" + Enter` を使う (Lictor の既存経路。 provider 非依存)。
 - 「圧縮されない完全ログ」 = Discord チャンネルそのもの。 handoff はそこへの索引であり、
   細部は遡れる前提なので handoff は短くてよい (再投入コストを抑える)。
-- 自動コンパクションは既定 OFF (安全弁)。 まず手動 + 可視化で運用し、 閾値を詰めてから ON。
+- 自動発火を制御する設定は提供しない。clear は必ず人間の明示操作を起点にする。
+  互換名 `CONCORDIA_COMPACTION_AUTO_PCT` はコンテキスト残量レポートの表示基準にだけ使う。
 </content>

@@ -238,11 +238,7 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const COMPACTION_SETTINGS: readonly SettingDefinition[] = [
-  envBoolean("compaction.auto_enabled", "compaction", "自動コンパクション", "CONCORDIA_AUTO_COMPACTION", false, "コンテキスト使用率に応じて自動で圧縮を促す。"),
-  envInteger("compaction.auto_pct", "compaction", "自動発火のしきい値 (%)", "CONCORDIA_COMPACTION_AUTO_PCT", null, "この使用率を超えたら自動コンパクションを発火する。"),
-  envInteger("compaction.soft_pct", "compaction", "警告のしきい値 (%)", "CONCORDIA_COMPACTION_SOFT_PCT", null, "この使用率で警告を出す (発火はしない)。"),
-  envInteger("compaction.cooldown_sec", "compaction", "cooldown (秒)", "CONCORDIA_COMPACTION_COOLDOWN_SEC", null, "一度コンパクションしたら次まで空ける秒数。"),
-  envInteger("compaction.quiet_sec", "compaction", "静穏待ち (秒)", "CONCORDIA_COMPACTION_QUIET_SEC", null, "セッションが静かになってから発火するまでの待ち。"),
+  envInteger("compaction.auto_pct", "compaction", "使用率の表示基準 (%)", "CONCORDIA_COMPACTION_AUTO_PCT", null, "コンテキスト残量レポートに表示する参考基準。自動コンパクションは発火しない。"),
   envInteger("compaction.clear_wait_ms", "compaction", "clear 後の待ち (ms)", "CONCORDIA_COMPACTION_CLEAR_WAIT_MS", null, "コンテキスト clear 後に次の入力を送るまでの待ち。"),
   envInteger("compaction.timeout_ms", "compaction", "タイムアウト (ms)", "CONCORDIA_COMPACTION_TIMEOUT_MS", null, "コンパクション全体を打ち切るまでの時間。"),
   envInteger("compaction.elicit_timeout_ms", "compaction", "引き出しタイムアウト (ms)", "CONCORDIA_COMPACTION_ELICIT_TIMEOUT_MS", null, "引き継ぎ内容の生成を打ち切るまでの時間。"),
@@ -320,7 +316,6 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
   envInteger("delegation.ask_detach_sec", "delegation", "未回答質問の切り離し時間 (秒)", "CONCORDIA_ASK_DETACH_SEC", 1800, "質問カードを残して run を blocked 化するまでの時間。"),
   envInteger("delegation.vibes_claim_sec", "delegation", "vibes testing claim 上限 (秒)", "CONCORDIA_VIBES_CLAIM_SEC", 3600, "vibes セッションが testing claim を保持できる時間。"),
   envInteger("delegation.vibes_max_files", "delegation", "vibes 編集ファイル上限", "CONCORDIA_VIBES_MAX_FILES", 20, "vibes mode で編集できるファイル数の上限。"),
-  envInteger("compaction.phase_pct", "compaction", "フェーズ境界の圧縮しきい値 (%)", "CONCORDIA_PHASE_COMPACT_PCT", 35, "フェーズ境界で clear を伴うコンパクションへ切り替える占有率。"),
   envInteger("delegation.subsidiary_guard_timeout_ms", "delegation", "子会社ガードのタイムアウト (ms)", "CONCORDIA_SUBSIDIARY_GUARD_TIMEOUT_MS", null, "子会社 delegation のガード判定を打ち切るまでの時間。"),
 ] as const;
 

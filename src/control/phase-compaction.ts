@@ -80,26 +80,12 @@ export function buildPhaseContext(
 
 export function startPhaseCompaction(input: {
   sessions: PhaseSessions;
-  compact: (id: string) => Promise<{ ok: boolean; error?: string }>;
-  estimateContextPct: (session: SessionRow) => Promise<number | null>;
-  threshold?: number;
   /** 索引の正本参照 (回答済み設問など)。 未注入なら索引は metadata のみで組む。 */
   contextSources?: PhaseContextSources;
 }): PhaseCompactionHandle {
-  const threshold = input.threshold ?? Number(process.env.CONCORDIA_PHASE_COMPACT_PCT ?? 35) / 100;
   const run = async (id: string, trigger: PhaseTrigger) => {
-    let session = input.sessions.findSession(id);
+    const session = input.sessions.findSession(id);
     if (!session || session.status !== "active") return;
-    const contextPct = await input.estimateContextPct(session);
-    if (contextPct !== null && contextPct >= threshold) {
-      const result = await input.compact(id);
-      if (!result.ok) throw new Error(result.error ?? "compact_failed");
-      // compact は /clear 後に session handoff を再投入するが、機械組み立てした
-      // 契約・カード索引までは扱わない。metadata も compact 中に更新されるため、
-      // 最新行から文脈を組み直して必ず続けて投入する。
-      session = input.sessions.findSession(id);
-      if (!session || session.status !== "active") return;
-    }
     let context: string;
     try {
       context = buildPhaseContext(session, trigger, input.contextSources);

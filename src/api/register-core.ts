@@ -119,6 +119,8 @@ import { startDetachedBackendRestart } from "../control/backend-restart.js";
 import type { TaskMdStore } from "../taskflow/md-store.js";
 import type { TaskflowStateStore } from "../taskflow/state-store.js";
 import { taskflowRouter } from "./taskflow.js";
+import { tasksRouter } from "./tasks.js";
+import type { CcTaskRepository } from "../fallback-tasks/repository.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
 import { CRON_JOBS, type CronJobDefinition } from "../scheduler/cron-jobs.js";
@@ -232,6 +234,8 @@ export interface CoreRuntimeDeps {
   taskStore: TaskMdStore;
   /** taskflow runtime state の書き込み口 (PATCH /v1/taskflow/tasks/state)。 */
   taskflowState: TaskflowStateStore;
+  /** Actio 不在時にも失わない Cc 内蔵 Task と同期 outbox。 */
+  fallbackTasks: CcTaskRepository;
   onTaskflowCompleted: (run: DelegationRunRow) => Promise<void>;
   syncDiscordForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
   /** Direct interactive session launcher. Tests inject a host-independent stub. */
@@ -261,7 +265,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       app.use(`${prefix}/*`, gate(key));
     }
   };
-  gateRoutes("task", ["/v1/taskflow"]);
+  gateRoutes("task", ["/v1/taskflow", "/v1/tasks"]);
   gateRoutes("test", ["/v1/testing", "/v1/confirm"]);
   gateRoutes("review", ["/v1/prs", "/v1/admin/revisor", "/v1/admin/revisor-auto-submit"]);
   mountRouteGroups([{ name: "session-runtime", mount: () => {
@@ -371,6 +375,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     delegation: deps.delegation,
     prs: deps.prs,
   }));
+  app.route("/v1/tasks", tasksRouter(deps.fallbackTasks));
   if (deps.director) {
     app.route("/v1/director", directorRouter({ service: deps.director }));
   }

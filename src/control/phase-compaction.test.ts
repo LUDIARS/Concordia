@@ -68,28 +68,10 @@ describe("buildPhaseContext", () => {
     expect(result).toContain("## Latest handoff\n\nNone");
   });
 
-  it("compacts at the phase threshold and then injects the durable phase context", async () => {
-    const compact = vi.fn(async () => ({ ok: true }));
+  it("injects durable phase context without clearing the session", async () => {
     const appendEvent = vi.fn();
-    let sessionReadCount = 0;
     const handle = startPhaseCompaction({
-      sessions: {
-        findSession: () => {
-          const session = activeSession();
-          if (sessionReadCount++ > 0) {
-            session.metadata = JSON.stringify({
-              plan_version: 3,
-              plan_md_ref: "spec/tasks/example.md",
-              last_handoff: "compact 中に更新された handoff",
-            });
-          }
-          return session;
-        },
-        appendEvent,
-      },
-      compact,
-      estimateContextPct: async () => 0.35,
-      threshold: 0.35,
+      sessions: { findSession: () => activeSession(), appendEvent },
       contextSources: {
         answeredQuestions: () => [{ question: "命名は?", answer_text: "kebab-case", discord_message_id: "msg-q-1" }],
       },
@@ -97,26 +79,21 @@ describe("buildPhaseContext", () => {
 
     await handle.runOnce("session-1", "taskflow:plan-approved");
 
-    expect(compact).toHaveBeenCalledWith("session-1");
     expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       session_id: "session-1",
       kind: "inject",
       payload: expect.objectContaining({
         source: "phase-compaction:taskflow:plan-approved",
-        text: expect.stringMatching(/kebab-case[\s\S]*compact 中に更新された handoff/),
+        text: expect.stringContaining("kebab-case"),
       }),
     }));
     handle.stop();
   });
 
-  it("injects the durable handoff below the phase threshold", async () => {
-    const compact = vi.fn(async () => ({ ok: true }));
+  it("injects the durable handoff at every phase boundary", async () => {
     const appendEvent = vi.fn();
     const handle = startPhaseCompaction({
       sessions: { findSession: () => activeSession(), appendEvent },
-      compact,
-      estimateContextPct: async () => 0.34,
-      threshold: 0.35,
       contextSources: {
         answeredQuestions: () => [{ question: "命名は?", answer_text: "kebab-case", discord_message_id: "msg-q-1" }],
       },
@@ -124,7 +101,6 @@ describe("buildPhaseContext", () => {
 
     await handle.runOnce("session-1", "taskflow:next-task");
 
-    expect(compact).not.toHaveBeenCalled();
     expect(appendEvent).toHaveBeenCalledWith(expect.objectContaining({
       session_id: "session-1",
       kind: "inject",
@@ -140,8 +116,6 @@ describe("buildPhaseContext", () => {
     const appendEvent = vi.fn();
     const handle = startPhaseCompaction({
       sessions: { findSession: () => activeSession(), appendEvent },
-      compact: vi.fn(async () => ({ ok: true })),
-      estimateContextPct: async () => 0.1,
       contextSources: {
         answeredQuestions: () => { throw new Error("db unavailable"); },
       },

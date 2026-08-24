@@ -38,7 +38,7 @@ describe("formatContextReport", () => {
     expect(report).toContain(`占有: ${(50_000).toLocaleString()} / ${(200_000).toLocaleString()} tokens (25%)`);
     expect(report).toContain(`残量: ${(150_000).toLocaleString()} tokens (75%)`);
     // しきい値 75% = 150,000 tokens、現在 50,000 → 余裕 100,000。
-    expect(report).toContain(`自動発火しきい値まで: ${(100_000).toLocaleString()} tokens (75% threshold)`);
+    expect(report).toContain(`表示基準まで: ${(100_000).toLocaleString()} tokens (75% threshold)`);
     expect(report).toContain("前回コンパクション: 未実行");
   });
 
@@ -51,7 +51,7 @@ describe("formatContextReport", () => {
     const over: ContextEstimate = { tokens: 250_000, windowTokens: 200_000, pct: 1 };
     const report = mod.formatContextReport(over, 0.75, null);
     expect(report).toContain("残量: 0 tokens (0%)");
-    expect(report).toContain("自動発火しきい値まで: 0 tokens");
+    expect(report).toContain("表示基準まで: 0 tokens");
   });
 });
 
@@ -76,6 +76,6 @@ describe("buildContextReport", () => {
     vi.mocked(estimateContextTokens).mockResolvedValue(estimate);
     const report = await mod.buildContextReport(session);
     // 50% = 100,000 tokens、現在 50,000 → 余裕 50,000。
-    expect(report).toContain(`自動発火しきい値まで: ${(50_000).toLocaleString()} tokens (50% threshold)`);
+    expect(report).toContain(`表示基準まで: ${(50_000).toLocaleString()} tokens (50% threshold)`);
   });
 });

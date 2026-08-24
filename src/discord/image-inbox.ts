@@ -20,7 +20,8 @@ const EXTENSION_BY_MIME = new Map([
 export interface DiscordImageAttachment {
   contentType: string | null;
   name: string | null;
-  size: number;
+  /** Discord attachments declare a size; proxied embed assets do not. */
+  size: number | null;
   url: string;
 }
 
@@ -44,6 +45,19 @@ export function isDiscordImageAttachment(attachment: DiscordImageAttachment): bo
 export function publicDiscordImageError(error: unknown): string {
   if (error instanceof DiscordImageInboxError) return error.message;
   return "画像の取得または保存中に内部エラーが発生しました";
+}
+
+export function isAllowedDiscordImageUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" &&
+      ALLOWED_HOSTS.has(url.hostname.toLowerCase()) &&
+      (url.port === "" || url.port === "443") &&
+      url.username === "" &&
+      url.password === "";
+  } catch {
+    return false;
+  }
 }
 
 export async function storeDiscordImages(input: StoreDiscordImagesInput): Promise<string[]> {
@@ -120,7 +134,10 @@ async function storeOneImage(input: {
   if (rawDeclaredType.startsWith("image/") && !declaredType) {
     throw new DiscordImageInboxError("対応していない画像形式です（PNG/JPEG/GIF/WebPのみ）");
   }
-  if (input.attachment.size <= 0 || input.attachment.size > MAX_IMAGE_BYTES) {
+  if (input.attachment.size !== null &&
+      (!Number.isSafeInteger(input.attachment.size) ||
+       input.attachment.size <= 0 ||
+       input.attachment.size > MAX_IMAGE_BYTES)) {
     throw new DiscordImageInboxError(`画像サイズが不正です（上限${MAX_IMAGE_BYTES / 1024 / 1024} MiB）`);
   }
 
@@ -130,13 +147,7 @@ async function storeOneImage(input: {
   } catch {
     throw new DiscordImageInboxError("画像URLが不正です");
   }
-  if (
-    url.protocol !== "https:" ||
-    !ALLOWED_HOSTS.has(url.hostname.toLowerCase()) ||
-    (url.port !== "" && url.port !== "443") ||
-    url.username !== "" ||
-    url.password !== ""
-  ) {
+  if (!isAllowedDiscordImageUrl(url.href)) {
     throw new DiscordImageInboxError("Discord CDN以外の画像URLは受け付けられません");
   }
 

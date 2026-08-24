@@ -149,6 +149,66 @@ describe("discord ingress chat routing", () => {
     expect(deps.log.warn).not.toHaveBeenCalledWith(expect.stringContaining("C:\\private"));
   });
 
+  it("injects Discord embed text and proxied images even when message content is empty", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.storeImages = vi.fn(async () => ["C:\\Temp\\discord-embed.png"]);
+    const embeds = [{
+      author: { name: "Status bot" },
+      provider: null,
+      title: "Build result",
+      description: "Open the preview and diagnose the failure.",
+      url: "https://example.com/report",
+      fields: [{ name: "status", value: "failed", inline: true }],
+      image: {
+        url: "https://example.com/image.png",
+        proxyURL: "https://media.discordapp.net/external/token/image.png",
+      },
+      thumbnail: null,
+    }];
+
+    await handleMessage(deps, makeMessage({ content: "", embeds }));
+
+    expect(deps.storeImages).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [expect.objectContaining({
+        size: null,
+        url: "https://media.discordapp.net/external/token/image.png",
+      })],
+      messageId: "msg1",
+      sessionId: "s1",
+    }));
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { text: string };
+    expect(body.text).toContain("Discord embed の内容を確認して対応してください");
+    expect(body.text).toContain("title: Build result");
+    expect(body.text).toContain("field status: failed");
+    expect(body.text).toContain("C:\\Temp\\discord-embed.png");
+  });
+
+  it("injects a text-only embed instead of treating it as an empty message", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    const embeds = [{
+      author: null,
+      provider: { name: "Build service" },
+      title: "Deployment complete",
+      description: "Version 42 is live.",
+      url: "https://example.com/releases/42",
+      fields: [],
+      footer: { text: "production" },
+      timestamp: "2026-08-23T01:00:00.000Z",
+      image: null,
+      thumbnail: null,
+      video: null,
+    }];
+
+    await handleMessage(deps, makeMessage({ content: "", embeds }));
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const body = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)) as { text: string };
+    expect(body.text).toContain("title: Deployment complete");
+    expect(body.text).toContain("footer: production");
+  });
+
   it("marks an authorized spoken session-end request after a successful inject", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");
@@ -219,6 +279,7 @@ function makeMessage(overrides: Record<string, unknown> = {}): Message {
     channel: { type: ChannelType.GuildText, send: vi.fn() },
     content: "hello",
     attachments: new Map(),
+    embeds: [],
     member: { nickname: "Kazumi" },
     react: vi.fn(async () => undefined),
     reply: vi.fn(async () => undefined),

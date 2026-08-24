@@ -18,6 +18,7 @@ import {
   storeDiscordImages,
   type DiscordImageAttachment,
 } from "./image-inbox.js";
+import { appendDiscordEmbedContext, extractDiscordEmbedIngress } from "./embed-ingress.js";
 
 const COMMAND_LIST_KEYWORD = "コマンドリスト";
 const ACCEPTED_INJECT_REACTION = "✅";
@@ -121,9 +122,11 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       url: attachment.url,
     }))
     .filter(isDiscordImageAttachment);
+  const embedIngress = extractDiscordEmbedIngress(msg.embeds);
+  imageAttachments.push(...embedIngress.images);
   const routeChannelId = resolveRouteChannelId(msg, deps.sessionChannelsRepo);
   const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
-  if (!text && (!sessionRow || imageAttachments.length === 0)) {
+  if (!text && (!sessionRow || (imageAttachments.length === 0 && !embedIngress.context))) {
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
     return;
   }
@@ -271,7 +274,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
       const injectAuthor = msg.member?.nickname?.trim() || msg.author.username;
       const session = deps.sessionsRepo.findSession(sessionRow.session_id);
       const isCodexSession = session?.provider === "codex-cli";
-      let injectText = text;
+      let injectText = appendDiscordEmbedContext(text, embedIngress.context);
       if (imageAttachments.length > 0) {
         try {
           const imagePaths = await (deps.storeImages ?? storeDiscordImages)({
@@ -279,7 +282,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
             messageId: msg.id,
             sessionId: sessionRow.session_id,
           });
-          injectText = buildDiscordImageInjectText(text, imagePaths);
+          injectText = buildDiscordImageInjectText(injectText, imagePaths);
         } catch (error) {
           const reason = publicDiscordImageError(error);
           deps.log.warn(`ingress: image download failed session=${sessionRow.session_id} channel=${msg.channelId}: ${reason}`);

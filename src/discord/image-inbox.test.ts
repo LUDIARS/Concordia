@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDiscordImageInjectText,
+  isAllowedDiscordImageUrl,
   isDiscordImageAttachment,
   publicDiscordImageError,
   storeDiscordImages,
@@ -42,6 +43,24 @@ describe("Discord image inbox", () => {
     const paths = await storeDiscordImages({
       attachments: [image({ contentType: null })],
       fetchImpl: async () => new Response(PNG, { headers: { "content-type": "application/octet-stream" } }),
+      inboxRoot: root,
+      messageId: "message-1",
+      sessionId: "session-1",
+    });
+
+    expect(paths).toEqual([join(root, "session-1-message-1-1.png")]);
+  });
+
+  it("stores a Discord-proxied embed image without a declared size or filename", async () => {
+    const root = await temporaryRoot();
+    const paths = await storeDiscordImages({
+      attachments: [image({
+        contentType: null,
+        name: null,
+        size: null,
+        url: "https://media.discordapp.net/external/token/image",
+      })],
+      fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
       inboxRoot: root,
       messageId: "message-1",
       sessionId: "session-1",
@@ -96,6 +115,22 @@ describe("Discord image inbox", () => {
       sessionId: "session-1",
     })).rejects.toThrow("Discord CDN以外");
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("rejects credentialed and non-standard-port Discord URLs", () => {
+    expect(isAllowedDiscordImageUrl("https://user:x@cdn.discordapp.com/image.png")).toBe(false);
+    expect(isAllowedDiscordImageUrl("https://cdn.discordapp.com:8443/image.png")).toBe(false);
+    expect(isAllowedDiscordImageUrl("https://cdn.discordapp.com/image.png")).toBe(true);
+  });
+
+  it("rejects an invalid declared attachment size", async () => {
+    await expect(storeDiscordImages({
+      attachments: [image({ size: Number.NaN })],
+      fetchImpl: async () => new Response(PNG, { headers: { "content-type": "image/png" } }),
+      inboxRoot: await temporaryRoot(),
+      messageId: "message-1",
+      sessionId: "session-1",
+    })).rejects.toThrow("画像サイズが不正です");
   });
 
   it("recognizes supported and unsupported image candidates before validation", () => {

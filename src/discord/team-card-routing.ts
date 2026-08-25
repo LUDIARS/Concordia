@@ -12,7 +12,7 @@ import type { TeamCardEventKind } from "../shared/team-cards.js";
 /**
  * ルーティング対象のカード種別。 surface 名は team-provision.ts が team_surfaces に
  * 保存するキーと一致させる。 event 経由の種別 (standup / meeting / question /
- * task-kanban) は shared/team-cards.ts が正本で、 ここはそれに routing 専用の
+ * task-kanban / issue-hypothesis) は shared/team-cards.ts が正本で、 ここはそれに routing 専用の
  * 予約種別を足した超集合。 cost-daily はチーム面側の張り替え先として予約済みだが、
  * 投稿元カードが未実装のため呼び出しサイトはまだ無い
  * (task-kanban はタスク整理が投稿する — spec/feature/director-workflow.md §2)。
@@ -32,6 +32,8 @@ export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   // セッション終了時の 1 本分の実績。 日次サマリ (cost-daily) と同じ面に出す。
   "cost-session": "コスト",
   "task-kanban": "タスクボード",
+  // 課題スカウトはタスク整理と同じ面へ進言を載せる (新規 surface は作らない)。
+  "issue-hypothesis": "タスクボード",
   // 朝礼は目標の進み方を報告するので、 director-plan と同じ 目標 面に出す。
   "standup": "目標",
   // 定例の開始通知。 本体の議論は定例セッションの thread で行い、 ここには入口だけ置く。

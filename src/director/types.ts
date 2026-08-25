@@ -89,6 +89,25 @@ export interface DirectorCaseDetail {
   decisions: DirectorDecisionRecord[];
 }
 
+/** 課題スカウトに渡す、既存 Director 正本からの読み取り専用 signal 集約。 */
+export interface DirectorIssueSignals {
+  team_id: string;
+  days: number;
+  generated_at: number;
+  blocked_steps: Array<{
+    case_id: string;
+    case_title: string;
+    step_id: string;
+    step_title: string;
+    /** patrol が生成した既知事由だけを返す。handoff_note の生文は公開しない。 */
+    note: "run-missing" | "run-failed" | null;
+    updated_at: number;
+  }>;
+  stalled_cases: Array<{ case_id: string; title: string; updated_at: number }>;
+  budget_exhausted_cases: Array<{ case_id: string; title: string; launched: number }>;
+  case_count: number;
+}
+
 export interface CreateDirectorStepInput {
   kind: DirectorStepKind;
   title: string;

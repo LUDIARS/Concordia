@@ -8,7 +8,7 @@
  */
 
 /** POST /v1/teams/:id/cards が受け付ける種別 (delegation からの報告カード)。 */
-export const TEAM_CARD_POST_KINDS = ["standup", "meeting", "task-kanban"] as const;
+export const TEAM_CARD_POST_KINDS = ["standup", "meeting", "task-kanban", "issue-hypothesis"] as const;
 
 export type TeamCardPostKind = (typeof TEAM_CARD_POST_KINDS)[number];
 

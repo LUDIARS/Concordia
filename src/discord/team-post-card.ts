@@ -18,6 +18,12 @@ const CARD_COLOR: Partial<Record<TeamCardKind, number>> = {
   question: 0xf0b232,
   // タスク整理の報告 (spec/feature/director-workflow.md §2)。
   "task-kanban": 0x57f287,
+  // Director 課題スカウトの進言 (spec/feature/director-issue-scout.md §3)。
+  "issue-hypothesis": 0x9b59b6,
+};
+
+const CARD_LABEL: Partial<Record<TeamCardKind, string>> = {
+  "issue-hypothesis": "課題スカウト",
 };
 
 export interface TeamPostCardDeps {
@@ -69,6 +75,8 @@ export async function postTeamCard(deps: TeamPostCardDeps, input: TeamPostCardIn
     .setTitle(input.title)
     .setDescription(truncateCardBody(input.body))
     .setColor(CARD_COLOR[input.kind] ?? 0x99aab5);
+  const label = CARD_LABEL[input.kind];
+  if (label) embed.setAuthor({ name: label });
 
   // 報告カードでメンションを飛ばさない (本文に @ が混ざっても通知を撒かない)。
   await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });

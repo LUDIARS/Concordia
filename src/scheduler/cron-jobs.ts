@@ -96,6 +96,9 @@ const TEAM_REVIEW_REGULAR_CRON = "0 13 * * 2,5";
  * 整理が朝礼のズレ指摘を引用できるようにする。
  */
 const DIRECTOR_TASK_ORGANIZE_CRON = "0 10 * * *";
+
+/** 課題スカウト。朝礼とタスク整理の観測後、毎週月曜11:00にチームごとへ進言する。 */
+const DIRECTOR_ISSUE_SCOUT_CRON = "0 11 * * 1";
 export const CRON_JOBS: CronJobDefinition[] = [{
     name: "ludiars-review-weekly",
     cron: WEEKLY_REVIEW_CRON,
@@ -157,6 +160,13 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     name: "team-review-regular",
     cron: TEAM_REVIEW_REGULAR_CRON,
     call_name: "team-review-regular",
+    buildArgs: () => ({ date: todayIso() }),
+    cwd: ARS_ROOT,
+    fanout: "teams",
+}, {
+    name: "director-issue-scout-weekly",
+    cron: DIRECTOR_ISSUE_SCOUT_CRON,
+    call_name: "director-issue-scout",
     buildArgs: () => ({ date: todayIso() }),
     cwd: ARS_ROOT,
     fanout: "teams",

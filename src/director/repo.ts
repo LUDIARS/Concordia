@@ -7,6 +7,7 @@ import type {
   DirectorStep,
   DirectorStepSummary,
   DirectorStepStatus,
+  DirectorIssueSignals,
 } from "./types.js";
 
 interface DirectorCaseRow extends DirectorCase {}
@@ -16,6 +17,8 @@ interface DirectorStepRow extends DirectorStep {}
 interface DirectorStepSummaryRow extends DirectorStepSummary {
   case_id: string;
 }
+
+type DirectorIssueSignalRows = Omit<DirectorIssueSignals, "team_id" | "days" | "generated_at">;
 
 interface DirectorDecisionRow {
   id: string;
@@ -134,6 +137,65 @@ export class DirectorRepo {
       stepsByCase.set(step.case_id, grouped);
     }
     return cases.map((row) => ({ case: row, steps: stepsByCase.get(row.id) ?? [] }));
+  }
+
+  /**
+   * 課題スカウト向け。既存 case / step を更新せずに観測 signal だけを集約する。
+   * @implements spec/feature/director-issue-scout.md §1
+   */
+  issueSignals(input: {
+    teamId: string;
+    days: number;
+    now: number;
+    maxRunsPerCase: number;
+  }): DirectorIssueSignalRows {
+    const caseCount = (this.db.prepare(
+      "SELECT COUNT(*) AS count FROM director_cases WHERE team_id = ?",
+    ).get(input.teamId) as { count: number }).count;
+    const blockedSteps = this.db.prepare(`
+      SELECT c.id AS case_id, c.title AS case_title, s.id AS step_id, s.title AS step_title,
+             CASE
+               WHEN s.delegation_run_id IS NOT NULL
+                AND s.handoff_note = 'delegation run ' || s.delegation_run_id || ' not found'
+                 THEN 'run-missing'
+               WHEN s.delegation_run_id IS NOT NULL
+                AND s.handoff_note IN (
+                  'delegation run ' || s.delegation_run_id || ' failed',
+                  'delegation run ' || s.delegation_run_id || ' spawn_failed'
+                )
+                 THEN 'run-failed'
+               ELSE NULL
+             END AS note,
+             s.updated_at
+        FROM director_cases c JOIN director_steps s ON s.case_id = c.id
+       WHERE c.team_id = ? AND s.status = 'blocked'
+       ORDER BY s.updated_at DESC
+    `).all(input.teamId) as DirectorIssueSignals["blocked_steps"];
+    const staleBefore = input.now - input.days * 86_400_000 / 2;
+    const stalledCases = this.db.prepare(`
+      SELECT c.id AS case_id, c.title, c.updated_at
+        FROM director_cases c
+       WHERE c.team_id = ? AND c.updated_at < ?
+         AND EXISTS (
+           SELECT 1 FROM director_steps s
+            WHERE s.case_id = c.id AND s.status NOT IN ('completed', 'cancelled')
+         )
+       ORDER BY c.updated_at ASC
+    `).all(input.teamId, staleBefore) as DirectorIssueSignals["stalled_cases"];
+    const exhaustedCases = this.db.prepare(`
+      SELECT c.id AS case_id, c.title, COUNT(s.id) AS launched
+        FROM director_cases c JOIN director_steps s ON s.case_id = c.id
+       WHERE c.team_id = ? AND s.delegation_run_id IS NOT NULL
+       GROUP BY c.id, c.title
+      HAVING COUNT(s.id) >= ?
+       ORDER BY launched DESC, c.updated_at ASC
+    `).all(input.teamId, input.maxRunsPerCase) as DirectorIssueSignals["budget_exhausted_cases"];
+    return {
+      blocked_steps: blockedSteps,
+      stalled_cases: stalledCases,
+      budget_exhausted_cases: exhaustedCases,
+      case_count: caseCount,
+    };
   }
 
   findLatestCaseForSession(sessionId: string): DirectorCase | null {

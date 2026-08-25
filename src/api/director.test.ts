@@ -63,6 +63,68 @@ describe("directorRouter", () => {
     });
   });
 
+  it("aggregates read-only issue signals for a team and clamps days", async () => {
+    const app = makeApp();
+    const created = await app.request("/v1/director/cases", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "停滞案件",
+        goal: "signal を出す",
+        project: "Cc",
+        team_id: "team-1",
+        steps: [{ kind: "review", title: "確認", delegation_run_id: "run-1" }],
+      }),
+    });
+    const body = await created.json() as { case: { id: string }; steps: Array<{ id: string }> };
+    await app.request(`/v1/director/cases/${body.case.id}/steps/${body.steps[0].id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status: "blocked", handoff_note: "delegation run run-1 failed" }),
+    });
+    const response = await app.request("/v1/director/issue-signals?team_id=team-1&days=120");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      team_id: "team-1", days: 90, case_count: 1,
+      blocked_steps: [{ case_id: body.case.id, step_id: body.steps[0].id, note: "run-failed" }],
+    });
+
+    const privateNoteCase = await app.request("/v1/director/cases", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: "任意 note を持つ案件",
+        goal: "生文を公開しない",
+        project: "Cc",
+        team_id: "team-1",
+        steps: [{ kind: "review", title: "確認" }],
+      }),
+    });
+    const privateNoteBody = await privateNoteCase.json() as {
+      case: { id: string };
+      steps: Array<{ id: string }>;
+    };
+    await app.request(
+      `/v1/director/cases/${privateNoteBody.case.id}/steps/${privateNoteBody.steps[0].id}`,
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "blocked", handoff_note: "private-note-must-not-appear" }),
+      },
+    );
+    const redacted = await app.request("/v1/director/issue-signals?team_id=team-1");
+    const redactedBody = await redacted.json() as {
+      blocked_steps: Array<{ case_id: string; note: string | null }>;
+    };
+    expect(redactedBody.blocked_steps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ case_id: privateNoteBody.case.id, note: null }),
+    ]));
+    expect(JSON.stringify(redactedBody)).not.toContain("private-note-must-not-appear");
+
+    const unknown = await app.request("/v1/director/issue-signals?team_id=unknown");
+    expect(await unknown.json()).toMatchObject({ case_count: 0, blocked_steps: [], stalled_cases: [], budget_exhausted_cases: [] });
+    expect((await app.request("/v1/director/issue-signals")).status).toBe(400);
+  });
+
   it("rejects invalid input and invalid transitions with stable status codes", async () => {
     const app = makeApp();
     const invalid = await app.request("/v1/director/cases", {

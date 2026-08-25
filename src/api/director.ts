@@ -93,6 +93,18 @@ export function directorRouter(deps: { service: DirectorService }): Hono {
     return c.json({ cases: deps.service.listCases({ team_id: teamId || undefined, limit }) });
   });
 
+  app.get("/issue-signals", (c) => {
+    const teamId = (c.req.query("team_id") ?? "").trim();
+    if (!teamId || teamId.length > 200) {
+      return c.json({ error: "invalid_team_id" }, 400);
+    }
+    const requestedDays = Number(c.req.query("days"));
+    const days = Number.isInteger(requestedDays) && requestedDays > 0
+      ? Math.min(requestedDays, 90)
+      : 30;
+    return c.json(deps.service.issueSignals({ team_id: teamId, days }));
+  });
+
   app.get("/cases/:caseId", (c) => {
     const detail = deps.service.getCase(c.req.param("caseId"));
     return detail ? c.json(detail) : c.json({ error: "not_found" }, 404);

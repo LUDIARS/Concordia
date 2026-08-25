@@ -126,6 +126,7 @@ describe("startCronScheduler", () => {
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
       { name: "team-standup-daily", cron: "30 9 * * *", call_name: "team-standup-daily" },
       { name: "team-review-regular", cron: "0 13 * * 2,5", call_name: "team-review-regular" },
+      { name: "director-issue-scout-weekly", cron: "0 11 * * 1", call_name: "director-issue-scout" },
       { name: "director-task-organize-daily", cron: "0 10 * * *", call_name: "director-task-organize" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
@@ -138,6 +139,7 @@ describe("startCronScheduler", () => {
       "kaizen-daily",
       "team-standup-daily",
       "team-review-regular",
+      "director-issue-scout-weekly",
       "director-task-organize-daily",
     ]);
     expect(CRON_JOBS.some((j) => j.name === "genius-ingest-tier2-nightly")).toBe(false);
@@ -168,6 +170,7 @@ describe("startCronScheduler", () => {
       "kaizen-daily",
       "team-standup-daily",
       "team-review-regular",
+      "director-issue-scout-weekly",
       "director-task-organize-daily",
     ]) {
       const job = CRON_JOBS.find((j) => j.name === name);

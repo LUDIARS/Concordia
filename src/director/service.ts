@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { decideInquiry, geniusCategories, type InquiryCategory } from "../inquiry/decision.js";
 import type { GeniusCard, GeniusClient } from "../inquiry/genius-client.js";
 import { DirectorRepo } from "./repo.js";
+import { DEFAULT_PATROL_LIMITS } from "./patrol.js";
 import type {
   CreateDirectorCaseInput,
   CreateDirectorStepInput,
@@ -9,6 +10,7 @@ import type {
   DirectorCase,
   DirectorDecisionKind,
   DirectorDecisionRecord,
+  DirectorIssueSignals,
   DirectorStep,
   DirectorStepSummary,
   DirectorStepStatus,
@@ -112,6 +114,22 @@ export class DirectorService {
   /** 一覧 (kanban) 用の read model。 decisions は含めず case + steps だけ返す。 */
   listCases(filter: { team_id?: string; limit?: number } = {}): Array<{ case: DirectorCase; steps: DirectorStepSummary[] }> {
     return this.deps.repo.listCasesWithSteps({ teamId: filter.team_id, limit: filter.limit });
+  }
+
+  /** @implements spec/feature/director-issue-scout.md §1 */
+  issueSignals(input: { team_id: string; days: number }): DirectorIssueSignals {
+    const generatedAt = this.now();
+    return {
+      team_id: input.team_id,
+      days: input.days,
+      generated_at: generatedAt,
+      ...this.deps.repo.issueSignals({
+        teamId: input.team_id,
+        days: input.days,
+        now: generatedAt,
+        maxRunsPerCase: DEFAULT_PATROL_LIMITS.maxRunsPerCase,
+      }),
+    };
   }
 
   updateStep(input: {

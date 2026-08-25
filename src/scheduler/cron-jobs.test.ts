@@ -46,12 +46,13 @@ describe("CRON_JOBS", () => {
     });
   });
 
-  it("fanout を使うのは朝礼・定例・タスク整理だけ (既存の日次ジョブは 1 本のまま)", () => {
+  it("fanout を使うのは朝礼・定例・課題スカウト・タスク整理だけ (既存の日次ジョブは 1 本のまま)", () => {
     const fanned = CRON_JOBS.filter((job) => job.fanout).map((job) => job.name);
 
     expect(fanned).toEqual([
       "team-standup-daily",
       "team-review-regular",
+      "director-issue-scout-weekly",
       "director-task-organize-daily",
     ]);
   });

@@ -108,6 +108,21 @@ describe("teamsRouter card posting", () => {
     db.close();
   });
 
+  it("課題仮説カードを API で受理する", async () => {
+    const { app, db, repo } = makeApp();
+    const team = repo.create({ name: "Scout", slug: "scout" });
+
+    const response = await postCard(app, team.id, {
+      kind: "issue-hypothesis",
+      title: "課題仮説: 上流の詰まり",
+      body: "根拠を確認した進言です。",
+    });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ accepted: true, team_id: team.id, kind: "issue-hypothesis" });
+    db.close();
+  });
+
   it("未知のチームは 404", async () => {
     const { app, db } = makeApp();
 

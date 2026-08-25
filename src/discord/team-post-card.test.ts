@@ -43,6 +43,14 @@ describe("postTeamCard", () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("課題スカウトのカードを紫色で投稿する", async () => {
+    const { deps, send } = makeDeps();
+
+    await expect(postTeamCard(deps, { ...INPUT, kind: "issue-hypothesis" })).resolves.toBe(true);
+    expect(send.mock.calls[0][0].embeds[0].data.color).toBe(0x9b59b6);
+    expect(send.mock.calls[0][0].embeds[0].data.author?.name).toBe("課題スカウト");
+  });
+
   it("子会社 bot では投稿しない", async () => {
     const { deps, fetch } = makeDeps({ subsidiary: true });
 

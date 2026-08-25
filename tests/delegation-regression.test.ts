@@ -31,6 +31,7 @@ const EXPECTED_SEED_CALLS = [
   "design-analysis-opus",
   "design-hard-fable5",
   // ディレクターワークフロー (2026-08-20 neco 指示、spec/feature/director-workflow.md)
+  "director-issue-scout",
   "director-task-organize",
   "director-task-pull",
   "genius-ingest-daily",
@@ -64,7 +65,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 35, 40, 45, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 35, 40, 45, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");

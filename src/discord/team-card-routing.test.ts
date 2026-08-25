@@ -26,6 +26,7 @@ describe("resolveTeamCardChannel", () => {
     expect(resolveTeamCardChannel(repo, team.id, "question")).toBe("chan-direction");
     expect(resolveTeamCardChannel(repo, team.id, "cost-daily")).toBe("chan-cost");
     expect(resolveTeamCardChannel(repo, team.id, "task-kanban")).toBe("chan-board");
+    expect(resolveTeamCardChannel(repo, team.id, "issue-hypothesis")).toBe("chan-board");
     db.close();
   });
 

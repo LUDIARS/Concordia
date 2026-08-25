@@ -44,8 +44,8 @@ afterEach(() => {
 });
 
 describe("goal-and-go metadata", () => {
-  it("is OFF by default and reads the legacy boolean flag", () => {
-    expect(readGoalAndGoStatus(null).enabled).toBe(false);
+  it("is ON by default and preserves explicit legacy overrides", () => {
+    expect(readGoalAndGoStatus(null).enabled).toBe(true);
     expect(readGoalAndGoStatus(JSON.stringify({ goal_and_go: true }))).toEqual({
       enabled: true,
       continuation_count: 0,
@@ -53,6 +53,8 @@ describe("goal-and-go metadata", () => {
       last_continued_at: null,
       stopped_reason: null,
     });
+    expect(readGoalAndGoStatus(JSON.stringify({ goal_and_go: false })).enabled).toBe(false);
+    expect(readGoalAndGoStatus(JSON.stringify({ goal_and_go: { enabled: false } })).enabled).toBe(false);
   });
 
   it("enabling resets the safety budget while preserving unrelated metadata", () => {
@@ -159,7 +161,7 @@ describe("startGoalAndGo", () => {
 
   it("does nothing while the session flag is OFF", async () => {
     vi.useFakeTimers();
-    const env = fakeRepo(null);
+    const env = fakeRepo(setGoalAndGoEnabled(null, false));
     const injected: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => {
       if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);

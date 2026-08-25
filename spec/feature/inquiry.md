@@ -191,24 +191,24 @@ Lictor がセッションの作業完了を検知したら、 セッションに
 
 ## 7. パートタイマーの残業判定 (category=`パートタイマー`)
 
-task-workflow で起動した子セッション (= パートタイマー) は、 **作業完了しても
-自動終了しない**。 完了時に以下を行う:
+task-workflow で起動した子セッション (= パートタイマー) は、残作業があればお伺いで
+継続判断を行う。PR open/draft + residual `none` で終了だけが残った場合は、2026-08-25
+neco 指示により人間判断を待たず teardown ladder へ進む。
 
 ```
 実装完了 → POST /v1/delegation/runs/:id/status {completed}   (既存)
-        → POST /v1/inquiry { category: "パートタイマー", context: <完了報告> }
         → 上長 (§4) へ完了報告メンション (常に)
-        → 応答を見て セッション自身が 残業 / session-end を決める
-             proceed     → 次タスクに着手 (残業)
-             ask_human   → 上長の返答を待つ (§5 の催促タイマが張られる)
-             self_judge  → 残タスクの有無を自分で確認し、 無ければ session-end
+        → goal machine + residual 判定
+             次タスクあり             → goal-and-go で次タスクへ
+             人間判断が必要           → inquiry / 未回答質問を待つ
+             PR open + residual none  → teardown ladder で session-end
 ```
 
-- **決めるのはセッション自身**。 Cc は材料 (`instruction` + 残タスク一覧) を返すだけ。
-- `session-end` を選んだ場合は `feature/session-shutdown.md` の shutdown 手順に乗る。
-- 既存の `finishAutonomousTaskflow` (`src/taskflow/session-end.ts`) は
-  「自動で session-end inject を撃つ」実装なので、 **お伺い送信に置き換える**。
-  自動終了はここで廃止される。
+- 継続方針を決めるのはセッションまたは人間であり、Cc は判断を推測しない。
+- 終了条件が機械的に確定した場合は `feature/session-shutdown.md` の shutdown 手順に乗る。
+- `finishAutonomousTaskflow` (`src/taskflow/session-end.ts`) は、終了条件が機械的に確定した
+  セッションをお伺いへ戻さず、provider別 session-end と強制終了保険を持つ teardown ladder
+  へ接続する。権限など別件の未回答質問があるセッションはこの即時経路に乗せない。
 
 ## 8. goal-and-go との関係
 

@@ -42,9 +42,6 @@ export async function checkResidual(input: {
     eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "decompose", pending_count: 0, ts: Math.floor(Date.now() / 1000) });
     return "decompose";
   }
-  if (!readGoalAndGoStatus(session.metadata).enabled) {
-    notifyUserDecision({ kind: "no-tasks", targetSessionId: input.sessionId, mentionUserId: input.mentionUserId, text: "残作業タスクがありません。ワークフローを閉じてよいか確認してください。" });
-  }
   eventBus.emit({ type: "taskflow.residual_checked", session_id: input.sessionId, outcome: "none", pending_count: 0, ts: Math.floor(Date.now() / 1000) });
   return "none";
 }

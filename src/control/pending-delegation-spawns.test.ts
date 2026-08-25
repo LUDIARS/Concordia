@@ -100,13 +100,18 @@ describe("pending-delegation-spawns", () => {
     expect(claimPendingDelegationSpawn("/a", 1001)?.parentSessionId).toBe("parent-123");
   });
 
-  it("round-trips the goal-and-go opt-in", () => {
+  it("defaults goal-and-go ON and round-trips an explicit opt-out", () => {
     recordPendingDelegationSpawn({
       cwd: "/a",
       callName: "impl-from-design",
-      goalAndGo: true,
     }, 1000);
     expect(claimPendingDelegationSpawn("/a", 1001)?.goalAndGo).toBe(true);
+    recordPendingDelegationSpawn({
+      cwd: "/b",
+      callName: "one-shot",
+      goalAndGo: false,
+    }, 1002);
+    expect(claimPendingDelegationSpawn("/b", 1003)?.goalAndGo).toBe(false);
   });
 
   it("round-trips the canonical team id", () => {

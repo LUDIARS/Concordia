@@ -306,9 +306,10 @@ delegation run は §5 の status API が正なので、 本節は **status を�
 
 ### 10.1 自走完了時の session-end
 
-goal-and-go が有効で、PR が open/draft のテスト候補として引き継がれ、residual 判定が
-`none` の場合は provider 別の session-end (`/session-end` / `$session-end`) を自動 inject
-する。同じ session の `auto:session-end` inject は永続イベントを使って exactly-once にする。
+PR が open/draft のテスト候補として引き継がれ、residual 判定が `none`、かつ別件の
+未回答質問が無い場合は、goal-and-go の明示OFFに関係なく provider 別の session-end
+(`/session-end` / `$session-end`) を teardown ladder から自動 inject する。同じ run の
+`auto:session-end` inject は永続metadataを使って exactly-once にする。
 次タスク・分解・confirm queue・PR 判断など自走または人間の作業が残る場合は自動終了しない。
 
 ## 11. Discord フォーラム移行との整合

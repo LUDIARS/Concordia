@@ -53,7 +53,7 @@ export function seedSessionContract(session: SessionRow, task: string, defaultSu
     ),
     scope_dirs: decided(["."], "登録 repo root からの相対スコープ"),
     acceptance: decided(mode === "plan" ? "plan" : "human-ok", "mode から導出"),
-    goal_and_go: decided({ enabled: metadataBoolean(session.metadata, "goal_and_go", "enabled") ?? false }, "spawn option"),
+    goal_and_go: decided({ enabled: metadataBoolean(session.metadata, "goal_and_go", "enabled") ?? true }, "default ON; explicit spawn option may disable"),
     continuation: decided("requeue", "プロセス使い捨てを既定とする"),
     // vibes の service は spawn 時点では解けない (Excubitor catalog 参照が非同期)。
     // 解決できたら ensureSessionContract が seed の上から埋め直す。

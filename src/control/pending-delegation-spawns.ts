@@ -31,7 +31,7 @@ export interface PendingDelegationSpawn {
   sourceDiscordChannelId: string | null;
   /** Parent session that requested the delegation, when known. */
   parentSessionId: string | null;
-  /** Whether the spawned session opted in to goal-and-go autonomous continuation. */
+  /** Whether goal-and-go remains enabled for the spawned session. */
   goalAndGo: boolean;
   /** Canonical team id selected before launch. */
   teamId: string | null;
@@ -88,7 +88,7 @@ export function recordPendingDelegationSpawn(
     sourceDiscordGuildId: (input.sourceDiscordGuildId ?? "").trim() || null,
     sourceDiscordChannelId: (input.sourceDiscordChannelId ?? "").trim() || null,
     parentSessionId: (input.parentSessionId ?? "").trim() || null,
-    goalAndGo: input.goalAndGo === true,
+    goalAndGo: input.goalAndGo !== false,
     teamId: (input.teamId ?? "").trim() || null,
     testSurfaceId:
       typeof input.testSurfaceId === "number" && Number.isInteger(input.testSurfaceId) && input.testSurfaceId > 0

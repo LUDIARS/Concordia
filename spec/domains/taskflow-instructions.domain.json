@@ -31,7 +31,8 @@
     "migration-backed-default-wording-replacement"
   ],
   "specRefs": [
-    "spec/feature/task-workflow.md"
+    "spec/feature/task-workflow.md",
+    "spec/feature/deterministic-teardown.md"
   ],
   "rationale": "規範文言は分解 inject・ハーネス builtin ルール・kind 別 inject マニュアルの 3 経路へ配られ、1 箇所に集約されていないと経路ごとにずれる (2026-08-09 neco 指示で md 書き戻し禁止へ切り替えた際の要件)。この層はどのドメインにも属しておらず、文言だけを触る PR が Anatomia review gate (target domain missing) で止まっていた (2026-08-15 Cc #566)。状態の読み書きと分けて、指示文の正本だけを宣言する。"
 }

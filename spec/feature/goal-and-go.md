@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "ゴールアンドゴー (goal-and-go 自走継続)"
-description: "最終回答後に人間入力がないopt-inセッションへ、ゴール達成または残作業解消のための上限付き続行injectを送る。"
+description: "全セッションで既定有効とし、明示OFF以外へゴール達成または残作業解消のための上限付き続行injectを送る。"
 service: concordia
 domain: session-coordination
 tags:
@@ -11,20 +11,21 @@ tags:
   - autonomous
   - safety
 status: implemented
-updated: 2026-08-24
+updated: 2026-08-25
 related:
   - feature/task-workflow.md
 ---
 
 # ゴールアンドゴー (goal-and-go 自走継続)
 
-`idle-nudge`の最終回答後待機判定を土台に、待機を人間への催促だけでなく、明示的に
-opt-inしたAIセッション自身の自走継続につなげる。
+`idle-nudge`の最終回答後待機判定を土台に、待機を人間への催促だけでなく、AIセッション
+自身の自走継続につなげる。2026-08-25 neco 指示により全セッション既定 ON とし、明示的な
+OFF だけを例外として保持する。
 
 ## 発動条件
 
 - `final_answer`または`summary`から既定300秒、人間の入力がない。
-- `sessions.metadata.goal_and_go.enabled`が`true`。既定はOFF。
+- `sessions.metadata.goal_and_go.enabled`が明示的な`false`ではない。既定はON。
 - セッションが`active`で、安全上限による停止状態ではない。
 
 人間の`user_activity`、ユーザ発話、人間由来injectは待機タイマを解除し、自走の回数・時間
@@ -36,9 +37,11 @@ opt-inしたAIセッション自身の自走継続につなげる。
   `{ "enabled": boolean }`。
 - Discord のセッションチャンネルでは `/co-go-and-go state:<on|off>` で切り替え、引数なしで
   現在値と継続回数を確認できる。
-- 新規delegation/spawn: runtime option `goal_and_go: true`。Ccのpending spawn registryを
-  介して、登録されたセッションmetadataへopt-inを焼く。Lictor向けenv
-  `CONCORDIA_DELEGATION_GOAL_AND_GO=1`も併用する。
+- 新規delegation/spawn: runtime option の省略または `goal_and_go: true` でON、
+  `goal_and_go: false` のときだけOFF。Ccのpending spawn registryを介して、登録された
+  セッションmetadataへ明示値を焼く。ON時はLictor向けenv
+  `CONCORDIA_DELEGATION_GOAL_AND_GO=1`も併用し、明示OFF時は継承環境を確実に
+  上書きするため `CONCORDIA_DELEGATION_GOAL_AND_GO=0` を渡す。
 - Cc再起動後もフラグと安全予算を保持できるよう、状態はセッションmetadataへ永続化する。
 
 ## ゴールと残作業の判断
@@ -58,7 +61,7 @@ opt-inしたAIセッション自身の自走継続につなげる。
 - 判定の正本は `discord_pending_questions` の未回答行
   (`findLatestUnanswered`)。ask マーカー / picker / WebUI のどの経路で出した質問でも同じ。
 - 送らなかった場合、`continuation_count` も消費しない。回答が付けば本来の回数だけ自走できる。
-- 同じ blocker を taskflow の自動 inject (分解プロンプト / 完了お伺い) と
+- 同じ blocker を taskflow の自動 inject (分解プロンプト / teardown ladder 予約) と
   `POST /v1/inquiry` のタスク自動 inject にも適用する
   (`src/control/pending-question-blocker.ts`)。
 - **止めないもの**: 人間の発言 (Discord/Slack チャット)、回答そのもの
@@ -83,10 +86,10 @@ opt-inしたAIセッション自身の自走継続につなげる。
 
 ## 受け入れ基準
 
-- [x] フラグOFFのセッションは自走しない。
+- [x] metadata未設定の既存・新規セッションはONとして扱い、明示OFFだけは自走しない。
 - [x] フラグONかつ300秒無入力で同じセッションへ続行injectを1回送る。
 - [x] 明示goalの有無で、達成度評価と残作業探索を切り替える。
 - [x] 人間入力はタイマを解除し、安全予算をリセットする。
 - [x] 回数・時間上限を超えてinjectしない。
-- [x] APIとdelegation runtime optionからopt-inできる。
+- [x] APIとdelegation runtime optionから明示OFF/再ONできる。
 - [x] 未回答の質問があるセッションへは自走継続injectを送らず、継続回数も消費しない。

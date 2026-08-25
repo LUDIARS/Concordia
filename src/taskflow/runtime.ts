@@ -43,7 +43,14 @@ export class TaskflowRuntime {
     if (!sessionId) return;
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
     const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
+    finishAutonomousTaskflow({
+      sessionId,
+      sessions: this.deps.sessions,
+      goalOutcome,
+      residualOutcome,
+      runKey: `delegation:${run.id}`,
+      hasPendingQuestion: this.deps.hasPendingQuestion,
+    });
   }
 
   start(): { stop(): void } {

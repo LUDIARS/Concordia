@@ -185,9 +185,9 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
           : null,
       ].filter((text): text is string => Boolean(text?.trim())).join("\n\n");
       if (startupInjectText) meta.discord_startup_inject = startupInjectText;
-      if (claimed?.goalAndGo) {
+      if (claimed) {
         meta.goal_and_go = {
-          enabled: true,
+          enabled: claimed.goalAndGo,
           continuation_count: 0,
           started_at: null,
           last_continued_at: null,

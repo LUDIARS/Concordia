@@ -12,10 +12,23 @@ describe("session contract", () => {
     const contract = seedSessionContract(session, "schema migration", "discord:1");
     expect(contract.mode?.value).toBe("plan");
     expect(contract.work_location?.value).toBe("worktree");
+    expect(contract.goal_and_go?.value).toEqual({ enabled: true });
     // runtime が model / effort を報告していないので seed では決まらない (LLM/human tier 行き)。
     expect(contract.model).toBeNull();
     expect(contract.effort).toBeNull();
     expect(isContractComplete(contract)).toBe(false);
+  });
+
+  it("preserves an explicit goal-and-go opt-out in the session contract", () => {
+    const session = {
+      provider: "codex-cli",
+      repo_path: "E:/repo",
+      branch: "feat/x",
+      metadata: JSON.stringify({ goal_and_go: { enabled: false } }),
+      target_project: "Cc",
+    } as SessionRow;
+    expect(seedSessionContract(session, "small fix", "discord:1").goal_and_go?.value)
+      .toEqual({ enabled: false });
   });
 
   it("seeds model/effort only from actually reported runtime metadata", () => {

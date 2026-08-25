@@ -33,12 +33,11 @@ describe("finishAutonomousTaskflow", () => {
   it.each([
     ["claude-code"],
     ["codex-cli"],
-  ] as const)("sends an inquiry instruction exactly once for %s", (provider) => {
+  ] as const)("schedules provider-aware teardown exactly once for %s", (provider) => {
     const row = session(provider);
     const events: Array<{ kind: string; payload: string }> = [];
     const sessions = {
       findSession: vi.fn(() => row),
-      recentEvents: vi.fn(() => events),
       appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
       mergeMetadata: mergeMetadata(row),
     };
@@ -61,16 +60,18 @@ describe("finishAutonomousTaskflow", () => {
     })).toBe(false);
 
     expect(emitted).toHaveLength(1);
-    expect(emitted[0]).toContain("お伺い");
+    expect(emitted[0]).toBe(provider === "claude-code" ? "/session-end" : "$session-end");
     expect(sessions.appendEvent).toHaveBeenCalledOnce();
+    expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
+      teardown_ladder: { run_key: "task-one:0", retries_sent: 0 },
+    });
     unsubscribe();
   });
 
-  it("sends completion inquiry even when goal-and-go is disabled", () => {
+  it("schedules teardown even when goal-and-go is explicitly disabled", () => {
     const row = session("codex-cli", false);
     const sessions = {
       findSession: vi.fn(() => row),
-      recentEvents: vi.fn(() => []),
       appendEvent: vi.fn(),
       mergeMetadata: mergeMetadata(row),
     };
@@ -82,12 +83,11 @@ describe("finishAutonomousTaskflow", () => {
     })).toBe(true);
   });
 
-  it("allows another inquiry after the task/run boundary changes", () => {
+  it("allows another teardown schedule after the task/run boundary changes", () => {
     const row = session("codex-cli");
     const events: Array<{ kind: string; payload: string }> = [];
     const sessions = {
       findSession: vi.fn(() => row),
-      recentEvents: vi.fn(() => events),
       appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
       mergeMetadata: mergeMetadata(row),
     };
@@ -100,12 +100,37 @@ describe("finishAutonomousTaskflow", () => {
     })).toBe(true);
   });
 
-  it("未回答の質問がある間は完了お伺いを送らず、記録も残さない", () => {
+  it("uses a stable delegation run key when consecutive runs have the same task title", () => {
+    const row = session("codex-cli");
+    const sessions = {
+      findSession: vi.fn(() => row),
+      appendEvent: vi.fn(),
+      mergeMetadata: mergeMetadata(row),
+    };
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      goalOutcome: "open",
+      residualOutcome: "none",
+      runKey: "delegation:run-1",
+    })).toBe(true);
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      goalOutcome: "open",
+      residualOutcome: "none",
+      runKey: "delegation:run-2",
+    })).toBe(true);
+    expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
+      teardown_ladder: { run_key: "delegation:run-2" },
+    });
+  });
+
+  it("未回答の質問がある間は終了 ladder を予約せず、回答後に予約する", () => {
     const row = session("claude-code");
     const events: Array<{ kind: string; payload: string }> = [];
     const sessions = {
       findSession: vi.fn(() => row),
-      recentEvents: vi.fn(() => events),
       appendEvent: vi.fn((input) => events.push({ kind: input.kind, payload: JSON.stringify(input.payload) })),
       mergeMetadata: mergeMetadata(row),
     };
@@ -145,7 +170,6 @@ describe("finishAutonomousTaskflow", () => {
     const row = session("codex-cli");
     const sessions = {
       findSession: vi.fn(() => row),
-      recentEvents: vi.fn(() => []),
       appendEvent: vi.fn(),
       mergeMetadata: mergeMetadata(row),
     };

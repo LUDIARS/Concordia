@@ -18,7 +18,7 @@ related:
   - feature/inquiry.md
   - feature/session-shutdown.md
   - feature/plan-gate.md
-updated: 2026-08-13
+updated: 2026-08-25
 ---
 
 # 決定論終了と再キュー
@@ -39,14 +39,13 @@ updated: 2026-08-13
 
 ## 1. 即時バグ修正 (spec 実装に先行)
 
-- **`hasRecordedInquiry` の生涯 1 回制限** (`src/taskflow/session-end.ts:16`):
-  パートタイマー完了お伺いがセッション生涯 1 回しか送られず、 goal-and-go で 2 タスク目を
-  続けたセッションは 2 回目の完了時に何も来ない。 → 判定キーを run / タスク単位にする
-  (新タスク着手・completed 報告でリセット)。
+- **完了お伺いの生涯 1 回制限**: 完了時の人間判断待ちを撤去し、teardown ladder の
+  `run_key` で同一runの二重終了を防ぐ。delegation は永続 run ID をキーに使うため、
+  同名タスクが連続しても新しい ladder を予約できる。
 - **goal-and-go 無効パートタイマーの無期限残留**: `shouldEndAutonomousTaskflow` が
   `goalAndGoEnabled` を要求するため、 opt-in していないパートタイマーは
-  「閉じてよいか確認してください」の人間待ちメンションに落ちて残る。 → 完了お伺い
-  (§2) は opt-in 有無に関わらず送り、 opt-in は「次タスクへ自走するか」だけを分ける。
+  「閉じてよいか確認してください」の人間待ちメンションに落ちて残る。 → 終了条件が
+  確定したら opt-in 有無に関わらず ladder を予約し、goal-and-go は次タスク自走だけを分ける。
 
 ## 2. 決定論終了 (teardown ladder)
 
@@ -66,13 +65,10 @@ t0+15m 依然 active なら Cc が endSession で強制終了 (spoken session-en
 ```
 
 - 秒数は config: `CONCORDIA_TEARDOWN_RETRY_SEC` (300) / `CONCORDIA_TEARDOWN_FORCE_SEC` (900)。
-- **inquiry.md §7 との整合**: §7 の「自動終了はここで廃止される」は「LLM 判断による
-  自動終了」の廃止を指す。 本 ladder はお伺い応答 (proceed で次タスク / self_judge +
-  残タスク無し) の**後段**に立つ決定論バックストップであり、 判断はお伺い、 執行は
-  ladder という分担で両立する。
-- 完了お伺い文言から「終了は自分で判断してください」を削除し、 inquiry spec §7 の
-  お伺い応答 (proceed / self_judge + 残タスクなし) を根拠に **「session-end を実行せよ」
-  の確定指示**にする。
+- **inquiry.md §7 との整合**: 継続可否に人間判断が要る場合のお伺いは残す。PR open/draft +
+  residual `none` は終了条件が機械的に確定しているため、お伺い対象に戻さず ladder が執行する。
+- PR open/draft + residual `none` + 未回答質問なしで終了条件は確定済みとし、完了お伺いを
+  挟まず **「session-end を実行せよ」 の確定指示**を ladder の t0 として送る。
 - **session-shutdown spec (status: planned) の実装は本 spec の前提**であり、 実装リストに
   Lictor 側タスクとして含める (task md は Lictor リポに置く)。
 
@@ -118,8 +114,8 @@ t0+15m 依然 active なら Cc が endSession で強制終了 (spoken session-en
 
 ## 5. 受け入れ基準
 
-- [ ] §1 の 2 バグが修正され、 パートタイマーが opt-in 有無・タスク数に関わらず完了お伺い
-      を受け取る。
+- [x] §1 の終了残留が修正され、パートタイマーは明示OFF・タスク数に関わらず、終了条件確定時に
+      run単位の teardown ladder へ入る。
 - [ ] completed + residual none のセッションが 15 分以内に必ず終了する (inject 無視でも
       強制終了が効き、 監査イベントが残る)。
 - [ ] session-end 完走から 1 分以内に CLI と Lictor プロセスが消える (session-shutdown 連携)。

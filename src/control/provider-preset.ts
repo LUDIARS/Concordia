@@ -147,8 +147,8 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
   return suggestions;
 }
 
-export function goalAndGoRequested(options: DelegationRuntimeOptions | null | undefined): boolean {
-  return isPlainRecord(options) && options.goal_and_go === true;
+export function goalAndGoEnabled(options: DelegationRuntimeOptions | null | undefined): boolean {
+  return !isPlainRecord(options) || options.goal_and_go !== false;
 }
 
 /** Build the Claude/Concordia runtime environment for a spawned delegation. */
@@ -171,9 +171,9 @@ export function resolveDelegationRuntimeEnv(
   if (provider === "claude" && o.fast_mode === true) {
     env.CONCORDIA_DELEGATION_FAST_MODE = "1";
   }
-  if (goalAndGoRequested(options)) {
-    env.CONCORDIA_DELEGATION_GOAL_AND_GO = "1";
-  }
+  // Always override the inherited value. In particular, an explicit opt-out
+  // must not be turned back on by Concordia's own ambient default.
+  env.CONCORDIA_DELEGATION_GOAL_AND_GO = goalAndGoEnabled(options) ? "1" : "0";
   return env;
 }
 

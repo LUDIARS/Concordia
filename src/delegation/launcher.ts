@@ -4,7 +4,7 @@ import {
   recordPendingDelegationSpawn,
 } from "../control/pending-delegation-spawns.js";
 import {
-  goalAndGoRequested,
+  goalAndGoEnabled,
   resolveDelegationRuntimeEnv,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
@@ -79,7 +79,7 @@ export function launchDelegationProcess(input: {
     sourceDiscordGuildId: input.invocation.source_discord_guild_id ?? null,
     sourceDiscordChannelId: input.invocation.source_discord_channel_id ?? null,
     parentSessionId: input.invocation.parent_session_id ?? null,
-    goalAndGo: goalAndGoRequested(input.effectiveOptions),
+    goalAndGo: goalAndGoEnabled(input.effectiveOptions),
     teamId: typeof input.effectiveOptions.team === "string" ? input.effectiveOptions.team : null,
     memoriaTaskId: typeof input.invocation.memoria_task_id === "number"
       ? input.invocation.memoria_task_id

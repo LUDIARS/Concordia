@@ -80,18 +80,23 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("codex", "gpt-5.5")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
   });
 
-  it("passes goal-and-go opt-in to spawned Lictor for every provider", () => {
-    expect(resolveDelegationRuntimeEnv("codex", { goal_and_go: true })).toEqual({
+  it("enables goal-and-go for every provider unless explicitly disabled", () => {
+    expect(resolveDelegationRuntimeEnv("codex", {})).toEqual({
       CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
-    expect(resolveDelegationRuntimeEnv("claude", {})).toEqual({});
+    expect(resolveDelegationRuntimeEnv("claude", { goal_and_go: false })).toEqual({
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "0",
+    });
   });
 
   it("resolveDelegationRuntimeEnv passes fast_mode through as CONCORDIA_DELEGATION_FAST_MODE for Claude only", () => {
     expect(resolveDelegationRuntimeEnv("claude", { fast_mode: true })).toEqual({
       CONCORDIA_DELEGATION_FAST_MODE: "1",
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
-    expect(resolveDelegationRuntimeEnv("codex", { fast_mode: true })).toEqual({});
+    expect(resolveDelegationRuntimeEnv("codex", { fast_mode: true })).toEqual({
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
+    });
     expect(resolveDelegationRuntimeEnv("claude", { fast_mode: true, goal_and_go: true })).toEqual({
       CONCORDIA_DELEGATION_FAST_MODE: "1",
       CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
@@ -101,14 +106,19 @@ describe("delegation runtime options", () => {
   it("defaults Opus thinking off and permits an explicit per-delegation override", () => {
     expect(resolveDelegationRuntimeEnv("claude", {}, "claude-opus-5")).toEqual({
       CLAUDE_CODE_DISABLE_THINKING: "1",
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
     expect(resolveDelegationRuntimeEnv("claude", { thinking: true }, "claude-opus-5")).toEqual({
       CLAUDE_CODE_DISABLE_THINKING: "0",
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
     expect(resolveDelegationRuntimeEnv("claude", { thinking: false }, "claude-sonnet-5")).toEqual({
       CLAUDE_CODE_DISABLE_THINKING: "1",
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
     });
-    expect(resolveDelegationRuntimeEnv("claude", {}, "claude-sonnet-5")).toEqual({});
+    expect(resolveDelegationRuntimeEnv("claude", {}, "claude-sonnet-5")).toEqual({
+      CONCORDIA_DELEGATION_GOAL_AND_GO: "1",
+    });
   });
 
   it("defaults Codex reasoning effort to xhigh when unspecified", () => {

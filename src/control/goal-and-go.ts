@@ -16,7 +16,7 @@ export interface GoalAndGoStatus {
 }
 
 const DEFAULT_STATUS: GoalAndGoStatus = {
-  enabled: false,
+  enabled: true,
   continuation_count: 0,
   started_at: null,
   last_continued_at: null,
@@ -47,11 +47,11 @@ export function readGoalAndGoStatus(metadata: string | null | undefined): GoalAn
   try {
     const parsed = JSON.parse(metadata) as { goal_and_go?: unknown };
     if (parsed.goal_and_go === true) return { ...DEFAULT_STATUS, enabled: true };
-    if (parsed.goal_and_go === false) return { ...DEFAULT_STATUS };
+    if (parsed.goal_and_go === false) return { ...DEFAULT_STATUS, enabled: false };
     if (!isRecord(parsed.goal_and_go)) return { ...DEFAULT_STATUS };
     const value = parsed.goal_and_go;
     return {
-      enabled: value.enabled === true,
+      enabled: value.enabled !== false,
       continuation_count: nonNegativeInteger(value.continuation_count),
       started_at: nullableTimestamp(value.started_at),
       last_continued_at: nullableTimestamp(value.last_continued_at),

@@ -104,7 +104,7 @@ import {
 import { prepareSpawnTarget } from "../control/spawn-target.js";
 import { resolveTeamSpawnCwd } from "../control/team-spawn-cwd.js";
 import {
-  goalAndGoRequested,
+  goalAndGoEnabled,
   resolveEffectiveDelegationRuntimeOptions,
   resolveDelegationRuntimeArgs,
   resolveDelegationRuntimeEnv,
@@ -796,7 +796,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         startupInjectText: taskPrompt || null,
         sourceDiscordGuildId,
         sourceDiscordChannelId,
-        goalAndGo: goalAndGoRequested(runtimeOptions),
+        goalAndGo: goalAndGoEnabled(runtimeOptions),
         teamId: requestedTeamId,
         memoriaTaskId: memoriaTask.task?.id ?? null,
         memoriaTaskTitle: memoriaTask.task?.title ?? null,
@@ -885,7 +885,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       startupInjectText: adHocPrompt || null,
       sourceDiscordGuildId,
       sourceDiscordChannelId,
-      goalAndGo: goalAndGoRequested(effectiveDirectOptions),
+      goalAndGo: goalAndGoEnabled(effectiveDirectOptions),
       testSurfaceId,
       teamId: requestedTeamId,
       memoriaTaskId: memoriaTask.task?.id ?? null,

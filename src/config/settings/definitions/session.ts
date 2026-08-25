@@ -321,7 +321,7 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
   },
   envInteger("delegation.watchdog_interval_ms", "delegation", "watchdog の走査間隔 (ms)", "CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS", null, "watchdog の走査周期。"),
   envBoolean("delegation.fast_mode", "delegation", "fast mode", "CONCORDIA_DELEGATION_FAST_MODE", false, "委託先セッションを fast mode で起動する。"),
-  envBoolean("delegation.goal_and_go", "delegation", "goal-and-go", "CONCORDIA_DELEGATION_GOAL_AND_GO", false, "委託先の自走継続を明示的に有効にする。"),
+  envBoolean("delegation.goal_and_go", "delegation", "goal-and-go", "CONCORDIA_DELEGATION_GOAL_AND_GO", true, "委託先の自走継続を既定で有効にする (neco 決定 2026-08-24: 基本有効)。"),
   envInteger("delegation.goal_and_go_idle_sec", "delegation", "自走の再開待ち (秒)", "CONCORDIA_GOAL_AND_GO_IDLE_SEC", 300, "完了後この秒数で自走を再開する。"),
   envInteger("delegation.goal_and_go_max_continuations", "delegation", "自走の最大継続回数", "CONCORDIA_GOAL_AND_GO_MAX_CONTINUATIONS", 6, "人間のターンが挟まるまでの自走上限。"),
   envInteger("delegation.goal_and_go_max_runtime_sec", "delegation", "自走の最大実行時間 (秒)", "CONCORDIA_GOAL_AND_GO_MAX_RUNTIME_SEC", 7200, "人間の関与なしに走り続けられる上限。"),

@@ -1,7 +1,7 @@
 ---
 type: data
 title: "ログ保持期間とアーカイブ"
-description: "concordia.db のログ系テーブル (transcript_logs / session_messages / rules_log / session_stats) の保持期間を 7 日と定め、刈る前に zip へ退避する。退避と削除はチャンク分割でイベントループを止めない。VACUUM は別運用。"
+description: "concordia.db のログ系テーブル (transcript_logs / session_messages / rules_log / session_stats) の保持期間を 7 日と定め、JST 01:00–02:59 に zip へ退避して削除し、03:00 の VACUUM へつなぐ。"
 service: concordia
 domain: persistence
 tags:
@@ -14,7 +14,7 @@ status: implemented
 related:
   - ./schema.md
   - ../feature/crash-recovery.md
-updated: 2026-08-24
+updated: 2026-08-25
 ---
 
 
@@ -22,8 +22,7 @@ updated: 2026-08-24
 
 ## 決定
 
-ログ系テーブルの保持期間は **7 日** (2026-08-24 に 30 日から短縮。DB は直近分だけ、過去分は zip アーカイブへ)。刈った行は削除前に **zip で残す**。
-`VACUUM` は行わない (別途、運用と合意したタイミングで実施する)。
+ログ系テーブルの保持期間は **7 日** (2026-08-24 に 30 日から短縮。DB は直近分だけ、過去分は zip アーカイブへ)。刈った行は削除前に **zip で残す**。退避と削除は毎日 **JST 01:00–02:59** の sweeper 走査だけで開始し、03:00 の nightly VACUUM へつなぐ。sweeper 自身は `VACUUM` を行わない。
 
 — neco 決定 2026-08-20、保持期間改定 2026-08-24
 
@@ -83,13 +82,19 @@ flush するので、実際に起こりうる)。退避前に、そうしたバ�
 - 1 走査あたりの上限は既定 50,000 行。上限に当たった場合は `truncated` を立てて
   ログに残し、残りは次の周期で刈る。
 
-## VACUUM
+## 夜間実行と VACUUM
 
-ディスク実サイズの回収には `VACUUM` が要るが、長時間の排他ロックを伴う。今回の
-スコープには含めない。実施する場合はサービス停止を確認したうえで外部 CLI から行う
-(`src/db/obsolete-excubitor-cleanup.ts` の DROP と同じ制約)。CLI の `--apply` はサーバの
-ローカル時刻で 23:00–05:00 に限定し、やむを得ず日中に実施するときだけ
-`--allow-daytime` で明示的に上書きする。
+zip の同期 deflate と SQLite の同期 DELETE は、チャンク分割後も大きなテーブルでは
+イベントループを停止させる。このためログの退避と削除は、sweeper の走査時刻が
+**JST 01:00–02:59** に入る場合だけ行う。時刻判定はサーバのローカルタイムゾーンに依存させず、
+`src/db/nightly-vacuum.ts` の cron と同じ `Asia/Tokyo` を基準とする。日中の走査ではログ行を
+残し、次の夜間窓へ遅延する。session の lost/abandoned 判定、`session_events`、pending task の
+掃除はこの窓に制限しない。
+
+ディスク実サイズは `src/db/nightly-vacuum.ts` が毎日 03:00 JST に `VACUUM` して回収する。
+ログ削除を直前の窓へ集約することで、当日の削除で空いたページを続く VACUUM の対象にする。
+`src/drop-obsolete-excubitor.ts` の手動 CLI にある停止確認と quiet-hours ガードは、旧テーブルを
+DROP する別手順として引き続き適用する。
 
 ## 実装
 

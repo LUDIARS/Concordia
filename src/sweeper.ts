@@ -49,6 +49,32 @@ export interface SweeperOptions {
    * sweeper は「復帰後に必ず回る周期」 なので、 取り込みの契機をここに借りる。
    */
   ingestEscalationRecords?: () => void;
+  /** 現在時刻の注入口。夜間窓判定のテスト用。既定 `() => new Date()`。 */
+  nowDate?: () => Date;
+}
+
+/**
+ * ログ退避 (zip + DELETE) を許す夜間窓 (JST)。01:00–02:59。
+ * 03:00 の nightly VACUUM (src/db/nightly-vacuum.ts) の直前に刈り終え、その日の
+ * VACUUM で空きページまで回収する並びにする。日中は刈らない — zip の同期 deflate と
+ * DELETE がイベントループを止め、Discord の応答期限 (3 秒) を壊すため
+ * (2026-08-25 実害、neco 指示「DELETE は夜のバキュームまで遅延」)。
+ */
+export const LOG_PURGE_WINDOW = { startHour: 1, endHour: 3 } as const;
+const LOG_PURGE_TIME_ZONE = "Asia/Tokyo";
+const logPurgeHourFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: LOG_PURGE_TIME_ZONE,
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
+/** 純関数: `date` が JST の夜間ログ退避窓に入っているか。 */
+export function isWithinLogPurgeWindow(
+  date: Date,
+  window: { startHour: number; endHour: number } = LOG_PURGE_WINDOW,
+): boolean {
+  const hour = Number(logPurgeHourFormatter.format(date));
+  return hour >= window.startHour && hour < window.endHour;
 }
 
 /**
@@ -90,6 +116,8 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
   async function tick(): Promise<void> {
     await bulkhead.run(runOnce);
   }
+
+  const nowDate = opts.nowDate ?? (() => new Date());
 
   /**
    * 保持期間を過ぎたログ行を刈る。 退避先が構成されていれば zip へ残してから消し、
@@ -220,7 +248,15 @@ export function startSweeper(opts: SweeperOptions): { stop: () => void; runOnce:
       log.info({ purged }, "old events purged");
     }
 
-    await purgeLogTables(now);
+    // ログ退避 (zip 化 + DELETE) は夜間窓に限定する。日中に毎周期回すと、zip の
+    // 同期 deflate と chunked DELETE がイベントループを 10〜21 秒止め、Discord の
+    // interaction ack (3 秒期限) が全滅した (2026-08-25 実害。停止は毎分の
+    // log-archive/*.zip 生成と runtime.event_loop.stall で観測)。夜間 03:00 の
+    // nightly VACUUM (src/db/nightly-vacuum.ts) の直前窓で刈り、その日の VACUUM
+    // で空きページまで回収する。
+    if (isWithinLogPurgeWindow(nowDate())) {
+      await purgeLogTables(now);
+    }
 
     // 4. expired pending_tasks を purge
     const expired = opts.tasks.purgeExpired(now);

@@ -6,7 +6,7 @@ import { RulesRepo } from "../src/db/rules-repo.js";
 import { StatsRepo } from "../src/db/stats-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../src/db/session-messages-repo.js";
-import { startSweeper } from "../src/sweeper.js";
+import { isWithinLogPurgeWindow, startSweeper } from "../src/sweeper.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
 
 let cleanup: Array<() => void> = [];
@@ -153,6 +153,8 @@ describe("sweeper session.lost event", () => {
       transcriptRetentionDays: 90,
       rulesLogRetentionDays: 90,
       sessionStatsRetentionDays: 90,
+      // ログ刈り込みは夜間窓限定 (isWithinLogPurgeWindow)。JST 02:00 を注入して窓内で検証する。
+      nowDate: () => new Date("2026-07-11T17:00:00Z"),
     });
     cleanup.push(sweeper.stop);
 
@@ -165,5 +167,53 @@ describe("sweeper session.lost event", () => {
     expect(rules.recentLogs()).toHaveLength(1);
     expect(stats.history("old")).toHaveLength(0);
     expect(stats.history("recent")).toHaveLength(1);
+  });
+
+  it("defers log purges outside the nightly window (daytime keeps rows)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-12T00:00:00Z"));
+    const now = Math.floor(Date.now() / 1000);
+    const oldTs = now - 91 * 86400;
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const tasks = new TasksRepo(db);
+    const transcriptLogs = new TranscriptLogsRepo(db);
+    const sessionMessages = new SessionMessagesRepo(db);
+    const rules = new RulesRepo(db);
+    const stats = new StatsRepo(db);
+
+    transcriptLogs.insert({ session_id: "old", seq: 0, ts: oldTs, kind: "text", payload: {} });
+
+    const sweeper = startSweeper({
+      repo: sessions,
+      tasks,
+      transcriptLogs,
+      sessionMessages,
+      rules,
+      stats,
+      intervalMs: 60_000,
+      lostAfterSec: 1_800,
+      abandonedAfterSec: 86_400,
+      lostPurgeAfterSec: 1_800,
+      purgeAfterDays: 90,
+      transcriptRetentionDays: 90,
+      rulesLogRetentionDays: 90,
+      sessionStatsRetentionDays: 90,
+      // 日中 (JST 14:00)。zip 同期 deflate + DELETE の event loop stall を避けるため刈らない。
+      nowDate: () => new Date("2026-07-12T05:00:00Z"),
+    });
+    cleanup.push(sweeper.stop);
+
+    await sweeper.runOnce();
+
+    expect(transcriptLogs.countBySession("old")).toBe(1);
+  });
+
+  it("isWithinLogPurgeWindow: 01:00-02:59 のみ true", () => {
+    expect(isWithinLogPurgeWindow(new Date("2025-12-31T15:59:59Z"))).toBe(false); // JST 00:59:59
+    expect(isWithinLogPurgeWindow(new Date("2025-12-31T16:00:00Z"))).toBe(true); // JST 01:00:00
+    expect(isWithinLogPurgeWindow(new Date("2025-12-31T17:59:59Z"))).toBe(true); // JST 02:59:59
+    expect(isWithinLogPurgeWindow(new Date("2025-12-31T18:00:00Z"))).toBe(false); // JST 03:00:00
+    expect(isWithinLogPurgeWindow(new Date("2026-01-01T05:00:00Z"))).toBe(false); // JST 14:00:00
   });
 });

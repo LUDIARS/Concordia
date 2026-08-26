@@ -14,7 +14,7 @@ status: implemented
 related:
   - delegation.md
   - feature/task-workflow.md
-updated: 2026-08-21
+updated: 2026-08-26
 ---
 
 # Delegation 実装委託の 1 通注入
@@ -53,7 +53,9 @@ kind (manual-kind) が `実装` の委託は、 `## Prompt` 節を次の構成�
 3. `着手前の把握` — Anatomia 解析グラフ (`/anatomia-analyze` → `find` / `where` / `context`) と
    `spec/` / `spec/tasks/` を自分で引く。 調査報告して指示を待つ工程は無い。
 4. `Memoria タスク` — 起票済みなら id + link、 失敗なら理由 (黙って省略しない)。
-5. `完了条件` — 仕様更新 / 実装 / 回帰テスト / commit / Revisor local PR / status 報告。
+5. `完了条件` — 仕様更新 / 実装 / 回帰テスト / commit / Revisor local PR / status 報告。タスク本文が
+   Revisor 指摘解消・マージ完了など PR より後段の完了条件を明示した場合はそちらを優先し、
+   `failed` / `action_required` で止まったら対応完了を goal に置いて修正・再提出を続ける。
 6. 安全境界 — worktree 内のみ・main 直コミット禁止・無関係な未コミット変更に触れない・
    サービス起動禁止・merge は明示指示があるまでしない。
 
@@ -70,6 +72,9 @@ kind (manual-kind) が `実装` の委託は、 `## Prompt` 節を次の構成�
 ## 4. 終了 (session-end)
 
 completed / partial / failed の status 報告まで終えたら、 委託先は **その場で session-end** する。
+ただしタスク本文がマージ完了を完了条件にした委託は、 local PR 作成や Test OK では completed を
+報告せず、 Revisor の merged 通知を確認してから completed → session-end とする。session 自身が
+`git` / `gh` で merge するのではなく、 Revisor の自動マージと終局通知を使う。
 
 - 待機して次の指示を待たない。 別タスクを自分で探して着手しない。
 - 追加でやるべきことは `remaining` に書いて終了する (自分で始めない)。

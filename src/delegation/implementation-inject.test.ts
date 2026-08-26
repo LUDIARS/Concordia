@@ -45,6 +45,11 @@ describe("buildImplementationInject", () => {
     expect(text).toContain("http://127.0.0.1:7777/api/tasks/42");
     expect(text).toContain("### 完了条件");
     expect(text).toContain("Revisor local PR を提出した");
+    expect(text).toContain("PR 提出より後段の完了条件");
+    expect(text).toContain("failed / action_required");
+    expect(text).toContain("対応完了を goal に置き");
+    expect(text).toContain("修正・commit・再提出を終局条件まで継続");
+    expect(text).toContain("その終局条件まで達した");
   });
 
   it("調査ブリーフ工程を作らず、Anatomia の解析グラフへ寄せる", () => {
@@ -73,6 +78,7 @@ describe("buildImplementationInject", () => {
     expect(text).toContain("main / develop へ直接コミットしない");
     expect(text).toContain("起動テストはしない");
     expect(text).toContain("merge / squash merge / auto-merge / main 更新は、 明示指示があるまでしない");
+    expect(text).toContain("自分で git / gh merge せず Revisor の自動マージ通知を待つ");
   });
 
   it("完了報告の endpoint を run id つきで示す", () => {

@@ -310,6 +310,9 @@ PR が open/draft のテスト候補として引き継がれ、residual 判定�
 未回答質問が無い場合は、goal-and-go の明示OFFに関係なく provider 別の session-end
 (`/session-end` / `$session-end`) を teardown ladder から自動 inject する。同じ run の
 `auto:session-end` inject は永続metadataを使って exactly-once にする。
+この自動終了は delegation run の `child_session_id` に紐づく TaskWorkflow セッションだけを
+対象とする。通常の Session Forum / 対話セッション、委託元の親セッションは、completion
+黒箱が完了を検知しても自動終了しない。
 次タスク・分解・confirm queue・PR 判断など自走または人間の作業が残る場合は自動終了しない。
 
 ## 11. Discord フォーラム移行との整合

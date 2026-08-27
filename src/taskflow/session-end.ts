@@ -1,7 +1,7 @@
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { GoalMachineOutcome } from "./goal-machine.js";
 import type { ResidualOutcome } from "./residual-blackbox.js";
-import { readGoalAndGoStatus } from "../control/goal-and-go.js";
 import { allowAutoInject, type PendingQuestionProbe } from "../control/pending-question-blocker.js";
 import { AUTO_SESSION_END_INJECT_SOURCE } from "../control/auto-session-end-inject.js";
 import { scheduleTeardownLadder } from "./teardown-ladder.js";
@@ -17,24 +17,21 @@ export function shouldEndAutonomousTaskflow(input: {
 export function finishAutonomousTaskflow(input: {
   sessionId: string;
   sessions: SessionsRepo;
+  /** TaskWorkflow の正本となる delegation run。一般セッションは終了対象にしない。 */
+  taskflowRun: Pick<DelegationRunRow, "id" | "child_session_id">;
   goalOutcome: GoalMachineOutcome;
   residualOutcome: ResidualOutcome;
-  /** Stable caller-owned run identity. Delegation runs should pass their DB id. */
-  runKey?: string;
   nowSec?: () => number;
   /** 未回答の質問があるセッションには終了 ladder を予約しない (blocker)。 */
   hasPendingQuestion?: PendingQuestionProbe;
 }): boolean {
+  if (input.taskflowRun.child_session_id !== input.sessionId) return false;
   const session = input.sessions.findSession(input.sessionId);
   if (!session || !shouldEndAutonomousTaskflow({
     goalOutcome: input.goalOutcome,
     residualOutcome: input.residualOutcome,
   })) return false;
-  const goalAndGo = readGoalAndGoStatus(session.metadata);
-  // Delegation callers provide their durable run id. Interactive completions have no
-  // run row, so retain the task/budget identity as a deterministic fallback.
-  const runKey = input.runKey?.trim()
-    || `${session.current_task ?? "(unassigned)"}:${goalAndGo.continuation_count}`;
+  const runKey = `delegation:${input.taskflowRun.id}`;
   // 終了判断とは別の未回答質問があるなら、その回答を捨てる即時 teardown はしない。
   // 回答後の次周回で同じ確定済みゴールを再評価し、ladder を予約する。
   if (!allowAutoInject({

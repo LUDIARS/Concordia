@@ -3,6 +3,11 @@ import { eventBus } from "../events.js";
 import type { SessionRow } from "../shared/types.js";
 import { finishAutonomousTaskflow } from "./session-end.js";
 
+const taskflowRun = (childSessionId: string, id = "run-1") => ({
+  id,
+  child_session_id: childSessionId,
+});
+
 function session(provider: SessionRow["provider"], goalAndGoEnabled = true): SessionRow {
   return {
     id: `session-${provider}`,
@@ -49,12 +54,14 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome: "open",
       residualOutcome: "none",
     })).toBe(true);
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome: "open",
       residualOutcome: "none",
     })).toBe(false);
@@ -63,7 +70,7 @@ describe("finishAutonomousTaskflow", () => {
     expect(emitted[0]).toBe(provider === "claude-code" ? "/session-end" : "$session-end");
     expect(sessions.appendEvent).toHaveBeenCalledOnce();
     expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
-      teardown_ladder: { run_key: "task-one:0", retries_sent: 0 },
+      teardown_ladder: { run_key: "delegation:run-1", retries_sent: 0 },
     });
     unsubscribe();
   });
@@ -78,12 +85,31 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome: "open",
       residualOutcome: "none",
     })).toBe(true);
   });
 
-  it("allows another teardown schedule after the task/run boundary changes", () => {
+  it("does not schedule teardown for a normal or parent session", () => {
+    const row = session("codex-cli");
+    const sessions = {
+      findSession: vi.fn(() => row),
+      appendEvent: vi.fn(),
+      mergeMetadata: mergeMetadata(row),
+    };
+    expect(finishAutonomousTaskflow({
+      sessionId: row.id,
+      sessions: sessions as any,
+      taskflowRun: taskflowRun("different-child-session"),
+      goalOutcome: "open",
+      residualOutcome: "none",
+    })).toBe(false);
+    expect(sessions.findSession).not.toHaveBeenCalled();
+    expect(sessions.appendEvent).not.toHaveBeenCalled();
+  });
+
+  it("does not reschedule teardown when only the task title changes within one run", () => {
     const row = session("codex-cli");
     const events: Array<{ kind: string; payload: string }> = [];
     const sessions = {
@@ -92,12 +118,12 @@ describe("finishAutonomousTaskflow", () => {
       mergeMetadata: mergeMetadata(row),
     };
     expect(finishAutonomousTaskflow({
-      sessionId: row.id, sessions: sessions as any, goalOutcome: "open", residualOutcome: "none",
+      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "open", residualOutcome: "none",
     })).toBe(true);
     row.current_task = "task-two";
     expect(finishAutonomousTaskflow({
-      sessionId: row.id, sessions: sessions as any, goalOutcome: "open", residualOutcome: "none",
-    })).toBe(true);
+      sessionId: row.id, sessions: sessions as any, taskflowRun: taskflowRun(row.id), goalOutcome: "open", residualOutcome: "none",
+    })).toBe(false);
   });
 
   it("uses a stable delegation run key when consecutive runs have the same task title", () => {
@@ -110,16 +136,16 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id, "run-1"),
       goalOutcome: "open",
       residualOutcome: "none",
-      runKey: "delegation:run-1",
     })).toBe(true);
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id, "run-2"),
       goalOutcome: "open",
       residualOutcome: "none",
-      runKey: "delegation:run-2",
     })).toBe(true);
     expect(JSON.parse(row.metadata ?? "{}")).toMatchObject({
       teardown_ladder: { run_key: "delegation:run-2" },
@@ -142,6 +168,7 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome: "open",
       residualOutcome: "none",
       hasPendingQuestion: () => true,
@@ -153,6 +180,7 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome: "open",
       residualOutcome: "none",
       hasPendingQuestion: () => false,
@@ -176,6 +204,7 @@ describe("finishAutonomousTaskflow", () => {
     expect(finishAutonomousTaskflow({
       sessionId: row.id,
       sessions: sessions as any,
+      taskflowRun: taskflowRun(row.id),
       goalOutcome,
       residualOutcome,
     })).toBe(false);

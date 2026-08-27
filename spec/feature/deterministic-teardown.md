@@ -52,6 +52,9 @@ updated: 2026-08-25
 completed 報告 (または completion 黒箱の検知) + residual `none`、再キューを起案済みの
 `partial`、または ask detach により `blocked` 化した run で、以下を段階実行する:
 
+この ladder を完了時に自動予約する対象は、delegation run の `child_session_id` に紐づく
+TaskWorkflow セッションだけである。通常の対話セッションと委託元の親セッションは対象外とする。
+
 ```
 t0     provider 別 session-end inject (既存 auto-session-end-inject。 exactly-once を
        「run 単位で once」に変更 = 再キュー後の次 run では再び送れる)

@@ -43,12 +43,13 @@ export class TaskflowRuntime {
     if (!sessionId) return;
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
     const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
+    if (!run.child_session_id) return;
     finishAutonomousTaskflow({
       sessionId,
       sessions: this.deps.sessions,
+      taskflowRun: run,
       goalOutcome,
       residualOutcome,
-      runKey: `delegation:${run.id}`,
       hasPendingQuestion: this.deps.hasPendingQuestion,
     });
   }
@@ -74,6 +75,7 @@ export class TaskflowRuntime {
   }
 
   private async handleRevisorNotice(sessionId: string): Promise<void> {
+    const taskflowRun = this.deps.delegation.findRunByChildSession(sessionId);
     // 先に「マージ済みか」だけを確かめる。 failed / action_required の通知でゴール判断を
     // 走らせると、 判断途中の notify (pr-decision メンション等) が修正待ちのセッションに
     // 二重で刺さる。 マージ済みの時だけ本経路 (confirm キュー + 残作業) へ合流する。
@@ -84,11 +86,12 @@ export class TaskflowRuntime {
     if (pr?.state !== "merged" && localPr?.status !== "merged") return;
     const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, revisor: this.deps.revisor, mentionUserId: this.deps.mentionUserId() });
     const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
+    if (!taskflowRun) return;
+    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, taskflowRun, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 
   private async handleInteractiveCompletion(sessionId: string): Promise<void> {
-    if (this.deps.delegation.recentRuns(500).some((run) => run.child_session_id === sessionId)) return;
+    if (this.deps.delegation.findRunByChildSession(sessionId)) return;
     const events = this.deps.sessions.recentEvents(sessionId, 100);
     const latest = events.find((event) => event.kind === "final_answer" || event.kind === "summary");
     let payload: Record<string, unknown> = {};
@@ -116,8 +119,7 @@ export class TaskflowRuntime {
     });
     if (decision.verdict !== "completed") return;
     eventBus.emit({ type: "taskflow.completion_detected", session_id: sessionId, pr_number: pr?.number ?? null, outcome: pr?.state ?? "unknown", decision_id: decision.decisionId, ts: Math.floor(Date.now() / 1000) });
-    const goalOutcome = await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
-    const residualOutcome = await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
-    finishAutonomousTaskflow({ sessionId, sessions: this.deps.sessions, goalOutcome, residualOutcome, hasPendingQuestion: this.deps.hasPendingQuestion });
+    await runGoalMachine({ sessionId, sessions: this.deps.sessions, prs: this.deps.prs, confirm: this.deps.confirm, mentionUserId: this.deps.mentionUserId() });
+    await checkResidual({ sessionId, sessions: this.deps.sessions, store: this.deps.store, mentionUserId: this.deps.mentionUserId(), hasPendingQuestion: this.deps.hasPendingQuestion });
   }
 }

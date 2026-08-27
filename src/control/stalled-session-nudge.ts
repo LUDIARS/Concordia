@@ -16,6 +16,12 @@
  *     `session.inject` で流し込む。
  *   - 一度 nudge したら cooldownSec (既定 idleSec と同じ) は再 nudge しない
  *     (per-session の in-memory タイムスタンプで抑止)。
+ *   - **前回 nudge に反応が無ければ再確認しない** (2026-08-27 neco 指示)。
+ *     cooldown が明けても、 前回 nudge 以降 transcript が 1 度も動いていない
+ *     (= セッションが何も応答していない) 間は再 nudge を送らない。 反応できない
+ *     セッションへ同じ確認を積み上げても transcript を汚すだけで復帰しないため。
+ *     Cc 再起動で in-memory の nudge 記録が消えた場合は、 transcript 末尾が
+ *     「未応答の自動確認」 のままかどうかで同じ抑止を効かせる。
  *
  * 意図的に人間判断を仰いで止まっているセッションは除外する — そこへ「続行しろ」 と
  * 被せると人間の判断停止を踏み潰すため。待ちの signal は 2 系統あり、 どちらでも除外する:
@@ -43,6 +49,12 @@ import {
 const log = createChildLogger("stall-nudge");
 
 export const STALL_NUDGE_SOURCE = "auto:stall-nudge";
+
+/**
+ * nudge 本文の先頭マーカー。 transcript 末尾の「未応答の自動確認」 判定 (isUnansweredNudge)
+ * が本文とペアで成立するため、 buildNudgeText とここの両方を同時に変えること。
+ */
+export const STALL_NUDGE_SENTINEL = "[自動確認]";
 
 /** ask 判定で末尾から読む最大バイト数 (巨大 transcript を全読みしない)。 */
 const TAIL_BYTES = 64 * 1024;
@@ -141,7 +153,8 @@ export function isAwaitingHumanInput(tail: string | null): boolean {
     } catch {
       continue; // JSON でない行はスキップ (末尾が途中で切れている場合など)
     }
-    const o = obj as Record<string, unknown>;
+    const o = asRecord(obj);
+    if (!o) continue;
     const role = (o.role ?? o.type) as string | undefined;
     if (role === "user" || o.type === "tool_result") {
       // 直近の意味のあるイベントが user 入力 → 既に回答済み or 入力直後 → 待ちでない。
@@ -165,8 +178,61 @@ function hasAskMarker(text: string): boolean {
   return /(^|\n)\s*```ask\b/.test(text);
 }
 
+/**
+ * transcript 末尾が「未応答の自動確認」 (= 前回の nudge が届いたままセッションが何も
+ * 返していない) かを判定する純関数。 true なら再確認を送らない。
+ *
+ * - 末尾から見て最初の意味のあるイベントが、 STALL_NUDGE_SENTINEL で始まる user
+ *   メッセージ (= inject された nudge 本文) なら未応答。
+ * - assistant / tool_result が後に来ていれば、 セッションは nudge 後に動いている
+ *   (= 反応あり) ので false。
+ * - sentinel を含まない user メッセージは人間の実入力なので false。
+ * - 判定不能 (JSONL でない・空) は false (= 従来どおり nudge 候補に残す)。
+ *
+ * in-memory の lastNudge 記録は Cc 再起動で消えるため、 この transcript ベースの
+ * 判定が再起動をまたいだ「無反応なら再確認しない」 の保険になる。
+ */
+export function isUnansweredNudge(tail: string | null): boolean {
+  if (!tail) return false;
+  const lines = tail.split(/\r?\n/).filter((l) => l.trim());
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let obj: unknown;
+    try {
+      obj = JSON.parse(lines[i]);
+    } catch {
+      continue; // JSON でない行はスキップ (末尾が途中で切れている場合など)
+    }
+    const o = asRecord(obj);
+    if (!o) continue;
+    const role = transcriptEventRole(o);
+    if (role === "assistant" || role === "tool_result") return false;
+    if (role === "user") {
+      const text = extractAllText(o);
+      return text.trimStart().startsWith(STALL_NUDGE_SENTINEL);
+    }
+  }
+  return false;
+}
+
+/** Claude / Codex の JSONL envelope 差を吸収して会話上の role を返す。 */
+function transcriptEventRole(event: Record<string, unknown>): string | undefined {
+  const payload = asRecord(event.payload);
+  const message = asRecord(event.message) ?? asRecord(payload?.message);
+  const role = event.role ?? payload?.role ?? message?.role;
+  if (typeof role === "string") return role;
+
+  const type = event.type;
+  if (type === "user" || type === "assistant" || type === "tool_result") return type;
+  if (type === "response_item") {
+    return payload?.type === "function_call_output" ? "tool_result" : "assistant";
+  }
+  return undefined;
+}
+
 function extractAllText(msg: Record<string, unknown>): string {
-  const content = (msg.content ?? (msg.message as Record<string, unknown> | undefined)?.content) as unknown;
+  const payload = asRecord(msg.payload);
+  const message = asRecord(msg.message) ?? asRecord(payload?.message);
+  const content = msg.content ?? message?.content ?? payload?.content ?? payload?.text;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
     const parts: string[] = [];
@@ -181,6 +247,12 @@ function extractAllText(msg: Record<string, unknown>): string {
   return "";
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /**
  * nudge 本文。goal は注入しない。Cc は止まった作業を「実装し直すための状況整理」
  * に戻すだけで、単独 agent を無期限に走らせる指示は出さない。
@@ -193,7 +265,7 @@ function extractAllText(msg: Record<string, unknown>): string {
  */
 export function buildNudgeText(_provider: string): string {
   return [
-    "[自動確認] しばらく応答が止まっているようです。",
+    `${STALL_NUDGE_SENTINEL} しばらく応答が止まっているようです。`,
     "",
     "- 直近の diff / 失敗ログ / テスト結果を見直し、止まった原因を 1 行で整理してください。",
     "- まだ実装できるなら、範囲を小さく切って別アプローチで再実装してください。",
@@ -212,6 +284,8 @@ export function buildNudgeText(_provider: string): string {
  * - idle 閾値未満なら false。
  * - 人間判断待ち (awaiting) なら false。
  * - 直近 nudge から cooldown 未満なら false。
+ * - 直近 nudge 以降 transcript が動いていない (= 前回の確認に反応が無い) なら false。
+ *   反応があって再び止まった場合だけ再確認する。
  */
 export function shouldNudge(args: {
   idleMs: number;
@@ -220,10 +294,17 @@ export function shouldNudge(args: {
   lastNudgeMs: number | null;
   cooldownMs: number;
   nowMs: number;
+  /** transcript の最終更新時刻 (epoch-ms)。 null なら無反応判定を行わない。 */
+  transcriptMtimeMs?: number | null;
 }): boolean {
   if (args.idleMs < args.idleThresholdMs) return false;
   if (args.awaiting) return false;
   if (args.lastNudgeMs != null && args.nowMs - args.lastNudgeMs < args.cooldownMs) return false;
+  if (
+    args.lastNudgeMs != null &&
+    args.transcriptMtimeMs != null &&
+    args.transcriptMtimeMs <= args.lastNudgeMs
+  ) return false;
   return true;
 }
 
@@ -267,6 +348,7 @@ export function startStalledSessionNudge(
           lastNudgeMs: lastNudge.get(s.id) ?? null,
           cooldownMs,
           nowMs,
+          transcriptMtimeMs: mtime,
         })
       ) {
         continue;
@@ -279,9 +361,16 @@ export function startStalledSessionNudge(
         );
         continue;
       }
-      const awaiting = isAwaitingHumanInput(await readTail(s));
-      if (awaiting) {
+      const tail = await readTail(s);
+      if (isAwaitingHumanInput(tail)) {
         log.debug({ session_id: s.id }, "skip nudge: awaiting human input (ask)");
+        continue;
+      }
+      // 前回の自動確認が transcript 末尾に未応答のまま残っている = 反応が無い。
+      // in-memory の lastNudge が消えていて (Cc 再起動後など) mtime ゲートを
+      // 素通りした場合も、 ここで再確認を止める。
+      if (isUnansweredNudge(tail)) {
+        log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
       lastNudge.set(s.id, nowMs);

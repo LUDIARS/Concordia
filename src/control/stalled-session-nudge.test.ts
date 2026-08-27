@@ -4,10 +4,12 @@ import type { SessionRow } from "../shared/types.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import {
   isAwaitingHumanInput,
+  isUnansweredNudge,
   shouldNudge,
   buildNudgeText,
   startStalledSessionNudge,
   STALL_NUDGE_SOURCE,
+  STALL_NUDGE_SENTINEL,
 } from "./stalled-session-nudge.js";
 
 function fakeSession(over: Partial<SessionRow> = {}): SessionRow {
@@ -103,6 +105,110 @@ describe("shouldNudge", () => {
   });
   it("cooldown 経過 → true", async () => {
     expect(shouldNudge({ ...base, lastNudgeMs: base.nowMs - 3_600_001 })).toBe(true);
+  });
+  it("cooldown 経過でも前回 nudge 以降 transcript 無更新 (無反応) → false", async () => {
+    const lastNudgeMs = base.nowMs - 3_600_001;
+    expect(
+      shouldNudge({ ...base, lastNudgeMs, transcriptMtimeMs: lastNudgeMs - 1 }),
+    ).toBe(false);
+  });
+  it("前回 nudge の後に transcript が動いた (反応あり) → true", async () => {
+    const lastNudgeMs = base.nowMs - 7_200_000;
+    expect(
+      shouldNudge({ ...base, lastNudgeMs, transcriptMtimeMs: lastNudgeMs + 60_000 }),
+    ).toBe(true);
+  });
+  it("nudge 履歴が無ければ transcriptMtimeMs は判定に使わない", async () => {
+    expect(shouldNudge({ ...base, lastNudgeMs: null, transcriptMtimeMs: 0 })).toBe(true);
+  });
+});
+
+describe("isUnansweredNudge", () => {
+  it("末尾が sentinel 付き user (= 未応答の自動確認) → true", async () => {
+    const tail = jsonl(
+      { role: "assistant", content: "実装中です。" },
+      { role: "user", content: buildNudgeText("claude-code") },
+    );
+    expect(isUnansweredNudge(tail)).toBe(true);
+  });
+
+  it("nudge の後に assistant が応答している → false (反応あり)", async () => {
+    const tail = jsonl(
+      { role: "user", content: `${STALL_NUDGE_SENTINEL} しばらく応答が止まっているようです。` },
+      { role: "assistant", content: "人間の確認待ちで待機していました。" },
+    );
+    expect(isUnansweredNudge(tail)).toBe(false);
+  });
+
+  it("sentinel を含まない user (人間の実入力) → false", async () => {
+    const tail = jsonl({ role: "user", content: "続きをやって" });
+    expect(isUnansweredNudge(tail)).toBe(false);
+  });
+
+  it("tool_result が末尾 (セッション稼働中) → false", async () => {
+    const tail = jsonl(
+      { role: "user", content: `${STALL_NUDGE_SENTINEL} 確認` },
+      { type: "tool_result", content: "ok" },
+    );
+    expect(isUnansweredNudge(tail)).toBe(false);
+  });
+
+  it("content 配列形式の nudge も拾う", async () => {
+    const tail = jsonl({
+      role: "user",
+      content: [{ type: "text", text: `${STALL_NUDGE_SENTINEL} しばらく応答が止まっているようです。` }],
+    });
+    expect(isUnansweredNudge(tail)).toBe(true);
+  });
+
+  it("Codex rollout の payload 内にある nudge も拾う", async () => {
+    const tail = jsonl({
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: buildNudgeText("codex-cli") }],
+      },
+    });
+    expect(isUnansweredNudge(tail)).toBe(true);
+  });
+
+  it("Codex rollout の nudge 後に assistant / tool が動いていれば false", async () => {
+    const nudge = {
+      type: "response_item",
+      payload: {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: buildNudgeText("codex-cli") }],
+      },
+    };
+    expect(isUnansweredNudge(jsonl(
+      nudge,
+      {
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "状況を確認します。" }],
+        },
+      },
+    ))).toBe(false);
+    expect(isUnansweredNudge(jsonl(
+      nudge,
+      { type: "response_item", payload: { type: "function_call", name: "shell_command" } },
+    ))).toBe(false);
+  });
+
+  it("人間の入力中に sentinel が引用されただけなら false", async () => {
+    const tail = jsonl({ role: "user", content: `ログに ${STALL_NUDGE_SENTINEL} と出ています` });
+    expect(isUnansweredNudge(tail)).toBe(false);
+  });
+
+  it("空 / null / 非 JSONL は false", async () => {
+    expect(isUnansweredNudge(null)).toBe(false);
+    expect(isUnansweredNudge("")).toBe(false);
+    expect(isUnansweredNudge("生テキストのみ")).toBe(false);
+    expect(isUnansweredNudge(jsonl(null, [], 42))).toBe(false);
   });
 });
 
@@ -284,12 +390,12 @@ describe("startStalledSessionNudge.runOnce", () => {
     h.stop();
   });
 
-  it("cooldown 内は再 nudge しない (2 回目は空)", async () => {
+  it("cooldown 内は再 nudge せず、無反応のままなら cooldown 後も再確認しない", async () => {
     let clock = NOW;
     const h = startStalledSessionNudge({
       repo: fakeRepo([fakeSession({ id: "idle-1" })]),
       now: () => clock,
-      transcriptMtimeMs: async () => 0, // 常に大きく idle
+      transcriptMtimeMs: async () => 0, // 常に大きく idle、 nudge 後も一切動かない
       readTranscriptTail: async () => jsonl({ role: "assistant", content: "完了。" }),
       idleSec: 3600,
       cooldownSec: 3600,
@@ -298,9 +404,46 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual(["idle-1"]);
     clock += 60_000; // 1 分後
     expect(await h.runOnce()).toEqual([]); // cooldown 内
-    clock += 3_600_001; // cooldown 経過
+    clock += 3_600_001; // cooldown 経過。 だが transcript 無更新 = 前回確認に反応が無い
+    expect(await h.runOnce()).toEqual([]);
+    h.stop();
+  });
+
+  it("前回 nudge に反応があって再び止まった場合は cooldown 後に再確認する", async () => {
+    let clock = NOW;
+    let mtime = 0; // 初回は大きく idle
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([fakeSession({ id: "idle-1" })]),
+      now: () => clock,
+      transcriptMtimeMs: async () => mtime,
+      readTranscriptTail: async () => jsonl({ role: "assistant", content: "状況を整理しました。" }),
+      idleSec: 3600,
+      cooldownSec: 3600,
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual(["idle-1"]);
+    mtime = clock + 60_000; // nudge の 1 分後にセッションが応答した (反応あり)
+    clock += 7_200_000; // その後また 2 時間止まった (cooldown も経過)
     expect(await h.runOnce()).toEqual(["idle-1"]);
     h.stop();
+  });
+
+  it("transcript 末尾が未応答の自動確認なら nudge しない (Cc 再起動で履歴が消えても)", async () => {
+    // lastNudge の in-memory 記録が無い状態 (= Cc 再起動後) を新規 handle で再現。
+    const h = startStalledSessionNudge({
+      repo: fakeRepo([fakeSession({ id: "renudge-after-restart" })]),
+      now: () => NOW,
+      transcriptMtimeMs: async () => NOW - 7_200_000, // 2h idle
+      readTranscriptTail: async () =>
+        jsonl(
+          { role: "assistant", content: "実装中です。" },
+          { role: "user", content: buildNudgeText("claude-code") },
+        ),
+      intervalMs: 1_000_000,
+    });
+    expect(await h.runOnce()).toEqual([]);
+    h.stop();
+    expect(injects().length).toBe(0);
   });
 
   it("enabled=false なら何もしない", async () => {

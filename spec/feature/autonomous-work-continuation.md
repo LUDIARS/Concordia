@@ -3,7 +3,9 @@ type: feature
 title: "自走継続 — 朝タスク仕分け + 停止セッション nudge"
 description: "朝タスクを確認系/実装系に仕分けして自動処理する morning-tasks delegation テンプレと、transcript mtime を基準に応答が止まったセッションへ続行を促す stalled-session-nudge watcher の 2 機構を定義する。質問待ち除外・cooldown・fire-and-forget inject など運用上の安全策も規定。"
 service: concordia
-domain: session-coordination
+domain:
+  - autonomous-continuation
+  - session-coordination
 tags:
   - typescript
   - lifecycle
@@ -14,7 +16,7 @@ tags:
   - resume
   - monitoring
 status: implemented
-updated: 2026-08-17
+updated: 2026-08-27
 ---
 
 
@@ -73,7 +75,13 @@ updated: 2026-08-17
 
 ### cooldown
 一度 nudge したら `cooldownSec` (既定 = idleSec) は再 nudge しない (per-session の
-in-memory タイムスタンプで抑止)。 消えた session の記録は毎周掃除する。
+in-memory タイムスタンプで抑止)。 消えた session の記録は毎周掃除する。cooldown 経過後も、
+前回 nudge 以降 transcript が更新されていなければ「前回確認に無反応」とみなし、再確認を
+送らない。反応があり、その後再び idle になった場合だけ再確認する。
+
+Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex CLI 双方の transcript
+末尾が `[自動確認]` で始まる user メッセージのままなら、未応答の nudge と判定して再送を
+抑止する。後続の assistant 応答または tool activity があれば反応済みとみなす。
 
 ### nudge 本文
 全 provider 共通の自然言語: ①未完があれば範囲を小さくして再実装 ②判断が要れば ask で
@@ -88,7 +96,8 @@ in-memory タイムスタンプで抑止)。 消えた session の記録は毎�
 
 idle 閾値は巡回間隔と同じ 10 分に揃える (2026-08-09 neco 指示)。 「ゴールへ進んでいない
 セッションを 10 分ごとに確認する」が成立するのはこの組み合わせのときだけで、 従来の 1 時間では
-止まったセッションを丸 1 時間放置してから初めて声をかけていた。 cooldown も同じ 10 分なので、
-1 セッションあたりの催促は最短 10 分に 1 回に収まる。
+止まったセッションを丸 1 時間放置してから初めて声をかけていた。cooldown も同じ 10 分だが、
+無反応のセッションへ確認を積み重ねることはなく、反応後に再停止した場合のみ最短 10 分間隔で
+再確認する (2026-08-27 neco 指示)。
 
 fire-and-forget: WS 未接続なら inject は silent drop。 status 変更は行わない。

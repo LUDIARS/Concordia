@@ -1624,8 +1624,8 @@ export async function startBackend(): Promise<BackendHandle> {
       start: () => startCronScheduler({
         delegationService,
         resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
-        // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の登録チーム。
-        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.list()) },
+        // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の稼働中チーム。
+        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActive()) },
       }),
     });
     workflowBindings.register({

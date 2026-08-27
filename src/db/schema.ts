@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 73;
+export const SCHEMA_VERSION = 74;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1896,6 +1896,16 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       SET target_provider = 'codex-sdk'
       WHERE target_provider = 'codex' AND status IN ('queued', 'launching')
     `).run();
+  },
+}, {
+  version: 74,
+  name: "team-suspend",
+  source: "teams.suspended_at — 作業していないチームの一時停止 (2026-08-27 neco 指示)",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(teams)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "suspended_at")) {
+      db.exec("ALTER TABLE teams ADD COLUMN suspended_at INTEGER");
+    }
   },
 },
 ];

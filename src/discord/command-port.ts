@@ -63,6 +63,8 @@ export interface DiscordCommandDeps {
   isSessionEndUserAllowed?: (userId: string) => boolean;
   /** PR のマージ (`merge_pr`, 管理職以上)。 spawn 権限とは別の capability。 */
   isMergeUserAllowed?: (userId: string) => boolean;
+  /** チームの一時停止 / 再開 (`session_end` capability, 管理職以上)。 */
+  isTeamSuspendUserAllowed?: (userId: string) => boolean;
   /** キルスイッチ = Excubitor 経由のサービス起動 / 再起動 (執行役員のみ)。 */
   isKillSwitchUserAllowed?: (userId: string) => boolean;
   /**

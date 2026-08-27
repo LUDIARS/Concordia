@@ -69,11 +69,12 @@ function makeFakeRepo(): DiscordConfigRepo {
 }
 
 describe("ensureDiscordLayout", () => {
-  it("既定 (本社) は雑談 meta / pr-queue / errors を全部作る", async () => {
+  it("既定 (本社) は雑談 meta / pr-queue / チーム管理 / errors を全部作る", async () => {
     const { guild, created, channels } = makeFakeGuild();
     const snap = await ensureDiscordLayout(guild, makeFakeRepo());
 
     expect(snap.prQueueChannelId).not.toBe("");
+    expect(snap.teamAdminChannelId).not.toBe("");
     expect(snap.errorChannelId).not.toBe("");
     expect(snap.errorCategoryId).not.toBe("");
     expect(Object.keys(snap.metaChannels).length).toBeGreaterThan(0);
@@ -84,6 +85,7 @@ describe("ensureDiscordLayout", () => {
 
     const names = created.map((c) => c.name);
     expect(names).toContain("pr-queue");
+    expect(names).toContain("チーム管理");
     expect(names).toContain("errors");
     expect(names).toContain("雑談");
     expect(names).not.toContain("sessions");
@@ -104,15 +106,17 @@ describe("ensureDiscordLayout", () => {
     expect(cost.parentId).toBeNull();
   });
 
-  it("slim (子会社) は雑談 meta / pr-queue / errors を作らず空 id を返す", async () => {
+  it("slim (子会社) は雑談 meta / pr-queue / チーム管理 / errors を作らず空 id を返す", async () => {
     const { guild, created } = makeFakeGuild();
     const snap = await ensureDiscordLayout(guild, makeFakeRepo(), {
       includeMetaChannels: false,
       includePrQueue: false,
+      includeTeamAdmin: false,
       includeErrors: false,
     });
 
     expect(snap.prQueueChannelId).toBe("");
+    expect(snap.teamAdminChannelId).toBe("");
     expect(snap.errorChannelId).toBe("");
     expect(snap.errorCategoryId).toBe("");
     expect(Object.keys(snap.metaChannels).length).toBe(0);
@@ -122,6 +126,7 @@ describe("ensureDiscordLayout", () => {
 
     const names = created.map((c) => c.name);
     expect(names).not.toContain("pr-queue");
+    expect(names).not.toContain("チーム管理");
     expect(names).not.toContain("errors");
     expect(names).not.toContain("雑談");
     // セッション系 (コスト / monitor) は子会社でも作る。

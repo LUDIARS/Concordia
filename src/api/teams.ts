@@ -130,6 +130,40 @@ export function teamsRouter(repo: TeamsRepo, metrics?: TeamMetricsRepo): Hono {
   });
 
   /**
+   * 一時停止 / 再開 (2026-08-27 neco 指示: 作業していないチームは一時的に止められる)。
+   *
+   * 一時停止中のチームは定時 fanout (朝礼 / 定例 / issue scout / タスク整理) の対象から
+   * 外れる。 アーカイブではないので、 手動 spawn・チーム面・設定はそのまま生きる。
+   * 冪等 — 既に同じ状態なら 200 でそのまま返す。
+   */
+  const setSuspended = (idOrSlug: string, suspended: boolean): { team: TeamRow } | null => {
+    const team = repo.findByIdOrSlug(idOrSlug);
+    if (!team) return null;
+    const changed = (team.suspended_at !== null) !== suspended;
+    const row = repo.setSuspended(team.id, suspended)!;
+    if (changed) {
+      eventBus.emit({
+        type: "team.changed",
+        event_id: randomUUID(),
+        team_id: row.id,
+        fields: ["suspended_at"],
+        ts: Math.floor(Date.now() / 1000),
+      });
+    }
+    return { team: row };
+  };
+  app.post("/:id/suspend", (c) => {
+    const result = setSuspended(c.req.param("id"), true);
+    if (!result) return c.json({ error: "not_found" }, 404);
+    return c.json({ team: serializeTeam(repo, result.team) });
+  });
+  app.post("/:id/resume", (c) => {
+    const result = setSuspended(c.req.param("id"), false);
+    if (!result) return c.json({ error: "not_found" }, 404);
+    return c.json({ team: serializeTeam(repo, result.team) });
+  });
+
+  /**
    * 朝礼 / 定例 delegation からチーム面へ報告カードを投稿する。
    *
    * 投稿自体は Discord bot 側 (team-post-card.ts) が team.card_requested を受けて行う。
@@ -167,6 +201,14 @@ function readPositiveInt(value: string | undefined): number | null {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function serializeTeam(repo: TeamsRepo, row: TeamRow): TeamRow & { settings: TeamSettings; repos: string[] } {
-  return { ...row, settings: parseTeamSettings(row), repos: repo.repos(row.id) };
+function serializeTeam(
+  repo: TeamsRepo,
+  row: TeamRow,
+): TeamRow & { settings: TeamSettings; repos: string[]; suspended: boolean } {
+  return {
+    ...row,
+    settings: parseTeamSettings(row),
+    repos: repo.repos(row.id),
+    suspended: row.suspended_at !== null,
+  };
 }

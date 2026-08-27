@@ -32,6 +32,30 @@ describe("TeamsRepo", () => {
     expect(repo.surfaceChannelId(team.id, "direction")).toBe("chan-1");
   });
 
+  it("suspends and resumes a team, and listActive excludes suspended teams", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new TeamsRepo(db);
+    const idle = repo.create({ name: "IdleTeam", slug: "idle-team" });
+    const busy = repo.create({ name: "BusyTeam", slug: "busy-team" });
+
+    expect(idle.suspended_at).toBeNull();
+    const suspended = repo.setSuspended(idle.id, true);
+    expect(suspended?.suspended_at).toEqual(expect.any(Number));
+    expect(repo.listActive().map((t) => t.id)).toEqual([busy.id]);
+    expect(repo.list().map((t) => t.id).sort()).toEqual([busy.id, idle.id].sort());
+
+    // 冪等: 同じ状態への set は suspended_at を動かさない。
+    expect(repo.setSuspended(idle.id, true)?.suspended_at).toBe(suspended?.suspended_at);
+
+    const resumed = repo.setSuspended(idle.id, false);
+    expect(resumed?.suspended_at).toBeNull();
+    expect(repo.listActive().length).toBe(2);
+
+    expect(repo.setSuspended("team_missing", true)).toBeNull();
+    db.close();
+  });
+
   it("claims an audit post dedupe key exactly once", () => {
     const db = new Database(":memory:");
     applyMigrations(db);

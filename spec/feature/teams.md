@@ -17,7 +17,7 @@ related:
   - feature/director-goal-flow.md
   - feature/task-workflow.md
   - feature/plan-gate.md
-updated: 2026-08-13
+updated: 2026-08-27
 ---
 
 # チーム — プロジェクト主単位の管理
@@ -170,6 +170,24 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
   SessionLogs / WsCleanup) / **設定** (Settings / Discord / Slack / Staff / Skills /
   Manuals / ModelCatalog / ほか)。
 - チーム選択をグローバルフィルタとして他ページに効かせる (チーム主体の可視化)。
+
+## 4.5 一時停止 + チーム管理チャンネル (2026-08-27 neco 指示)
+
+> 「作業していないチームは一時的に止められるようにする」+「チーム管理用のチャンネルを用意」。
+
+- `teams.suspended_at` (epoch-ms, NULL = 稼働中)。 **アーカイブではない** — 手動 spawn・
+  チーム面・設定・カード投稿はそのまま生きる。 止まるのは定時 fanout だけ。
+- 一時停止中のチームは cron の teams fanout (朝礼 `team-standup-daily` / 定例
+  `team-review-regular` / `director-issue-scout-weekly` / `director-task-organize-daily`)
+  の対象から外れる (`scheduler/cron-fanout.ts` が `suspended_at` で filter)。
+- API: `POST /v1/teams/:id/suspend` / `POST /v1/teams/:id/resume` (id / slug 可、 冪等)。
+  状態が変わったときだけ `team.changed` (fields: `["suspended_at"]`) を流す。
+- Discord: 「状態」カテゴリに **チーム管理** チャンネル (`team_admin_channel_id`) を
+  自動プロビジョニング (子会社 slim 構成では作らない)。 1 メッセージ更新型のパネル
+  (`team-admin-panel.ts`) にチーム一覧 (🟢 稼働 / ⏸ 一時停止中) と一時停止 / 再開
+  ボタンを出す。 再描画は boot と `team.created` / `team.changed` 起点。
+- ボタンの権限は社員名簿の `session_end` capability (管理職以上)。 セッションを止められる
+  役職がチームの定時ジョブも止められる、 という対応。 未配線は deny (fail-closed)。
 
 ## 5. 実装フェーズ
 

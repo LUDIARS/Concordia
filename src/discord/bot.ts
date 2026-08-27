@@ -44,6 +44,7 @@ import { takeInjectAck } from "./inject-ack.js";
 import { upsertCostChannelMessage } from "./cost-channel.js";
 import { upsertMonitorChannelMessage } from "./monitor-channel.js";
 import { upsertPrQueueChannelMessage } from "./pr-queue-channel.js";
+import { buildTeamAdminPanel, upsertTeamAdminPanelMessage } from "./team-admin-panel.js";
 import { startVestigiumErrorWatch, type ErrorMonitorHandle } from "./error-monitor.js";
 import { reportError, looksLikeFailure } from "../errors.js";
 import { WebhookPool } from "./webhook-pool.js";
@@ -354,7 +355,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 子会社は本社のような雑談 (meta) / pr-queue / errors を持たない slim 構成 (ユーザ要望)。
   const layoutOpts: EnsureLayoutOptions = {
     ...(deps.subsidiary
-      ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false }
+      ? { includeMetaChannels: false, includePrQueue: false, includeErrors: false, includeTeamAdmin: false }
       : {}),
     forumMode: env.forumMode !== false,
   };
@@ -564,6 +565,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const backgroundTimers = new Set<ReturnType<typeof setTimeout>>();
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
+  // team.created / team.changed でチーム管理パネルを即時再描画する closure (ClientReady でセット).
+  let teamAdminRefresh: (() => void) | null = null;
+  let teamAdminRefreshQueue = Promise.resolve();
   let testForumRefresh: ((reason: string) => Promise<void>) | null = null;
   // Vestigium 監視は error.reported を Web / 本社ランタイムへ流すため維持する。
   // Discord errors チャンネルへの poster は意図的に持たない。
@@ -827,6 +831,33 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         prQueueTimer.unref?.();
       } else if (layout.prQueueChannelId) {
         log.info("pr-queue channel refresh disabled");
+      }
+      // チーム管理: チーム一覧 + 一時停止/再開パネル (1 メッセージ更新型)。
+      // 定期 tick は持たず、 boot と team.created / team.changed でだけ再描画する。
+      const refreshTeamAdminPanel = instrumentDiscord("teamAdminPanelRefresh", async () => {
+        const channelId = layout?.teamAdminChannelId;
+        if (!channelId) return;
+        const ch = guild.channels.cache.get(channelId);
+        if (!ch || ch.type !== ChannelType.GuildText) {
+          log.warn(`team-admin channel unavailable id=${channelId}`);
+          return;
+        }
+        await upsertTeamAdminPanelMessage(
+          ch,
+          buildTeamAdminPanel(teamsRepo.list()),
+          (k) => configRepo.get(k),
+          (k, v) => configRepo.set(k, v),
+        );
+      });
+      if (layout.teamAdminChannelId) {
+        teamAdminRefresh = () => {
+          // boot と連続イベントが重なっても、保存前の message id を同時に読んで
+          // パネルを複数投稿しないよう更新を直列化する。
+          teamAdminRefreshQueue = teamAdminRefreshQueue
+            .then(refreshTeamAdminPanel)
+            .catch((e) => log.warn(`team-admin panel update failed: ${(e as Error).message}`));
+        };
+        scheduleBackground("team-admin panel boot refresh", () => teamAdminRefresh?.(), 1500);
       }
       // 本社ランタイムでは Vestigium 監視だけを起動する。error.reported はログ・WebSocket・
       // 自動修正へ流すが、Discord errors チャンネルには転記しない。
@@ -1300,6 +1331,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       isMergeUserAllowed: deps.hasStaffCapability
         ? (userId) => deps.hasStaffCapability!(userId, "merge_pr")
         : undefined,
+      // チームの一時停止 / 再開は「セッションを止められる役職」(session_end) に対応させる。
+      isTeamSuspendUserAllowed: deps.hasStaffCapability
+        ? (userId) => deps.hasStaffCapability!(userId, "session_end")
+        : undefined,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
       // PR 操作パネル / RWF アクション選択パネル。 実処理はリアクション経由と同じ口を使う。
       prOperations: deps.prOperations,
@@ -1609,6 +1644,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (!deps.subsidiary && ev.type === "team.created") {
+      // パネル更新をチーム面 provisioning / 監査投稿の成否に依存させない。
+      teamAdminRefresh?.();
       void (async () => {
         await ensureTeamDiscordLayout({
           guild,
@@ -1624,6 +1661,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (!deps.subsidiary && ev.type === "team.changed") {
+      // suspended_at の反映を、無関係なチーム面 provisioning の完了まで待たせない。
+      teamAdminRefresh?.();
       void (async () => {
         const team = new TeamsRepo(deps.db).find(ev.team_id);
         if (team) {

@@ -8,6 +8,12 @@ export interface TeamRow {
   settings_json: string;
   rules_text: string;
   discord_category_id: string | null;
+  /**
+   * 一時停止した時刻 (epoch-ms)。 NULL = 稼働中。
+   * 一時停止中のチームは定時 fanout (朝礼 / 定例 / issue scout / タスク整理) の
+   * 対象から外れる。 手動の spawn / チーム面への投稿は止めない (アーカイブではない)。
+   */
+  suspended_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -24,6 +30,29 @@ export class TeamsRepo {
 
   list(): TeamRow[] {
     return this.db.prepare("SELECT * FROM teams ORDER BY name").all() as TeamRow[];
+  }
+
+  /**
+   * 一時停止中でないチームだけ。 定時 fanout の対象列挙に使う。
+   * @implements spec/feature/teams.md §4.5
+   */
+  listActive(): TeamRow[] {
+    return this.db.prepare("SELECT * FROM teams WHERE suspended_at IS NULL ORDER BY name").all() as TeamRow[];
+  }
+
+  /**
+   * 一時停止 / 再開。 既に同じ状態なら何もしない (冪等)。
+   * 戻り値は更新後の行。 チームが無ければ null。
+   */
+  setSuspended(id: string, suspended: boolean): TeamRow | null {
+    const row = this.find(id);
+    if (!row) return null;
+    const alreadySuspended = row.suspended_at !== null;
+    if (alreadySuspended === suspended) return row;
+    const now = Date.now();
+    this.db.prepare("UPDATE teams SET suspended_at = ?, updated_at = ? WHERE id = ?")
+      .run(suspended ? now : null, now, id);
+    return this.find(id);
   }
 
   find(id: string): TeamRow | null {

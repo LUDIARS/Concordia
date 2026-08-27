@@ -29,6 +29,8 @@ export interface DiscordConfigSnapshot {
   activityChannelId: string;
   monitorChannelId: string;
   prQueueChannelId: string;
+  /** チーム管理チャンネル (チーム一覧 + 一時停止/再開の操作面)。 子会社 slim 構成では空。 */
+  teamAdminChannelId: string;
   errorCategoryId: string;
   errorChannelId: string;
   metaChannels: Record<MetaChannelKind, string>;
@@ -45,6 +47,7 @@ const COST_CHANNEL_KEY = "cost_channel_id";
 const ACTIVITY_CHANNEL_KEY = "activity_channel_id";
 const MONITOR_CHANNEL_KEY = "monitor_channel_id";
 const PR_QUEUE_CHANNEL_KEY = "pr_queue_channel_id";
+const TEAM_ADMIN_CHANNEL_KEY = "team_admin_channel_id";
 const ERROR_CATEGORY_KEY = "error_category_id";
 const ERROR_CHANNEL_KEY = "error_channel_id";
 
@@ -101,6 +104,8 @@ export interface EnsureLayoutOptions {
   includeMetaChannels?: boolean;
   /** pr-queue チャンネルを作るか。 既定 true。 */
   includePrQueue?: boolean;
+  /** チーム管理チャンネル (チーム一時停止/再開の操作面) を作るか。 既定 true。 */
+  includeTeamAdmin?: boolean;
   /** 「エラー」 カテゴリ + errors チャンネルを作るか。 既定 true。 */
   includeErrors?: boolean;
   /** Bot 起動時に Session forum へ不足分を補う delegation template tags。 */
@@ -116,6 +121,7 @@ export async function ensureDiscordLayout(
 ): Promise<DiscordConfigSnapshot> {
   const includeMetaChannels = opts.includeMetaChannels ?? true;
   const includePrQueue = opts.includePrQueue ?? true;
+  const includeTeamAdmin = opts.includeTeamAdmin ?? true;
   const includeErrors = opts.includeErrors ?? true;
   const forumMode = opts.forumMode ?? true;
   const sessionForumTagNames = opts.sessionForumTemplates
@@ -180,6 +186,10 @@ export async function ensureDiscordLayout(
   const prQueueChannelId = includePrQueue
     ? await ensureTextChannel(guild, repo, PR_QUEUE_CHANNEL_KEY, "pr-queue", statusCategoryId)
     : "";
+  // チーム管理: チーム一覧 + 一時停止/再開の操作面 (2026-08-27 neco 指示)。
+  const teamAdminChannelId = includeTeamAdmin
+    ? await ensureTextChannel(guild, repo, TEAM_ADMIN_CHANNEL_KEY, "チーム管理", statusCategoryId)
+    : "";
   // 「エラー」 カテゴリ + errors チャンネル: 監視ロガー検知 / Discord 操作失敗の転記先.
   const errorCategoryId = includeErrors ? await ensureCategory(guild, repo, ERROR_CATEGORY_KEY, CATEGORY_NAMES.error) : "";
   const errorChannelId = includeErrors
@@ -220,6 +230,7 @@ export async function ensureDiscordLayout(
     activityChannelId,
     monitorChannelId,
     prQueueChannelId,
+    teamAdminChannelId,
     errorCategoryId,
     errorChannelId,
     metaChannels,

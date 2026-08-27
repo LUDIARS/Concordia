@@ -16,6 +16,7 @@ function teamRow(settings: unknown): TeamRow {
     settings_json: JSON.stringify(settings),
     rules_text: "",
     discord_category_id: null,
+    suspended_at: null,
     created_at: 1,
     updated_at: 1,
   };
@@ -161,5 +162,49 @@ describe("parseTeamSettings", () => {
       .toThrow();
     expect(() => parseTeamSettings(teamRow({ pr_rules: { base: "release..next", push: "revisor" } })))
       .toThrow();
+  });
+});
+
+describe("teamsRouter suspend/resume", () => {
+  function makeApp(): { app: Hono; db: Database.Database; repo: TeamsRepo } {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new TeamsRepo(db);
+    const app = new Hono().route("/v1/teams", teamsRouter(repo));
+    return { app, db, repo };
+  }
+
+  it("一時停止 → 再開が team.changed を 1 回ずつ流し、suspended を返す", async () => {
+    const { app, db, repo } = makeApp();
+    const team = repo.create({ name: "IdleTeam", slug: "idle-team" });
+    const events: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((ev) => {
+      if (ev.type === "team.changed") events.push(ev);
+    });
+
+    const suspended = await app.request(`/v1/teams/${team.id}/suspend`, { method: "POST" });
+    expect(suspended.status).toBe(200);
+    const suspendedBody = await suspended.json() as { team: { suspended: boolean; suspended_at: number | null } };
+    expect(suspendedBody.team.suspended).toBe(true);
+    expect(suspendedBody.team.suspended_at).toEqual(expect.any(Number));
+
+    // 冪等: 既に停止中の suspend はイベントを増やさない。
+    expect((await app.request(`/v1/teams/${team.id}/suspend`, { method: "POST" })).status).toBe(200);
+
+    const resumed = await app.request(`/v1/teams/${team.slug}/resume`, { method: "POST" });
+    expect(resumed.status).toBe(200);
+    expect(((await resumed.json()) as { team: { suspended: boolean } }).team.suspended).toBe(false);
+
+    unsubscribe();
+    expect(events).toHaveLength(2);
+    expect(events.every((ev) => ev.type === "team.changed" && ev.fields.includes("suspended_at"))).toBe(true);
+    db.close();
+  });
+
+  it("未知のチームは 404", async () => {
+    const { app, db } = makeApp();
+    expect((await app.request("/v1/teams/unknown/suspend", { method: "POST" })).status).toBe(404);
+    expect((await app.request("/v1/teams/unknown/resume", { method: "POST" })).status).toBe(404);
+    db.close();
   });
 });

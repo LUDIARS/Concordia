@@ -31,6 +31,7 @@ import { handleControlInteraction, handleControlModalSubmit } from "./control.js
 import { interactionAgeMs } from "./interaction-diagnostics.js";
 import { parseTestControlId } from "./test-forum-controls.js";
 import { handlePanelInteraction, isPanelInteraction } from "./panel-interactions.js";
+import { handleTeamAdminInteraction, isTeamAdminInteraction } from "./team-admin-panel.js";
 import { handleTestForumControl } from "./test-forum-actions.js";
 import type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 import { isCommandWorkflowEnabled, workflowForCommand } from "./command-workflow.js";
@@ -245,6 +246,20 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     return;
   }
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
+    // チーム管理チャンネルの一時停止 / 再開ボタン。
+    if (interaction.isButton() && isTeamAdminInteraction(interaction)) {
+      if (!deps.teams) {
+        deps.log.warn("team-admin control unavailable: teams repo missing");
+        await interaction.reply({ content: "チーム管理の準備ができていません。Bot の設定を確認してください。", ephemeral: true });
+        return;
+      }
+      await handleTeamAdminInteraction(interaction, {
+        teams: deps.teams,
+        isSuspendUserAllowed: deps.isTeamSuspendUserAllowed,
+        log: deps.log,
+      });
+      return;
+    }
     if(interaction.isButton()&&interaction.customId.startsWith(PLAN_PREFIX)){await handlePlanButton(interaction,deps.concordiaUrl);return;}
     if (interaction.isButton() && interaction.customId.startsWith(CONTEXT_COMPACT_PREFIX)) {
       await handleContextCompactButton(interaction, { sessionsRepo: deps.sessionsRepo, concordiaUrl: deps.concordiaUrl });

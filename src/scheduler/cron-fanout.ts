@@ -21,18 +21,26 @@ export interface FanoutTeam {
   id: string;
   slug: string;
   name: string;
+  /** 一時停止した時刻 (epoch-ms)。 null / 未指定 = 稼働中。 */
+  suspended_at?: number | null;
 }
 
 /**
  * チームごとの fanout 対象を作る。
  *
+ * - **一時停止中 (`suspended_at` 有り) のチームは対象から外す** (2026-08-27 neco 指示:
+ *   作業していないチームは一時的に止められる)。 朝礼 / 定例 / issue scout / タスク整理の
+ *   定時 delegation が空振りで起動し続けるのを避ける。
  * - `options.team` に team id を渡すことで、 起動した delegation run が
  *   そのチームに帰属する (delegation service が team_id を解決する)。
  * - 起動順を安定させるため slug 昇順に整列する。
  * - slug が空のチームは識別子を作れないため id を key に使う。
+ *
+ * @implements spec/feature/teams.md §4.5
  */
 export function buildTeamFanoutTargets(teams: readonly FanoutTeam[]): CronFanoutTarget[] {
-  return [...teams]
+  return teams
+    .filter((team) => team.suspended_at == null)
     .sort((a, b) => (a.slug || a.id).localeCompare(b.slug || b.id))
     .map((team) => ({
       key: team.slug || team.id,

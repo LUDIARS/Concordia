@@ -69,6 +69,7 @@ const DISCORD_TARGETS = {
   dispatchInteraction: "discord.commands.dispatch_interaction",
   monitorRefresh: "discord.monitor.refresh",
   prQueueRefresh: "discord.pr_queue.refresh",
+  teamAdminPanelRefresh: "discord.team_admin.refresh",
   statusReconcile: "discord.status.reconcile",
   sessionForumReconcile: "discord.session_forum.reconcile",
   testForumReconcile: "discord.test_forum.reconcile",

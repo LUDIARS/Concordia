@@ -40,6 +40,16 @@ describe("buildTeamFanoutTargets", () => {
     expect(buildTeamFanoutTargets([])).toEqual([]);
   });
 
+  it("一時停止中 (suspended_at 有り) のチームは対象から外す", () => {
+    const targets = buildTeamFanoutTargets([
+      { id: "team_run", slug: "running", name: "Running" },
+      { id: "team_stop", slug: "stopped", name: "Stopped", suspended_at: 1_700_000_000_000 },
+      { id: "team_null", slug: "explicit-null", name: "ExplicitNull", suspended_at: null },
+    ]);
+
+    expect(targets.map((t) => t.key)).toEqual(["explicit-null", "running"]);
+  });
+
   it("入力配列を破壊しない", () => {
     const teams = [
       { id: "team_z", slug: "zeta", name: "Zeta" },

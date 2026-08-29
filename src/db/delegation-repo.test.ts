@@ -118,6 +118,38 @@ describe("DelegationRepo / templates", () => {
     });
   });
 
+  it("upserts template overrides without reactivating a disabled row implicitly", () => {
+    const template = repo.createTemplate({
+      call_name: "overridden",
+      title: "Overridden",
+      target_provider: "codex",
+      prompt_template: "x",
+    });
+    const disabled = repo.upsertTemplateOverride({
+      template_id: template.id,
+      scope_kind: "platform",
+      scope_key: "darwin",
+      patch_json: '{"model":"first"}',
+      is_active: false,
+    });
+    expect(disabled.is_active).toBe(0);
+
+    const updated = repo.upsertTemplateOverride({
+      template_id: template.id,
+      scope_kind: "platform",
+      scope_key: "darwin",
+      patch_json: '{"model":"second"}',
+    });
+    expect(updated.is_active).toBe(0);
+    expect(updated.id).toBe(disabled.id);
+    expect(() => repo.upsertTemplateOverride({
+      template_id: template.id,
+      scope_kind: "site",
+      scope_key: "INVALID SITE",
+      patch_json: "{}",
+    })).toThrow("invalid_site_override_scope_key");
+  });
+
   it("listTemplates orders by sort_order then call_name", () => {
     repo.createTemplate({
       call_name: "b",

@@ -45,9 +45,12 @@ describe("FederationSitesRepo", () => {
     let now = 300;
     const repo = makeFederationSitesRepo(db, secretBox, () => now);
     repo.create({ siteId: "site-c" });
-    repo.touchConnected("site-c", "1.2.3");
+    repo.touchConnected("site-c", "1.2.3", "darwin");
     expect(repo.find("site-c")?.last_connected_at).toBe(300);
     expect(repo.find("site-c")?.site_version).toBe("1.2.3");
+    expect(repo.find("site-c")?.platform).toBe("darwin");
+    repo.touchConnected("site-c", "1.2.4");
+    expect(repo.find("site-c")?.platform).toBeNull();
     now = 350;
     repo.touchSeen("site-c");
     expect(repo.find("site-c")?.last_seen_at).toBe(350);

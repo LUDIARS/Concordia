@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 74;
+export const SCHEMA_VERSION = 76;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1905,6 +1905,38 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     const columns = db.prepare("PRAGMA table_info(teams)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "suspended_at")) {
       db.exec("ALTER TABLE teams ADD COLUMN suspended_at INTEGER");
+    }
+  },
+},
+{
+  version: 75,
+  name: "delegation-template-overrides",
+  source: "platform/site scoped delegation template patches",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS delegation_template_overrides (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL REFERENCES delegation_templates(id),
+        scope_kind TEXT NOT NULL,
+        scope_key TEXT NOT NULL,
+        patch_json TEXT NOT NULL DEFAULT '{}',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        UNIQUE(template_id, scope_kind, scope_key)
+      );
+      CREATE INDEX IF NOT EXISTS idx_delegation_template_overrides_active
+        ON delegation_template_overrides(template_id, scope_kind, scope_key, is_active);
+    `);
+  },
+}, {
+  version: 76,
+  name: "federation-site-platform",
+  source: "record platform declared by each federation site handshake",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(federation_sites)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "platform")) {
+      db.exec("ALTER TABLE federation_sites ADD COLUMN platform TEXT");
     }
   },
 },

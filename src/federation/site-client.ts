@@ -46,6 +46,8 @@ export interface FederationSiteClientDeps {
   token: string;
   /** hello で名乗る拠点バージョン。 */
   siteVersion: string;
+  /** OS platform used for template resolution at HQ. */
+  platform?: "win32" | "darwin";
   onEvent?: (payload: unknown, seq: number) => void;
   /** welcome 受信 (link 確立) 通知。テスト / 起動ログ用。 */
   onLinked?: (info: { hqVersion: string; pendingEvents: number }) => void;
@@ -131,6 +133,7 @@ export function startFederationSiteClient(deps: FederationSiteClientDeps): Feder
         site_id: deps.siteId,
         token: deps.token,
         site_version: deps.siteVersion,
+        ...(deps.platform ? { platform: deps.platform } : {}),
       }));
     });
     socket.on("ping", markActive);

@@ -5,6 +5,7 @@ import {
   listenerNeedsRestart,
   resolveFederationListener,
   resolveFederationSite,
+  resolveFederationSiteId,
   siteClientNeedsRestart,
   updateFederationListener,
   updateFederationSite,
@@ -124,6 +125,14 @@ describe("listenerNeedsRestart", () => {
 });
 
 describe("拠点ロール設定", () => {
+  it("site ID は DB を優先し、未設定なら env に戻る", () => {
+    expect(resolveFederationSiteId(
+      store({ "admin.federation.site.site_id": "db-site" }),
+      env({ siteId: "env-site" }),
+    )).toBe("db-site");
+    expect(resolveFederationSiteId(store(), env({ siteId: "env-site" }))).toBe("env-site");
+  });
+
   it("トークンは暗号化して保存し、平文を返さない", () => {
     const db = store();
     expect(updateFederationSite(db, cipher, { hq_url: "ws://hq:1", site_id: "yidhra", token: "t0ken" }).ok).toBe(true);

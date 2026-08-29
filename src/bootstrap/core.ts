@@ -522,6 +522,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const delegationService = new DelegationService({
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
+    siteId: () => federation.apiDeps.siteStatus().config.siteId,
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     // kind 別 Inject マニュアル (WebUI /manuals で調整) を協調コンテキストへ差し込む。
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,

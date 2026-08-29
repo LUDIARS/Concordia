@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, api, statusBadge, type ModelCatalogItem, type SessionRow } from "../api.js";
 import { RuntimeOptionsBuilder } from "../components/RuntimeOptionsBuilder.js";
 import { CATEGORIES, CATEGORY_LABELS, EMPTY_FORM, type Category, type Provider } from "./delegation/model.js";
 import { OutsourcedRunCard, fmtDelegationTs, runSummary } from "./delegation/RunCards.js";
 import { useDelegationState } from "./delegation/useDelegationState.js";
+import { TemplateOverrides } from "./delegation/TemplateOverrides.js";
 
 export function Delegation() {
-  const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced } = useDelegationState();
+  const { templates, models, runs, includeInactive, setIncludeInactive, mode, setMode, form, setForm, formRuntimeOptions, setFormRuntimeOptions, formError, forumTagSyncMessage, busy, invokeFor, setInvokeFor, invokeArgs, setInvokeArgs, invokeOptionsJson, setInvokeOptionsJson, invokeCwd, setInvokeCwd, invokeResult, setInvokeResult, importText, setImportText, queue, queueLimitDraft, setQueueLimitDraft, saveQueueLimit, safeRuntimeOptions, optionValueForJson, setFormRuntimeOption, startCreate, startEdit, submit, copyJson, importJson, deactivate, moveTemplate, syncForumTags, openInvoke, runInvoke, outsourcedRuns, queuedRuns, activeOutsourced, finishedOutsourced, refresh } = useDelegationState();
   // カテゴリ表示絞り込み ("" = 全カテゴリ)。 表示だけの絞り込みで、 並び替え (↑↓) は
   // 全体の sort_order を書き換えるため絞り込み中は無効化する。
   const [categoryFilter, setCategoryFilter] = useState<Category | "">("");
+  const [overrideTemplateId, setOverrideTemplateId] = useState<string | null>(null);
   const visibleTemplates = categoryFilter ? templates.filter((t) => t.category === categoryFilter) : templates;
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
@@ -98,7 +100,8 @@ export function Delegation() {
           </thead>
           <tbody>
             {visibleTemplates.map((t, i) => (
-              <tr key={t.id} className="border-t border-border">
+              <Fragment key={t.id}>
+              <tr className="border-t border-border">
                 <td className="p-2 font-mono">{t.call_name}</td>
                 <td className="p-2">{t.title}</td>
                 <td className="p-2 text-right text-xs text-subtle">{t.sort_order}</td>
@@ -116,9 +119,12 @@ export function Delegation() {
                   <button className="text-accent text-xs" onClick={() => openInvoke(t)}>invoke</button>
                   <button className="text-xs" onClick={() => startEdit(t)}>edit</button>
                   <button className="text-xs" title="可搬 JSON をクリップボードにコピー" onClick={() => copyJson(t)}>📋JSON</button>
+                  <button className="text-xs" onClick={() => setOverrideTemplateId(overrideTemplateId === t.id ? null : t.id)}>overrides</button>
                   <button className="text-red-500 text-xs" onClick={() => deactivate(t.id)}>deactivate</button>
                 </td>
               </tr>
+              {overrideTemplateId === t.id && <tr><td colSpan={12} className="p-2"><TemplateOverrides template={t} onChanged={refresh} /></td></tr>}
+              </Fragment>
             ))}
           </tbody>
         </table>

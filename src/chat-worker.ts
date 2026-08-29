@@ -24,6 +24,9 @@ import { HarnessRulesRepo } from "./db/harness-rules-repo.js";
 import { SubsidiaryBudgetTracker } from "./subsidiary/budget.js";
 import { SubsidiaryBotManager } from "./subsidiary/manager.js";
 import { AdminState } from "./admin/state.js";
+import { SqliteSettingsStore } from "./admin/settings-store.js";
+import { readFederationEnv } from "./federation/env.js";
+import { resolveFederationSiteId } from "./federation/listener-settings.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "./discord/config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
@@ -218,6 +221,7 @@ async function main(): Promise<void> {
   reconcileTimer.unref?.();
 
   const delegationRepo = new DelegationRepo(db);
+  const federationSettings = new SqliteSettingsStore(db);
   const excubitor = new ExcubitorClient();
   const checkDependencies = createDependencyReadinessChecker({
     excubitor,
@@ -229,6 +233,10 @@ async function main(): Promise<void> {
   const delegationService = new DelegationService({
     repo: delegationRepo,
     concordiaUrl,
+    siteId: () => resolveFederationSiteId(
+      federationSettings,
+      readFederationEnv(process.env, { deferListenerPortValidation: true }),
+    ),
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
   });
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: sessions });

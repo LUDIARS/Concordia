@@ -12,6 +12,9 @@ import { InjectManualsRepo } from "./db/inject-manuals-repo.js";
 import { runClaude } from "./rules/claude-runner.js";
 import { DelegationQueue } from "./delegation/queue.js";
 import { AdminState } from "./admin/state.js";
+import { SqliteSettingsStore } from "./admin/settings-store.js";
+import { readFederationEnv } from "./federation/env.js";
+import { resolveFederationSiteId } from "./federation/listener-settings.js";
 import { makeDiscordConfigRepo } from "./db/discord-repo.js";
 import { setConcordiaAddress, setLictorLauncherResolver, setWorkspaceRootsResolver } from "./control/spawner.js";
 import { resolveLictorLauncher } from "./control/lictor-launcher.js";
@@ -42,6 +45,7 @@ async function main(): Promise<void> {
   const db = openDb(cfg.dbPath);
   const sessions = new SessionsRepo(db);
   const delegationRepo = new DelegationRepo(db);
+  const federationSettings = new SqliteSettingsStore(db);
   const configRepo = makeDiscordConfigRepo(db);
   const secretBox = loadSecretBox({
     envValue: process.env.CONCORDIA_SECRET_KEY,
@@ -71,6 +75,10 @@ async function main(): Promise<void> {
   const service = new DelegationService({
     repo: delegationRepo,
     concordiaUrl,
+    siteId: () => resolveFederationSiteId(
+      federationSettings,
+      readFederationEnv(process.env, { deferListenerPortValidation: true }),
+    ),
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
     injectManual: (kind) => injectManualsRepo.get(kind)?.content ?? null,
   });

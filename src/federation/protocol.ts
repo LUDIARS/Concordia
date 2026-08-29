@@ -34,6 +34,7 @@ const helloSchema = z.object({
   site_id: z.string().regex(SITE_ID_PATTERN),
   token: z.string().min(1).max(512),
   site_version: z.string().max(100).optional(),
+  platform: z.enum(["win32", "darwin"]).optional(),
 }).passthrough();
 
 const welcomeSchema = z.object({
@@ -225,7 +226,7 @@ export function parseFederationFrame(raw: unknown): ParseFederationFrameResult {
  * 送信側だけは明示的に列挙して、組み立てミスを型で捕まえる。
  */
 export type FederationFrameInput =
-  | { type: "hello"; site_id: string; token: string; site_version?: string }
+  | { type: "hello"; site_id: string; token: string; site_version?: string; platform?: "win32" | "darwin" }
   | { type: "welcome"; hq_version: string; pending_events: number }
   | { type: "event"; seq: number; payload: unknown }
   | { type: "ingress"; guild_id: string; channel_id: string; message_id: string; author_id: string; author_label: string; text: string; ts: number; applied_tag_names?: readonly string[] }

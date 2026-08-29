@@ -95,6 +95,19 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
   最終報告の先頭に `<@${mention_user_id}>` を付けて管理者へメンションする
   (2026-08-08 neco 指示。プロンプト本文側の共通節は `src/delegation/seed.ts` の `MENTION_ADMIN_STEP`)。
 
+### 2.2 platform / site overrides
+
+**Requirement ID: `SPEC-DELEGATION-TEMPLATE-OVERRIDES`**
+
+`delegation_template_overrides` は共通テンプレートに対する部分上書きを持つ。適用順は
+base → 実行 platform (`win32` / `darwin`) → federation site ID で、より具体的な site が勝つ。
+上書きできるのは `target_provider`、`model`、`default_cwd`、`runtime_options_json`、`is_active`
+だけである。runtime options は shallow merge し、未知キーは保存時・解決時ともに拒否する。
+
+ローカル invoke は process platform と拠点設定の site ID で解決する。federation 経由では
+site が handshake で申告した platform と site ID を本社が使い、解決済みテンプレだけを
+config snapshot として配る。override 行自体は配らないため、他拠点の設定を露出しない。
+
 ## 3. テンプレ render
 
 - `${var_name}` を args[var_name] で置換
@@ -153,6 +166,9 @@ run の `completed` は decision verdict `ok`、`failed` は `ng` として返�
 | POST   | /v1/delegation/templates | none | 新規作成 |
 | PATCH  | /v1/delegation/templates/:id | none | 更新 |
 | DELETE | /v1/delegation/templates/:id | none | soft delete (is_active=0) |
+| GET | /v1/delegation/templates/:id/overrides | none | platform/site override 一覧 |
+| PUT | /v1/delegation/templates/:id/overrides | none | override の作成または更新 |
+| DELETE | /v1/delegation/templates/:id/overrides/:overrideId | none | override 削除 |
 | POST   | /v1/delegation/invoke | none | テンプレ resolve + spawn |
 | GET    | /v1/delegation/runs | none | 直近 100 件 |
 | POST   | /v1/delegation/runs/:id/commit | none | コミット代行 (§14)。 run が所有する worktree のみ |

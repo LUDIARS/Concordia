@@ -43,4 +43,21 @@ describe("federation config snapshot", () => {
       "cost_channel_id", "monitor_channel_id", "pr_queue_channel_id", "error_channel_id",
     ]);
   });
+
+  it("distributes a template resolved for the target site without leaking override rows", () => {
+    db.prepare("INSERT INTO delegation_template_overrides (id, template_id, scope_kind, scope_key, patch_json, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("o-1", "t-1", "platform", "darwin", '{\"model\":\"native\"}', 1, 1, 1);
+    db.prepare("INSERT INTO delegation_template_overrides (id, template_id, scope_kind, scope_key, patch_json, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("o-2", "t-1", "site", "site-a", '{\"model\":\"site\"}', 1, 1, 1);
+    const snapshot = createFederationConfigSnapshot(db, [], { siteId: "site-a", platform: "darwin" });
+    expect(snapshot.templates[0]?.model).toBe("site");
+    expect(snapshot).not.toHaveProperty("overrides");
+  });
+
+  it("applies a site override when an older client omits its platform", () => {
+    db.prepare("INSERT INTO delegation_template_overrides (id, template_id, scope_kind, scope_key, patch_json, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run("o-site-only", "t-1", "site", "site-a", '{"model":"site"}', 1, 1, 1);
+    const snapshot = createFederationConfigSnapshot(db, [], { siteId: "site-a", platform: null });
+    expect(snapshot.templates[0]?.model).toBe("site");
+  });
 });

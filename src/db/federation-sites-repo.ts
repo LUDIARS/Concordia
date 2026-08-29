@@ -25,6 +25,7 @@ export interface FederationSiteRow {
   last_connected_at: number | null;
   last_seen_at: number | null;
   site_version: string | null;
+  platform?: "win32" | "darwin" | null;
   villa_pc_id: string | null;
   /** JSON array in SQLite; repo boundary returns decoded guild ids. */
   departments: string[];
@@ -38,7 +39,7 @@ export interface FederationSitesRepo {
   /** トークン照合 (定数時間)。revoked / 未登録 / 復号失敗は false。 */
   verifyToken(siteId: string, supplied: string): boolean;
   revoke(siteId: string): boolean;
-  touchConnected(siteId: string, siteVersion: string | null): void;
+  touchConnected(siteId: string, siteVersion: string | null, platform?: "win32" | "darwin" | null): void;
   touchSeen(siteId: string): void;
   setDepartments(siteId: string, departments: readonly string[]): boolean;
   setVillaPcId(siteId: string, villaPcId: string | null): boolean;
@@ -94,11 +95,11 @@ export function makeFederationSitesRepo(
       ).run(nowSec(), siteId);
       return result.changes > 0;
     },
-    touchConnected(siteId, siteVersion) {
+    touchConnected(siteId, siteVersion, platform) {
       const now = nowSec();
       db.prepare(
-        "UPDATE federation_sites SET last_connected_at = ?, last_seen_at = ?, site_version = ? WHERE site_id = ?",
-      ).run(now, now, siteVersion, siteId);
+        "UPDATE federation_sites SET last_connected_at = ?, last_seen_at = ?, site_version = ?, platform = ? WHERE site_id = ?",
+      ).run(now, now, siteVersion, platform ?? null, siteId);
     },
     touchSeen(siteId) {
       db.prepare("UPDATE federation_sites SET last_seen_at = ? WHERE site_id = ?")

@@ -26,7 +26,7 @@ updated: 2026-07-25
 
 ## 目的
 
-Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッションを起動する (管制 spawn)。 Web UI / Discord `/spawn` / MCP delegation から呼ぶ。Windows は Windows Terminal (`wt.exe`) の tab / window、macOS は Lictor を detached process として直接起動する (provider の PTY は Lictor が所有する)。
+Concordia から新しい lictor-wrapped な Claude Code / Codex / Gemini セッションを起動する (管制 spawn)。 Web UI / Discord `/spawn` / MCP delegation から呼ぶ。Windows は Windows Terminal (`wt.exe`) の tab / window、macOS は Terminal.app の新規ウィンドウで起動する。
 
 ## エンドポイントは 2 系統
 
@@ -48,6 +48,7 @@ provider は `claude` / `codex` / `gemini`、 mode は `tab` (既定) / `window`
 | `CONCORDIA_SPAWN_DEFAULT_CWD` | 空 | 互換用の明示 project cwd。 |
 | `CONCORDIA_SPAWN_TOKEN_PATH` | `<cwd>/.spawn.token` | token ファイルの場所を上書き (docker/systemd の volume 分離用)。 |
 | `CONCORDIA_RESTART_DRY_RUN` | 未設定 | `1` で `/v1/admin/restart` の spawn/exit を skip (テスト用)。 |
+| `CONCORDIA_MAC_SPAWN` | `terminal` | macOS 対話 spawn を `terminal` (Terminal.app) または検証用の `direct` (Lictor detached) にする。その他の値はエラー。 |
 
 ### spawn cwd の必須条件
 
@@ -121,7 +122,7 @@ MCP サーバ節。 委託テンプレ自体の設計は [`spec/delegation.md`](
    - Discord / Slack: platform が認証した user ID の役職 (社員名簿 / 管理職以上) を確認後、内部 API を呼ぶ
 ## 注意点
 
-- **対応 OS**: 対話 spawn は Windows (`wt.exe`) と macOS (Lictor direct) に対応する。`codex-sdk` headless spawn は従来どおり OS 非依存。
+- **対応 OS**: 対話 spawn は Windows (`wt.exe`) と macOS (Terminal.app) に対応する。Terminal.app は常に新規ウィンドウを開くため、macOS の `mode: "tab"` は window に丸められる。`codex-sdk` headless spawn は従来どおり OS 非依存。
 - **token は機密**: `.spawn.token` は cwd 直下。 `.gitignore` 済。 値を共有しない。 壊れた (64-hex でない) ファイルは自動 rotate される。
 - **内部 API を直接公開しない**: `CONCORDIA_HOST` は loopback に固定し、Web は AccessControl 経由、
   Discord / Slack は社員名簿の役職判定 ([staff-roster](../feature/staff-roster.md)) 経由で起動する。

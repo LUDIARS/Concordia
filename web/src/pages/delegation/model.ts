@@ -142,7 +142,7 @@ export async function getJson<T>(path: string): Promise<T> {
   return r.json() as Promise<T>;
 }
 
-export async function mutate(method: "POST" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response> {
+export async function mutate(method: "POST" | "PUT" | "PATCH" | "DELETE", path: string, body?: unknown): Promise<Response> {
   // Concordia は loopback (既定 127.0.0.1:11111) 限定なので bearer token は不要。
   const headers: Record<string, string> = { "content-type": "application/json" };
   return fetch(path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });

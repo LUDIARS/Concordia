@@ -138,6 +138,11 @@ export interface FederationSitePatch {
   token?: string | null;
 }
 
+/** @implements SPEC-DELEGATION-TEMPLATE-OVERRIDES Resolve the local site identity using the same DB → env precedence as the site client. */
+export function resolveFederationSiteId(store: SettingsStore, env: FederationEnv): string | null {
+  return store.get(FEDERATION_SITE_ID_KEY)?.trim() || env.siteId;
+}
+
 /** 暗号化トークンの復号口。 SecretBox をそのまま受けると循環依存になるので最小形で受ける。 */
 export interface TokenCipher {
   encrypt(value: string): string;
@@ -150,7 +155,8 @@ export function resolveFederationSite(
   cipher: TokenCipher,
 ): FederationSiteConfig & { token: string | null; tokenDecryptionFailed: boolean } {
   const hqUrl = store.get(FEDERATION_SITE_HQ_URL_KEY)?.trim() || null;
-  const siteId = store.get(FEDERATION_SITE_ID_KEY)?.trim() || null;
+  const storedSiteId = store.get(FEDERATION_SITE_ID_KEY)?.trim() || null;
+  const siteId = storedSiteId ?? env.siteId;
   const stored = store.get(FEDERATION_SITE_TOKEN_KEY)?.trim() || null;
   let token: string | null = null;
   let tokenDecryptionFailed = false;
@@ -166,13 +172,13 @@ export function resolveFederationSite(
   }
   return {
     hqUrl: hqUrl ?? env.hqUrl,
-    siteId: siteId ?? env.siteId,
+    siteId,
     token: token ?? env.siteToken,
     tokenDecryptionFailed,
     hasToken: Boolean(token ?? env.siteToken),
     source: {
       hqUrl: hqUrl ? "db" : env.hqUrl ? "env" : "default",
-      siteId: siteId ? "db" : env.siteId ? "env" : "default",
+      siteId: storedSiteId ? "db" : env.siteId ? "env" : "default",
       token: token ? "db" : env.siteToken ? "env" : "default",
     },
   };

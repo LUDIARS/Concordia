@@ -188,6 +188,18 @@ export const SESSION_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
   },
   {
+    key: "session.mac_spawn",
+    section: "session",
+    label: "macOS 対話 spawn 方式",
+    description: "macOS の対話 spawn を Terminal.app で起動するか、Lictor detached で直接起動するか。",
+    kind: "enum",
+    envName: "CONCORDIA_MAC_SPAWN",
+    dbKey: null,
+    defaultValue: "terminal",
+    editable: false,
+    enumValues: ["terminal", "direct"],
+  },
+  {
     key: "session.satelles_codex_runtime",
     section: "session",
     label: "Satelles codex 実行環境",

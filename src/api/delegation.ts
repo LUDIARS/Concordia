@@ -17,8 +17,11 @@ import {
   type DelegationRunRow,
   type DelegationProvider,
   type DelegationCategory,
+  type DelegationTemplateOverrideRow,
+  type DelegationTemplateOverrideScopeKind,
   parseRuntimeOptions,
 } from "../db/delegation-repo.js";
+import { TEMPLATE_OVERRIDE_PATCH_KEYS } from "../delegation/template-overrides.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import type { DelegationService } from "../delegation/service.js";
@@ -92,6 +95,34 @@ const PatchTemplateSchema = z.object({
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
+
+const RuntimeOptionsJsonSchema = z.string().max(20000).refine((raw) => {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed);
+  } catch {
+    return false;
+  }
+}, "runtime_options_json must be a JSON object");
+
+const TemplateOverrideSchema = z.object({
+  scope_kind: z.enum(["platform", "site"] as [DelegationTemplateOverrideScopeKind, DelegationTemplateOverrideScopeKind]),
+  scope_key: z.string().min(1).max(128),
+  patch: z.object({
+    target_provider: z.enum(DELEGATION_PROVIDERS as unknown as [DelegationProvider, ...DelegationProvider[]]).optional(),
+    model: z.string().max(120).nullable().optional(),
+    default_cwd: z.string().nullable().optional(),
+    runtime_options_json: RuntimeOptionsJsonSchema.optional(),
+    is_active: z.union([z.boolean(), z.number().int().min(0).max(1)]).transform((value) => value === true || value === 1 ? 1 : 0).optional(),
+  }).strict(),
+  is_active: z.boolean().optional(),
+});
+
+/** @implements SPEC-DELEGATION-TEMPLATE-OVERRIDES */
+function serializeTemplateOverride(row: DelegationTemplateOverrideRow) {
+  const { patch_json, ...override } = row;
+  return { ...override, patch: safeJsonParse(patch_json, {}), is_active: row.is_active === 1 };
+}
 
 /** title 等を call_name スラッグへ。 [a-z][a-z0-9_-]{0,63} に収まらなければ空文字を返す。 */
 function slugifyCallName(raw: string): string {
@@ -304,6 +335,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     return c.json({ template: serializeTemplate(row) });
   });
 
+  app.get("/templates/:identifier/overrides", (c) => {
+    const row = deps.repo.findTemplate(c.req.param("identifier")) ?? deps.repo.findTemplateByCallName(c.req.param("identifier"));
+    if (!row) return c.json({ error: "not_found" }, 404);
+    return c.json({ overrides: deps.repo.listTemplateOverrides(row.id).map(serializeTemplateOverride) });
+  });
+
   // 1 つの delegation を可搬 JSON で書き出す (コピー用)。 id でも call_name でも引ける。
   app.get("/templates/:identifier/export", (c) => {
     const id = c.req.param("identifier");
@@ -401,6 +438,30 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     });
     invalidateTemplates("create", row);
     return c.json({ template: serializeTemplate(row) }, 201);
+  });
+
+  app.put("/templates/:identifier/overrides", async (c) => {
+    const template = deps.repo.findTemplate(c.req.param("identifier")) ?? deps.repo.findTemplateByCallName(c.req.param("identifier"));
+    if (!template) return c.json({ error: "not_found" }, 404);
+    const parsed = TemplateOverrideSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten(), allowed_patch_keys: TEMPLATE_OVERRIDE_PATCH_KEYS }, 400);
+    try {
+      const override = deps.repo.upsertTemplateOverride({ template_id: template.id, scope_kind: parsed.data.scope_kind, scope_key: parsed.data.scope_key, patch_json: JSON.stringify(parsed.data.patch), is_active: parsed.data.is_active });
+      invalidateTemplates("patch", template);
+      return c.json({ override: serializeTemplateOverride(override) });
+    } catch (error) {
+      return c.json({ error: "invalid_override", detail: (error as Error).message }, 400);
+    }
+  });
+
+  app.delete("/templates/:identifier/overrides/:overrideId", (c) => {
+    const template = deps.repo.findTemplate(c.req.param("identifier")) ?? deps.repo.findTemplateByCallName(c.req.param("identifier"));
+    if (!template) return c.json({ error: "not_found" }, 404);
+    const target = deps.repo.listTemplateOverrides(template.id).find((row) => row.id === c.req.param("overrideId"));
+    if (!target) return c.json({ error: "not_found" }, 404);
+    deps.repo.deleteTemplateOverride(target.id);
+    invalidateTemplates("patch", template);
+    return c.json({ ok: true });
   });
 
   // 可搬 JSON を貼り付けて新規テンプレを作成する (コピー/貼付による複製・移植)。

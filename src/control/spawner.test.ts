@@ -5,12 +5,17 @@ import { join } from "node:path";
 import {
   buildHeadlessCmdArgs,
   buildDirectSpawnCommand,
+  buildMacTerminalShellCommand,
+  buildMacTerminalSpawnArgs,
+  buildSpawnEnvDelta,
   buildSatellesArgs,
   buildSpawnIdentityEnv,
   escapeCmdArg,
+  escapePosixArg,
   CONCORDIA_SPAWN_CWD_MODE_ENV,
   CONCORDIA_SPAWN_ID_ENV,
   currentSatellesCodexRuntime,
+  currentMacSpawnMode,
   currentSatellesLauncher,
   currentSatellesWslCodexBinary,
   currentSatellesWslDistro,
@@ -25,6 +30,36 @@ import {
   SPAWN_PROVIDERS,
   validateProjectCwd,
 } from "./spawner.js";
+
+describe("macOS Terminal.app spawn builders", () => {
+  it("quotes POSIX arguments including empty and single-quote values", () => {
+    expect(escapePosixArg("")).toBe("''");
+    expect(escapePosixArg("a'b")).toBe("'a'\\''b'");
+  });
+  it("defaults to Terminal and rejects an invalid mode", () => {
+    expect(currentMacSpawnMode({})).toBe("terminal");
+    expect(currentMacSpawnMode({ CONCORDIA_MAC_SPAWN: "direct" })).toBe("direct");
+    expect(() => currentMacSpawnMode({ CONCORDIA_MAC_SPAWN: "other" })).toThrow("CONCORDIA_MAC_SPAWN");
+  });
+  it("builds only the explicit Terminal environment delta", () => {
+    const delta = buildSpawnEnvDelta({ provider: "codex", cwd: "/tmp/repo", env: { LICTOR_X: "yes", NOPE: "no", CONCORDIA_REVISOR_TOKEN: "secret" } }, "spawn-1");
+    expect(delta).toMatchObject({ LICTOR_X: "yes", CONCORDIA_SPAWN_ID: "spawn-1", CONCORDIA_SPAWN_CWD_MODE: "provided" });
+    expect(delta).not.toHaveProperty("NOPE");
+    expect(delta).not.toHaveProperty("CONCORDIA_REVISOR_TOKEN");
+  });
+  it("composes title, cwd, environment and launcher", () => {
+    const command = buildMacTerminalShellCommand({ provider: "codex", title: "Work", cwd: "/tmp/repo", args: ["--model", "x"] }, ["node", "/tool/lictor.mjs"], { LICTOR_X: "yes" });
+    expect(command).toContain("printf '\\033]0;%s\\007' 'Work'");
+    expect(command).toContain("cd '/tmp/repo'");
+    expect(command).toContain("env LICTOR_X='yes' 'node' '/tool/lictor.mjs' 'codex' '--model' 'x'");
+    expect(() => buildMacTerminalShellCommand({ provider: "codex", args: ["bad\narg"] })).toThrow("unsafe");
+    expect(() => buildMacTerminalShellCommand({ provider: "codex", title: "bad\u001b]52;c;payload\u0007" })).toThrow("control character");
+    expect(() => buildMacTerminalShellCommand({ provider: "codex" }, ["lictor"], { "BAD-KEY": "x" })).toThrow("environment key");
+  });
+  it("passes a fixed AppleScript and shell command as argv", () => {
+    expect(buildMacTerminalSpawnArgs("echo ok")).toEqual(["-e", "on run argv", "-e", "tell application \"Terminal\" to do script (item 1 of argv)", "-e", "tell application \"Terminal\" to activate", "-e", "end run", "echo ok"]);
+  });
+});
 
 describe("resolveSpawnCwd", () => {
   let dir: string;

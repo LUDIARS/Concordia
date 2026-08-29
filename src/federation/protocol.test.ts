@@ -8,7 +8,7 @@ import {
 describe("federation protocol", () => {
   it("round-trips every frame type", () => {
     const frames = [
-      { type: "hello", site_id: "site-a", token: "t", site_version: "1.0.0" },
+      { type: "hello", site_id: "site-a", token: "t", site_version: "1.0.0", platform: "darwin" },
       { type: "welcome", hq_version: "1.0.0", pending_events: 3 },
       { type: "event", seq: 7, payload: { kind: "noop" } },
       { type: "ingress", guild_id: "g1", channel_id: "c1", message_id: "m1", author_id: "u1", author_label: "User", text: "hello", ts: 1 },

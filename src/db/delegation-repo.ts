@@ -64,6 +64,26 @@ export interface DelegationTemplateRow {
   updated_at: number;
 }
 
+export type DelegationTemplateOverrideScopeKind = "platform" | "site";
+export interface DelegationTemplateOverrideRow {
+  id: string;
+  template_id: string;
+  scope_kind: DelegationTemplateOverrideScopeKind;
+  scope_key: string;
+  patch_json: string;
+  is_active: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface UpsertTemplateOverrideInput {
+  template_id: string;
+  scope_kind: DelegationTemplateOverrideScopeKind;
+  scope_key: string;
+  patch_json: string;
+  is_active?: boolean;
+}
+
 export interface DelegationRunRow {
   id: string;
   template_id: string | null;
@@ -346,6 +366,7 @@ export class DelegationRepo {
   deleteTemplatePermanently(id: string): boolean {
     const tx = this.db.transaction(() => {
       this.db.prepare(`UPDATE delegation_runs SET template_id = NULL WHERE template_id = ?`).run(id);
+      this.db.prepare(`DELETE FROM delegation_template_overrides WHERE template_id = ?`).run(id);
       return this.db.prepare(`DELETE FROM delegation_templates WHERE id = ?`).run(id).changes > 0;
     });
     return tx();
@@ -370,6 +391,36 @@ export class DelegationRepo {
       ? `SELECT * FROM delegation_templates ORDER BY sort_order ASC, call_name ASC`
       : `SELECT * FROM delegation_templates WHERE is_active = 1 ORDER BY sort_order ASC, call_name ASC`;
     return this.db.prepare(sql).all() as DelegationTemplateRow[];
+  }
+
+  listTemplateOverrides(templateId?: string): DelegationTemplateOverrideRow[] {
+    const sql = templateId
+      ? "SELECT * FROM delegation_template_overrides WHERE template_id = ? ORDER BY scope_kind, scope_key"
+      : "SELECT * FROM delegation_template_overrides ORDER BY template_id, scope_kind, scope_key";
+    return (templateId ? this.db.prepare(sql).all(templateId) : this.db.prepare(sql).all()) as DelegationTemplateOverrideRow[];
+  }
+
+  upsertTemplateOverride(input: UpsertTemplateOverrideInput): DelegationTemplateOverrideRow {
+    validateTemplateOverrideScope(input.scope_kind, input.scope_key);
+    if (!this.findTemplate(input.template_id)) throw new Error("template_not_found");
+    const now = Date.now();
+    const current = this.db.prepare(
+      "SELECT id FROM delegation_template_overrides WHERE template_id = ? AND scope_kind = ? AND scope_key = ?",
+    ).get(input.template_id, input.scope_kind, input.scope_key) as { id: string } | undefined;
+    if (current) {
+      this.db.prepare("UPDATE delegation_template_overrides SET patch_json = ?, is_active = COALESCE(?, is_active), updated_at = ? WHERE id = ?")
+        .run(input.patch_json, input.is_active === undefined ? null : input.is_active ? 1 : 0, now, current.id);
+      return this.db.prepare("SELECT * FROM delegation_template_overrides WHERE id = ?").get(current.id) as DelegationTemplateOverrideRow;
+    }
+    const id = randomUUID();
+    this.db.prepare(`INSERT INTO delegation_template_overrides (id, template_id, scope_kind, scope_key, patch_json, is_active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, input.template_id, input.scope_kind, input.scope_key, input.patch_json, input.is_active === false ? 0 : 1, now, now);
+    return this.db.prepare("SELECT * FROM delegation_template_overrides WHERE id = ?").get(id) as DelegationTemplateOverrideRow;
+  }
+
+  deleteTemplateOverride(id: string): boolean {
+    return this.db.prepare("DELETE FROM delegation_template_overrides WHERE id = ?").run(id).changes > 0;
   }
 
   // ── runs ──────────────────────────────────────────────────
@@ -766,6 +817,14 @@ export class DelegationRepo {
     `).run(status, error !== undefined ? error : row.error, status, Date.now(), runId);
     return this.findRun(runId);
   }
+}
+
+function validateTemplateOverrideScope(kind: DelegationTemplateOverrideScopeKind, key: string): void {
+  if (kind !== "platform" && kind !== "site") throw new Error("invalid_override_scope_kind");
+  if (!key.trim()) throw new Error("invalid_override_scope_key");
+  if (kind === "platform" && key !== "win32" && key !== "darwin") throw new Error("invalid_platform_override_scope_key");
+  // Keep site scopes aligned with the authenticated federation site_id shape.
+  if (kind === "site" && !/^[a-z0-9][a-z0-9-]{1,63}$/u.test(key)) throw new Error("invalid_site_override_scope_key");
 }
 
 function isTerminalStatus(status: DelegationRunRow["status"]): boolean {

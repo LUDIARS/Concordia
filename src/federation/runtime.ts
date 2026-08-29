@@ -76,7 +76,7 @@ function reportIngressWarningOnce(channelId: string, warning: string): void {
 
 export interface FederationRuntime {
   /** registerCoreRoutes に渡す /v1/federation の依存 (常に供給)。 */
-  apiDeps: FederationApiDeps;
+  apiDeps: FederationApiDeps & Required<Pick<FederationApiDeps, "siteStatus">>;
   /**
    * 設定 (DB → env) で有効化されたロール (listener / 拠点クライアント) を起動し、
    * 以後は両ロールの設定変更へ追随する (再起動不要)。
@@ -187,10 +187,14 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         outbox,
         connections,
         hqVersion: opts.version,
-        createConfigSnapshot: (siteId) => createFederationConfigSnapshot(
-          opts.db,
-          sites.find(siteId)?.departments ?? [],
-        ),
+        createConfigSnapshot: (siteId) => {
+          const site = sites.find(siteId);
+          return createFederationConfigSnapshot(
+            opts.db,
+            site?.departments ?? [],
+            { siteId, platform: site?.platform ?? null },
+          );
+        },
         handleEgressRequest: async (siteId, request) => {
           const authorized = authorizeEgressRequest(sites, siteId, request);
           if (!authorized.ok) {
@@ -266,6 +270,7 @@ export function createFederationRuntime(opts: FederationRuntimeOptions): Federat
         siteId: binding.siteId,
         token: binding.token,
         siteVersion: opts.version,
+        platform: process.platform === "win32" || process.platform === "darwin" ? process.platform : undefined,
       });
       siteBinding = binding;
       // query/path に資格情報相当が含まれていてもログへ出さない。

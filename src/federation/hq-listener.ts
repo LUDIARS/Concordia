@@ -247,6 +247,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         authFailures.delete(remote);
         siteId = frame.site_id;
         const siteVersion = frame.site_version ?? null;
+        const platform = frame.platform ?? null;
 
         // 同一拠点の旧接続は置き換える (拠点プロセス再起動後の残骸対策)。
         const existing = sockets.get(siteId);
@@ -256,7 +257,7 @@ export function startFederationListener(deps: FederationListenerDeps): Promise<F
         }
 
         sockets.set(siteId, { ws, lastSentSeq: 0, isAlive: true });
-        deps.sites.touchConnected(siteId, siteVersion);
+        deps.sites.touchConnected(siteId, siteVersion, platform);
         deps.connections.attach({
           siteId,
           connectedAtSec: nowSec(),

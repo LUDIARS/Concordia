@@ -1,7 +1,7 @@
 /**
  * Spawn a new lictor-wrapped agent session. Windows uses Windows Terminal;
- * macOS starts Lictor directly as a detached process (Lictor owns the PTY for
- * the wrapped agent). Other platforms return a structured error.
+ * macOS opens Terminal.app so the wrapped agent remains interactive and
+ * observable. Other platforms return a structured error.
  */
 
 import { spawn } from "node:child_process";
@@ -317,6 +317,21 @@ export function buildDirectSpawnCommand(
   return [...launcher, req.provider, ...(req.args ?? [])];
 }
 
+/** Quote one POSIX-shell argument without relying on an ambient shell. */
+export function escapePosixArg(arg: string): string {
+  return `'${String(arg).replace(/'/g, "'\\''")}'`;
+}
+
+export type MacSpawnMode = "terminal" | "direct";
+
+/** macOS interactive spawn mode. Terminal.app is the safe, visible default. */
+export function currentMacSpawnMode(env: NodeJS.ProcessEnv = process.env): MacSpawnMode {
+  const raw = env.CONCORDIA_MAC_SPAWN?.trim();
+  if (!raw) return "terminal";
+  if (raw === "terminal" || raw === "direct") return raw;
+  throw new Error('invalid CONCORDIA_MAC_SPAWN (expected "terminal" or "direct")');
+}
+
 /**
  * Pick the effective cwd for a spawn request:
  *
@@ -453,6 +468,59 @@ export function buildSessionSpawnEnvironment(
     ...satellesSandboxEnv,
     ...satellesWslEnv,
   };
+}
+
+/** Environment additions Terminal.app must receive explicitly (it is not Cc's child). */
+export function buildSpawnEnvDelta(
+  req: SpawnRequest,
+  spawnId: string = req.spawnId?.trim() || randomUUID(),
+): Record<string, string> {
+  const env: Record<string, string> = {
+    ...sanitizeSpawnEnv(req.env),
+    ...buildSpawnIdentityEnv(req, spawnId),
+    ...currentConcordiaAddressEnv(),
+  };
+  for (const key of Object.keys(env)) {
+    const normalized = key.toUpperCase();
+    if (normalized === "CONCORDIA_REVISOR_WORKFLOW_TOKEN" || normalized === "CONCORDIA_REVISOR_TOKEN") delete env[key];
+  }
+  return env;
+}
+
+const POSIX_UNSAFE_RE = /[\0\r\n]/u;
+const TERMINAL_TITLE_UNSAFE_RE = /[\u0000-\u001f\u007f]/u;
+const POSIX_ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/u;
+
+function assertSafePosixToken(value: string, label: string): void {
+  if (POSIX_UNSAFE_RE.test(value)) throw new Error(`unsafe character in ${label}`);
+}
+
+/** Build the shell command handed to Terminal.app through osascript argv. */
+export function buildMacTerminalShellCommand(req: SpawnRequest, launcher: readonly string[] = ["lictor"], envDelta: Record<string, string> = {}): string {
+  const parts: string[] = [];
+  if (req.title) {
+    assertSafePosixToken(req.title, "Terminal title");
+    if (TERMINAL_TITLE_UNSAFE_RE.test(req.title)) throw new Error("unsafe control character in Terminal title");
+    parts.push(`printf '\\033]0;%s\\007' ${escapePosixArg(req.title)}`);
+  }
+  if (req.cwd) {
+    assertSafePosixToken(req.cwd, "cwd");
+    parts.push(`cd ${escapePosixArg(req.cwd)}`);
+  }
+  const commandTokens = [...launcher, req.provider, ...(req.args ?? [])];
+  for (const token of commandTokens) assertSafePosixToken(token, "Terminal spawn token");
+  const assignments = Object.entries(envDelta).map(([key, value]) => {
+    if (!POSIX_ENV_KEY_RE.test(key)) throw new Error(`invalid Terminal environment key: ${key}`);
+    assertSafePosixToken(value, `Terminal environment value for ${key}`);
+    return `${key}=${escapePosixArg(value)}`;
+  });
+  parts.push([assignments.length > 0 ? "env" : "", ...assignments, ...commandTokens.map(escapePosixArg)].filter(Boolean).join(" "));
+  return parts.join(" && ");
+}
+
+/** AppleScript source stays fixed; command data is supplied as argv item 1. */
+export function buildMacTerminalSpawnArgs(shellCommand: string): string[] {
+  return ["-e", "on run argv", "-e", "tell application \"Terminal\" to do script (item 1 of argv)", "-e", "tell application \"Terminal\" to activate", "-e", "end run", shellCommand];
 }
 
 /**
@@ -677,6 +745,42 @@ function spawnDirectSession(req: SpawnRequest): SpawnResult {
   return { ok: true, command, pid: child.pid ?? null };
 }
 
+function spawnMacTerminalSession(req: SpawnRequest): SpawnResult {
+  let args: string[];
+  try {
+    args = buildMacTerminalSpawnArgs(buildMacTerminalShellCommand(req, currentLictorLauncher(), buildSpawnEnvDelta(req)));
+  } catch (err) {
+    const msg = `Terminal.app spawn command invalid: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  let child: ReturnType<typeof spawn>;
+  try {
+    // Terminal's do script always opens a new window; mode:"tab" is intentionally rounded.
+    child = spawn("osascript", args, { detached: true, stdio: "ignore" });
+  } catch (err) {
+    const msg = `Terminal.app spawn failed: ${(err as Error).message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+    return { ok: false, error: msg };
+  }
+  child.on("error", (err) => {
+    const msg = `Terminal.app spawn error: ${err.message}`;
+    log.error({ err }, msg);
+    reportError("spawner", msg, { provider: req.provider, cwd: req.cwd });
+  });
+  try { child.unref(); } catch { /* best-effort */ }
+  // The final argv item contains the complete shell command, including the
+  // explicitly injected environment. Do not persist or return it through the
+  // spawn APIs because request env may contain credentials.
+  return {
+    ok: true,
+    command: ["osascript", ...args.slice(0, -1), "<Terminal.app shell command redacted>"],
+    pid: child.pid ?? null,
+  };
+}
+
 export function spawnSession(req: SpawnRequest): SpawnResult {
   const isHeadless = HEADLESS_SPAWN_PROVIDERS.has(req.provider);
   if (!isHeadless && !isInteractiveSpawnPlatformSupported()) {
@@ -687,7 +791,13 @@ export function spawnSession(req: SpawnRequest): SpawnResult {
   const cwdErr = validateCwd(req.cwd);
   if (cwdErr) return { ok: false, error: cwdErr };
   if (isHeadless) return spawnHeadlessSession(req);
-  if (process.platform === "darwin") return spawnDirectSession(req);
+  if (process.platform === "darwin") {
+    try {
+      return currentMacSpawnMode() === "direct" ? spawnDirectSession(req) : spawnMacTerminalSession(req);
+    } catch (err) {
+      return { ok: false, error: `macOS spawn mode invalid: ${(err as Error).message}` };
+    }
+  }
 
   const args = buildWtArgs(req, currentLictorLauncher());
   // CWE-78 対策: 外部入力 env を子プロセスへ素通ししない。 公開 spawn API は env を

@@ -51,6 +51,8 @@ import {
 import { executeQueuedRun } from "./executor.js";
 import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
 import { applyDelegationProviderPolicy } from "./provider-policy.js";
+import { resolveTemplateForScope } from "./template-overrides.js";
+import { readFederationEnv } from "../federation/env.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -110,6 +112,8 @@ export interface DelegationServiceDeps {
   promptsDir?: string;
   /** delegation context に載せる協調 API URL。 */
   concordiaUrl?: string;
+  /** DB → env 解決済みの federation site ID。未注入時は env のみを参照する。 */
+  siteId?: () => string | null;
   /** Growth blackbox used for provider-independent effort selection. */
   effortBlackbox?: DelegationEffortBlackbox;
   /**
@@ -168,8 +172,15 @@ export class DelegationService {
   async invoke(input: InvokeInput): Promise<InvokeResult> {
     const tpl = this.deps.repo.findTemplateByCallName(input.call_name);
     if (!tpl) return { ok: false, error: `unknown call_name: ${input.call_name}` };
-    if (!tpl.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
-    return this.runDefinition(templateToDefinition(tpl), input);
+    const scope = {
+      platform: process.platform,
+      siteId: this.deps.siteId
+        ? this.deps.siteId()
+        : readFederationEnv(process.env, { deferListenerPortValidation: true }).siteId,
+    };
+    const resolved = resolveTemplateForScope(tpl, this.deps.repo.listTemplateOverrides(tpl.id), scope);
+    if (!resolved.is_active) return { ok: false, error: `template is inactive: ${input.call_name}` };
+    return this.runDefinition(templateToDefinition(resolved), input);
   }
 
   /**

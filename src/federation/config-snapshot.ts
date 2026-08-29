@@ -7,6 +7,8 @@
 
 import type Database from "better-sqlite3";
 import type { FederationConfigSnapshot } from "./protocol.js";
+import { resolveTemplateForScope } from "../delegation/template-overrides.js";
+import type { DelegationTemplateOverrideRow, DelegationTemplateRow } from "../db/delegation-repo.js";
 
 export const FEDERATION_DISCORD_CONFIG_ALLOWLIST = [
   "guild_id",
@@ -28,13 +30,27 @@ export const FEDERATION_DISCORD_CONFIG_ALLOWLIST = [
 export function createFederationConfigSnapshot(
   db: Database.Database,
   departments: readonly string[],
+  target: { siteId: string; platform: "win32" | "darwin" | null } = { siteId: "", platform: null },
 ): FederationConfigSnapshot {
   const discord = readScopedDiscordConfig(db, departments);
-  const templates = db.prepare(
-    `SELECT id, call_name, title, target_provider, model
+  const overridesByTemplate = new Map<string, DelegationTemplateOverrideRow[]>();
+  const overrideRows = db.prepare("SELECT * FROM delegation_template_overrides").all() as DelegationTemplateOverrideRow[];
+  for (const override of overrideRows) {
+    const rows = overridesByTemplate.get(override.template_id) ?? [];
+    rows.push(override);
+    overridesByTemplate.set(override.template_id, rows);
+  }
+  const templates = (db.prepare(
+    `SELECT *
      FROM delegation_templates
      ORDER BY sort_order ASC, call_name ASC`,
-  ).all() as FederationConfigSnapshot["templates"];
+  ).all() as DelegationTemplateRow[]).map((template) => {
+    const resolved = resolveTemplateForScope(template, overridesByTemplate.get(template.id) ?? [], {
+      platform: target.platform,
+      siteId: target.siteId || null,
+    });
+    return { id: resolved.id, call_name: resolved.call_name, title: resolved.title, target_provider: resolved.target_provider, model: resolved.model };
+  });
   return { discord, templates };
 }
 

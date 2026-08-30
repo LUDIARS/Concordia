@@ -10,10 +10,7 @@ import {
 } from "./pr-panel.js";
 import {
   buildRwfAckPanel,
-  buildRwfActionSelectPanel,
   buildRwfResultPanel,
-  parseRwfPanelId,
-  RWF_PANEL_NAMESPACE,
 } from "./rwf-panel.js";
 
 describe("buildPanel", () => {
@@ -118,28 +115,19 @@ describe("PR operation panel", () => {
 });
 
 describe("RWF panels", () => {
-  it("lists workflow actions in a select menu", () => {
-    const panel = buildRwfActionSelectPanel({ targetMessageId: "m-1" });
-    const row = panel.components[0].toJSON();
-    const menu = row.components[0] as { custom_id?: string; options?: Array<{ value: string }> };
-
-    expect(parseRwfPanelId(menu.custom_id!)).toEqual({ action: "choose", targetMessageId: "m-1" });
-    expect(menu.options?.map((o) => o.value)).toContain("submit-pr");
-    expect(menu.options?.map((o) => o.value)).toContain("merge-pr");
-  });
-
-  it("renders the acknowledgement with the action label and actor", () => {
-    const panel = buildRwfAckPanel({ action: "submit-pr", emoji: "📮", targetMessageId: "m-1", actorId: "u-1" });
+  it("renders the acknowledgement with the action label and actor but no buttons", () => {
+    const panel = buildRwfAckPanel({ action: "submit-pr", emoji: "📮", actorId: "u-1" });
     const embed = panelEmbedJson(panel)[0];
 
     expect(embed.title).toContain("📮");
     expect(embed.title).toContain("PR を提出する");
     expect(embed.fields?.some((f) => f.value === "<@u-1>")).toBe(true);
+    expect(panel.components).toHaveLength(0);
   });
 
   it("colors the result panel by outcome", () => {
-    const ok = panelEmbedJson(buildRwfResultPanel({ action: "merge-pr", ok: true, text: "done", targetMessageId: "m" }))[0];
-    const ng = panelEmbedJson(buildRwfResultPanel({ action: "merge-pr", ok: false, text: "no", targetMessageId: "m" }))[0];
+    const ok = panelEmbedJson(buildRwfResultPanel({ action: "merge-pr", ok: true, text: "done" }))[0];
+    const ng = panelEmbedJson(buildRwfResultPanel({ action: "merge-pr", ok: false, text: "no" }))[0];
     expect(ok.color).not.toBe(ng.color);
   });
 });
@@ -165,9 +153,8 @@ describe("shared UI component usage", () => {
     expect(source).not.toMatch(/new (Button|StringSelectMenu)Builder/);
   });
 
-  it("keeps the two surfaces on distinct customId namespaces", () => {
-    expect(PR_PANEL_NAMESPACE).not.toBe(RWF_PANEL_NAMESPACE);
-    expect(parseRwfPanelId(`${PR_PANEL_NAMESPACE}:submit:s1`)).toBeNull();
-    expect(parsePrPanelId(`${RWF_PANEL_NAMESPACE}:choose:m1`)).toBeNull();
+  it("keeps PR customIds scoped to the PR surface", () => {
+    expect(parsePrPanelId(`${PR_PANEL_NAMESPACE}:submit:s1`)).not.toBeNull();
+    expect(parsePrPanelId("rwf:choose:m1")).toBeNull();
   });
 });

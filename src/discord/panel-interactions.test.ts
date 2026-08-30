@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest";
 import type { Interaction } from "discord.js";
 import { handlePanelInteraction, isPanelInteraction, type PanelInteractionDeps } from "./panel-interactions.js";
 import { buildPrPanelId } from "./pr-panel.js";
-import { buildRwfPanelId } from "./rwf-panel.js";
 import type { RwfPrMergeOutcome, RwfPrSubmitOutcome } from "../platform/reaction-workflow-pr.js";
 
 const PR = { id: "lpr-1", number: 7, repository: "LUDIARS/Concordia", headRef: "feat/x" };
@@ -69,7 +68,8 @@ function replyText(reply: ReplyCall): string {
 describe("isPanelInteraction", () => {
   it("claims only its own namespaces", () => {
     expect(isPanelInteraction(makeInteraction(buildPrPanelId("submit", "s1"), "button").interaction)).toBe(true);
-    expect(isPanelInteraction(makeInteraction(buildRwfPanelId("actions", "m1"), "button").interaction)).toBe(true);
+    expect(isPanelInteraction(makeInteraction("rwf:actions:m1", "button").interaction)).toBe(false);
+    expect(isPanelInteraction(makeInteraction("rwfpanel:actions:m1", "button").interaction)).toBe(false);
     expect(isPanelInteraction(makeInteraction("ctrl:end:s1", "button").interaction)).toBe(false);
   });
 });
@@ -128,39 +128,5 @@ describe("PR panel interactions", () => {
 
     await handlePanelInteraction(interaction, deps);
     expect(replyText(replies[0])).toContain("有効になっていません");
-  });
-});
-
-describe("RWF panel interactions", () => {
-  it("opens the action select panel", async () => {
-    const deps = makeDeps();
-    const { interaction, replies } = makeInteraction(buildRwfPanelId("actions", "m-1"), "button");
-
-    expect(await handlePanelInteraction(interaction, deps)).toBe(true);
-    expect(replyText(replies[0])).toContain("リアクションワークフローを選ぶ");
-  });
-
-  it("runs the chosen action through the reaction workflow runner", async () => {
-    const handle = vi.fn(async (_input: { dedupeKey: string; emoji: string; userId: string }) => { /* ignore */ });
-    const deps = { ...makeDeps(), reactionWorkflow: { handle } };
-    const { interaction } = makeInteraction(buildRwfPanelId("choose", "m-1"), "select", ["submit-pr"]);
-
-    await handlePanelInteraction(interaction, deps);
-    expect(handle).toHaveBeenCalledTimes(1);
-    expect(handle.mock.calls[0][0]).toMatchObject({
-      dedupeKey: "m-1",
-      emoji: "📮",
-      userId: "u-1",
-    });
-  });
-
-  it("rejects an unknown workflow action", async () => {
-    const handle = vi.fn(async (_input: { dedupeKey: string; emoji: string; userId: string }) => { /* ignore */ });
-    const deps = { ...makeDeps(), reactionWorkflow: { handle } };
-    const { interaction, replies } = makeInteraction(buildRwfPanelId("choose", "m-1"), "select", ["not-an-action"]);
-
-    await handlePanelInteraction(interaction, deps);
-    expect(handle).not.toHaveBeenCalled();
-    expect(replyText(replies[0])).toContain("未知のワークフロー");
   });
 });

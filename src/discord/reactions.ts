@@ -1,7 +1,7 @@
 // Discord MessageReactionAdd / Remove → chat_message_reactions 記録 + リアクションWF発火.
 //
 // 設計 (2026-06-10 改訂):
-//   - リアクションWF は「どのメッセージに付いても発火」する。 メッセージ本文は
+//   - リアクションWF は登録済み session thread 内のメッセージだけで発火する。本文は
 //     プラットフォーム API (reaction.message) から直接取得し、 discord_message_map /
 //     chat_messages には依存しない。
 //   - session/リポ文脈は channelId → discord_session_channels → session で逆引きする
@@ -45,17 +45,22 @@ export interface ReactionSessionContext {
   sessionId: string | null;
   repoPath: string | null;
   sessionActive: boolean;
+  isSessionThread: boolean;
 }
 
 /**
- * channelId → session 文脈 (chat_messages に無くても引ける)。 リアクションと
- * 操作パネルの双方が同じ解決規則を使うため、 ここ 1 箇所に置く。
+ * channelId → session 文脈 (chat_messages に無くても引ける)。
  */
 export function resolveReactionSessionContext(
   deps: { sessionChannels?: DiscordSessionChannelsRepo; sessions?: SessionLookup },
   channelId: string | null | undefined,
 ): ReactionSessionContext {
-  const empty: ReactionSessionContext = { sessionId: null, repoPath: null, sessionActive: false };
+  const empty: ReactionSessionContext = {
+    sessionId: null,
+    repoPath: null,
+    sessionActive: false,
+    isSessionThread: false,
+  };
   if (!channelId || !deps.sessionChannels || !deps.sessions) return empty;
   const channel = deps.sessionChannels.findByChannelId(channelId);
   if (!channel) return empty;
@@ -64,6 +69,7 @@ export function resolveReactionSessionContext(
     sessionId: channel.session_id,
     repoPath: session?.repo_path ?? null,
     sessionActive: session?.status === "active",
+    isSessionThread: channel.channel_kind === "thread",
   };
 }
 
@@ -131,7 +137,7 @@ export async function handleReactionAdd(
   const channelId = message.channelId;
 
   // channelId → session 解決 (chat_messages に無くても文脈が取れる)。
-  const { sessionId, repoPath, sessionActive } = resolveReactionSessionContext(deps, channelId);
+  const { sessionId, repoPath, sessionActive, isSessionThread } = resolveReactionSessionContext(deps, channelId);
 
   // 📌 re-pin (built-in): セッションチャンネルで pushpin → その Lictor の transcript relay を
   // /clear なしで再束縛する。 stall (Concordia 再起動で中継が止まった等) からの手動復帰口。
@@ -150,15 +156,16 @@ export async function handleReactionAdd(
       .catch((e) => deps.log.info(`reactions: repin failed for ${sid}: ${(e as Error).message}`));
   }
 
-  // ワークフロー: message-map に依存せず、 どのメッセージでも発火させる (fire-and-forget)。
+  // ワークフロー: セッションスレッド内だけで発火させる (fire-and-forget)。
+  // meta / team / test forum / legacy session channel のリアクションは記録だけに留める。
   // 発火が確定したら、 トリガー元メッセージへ「受付」リプライを返して発生を可視化する。
-  if (deps.workflow && deps.isWorkflowUserAllowed?.(user.id)) {
+  if (deps.workflow && isSessionThread && deps.isWorkflowUserAllowed?.(user.id)) {
     void deps.workflow
       .handle(
         { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
         (action) => {
           // 受付 / 結果の描画は操作パネルの共通部品を通す (画面ごとに描画を書かない)。
-          const panel = buildRwfAckPanel({ action, emoji, targetMessageId: discordMessageId, actorId: user.id });
+          const panel = buildRwfAckPanel({ action, emoji, actorId: user.id });
           void message
             .reply({ ...panel, allowedMentions: { repliedUser: false } })
             .catch((e) => deps.log.info(`reactions: ack reply failed: ${(e as Error).message}`));
@@ -168,7 +175,6 @@ export async function handleReactionAdd(
             action,
             ok: result.ok,
             text: result.text,
-            targetMessageId: discordMessageId,
           });
           void message
             .reply({ ...panel, allowedMentions: { repliedUser: false } })
@@ -176,7 +182,7 @@ export async function handleReactionAdd(
         },
       )
       .catch((e) => deps.log.info(`reactions: workflow failed: ${(e as Error).message}`));
-  } else if (deps.workflow) {
+  } else if (deps.workflow && isSessionThread) {
     deps.log.info(`reactions: workflow ignored unauthorized user=${user.id}`);
   }
 

@@ -596,55 +596,48 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       // 表示名は WebUI で補える扱いにする。
       if (event.user) deps.recordStaffAccess?.({ userId: event.user });
 
-      // 単発で投稿された絵文字 (🙏 / 🫡 等) は「直近メッセージへのリアクション」と同義に扱い、
-      // inject/chat には載せずリアクションワークフローへ流す (Discord ingress と同じ挙動)。
-      const reactionRoute = classifyReactionIngress({
-        text,
-        normalize: slackEmojiTextToUnicode,
-        classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
-        isStandaloneEmoji: getRwf().isStandaloneEmoji,
-        isNamedEmoji: (value) => /^:[a-z0-9_+'-]+:$/i.test(value),
-      });
-      const wfEmoji = reactionRoute.kind === "prompt" ? text : reactionRoute.emoji;
-      if (
-        reactionRoute.kind !== "prompt" &&
-        (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user))
-      ) {
-        log.info(`emoji workflow ignored unauthorized user=${event.user ?? "-"}`);
-        return;
-      }
-      if (reactionRoute.kind === "workflow") {
-        const target: WorkflowTargetSnapshot | null = route.kind === "session"
-          ? deps.readModel.getLatestWorkflowTargetForSession(route.sessionId)
-          : deps.readModel.getLatestWorkflowTargetForChannel("consultation");
-        if (target != null) {
-          // 対象 chat_messages から本文 / session 文脈を解決して runner へ渡す
-          // (runner は chat_messages 非依存になったため、 ここで取り出す)。
+      if (route.kind === "session") {
+        // 単発絵文字は専用 session channel 内だけで RWF に流す。直近 chat 行が無くても
+        // session 文脈で起動し、本文だけを空として扱う (Discord ingress と同じ契約)。
+        const reactionRoute = classifyReactionIngress({
+          text,
+          normalize: slackEmojiTextToUnicode,
+          classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
+          isStandaloneEmoji: getRwf().isStandaloneEmoji,
+          isNamedEmoji: (value) => /^:[a-z0-9_+'-]+:$/i.test(value),
+        });
+        if (
+          reactionRoute.kind !== "prompt" &&
+          (!event.user || !deps.isReactionWorkflowUserAllowed?.(event.user))
+        ) {
+          log.info(`emoji workflow ignored unauthorized user=${event.user ?? "-"}`);
+          return;
+        }
+        if (reactionRoute.kind === "workflow") {
+          const target: WorkflowTargetSnapshot | null = deps.readModel.getLatestWorkflowTargetForSession(route.sessionId);
+          const sessionState = deps.readModel.getSessionRelayState(route.sessionId);
           void reactionWorkflow
             .handle(
               {
-                dedupeKey: `chat:${target.id}`,
-                emoji: wfEmoji,
+                dedupeKey: target ? `chat:${target.id}` : `slack:${event.ts}`,
+                emoji: reactionRoute.emoji,
                 userId: event.user ?? "slack",
-                messageText: target.text,
-                authorLabel: target.authorLabel,
-                repoPath: target.repoPath,
-                sessionActive: target.sessionActive,
-                sessionId: target.sessionId,
+                messageText: target?.text ?? "",
+                authorLabel: target?.authorLabel ?? "unknown",
+                repoPath: target?.repoPath ?? sessionState?.repoPath ?? null,
+                sessionActive: target?.sessionActive ?? sessionState?.status === "active",
+                sessionId: route.sessionId,
               },
               (action) => {
-                const threadTs = route.kind === "hub" ? event.ts : undefined;
                 void web.chat
-                  .postMessage({ channel: route.channelId, ...(threadTs ? { thread_ts: threadTs } : {}), text: getRwf().reactionAckText(action, wfEmoji) })
+                  .postMessage({ channel: route.channelId, text: getRwf().reactionAckText(action, reactionRoute.emoji) })
                   .catch((e) => log.warn(`emoji workflow ack: ${(e as Error).message}`));
               },
               (action, result) => {
                 const prefix = result.ok ? "✅" : "⚠️";
-                const threadTs = route.kind === "hub" ? event.ts : undefined;
                 void web.chat
                   .postMessage({
                     channel: route.channelId,
-                    ...(threadTs ? { thread_ts: threadTs } : {}),
                     text: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
                   })
                   .catch((e) => log.warn(`emoji workflow result: ${(e as Error).message}`));
@@ -653,12 +646,10 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
             .catch((e) => log.warn(`emoji workflow: ${(e as Error).message}`));
           return;
         }
-        // 対象が見つからなければ通常経路 (inject / chat) にフォールバック。
-      } else if (reactionRoute.kind === "unsupported-emoji") {
-        // 単発絵文字 (unicode or :name:) だが該当アクション無し → 却下、 プロンプトも通さない
-        // (Discord ingress と同じ挙動)。
-        log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
-        return;
+        if (reactionRoute.kind === "unsupported-emoji") {
+          log.info(`reaction-workflow: standalone emoji "${text}" has no workflow action → reject (prompt not forwarded)`);
+          return;
+        }
       }
 
       if (route.kind === "session") {
@@ -903,7 +894,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // ─── reaction_added: リアクションを「指示」として処理に流す（👍=実装着手 等）──
   // 2026-06-10 改訂: chat_messages / message-map には依存せず、 リアクション対象
   // メッセージ本文を Slack API (conversations.history) から直接取得して解釈する。
-  // → どのメッセージに付いても発火する。 安全弁 OFF なら無処理。
+  // → 専用 session channel 内のメッセージだけで発火する。安全弁 OFF なら無処理。
   socket.on("reaction_added", async ({ event, ack }: { event: SlackReactionEvent; ack: () => Promise<void> }) => {
     try { await ack(); } catch {}
     try {
@@ -919,7 +910,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       const ts = event.item.ts;
       if (!ch || !ts) return;
       const sessionSurface = channels.findByChannelId(ch);
-      if (ch !== channelId && !sessionSurface) return;
+      if (!sessionSurface) return;
       const emoji = slackReactionToUnicode(event.reaction ?? "");
       if (!emoji) return; // ワークフロー対象外の絵文字
 
@@ -935,11 +926,7 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
         }
       } catch { /* 本文無しで続行 */ }
 
-      const sessionState = sessionSurface
-        ? deps.readModel.getSessionRelayState(sessionSurface.session_id)
-        : null;
-      const responseThreadTs = sessionSurface ? undefined : ts;
-
+      const sessionState = deps.readModel.getSessionRelayState(sessionSurface.session_id);
       await reactionWorkflow.handle(
         {
           dedupeKey: `${ch}:${ts}`,
@@ -949,11 +936,11 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           authorLabel,
           repoPath: sessionState?.repoPath ?? null,
           sessionActive: sessionState?.status === "active",
-          sessionId: sessionSurface?.session_id ?? null,
+          sessionId: sessionSurface.session_id,
         },
         (action) => {
           void web.chat
-            .postMessage({ channel: ch, ...(responseThreadTs ? { thread_ts: responseThreadTs } : {}), text: getRwf().reactionAckText(action, emoji) })
+            .postMessage({ channel: ch, text: getRwf().reactionAckText(action, emoji) })
             .catch((e) => log.warn(`reaction ack: ${(e as Error).message}`));
         },
         (action, result) => {
@@ -961,7 +948,6 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
           void web.chat
             .postMessage({
               channel: ch,
-              ...(responseThreadTs ? { thread_ts: responseThreadTs } : {}),
               text: `${prefix} ${getRwf().WORKFLOW_ACTION_HELP[action].label}\n\n${result.text}`,
             })
             .catch((e) => log.warn(`reaction result: ${(e as Error).message}`));

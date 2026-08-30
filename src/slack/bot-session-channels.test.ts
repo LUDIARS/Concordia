@@ -106,7 +106,7 @@ function makeReadModel(): ChatReadModel {
   };
 }
 
-async function startHarness(archiveDelayMin = 30) {
+async function startHarness(archiveDelayMin = 30, reactionWorkflowEnabled = false) {
   const db = makeTestDb();
   const web = makeWeb();
   const socket = makeSocket();
@@ -124,6 +124,8 @@ async function startHarness(archiveDelayMin = 30) {
       archiveDelayInvalid: false,
     },
     runHeadless: async () => ({ ok: true, stdout: "ok", exit_code: 0, stderr: "", duration_ms: 1 }),
+    reactionWorkflowEnabled,
+    isReactionWorkflowUserAllowed: () => reactionWorkflowEnabled,
     webClient: web as unknown as WebClient,
     socketClient: socket as unknown as SocketModeClient,
   });
@@ -170,6 +172,55 @@ describe("Slack bot session-per-channel", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/v1/sessions/session-1/inject");
     expect(String(fetchMock.mock.calls[1][0])).toContain("/v1/chat");
+    await platform.stop();
+  });
+
+  it("starts standalone emoji workflows only in dedicated session channels", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { platform, web, socket } = await startHarness(30, true);
+    await platform.ensureSessionSurface("session-1");
+    web.chat.postMessage.mockClear();
+    const message = socket.handlers.get("message");
+    if (!message) throw new Error("message handler missing");
+    const ack = vi.fn(async () => {});
+
+    await message({ event: { type: "message", channel: "C1", user: "U1", ts: "1", text: "🙏" }, ack } as never);
+    await vi.waitFor(() => expect(web.chat.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      channel: "C1",
+      text: expect.stringContaining("受け付けました"),
+    })));
+
+    web.chat.postMessage.mockClear();
+    await message({ event: { type: "message", channel: "HUB", user: "U1", ts: "2", text: "🙏" }, ack } as never);
+    expect(web.chat.postMessage).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await platform.stop();
+  });
+
+  it("starts reaction workflows only in dedicated session channels", async () => {
+    const { platform, web, socket } = await startHarness(30, true);
+    await platform.ensureSessionSurface("session-1");
+    web.chat.postMessage.mockClear();
+    const reactionAdded = socket.handlers.get("reaction_added");
+    if (!reactionAdded) throw new Error("reaction_added handler missing");
+    const ack = vi.fn(async () => {});
+
+    await reactionAdded({
+      event: { user: "U1", reaction: "memo", item: { type: "message", channel: "C1", ts: "1" } },
+      ack,
+    } as never);
+    await vi.waitFor(() => expect(web.chat.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      channel: "C1",
+      text: expect.stringContaining("受け付けました"),
+    })));
+
+    web.chat.postMessage.mockClear();
+    await reactionAdded({
+      event: { user: "U1", reaction: "memo", item: { type: "message", channel: "HUB", ts: "2" } },
+      ack,
+    } as never);
+    expect(web.chat.postMessage).not.toHaveBeenCalled();
     await platform.stop();
   });
 

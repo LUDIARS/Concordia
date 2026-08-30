@@ -85,6 +85,44 @@ describe("discord ingress chat routing", () => {
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("inject ok"));
   });
 
+  it("starts a standalone emoji workflow in a session thread without a chat target", async () => {
+    const deps = makeDeps("codex-cli");
+    const handle = vi.fn(async () => undefined);
+    deps.workflow = { handle };
+    deps.isWorkflowUserAllowed = () => true;
+    deps.sessionChannelsRepo.findByChannelId = vi.fn(() => ({
+      session_id: "s1",
+      channel_id: "chan1",
+      channel_kind: "thread",
+      status: "active",
+    })) as never;
+    const msg = makeMessage({
+      content: "🙏",
+      channel: { type: ChannelType.PublicThread, parentId: "forum1", send: vi.fn() },
+    });
+
+    await handleMessage(deps, msg);
+
+    expect(handle).toHaveBeenCalledWith(
+      expect.objectContaining({ emoji: "🙏", sessionId: "s1", messageText: "" }),
+      expect.any(Function),
+      expect.any(Function),
+    );
+  });
+
+  it("does not start a standalone emoji workflow in a legacy session channel", async () => {
+    const fetchMock = stubSuccessfulFetch();
+    const deps = makeDeps("codex-cli");
+    const handle = vi.fn(async () => undefined);
+    deps.workflow = { handle };
+    deps.isWorkflowUserAllowed = () => true;
+
+    await handleMessage(deps, makeMessage({ content: "🙏" }));
+
+    expect(handle).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("stores image attachments and adds their local paths to the inject", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");

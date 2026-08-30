@@ -906,7 +906,7 @@ export interface ReactionWorkflowDeps {
 /**
  * リアクションWF の入力。 呼び出し側 (Discord/Slack の bot) が、 リアクションされた
  * メッセージ本文と文脈をプラットフォーム API から解決して渡す。
- * chat_messages / message-map には依存しない (= どのメッセージに付いても発火する)。
+ * chat_messages / message-map には依存しない。発火面の制限は platform ingress が担う。
  */
 export interface ReactionWorkflowInput {
   /** 再発火抑制の安定キー (プラットフォームの message id)。 */

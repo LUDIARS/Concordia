@@ -9,6 +9,12 @@ function makeDeps(allowed: boolean) {
     log: { info: vi.fn() },
     workflow: { handle },
     isWorkflowUserAllowed: () => allowed,
+    sessionChannels: {
+      findByChannelId: vi.fn(() => ({ session_id: "s1", channel_kind: "thread" })),
+    } as unknown as ReactionsDeps["sessionChannels"],
+    sessions: {
+      findSession: vi.fn(() => ({ repo_path: "E:/repo", status: "active" })),
+    },
   };
   return { deps, handle };
 }
@@ -37,5 +43,16 @@ describe("Discord reaction workflow authorization", () => {
     const { deps, handle } = makeDeps(true);
     await handleReactionAdd(deps, reaction as never, { id: "operator", bot: false } as never);
     expect(handle).toHaveBeenCalledOnce();
+  });
+
+  it("does not start the workflow outside a session thread", async () => {
+    const { deps, handle } = makeDeps(true);
+    deps.sessionChannels = {
+      findByChannelId: vi.fn(() => ({ session_id: "s1", channel_kind: "channel" })),
+    } as unknown as ReactionsDeps["sessionChannels"];
+
+    await handleReactionAdd(deps, reaction as never, { id: "operator", bot: false } as never);
+
+    expect(handle).not.toHaveBeenCalled();
   });
 });

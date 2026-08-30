@@ -209,7 +209,7 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   // 単発で投稿された絵文字 (🙏 / 🫶 等) は「直前メッセージへのリアクション」と同義に扱い、
   // inject / chat には載せずリアクションワークフローへ流す (返信なら参照先を対象に取る)。
   // 該当アクションの無い単発絵文字は却下し、 通常プロンプトとしても通さない。
-  if (text && deps.workflow) {
+  if (text && deps.workflow && sessionRow?.channel_kind === "thread") {
     const reactionRoute = classifyReactionIngress({
       text,
       classify: (emoji) => getRwf().classifyReactionWorkflow(emoji, deps.resolveReactionMappings?.()),
@@ -417,37 +417,28 @@ async function tryEmojiWorkflow(
   routeChannelId: string,
 ): Promise<boolean> {
   if (!deps.workflow) return false;
-  const chatId = resolveEmojiTargetChatId(deps, msg, routeChannelId);
-  if (chatId == null) {
-    deps.log.info(`ingress: emoji "${emoji}" but no target message found channel=${msg.channelId}`);
-    return false;
-  }
-  // 対象 chat_messages から本文 / session 文脈を解決して runner へ渡す
-  // (runner は chat_messages 非依存になったため、 ここで取り出す)。
-  const target = deps.chatRepo?.findById(chatId) ?? null;
-  let repoPath: string | null = null;
-  let sessionActive = false;
-  let sessionId: string | null = null;
-  if (target?.session_id) {
-    sessionId = target.session_id;
-    const s = deps.sessionsRepo.findSession(target.session_id);
-    if (s) {
-      repoPath = s.repo_path;
-      sessionActive = s.status === "active";
-    }
-  }
-  deps.log.info(`ingress: emoji "${emoji}" → reaction-workflow chat_messages.id=${chatId} channel=${msg.channelId}`);
+  const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
+  if (sessionRow?.channel_kind !== "thread") return false;
+
+  // chat_messages は直前投稿の本文を補うだけで、発火条件にはしない。transcript relay と
+  // chat.posted は別経路なので、DB に直近行が無いセッションでも単独絵文字は有効であるべき。
+  const target = resolveEmojiTarget(deps, msg, sessionRow.session_id);
+  const session = deps.sessionsRepo.findSession(sessionRow.session_id);
+  deps.log.info(
+    `ingress: emoji "${emoji}" → reaction-workflow ` +
+    `session=${sessionRow.session_id} target=${target?.id ?? "session-context"} channel=${msg.channelId}`,
+  );
   void deps.workflow
     .handle(
       {
-        dedupeKey: `chat:${chatId}`,
+        dedupeKey: target ? `chat:${target.id}` : `discord:${msg.id}`,
         emoji,
         userId: msg.author.id,
         messageText: target?.text ?? "",
         authorLabel: target?.author_label ?? "unknown",
-        repoPath,
-        sessionActive,
-        sessionId,
+        repoPath: session?.repo_path ?? null,
+        sessionActive: session?.status === "active",
+        sessionId: sessionRow.session_id,
       },
       (action) => {
         // 単発絵文字メッセージ自身へ「受付」リプライを返して発火を可視化する。
@@ -469,27 +460,15 @@ async function tryEmojiWorkflow(
   return true;
 }
 
-/** 単発絵文字の対象メッセージ: 返信先 → session の直近 → meta channel の直近 の順で解決。 */
-function resolveEmojiTargetChatId(deps: IngressDeps, msg: Message, routeChannelId: string): number | null {
+/** 単発絵文字の対象メッセージ: 返信先 → session の直近の順で補助的に解決する。 */
+function resolveEmojiTarget(deps: IngressDeps, msg: Message, sessionId: string) {
   // 1. 返信メッセージなら参照先を対象に取る (リアクションと同義の最も明示的な指定)。
   const refId = msg.reference?.messageId;
-  if (refId && deps.messageMap) {
+  if (refId && deps.messageMap && deps.chatRepo) {
     const id = deps.messageMap.findChatId(refId);
-    if (id != null) return id;
+    if (id != null) return deps.chatRepo.findById(id);
   }
-  // 2. session channel: そのセッションが書いた直近メッセージ。
-  const sessionRow = deps.sessionChannelsRepo.findByChannelId(routeChannelId);
-  if (sessionRow && deps.chatRepo) {
-    const m = deps.chatRepo.latestForSession(sessionRow.session_id);
-    if (m) return m.id;
-  }
-  // 3. meta channel (chitchat / consultation / 報告 / system): その channel の直近メッセージ。
-  const kind = resolveMetaKind(deps.configRepo, routeChannelId);
-  if (kind && deps.chatRepo) {
-    const m = deps.chatRepo.list({ channel: metaKindToChatChannel(kind), limit: 1 })[0];
-    if (m) return m.id;
-  }
-  return null;
+  return deps.chatRepo?.latestForSession(sessionId) ?? null;
 }
 
 export function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {

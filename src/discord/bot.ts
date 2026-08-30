@@ -1336,9 +1336,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         ? (userId) => deps.hasStaffCapability!(userId, "session_end")
         : undefined,
       resolveWorkspaceRoots: deps.resolveWorkspaceRoots,
-      // PR 操作パネル / RWF アクション選択パネル。 実処理はリアクション経由と同じ口を使う。
+      // PR 操作パネル。実処理はリアクション経由と同じ口を使う。
       prOperations: deps.prOperations,
-      reactionWorkflow,
     }).catch((e) => {
       const age = interactionAgeMs(interaction);
       log.warn(

@@ -233,14 +233,12 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     });
     return;
   }
-  // PR 提出 / マージ・RWF アクション選択の操作パネル (embed + select + button)。
+  // PR 提出 / マージ操作パネル (embed + select + button)。
   if (isPanelInteraction(interaction)) {
     await handlePanelInteraction(interaction, {
-      sessionChannelsRepo: deps.sessionChannelsRepo,
       sessionsRepo: deps.sessionsRepo,
       prOperations: deps.prOperations,
       isMergeUserAllowed: deps.isMergeUserAllowed,
-      reactionWorkflow: deps.reactionWorkflow,
       log: deps.log,
     });
     return;

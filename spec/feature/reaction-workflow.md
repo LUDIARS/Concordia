@@ -16,21 +16,21 @@ tags:
 status: implemented
 related:
   - ../setup/config-reference.md
-updated: 2026-06-30
+updated: 2026-08-31
 ---
 
 
 # Reaction Workflow — リアクション駆動の処理ディスパッチ
 
-Concordia の chat メッセージ (Discord / Slack にミラーされた bot 投稿) に付けられた**リアクション**を
+Concordia のセッション面 (Discord の session thread / Slack の専用 session channel) にある
+chat メッセージへ付けられた**リアクション**を
 「指示」として解釈し、 種類に応じた処理を **LLM (headless `claude -p`) / session.inject** で実行する。
 
 リアクションの**記録**は従来通り `chat_message_reactions` に残る (discord-repo.classifyEmoji →
 fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処理トリガに変換する層を足す。
 
-ランナー本体 `src/platform/reaction-workflow.ts` は **platform 非依存**（`{chatId, emoji, userId}`
-だけ受ける）。Discord / Slack の各 bot が「reaction イベント → chat_messages.id 逆引き →
-絵文字を unicode に正規化」してこのランナーに渡す（§4）。
+ランナー本体 `src/platform/reaction-workflow.ts` は **platform 非依存**。Discord / Slack の各 bot が
+session 文脈・対象本文 (取得できた場合)・unicode に正規化した絵文字を渡す（§4）。
 
 ## 1. 絵文字 → アクション写像
 
@@ -68,7 +68,7 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 
 ### 1-b. 単発絵文字 (prompt) も同じトリガにする
 
-リアクションだけでなく、**チャットに単発で投稿された同種の絵文字**も同じワークフローに流す
+セッション面ではリアクションだけでなく、**チャットに単発で投稿された同種の絵文字**も同じワークフローに流す
 (`src/discord/ingress.ts`)。 メッセージ本文が写像対象の絵文字 1 個だけなら、 inject / chat には
 載せず「直前メッセージへのリアクション」と同義に扱う。
 
@@ -76,18 +76,16 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 > その投稿を却下し、 通常経路 (inject / chat) にもフォールバックしない (= プロンプトを通さない)。
 > 絵文字判定は `isStandaloneEmoji` (Extended_Pictographic / Emoji_Modifier / VS16 / ZWJ のみ)。
 
-対象メッセージの解決順:
+対象メッセージは補助情報として次の順に解決する:
 
 1. 返信メッセージ (`message.reference`) なら参照先 → `discord_message_map` で `chat_messages.id`。
-2. session channel なら、 そのセッションが書いた直近メッセージ (`chatRepo.latestForSession`)。
-3. meta channel (chitchat / consultation / 報告 / system) なら、 その channel の直近メッセージ。
+2. そのセッションが書いた直近メッセージ (`chatRepo.latestForSession`)。
 
-解決できなければ通常経路 (inject / chat) にフォールバック。 安全弁 OFF の間は handle() が即 return
-するので単発絵文字も無処理 (= 通常の inject 扱い)。
+解決できなくても session 文脈でワークフローを発火し、対象本文だけを空として扱う。直近の
+`chat_messages` 行は transcript relay と同時に存在するとは限らないため、発火条件にはしない。
 
-**Slack も同様** (`src/slack/bot.ts` の message ingress)。 `:name:` 形式は `slackReactionToUnicode`
-で unicode 正規化してから写像照合する。 対象メッセージは ① thread 返信ならその session の直近
-(`chatRepo.latestForSession`) / ② チャンネル直下なら consultation メタチャットの直近、 で解決する。
+**Slack も専用 session channel 内だけで同様** (`src/slack/bot.ts` の message ingress)。 `:name:` 形式は
+`slackReactionToUnicode` で unicode 正規化してから写像照合する。
 **却下ルールも Discord と同じ**: 単発絵文字 (unicode の `isStandaloneEmoji` または `:name:` トークン)
 で写像対象アクションが無いものは却下し、 inject / chat に通さない。`isStandaloneEmoji` は両 ingress 共用。
 
@@ -140,8 +138,10 @@ MessageReactionAdd (discord.js)
   dedup skip / 無効 / 写像外では呼ばれない (= 余計な通知を出さない)。
 - 投稿は best-effort (失敗してもログのみ、 WF 本体は止めない)。 真の ephemeral は interaction 専用で
   リアクションには使えないため、 通常リプライ (`repliedUser: false` で pingしない) とする。
-- 全トリガー経路で出す: Discord リアクション (`reactions.ts`) / Discord 単発絵文字 (`ingress.ts`) /
-  Slack リアクション・単発絵文字 (`slack/bot.ts`、 `chat.postMessage` の thread 返信)。
+- 全トリガー経路で出す: Discord session thread のリアクション (`reactions.ts`) / 単発絵文字 (`ingress.ts`) /
+  Slack 専用 session channel のリアクション・単発絵文字 (`slack/bot.ts`)。
+- Discord の受付・結果は既存の embed 報告を維持するが、RWF 由来のボタンは表示しない。
+- session 面以外のリアクションはワークフローを発火しない。Discord の評価記録は従来どおり残す。
 
 ## 4. 安全弁 / 設定
 
@@ -185,18 +185,19 @@ dedup + fire-and-forget で記録経路を壊さない。
 複数ルートを設定した場合、 Memoria は実在する `<root>/Memoria` を採用する (先頭ルートを優先)。 変更は次の
 Discord/Slack bot start (= restart) で実効値に反映される。 詳細は `spec/setup/config-reference.md`。
 
-## 4-b. platform 別 ingress（chat 逆引き + 絵文字正規化）
+## 4-b. platform 別 ingress（session 面の限定 + 絵文字正規化）
 
-ランナーは `{chatId, emoji, userId}` だけ受ける。各 platform が以下を担う。
+各 platform が以下を担う。
 
 | | Discord | Slack |
 |---|---|---|
+| 発火面 | `discord_session_channels.channel_kind = 'thread'` | `slack_session_channels` の専用 channel |
 | reaction イベント | `messageReactionAdd` (discord.js) | `reaction_added` (Socket Mode) |
-| msg → chat 逆引き | `discord_message_map` (egress で put) | `slack_message_map` (egress で put、`(channel_id, ts)` → `chat_messages.id`) |
+| 対象本文 | platform message / `chat_messages` から取得できれば付加。無くても session 文脈で発火 | 同左 |
 | 絵文字 → unicode | discord.js は unicode 文字をそのまま渡す | Slack は**絵文字名**(`+1` / `thumbsup` / `white_check_mark` 等)。`slackReactionToUnicode()` で写像してからランナーへ。skin-tone 接尾 (`::skin-tone-N`) は除去 |
 | bot 自身の除外 | `user.bot` | `event.user === botUserId` |
 
-逆引きできない (= Concordia 投稿でない) リアクション、写像外の絵文字は無処理。
+session 面に属さないリアクション、写像外の絵文字は無処理。
 
 ## 5. 実装ファイル
 
@@ -206,8 +207,8 @@ Discord/Slack bot start (= restart) で実効値に反映される。 詳細は 
 - `src/admin/state.ts` / `src/api/register-chat.ts` — 安全弁 ON/OFF の永続化、更新 API、readiness 応答。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
-- `src/discord/ingress.ts` / `src/slack/bot.ts` — 単発絵文字メッセージ → `workflow.handle()`（対象 chat_messages 解決込み）。
-- `src/db/chat-repo.ts` — `latestForSession(sessionId)`（単発絵文字の対象解決に使う）。
+- `src/discord/ingress.ts` / `src/slack/bot.ts` — session 面の単発絵文字メッセージ → `workflow.handle()`。
+- `src/db/chat-repo.ts` — `latestForSession(sessionId)`（単発絵文字へ任意の対象本文を補う）。
 - `src/slack/bot.ts` — Slack 側 ingress（`reaction_added` → `slackReactionToUnicode` → `workflow.handle()`）。
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
 - `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。

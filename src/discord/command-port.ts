@@ -11,11 +11,6 @@ import type { DiscordTestSurfacesRepo } from "../db/discord-test-surfaces-repo.j
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import type { SessionPrPort } from "../pr/session-pr-operations.js";
-import type {
-  ReactionWorkflowInput,
-  WorkflowAction,
-  WorkflowResultRelay,
-} from "../platform/reaction-workflow.js";
 
 export interface SpawnApprovalAction {
   requesterUserId: string;
@@ -77,17 +72,6 @@ export interface DiscordCommandDeps {
    * 使う。 未注入なら操作パネルは「使えない」と明示して返す (無言で何も起きない、にしない)。
    */
   prOperations?: SessionPrPort;
-  /**
-   * RWF アクション選択パネルからワークフローを起こす口。 絵文字リアクションと同じ
-   * runner を通すので、 権限判定・再発火抑制も共通になる。
-   */
-  reactionWorkflow?: {
-    handle(
-      input: ReactionWorkflowInput,
-      onAccept?: (action: WorkflowAction) => void,
-      onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
-     ): Promise<void>;
-   };
 }
 
 export interface DiscordCommandSpec {

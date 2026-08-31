@@ -9,7 +9,7 @@ describe("discord end-session interactions", () => {
     vi.restoreAllMocks();
   });
 
-  it("/end-session defers before session lookup and fires DELETE after ack", async () => {
+  it("/end-session defers before session lookup and reports success after DELETE", async () => {
     const calls: string[] = [];
     const interaction = {
       channelId: "channel-1",
@@ -43,7 +43,7 @@ describe("discord end-session interactions", () => {
       sessionChannelsRepo,
     } as any);
 
-    expect(calls.slice(0, 3)).toEqual(["deferReply", "findByChannelId", "editReply"]);
+    expect(calls.slice(0, 4)).toEqual(["deferReply", "findByChannelId", "fetch", "editReply"]);
     expect(interaction.reply).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:11111/v1/sessions/session-1",

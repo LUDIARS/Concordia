@@ -1,3 +1,7 @@
+/**
+ * @implements spec/feature/discord-ui-pr-b.md — Discord `/end-session` command
+ * @implements spec/tasks/2026-08-31-reconciliation-review-followup-recheck.md
+ */
 import { SlashCommandBuilder } from "discord.js";
 import type { DiscordCommandSpec } from "../command-port.js";
 import { isForumSessionThread, updateForumSessionState } from "../forum-session.js";
@@ -9,8 +13,18 @@ const endSessionCommand: DiscordCommandSpec = {
     await interaction.deferReply({ ephemeral: true });
     const session = await requireSessionChannel(interaction, deps.sessionChannelsRepo);
     if (!session) return;
+    const result = await callConcordia<{ ok: boolean }>(
+      deps.concordiaUrl,
+      "DELETE",
+      `/v1/sessions/${encodeURIComponent(session.sessionId)}`,
+    );
+    if ("error" in result || result.ok !== true) {
+      // Upstream error bodies and persisted session IDs are untrusted log input.
+      deps.log.warn("end-session DELETE failed");
+      await interaction.editReply({ content: "Session end failed. Please retry." });
+      return;
+    }
     await interaction.editReply({ content: "Session end requested." });
-    void callConcordia<{ ok: boolean }>(deps.concordiaUrl, "DELETE", `/v1/sessions/${session.sessionId}`);
     if (isForumSessionThread(interaction.channel)) {
       try {
         await updateForumSessionState(interaction.channel, "ended");

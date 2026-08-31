@@ -76,8 +76,11 @@ export async function endSessionNow(
       });
     }
   } catch { /* swallow — best effort */ }
+  // ended 以外の状態には必ずマーカーを立てる。特に lost は ended 化後に
+  // lost-session-process-reaper (status==="lost" 限定) の対象外になるため、
+  // expired-session-end-reaper (マーカー必須) へ引き継がないとプロセスツリーが残留する。
   const alreadyPending = isSessionEndPending(session.metadata);
-  if (session.status === "active" && !alreadyPending) {
+  if (!alreadyPending) {
     deps.repo.mergeMetadata(session.id, { [SESSION_END_PENDING_AT_KEY]: now });
   }
   deps.repo.setStatus(session.id, "ended", now, now);

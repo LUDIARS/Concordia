@@ -162,7 +162,10 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
 const RESERVED_NON_ACTION_EMOJI = new Set(["👌"]);
 
 export function isReservedNonActionEmoji(emoji: string): boolean {
-  return RESERVED_NON_ACTION_EMOJI.has(emoji.trim());
+  const baseEmoji = emoji.trim()
+    .replace(/[\uFE0E\uFE0F]/gu, "")
+    .replace(/[\u{1F3FB}-\u{1F3FF}]/gu, "");
+  return RESERVED_NON_ACTION_EMOJI.has(baseEmoji);
 }
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */

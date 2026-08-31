@@ -43,6 +43,18 @@ describe("reaction-workflow-loader", () => {
     expect(_isValidRwfModule(unsafe)).toBe(false);
   });
 
+  it("rejects an external engine that leaves an OK-hand display variant actionable", () => {
+    const rwf = getRwf();
+    const unsafe = {
+      ...rwf,
+      isReservedNonActionEmoji: (emoji: string) => emoji.trim() === "👌",
+      classifyReactionWorkflow: (emoji: string) =>
+        emoji.trim() === "👌🏽" ? "handoff-document" as const : rwf.classifyReactionWorkflow(emoji),
+    };
+
+    expect(_isValidRwfModule(unsafe)).toBe(false);
+  });
+
   it("rejects an external engine that exposes the reserved emoji in its default map", () => {
     const rwf = getRwf();
     const unsafe = {

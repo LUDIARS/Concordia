@@ -115,16 +115,18 @@ describe("無効ワークフローの API は 409 + 理由", () => {
 });
 
 describe("PUT /v1/admin/reaction-mappings", () => {
-  it("予約済みの 👌 は workflow action に割り当てられない", async () => {
-    const env = makeTestApp();
-    const response = await env.app.request("/v1/admin/reaction-mappings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ emoji: "👌", action: "handoff-document" }),
-    });
+  for (const emoji of ["👌", "👌️", "👌🏽"]) {
+    it(`予約済みの ${emoji} は workflow action に割り当てられない`, async () => {
+      const env = makeTestApp();
+      const response = await env.app.request("/v1/admin/reaction-mappings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ emoji, action: "handoff-document" }),
+      });
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toEqual({ error: "body.emoji is reserved as non-actionable" });
-    expect(env.adminState.getReactionEmojiOverrides()).not.toHaveProperty("👌");
-  });
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "body.emoji is reserved as non-actionable" });
+      expect(env.adminState.getReactionEmojiOverrides()).not.toHaveProperty(emoji);
+    });
+  }
 });

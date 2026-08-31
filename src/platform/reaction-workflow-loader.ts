@@ -28,15 +28,19 @@ let initialized = false;
 /** 外部プラグインが最低限の契約シンボルを備えるか (実行時検証)。 */
 function isValidRwfModule(m: unknown): m is RwfModule {
   const o = m as Partial<RwfModule> | null;
+  const reservedVariants = ["👌", "👌️", "👌🏻", "👌🏼", "👌🏽", "👌🏾", "👌🏿"];
   return (
     !!o &&
     typeof (o as RwfModule).ReactionWorkflowRunner === "function" &&
     typeof (o as RwfModule).classifyReactionWorkflow === "function" &&
     typeof (o as RwfModule).isReservedNonActionEmoji === "function" &&
-    (o as RwfModule).isReservedNonActionEmoji("👌") === true &&
-    (o as RwfModule).classifyReactionWorkflow("👌", { "👌": "handoff-document" }) === null &&
+    reservedVariants.every((emoji) =>
+      (o as RwfModule).isReservedNonActionEmoji(emoji) === true
+      && (o as RwfModule).classifyReactionWorkflow(emoji, { [emoji]: "handoff-document" }) === null
+    ) &&
     typeof (o as RwfModule).defaultReactionEmojiMap === "function" &&
-    !Object.prototype.hasOwnProperty.call((o as RwfModule).defaultReactionEmojiMap(), "👌") &&
+    !Object.keys((o as RwfModule).defaultReactionEmojiMap())
+      .some((emoji) => (o as RwfModule).isReservedNonActionEmoji(emoji)) &&
     typeof (o as RwfModule).isStandaloneEmoji === "function" &&
     typeof (o as RwfModule).reactionAckText === "function" &&
     typeof (o as RwfModule).primaryEmojiForAction === "function" &&

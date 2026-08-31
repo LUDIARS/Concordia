@@ -85,8 +85,10 @@ describe("classifyReactionWorkflow", () => {
   });
 
   it("reserves 👌 as non-action even when an override attempts to assign it", () => {
-    expect(isReservedNonActionEmoji(" 👌 ")).toBe(true);
-    expect(classifyReactionWorkflow("👌", { "👌": "handoff-document" })).toBeNull();
+    for (const emoji of ["👌", "👌️", "👌🏻", "👌🏼", "👌🏽", "👌🏾", "👌🏿"]) {
+      expect(isReservedNonActionEmoji(` ${emoji} `)).toBe(true);
+      expect(classifyReactionWorkflow(emoji, { [emoji]: "handoff-document" })).toBeNull();
+    }
   });
 });
 
@@ -412,7 +414,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     const temp = await mkdtemp(join(tmpdir(), "concordia-reaction-workflow-"));
     const customWorkflowsPath = join(temp, "custom-workflows.json");
     await writeFile(customWorkflowsPath, JSON.stringify([{
-      emoji: "👌",
+      emoji: "👌🏽",
       prompt: "must not run",
       model: "sonnet",
     }]), "utf8");
@@ -424,7 +426,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       const accepted: WorkflowAction[] = [];
       await overridden.runner.handle({ ...baseInput, emoji: "👌" }, (action) => accepted.push(action));
       await customized.runner.handle(
-        { ...baseInput, dedupeKey: "m-custom", emoji: "👌" },
+        { ...baseInput, dedupeKey: "m-custom", emoji: "👌🏽" },
         (action) => accepted.push(action),
       );
 

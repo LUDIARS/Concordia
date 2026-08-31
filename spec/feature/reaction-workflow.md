@@ -51,7 +51,8 @@ session 文脈・対象本文 (取得できた場合)・unicode に正規化し�
 | 🤝 🫱 | タスクあり → delegation template を選んで **委託実行**、委託後の Lictor プロセスを監視 | `delegate-task` | active へ `session.inject` (委託+監視)<br>(非 active は headless haiku で委託のみ) | haiku |
 | 🔄 🔃 | 「対応マージ後、`<project>`をmain最新にする」から project code を抽出し、対応 PR マージ後に対象プロジェクトを main 最新へ ff 同期 | `sync-project-main-after-merge` | headless (cwd = workspace root) | sonnet |
 
-写像外の絵文字は記録のみで何もしない (`null`)。👌 は誤送信されやすいため永続的に非アクションとし、
+写像外の絵文字は記録のみで何もしない (`null`)。👌（variation selector・肌色 modifier 付きも含む）は
+誤送信されやすいため永続的に非アクションとし、
 組み込み写像・管理 API の override・custom workflow JSON・外部 RWF プラグインのいずれからも割り当てない。
 
 各アクション (カスタムコマンド) のヘルプは `WORKFLOW_ACTION_HELP` (label / summary / mode) として

@@ -130,6 +130,10 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 - Cc の **task-md reconciler** (定期 tick) が全リポの `spec/tasks/` を走査し、
   SQLite の `taskflow_task_state` にある `status=pending` かつ `memoria_task_id IS NULL` の task を Memoria へ登録する
   (`src/memoria/client.ts` の `createTask` 既存経路)。登録 claim と ID は同じ state 行へ永続化し、Markdown は**一切書き戻さない**。
+- task の検索キーが Windows / POSIX の絶対パスなら、区切り文字と末尾区切りを正規化した
+  `repo_path` 完全一致だけを許可する。plain project 名と `owner/repo` 形式は identifier として扱い、
+  frontmatter の `project` または repo basename で照合する。workspace root と同名の子 repo を
+  basename だけで誤選択してはならない。
 - `status`、外部 task ID、`subsidiary_id`、`source_session`、`assignee` / `owner`、`delegation_run_id`、`pr_number` はすべて runtime state である。
   `subsidiary_id` は子会社所有を表し、`NULL` は本社とする。task Markdown の同定キー
   (`repo_path + task_path`) は組織別に分割しない。

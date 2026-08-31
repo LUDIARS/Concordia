@@ -172,6 +172,7 @@ describe("TaskMdStore.scan", () => {
 
     expect(await store.findForProject(workspaceRoot)).toHaveLength(0);
     expect(await store.findForProject(`${childRepo.replace(/\\/g, "/")}/./`)).toHaveLength(1);
+    expect(await store.findForProject(childRepo.toUpperCase())).toHaveLength(1);
     expect(await store.findForProject("ars")).toHaveLength(1);
     expect(await store.findForProject("LUDIARS/ars")).toHaveLength(1);
   });

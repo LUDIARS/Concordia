@@ -27,7 +27,7 @@ The reaction workflow exposed an operational ambiguity between a common acknowle
 ## Fix Requirements
 
 - Remove 👌 from the default `handoff-document` triggers.
-- Reserve 👌 as a permanently non-actionable emoji because a double-tap can send it accidentally; built-in mappings, configured overrides, and custom workflow JSON must not be able to assign it.
+- Reserve 👌, including presentation-selector and skin-tone variants, as permanently non-actionable because a double-tap can send it accidentally; built-in mappings, configured overrides, and custom workflow JSON must not be able to assign it.
 - Reject an external reaction-workflow plugin unless it preserves the same reserved-emoji invariant.
 - Retain 👋 as the explicit handoff trigger.
 - Cover both classifications with regression assertions.
@@ -35,8 +35,8 @@ The reaction workflow exposed an operational ambiguity between a common acknowle
 
 ## Verification
 
-- `classifyReactionWorkflow("👌")` must return `null`.
-- An attempted configured override for 👌 must still classify to `null`, and a custom workflow JSON entry for 👌 must not execute.
+- `classifyReactionWorkflow("👌")` and its display variants must return `null`.
+- An attempted configured override for an OK-hand variant must still classify to `null`, and a custom workflow JSON entry for one must not execute.
 - The reaction-mapping API must reject attempts to persist a 👌 override, and plugin compatibility checks must reject engines that make it actionable.
 - The flattened built-in mapping must never contain 👌.
 - `classifyReactionWorkflow("👋")` must continue to return `handoff-document`.

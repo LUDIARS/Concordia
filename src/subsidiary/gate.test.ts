@@ -48,6 +48,7 @@ beforeEach(() => {
     name: "testco", display_name: "TestCo", platform: "discord", enabled: true,
     guild_id: "g1", channel_id: "intake", guard_scope: "誤字修正のみ",
   });
+  sub = subRepo.update(sub.id, { default_team_id: "team-child" })!;
   // 子会社が所有する delegation 複製 (cwd / project を内包)。
   subRepo.upsertDelegation(sub.id, {
     call_name: "fix-content", is_default: true, title: "誤字修正",
@@ -70,7 +71,10 @@ describe("processSubsidiaryRequest", () => {
     expect(invoke.mock.calls[0][0]).toMatchObject({
       call_name: "fix-content", template_id: null, default_cwd: "E:/Document/Ars/Pictor", project: "Pictor",
     });
-    expect(invoke.mock.calls[0][1]).toMatchObject({ subsidiary_id: sub.id });
+    expect(invoke.mock.calls[0][1]).toMatchObject({
+      subsidiary_id: sub.id,
+      options: { team: "team-child" },
+    });
     const reqs = subRepo.recentRequests(sub.id);
     expect(reqs[0].decision).toBe("allow");
     expect(reqs[0].run_id).toBe("run-1");

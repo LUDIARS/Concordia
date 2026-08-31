@@ -12,6 +12,7 @@ import {
   type SubsidiaryLock,
   type SubsidiaryRequest,
   type DelegationTemplateLite,
+  type Team,
 } from "../../api.js";
 import { SubsidiaryProjectSpawnForm } from "../../components/SubsidiaryProjectSpawnForm.js";
 import { runMutation } from "../../lib/mutation.js";
@@ -30,6 +31,7 @@ const EMPTY_FORM: SubsidiaryInput = {
   guard_model: "sonnet",
   guard_scope: "",
   daily_token_budget: 0,
+  default_team_id: null,
 };
 
 export function SubsidiariesSection() {
@@ -41,6 +43,7 @@ export function SubsidiariesSection() {
     delegations: SubsidiaryDelegation[];
     locks: SubsidiaryLock[];
     requests: SubsidiaryRequest[];
+    teams: Team[];
   } | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
@@ -70,8 +73,9 @@ export function SubsidiariesSection() {
       guard_model: r.subsidiary.guard_model,
       guard_scope: r.subsidiary.guard_scope,
       daily_token_budget: r.subsidiary.daily_token_budget ?? 0,
+      default_team_id: r.subsidiary.default_team_id ?? null,
     });
-    setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests });
+    setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests, teams: r.teams });
       },
     });
   };
@@ -110,9 +114,50 @@ export function SubsidiariesSection() {
     });
   };
 
+  const deleteSubsidiary = async () => {
+    if (!editId) return;
+    await runMutation({
+      confirmMessage: "削除しますか? 所有チームがある子会社は削除できません。運用終了は無効化してください。",
+      setBusy: (busy) => setBusyAction(busy ? `delete:${editId}` : null),
+      setError: setErr,
+      errorPrefix: "削除失敗: ",
+      action: () => api.subsidiaryDelete(editId),
+      onSuccess: () => {
+        setEditId(null);
+        setForm(EMPTY_FORM);
+        setDetail(null);
+        load();
+      },
+    });
+  };
+
   // ── 所有 delegation 操作 (clone / 既定 / JSON コピー / 貼付 / 削除) ──
   const [cloneFrom, setCloneFrom] = useState("");
   const [pasteJson, setPasteJson] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamSlug, setTeamSlug] = useState("");
+
+  const createSubsidiaryTeam = async () => {
+    if (!editId || !teamName.trim() || !teamSlug.trim()) return;
+    await runMutation({
+      setBusy: (busy) => setBusyAction(busy ? `team-create:${editId}` : null),
+      setError: setErr,
+      action: () => api.teamCreate({
+        name: teamName.trim(),
+        slug: teamSlug.trim(),
+        subsidiary_id: editId,
+      }),
+      onSuccess: async (result) => {
+        setTeamName("");
+        setTeamSlug("");
+        // 最初のチームは直ちに既定にし、子会社タスクが team 無しで起動する隙間を作らない。
+        if (!form.default_team_id) {
+          await api.subsidiaryUpdate(editId, { default_team_id: result.team.id });
+        }
+        await openDetail(editId);
+      },
+    });
+  };
 
   const cloneTemplate = async () => {
     if (!editId || !cloneFrom) return;
@@ -175,7 +220,8 @@ export function SubsidiariesSection() {
         <br />
         <span className="text-[11px]">
           ※ Bot の application_id / token は<b>本社と同じものを共有</b> (同一 Bot を出張先 guild に招待)。
-          子会社固有なのは guild_id だけ。 受付チャンネルは Bot 起動時に<b>自動作成</b>される (手動指定は override)。
+          物理 Gateway 接続も token 単位で共有し、子会社固有なのは guild_id と論理 runtime。
+          受付チャンネルは Bot 起動時に<b>自動作成</b>される (手動指定は override)。
         </span>
       </p>
       {err && <div className="text-red-400 text-xs mb-2">{err}</div>}
@@ -273,7 +319,42 @@ export function SubsidiariesSection() {
 
         {editId && detail && (
           <div className="border-t border-border pt-2 mt-1">
-            <div className="text-xs text-subtle mb-1">所有 delegation (子会社が複製所有。 cwd / project はここで管理 / ★=既定)</div>
+            <div className="text-xs text-subtle mb-1">子会社チーム (最初のチームは自動で既定)</div>
+            <div className="flex flex-col gap-1 mb-2">
+              {detail.teams.map((team) => (
+                <div key={team.id} className="text-xs border border-border rounded px-2 py-1 flex items-center gap-2">
+                  <span className="font-medium">{team.name}</span>
+                  <span className="text-subtle">({team.slug})</span>
+                  {team.suspended && <span className="text-yellow-400">一時停止</span>}
+                  {form.default_team_id === team.id && <span className="text-green-300">既定</span>}
+                </div>
+              ))}
+              {detail.teams.length === 0 && <div className="text-subtle text-xs">子会社チームは未登録です。</div>}
+            </div>
+            <label className="flex flex-col mb-2">
+              <span className="text-[10px] text-subtle">既定チーム (子会社 delegation / TaskWorkflow の所属先)</span>
+              <select
+                className="foundation-form text-xs"
+                value={form.default_team_id ?? ""}
+                onChange={(e) => setForm({ ...form, default_team_id: e.target.value || null })}
+              >
+                <option value="">未指定</option>
+                {detail.teams.map((team) => <option key={team.id} value={team.id}>{team.name} ({team.slug})</option>)}
+              </select>
+            </label>
+            <div className="grid grid-cols-[1fr_1fr_auto] gap-2 mb-3">
+              <LabeledInput label="新規チーム名" value={teamName} onChange={setTeamName} />
+              <LabeledInput label="slug" value={teamSlug} onChange={setTeamSlug} />
+              <button
+                className="self-end text-xs px-2 py-1 rounded-md border border-border"
+                disabled={busyAction !== null || !teamName.trim() || !teamSlug.trim()}
+                onClick={createSubsidiaryTeam}
+              >
+                チーム作成
+              </button>
+            </div>
+
+            <div className="border-t border-border pt-2 text-xs text-subtle mb-1">所有 delegation (子会社が複製所有。 cwd / project はここで管理 / ★=既定)</div>
             <div className="flex flex-col gap-1 mb-2">
               {detail.delegations.map((d) => (
                 <div key={d.call_name} className="text-xs border border-border rounded px-2 py-1 flex items-center gap-2">
@@ -352,7 +433,8 @@ export function SubsidiariesSection() {
               </button>
               <button
                 className="text-sm px-3 py-1 rounded-md border border-red-700 text-red-300"
-                onClick={async () => { if (confirm("削除しますか?")) { await api.subsidiaryDelete(editId); setEditId(null); setForm(EMPTY_FORM); setDetail(null); load(); } }}
+                disabled={busyAction !== null}
+                onClick={deleteSubsidiary}
               >
                 削除
               </button>

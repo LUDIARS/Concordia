@@ -16,6 +16,7 @@ import type { SecretBox } from "../shared/secret-box.js";
 import { ownedToPortable, parsePortable, templateToPortable } from "../delegation/portable.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { NAME_RE, resolveSubsidiaryName } from "../subsidiary/name-slug.js";
+import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 
 const CreateSchema = z.object({
   // 入力は弾かず受け取り、 正規 slug でなければ自動正規化する (resolveSubsidiaryName)。
@@ -36,6 +37,7 @@ const CreateSchema = z.object({
   guard_model: z.string().max(64).optional(),
   guard_scope: z.string().max(8000).optional(),
   daily_token_budget: z.number().int().min(0).max(1_000_000_000).optional(),
+  default_team_id: z.string().trim().min(1).max(120).nullable().optional(),
 });
 
 const PatchSchema = CreateSchema.partial().omit({ name: true });
@@ -69,6 +71,8 @@ export interface SubsidiaryApiDeps {
   runClaude?: RunClaudeFn;
   /** 自動正規化の fallback を記録する logger。 省略可。 */
   log?: { warn: (msg: string) => void };
+  /** 子会社チーム一覧と default_team_id の所有権検証。 */
+  teams?: TeamsRepo;
 }
 
 /** 所有 delegation 行を API 表現へ (input_schema を配列にパース)。 */
@@ -92,6 +96,15 @@ function serializeOwnedDelegation(row: SubsidiaryDelegationRow) {
 
 function safeJsonParse<T>(s: string, fallback: T): T {
   try { return JSON.parse(s) as T; } catch { return fallback; }
+}
+
+function serializeSubsidiaryTeam(repo: TeamsRepo, row: TeamRow) {
+  return {
+    ...row,
+    settings: safeJsonParse(row.settings_json, {} as Record<string, unknown>),
+    repos: repo.repos(row.id),
+    suspended: row.suspended_at !== null,
+  };
 }
 
 export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
@@ -134,11 +147,13 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
   app.get("/:id", async (c) => {
     const row = deps.repo.find(c.req.param("id"));
     if (!row) return c.json({ error: "not_found" }, 404);
+    const teams = deps.teams;
     return c.json({
       subsidiary: await serialize(row),
       delegations: deps.repo.listDelegations(row.id).map(serializeOwnedDelegation),
       locks: deps.repo.listLocks(row.id),
       requests: deps.repo.recentRequests(row.id, 50),
+      teams: teams?.listForSubsidiary(row.id).map((team) => serializeSubsidiaryTeam(teams, team)) ?? [],
     });
   });
 
@@ -146,6 +161,10 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = CreateSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    if (parsed.data.default_team_id) {
+      // 新規子会社はまだチームを所有できない。作成 → チーム追加 → 既定設定の順にする。
+      return c.json({ error: "default_team_must_be_assigned_after_create" }, 400);
+    }
     // 入力 name が既に正規 slug かつ重複 → 明示 409 (利用者の意図が明確なので自動改名しない)。
     // 正規 slug でない場合は弾かず resolveSubsidiaryName が自動補正・自動一意化する。
     if (NAME_RE.test(parsed.data.name) && deps.repo.findByName(parsed.data.name)) {
@@ -175,6 +194,12 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     const body = await c.req.json().catch(() => null);
     const parsed = PatchSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    if (parsed.data.default_team_id) {
+      const team = deps.teams?.find(parsed.data.default_team_id);
+      if (!team || team.subsidiary_id !== id) {
+        return c.json({ error: "default_team_not_owned_by_subsidiary" }, 400);
+      }
+    }
     const { bot_token, app_token, ...rest } = parsed.data;
     const row = deps.repo.update(id, {
       ...rest,
@@ -186,6 +211,9 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
 
   app.delete("/:id", async (c) => {
     const id = c.req.param("id");
+    if ((deps.teams?.listForSubsidiary(id).length ?? 0) > 0) {
+      return c.json({ error: "subsidiary_has_teams" }, 409);
+    }
     await deps.manager.stop(id);
     const ok = deps.repo.delete(id);
     if (!ok) return c.json({ error: "not_found" }, 404);

@@ -30,6 +30,7 @@ import { resolveFederationSiteId } from "./federation/listener-settings.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "./discord/config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
+import { DiscordGatewayPool } from "./discord/gateway-pool.js";
 import { startSlackBot, type SlackBotDeps } from "./slack/bot.js";
 import { makeChatReadModel } from "./api/chat-read-models.js";
 import { EscalationRepo } from "./db/escalation-repo.js";
@@ -56,6 +57,8 @@ import { createRevisorTestWorkflowClient } from "./pr/revisor-test-workflow-clie
 import { makeRevisorConfigRepo } from "./db/revisor-config-repo.js";
 import { resolveRevisorWorkflowToken } from "./pr/revisor-config.js";
 import { createRevisorClient } from "./pr/revisor-client.js";
+import { TeamsRepo } from "./db/teams-repo.js";
+import { parseTeamSettings } from "./api/teams.js";
 
 const log = createChildLogger("chat-worker");
 const RECONNECT_MS = 3_000;
@@ -230,6 +233,7 @@ async function main(): Promise<void> {
   const transcriptLogs = new TranscriptLogsRepo(db);
   const subsidiaryRepo = new SubsidiaryRepo(db);
   const harnessRepo = new HarnessRulesRepo(db);
+  const teamsRepo = new TeamsRepo(db);
   const delegationService = new DelegationService({
     repo: delegationRepo,
     concordiaUrl,
@@ -238,6 +242,19 @@ async function main(): Promise<void> {
       readFederationEnv(process.env, { deferListenerPortValidation: true }),
     ),
     effortBlackbox: new DelegationEffortBlackbox(db, runClaude),
+    teamRules: (value) => {
+      const team = teamsRepo.findByIdOrSlug(value);
+      return team ? {
+        id: team.id,
+        team: team.name,
+        rules: team.rules_text,
+        subsidiaryId: team.subsidiary_id,
+      } : null;
+    },
+    teamPrRules: (value) => {
+      const team = teamsRepo.findByIdOrSlug(value);
+      return team ? parseTeamSettings(team).pr_rules ?? null : null;
+    },
   });
   const subsidiaryBudget = new SubsidiaryBudgetTracker({ sessionsRepo: sessions });
   const readModel = makeChatReadModel({
@@ -252,11 +269,13 @@ async function main(): Promise<void> {
     delegationRepo,
   });
 
+  const discordGatewayPool = new DiscordGatewayPool();
   const discordDeps: DiscordBotDeps = {
     db,
     readModel,
     chatRepo: chat,
     sessionsRepo: sessions,
+    gatewayPool: discordGatewayPool,
     revisorTestWorkflow: createRevisorTestWorkflowClient(
       excubitor,
       resolveRevisorToken,
@@ -348,7 +367,7 @@ async function main(): Promise<void> {
     runClaude,
     budgetTracker: subsidiaryBudget,
     baseDiscordDeps: () => {
-      const { resolveConfig: _config, subsidiary: _subsidiary, ...base } = discordDeps;
+      const { resolveConfig: _config, subsidiary: _subsidiary, onRuntimeState: _state, ...base } = discordDeps;
       return base;
     },
     startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),

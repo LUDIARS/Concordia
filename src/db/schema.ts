@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 77;
+export const SCHEMA_VERSION = 78;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1988,6 +1988,26 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         ON delegation_runs(subsidiary_id, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_subsidiary_status
         ON taskflow_task_state(subsidiary_id, status, updated_at DESC);
+    `);
+  },
+}, {
+  version: 78,
+  name: "subsidiary-teams",
+  source: "organization-owned teams + subsidiary default team",
+  up(db) {
+    const teamColumns = db.prepare("PRAGMA table_info(teams)").all() as Array<{ name: string }>;
+    if (!teamColumns.some((column) => column.name === "subsidiary_id")) {
+      db.exec("ALTER TABLE teams ADD COLUMN subsidiary_id TEXT");
+    }
+    const subsidiaryColumns = db.prepare("PRAGMA table_info(subsidiaries)").all() as Array<{ name: string }>;
+    if (!subsidiaryColumns.some((column) => column.name === "default_team_id")) {
+      db.exec("ALTER TABLE subsidiaries ADD COLUMN default_team_id TEXT");
+    }
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_teams_subsidiary_name
+        ON teams(subsidiary_id, name);
+      CREATE INDEX IF NOT EXISTS idx_subsidiaries_default_team
+        ON subsidiaries(default_team_id);
     `);
   },
 },

@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { TeamMetrics, TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
+import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { eventBus } from "../events.js";
 import { TEAM_CARD_POST_KINDS } from "../shared/team-cards.js";
 
@@ -31,12 +32,14 @@ const RepositoriesSchema = z.array(z.string().trim().min(1).max(500)).max(200)
 const CreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   slug: z.string().min(1).max(100).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  subsidiary_id: z.string().trim().min(1).max(120).nullable().optional(),
   repos: RepositoriesSchema.default([]),
   settings: SettingsSchema.default({}),
   rules_text: z.string().max(50_000).default(""),
 });
 
-const PatchSchema = CreateSchema.partial();
+// 所有者の変更は既存 session / Discord surface の可視境界を変えるため禁止する。
+const PatchSchema = CreateSchema.partial().omit({ subsidiary_id: true });
 
 /**
  * チーム面へ載せる報告カード。 種別は面へのルーティング (team-card-routing.ts) に
@@ -68,13 +71,22 @@ export function parseTeamSettings(row: TeamRow): TeamSettings {
   return SettingsSchema.parse(JSON.parse(row.settings_json) as unknown);
 }
 
-export function teamsRouter(repo: TeamsRepo, metrics?: TeamMetricsRepo): Hono {
+export function teamsRouter(
+  repo: TeamsRepo,
+  metrics?: TeamMetricsRepo,
+  subsidiaries?: SubsidiaryRepo,
+): Hono {
   const app = new Hono();
 
   app.get("/", (c) => {
     const byTeam = metrics?.collect() ?? null;
+    // 無指定は従来の本社スコープ。子会社チームは明示 query でだけ返す。
+    const requestedSubsidiaryId = c.req.query("subsidiary_id")?.trim();
+    const rows = requestedSubsidiaryId
+      ? repo.listForSubsidiary(requestedSubsidiaryId)
+      : repo.listForSubsidiary(null);
     return c.json({
-      teams: repo.list().map((team) => ({
+      teams: rows.map((team) => ({
         ...serializeTeam(repo, team),
         ...(byTeam ? { metrics: byTeam.get(team.id) ?? EMPTY_METRICS } : {}),
       })),
@@ -100,6 +112,10 @@ export function teamsRouter(repo: TeamsRepo, metrics?: TeamMetricsRepo): Hono {
   app.post("/", async (c) => {
     const parsed = CreateSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_team", detail: parsed.error.flatten() }, 400);
+    const subsidiaryId = parsed.data.subsidiary_id ?? null;
+    if (subsidiaryId && (!subsidiaries || !subsidiaries.find(subsidiaryId))) {
+      return c.json({ error: "subsidiary_not_found" }, 404);
+    }
     const row = repo.create(parsed.data);
     repo.setRepos(row.id, parsed.data.repos);
     eventBus.emit({

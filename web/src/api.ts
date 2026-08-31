@@ -934,8 +934,10 @@ export const api = {
     ),
 
   // ── チーム (可視化 + ルールスコープ) ──
-  teamsList: () => get<{ teams: Team[] }>("/v1/teams"),
-  teamCreate: (body: { name: string; slug: string; repos?: string[]; settings?: TeamSettings; rules_text?: string }) =>
+  teamsList: (subsidiaryId?: string) => get<{ teams: Team[] }>(
+    `/v1/teams${subsidiaryId ? `?subsidiary_id=${encodeURIComponent(subsidiaryId)}` : ""}`,
+  ),
+  teamCreate: (body: { name: string; slug: string; subsidiary_id?: string | null; repos?: string[]; settings?: TeamSettings; rules_text?: string }) =>
     post<{ team: Team }>("/v1/teams", body),
   teamUpdate: (id: string, body: Partial<{ name: string; slug: string; repos: string[]; settings: TeamSettings; rules_text: string }>) =>
     patch<{ team: Team }>(`/v1/teams/${encodeURIComponent(id)}`, body),
@@ -1013,7 +1015,7 @@ export const api = {
   // ── 子会社 Delegation ──
   subsidiariesList: () => get<{ subsidiaries: SubsidiarySummary[] }>("/v1/subsidiaries"),
   subsidiaryGet: (id: string) =>
-    get<{ subsidiary: SubsidiarySummary; delegations: SubsidiaryDelegation[]; locks: SubsidiaryLock[]; requests: SubsidiaryRequest[] }>(
+    get<{ subsidiary: SubsidiarySummary; delegations: SubsidiaryDelegation[]; locks: SubsidiaryLock[]; requests: SubsidiaryRequest[]; teams: Team[] }>(
       `/v1/subsidiaries/${encodeURIComponent(id)}`,
     ),
   subsidiaryCreate: (body: SubsidiaryInput) => post<{ subsidiary: SubsidiarySummary }>("/v1/subsidiaries", body),
@@ -1163,12 +1165,14 @@ export interface TeamMetrics {
 
 export interface Team {
   id: string;
+  subsidiary_id: string | null;
   name: string;
   slug: string;
   settings: TeamSettings;
   rules_text: string;
   repos: string[];
   metrics?: TeamMetrics;
+  suspended?: boolean;
 }
 
 export interface TeamCostSeries {
@@ -1300,6 +1304,7 @@ export interface SubsidiarySummary {
   guard_scope: string;
   home_cwd: string | null;
   daily_token_budget: number;
+  default_team_id: string | null;
   bot_token_set: boolean;
   app_token_set: boolean;
   running: boolean;
@@ -1325,6 +1330,7 @@ export interface SubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  default_team_id?: string | null;
 }
 
 export function fmtTs(ts: number): string {

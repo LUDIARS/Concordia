@@ -20,6 +20,22 @@ describe("TeamsRepo", () => {
     db.close();
   });
 
+  it("separates head-office and subsidiary teams, including repo lookup", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new TeamsRepo(db);
+    const head = repo.create({ name: "Head", slug: "head" });
+    const child = repo.create({ name: "Child", slug: "child", subsidiary_id: "sub-1" });
+    repo.setRepos(head.id, ["LUDIARS/shared"]);
+    repo.setRepos(child.id, ["LUDIARS/shared"]);
+
+    expect(repo.listForSubsidiary(null).map((team) => team.id)).toEqual([head.id]);
+    expect(repo.listForSubsidiary("sub-1").map((team) => team.id)).toEqual([child.id]);
+    expect(repo.forRepo("LUDIARS/shared").map((team) => team.id)).toEqual([head.id]);
+    expect(repo.forRepo("LUDIARS/shared", "sub-1").map((team) => team.id)).toEqual([child.id]);
+    db.close();
+  });
+
   it("resolves a team surface channel_id and returns null when unprovisioned", () => {
     const db = new Database(":memory:");
     applyMigrations(db);

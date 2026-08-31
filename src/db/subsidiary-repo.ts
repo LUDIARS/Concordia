@@ -39,6 +39,8 @@ export interface SubsidiaryRow {
   home_cwd: string | null;
   /** 日次トークン予算 (0 = 無制限)。 当日の子会社消費がこれ以上なら受付を止める。 */
   daily_token_budget: number;
+  /** 子会社が起動する delegation の既定チーム。NULL はチーム未指定。 */
+  default_team_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -123,6 +125,7 @@ export interface CreateSubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  default_team_id?: string | null;
 }
 
 export interface UpdateSubsidiaryInput {
@@ -140,6 +143,7 @@ export interface UpdateSubsidiaryInput {
   guard_model?: string;
   guard_scope?: string;
   daily_token_budget?: number;
+  default_team_id?: string | null;
 }
 
 export class SubsidiaryRepo {
@@ -154,8 +158,8 @@ export class SubsidiaryRepo {
       INSERT INTO subsidiaries(
         id, name, display_name, description, platform, mode, enabled,
         guild_id, application_id, channel_id, bot_token_enc, app_token_enc,
-        guard_model, guard_scope, daily_token_budget, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        guard_model, guard_scope, daily_token_budget, default_team_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
@@ -172,6 +176,7 @@ export class SubsidiaryRepo {
       input.guard_model?.trim() || "sonnet",
       input.guard_scope ?? "",
       sanitizeBudget(input.daily_token_budget),
+      input.default_team_id ?? null,
       now,
       now,
     );
@@ -196,6 +201,7 @@ export class SubsidiaryRepo {
         guard_model    = ?,
         guard_scope    = ?,
         daily_token_budget = ?,
+        default_team_id = ?,
         updated_at     = ?
       WHERE id = ?
     `).run(
@@ -212,6 +218,7 @@ export class SubsidiaryRepo {
       patch.guard_model?.trim() || cur.guard_model,
       patch.guard_scope ?? cur.guard_scope,
       patch.daily_token_budget !== undefined ? sanitizeBudget(patch.daily_token_budget) : cur.daily_token_budget,
+      patch.default_team_id !== undefined ? patch.default_team_id : cur.default_team_id,
       Date.now(),
       id,
     );

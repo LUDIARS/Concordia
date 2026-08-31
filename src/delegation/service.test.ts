@@ -235,6 +235,39 @@ describe("DelegationService.invoke", () => {
     expect(r.rendered_prompt).toBe("echo hi");
   });
 
+  it("enforces team ownership before creating an organization-scoped run", async () => {
+    const scoped = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      teamRules: (value) => value === "child-team"
+        ? { id: value, team: "Child", rules: "", subsidiaryId: "sub-child" }
+        : null,
+    });
+
+    const result = await scoped.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      subsidiary_id: "sub-other",
+      options: { team: "child-team" },
+    });
+
+    expect(result).toEqual({ ok: false, error: "team is not owned by the requested organization" });
+    expect(repo.recentRuns()).toEqual([]);
+
+    const accepted = await scoped.invoke({
+      call_name: "echo",
+      args: { msg: "hi" },
+      subsidiary_id: "sub-child",
+      options: { team: "child-team" },
+      spawn: false,
+    });
+
+    expect(accepted.ok).toBe(true);
+    if (!accepted.ok) return;
+    expect(accepted.run).toMatchObject({ subsidiary_id: "sub-child", team_id: "child-team" });
+  });
+
   it("injectManual dep: kind 別マニュアルが prompt file の協調コンテキストに差し込まれる", async () => {
     const requestedKinds: string[] = [];
     const svcWithManual = new DelegationService({

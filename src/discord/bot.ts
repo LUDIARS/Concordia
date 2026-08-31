@@ -1,4 +1,4 @@
-import { ChannelType, Client, Events, GatewayIntentBits, Partials, type Guild, type TextChannel } from "discord.js";
+import { ChannelType, Events, type Client, type ClientEvents, type Guild, type TextChannel } from "discord.js";
 import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
@@ -121,6 +121,7 @@ import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
 import { renderTeamCostReport } from "./team-cost-report.js";
+import { DiscordGatewayPool } from "./gateway-pool.js";
 
 /**
  * スレッドタイトルに載せる作業リポ群。 Lictor が active repo を 1 本も報告して
@@ -190,6 +191,8 @@ export interface DiscordBotDeps {
   readModel: ChatReadModel;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
+  /** 本社/子会社で token 単位の物理 Discord Client を共有する。未指定は private pool。 */
+  gatewayPool?: DiscordGatewayPool;
   /** Revisor の Open / Test OK 一覧。Test Forum の候補正本として使う。 */
   revisorTestWorkflow?: RevisorTestWorkflowSource;
   revisor?: RevisorLocalPrReader & RevisorLocalPrMerger;
@@ -346,8 +349,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 子会社 scope: config / session-channels の namespacing と subsidiary-only 可視に使う。
   const scope = deps.subsidiary ? `sub:${deps.subsidiary.id}` : "";
   const subsidiaryId = deps.subsidiary?.id ?? null;
-  // 本社 Bot と子会社 Bot は同一 token を共有するため、 各 Client は **全 guild** の
-  // gateway イベントを受信してしまう。 そのまま処理すると interaction の二重 ack
+  // 本社/子会社の logical runtime は同一 token の物理 Client を共有し、 **全 guild** の
+  // gateway イベントを受ける。 そのまま処理すると interaction の二重 ack
   // (Unknown interaction / already acknowledged) や、 子会社 guild の /spawn を本社
   // Client が拾って本社側にセッションを作る、 等が起きる。 自分の guild 以外のイベントは
   // 全ハンドラ入口で捨てる (guildId が無い DM 等も対象外)。
@@ -369,19 +372,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 本社内 desk の依頼チャンネル。 子会社の受付と同じく手動 id 優先 → 無ければ ClientReady で自動作成。
   let deskChannelId: string | null = deps.desk?.channelId ?? null;
 
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.GuildMessageReactions,
-      GatewayIntentBits.GuildWebhooks,
-    ],
-    partials: [Partials.Channel, Partials.Message, Partials.Reaction, Partials.User],
-    // 子会社 Bot は高頻度カテゴリのデフォルト通知ミュートのため、 bot 発メッセージの
-    // メンションを既定で一切解決しない (個別に上書きしない限り誰も ping しない)。
-    ...(deps.subsidiary ? { allowedMentions: { parse: [] as never[] } } : {}),
-  });
+  const gatewayLease = (deps.gatewayPool ?? new DiscordGatewayPool()).acquire(env.token);
+  const client = gatewayLease.client;
 
   const configRepo = makeDiscordConfigRepo(deps.db, scope);
   const sessionChannelsRepo = makeDiscordSessionChannelsRepo(deps.db, scope);
@@ -466,14 +458,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const measuredHandleIngressMessage = instrumentDiscord("ingressMessage", handleIngressMessage);
   const ingressDirectorRepo = new DirectorRepo(deps.db);
   const teamsRepo = new TeamsRepo(deps.db);
+  const teamOwnedByRuntime = (teamId: string | null | undefined): boolean => {
+    if (!teamId) return false;
+    return teamsRepo.find(teamId)?.subsidiary_id === subsidiaryId;
+  };
   // `/spawn` の task 候補 (Memoria の未完了タスク)。 Memoria が落ちていても spawn は
   // 続けられるよう、 補完側でキャッシュと失敗吸収を行う。
   const spawnTaskSource = new MemoriaClient({ timeoutMs: AUTOCOMPLETE_MEMORIA_TIMEOUT_MS });
   // チーム面ルーティング (team-card-routing.ts): セッションの team_id からカード種別の
-  // 投稿先チャンネルを引く。 子会社 bot はチーム面 (本社 guild) を持たないので常に null。
+  // 投稿先チャンネルを引く。会社所有権が一致しない team は別 guild へ漏らさない。
   const teamCardChannelForSession = (sessionId: string, kind: TeamCardKind): string | null => {
-    if (deps.subsidiary) return null;
     const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+    if (!teamOwnedByRuntime(teamId)) return null;
     return resolveTeamCardChannel(teamsRepo, teamId, kind);
   };
   const teamMetricsRepo = new TeamMetricsRepo(deps.db);
@@ -484,12 +480,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
    * しない — 個人セッションのコストを無関係なチャンネルへ流さないため)。
    */
   const postTeamCostReport = async (sessionId: string, nowMs: number): Promise<void> => {
-    if (deps.subsidiary) return;
     const guild = activeGuild;
     if (!guild) return;
     const session = deps.sessionsRepo.findSession(sessionId);
     const teamId = session?.team_id ?? null;
-    if (!session || !teamId) return;
+    if (!session || !teamId || !teamOwnedByRuntime(teamId)) return;
     const channelId = resolveTeamCardChannel(teamsRepo, teamId, "cost-session");
     if (!channelId) return;
     const team = teamsRepo.find(teamId);
@@ -562,6 +557,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let federationEgressRegistered = false;
   let gatewayClosed = false;
   let reconcileRunning = false;
+  const clientListenerCleanup: Array<() => void> = [];
+  const detachClientListeners = (): void => {
+    for (const detach of clientListenerCleanup.splice(0).reverse()) detach();
+    client.off(Events.MessageReactionAdd, onMessageReactionAdd);
+    client.off(Events.MessageReactionRemove, onMessageReactionRemove);
+    reactionListenersAttached = false;
+  };
   const backgroundTimers = new Set<ReturnType<typeof setTimeout>>();
   // pr.changed event で即時再描画するための closure (ClientReady でセット).
   let prQueueRefresh: (() => void) | null = null;
@@ -633,28 +635,29 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     clearRuntimeTimers();
     errorMonitor?.stop();
     errorMonitor = null;
+    detachClientListeners();
     deps.onRuntimeState?.({ running: false, status, error });
     log.warn(`${status}: ${error}; stopped embedded Discord bot`);
-    try { client.destroy(); } catch (e) { log.warn(`discord client destroy failed: ${(e as Error).message}`); }
+    void gatewayLease.release().catch((e) => log.warn(`discord gateway release failed: ${(e as Error).message}`));
   };
 
-  client.once(Events.ClientReady, instrumentDiscord("ready", async (c) => {
+  let readyInitialization: Promise<void> | null = null;
+  const initializeReady = instrumentDiscord("ready", async (c: Client<true>) => {
     log.info(`logged in as ${c.user.tag}`);
     try {
       const guild = await c.guilds.fetch(env.guildId!);
       activeGuild = guild;
       await guild.channels.fetch();
       layout = await ensureDiscordLayout(guild, configRepo, await resolveLayoutOpts());
-      if (!deps.subsidiary) {
-        const teams = new TeamsRepo(deps.db).list();
-        for (const team of teams) {
-          await ensureTeamDiscordLayout({
-            guild,
-            db: deps.db,
-            teamId: team.id,
-            name: team.name,
-          }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
-        }
+      // 物理 Client は共有しても、各論理 runtime は自社所有チームだけを自 guild に作る。
+      const teams = teamsRepo.listForSubsidiary(subsidiaryId);
+      for (const team of teams) {
+        await ensureTeamDiscordLayout({
+          guild,
+          db: deps.db,
+          teamId: team.id,
+          name: team.name,
+        }).catch((error) => log.warn(`team provision reconcile failed team=${team.id}: ${(error as Error).message}`));
       }
       // 子会社モード: 受付チャンネルを自動作成 (手動 channel_id 指定がある場合はそれを優先)。
       if (deps.subsidiary) {
@@ -844,7 +847,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         }
         await upsertTeamAdminPanelMessage(
           ch,
-          buildTeamAdminPanel(teamsRepo.list()),
+          buildTeamAdminPanel(teamsRepo.listForSubsidiary(subsidiaryId)),
           (k) => configRepo.get(k),
           (k, v) => configRepo.set(k, v),
         );
@@ -891,11 +894,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             if (!state || state.status !== "active") return;
             const surface = resolveForumSessionSurface(lay, state.delegationRunId);
             const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+            const runtimeTeamId = teamOwnedByRuntime(teamId) ? teamId : null;
             const surfaceLayout = {
               ...lay,
               sessionForumId: resolveTeamSessionForumId(
                 teamsRepo,
-                teamId,
+                runtimeTeamId,
                 surface.label === "TaskWorkflow" ? "task" : "session",
                 surface.forumId,
               ),
@@ -1076,11 +1080,16 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log.error(`ready handler failed: ${message}`);
       stopAfterGatewayInstability("ready_handler_failed", message);
     }
-  }));
+  });
+  const onClientReady = (readyClient: Client<true>): void => {
+    readyInitialization ??= initializeReady(readyClient);
+  };
+  client.on(Events.ClientReady, onClientReady);
+  clientListenerCleanup.push(() => client.off(Events.ClientReady, onClientReady));
 
-  client.on(Events.MessageCreate, instrumentDiscord("messageCreate", (msg) => {
+  const onMessageCreate = instrumentDiscord("messageCreate", (msg) => {
     if (gatewayClosed || stopping) return;
-    // 自分の guild 以外 (同一 token の本社/他子会社 Client にも届くイベント) は無視。
+    // 自分の guild 以外 (共有 Client 上の本社/他子会社イベント) は無視。
     if (!inScope(msg.guildId)) return;
     void (async () => {
       // Test Forum スレッドへの人間の投稿はテストセッションの起動/指示。
@@ -1167,9 +1176,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     })().catch((e) => {
       log.warn(`ingress handler failed channel=${msg.channelId}: ${(e as Error).message}`);
     });
-  }));
+  });
+  client.on(Events.MessageCreate, onMessageCreate);
+  clientListenerCleanup.push(() => client.off(Events.MessageCreate, onMessageCreate));
 
-  client.on(Events.ThreadCreate, instrumentDiscord("threadCreate", (thread, newlyCreated) => {
+  const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
     const forumLayout = layout;
     const forumWebhooks = webhooks;
     if (gatewayClosed || stopping || !newlyCreated || !forumLayout?.forumMode || !forumWebhooks) return;
@@ -1234,7 +1245,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       }, forumSpawnThread).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
     });
-  }));
+  });
+  client.on(Events.ThreadCreate, onThreadCreate);
+  clientListenerCleanup.push(() => client.off(Events.ThreadCreate, onThreadCreate));
 
   const onMessageReactionAdd = instrumentDiscord("reactionAddEvent", (reaction, user) => {
     if (gatewayClosed || stopping) return;
@@ -1286,13 +1299,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // Slash command の application id / REST 成否と独立して live toggle を反映する。
   reactionListenerTimer = setInterval(syncReactionListeners, COMMAND_REGISTRATION_CHECK_MS);
   reactionListenerTimer.unref?.();
-  client.on(Events.InteractionCreate, instrumentDiscord("interactionCreate", (interaction) => {
+  const onInteractionCreate = instrumentDiscord("interactionCreate", (interaction) => {
     if (gatewayClosed || stopping) return;
     startInteractionAckProbe(interaction, recordDiscordInteractionAck);
     // 自分の guild 以外の interaction は無視。 これをしないと同一 token の本社/子会社
-    // Client が同じ interaction を二重 dispatch し、 片方が「Interaction has already
-    // been acknowledged」/「Unknown interaction」になる。 また子会社 guild の /spawn を
-    // 本社 Client が拾って本社側にセッションを作ってしまう。
+    // logical runtime が同じ interaction を二重 dispatch し、 片方が「Interaction has
+    // already been acknowledged」/「Unknown interaction」になる。 また子会社 guild の
+    // /spawn を本社 runtime が拾って本社側にセッションを作ってしまう。
     if (!inScope(interaction.guildId)) return;
     if (!layout) {
       // 起動/再起動直後は layout 未準備。 旧実装は黙って捨てて "This interaction failed"
@@ -1345,28 +1358,42 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         `age_ms=${age ?? "-"}: ${(e as Error).message}`,
       );
     });
-  }));
+  });
+  client.on(Events.InteractionCreate, onInteractionCreate);
+  clientListenerCleanup.push(() => client.off(Events.InteractionCreate, onInteractionCreate));
 
-  client.on(Events.Error, (e) => log.error(`client error: ${e.message}`));
-  client.on(Events.Warn, (m) => log.warn(`client warn: ${m}`));
-  client.on(Events.ShardError, (e, shardId) => {
+  const onClientError = (e: Error): void => log.error(`client error: ${e.message}`);
+  const onClientWarn = (m: string): void => log.warn(`client warn: ${m}`);
+  const onShardError = (e: Error, shardId: number): void => {
     if (shouldRestartDiscordBot("error")) {
       stopAfterGatewayInstability("gateway_error", `shard=${shardId}: ${e.message}`);
     }
-  });
-  client.on(Events.ShardDisconnect, (event, shardId) => {
+  };
+  const onShardDisconnect = (...[event, shardId]: ClientEvents[Events.ShardDisconnect]): void => {
     if (shouldRestartDiscordBot("disconnect")) {
       stopAfterGatewayInstability("gateway_disconnected", `shard=${shardId} code=${event.code} reason=${event.reason || "-"}`);
     }
-  });
-  client.on(Events.ShardReconnecting, (shardId) => {
+  };
+  const onShardReconnecting = (shardId: number): void => {
     // ShardReconnecting は discord.js が自力で resume する通常のライフサイクル
     // イベント。 ここで teardown すると一瞬のネットワーク揺らぎで bot が恒久停止
     // する (復帰経路なし) ため、 ログのみ残して resume に任せる。
     if (!shouldRestartDiscordBot("reconnecting")) {
       log.warn(`shard reconnecting shard=${shardId} (waiting for automatic resume)`);
     }
-  });
+  };
+  client.on(Events.Error, onClientError);
+  client.on(Events.Warn, onClientWarn);
+  client.on(Events.ShardError, onShardError);
+  client.on(Events.ShardDisconnect, onShardDisconnect);
+  client.on(Events.ShardReconnecting, onShardReconnecting);
+  clientListenerCleanup.push(
+    () => client.off(Events.Error, onClientError),
+    () => client.off(Events.Warn, onClientWarn),
+    () => client.off(Events.ShardError, onShardError),
+    () => client.off(Events.ShardDisconnect, onShardDisconnect),
+    () => client.off(Events.ShardReconnecting, onShardReconnecting),
+  );
 
   const startupContextInflight = new Set<string>();
   // 起動時投稿と後追い delegation inject は別 event として並行に到着し得る。
@@ -1477,11 +1504,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           } else {
             const surface = resolveForumSessionSurface(layout, delegationRun?.id);
             const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+            const runtimeTeamId = teamOwnedByRuntime(teamId) ? teamId : null;
             const surfaceLayout = {
               ...layout,
               sessionForumId: resolveTeamSessionForumId(
                 teamsRepo,
-                teamId,
+                runtimeTeamId,
                 surface.label === "TaskWorkflow" ? "task" : "session",
                 surface.forumId,
               ),
@@ -1626,7 +1654,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const card = renderPlanCard({ caseId: ev.case_id, version: ev.version, markdown: ev.markdown });
         // プラン設計カードはチームの目標面へ (teams.md §2)。 case の team_id を正とし、
         // 未設定ならセッションの team_id で引く。 どちらも無ければ現行どおりセッション面へ。
-        const caseTeamId = deps.subsidiary ? null : ingressDirectorRepo.findCase(ev.case_id)?.team_id ?? null;
+        const candidateTeamId = ingressDirectorRepo.findCase(ev.case_id)?.team_id ?? null;
+        const caseTeamId = teamOwnedByRuntime(candidateTeamId) ? candidateTeamId : null;
         const channelId = (caseTeamId ? resolveTeamCardChannel(teamsRepo, caseTeamId, "director-plan") : null)
           ?? teamCardChannelForSession(ev.target_session_id, "director-plan");
         // フェーズ文脈索引: プランカードの message id を metadata に残す (探索なしで索引を組む)。
@@ -1642,7 +1671,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch(error => log.warn(`plan card failed: ${(error as Error).message}`));
       return;
     }
-    if (!deps.subsidiary && ev.type === "team.created") {
+    if (ev.type === "team.created" && teamOwnedByRuntime(ev.team_id)) {
       // パネル更新をチーム面 provisioning / 監査投稿の成否に依存させない。
       teamAdminRefresh?.();
       void (async () => {
@@ -1659,7 +1688,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((error) => log.warn(`team provision failed: ${(error as Error).message}`));
       return;
     }
-    if (!deps.subsidiary && ev.type === "team.changed") {
+    if (ev.type === "team.changed" && teamOwnedByRuntime(ev.team_id)) {
       // suspended_at の反映を、無関係なチーム面 provisioning の完了まで待たせない。
       teamAdminRefresh?.();
       void (async () => {
@@ -1679,7 +1708,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
       return;
     }
-    if (!deps.subsidiary && ev.type === "team.card_requested") {
+    if (ev.type === "team.card_requested" && teamOwnedByRuntime(ev.team_id)) {
       void postTeamCard(
         { guild, teamsRepo: new TeamsRepo(deps.db), log, subsidiary: Boolean(deps.subsidiary) },
         { teamId: ev.team_id, kind: ev.kind, title: ev.title, body: ev.body },
@@ -2004,7 +2033,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
   }
 
-  await client.login(env.token);
+  try {
+    await gatewayLease.login();
+    // 共有 Client が先に ready 済みなら ClientReady はこの runtime には再発火しない。
+    // 明示的に同じ初期化へ合流し、guild ごとの layout/timer を必ず準備する。
+    if (client.isReady()) {
+      onClientReady(client as Client<true>);
+      await readyInitialization;
+    }
+  } catch (error) {
+    detachClientListeners();
+    await gatewayLease.release();
+    throw error;
+  }
   if (gatewayClosed) throw new Error("discord gateway closed during startup");
 
   return {
@@ -2023,11 +2064,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       const state = deps.readModel.getSessionRelayState(sessionId);
       const surface = resolveForumSessionSurface(layout, state?.delegationRunId ?? null);
       const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;
+      const runtimeTeamId = teamOwnedByRuntime(teamId) ? teamId : null;
       const surfaceLayout = {
         ...layout,
         sessionForumId: resolveTeamSessionForumId(
           teamsRepo,
-          teamId,
+          runtimeTeamId,
           surface.label === "TaskWorkflow" ? "task" : "session",
           surface.forumId,
         ),
@@ -2117,7 +2159,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         { name: "event subscription", stop: () => { unsubscribe?.(); unsubscribe = null; } },
         { name: "runtime timers", stop: () => clearRuntimeTimers() },
         { name: "error monitor", stop: () => { errorMonitor?.stop(); errorMonitor = null; } },
-        { name: "discord client", stop: () => client.destroy() },
+        { name: "discord client listeners", stop: () => detachClientListeners() },
+        { name: "discord gateway lease", stop: () => gatewayLease.release() },
       ], (message) => log.warn(message));
       deps.onRuntimeState?.({ running: false, status: "stopped" });
     },

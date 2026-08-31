@@ -51,11 +51,12 @@ describe("postTeamCard", () => {
     expect(send.mock.calls[0][0].embeds[0].data.author?.name).toBe("課題スカウト");
   });
 
-  it("子会社 bot では投稿しない", async () => {
-    const { deps, fetch } = makeDeps({ subsidiary: true });
+  it("子会社 runtime でも caller が所有権を検証済みなら投稿する", async () => {
+    const { deps, fetch, send } = makeDeps({ subsidiary: true });
 
-    await expect(postTeamCard(deps, INPUT)).resolves.toBe(false);
-    expect(fetch).not.toHaveBeenCalled();
+    await expect(postTeamCard(deps, INPUT)).resolves.toBe(true);
+    expect(fetch).toHaveBeenCalledWith("chan_1");
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("チャンネルが取得できない / テキストでないなら false", async () => {

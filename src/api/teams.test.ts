@@ -5,12 +5,14 @@ import { describe, expect, it } from "vitest";
 import { applyMigrations } from "../db/schema.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { TeamsRepo, type TeamRow } from "../db/teams-repo.js";
+import { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { eventBus, type ConcordiaEvent } from "../events.js";
 import { parseTeamSettings, teamsRouter } from "./teams.js";
 
 function teamRow(settings: unknown): TeamRow {
   return {
     id: "team-1",
+    subsidiary_id: null,
     name: "Team",
     slug: "team",
     settings_json: JSON.stringify(settings),
@@ -50,6 +52,23 @@ describe("teamsRouter read models", () => {
     const { app, db } = makeApp();
     const missing = await app.request("/v1/teams/unknown/cost");
     expect(missing.status).toBe(404);
+    db.close();
+  });
+
+  it("returns subsidiary teams only through an explicit organization scope", async () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new TeamsRepo(db);
+    const subsidiaries = new SubsidiaryRepo(db);
+    const child = subsidiaries.create({ name: "child" });
+    const headTeam = repo.create({ name: "Head", slug: "head" });
+    const childTeam = repo.create({ name: "Child", slug: "child", subsidiary_id: child.id });
+    const app = new Hono().route("/v1/teams", teamsRouter(repo, undefined, subsidiaries));
+
+    const head = await (await app.request("/v1/teams")).json() as { teams: TeamRow[] };
+    const scoped = await (await app.request(`/v1/teams?subsidiary_id=${child.id}`)).json() as { teams: TeamRow[] };
+    expect(head.teams.map((team) => team.id)).toEqual([headTeam.id]);
+    expect(scoped.teams.map((team) => team.id)).toEqual([childTeam.id]);
     db.close();
   });
 });

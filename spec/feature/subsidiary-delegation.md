@@ -42,9 +42,10 @@ delegation で安全に処理する。
   招待する形)。 子会社固有なのは **guild_id だけ**。 token / application_id は本社 Discord
   設定 (`resolveDiscordConfig`) から解決する (子会社行の `bot_token_enc` / `application_id`
   は接続に使わない dormant 列)。
-  > ⚠️ 実装は子会社ごとに別 Gateway 接続を張る (現状維持)。 同一 token で複数接続になるため
-  > IDENTIFY throttle / イベント重複のリスクがある。 単一接続の共有 (guild ルーティング) は
-  > 将来の整理対象。
+  物理 Discord Gateway (`discord.js Client`) は **token 単位で 1 本を共有**する。
+  本社/子会社ごとの config・session channel・timer・layout は logical runtime として分離し、
+  Discord event は全入口で `guild_id` を照合する。これにより Client cache / websocket の
+  子会社数比例を止めつつ、interaction の二重 ack と他社イベント漏洩を防ぐ。
 - 子会社 Bot も本社と同じく **状態カード / コスト / セッションの 3 カテゴリ + 受付チャンネルを
   自動作成** する (運用体験は本社と同一)。 受付チャンネルは手動設定不要 (§3.1)。
 - 受け取った指示は **必ず Sonnet ガード** を通してから、 子会社が所有する delegation 複製を
@@ -128,6 +129,10 @@ delegation で安全に処理する。
 - 子会社から起動した委託は `delegation_runs.subsidiary_id` に所有者を永続化する。
   Taskflow runtime state にも同じ ID を伝播し、子会社 Bot の TaskWorkflow forum と
   Web Taskflow の子会社スコープを再起動後も復元できるようにする。`NULL` は本社を表す。
+- 子会社は自社所有のチームを持てる。`default_team_id` があれば受付から起動する delegation の
+  `options.team` に載せ、run → pending spawn → `sessions.team_id` へ既存の team 経路で伝播する。
+  子会社 runtime は自社チームだけを出張先 guild に provision し、TaskWorkflow forum も
+  そのチーム面へ流す。別子会社/本社の team は選択も描画もしない。
 
 ### 3.2 カテゴリのデフォルト通知ミュート
 
@@ -179,6 +184,7 @@ subsidiaries
   guard_scope (TEXT)  -- この子会社が許可する作業の自然文スコープ
   home_cwd (TEXT)     -- [DEPRECATED] cwd は所有 delegation 側 (default_cwd)。 dormant 列
   daily_token_budget  -- 日次トークン予算 (0 = 無制限)。 当日消費が超過で受付停止 (§7-cost)
+  default_team_id     -- 自社所有 team の既定。NULL = team 未指定
   created_at, updated_at
 
 subsidiary_delegations              -- 子会社が「所有する」 delegation の複製定義
@@ -231,6 +237,10 @@ harness_rules                       -- 共通ハーネスルール (ダッシュ
   created_at, updated_at
 ```
 
+`teams.subsidiary_id` は nullable な所有境界で、`NULL` は本社、値ありはその子会社を表す。
+default team は同じ `subsidiary_id` の team だけを指定できる。team を所有する子会社の削除は
+409 で止め、無言の本社移管や team/surface の連鎖削除を行わない。
+
 セッションへの子会社タグ付けは `sessions.metadata.subsidiary_id` を使う (既存の
 metadata JSON を踏襲する。委託実行の所有証跡は `delegation_runs.subsidiary_id`、task の
 可変状態は `taskflow_task_state.subsidiary_id` にも保存する。task Markdown の正本と
@@ -244,8 +254,8 @@ metadata JSON を踏襲する。委託実行の所有証跡は `delegation_runs.
 | GET | `/v1/subsidiaries` | 一覧 (token は redaction) |
 | GET | `/v1/subsidiaries/:id` | 1 件 + delegations + lock 数 |
 | POST | `/v1/subsidiaries` | 作成 |
-| PATCH | `/v1/subsidiaries/:id` | 更新 (token は set 時のみ暗号化保存、 空でクリア) |
-| DELETE | `/v1/subsidiaries/:id` | 削除 (Bot 停止 + 行削除) |
+| PATCH | `/v1/subsidiaries/:id` | 更新 (自社 team の `default_team_id` を設定可) |
+| DELETE | `/v1/subsidiaries/:id` | 削除 (所有 team があれば 409、無ければ Bot 停止 + 行削除) |
 | PUT | `/v1/subsidiaries/:id/delegations/:callName` | 所有 delegation を 1 件 upsert (可搬 JSON 貼付) |
 | DELETE | `/v1/subsidiaries/:id/delegations/:callName` | 所有 delegation を 1 件削除 |
 | POST | `/v1/subsidiaries/:id/delegations/:callName/default` | 既定 delegation を立てる |
@@ -257,6 +267,8 @@ metadata JSON を踏襲する。委託実行の所有証跡は `delegation_runs.
 
 子会社の一覧/単件レスポンスには `daily_token_budget` に加え、 当日消費 `usage_today_tokens`
 と超過フラグ `budget_blocked` を載せる (`SubsidiaryBudgetTracker` がライブ計算)。
+単件レスポンスは自社 `teams` も同梱する。作成は `POST /v1/teams` の
+`subsidiary_id`、一覧は `GET /v1/teams?subsidiary_id=<id>` を使う。
 
 Taskflow の `GET /v1/taskflow/tasks` と `GET /v1/taskflow/overview` は
 `subsidiary_id=<id>` で子会社、`head_office=1` で本社、未指定で全社を返す。
@@ -290,8 +302,12 @@ Taskflow の `GET /v1/taskflow/tasks` と `GET /v1/taskflow/overview` は
 
 ## 6. Bot ライフサイクル (server.ts)
 
-`SubsidiaryBotManager` が enabled な子会社の Bot を起動/停止/再起動する
-(Map<subsidiary_id, handle>)。 boot 時に `startAll()`、 設定変更で個別 restart。
+`SubsidiaryBotManager` が enabled な子会社の logical Bot runtime を起動/停止/再起動する
+(Map<subsidiary_id, handle>)。boot 時に `startAll()`、設定変更で個別 restart。
+各 runtime は `DiscordGatewayPool` の lease を持ち、最後の lease の停止時だけ物理 Client を
+destroy する。Gateway 障害では本社/子会社の全 runtime が listener/timer を解放して再取得する。
+同じ子会社への並行 start は 1 本の in-flight 起動へ合流し、stop は起動完了を待ってから
+handle を停止することで、同一 guild の logical runtime と lease を重複させない。
 Slack platform の子会社は §3.3 の方式 (未確定なら明示エラーでスキップし理由ログ)。
 
 ## 7. テスト
@@ -302,6 +318,8 @@ Slack platform の子会社は §3.3 の方式 (未確定なら明示エラー�
 - guard prompt builder: harness_rules + scope が列挙されること、 依頼文が
   境界ブロックに入ること (インジェクション境界) の純粋関数テスト。
 - manager: bot start を mock し start/stop/restart の状態遷移。
+- gateway pool: 同一 token の Client/login 共有、異なる token の分離、最後の lease で destroy。
+- team ownership: 本社/子会社の一覧分離、他社 team の default 拒否、default team の invoke 伝播。
 - budget: subsidiary_id タグ付きセッションのみ当日合算 / 前日除外 / budget=0 無制限 /
   消費≧予算で blocked / isOverBudget ショートカット。
 - gate (予算): blocked→ガードを呼ばず budget_exceeded で deny 記録 (ロックしない) /
@@ -330,13 +348,13 @@ Slack platform の子会社は §3.3 の方式 (未確定なら明示エラー�
 
 | | `subsidiary` (子会社) | `desk` (本社内窓口) |
 |---|---|---|
-| Bot | 出張先 guild へ**専用 Bot を接続** | **接続しない** (本社 Bot に相乗り) |
+| Bot | 出張先 guild へ**専用 logical runtime を接続** (物理 Gateway は共有) | **接続しない** (本社 Bot に相乗り) |
 | guild | 出張先 guild (`guild_id` 必須) | 本社 guild |
 | 依頼チャンネル | 「受付」 を自動作成 | 「タスク依頼」 を自動作成 (`display_name` で改名可) |
 | ガード / ハーネスルール / ロック / 監査 / 日次予算 / 所有 delegation | ✅ | ✅ **同じ** (`gate.ts` を共有) |
 | Bot 起動 / 停止 API | ✅ | `no_bot` を返す (無言で成功扱いにしない) |
 
-**設計判断**: 子会社の機構のうち本社内利用に過剰なのは *Bot の別 Gateway 接続だけ* であり、
+**設計判断**: 子会社の機構のうち本社内利用に過剰なのは *guild 別 logical runtime* であり、
 ガード・ロック・監査・予算はむしろ本社内窓口にも要る (予算とロックが無い窓口は暴走を止める
 手段が無い)。 よって別機構を新設せず `mode` で分岐する。 `gate.ts` は無改造で両方に効く。
 

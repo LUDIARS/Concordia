@@ -19,6 +19,8 @@ import {
   validateCwd,
 } from "../src/control/spawner.js";
 import { spawnRouter } from "../src/api/spawn.js";
+import { TeamsRepo } from "../src/db/teams-repo.js";
+import { makeTestDb } from "./helpers/db.js";
 
 describe("spawn token", () => {
   let cwd: string;
@@ -307,6 +309,27 @@ describe("spawn router (Hono)", () => {
     expect(res.status).toBe(400);
     const body = await res.json() as { error: string };
     expect(body.error).toMatch(/valid: claude, codex, codex-sdk, gemini/);
+  });
+
+  it("POST / rejects subsidiary-owned teams from the head-office endpoint", async () => {
+    const db = makeTestDb();
+    try {
+      const teams = new TeamsRepo(db);
+      const team = teams.create({ name: "Child", slug: "child", subsidiary_id: "sub-child" });
+      const app = spawnRouter({ cwd, teams });
+      const token = readFileSync(join(cwd, ".spawn.token"), "utf8").trim();
+
+      const response = await app.request("/", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+        body: JSON.stringify({ provider: "claude", team: team.id }),
+      });
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: "team_not_owned_by_head_office" });
+    } finally {
+      db.close();
+    }
   });
 
 });

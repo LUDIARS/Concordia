@@ -37,6 +37,7 @@ export interface SubsidiaryBotHandle {
 
 export interface SubsidiaryBotStartDeps {
   resolveConfig: () => SubsidiaryBotEnv;
+  onRuntimeState?: (state: { running: boolean; status: string; error?: string }) => void;
   subsidiary: {
     id: string;
     intakeChannelId: string | null;
@@ -77,6 +78,8 @@ export interface SubsidiaryStartResult {
 
 export class SubsidiaryBotManager {
   private readonly handles = new Map<string, SubsidiaryBotHandle>();
+  private readonly starts = new Map<string, Promise<SubsidiaryStartResult>>();
+  private readonly restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   constructor(private readonly deps: SubsidiaryManagerDeps) {}
 
@@ -113,6 +116,19 @@ export class SubsidiaryBotManager {
 
   /** 単一の子会社 Bot を起動する。 既に動いていれば already_running。 */
   async start(id: string): Promise<SubsidiaryStartResult> {
+    this.clearRestart(id);
+    const activeStart = this.starts.get(id);
+    if (activeStart) return activeStart;
+    const pending = this.startOnce(id);
+    this.starts.set(id, pending);
+    try {
+      return await pending;
+    } finally {
+      if (this.starts.get(id) === pending) this.starts.delete(id);
+    }
+  }
+
+  private async startOnce(id: string): Promise<SubsidiaryStartResult> {
     if (this.handles.has(id)) return { ok: true, status: "already_running" };
     const sub = this.deps.subsidiaryRepo.find(id);
     if (!sub) return { ok: false, status: "error", error: "subsidiary not found" };
@@ -157,9 +173,19 @@ export class SubsidiaryBotManager {
 
     const processor = this.processorFor(id);
 
+    let handleRef: SubsidiaryBotHandle | null = null;
     const deps: BaseDiscordDeps & SubsidiaryBotStartDeps = {
       ...this.deps.baseDiscordDeps(),
       resolveConfig,
+      onRuntimeState: (state) => {
+        if (state.running) return;
+        // manual stop は呼び出し元が handle を除去する。Gateway 障害では共有 Client 上の
+        // 全 logical runtime が停止するため、各子会社も独立して再取得する。
+        if (handleRef && this.handles.get(id) === handleRef) this.handles.delete(id);
+        if (state.status !== "stopped" && state.status !== "disabled") {
+          this.scheduleRestart(id, state.status, state.error);
+        }
+      },
       subsidiary: {
         id: sub.id,
         intakeChannelId: sub.channel_id,
@@ -171,6 +197,7 @@ export class SubsidiaryBotManager {
     try {
       const handle = await this.deps.startBot(deps);
       if (!handle) return { ok: true, status: "disabled" };
+      handleRef = handle;
       this.handles.set(id, handle);
       log.info(`subsidiary bot started: ${sub.name} (${id})`);
       return { ok: true, status: "started" };
@@ -180,6 +207,16 @@ export class SubsidiaryBotManager {
   }
 
   async stop(id: string): Promise<{ ok: boolean; status: "stopped" | "already_stopped" | "error"; error?: string }> {
+    this.clearRestart(id);
+    const activeStart = this.starts.get(id);
+    if (activeStart) {
+      // start() normally converts adapter failures into an error result. Keep
+      // manual stop authoritative even if an unexpected dependency throws.
+      await activeStart.catch(() => undefined);
+    }
+    // An unexpected runtime-state callback can schedule a restart while the
+    // in-flight start is settling. A manual stop remains authoritative.
+    this.clearRestart(id);
     const handle = this.handles.get(id);
     if (!handle) return { ok: true, status: "already_stopped" };
     try {
@@ -207,7 +244,9 @@ export class SubsidiaryBotManager {
   }
 
   async stopAll(): Promise<void> {
-    for (const id of [...this.handles.keys()]) await this.stop(id);
+    for (const id of [...this.restartTimers.keys()]) this.clearRestart(id);
+    const ids = new Set([...this.handles.keys(), ...this.starts.keys()]);
+    for (const id of ids) await this.stop(id);
   }
 
   isRunning(id: string): boolean {
@@ -216,5 +255,26 @@ export class SubsidiaryBotManager {
 
   runningIds(): string[] {
     return [...this.handles.keys()];
+  }
+
+  private scheduleRestart(id: string, status: string, error?: string): void {
+    if (this.restartTimers.has(id)) return;
+    log.warn(`subsidiary bot stopped unexpectedly: ${id} status=${status} error=${error ?? "-"}; restart scheduled`);
+    const timer = setTimeout(() => {
+      this.restartTimers.delete(id);
+      if (!this.deps.subsidiaryRepo.find(id)?.enabled || this.handles.has(id)) return;
+      void this.start(id).then((result) => {
+        if (!result.ok) log.warn(`subsidiary bot restart failed: ${id} ${result.status} ${result.error ?? ""}`);
+      });
+    }, 5_000);
+    timer.unref?.();
+    this.restartTimers.set(id, timer);
+  }
+
+  private clearRestart(id: string): void {
+    const timer = this.restartTimers.get(id);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.restartTimers.delete(id);
   }
 }

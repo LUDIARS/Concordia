@@ -127,7 +127,12 @@ export interface DelegationServiceDeps {
    * task 文面に一致した定型手順ブロックを返す。 不在・不一致・失敗は null (fail-soft)。
    */
   commandPatterns?: (taskText: string) => Promise<string | null>;
-  teamRules?: (teamIdOrSlug: string) => { id: string; team: string; rules: string } | null;
+  teamRules?: (teamIdOrSlug: string) => {
+    id: string;
+    team: string;
+    rules: string;
+    subsidiaryId: string | null;
+  } | null;
   /** team settings `pr_rules` (teams §3.1)。 委託 brief の base branch 案内へ反映する。 */
   teamPrRules?: (teamIdOrSlug: string) => { base: string; push: "revisor" } | null;
   /**
@@ -203,6 +208,9 @@ export class DelegationService {
     const requestedTeam = requestedTeamValue ? this.deps.teamRules?.(requestedTeamValue) ?? null : null;
     if (requestedTeamValue && !requestedTeam) {
       return { ok: false, error: `unknown team: ${requestedTeamValue}` };
+    }
+    if (requestedTeam && requestedTeam.subsidiaryId !== subsidiaryId) {
+      return { ok: false, error: "team is not owned by the requested organization" };
     }
     if (requestedTeam) {
       input = { ...input, options: { ...input.options, team: requestedTeam.id } };

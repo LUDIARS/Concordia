@@ -23,6 +23,25 @@ describe("admin API", () => {
     expect(r.status).toBe(400);
   });
 
+  it("POST /v1/admin/spawn-session rejects a team outside the requested organization", async () => {
+    const child = env.subsidiary.create({ name: "child", platform: "discord" });
+    const other = env.subsidiary.create({ name: "other", platform: "discord" });
+    const childTeam = env.teams.create({ name: "Child", slug: "child", subsidiary_id: child.id });
+
+    const response = await env.app.request("/v1/admin/spawn-session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: "claude",
+        subsidiary_id: other.id,
+        team: childTeam.id,
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "team_not_owned_by_requested_organization" });
+  });
+
   it("POST /v1/admin/spawn-session passes runtime options to delegation template spawn", async () => {
     const spawnCalls: Array<{ provider: string; args?: string[] }> = [];
     env = makeTestApp({

@@ -451,7 +451,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.staff) {
     app.route("/v1/staff", staffRouter({ repo: deps.staff }));
   }
-  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics));
+  if (deps.teams) app.route("/v1/teams", teamsRouter(deps.teams, deps.teamMetrics, deps.subsidiary));
   // kind 別 Inject マニュアル (delegation 協調コンテキストへ差し込む作業マニュアル)。
   // /v1/admin/* なので app.ts の adminAuth middleware に乗る。
   if (deps.injectManuals) {
@@ -563,7 +563,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(
       "/v1/subsidiaries",
-      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api") }),
+      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api"), teams: deps.teams }),
     );
   }
   } }]);
@@ -624,6 +624,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }
     if (requestedTeamValue && !requestedTeam) {
       return c.json({ error: `unknown team: ${requestedTeamValue}` }, 400);
+    }
+    if (requestedTeam && requestedTeam.subsidiary_id !== subsidiaryId) {
+      return c.json({ error: "team_not_owned_by_requested_organization" }, 400);
     }
     const requestedTeamId = requestedTeam?.id ?? null;
     let projectCwd: string | null = null;

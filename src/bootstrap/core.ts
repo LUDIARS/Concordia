@@ -141,6 +141,7 @@ import { attachWsServer } from "../api/ws.js";
 import { eventBus } from "../events.js";
 import type { DiscordBotDeps, DiscordBotHandle } from "../discord/bot.js";
 import { startDiscordBot } from "../discord/bot.js";
+import { DiscordGatewayPool } from "../discord/gateway-pool.js";
 import { initReactionWorkflow } from "../platform/reaction-workflow-loader.js";
 import type { SlackBotDeps } from "../slack/bot.js";
 import { startSlackBot } from "../slack/bot.js";
@@ -506,6 +507,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // Genius command-pattern の push 注入用クライアント (inquiry と同じ catalog 解決)。
   const commandPatternGenius = new CatalogGeniusClient(excubitorClient);
   const teamsRepo = new TeamsRepo(db);
+  const discordGatewayPool = new DiscordGatewayPool();
   const teamMetricsRepo = new TeamMetricsRepo(db);
   const projectCodesRepo = new ProjectCodesRepo(db);
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
@@ -532,7 +534,12 @@ export async function startBackend(): Promise<BackendHandle> {
       buildCommandPatternBlock({ genius: commandPatternGenius, scoreMin: cfg.inquiryScoreMin }, taskText),
     teamRules: (value) => {
       const team = teamsRepo.findByIdOrSlug(value);
-      return team ? { id: team.id, team: team.name, rules: team.rules_text } : null;
+      return team ? {
+        id: team.id,
+        team: team.name,
+        rules: team.rules_text,
+        subsidiaryId: team.subsidiary_id,
+      } : null;
     },
     teamPrRules: (value) => {
       const team = teamsRepo.findByIdOrSlug(value);
@@ -1046,6 +1053,7 @@ export async function startBackend(): Promise<BackendHandle> {
     readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
+    gatewayPool: discordGatewayPool,
     revisorTestWorkflow,
     revisor: revisorClient,
     // channel 作成前に届いた transcript frame の埋め戻し (transcript-replay)。
@@ -1184,8 +1192,9 @@ export async function startBackend(): Promise<BackendHandle> {
     runClaude,
     budgetTracker: subsidiaryBudget,
     baseDiscordDeps: () => {
-      // resolveConfig / subsidiary は manager が差し替えるので除く。
-      const { resolveConfig: _rc, subsidiary: _sub, ...base } = discordBotDeps!;
+      // resolveConfig / subsidiary は manager が差し替える。head-office の runtime state
+      // callback も子会社へ渡さない (子会社停止で本社 handle を消さないため)。
+      const { resolveConfig: _rc, subsidiary: _sub, onRuntimeState: _state, ...base } = discordBotDeps!;
       return base;
     },
     startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),
@@ -1626,7 +1635,9 @@ export async function startBackend(): Promise<BackendHandle> {
         delegationService,
         resolveCallNameOverride: (jobName) => adminState.getCronJobOverride(jobName),
         // 朝礼 / 定例はチームごとに 1 本ずつ起動する。 対象はその時点の稼働中チーム。
-        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActive()) },
+        // 本社 scheduler は本社チームだけを fanout する。子会社チームは子会社所有の
+        // delegation から起動し、subsidiary_id と default team を一緒に運ぶ。
+        fanoutResolvers: { teams: () => buildTeamFanoutTargets(teamsRepo.listActiveForSubsidiary(null)) },
       }),
     });
     workflowBindings.register({

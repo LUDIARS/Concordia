@@ -36,6 +36,7 @@ delegation / cost) を束ねる名前空間**である。 director.md の「正�
 ```sql
 CREATE TABLE teams (
   id                  TEXT PRIMARY KEY,
+  subsidiary_id       TEXT,                   -- NULL=本社 / 値あり=所有子会社
   name                TEXT NOT NULL,          -- 「プロジェクト名+タスク」
   status              TEXT NOT NULL,          -- active | archived
   settings            TEXT NOT NULL,          -- typed settings JSON (§3.1)
@@ -54,6 +55,8 @@ CREATE TABLE team_repos (
 - director_cases / sessions / delegation_runs に `team_id` (nullable) を追加。
   NULL は「チーム未所属」で現行挙動のまま (後方互換)。
 - `harness_rules` に `team_id` (nullable) を追加。 NULL = グローバル (現行互換)。
+- チームの会社所有権は作成時に固定する。会社間移管は session / Discord surface の可視境界を
+  変えるため通常 PATCH では受け付けない。
 
 ## 2. Discord カテゴリの自動プロビジョニング
 
@@ -71,6 +74,9 @@ CREATE TABLE team_repos (
 
 - 既存のグローバル forum は「チーム未所属」用として残す。 チーム側へは新規分から流す
   (既存スレッドの引っ越しはしない)。
+- 本社 runtime は `subsidiary_id IS NULL`、子会社 runtime は自分の `subsidiary_id` の team だけを
+  provision / event route する。物理 Discord Client を共有しても guild 間で team surface を
+  混ぜない。子会社の既定 team は subsidiary delegation の起動時に `options.team` へ入る。
 - **カードのチーム面ルーティング** (`src/discord/team-card-routing.ts`): プラン設計カード →
   目標、 判断ログ (taskflow.user_decision) / ask_human・契約質問カード → direction。
   team_id 未設定・surface 未プロビジョニング・チャンネル取得失敗は現行チャンネル
@@ -160,6 +166,10 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
   (グローバル + 当該チームのマージ)。 チーム選択はヘッダ常設の
   `web/src/lib/TeamFilterContext.tsx` (localStorage 永続) で、 Sessions / Taskflow /
   CostFeed が購読する。 Taskflow の team 帰属は run.team_id → session.team_id の順。
+- `GET /v1/teams` は本社 team、`GET /v1/teams?subsidiary_id=<id>` は指定子会社の team を返す。
+  子会社編集画面から `subsidiary_id` 付きで作成でき、最初の team は既定へ設定する。
+- spawn / delegation が `subsidiary_id` と `team` を同時に受け取る場合は所有者の一致を
+  canonical 起動境界で検証する。本社用 `/v1/spawn` は子会社所有 team を受け付けない。
 
 ### 4.2 メニュー改修 — 左サイドバー化
 

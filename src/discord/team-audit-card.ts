@@ -1,7 +1,7 @@
 // team.created / team.changed の変更内容を、 team の direction 面 (team_surfaces
 // の surface='direction' に保存済み channel_id) へ監査カードとして投稿する。
 //
-// - head-office guild 限定。 子会社 bot (deps.subsidiary) では投稿しない。
+// - 呼び出し元 runtime が会社所有権を検証し、対象 guild へだけ投稿する。
 // - 同一イベントの再配信/bot 再起動で二重投稿しないよう、 team_audit_posts への
 //   claim (INSERT ... ON CONFLICT DO NOTHING) を「投稿 1 回」の唯一の関門にする。
 // - direction 面が未プロビジョニングなら安全にスキップする (エラーにしない)。
@@ -13,7 +13,7 @@ export interface TeamAuditCardDeps {
   guild: Guild;
   teamsRepo: TeamsRepo;
   log: { info: (m: string) => void; warn: (m: string) => void };
-  /** 子会社 bot からの呼び出しなら true — head-office guild にのみ投稿するためガードする。 */
+  /** @deprecated 呼び出し元で会社所有権を検証する。後方互換のため受け付ける。 */
   subsidiary?: boolean;
 }
 
@@ -49,11 +49,6 @@ function renderCard(input: TeamAuditCardInput): { embeds: EmbedBuilder[] } {
  * claim してしまうと、後で面が用意されても再配信時に投稿できなくなるため。
  */
 export async function postTeamAuditCard(deps: TeamAuditCardDeps, input: TeamAuditCardInput): Promise<void> {
-  if (deps.subsidiary) {
-    deps.log.info(`team-audit-card: skip on subsidiary bot for team=${input.teamId}`);
-    return;
-  }
-
   const dedupeKey = dedupeKeyFor(input);
   const channelId = deps.teamsRepo.surfaceChannelId(input.teamId, "direction");
   if (!channelId) {

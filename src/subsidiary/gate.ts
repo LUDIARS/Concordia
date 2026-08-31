@@ -4,7 +4,7 @@
  *   2. Sonnet ガード (guard.ts) で判定
  *   3. 監査記録 (subsidiary_requests)
  *   4. deny かつ lock 推奨ならユーザをロック
- *   5. allow なら専用 delegation を起動 (subsidiary_id タグ付き)
+ *   5. allow なら専用 delegation を起動 (subsidiary_id + 既定 team タグ付き)
  * まで一気に処理し、 出張先へ返す文面 (replyText) を返す。
  *
  * Bot (Discord/Slack) はこのゲートを呼ぶだけで、 ガードの中身を知らない (SRP)。
@@ -206,6 +206,9 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
       extra_prompt: extraPrompt,
       triggered_by: `subsidiary:${sub.name}:${platform}:${userId}`,
       subsidiary_id: sub.id,
+      // DelegationService → pending spawn → session.team_id → Discord team surface まで
+      // 既存の canonical team 経路で運ぶ。未設定なら従来どおり team 無し。
+      ...(sub.default_team_id ? { options: { team: sub.default_team_id } } : {}),
     },
   );
 

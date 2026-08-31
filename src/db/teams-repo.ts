@@ -3,6 +3,8 @@ import type Database from "better-sqlite3";
 
 export interface TeamRow {
   id: string;
+  /** 所有する子会社。NULL は本社チーム。 */
+  subsidiary_id: string | null;
   name: string;
   slug: string;
   settings_json: string;
@@ -21,6 +23,8 @@ export interface TeamRow {
 export interface TeamWriteInput {
   name: string;
   slug: string;
+  /** 作成後は API から移動しない。NULL は本社チーム。 */
+  subsidiary_id?: string | null;
   settings?: unknown;
   rules_text?: string;
 }
@@ -32,12 +36,25 @@ export class TeamsRepo {
     return this.db.prepare("SELECT * FROM teams ORDER BY name").all() as TeamRow[];
   }
 
+  /** 本社 (null) または指定子会社が所有するチームだけ。 */
+  listForSubsidiary(subsidiaryId: string | null): TeamRow[] {
+    return this.db.prepare(
+      "SELECT * FROM teams WHERE subsidiary_id IS ? ORDER BY name",
+    ).all(subsidiaryId) as TeamRow[];
+  }
+
   /**
    * 一時停止中でないチームだけ。 定時 fanout の対象列挙に使う。
    * @implements spec/feature/teams.md §4.5
    */
   listActive(): TeamRow[] {
     return this.db.prepare("SELECT * FROM teams WHERE suspended_at IS NULL ORDER BY name").all() as TeamRow[];
+  }
+
+  listActiveForSubsidiary(subsidiaryId: string | null): TeamRow[] {
+    return this.db.prepare(
+      "SELECT * FROM teams WHERE subsidiary_id IS ? AND suspended_at IS NULL ORDER BY name",
+    ).all(subsidiaryId) as TeamRow[];
   }
 
   /**
@@ -67,12 +84,13 @@ export class TeamsRepo {
     const now = Date.now();
     const id = `team_${randomUUID().replace(/-/g, "")}`;
     this.db.prepare(`
-      INSERT INTO teams(id, name, slug, settings_json, rules_text, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO teams(id, name, slug, subsidiary_id, settings_json, rules_text, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.name,
       input.slug,
+      input.subsidiary_id ?? null,
       JSON.stringify(input.settings ?? {}),
       input.rules_text ?? "",
       now,
@@ -114,14 +132,15 @@ export class TeamsRepo {
     `).all(id) as Array<{ repo_origin: string }>).map((row) => row.repo_origin);
   }
 
-  forRepo(repoOrigin: string): TeamRow[] {
+  forRepo(repoOrigin: string, subsidiaryId: string | null = null): TeamRow[] {
     return this.db.prepare(`
       SELECT teams.*
       FROM teams
       JOIN team_repos ON team_repos.team_id = teams.id
       WHERE lower(team_repos.repo_origin) = lower(?)
+        AND teams.subsidiary_id IS ?
       ORDER BY teams.name
-    `).all(repoOrigin) as TeamRow[];
+    `).all(repoOrigin, subsidiaryId) as TeamRow[];
   }
 
   /**

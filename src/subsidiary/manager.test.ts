@@ -57,6 +57,26 @@ describe("SubsidiaryBotManager", () => {
     expect(mgr.isRunning(sub.id)).toBe(false);
   });
 
+  it("deduplicates concurrent starts and lets stop tear down the resulting runtime", async () => {
+    const sub = subRepo.create({ name: "co-concurrent", platform: "discord", enabled: true, guild_id: "g1" });
+    const stop = vi.fn(async () => {});
+    let finishStart!: (handle: SubsidiaryBotHandle) => void;
+    const startBot = vi.fn(() => new Promise<SubsidiaryBotHandle>((resolve) => { finishStart = resolve; }));
+    const mgr = makeManager(startBot);
+
+    const first = mgr.start(sub.id);
+    const second = mgr.start(sub.id);
+    expect(startBot).toHaveBeenCalledOnce();
+
+    const stopping = mgr.stop(sub.id);
+    finishStart({ stop });
+    expect((await first).status).toBe("started");
+    expect((await second).status).toBe("started");
+    expect((await stopping).status).toBe("stopped");
+    expect(stop).toHaveBeenCalledOnce();
+    expect(mgr.isRunning(sub.id)).toBe(false);
+  });
+
   it("inherits head-office Discord message settings for subsidiary bots", async () => {
     const sub = subRepo.create({ name: "co-settings", platform: "discord", enabled: true, guild_id: "g1" });
     const startBot = vi.fn(async (_deps: unknown) => ({ stop: async () => {} }) as SubsidiaryBotHandle);

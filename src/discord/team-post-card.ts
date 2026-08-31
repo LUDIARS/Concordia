@@ -30,7 +30,7 @@ export interface TeamPostCardDeps {
   guild: Guild;
   teamsRepo: TeamsRepo;
   log: { info: (m: string) => void; warn: (m: string) => void };
-  /** 子会社 bot からの呼び出しなら true — head-office guild にのみ投稿する。 */
+  /** @deprecated 呼び出し元で会社所有権を検証する。後方互換のため受け付ける。 */
   subsidiary?: boolean;
 }
 
@@ -54,11 +54,6 @@ export function truncateCardBody(body: string, max: number = MAX_BODY): string {
  * 面の準備前に走っても cron 全体を落とさないため。
  */
 export async function postTeamCard(deps: TeamPostCardDeps, input: TeamPostCardInput): Promise<boolean> {
-  if (deps.subsidiary) {
-    deps.log.info(`team-post-card: skip on subsidiary bot for team=${input.teamId}`);
-    return false;
-  }
-
   const channelId = resolveTeamCardChannel(deps.teamsRepo, input.teamId, input.kind);
   if (!channelId) {
     deps.log.info(`team-post-card: surface missing for team=${input.teamId} kind=${input.kind}, skip`);

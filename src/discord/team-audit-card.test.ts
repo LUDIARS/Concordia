@@ -115,7 +115,7 @@ describe("postTeamAuditCard", () => {
     db.close();
   });
 
-  it("does not post from a subsidiary bot", async () => {
+  it("posts an owned team audit from a subsidiary runtime after caller scope validation", async () => {
     const db = makeDb();
     const repo = new TeamsRepo(db);
     const team = repo.create({ name: "Epsilon", slug: "epsilon" });
@@ -128,8 +128,8 @@ describe("postTeamAuditCard", () => {
       { kind: "created", eventId: "created-1", teamId: team.id, name: team.name, slug: team.slug, ts: 1 },
     );
 
-    expect(guild.channels.fetch).not.toHaveBeenCalled();
-    expect(send).not.toHaveBeenCalled();
+    expect(guild.channels.fetch).toHaveBeenCalledWith("chan-direction");
+    expect(send).toHaveBeenCalledOnce();
     db.close();
   });
 });

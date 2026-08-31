@@ -4,16 +4,18 @@ import { makeTestDb } from "./helpers/db.js";
 import { SubsidiaryRepo } from "../src/db/subsidiary-repo.js";
 import { DelegationRepo } from "../src/db/delegation-repo.js";
 import { subsidiaryRouter } from "../src/api/subsidiary.js";
+import { TeamsRepo } from "../src/db/teams-repo.js";
 
 function makeApp() {
   const db = makeTestDb();
   const repo = new SubsidiaryRepo(db);
   const delegationRepo = new DelegationRepo(db);
-  const manager = { isRunning: () => false } as never;
+  const teams = new TeamsRepo(db);
+  const manager = { isRunning: () => false, stop: async () => ({ ok: true }) } as never;
   const secretBox = { encrypt: (s: string) => s, decrypt: (s: string) => s } as never;
   const app = new Hono();
-  app.route("/v1/subsidiaries", subsidiaryRouter({ repo, delegationRepo, manager, secretBox }));
-  return { app, repo, delegationRepo };
+  app.route("/v1/subsidiaries", subsidiaryRouter({ repo, delegationRepo, manager, secretBox, teams }));
+  return { app, repo, delegationRepo, teams };
 }
 
 async function json(app: Hono, method: string, path: string, body?: unknown) {
@@ -127,5 +129,32 @@ describe("subsidiary owned-delegation API", () => {
   it("clone は不明テンプレで 404", async () => {
     const r = await json(app, "POST", `/v1/subsidiaries/${subId}/delegations/clone`, { call_name: "missing" });
     expect(r.status).toBe(404);
+  });
+});
+
+describe("subsidiary team ownership API", () => {
+  it("accepts only an owned team as default and blocks deletion while teams remain", async () => {
+    const { app, repo, teams } = makeApp();
+    const child = repo.create({ name: "child", platform: "discord" });
+    const other = repo.create({ name: "other", platform: "discord" });
+    const ownedTeam = teams.create({ name: "Owned", slug: "owned", subsidiary_id: child.id });
+    const otherTeam = teams.create({ name: "Other", slug: "other", subsidiary_id: other.id });
+
+    const rejected = await json(app, "PATCH", `/v1/subsidiaries/${child.id}`, {
+      default_team_id: otherTeam.id,
+    });
+    expect(rejected.status).toBe(400);
+
+    const accepted = await json(app, "PATCH", `/v1/subsidiaries/${child.id}`, {
+      default_team_id: ownedTeam.id,
+    });
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.subsidiary.default_team_id).toBe(ownedTeam.id);
+
+    const detail = await json(app, "GET", `/v1/subsidiaries/${child.id}`);
+    expect(detail.body.teams.map((team: { id: string }) => team.id)).toEqual([ownedTeam.id]);
+
+    const deletion = await json(app, "DELETE", `/v1/subsidiaries/${child.id}`);
+    expect(deletion.status).toBe(409);
   });
 });

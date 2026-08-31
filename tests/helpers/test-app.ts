@@ -37,7 +37,9 @@ import { SessionTaskRecordsRepo } from "../../src/db/session-task-records-repo.j
 import { SessionsRepo } from "../../src/db/sessions-repo.js";
 import { SkillsRepo } from "../../src/db/skills-repo.js";
 import { StatsRepo } from "../../src/db/stats-repo.js";
+import { SubsidiaryRepo } from "../../src/db/subsidiary-repo.js";
 import { TasksRepo } from "../../src/db/tasks-repo.js";
+import { TeamsRepo } from "../../src/db/teams-repo.js";
 import { EscalationRepo } from "../../src/db/escalation-repo.js";
 import { TranscriptLogsRepo } from "../../src/db/transcript-logs-repo.js";
 import { SessionMessagesRepo } from "../../src/db/session-messages-repo.js";
@@ -99,6 +101,8 @@ export interface TestAppEnv {
   modelCatalog: ModelCatalogRepo;
   injectManuals: InjectManualsRepo;
   staff: StaffRepo;
+  subsidiary: SubsidiaryRepo;
+  teams: TeamsRepo;
   adminState: AdminState;
   taskflowState: TaskflowStateStore;
   processManager: ProcessManager;
@@ -146,6 +150,8 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
   const injectManuals = new InjectManualsRepo(db);
   seedInjectManuals(injectManuals);
   const staff = new StaffRepo(db);
+  const subsidiary = new SubsidiaryRepo(db);
+  const teams = new TeamsRepo(db);
   const taskflowState = new TaskflowStateStore(db);
   const fallbackTasks = new CcTaskRepository(db);
   // API テストは実ワークスペースを走査しない。空 root resolver で taskflow I/O を隔離する。
@@ -158,6 +164,15 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     repo: delegation,
     promptsDir: join(logsDir, "delegation-prompts"),
     spawn: opts.delegationSpawn ?? (() => ({ ok: true, pid: null, command: [] })),
+    teamRules: (value) => {
+      const team = teams.findByIdOrSlug(value);
+      return team ? {
+        id: team.id,
+        team: team.name,
+        rules: team.rules_text,
+        subsidiaryId: team.subsidiary_id,
+      } : null;
+    },
   });
 
   const processManager = new ProcessManager({ repo: processes, logsDir });
@@ -172,7 +187,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig, costSamples, costLimitSamples, costOneShots,
     participants, delegation, delegationService, modelCatalog, injectManuals, projectCodes, adminState,
-    staff,
+    staff, subsidiary, teams,
     taskStore,
     taskflowState,
     fallbackTasks,
@@ -199,7 +214,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     sessionTaskRecords, transcriptLogs, sessionMessages, sessionMessageReads, projectSessionEvent,
     pendingQuestions, discordChannels, discordConfig,
     participants, delegation, delegationService, modelCatalog, injectManuals, adminState,
-    staff,
+    staff, subsidiary, teams,
     taskflowState,
     processManager, config, logsDir,
   };

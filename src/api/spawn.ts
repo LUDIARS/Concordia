@@ -112,6 +112,11 @@ export function spawnRouter(deps: SpawnApiDeps = {}): Hono {
     if (requestedTeamValue && !requestedTeam) {
       return c.json({ error: `unknown team: ${requestedTeamValue}` }, 400);
     }
+    // This token-authenticated endpoint creates head-office sessions. Subsidiary
+    // sessions enter through the scoped admin/delegation path carrying subsidiary_id.
+    if (requestedTeam?.subsidiary_id) {
+      return c.json({ error: "team_not_owned_by_head_office" }, 400);
+    }
     const mode: SpawnMode = body.mode === "window" ? "window" : "tab";
     const target = await prepareSpawnTarget({
       cwd: resolveAgentHomeCwd(provider, body.cwd, deps.resolveDefaultCwd?.()),

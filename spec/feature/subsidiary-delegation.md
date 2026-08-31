@@ -14,7 +14,7 @@ tags:
   - lifecycle
   - spawn
 status: planned
-updated: 2026-06-30
+updated: 2026-08-31
 ---
 
 
@@ -125,6 +125,9 @@ delegation で安全に処理する。
   ロック判定 + 返信のみ (inject/spawn しない)。
 - 子会社が起こすセッションは `subsidiary_id` でタグ付けし、 状態カード/コスト/セッション
   カテゴリは **その子会社が起こしたセッションのみ** を写す (出張所の独立性)。【要確認 §8】
+- 子会社から起動した委託は `delegation_runs.subsidiary_id` に所有者を永続化する。
+  Taskflow runtime state にも同じ ID を伝播し、子会社 Bot の TaskWorkflow forum と
+  Web Taskflow の子会社スコープを再起動後も復元できるようにする。`NULL` は本社を表す。
 
 ### 3.2 カテゴリのデフォルト通知ミュート
 
@@ -229,7 +232,9 @@ harness_rules                       -- 共通ハーネスルール (ダッシュ
 ```
 
 セッションへの子会社タグ付けは `sessions.metadata.subsidiary_id` を使う (既存の
-metadata JSON を踏襲。 schema 変更不要)。
+metadata JSON を踏襲する。委託実行の所有証跡は `delegation_runs.subsidiary_id`、task の
+可変状態は `taskflow_task_state.subsidiary_id` にも保存する。task Markdown の正本と
+`repo_path + task_path` キーは組織別に複製しない。
 
 ## 5. API (HTTP, loopback 信頼境界 / token 不要)
 
@@ -252,6 +257,10 @@ metadata JSON を踏襲。 schema 変更不要)。
 
 子会社の一覧/単件レスポンスには `daily_token_budget` に加え、 当日消費 `usage_today_tokens`
 と超過フラグ `budget_blocked` を載せる (`SubsidiaryBudgetTracker` がライブ計算)。
+
+Taskflow の `GET /v1/taskflow/tasks` と `GET /v1/taskflow/overview` は
+`subsidiary_id=<id>` で子会社、`head_office=1` で本社、未指定で全社を返す。
+両パラメータの同時指定は 400 とする。
 
 `/v1/harness-rules`:
 | Method | Path | 用途 |

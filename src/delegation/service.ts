@@ -53,6 +53,7 @@ import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
 import { applyDelegationProviderPolicy } from "./provider-policy.js";
 import { resolveTemplateForScope } from "./template-overrides.js";
 import { readFederationEnv } from "../federation/env.js";
+import { normalizeSubsidiaryId } from "../shared/subsidiary-id.js";
 export { resolveDelegationSpawner } from "./launcher.js";
 export { templateToDefinition } from "./contracts.js";
 export type { DelegationDefinition, InvokeInput } from "./contracts.js";
@@ -193,6 +194,11 @@ export class DelegationService {
 
   private async runDefinition(def: DelegationDefinition, input: InvokeInput): Promise<InvokeResult> {
     input = normalizeInvocationPaths(input);
+    const subsidiaryId = normalizeSubsidiaryId(input.subsidiary_id);
+    if (input.subsidiary_id != null && !subsidiaryId) {
+      return { ok: false, error: "invalid subsidiary_id" };
+    }
+    input = { ...input, subsidiary_id: subsidiaryId };
     const requestedTeamValue = typeof input.options?.team === "string" ? input.options.team.trim() : "";
     const requestedTeam = requestedTeamValue ? this.deps.teamRules?.(requestedTeamValue) ?? null : null;
     if (requestedTeamValue && !requestedTeam) {
@@ -229,6 +235,7 @@ export class DelegationService {
         status: "queued",
         queue_payload_json: JSON.stringify(payload),
         team_id: requestedTeam?.id ?? null,
+        subsidiary_id: input.subsidiary_id ?? null,
       });
       const position = this.queue.position(run.id);
       log.info({ run_id: run.id, call_name: def.call_name, queue_position: position }, "delegation queued (at concurrency limit)");
@@ -276,6 +283,7 @@ export class DelegationService {
       spawn_worktree_created: launch.worktree_created,
       effort_decision_id: launch.effort_decision_id,
       team_id: requestedTeam?.id ?? null,
+      subsidiary_id: input.subsidiary_id ?? null,
     });
     if (launch.memoria_task) {
       this.deps.repo.recordMemoriaTask(runId, launch.memoria_task.id, launch.memoria_task.url);

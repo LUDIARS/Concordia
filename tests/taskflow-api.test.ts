@@ -24,4 +24,12 @@ describe("GET /v1/taskflow/overview", () => {
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "invalid_status" });
   });
+
+  it("rejects conflicting organization filters", async () => {
+    const response = await makeTestApp().app.request(
+      "/v1/taskflow/overview?subsidiary_id=sub-1&head_office=1",
+    );
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "conflicting_organization_scope" });
+  });
 });

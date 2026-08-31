@@ -1,6 +1,7 @@
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { PrCiStatus, PrRecordRow, PrState } from "../db/pr-records-repo.js";
 import type { SessionRow } from "../shared/types.js";
+import { readSubsidiaryId } from "../shared/subsidiary-id.js";
 import type { TaskDocument, TaskStatus } from "./md-store.js";
 
 export interface TaskflowOverviewRow {
@@ -23,6 +24,8 @@ export interface TaskflowOverviewRow {
   delegation_status: DelegationRunRow["status"] | null;
   /** チーム帰属 (run → session の順で引く read model。 未所属は null)。 */
   team_id: string | null;
+  /** 子会社帰属 (run → task runtime → session の順で引く read model。 null = 本社)。 */
+  subsidiary_id: string | null;
   pr: {
     number: number;
     title: string;
@@ -44,6 +47,20 @@ export interface TaskflowOverview {
     ci_pending: number;
   };
   tasks: TaskflowOverviewRow[];
+}
+
+/**
+ * run / runtime state / session metadata の順で Taskflow の組織帰属を補完する。
+ * @implements spec/feature/task-workflow.md §12
+ */
+export function resolveTaskflowSubsidiaryId(input: {
+  run: Pick<DelegationRunRow, "subsidiary_id"> | null;
+  runtime: { subsidiary_id: string | null } | null;
+  session: Pick<SessionRow, "metadata"> | null;
+}): string | null {
+  return input.run?.subsidiary_id
+    ?? input.runtime?.subsidiary_id
+    ?? readSubsidiaryId(input.session?.metadata ?? null);
 }
 
 export function countTaskflowRows(tasks: readonly TaskflowOverviewRow[]): TaskflowOverview["counts"] {
@@ -100,6 +117,7 @@ export function buildTaskflowOverview(input: {
       delegation_run_id: run?.id ?? explicitRunId ?? null,
       delegation_status: run?.status ?? null,
       team_id: run?.team_id ?? session?.team_id ?? null,
+      subsidiary_id: resolveTaskflowSubsidiaryId({ run, runtime, session }),
       pr: pr ? { number: pr.number, title: pr.title, url: pr.url, state: pr.state } : null,
       ci_status: pr?.ci_status ?? "unknown",
     };
@@ -173,8 +191,8 @@ function stringValue(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-function defaultRuntime(): { status: TaskStatus; source_session: string | null; assignee: string | null; owner: string | null; delegation_run_id: string | null; pr_number: number | null } {
-  return { status: "pending", source_session: null, assignee: null, owner: null, delegation_run_id: null, pr_number: null };
+function defaultRuntime(): { status: TaskStatus; subsidiary_id: string | null; source_session: string | null; assignee: string | null; owner: string | null; delegation_run_id: string | null; pr_number: number | null } {
+  return { status: "pending", subsidiary_id: null, source_session: null, assignee: null, owner: null, delegation_run_id: null, pr_number: null };
 }
 
 function normalizePath(value: string): string {

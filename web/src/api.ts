@@ -144,6 +144,7 @@ export interface TaskflowOverviewTask {
   delegation_run_id: string | null;
   delegation_status: string | null;
   team_id: string | null;
+  subsidiary_id: string | null;
   pr: { number: number; title: string; url: string | null; state: string } | null;
   ci_status: TaskflowCiStatus;
 }
@@ -667,9 +668,11 @@ export const api = {
     return get<LimitTimeseries>(`/v1/cost/limit-timeseries${qs ? "?" + qs : ""}`);
   },
   monitor: () => get<MonitorPayload>("/v1/monitor"),
-  taskflowOverview: (opts: { teamId?: string } = {}) => {
+  taskflowOverview: (opts: { teamId?: string; subsidiaryId?: string; headOffice?: boolean } = {}) => {
     const q = new URLSearchParams();
     if (opts.teamId) q.set("team_id", opts.teamId);
+    if (opts.subsidiaryId) q.set("subsidiary_id", opts.subsidiaryId);
+    if (opts.headOffice) q.set("head_office", "1");
     const qs = q.toString();
     return get<TaskflowOverviewResult>(`/v1/taskflow/overview${qs ? "?" + qs : ""}`);
   },

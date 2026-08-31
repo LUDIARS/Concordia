@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 76;
+export const SCHEMA_VERSION = 77;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -1938,6 +1938,57 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "platform")) {
       db.exec("ALTER TABLE federation_sites ADD COLUMN platform TEXT");
     }
+  },
+}, {
+  version: 77,
+  name: "subsidiary-taskflow-scope",
+  source: "delegation_runs/taskflow_task_state subsidiary ownership + session/request backfill v1",
+  up(db) {
+    const runColumns = db.prepare("PRAGMA table_info(delegation_runs)").all() as Array<{ name: string }>;
+    if (!runColumns.some((column) => column.name === "subsidiary_id")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN subsidiary_id TEXT");
+    }
+    const taskColumns = db.prepare("PRAGMA table_info(taskflow_task_state)").all() as Array<{ name: string }>;
+    if (!taskColumns.some((column) => column.name === "subsidiary_id")) {
+      db.exec("ALTER TABLE taskflow_task_state ADD COLUMN subsidiary_id TEXT");
+    }
+
+    // 既存 run は child session の durable metadata から所有者を復元する。
+    db.exec(`
+      UPDATE delegation_runs
+         SET subsidiary_id = COALESCE(
+           (SELECT CASE WHEN json_valid(s.metadata) THEN
+             CASE WHEN json_type(s.metadata, '$.subsidiary_id') = 'text'
+               THEN NULLIF(trim(json_extract(s.metadata, '$.subsidiary_id')), '')
+             END
+           END FROM sessions s WHERE s.id = delegation_runs.child_session_id),
+           (SELECT request.subsidiary_id
+              FROM subsidiary_requests request
+             WHERE request.run_id = delegation_runs.id
+             ORDER BY request.created_at DESC
+             LIMIT 1)
+         )
+       WHERE subsidiary_id IS NULL
+         AND (child_session_id IS NOT NULL OR EXISTS (
+           SELECT 1 FROM subsidiary_requests request WHERE request.run_id = delegation_runs.id
+         ));
+
+      UPDATE taskflow_task_state
+         SET subsidiary_id = COALESCE(
+           (SELECT r.subsidiary_id FROM delegation_runs r WHERE r.id = taskflow_task_state.delegation_run_id),
+           (SELECT CASE WHEN json_valid(s.metadata) THEN
+             CASE WHEN json_type(s.metadata, '$.subsidiary_id') = 'text'
+               THEN NULLIF(trim(json_extract(s.metadata, '$.subsidiary_id')), '')
+             END
+           END FROM sessions s WHERE s.id = taskflow_task_state.source_session)
+         )
+       WHERE subsidiary_id IS NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_delegation_runs_subsidiary_created
+        ON delegation_runs(subsidiary_id, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_taskflow_task_state_subsidiary_status
+        ON taskflow_task_state(subsidiary_id, status, updated_at DESC);
+    `);
   },
 },
 ];

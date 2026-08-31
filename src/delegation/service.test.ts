@@ -649,13 +649,18 @@ describe("DelegationService.invokeDefinition", () => {
       project: null,
       emoji: "",
     };
-    const r = await svc.invokeDefinition(def, { args: { task: "do it" }, spawn: false });
+    const r = await svc.invokeDefinition(def, {
+      args: { task: "do it" },
+      spawn: false,
+      subsidiary_id: " subsidiary-1 ",
+    });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.rendered_prompt).toBe("Custom: do it");
     // subsidiary-owned copy → template_id is null
     expect(r.run.template_id).toBeNull();
     expect(r.run.call_name).toBe("custom-task");
+    expect(r.run.subsidiary_id).toBe("subsidiary-1");
     expect(spawnCalls.length).toBe(0);
   });
 

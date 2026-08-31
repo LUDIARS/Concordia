@@ -24,7 +24,7 @@ related:
   - feature/cc-workflow.md
   - feature/discord-forum-migration.md
   - feature/subsidiary-delegation.md
-updated: 2026-07-13
+updated: 2026-08-31
 ---
 
 # タスクワークフロー — 分解 → 委託実装 → 安定ブランチテスト → 自走
@@ -130,7 +130,9 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 - Cc の **task-md reconciler** (定期 tick) が全リポの `spec/tasks/` を走査し、
   SQLite の `taskflow_task_state` にある `status=pending` かつ `memoria_task_id IS NULL` の task を Memoria へ登録する
   (`src/memoria/client.ts` の `createTask` 既存経路)。登録 claim と ID は同じ state 行へ永続化し、Markdown は**一切書き戻さない**。
-- `status`、外部 task ID、`source_session`、`assignee` / `owner`、`delegation_run_id`、`pr_number` はすべて runtime state である。
+- `status`、外部 task ID、`subsidiary_id`、`source_session`、`assignee` / `owner`、`delegation_run_id`、`pr_number` はすべて runtime state である。
+  `subsidiary_id` は子会社所有を表し、`NULL` は本社とする。task Markdown の同定キー
+  (`repo_path + task_path`) は組織別に分割しない。
   旧 frontmatter に残ったこれらの値は初回読込時だけ state へ移行し、既存 Markdown のバイト列は変更しない。
 - Memoria 登録の開始 claim も state に永続化する。登録結果が不明な通信失敗では claim を保持して再 POST せず、
   同じ task の重複作成を防ぐ。
@@ -329,14 +331,15 @@ PR が open/draft のテスト候補として引き継がれ、residual 判定�
 | config | 追加なし (task md は各リポ `spec/tasks/`。 走査は既存 `src/work/repo-scan.ts` を再利用) |
 | AdminState | `harness.strong_impl_models` / `admin.mention_user_id` |
 | harness_rules seed | 「着手前に `spec/tasks/` へ md 分解保存」「動作テストは confirm キューのみ」(§4.2) |
-| API | `POST /v1/sessions/:id/impl-unlock`、 `GET /v1/taskflow/tasks` (md 一覧の read-only)、 `GET /v1/taskflow/overview` (担当・状態・PR・CI の統合一覧)、 invoke `memory_links` |
-| DB | `taskflow_task_state` に task の mutable runtime state を保持する。task md は static definition のみ。 |
+| API | `POST /v1/sessions/:id/impl-unlock`、 `GET /v1/taskflow/tasks` (md 一覧の read-only)、 `GET /v1/taskflow/overview` (担当・状態・PR・CI の統合一覧)、 invoke `memory_links`。Taskflow GET は `subsidiary_id=<id>` / `head_office=1` / 未指定=全社で組織スコープを選ぶ。 |
+| DB | `taskflow_task_state` に task の mutable runtime state と `subsidiary_id` (`NULL`=本社) を保持する。`delegation_runs.subsidiary_id` が子会社起点 run の永続的な所有証跡。task md は static definition のみ。 |
 | events | `taskflow.completion_detected` / `taskflow.residual_checked` (監査用) |
 | blackbox | domain `concordia.workflow.completion` / `concordia.workflow.residual` |
 | module | 新設 `src/taskflow/` (md-store / reconcile / backend / decompose-inject / completion / residual / goal-machine)。 既存 `workflow-worker` (delegation キュー消費) とは別物 |
 
 `overview` は task md の static definition と SQLite runtime state を結合し、`assignee` / `owner` /
-`source_session` / `delegation_run_id` / `pr_number` は runtime state の明示値として扱う。未指定値は sessions、delegation_runs、
+`subsidiary_id` / `source_session` / `delegation_run_id` / `pr_number` は runtime state の明示値として扱う。子会社帰属は
+delegation run → runtime state → session metadata の順で補完し、その他の未指定値は sessions、delegation_runs、
 pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_status` を表示する。
 
 ## 13. 実装フェーズ
@@ -354,6 +357,7 @@ pr_records から補完し、CI は GitHub reconcile 済みの `pr_records.ci_st
 - [ ] 強推論モデルのセッションがコード編集に入ると deny + ユーザメンションが飛び、 unlock 後は通る。
 - [ ] 実装 delegation がプロジェクトルートで起動し、 プロンプトに memory_links が列挙される。
 - [ ] リポの `spec/tasks/` に task md を置くと reconciler が Memoria に登録し、ID と登録 claim を SQLite state に永続化する。Memoria 停止中でも md 運用が継続し、復帰後に後追い登録される。
+- [ ] 子会社起点の run と task runtime state に同じ `subsidiary_id` が残り、再起動後も Taskflow を子会社／本社／全社で絞り込める。
 - [ ] 子の completed 報告で、 merged PR なら confirm_runs が立ちメンション付き事前通知が飛ぶ。 PR 無しならユーザ判断のメンションが飛ぶ。
 - [ ] 対話セッションの実装完了を completion 黒箱が検知し、 §5 と同じ経路に合流する。
 - [ ] 完了後に residual 黒箱が走り、次タスクがあれば goal-and-go 経路で同セッションに

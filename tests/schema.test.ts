@@ -50,6 +50,15 @@ describe("schema", () => {
     expect(testSurfaceColumns.some((column) => column.name === "head_branch")).toBe(true);
   });
 
+  it("persists subsidiary ownership on delegation runs and Taskflow state", () => {
+    const db = makeRawTestDb();
+    applyMigrations(db);
+    const runColumns = db.prepare(`PRAGMA table_info(delegation_runs)`).all() as Array<{ name: string }>;
+    const taskColumns = db.prepare(`PRAGMA table_info(taskflow_task_state)`).all() as Array<{ name: string }>;
+    expect(runColumns.some((column) => column.name === "subsidiary_id")).toBe(true);
+    expect(taskColumns.some((column) => column.name === "subsidiary_id")).toBe(true);
+  });
+
   it("leaves orphan persona tables in legacy DB untouched (孤児テーブル放置)", () => {
     const db = makeRawTestDb();
     // legacy DB: 旧 persona 機構のテーブルが残っている状態
@@ -288,6 +297,47 @@ describe("migration 73: Delegation SDK safety and legacy deletion", () => {
       .toEqual({ target_provider: "codex-sdk" });
     expect(db.prepare(`SELECT target_provider FROM delegation_runs WHERE id = 'completed-codex-run'`).get())
       .toEqual({ target_provider: "codex" });
+  });
+});
+
+describe("migration 77: subsidiary Taskflow scope", () => {
+  it("backfills run and task ownership from child sessions and guarded requests", () => {
+    const db = makeRawTestDb();
+    runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 76), 76);
+    db.exec(`
+      INSERT INTO sessions(
+        id, provider, repo_path, host, started_at, status, last_seen_at, metadata
+      ) VALUES (
+        'child-session', 'codex-cli', 'E:/repo', 'host', 1, 'ended', 2,
+        '{"subsidiary_id":"sub-session"}'
+      );
+      INSERT INTO delegation_runs(
+        id, call_name, target_provider, child_session_id, args_json,
+        rendered_prompt, prompt_file_path, status, created_at
+      ) VALUES
+        ('run-session', 'implement', 'codex-sdk', 'child-session', '{}', '', '/one.md', 'completed', 1),
+        ('run-request', 'implement', 'codex-sdk', NULL, '{}', '', '/two.md', 'pending', 2);
+      INSERT INTO subsidiary_requests(
+        id, subsidiary_id, platform, platform_user_id, instruction, decision, run_id, created_at
+      ) VALUES ('request-1', 'sub-request', 'discord', 'user-1', 'task', 'allow', 'run-request', 3);
+      INSERT INTO taskflow_task_state(
+        repo_path, task_path, task_slug, status, source_session, delegation_run_id,
+        memoria_registration_state, updated_at
+      ) VALUES
+        ('e:/repo', 'spec/tasks/one.md', 'one', 'delegated', 'child-session', 'run-session', 'idle', 1),
+        ('e:/repo', 'spec/tasks/two.md', 'two', 'pending', NULL, 'run-request', 'idle', 2);
+    `);
+
+    applyMigrations(db);
+
+    expect(db.prepare(`SELECT id, subsidiary_id FROM delegation_runs ORDER BY id`).all()).toEqual([
+      { id: "run-request", subsidiary_id: "sub-request" },
+      { id: "run-session", subsidiary_id: "sub-session" },
+    ]);
+    expect(db.prepare(`SELECT task_slug, subsidiary_id FROM taskflow_task_state ORDER BY task_slug`).all()).toEqual([
+      { task_slug: "one", subsidiary_id: "sub-session" },
+      { task_slug: "two", subsidiary_id: "sub-request" },
+    ]);
   });
 });
 

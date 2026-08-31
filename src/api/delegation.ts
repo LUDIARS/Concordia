@@ -161,7 +161,7 @@ const InvokeSchema = z.object({
    * (ownsSession) に使われる。 discord/commands/spawn.ts (/v1/admin/spawn-session
    * 経由) と同じ trust boundary (loopback 自己呼び出し) で運ぶ。
    */
-  subsidiary_id: z.string().max(120).optional().nullable(),
+  subsidiary_id: z.string().trim().min(1).max(120).optional().nullable(),
   project: z.string().max(120).optional().nullable(),
   requester_discord_user_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),
   source_discord_guild_id: z.string().regex(/^\d{5,32}$/).optional().nullable(),

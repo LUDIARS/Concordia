@@ -17,6 +17,7 @@ export interface TaskStateKey {
 /** 更新可能な runtime 値。 undefined のフィールドは変更しない。 */
 export interface TaskRuntimePatch {
   status?: TaskStatus;
+  subsidiary_id?: string | null;
   assignee?: string | null;
   owner?: string | null;
   source_session?: string | null;
@@ -54,12 +55,12 @@ export class TaskflowStateStore {
     const legacy = legacyRuntime(document.frontmatter);
     this.db.prepare(`
       INSERT INTO taskflow_task_state(
-        repo_path, task_path, task_slug, status, source_session, assignee, owner, delegation_run_id,
+        repo_path, task_path, task_slug, status, subsidiary_id, source_session, assignee, owner, delegation_run_id,
         pr_number, memoria_task_id, actio_task_id, memoria_registration_state, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(repo_path, task_path) DO NOTHING
     `).run(
-      key.repoPath, key.taskPath, slug, legacy.status, legacy.source_session, legacy.assignee, legacy.owner,
+      key.repoPath, key.taskPath, slug, legacy.status, legacy.subsidiary_id, legacy.source_session, legacy.assignee, legacy.owner,
       legacy.delegation_run_id, legacy.pr_number, legacy.memoria_task_id, legacy.actio_task_id,
       legacy.memoria_task_id ? "created" : "idle", this.now(),
     );
@@ -99,7 +100,7 @@ export class TaskflowStateStore {
 
   private read(key: { repoPath: string; taskPath: string }): TaskRuntimeState | null {
     const row = this.db.prepare(`
-      SELECT status, source_session, assignee, owner, delegation_run_id, pr_number,
+      SELECT status, subsidiary_id, source_session, assignee, owner, delegation_run_id, pr_number,
              memoria_task_id, actio_task_id, memoria_registration_state
         FROM taskflow_task_state WHERE repo_path = ? AND task_path = ?
     `).get(key.repoPath, key.taskPath) as TaskRuntimeRow | undefined;
@@ -198,6 +199,7 @@ function taskSlug(document: TaskDocument): string | null {
 function legacyRuntime(frontmatter: TaskDocument["frontmatter"]): Omit<TaskRuntimeState, "memoria_registration_state"> {
   return {
     status: taskStatus(frontmatter.status),
+    subsidiary_id: stringValue(frontmatter.subsidiary_id),
     source_session: stringValue(frontmatter.source_session),
     assignee: stringValue(frontmatter.assignee),
     owner: stringValue(frontmatter.owner),

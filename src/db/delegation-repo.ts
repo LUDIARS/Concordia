@@ -120,6 +120,8 @@ export interface DelegationRunRow {
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
+  /** 子会社起点の run 所有者。 null = 本社。 */
+  subsidiary_id?: string | null;
   supervisor_platform?: string | null;
   supervisor_user_id?: string | null;
   /** watchdog が最後にこの run を点検した時刻 (epoch-ms)。 */
@@ -221,6 +223,8 @@ export interface CreateRunInput {
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
+  /** 子会社起点の run 所有者。 null = 本社。 */
+  subsidiary_id?: string | null;
   /** 旧: 段階注入で起動したか。 段階注入は 2026-08-21 に廃止 (新規 run は常に false)。 */
   staged_injection?: boolean;
 }
@@ -435,8 +439,8 @@ export class DelegationRepo {
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
         effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
         spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at,
-        team_id, staged_injection, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        team_id, subsidiary_id, staged_injection, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -465,6 +469,7 @@ export class DelegationRepo {
       input.effort_decision_id ?? null,
       input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
       input.team_id ?? null,
+      input.subsidiary_id ?? null,
       input.staged_injection ? 1 : 0,
       now,
     );

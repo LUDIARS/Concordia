@@ -50,6 +50,38 @@ describe("taskflow overview", () => {
     expect(overviewBySession.tasks[0].team_id).toBe("team-session");
   });
 
+  it("attributes the task to a subsidiary via run, runtime, then session metadata", () => {
+    const overviewByRun = buildTaskflowOverview({
+      documents: [task({ subsidiary_id: "sub-runtime", source_session: "session-1" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [{ ...session(), metadata: JSON.stringify({ subsidiary_id: "sub-session" }) }],
+      runs: [{ ...run(), subsidiary_id: "sub-run" }],
+      prs: [],
+      now: 123,
+    });
+    expect(overviewByRun.tasks[0].subsidiary_id).toBe("sub-run");
+
+    const overviewByRuntime = buildTaskflowOverview({
+      documents: [task({ subsidiary_id: "sub-runtime" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [],
+      runs: [],
+      prs: [],
+      now: 123,
+    });
+    expect(overviewByRuntime.tasks[0].subsidiary_id).toBe("sub-runtime");
+
+    const overviewBySession = buildTaskflowOverview({
+      documents: [task({ source_session: "session-1" })],
+      relativePath: () => "spec/tasks/one.md",
+      sessions: [{ ...session(), metadata: JSON.stringify({ subsidiary_id: " sub-session " }) }],
+      runs: [],
+      prs: [],
+      now: 123,
+    });
+    expect(overviewBySession.tasks[0].subsidiary_id).toBe("sub-session");
+  });
+
   it("prefers explicit runtime assignment and PR number", () => {
     const overview = buildTaskflowOverview({
       documents: [task({ assignee: "neco", pr_number: 42 })],
@@ -96,7 +128,7 @@ function task(overrides: Partial<NonNullable<TaskDocument["runtime"]>>): TaskDoc
       created: "2026-07-14",
     },
     runtime: {
-      status: "pending", source_session: null, assignee: null, owner: null,
+      status: "pending", subsidiary_id: null, source_session: null, assignee: null, owner: null,
       delegation_run_id: null, pr_number: null, memoria_task_id: null, actio_task_id: null,
       memoria_registration_state: "idle", ...overrides,
     },

@@ -15,6 +15,8 @@ export interface TaskFrontmatter {
 
 export interface TaskRuntimeState {
   status: TaskStatus;
+  /** タスクを作成・管理する子会社。 null = 本社。 */
+  subsidiary_id: string | null;
   source_session: string | null;
   assignee: string | null;
   owner: string | null;

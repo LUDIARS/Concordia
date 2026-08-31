@@ -78,13 +78,18 @@ describe("delegation queue × service", () => {
 
   it("上限に達していたら spawn せず queued にする (prompt file も作らない)", async () => {
     await service.invoke({ call_name: "impl-from-design", args: { task: "A" } });
-    const r = await service.invoke({ call_name: "impl-from-design", args: { task: "B" } });
+    const r = await service.invoke({
+      call_name: "impl-from-design",
+      args: { task: "B" },
+      subsidiary_id: "subsidiary-1",
+    });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
 
     expect(r.queued).toBe(true);
     expect(r.queue_position).toBe(1);
     expect(r.run.status).toBe("queued");
+    expect(r.run.subsidiary_id).toBe("subsidiary-1");
     expect(r.spawn_pid).toBeNull();
     expect(spawnCalls).toBe(1); // 2 件目は起動していない
     // 起動時までは副作用を作らない (prompt file は spawn 直前に書く)。

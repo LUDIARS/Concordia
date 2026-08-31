@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   api,
+  type SubsidiarySummary,
   type TaskflowCiStatus,
   type TaskflowOverviewResult,
   type TaskflowTaskStatus,
@@ -34,6 +35,8 @@ export function Taskflow() {
   const [data, setData] = useState<TaskflowOverviewResult | null>(null);
   const [project, setProject] = useState("");
   const [status, setStatus] = useState<TaskflowTaskStatus | "">("");
+  const [organization, setOrganization] = useState("all");
+  const [subsidiaries, setSubsidiaries] = useState<SubsidiarySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const requestGenerationRef = useRef(0);
@@ -42,16 +45,27 @@ export function Taskflow() {
     const generation = ++requestGenerationRef.current;
     setLoading(true);
     try {
-      const nextData = await api.taskflowOverview({ teamId: teamId ?? undefined });
+      const subsidiaryId = organization.startsWith("subsidiary:")
+        ? organization.slice("subsidiary:".length)
+        : undefined;
+      const [nextData, subsidiaryResult] = await Promise.all([
+        api.taskflowOverview({
+          teamId: teamId ?? undefined,
+          subsidiaryId,
+          headOffice: organization === "head-office",
+        }),
+        api.subsidiariesList(),
+      ]);
       if (generation !== requestGenerationRef.current) return;
       setData(nextData);
+      setSubsidiaries(subsidiaryResult.subsidiaries);
       setError(null);
     } catch (nextError) {
       if (generation === requestGenerationRef.current) setError(String(nextError));
     } finally {
       if (generation === requestGenerationRef.current) setLoading(false);
     }
-  }, [teamId]);
+  }, [organization, teamId]);
 
   useEffect(() => {
     setData(null);
@@ -73,6 +87,10 @@ export function Taskflow() {
       (!project || task.project === project) && (!status || task.status === status),
     ),
     [data, project, status],
+  );
+  const subsidiaryNames = useMemo(
+    () => new Map(subsidiaries.map((subsidiary) => [subsidiary.id, subsidiary.display_name || subsidiary.name])),
+    [subsidiaries],
   );
 
   return (
@@ -107,6 +125,19 @@ export function Taskflow() {
       )}
 
       <section className="flex flex-wrap gap-2 items-center">
+        <select
+          className="foundation-form text-sm"
+          value={organization}
+          onChange={(event) => setOrganization(event.target.value)}
+        >
+          <option value="all">全社</option>
+          <option value="head-office">本社</option>
+          {subsidiaries.map((subsidiary) => (
+            <option key={subsidiary.id} value={`subsidiary:${subsidiary.id}`}>
+              {subsidiary.display_name || subsidiary.name}
+            </option>
+          ))}
+        </select>
         <select className="foundation-form text-sm" value={project} onChange={(event) => setProject(event.target.value)}>
           <option value="">全プロジェクト</option>
           {projects.map((value) => <option key={value} value={value}>{value}</option>)}
@@ -127,10 +158,11 @@ export function Taskflow() {
       {error && <div className="text-danger text-sm">load error: {error}</div>}
 
       <div className="overflow-x-auto border border-border rounded bg-surface">
-        <table className="w-full min-w-[960px] text-sm">
+        <table className="w-full min-w-[1040px] text-sm">
           <thead className="text-xs text-subtle border-b border-border">
             <tr>
               <th className="text-left p-2">Project / Task</th>
+              <th className="text-left p-2">組織</th>
               <th className="text-left p-2">担当</th>
               <th className="text-left p-2">状態</th>
               <th className="text-left p-2">Session / Run</th>
@@ -146,6 +178,11 @@ export function Taskflow() {
                   <div className="text-xs text-subtle">{task.project}</div>
                   <div className="font-medium truncate" title={task.title}>{task.title}</div>
                   <div className="text-[11px] text-subtle font-mono truncate" title={task.path}>{task.path}</div>
+                </td>
+                <td className="p-2 text-xs">
+                  {task.subsidiary_id
+                    ? subsidiaryNames.get(task.subsidiary_id) ?? shortId(task.subsidiary_id)
+                    : "本社"}
                 </td>
                 <td className="p-2">{task.assignee ?? <span className="text-subtle">未割当</span>}</td>
                 <td className="p-2">
@@ -196,7 +233,7 @@ export function Taskflow() {
               </tr>
             ))}
             {data && visible.length === 0 && (
-              <tr><td colSpan={7} className="p-6 text-center text-subtle">該当する task md はありません。</td></tr>
+              <tr><td colSpan={8} className="p-6 text-center text-subtle">該当する task md はありません。</td></tr>
             )}
           </tbody>
         </table>

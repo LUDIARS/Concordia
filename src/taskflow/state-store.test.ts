@@ -97,13 +97,25 @@ describe("TaskflowStateStore", () => {
     store.readOrMigrate(document);
     const key = { repoPath: "E:/repo", taskPath: "spec/tasks/task.md" };
 
-    expect(store.update(key, { status: "delegated", delegation_run_id: "run-1" })).toBe(true);
-    expect(store.readOrMigrate(document)).toMatchObject({ status: "delegated", delegation_run_id: "run-1" });
+    expect(store.update(key, {
+      status: "delegated",
+      delegation_run_id: "run-1",
+      subsidiary_id: "subsidiary-1",
+    })).toBe(true);
+    expect(store.readOrMigrate(document)).toMatchObject({
+      status: "delegated",
+      delegation_run_id: "run-1",
+      subsidiary_id: "subsidiary-1",
+    });
     expect(store.update(key, { status: "done", pr_number: 12 })).toBe(true);
     expect(store.find(key)).toMatchObject({ status: "done", pr_number: 12, delegation_run_id: "run-1" });
     // 明示 null は消去、 未指定は据え置き。
     expect(store.update(key, { delegation_run_id: null })).toBe(true);
-    expect(store.find(key)).toMatchObject({ status: "done", delegation_run_id: null });
+    expect(store.find(key)).toMatchObject({
+      status: "done",
+      delegation_run_id: null,
+      subsidiary_id: "subsidiary-1",
+    });
   });
 
   it("reports a miss instead of creating a row for an unknown task", () => {

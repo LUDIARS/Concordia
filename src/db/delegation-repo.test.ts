@@ -241,9 +241,11 @@ describe("DelegationRepo / runs", () => {
       spawn_command: ["satelles", "run"],
       triggered_by: "claude",
       status: "spawned",
+      subsidiary_id: "subsidiary-1",
     });
     expect(run.id).toBe(id);
     expect(run.target_provider).toBe("codex");
+    expect(run.subsidiary_id).toBe("subsidiary-1");
     expect(repo.findRun(id)?.spawn_pid).toBe(42);
   });
 

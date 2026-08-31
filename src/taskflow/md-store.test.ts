@@ -160,6 +160,21 @@ describe("TaskMdStore.scan", () => {
     await expect(store.scan()).rejects.toThrow();
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it("does not confuse a path-like workspace root with a child repo of the same name", async () => {
+    const workspaceRoot = join(root, "Ars");
+    const childRepo = join(workspaceRoot, "ars");
+    const childTasks = join(childRepo, "spec", "tasks");
+    await mkdir(join(childRepo, ".git"), { recursive: true });
+    await mkdir(childTasks, { recursive: true });
+    await writeFile(join(childTasks, "child.md"), validTaskMarkdown().replace("ConcordiaFixture", "ars"), "utf8");
+    const store = new TaskMdStore(() => [workspaceRoot], { warn });
+
+    expect(await store.findForProject(workspaceRoot)).toHaveLength(0);
+    expect(await store.findForProject(`${childRepo.replace(/\\/g, "/")}/./`)).toHaveLength(1);
+    expect(await store.findForProject("ars")).toHaveLength(1);
+    expect(await store.findForProject("LUDIARS/ars")).toHaveLength(1);
+  });
 });
 
 function validTaskMarkdown(): string {

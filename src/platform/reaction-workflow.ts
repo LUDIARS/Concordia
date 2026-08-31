@@ -138,8 +138,8 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   "reschedule-non-goal": ["📅", "🗓️", "🗓"],
   // 当月目標の実行可能タスクを実行
   "run-goal-tasks": ["🎯"],
-  // 次セッション向けの引継ぎ資料を作る (ok-hand / wave)
-  "handoff-document": ["👌", "👋"],
+  // 次セッション向けの引継ぎ資料を作る (wave)
+  "handoff-document": ["👋"],
   // 中断していた作業を再開する「続けて」 (play / fast-forward 系)
   "resume-work": ["▶️", "▶", "⏩", "⏯️", "⏯"],
   // 対象セッションの作業ブランチを Revisor local PR として提出 (postbox / mailbox)
@@ -154,6 +154,16 @@ const WORKFLOW_EMOJI: Record<WorkflowAction, readonly string[]> = {
   // メッセージをカスタムワークフローとして JSON に登録 (tools 系)
   "add-as-workflow": ["🛠️", "🛠"],
 };
+
+/**
+ * 誤ダブルタップで送られるため、組み込み・設定・カスタムを問わず操作に使わない絵文字。
+ * @implements spec/feature/reaction-workflow.md §1 — 予約絵文字の非アクション保証
+ */
+const RESERVED_NON_ACTION_EMOJI = new Set(["👌"]);
+
+export function isReservedNonActionEmoji(emoji: string): boolean {
+  return RESERVED_NON_ACTION_EMOJI.has(emoji.trim());
+}
 
 /** 全 WorkflowAction の一覧 (API / GUI の検証・選択肢に使う)。 */
 export const WORKFLOW_ACTIONS = Object.keys(WORKFLOW_EMOJI) as WorkflowAction[];
@@ -331,6 +341,7 @@ export function classifyReactionWorkflow(
   overrides?: Record<string, WorkflowAction>,
 ): WorkflowAction | null {
   const e = emoji.trim();
+  if (isReservedNonActionEmoji(e)) return null;
   if (overrides && Object.prototype.hasOwnProperty.call(overrides, e)) {
     return overrides[e] ?? null;
   }
@@ -969,7 +980,10 @@ export class ReactionWorkflowRunner {
     return join(this.deps.workspaceRoot, "..", ".claude", "custom-reaction-workflows.json");
   }
 
-  /** カスタムワークフロー JSON を読み込む (エラー時は空配列)。 */
+  /**
+   * カスタムワークフロー JSON を読み込む (エラー時は空配列)。
+   * @implements spec/feature/reaction-workflow.md §1 — 予約絵文字の custom workflow 遮断
+   */
   private async loadCustomWorkflows(): Promise<CustomWorkflowEntry[]> {
     const p = this.customWorkflowsPath();
     try {
@@ -980,7 +994,8 @@ export class ReactionWorkflowRunner {
         (e): e is CustomWorkflowEntry =>
           typeof e === "object" && e !== null &&
           typeof (e as CustomWorkflowEntry).emoji === "string" &&
-          typeof (e as CustomWorkflowEntry).prompt === "string",
+          typeof (e as CustomWorkflowEntry).prompt === "string" &&
+          !isReservedNonActionEmoji((e as CustomWorkflowEntry).emoji),
       );
     } catch {
       return []; // 不在 (旧 existsSync ガード) / parse 失敗はどちらも空配列。
@@ -1005,6 +1020,7 @@ export class ReactionWorkflowRunner {
    * reactions.ts から呼ぶ入口。 例外は内部で握り潰す (リアクション記録は壊さない)。
    * `onAccept` は「実際に発火が確定した」直後 (= dedup 通過後、 slow な inject/headless の前) に
    * 一度だけ呼ばれる。 platform 側が「受付」通知を即時に投稿するためのフック。
+   * @implements spec/feature/reaction-workflow.md §1 — 予約絵文字を全実行経路より前で遮断
    */
   async handle(
     input: ReactionWorkflowInput,
@@ -1012,6 +1028,8 @@ export class ReactionWorkflowRunner {
     onResult?: (action: WorkflowAction, result: WorkflowResultRelay) => void,
   ): Promise<void> {
     if (!this.isEnabled()) return;
+    // 👌 は誤ダブルタップで送られるため、override と JSON custom workflow より先に遮断する。
+    if (isReservedNonActionEmoji(input.emoji)) return;
 
     const action = classifyReactionWorkflow(input.emoji, this.deps.customMappings?.());
 

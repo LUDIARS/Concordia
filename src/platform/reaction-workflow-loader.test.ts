@@ -15,6 +15,7 @@ describe("reaction-workflow-loader", () => {
     const rwf = getRwf();
     expect(typeof rwf.ReactionWorkflowRunner).toBe("function");
     expect(typeof rwf.classifyReactionWorkflow).toBe("function");
+    expect(typeof rwf.isReservedNonActionEmoji).toBe("function");
     expect(typeof rwf.isStandaloneEmoji).toBe("function");
     expect(typeof rwf.reactionAckText).toBe("function");
     expect(_isValidRwfModule(rwf)).toBe(true);
@@ -29,6 +30,30 @@ describe("reaction-workflow-loader", () => {
     };
 
     expect(_isValidRwfModule(stale)).toBe(false);
+  });
+
+  it("rejects an external engine that assigns the reserved OK-hand emoji", () => {
+    const rwf = getRwf();
+    const unsafe = {
+      ...rwf,
+      classifyReactionWorkflow: (emoji: string) =>
+        emoji.trim() === "👌" ? "handoff-document" as const : rwf.classifyReactionWorkflow(emoji),
+    };
+
+    expect(_isValidRwfModule(unsafe)).toBe(false);
+  });
+
+  it("rejects an external engine that exposes the reserved emoji in its default map", () => {
+    const rwf = getRwf();
+    const unsafe = {
+      ...rwf,
+      defaultReactionEmojiMap: () => ({
+        ...rwf.defaultReactionEmojiMap(),
+        "👌": "handoff-document" as const,
+      }),
+    };
+
+    expect(_isValidRwfModule(unsafe)).toBe(false);
   });
 
   it("外部プラグインが存在しないパスなら同梱にフォールバック (throw しない)", async () => {

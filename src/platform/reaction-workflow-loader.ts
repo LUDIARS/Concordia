@@ -32,6 +32,11 @@ function isValidRwfModule(m: unknown): m is RwfModule {
     !!o &&
     typeof (o as RwfModule).ReactionWorkflowRunner === "function" &&
     typeof (o as RwfModule).classifyReactionWorkflow === "function" &&
+    typeof (o as RwfModule).isReservedNonActionEmoji === "function" &&
+    (o as RwfModule).isReservedNonActionEmoji("👌") === true &&
+    (o as RwfModule).classifyReactionWorkflow("👌", { "👌": "handoff-document" }) === null &&
+    typeof (o as RwfModule).defaultReactionEmojiMap === "function" &&
+    !Object.prototype.hasOwnProperty.call((o as RwfModule).defaultReactionEmojiMap(), "👌") &&
     typeof (o as RwfModule).isStandaloneEmoji === "function" &&
     typeof (o as RwfModule).reactionAckText === "function" &&
     typeof (o as RwfModule).primaryEmojiForAction === "function" &&

@@ -152,8 +152,12 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
     const emoji = typeof body?.emoji === "string" ? body.emoji.trim() : "";
     const action = typeof body?.action === "string" ? body.action : "";
     if (!emoji) return c.json({ error: "body.emoji (string) required" }, 400);
-    if (!getRwf().isWorkflowAction(action)) {
-      return c.json({ error: `body.action must be one of ${getRwf().WORKFLOW_ACTIONS.join(", ")}` }, 400);
+    const rwf = getRwf();
+    if (rwf.isReservedNonActionEmoji(emoji)) {
+      return c.json({ error: "body.emoji is reserved as non-actionable" }, 400);
+    }
+    if (!rwf.isWorkflowAction(action)) {
+      return c.json({ error: `body.action must be one of ${rwf.WORKFLOW_ACTIONS.join(", ")}` }, 400);
     }
     deps.adminState.setReactionEmojiOverride(emoji, action);
     return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });

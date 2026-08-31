@@ -1,7 +1,11 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   classifyReactionWorkflow,
   defaultReactionEmojiMap,
+  isReservedNonActionEmoji,
   isWorkflowAction,
   planWorkflow,
   reactionAckText,
@@ -51,7 +55,6 @@ describe("classifyReactionWorkflow", () => {
     ["🙄", "force-enter"],
     ["🤝", "delegate-task"],
     ["🫱", "delegate-task"],
-    ["👌", "handoff-document"],
     ["👋", "handoff-document"],
     ["▶️", "resume-work"],
     ["⏩", "resume-work"],
@@ -64,6 +67,7 @@ describe("classifyReactionWorkflow", () => {
   });
 
   it("returns null for unmapped emoji", () => {
+    expect(classifyReactionWorkflow("👌")).toBeNull();
     expect(classifyReactionWorkflow("🎉")).toBeNull();
     expect(classifyReactionWorkflow("🍕")).toBeNull();
   });
@@ -79,6 +83,11 @@ describe("classifyReactionWorkflow", () => {
     expect(classifyReactionWorkflow("🫶", overrides)).toBe("memoria-remaining"); // 上書きなし=既定
     expect(classifyReactionWorkflow("🎉", overrides)).toBeNull();
   });
+
+  it("reserves 👌 as non-action even when an override attempts to assign it", () => {
+    expect(isReservedNonActionEmoji(" 👌 ")).toBe(true);
+    expect(classifyReactionWorkflow("👌", { "👌": "handoff-document" })).toBeNull();
+  });
 });
 
 describe("defaultReactionEmojiMap / isWorkflowAction", () => {
@@ -87,6 +96,7 @@ describe("defaultReactionEmojiMap / isWorkflowAction", () => {
     expect(map["🙏"]).toBe("enumerate-remaining");
     expect(map["🫶"]).toBe("memoria-remaining");
     expect(map["📲"]).toBe("status-check");
+    expect(map).not.toHaveProperty("👌");
     for (const action of Object.values(map)) expect(isWorkflowAction(action)).toBe(true);
   });
 
@@ -396,6 +406,34 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "🍕" });
     expect(calls).toHaveLength(0);
+  });
+
+  it("予約済みの 👌 は custom mapping と custom workflow JSON の両方を遮断する", async () => {
+    const temp = await mkdtemp(join(tmpdir(), "concordia-reaction-workflow-"));
+    const customWorkflowsPath = join(temp, "custom-workflows.json");
+    await writeFile(customWorkflowsPath, JSON.stringify([{
+      emoji: "👌",
+      prompt: "must not run",
+      model: "sonnet",
+    }]), "utf8");
+    try {
+      const overridden = makeRunner({
+        customMappings: () => ({ "👌": "handoff-document" }),
+      });
+      const customized = makeRunner({ customWorkflowsPath });
+      const accepted: WorkflowAction[] = [];
+      await overridden.runner.handle({ ...baseInput, emoji: "👌" }, (action) => accepted.push(action));
+      await customized.runner.handle(
+        { ...baseInput, dedupeKey: "m-custom", emoji: "👌" },
+        (action) => accepted.push(action),
+      );
+
+      expect(overridden.calls).toHaveLength(0);
+      expect(customized.calls).toHaveLength(0);
+      expect(accepted).toHaveLength(0);
+    } finally {
+      await rm(temp, { recursive: true, force: true });
+    }
   });
 
   it("発火確定時に onAccept が action 付きで1回だけ呼ばれる", async () => {

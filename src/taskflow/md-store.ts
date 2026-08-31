@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { join, posix, relative, win32 } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
 import type { TaskflowStateStore } from "./state-store.js";
@@ -137,10 +137,18 @@ export class TaskMdStore {
     return documents;
   }
 
+  /** @implements spec/feature/task-workflow.md §2.2 — リポジトリ絶対パスと project 識別子の分離 */
   async findForProject(projectOrPath: string, statuses?: readonly TaskStatus[]): Promise<TaskDocument[]> {
-    const needle = basename(projectOrPath.replace(/[\\/]+$/, "")).toLowerCase();
+    const pathSelector = isAbsoluteRepositoryPath(projectOrPath);
+    const caseInsensitivePath = isWindowsAbsoluteRepositoryPath(projectOrPath);
+    const needle = pathSelector
+      ? normalizeRepositoryPath(projectOrPath, caseInsensitivePath)
+      : repositoryBasename(projectOrPath);
     return (await this.scan()).filter((document) => {
-      const same = document.frontmatter.project.toLowerCase() === needle || basename(document.repoPath).toLowerCase() === needle;
+      const same = pathSelector
+        ? normalizeRepositoryPath(document.repoPath, caseInsensitivePath) === needle
+        : document.frontmatter.project.trim().toLowerCase() === needle
+          || repositoryBasename(document.repoPath) === needle;
       return same && (!statuses || statuses.includes(document.runtime?.status ?? "pending"));
     });
   }
@@ -195,6 +203,34 @@ export class TaskMdStore {
     }
     return created;
   }
+}
+
+function isAbsoluteRepositoryPath(value: string): boolean {
+  const trimmed = value.trim();
+  return win32.isAbsolute(trimmed) || posix.isAbsolute(trimmed);
+}
+
+function isWindowsAbsoluteRepositoryPath(value: string): boolean {
+  const trimmed = value.trim();
+  return /^[a-zA-Z]:[\\/]/.test(trimmed)
+    || /^\\/.test(trimmed)
+    || /^\/\/[^/\\]+[/\\][^/\\]+/.test(trimmed);
+}
+
+function normalizeRepositoryPath(value: string, caseInsensitive = false): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const normalized = (caseInsensitive
+    ? win32.normalize(trimmed).replace(/\\/g, "/")
+    : posix.normalize(trimmed.replace(/\\/g, "/")))
+    .replace(/\/+$/, "");
+  return caseInsensitive ? normalized.toLowerCase() : normalized;
+}
+
+function repositoryBasename(value: string): string {
+  const normalized = normalizeRepositoryPath(value).toLowerCase();
+  const segments = normalized.split("/");
+  return segments[segments.length - 1] ?? "";
 }
 
 function taskSlug(value: string, fallback: string, maxLength: number): string {

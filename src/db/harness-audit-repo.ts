@@ -128,4 +128,22 @@ export class HarnessAuditRepo {
       .all(session_id) as Array<{ repo: string }>;
     return rows.map((r) => r.repo);
   }
+
+  /**
+   * 当該セッションで編集ツールが触ったファイルパス (action 列) の集合。
+   * vibes-file-limit 述語の editedFiles 供給用。 gate はツール実行ごとに呼ばれるため、
+   * 旧実装の `recent({limit:1000})` (全カラム 1000 行を毎回取得・~200ms) を置き換え、
+   * (session_id, tool) index に乗る 1 カラムの DISTINCT だけにする。
+   */
+  editedFilePaths(session_id: string): string[] {
+    if (!session_id) return [];
+    const rows = this.db
+      .prepare(
+        `SELECT DISTINCT action FROM harness_session_audit
+           WHERE session_id = ? AND action <> ''
+             AND tool IN ('Edit', 'Write', 'MultiEdit', 'NotebookEdit')`,
+      )
+      .all(session_id) as Array<{ action: string }>;
+    return rows.map((r) => r.action);
+  }
 }

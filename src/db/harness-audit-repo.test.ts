@@ -65,4 +65,15 @@ describe("harness audit repo", () => {
     repo.record({ session_id: "", event: "gate", decision: "allow", tool: "Edit", repo: "/repo/a" });
     expect(repo.distinctEditedRepos("")).toEqual([]);
   });
+
+  it("editedFilePaths は編集ツールが触ったファイルパスの集合を返す (gate の editedFiles 供給)", () => {
+    repo.record({ session_id: "s1", event: "gate", decision: "allow", tool: "Edit", action: "/repo/a/x.ts" });
+    repo.record({ session_id: "s1", event: "gate", decision: "allow", tool: "Write", action: "/repo/a/y.ts" });
+    repo.record({ session_id: "s1", event: "gate", decision: "allow", tool: "Edit", action: "/repo/a/x.ts" }); // 重複は 1
+    repo.record({ session_id: "s1", event: "gate", decision: "allow", tool: "Bash", action: "git status" }); // 編集でない
+    repo.record({ session_id: "s2", event: "gate", decision: "allow", tool: "Edit", action: "/repo/z/z.ts" });
+
+    expect(repo.editedFilePaths("s1").sort()).toEqual(["/repo/a/x.ts", "/repo/a/y.ts"]);
+    expect(repo.editedFilePaths("")).toEqual([]);
+  });
 });

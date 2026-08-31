@@ -192,9 +192,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
     // イベントが触ったリポ root の集合に、 今回が編集ツールなら現在 repo を足して maxReposWarn に渡す。
     const repo = action.cwd ?? "";
     const editedRepos = [...deps.audit.distinctEditedRepos(session_id ?? "")];
-    const editedFiles = session_id ? deps.audit.recent({ session_id, limit: 1000 })
-      .filter((row) => isEditTool(row.tool) && row.action)
-      .map((row) => row.action) : [];
+    // gate はツール実行ごとに呼ばれる。 全カラム 1000 行の取得は毎回 ~200ms の同期ブロック
+    // だったので、 index に乗る 1 カラム DISTINCT (editedFilePaths) へ置き換える。
+    const editedFiles = session_id ? [...deps.audit.editedFilePaths(session_id)] : [];
     if (isEditTool(action.tool) && action.filePath && !editedFiles.includes(action.filePath)) editedFiles.push(action.filePath);
     if (repo && isEditTool(action.tool) && !editedRepos.includes(repo)) editedRepos.push(repo);
 

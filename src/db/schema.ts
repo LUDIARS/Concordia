@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 78;
+export const SCHEMA_VERSION = 80;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2009,6 +2009,15 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_subsidiaries_default_team
         ON subsidiaries(default_team_id);
     `);
+  },
+}, {
+  // 並行開発時に 79 を予約して 80 を採番したため、 現在の台帳には意図的な欠番がある。
+  // 適用済み候補の version を後から詰めると DB ごとの migration identity が割れるので維持する。
+  version: 80,
+  name: "session-events-ts-index",
+  source: "sweeper purgeEventsOlderThan の毎分フルスキャン回避 (spec/plan/2026-09-01-cc-event-loop-diet.md)",
+  up(db) {
+    db.exec("CREATE INDEX IF NOT EXISTS idx_events_ts ON session_events(ts)");
   },
 },
 ];

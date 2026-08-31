@@ -84,6 +84,7 @@ import { deliverDirectorInstruction } from "../director/session-instruction.js";
 import { DirectorAskBridge } from "../director/ask-bridge.js";
 import { startSweeper } from "../sweeper.js";
 import { startNightlyVacuum } from "../db/nightly-vacuum.js";
+import { startWalGuard } from "../db/wal-guard.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
@@ -987,6 +988,10 @@ export async function startBackend(): Promise<BackendHandle> {
   // 深夜 03:00 JST の一括 VACUUM。 sweeper の刈り込みで空いた領域を日次で回収する。
   // 日中に走らせない理由は src/db/nightly-vacuum.ts のモジュールコメント参照。
   const nightlyVacuum = startNightlyVacuum({ db, dbPath });
+  // WAL ガード: 5 分ごとの PASSIVE checkpoint + 飢餓/肥大の可視化。 長時間リーダーに阻まれて
+  // WAL が膨らむと毎コミットが checkpoint 試行で 1 秒級に詰まる (2026-09-01 実測 375MB)。
+  // spec/plan/2026-09-01-cc-event-loop-diet.md。
+  const walGuard = startWalGuard({ db, dbPath });
 
   // 孤児プロセス回収: 終了/消滅した session に紐付かない Lictor / agent-client を周期 kill。
   // sweeper が行を purge して記録が消えた分も OS 走査で回収する (止血は kill 経路の配線、 これは掃除)。
@@ -1919,6 +1924,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("web push", () => stopWebPushService());
   resources.own("sweeper", () => sweeper.stop());
   resources.own("nightly vacuum", () => nightlyVacuum.stop());
+  resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());
   resources.own("post-listen handles", () => {
     for (const handle of postListenHandles.splice(0).reverse()) {

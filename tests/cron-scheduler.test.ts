@@ -116,6 +116,7 @@ describe("startCronScheduler", () => {
 
   it("runs the registered review, maintenance, catalog, and kaizen jobs by default", () => {
     expect(CRON_JOBS.map((j) => ({ name: j.name, cron: j.cron, call_name: j.call_name }))).toEqual([
+      { name: "ludiars-status-daily", cron: "0 3 * * *", call_name: "ludiars-status-daily" },
       { name: "ludiars-review-weekly", cron: "40 4 * * 1", call_name: "ludiars-review-weekly" },
       { name: "vulnerability-response-daily", cron: "10 5 * * *", call_name: "vulnerability-response-daily" },
       { name: "ai-note-biweekly-review", cron: "10 6 1,15 * *", call_name: "ai-note-biweekly-review" },
@@ -161,6 +162,7 @@ describe("startCronScheduler", () => {
 
   it("passes the run date to every scheduled job that requires it", () => {
     for (const name of [
+      "ludiars-status-daily",
       "ludiars-review-weekly",
       "vulnerability-response-daily",
       "ai-note-biweekly-review",

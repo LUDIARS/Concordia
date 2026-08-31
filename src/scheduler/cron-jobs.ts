@@ -43,6 +43,9 @@ export interface CronJobDefinition {
 /** LUDIARS の全リポジトリを横断するジョブの作業ディレクトリ (Ars root)。 */
 const ARS_ROOT = "E:\\Document\\Ars";
 
+/** LUDIARS 公開サービスダッシュボードの日報更新。毎日 3:00 JST。 */
+const LUDIARS_STATUS_DAILY_CRON = "0 3 * * *";
+
 /**
  * 週次レビュー (2026-08-08 neco 指示で毎日 → 週次へ変更)。 毎週月曜 4:40 JST。
  * 空いた毎朝 5:10 枠には脆弱性対応パートタイマーを新設した (VULNERABILITY_RESPONSE_CRON)。
@@ -100,6 +103,11 @@ const DIRECTOR_TASK_ORGANIZE_CRON = "0 10 * * *";
 /** 課題スカウト。朝礼とタスク整理の観測後、毎週月曜11:00にチームごとへ進言する。 */
 const DIRECTOR_ISSUE_SCOUT_CRON = "0 11 * * 1";
 export const CRON_JOBS: CronJobDefinition[] = [{
+    name: "ludiars-status-daily",
+    cron: LUDIARS_STATUS_DAILY_CRON,
+    call_name: "ludiars-status-daily",
+    buildArgs: () => ({ date: todayIso() }),
+}, {
     name: "ludiars-review-weekly",
     cron: WEEKLY_REVIEW_CRON,
     call_name: "ludiars-review-weekly",

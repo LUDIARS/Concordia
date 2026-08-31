@@ -84,12 +84,35 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("impl-from-design")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("review-duo")?.category).toBe("freelancer");
     expect(repo.findTemplateByCallName("morning-tasks")?.category).toBe("parttimer");
+    expect(repo.findTemplateByCallName("ludiars-status-daily")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("ludiars-review-weekly")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("vulnerability-response-daily")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("vultus-catalog-refresh-daily")?.category).toBe("parttimer");
     expect(repo.findTemplateByCallName("kaizen-daily")?.category).toBe("parttimer");
     // Test Forum の投稿検知で Cc が自動起動する検証タスク (spec/feature/revisor-test-forum-sync.md)。
     expect(repo.findTemplateByCallName("test-qa")?.category).toBe("test-qa");
+  });
+
+  it("seeds the LUDIARS dashboard report as a daily Codex parttimer", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("ludiars-status-daily");
+    expect(template).toMatchObject({
+      is_active: 1,
+      call_only: 1,
+      category: "parttimer",
+      target_provider: "codex-sdk",
+      model: "gpt-5.6-sol",
+      default_cwd: "E:\\Document\\Ars\\LUDIARS",
+    });
+    expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
+      { name: "date", type: "string", required: true, description: "実行日 (YYYY-MM-DD)" },
+    ]);
+    const prompt = template?.prompt_template ?? "";
+    expect(prompt).toContain("docs\\DAILY-REPORT-PROMPT.md");
+    expect(prompt).toContain("Scheduled task を新規登録・変更する操作は行いません");
   });
 
   it("requires portable, argument-safe Anatomia supply and verification for implementation templates", () => {

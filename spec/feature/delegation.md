@@ -283,6 +283,18 @@ Timer Delegation の job 名を変更するときは、`schema_meta` に保存�
 新しい job 名へ移行する。旧既定を明示していた override は新既定へ読み替え、管理者が選んだ
 別テンプレートと、すでに新 job 側にある override は維持する。
 
+### LUDIARS dashboard report (parttimer)
+
+`ludiars-status-daily` は LUDIARS の公開サービスダッシュボードを日報として更新する
+Timer Delegation で、毎日 3:00 JST に LUDIARS 本体 (`E:\Document\Ars\LUDIARS`) から
+起動する。実行日の `date` を渡し、プロンプト正本
+`LUDIARS/docs/DAILY-REPORT-PROMPT.md` の Prompt 節に従う。
+
+同日スナップショットは重複作成せず更新し、ローカル main の直近24時間だけを集計する。
+完成度は定量的根拠がある場合だけ変更する。更新が0件でも「変更なし」の日報を作り、
+専用 worktree で commit 後に Revisor local PR を提出して停止する。サービス起動、テスト、
+merge、auto-merge、main 更新は行わない。
+
 レビュー対象の最新状態は GitHub や `origin/*` ではなく各リポジトリのローカル
 `refs/heads/<default-branch>` を正本とする。固定した main SHA から detached の一時
 worktree を作り、`Review/<repo>/latest.json` の `reviewed_at` 以降に main へ入った

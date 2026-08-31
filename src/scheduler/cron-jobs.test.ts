@@ -2,6 +2,17 @@ import { describe, expect, it } from "vitest";
 import { CRON_JOBS } from "./cron-jobs.js";
 
 describe("CRON_JOBS", () => {
+  it("schedules the LUDIARS dashboard report at 3:00 JST using the template cwd", () => {
+    const job = CRON_JOBS.find(({ name }) => name === "ludiars-status-daily");
+
+    expect(job).toMatchObject({
+      cron: "0 3 * * *",
+      call_name: "ludiars-status-daily",
+    });
+    expect(job?.cwd).toBeUndefined();
+    expect(job?.buildArgs()).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+  });
+
   it("schedules Steam persona collection at 7:40 JST using the template cwd", () => {
     const job = CRON_JOBS.find(({ name }) => name === "steam-persona-daily");
 

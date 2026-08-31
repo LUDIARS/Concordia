@@ -717,6 +717,30 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     default_cwd: "${target_repo}",
     is_active: true,
   },
+  {
+    call_name: "ludiars-status-daily",
+    title: "LUDIARS ダッシュボード日報 (毎日)",
+    description: "LUDIARS の公開サービスダッシュボードを日報として毎日更新し、専用 worktree から Revisor local PR を提出する。Timer Delegation が毎日 3:00 JST に invoke する。プロンプト正本は LUDIARS/docs/DAILY-REPORT-PROMPT.md。",
+    target_provider: "codex-sdk",
+    model: "gpt-5.6-sol",
+    runtime_options: { model_reasoning_effort: "medium" },
+    category: "parttimer",
+    emoji: "📊",
+    prompt_template: [
+      "## LUDIARS 公開サービスダッシュボード日報 — ${date}",
+      "",
+      "`E:\\Document\\Ars\\LUDIARS\\docs\\DAILY-REPORT-PROMPT.md` の Prompt 節を正本として読み、",
+      "記載された手順と制約に従って日報を更新してください。Schedule 節は実行条件の説明なので、",
+      "Scheduled task を新規登録・変更する操作は行いません。",
+      "",
+      MENTION_ADMIN_STEP,
+    ].join("\n"),
+    input_schema: [
+      { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
+    ],
+    default_cwd: "E:\\Document\\Ars\\LUDIARS",
+    is_active: true,
+  },
   // 単一オーケストレータ (Claude) 版。2026-08-08 neco 指示で毎日 → 週次へ変更 (形骸化した
   // デイリーレビューを廃止し、空いた朝枠は vulnerability-response-daily に譲った)。
   // dual テンプレート自体は手動起動用に残す。

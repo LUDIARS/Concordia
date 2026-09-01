@@ -242,9 +242,10 @@ export async function executeForumSpawn(
     // — 「設定していない窓口は何でも起こせる」 を作らないため (spec §3.4)。
     const projects = deps.resolveSubsidiaryProjects();
     if (!isProjectNameInScope(project.project, projects)) {
+      // project 設定は管理 API 入力なので、診断ログは JSON 化して改行によるログ偽装を防ぐ。
       deps.log.warn(
         `forum-spawn project out of subsidiary scope thread=${thread.id} `
-        + `project=${project.project} scope=[${projects.join(",")}]`,
+        + `project=${JSON.stringify(project.project)} scope=${JSON.stringify(projects)}`,
       );
       await reply(
         deps,

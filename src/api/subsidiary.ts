@@ -42,8 +42,8 @@ const CreateSchema = z.object({
   guard_scope: z.string().max(8000).optional(),
   daily_token_budget: z.number().int().min(0).max(1_000_000_000).optional(),
   default_team_id: z.string().trim().min(1).max(120).nullable().optional(),
-  // 関係 project (project_codes.project と同じ表記)。 Test forum の掲載範囲を決める。
-  // 省略 = 据え置き / [] = 未設定 (1 件も載せない)。 spec §3.4。
+  // 関係 project (project_codes.project と同じ表記)。 Test forum の掲載と run 起動範囲を決める。
+  // 省略 = 据え置き / [] = 未設定 (1 件も載せず、起動もしない)。 spec §3.4。
   projects: z.array(z.string().trim().min(1).max(120)).max(200).optional(),
 });
 
@@ -260,7 +260,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       }
     }
     const { bot_token, app_token, projects, ...rest } = parsed.data;
-    // projects は「丸ごと置換」。 省略時は据え置き、 [] で未設定 (掲載ゼロ) に戻す。
+    // projects は「丸ごと置換」。 省略時は据え置き、 [] で未設定 (掲載・起動ゼロ) に戻す。
     if (projects !== undefined) deps.repo.setProjects(id, projects);
     const row = deps.repo.update(id, {
       ...rest,

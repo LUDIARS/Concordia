@@ -63,8 +63,10 @@ describe("processSubsidiaryRequest 関係プロジェクト (spec §3.4)", () =>
     '{"decision":"allow","reason":"ok","matched_call_name":"fix-content","violations":[],"lock_user":false}';
 
   it("関係プロジェクト外の delegation は起動せず deny", async () => {
-    subRepo.setProjects(sub.id, ["Pagus"]);
+    subRepo.setProjects(sub.id, ["Pagus\nforged=true"]);
     const { deps, invoke } = makeDeps(allowVerdict);
+    const warn = vi.fn();
+    deps.log = { info: vi.fn(), warn };
     const r = await processSubsidiaryRequest(deps, {
       subsidiary: sub, platform: "discord", userId: "u1", userLabel: "alice", instruction: "README誤字直して",
     });
@@ -75,6 +77,7 @@ describe("processSubsidiaryRequest 関係プロジェクト (spec §3.4)", () =>
     expect(req.reason).toContain("関係プロジェクト外");
     expect(r.replyText).not.toContain("Pictor");
     expect(r.replyText).not.toContain("Pagus");
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain("\n");
   });
 
   it("関係プロジェクト未設定なら 1 件も起動しない", async () => {

@@ -218,7 +218,7 @@ Discord・Slack とも、 **特定カテゴリ内のデフォルト通知設定�
   はすべて Discord と同型。
 - 受付チャンネル (`channel_id`) からの依頼を §2 ガードに通すゲートも Discord と同型。
 
-### 3.4 Test forum の掲載範囲 = 関係プロジェクト (2026-09-01 neco 指示)
+### 3.4 関係プロジェクトによる掲載・起動境界 (2026-09-01 neco 指示)
 
 Test forum は Revisor の open local PR を投稿する面で、 本社では全リポジトリが対象になる。
 これを子会社にそのまま出すと、 その子会社に無関係なリポジトリの PR タイトル・branch 名・
@@ -264,7 +264,7 @@ subsidiaries
   default_team_id     -- 自社所有 team の既定。NULL = team 未指定
   created_at, updated_at
 
-subsidiary_projects   -- 関係プロジェクト (Test forum の掲載範囲。 §3.4)
+subsidiary_projects   -- 関係プロジェクト (Test forum の掲載・run 起動範囲。 §3.4)
   subsidiary_id (fk)
   project             -- project code registry の project (= repo 名)。 COLLATE NOCASE
   PRIMARY KEY (subsidiary_id, project)

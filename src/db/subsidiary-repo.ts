@@ -239,8 +239,8 @@ export class SubsidiaryRepo {
   // ── 関係 project (Test forum の掲載範囲) ────────────────────
 
   /**
-   * 子会社が関係する project 名の集合。 空 = 未設定で、 掲載側は「1 件も出さない」と
-   * 解釈する (未設定を全許可にすると本社の全 PR が漏れるため)。
+   * 子会社が関係する project 名の集合。 空 = 未設定で、 掲載側は「1 件も出さない」、
+   * 起動側は「1 件も起動しない」と解釈する (未設定を全許可にすると情報・権限境界が消えるため)。
    */
   listProjects(subsidiaryId: string): string[] {
     return (this.db.prepare(

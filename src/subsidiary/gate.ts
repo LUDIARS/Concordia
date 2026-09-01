@@ -221,9 +221,10 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
       reason: `関係プロジェクト外: ${owned.project ?? "(未設定)"} (許可=${scopeLabel})`,
       violations: ["out_of_scope"], matched_call_name: callName, guard_model: sub.guard_model, guard_raw: raw,
     });
+    // project 設定は管理 API 入力なので、診断ログは JSON 化して改行によるログ偽装を防ぐ。
     log?.warn(
       `subsidiary gate: project out of scope sub=${sub.name} call=${callName} `
-      + `project=${owned.project ?? "-"} scope=[${projects.join(",")}]`,
+      + `project=${JSON.stringify(owned.project)} scope=${JSON.stringify(projects)}`,
     );
     return {
       outcome: "denied", reason: "project out of scope", verdict, callName,

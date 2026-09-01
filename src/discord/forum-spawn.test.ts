@@ -55,7 +55,7 @@ function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
     isLaunchUserAllowed: (userId) => userId === "123456789",
     templates: vi.fn(async () => [selected]),
     selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
-    resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
+    resolveProjectTarget: () => ({ project: "Concordia", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
     resolveSpawnCwd: (_provider, requested) => requested,
     hasExistingRun: () => false,
     postToThread: vi.fn(async () => undefined),
@@ -123,7 +123,7 @@ describe("forum spawn", () => {
       triggered_by: "discord-forum:guild-1:thread-1",
       spawn: true,
       subsidiary_id: null,
-      project: "Cc",
+      project: "Concordia",
       requester_discord_user_id: "123456789",
       source_discord_guild_id: "guild-1",
       source_discord_channel_id: "thread-1",
@@ -223,7 +223,7 @@ describe("forum spawn", () => {
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     await handleForumSpawnThread(
-      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => ["Cc"] }),
+      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => ["Concordia"] }),
       makeThread(),
     );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
@@ -234,15 +234,22 @@ describe("forum spawn", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const replies: string[] = [];
+    const warn = vi.fn();
     const postToThread = async (_threadId: string, content: string) => { replies.push(content); };
     await handleForumSpawnThread(
-      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => ["Pagus"], postToThread }),
+      makeDeps({
+        subsidiaryId: "sub-1",
+        resolveSubsidiaryProjects: () => ["Pagus\nforged=true"],
+        postToThread,
+        log: { info: vi.fn(), warn },
+      }),
       makeThread(),
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(replies.join(" ")).toContain("担当範囲外");
-    expect(replies.join(" ")).not.toContain("Cc");
+    expect(replies.join(" ")).not.toContain("Concordia");
     expect(replies.join(" ")).not.toContain("Pagus");
+    expect(String(warn.mock.calls[0]?.[0])).not.toContain("\n");
   });
 
   it("関係プロジェクト未設定の子会社も起動しない", async () => {

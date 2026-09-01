@@ -163,10 +163,14 @@ describe("handleEvent session.message relay", () => {
 
   it("drops oversized attachment data before decoding it for Discord", async () => {
     const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    const oversizedData = {
+      length: 32 * 1024 * 1024 + 1,
+      valueOf: () => { throw new Error("oversized attachment was decoded"); },
+    } as unknown as string;
     handleEvent(deps, sessionMessage(sessionId, "create", {
       id: 11,
       content: "",
-      attachments: [{ kind: "image", media_type: "image/png", data: "A".repeat(32 * 1024 * 1024 + 1) }],
+      attachments: [{ kind: "image", media_type: "image/png", data: oversizedData }],
     }));
     await flushEgress();
 

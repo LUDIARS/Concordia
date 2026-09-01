@@ -61,6 +61,38 @@ describe("buildImplementationInject", () => {
     expect(text).not.toContain("第 2 段階");
   });
 
+  it("着手時バンドル 6 手を番号付きでこの順に並べる", () => {
+    const text = buildImplementationInject(BASE);
+    expect(text).toContain("#### 着手時バンドル (この順で回す)");
+    const steps = [
+      "1. ドメインを定義する前にコードを書かない",
+      "2. 再利用できる実装を解析グラフから探す",
+      "3. テストを対で計画する (Anatomia `test-suggestions` → `augur plan`、減らすときは理由を書く)",
+      "4. 実装 (src と tests を同じ変更単位で)",
+      "5. 検証 (`git diff | anatomia verify`、Revisor gate は enforced、解析不能は fail)",
+      "6. 回帰 (変更種別の既存テスト)",
+    ];
+    const positions = steps.map((step) => text.indexOf(step));
+    expect(positions.every((p) => p >= 0)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
+    // 1 / 2 の補足 (宣言の置き場所・採否記載) も落とさない。
+    expect(text).toContain("`spec/domains/<name>.domain.json` を先に書く、同じ PR に含める");
+    expect(text).toContain("PR 説明に 1 行、見つけたら必ず使うではない");
+    // バンドルは「着手前の把握」の中、Memoria 節より前に置く。
+    expect(text.indexOf("### 着手前の把握")).toBeLessThan(text.indexOf("#### 着手時バンドル"));
+    expect(text.indexOf("#### 着手時バンドル")).toBeLessThan(text.indexOf("### Memoria タスク"));
+  });
+
+  it("完了条件チェックリストにバンドル 3 手の担保行を含む", () => {
+    const text = buildImplementationInject(BASE);
+    expect(text).toContain("- [ ] 着地ドメインを Anatomia に登録した");
+    expect(text).toContain("- [ ] 再利用探索の採否と理由を PR 説明に書いた");
+    expect(text).toContain("- [ ] テスト計画 (`augur plan`) に沿って対のテストを実装した");
+    expect(text.indexOf("- [ ] 着地ドメインを Anatomia に登録した")).toBeGreaterThan(
+      text.indexOf("### 完了条件"),
+    );
+  });
+
   it("報告のあとは終了し、次のタスクを拾わないよう指示する", () => {
     const text = buildImplementationInject(BASE);
     expect(text).toContain("このセッションは終了");

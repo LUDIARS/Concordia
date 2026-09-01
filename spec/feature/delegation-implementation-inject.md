@@ -14,7 +14,7 @@ status: implemented
 related:
   - delegation.md
   - feature/task-workflow.md
-updated: 2026-08-26
+updated: 2026-09-01
 ---
 
 # Delegation 実装委託の 1 通注入
@@ -51,9 +51,13 @@ kind (manual-kind) が `実装` の委託は、 `## Prompt` 節を次の構成�
 1. `なぜ (why)` — args の `why` / `reason` / `problem` / `background` → 既定文の順で解決。 LLM は介在しない。
 2. `実装タスク` — `rendered_prompt` 全文 (伏せない)。
 3. `着手前の把握` — Anatomia 解析グラフ (`/anatomia-analyze` → `find` / `where` / `context`) と
-   `spec/` / `spec/tasks/` を自分で引く。 調査報告して指示を待つ工程は無い。
+   `spec/` / `spec/tasks/` を自分で引く。 調査報告して指示を待つ工程は無い。 さらに
+   `着手時バンドル` 小節で AIFormat `HARNESS.md` §2.0 の 6 手 (ドメイン定義 → 再利用探索 →
+   テスト計画 `augur plan` → 実装 → 検証 → 回帰) を番号付きで渡す。 Codex には harness hook が
+   効かないため、 伝達経路は seed 本文だけ。
 4. `Memoria タスク` — 起票済みなら id + link、 失敗なら理由 (黙って省略しない)。
-5. `完了条件` — 仕様更新 / 実装 / 回帰テスト / commit / Revisor local PR / status 報告。タスク本文が
+5. `完了条件` — 仕様更新 / 着地ドメイン登録 / 再利用探索の採否記載 / テスト計画に沿った対のテスト /
+   実装 / 回帰テスト / commit / Revisor local PR / status 報告。タスク本文が
    Revisor 指摘解消・マージ完了など PR より後段の完了条件を明示した場合はそちらを優先し、
    `failed` / `action_required` で止まったら対応完了を goal に置いて修正・再提出を続ける。
 6. 安全境界 — worktree 内のみ・main 直コミット禁止・無関係な未コミット変更に触れない・

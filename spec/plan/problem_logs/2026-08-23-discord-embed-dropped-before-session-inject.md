@@ -37,6 +37,7 @@ embed messages then matched the early empty-message guard and were discarded ent
 
 - Normalize embed title, description, URL, author, provider, fields, footer, timestamp, and video URL into
   bounded inject context.
+- Delimit embed text as untrusted data and escape structural characters so it cannot forge the boundary.
 - Route embed image and thumbnail assets through the existing verified image inbox.
 - Fetch only Discord CDN/proxy URLs; never fetch an arbitrary external embed source URL.
 - Allow an embed asset without a declared byte size, while retaining the streaming 20 MiB response limit.
@@ -45,8 +46,8 @@ embed messages then matched the early empty-message guard and were discarded ent
 
 ## Verification
 
-Regression tests were added for rich embed formatting, safe proxy selection, unknown-size image storage,
-and embed-only session injection. Tests were not run in this session, per the user policy.
+Regression tests were added for rich embed formatting, untrusted-data boundary escaping, safe proxy selection,
+unknown-size image storage, and embed-only session injection. Tests were not run in this session, per the user policy.
 
 ## Follow-up
 

@@ -44,6 +44,7 @@ Concordia と同じ端末に保存され、Discord URL の有効期限後も処�
 
 - 取得元は標準 HTTPS port の `cdn.discordapp.com` / `media.discordapp.net` のみとし、URL userinfo は拒否する。
 - embed の外部原本 URL は直接取得せず、Discord が提供する安全な proxy URL を優先する。
+- embed の表示文面は非信頼データとして区切り、境界を偽装できないよう構造文字をエスケープする。
 - PNG / JPEG / GIF / WebP のみ、1 投稿 4 枚、1 枚 20 MiB を上限とする。
 - SVG 等の未対応画像は本文付き投稿でも黙って無視せず、投稿全体を fail loud にする。
 - redirect は許可せず、取得は 15 秒で打ち切る。レスポンス本文も streaming 中に容量を検査する。

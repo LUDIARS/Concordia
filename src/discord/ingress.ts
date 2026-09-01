@@ -83,6 +83,18 @@ export interface IngressDeps {
   };
   /** True only for a subsidiary guild; head-office desk intake remains false. */
   subsidiary?: boolean;
+  /**
+   * Session forum で「起動に要る情報が足りない」と聞き返したスレッドへの返信を、
+   * 回答として取り込む (forum-spawn-intake.ts)。 取り込んだら true = 通常経路へ流さない。
+   * 未配線なら従来どおり素通し。
+   */
+  handleForumSpawnIntakeReply?: (input: {
+    guildId: string;
+    channelId: string;
+    messageId: string;
+    authorId: string;
+    text: string;
+  }) => Promise<boolean>;
   handlePlanReply?: (
     sessionId: string,
     text: string,
@@ -202,6 +214,25 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
     if (intake.isLocked(msg.author.id)) {
       deps.log.info(`ingress: locked user=${msg.author.id} channel=${msg.channelId}; blocked`);
       try { await msg.reply({ content: "🔒 ロック中のため処理できません。", allowedMentions: { parse: [], repliedUser: false } }); } catch {}
+      return;
+    }
+  }
+
+  // Session forum の聞き返しへの返信は、 その場で spawn を再開する回答として取り込む。
+  // セッション経路 (inject) にもチャット経路にも載せない。
+  if (text && deps.handleForumSpawnIntakeReply) {
+    const answered = await deps.handleForumSpawnIntakeReply({
+      guildId: msg.guildId,
+      channelId: msg.channelId,
+      messageId: msg.id,
+      authorId: msg.author.id,
+      text: text.slice(0, 4000),
+    }).catch((e) => {
+      deps.log.warn(`ingress: forum-spawn intake reply failed channel=${msg.channelId}: ${(e as Error).message}`);
+      return false;
+    });
+    if (answered) {
+      deps.log.info(`ingress: forum-spawn intake answered channel=${msg.channelId} user=${msg.author.id}`);
       return;
     }
   }

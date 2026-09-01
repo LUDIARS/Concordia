@@ -292,6 +292,71 @@ function stubSuccessfulFetch() {
   return fetchMock;
 }
 
+// 2026-09-01 neco 指示 3: Session forum の聞き返しへの返信は、 inject にもチャットにも
+// 載せず、 その場で spawn を再開する回答として取り込む。
+describe("Session forum の不足情報への返信", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function makeThreadDeps(handled: boolean) {
+    const handleForumSpawnIntakeReply = vi.fn(async () => handled);
+    const deps: IngressDeps = {
+      ...makeDeps("claude-code"),
+      // Session forum のスレッドはまだセッションを持たない。
+      sessionChannelsRepo: {
+        findByChannelId: vi.fn(() => null),
+      } as unknown as IngressDeps["sessionChannelsRepo"],
+      handleForumSpawnIntakeReply,
+    };
+    return { deps, handleForumSpawnIntakeReply };
+  }
+
+  const threadMessage = () => makeMessage({
+    channelId: "thread-1",
+    id: "reply-1",
+    content: "Concordia の受付文言を直して",
+    channel: { type: ChannelType.PublicThread, parentId: "forum-1", send: vi.fn() },
+  });
+
+  it("回答として取り込まれたら通常経路へ流さない", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { deps, handleForumSpawnIntakeReply } = makeThreadDeps(true);
+
+    await handleMessage(deps, threadMessage());
+
+    expect(handleForumSpawnIntakeReply).toHaveBeenCalledWith(expect.objectContaining({
+      guildId: "guild1",
+      channelId: "thread-1",
+      messageId: "reply-1",
+      authorId: "user1",
+    }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("対象外なら従来どおり素通しする", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { deps, handleForumSpawnIntakeReply } = makeThreadDeps(false);
+
+    await handleMessage(deps, threadMessage());
+
+    expect(handleForumSpawnIntakeReply).toHaveBeenCalledOnce();
+    // ルーティング先の無いチャンネルなので何も起きない (例外にしない)。
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("no routing target"));
+  });
+
+  it("回答の取り込みが失敗しても投稿を落とさない", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const { deps } = makeThreadDeps(false);
+    deps.handleForumSpawnIntakeReply = vi.fn(async () => { throw new Error("thread gone"); });
+
+    await handleMessage(deps, threadMessage());
+
+    expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining("intake reply failed"));
+  });
+});
+
 function makeDeps(provider: string): IngressDeps {
   return {
     configRepo: { all: vi.fn(() => ({})) } as unknown as IngressDeps["configRepo"],

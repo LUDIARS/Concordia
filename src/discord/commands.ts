@@ -47,6 +47,11 @@ import {
   dispatchForumSpawnApprovalInteraction,
   isForumSpawnApprovalInteraction,
 } from "./forum-spawn-approval.js";
+import {
+  dispatchForumSpawnIntakeInteraction,
+  isForumSpawnIntakeInteraction,
+} from "./forum-spawn-intake.js";
+import { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction } from "./subsidiary-scope.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 /** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
@@ -85,15 +90,8 @@ const COMMANDS: DiscordCommandSpec[] = [
   doctorCommand,
 ];
 
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);
-
-export function isSubsidiaryAllowedCommand(name: string): boolean {
-  return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);
-}
-
-export function isSubsidiaryAllowedInteraction(interaction: Interaction): boolean {
-  return "commandName" in interaction && isSubsidiaryAllowedCommand(String(interaction.commandName));
-}
+// 子会社 guild の許可範囲は subsidiary-scope.ts が正本 (登録と dispatch で同じ集合を使う)。
+export { isSubsidiaryAllowedCommand, isSubsidiaryAllowedInteraction } from "./subsidiary-scope.js";
 
 export function commandNamesForRegistration(opts: CommandRegistrationOptions = {}): string[] {
   const isWorkflowEnabled = opts.isWorkflowEnabled ?? (() => true);
@@ -122,8 +120,8 @@ export async function clearGuildCommands(token: string, applicationId: string, g
 }
 
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
-  // Forum spawn の承認ボタンは子会社 guild でも有効 (子会社の許可リストはコマンド名
-  // ベースなので、ボタン interaction はここで先に取り次ぐ)。
+  // Session forum 起動の承認ボタン / 不足情報の回答は本社・子会社の両方で有効。
+  // 子会社の許可判定より前に取り次ぐ (どちらも起動待ちのスレッド 1 本に閉じた操作)。
   if (isForumSpawnApprovalInteraction(interaction)) {
     await dispatchForumSpawnApprovalInteraction(interaction, {
       store: deps.forumSpawnApprovals,
@@ -133,9 +131,28 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
     });
     return;
   }
-  // 子会社 guild では許可リスト外の Discord コマンドを拒否する。作業依頼 / spawn 系は
-  // 受付チャンネルのメッセージ → ガードゲート経由のみ。過去登録済みの guild からの
-  // 残存コマンド実行もここで確実に弾く (二段防御)。
+  if (isForumSpawnIntakeInteraction(interaction)) {
+    if (!deps.forumSpawnIntakes || !deps.resumeForumSpawnIntake || !deps.replyToForumThread) {
+      deps.log.warn("forum-spawn intake interaction unwired; ignoring");
+      if (interaction.isRepliable()) {
+        await interaction.reply({
+          content: "この質問への回答を処理できません。Bot の設定を確認してください。",
+          ephemeral: true,
+        }).catch(() => { /* best-effort */ });
+      }
+      return;
+    }
+    await dispatchForumSpawnIntakeInteraction(interaction, {
+      store: deps.forumSpawnIntakes,
+      isLaunchUserAllowed: deps.isLaunchUserAllowed,
+      resumeSpawn: deps.resumeForumSpawnIntake,
+      reply: deps.replyToForumThread,
+      log: deps.log,
+    });
+    return;
+  }
+  // 子会社 guild は許可範囲外のコマンド / 操作面を拒否する (subsidiary-scope.ts)。
+  // 過去登録済みの guild からの残存コマンド実行もここで確実に弾く (二段防御)。
   if (deps.subsidiaryId && !isSubsidiaryAllowedInteraction(interaction)) {
     deps.log.warn(
       `discord interaction rejected (subsidiary) subsidiary=${deps.subsidiaryId} ` +
@@ -145,7 +162,7 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       await interaction.respond([]).catch(() => { /* best-effort */ });
     } else if (interaction.isRepliable()) {
       await interaction.reply({
-        content: "このサーバでは Discord コマンドは利用できません。依頼は受付チャンネルへメッセージでどうぞ。",
+        content: "このサーバではこの操作は利用できません。依頼は受付チャンネルか Session フォーラムへどうぞ。",
         ephemeral: true,
       }).catch(() => { /* best-effort */ });
     }
@@ -154,7 +171,14 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
   const privileged = classifyPrivilegedInteraction(interaction);
   if (privileged && !isPrivilegedActorAllowed(interaction, deps, privileged)) {
     let approvedSpawn = false;
-    if (interaction.isChatInputCommand() && interaction.commandName === "spawn") {
+    // 執行役員への一回許可は本社 guild 限定。 子会社 guild で出すと本社役員の user id を
+    // 出張先へ列挙することになり、 押せないボタンにもなる (役員が出張先に居るとは限らない)。
+    // 子会社では役職判定の結果をそのまま返す。
+    if (
+      !deps.subsidiaryId
+      && interaction.isChatInputCommand()
+      && interaction.commandName === "spawn"
+    ) {
       approvedSpawn = consumeApprovedSpawn(interaction, deps.spawnApprovals);
       if (!approvedSpawn) {
         deps.log.warn(`discord session_spawn requesting executive approval user=${interaction.user.id || "-"}`);

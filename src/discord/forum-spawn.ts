@@ -13,6 +13,11 @@ import {
   type ForumTagIdentity,
   type ForumTagState,
 } from "./forum-system-tag.js";
+import {
+  detectMissingForumSpawnInfo,
+  forumSpawnIntakeGiveUpMessage,
+  type ForumSpawnMissingField,
+} from "./forum-spawn-intake.js";
 
 const FORUM_SPAWN_TRIGGER_PREFIX = "discord-forum";
 
@@ -33,6 +38,17 @@ export interface ApprovedForumSpawnContent {
   readonly title: string;
   readonly body: string;
   readonly tagState: ForumTagState;
+}
+
+/**
+ * spawn 実行部へ渡す投稿内容の差し替え。 承認経路はタグ状態まで固定するが、
+ * 不足情報の回答経路は本文だけを補完し、タグは実行時に取り直す (回答の間に
+ * 付け替えられたタグを取りこぼさないため)。
+ */
+export interface SuppliedForumSpawnContent {
+  readonly title: string;
+  readonly body: string;
+  readonly tagState?: ForumTagState;
 }
 
 export function matchesApprovedForumContent(
@@ -88,6 +104,18 @@ export interface ForumSpawnDeps {
    */
   guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
     => Promise<{ ok: boolean; replyText: string }>;
+  /**
+   * spawn に必要な情報 (関係プロジェクト / タスク内容) が投稿から取れないとき、
+   * スレッド内で聞き返す (forum-spawn-intake.ts)。 質問を出せたら true。
+   * 未配線なら従来どおり平文で不足を伝えて終わる。
+   */
+  requestIntake?: (input: {
+    thread: ForumSpawnThread;
+    requesterUserId: string;
+    title: string;
+    body: string;
+    missing: readonly ForumSpawnMissingField[];
+  }) => Promise<boolean>;
   hasExistingRun: (triggeredBy: string) => boolean;
   /** Cc の Forum 返信も必ず親 Forum webhook + thread_id で投稿する。 */
   postToThread: (threadId: string, content: string) => Promise<void>;
@@ -139,13 +167,15 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
 }
 
 /**
- * 権限確認より後の spawn 続行部。 承認ボタン (forum-spawn-approval.ts) からの再入口も
- * ここを呼ぶ — 重複 run 判定 (triggered_by) が冪等性を守る。
+ * 権限確認より後の spawn 続行部。 再入口は 2 つ:
+ *  - 承認ボタン (forum-spawn-approval.ts): 承認時点の投稿内容 + タグ状態を固定して渡す。
+ *  - 不足情報の回答 (forum-spawn-intake.ts): 補完した本文だけを渡し、タグ状態は取り直す。
+ * どちらも重複 run 判定 (triggered_by) が冪等性を守る。
  */
 export async function executeForumSpawn(
   deps: ForumSpawnDeps,
   thread: ForumSpawnThread,
-  approvedContent?: ApprovedForumSpawnContent,
+  suppliedContent?: SuppliedForumSpawnContent,
 ): Promise<void> {
   const triggeredBy = buildForumSpawnTrigger(thread.guildId, thread.id);
   if (deps.hasExistingRun(triggeredBy)) {
@@ -153,8 +183,8 @@ export async function executeForumSpawn(
     return;
   }
 
-  let title = approvedContent?.title;
-  let body = approvedContent?.body;
+  let title = suppliedContent?.title;
+  let body = suppliedContent?.body;
   if (title === undefined || body === undefined) {
     const starter = await fetchStarterWithRetry(thread, deps.wait);
     if (!starter) {
@@ -182,13 +212,22 @@ export async function executeForumSpawn(
     }
   }
   const project = deps.resolveProjectTarget(title, body);
-  if (!project) {
-    deps.log.info(`forum-spawn project unresolved thread=${thread.id}`);
-    await reply(
-      deps,
-      thread,
-      "作業対象プロジェクトを特定できませんでした。プロジェクトコードまたはリポジトリ名を本文かタイトルに追記してください。Castra 直下では Session を起動しません。",
-    );
+  // Session forum への投稿は「起動依頼」。 起動に要る情報が欠けていたら平文の拒否で
+  // 終わらせず、 同じスレッドで聞き返す (2026-09-01 neco 指示 3)。
+  const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null });
+  if (missing.length > 0 || !project) {
+    // 権限の無い投稿者の起動承認は、カード作成時の exact content に対するもの。
+    // 承認後に依頼者の回答を追記すると、未承認の作業内容で起動できてしまう。
+    // 承認スナップショットが不完全な場合は内容の接ぎ足しを禁止し、完全な
+    // 新規スレッドを改めて承認してもらう。
+    if (suppliedContent?.tagState) {
+      deps.log.warn(`forum-spawn approved content incomplete thread=${thread.id} fields=${missing.join(",")}`);
+      await reply(deps, thread, forumSpawnIntakeGiveUpMessage(
+        missing.length > 0 ? missing : (["project"] as const),
+      ));
+      return;
+    }
+    await askForMissingForumSpawnInfo(deps, thread, { title, body, missing });
     return;
   }
   const isSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
@@ -235,7 +274,7 @@ export async function executeForumSpawn(
     return;
   }
 
-  let freshTagState = approvedContent?.tagState;
+  let freshTagState = suppliedContent?.tagState;
   if (!freshTagState) {
     try {
       freshTagState = await thread.fetchTagState();
@@ -279,6 +318,35 @@ export async function executeForumSpawn(
     `provider=${provider} project=${project?.project ?? "workspace-default"} cwd=${cwd ?? "unresolved"}`,
   );
   await reply(deps, thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
+}
+
+/**
+ * 不足情報をスレッドで質問する。 質問面が未配線 / 依頼者不明 / 聞き返し上限のときは
+ * 何が足りないかを平文で伝えて終わる (無言で捨てない)。
+ */
+async function askForMissingForumSpawnInfo(
+  deps: ForumSpawnDeps,
+  thread: ForumSpawnThread,
+  content: { title: string; body: string; missing: readonly ForumSpawnMissingField[] },
+): Promise<void> {
+  const missing = content.missing.length > 0 ? content.missing : (["project"] as const);
+  deps.log.info(`forum-spawn info missing thread=${thread.id} fields=${missing.join(",")}`);
+  if (deps.requestIntake && thread.ownerId) {
+    try {
+      const asked = await deps.requestIntake({
+        thread,
+        requesterUserId: thread.ownerId,
+        title: content.title,
+        body: content.body,
+        missing,
+      });
+      if (asked) return;
+    } catch (error) {
+      deps.log.warn(`forum-spawn intake question failed thread=${thread.id}: ${(error as Error).message}`);
+      // カード投稿の失敗を無言で終わらせず、webhook の通常返信経路を試す。
+    }
+  }
+  await reply(deps, thread, forumSpawnIntakeGiveUpMessage(missing));
 }
 
 export function isConcordiaSessionStarter(content: string): boolean {

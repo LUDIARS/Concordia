@@ -94,6 +94,11 @@ import {
   requestForumSpawnApproval,
   type ForumSpawnApprovalStore,
 } from "./forum-spawn-approval.js";
+import {
+  handleForumSpawnIntakeReply,
+  requestForumSpawnIntake,
+  type ForumSpawnIntakeStore,
+} from "./forum-spawn-intake.js";
 import type { AnyThreadChannel } from "discord.js";
 import { selectForumDelegationTemplate } from "./forum-delegation-selector.js";
 import {
@@ -445,6 +450,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const permissionActions: PermissionActionStore = new Map();
   const spawnApprovals: SpawnApprovalStore = new Map();
   const forumSpawnApprovals: ForumSpawnApprovalStore = new Map();
+  // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。
+  const forumSpawnIntakes: ForumSpawnIntakeStore = new Map();
 
   const resolveReactionSafetyValve =
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
@@ -1174,6 +1181,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         // (子会社 Bot に desk は配線されない)。
         intake: resolveIntake(deps, subsidiaryIntakeChannelId, deskChannelId),
         subsidiary: Boolean(deps.subsidiary),
+        // Session forum の聞き返しへの返信を回答として取り込み、 spawn を再開する。
+        handleForumSpawnIntakeReply: (input) => handleForumSpawnIntakeReply(
+          {
+            store: forumSpawnIntakes,
+            isLaunchUserAllowed: deps.isLaunchUserAllowed,
+            resumeSpawn: resumeForumSpawnIntake,
+            reply: replyToForumThread,
+            log,
+          },
+          input,
+        ),
         handlePlanReply: async (sessionId, text, authorId) => {
           const match = text.match(/^\s*\[([ABC])\](?:\s+([\s\S]+))?\s*$/i);
           if (!match) return { handled: false };
@@ -1260,6 +1278,31 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           },
         }, { id: t.id, guildId: t.guildId, ownerId: t.ownerId ?? "", approvedContent });
       },
+      // 起動に要る情報 (関係プロジェクト / タスク内容) が投稿から取れないときは、
+      // 平文の拒否で終わらせずスレッド内で聞き返す (2026-09-01 neco 指示 3)。
+      requestIntake: (input) => requestForumSpawnIntake(
+        {
+          store: forumSpawnIntakes,
+          postCard: async (threadId, content, components) => {
+            const ch = await client.channels.fetch(threadId);
+            if (!ch?.isThread()) throw new Error("intake thread unavailable");
+            // `<@id>` は本文に出すが ping はしない (高頻度面の通知を増やさない §3.2)。
+            await ch.send({ content, components, allowedMentions: { parse: [] } });
+          },
+          log,
+        },
+        {
+          guildId: input.thread.guildId,
+          threadId: input.thread.id,
+          requesterUserId: input.requesterUserId,
+          title: input.title,
+          body: input.body,
+          missing: input.missing,
+          // 子会社は担当プロジェクトから選ばせる。 本社は候補を出さず自由記述で答えてもらう
+          // (登録プロジェクトは select menu の上限 25 を超えるため)。
+          projectChoices: deps.subsidiary?.resolveProjects() ?? [],
+        },
+      ),
       // 子会社 Bot は spawn 前に依頼本文をガードゲートへ通す (subsidiary-delegation §3.1)。
       guardInstruction: deps.subsidiary?.guardInstruction,
       // 子会社は担当プロジェクト外のスレッドから起動しない (subsidiary-delegation §3.4)。
@@ -1313,6 +1356,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     await executeForumSpawn(forumDeps, thread, approvedContent);
     return { ok: true };
   };
+  /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
+  const replyToForumThread = async (threadId: string, content: string): Promise<void> => {
+    const forumDeps = forumSpawnDepsNow();
+    if (!forumDeps) throw new Error("Session forum is not ready");
+    await forumDeps.postToThread(threadId, content);
+  };
+  // 不足情報の回答 (選択メニュー / スレッド返信) からの spawn 続行。 補完した本文で
+  // 実行部へ再入する。 タグ状態は実行時に取り直す (回答の間の付け替えを取りこぼさない)。
+  const resumeForumSpawnIntake = async (
+    threadId: string,
+    content: { title: string; body: string },
+  ): Promise<void> => {
+    const forumDeps = forumSpawnDepsNow();
+    if (!forumDeps) throw new Error("Session forum is not ready");
+    const ch = await client.channels.fetch(threadId).catch(() => null);
+    if (!ch?.isThread()) throw new Error("thread not found");
+    await executeForumSpawn(forumDeps, toForumSpawnThread(ch), content);
+  };
   const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
     if (gatewayClosed || stopping || !newlyCreated) return;
     if (!inScope(thread.guildId)) return;
@@ -1335,6 +1396,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log,
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,
+        // 子会社はセッションスレッドのリアクションだけを操作として扱う (neco 指示 2)。
+        subsidiary: Boolean(deps.subsidiary),
         recordStaffAccess: deps.recordStaffAccess,
         sessionChannels: sessionChannelsRepo,
         sessions: deps.sessionsRepo,
@@ -1411,9 +1474,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。
       forumSpawnApprovals,
       executeApprovedForumSpawn,
+      // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の質問と回答。
+      forumSpawnIntakes,
+      resumeForumSpawnIntake,
+      replyToForumThread,
       listExecutiveDiscordUserIds: deps.listExecutiveDiscordUserIds,
       checkDependencies: deps.checkDependencies,
       subsidiaryId,
+      // 子会社の `/spawn` は担当プロジェクトへ閉じる (subsidiary-delegation §3.4)。
+      resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       isLaunchUserAllowed: deps.isLaunchUserAllowed,
       isSessionEndUserAllowed: deps.isSessionEndUserAllowed,
       isKillSwitchUserAllowed: deps.isKillSwitchUserAllowed,

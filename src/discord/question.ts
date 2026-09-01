@@ -21,6 +21,16 @@ import type {
   PendingQuestionOption,
 } from "../db/discord-repo.js";
 
+/** AskUserQuestion の操作面が使う customId 接頭辞 (単一・複数選択 / その他 / modal)。 */
+export const QUESTION_CUSTOM_ID_PREFIXES = ["q:", "qsel:", "qmul:", "qoth:", "qothm:"] as const;
+
+/** この interaction が AskUserQuestion の回答操作か (dispatch 前の面判定に使う)。 */
+export function isQuestionInteraction(interaction: Interaction): boolean {
+  if (!("customId" in interaction) || typeof interaction.customId !== "string") return false;
+  const customId = interaction.customId;
+  return QUESTION_CUSTOM_ID_PREFIXES.some((prefix) => customId.startsWith(prefix));
+}
+
 function parseCustomId(customId: string): { questionId: number; answerIndex: number } | null {
   const m = /^q:(\d+):(\d+)$/.exec(customId);
   if (!m) return null;

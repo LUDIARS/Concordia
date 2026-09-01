@@ -12,9 +12,12 @@ describe("Discord command registration", () => {
   });
 
   it("registers only safe session commands for subsidiary guilds", () => {
-    expect(commandNamesForRegistration({ subsidiary: true })).toEqual(["ch_name"]);
+    // spawn は出張先でも使えるが、可否は社員名簿の役職判定に委ねる (neco 指示 2026-09-01)。
+    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["ch_name", "spawn"]);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
-    expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);
+    expect(isSubsidiaryAllowedCommand("spawn")).toBe(true);
+    expect(isSubsidiaryAllowedCommand("end-session")).toBe(false);
+    expect(isSubsidiaryAllowedCommand("ex-run")).toBe(false);
   });
 
   it("keeps the full command set for head-office guilds", () => {

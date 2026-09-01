@@ -3,6 +3,7 @@ import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import {
   buildForumSpawnPrompt,
   buildForumSpawnTrigger,
+  executeForumSpawn,
   handleForumSpawnThread,
   isConcordiaSessionStarter,
   parseForumSpawnTrigger,
@@ -272,5 +273,132 @@ describe("forum spawn", () => {
     vi.stubGlobal("fetch", fetchMock);
     await handleForumSpawnThread(makeDeps(), makeThread());
     expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("関係プロジェクトが取れない投稿は拒否ではなく質問にする (neco 指示 3)", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestIntake = vi.fn(async () => true);
+    const postToThread = vi.fn(async () => undefined);
+
+    await handleForumSpawnThread(
+      makeDeps({ resolveProjectTarget: () => null, requestIntake, postToThread }),
+      makeThread(),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({
+      requesterUserId: "123456789",
+      title: "[Cc] Implement Phase 2",
+      missing: ["project"],
+    }));
+    expect(postToThread).not.toHaveBeenCalled();
+  });
+
+  it("本文が空なら タスク内容 も併せて聞く", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const requestIntake = vi.fn(async () => true);
+
+    await handleForumSpawnThread(
+      makeDeps({ resolveProjectTarget: () => null, requestIntake }),
+      makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "   " })) }),
+    );
+
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["project", "task"] }));
+  });
+
+  it("本文が空でも project が取れるなら タスク内容 だけ聞く", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    const requestIntake = vi.fn(async () => true);
+
+    await handleForumSpawnThread(
+      makeDeps({ requestIntake }),
+      makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "" })) }),
+    );
+
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["task"] }));
+  });
+
+  it("聞き返しを出せなければ何が足りないかを平文で伝える (無言で捨てない)", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const postToThread = vi.fn(async () => undefined);
+
+    await handleForumSpawnThread(
+      makeDeps({
+        resolveProjectTarget: () => null,
+        requestIntake: vi.fn(async () => false),
+        postToThread,
+      }),
+      makeThread(),
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("関係プロジェクト"));
+  });
+
+  it("質問カードの投稿が失敗しても不足を平文で返す", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const postToThread = vi.fn(async () => undefined);
+
+    await handleForumSpawnThread(
+      makeDeps({
+        resolveProjectTarget: () => null,
+        requestIntake: vi.fn(async () => { throw new Error("component post failed at private endpoint"); }),
+        postToThread,
+      }),
+      makeThread(),
+    );
+
+    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("関係プロジェクト"));
+  });
+
+  it("回答で補完した本文を渡すと起動まで進む", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-intake", status: "queued" },
+      spawn_pid: 11,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const requestIntake = vi.fn(async () => true);
+    const thread = makeThread({ fetchStarterMessage: vi.fn(async () => ({ content: "" })) });
+
+    await executeForumSpawn(
+      makeDeps({ requestIntake }),
+      thread,
+      { title: thread.name, body: "関係プロジェクト: Concordia\n\n受付文言を直して" },
+    );
+
+    expect(requestIntake).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
+    // タグ状態を渡していないので実行時に取り直す (回答中の付け替えを取りこぼさない)。
+    expect(thread.fetchTagState).toHaveBeenCalled();
+    // 補完した本文を starter から読み直さない。
+    expect(thread.fetchStarterMessage).not.toHaveBeenCalled();
+  });
+
+  it("承認済みの不完全な内容は回答で拡張せず再申請を求める", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const requestIntake = vi.fn(async () => true);
+    const postToThread = vi.fn(async () => undefined);
+    const thread = makeThread();
+
+    await executeForumSpawn(
+      makeDeps({ resolveProjectTarget: () => null, requestIntake, postToThread }),
+      thread,
+      {
+        title: thread.name,
+        body: "",
+        tagState: { appliedTags: [], availableTags: [MANAGED_TAG] },
+      },
+    );
+
+    expect(requestIntake).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringContaining("新しいスレッドで依頼してください"),
+    );
   });
 });

@@ -90,6 +90,12 @@ export interface ReactionsDeps {
   };
   /** 発火は deny-by-default。 社員名簿の役職 (管理職以上) で判定する。 */
   isWorkflowUserAllowed?: (userId: string) => boolean;
+  /**
+   * 子会社 (出張先) guild の Bot か。 子会社ではリアクション由来の操作を
+   * **セッションスレッドだけ** に閉じる (2026-09-01 neco 指示 2)。 Test forum /
+   * 受付 / 一覧系チャンネルのリアクションは記録に留め、 何も起こさない。
+   */
+  subsidiary?: boolean;
   /** リアクションした Discord ユーザを社員名簿へ記録する。 */
   recordStaffAccess?: (input: { userId: string; displayName?: string; profileName?: string }) => void;
   /** channelId → session 解決 (WF 文脈)。 未注入なら repoPath/sessionId は null。 */
@@ -139,10 +145,13 @@ export async function handleReactionAdd(
   // channelId → session 解決 (chat_messages に無くても文脈が取れる)。
   const { sessionId, repoPath, sessionActive, isSessionThread } = resolveReactionSessionContext(deps, channelId);
 
+  // 子会社はセッションスレッド以外のリアクションで何も起こさない (記録だけ残す)。
+  const operable = !deps.subsidiary || isSessionThread;
+
   // 📌 re-pin (built-in): セッションチャンネルで pushpin → その Lictor の transcript relay を
   // /clear なしで再束縛する。 stall (Concordia 再起動で中継が止まった等) からの手動復帰口。
   // session 未解決 / 非 active のときは無視 (壊れた相手に投げない)。
-  if (deps.repin && emoji === REPIN_EMOJI && sessionId && sessionActive) {
+  if (operable && deps.repin && emoji === REPIN_EMOJI && sessionId && sessionActive) {
     const sid = sessionId;
     void deps.repin(sid)
       .then((res) => {

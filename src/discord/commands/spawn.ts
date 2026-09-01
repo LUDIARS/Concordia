@@ -9,6 +9,10 @@ import {
   markForumThreadAsConcordiaManaged,
   type EditableForumThread,
 } from "../forum-system-tag.js";
+import {
+  checkSubsidiarySpawnTarget,
+  subsidiarySpawnDenialMessage,
+} from "../../subsidiary/spawn-scope.js";
 
 const providers = ["claude", "codex", "gemini"] as const;
 
@@ -75,11 +79,20 @@ const spawnCommand: DiscordCommandSpec = {
     // team / task はテンプレとは別の候補源。 option 名で分岐しないと、どの欄を
     // 編集していてもテンプレ一覧が出る (2026-08-15 まではその状態だった)。
     if (focusedOption.name === "team") {
-      const teams = deps.teams?.list() ?? [];
+      // 子会社 guild で本社 / 他社の team 名を補完候補に出さない。
+      const teams = deps.subsidiaryId
+        ? deps.teams?.listForSubsidiary(deps.subsidiaryId) ?? []
+        : deps.teams?.list() ?? [];
       await interaction.respond(toTeamChoices(teams, focused));
       return;
     }
     if (focusedOption.name === "task") {
+      // Memoria task は子会社 scope を持たない。本社のタスク名・本文を出張先に
+      // 漏らさないよう、scope resolver が無い間は候補を出さない。
+      if (deps.subsidiaryId) {
+        await interaction.respond([]);
+        return;
+      }
       const memoria = deps.memoria;
       if (!memoria) {
         await interaction.respond([]);
@@ -137,7 +150,44 @@ const spawnCommand: DiscordCommandSpec = {
     );
 
     // 本社はどのチャンネルからでも spawn 可 (2026-07-02 ユーザ指示でチャンネル限定を撤回)。
-    // 子会社の spawn 禁止は dispatchInteraction の全コマンド拒否で担保している。
+    // 子会社は起動できるが (2026-09-01 neco 指示 1)、 起動先は関係プロジェクトに閉じる
+    // (spec/feature/subsidiary-delegation.md §3.4)。 起動者の役職判定は dispatchInteraction
+    // (PRIVILEGED_SESSION_SPAWN) が済ませている — ここは「どこへ起こすか」だけを見る。
+    if (deps.subsidiaryId) {
+      if (!deps.resolveSubsidiaryProjects) {
+        // 子会社 id だけ配線されて scope resolver が欠けた構成を、本社相当の無制限にしない。
+        deps.log.warn(`spawn command rejected: subsidiary project scope unavailable subsidiary=${deps.subsidiaryId}`);
+        await interaction.reply({
+          content: "この窓口の担当プロジェクト設定を確認できないため起動しません。",
+          ephemeral: true,
+        });
+        return;
+      }
+      const scope = checkSubsidiarySpawnTarget({
+        project,
+        cwd,
+        projects: deps.resolveSubsidiaryProjects(),
+      });
+      if (!scope.ok) {
+        deps.log.warn(
+          `spawn command rejected (subsidiary scope) subsidiary=${deps.subsidiaryId} ` +
+          `denial=${scope.denial} project=${project ?? "-"} has_cwd=${cwd ? 1 : 0} user=${interaction.user.id}`,
+        );
+        await interaction.reply({ content: subsidiarySpawnDenialMessage(scope.denial), ephemeral: true });
+        return;
+      }
+      if (task) {
+        deps.log.warn(
+          `spawn command rejected (subsidiary task scope unavailable) subsidiary=${deps.subsidiaryId} `
+          + `user=${interaction.user.id}`,
+        );
+        await interaction.reply({
+          content: "この窓口では `task` の指定を利用できません。作業内容は `prompt` で指定してください。",
+          ephemeral: true,
+        });
+        return;
+      }
+    }
 
     // スポーン前のアクティブセッション ID を記録し、新規セッションチャンネルを特定する。
     const knownIds = new Set(deps.sessionChannelsRepo.listActive().map((r) => r.session_id));

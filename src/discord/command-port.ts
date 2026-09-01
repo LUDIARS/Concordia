@@ -49,12 +49,26 @@ export interface DiscordCommandDeps {
     threadId: string,
     approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent,
   ) => Promise<{ ok: boolean; error?: string }>;
+  /** Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。 */
+  forumSpawnIntakes?: import("./forum-spawn-intake.js").ForumSpawnIntakeStore;
+  /** 回答で補完した内容から spawn を再開する (bot.ts が thread 再取得を配線)。 */
+  resumeForumSpawnIntake?: (
+    threadId: string,
+    content: { title: string; body: string },
+  ) => Promise<void>;
+  /** Session forum スレッドへの通常返信 (webhook 経由)。 */
+  replyToForumThread?: (threadId: string, content: string) => Promise<void>;
   /** Discord 社員名簿から執行役員だけを live 解決する。 */
   listExecutiveDiscordUserIds?: () => string[];
   /** Cc が利用する兄弟サービスの catalog / liveness /資格情報を一括診断する。 */
   checkDependencies?: () => Promise<DependencyReadinessReport>;
   resolveWorkspaceRoots?: () => string[];
   subsidiaryId?: string | null;
+  /**
+   * 子会社の関係プロジェクト (spec §3.4)。 `subsidiaryId` があるときは必須で、
+   * `/spawn` の対象をこの集合に閉じる。 本社 Bot は指定しない (= 制限なし)。
+   */
+  resolveSubsidiaryProjects?: () => readonly string[];
   /**
    * 社員名簿 (staff_members) の役職に基づく権限判定。 いずれも未注入なら deny 側に倒す
    * (fail-closed) — 名簿が配線されていない環境で権限操作を通すべきではない。

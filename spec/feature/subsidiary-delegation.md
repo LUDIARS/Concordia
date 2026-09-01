@@ -190,8 +190,15 @@ Test forum は Revisor の open local PR を投稿する面で、 本社では�
   全 PR の漏洩になるため安全側へ倒す (無言フォールバック禁止 RULE_CODE §7.1)。
 - 本社 Bot は従来どおり全件を載せる (この絞り込みは子会社モードのみ)。
 - TaskWorkflow forum のスレッドは delegation run 単位で、 元から
-  **その子会社が起こした run だけ** が写る (§3 の subsidiary-only 可視)。 よって
-  この絞り込みは Test forum に適用する。
+  **その子会社が起こした run だけ** が写る (§3 の subsidiary-only 可視)。 加えて
+  **run の起動自体を関係プロジェクトに縛る** (2026-09-01 neco 指示):
+  - 受付チャンネル経路 (`processSubsidiaryRequest`): 選ばれた所有 delegation の
+    `project` が集合外なら deny し、 監査に `関係プロジェクト外` として残す。
+  - Session forum spawn 経路 (`handleForumSpawnThread`): 投稿から解決した対象
+    プロジェクトが集合外なら spawn せずスレッドへ理由を返す。
+  - どちらも **未設定 (空集合) と project 未解決は deny**。 「設定していない窓口は
+    何でも起こせる」 を作らない。
+  - 出張先への deny 文面は対象 project や許可集合を列挙せず、 詳細は内部監査だけに残す。
 
 ## 4. データモデル (SQLite)
 

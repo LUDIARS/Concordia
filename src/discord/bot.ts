@@ -323,9 +323,10 @@ export interface DiscordBotDeps {
       => Promise<{ ok: boolean; replyText: string }>;
     /**
      * この子会社が関係する project 名を live 解決する。 Test forum に載せる Revisor
-     * local PR はこの集合に属するものだけ。 未指定 / 空は「1 件も載せない」。 spec §3.4。
+     * local PR と forum spawn はこの集合に属するものだけ。 空は「1 件も許可しない」。
+     * 子会社モードでは fail-closed のため必須。 spec §3.4。
      */
-    resolveProjects?: () => readonly string[];
+    resolveProjects: () => readonly string[];
   };
   /**
    * 本社内の軽量窓口 (desk)。 子会社と違い **本社 Bot にそのまま相乗り**する:
@@ -960,7 +961,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const source = deps.revisorTestWorkflow;
         // 子会社は関係 project の PR だけを載せる (本社の全 PR を出張先へ漏らさない)。
         // 本社 (deps.subsidiary 無し) は従来どおり全件。 spec §3.4。
-        const projectScope = deps.subsidiary ? (deps.subsidiary.resolveProjects?.() ?? []) : null;
+        const projectScope = deps.subsidiary ? deps.subsidiary.resolveProjects() : null;
         const inScope = <T extends { repoOrigin: string }>(rows: readonly T[]): T[] =>
           projectScope ? filterByProjectScope(rows, projectScope) : [...rows];
         // 掲載対象は Test OK 限定ではなく open な local PR 全件 (登録・審査時点で載せる)。
@@ -1261,6 +1262,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       },
       // 子会社 Bot は spawn 前に依頼本文をガードゲートへ通す (subsidiary-delegation §3.1)。
       guardInstruction: deps.subsidiary?.guardInstruction,
+      // 子会社は担当プロジェクト外のスレッドから起動しない (subsidiary-delegation §3.4)。
+      resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
       selectTemplate: (input) => selectForumDelegationTemplate(
         (prompt, options) => deps.runHeadless(prompt, options),

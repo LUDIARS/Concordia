@@ -54,6 +54,39 @@ beforeEach(() => {
     call_name: "fix-content", is_default: true, title: "誤字修正",
     target_provider: "claude", prompt_template: "", default_cwd: "E:/Document/Ars/Pictor", project: "Pictor",
   });
+  // 関係プロジェクト (spec §3.4)。 ここに無い project の起動はゲートが deny する。
+  subRepo.setProjects(sub.id, ["Pictor"]);
+});
+
+describe("processSubsidiaryRequest 関係プロジェクト (spec §3.4)", () => {
+  const allowVerdict =
+    '{"decision":"allow","reason":"ok","matched_call_name":"fix-content","violations":[],"lock_user":false}';
+
+  it("関係プロジェクト外の delegation は起動せず deny", async () => {
+    subRepo.setProjects(sub.id, ["Pagus"]);
+    const { deps, invoke } = makeDeps(allowVerdict);
+    const r = await processSubsidiaryRequest(deps, {
+      subsidiary: sub, platform: "discord", userId: "u1", userLabel: "alice", instruction: "README誤字直して",
+    });
+    expect(r.outcome).toBe("denied");
+    expect(invoke).not.toHaveBeenCalled();
+    const req = subRepo.recentRequests(sub.id)[0];
+    expect(req.decision).toBe("deny");
+    expect(req.reason).toContain("関係プロジェクト外");
+    expect(r.replyText).not.toContain("Pictor");
+    expect(r.replyText).not.toContain("Pagus");
+  });
+
+  it("関係プロジェクト未設定なら 1 件も起動しない", async () => {
+    // 「設定していない窓口は何でも起こせる」 を作らないため、 未設定は deny。
+    subRepo.setProjects(sub.id, []);
+    const { deps, invoke } = makeDeps(allowVerdict);
+    const r = await processSubsidiaryRequest(deps, {
+      subsidiary: sub, platform: "discord", userId: "u1", userLabel: "alice", instruction: "README誤字直して",
+    });
+    expect(r.outcome).toBe("denied");
+    expect(invoke).not.toHaveBeenCalled();
+  });
 });
 
 describe("processSubsidiaryRequest", () => {

@@ -1,5 +1,6 @@
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
+import { isProjectNameInScope } from "../subsidiary/project-scope.js";
 import {
   forumTemplateDefaultArgs,
   SESSION_RUNTIME_RULE_TAG_NAMES,
@@ -62,6 +63,11 @@ export interface ForumSpawnDeps {
   /** `claude -p --model sonnet` による one-shot template selector。 */
   selectTemplate: (input: ForumDelegationSelectionInput) => Promise<ForumDelegationSelection>;
   resolveProjectTarget: (title: string, body: string) => ForumProjectTarget | null;
+  /**
+   * 子会社の関係プロジェクト (spec §3.4)。 `subsidiaryId` がある場合は必須で、 解決した
+   * 対象プロジェクトがこの集合の外なら起動しない。 本社 Bot は指定しない (= 制限なし)。
+   */
+  resolveSubsidiaryProjects?: () => readonly string[];
   /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
   resolveSpawnCwd: (provider: DelegationProvider, requested?: string) => string | undefined;
   /** Exact Discord user ID authorization for the thread owner. */
@@ -184,6 +190,30 @@ export async function executeForumSpawn(
       "作業対象プロジェクトを特定できませんでした。プロジェクトコードまたはリポジトリ名を本文かタイトルに追記してください。Castra 直下では Session を起動しません。",
     );
     return;
+  }
+  const isSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
+  if (isSubsidiary && !deps.resolveSubsidiaryProjects) {
+    // 子会社 id だけ配線されて scope resolver が欠けた構成を、本社相当の無制限として扱わない。
+    deps.log.warn(`forum-spawn subsidiary project scope unavailable thread=${thread.id}`);
+    await reply(deps, thread, "この窓口の担当プロジェクト設定を確認できないため起動しません。");
+    return;
+  }
+  if (deps.resolveSubsidiaryProjects) {
+    // 子会社は担当プロジェクト以外のスレッドから起動しない。 未設定 (空集合) も起動しない
+    // — 「設定していない窓口は何でも起こせる」 を作らないため (spec §3.4)。
+    const projects = deps.resolveSubsidiaryProjects();
+    if (!isProjectNameInScope(project.project, projects)) {
+      deps.log.warn(
+        `forum-spawn project out of subsidiary scope thread=${thread.id} `
+        + `project=${project.project} scope=[${projects.join(",")}]`,
+      );
+      await reply(
+        deps,
+        thread,
+        "この窓口の担当範囲外のため起動しません。",
+      );
+      return;
+    }
   }
   const templates = await deps.templates();
   const selection = await deps.selectTemplate({ title, body, templates });

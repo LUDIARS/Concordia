@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { filterByProjectScope, isProjectInScope, projectOfRepoOrigin } from "./project-scope.js";
+import {
+  filterByProjectScope,
+  isProjectInScope,
+  isProjectNameInScope,
+  projectOfRepoOrigin,
+} from "./project-scope.js";
 
 describe("projectOfRepoOrigin", () => {
   it("origin の形が違っても repo 名へ寄せる", () => {
@@ -22,6 +27,18 @@ describe("isProjectInScope", () => {
   it("未設定 (空集合) は 1 件も出さない", () => {
     // 未設定を全許可にすると、 設定漏れがそのまま本社全 PR の漏洩になる。
     expect(isProjectInScope("LUDIARS/Pagus", [])).toBe(false);
+  });
+});
+
+describe("isProjectNameInScope", () => {
+  it("project 名を trim + case-insensitive で照合する", () => {
+    expect(isProjectNameInScope("  PICTOR ", ["pictor"])).toBe(true);
+  });
+
+  it("project 未解決・空集合は fail-closed", () => {
+    expect(isProjectNameInScope(null, ["Pictor"])).toBe(false);
+    expect(isProjectNameInScope("", ["Pictor"])).toBe(false);
+    expect(isProjectNameInScope("Pictor", [])).toBe(false);
   });
 });
 

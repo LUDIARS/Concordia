@@ -221,8 +221,56 @@ describe("forum spawn", () => {
       spawn_pid: 44,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
-    await handleForumSpawnThread(makeDeps({ subsidiaryId: "sub-1" }), makeThread());
+    await handleForumSpawnThread(
+      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => ["Cc"] }),
+      makeThread(),
+    );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({ subsidiary_id: "sub-1" });
+  });
+
+  it("子会社の関係プロジェクト外なら起動しない (spec §3.4)", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const replies: string[] = [];
+    const postToThread = async (_threadId: string, content: string) => { replies.push(content); };
+    await handleForumSpawnThread(
+      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => ["Pagus"], postToThread }),
+      makeThread(),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(replies.join(" ")).toContain("担当範囲外");
+    expect(replies.join(" ")).not.toContain("Cc");
+    expect(replies.join(" ")).not.toContain("Pagus");
+  });
+
+  it("関係プロジェクト未設定の子会社も起動しない", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await handleForumSpawnThread(
+      makeDeps({ subsidiaryId: "sub-1", resolveSubsidiaryProjects: () => [] }),
+      makeThread(),
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("関係プロジェクト resolver 未配線の子会社も fail-closed", async () => {
+    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const postToThread = vi.fn(async () => undefined);
+    await handleForumSpawnThread(makeDeps({ subsidiaryId: "sub-1", postToThread }), makeThread());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("設定を確認できない"));
+  });
+
+  it("本社 Bot (resolveSubsidiaryProjects 無し) は従来どおり起動する", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      run: { id: "run-ho", status: "queued" },
+      spawn_pid: 45,
+    }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await handleForumSpawnThread(makeDeps(), makeThread());
+    expect(fetchMock).toHaveBeenCalled();
   });
 });

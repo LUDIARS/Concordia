@@ -15,14 +15,24 @@ export function projectOfRepoOrigin(repoOrigin: string): string {
 }
 
 /**
- * 掲載可否。 子会社 (scope 有り) は関係 project の集合に入る PR だけ。
- * 集合が空 = 未設定は「1 件も出さない」 — 未設定を全許可にすると設定漏れがそのまま
- * 全 PR の漏洩になるため、 安全側 (無言フォールバック禁止) に倒す。
+ * project 名が関係 project の集合に入るか。
+ * 集合が空 = 未設定は常に false — 未設定を全許可にすると設定漏れがそのまま
+ * 全 PR の漏洩・全リポへの作業起動になるため、 安全側 (無言フォールバック禁止) に倒す。
+ * project 名が空 / 未解決のときも false (確認できないものを通さない)。
  */
-export function isProjectInScope(repoOrigin: string, projects: readonly string[]): boolean {
+export function isProjectNameInScope(
+  project: string | null | undefined,
+  projects: readonly string[],
+): boolean {
   if (projects.length === 0) return false;
-  const project = projectOfRepoOrigin(repoOrigin).toLowerCase();
-  return projects.some((p) => p.trim().toLowerCase() === project);
+  const name = (project ?? "").trim().toLowerCase();
+  if (!name) return false;
+  return projects.some((p) => p.trim().toLowerCase() === name);
+}
+
+/** 掲載可否。 子会社 (scope 有り) は関係 project の集合に入る PR だけ。 */
+export function isProjectInScope(repoOrigin: string, projects: readonly string[]): boolean {
+  return isProjectNameInScope(projectOfRepoOrigin(repoOrigin), projects);
 }
 
 /** repoOrigin を持つ候補列を関係 project だけに絞る。 */

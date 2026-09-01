@@ -18,6 +18,7 @@ import type { SubsidiaryBudgetStatus } from "./budget.js";
 import { runGuard, type GuardVerdict } from "./guard.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { buildSubsidiaryIntentInjection } from "./intent-inject.js";
+import { isProjectNameInScope } from "./project-scope.js";
 
 export interface SubsidiaryGateDeps {
   subsidiaryRepo: SubsidiaryRepo;
@@ -207,6 +208,27 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     });
     return { outcome: "denied", reason: "owned delegation not found", verdict, callName,
       replyText: `⛔ 受け付けられません: 指定の delegation (${callName}) が見つかりません。` };
+  }
+  // 4.1) 関係プロジェクト外への起動を止める (spec §3.4)。 Test forum の掲載範囲と同じ集合で、
+  //      TaskWorkflow に載る run も子会社の担当プロジェクトだけに縛る。 project 未設定 /
+  //      未解決も deny — 確認できないものを通すと縛りが無いのと同じになる。
+  const projects = deps.subsidiaryRepo.listProjects(sub.id);
+  if (!isProjectNameInScope(owned.project, projects)) {
+    const scopeLabel = projects.length ? projects.join(", ") : "未設定";
+    deps.subsidiaryRepo.recordRequest({
+      subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
+      instruction, decision: "deny",
+      reason: `関係プロジェクト外: ${owned.project ?? "(未設定)"} (許可=${scopeLabel})`,
+      violations: ["out_of_scope"], matched_call_name: callName, guard_model: sub.guard_model, guard_raw: raw,
+    });
+    log?.warn(
+      `subsidiary gate: project out of scope sub=${sub.name} call=${callName} `
+      + `project=${owned.project ?? "-"} scope=[${projects.join(",")}]`,
+    );
+    return {
+      outcome: "denied", reason: "project out of scope", verdict, callName,
+      replyText: "⛔ 受け付けられません: この窓口の担当範囲外です。",
+    };
   }
   // 4.5) intent 注入 (子会社のみ): instruction を prompt analyzer (heuristic/local LLM/
   //      haiku) に通し、 判定とハーネスルールを spawn プロンプトへ前置きする。

@@ -22,13 +22,14 @@ const warn = vi.fn();
 
 describe("TaskMdStore.scan", () => {
   let root: string;
+  let repoPath: string;
   let tasksDir: string;
   let broken: string;
 
   beforeEach(async () => {
     warn.mockClear();
     root = await mkdtemp(join(tmpdir(), "concordia-md-store-"));
-    const repoPath = join(root, "ConcordiaFixture");
+    repoPath = join(root, "ConcordiaFixture");
     tasksDir = join(repoPath, "spec", "tasks");
     broken = join(tasksDir, "broken.md");
 
@@ -82,6 +83,21 @@ describe("TaskMdStore.scan", () => {
     expect(await store.scan()).toHaveLength(0);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toMatchObject({ error: "legacy task status is invalid" });
+  });
+
+  it("finds one task by its validated relative path and uses runtime status", async () => {
+    const taskPath = join(tasksDir, "current.md");
+    await writeFile(taskPath, validTaskMarkdown(), "utf8");
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const state = new TaskflowStateStore(db);
+    const store = new TaskMdStore(() => [root], { warn }, state);
+    await store.scan();
+    state.update({ repoPath, taskPath: "spec/tasks/current.md" }, { status: "done" });
+
+    expect(await store.findByRelativePath(repoPath, "spec/tasks/current.md")).toEqual({ status: "done" });
+    expect(await store.findByRelativePath(repoPath, "spec/tasks/../outside.md")).toBeNull();
+    db.close();
   });
 
   it("直った md は抑制を解除し、再度壊れたらまた warn する", async () => {

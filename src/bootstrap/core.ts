@@ -1590,6 +1590,7 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(
       startGoalAndGo({
         repo,
+        taskStore,
         // 人間の回答待ちのセッションは自走継続しない (未回答質問が blocker)。
         hasPendingQuestion: pendingQuestionProbe(pendingQuestions),
         seconds: cfg.goalAndGoIdleSec,

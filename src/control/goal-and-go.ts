@@ -25,6 +25,9 @@ const DEFAULT_STATUS: GoalAndGoStatus = {
 
 export interface StartGoalAndGoOptions {
   repo: SessionsRepo;
+  taskStore?: {
+    findByRelativePath(repoPath: string, relativePath: string): Promise<{ status: string } | null>;
+  };
   /**
    * 未回答の質問があるセッションは自走継続しない (blocker)。未注入なら従来どおり継続。
    * @see ./pending-question-blocker.js
@@ -117,12 +120,30 @@ export function buildGoalAndGoPrompt(input: {
   ].join("\n");
 }
 
+/**
+ * `taskflow.continue_requested` が保存する current_task から task md の相対パスを読む。
+ * @implements spec/tasks/2026-09-01-goal-and-go-stale-current-task-guard.md
+ */
+export function extractTaskMdPath(currentTask: string | null | undefined): string | null {
+  if (!currentTask) return null;
+  const match = /\((spec\/tasks\/[^/()]+\.md)\)$/.exec(currentTask.trim());
+  return match?.[1] ?? null;
+}
+
 export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
   const seconds = Math.floor(opts.seconds);
   const maxContinuations = Math.max(1, Math.floor(opts.maxContinuations));
   const maxRuntimeSec = Math.max(1, Math.floor(opts.maxRuntimeSec));
   const now = opts.now ?? (() => Math.floor(Date.now() / 1000));
   const globallyEnabled = seconds > 0;
+  const continuationGenerations = new Map<string, number>();
+  let stopped = false;
+
+  const nextContinuationGeneration = (sessionId: string): number => {
+    const generation = (continuationGenerations.get(sessionId) ?? 0) + 1;
+    continuationGenerations.set(sessionId, generation);
+    return generation;
+  };
 
   const saveStatus = (sessionId: string, status: GoalAndGoStatus): void => {
     const session = opts.repo.findSession(sessionId);
@@ -161,7 +182,9 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
 
   const continueSession = (sessionId: string): void => {
     const session = opts.repo.findSession(sessionId);
-    if (!session || session.status !== "active") return;
+    if (!session) return;
+    const generation = nextContinuationGeneration(sessionId);
+    if (session.status !== "active") return;
     const status = readGoalAndGoStatus(session.metadata);
     if (!status.enabled || status.stopped_reason !== null) return;
     // 人間の回答待ちなら自走しない。continuation_count も消費せず、回答後の継続を残す。
@@ -181,33 +204,70 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
       return;
     }
 
-    const next: GoalAndGoStatus = {
-      ...status,
-      continuation_count: status.continuation_count + 1,
-      started_at: status.started_at ?? at,
-      last_continued_at: at,
+    const inject = (currentTask: string | null): void => {
+      const next: GoalAndGoStatus = {
+        ...status,
+        continuation_count: status.continuation_count + 1,
+        started_at: status.started_at ?? at,
+        last_continued_at: at,
+      };
+      saveStatus(sessionId, next);
+      const text = buildGoalAndGoPrompt({
+        metadata: session.metadata,
+        currentTask,
+        attempt: next.continuation_count,
+        maxContinuations,
+      });
+      opts.repo.appendEvent({
+        session_id: sessionId,
+        ts: at,
+        kind: "inject",
+        payload: { text, source: GOAL_AND_GO_SOURCE, attempt: next.continuation_count },
+      });
+      eventBus.emit({
+        type: "session.inject",
+        target_session_id: sessionId,
+        text,
+        source: GOAL_AND_GO_SOURCE,
+        ts: at,
+      });
+      opts.log?.info(`goal-and-go continued session=${sessionId} attempt=${next.continuation_count}/${maxContinuations}`);
     };
-    saveStatus(sessionId, next);
-    const text = buildGoalAndGoPrompt({
-      metadata: session.metadata,
+
+    const taskPath = extractTaskMdPath(session.current_task);
+    if (!opts.taskStore || !taskPath) {
+      inject(session.current_task);
+      return;
+    }
+    void resolveCurrentTaskForPrompt({
+      repoPath: session.repo_path,
       currentTask: session.current_task,
-      attempt: next.continuation_count,
-      maxContinuations,
+      taskPath,
+      taskStore: opts.taskStore,
+    }).then((resolution) => {
+      const current = opts.repo.findSession(sessionId);
+      if (
+        stopped
+        || continuationGenerations.get(sessionId) !== generation
+        || !current
+        || current.status !== "active"
+        || current.current_task !== session.current_task
+        || current.metadata !== session.metadata
+      ) return;
+      if (resolution.dropReason) {
+        opts.repo.patchSession(sessionId, { current_task: null });
+        opts.repo.appendEvent({
+          session_id: sessionId,
+          ts: at,
+          kind: "goal_and_go_current_task_dropped",
+          payload: { path: taskPath, reason: resolution.dropReason },
+        });
+      }
+      inject(resolution.currentTask);
+    }).catch(() => {
+      // Event callbacks cannot await this best-effort validation; never leave a rejected promise unhandled.
+      opts.log?.warn(`goal-and-go continuation aborted session=${sessionId}`);
     });
-    opts.repo.appendEvent({
-      session_id: sessionId,
-      ts: at,
-      kind: "inject",
-      payload: { text, source: GOAL_AND_GO_SOURCE, attempt: next.continuation_count },
-    });
-    eventBus.emit({
-      type: "session.inject",
-      target_session_id: sessionId,
-      text,
-      source: GOAL_AND_GO_SOURCE,
-      ts: at,
-    });
-    opts.log?.info(`goal-and-go continued session=${sessionId} attempt=${next.continuation_count}/${maxContinuations}`);
   };
 
   const unsubscribe = eventBus.subscribe((event) => {
@@ -222,7 +282,12 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
     // ここに残るのは「人間の入力で進捗をリセットする」clear 側だけ。
     handleGoalAndGoEvent(event, {
       clear: (sessionId, reset) => {
-        if (reset) resetProgress(sessionId);
+        if (!reset) {
+          continuationGenerations.delete(sessionId);
+          return;
+        }
+        nextContinuationGeneration(sessionId);
+        resetProgress(sessionId);
       },
     });
   });
@@ -232,9 +297,30 @@ export function startGoalAndGo(opts: StartGoalAndGoOptions): GoalAndGoHandle {
 
   return {
     stop() {
+      stopped = true;
+      continuationGenerations.clear();
       unsubscribe();
     },
   };
+}
+
+async function resolveCurrentTaskForPrompt(input: {
+  repoPath: string;
+  currentTask: string | null;
+  taskPath: string;
+  taskStore: NonNullable<StartGoalAndGoOptions["taskStore"]>;
+}): Promise<{
+  currentTask: string | null;
+  dropReason: "missing" | "not_pending" | null;
+}> {
+  try {
+    const task = await input.taskStore.findByRelativePath(input.repoPath, input.taskPath);
+    const reason = !task ? "missing" : task.status !== "pending" ? "not_pending" : null;
+    return { currentTask: reason ? null : input.currentTask, dropReason: reason };
+  } catch {
+    // A transient task-store failure must not erase the session's last known task.
+    return { currentTask: input.currentTask, dropReason: null };
+  }
 }
 
 function handleGoalAndGoEvent(

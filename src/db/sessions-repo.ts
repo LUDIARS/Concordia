@@ -168,7 +168,7 @@ export class SessionsRepo {
   patchSession(
     id: string,
     patch: {
-      current_task?: string;
+      current_task?: string | null;
       branch?: string;
       repo_path?: string;
       repo_origin?: string | null;

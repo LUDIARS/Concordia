@@ -4,13 +4,19 @@ import { eventBus, type ConcordiaEvent } from "../events.js";
 import {
   GOAL_AND_GO_SOURCE,
   buildGoalAndGoPrompt,
+  extractTaskMdPath,
   readGoalAndGoStatus,
   setGoalAndGoEnabled,
   startGoalAndGo,
 } from "./goal-and-go.js";
 
 function fakeRepo(metadata: string | null) {
-  const session = {
+  const session: {
+    id: string;
+    status: string;
+    current_task: string | null;
+    metadata: string | null;
+  } = {
     id: "s1",
     status: "active",
     current_task: "安定化を完了する",
@@ -20,7 +26,7 @@ function fakeRepo(metadata: string | null) {
   const repo = {
     findSession: (id: string) => id === session.id ? session : null,
     setMetadata: (_id: string, next: string | null) => { session.metadata = next; },
-    patchSession: (_id: string, patch: { current_task?: string }) => {
+    patchSession: (_id: string, patch: { current_task?: string | null }) => {
       if (patch.current_task !== undefined) session.current_task = patch.current_task;
     },
     appendEvent: (event: { kind: string; payload: unknown }) => { events.push(event); },
@@ -132,6 +138,162 @@ describe("startGoalAndGo", () => {
     expect(readGoalAndGoStatus(env.session.metadata).continuation_count).toBe(1);
     handle.stop();
     unsubscribe();
+  });
+
+  it("drops a missing task markdown before building the continuation prompt", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: async () => null },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 消えたタスク (spec/tasks/missing.md)", ts: 1 });
+    await vi.waitFor(() => expect(injected).toHaveLength(1));
+
+    expect(injected[0]!.text).not.toContain("Cc上の現在タスク:");
+    expect(env.session.current_task).toBeNull();
+    expect(env.events).toContainEqual(expect.objectContaining({
+      kind: "goal_and_go_current_task_dropped",
+      payload: { path: "spec/tasks/missing.md", reason: "missing" },
+    }));
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("drops a completed task markdown before building the continuation prompt", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: async () => ({ status: "done" }) },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 完了済み (spec/tasks/done.md)", ts: 1 });
+    await vi.waitFor(() => expect(injected).toHaveLength(1));
+
+    expect(injected[0]!.text).not.toContain("Cc上の現在タスク:");
+    expect(env.events).toContainEqual(expect.objectContaining({
+      kind: "goal_and_go_current_task_dropped",
+      payload: { path: "spec/tasks/done.md", reason: "not_pending" },
+    }));
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("keeps a pending task markdown in the continuation prompt", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: async () => ({ status: "pending" }) },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 保留 (spec/tasks/pending.md)", ts: 1 });
+    await vi.waitFor(() => expect(injected).toHaveLength(1));
+
+    expect(injected[0]!.text).toContain("Cc上の現在タスク: 次タスク: 保留 (spec/tasks/pending.md)");
+    expect(env.session.current_task).toContain("spec/tasks/pending.md");
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("keeps the current task when task markdown validation fails transiently", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: async () => { throw new Error("temporary read failure"); } },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 保留 (spec/tasks/pending.md)", ts: 1 });
+    await vi.waitFor(() => expect(injected).toHaveLength(1));
+
+    expect(injected[0]!.text).toContain("Cc上の現在タスク: 次タスク: 保留 (spec/tasks/pending.md)");
+    expect(env.session.current_task).toContain("spec/tasks/pending.md");
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("keeps a current task whose text is not the taskflow path format", () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: async () => { throw new Error("must not read"); } },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    expect(extractTaskMdPath("次タスク: 手動入力")).toBeNull();
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 手動入力", ts: 1 });
+
+    expect(injected[0]!.text).toContain("Cc上の現在タスク: 次タスク: 手動入力");
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("does not let an older task lookup clear a newer current task", async () => {
+    const env = fakeRepo(setGoalAndGoEnabled(null, true));
+    const injected: Array<Extract<ConcordiaEvent, { type: "session.inject" }>> = [];
+    let finishLookup!: (task: { status: string } | null) => void;
+    const lookup = new Promise<{ status: string } | null>((resolve) => { finishLookup = resolve; });
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.source === GOAL_AND_GO_SOURCE) injected.push(event);
+    });
+    const handle = startGoalAndGo({
+      repo: env.repo,
+      taskStore: { findByRelativePath: () => lookup },
+      seconds: 1,
+      maxContinuations: 6,
+      maxRuntimeSec: 3600,
+    });
+
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 古いタスク (spec/tasks/old.md)", ts: 1 });
+    eventBus.emit({ type: "taskflow.continue_requested", target_session_id: "s1", text: "次タスク: 手動入力", ts: 2 });
+    finishLookup(null);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(env.session.current_task).toBe("次タスク: 手動入力");
+    expect(injected).toHaveLength(1);
+    expect(injected[0]!.text).toContain("Cc上の現在タスク: 次タスク: 手動入力");
+    expect(env.events).not.toContainEqual(expect.objectContaining({ kind: "goal_and_go_current_task_dropped" }));
+    handle.stop();
+    unsubscribe();
+  });
+
+  it("rejects task paths that can escape or introduce nested path segments", () => {
+    expect(extractTaskMdPath("次タスク: traversal (spec/tasks/../private.md)")).toBeNull();
+    expect(extractTaskMdPath("次タスク: nested (spec/tasks/nested/task.md)")).toBeNull();
   });
 
   it("does not continue while an unanswered question blocks the session", async () => {

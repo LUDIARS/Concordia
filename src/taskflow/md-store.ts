@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, posix, relative, win32 } from "node:path";
 import yaml from "js-yaml";
 import { createChildLogger } from "../shared/logger.js";
@@ -151,6 +151,26 @@ export class TaskMdStore {
           || repositoryBasename(document.repoPath) === needle;
       return same && (!statuses || statuses.includes(document.runtime?.status ?? "pending"));
     });
+  }
+
+  /** @implements spec/tasks/2026-09-01-goal-and-go-stale-current-task-guard.md */
+  async findByRelativePath(repoPath: string, relativePath: string): Promise<{ status: string } | null> {
+    if (!/^spec\/tasks\/[^/]+\.md$/.test(relativePath)) return null;
+    const path = join(repoPath, relativePath);
+    let content: string;
+    try {
+      // Match scan(): task definitions must be regular files, never symlinks outside spec/tasks.
+      if (!(await lstat(path)).isFile()) return null;
+      content = await readFile(path, "utf8");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+    const document = parseTaskMarkdown(content, path);
+    if (!document) return null;
+    const status = this.state?.find({ repoPath, taskPath: relativePath })?.status
+      ?? (isTaskStatus(document.frontmatter.status) ? document.frontmatter.status : "pending");
+    return { status };
   }
 
   claimMemoriaCreation(document: TaskDocument): boolean {

@@ -50,6 +50,12 @@ export interface SubsidiaryBotStartDeps {
      */
     guardInstruction: (input: { userId: string; userLabel: string; instruction: string })
       => Promise<{ ok: boolean; replyText: string }>;
+    /**
+     * この子会社が関係する project 名を live 解決する (WebUI の設定変更を再起動なしで
+     * 反映するため関数で受ける)。 Test forum の掲載範囲はこの集合だけ。
+     * spec/feature/subsidiary-delegation.md §3.4。
+     */
+    resolveProjects: () => readonly string[];
   };
 }
 
@@ -219,6 +225,7 @@ export class SubsidiaryBotManager {
         process: processor.process,
         isLocked: processor.isLocked,
         guardInstruction: this.guardFor(id),
+        resolveProjects: () => this.deps.subsidiaryRepo.listProjects(id),
       },
     };
 

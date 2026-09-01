@@ -230,9 +230,36 @@ export class SubsidiaryRepo {
       this.db.prepare(`DELETE FROM subsidiary_delegations WHERE subsidiary_id = ?`).run(sid);
       this.db.prepare(`DELETE FROM subsidiary_locks WHERE subsidiary_id = ?`).run(sid);
       this.db.prepare(`DELETE FROM subsidiary_requests WHERE subsidiary_id = ?`).run(sid);
+      this.db.prepare(`DELETE FROM subsidiary_projects WHERE subsidiary_id = ?`).run(sid);
       return this.db.prepare(`DELETE FROM subsidiaries WHERE id = ?`).run(sid).changes > 0;
     });
     return tx(id);
+  }
+
+  // ── 関係 project (Test forum の掲載範囲) ────────────────────
+
+  /**
+   * 子会社が関係する project 名の集合。 空 = 未設定で、 掲載側は「1 件も出さない」と
+   * 解釈する (未設定を全許可にすると本社の全 PR が漏れるため)。
+   */
+  listProjects(subsidiaryId: string): string[] {
+    return (this.db.prepare(
+      `SELECT project FROM subsidiary_projects WHERE subsidiary_id = ? ORDER BY project ASC`,
+    ).all(subsidiaryId) as Array<{ project: string }>).map((row) => row.project);
+  }
+
+  /** 関係 project を丸ごと置き換える (空配列で未設定に戻す)。 */
+  setProjects(subsidiaryId: string, projects: readonly string[]): string[] {
+    const normalized = [...new Set(projects.map((p) => p.trim()).filter(Boolean))];
+    const tx = this.db.transaction(() => {
+      this.db.prepare(`DELETE FROM subsidiary_projects WHERE subsidiary_id = ?`).run(subsidiaryId);
+      const insert = this.db.prepare(
+        `INSERT OR IGNORE INTO subsidiary_projects(subsidiary_id, project) VALUES (?, ?)`,
+      );
+      for (const project of normalized) insert.run(subsidiaryId, project);
+    });
+    tx();
+    return this.listProjects(subsidiaryId);
   }
 
   find(id: string): SubsidiaryRow | null {

@@ -3,6 +3,7 @@ import type { Database } from "better-sqlite3";
 import type { ChatRepo } from "../db/chat-repo.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
+import { filterByProjectScope } from "../subsidiary/project-scope.js";
 import type { ConcordiaEvent } from "../events.js";
 import { eventBus } from "../events.js";
 import {
@@ -320,6 +321,11 @@ export interface DiscordBotDeps {
     /** Forum spawn 前のガード (spawn せず評価 + 監査のみ)。 spec §3.1。 */
     guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
       => Promise<{ ok: boolean; replyText: string }>;
+    /**
+     * この子会社が関係する project 名を live 解決する。 Test forum に載せる Revisor
+     * local PR はこの集合に属するものだけ。 未指定 / 空は「1 件も載せない」。 spec §3.4。
+     */
+    resolveProjects?: () => readonly string[];
   };
   /**
    * 本社内の軽量窓口 (desk)。 子会社と違い **本社 Bot にそのまま相乗り**する:
@@ -952,8 +958,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           return;
         }
         const source = deps.revisorTestWorkflow;
+        // 子会社は関係 project の PR だけを載せる (本社の全 PR を出張先へ漏らさない)。
+        // 本社 (deps.subsidiary 無し) は従来どおり全件。 spec §3.4。
+        const projectScope = deps.subsidiary ? (deps.subsidiary.resolveProjects?.() ?? []) : null;
+        const inScope = <T extends { repoOrigin: string }>(rows: readonly T[]): T[] =>
+          projectScope ? filterByProjectScope(rows, projectScope) : [...rows];
         // 掲載対象は Test OK 限定ではなく open な local PR 全件 (登録・審査時点で載せる)。
-        const openPullRequests = await source.listOpenLocalPrs();
+        const openPullRequests = inScope(
+          (await source.listOpenLocalPrs()).map((pr) => ({ ...pr, repoOrigin: pr.repository })),
+        );
         // 終局状態は archive 前の「マージしました」通知にだけ使う。取得不能でも従来どおり
         // 候補外の投稿と関連セッションを閉じ、原因はログへ残す。
         const terminalPullRequests = source.listTerminalLocalPrs
@@ -971,12 +984,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         );
         const result = await reconcileTestForum({
           candidates: buildTestForumCandidates(openPullRequests, mentions),
-          terminalPullRequests: terminalPullRequests.map((pullRequest) => ({
+          terminalPullRequests: inScope(terminalPullRequests.map((pullRequest) => ({
             repoOrigin: pullRequest.repository,
             prNumber: pullRequest.number,
             status: pullRequest.status,
             mergeCommitSha: pullRequest.mergeCommitSha,
-          })),
+          }))),
           surfaces: testSurfacesRepo,
           adapter: createTestForumDiscordAdapter(guild, lay.testForumId),
           qa: testForumQa,
@@ -985,7 +998,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info(
           `test-forum ${reason} reconcile: scanned=${result.scanned} kept=${result.kept}`
           + ` updated=${result.updated} created=${result.created} closed=${result.closed}`
-          + ` failed=${result.failed}`,
+          + ` failed=${result.failed}`
+          // project names are operator-controlled configuration. Keep them out of logs to avoid
+          // leaking subsidiary relationships or allowing control characters to forge log lines.
+          + (projectScope ? ` projectScopeCount=${projectScope.length}` : ""),
         );
       });
       testForumRefresh = createTestForumRefreshTrigger({

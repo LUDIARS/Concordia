@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 80;
+export const SCHEMA_VERSION = 81;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2042,6 +2042,23 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
   source: "sweeper purgeEventsOlderThan の毎分フルスキャン回避 (spec/plan/2026-09-01-cc-event-loop-diet.md)",
   up(db) {
     db.exec("CREATE INDEX IF NOT EXISTS idx_events_ts ON session_events(ts)");
+  },
+}, {
+  version: 81,
+  name: "subsidiary-projects",
+  source: "子会社が関係する project の明示集合 (Test forum の掲載範囲を絞る)",
+  up(db) {
+    // 子会社は本社の全 PR を見る必要が無い。 関係する project を WebUI から明示設定し、
+    // Test forum の掲載をその集合だけに絞る (2026-09-01 neco 指示)。
+    // project は project_codes.project と同じ表記 (= repo 名) を正本とする。
+    db.exec(`
+    CREATE TABLE IF NOT EXISTS subsidiary_projects(
+      subsidiary_id TEXT NOT NULL,
+      project       TEXT NOT NULL COLLATE NOCASE,
+      PRIMARY KEY(subsidiary_id, project)
+    );
+    CREATE INDEX IF NOT EXISTS idx_subsidiary_projects_project ON subsidiary_projects(project);
+    `);
   },
 },
 ];

@@ -42,6 +42,9 @@ const CreateSchema = z.object({
   guard_scope: z.string().max(8000).optional(),
   daily_token_budget: z.number().int().min(0).max(1_000_000_000).optional(),
   default_team_id: z.string().trim().min(1).max(120).nullable().optional(),
+  // 関係 project (project_codes.project と同じ表記)。 Test forum の掲載範囲を決める。
+  // 省略 = 据え置き / [] = 未設定 (1 件も載せない)。 spec §3.4。
+  projects: z.array(z.string().trim().min(1).max(120)).max(200).optional(),
 });
 
 const PatchSchema = CreateSchema.partial().omit({ name: true });
@@ -123,6 +126,7 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
     const usage = await deps.budget?.status(row);
     return {
       ...rest,
+      projects: deps.repo.listProjects(row.id),
       enabled: row.enabled === 1,
       bot_token_set: !!bot_token_enc,
       app_token_set: !!app_token_enc,
@@ -229,13 +233,14 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       runClaude: deps.runClaude,
       log: deps.log,
     });
-    const { bot_token, app_token, name: _rawName, ...rest } = parsed.data;
+    const { bot_token, app_token, name: _rawName, projects, ...rest } = parsed.data;
     const row = deps.repo.create({
       ...rest,
       name: resolved.name,
       bot_token_enc: encField(bot_token) ?? null,
       app_token_enc: encField(app_token) ?? null,
     });
+    if (projects !== undefined) deps.repo.setProjects(row.id, projects);
     return c.json(
       { subsidiary: await serialize(row), name_normalized: resolved.normalized, name_source: resolved.source },
       201,
@@ -254,7 +259,9 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
         return c.json({ error: "default_team_not_owned_by_subsidiary" }, 400);
       }
     }
-    const { bot_token, app_token, ...rest } = parsed.data;
+    const { bot_token, app_token, projects, ...rest } = parsed.data;
+    // projects は「丸ごと置換」。 省略時は据え置き、 [] で未設定 (掲載ゼロ) に戻す。
+    if (projects !== undefined) deps.repo.setProjects(id, projects);
     const row = deps.repo.update(id, {
       ...rest,
       bot_token_enc: encField(bot_token),

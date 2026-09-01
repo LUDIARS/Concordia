@@ -176,6 +176,23 @@ Discord・Slack とも、 **特定カテゴリ内のデフォルト通知設定�
   はすべて Discord と同型。
 - 受付チャンネル (`channel_id`) からの依頼を §2 ガードに通すゲートも Discord と同型。
 
+### 3.4 Test forum の掲載範囲 = 関係プロジェクト (2026-09-01 neco 指示)
+
+Test forum は Revisor の open local PR を投稿する面で、 本社では全リポジトリが対象になる。
+これを子会社にそのまま出すと、 その子会社に無関係なリポジトリの PR タイトル・branch 名・
+審査内容が出張先の Discord サーバへ丸ごと漏れる。
+
+- 子会社は **関係プロジェクトの集合** (`subsidiary_projects`) を持つ。 設定は Web UI の
+  子会社編集フォーラム欄から行う (project 名 = project code registry の `project` = repo 名)。
+- 子会社 Bot の Test forum reconcile は、 open / terminal 両方の候補を
+  この集合で絞ってから掲載する (`src/subsidiary/project-scope.ts`)。
+- **未設定 (空集合) は「1 件も載せない」**。 未設定を全許可にすると、 設定漏れがそのまま
+  全 PR の漏洩になるため安全側へ倒す (無言フォールバック禁止 RULE_CODE §7.1)。
+- 本社 Bot は従来どおり全件を載せる (この絞り込みは子会社モードのみ)。
+- TaskWorkflow forum のスレッドは delegation run 単位で、 元から
+  **その子会社が起こした run だけ** が写る (§3 の subsidiary-only 可視)。 よって
+  この絞り込みは Test forum に適用する。
+
 ## 4. データモデル (SQLite)
 
 ```
@@ -197,6 +214,11 @@ subsidiaries
   daily_token_budget  -- 日次トークン予算 (0 = 無制限)。 当日消費が超過で受付停止 (§7-cost)
   default_team_id     -- 自社所有 team の既定。NULL = team 未指定
   created_at, updated_at
+
+subsidiary_projects   -- 関係プロジェクト (Test forum の掲載範囲。 §3.4)
+  subsidiary_id (fk)
+  project             -- project code registry の project (= repo 名)。 COLLATE NOCASE
+  PRIMARY KEY (subsidiary_id, project)
 
 subsidiary_delegations              -- 子会社が「所有する」 delegation の複製定義
   subsidiary_id (fk)                -- (グローバル delegation_templates から clone した時点の

@@ -15,6 +15,7 @@ import {
   type Team,
 } from "../../api.js";
 import { SubsidiaryProjectSpawnForm } from "../../components/SubsidiaryProjectSpawnForm.js";
+import { SubsidiaryProjectsField } from "./SubsidiaryProjectsField.js";
 import { runMutation } from "../../lib/mutation.js";
 
 // ─── 子会社管理 ──────────────────────────────────────────────────────
@@ -32,8 +33,10 @@ const EMPTY_FORM: SubsidiaryInput = {
   guard_scope: "",
   daily_token_budget: 0,
   default_team_id: null,
+  projects: [],
 };
 
+/** @implements spec/feature/subsidiary-delegation.md §3.4 — subsidiary project-scope editing. */
 export function SubsidiariesSection() {
   const [subs, setSubs] = useState<SubsidiarySummary[]>([]);
   const [templates, setTemplates] = useState<DelegationTemplateLite[]>([]);
@@ -74,6 +77,7 @@ export function SubsidiariesSection() {
       guard_scope: r.subsidiary.guard_scope,
       daily_token_budget: r.subsidiary.daily_token_budget ?? 0,
       default_team_id: r.subsidiary.default_team_id ?? null,
+      projects: r.subsidiary.projects ?? [],
     });
     setDetail({ delegations: r.delegations, locks: r.locks, requests: r.requests, teams: r.teams });
       },
@@ -288,6 +292,10 @@ export function SubsidiariesSection() {
             />
           </label>
         </div>
+        <SubsidiaryProjectsField
+          value={form.projects ?? []}
+          onChange={(projects) => setForm({ ...form, projects })}
+        />
         <div className="flex flex-col">
           <span className="text-[10px] text-subtle">guard_scope (この子会社が許可する作業の自然文)</span>
           <textarea className="foundation-form" rows={2} value={form.guard_scope ?? ""} onChange={(e) => setForm({ ...form, guard_scope: e.target.value })} />

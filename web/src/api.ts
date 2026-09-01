@@ -1305,6 +1305,8 @@ export interface SubsidiarySummary {
   home_cwd: string | null;
   daily_token_budget: number;
   default_team_id: string | null;
+  /** この子会社の Test forum に載せる PR の範囲 (project 名 = repo 名)。 空 = 掲載なし。 */
+  projects: string[];
   bot_token_set: boolean;
   app_token_set: boolean;
   running: boolean;
@@ -1331,6 +1333,8 @@ export interface SubsidiaryInput {
   guard_scope?: string;
   daily_token_budget?: number;
   default_team_id?: string | null;
+  /** 丸ごと置換。 省略 = 据え置き、 [] = 未設定 (掲載なし) に戻す。 */
+  projects?: string[];
 }
 
 export function fmtTs(ts: number): string {

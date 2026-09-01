@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/messages/(project|service)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/messages/(project|service|tool-failure)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/db/session-message(s|-reads|-delivery)-repo(\\.test)?\\.ts$"
@@ -46,6 +46,7 @@
   "specRefs": [
     "spec/feature/session-message-layer.md#2-data-flow-and-ownership",
     "spec/feature/session-message-layer.md#3-storage-contract",
+    "spec/feature/session-message-layer.md#41-tool-failure-detail-2026-09-01-neco-指示",
     "spec/feature/session-message-layer.md#5-rest-api",
     "spec/feature/session-message-layer.md#6-event-contract"
   ],

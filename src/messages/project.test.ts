@@ -89,7 +89,7 @@ describe("projectEvent / transcript.frame", () => {
     expect(msg.op).toBe("update");
     expect(msg.dedupe_key).toBe("frame:5");
     expect(msg.content).toBe("成功");
-    expect(msg.metadata).toEqual({ tool_use_id: "tu-2", is_error: false });
+    expect(msg.metadata).toEqual({ tool_use_id: "tu-2", is_error: false, failure: null });
   });
 
   it("kind=tool-use Skill keeps only its skill name as the label", () => {
@@ -248,11 +248,74 @@ describe("projectEvent / other event types", () => {
 describe("ToolUseDedupeContext", () => {
   it("evicts the oldest entry once the limit is exceeded", () => {
     const small = new ToolUseDedupeContext(2);
-    small.rememberToolUseDedupeKey("a", "frame:1");
-    small.rememberToolUseDedupeKey("b", "frame:2");
-    small.rememberToolUseDedupeKey("c", "frame:3");
-    expect(small.getToolUseDedupeKey("a")).toBeUndefined();
-    expect(small.getToolUseDedupeKey("b")).toBe("frame:2");
-    expect(small.getToolUseDedupeKey("c")).toBe("frame:3");
+    const memo = (dedupeKey: string) => ({ dedupeKey, tool: "Bash", inputPreview: "" });
+    small.rememberToolUse("a", memo("frame:1"));
+    small.rememberToolUse("b", memo("frame:2"));
+    small.rememberToolUse("c", memo("frame:3"));
+    expect(small.getToolUse("a")).toBeUndefined();
+    expect(small.getToolUse("b")?.dedupeKey).toBe("frame:2");
+    expect(small.getToolUse("c")?.dedupeKey).toBe("frame:3");
+  });
+
+  it("caps newly retained tool fields even when an opaque frame payload is oversized", () => {
+    const small = new ToolUseDedupeContext();
+    small.rememberToolUse("a", {
+      dedupeKey: "frame:1",
+      tool: "t".repeat(1_000),
+      inputPreview: "x".repeat(1_000),
+    });
+    expect(small.getToolUse("a")?.tool.length).toBe(400);
+    expect(small.getToolUse("a")?.inputPreview.length).toBe(400);
+  });
+});
+
+// neco 指示 (2026-09-01): 「Bash 失敗時に Cc の WebUI で何が失敗したか見れるようにしよう」。
+// 本文は `失敗` のまま (Discord へ流れる面) で、 内訳は metadata にだけ載せる。
+describe("失敗したツール呼び出しの内訳", () => {
+  const bashInput = JSON.stringify({ command: "npm run build", description: "build" });
+
+  it("Bash が失敗したらコマンドとエラー出力を metadata に載せる", () => {
+    projectEvent(frame("tool-use", { name: "Bash", tool_use_id: "tu-f1", input_preview: bashInput }, 1), ctx);
+    const [msg] = projectEvent(
+      frame("tool-result", { tool_use_id: "tu-f1", is_error: true, preview: "error TS2554: expected 1 args" }, 2),
+      ctx,
+    );
+    expect(msg.content).toBe("失敗");
+    expect(msg.metadata?.failure).toEqual({
+      tool: "Bash",
+      command: "npm run build",
+      error: "error TS2554: expected 1 args",
+    });
+  });
+
+  it("成功したツールには内訳を付けない (成功分の引数を残さない)", () => {
+    projectEvent(frame("tool-use", { name: "Bash", tool_use_id: "tu-f2", input_preview: bashInput }, 3), ctx);
+    const [msg] = projectEvent(frame("tool-result", { tool_use_id: "tu-f2", is_error: false, preview: "ok" }, 4), ctx);
+    expect(msg.content).toBe("成功");
+    expect(msg.metadata?.failure).toBeNull();
+  });
+
+  it("対応する tool-use を失っていてもエラー出力だけは残す", () => {
+    const [msg] = projectEvent(
+      frame("tool-result", { tool_use_id: "tu-unknown", is_error: true, preview: "command not found" }, 5),
+      ctx,
+    );
+    expect(msg.op).toBe("create");
+    expect(msg.metadata?.failure).toEqual({ tool: "", command: "", error: "command not found" });
+  });
+
+  it("素材が無ければ内訳を付けない (空の詳細で「詳細あり」に見せない)", () => {
+    const [msg] = projectEvent(frame("tool-result", { tool_use_id: "tu-empty", is_error: true, preview: "" }, 6), ctx);
+    expect(msg.metadata?.is_error).toBe(true);
+    expect(msg.metadata?.failure).toBeNull();
+  });
+
+  it("失敗した Task にも内訳を付ける", () => {
+    projectEvent(
+      frame("tool-use", { name: "Task", tool_use_id: "tu-t1", task: { subagent_type: "Explore", description: "d" } }, 7),
+      ctx,
+    );
+    const [msg] = projectEvent(frame("tool-result", { tool_use_id: "tu-t1", is_error: true, preview: "boom" }, 8), ctx);
+    expect((msg.metadata?.failure as { error: string }).error).toBe("boom");
   });
 });

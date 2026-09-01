@@ -57,6 +57,12 @@ updated: 2026-09-01
   - `task` は Task カード (実行中はスピナー、完了で結果要約に更新)
   - `delegation` は親子リンクチップ (クリックで相手セッションへ遷移)
   - `question` / `permission` はボタン付き (既存モーダルの処理を再利用)
+  - `tool` は 1 行。 ただし **失敗した呼び出しは折りたたみカード**にし、 開くと
+    「実行した内容」(Bash ならコマンド行) と「エラー」を出す (2026-09-01 neco 指示:
+    「Bash 失敗時に Cc の WebUI で何が失敗したか見れるようにしよう」)。
+    出典は `metadata.failure` (session-message-layer §4.1)。 成功した呼び出しには
+    内訳が無く、 従来どおり 1 行のまま。
+    **Requirement ID: `SPEC-SESSION-TOOL-FAILURE-RENDERING`**
 - cleanup を返さない **useEffect の本体はブロックにして、値を返さない**。式の戻り値は
   cleanup として保存され、関数でなければアンマウント時に落ちる。2026-09-01 に
   `useEffect(() => bottom.current?.scrollIntoView(...), [...])` が原因で

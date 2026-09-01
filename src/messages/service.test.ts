@@ -123,7 +123,40 @@ describe("SessionMessageService", () => {
     const rows = repo.list("s1");
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ author_label: "Bash", content: "成功", edited_ts: 200 });
-    expect(rows[0].metadata).toEqual({ tool_use_id: "tu-1", is_error: false });
+    expect(rows[0].metadata).toEqual({ tool_use_id: "tu-1", is_error: false, failure: null });
+  });
+
+  it("clears stale failure detail when a tool result is replayed without detail", () => {
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 1,
+      kind: "tool-use",
+      payload: { name: "Bash", tool_use_id: "tu-replay", input_preview: '{"command":"npm test"}' },
+      ts: 100,
+    });
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 2,
+      kind: "tool-result",
+      payload: { tool_use_id: "tu-replay", is_error: true, preview: "first error" },
+      ts: 200,
+    });
+    dispatch({
+      type: "transcript.frame",
+      target_session_id: "s1",
+      seq: 3,
+      kind: "tool-result",
+      payload: { tool_use_id: "tu-replay", is_error: false, preview: "ok" },
+      ts: 300,
+    });
+
+    expect(repo.list("s1")[0].metadata).toEqual({
+      tool_use_id: "tu-replay",
+      is_error: false,
+      failure: null,
+    });
   });
 
   it("preserves the question prompt, options, platform, and metadata across state updates", () => {

@@ -100,7 +100,7 @@ The projector handles these events:
 | Source | Result |
 | --- | --- |
 | transcript text/thinking/summary/image | user, assistant, thinking, summary, or attachment message |
-| tool use/result | tool message, or one Task row updated through completion |
+| tool use/result | tool message, or one Task row updated through completion; a failed call also carries `metadata.failure` |
 | `session.inject` | user message with normalized platform only |
 | question posted/answered/resolved | one question row with retained prompt/options and merged state |
 | permission request | permission item without raw `tool_input` persistence |
@@ -108,6 +108,33 @@ The projector handles these events:
 | operational claim opened/released | system item |
 
 Unknown events and unsupported transcript frame kinds produce no message.
+
+### 4.1 Tool failure detail (2026-09-01 neco 指示)
+
+**Requirement ID: `SPEC-SESSION-TOOL-FAILURE-DETAIL`**
+
+A failed tool call used to leave only the word `失敗` in the stream, so "what actually
+broke" was readable only in the provider transcript. A failure now also carries
+`metadata.failure = { tool, command, error }` built by `src/messages/tool-failure.ts`:
+
+- `command` comes from the remembered `tool-use` frame's `input_preview`; `error` from the
+  `tool-result` frame's `preview`. Both are already capped at 200 characters by Lictor and
+  are clipped again to 400 here.
+- The preview is a **truncated** JSON string, so extraction falls back from `JSON.parse`
+  to a loose `"command":"…"` match to the raw preview — it never invents a value, and
+  returns `null` when there is no material at all.
+- Successful calls carry no detail (`metadata.failure` is cleared to `null` on update so a
+  replay cannot expose stale failure data). Tool arguments are kept only in the in-memory
+  `ProjectContext` and are persisted **only for the calls that failed**, so a successful
+  session does not write every command it ran into the database.
+- Message `content` stays `失敗`. Discord relays tool messages by `content` only
+  (`egress.ts` forwards failures), so putting the command in the body would push raw
+  commands into session threads; `metadata` is read by the WebUI alone.
+- A Concordia restart loses the in-memory tool-use memo, so a `tool-result` arriving after
+  a restart reports the error output with an empty `command`.
+- Both fields pass through `src/shared/redact-secrets.ts` before they are stored or shown.
+  A failed command line and its stderr can carry `token=…` / `Bearer …` / `sk-…`, and this
+  is the last boundary before they reach the database and the WebUI (RULE_CODE §14).
 
 ## 5. REST API
 

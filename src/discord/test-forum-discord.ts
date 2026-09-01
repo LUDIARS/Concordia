@@ -15,6 +15,7 @@ import {
 } from "discord.js";
 import type { DiscordTestSurfaceRow } from "../db/discord-test-surfaces-repo.js";
 import type { RevisorLocalPrDetail } from "../pr/revisor-test-workflow-client.js";
+import { redactSecrets } from "../shared/redact-secrets.js";
 import {
   buildTestControlId,
   describeRunConfig,
@@ -66,17 +67,6 @@ function blockquote(value: string, max: number): string {
     .split(/\r?\n/)
     .map((line) => `> ${line}`)
     .join("\n");
-}
-
-/** Revisor のマスクが不完全でも、Discord へ資格情報を転載しないための最後の境界。 */
-function redactSecrets(value: string): string {
-  return value
-    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:sk|gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
-    .replace(
-      /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
-      "$1=[REDACTED]",
-    );
 }
 
 function failureDetailLines(detail: RevisorLocalPrDetail): string[] {

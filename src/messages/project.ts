@@ -8,6 +8,7 @@
  */
 
 import type { ConcordiaEvent } from "../events.js";
+import { buildToolFailureDetail } from "./tool-failure.js";
 import type {
   Attachment,
   Component,
@@ -51,34 +52,53 @@ export type ProjectedMessage = ProjectedMessageBase & (
     }
 );
 
+/** 直前の tool-use 1 件。 tool-result が元の message を更新するときに引く。 */
+export interface ToolUseMemo {
+  /** 更新先の message を引くキー。 */
+  dedupeKey: string;
+  /** ツール名 (Bash / Edit / …)。 失敗時の内訳に使う。 */
+  tool: string;
+  /** 入力の先頭プレビュー (Lictor 側で 200 字)。 失敗時の内訳に使う。 */
+  inputPreview: string;
+}
+
 /**
- * `tool_use_id → dedupe_key` の直近解決状態 (spec §4 の Task create/update 紐付けと、
+ * `tool_use_id → 直前の tool-use` の解決状態 (spec §4 の Task create/update 紐付けと、
  * 通常 tool-result の「直前 tool-use への reference」解決に使う薄い LRU)。
  * セッションごとに 1 インスタンス。 上限を超えた分は最古から捨てる。
+ *
+ * コマンド本文をここだけに持ち、 永続化するのは失敗したときだけにする
+ * (成功した全ツール引数を DB へ残さない)。 その代わり Cc 再起動をまたいだ
+ * tool-result はコマンドを復元できず、 内訳はエラー出力だけになる。
  */
 export interface ProjectContext {
-  getToolUseDedupeKey(toolUseId: string): string | undefined;
-  rememberToolUseDedupeKey(toolUseId: string, dedupeKey: string): void;
+  getToolUse(toolUseId: string): ToolUseMemo | undefined;
+  rememberToolUse(toolUseId: string, memo: ToolUseMemo): void;
 }
 
 const DEFAULT_CONTEXT_LIMIT = 200;
+const TOOL_MEMO_FIELD_LIMIT = 400;
 const TOOL_RUNNING = "実行中";
 const TOOL_SUCCEEDED = "成功";
 const TOOL_FAILED = "失敗";
 
 export class ToolUseDedupeContext implements ProjectContext {
-  private readonly map = new Map<string, string>();
+  private readonly map = new Map<string, ToolUseMemo>();
 
   constructor(private readonly limit: number = DEFAULT_CONTEXT_LIMIT) {}
 
-  getToolUseDedupeKey(toolUseId: string): string | undefined {
+  getToolUse(toolUseId: string): ToolUseMemo | undefined {
     return this.map.get(toolUseId);
   }
 
-  rememberToolUseDedupeKey(toolUseId: string, dedupeKey: string): void {
+  rememberToolUse(toolUseId: string, memo: ToolUseMemo): void {
     // Map の挿入順 = 古い順。 既存キーは delete→set で末尾へ移し、 直近アクセス優先で回す。
     this.map.delete(toolUseId);
-    this.map.set(toolUseId, dedupeKey);
+    this.map.set(toolUseId, {
+      ...memo,
+      tool: memo.tool.slice(0, TOOL_MEMO_FIELD_LIMIT),
+      inputPreview: memo.inputPreview.slice(0, TOOL_MEMO_FIELD_LIMIT),
+    });
     while (this.map.size > this.limit) {
       const oldest = this.map.keys().next().value;
       if (oldest === undefined) break;
@@ -189,9 +209,11 @@ function projectToolUse(
   const name = typeof p.name === "string" ? p.name : "tool";
   const task = asRecord(p.task);
 
+  const inputPreview = typeof p.input_preview === "string" ? p.input_preview : "";
+
   if (name === "Task" && toolUseId) {
     const dedupeKey = `task:${toolUseId}`;
-    ctx.rememberToolUseDedupeKey(toolUseId, dedupeKey);
+    ctx.rememberToolUse(toolUseId, { dedupeKey, tool: name, inputPreview });
     const subagentType = typeof task.subagent_type === "string" ? task.subagent_type : "";
     const description = typeof task.description === "string" ? task.description : "";
     return [{
@@ -213,8 +235,7 @@ function projectToolUse(
     }];
   }
 
-  if (toolUseId) ctx.rememberToolUseDedupeKey(toolUseId, frameDedupeKey);
-  const inputPreview = typeof p.input_preview === "string" ? p.input_preview : "";
+  if (toolUseId) ctx.rememberToolUse(toolUseId, { dedupeKey: frameDedupeKey, tool: name, inputPreview });
   return [{
     op: "create",
     dedupe_key: frameDedupeKey,
@@ -236,7 +257,19 @@ function projectToolResult(
   const toolUseId = typeof p.tool_use_id === "string" ? p.tool_use_id : "";
   const preview = typeof p.preview === "string" ? p.preview : "";
   const isError = p.is_error === true;
-  const knownDedupeKey = toolUseId ? ctx.getToolUseDedupeKey(toolUseId) : undefined;
+  const memo = toolUseId ? ctx.getToolUse(toolUseId) : undefined;
+  const knownDedupeKey = memo?.dedupeKey;
+  // 失敗したときだけ「何が失敗したか」を metadata へ添える。 null は replay 時に
+  // 以前の failure が shallow merge で残らないよう明示的に消すための値。
+  // 本文 (content) は `失敗` のまま — Discord は tool の失敗だけを本文で中継するので、
+  // 本文へ入れると生コマンドがチャンネルへ流れる (neco 指示は Cc の WebUI)。
+  const failure = isError
+    ? buildToolFailureDetail({
+      tool: memo?.tool ?? "",
+      inputPreview: memo?.inputPreview ?? "",
+      resultPreview: preview,
+    })
+    : null;
 
   if (knownDedupeKey?.startsWith("task:")) {
     return [{
@@ -251,7 +284,7 @@ function projectToolResult(
           { name: "result", value: preview || "-" },
         ],
       }],
-      metadata: { tool_use_id: toolUseId, is_error: isError },
+      metadata: { tool_use_id: toolUseId, is_error: isError, failure },
     }];
   }
 
@@ -261,7 +294,7 @@ function projectToolResult(
       dedupe_key: knownDedupeKey,
       author_type: "tool",
       content: isError ? TOOL_FAILED : TOOL_SUCCEEDED,
-      metadata: { tool_use_id: toolUseId, is_error: isError },
+      metadata: { tool_use_id: toolUseId, is_error: isError, failure },
     }];
   }
 
@@ -272,7 +305,11 @@ function projectToolResult(
     author_label: "Tool",
     author_platform: null,
     content: isError ? TOOL_FAILED : TOOL_SUCCEEDED,
-    metadata: toolUseId ? { tool_use_id: toolUseId, is_error: isError } : { is_error: isError },
+    metadata: {
+      ...(toolUseId ? { tool_use_id: toolUseId } : {}),
+      is_error: isError,
+      failure,
+    },
   }];
 }
 
@@ -440,4 +477,3 @@ function derivePlatformFromSource(source: string | null): string | null {
   if (source.startsWith("lictor")) return "lictor";
   return null;
 }
-

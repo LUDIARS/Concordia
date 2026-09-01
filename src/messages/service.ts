@@ -66,7 +66,10 @@ export class SessionMessageService {
     const recent = this.deps.repo.listRecentToolUseDedupeKeys(sessionId, TOOL_USE_CONTEXT_RESTORE_LIMIT);
     for (const entry of recent.slice().reverse()) {
       const toolUseId = typeof entry.metadata?.tool_use_id === "string" ? entry.metadata.tool_use_id : null;
-      if (toolUseId) ctx.rememberToolUseDedupeKey(toolUseId, entry.dedupe_key);
+      // 復元できるのは dedupe_key だけ。 ツール名とコマンドは永続化していないので
+      // (成功分を含めた全引数を DB に残さない方針)、 再起動をまたいだ
+      // tool-result の失敗内訳はエラー出力だけになる。
+      if (toolUseId) ctx.rememberToolUse(toolUseId, { dedupeKey: entry.dedupe_key, tool: "", inputPreview: "" });
     }
   }
 

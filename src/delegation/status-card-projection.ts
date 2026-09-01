@@ -1,4 +1,5 @@
 import type { DelegationRunRow } from "../db/delegation-repo.js";
+import { redactSecrets } from "../shared/redact-secrets.js";
 
 const TASK_KEYS = ["task", "problem", "child_task", "summary", "design_path"] as const;
 const LABEL_LIMIT = 180;
@@ -52,14 +53,4 @@ function normalizeLabel(value: string): string {
 function truncate(value: string, limit: number): string {
   const codePoints = [...value];
   return codePoints.length <= limit ? value : `${codePoints.slice(0, limit - 3).join("")}...`;
-}
-
-function redactSecrets(value: string): string {
-  return value
-    .replace(/\bBearer\s+\S+/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:sk|gh[pousr]|xox[baprs])-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]")
-    .replace(
-      /\b(api[_-]?key|access[_-]?token|token|secret|password)\s*[:=]\s*(?:"[^"]*"|'[^']*'|\S+)/gi,
-      "$1=[REDACTED]",
-    );
 }

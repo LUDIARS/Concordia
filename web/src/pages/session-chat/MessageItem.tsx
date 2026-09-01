@@ -14,7 +14,63 @@ export function MessageItem({ message, onAnswer, onPermission }: {
   if (message.author_type === "delegation") return <DelegationMessage message={message} />;
   if (message.author_type === "question") return <QuestionMessage message={message} onAnswer={onAnswer} />;
   if (message.author_type === "permission") return <PermissionMessage message={message} onPermission={onPermission} />;
+  if (message.author_type === "tool") {
+    const failure = toolFailure(message);
+    if (failure) return <ToolFailureMessage message={message} failure={failure} />;
+  }
   return <article className="rounded px-2 py-1.5 hover:bg-muted/50"><div className="text-xs text-subtle">{message.author_label} · {fmtTs(message.ts)}</div><div className="whitespace-pre-wrap break-words">{message.content}</div></article>;
+}
+
+/**
+ * 失敗したツール呼び出しの内訳 (metadata.failure)。 成功時は付かない。
+ * @implements spec/feature/session-message-webui-chat.md §1.2 tool failure rendering
+ */
+export interface ToolFailure {
+  tool: string;
+  command: string;
+  error: string;
+}
+
+/**
+ * `失敗` の 1 語だけでは何が落ちたのか分からないので、 コマンドとエラー出力を出す
+ * (neco 指示 2026-09-01)。 既定は折りたたみ — 失敗が続くセッションでログが
+ * 読めなくなるのを避ける。
+ * @implements spec/feature/session-message-webui-chat.md §1.2 tool failure rendering
+ */
+export function toolFailure(message: SessionMessage): ToolFailure | null {
+  if (message.metadata?.is_error !== true) return null;
+  const raw = message.metadata?.failure;
+  if (typeof raw !== "object" || raw === null) return null;
+  const failure = raw as Record<string, unknown>;
+  const text = (value: unknown): string => (typeof value === "string" ? value : "");
+  const command = text(failure.command);
+  const error = text(failure.error);
+  if (!command && !error) return null;
+  return { tool: text(failure.tool), command, error };
+}
+
+/** @implements spec/feature/session-message-webui-chat.md §1.2 tool failure rendering */
+function ToolFailureMessage({ message, failure }: { message: SessionMessage; failure: ToolFailure }) {
+  return (
+    <article className="rounded border border-danger/40 bg-danger/5 px-2 py-1.5">
+      <div className="text-xs text-subtle">{message.author_label} · {fmtTs(message.ts)}</div>
+      <details className="mt-1 text-sm">
+        <summary className="cursor-pointer text-danger">⚠ {message.content} — 内容を見る</summary>
+        {failure.command && (
+          <div className="mt-2">
+            <div className="text-xs text-subtle">実行した内容</div>
+            <pre className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted px-2 py-1 text-xs">{failure.command}</pre>
+          </div>
+        )}
+        {failure.error && (
+          <div className="mt-2">
+            <div className="text-xs text-subtle">エラー</div>
+            <pre className="mt-0.5 overflow-x-auto whitespace-pre-wrap break-words rounded bg-muted px-2 py-1 text-xs">{failure.error}</pre>
+          </div>
+        )}
+      </details>
+    </article>
+  );
 }
 
 /** @implements spec/feature/session-message-webui-chat.md §1.2 thinking rendering */

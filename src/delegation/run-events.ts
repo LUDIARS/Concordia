@@ -11,10 +11,10 @@ export function emitDelegationRunChanged(
   sink: DelegationRunEventSink = eventBus,
   nowSec: () => number = () => Math.floor(Date.now() / 1000),
 ): boolean {
-  if (!run?.parent_session_id) return false;
+  if (!run) return false;
   sink.emit({
     type: "delegation.run_changed",
-    parent_session_id: run.parent_session_id,
+    parent_session_id: run.parent_session_id ?? null,
     run_id: run.id,
     status: run.status,
     ts: nowSec(),

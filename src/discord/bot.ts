@@ -81,11 +81,19 @@ import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentati
 import { startInteractionAckProbe } from "./interaction-ack.js";
 import { createForumProjectResolver } from "./forum-project-code.js";
 import {
+  executeForumSpawn,
   handleForumSpawnThread,
+  matchesApprovedForumContent,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
+  type ApprovedForumSpawnContent,
   type ForumSpawnThread,
 } from "./forum-spawn.js";
+import {
+  requestForumSpawnApproval,
+  type ForumSpawnApprovalStore,
+} from "./forum-spawn-approval.js";
+import type { AnyThreadChannel } from "discord.js";
 import { selectForumDelegationTemplate } from "./forum-delegation-selector.js";
 import {
   resolveForumSessionSurface,
@@ -309,6 +317,9 @@ export interface DiscordBotDeps {
     process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
     /** 当該ユーザがロック済みか。 */
     isLocked: (userId: string) => boolean;
+    /** Forum spawn 前のガード (spawn せず評価 + 監査のみ)。 spec §3.1。 */
+    guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
+      => Promise<{ ok: boolean; replyText: string }>;
   };
   /**
    * 本社内の軽量窓口 (desk)。 子会社と違い **本社 Bot にそのまま相乗り**する:
@@ -426,6 +437,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const pendingQuestionsRepo = makeDiscordPendingQuestionsRepo(deps.db);
   const permissionActions: PermissionActionStore = new Map();
   const spawnApprovals: SpawnApprovalStore = new Map();
+  const forumSpawnApprovals: ForumSpawnApprovalStore = new Map();
 
   const resolveReactionSafetyValve =
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
@@ -1180,13 +1192,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   client.on(Events.MessageCreate, onMessageCreate);
   clientListenerCleanup.push(() => client.off(Events.MessageCreate, onMessageCreate));
 
-  const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
-    const forumLayout = layout;
-    const forumWebhooks = webhooks;
-    if (gatewayClosed || stopping || !newlyCreated || !forumLayout?.forumMode || !forumWebhooks) return;
-    if (!inScope(thread.guildId)) return;
+  const toForumSpawnThread = (thread: AnyThreadChannel): ForumSpawnThread => {
     const parent = thread.parent?.type === ChannelType.GuildForum ? thread.parent : null;
-    const forumSpawnThread: ForumSpawnThread = {
+    return {
       id: thread.id,
       guildId: thread.guildId,
       parentId: thread.parentId,
@@ -1209,25 +1217,44 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         };
       },
     };
-    void handleForumSpawnThread({
-        sessionForumId: forumLayout.sessionForumId,
-        botUserId: client.user?.id ?? "",
-        concordiaUrl: deps.concordiaUrl,
+  };
+  // ThreadCreate と承認ボタンの spawn 続行 (executeApprovedForumSpawn) が共有する deps。
+  const forumSpawnDepsNow = (): ForumSpawnDeps | null => {
+    const forumLayout = layout;
+    const forumWebhooks = webhooks;
+    if (!forumLayout?.forumMode || !forumWebhooks) return null;
+    return {
+      sessionForumId: forumLayout.sessionForumId,
+      botUserId: client.user?.id ?? "",
+      concordiaUrl: deps.concordiaUrl,
       // このスレッドを持つ Bot インスタンス自身の子会社 id (本社なら null)。
       // /v1/delegation/invoke へ転送し、 spawn したセッションを正しい会社スコープに
       // 帰属させる (ownsSession の subsidiary-only 可視判定を壊さないため)。
-        subsidiaryId,
-        isLaunchUserAllowed: deps.isLaunchUserAllowed,
-        templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
-        selectTemplate: (input) => selectForumDelegationTemplate(
-          (prompt, options) => deps.runHeadless(prompt, options),
-          input,
-        ),
-        resolveProjectTarget: projectResolver.targetFromPost,
-        resolveSpawnCwd: (provider, requested) =>
+      subsidiaryId,
+      isLaunchUserAllowed: deps.isLaunchUserAllowed,
+      // 権限なし投稿者には平文 deny でなく、管理職以上が押すと起動する承認カードを出す。
+      requestApproval: async (t, approvedContent) => {
+        await requestForumSpawnApproval({
+          store: forumSpawnApprovals,
+          postCard: async (threadId, content, components) => {
+            const ch = await client.channels.fetch(threadId);
+            if (!ch?.isThread()) throw new Error("approval thread unavailable");
+            await ch.send({ content, components, allowedMentions: { parse: [] } });
+          },
+        }, { id: t.id, guildId: t.guildId, ownerId: t.ownerId ?? "", approvedContent });
+      },
+      // 子会社 Bot は spawn 前に依頼本文をガードゲートへ通す (subsidiary-delegation §3.1)。
+      guardInstruction: deps.subsidiary?.guardInstruction,
+      templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,
+      selectTemplate: (input) => selectForumDelegationTemplate(
+        (prompt, options) => deps.runHeadless(prompt, options),
+        input,
+      ),
+      resolveProjectTarget: projectResolver.targetFromPost,
+      resolveSpawnCwd: (provider, requested) =>
         deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
-        hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
-        postToThread: async (threadId, content) => {
+      hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
+      postToThread: async (threadId, content) => {
         const webhook = await forumWebhooks.getForChannel(forumLayout.sessionForumId);
         if (!webhook) throw new Error("Session forum webhook unavailable");
         const sent = await forumWebhooks.send(webhook, {
@@ -1240,9 +1267,39 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           allowedMentions: { parse: [] },
         });
         if (!sent) throw new Error("Session forum webhook post failed");
-        },
-        log,
-      }, forumSpawnThread).catch((error) => {
+      },
+      log,
+    };
+  };
+  // 承認ボタン (管理職以上) からの spawn 続行。 thread を再取得し、権限確認より後の
+  // 実行部 (executeForumSpawn) へ再入する。 冪等性は triggered_by の重複 run 判定が守る。
+  const executeApprovedForumSpawn = async (
+    threadId: string,
+    approvedContent: ApprovedForumSpawnContent,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const forumDeps = forumSpawnDepsNow();
+    if (!forumDeps) return { ok: false, error: "forum layout not ready" };
+    const ch = await client.channels.fetch(threadId).catch(() => null);
+    if (!ch?.isThread()) return { ok: false, error: "thread not found" };
+    const thread = toForumSpawnThread(ch);
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (!starter || !matchesApprovedForumContent(
+      thread.name,
+      starter.content,
+      thread.appliedTags,
+      approvedContent,
+    )) {
+      return { ok: false, error: "forum content changed after approval was requested" };
+    }
+    await executeForumSpawn(forumDeps, thread, approvedContent);
+    return { ok: true };
+  };
+  const onThreadCreate = instrumentDiscord("threadCreate", (thread, newlyCreated) => {
+    if (gatewayClosed || stopping || !newlyCreated) return;
+    if (!inScope(thread.guildId)) return;
+    const forumDeps = forumSpawnDepsNow();
+    if (!forumDeps) return;
+    void handleForumSpawnThread(forumDeps, toForumSpawnThread(thread)).catch((error) => {
       log.warn(`forum-spawn handler failed thread=${thread.id}: ${(error as Error).message}`);
     });
   });
@@ -1332,6 +1389,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       log,
       permissionActions,
       spawnApprovals,
+      // Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。
+      forumSpawnApprovals,
+      executeApprovedForumSpawn,
       listExecutiveDiscordUserIds: deps.listExecutiveDiscordUserIds,
       checkDependencies: deps.checkDependencies,
       subsidiaryId,
@@ -1745,7 +1805,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       return;
     }
     if (ev.type === "delegation.run_changed") {
-      if (!isActiveDiscordSession(ev.parent_session_id)) return;
+      const parentSessionId = ev.parent_session_id;
+      if (!parentSessionId || !isActiveDiscordSession(parentSessionId)) return;
       void upsertSessionStatusCard({
         guild,
         layout,
@@ -1753,8 +1814,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         sessionChannelsRepo,
         readModel: deps.readModel,
         log,
-      }, ev.parent_session_id).catch((e) => {
-        log.warn(`delegation status-card refresh failed session=${ev.parent_session_id}: ${(e as Error).message}`);
+      }, parentSessionId).catch((e) => {
+        log.warn(`delegation status-card refresh failed session=${parentSessionId}: ${(e as Error).message}`);
       });
       // 起動できた委託の投稿へ、親の面から辿れるリンクを 1 回だけ貼る。
       void (async () => {
@@ -1779,7 +1840,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           {
             runId: ev.run_id,
             status: ev.status,
-            parentSessionId: ev.parent_session_id,
+            parentSessionId,
             childSessionId: run.child_session_id,
             label: run.call_name,
           },

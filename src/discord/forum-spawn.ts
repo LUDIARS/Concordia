@@ -27,6 +27,26 @@ export interface ForumSpawnThread {
   fetchTagState: () => Promise<ForumTagState>;
 }
 
+/** Exact title/body approved for an otherwise unauthorized forum spawn. */
+export interface ApprovedForumSpawnContent {
+  readonly title: string;
+  readonly body: string;
+  readonly tagState: ForumTagState;
+}
+
+export function matchesApprovedForumContent(
+  title: string,
+  starterContent: string,
+  appliedTags: readonly string[],
+  approved: ApprovedForumSpawnContent,
+): boolean {
+  const approvedTags = approved.tagState.appliedTags;
+  return title === approved.title
+    && starterContent.trim() === approved.body
+    && appliedTags.length === approvedTags.length
+    && appliedTags.every((tag) => approvedTags.includes(tag));
+}
+
 export interface ForumSpawnDeps {
   sessionForumId: string;
   botUserId: string;
@@ -46,6 +66,22 @@ export interface ForumSpawnDeps {
   resolveSpawnCwd: (provider: DelegationProvider, requested?: string) => string | undefined;
   /** Exact Discord user ID authorization for the thread owner. */
   isLaunchUserAllowed?: (userId: string) => boolean;
+  /**
+   * 権限の無い投稿者のスレッドに「管理職以上が押すと起動する」承認カードを出す
+   * (forum-spawn-approval.ts)。 未配線なら従来どおり平文 deny。
+   */
+  requestApproval?: (
+    thread: ForumSpawnThread,
+    content: ApprovedForumSpawnContent,
+  ) => Promise<void>;
+  /**
+   * 子会社 Bot のみ: spawn 前に依頼本文を Sonnet ガード (subsidiary/gate.ts) へ通す。
+   * 受付チャンネルと同じく「出張先からの人間の作業指示は必ずガードを通す」
+   * (spec/feature/subsidiary-delegation.md §3.1) を forum spawn にも適用する。
+   * 未配線 (本社 Bot) はガード無しで従来どおり。
+   */
+  guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
+    => Promise<{ ok: boolean; replyText: string }>;
   hasExistingRun: (triggeredBy: string) => boolean;
   /** Cc の Forum 返信も必ず親 Forum webhook + thread_id で投稿する。 */
   postToThread: (threadId: string, content: string) => Promise<void>;
@@ -63,26 +99,83 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   if (!thread.ownerId || thread.ownerId === deps.botUserId) return;
   if (deps.isLaunchUserAllowed?.(thread.ownerId) !== true) {
     deps.log.warn(`forum-spawn unauthorized owner=${thread.ownerId} thread=${thread.id}`);
+    if (deps.requestApproval) {
+      // 承認後の編集を実行対象に混ぜないよう、カード作成時のタイトルと本文を固定する。
+      const starter = await fetchStarterWithRetry(thread, deps.wait);
+      if (!starter) {
+        await reply(deps, thread, "最初の投稿を取得できなかったため、承認を依頼できませんでした。");
+        return;
+      }
+      const body = starter.content.trim();
+      if (isConcordiaSessionStarter(body)) {
+        deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
+        return;
+      }
+      let tagState: ForumTagState;
+      try {
+        tagState = await thread.fetchTagState();
+      } catch (error) {
+        deps.log.warn(`forum-spawn tag refresh failed before approval thread=${thread.id}: ${(error as Error).message}`);
+        await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、承認を依頼できませんでした。");
+        return;
+      }
+      if (hasConcordiaManagedForumTag(tagState)) {
+        deps.log.info(`forum-spawn explicit/Cc-managed thread ignored before approval thread=${thread.id}`);
+        return;
+      }
+      await deps.requestApproval(thread, { title: thread.name, body, tagState });
+      return;
+    }
     await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
     return;
   }
+  await executeForumSpawn(deps, thread);
+}
+
+/**
+ * 権限確認より後の spawn 続行部。 承認ボタン (forum-spawn-approval.ts) からの再入口も
+ * ここを呼ぶ — 重複 run 判定 (triggered_by) が冪等性を守る。
+ */
+export async function executeForumSpawn(
+  deps: ForumSpawnDeps,
+  thread: ForumSpawnThread,
+  approvedContent?: ApprovedForumSpawnContent,
+): Promise<void> {
   const triggeredBy = buildForumSpawnTrigger(thread.guildId, thread.id);
   if (deps.hasExistingRun(triggeredBy)) {
     deps.log.info(`forum-spawn duplicate ignored thread=${thread.id}`);
     return;
   }
 
-  const starter = await fetchStarterWithRetry(thread, deps.wait);
-  if (!starter) {
-    await reply(deps, thread, "最初の投稿を取得できなかったため、セッションを起動できませんでした。");
-    return;
+  let title = approvedContent?.title;
+  let body = approvedContent?.body;
+  if (title === undefined || body === undefined) {
+    const starter = await fetchStarterWithRetry(thread, deps.wait);
+    if (!starter) {
+      await reply(deps, thread, "最初の投稿を取得できなかったため、セッションを起動できませんでした。");
+      return;
+    }
+    title = thread.name;
+    body = starter.content.trim();
+    if (isConcordiaSessionStarter(body)) {
+      deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
+      return;
+    }
   }
-  const body = starter.content.trim();
-  if (isConcordiaSessionStarter(body)) {
-    deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
-    return;
+  if (deps.guardInstruction) {
+    // 子会社: 依頼本文をガード (ロック/予算/Sonnet 判定 + 監査記録) に通してから進む。
+    const guarded = await deps.guardInstruction({
+      userId: thread.ownerId ?? "",
+      userLabel: thread.ownerId ? `<@${thread.ownerId}>` : "unknown",
+      instruction: `${title}\n\n${body}`,
+    });
+    if (!guarded.ok) {
+      deps.log.warn(`forum-spawn guarded deny thread=${thread.id} owner=${thread.ownerId ?? "-"}`);
+      await reply(deps, thread, guarded.replyText);
+      return;
+    }
   }
-  const project = deps.resolveProjectTarget(thread.name, body);
+  const project = deps.resolveProjectTarget(title, body);
   if (!project) {
     deps.log.info(`forum-spawn project unresolved thread=${thread.id}`);
     await reply(
@@ -93,7 +186,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     return;
   }
   const templates = await deps.templates();
-  const selection = await deps.selectTemplate({ title: thread.name, body, templates });
+  const selection = await deps.selectTemplate({ title, body, templates });
   if (!selection.ok) {
     deps.log.warn(`forum-spawn template selection failed thread=${thread.id}: ${selection.error}`);
     await reply(deps, thread, selection.error);
@@ -112,13 +205,15 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     return;
   }
 
-  let freshTagState: ForumTagState;
-  try {
-    freshTagState = await thread.fetchTagState();
-  } catch (error) {
-    deps.log.warn(`forum-spawn tag refresh failed thread=${thread.id}: ${(error as Error).message}`);
-    await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、セッションを起動しませんでした。");
-    return;
+  let freshTagState = approvedContent?.tagState;
+  if (!freshTagState) {
+    try {
+      freshTagState = await thread.fetchTagState();
+    } catch (error) {
+      deps.log.warn(`forum-spawn tag refresh failed thread=${thread.id}: ${(error as Error).message}`);
+      await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、セッションを起動しませんでした。");
+      return;
+    }
   }
   if (hasConcordiaManagedForumTag(freshTagState)) {
     deps.log.info(`forum-spawn explicit/Cc-managed thread ignored after refresh thread=${thread.id}`);
@@ -134,7 +229,7 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
     call_name: template.call_name,
     args: forumTemplateDefaultArgs({ input_schema: template.input_schema ?? [] }),
     cwd,
-    extra_prompt: buildForumSpawnPrompt(thread.name, body, activeRuntimeRules),
+    extra_prompt: buildForumSpawnPrompt(title, body, activeRuntimeRules),
     triggered_by: triggeredBy,
     spawn: true,
     subsidiary_id: deps.subsidiaryId ?? null,

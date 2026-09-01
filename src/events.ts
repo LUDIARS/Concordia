@@ -65,7 +65,8 @@ type ConcordiaEventPayload =
     }
   | {
       type: "delegation.run_changed";
-      parent_session_id: string;
+      /** Scheduled/global delegations do not necessarily have a parent session. */
+      parent_session_id: string | null;
       run_id: string;
       status: string;
       ts: number;

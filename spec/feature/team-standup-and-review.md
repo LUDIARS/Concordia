@@ -10,15 +10,20 @@ tags:
   - scheduler
   - discord
   - director
-status: implemented
+status: superseded
 related:
   - feature/teams.md
   - feature/delegation.md
   - feature/director-goal-flow.md
-updated: 2026-08-20
+  - feature/curiosity-walk.md
+updated: 2026-09-01
 ---
 
 # チーム朝礼と定例
+
+> **休止 (2026-09-01 neco 指示)**: チーム簡素化 (teams.md §0.5) により、朝礼
+> `team-standup-daily` と定例 `team-review-regular` の cron 登録を外した。
+> delegation テンプレートは再開に備えて残す (cron には載せない)。
 
 > 2026-08-17 neco 指示。「チームを作ったあと、毎朝これ (チームの稼働状況 / 対応状況の
 > まとめ) をやりたい」「各チームでやる。これは朝礼」「タスクの確認と棚卸しをする定例も

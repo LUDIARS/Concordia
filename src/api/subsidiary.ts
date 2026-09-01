@@ -17,6 +17,10 @@ import { ownedToPortable, parsePortable, templateToPortable } from "../delegatio
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import { NAME_RE, resolveSubsidiaryName } from "../subsidiary/name-slug.js";
 import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
+import {
+  DiscordChannelGuildMismatchError,
+  type SubsidiaryDiscordReader,
+} from "../subsidiary/discord-read.js";
 
 const CreateSchema = z.object({
   // 入力は弾かず受け取り、 正規 slug でなければ自動正規化する (resolveSubsidiaryName)。
@@ -43,6 +47,7 @@ const CreateSchema = z.object({
 const PatchSchema = CreateSchema.partial().omit({ name: true });
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
+const DISCORD_SNOWFLAKE_RE = /^\d{17,20}$/;
 
 /** 所有 delegation の clone 元 (グローバルテンプレ) を call_name で指定する。 */
 const CloneDelegationSchema = z.object({
@@ -73,6 +78,8 @@ export interface SubsidiaryApiDeps {
   log?: { warn: (msg: string) => void };
   /** 子会社チーム一覧と default_team_id の所有権検証。 */
   teams?: TeamsRepo;
+  /** 子会社 Discord の読み取り (REST)。 未注入なら /discord/* は 503。 */
+  discordRead?: SubsidiaryDiscordReader;
 }
 
 /** 所有 delegation 行を API 表現へ (input_schema を配列にパース)。 */
@@ -155,6 +162,53 @@ export function subsidiaryRouter(deps: SubsidiaryApiDeps): Hono {
       requests: deps.repo.recentRequests(row.id, 50),
       teams: teams?.listForSubsidiary(row.id).map((team) => serializeSubsidiaryTeam(teams, team)) ?? [],
     });
+  });
+
+  // ── 子会社 Discord の読み取り (2026-09-01 neco 指示) ──────────────────────
+  // 調査・作業把握・ディレクターワークフロー用。 チーム所有の有無と無関係に guild_id が
+  // あれば使える。 loopback 信頼境界なので本社のセッション / delegation からも叩ける
+  // (= 本社側からの指示で子会社 Discord を読む経路)。 読み取り専用で書き込み口は無い。
+  app.get("/:id/discord/channels", async (c) => {
+    const row = deps.repo.find(c.req.param("id"));
+    if (!row) return c.json({ error: "not_found" }, 404);
+    if (!deps.discordRead) return c.json({ error: "discord_read_unavailable" }, 503);
+    if (!row.guild_id) return c.json({ error: "guild_id_not_set" }, 400);
+    if (!DISCORD_SNOWFLAKE_RE.test(row.guild_id)) return c.json({ error: "invalid_guild_id" }, 400);
+    try {
+      return c.json({ channels: await deps.discordRead.listChannels(row.guild_id) });
+    } catch {
+      deps.log?.warn(`subsidiary Discord channel listing failed subsidiary=${row.id}`);
+      return c.json({ error: "discord_api_error" }, 502);
+    }
+  });
+
+  app.get("/:id/discord/channels/:channelId/messages", async (c) => {
+    const row = deps.repo.find(c.req.param("id"));
+    if (!row) return c.json({ error: "not_found" }, 404);
+    if (!deps.discordRead) return c.json({ error: "discord_read_unavailable" }, 503);
+    if (!row.guild_id) return c.json({ error: "guild_id_not_set" }, 400);
+    const channelId = c.req.param("channelId");
+    const before = c.req.query("before")?.trim() || undefined;
+    if (
+      !DISCORD_SNOWFLAKE_RE.test(row.guild_id)
+      || !DISCORD_SNOWFLAKE_RE.test(channelId)
+      || (before !== undefined && !DISCORD_SNOWFLAKE_RE.test(before))
+    ) {
+      return c.json({ error: "invalid_discord_id" }, 400);
+    }
+    const limitRaw = Number(c.req.query("limit") ?? "50");
+    const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.trunc(limitRaw), 1), 100) : 50;
+    try {
+      const messages = await deps.discordRead.readMessages(row.guild_id, channelId, { limit, before });
+      return c.json({ messages });
+    } catch (e) {
+      // guild 不一致はクロス guild 読み出しの拒否 (403)。 それ以外は上流 API 失敗 (502)。
+      if (e instanceof DiscordChannelGuildMismatchError) {
+        return c.json({ error: "channel_not_in_subsidiary_guild" }, 403);
+      }
+      deps.log?.warn(`subsidiary Discord message read failed subsidiary=${row.id}`);
+      return c.json({ error: "discord_api_error" }, 502);
+    }
   });
 
   app.post("/", async (c) => {

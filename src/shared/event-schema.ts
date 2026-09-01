@@ -180,7 +180,7 @@ const eventSchemas = {
   }).passthrough(),
   "delegation.run_changed": z.object({
     type: z.literal("delegation.run_changed"),
-    parent_session_id: z.string(),
+    parent_session_id: nullableString,
     run_id: z.string(),
     status: z.string(),
     ts: z.number(),

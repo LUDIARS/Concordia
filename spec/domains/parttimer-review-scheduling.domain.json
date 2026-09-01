@@ -33,6 +33,9 @@
     },
     {
       "pathPattern": "(^|/)docs/manual/02-webui-guide\\.md$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/parttimer-clockout(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"parttimer-review-scheduling\" domain: scheduled parttimer review templates, cron registration, settings UI labels, and legacy schedule migration.",

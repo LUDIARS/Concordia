@@ -31,6 +31,21 @@ updated: 2026-08-27
 delegation / cost) を束ねる名前空間**である。 director.md の「正本を複製しない」を維持し、
 チームが所有するのは自分の設定とチャンネル参照だけ。
 
+### 0.5 簡素化 (2026-09-01 neco 指示)
+
+> 「チームの動作が今形骸化しており巡回があまり有効でない。チームはチーム内で spawn する
+> だけにしよう。あと巡回でディレクターがなんかつぶやくやつ (散歩セッション) だけ適用しよう」。
+
+チームの自動動作を **チーム内 spawn + 散歩セッションだけ**に絞る:
+
+- **残す**: チーム forum / `/spawn team:` / チーム面へのカード投稿・コスト報告など、
+  spawn とその可視化。散歩セッション ([curiosity-walk.md](curiosity-walk.md)) は
+  稼働中の全チーム (本社 + 子会社所有) を対象に適用する。
+- **止める**: teams fanout の定時ジョブ 4 本 (朝礼 `team-standup-daily` / 定例
+  `team-review-regular` / 課題スカウト / タスク整理) と、Director 巡回の実装セッション
+  自動起動・問診 ([director-patrol.md](director-patrol.md) — status: superseded)。
+- 子会社所有チームにも同じ簡素化後の姿を適用する (subsidiary-delegation.md §3.1)。
+
 ## 1. データモデル
 
 ```sql

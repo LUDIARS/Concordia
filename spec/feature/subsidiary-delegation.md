@@ -133,6 +133,17 @@ delegation で安全に処理する。
   `options.team` に載せ、run → pending spawn → `sessions.team_id` へ既存の team 経路で伝播する。
   子会社 runtime は自社チームだけを出張先 guild に provision し、TaskWorkflow forum も
   そのチーム面へ流す。別子会社/本社の team は選択も描画もしない。
+- **Forum spawn (2026-09-01 neco 指示)**: 子会社 guild の Session forum への人間の新規
+  スレッドでも本社と同じ spawn-by-post が動く (`forum-spawn.ts` は guild 共通)。差分は 2 点:
+  - 子会社ではスレッド本文を **§2 ガードに通してから** template selector / invoke へ進む
+    (`guardSubsidiaryForumSpawn` — ロック / 予算 / Sonnet 判定 / 監査記録は受付チャンネルと
+    同じ。ガードには decision だけを求め、所有 delegation の一致は要求しない — 起動テンプレは
+    Cc 側 selector が選ぶため)。
+  - **spawn 権限の無い投稿者**のスレッドは平文 deny で終わらせず、
+    「管理職以上が押すと起動する」承認カード (`forum-spawn-approval.ts`、ボタンは
+    社員名簿 `session_spawn` = 管理職以上のみ有効・申請者本人は不可・1 時間で失効) を出す。
+    許可されたら同じスレッドで spawn を続行する (triggered_by の重複 run 判定が冪等性を守る)。
+    この承認カードは本社 guild の Session forum でも同じに動く。
 
 ### 3.2 カテゴリのデフォルト通知ミュート
 
@@ -264,6 +275,15 @@ metadata JSON を踏襲する。委託実行の所有証跡は `delegation_runs.
 | POST | `/v1/subsidiaries/:id/start\|stop\|restart` | Bot ライフサイクル |
 | GET | `/v1/subsidiaries/:id/requests` | 監査ログ直近 N |
 | GET/POST/DELETE | `/v1/subsidiaries/:id/locks` | ロック一覧 / 手動ロック / 解除 |
+| GET | `/v1/subsidiaries/:id/discord/channels` | 子会社 guild のチャンネル一覧 (読み取り専用) |
+| GET | `/v1/subsidiaries/:id/discord/channels/:channelId/messages` | メッセージ履歴 (`limit` 1-100 / `before`) |
+
+**子会社 Discord の読み取り (2026-09-01 neco 指示)**: 上記 `/discord/*` は本社 token での
+REST 読み取り (`src/subsidiary/discord-read.ts`) で、調査・作業把握・ディレクターワークフローに
+使う。**チーム所有の有無と無関係**に `guild_id` があれば使え、Bot (Gateway) の稼働にも
+依存しない。loopback 信頼境界なので本社のセッション / delegation からも叩ける
+(= 本社側からの指示で子会社の Discord を読む経路)。チャンネルは guild 所属を必ず照合し、
+id 直指定でのクロス guild 読み出しは 403。書き込み口は無い。
 
 子会社の一覧/単件レスポンスには `daily_token_budget` に加え、 当日消費 `usage_today_tokens`
 と超過フラグ `budget_blocked` を載せる (`SubsidiaryBudgetTracker` がライブ計算)。

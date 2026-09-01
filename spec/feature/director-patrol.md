@@ -10,16 +10,25 @@ tags:
   - delegation
   - scheduler
   - goal-and-go
-status: implemented
+status: superseded
 related:
   - feature/director.md
   - feature/director-goal-flow.md
   - feature/teams.md
   - feature/team-standup-and-review.md
-updated: 2026-08-24
+  - feature/curiosity-walk.md
+updated: 2026-09-01
 ---
 
 # Director 巡回 — 30 分ごとのチーム監視と実装セッションの自動起動
+
+> **休止 (2026-09-01 neco 指示)**: 「チームの動作が形骸化しており巡回があまり有効でない。
+> チームはチーム内で spawn するだけにする。巡回由来の装置は散歩セッション
+> ([curiosity-walk.md](curiosity-walk.md)) だけを適用する」。
+> 本 spec の巡回 runtime (実装セッション自動起動・問診) は bootstrap から外し、
+> workflow binding key `director` は空いた。コード (`src/director/patrol*.ts`,
+> `inquiry-*.ts`) は再開に備えて残す。あわせて teams fanout の定時ジョブ 4 本
+> (朝礼 / 定例 / 課題スカウト / タスク整理) も cron から外した。
 
 > 2026-08-20 neco 指示。「動作させているチームの様子を 30 分おきに確認し、目標に対して
 > 残タスクで実行できるものがあれば、チームセッションを作成して実装できるようにする。

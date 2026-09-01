@@ -62,7 +62,25 @@ function fmtTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
 
-export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: GateInput): Promise<GateResult> {
+/** 評価フェーズ (ロック/予算/ガード/deny 記録) の結果。 allow 時は verdict を持ち帰る。 */
+export type GateEvaluation =
+  | { ok: false; result: GateResult }
+  | { ok: true; verdict: GuardVerdict; raw: string; effectiveCall: string | null };
+
+/**
+ * ロック → 予算 → Sonnet ガード → (deny なら記録 + ロック) までの評価フェーズ。
+ * spawn は行わない。 受付チャンネル (processSubsidiaryRequest) と forum spawn
+ * (guardSubsidiaryForumSpawn) が共有する。
+ *
+ * `requireOwnedCall`: 受付経路は allow 時に「所有 delegation のどれか」が選ばれている
+ * ことを要求する (二重防御)。 forum spawn は起動テンプレを Cc 側の selector が選ぶため、
+ * ガードには decision だけを求める。
+ */
+export async function evaluateSubsidiaryRequest(
+  deps: SubsidiaryGateDeps,
+  input: GateInput,
+  opts: { requireOwnedCall: boolean },
+): Promise<GateEvaluation> {
   const { subsidiary: sub, platform, userId, userLabel, instruction } = input;
   const log = deps.log;
 
@@ -74,7 +92,10 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
       guard_model: sub.guard_model,
     });
     log?.info(`subsidiary gate: locked user ${userId} (${sub.name})`);
-    return { outcome: "locked", reason: "locked", replyText: "🔒 あなたはこの窓口でロックされています。 管理者に連絡してください。" };
+    return {
+      ok: false,
+      result: { outcome: "locked", reason: "locked", replyText: "🔒 あなたはこの窓口でロックされています。 管理者に連絡してください。" },
+    };
   }
 
   // 1.5) コスト予算超過チェック。 ロックは無いが当日のトークン予算を使い切っていれば
@@ -90,9 +111,12 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     });
     log?.info(`subsidiary gate: budget exceeded sub=${sub.name} ${budgetStatus.todayTokens}/${budgetStatus.budget}`);
     return {
-      outcome: "budget_exceeded",
-      reason: "daily budget exceeded",
-      replyText: `💸 本日のコスト予算 (${fmtTokens(budgetStatus.budget)} トークン) を使い切りました。 明日の予算リセットまでお待ちください。`,
+      ok: false,
+      result: {
+        outcome: "budget_exceeded",
+        reason: "daily budget exceeded",
+        replyText: `💸 本日のコスト予算 (${fmtTokens(budgetStatus.budget)} トークン) を使い切りました。 明日の予算リセットまでお待ちください。`,
+      },
     };
   }
 
@@ -115,6 +139,8 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
       harnessRules,
       instruction,
       userLabel,
+      // forum spawn は起動テンプレを Cc 側 selector が選ぶため matched_call_name を求めない。
+      mode: opts.requireOwnedCall ? "intake" : "forum",
     },
     { model: sub.guard_model || "sonnet", timeoutMs: GUARD_TIMEOUT_MS, runClaude: deps.runClaude },
   );
@@ -122,7 +148,7 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
   // allow でも、 ガードが許可外の delegation を選んでいたら倒す (二重防御)。
   const allowedNames = new Set(allowed.map((d) => d.call_name));
   let effectiveCall = verdict.matched_call_name;
-  if (verdict.decision === "allow") {
+  if (verdict.decision === "allow" && opts.requireOwnedCall) {
     if (!effectiveCall || !allowedNames.has(effectiveCall)) {
       // 既定 delegation があればそれにフォールバックせず、 安全側で deny。
       verdict.decision = "deny";
@@ -149,10 +175,25 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     log?.info(`subsidiary gate: deny user=${userId} sub=${sub.name} lock=${shouldLock} violations=${verdict.violations.join(",")}`);
     const lockNote = shouldLock ? "\n🔒 このリクエストにより、 あなたをロックしました。" : "";
     return {
-      outcome: "denied", reason: verdict.reason, verdict,
-      replyText: `⛔ 受け付けられません: ${verdict.reason || "ハーネスルール違反"}${lockNote}`,
+      ok: false,
+      result: {
+        outcome: "denied", reason: verdict.reason, verdict,
+        replyText: `⛔ 受け付けられません: ${verdict.reason || "ハーネスルール違反"}${lockNote}`,
+      },
     };
   }
+
+  return { ok: true, verdict, raw, effectiveCall };
+}
+
+export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: GateInput): Promise<GateResult> {
+  const { subsidiary: sub, platform, userId, userLabel, instruction } = input;
+  const log = deps.log;
+
+  const evaluation = await evaluateSubsidiaryRequest(deps, input, { requireOwnedCall: true });
+  if (!evaluation.ok) return evaluation.result;
+  const { verdict, raw, effectiveCall } = evaluation;
+  const harnessRules = deps.harnessRepo.list().map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
 
   // 4) allow 経路: 子会社が所有する delegation 複製を起動 (cwd/project は複製側が保持)。
   const callName = effectiveCall!;
@@ -243,4 +284,28 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
     queued: result.queued, queuePosition: result.queue_position,
     replyText,
   };
+}
+
+/**
+ * 子会社 forum spawn 用のガード入口。 評価フェーズ (ロック/予算/ガード/deny 記録) を通し、
+ * allow は監査記録だけ残して spawn は呼び出し側 (forum-spawn.ts の template selector +
+ * /v1/delegation/invoke) に委ねる。 spec/feature/subsidiary-delegation.md §3.1。
+ */
+export async function guardSubsidiaryForumSpawn(
+  deps: SubsidiaryGateDeps,
+  input: GateInput,
+): Promise<{ ok: boolean; replyText: string }> {
+  const evaluation = await evaluateSubsidiaryRequest(deps, input, { requireOwnedCall: false });
+  if (!evaluation.ok) return { ok: false, replyText: evaluation.result.replyText };
+  const { subsidiary: sub, platform, userId, userLabel, instruction } = input;
+  deps.subsidiaryRepo.recordRequest({
+    subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
+    instruction, decision: "allow",
+    reason: `${evaluation.verdict.reason} (forum spawn)`,
+    violations: evaluation.verdict.violations,
+    matched_call_name: null,
+    guard_model: sub.guard_model, guard_raw: evaluation.raw,
+  });
+  deps.log?.info(`subsidiary gate: forum spawn allow user=${userId} sub=${sub.name}`);
+  return { ok: true, replyText: "" };
 }

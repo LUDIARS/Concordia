@@ -69,6 +69,7 @@ import {
 } from "../control/pending-delegation-spawns.js";
 import { modelCatalogRouter } from "./model-catalog.js";
 import { subsidiaryRouter } from "./subsidiary.js";
+import type { SubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
 import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
@@ -211,6 +212,8 @@ export interface CoreDelegationDeps {
   harnessBlackbox?: HarnessBlackboxService;
   subsidiaryManager?: SubsidiaryBotManager;
   subsidiaryBudget?: SubsidiaryBudgetTracker;
+  /** 子会社 Discord の読み取り (REST)。 未注入なら /discord/* は 503。 */
+  subsidiaryDiscordRead?: SubsidiaryDiscordReader;
   /**
    * 実装委託の追跡タスクを起票する Memoria の口。 未注入なら追跡タスク無しで委託を配る
    * (実装は止めない)。 spec/feature/delegation-implementation-inject.md。
@@ -563,7 +566,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   if (deps.subsidiary && deps.subsidiaryManager && deps.secretBox) {
     app.route(
       "/v1/subsidiaries",
-      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api"), teams: deps.teams }),
+      subsidiaryRouter({ repo: deps.subsidiary, delegationRepo: deps.delegation, manager: deps.subsidiaryManager, secretBox: deps.secretBox, budget: deps.subsidiaryBudget, runClaude: deps.harnessRunClaude, log: createChildLogger("subsidiary-api"), teams: deps.teams, discordRead: deps.subsidiaryDiscordRead }),
     );
   }
   } }]);

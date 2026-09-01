@@ -71,6 +71,7 @@ describe("AdminState", () => {
         morning: { enabled: true, source: "default" },
         cost: { enabled: true, source: "default" },
         director: { enabled: true, source: "default" },
+        curiosity: { enabled: true, source: "default" },
       },
     });
   });

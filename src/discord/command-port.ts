@@ -42,6 +42,13 @@ export interface DiscordCommandDeps {
   permissionActions?: PermissionActionStore;
   /** `/spawn` 権限不足時の執行役員向け一回許可。Bot process 内で期限付き保持する。 */
   spawnApprovals?: SpawnApprovalStore;
+  /** Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。 */
+  forumSpawnApprovals?: import("./forum-spawn-approval.js").ForumSpawnApprovalStore;
+  /** 承認された forum スレッドで spawn を続行する (bot.ts が thread 再取得を配線)。 */
+  executeApprovedForumSpawn?: (
+    threadId: string,
+    approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent,
+  ) => Promise<{ ok: boolean; error?: string }>;
   /** Discord 社員名簿から執行役員だけを live 解決する。 */
   listExecutiveDiscordUserIds?: () => string[];
   /** Cc が利用する兄弟サービスの catalog / liveness /資格情報を一括診断する。 */

@@ -11,16 +11,24 @@ tags:
   - taskflow
   - scheduler
   - memoria
-status: implemented
+status: superseded
 related:
   - feature/director.md
   - feature/director-patrol.md
   - feature/team-standup-and-review.md
   - feature/teams.md
-updated: 2026-08-20
+  - feature/curiosity-walk.md
+updated: 2026-09-01
 ---
 
 # ディレクターワークフロー — 現場を回す人のワークロード
+
+> **休止 (2026-09-01 neco 指示)**: チーム簡素化 (teams.md §0.5) により、タスク整理
+> `director-task-organize-daily` と課題スカウトの cron 登録を外した (巡回の自動実装
+> 起動も休止 — director-patrol.md 参照)。`director-task-pull` などの delegation
+> テンプレートと step 追加 API は残る (単発起動は引き続き可能)。
+> ディレクターの調査・作業把握には子会社 Discord 読み取り API
+> (subsidiary-delegation.md §5 `/discord/*`) も使える。
 
 > 2026-08-20 neco 指示。「ディレクターワークフローという概念を用意する。現場を回す人の
 > ワークロードです。Memoria のタスクから関連する未完了タスクを引っ張る Delegation と、

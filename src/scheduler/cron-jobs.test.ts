@@ -35,36 +35,18 @@ describe("CRON_JOBS", () => {
     expect(job?.buildArgs()).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
 
-  it("朝礼を毎朝 9:30 JST にチームごとへ fanout する", () => {
-    const job = CRON_JOBS.find(({ name }) => name === "team-standup-daily");
-
-    expect(job).toMatchObject({
-      cron: "30 9 * * *",
-      call_name: "team-standup-daily",
-      fanout: "teams",
-    });
-    // 先行する日次ジョブ (カイゼン 9:00) の結果を引用できるよう後ろに置く。
-    expect(job?.cwd).toBe("E:\\Document\\Ars");
-  });
-
-  it("定例を火・金 13:00 JST にチームごとへ fanout する", () => {
-    const job = CRON_JOBS.find(({ name }) => name === "team-review-regular");
-
-    expect(job).toMatchObject({
-      cron: "0 13 * * 2,5",
-      call_name: "team-review-regular",
-      fanout: "teams",
-    });
-  });
-
-  it("fanout を使うのは朝礼・定例・課題スカウト・タスク整理だけ (既存の日次ジョブは 1 本のまま)", () => {
+  it("チーム定時 fanout ジョブを持たない (2026-09-01 neco 指示: チームは spawn + 散歩だけ)", () => {
     const fanned = CRON_JOBS.filter((job) => job.fanout).map((job) => job.name);
+    expect(fanned).toEqual([]);
 
-    expect(fanned).toEqual([
+    const removed = [
       "team-standup-daily",
       "team-review-regular",
       "director-issue-scout-weekly",
       "director-task-organize-daily",
-    ]);
+    ];
+    for (const name of removed) {
+      expect(CRON_JOBS.find((job) => job.name === name)).toBeUndefined();
+    }
   });
 });

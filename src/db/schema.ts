@@ -2011,8 +2011,32 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     `);
   },
 }, {
-  // 並行開発時に 79 を予約して 80 を採番したため、 現在の台帳には意図的な欠番がある。
-  // 適用済み候補の version を後から詰めると DB ごとの migration identity が割れるので維持する。
+  version: 79,
+  name: "curiosity-walks",
+  source: "curiosity walk records (spec/feature/curiosity-walk.md §4)",
+  up(db) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS curiosity_walks (
+        id            TEXT PRIMARY KEY,
+        team_id       TEXT,
+        subsidiary_id TEXT,
+        repo_a        TEXT NOT NULL,
+        repo_b        TEXT NOT NULL,
+        material_a    TEXT NOT NULL,
+        material_b    TEXT NOT NULL,
+        combo_key     TEXT NOT NULL,
+        run_id        TEXT,
+        created_at    INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_curiosity_walks_created
+        ON curiosity_walks(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_curiosity_walks_combo
+        ON curiosity_walks(combo_key, created_at DESC);
+    `);
+  },
+}, {
+  // 79 は curiosity-walk 用に予約済みのまま、並行開発側が 80 を採番した。
+  // 適用順と migration identity を保つため、この順序を維持する。
   version: 80,
   name: "session-events-ts-index",
   source: "sweeper purgeEventsOlderThan の毎分フルスキャン回避 (spec/plan/2026-09-01-cc-event-loop-diet.md)",

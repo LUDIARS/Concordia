@@ -79,29 +79,9 @@ const GENIUS_INGEST_DAILY_CRON = "10 4 * * *";
 /** カイゼン (2026-08-08 neco 指示で新設)。 毎朝 9:00 JST、前日の session-logs とメモリを棚卸しして改善提案する。 */
 const KAIZEN_CRON = "0 9 * * *";
 
-/**
- * チーム朝礼 (2026-08-17 neco 指示で新設)。 毎朝 9:30 JST、チームごとに 1 本ずつ起動する。
- * 先行する日次ジョブ (脆弱性 5:10 / deps 7:10 / Steam 7:40 / Vultus 8:20 / カイゼン 9:00) の
- * 後ろに置き、 朝礼がそれらの結果を引用できるようにする。
- */
-const TEAM_STANDUP_DAILY_CRON = "30 9 * * *";
-
-/**
- * チーム定例 (2026-08-17 neco 指示で新設)。 週 2 回 (火・金) 13:00 JST、チームごとに 1 本。
- * タスクの確認と棚卸しを人間 (neco) と一緒に行うため、 朝礼と違って議題提示のあと
- * 返信を待って反映するまでが 1 回分になる。
- */
-const TEAM_REVIEW_REGULAR_CRON = "0 13 * * 2,5";
-
-/**
- * ディレクター タスク整理 (2026-08-20 neco 指示で新設、spec/feature/director-workflow.md §2)。
- * 毎日 10:00 JST、チームごとに 1 本。朝礼 (9:30) の報告と台帳更新の後ろに置き、
- * 整理が朝礼のズレ指摘を引用できるようにする。
- */
-const DIRECTOR_TASK_ORGANIZE_CRON = "0 10 * * *";
-
-/** 課題スカウト。朝礼とタスク整理の観測後、毎週月曜11:00にチームごとへ進言する。 */
-const DIRECTOR_ISSUE_SCOUT_CRON = "0 11 * * 1";
+// チーム朝礼 / 定例 / 課題スカウト / タスク整理の teams fanout 4 本は 2026-09-01 neco 指示
+// (「チームはチーム内で spawn するだけにする」) で廃止した。 チームの定時ジョブは持たず、
+// 巡回由来の装置は散歩セッション (spec/feature/curiosity-walk.md) だけを残す。
 export const CRON_JOBS: CronJobDefinition[] = [{
     name: "ludiars-status-daily",
     cron: LUDIARS_STATUS_DAILY_CRON,
@@ -156,33 +136,4 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     call_name: "kaizen-daily",
     buildArgs: () => ({ date: todayIso() }),
     cwd: ARS_ROOT,
-}, {
-    // チームごとに横断調査するため cwd は Ars root。
-    name: "team-standup-daily",
-    cron: TEAM_STANDUP_DAILY_CRON,
-    call_name: "team-standup-daily",
-    buildArgs: () => ({ date: todayIso() }),
-    cwd: ARS_ROOT,
-    fanout: "teams",
-}, {
-    name: "team-review-regular",
-    cron: TEAM_REVIEW_REGULAR_CRON,
-    call_name: "team-review-regular",
-    buildArgs: () => ({ date: todayIso() }),
-    cwd: ARS_ROOT,
-    fanout: "teams",
-}, {
-    name: "director-issue-scout-weekly",
-    cron: DIRECTOR_ISSUE_SCOUT_CRON,
-    call_name: "director-issue-scout",
-    buildArgs: () => ({ date: todayIso() }),
-    cwd: ARS_ROOT,
-    fanout: "teams",
-}, {
-    name: "director-task-organize-daily",
-    cron: DIRECTOR_TASK_ORGANIZE_CRON,
-    call_name: "director-task-organize",
-    buildArgs: () => ({ date: todayIso() }),
-    cwd: ARS_ROOT,
-    fanout: "teams",
 }];

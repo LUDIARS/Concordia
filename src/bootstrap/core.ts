@@ -191,8 +191,13 @@ import {
 } from "./workflow.js";
 import { WorkflowBindingRegistry } from "../workflow/binding-registry.js";
 import { createMorningSchedulerBinding } from "../workflow/morning-binding.js";
-import { createDirectorPatrolBinding } from "../workflow/director-binding.js";
-import { startDirectorPatrol } from "../director/patrol-runtime.js";
+import { createCuriosityWalkBinding } from "../workflow/curiosity-binding.js";
+import { startCuriosityWalk } from "../director/walk-runtime.js";
+import { collectWalkMaterials } from "../director/walk-materials.js";
+import { WalksRepo } from "../db/walks-repo.js";
+import { startParttimerClockout } from "../control/parttimer-clockout.js";
+import { createSubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
+import { concordiaBaseUrl } from "../config/service-urls.js";
 import type { WorkflowKey } from "../workflow/keys.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
@@ -589,6 +594,7 @@ export async function startBackend(): Promise<BackendHandle> {
   // spec/feature/develop-confirm-flow.md。
   const confirmRuns = new ConfirmRunsRepo(db);
   const directorRepo = new DirectorRepo(db);
+  const walksRepo = new WalksRepo(db);
   const director = new DirectorService({
     repo: directorRepo,
     genius: new CatalogGeniusClient(excubitorClient),
@@ -1205,6 +1211,11 @@ export async function startBackend(): Promise<BackendHandle> {
     startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),
   });
 
+  // 子会社 Discord の読み取り (REST・書き込み無し)。 チームの有無と無関係に使える。
+  const subsidiaryDiscordRead = createSubsidiaryDiscordReader({
+    resolveToken: () => resolveDiscordConfig(discordConfig, secretBox).token,
+  });
+
   // 本社内 desk (軽量窓口): 専用 Bot を立てず、 本社 Bot に「タスク依頼」チャンネルを
   // 1 本作らせて同じガードゲートに通す。 有効な desk は先頭 1 件のみ配線する — 本社 guild に
   // 依頼チャンネルを何本も生やすと、 どこに投げれば動くのかが人間側で分からなくなるため。
@@ -1285,6 +1296,7 @@ export async function startBackend(): Promise<BackendHandle> {
     harnessBlackbox,
     subsidiaryManager,
     subsidiaryBudget,
+    subsidiaryDiscordRead,
     adminState,
     costStatus: () => costRuntime.tracker.status(),
     costOverviewSource: costMode === "worker" ? "samples" : "live",
@@ -1601,6 +1613,19 @@ export async function startBackend(): Promise<BackendHandle> {
     trackPostListenHandle(startErrorFixDispatcher({ sessions: repo, spawnDefaultCwd: cfg.spawnDefaultCwd }));
   }
 
+  // パートタイマーの退勤の安全網 (2026-09-01 neco 指示: 「仕事が終わったら退勤する。
+  // 判断は不要」)。 一次経路はテンプレート側の退勤ステップ (Lictor shutdown)。 ここは
+  // run の終局報告後も残留した子セッションを猶予後に自動終了する (workflow toggle 非対象)。
+  trackPostListenHandle(startParttimerClockout({
+    runs: delegationRepo,
+    categoryOf: (callName) => delegationRepo.findTemplateByCallName(callName)?.category ?? null,
+    sessions: repo,
+    endSession: async (sessionId) => {
+      const res = await fetch(`${concordiaBaseUrl()}/v1/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`DELETE /v1/sessions/${sessionId} -> ${res.status}`);
+    },
+  }));
+
   /**
    * listen 後に立ち上がるワークフロー実体の binding 登録。 登録直後に sync して
    * 有効なものだけ起動し、 以降はフラグの変化を watcher が拾って張り替える。
@@ -1616,21 +1641,38 @@ export async function startBackend(): Promise<BackendHandle> {
     workflowBindings.register(
       createMorningSchedulerBinding(() => startMorningScheduler({ delegationService })),
     );
-    // Director 巡回 (spec/feature/director-patrol.md §1): 30 分ごとにチームの
-    // director case を巡回し、実行可能な残 step があればチーム実装セッションを起動する。
+    // 散歩セッション (spec/feature/curiosity-walk.md): ランダムなタイミングで関連の薄い
+    // 2 素材を並べ、1 問だけ「ぼやき」へつぶやく。 Director 巡回 (自動実装起動・問診) は
+    // 2026-09-01 neco 指示で休止し、チームの巡回由来の装置はこれだけを残す。
+    // 対象チームは稼働中の全チーム (本社 + 子会社所有) — 子会社にも同じ装置を適用する。
     workflowBindings.register(
-      createDirectorPatrolBinding(() => startDirectorPatrol({
-        teams: teamsRepo,
-        director: directorRepo,
-        runs: delegationRepo,
+      createCuriosityWalkBinding(() => startCuriosityWalk({
+        teams: {
+          listActive: () => teamsRepo.listActive().map((team) => ({
+            id: team.id,
+            name: team.name,
+            slug: team.slug,
+            subsidiary_id: team.subsidiary_id ?? null,
+          })),
+          repos: (teamId) => teamsRepo.repos(teamId),
+        },
+        walks: walksRepo,
+        materials: () => collectWalkMaterials({
+          workspaceRoots: cfg.workspaceRoots.length
+            ? cfg.workspaceRoots
+            : (workspaceRootDefault ? [workspaceRootDefault] : []),
+          recentlyMergedPrs: () => prs.listRecentlyMerged(20).map((pr) => ({
+            repo_origin: pr.repo_origin,
+            number: pr.number,
+            title: pr.title,
+          })),
+          directorCases: () => directorRepo.listCases({ limit: 50 }).map((directorCase) => ({
+            project: directorCase.project,
+            title: directorCase.title,
+            goal: directorCase.goal,
+          })),
+        }),
         delegationService,
-        workspaceRoots: cfg.workspaceRoots.length
-          ? cfg.workspaceRoots
-          : (workspaceRootDefault ? [workspaceRootDefault] : []),
-        // 問診セッション (spec/feature/director-inquiry-session.md): 停滞・失敗を
-        // 検出したとき、機械文カードの代わりに読み取り専用セッションを起こして
-        // 人間への問いを組み立てさせる。同じ workflow binding key `director` に乗る。
-        mentionUserId: () => adminState.getMentionUserId(),
       })),
     );
     workflowBindings.register({

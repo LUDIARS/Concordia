@@ -91,6 +91,7 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
   envString("workflow.mode", "workflow", "ワークフローモード", "CONCORDIA_WORKFLOW_MODE", null, "workflow worker プロセスの動作モード識別子。"),
   envString("workflow.director_impl_call_name", "workflow", "Director 実装委託テンプレ", "CONCORDIA_DIRECTOR_IMPL_CALL_NAME", "sonnet-mid", "Director 巡回が実装工程の委託に使う call name。"),
   envString("workflow.director_ask_call_name", "workflow", "Director 問診委託テンプレ", "CONCORDIA_DIRECTOR_ASK_CALL_NAME", "claude-sonnet-5-ask", "Director 巡回が人間への問いを組み立てさせる読み取り専用セッションの call name。"),
+  envString("workflow.curiosity_call_name", "workflow", "散歩セッション委託テンプレ", "CONCORDIA_CURIOSITY_CALL_NAME", "claude-sonnet-5-walk", "散歩セッションが読み取り専用の投稿に使う call name。"),
 ] as const;
 
 export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [

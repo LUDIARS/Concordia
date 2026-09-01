@@ -43,6 +43,10 @@ import {
   isSpawnApprovalInteraction,
   requestSpawnApproval,
 } from "./spawn-approval.js";
+import {
+  dispatchForumSpawnApprovalInteraction,
+  isForumSpawnApprovalInteraction,
+} from "./forum-spawn-approval.js";
 export type { DiscordCommandDeps, DiscordCommandSpec } from "./command-port.js";
 
 /** ワークフロー有効化フラグを都度解決する resolver (省略時は全て有効扱い)。 */
@@ -118,6 +122,17 @@ export async function clearGuildCommands(token: string, applicationId: string, g
 }
 
 export async function dispatchInteraction(interaction: Interaction, deps: DiscordCommandDeps): Promise<void> {
+  // Forum spawn の承認ボタンは子会社 guild でも有効 (子会社の許可リストはコマンド名
+  // ベースなので、ボタン interaction はここで先に取り次ぐ)。
+  if (isForumSpawnApprovalInteraction(interaction)) {
+    await dispatchForumSpawnApprovalInteraction(interaction, {
+      store: deps.forumSpawnApprovals,
+      isApproverAllowed: deps.isLaunchUserAllowed,
+      executeSpawn: deps.executeApprovedForumSpawn,
+      log: deps.log,
+    });
+    return;
+  }
   // 子会社 guild では許可リスト外の Discord コマンドを拒否する。作業依頼 / spawn 系は
   // 受付チャンネルのメッセージ → ガードゲート経由のみ。過去登録済みの guild からの
   // 残存コマンド実行もここで確実に弾く (二段防御)。

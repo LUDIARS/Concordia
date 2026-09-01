@@ -11,7 +11,7 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
-import { processSubsidiaryRequest } from "./gate.js";
+import { guardSubsidiaryForumSpawn, processSubsidiaryRequest, type SubsidiaryGateDeps } from "./gate.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryBudgetTracker } from "./budget.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -43,6 +43,13 @@ export interface SubsidiaryBotStartDeps {
     intakeChannelId: string | null;
     process: (userId: string, userLabel: string, instruction: string) => Promise<{ replyText: string }>;
     isLocked: (userId: string) => boolean;
+    /**
+     * Forum spawn 前のガード (spec/feature/subsidiary-delegation.md §3.1)。
+     * 受付チャンネルと同じ評価 (ロック/予算/Sonnet ガード/監査) を通し、 spawn 自体は
+     * forum-spawn 側に委ねる。
+     */
+    guardInstruction: (input: { userId: string; userLabel: string; instruction: string })
+      => Promise<{ ok: boolean; replyText: string }>;
   };
 }
 
@@ -95,15 +102,7 @@ export class SubsidiaryBotManager {
       const row = this.deps.subsidiaryRepo.find(id);
       if (!row) return { replyText: "⚠️ 窓口の設定が見つかりません。" };
       const result = await processSubsidiaryRequest(
-        {
-          subsidiaryRepo: this.deps.subsidiaryRepo,
-          harnessRepo: this.deps.harnessRepo,
-          delegationRepo: this.deps.delegationRepo,
-          delegationService: this.deps.delegationService,
-          runClaude: this.deps.runClaude,
-          budget: this.deps.budgetTracker,
-          log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
-        },
+        this.gateDeps(),
         { subsidiary: row, platform: "discord", userId, userLabel, instruction },
       );
       return { replyText: result.replyText };
@@ -111,6 +110,34 @@ export class SubsidiaryBotManager {
     return {
       process,
       isLocked: (userId: string) => this.deps.subsidiaryRepo.isLocked(id, "discord", userId),
+    };
+  }
+
+  private gateDeps(): SubsidiaryGateDeps {
+    return {
+      subsidiaryRepo: this.deps.subsidiaryRepo,
+      harnessRepo: this.deps.harnessRepo,
+      delegationRepo: this.deps.delegationRepo,
+      delegationService: this.deps.delegationService,
+      runClaude: this.deps.runClaude,
+      budget: this.deps.budgetTracker,
+      log: { info: (m) => log.info(m), warn: (m) => log.warn(m) },
+    };
+  }
+
+  /** Forum spawn 前のガード入口 (spawn せず評価 + 監査のみ)。 */
+  guardFor(id: string): (input: { userId: string; userLabel: string; instruction: string })
+    => Promise<{ ok: boolean; replyText: string }> {
+    return async (input) => {
+      const row = this.deps.subsidiaryRepo.find(id);
+      if (!row) return { ok: false, replyText: "⚠️ 窓口の設定が見つかりません。" };
+      return guardSubsidiaryForumSpawn(this.gateDeps(), {
+        subsidiary: row,
+        platform: "discord",
+        userId: input.userId,
+        userLabel: input.userLabel,
+        instruction: input.instruction,
+      });
     };
   }
 
@@ -191,6 +218,7 @@ export class SubsidiaryBotManager {
         intakeChannelId: sub.channel_id,
         process: processor.process,
         isLocked: processor.isLocked,
+        guardInstruction: this.guardFor(id),
       },
     };
 

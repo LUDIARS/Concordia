@@ -5,8 +5,15 @@ import { SubsidiaryRepo } from "../src/db/subsidiary-repo.js";
 import { DelegationRepo } from "../src/db/delegation-repo.js";
 import { subsidiaryRouter } from "../src/api/subsidiary.js";
 import { TeamsRepo } from "../src/db/teams-repo.js";
+import {
+  DiscordChannelGuildMismatchError,
+  type SubsidiaryDiscordReader,
+} from "../src/subsidiary/discord-read.js";
 
-function makeApp() {
+function makeApp(options: {
+  discordRead?: SubsidiaryDiscordReader;
+  log?: { warn: (message: string) => void };
+} = {}) {
   const db = makeTestDb();
   const repo = new SubsidiaryRepo(db);
   const delegationRepo = new DelegationRepo(db);
@@ -14,7 +21,15 @@ function makeApp() {
   const manager = { isRunning: () => false, stop: async () => ({ ok: true }) } as never;
   const secretBox = { encrypt: (s: string) => s, decrypt: (s: string) => s } as never;
   const app = new Hono();
-  app.route("/v1/subsidiaries", subsidiaryRouter({ repo, delegationRepo, manager, secretBox, teams }));
+  app.route("/v1/subsidiaries", subsidiaryRouter({
+    repo,
+    delegationRepo,
+    manager,
+    secretBox,
+    teams,
+    ...(options.discordRead ? { discordRead: options.discordRead } : {}),
+    ...(options.log ? { log: options.log } : {}),
+  }));
   return { app, repo, delegationRepo, teams };
 }
 
@@ -156,5 +171,45 @@ describe("subsidiary team ownership API", () => {
 
     const deletion = await json(app, "DELETE", `/v1/subsidiaries/${child.id}`);
     expect(deletion.status).toBe(409);
+  });
+});
+
+describe("subsidiary Discord read API", () => {
+  const guildId = "123456789012345678";
+  const channelId = "223456789012345678";
+
+  it("validates Discord IDs before calling the reader", async () => {
+    let calls = 0;
+    const discordRead: SubsidiaryDiscordReader = {
+      listChannels: async () => [],
+      readMessages: async () => { calls += 1; return []; },
+    };
+    const { app, repo } = makeApp({ discordRead });
+    const sub = repo.create({ name: "co", platform: "discord", guild_id: guildId });
+    const result = await json(app, "GET", `/v1/subsidiaries/${sub.id}/discord/channels/not-a-snowflake/messages`);
+    expect(result).toMatchObject({ status: 400, body: { error: "invalid_discord_id" } });
+    expect(calls).toBe(0);
+  });
+
+  it("does not expose upstream Discord error details", async () => {
+    const discordRead: SubsidiaryDiscordReader = {
+      listChannels: async () => { throw new Error("upstream diagnostic details"); },
+      readMessages: async () => [],
+    };
+    const { app, repo } = makeApp({ discordRead });
+    const sub = repo.create({ name: "co", platform: "discord", guild_id: guildId });
+    const result = await json(app, "GET", `/v1/subsidiaries/${sub.id}/discord/channels`);
+    expect(result).toEqual({ status: 502, body: { error: "discord_api_error" } });
+  });
+
+  it("returns 403 for a channel outside the subsidiary guild", async () => {
+    const discordRead: SubsidiaryDiscordReader = {
+      listChannels: async () => [],
+      readMessages: async () => { throw new DiscordChannelGuildMismatchError(); },
+    };
+    const { app, repo } = makeApp({ discordRead });
+    const sub = repo.create({ name: "co", platform: "discord", guild_id: guildId });
+    const result = await json(app, "GET", `/v1/subsidiaries/${sub.id}/discord/channels/${channelId}/messages`);
+    expect(result).toMatchObject({ status: 403, body: { error: "channel_not_in_subsidiary_guild" } });
   });
 });

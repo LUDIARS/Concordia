@@ -10,21 +10,38 @@ tags:
   - delegation
   - scheduler
   - chat-platforms
-status: draft
+status: implemented
 related:
   - feature/director-inquiry-session.md
   - feature/inquiry.md
   - feature/director.md
   - feature/boyaki-channel.md
   - feature/cost-observability.md
+  - feature/teams.md
+  - feature/subsidiary-delegation.md
   - setup/config-reference.md
-updated: 2026-08-20
+updated: 2026-09-01
 ---
 
 # 散歩セッション
 
 > 2026-08-20 neco 指示。「ランダムなタイミングで起きる問いかけと議論が多分発明に
 > つながるんじゃないかな理論」「他のサービスに興味を持つとかも良い」。
+
+> **実装 (2026-09-01 neco 指示)**: チーム簡素化 (「チームはチーム内で spawn するだけ +
+> 巡回でディレクターがつぶやくやつだけ適用」) の「つぶやくやつ」として本 spec を実装した。
+> 実装調整:
+> - **チーム適用**: 発火ごとに稼働中チーム (本社 + 子会社所有、suspended 除く) から 1 つを
+>   ランダムに引き、素材 A をそのチームの repo へ寄せる。run は `options.team` と
+>   `subsidiary_id` でそのチームに帰属する。チームが無ければチーム未所属のグローバル散歩。
+> - **投稿面**: どのチームの散歩も本社の「ぼやき」チャンネル (chat channel) へ流す。
+>   子会社 guild に専用面は作らない (§3 の「流れて消える面」を 1 本に保つ)。
+> - **既定 ON**: workflow binding key `curiosity` は他キーと同じく既定 ON (§2 の既定 OFF を
+>   改める — 適用が neco 指示のため)。OFF は workflow toggle で行う。
+> - 実装: `src/director/walk-{scheduler,materials,runtime}.ts` + `src/db/walks-repo.ts`
+>   (`curiosity_walks`) + delegation テンプレ `claude-sonnet-5-walk` (category parttimer —
+>   投稿後は退勤する)。§4 の反応重み学習と §5 のコスト面は未実装で、現状は
+>   「直近 7 日に起動できた組み合わせ種類を避ける」だけを行う (walk_id の記録は §5 再開に備え済み)。
 
 ## 0. 何を装置にするのか
 

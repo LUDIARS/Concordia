@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { emitDelegationRunChanged } from "./run-events.js";
 
 describe("emitDelegationRunChanged", () => {
-  it("emits a provider-neutral parent refresh event without a Discord dependency", () => {
+  it("emits a provider-neutral run event without a Discord dependency", () => {
     const emit = vi.fn();
     expect(emitDelegationRunChanged({
       id: "run-1",
@@ -18,13 +18,19 @@ describe("emitDelegationRunChanged", () => {
     });
   });
 
-  it("does not emit for an unparented run", () => {
+  it("emits for an unparented scheduled run", () => {
     const emit = vi.fn();
     expect(emitDelegationRunChanged({
       id: "run-1",
       parent_session_id: null,
       status: "queued",
-    }, { emit }, () => 123)).toBe(false);
-    expect(emit).not.toHaveBeenCalled();
+    }, { emit }, () => 123)).toBe(true);
+    expect(emit).toHaveBeenCalledWith({
+      type: "delegation.run_changed",
+      parent_session_id: null,
+      run_id: "run-1",
+      status: "queued",
+      ts: 123,
+    });
   });
 });

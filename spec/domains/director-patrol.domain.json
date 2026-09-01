@@ -1,14 +1,11 @@
 {
   "name": "director-patrol",
-  "description": "Director 巡回: 30 分ごとにチームの director case を巡回し、完了 run の反映・実行可能 step のチーム実装セッション起動・人間エスカレーションを行う責務。case/step/decision の正本管理 (governance) や delegation の起動実体は含めない。",
+  "description": "Director 由来の巡回機構。休止中の case 巡回・実装起動コードと、稼働中の curiosity walk の素材収集・ランダム発火・履歴を扱う。case/step/decision の正本管理や delegation の起動実体は含めない。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
     {
       "pathPattern": "(^|/)src/director/patrol(-runtime)?(\\.test)?\\.ts$"
-    },
-    {
-      "pathPattern": "(^|/)src/workflow/director-binding(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)spec/feature/director-patrol\\.md$"
@@ -18,18 +15,30 @@
     },
     {
       "pathPattern": "(^|/)src/director/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/walks-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/workflow/curiosity-binding(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)spec/feature/curiosity-walk\\.md$"
     }
   ],
-  "cardTemplate": "Summarise the \"director-patrol\" domain: periodic team patrol over director cases, run reconciliation, implement-session launching, and human escalation cards.",
+  "cardTemplate": "Summarise the \"director-patrol\" domain: dormant team patrol code and the active curiosity-walk scheduler, material sampling, launch records, and workflow binding.",
   "mechanics": [
     "team-patrol-planning",
     "run-reconciliation",
     "implement-session-launch",
-    "question-card-escalation"
+    "question-card-escalation",
+    "curiosity-walk-scheduling",
+    "cross-repository-material-sampling"
   ],
   "specRefs": [
     "spec/feature/director-patrol.md",
-    "spec/feature/director-workflow.md"
+    "spec/feature/director-workflow.md",
+    "spec/feature/curiosity-walk.md"
   ],
-  "rationale": "巡回は director の正本 (case/step/decision) を読むが、その所有はしない。delegation run と PR の状態は既存テーブルが正本であり、巡回は参照 (delegation_run_id) の記録と工程遷移だけを持つ。起動の実体 (invoke/spawn) は agent-delegation の持ち場。"
+  "rationale": "従来の Director case 巡回 runtime は休止中だが再開可能な純粋ロジックと runtime を保持する。現在稼働する巡回由来機構は curiosity walk だけで、素材と発火履歴を所有する一方、delegation の invoke/spawn 実体は agent-delegation に委ねる。"
 }

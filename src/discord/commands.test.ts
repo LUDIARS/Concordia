@@ -43,6 +43,7 @@ describe("Discord command registration", () => {
         customId,
         isAutocomplete: () => false,
         isRepliable: () => true,
+        isButton: () => false,
         reply,
       };
       await dispatchInteraction(interaction as never, {

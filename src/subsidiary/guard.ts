@@ -37,6 +37,12 @@ export interface GuardContext {
   harnessRules: GuardHarnessRule[];
   instruction: string;
   userLabel: string;
+  /**
+   * intake (既定): allow は所有 delegation から 1 つ選ぶ (matched_call_name 必須)。
+   * forum: 起動テンプレは Cc 側 selector が選ぶため、スコープ / ハーネスルールだけで
+   * 判定し matched_call_name は null でよい (spec/feature/subsidiary-delegation.md §3.1)。
+   */
+  mode?: "intake" | "forum";
 }
 
 export interface GuardVerdict {
@@ -58,9 +64,12 @@ export function buildGuardPrompt(ctx: GuardContext): string {
   const blockRules = ctx.harnessRules.filter((r) => r.kind === "block");
   const fmt = (rs: GuardHarnessRule[]) =>
     rs.length === 0 ? "(なし)" : rs.map((r, i) => `${i + 1}. [${r.title}] ${r.description}`).join("\n");
+  const forumMode = ctx.mode === "forum";
   const delegations =
     ctx.allowedDelegations.length === 0
-      ? "(なし — 利用可能な delegation が無い場合はすべて deny)"
+      ? (forumMode
+        ? "(なし — forum spawn では起動テンプレを Concordia 側が選ぶため、無くても deny の理由にしない)"
+        : "(なし — 利用可能な delegation が無い場合はすべて deny)")
       : ctx.allowedDelegations
           .map((d) => {
             const meta = [
@@ -91,7 +100,9 @@ export function buildGuardPrompt(ctx: GuardContext): string {
     `## 子会社「${ctx.subsidiaryName}」のスコープ`,
     ctx.guardScope.trim() || "(スコープ未設定 — 利用可能 delegation の範囲のみ許可)",
     "",
-    "## 利用可能な delegation (allow 時はこの中から 1 つ選ぶ。 cwd/project は各 delegation が保持)",
+    ctx.mode === "forum"
+      ? "## 利用可能な delegation (参考情報。 forum spawn の起動テンプレは Concordia 側が選ぶため、 matched_call_name は null でよい)"
+      : "## 利用可能な delegation (allow 時はこの中から 1 つ選ぶ。 cwd/project は各 delegation が保持)",
     delegations,
     "",
     `## 依頼者: ${ctx.userLabel || "(不明)"}`,
@@ -146,7 +157,8 @@ function denyVerdict(reason: string, violations: string[] = ["guard_error"]): Gu
 }
 
 /** Sonnet 出力 (string) を GuardVerdict に正規化。 不正は fail-closed deny。 */
-export function parseVerdict(raw: string): GuardVerdict {
+export function parseVerdict(raw: string, opts: { requireMatchedCall?: boolean } = {}): GuardVerdict {
+  const requireMatchedCall = opts.requireMatchedCall ?? true;
   const json = extractJsonObject(raw ?? "");
   if (!json) return denyVerdict("ガード出力をJSONとして解釈できませんでした (fail-closed)");
   let obj: unknown;
@@ -170,8 +182,9 @@ export function parseVerdict(raw: string): GuardVerdict {
     violations,
     lock_user: o.lock_user === true,
   };
-  // allow なのに delegation を選んでいなければ実行不能 → deny に倒す。
-  if (verdict.decision === "allow" && !verdict.matched_call_name) {
+  // intake: allow なのに delegation を選んでいなければ実行不能 → deny に倒す。
+  // forum spawn は起動テンプレを Cc 側 selector が選ぶため matched 無しの allow を許す。
+  if (requireMatchedCall && verdict.decision === "allow" && !verdict.matched_call_name) {
     return denyVerdict("allow だが matched_call_name が無く起動先が定まりません (fail-closed)", ["out_of_scope"]);
   }
   return verdict;
@@ -198,5 +211,8 @@ export async function runGuard(
       raw: `${res.stdout ?? ""}\n${res.stderr ?? ""}`.trim(),
     };
   }
-  return { verdict: parseVerdict(res.stdout), raw: res.stdout };
+  return {
+    verdict: parseVerdict(res.stdout, { requireMatchedCall: ctx.mode !== "forum" }),
+    raw: res.stdout,
+  };
 }

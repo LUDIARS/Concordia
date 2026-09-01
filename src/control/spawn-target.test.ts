@@ -9,6 +9,7 @@ import {
   prepareSpawnTarget,
   type SpawnTargetGitRunner,
 } from "./spawn-target.js";
+import { retryTransientGit } from "./retry-transient-git-error.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 
 const noProjectResources = async (): Promise<void> => undefined;
@@ -145,4 +146,108 @@ describe("spawn target branch/worktree", () => {
       rmSync(repo, { recursive: true, force: true });
     }
   });
+
+  it("retries one transient worktree creation failure before succeeding", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-retry-"));
+    let worktreeCalls = 0;
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") return `worktree ${repo}\nbranch refs/heads/main\n`;
+      if (args[0] === "show-ref") throw new Error("missing ref");
+      if (args[0] === "worktree" && args[1] === "add") {
+        worktreeCalls += 1;
+        if (worktreeCalls === 1) throw new Error("EPERM: operation not permitted");
+        return "";
+      }
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/retry", git, projectResources: noProjectResources });
+      expect(result.ok).toBe(true);
+      expect(worktreeCalls).toBe(2);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns the last transient worktree creation error after all attempts", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-retry-"));
+    let worktreeCalls = 0;
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") return `worktree ${repo}\nbranch refs/heads/main\n`;
+      if (args[0] === "show-ref") throw new Error("missing ref");
+      if (args[0] === "worktree" && args[1] === "add") {
+        worktreeCalls += 1;
+        throw new Error("EBUSY: resource busy");
+      }
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/retry", git, projectResources: noProjectResources });
+      expect(result).toMatchObject({ ok: false, error: "failed to create worktree: EBUSY: resource busy" });
+      expect(worktreeCalls).toBe(3);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does not retry a non-transient worktree creation failure", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "concordia-spawn-target-retry-"));
+    let worktreeCalls = 0;
+    const git: SpawnTargetGitRunner = async (_cwd, args) => {
+      if (args.join(" ") === "rev-parse --show-toplevel") return repo;
+      if (args.join(" ") === "worktree list --porcelain") return `worktree ${repo}\nbranch refs/heads/main\n`;
+      if (args[0] === "show-ref") throw new Error("missing ref");
+      if (args[0] === "worktree" && args[1] === "add") {
+        worktreeCalls += 1;
+        throw new Error("fatal: invalid reference");
+      }
+      throw new Error(`unexpected git ${args.join(" ")}`);
+    };
+
+    try {
+      const result = await prepareSpawnTarget({ cwd: repo, branch: "feat/retry", git, projectResources: noProjectResources });
+      expect(result).toMatchObject({ ok: false, error: "failed to create worktree: fatal: invalid reference" });
+      expect(worktreeCalls).toBe(1);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("allows retry delays to be stubbed in isolated retry tests", async () => {
+    const sleepCalls: number[] = [];
+    let calls = 0;
+
+    await expect(retryTransientGit(async () => {
+      calls += 1;
+      if (calls < 3) throw new Error("Permission denied");
+      return "created";
+    }, {
+      sleep: async (ms) => { sleepCalls.push(ms); },
+    })).resolves.toBe("created");
+
+    expect(calls).toBe(3);
+    expect(sleepCalls).toEqual([300, 900]);
+  });
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+    "keeps invalid attempt count %s bounded",
+    async (attempts) => {
+      let calls = 0;
+      const error = new Error("EPERM: operation not permitted");
+
+      await expect(retryTransientGit(async () => {
+        calls += 1;
+        throw error;
+      }, {
+        attempts,
+        sleep: async () => undefined,
+      })).rejects.toBe(error);
+
+      expect(calls).toBe(3);
+    },
+  );
 });

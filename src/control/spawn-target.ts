@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { promisify } from "node:util";
+import { retryTransientGit as retryGitWorktreeAdd } from "./retry-transient-git-error.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
 
@@ -166,7 +167,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
       ? ["worktree", "add", "-b", branch, worktreePath, `origin/${branch}`]
       : ["worktree", "add", "-b", branch, worktreePath, "HEAD"];
   try {
-    await git(repoRoot, args);
+    await retryGitWorktreeAdd(() => git(repoRoot, args));
   } catch (err) {
     return { ok: false, error: `failed to create worktree: ${messageOf(err)}` };
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CRON_JOBS } from "./cron-jobs.js";
+import { buildQuaestorMailSweepArgs, CRON_JOBS } from "./cron-jobs.js";
 
 describe("CRON_JOBS", () => {
   it("schedules the LUDIARS dashboard report at 3:00 JST using the template cwd", () => {
@@ -45,6 +45,30 @@ describe("CRON_JOBS", () => {
     // Quaestor 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
     expect(job?.cwd).toBeUndefined();
     expect(job?.buildArgs()).toMatchObject({ month: expect.stringMatching(/^\d{6}$/) });
+  });
+
+  it("schedules the Quaestor mail sweep at 9:40, 12:40, and 18:40 JST using the template cwd", () => {
+    const job = CRON_JOBS.find(({ name }) => name === "quaestor-mail-sweep");
+
+    expect(job).toMatchObject({
+      cron: "40 9,12,18 * * *",
+      call_name: "quaestor-mail-sweep",
+    });
+    expect(job?.cwd).toBeUndefined();
+    for (const [instant, slot] of [
+      ["2026-09-01T00:40:00Z", "morning"],
+      ["2026-09-01T03:40:00Z", "noon"],
+      ["2026-09-01T09:40:00Z", "evening"],
+    ] as const) {
+      expect(buildQuaestorMailSweepArgs(new Date(instant))).toEqual({ slot, date: "2026-09-01" });
+    }
+  });
+
+  it("uses the JST calendar date at the UTC date boundary", () => {
+    expect(buildQuaestorMailSweepArgs(new Date("2026-08-31T15:40:00Z"))).toEqual({
+      slot: "morning",
+      date: "2026-09-01",
+    });
   });
 
   it("チーム定時 fanout ジョブを持たない (2026-09-01 neco 指示: チームは spawn + 散歩だけ)", () => {

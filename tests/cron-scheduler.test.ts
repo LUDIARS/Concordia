@@ -125,6 +125,7 @@ describe("startCronScheduler", () => {
       { name: "steam-persona-daily", cron: "40 7 * * *", call_name: "steam-persona-daily" },
       { name: "vultus-catalog-refresh-daily", cron: "20 8 * * *", call_name: "vultus-catalog-refresh-daily" },
       { name: "quaestor-invoice-monthly", cron: "10 18 L * *", call_name: "quaestor-invoice-monthly" },
+      { name: "quaestor-mail-sweep", cron: "40 9,12,18 * * *", call_name: "quaestor-mail-sweep" },
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、
@@ -168,6 +169,10 @@ describe("startCronScheduler", () => {
       expect(job, `${name} must be registered`).toBeDefined();
       expect(job?.buildArgs()).toEqual({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     }
+    expect(CRON_JOBS.find((j) => j.name === "quaestor-mail-sweep")?.buildArgs()).toEqual({
+      slot: expect.stringMatching(/^(morning|noon|evening)$/),
+      date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    });
     expect(CRON_JOBS.find((j) => j.name === "deps-sweep-daily")?.buildArgs()).toEqual({});
   });
 

@@ -85,6 +85,32 @@ const KAIZEN_CRON = "0 9 * * *";
  */
 const QUAESTOR_INVOICE_MONTHLY_CRON = "10 18 L * *";
 
+/** メール監視パートタイマー。朝/昼/夕の 3 回 (JST)。他ジョブの固まる朝枠 (3:00〜9:00) を避ける。 */
+const QUAESTOR_MAIL_SWEEP_CRON = "40 9,12,18 * * *";
+
+const JST_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Tokyo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
+type QuaestorMailSweepArgs = {
+  slot: "morning" | "noon" | "evening";
+  date: string;
+};
+
+export function buildQuaestorMailSweepArgs(now: Date = new Date()): QuaestorMailSweepArgs {
+  const parts = Object.fromEntries(
+    JST_DATE_TIME_FORMATTER.formatToParts(now).map(({ type, value }) => [type, value]),
+  );
+  const hour = Number(parts.hour);
+  const slot = hour < 12 ? "morning" : hour < 18 ? "noon" : "evening";
+  return { slot, date: `${parts.year}-${parts.month}-${parts.day}` };
+}
+
 // チーム朝礼 / 定例 / 課題スカウト / タスク整理の teams fanout 4 本は 2026-09-01 neco 指示
 // (「チームはチーム内で spawn するだけにする」) で廃止した。 チームの定時ジョブは持たず、
 // 巡回由来の装置は散歩セッション (spec/feature/curiosity-walk.md) だけを残す。
@@ -145,6 +171,12 @@ export const CRON_JOBS: CronJobDefinition[] = [{
       const now = new Date();
       return { month: `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}` };
     },
+}, {
+    // Quaestor 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
+    name: "quaestor-mail-sweep",
+    cron: QUAESTOR_MAIL_SWEEP_CRON,
+    call_name: "quaestor-mail-sweep",
+    buildArgs: () => buildQuaestorMailSweepArgs(),
 }, {
     name: "kaizen-daily",
     cron: KAIZEN_CRON,

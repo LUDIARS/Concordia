@@ -42,6 +42,7 @@ import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
+import { verifyCompletionEvidence } from "../delegation/completion-evidence.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 
@@ -632,6 +633,26 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!status) return c.json({ error: "invalid_status" }, 400);
     if (row.status === "completed" || row.status === "failed") {
       return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
+    }
+    if (status === "completed") {
+      const evidence = await verifyCompletionEvidence(row);
+      if (!evidence.ok) {
+        const error = `completed rejected: no completion evidence (${evidence.reason})`;
+        const rejected = deps.repo.updateRunStatus(id, "failed", error)!;
+        emitDelegationRunChanged(rejected);
+        deps.service.recordEffortOutcome(rejected, "failed");
+        void sweepCommitRequest(rejected, deps);
+        if (rejected.parent_session_id) {
+          const text = buildDelegationStatusNotification(rejected, { ...parsed.data, status: "failed", detail: error });
+          const ts = nowSec();
+          const source = `delegation:${rejected.id}:status`;
+          deps.sessions?.appendEvent({ session_id: rejected.parent_session_id, ts, kind: "inject", payload: { text, source } });
+          eventBus.emit({ type: "session.inject", target_session_id: rejected.parent_session_id, text, source, ts });
+          eventBus.emit({ type: "delegation.mirror", target_session_id: rejected.parent_session_id, run_id: rejected.id, child_session_id: rejected.child_session_id, text, ts });
+        }
+        void deps.queue?.drain();
+        return c.json({ error: "completed_without_evidence" }, 409);
+      }
     }
     const unmet = parsed.data.acceptance_report?.filter((item) => !item.met) ?? [];
     const effectiveRemaining = status === "completed" && unmet.length > 0

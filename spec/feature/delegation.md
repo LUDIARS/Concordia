@@ -692,3 +692,15 @@ HTTP 経路の status code は、 guard 拒否 = `409` (依頼側の状態の問
 `renderPromptFile` が cwd を持つ run のプロンプト末尾に「コミット (自分で
 git commit しなくてよい)」 節を足す。 **知らなければ仕組みは使われない**ので、
 テンプレ側の記述に任せず起動側で必ず載せる。
+
+### completed 報告の成果証跡
+
+`POST /v1/delegation/runs/:id/status` が `completed` を受けるとき、run に
+`spawn_worktree_path` または `spawn_cwd` があれば、Concordia は自己申告をそのまま
+信用しない。対象 checkout が存在し Git 管理下であること、HEAD が記録済みの
+`spawn_branch` と一致する非保護 branch であること、`main` または `develop` からの
+新規 commit が一件以上あることを確認する。
+
+いずれかが満たされなければ run は failed として理由を記録し、HTTP 409
+`completed_without_evidence` を返す。checkout を持たない run は対象外として従来どおり
+完了できる。partial と failed の status 処理はこの検証を通らない。

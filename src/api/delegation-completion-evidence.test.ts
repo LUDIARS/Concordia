@@ -1,0 +1,162 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Hono } from "hono";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { makeTestDb } from "../../tests/helpers/db.js";
+import { DelegationRepo } from "../db/delegation-repo.js";
+import type { DelegationService } from "../delegation/service.js";
+import { delegationRouter } from "./delegation.js";
+
+const tempRoots: string[] = [];
+const COMPLETION_EVIDENCE_TEST_TIMEOUT_MS = 20_000;
+
+afterEach(() => {
+  for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("delegation completed evidence", () => {
+  it("keeps completed behavior for runs without checkout metadata", async () => {
+    const { app, repo } = makeApp(null, null);
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  });
+
+  it("accepts completed when the recorded feature worktree contains a commit beyond main", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    writeFileSync(join(cwd, "evidence.txt"), "done\n", "utf8");
+    git(cwd, ["add", "evidence.txt"]);
+    git(cwd, ["commit", "-m", "evidence"]);
+    const { app, repo } = makeApp(cwd, "feat/evidence");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it("rejects completed without a feature-branch commit and records the failure", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const { app, repo } = makeApp(cwd, "feat/evidence");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "completed_without_evidence" });
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it("rejects completed when the recorded checkout is missing", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "concordia-completion-evidence-missing-"));
+    tempRoots.push(cwd);
+    rmSync(cwd, { recursive: true, force: true });
+    const { app, repo } = makeApp(cwd, "feat/evidence");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.error).toContain("checkout is missing");
+  });
+
+  it("rejects completed when HEAD differs from the recorded branch", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const { app, repo } = makeApp(cwd, "feat/other");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.error).toContain("recorded non-protected feature branch");
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it("rejects a zero-commit feature branch when develop diverged behind main", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["branch", "develop"]);
+    writeFileSync(join(cwd, "main-only.txt"), "main\n", "utf8");
+    git(cwd, ["add", "main-only.txt"]);
+    git(cwd, ["commit", "-m", "main-only"]);
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const { app, repo } = makeApp(cwd, "feat/evidence");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed" });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it("rejects a detached HEAD even when it has a commit beyond main", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    writeFileSync(join(cwd, "evidence.txt"), "done\n", "utf8");
+    git(cwd, ["add", "evidence.txt"]);
+    git(cwd, ["commit", "-m", "evidence"]);
+    git(cwd, ["checkout", "--detach"]);
+    const { app, repo } = makeApp(cwd, "HEAD");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed" });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
+  it.each(["partial", "failed"] as const)("keeps %s status behavior outside the completed evidence guard", async (status) => {
+    const { app, repo } = makeApp(null, null);
+    const body = status === "partial"
+      ? { status, remaining: [{ title: "finish implementation" }] }
+      : { status, detail: "agent failed" };
+
+    const response = await postStatus(app, body);
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe(status === "failed" ? "failed" : "completed");
+  });
+});
+
+function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: DelegationRepo } {
+  const repo = new DelegationRepo(makeTestDb());
+  repo.createRun({
+    id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+    args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
+    spawn_command: ["codex"], triggered_by: null, status: "running", spawn_cwd: cwd, spawn_worktree_path: cwd,
+    spawn_branch: branch,
+  });
+  const service = {
+    recordEffortOutcome: vi.fn(),
+    invoke: vi.fn(async () => ({
+      ok: true as const,
+      run: repo.createRun({
+        id: "requeued-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+        args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 2,
+        spawn_command: ["codex"], triggered_by: "partial-requeue:source-run", status: "spawned",
+      }),
+    })),
+  } as unknown as DelegationService;
+  return { app: new Hono().route("/v1/delegation", delegationRouter({ repo, service })), repo };
+}
+
+function makeFeatureWorktree(): string {
+  const cwd = mkdtempSync(join(tmpdir(), "concordia-completion-evidence-"));
+  tempRoots.push(cwd);
+  git(cwd, ["init"]);
+  git(cwd, ["config", "user.email", "concordia-test@example.invalid"]);
+  git(cwd, ["config", "user.name", "Concordia Test"]);
+  writeFileSync(join(cwd, "README.md"), "test\n", "utf8");
+  git(cwd, ["add", "README.md"]);
+  git(cwd, ["commit", "-m", "init"]);
+  git(cwd, ["branch", "-M", "main"]);
+  return cwd;
+}
+
+function git(cwd: string, args: string[]): string {
+  return execFileSync(process.platform === "win32" ? "git.exe" : "git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+}
+
+function postStatus(app: Hono, body: unknown): Promise<Response> {
+  return Promise.resolve(app.request("/v1/delegation/runs/source-run/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }));
+}

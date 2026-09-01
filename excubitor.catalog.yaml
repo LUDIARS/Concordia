@@ -59,6 +59,9 @@ services:
       CONCORDIA_SLACK_ENABLED: "0"
       CONCORDIA_PR_RECONCILE_ENABLED: "0"
       CONCORDIA_PR_FULL_SYNC_ENABLED: "0"
+      # enabled な子会社 Bot を boot 時に自動起動する。無いと子会社の Session forum /
+      # 受付チャンネルが Cc 再起動のたびに無反応になる (手動 start が要る)。
+      CONCORDIA_DISCORD_SUBSIDIARY_AUTOSTART: "1"
       # codex-sdk (Satelles) 委託は WSL 経路の不安定性を避け、Windows native codex
       # で走らせる。Windows 版 codex の sandbox launcher (`CreateProcessWithLogonW`)
       # には lsass ログオンセッションをリークする upstream issue (#33356 / #35940)

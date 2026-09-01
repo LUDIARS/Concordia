@@ -40,11 +40,13 @@ export interface CuriosityWalkDeps {
     invoke(input: {
       call_name: string;
       args: Record<string, unknown>;
+      cwd: string;
       triggered_by?: string;
-      subsidiary_id?: string | null;
       options?: Record<string, unknown>;
-    }): Promise<{ ok: true; run: { id: string } } | { ok: false; error: string }>;
+    }): Promise<{ ok: true; run: { id: string; status: string } } | { ok: false; error: string }>;
   };
+  /** 散歩セッションを起動する既存の workspace directory。 */
+  cwd: string;
   /** 既定 claude-sonnet-5-walk (env CONCORDIA_CURIOSITY_CALL_NAME で上書き)。 */
   callName?: string;
   scheduleOpts?: WalkScheduleOpts;
@@ -74,6 +76,7 @@ export function startCuriosityWalk(deps: CuriosityWalkDeps): CuriosityWalkHandle
   let timer: { clear: () => void } | null = null;
 
   async function fire(): Promise<void> {
+    if (stopped) return;
     // チームは「稼働中 (suspended でない)」の本社 + 子会社所有すべてから 1 つ引く。
     // チームが無くても散歩自体は成立する (チーム未所属のグローバル散歩)。
     const teams = deps.teams.listActive();
@@ -82,6 +85,8 @@ export function startCuriosityWalk(deps: CuriosityWalkDeps): CuriosityWalkHandle
       : null;
 
     const materials = await deps.materials();
+    // workflow OFF が素材収集中に入った場合、その tick から新しい run を起動しない。
+    if (stopped) return;
     const pair = sampleWalkPair(materials, {
       biasRepos: team ? deps.teams.repos(team.id) : [],
       recentCombos: deps.walks.recentComboKeys(RECENT_COMBO_WINDOW_MS),
@@ -105,6 +110,7 @@ export function startCuriosityWalk(deps: CuriosityWalkDeps): CuriosityWalkHandle
 
     const result = await deps.delegationService.invoke({
       call_name: callName,
+      cwd: deps.cwd,
       args: {
         walk_id: walk.id,
         material_a: `${pair.a.label} — ${pair.a.detail}`,
@@ -112,11 +118,18 @@ export function startCuriosityWalk(deps: CuriosityWalkDeps): CuriosityWalkHandle
         team_label: team ? team.name : "",
       },
       triggered_by: `curiosity-walk:${walk.id}`,
-      subsidiary_id: team?.subsidiary_id ?? null,
-      options: { goal_and_go: false, ...(team ? { team: team.id } : {}) },
+      // 投稿先は本社「ぼやき」1 本なので session/run は本社帰属にする。選ばれた
+      // チームとの対応は curiosity_walks.team_id/subsidiary_id が正本として保持する。
+      options: { goal_and_go: false },
     });
     if (!result.ok) {
       log.warn({ walk_id: walk.id, callName }, `curiosity walk launch failed: ${result.error}`);
+      return;
+    }
+    if (result.run.status === "spawn_failed") {
+      // invoke は spawn 失敗も監査用 run として ok:true で返す。起動できなかった
+      // 組み合わせを recent 扱いせず、成功ログも出さない。
+      log.warn({ walk_id: walk.id, run: result.run.id, callName }, "curiosity walk spawn failed");
       return;
     }
     deps.walks.setRunId(walk.id, result.run.id);

@@ -1674,6 +1674,9 @@ export async function startBackend(): Promise<BackendHandle> {
           })),
         }),
         delegationService,
+        // Delegation spawner は cwd 必須。素材参照は絶対パスなので、configured workspace
+        // root が無い開発環境でも Concordia 自身の cwd から安全に起動できる。
+        cwd: workspaceRootDefault ?? process.cwd(),
       })),
     );
     workflowBindings.register({

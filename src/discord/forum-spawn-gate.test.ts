@@ -83,7 +83,8 @@ describe("forum spawn approval + guard wiring", () => {
     const deps = makeDeps({
       guardInstruction: vi.fn(async () => ({ ok: false, replyText: "⛔ 受け付けられません: スコープ外" })),
     });
-    await executeForumSpawn(deps, makeThread());
+    const result = await executeForumSpawn(deps, makeThread());
+    expect(result).toEqual({ ok: false, error: "subsidiary guard denied the request" });
     expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("受け付けられません"));
     expect(deps.selectTemplate).not.toHaveBeenCalled();
   });
@@ -91,16 +92,45 @@ describe("forum spawn approval + guard wiring", () => {
   it("proceeds to spawn when the guard allows", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ ok: true, run: { id: "run-1", status: "spawned" }, spawn_pid: 1 }),
+      text: async () => JSON.stringify({ ok: true, run: { id: "run-1", status: "spawned" }, spawn_pid: 1 }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     try {
       const deps = makeDeps({
         guardInstruction: vi.fn(async () => ({ ok: true, replyText: "" })),
       });
-      await executeForumSpawn(deps, makeThread());
+      const result = await executeForumSpawn(deps, makeThread());
+      expect(result).toEqual({ ok: true });
       expect(deps.selectTemplate).toHaveBeenCalled();
       expect(fetchMock).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports a recorded spawn failure instead of claiming that the session launched", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        ok: true,
+        run: { id: "run-failed", status: "spawn_failed" },
+        spawn_pid: null,
+      }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const deps = makeDeps();
+      const result = await executeForumSpawn(deps, makeThread());
+
+      expect(result).toEqual({ ok: false, error: "delegation spawn failed" });
+      expect(deps.postToThread).toHaveBeenCalledWith(
+        "thread-1",
+        expect.stringContaining("プロセスを起動できませんでした"),
+      );
+      expect(deps.postToThread).not.toHaveBeenCalledWith(
+        "thread-1",
+        expect.stringContaining("Cc がセッションを起動しました"),
+      );
     } finally {
       vi.unstubAllGlobals();
     }

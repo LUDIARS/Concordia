@@ -45,6 +45,10 @@ export interface ApprovedForumSpawnContent {
  * 不足情報の回答経路は本文だけを補完し、タグは実行時に取り直す (回答の間に
  * 付け替えられたタグを取りこぼさないため)。
  */
+export type ForumSpawnResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
 export interface SuppliedForumSpawnContent {
   readonly title: string;
   readonly body: string;
@@ -176,11 +180,11 @@ export async function executeForumSpawn(
   deps: ForumSpawnDeps,
   thread: ForumSpawnThread,
   suppliedContent?: SuppliedForumSpawnContent,
-): Promise<void> {
+): Promise<ForumSpawnResult> {
   const triggeredBy = buildForumSpawnTrigger(thread.guildId, thread.id);
   if (deps.hasExistingRun(triggeredBy)) {
     deps.log.info(`forum-spawn duplicate ignored thread=${thread.id}`);
-    return;
+    return { ok: true };
   }
 
   let title = suppliedContent?.title;
@@ -189,13 +193,13 @@ export async function executeForumSpawn(
     const starter = await fetchStarterWithRetry(thread, deps.wait);
     if (!starter) {
       await reply(deps, thread, "最初の投稿を取得できなかったため、セッションを起動できませんでした。");
-      return;
+      return { ok: false, error: "starter message unavailable" };
     }
     title = thread.name;
     body = starter.content.trim();
     if (isConcordiaSessionStarter(body)) {
       deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
-      return;
+      return { ok: false, error: "Concordia-managed starter" };
     }
   }
   if (deps.guardInstruction) {
@@ -208,7 +212,7 @@ export async function executeForumSpawn(
     if (!guarded.ok) {
       deps.log.warn(`forum-spawn guarded deny thread=${thread.id} owner=${thread.ownerId ?? "-"}`);
       await reply(deps, thread, guarded.replyText);
-      return;
+      return { ok: false, error: "subsidiary guard denied the request" };
     }
   }
   const project = deps.resolveProjectTarget(title, body);
@@ -225,17 +229,17 @@ export async function executeForumSpawn(
       await reply(deps, thread, forumSpawnIntakeGiveUpMessage(
         missing.length > 0 ? missing : (["project"] as const),
       ));
-      return;
+      return { ok: false, error: "approved content incomplete" };
     }
     await askForMissingForumSpawnInfo(deps, thread, { title, body, missing });
-    return;
+    return { ok: false, error: "missing information requested" };
   }
   const isSubsidiary = deps.subsidiaryId !== null && deps.subsidiaryId !== undefined;
   if (isSubsidiary && !deps.resolveSubsidiaryProjects) {
     // 子会社 id だけ配線されて scope resolver が欠けた構成を、本社相当の無制限として扱わない。
     deps.log.warn(`forum-spawn subsidiary project scope unavailable thread=${thread.id}`);
     await reply(deps, thread, "この窓口の担当プロジェクト設定を確認できないため起動しません。");
-    return;
+    return { ok: false, error: "subsidiary project scope unavailable" };
   }
   if (deps.resolveSubsidiaryProjects) {
     // 子会社は担当プロジェクト以外のスレッドから起動しない。 未設定 (空集合) も起動しない
@@ -252,7 +256,7 @@ export async function executeForumSpawn(
         thread,
         "この窓口の担当範囲外のため起動しません。",
       );
-      return;
+      return { ok: false, error: "project out of subsidiary scope" };
     }
   }
   const templates = await deps.templates();
@@ -260,19 +264,19 @@ export async function executeForumSpawn(
   if (!selection.ok) {
     deps.log.warn(`forum-spawn template selection failed thread=${thread.id}: ${selection.error}`);
     await reply(deps, thread, selection.error);
-    return;
+    return { ok: false, error: "template selection failed" };
   }
   const template = selection.template;
   const provider = template.target_provider;
   if (!provider) {
     deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template.call_name}`);
     await reply(deps, thread, `起動テンプレ \`${template.call_name}\` の provider 設定がありません。`);
-    return;
+    return { ok: false, error: "selected template has no provider" };
   }
   const cwd = deps.resolveSpawnCwd(provider, project?.cwd);
   if (!cwd) {
     await reply(deps, thread, `プロジェクト \`${project.project}\` の作業ディレクトリを解決できませんでした。設定を確認してください。`);
-    return;
+    return { ok: false, error: "spawn cwd unresolved" };
   }
 
   let freshTagState = suppliedContent?.tagState;
@@ -282,12 +286,12 @@ export async function executeForumSpawn(
     } catch (error) {
       deps.log.warn(`forum-spawn tag refresh failed thread=${thread.id}: ${(error as Error).message}`);
       await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、セッションを起動しませんでした。");
-      return;
+      return { ok: false, error: "forum tag refresh failed" };
     }
   }
   if (hasConcordiaManagedForumTag(freshTagState)) {
     deps.log.info(`forum-spawn explicit/Cc-managed thread ignored after refresh thread=${thread.id}`);
-    return;
+    return { ok: false, error: "Concordia-managed forum tag" };
   }
   const activeRuntimeRules = activeRuntimeRuleNames(freshTagState);
 
@@ -312,13 +316,19 @@ export async function executeForumSpawn(
     const error = "error" in result ? result.error : "delegation invoke failed";
     deps.log.warn(`forum-spawn failed thread=${thread.id} template=${template.call_name}: ${error}`);
     await reply(deps, thread, `セッション起動に失敗しました: ${error}`);
-    return;
+    return { ok: false, error: "delegation invoke failed" };
+  }
+  if (result.run.status === "spawn_failed") {
+    deps.log.warn(`forum-spawn spawn failed thread=${thread.id} template=${template.call_name} run=${result.run.id}`);
+    await reply(deps, thread, "セッションのプロセスを起動できませんでした。設定を確認してください。");
+    return { ok: false, error: "delegation spawn failed" };
   }
   deps.log.info(
     `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${template.call_name} ` +
     `provider=${provider} project=${project?.project ?? "workspace-default"} cwd=${cwd ?? "unresolved"}`,
   );
   await reply(deps, thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
+  return { ok: true };
 }
 
 /**

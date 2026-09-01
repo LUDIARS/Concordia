@@ -1359,8 +1359,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     )) {
       return { ok: false, error: "forum content changed after approval was requested" };
     }
-    await executeForumSpawn(forumDeps, thread, approvedContent);
-    return { ok: true };
+    return executeForumSpawn(forumDeps, thread, approvedContent);
   };
   /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
   const replyToForumThread = async (threadId: string, content: string): Promise<void> => {

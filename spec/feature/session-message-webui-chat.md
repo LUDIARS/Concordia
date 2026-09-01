@@ -13,7 +13,7 @@ tags:
 status: partially-implemented
 related:
   - ./session-message-layer.md
-updated: 2026-08-08
+updated: 2026-09-01
 ---
 
 # セッションメッセージ層 — 後続フェーズ設計
@@ -57,6 +57,12 @@ updated: 2026-08-08
   - `task` は Task カード (実行中はスピナー、完了で結果要約に更新)
   - `delegation` は親子リンクチップ (クリックで相手セッションへ遷移)
   - `question` / `permission` はボタン付き (既存モーダルの処理を再利用)
+- cleanup を返さない **useEffect の本体はブロックにして、値を返さない**。式の戻り値は
+  cleanup として保存され、関数でなければアンマウント時に落ちる。2026-09-01 に
+  `useEffect(() => bottom.current?.scrollIntoView(...), [...])` が原因で
+  「モニターからセッションを開くと真っ黒 + `TypeError: q is not a function`」が発生した
+  (障害が起きた Chromium 環境では `scrollIntoView` が Promise を返した)。回帰は
+  `MessageList.test.tsx` が固定している。
 
 ### 1.3 ログ確認画面
 

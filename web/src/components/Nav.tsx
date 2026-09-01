@@ -12,12 +12,15 @@ export interface NavItem {
 const COLLAPSED_KEY = "concordia.sidebar.collapsed.v1";
 const SECTIONS: readonly NavSection[] = ["チーム", "レビュー・PR", "運用", "設定"];
 
+/** @implements spec/feature/teams.md §4.2 sidebar navigation */
 export function Nav({ items }: { items: readonly NavItem[] }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSED_KEY) === "1");
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  useEffect(() => setMobileOpen(false), [location.pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
   useEffect(() => {
     if (!mobileOpen) return;
     const close = (event: KeyboardEvent) => event.key === "Escape" && setMobileOpen(false);

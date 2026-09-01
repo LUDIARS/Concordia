@@ -514,6 +514,37 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).not.toContain("npm audit fix");
   });
 
+  it("seeds the monthly invoice template so a stopped Quaestor is started, not skipped", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("quaestor-invoice-monthly");
+    expect(template).toMatchObject({
+      is_active: 1,
+      category: "parttimer",
+      target_provider: "claude",
+      model: "claude-sonnet-5",
+      default_cwd: "E:\\Document\\Ars\\Quaestor",
+    });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([
+      { name: "month", type: "string", required: true, description: "対象月 (YYYYMM)" },
+    ]);
+    const prompt = template?.prompt_template ?? "";
+    // 停止していても発火するジョブなので、 起動を試すことと、 起動できなくても
+    // ファイル作成まで進めることの両方が指示に残っている必要がある。
+    expect(prompt).toContain("Excubitor 経由で `quaestor` を start");
+    expect(prompt).toContain("ファイル作成まで進めて");
+    // 請求番号などの更新規則は MELPOT スキルが正本で、 テンプレ側に複製しない。
+    expect(prompt).toContain("/MELPOT ${month}");
+    expect(prompt).not.toContain("S2");
+    // 再実行時は同月ファイルと登録済み invoice を再利用し、重複作成・登録しない。
+    expect(prompt).toContain("既存ファイルがある場合は上書きせず");
+    expect(prompt).toContain("invoice id を再利用して重複登録しない");
+    // 送付と入金確認は人の判断に残す。
+    expect(prompt).toContain("`status: draft` を明示して登録");
+    expect(prompt).toContain("status は draft のままにして");
+  });
+
   it("seeds the active Steam persona collection template without leaking collected data", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

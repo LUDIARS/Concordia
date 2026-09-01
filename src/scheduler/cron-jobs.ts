@@ -79,6 +79,12 @@ const GENIUS_INGEST_DAILY_CRON = "10 4 * * *";
 /** カイゼン (2026-08-08 neco 指示で新設)。 毎朝 9:00 JST、前日の session-logs とメモリを棚卸しして改善提案する。 */
 const KAIZEN_CRON = "0 9 * * *";
 
+/**
+ * 月末の請求書作成。 croner の `L` (day-of-month) で 28〜31 日の揺れを吸収する。
+ * 当月分を締めてから作るので、 朝に固まっている他ジョブとは離して 18:10 JST に置く。
+ */
+const QUAESTOR_INVOICE_MONTHLY_CRON = "10 18 L * *";
+
 // チーム朝礼 / 定例 / 課題スカウト / タスク整理の teams fanout 4 本は 2026-09-01 neco 指示
 // (「チームはチーム内で spawn するだけにする」) で廃止した。 チームの定時ジョブは持たず、
 // 巡回由来の装置は散歩セッション (spec/feature/curiosity-walk.md) だけを残す。
@@ -130,6 +136,15 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     cron: VULTUS_CATALOG_REFRESH_DAILY_CRON,
     call_name: "vultus-catalog-refresh-daily",
     buildArgs: () => ({ date: todayIso() }),
+}, {
+    // Quaestor 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
+    name: "quaestor-invoice-monthly",
+    cron: QUAESTOR_INVOICE_MONTHLY_CRON,
+    call_name: "quaestor-invoice-monthly",
+    buildArgs: () => {
+      const now = new Date();
+      return { month: `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}` };
+    },
 }, {
     name: "kaizen-daily",
     cron: KAIZEN_CRON,

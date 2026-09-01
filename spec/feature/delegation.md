@@ -344,6 +344,32 @@ AI ノートレビュー (6:10) に重ならない 4:10 に置く。
 コードの変更、テスト実行、サービスの起動・再起動、commit、push、PR 作成は行わない。
 登録済みテストは、報告専用テンプレートと引数なしの cron 配線を検証する。
 
+### 月末請求書 (parttimer)
+
+`quaestor-invoice-monthly` は当月分の請求書を作る月末ジョブで、croner の `L`
+(day-of-month = 月末) を使い **毎月末日 18:10 JST** に Quaestor 本体 (`E:\Document\Ars\Quaestor`)
+から `month` (YYYYMM) 付きで起動する。朝に固まっている他の日次ジョブと離すため夕方に置く。
+
+cron は Concordia 側で回るので **Quaestor が停止していても発火する**。ジョブはまず
+Excubitor 経由で `quaestor` を start して health を待ち、起動できなかった場合でも請求書
+ファイルの作成までは進めて、登録と通知を未実施として報告する。止まったまま何もせず終わる
+経路を作らない。
+
+請求番号・請求日・対象月マーカーの更新規則は `MELPOT` スキルが正本で、テンプレート側に
+複製しない (二重管理を避ける)。金額と摘要は前月据え置きが既定。
+
+再実行時は、同じ対象月の既存ファイルを検証して再利用し、上書きしない。Quaestor への登録前に
+対象月と請求番号が同じ invoice の有無を確認し、登録済みなら既存 id を再利用して重複登録を
+避ける。新規登録時は `status: draft` を明示する。
+
+作成後は `POST /v1/notify/invoice` で内容を Discord へ通知し、PDF は `SendUserFile` で送って
+目視確認に回す。**送付 (メール送信) と入金確認は行わず、status は draft のまま**にして人の
+判断を待つ。
+
+| cron (JST) | job / call_name | 内容 |
+|---|---|---|
+| 18:10 毎月末日 | `quaestor-invoice-monthly` | 当月分の請求書を作成し、Quaestor へ登録して確認を仰ぐ |
+
 ### Vultus catalog refresh (parttimer)
 
 `vultus-catalog-refresh-daily` は毎日 8:20 JST に Vultus 本体から起動し、DMM と

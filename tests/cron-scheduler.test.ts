@@ -124,6 +124,7 @@ describe("startCronScheduler", () => {
       { name: "deps-sweep-daily", cron: "10 7 * * *", call_name: "deps-sweep-daily" },
       { name: "steam-persona-daily", cron: "40 7 * * *", call_name: "steam-persona-daily" },
       { name: "vultus-catalog-refresh-daily", cron: "20 8 * * *", call_name: "vultus-catalog-refresh-daily" },
+      { name: "quaestor-invoice-monthly", cron: "10 18 L * *", call_name: "quaestor-invoice-monthly" },
       { name: "kaizen-daily", cron: "0 9 * * *", call_name: "kaizen-daily" },
     ]);
     // 横断レビュー系は Ars root 固定。 cwd はもと scheduler のハードコードだったので、

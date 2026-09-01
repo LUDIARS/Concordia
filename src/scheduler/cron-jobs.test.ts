@@ -35,6 +35,18 @@ describe("CRON_JOBS", () => {
     expect(job?.buildArgs()).toMatchObject({ date: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
   });
 
+  it("schedules the Quaestor invoice job on the last day of each month at 18:10 JST", () => {
+    const job = CRON_JOBS.find(({ name }) => name === "quaestor-invoice-monthly");
+
+    expect(job).toMatchObject({
+      cron: "10 18 L * *",
+      call_name: "quaestor-invoice-monthly",
+    });
+    // Quaestor 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
+    expect(job?.cwd).toBeUndefined();
+    expect(job?.buildArgs()).toMatchObject({ month: expect.stringMatching(/^\d{6}$/) });
+  });
+
   it("チーム定時 fanout ジョブを持たない (2026-09-01 neco 指示: チームは spawn + 散歩だけ)", () => {
     const fanned = CRON_JOBS.filter((job) => job.fanout).map((job) => job.name);
     expect(fanned).toEqual([]);

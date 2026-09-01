@@ -3,6 +3,7 @@
  */
 
 import type Database from "better-sqlite3";
+import { endDiscordSessionChannels } from "./discord-repo.js";
 import type {
   ProviderName,
   SessionEventRow,
@@ -433,6 +434,7 @@ export class SessionsRepo {
       this.db.prepare(`DELETE FROM session_events  WHERE session_id IN (${placeholder})`).run(...args);
       this.db.prepare(`DELETE FROM session_reports WHERE session_id IN (${placeholder})`).run(...args);
       this.db.prepare(`DELETE FROM pending_tasks   WHERE session_id IN (${placeholder})`).run(...args);
+      endDiscordSessionChannels(this.db, args);
       this.db.prepare(`DELETE FROM sessions        WHERE id         IN (${placeholder})`).run(...args);
     });
     tx(idList);
@@ -571,6 +573,12 @@ export class SessionsRepo {
       this.db.prepare(`DELETE FROM session_events`).run();
       this.db.prepare(`DELETE FROM session_reports`).run();
       this.db.prepare(`DELETE FROM pending_tasks`).run();
+      // archive API calls are deferred to the Discord reconcile after this atomic DB closure.
+      this.db.prepare(
+        `UPDATE discord_session_channels
+            SET status = 'ended', display_state = 'ended'
+          WHERE status <> 'ended' OR display_state <> 'ended'`,
+      ).run();
       const r = this.db.prepare(`DELETE FROM sessions`).run();
       return Number(r.changes ?? 0);
     });

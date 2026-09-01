@@ -7,6 +7,7 @@ import {
   onSessionTitleChanged,
   reconcileActiveSessionForumThreads,
   reconcileEndedSessionChannels,
+  reconcileOrphanedSessionChannels,
   reconcileLostSessionChannels,
   updateSessionSurfaceMetadata,
 } from "./session-channel.js";
@@ -199,6 +200,7 @@ describe("onSessionStatusChanged ended archive", () => {
     };
     const repo = {
       findBySessionId: vi.fn((id: string) => (id === row.session_id ? row : null)),
+      findOrphanedSessionChannels: vi.fn((): any[] => []),
       listAll: vi.fn(() => [row]),
       setStatus: vi.fn((id: string, status: string) => {
         if (id === row.session_id) row.status = status;
@@ -230,6 +232,7 @@ describe("onSessionStatusChanged ended archive", () => {
 
   it("reconciles ended sessions whose channels are still outside archive", async () => {
     const m = makeEndedArchiveMocks();
+    m.isSessionEnded.mockReturnValue(false);
 
     const result = await reconcileEndedSessionChannels({
       guild: m.guild as any,
@@ -241,6 +244,36 @@ describe("onSessionStatusChanged ended archive", () => {
 
     expect(result).toEqual({ scanned: 1, reconciled: 1 });
     expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("reconciles an orphaned active channel without a sessions row", async () => {
+    const m = makeEndedArchiveMocks();
+    m.row.status = "active";
+    m.row.display_state = "active";
+    m.isSessionEnded.mockReturnValue(false);
+    m.repo.findOrphanedSessionChannels = vi.fn(() => [m.row]);
+
+    const result = await reconcileOrphanedSessionChannels({
+      guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log,
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 1, channel_ids: [m.row.channel_id] });
+    expect(m.row.status).toBe("ended");
+    expect(m.channelObj.parentId).toBe("archive-cat");
+  });
+
+  it("does not mutate an orphan when dry-run is enabled", async () => {
+    const m = makeEndedArchiveMocks();
+    m.row.status = "active";
+    m.repo.findOrphanedSessionChannels = vi.fn(() => [m.row]);
+
+    const result = await reconcileOrphanedSessionChannels({
+      guild: m.guild as any, layout: m.layout, repo: m.repo as any, log: m.log, dryRun: true,
+    });
+
+    expect(result).toEqual({ scanned: 1, reconciled: 0, channel_ids: [m.row.channel_id] });
+    expect(m.row.status).toBe("active");
+    expect(m.channelObj.edit).not.toHaveBeenCalled();
   });
 
   it("fetches an uncached channel before archiving an ended session", async () => {

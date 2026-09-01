@@ -150,6 +150,8 @@ export interface DiscordSessionChannelsRepo {
   tryClaimRename(sessionId: string, cooldownSec: number, now?: number): boolean;
   listActive(): DiscordSessionChannelRow[];
   listAll(): DiscordSessionChannelRow[];
+  /** sessions 行を失った active channel を scope 内で返す。 */
+  findOrphanedSessionChannels(): DiscordSessionChannelRow[];
   deleteBySessionId(sessionId: string): void;
 }
 
@@ -275,10 +277,33 @@ export function makeDiscordSessionChannelsRepo(db: Database, scope = ""): Discor
         .prepare("SELECT * FROM discord_session_channels WHERE scope = ?")
         .all(scope) as DiscordSessionChannelRow[];
     },
+    findOrphanedSessionChannels() {
+      return db
+        .prepare(
+          `SELECT * FROM discord_session_channels
+           WHERE status = 'active' AND session_id NOT IN (SELECT id FROM sessions) AND scope = ?`,
+        )
+        .all(scope) as DiscordSessionChannelRow[];
+    },
     deleteBySessionId(sessionId) {
       db.prepare("DELETE FROM discord_session_channels WHERE session_id = ?").run(sessionId);
     },
   };
+}
+
+/**
+ * sessions の終了・削除と同じ transaction で Discord 側の束縛を閉じる。
+ * Discord API の archive は次回 reconcile が行うため、DB の整合性だけをここで保証する。
+ */
+export function endDiscordSessionChannels(db: Database, sessionIds: readonly string[]): void {
+  if (sessionIds.length === 0) return;
+  const placeholders = sessionIds.map(() => "?").join(",");
+  db.prepare(
+    `UPDATE discord_session_channels
+        SET status = 'ended', display_state = 'ended'
+      WHERE session_id IN (${placeholders})
+        AND (status <> 'ended' OR display_state <> 'ended')`,
+  ).run(...sessionIds);
 }
 
 // ─── discord_message_map (Discord message_id → chat_messages.id) ─────────

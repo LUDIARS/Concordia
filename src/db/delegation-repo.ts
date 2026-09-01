@@ -7,6 +7,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { applyDelegationProviderPolicy } from "../delegation/provider-policy.js";
+import { endDiscordSessionChannels } from "./discord-repo.js";
 
 // 論理 provider プリセット。 claude/codex/gemini は同名 CLI に 1:1。
 // gemma4-12 は「ローカル LLM 委託レーン」で、 実体は codex CLI を OSS (Ollama) 経由で
@@ -813,13 +814,25 @@ export class DelegationRepo {
   ): DelegationRunRow | null {
     const row = this.findRun(runId);
     if (!row) return null;
-    this.db.prepare(`
-      UPDATE delegation_runs
-         SET status = ?,
-             error = ?,
-             finished_at = CASE WHEN ? IN ('completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END
-       WHERE id = ?
-    `).run(status, error !== undefined ? error : row.error, status, Date.now(), runId);
+    const update = this.db.transaction(() => {
+      this.db.prepare(`
+        UPDATE delegation_runs
+           SET status = ?,
+               error = ?,
+               finished_at = CASE WHEN ? IN ('completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END
+         WHERE id = ?
+      `).run(status, error !== undefined ? error : row.error, status, Date.now(), runId);
+      if (status === "completed" || status === "failed") {
+        const linkedSessions = this.db.prepare(
+          `SELECT id FROM sessions
+            WHERE json_valid(metadata) AND json_extract(metadata, '$.delegation_run_id') = ?`,
+        ).all(runId) as Array<{ id: string }>;
+        const sessionIds = new Set(linkedSessions.map((session) => session.id));
+        if (row.child_session_id) sessionIds.add(row.child_session_id);
+        endDiscordSessionChannels(this.db, [...sessionIds]);
+      }
+    });
+    update();
     return this.findRun(runId);
   }
 }

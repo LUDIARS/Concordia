@@ -32,6 +32,7 @@ import {
   updateSessionSurfaceMetadata,
   pruneStatusCategoryChannels,
   reconcileEndedSessionChannels,
+  reconcileOrphanedSessionChannels,
   reconcileLostSessionChannels,
   reconcileActiveSessionForumThreads,
   archiveStaleChannels,
@@ -910,6 +911,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           isSessionEnded: (sessionId) => deps.readModel.getSessionRelayState(sessionId)?.status === "ended",
           log, webhooks: webhooks ?? undefined,
         });
+        const orphaned = await reconcileOrphanedSessionChannels({
+          guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
+          dryRun: process.env.CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN === "1",
+        });
         const active = await reconcileActiveSessionForumThreads({
           guild, layout: lay, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined,
           listActiveSessionIds: () => deps.sessionsRepo.listSessions({ status: "active" })
@@ -953,7 +958,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         });
         log.info(
           `session-forum ${reason} reconcile: scanned=${Math.max(lostChannels.scanned, ended.scanned)}`
-          + ` active=${active.reconciled} lost=${lostChannels.reconciled} ended=${ended.reconciled}`,
+          + ` active=${active.reconciled} lost=${lostChannels.reconciled} ended=${ended.reconciled}`
+          + ` orphaned=${orphaned.reconciled}/${orphaned.scanned}`,
         );
       });
       const runTestForumReconcile = instrumentDiscord("testForumReconcile", async (reason: string): Promise<void> => {

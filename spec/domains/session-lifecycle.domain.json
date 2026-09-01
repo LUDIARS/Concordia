@@ -8,6 +8,9 @@
       "pathPattern": "(^|/)src/db/sessions-repo(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)tests/sessions-repo\\.test\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/api/sessions/(lifecycle|shared|events|end|runtime|skills|title-goal|qa)(\\.test)?\\.ts$"
     },
     {

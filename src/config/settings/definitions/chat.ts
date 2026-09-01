@@ -98,6 +98,17 @@ export const DISCORD_SETTINGS: readonly SettingDefinition[] = [
     editable: false,
   },
   {
+    key: "discord.orphan_reconcile_dry_run",
+    section: "discord",
+    label: "孤立チャンネル突合のドライラン",
+    description: "sessions 行が無い Discord チャンネルを archive せず、対象だけをログへ出す。",
+    kind: "boolean",
+    envName: "CONCORDIA_DISCORD_ORPHAN_RECONCILE_DRY_RUN",
+    dbKey: null,
+    defaultValue: false,
+    editable: false,
+  },
+  {
     key: "discord.subsidiary_autostart",
     section: "discord",
     label: "子会社 bot の自動起動",

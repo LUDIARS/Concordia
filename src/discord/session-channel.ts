@@ -181,12 +181,28 @@ export async function reconcileEndedSessionChannels(
   const rows = deps.repo.listAll();
   let reconciled = 0;
   for (const row of rows) {
-    if (!deps.isSessionEnded(row.session_id)) continue;
+    if (row.status !== "ended" && !deps.isSessionEnded(row.session_id)) continue;
     if (!needsEndedArchiveReconcile(deps, row)) continue;
     await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
     reconciled += 1;
   }
   return { scanned: rows.length, reconciled };
+}
+
+/** sessions 行が retention 等で消えた active channel を archive して終了扱いにする。 */
+export async function reconcileOrphanedSessionChannels(
+  deps: SessionChannelDeps & { dryRun?: boolean },
+): Promise<{ scanned: number; reconciled: number; channel_ids: string[] }> {
+  const rows = deps.repo.findOrphanedSessionChannels();
+  const channelIds = rows.map((row) => row.channel_id);
+  if (deps.dryRun) {
+    deps.log.info(`session-channel: orphan reconcile dry-run scanned=${rows.length} channel_ids=${channelIds.join(",")}`);
+    return { scanned: rows.length, reconciled: 0, channel_ids: channelIds };
+  }
+  for (const row of rows) {
+    await onSessionStatusChanged(deps, { sessionId: row.session_id, status: "ended" });
+  }
+  return { scanned: rows.length, reconciled: rows.length, channel_ids: channelIds };
 }
 
 export async function reconcileLostSessionChannels(

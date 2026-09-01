@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/api/delegation(?:-[^/]+)?(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/delegation/persona-context(\\.test)?\\.ts$"
     },
     {

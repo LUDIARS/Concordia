@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestDb } from "./helpers/db.js";
+import { makeDiscordSessionChannelsRepo } from "../src/db/discord-repo.js";
 import { SessionsRepo } from "../src/db/sessions-repo.js";
 
 function fresh(): SessionsRepo {
@@ -155,5 +156,50 @@ describe("SessionsRepo", () => {
     expect(repo.purgeStale(100)).toBe(1);
     expect(repo.findSession("alive")).not.toBeNull();
     expect(repo.findSession("dead")).toBeNull();
+  });
+
+  it("ends the Discord channel row when purgeStale deletes its session", () => {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const channels = makeDiscordSessionChannelsRepo(db);
+    sessions.insertSession({
+      id: "stale", provider: "codex-cli", repo_path: "/x", repo_origin: null,
+      branch: null, host: "h", started_at: 1, last_seen_at: 1,
+      transcript_path: null, metadata: null,
+    });
+    sessions.setStatus("stale", "lost", 1);
+    channels.upsert({
+      session_id: "stale",
+      channel_id: "c-stale",
+      status: "ended",
+      display_state: "active",
+    });
+
+    expect(sessions.purgeStale(2)).toBe(1);
+
+    expect(sessions.findSession("stale")).toBeNull();
+    expect(channels.findBySessionId("stale")).toMatchObject({ status: "ended", display_state: "ended" });
+  });
+
+  it("ends all Discord channel rows when all sessions are truncated", () => {
+    const db = makeTestDb();
+    const sessions = new SessionsRepo(db);
+    const channels = makeDiscordSessionChannelsRepo(db);
+    sessions.insertSession({
+      id: "active", provider: "codex-cli", repo_path: "/x", repo_origin: null,
+      branch: null, host: "h", started_at: 1, last_seen_at: 1,
+      transcript_path: null, metadata: null,
+    });
+    channels.upsert({
+      session_id: "active",
+      channel_id: "c-active",
+      status: "ended",
+      display_state: "active",
+    });
+
+    expect(sessions.truncateAllSessions()).toBe(1);
+
+    expect(sessions.findSession("active")).toBeNull();
+    expect(channels.findBySessionId("active")).toMatchObject({ status: "ended", display_state: "ended" });
   });
 });

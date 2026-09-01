@@ -6,6 +6,7 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
+import { makeDiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { delegationRouter } from "./delegation.js";
 
@@ -17,6 +18,43 @@ afterEach(() => {
 });
 
 describe("delegation completed evidence", () => {
+  it.each(["completed", "failed"] as const)(
+    "closes the child session Discord channel when a delegation run becomes %s",
+    (status) => {
+      const db = makeTestDb();
+      const repo = new DelegationRepo(db);
+      const channels = makeDiscordSessionChannelsRepo(db);
+      channels.upsert({ session_id: "child-session", channel_id: "child-channel" });
+      repo.createRun({
+        id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+        args: {}, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
+        spawn_command: ["codex"], triggered_by: null, status: "running", child_session_id: "child-session",
+      });
+
+      repo.updateRunStatus("source-run", status);
+
+      expect(channels.findBySessionId("child-session")).toMatchObject({ status: "ended", display_state: "ended" });
+    },
+  );
+
+  it("closes a legacy child session channel found through session metadata", () => {
+    const db = makeTestDb();
+    const repo = new DelegationRepo(db);
+    const channels = makeDiscordSessionChannelsRepo(db);
+    db.prepare(`INSERT INTO sessions(id, provider, repo_path, host, started_at, status, last_seen_at, metadata) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run("legacy-child", "codex", "repo", "host", 1, "active", 1, JSON.stringify({ delegation_run_id: "source-run" }));
+    channels.upsert({ session_id: "legacy-child", channel_id: "legacy-channel" });
+    repo.createRun({
+      id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+      args: {}, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
+      spawn_command: ["codex"], triggered_by: null, status: "running", child_session_id: null,
+    });
+
+    repo.updateRunStatus("source-run", "completed");
+
+    expect(channels.findBySessionId("legacy-child")).toMatchObject({ status: "ended", display_state: "ended" });
+  });
+
   it("keeps completed behavior for runs without checkout metadata", async () => {
     const { app, repo } = makeApp(null, null);
 

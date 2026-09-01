@@ -75,6 +75,17 @@ describe("discord_session_channels repo", () => {
     expect(row?.webhook_id).toBe("wh1");
     expect(row?.webhook_token).toBe("tk1");
   });
+
+  it("sessions 行のない active channel だけを scope 内で orphan として返す", () => {
+    const repo = makeDiscordSessionChannelsRepo(db);
+    repo.upsert({ session_id: "orphan", channel_id: "c-orphan" });
+    repo.upsert({ session_id: "ended", channel_id: "c-ended", status: "ended" });
+    db.prepare(`INSERT INTO sessions(id, provider, repo_path, host, started_at, status, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run("live", "codex", "repo", "host", 1, "active", 1);
+    repo.upsert({ session_id: "live", channel_id: "c-live" });
+
+    expect(repo.findOrphanedSessionChannels().map((row) => row.session_id)).toEqual(["orphan"]);
+  });
 });
 
 describe("discord_message_map repo", () => {

@@ -7,6 +7,8 @@ import type { DiscordCommandSpec } from "../command-port.js";
 import { isForumSessionThread, updateForumSessionState } from "../forum-session.js";
 import { callConcordia, requireSessionChannel } from "./_util.js";
 
+const END_SESSION_REQUEST_TIMEOUT_MS = 10_000;
+
 const endSessionCommand: DiscordCommandSpec = {
   builder: new SlashCommandBuilder().setName("end-session").setDescription("End current session"),
   async execute(interaction, deps) {
@@ -17,8 +19,10 @@ const endSessionCommand: DiscordCommandSpec = {
       deps.concordiaUrl,
       "DELETE",
       `/v1/sessions/${encodeURIComponent(session.sessionId)}`,
+      undefined,
+      AbortSignal.timeout(END_SESSION_REQUEST_TIMEOUT_MS),
     );
-    if ("error" in result || result.ok !== true) {
+    if (typeof result !== "object" || result === null || !("ok" in result) || result.ok !== true) {
       // Upstream error bodies and persisted session IDs are untrusted log input.
       deps.log.warn("end-session DELETE failed");
       await interaction.editReply({ content: "Session end failed. Please retry." });

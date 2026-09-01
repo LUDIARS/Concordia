@@ -37,8 +37,11 @@ memoria_task_id: 570
 - [x] 回帰テスト追加 (`end-session-command.test.ts`: lost セッションのマーカー付与 /
       既存マーカーの非上書き、`end-session.test.ts`: DELETE 成功/失敗の表示分岐)
 - [x] Discord の session ID を URL path component としてエンコードし、失敗応答の本文を
-      ログへ複製せず、`ok: true` 以外を成功表示しない境界テストを追加
-- [x] 既存テストスイート (45 files / 366 tests) 通過確認、`tsc --noEmit` クリーン確認
+      ログへ複製せず、`ok: true` 以外を成功表示しない境界テストを追加。DELETE 待機は
+      タイムアウト可能にし、応答不能時に Discord interaction が無期限停止しないようにする
+- [x] 作成者確認時点のテストスイート (45 files / 366 tests) 通過、`tsc --noEmit` クリーン
+- [x] Revisor autofix の malformed-response / timeout-signal 境界テストを登録
+      (実行は Revisor 所有の CI で確認)
 
 ## スコープ (編集可ディレクトリ)
 - `src/control/`, `src/discord/commands/`

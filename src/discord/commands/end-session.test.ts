@@ -39,6 +39,7 @@ describe("/end-session", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://127.0.0.1:11111/v1/sessions/s-1");
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
     expect(interaction.editReply).toHaveBeenCalledWith({ content: "Session end requested." });
   });
 
@@ -70,8 +71,17 @@ describe("/end-session", () => {
     );
   });
 
-  it("does not report success for a malformed successful response", async () => {
+  it("does not report success when the API explicitly returns ok false", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ok: false }), { status: 200 })));
+    const interaction = makeInteraction();
+
+    await endSessionCommand.execute(interaction as never, makeDeps());
+
+    expect(interaction.editReply).toHaveBeenCalledWith({ content: "Session end failed. Please retry." });
+  });
+
+  it("does not throw for a malformed successful response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("null", { status: 200 })));
     const interaction = makeInteraction();
 
     await endSessionCommand.execute(interaction as never, makeDeps());

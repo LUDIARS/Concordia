@@ -23,6 +23,7 @@ export async function callConcordia<T>(
   method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<T | { error: string }> {
   try {
     const headers: Record<string, string> = { "content-type": "application/json" };
@@ -30,6 +31,7 @@ export async function callConcordia<T>(
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      ...(signal ? { signal } : {}),
     });
     const text = await res.text();
     const json = text ? (JSON.parse(text) as T | { error: string }) : ({} as T);

@@ -104,10 +104,13 @@ export interface ForumSpawnDeps {
    * 子会社 Bot のみ: spawn 前に依頼本文を Sonnet ガード (subsidiary/gate.ts) へ通す。
    * 受付チャンネルと同じく「出張先からの人間の作業指示は必ずガードを通す」
    * (spec/feature/subsidiary-delegation.md §3.1) を forum spawn にも適用する。
+   * ロック/予算超過/ガード失敗は ok:false で停止、有効な Sonnet deny 所見は
+   * ok:true + advisoryText
+   * (スレッドへ注記して起動は継続 — 起動判断は権限者のもの、2026-09-02 neco 指示)。
    * 未配線 (本社 Bot) はガード無しで従来どおり。
    */
   guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
-    => Promise<{ ok: boolean; replyText: string }>;
+    => Promise<{ ok: boolean; replyText: string; advisoryText?: string }>;
   /**
    * spawn に必要な情報 (関係プロジェクト / タスク内容) が投稿から取れないとき、
    * スレッド内で聞き返す (forum-spawn-intake.ts)。 質問を出せたら true。
@@ -213,6 +216,15 @@ export async function executeForumSpawn(
       deps.log.warn(`forum-spawn guarded deny thread=${thread.id} owner=${thread.ownerId ?? "-"}`);
       await reply(deps, thread, guarded.replyText);
       return { ok: false, error: "subsidiary guard denied the request" };
+    }
+    if (guarded.advisoryText) {
+      // ガード所見は advisory: スレッドへ注記して起動は続ける。注記の投稿失敗で
+      // spawn を止めない (所見は監査記録にも残っている)。
+      try {
+        await reply(deps, thread, guarded.advisoryText);
+      } catch (error) {
+        deps.log.warn(`forum-spawn advisory note post failed thread=${thread.id}: ${(error as Error).message}`);
+      }
     }
   }
   const project = deps.resolveProjectTarget(title, body);

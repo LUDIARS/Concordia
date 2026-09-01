@@ -136,9 +136,15 @@ delegation で安全に処理する。
 - **Forum spawn (2026-09-01 neco 指示)**: 子会社 guild の Session forum への人間の新規
   スレッドでも本社と同じ spawn-by-post が動く (`forum-spawn.ts` は guild 共通)。差分は 2 点:
   - 子会社ではスレッド本文を **§2 ガードに通してから** template selector / invoke へ進む
-    (`guardSubsidiaryForumSpawn` — ロック / 予算 / Sonnet 判定 / 監査記録は受付チャンネルと
-    同じ。ガードには decision だけを求め、所有 delegation の一致は要求しない — 起動テンプレは
-    Cc 側 selector が選ぶため)。
+    (`guardSubsidiaryForumSpawn` — ガードには decision だけを求め、所有 delegation の一致は
+    要求しない — 起動テンプレは Cc 側 selector が選ぶため)。
+    **Sonnet の有効な deny は advisory (2026-09-02 neco 指示)**: セッション起動の判断は権限を持つ
+    人間 (session_spawn = 管理職以上、または管理職承認) が行うため、ガード所見で停止せず
+    「⚠️ ガード所見 (advisory)」としてスレッドへ一般化した注記を出し、詳細は監査記録
+    (所見つき allow) にだけ残して起動を継続する。advisory 経路ではユーザロックもしない
+    (誤検知で権限者を凍結しない)。ガード実行失敗 / JSON 解釈失敗は所見ではないため
+    **fail-closed** とし、ロック済みユーザ・予算超過と同様に停止する。受付チャンネル経路の
+    ガードは従来どおり deny = 停止。
   - **spawn 権限の無い投稿者**のスレッドは平文 deny で終わらせず、
     「管理職以上が押すと起動する」承認カード (`forum-spawn-approval.ts`、ボタンは
     社員名簿 `session_spawn` = 管理職以上のみ有効・申請者本人は不可・1 時間で失効) を出す。

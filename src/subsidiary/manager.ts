@@ -11,7 +11,12 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
-import { guardSubsidiaryForumSpawn, processSubsidiaryRequest, type SubsidiaryGateDeps } from "./gate.js";
+import {
+  guardSubsidiaryForumSpawn,
+  processSubsidiaryRequest,
+  type ForumSpawnGuardResult,
+  type SubsidiaryGateDeps,
+} from "./gate.js";
 import type { RunClaudeFn } from "../rules/claude-runner.js";
 import type { SubsidiaryBudgetTracker } from "./budget.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -45,11 +50,11 @@ export interface SubsidiaryBotStartDeps {
     isLocked: (userId: string) => boolean;
     /**
      * Forum spawn 前のガード (spec/feature/subsidiary-delegation.md §3.1)。
-     * 受付チャンネルと同じ評価 (ロック/予算/Sonnet ガード/監査) を通し、 spawn 自体は
-     * forum-spawn 側に委ねる。
+     * ロック/予算/ガード失敗は停止、有効な Sonnet deny 所見は advisory
+     * (advisoryText) として返し、spawn 自体は forum-spawn 側に委ねる。
      */
     guardInstruction: (input: { userId: string; userLabel: string; instruction: string })
-      => Promise<{ ok: boolean; replyText: string }>;
+      => Promise<ForumSpawnGuardResult>;
     /**
      * この子会社が関係する project 名を live 解決する (WebUI の設定変更を再起動なしで
      * 反映するため関数で受ける)。 Test forum の掲載範囲はこの集合だけ。
@@ -133,7 +138,7 @@ export class SubsidiaryBotManager {
 
   /** Forum spawn 前のガード入口 (spawn せず評価 + 監査のみ)。 */
   guardFor(id: string): (input: { userId: string; userLabel: string; instruction: string })
-    => Promise<{ ok: boolean; replyText: string }> {
+    => Promise<ForumSpawnGuardResult> {
     return async (input) => {
       const row = this.deps.subsidiaryRepo.find(id);
       if (!row) return { ok: false, replyText: "⚠️ 窓口の設定が見つかりません。" };

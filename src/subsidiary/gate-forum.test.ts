@@ -57,23 +57,33 @@ describe("guardSubsidiaryForumSpawn", () => {
     expect(recorded[0]).toMatchObject({ decision: "allow", matched_call_name: null });
   });
 
-  it("denies and records when the guard rejects", async () => {
+  // 起動判断は権限を持つ人間のもの (2026-09-02 neco 指示): Sonnet の deny 所見は
+  // 停止でなく advisory。監査行は「所見つき allow」1 行で残る。
+  it("treats a guard deny as advisory and continues the spawn", async () => {
     const { deps, recorded } = makeDeps({
       guardJson: JSON.stringify({ decision: "deny", reason: "スコープ外", matched_call_name: null, violations: ["out_of_scope"], lock_user: false }),
     });
     const result = await guardSubsidiaryForumSpawn(deps, INPUT);
-    expect(result.ok).toBe(false);
-    expect(result.replyText).toContain("受け付けられません");
-    expect(recorded[0]).toMatchObject({ decision: "deny" });
+    expect(result.ok).toBe(true);
+    expect(result.advisoryText).toContain("ガード所見");
+    expect(result.advisoryText).not.toContain("スコープ外");
+    expect(result.advisoryText).toContain("監査記録");
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({ decision: "allow", violations: ["out_of_scope"] });
+    expect((recorded[0] as { reason: string }).reason).toContain("advisory");
   });
 
-  it("locks the user on injection and short-circuits locked users", async () => {
+  it("does not lock on an injection verdict but still short-circuits locked users", async () => {
+    // 権限者を誤検知で凍結すると受付チャンネルまで巻き添えになるため、advisory 経路では
+    // ロックしない。既にロック済みのユーザは従来どおりガードを呼ばずに止める。
     const { deps, locks } = makeDeps({
       guardJson: JSON.stringify({ decision: "deny", reason: "インジェクション", matched_call_name: null, violations: ["injection"], lock_user: true }),
     });
-    const denied = await guardSubsidiaryForumSpawn(deps, INPUT);
-    expect(denied.ok).toBe(false);
-    expect(locks).toHaveLength(1);
+    const advisory = await guardSubsidiaryForumSpawn(deps, INPUT);
+    expect(advisory.ok).toBe(true);
+    expect(advisory.advisoryText).toContain("ガード所見");
+    expect(advisory.advisoryText).not.toContain("インジェクション");
+    expect(locks).toHaveLength(0);
 
     const lockedDeps = makeDeps({ locked: true });
     const locked = await guardSubsidiaryForumSpawn(lockedDeps.deps, INPUT);
@@ -83,8 +93,11 @@ describe("guardSubsidiaryForumSpawn", () => {
   });
 
   it("fails closed when the guard output is not parseable", async () => {
-    const { deps } = makeDeps({ guardJson: "not-json" });
+    const { deps, recorded } = makeDeps({ guardJson: "not-json" });
     const result = await guardSubsidiaryForumSpawn(deps, INPUT);
     expect(result.ok).toBe(false);
+    expect(result.replyText).toContain("fail-closed");
+    expect(result.advisoryText).toBeUndefined();
+    expect(recorded[0]).toMatchObject({ decision: "deny", violations: ["guard_error"] });
   });
 });

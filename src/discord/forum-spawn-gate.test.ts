@@ -89,6 +89,30 @@ describe("forum spawn approval + guard wiring", () => {
     expect(deps.selectTemplate).not.toHaveBeenCalled();
   });
 
+  it("posts the advisory note to the thread and still spawns", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, run: { id: "run-adv", status: "spawned" }, spawn_pid: 1 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const deps = makeDeps({
+        guardInstruction: vi.fn(async () => ({
+          ok: true,
+          replyText: "",
+          advisoryText: "⚠️ ガード所見 (advisory): スコープ外の懸念",
+        })),
+      });
+      const result = await executeForumSpawn(deps, makeThread());
+      expect(result).toEqual({ ok: true });
+      expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("ガード所見"));
+      expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("Cc がセッションを起動しました"));
+      expect(fetchMock).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("proceeds to spawn when the guard allows", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

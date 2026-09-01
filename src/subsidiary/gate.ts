@@ -66,7 +66,14 @@ function fmtTokens(n: number): string {
 /** 評価フェーズ (ロック/予算/ガード/deny 記録) の結果。 allow 時は verdict を持ち帰る。 */
 export type GateEvaluation =
   | { ok: false; result: GateResult }
-  | { ok: true; verdict: GuardVerdict; raw: string; effectiveCall: string | null };
+  | {
+    ok: true;
+    verdict: GuardVerdict;
+    raw: string;
+    effectiveCall: string | null;
+    /** advisoryGuard 時のみ: 有効なガード出力は deny 所見だったが advisory として通した。 */
+    guardDenied?: boolean;
+  };
 
 /**
  * ロック → 予算 → Sonnet ガード → (deny なら記録 + ロック) までの評価フェーズ。
@@ -76,11 +83,17 @@ export type GateEvaluation =
  * `requireOwnedCall`: 受付経路は allow 時に「所有 delegation のどれか」が選ばれている
  * ことを要求する (二重防御)。 forum spawn は起動テンプレを Cc 側の selector が選ぶため、
  * ガードには decision だけを求める。
+ *
+ * `advisoryGuard`: Sonnet ガードの有効な deny を停止でなく所見 (advisory) として扱う。
+ * セッション起動の判断は権限を持つ人間が行う (2026-09-02 neco 指示) — forum spawn は
+ * session_spawn 権限 (管理職以上) か管理職承認を通過した後にここへ来るため、
+ * ガード所見で人間の判断を上書きしない。ガード実行・解釈失敗は所見ではないため、
+ * ロック済みユーザと予算超過と同様に fail-closed で停止する。
  */
 export async function evaluateSubsidiaryRequest(
   deps: SubsidiaryGateDeps,
   input: GateInput,
-  opts: { requireOwnedCall: boolean },
+  opts: { requireOwnedCall: boolean; advisoryGuard?: boolean },
 ): Promise<GateEvaluation> {
   const { subsidiary: sub, platform, userId, userLabel, instruction } = input;
   const log = deps.log;
@@ -161,6 +174,18 @@ export async function evaluateSubsidiaryRequest(
 
   // 3) deny 経路: 記録 + 必要ならロック。
   if (verdict.decision === "deny") {
+    const guardFailed = verdict.violations.includes("guard_error");
+    if (opts.advisoryGuard && !guardFailed) {
+      // 起動判断は権限を持つ人間に委ねる: deny 所見は advisory として通す。監査行は
+      // 呼び出し側が「所見つき allow」として 1 行で残す (二重記録を避ける)。
+      // ロックもしない — 権限者を誤検知で凍結すると受付チャンネルまで巻き添えになる。
+      // violations はモデル出力なので、内容をログへ埋め込まず件数だけを記録する。
+      log?.info(
+        `subsidiary gate: guard deny treated as advisory user=${userId} sub=${sub.name} `
+        + `violation_count=${verdict.violations.length}`,
+      );
+      return { ok: true, verdict, raw, effectiveCall: null, guardDenied: true };
+    }
     const shouldLock = verdict.lock_user || verdict.violations.includes("injection");
     if (shouldLock) {
       deps.subsidiaryRepo.lock({
@@ -175,11 +200,16 @@ export async function evaluateSubsidiaryRequest(
     });
     log?.info(`subsidiary gate: deny user=${userId} sub=${sub.name} lock=${shouldLock} violations=${verdict.violations.join(",")}`);
     const lockNote = shouldLock ? "\n🔒 このリクエストにより、 あなたをロックしました。" : "";
+    // 実行例外の message や不正なモデル出力は内部パス・設定を含み得る。
+    // 詳細は監査記録に残し、外部チャネルには固定文だけを返す。
+    const replyReason = guardFailed
+      ? "ガードを正常に完了できませんでした (fail-closed)"
+      : verdict.reason || "ハーネスルール違反";
     return {
       ok: false,
       result: {
         outcome: "denied", reason: verdict.reason, verdict,
-        replyText: `⛔ 受け付けられません: ${verdict.reason || "ハーネスルール違反"}${lockNote}`,
+        replyText: `⛔ 受け付けられません: ${replyReason}${lockNote}`,
       },
     };
   }
@@ -309,26 +339,53 @@ export async function processSubsidiaryRequest(deps: SubsidiaryGateDeps, input: 
   };
 }
 
+/** forum spawn ガードの結果。 advisoryText はスレッドに注記して起動を続けるための所見文。 */
+export interface ForumSpawnGuardResult {
+  ok: boolean;
+  replyText: string;
+  advisoryText?: string;
+}
+
 /**
- * 子会社 forum spawn 用のガード入口。 評価フェーズ (ロック/予算/ガード/deny 記録) を通し、
+ * 子会社 forum spawn 用のガード入口。 評価フェーズ (ロック/予算/ガード) を通し、
  * allow は監査記録だけ残して spawn は呼び出し側 (forum-spawn.ts の template selector +
  * /v1/delegation/invoke) に委ねる。 spec/feature/subsidiary-delegation.md §3.1。
+ *
+ * Sonnet ガードの有効な deny は advisory (2026-09-02 neco 指示): 起動判断は権限を持つ人間の
+ * ものなので、所見をスレッド注記 + 監査記録に残して起動は継続する。停止するのは
+ * ロック済みユーザ、予算超過、ガード実行・解釈失敗。
  */
 export async function guardSubsidiaryForumSpawn(
   deps: SubsidiaryGateDeps,
   input: GateInput,
-): Promise<{ ok: boolean; replyText: string }> {
-  const evaluation = await evaluateSubsidiaryRequest(deps, input, { requireOwnedCall: false });
+): Promise<ForumSpawnGuardResult> {
+  const evaluation = await evaluateSubsidiaryRequest(deps, input, { requireOwnedCall: false, advisoryGuard: true });
   if (!evaluation.ok) return { ok: false, replyText: evaluation.result.replyText };
   const { subsidiary: sub, platform, userId, userLabel, instruction } = input;
+  const guardDenied = evaluation.guardDenied === true;
   deps.subsidiaryRepo.recordRequest({
     subsidiary_id: sub.id, platform, platform_user_id: userId, user_label: userLabel,
+    // 実際に起動へ進むので decision は allow に固定する (deny = ブロックされた、の
+    // 監査上の不変条件を守る)。ガードの deny 所見は reason と violations に残す。
     instruction, decision: "allow",
-    reason: `${evaluation.verdict.reason} (forum spawn)`,
+    reason: guardDenied
+      ? `ガード所見 deny を advisory として通過: ${evaluation.verdict.reason} (forum spawn)`
+      : `${evaluation.verdict.reason} (forum spawn)`,
     violations: evaluation.verdict.violations,
     matched_call_name: null,
     guard_model: sub.guard_model, guard_raw: evaluation.raw,
   });
-  deps.log?.info(`subsidiary gate: forum spawn allow user=${userId} sub=${sub.name}`);
-  return { ok: true, replyText: "" };
+  deps.log?.info(
+    `subsidiary gate: forum spawn allow user=${userId} sub=${sub.name}${guardDenied ? " (guard advisory)" : ""}`,
+  );
+  if (!guardDenied) return { ok: true, replyText: "" };
+  return {
+    ok: true,
+    replyText: "",
+    // reason はガードへ渡した内部スコープ・delegation metadata を含み得るため、
+    // 外部 guild へは転記しない。詳細は access-controlled な監査記録にだけ残す。
+    advisoryText:
+      "⚠️ ガード所見 (advisory): ハーネスルール上の懸念を検出しました。\n"
+      + "詳細は監査記録に保存しました。起動判断は権限者に委ねられているため、セッション起動は継続します。",
+  };
 }

@@ -281,6 +281,7 @@ describe("executeForumSpawn model override", () => {
       resolveProjectTarget: () => ({ project: "September", code: "Sep", cwd: "E:/Document/Ars/September" }),
       hasExistingRun: () => false,
       postToThread: vi.fn(async () => undefined),
+      renameThread: vi.fn(async () => undefined),
       log: { info: vi.fn(), warn: vi.fn() },
       ...patch,
     };
@@ -313,6 +314,8 @@ describe("executeForumSpawn model override", () => {
         "thread-1",
         expect.stringContaining("🦸 Cc がセッションを起動しました"),
       );
+      // モデル確定でスレッド名にモデル絵文字を前置する (2026-09-02 neco 指示)。
+      expect(deps.renameThread).toHaveBeenCalledWith("thread-1", "🦸 レビュー");
     } finally {
       vi.unstubAllGlobals();
     }

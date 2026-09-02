@@ -243,6 +243,8 @@ export interface DiscordBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /** アクション別ポリシー (子会社可否/要求権限) を live 解決する。 */
+  resolveReactionActionPolicies?: () => import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies;
   /**
    * 社員名簿 (staff_members) の役職に基づく権限判定。 未注入は deny 側 (fail-closed)。
    * spec/feature/staff-roster.md §3 (capability → 最低役職 / ゲート位置)。
@@ -480,6 +482,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
+    // 本社限定アクション (Memoria 記録系の既定 + 設定 GUI) を子会社 runtime で遮断する。
+    subsidiary: Boolean(deps.subsidiary),
+    resolveActionPolicies: deps.resolveReactionActionPolicies,
     // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log,
@@ -1340,6 +1345,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       resolveProjectTarget: projectResolver.targetFromPost,
       // 素の spawn-session 経路 (2026-09-02〜) は delegation run を作らないため、
       // スレッドに紐付いた session channel の有無でも重複起動を判定する。
+      renameThread: async (threadId, name) => {
+        const ch = await client.channels.fetch(threadId);
+        if (!ch?.isThread()) throw new Error("thread unavailable");
+        await ch.setName(name);
+      },
       hasExistingRun: (triggeredBy) => {
         if (delegationRepo.findRunByTriggeredBy(triggeredBy) !== null) return true;
         const parsed = parseForumSpawnTrigger(triggeredBy);

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { WORKFLOW_ACTIONS } from "./reaction-workflow.js";
-import { workflowActionCapability, workflowDenialMessage } from "./reaction-workflow-capability.js";
+import {
+  workflowActionCapability,
+  workflowActionDefaults,
+  workflowActionSubsidiaryAllowed,
+  workflowDenialMessage,
+  workflowSubsidiaryDenialMessage,
+} from "./reaction-workflow-capability.js";
 import {
   CAPABILITY_MIN_ROLE,
   STAFF_CAPABILITIES,
@@ -73,5 +79,34 @@ describe("reaction workflow capabilities", () => {
     expect(CAPABILITY_MIN_ROLE.session_spawn).toBe(CAPABILITY_MIN_ROLE.merge_pr);
     expect(capabilityAllowed("staff", "merge_pr")).toBe(false);
     expect(capabilityAllowed("manager", "merge_pr")).toBe(true);
+  });
+});
+
+describe("reaction workflow action policies (2026-09-02 neco 指示)", () => {
+  it("既定では Memoria 記録系だけ本社限定になる", () => {
+    expect(workflowActionSubsidiaryAllowed("memoria-note")).toBe(false);
+    expect(workflowActionSubsidiaryAllowed("memoria-task")).toBe(false);
+    expect(workflowActionSubsidiaryAllowed("memoria-remaining")).toBe(false);
+    expect(workflowActionSubsidiaryAllowed("context")).toBe(true);
+    expect(workflowActionSubsidiaryAllowed("merge-pr")).toBe(true);
+  });
+
+  it("ポリシーで子会社可否と要求権限を上書きできる", () => {
+    expect(workflowActionSubsidiaryAllowed("memoria-note", { "memoria-note": { subsidiary: true } })).toBe(true);
+    expect(workflowActionSubsidiaryAllowed("context", { context: { subsidiary: false } })).toBe(false);
+    expect(workflowActionCapability("merge-pr", { "merge-pr": { capability: "none" } })).toBeNull();
+    expect(workflowActionCapability("context", { context: { capability: "session_spawn" } })).toBe("session_spawn");
+    // 上書きが無い action は既定のまま。
+    expect(workflowActionCapability("merge-pr", {})).toBe("merge_pr");
+  });
+
+  it("設定 GUI 向けの既定値ビューを返す", () => {
+    expect(workflowActionDefaults("memoria-note")).toEqual({ subsidiary: false, capability: null });
+    expect(workflowActionDefaults("merge-pr")).toEqual({ subsidiary: true, capability: "merge_pr" });
+  });
+
+  it("本社限定の拒否文言はアクションを名指しする", () => {
+    expect(workflowSubsidiaryDenialMessage("memoria-note")).toContain("memoria-note");
+    expect(workflowSubsidiaryDenialMessage("memoria-note")).toContain("本社");
   });
 });

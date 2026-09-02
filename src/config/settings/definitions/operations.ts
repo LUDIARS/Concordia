@@ -76,6 +76,18 @@ export const WORKFLOW_SETTINGS: readonly SettingDefinition[] = [
     editable: true,
   },
   {
+    key: "workflow.reaction_action_policies",
+    section: "workflow",
+    label: "アクション別ポリシー (子会社可否/要求権限)",
+    description: "リアクションアクションごとの子会社での可否と要求権限の上書き。 編集は専用 UI で行う。",
+    kind: "json",
+    envName: null,
+    dbKey: "admin.reaction_action_policies",
+    defaultValue: {},
+    editable: false,
+    managedBy: "設定 > リアクションワークフロー",
+  },
+  {
     key: "workflow.reaction_emoji_overrides",
     section: "workflow",
     label: "絵文字 → アクション対応",

@@ -62,7 +62,11 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
   // 有効化そのものは /v1/admin/workflows から行えるため、再有効化の経路は残る。
   {
     const gate = workflowGate("reaction", () => deps.adminState.isWorkflowEnabled("reaction"));
-    for (const prefix of ["/v1/admin/reaction-workflow", "/v1/admin/reaction-mappings"]) {
+    for (const prefix of [
+      "/v1/admin/reaction-workflow",
+      "/v1/admin/reaction-mappings",
+      "/v1/admin/reaction-action-policies",
+    ]) {
       app.use(prefix, gate);
       app.use(`${prefix}/*`, gate);
     }
@@ -165,6 +169,49 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
   app.delete("/v1/admin/reaction-mappings/:emoji", (c) => {
     deps.adminState.deleteReactionEmojiOverride(decodeURIComponent(c.req.param("emoji")));
     return c.json({ overrides: deps.adminState.getReactionEmojiOverrides() });
+  });
+
+  // アクション別ポリシー (子会社可否 / 要求権限)。 2026-09-02 neco 指示。
+  app.get("/v1/admin/reaction-action-policies", (c) => {
+    const rwf = getRwf();
+    const overrides = deps.adminState.getReactionActionPolicies();
+    return c.json({
+      actions: rwf.WORKFLOW_ACTIONS.map((action) => ({
+        action,
+        help: rwf.WORKFLOW_ACTION_HELP[action] ?? null,
+        defaults: rwf.workflowActionDefaults(action),
+        override: overrides[action] ?? null,
+      })),
+      capabilities: rwf.WORKFLOW_ACTION_POLICY_CAPABILITIES,
+    });
+  });
+  app.put("/v1/admin/reaction-action-policies", async (c) => {
+    const body = await c.req.json().catch(() => null) as {
+      action?: unknown; subsidiary?: unknown; capability?: unknown;
+    } | null;
+    const rwf = getRwf();
+    const action = typeof body?.action === "string" ? body.action : "";
+    if (!rwf.isWorkflowAction(action)) {
+      return c.json({ error: `body.action must be one of ${rwf.WORKFLOW_ACTIONS.join(", ")}` }, 400);
+    }
+    const patch: { subsidiary?: boolean | null; capability?: string | null } = {};
+    if (body?.subsidiary !== undefined) {
+      if (body.subsidiary !== null && typeof body.subsidiary !== "boolean") {
+        return c.json({ error: "body.subsidiary must be boolean or null" }, 400);
+      }
+      patch.subsidiary = body.subsidiary as boolean | null;
+    }
+    if (body?.capability !== undefined) {
+      const valid = body.capability === null || body.capability === "none"
+        || (typeof body.capability === "string"
+          && (rwf.WORKFLOW_ACTION_POLICY_CAPABILITIES as readonly string[]).includes(body.capability));
+      if (!valid) {
+        return c.json({ error: "body.capability must be none/session_spawn/merge_pr/kill_switch/session_end or null" }, 400);
+      }
+      patch.capability = body.capability as string | null;
+    }
+    deps.adminState.setReactionActionPolicy(action, patch);
+    return c.json({ overrides: deps.adminState.getReactionActionPolicies() });
   });
 
   app.post("/v1/admin/discord/start", async (c) => {

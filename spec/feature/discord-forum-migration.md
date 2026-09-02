@@ -75,11 +75,14 @@ merge / close / head 更新を次の再起動まで残さない。重複イベ�
      `src/discord/forum-spawn.ts` / `src/discord/forum-spawn-intake.ts`。
   3. プロジェクトコード (タイトル先頭 `[Xx]` / 本文から検出) → cwd 上書き
   4. `/v1/admin/spawn-session` の provider + model 直接指定で素のセッションを spawn
-  5. **[2026-07-23 neco が旧方針を上書き] starter (ユーザーの元投稿) は編集しない**。
+  5. 起動モデルが確定したら、そのモデルの delegation template に設定された絵文字を
+     スレッド名の先頭へ付ける。rename は best-effort とし、権限不足や rate limit で失敗しても
+     セッション起動と応答は継続する。
+  6. **[2026-07-23 neco が旧方針を上書き] starter (ユーザーの元投稿) は編集しない**。
      親 Forum の webhook から同じ thread へセッション情報カードを別投稿し、その
      webhook message ID/token を保存する。タイトルと本文はこれまで通り
      extra_prompt として inject 済み
-  6. 作成されたセッションをこのスレッドに紐付け (新規スレッドは作らない)
+  7. 作成されたセッションをこのスレッドに紐付け (新規スレッドは作らない)
 - **[決定 4a] 既存の `/spawn` コマンド・spawn テンプレ UI は恒久併存**。
   設定を細かくしたいケース (branch / worktree / options 指定等) のコマンド導線
   として残す。 reply-spawn (返信からの spawn 判定) はスレッド内返信 = 補足 inject

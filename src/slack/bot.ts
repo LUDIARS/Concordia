@@ -112,6 +112,8 @@ export interface SlackBotDeps {
   resolveReactionWorkflowEnabled?: () => boolean;
   /** ユーザ設定の 絵文字→アクション 上書き写像を live 解決する。 */
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
+  /** アクション別ポリシー (子会社可否/要求権限) の live 解決。 Slack は常に本社扱い。 */
+  resolveReactionActionPolicies?: () => import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies;
   /**
    * リアクションワークフローの発火可否。 発火自体は誰でも可 (`reaction_workflow` =
    * ヒラ社員) なので実質は素通しゲート。 実行可否は下の `hasStaffCapability` が決める。
@@ -192,6 +194,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
+    // Slack は本社のみ (子会社 Bot は未配線) だが、権限上書きポリシーは共有する。
+    resolveActionPolicies: deps.resolveReactionActionPolicies,
     // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },

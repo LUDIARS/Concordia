@@ -31,8 +31,71 @@ const ACTION_CAPABILITY: Partial<Record<WorkflowAction, StaffCapability>> = {
   "add-as-workflow": "session_spawn",
 };
 
-export function workflowActionCapability(action: WorkflowAction): StaffCapability | null {
+/**
+ * アクション別の運用ポリシー (設定 GUI で上書き可、2026-09-02 neco 指示)。
+ *  - `subsidiary`: 子会社 Bot でも動かすか。 未指定は既定 (Memoria 系のみ本社限定 —
+ *    子会社からは Memoria が見えないためメモしても読めない)。
+ *  - `capability`: 要求権限の上書き。 "none" = 権限不要へ倒す。 未指定は既定
+ *    (ACTION_CAPABILITY)。
+ */
+export interface WorkflowActionPolicy {
+  subsidiary?: boolean;
+  capability?: StaffCapability | "none";
+}
+
+export type WorkflowActionPolicies = Partial<Record<WorkflowAction, WorkflowActionPolicy>>;
+
+/** 管理 UI からアクションへ割り当てられる追加権限。 */
+export const WORKFLOW_ACTION_POLICY_CAPABILITIES = [
+  "session_spawn",
+  "merge_pr",
+  "kill_switch",
+  "session_end",
+] as const satisfies readonly StaffCapability[];
+
+/**
+ * 既定で本社限定にするアクション。 Memoria への記録は子会社メンバーから閲覧できず、
+ * 「メモしたのに見えない」体験になるため (2026-09-02 neco 指摘)。
+ */
+export const DEFAULT_HQ_ONLY_ACTIONS: readonly WorkflowAction[] = [
+  "memoria-note",
+  "memoria-task",
+  "memoria-remaining",
+];
+
+/** このアクションを子会社 Bot でも動かしてよいか (ポリシー上書き > 既定)。 */
+export function workflowActionSubsidiaryAllowed(
+  action: WorkflowAction,
+  policies: WorkflowActionPolicies = {},
+): boolean {
+  const override = policies[action]?.subsidiary;
+  if (override !== undefined) return override;
+  return !DEFAULT_HQ_ONLY_ACTIONS.includes(action);
+}
+
+export function workflowActionCapability(
+  action: WorkflowAction,
+  policies: WorkflowActionPolicies = {},
+): StaffCapability | null {
+  const override = policies[action]?.capability;
+  if (override !== undefined) return override === "none" ? null : override;
   return ACTION_CAPABILITY[action] ?? null;
+}
+
+/** 本社限定アクションを子会社で押されたときの文言。 黙って無視しない。 */
+export function workflowSubsidiaryDenialMessage(action: WorkflowAction): string {
+  return `この操作 (${action}) は本社でのみ有効です (子会社では実行しません)。`;
+}
+
+/** 設定 GUI が既定値を表示するための対応表 (読み取り専用ビュー)。 */
+export function workflowActionDefaults(action: WorkflowAction): {
+  subsidiary: boolean;
+  capability: StaffCapability | null;
+} {
+  return {
+    subsidiary: !DEFAULT_HQ_ONLY_ACTIONS.includes(action),
+    capability: ACTION_CAPABILITY[action] ?? null,
+  };
 }
 
 /**

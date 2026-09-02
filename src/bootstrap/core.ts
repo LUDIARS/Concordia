@@ -1105,6 +1105,8 @@ export async function startBackend(): Promise<BackendHandle> {
     resolveReactionWorkflowEnabled: () => adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    resolveReactionActionPolicies: () =>
+      adminState.getReactionActionPolicies() as import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     // 権限は社員名簿 (staff_members) の役職で決める。 判定は毎回 live 参照 = WebUI で
     // 役職を変えたら再起動なしで効く。 未登録は ヒラ社員 相当 (会話 + リアクション発火)。
     isReactionWorkflowUserAllowed: (userId) =>
@@ -1166,6 +1168,8 @@ export async function startBackend(): Promise<BackendHandle> {
       isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     // ユーザ設定の 絵文字→アクション 上書き (設定 GUI) を live 反映。
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    resolveReactionActionPolicies: () =>
+      adminState.getReactionActionPolicies() as import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     // Discord と同じく社員名簿の役職で判定する (platform=slack の行を引く)。
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),

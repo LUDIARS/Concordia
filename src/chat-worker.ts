@@ -297,6 +297,8 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () =>
       adminState.isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    resolveReactionActionPolicies: () =>
+      adminState.getReactionActionPolicies() as import("./platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
     // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
@@ -336,6 +338,8 @@ async function main(): Promise<void> {
     resolveReactionWorkflowEnabled: () =>
       adminState.isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),
     resolveReactionMappings: () => adminState.getReactionEmojiOverrides() as Record<string, WorkflowAction>,
+    resolveReactionActionPolicies: () =>
+      adminState.getReactionActionPolicies() as import("./platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     isReactionWorkflowUserAllowed: (userId) =>
       capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
     // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。

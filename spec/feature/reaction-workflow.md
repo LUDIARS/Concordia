@@ -16,7 +16,7 @@ tags:
 status: implemented
 related:
   - ../setup/config-reference.md
-updated: 2026-08-31
+updated: 2026-09-02
 ---
 
 
@@ -180,6 +180,11 @@ dedup + fire-and-forget で記録経路を壊さない。
   `GET /v1/admin/reaction-mappings` (defaults + overrides + actions)、 `PUT` (emoji/action upsert)、
   `DELETE /v1/admin/reaction-mappings/:emoji` (上書き解除)。 上書きは `classifyReactionWorkflow` で
   既定より優先される。
+- アクション別ポリシーは `GET/PUT /v1/admin/reaction-action-policies` と設定ページから変更でき、
+  `admin.reaction_action_policies` に永続化する。`subsidiary` は子会社 Bot での実行可否、
+  `capability` は追加要求権限 (`none` は不要) の上書きで、runner が発火ごとに live 評価する。
+  既定では `memoria-note` / `memoria-task` / `memoria-remaining` のみ本社限定とし、子会社での
+  拒否は理由を本人へ返す。権限判定関数が未注入のときは、上書き後も従来どおり fail-closed とする。
 
 `workspaceRoots` (Memoria 解決の基点、 複数可) と `github_org` は設定 GUI (設定ページ / `/v1/admin/*`)
 からも編集できる。 AdminState (`schema_meta` 永続化) が source of truth で、 未設定なら config
@@ -206,7 +211,8 @@ session 面に属さないリアクション、写像外の絵文字は無処理
 - `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック。
 - `src/staff/roles.ts` / `src/db/staff-repo.ts` — 役職 → 権限の固定表と社員名簿 (認可の正本)。
 - `src/shared/reaction-workflow-readiness.ts` — ID を露出しない稼働可視性 (発火権限保持者の人数)。
-- `src/admin/state.ts` / `src/api/register-chat.ts` — 安全弁 ON/OFF の永続化、更新 API、readiness 応答。
+- `src/admin/workflow-settings.ts` / `src/admin/state.ts` / `src/api/register-chat.ts` — 安全弁と
+  アクション別ポリシーの永続化、更新 API、readiness 応答。
 - `src/rules/claude-runner.ts` — `runClaude(prompt, opts)` に model/cwd/権限/timeout を追加。
 - `src/discord/reactions.ts` / `src/discord/bot.ts` — Discord 側 ingress（記録後に `workflow.handle()`）。
 - `src/discord/ingress.ts` / `src/slack/bot.ts` — session 面の単発絵文字メッセージ → `workflow.handle()`。

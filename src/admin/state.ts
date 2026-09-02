@@ -58,6 +58,13 @@ export class AdminState {
   getCcWorkflowEnabled(): boolean { return this.workflow.getCcEnabled(); }
   setCcWorkflowEnabled(value: boolean): void { this.workflow.setCcEnabled(value); }
   getReactionEmojiOverrides(): Record<string, string> { return this.workflow.getEmojiOverrides(); }
+  getReactionActionPolicies(): Record<string, { subsidiary?: boolean; capability?: string }> {
+    return this.workflow.getActionPolicies();
+  }
+  setReactionActionPolicy(
+    action: string,
+    patch: { subsidiary?: boolean | null; capability?: string | null },
+  ): void { this.workflow.setActionPolicy(action, patch); }
   setReactionEmojiOverride(emoji: string, action: string): void { this.workflow.setEmojiOverride(emoji, action); }
   deleteReactionEmojiOverride(emoji: string): void { this.workflow.deleteEmojiOverride(emoji); }
   getLictorMode(): LictorMode { return this.runtime.getLictorMode(); }

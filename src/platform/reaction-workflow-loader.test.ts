@@ -32,6 +32,14 @@ describe("reaction-workflow-loader", () => {
     expect(_isValidRwfModule(stale)).toBe(false);
   });
 
+  it("rejects an external engine that predates action policies", () => {
+    const stale: Partial<ReturnType<typeof getRwf>> = { ...getRwf() };
+    delete stale.workflowActionDefaults;
+    delete stale.WORKFLOW_ACTION_POLICY_CAPABILITIES;
+
+    expect(_isValidRwfModule(stale)).toBe(false);
+  });
+
   it("rejects an external engine that assigns the reserved OK-hand emoji", () => {
     const rwf = getRwf();
     const unsafe = {

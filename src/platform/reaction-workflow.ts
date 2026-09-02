@@ -35,7 +35,19 @@
 import { join } from "node:path";
 import type { StaffCapability } from "../staff/roles.js";
 import type { WorkflowAction } from "./reaction-workflow-action.js";
-import { workflowActionCapability, workflowDenialMessage } from "./reaction-workflow-capability.js";
+import {
+  workflowActionCapability,
+  workflowActionSubsidiaryAllowed,
+  workflowDenialMessage,
+  workflowSubsidiaryDenialMessage,
+  type WorkflowActionPolicies,
+} from "./reaction-workflow-capability.js";
+// 設定 GUI / API がアクション別ポリシーの既定値を参照できるよう、rwf module として再輸出する。
+export {
+  WORKFLOW_ACTION_POLICY_CAPABILITIES,
+  workflowActionDefaults,
+  type WorkflowActionPolicies,
+} from "./reaction-workflow-capability.js";
 import {
   describeMergeFallback,
   describePrListOutcome,
@@ -890,6 +902,13 @@ export interface ReactionWorkflowDeps {
    */
   hasCapability?: (userId: string, capability: StaffCapability) => boolean;
   /**
+   * この runtime が子会社 Bot か (本社 = false/未指定)。 本社限定アクション
+   * (Memoria 記録系の既定 + 設定 GUI の上書き) を子会社で遮断するのに使う。
+   */
+  subsidiary?: boolean;
+  /** アクション別ポリシー (設定 GUI) の live 解決。 未注入は既定のみで判定する。 */
+  resolveActionPolicies?: () => WorkflowActionPolicies;
+  /**
    * 複数ワークスペースルート (走査対象の全ルート)。 Memoria はこのうち実在する
    * `<root>/Memoria` を採用する。 未指定なら [workspaceRoot] 相当。
    */
@@ -1058,10 +1077,26 @@ export class ReactionWorkflowRunner {
       return;
     }
 
+    const policies = this.deps.resolveActionPolicies?.() ?? {};
+    // 本社限定アクションは子会社 runtime では実行しない (2026-09-02 neco 指示)。
+    // 例: Memoria への記録は子会社メンバーから読めないため、押しても意味が無い。
+    if (this.deps.subsidiary && !workflowActionSubsidiaryAllowed(action, policies)) {
+      this.deps.log.info(`reaction-workflow: denied (hq-only) action=${action} user=${input.userId}`);
+      const denyKey = `deny-hq|${input.dedupeKey}|${input.emoji}|${input.userId}`;
+      const denyNow = this.nowSec();
+      const lastDenied = this.lastFired.get(denyKey);
+      if (lastDenied === undefined || denyNow - lastDenied >= DEDUPE_SEC) {
+        this.lastFired.set(denyKey, denyNow);
+        const message = workflowSubsidiaryDenialMessage(action);
+        if (onResult) try { onResult(action, { ok: false, text: message }); } catch { /* best-effort */ }
+      }
+      return;
+    }
+
     // リアクションは誰でも押せるが、 指示の内容が実行できるとは限らない。 セッション起動や
     // マージを要求するアクションはここで役職を問う (neco 2026-08-01)。 dedup より先に見るのは、
     // 拒否された発火で cooldown を消費させないため — 権限が付いた直後に押し直せる。
-    const requiredCapability = workflowActionCapability(action);
+    const requiredCapability = workflowActionCapability(action, policies);
     if (requiredCapability) {
       const allowed = this.deps.hasCapability?.(input.userId, requiredCapability) === true;
       if (!allowed) {

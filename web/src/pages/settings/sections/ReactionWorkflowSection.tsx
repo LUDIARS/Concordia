@@ -239,7 +239,126 @@ export function ReactionWorkflowSection() {
         </ul>
       </div>
 
+      <ActionPolicyTable actionHelp={maps?.action_help} />
+
       {error && <div className="text-danger text-xs">{error}</div>}
     </section>
+  );
+}
+
+// ─── アクション別ポリシー (子会社可否 / 要求権限) — 2026-09-02 neco 指示 ──────
+
+interface ActionPolicyRow {
+  action: string;
+  help: ActionHelp | null;
+  defaults: { subsidiary: boolean; capability: string | null };
+  override: { subsidiary?: boolean; capability?: string } | null;
+}
+
+const CAPABILITY_JA: Record<string, string> = {
+  none: "不要",
+  session_spawn: "セッション起動 (管理職)",
+  merge_pr: "マージ (管理職)",
+  kill_switch: "キルスイッチ (役員)",
+  session_end: "セッション終了 (管理職)",
+};
+
+function ActionPolicyTable({ actionHelp }: { actionHelp?: Record<string, ActionHelp> }) {
+  const [rows, setRows] = useState<ActionPolicyRow[] | null>(null);
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => { void refresh(); }, []);
+
+  async function refresh() {
+    try {
+      const r = await fetch("/v1/admin/reaction-action-policies").then((res) => res.json()) as {
+        actions: ActionPolicyRow[]; capabilities: string[];
+      };
+      setRows(r.actions);
+      setCapabilities(r.capabilities);
+      setError(null);
+    } catch (err) { setError((err as Error).message); }
+  }
+
+  async function update(action: string, patch: { subsidiary?: boolean | null; capability?: string | null }) {
+    setBusy(action); setError(null);
+    try {
+      await putJson("/v1/admin/reaction-action-policies", { action, ...patch });
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(null); }
+  }
+
+  return (
+    <div className="bg-muted/40 border border-border rounded p-3 space-y-3">
+      <div>
+        <div className="text-sm font-medium">アクション別ポリシー (本社/子会社・要求権限)</div>
+        <div className="text-xs text-subtle mt-0.5">
+          子会社 Bot で動かすか (既定: Memoria 記録系のみ本社限定 — 子会社からは Memoria を
+          見られないため) と、発火に必要な権限をアクションごとに上書きできます。
+        </div>
+      </div>
+      <table className="w-full text-left border-collapse">
+        <thead>
+          <tr className="text-[11px] text-subtle border-b border-border">
+            <th className="py-1 pr-2 font-medium">アクション</th>
+            <th className="py-1 pr-2 font-medium">子会社</th>
+            <th className="py-1 font-medium">要求権限</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows?.map((row) => {
+            const subsidiaryValue = row.override?.subsidiary === undefined
+              ? "" : row.override.subsidiary ? "on" : "off";
+            const capabilityValue = row.override?.capability ?? "";
+            const help = actionHelp?.[row.action] ?? row.help ?? undefined;
+            return (
+              <tr key={row.action} className="border-b border-border/50">
+                <td className="py-1 pr-2">
+                  <span className="font-mono text-xs text-accent" title={help?.summary}>{row.action}</span>
+                  {help?.label && <span className="text-xs text-subtle ml-1">{help.label}</span>}
+                </td>
+                <td className="py-1 pr-2">
+                  <select
+                    value={subsidiaryValue}
+                    disabled={busy === row.action}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      void update(row.action, { subsidiary: v === "" ? null : v === "on" });
+                    }}
+                    className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs"
+                  >
+                    <option value="">既定 ({row.defaults.subsidiary ? "有効" : "本社のみ"})</option>
+                    <option value="on">有効</option>
+                    <option value="off">本社のみ</option>
+                  </select>
+                </td>
+                <td className="py-1">
+                  <select
+                    value={capabilityValue}
+                    disabled={busy === row.action}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      void update(row.action, { capability: v === "" ? null : v });
+                    }}
+                    className="bg-muted border border-border rounded px-1.5 py-0.5 text-xs"
+                  >
+                    <option value="">
+                      既定 ({row.defaults.capability ? CAPABILITY_JA[row.defaults.capability] ?? row.defaults.capability : "不要"})
+                    </option>
+                    <option value="none">不要</option>
+                    {capabilities.map((cap) => (
+                      <option key={cap} value={cap}>{CAPABILITY_JA[cap] ?? cap}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {error && <div className="text-danger text-xs">{error}</div>}
+    </div>
   );
 }

@@ -44,6 +44,8 @@ function isValidRwfModule(m: unknown): m is RwfModule {
     typeof (o as RwfModule).isStandaloneEmoji === "function" &&
     typeof (o as RwfModule).reactionAckText === "function" &&
     typeof (o as RwfModule).primaryEmojiForAction === "function" &&
+    typeof (o as RwfModule).workflowActionDefaults === "function" &&
+    Array.isArray((o as RwfModule).WORKFLOW_ACTION_POLICY_CAPABILITIES) &&
     Array.isArray((o as RwfModule).WORKFLOW_ACTIONS) &&
     (o as RwfModule).WORKFLOW_ACTIONS.includes("list-local-prs") &&
     (o as RwfModule).classifyReactionWorkflow("📋") === "list-local-prs" &&

@@ -239,6 +239,11 @@ export interface ForumSpawnDeps {
     missing: readonly ForumSpawnMissingField[];
   }) => Promise<boolean>;
   hasExistingRun: (triggeredBy: string) => boolean;
+  /**
+   * 起動モデル確定時にスレッド名へモデル絵文字を付けるための rename 口 (best-effort)。
+   * 未配線ならリネームしない。 2026-09-02 neco 指示。
+   */
+  renameThread?: (threadId: string, name: string) => Promise<void>;
   /** Cc の Forum 返信も必ず親 Forum webhook + thread_id で投稿する。 */
   postToThread: (threadId: string, content: string) => Promise<void>;
   /** Discord の ThreadCreate と starter message 作成競合を bounded retry するための差し替え口。 */
@@ -540,6 +545,16 @@ export async function executeForumSpawn(
     ?? modelEmojiFromTemplates(spawnModel, templates)
     ?? template?.emoji?.trim()
     ?? "";
+  if (spawnEmoji && deps.renameThread && !thread.name.startsWith(spawnEmoji)) {
+    // 起動モデルが決まったらスレッド名にモデル絵文字を前置する (2026-09-02 neco 指示)。
+    // リネーム失敗 (権限/レート制限) で起動フローは止めない。
+    const renamed = `${spawnEmoji} ${thread.name}`.slice(0, 100);
+    try {
+      await deps.renameThread(thread.id, renamed);
+    } catch (error) {
+      deps.log.warn(`forum-spawn thread rename failed thread=${thread.id}: ${(error as Error).message}`);
+    }
+  }
   await reply(
     deps,
     thread,

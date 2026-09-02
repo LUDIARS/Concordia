@@ -44,7 +44,13 @@ export interface DiscordCommandDeps {
   spawnApprovals?: SpawnApprovalStore;
   /** Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。 */
   forumSpawnApprovals?: import("./forum-spawn-approval.js").ForumSpawnApprovalStore;
+  /** 承認カード投稿者として許可する、この logical Bot 自身。 */
+  forumSpawnApprovalCardAuthorId?: string;
   /** 承認された forum スレッドで spawn を続行する (bot.ts が thread 再取得を配線)。 */
+  /** 再起動で pending が消えた承認カード押下から、内容指紋が一致する承認対象を復元する。 */
+  recoverForumSpawnApproval?: (threadId: string) => Promise<
+    { requesterUserId: string; approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent } | null
+  >;
   executeApprovedForumSpawn?: (
     threadId: string,
     approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent,

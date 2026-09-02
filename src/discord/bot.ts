@@ -97,6 +97,7 @@ import {
   requestForumSpawnApproval,
   type ForumSpawnApprovalStore,
 } from "./forum-spawn-approval.js";
+import { hasConcordiaManagedForumTag, type ForumTagState } from "./forum-system-tag.js";
 import {
   handleForumSpawnIntakeReply,
   requestForumSpawnIntake,
@@ -462,13 +463,20 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
   const reactionWorkflowEnabled = (): boolean =>
     isWorkflowEnabled("reaction") && resolveReactionSafetyValve();
+  const emitSessionInject = deps.emitSessionInject ?? ((sessionId: string, text: string, source: string) =>
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: sessionId,
+      text,
+      source,
+      ts: Math.floor(Date.now() / 1000),
+    }));
 
   // リアクションワークフロー: runner は常に構築し、 安全弁は handle() 内で live 評価。
   // → 設定 GUI トグルを bot 再起動なしで反映できる (OFF の間は handle が即 return)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: deps.runHeadless,
-    emitInject: deps.emitSessionInject ?? ((sessionId, text, source) =>
-      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) })),
+    emitInject: emitSessionInject,
     contextReport: async (sessionId) => {
       const session = deps.sessionsRepo.findSession(sessionId);
       if (!session) throw new Error("session_not_found");
@@ -1396,6 +1404,34 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     return executeForumSpawn(forumDeps, thread, approvedContent);
   };
+  /**
+   * Cc 再起動で in-memory の承認 pending が消えた承認カードの押下から、カード作成時と
+   * 内容指紋が一致するスレッドを復元する (2026-09-02 neco 報告: 承認ボタンが「失効」)。
+   * 対象は Session forum のスレッドのみ。Cc 管理タグ付き (起動済み等) は復元しない。
+   */
+  const recoverForumSpawnApproval = async (
+    threadId: string,
+  ): Promise<{ requesterUserId: string; approvedContent: ApprovedForumSpawnContent } | null> => {
+    const forumDeps = forumSpawnDepsNow();
+    if (!forumDeps) return null;
+    const ch = await client.channels.fetch(threadId).catch(() => null);
+    if (!ch?.isThread() || ch.parentId !== forumDeps.sessionForumId) return null;
+    const thread = toForumSpawnThread(ch);
+    if (!thread.ownerId || thread.ownerId === forumDeps.botUserId) return null;
+    let tagState: ForumTagState;
+    try {
+      tagState = await thread.fetchTagState();
+    } catch {
+      return null;
+    }
+    if (hasConcordiaManagedForumTag(tagState)) return null;
+    const starter = await thread.fetchStarterMessage().catch(() => null);
+    if (!starter) return null;
+    return {
+      requesterUserId: thread.ownerId,
+      approvedContent: { title: thread.name, body: starter.content.trim(), tagState },
+    };
+  };
   /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
   const replyToForumThread = async (threadId: string, content: string): Promise<void> => {
     const forumDeps = forumSpawnDepsNow();
@@ -1521,7 +1557,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       spawnApprovals,
       // Forum spawn の承認ボタン (権限なし投稿者のスレッドを管理職以上が許可する)。
       forumSpawnApprovals,
+      forumSpawnApprovalCardAuthorId: client.user?.id,
       executeApprovedForumSpawn,
+      // 明示 call にして recovery 境界の到達性を静的解析でも追跡可能にする。
+      recoverForumSpawnApproval: (threadId) => recoverForumSpawnApproval(threadId),
       // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の質問と回答。
       forumSpawnIntakes,
       resumeForumSpawnIntake,
@@ -1713,6 +1752,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 state,
               },
             );
+            // フォーラム投稿を正式な指示として再注入する (2026-09-02 neco 指示: 投稿内容が
+            // 無視されることがある)。spawn 時に確定・保存したタスク本文を使い、承認後の
+            // starter 編集で未承認内容が混入しないようにする。通常の inject 経路には
+            // submit watchdog があり、初回 prompt と同内容の重複到達は許容する。
+            if (sourceForumThread && !delegationRun) {
+              try {
+                const startupTaskText = state?.startupTaskText?.trim();
+                if (startupTaskText) {
+                  emitSessionInject(
+                    sessionId,
+                    startupTaskText,
+                    "forum-spawn:starter",
+                  );
+                }
+              } catch (e) {
+                log.warn(`forum-spawn starter re-inject failed session=${sessionId}: ${(e as Error).message}`);
+              }
+            }
           } else {
             const surface = resolveForumSessionSurface(layout, delegationRun?.id);
             const teamId = deps.sessionsRepo.findSession(sessionId)?.team_id ?? null;

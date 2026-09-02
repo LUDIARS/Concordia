@@ -696,6 +696,9 @@ export function buildForumSpawnPrompt(
 ): string {
   return [
     "## Discord Session forum request",
+    "以下はフォーラム投稿者からの作業依頼の正本です。この内容を今回のタスクとして着手し、",
+    "不明点が無ければ実装・作業まで進めてください。進捗と結果は投稿元スレッドへ報告されます。",
+    "",
     `Title: ${title.trim()}`,
     ...(activeRuntimeRules.length > 0
       ? ["", `Active rules: ${activeRuntimeRules.join(", ")}`]

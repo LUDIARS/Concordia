@@ -127,6 +127,8 @@ export async function dispatchInteraction(interaction: Interaction, deps: Discor
       store: deps.forumSpawnApprovals,
       isApproverAllowed: deps.isLaunchUserAllowed,
       executeSpawn: deps.executeApprovedForumSpawn,
+      approvalCardAuthorId: deps.forumSpawnApprovalCardAuthorId,
+      recoverApproval: deps.recoverForumSpawnApproval,
       log: deps.log,
     });
     return;

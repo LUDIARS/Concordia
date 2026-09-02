@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import {
+  createGuardAdvisoryPostClaims,
   executeForumSpawn,
   handleForumSpawnThread,
   matchesApprovedForumContent,
@@ -88,7 +89,7 @@ describe("forum spawn approval + guard wiring", () => {
     expect(deps.selectTemplate).not.toHaveBeenCalled();
   });
 
-  it("posts the advisory note to the thread and still spawns", async () => {
+  it("posts the advisory note once per thread and still spawns", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       text: async () => JSON.stringify({ ok: true, pid: 1 }),
@@ -99,14 +100,50 @@ describe("forum spawn approval + guard wiring", () => {
         guardInstruction: vi.fn(async () => ({
           ok: true,
           replyText: "",
-          advisoryText: "⚠️ ガード所見 (advisory): スコープ外の懸念",
+          advisoryText: "advisory note",
         })),
+        guardAdvisoryPostClaims: createGuardAdvisoryPostClaims(),
+        hasExistingRun: () => false,
       });
-      const result = await executeForumSpawn(deps, makeThread());
-      expect(result).toEqual({ ok: true });
-      expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("ガード所見"));
+      expect(await executeForumSpawn(deps, makeThread())).toEqual({ ok: true });
+      expect(await executeForumSpawn(deps, makeThread())).toEqual({ ok: true });
+      const advisoryPosts = (deps.postToThread as ReturnType<typeof vi.fn>).mock.calls
+        .filter(([, content]) => String(content).includes("advisory note"));
+      expect(advisoryPosts).toHaveLength(1);
       expect(deps.postToThread).toHaveBeenCalledWith("thread-1", expect.stringContaining("Cc がセッションを起動しました"));
       expect(fetchMock).toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("retries the advisory note after posting it fails", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 1 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      let advisoryAttempts = 0;
+      const deps = makeDeps({
+        guardInstruction: vi.fn(async () => ({
+          ok: true,
+          replyText: "",
+          advisoryText: "advisory note",
+        })),
+        guardAdvisoryPostClaims: createGuardAdvisoryPostClaims(),
+        postToThread: vi.fn(async (_threadId: string, content: string) => {
+          if (content === "advisory note" && advisoryAttempts++ === 0) {
+            throw new Error("temporary Discord failure");
+          }
+        }),
+      });
+
+      expect(await executeForumSpawn(deps, makeThread())).toEqual({ ok: true });
+      expect(await executeForumSpawn(deps, makeThread())).toEqual({ ok: true });
+      expect(await executeForumSpawn(deps, makeThread())).toEqual({ ok: true });
+      expect(advisoryAttempts).toBe(2);
+      expect(deps.log.warn).toHaveBeenCalledWith(expect.stringContaining("advisory note post failed"));
     } finally {
       vi.unstubAllGlobals();
     }

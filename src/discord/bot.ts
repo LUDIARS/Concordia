@@ -83,6 +83,7 @@ import { instrumentDiscord, recordDiscordInteractionAck } from "../instrumentati
 import { startInteractionAckProbe } from "./interaction-ack.js";
 import { createForumProjectResolver } from "./forum-project-code.js";
 import {
+  createGuardAdvisoryPostClaims,
   executeForumSpawn,
   handleForumSpawnThread,
   matchesApprovedForumContent,
@@ -451,6 +452,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   const forumSpawnApprovals: ForumSpawnApprovalStore = new Map();
   // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の回答待ち。
   const forumSpawnIntakes: ForumSpawnIntakeStore = new Map();
+  // spawn 再入 (質問回答/承認) のたびに同じガード所見を繰り返さない。
+  const guardAdvisoryPostClaims = createGuardAdvisoryPostClaims();
 
   const resolveReactionSafetyValve =
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
@@ -1322,6 +1325,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       },
       // 子会社 Bot は spawn 前に依頼本文をガードゲートへ通す (subsidiary-delegation §3.1)。
       guardInstruction: deps.subsidiary?.guardInstruction,
+      guardAdvisoryPostClaims,
       // 子会社は担当プロジェクト外のスレッドから起動しない (subsidiary-delegation §3.4)。
       resolveSubsidiaryProjects: deps.subsidiary?.resolveProjects,
       templates: async () => (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates,

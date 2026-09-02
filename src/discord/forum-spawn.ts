@@ -16,6 +16,7 @@ import {
 } from "./forum-spawn-intake.js";
 
 const FORUM_SPAWN_TRIGGER_PREFIX = "discord-forum";
+const MAX_GUARD_ADVISORY_POST_CLAIMS = 5_000;
 
 export interface ForumSpawnThread {
   id: string;
@@ -44,6 +45,28 @@ export interface ApprovedForumSpawnContent {
 export type ForumSpawnResult =
   | { ok: true }
   | { ok: false; error: string };
+
+export interface GuardAdvisoryPostClaims {
+  claim: (threadId: string) => boolean;
+  /** 投稿に失敗した claim を解放し、次回の spawn 再入で再試行できるようにする。 */
+  release: (threadId: string) => void;
+}
+
+/** プロセス生存中、スレッドごとの advisory 投稿を一度だけ確保する。 */
+export function createGuardAdvisoryPostClaims(): GuardAdvisoryPostClaims {
+  const claimedThreads = new Set<string>();
+  const claim = (threadId: string): boolean => {
+    if (claimedThreads.has(threadId)) return false;
+    // 上限は雑でよい (thread id は小さく、溢れたら注記が最大 1 回増えるだけ)。
+    if (claimedThreads.size >= MAX_GUARD_ADVISORY_POST_CLAIMS) claimedThreads.clear();
+    claimedThreads.add(threadId);
+    return true;
+  };
+  const release = (threadId: string): void => {
+    claimedThreads.delete(threadId);
+  };
+  return { claim, release };
+}
 
 export interface SuppliedForumSpawnContent {
   readonly title: string;
@@ -109,6 +132,12 @@ export interface ForumSpawnDeps {
    */
   guardInstruction?: (input: { userId: string; userLabel: string; instruction: string })
     => Promise<{ ok: boolean; replyText: string; advisoryText?: string }>;
+  /**
+   * ガード所見の投稿枠をこのスレッド用に確保する (true = 確保成功)。
+   * 未配線なら毎回投稿 (従来どおり)。 spawn 再入 (質問回答/承認) のたびに同じ注記を
+   * 繰り返さず、並行した再入でも二重投稿しないための claim。
+   */
+  guardAdvisoryPostClaims?: GuardAdvisoryPostClaims;
   /**
    * spawn に必要な情報 (関係プロジェクト / タスク内容) が投稿から取れないとき、
    * スレッド内で聞き返す (forum-spawn-intake.ts)。 質問を出せたら true。
@@ -216,12 +245,14 @@ export async function executeForumSpawn(
       await reply(deps, thread, guarded.replyText);
       return { ok: false, error: "subsidiary guard denied the request" };
     }
-    if (guarded.advisoryText) {
+    if (guarded.advisoryText && (deps.guardAdvisoryPostClaims?.claim(thread.id) ?? true)) {
       // ガード所見は advisory: スレッドへ注記して起動は続ける。注記の投稿失敗で
-      // spawn を止めない (所見は監査記録にも残っている)。
+      // spawn を止めない (所見は監査記録にも残っている)。 質問への回答などで
+      // ガードが再実行されても、同じスレッドへの注記は 1 回だけ (2026-09-02 neco 指示)。
       try {
         await reply(deps, thread, guarded.advisoryText);
       } catch (error) {
+        deps.guardAdvisoryPostClaims?.release(thread.id);
         deps.log.warn(`forum-spawn advisory note post failed thread=${thread.id}: ${(error as Error).message}`);
       }
     }

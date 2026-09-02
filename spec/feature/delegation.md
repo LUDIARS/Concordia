@@ -241,12 +241,12 @@ delegation テンプレ選択ベースで起動する:
 | `impl-from-design` | codex-sdk | gpt-5.6-sol | 設計書 path を渡して実装させる |
 | `fix-bug` | codex-sdk | gpt-5.6-sol | バグ説明 + 任意の再現手順から修正 PR を作らせる |
 | `refactor` | codex-sdk | gpt-5.6-sol | 範囲指定リファクタ (behavior 維持) |
-| `fable-mid` | claude | claude-fable-5 | Fable / mid で実装委託 |
+| `fable-mid` | claude | claude-fable-5-1 | Fable / mid で実装委託 |
 | `sol-mid` | codex-sdk | gpt-5.6-sol | Sol / mid で実装委託 |
 | `sol-xhigh` | codex-sdk | gpt-5.6-sol | Sol / xhigh で高難度実装委託 |
 | `opus-xhigh` | claude | claude-opus-5 | Opus / xhigh で実装委託 |
 | `opus-mid` | claude | claude-opus-5 | Opus / mid で実装委託 |
-| `fable-xhigh` | claude | claude-fable-5 | Fable / xhigh で実装委託 |
+| `fable-xhigh` | claude | claude-fable-5-1 | Fable / xhigh で実装委託 |
 | `sonnet-mid` | claude | claude-sonnet-5 | Sonnet / mid で実装委託 (一般実装の主力) |
 | `terra-xhigh` | codex-sdk | gpt-5.6-terra | Terra / xhigh で実装委託 |
 | `haiku` | claude | claude-haiku-4-5-20251001 | Haiku で実装委託 |

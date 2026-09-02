@@ -4,12 +4,13 @@ import { ModelCatalogRepo } from "../db/model-catalog-repo.js";
 import { seedModelCatalog } from "./seed.js";
 
 describe("seedModelCatalog", () => {
-  it("seeds Opus 5 and Sonnet 5 on a fresh catalog", () => {
+  it("seeds current Claude models on a fresh catalog", () => {
     const repo = new ModelCatalogRepo(makeTestDb());
     seedModelCatalog(repo);
     const ids = repo.list().map((m) => m.model_id);
     expect(ids).toContain("claude-opus-5");
     expect(ids).toContain("claude-sonnet-5");
+    expect(ids).toContain("claude-fable-5-1");
   });
 
   it("adds rolling new models to an existing catalog without restoring ordinary seeds", () => {
@@ -22,6 +23,7 @@ describe("seedModelCatalog", () => {
     expect(ids).toContain("custom-model");
     expect(ids).toContain("claude-opus-5");
     expect(ids).toContain("claude-sonnet-5");
+    expect(ids).toContain("claude-fable-5-1");
     expect(ids).not.toContain("claude-opus-4-8");
   });
 

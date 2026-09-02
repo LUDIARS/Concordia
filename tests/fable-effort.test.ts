@@ -67,7 +67,7 @@ describe("Fable delegation reasoning effort", () => {
 
     for (const callName of ["fable-mid", "fable-xhigh", "design-hard-fable5"]) {
       const template = body.templates.find((item) => item.call_name === callName);
-      expect(template?.model).toBe("claude-fable-5");
+      expect(template?.model).toBe("claude-fable-5-1");
       const effort = template?.runtime_options.find((option) => option.key === "effort");
       expect(effort?.choices?.map((choice) => choice.value)).toEqual(
         expect.arrayContaining(["medium", "xhigh"]),
@@ -99,7 +99,7 @@ describe("Fable delegation reasoning effort", () => {
       });
       expect(spawnCalls).toEqual([{
         provider: "claude",
-        args: ["--model", "claude-fable-5", "--effort", effort],
+        args: ["--model", "claude-fable-5-1", "--effort", effort],
       }]);
     },
   );

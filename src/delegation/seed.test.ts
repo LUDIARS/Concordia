@@ -344,7 +344,7 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("fable-mid")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-fable-5",
+      model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
@@ -374,7 +374,7 @@ describe("seedDelegationTemplates", () => {
     expect(repo.findTemplateByCallName("fable-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "claude",
-      model: "claude-fable-5",
+      model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-xhigh")?.runtime_options_json ?? "null")).toEqual({ effort: "xhigh", thinking: false });
     expect(repo.findTemplateByCallName("haiku")?.model).toBe("claude-haiku-4-5-20251001");

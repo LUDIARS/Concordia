@@ -12,10 +12,10 @@ describe("Discord command registration", () => {
   });
 
   it("registers only safe session commands for subsidiary guilds", () => {
-    // spawn は出張先でも使えるが、可否は社員名簿の役職判定に委ねる (neco 指示 2026-09-01)。
-    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["ch_name", "spawn"]);
+    // /spawn は子会社では出さない (2026-09-02 neco 指示: 起動は Session forum 一本)。
+    expect(commandNamesForRegistration({ subsidiary: true }).sort()).toEqual(["ch_name"]);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
-    expect(isSubsidiaryAllowedCommand("spawn")).toBe(true);
+    expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);
     expect(isSubsidiaryAllowedCommand("end-session")).toBe(false);
     expect(isSubsidiaryAllowedCommand("ex-run")).toBe(false);
   });

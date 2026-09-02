@@ -17,8 +17,8 @@ function surface(customId: string, opts: { button?: boolean } = {}) {
 }
 
 describe("子会社 guild で使えるコマンド", () => {
-  it("spawn と ch_name だけを許す", () => {
-    expect(isSubsidiaryAllowedCommand("spawn")).toBe(true);
+  it("ch_name だけを許す (/spawn は 2026-09-02 に禁止 — 起動は Session forum 一本)", () => {
+    expect(isSubsidiaryAllowedCommand("spawn")).toBe(false);
     expect(isSubsidiaryAllowedCommand("ch_name")).toBe(true);
   });
 
@@ -30,7 +30,7 @@ describe("子会社 guild で使えるコマンド", () => {
   );
 
   it("コマンド interaction はコマンド名で判定する", () => {
-    expect(isSubsidiaryAllowedInteraction({ commandName: "spawn" } as never)).toBe(true);
+    expect(isSubsidiaryAllowedInteraction({ commandName: "spawn" } as never)).toBe(false);
     expect(isSubsidiaryAllowedInteraction({ commandName: "prs" } as never)).toBe(false);
   });
 });

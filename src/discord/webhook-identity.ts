@@ -79,6 +79,7 @@ export function friendlyModelName(
 }
 
 const FRIENDLY_MODEL_NAMES: Readonly<Record<string, string>> = {
+  "claude-fable-5-1": "Fable 5.1",
   "claude-fable-5": "Fable 5",
   "claude-opus-5": "Opus 5",
   "claude-opus-4-8": "Opus 4.8",

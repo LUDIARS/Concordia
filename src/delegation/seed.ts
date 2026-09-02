@@ -620,7 +620,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     callName: "fable-mid",
     label: "Fable / mid",
     note: "高速。軽量〜中規模タスク向き。",
-    model: "claude-fable-5",
+    model: "claude-fable-5-1",
     emoji: "🦸",
     sortOrder: 10,
     runtimeOptions: { effort: "medium", thinking: false },
@@ -647,7 +647,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     callName: "fable-xhigh",
     label: "Fable / xhigh",
     note: "高速モデルが必要だが、深い推論も要する実装向き。",
-    model: "claude-fable-5",
+    model: "claude-fable-5-1",
     emoji: "🦸",
     sortOrder: 40,
     runtimeOptions: { effort: "xhigh", thinking: false },
@@ -1385,10 +1385,10 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   // ── タスク種別別 Delegation Caller (実装委託の claude-*-impl とは別軸) ──
   {
     call_name: "design-hard-fable5",
-    title: "高難度設計・課題解決委託 (Fable 5)",
-    description: "難所の設計判断や複雑な課題解決を Fable 5 に委託する。複数案を比較しトレードオフを明示、結論は spec/plan/ 形式の設計書として出力する (実装はしない)。",
+    title: "高難度設計・課題解決委託 (Fable 5.1)",
+    description: "難所の設計判断や複雑な課題解決を Fable 5.1 に委託する。複数案を比較しトレードオフを明示、結論は spec/plan/ 形式の設計書として出力する (実装はしない)。",
     target_provider: "claude",
-    model: "claude-fable-5",
+    model: "claude-fable-5-1",
     category: "freelancer",
     emoji: "🧩",
     prompt_template: [

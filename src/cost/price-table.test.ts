@@ -13,6 +13,7 @@ describe("priceForModel", () => {
     expect(priceForModel("claude-haiku-4-5")).toEqual({ inputPerMtok: 1, outputPerMtok: 5 });
   });
   it("Fable 5 / Mythos は $10/$50", () => {
+    expect(priceForModel("claude-fable-5-1")).toEqual({ inputPerMtok: 10, outputPerMtok: 50 });
     expect(priceForModel("claude-fable-5")).toEqual({ inputPerMtok: 10, outputPerMtok: 50 });
     expect(priceForModel("claude-mythos-5")).toEqual({ inputPerMtok: 10, outputPerMtok: 50 });
   });

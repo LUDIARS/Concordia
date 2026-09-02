@@ -42,6 +42,7 @@ describe("Discord webhook identity", () => {
   });
 
   it("uses readable names for known and generic models", () => {
+    expect(friendlyModelName("claude-fable-5-1")).toBe("Fable 5.1");
     expect(friendlyModelName("claude-fable-5")).toBe("Fable 5");
     expect(friendlyModelName("claude-opus-5")).toBe("Opus 5");
     expect(friendlyModelName("gpt-5.6-luna")).toBe("GPT-5.6 Luna");

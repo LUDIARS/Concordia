@@ -5,9 +5,9 @@
  * 全操作面が出張先でも押せてしまう。ここで「出張先に出してよい面」だけを列挙し、
  * 登録 (registerGuildCommands) と dispatch の両方で同じ集合を使う (二段防御)。
  *
- * 方針 (2026-09-01 neco 指示):
- *  - `/spawn` は使える。ただし可否は社員名簿の役職を **user id で引いて** 判定する
- *    (`session_spawn` = 管理職以上)。起動先は関係プロジェクトに閉じる。
+ * 方針 (2026-09-01 neco 指示、2026-09-02 改訂):
+ *  - `/spawn` は**出さない** (2026-09-02 neco 指示: 子会社では Session forum の
+ *    spawn-by-post が窓口で、コマンドは意味が薄い)。起動は Session forum スレッド経由。
  *  - セッションを動かす面 (質問への回答 / 許可要求 / context 圧縮 / プラン判断 /
  *    Session forum の起動承認・不足情報の回答) は使える。
  *  - 会社運営の面 (コントロールパネル / PR キュー / Test forum の操作 / チーム管理 /
@@ -26,9 +26,9 @@ import { isForumSpawnIntakeInteraction } from "./forum-spawn-intake.js";
 
 /**
  * 子会社 guild へ登録する slash command。
- * `spawn` の可否は役職判定 (commands.ts の PRIVILEGED_SESSION_SPAWN) が決める。
+ * `spawn` は出さない (2026-09-02 neco 指示) — 子会社の起動窓口は Session forum に一本化。
  */
-const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name", "spawn"]);
+const SUBSIDIARY_ALLOWED_COMMAND_NAMES = new Set(["ch_name"]);
 
 export function isSubsidiaryAllowedCommand(name: string): boolean {
   return SUBSIDIARY_ALLOWED_COMMAND_NAMES.has(name);

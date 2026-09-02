@@ -11,7 +11,7 @@ import {
   type DiscordSessionChannelsRepo,
 } from "../db/discord-repo.js";
 
-const META_CHANNEL_KINDS: ChannelDirectoryMetaKind[] = ["chitchat", "consultation", "houkoku", "system"];
+const META_CHANNEL_KINDS: ChannelDirectoryMetaKind[] = ["chitchat", "consultation", "houkoku", "system", "genius"];
 
 export interface DiscordChannelDirectoryDeps {
   pendingQuestions: DiscordPendingQuestionsRepo;
@@ -44,6 +44,7 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
         consultation: null,
         houkoku: null,
         system: null,
+        genius: null,
       };
       for (const kind of META_CHANNEL_KINDS) {
         meta[kind] = cfg[`${kind}_channel_id`] ?? null;

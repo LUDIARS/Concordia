@@ -8,6 +8,7 @@ export const META_CHANNEL_KIND = [
   "houkoku",
   "boyaki",
   "system",
+  "genius",
 ] as const;
 export type MetaChannelKind = (typeof META_CHANNEL_KIND)[number];
 
@@ -18,6 +19,7 @@ export function chatChannelToMetaKind(c: ChatChannel): MetaChannelKind | null {
   if (c === "報告") return "houkoku";
   if (c === "ぼやき") return "boyaki";
   if (c === "system") return "system";
+  if (c === "genius") return "genius";
   return null;
 }
 export function metaKindToChatChannel(k: MetaChannelKind): ChatChannel {

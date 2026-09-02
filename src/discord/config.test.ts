@@ -88,6 +88,7 @@ describe("ensureDiscordLayout", () => {
     expect(names).toContain("チーム管理");
     expect(names).toContain("errors");
     expect(names).toContain("雑談");
+    expect(names).toContain("genius");
     expect(names).not.toContain("sessions");
     expect(names).not.toContain("archive");
     expect(channels.get(snap.costChannelId)?.parentId).toBeNull();

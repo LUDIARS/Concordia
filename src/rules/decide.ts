@@ -27,7 +27,7 @@ export interface FireDecision {
 
 const DEFAULT_CHANNEL: ChatChannel = "chitchat";
 
-const VALID_CHANNELS: ChatChannel[] = ["chitchat", "consultation", "報告", "ぼやき", "system"];
+const VALID_CHANNELS: ChatChannel[] = ["chitchat", "consultation", "報告", "ぼやき", "system", "genius"];
 const VALID_INTENTS: ChatIntent[] = ["chitchat", "review", "reply", "react", "notice", "consult"];
 
 interface Condition {

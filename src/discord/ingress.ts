@@ -504,7 +504,7 @@ function resolveEmojiTarget(deps: IngressDeps, msg: Message, sessionId: string) 
 
 export function resolveMetaKind(configRepo: DiscordConfigRepo, channelId: string): MetaChannelKind | null {
   const map = configRepo.all();
-  for (const k of ["chitchat", "consultation", "houkoku", "boyaki", "system"] as const) {
+  for (const k of ["chitchat", "consultation", "houkoku", "boyaki", "system", "genius"] as const) {
     if (map[`${k}_channel_id`] === channelId) return k;
   }
   return null;

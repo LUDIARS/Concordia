@@ -99,6 +99,11 @@ describe("embed builders", () => {
     expect(j.description).toBe("hello");
   });
 
+  it("chatEmbed gives Genius questions their dedicated color", () => {
+    const e = chatEmbed({ channel: "genius", text: "question", authorName: "Genius", ts: 1 });
+    expect(e.toJSON().color).toBe(0x9b59b6);
+  });
+
   it("questionEmbed includes options fields", () => {
     const e = questionEmbed({ question: "q?", options: ["a", "b"], questionId: 12 });
     const j = e.toJSON();

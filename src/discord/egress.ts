@@ -80,7 +80,8 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
   const metaKind = mapChannelKind(row.channel, ev.channel);
   const metaChannelId = deps.layout.metaChannels[metaKind] ?? null;
-  const forceMeta = row.channel === "chitchat" || row.channel === "consultation" || row.channel === "報告";
+  const forceMeta = row.channel === "chitchat" || row.channel === "consultation"
+    || row.channel === "報告" || row.channel === "genius";
   // Lictor が握る送信先を明示してきた場合でも、session-scoped な通常投稿では
   // Concordia が最初に記録した session channel と一致する時だけ採用する。
   const explicitChannelId = chatMeta.discord_channel_id ?? null;

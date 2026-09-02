@@ -15,7 +15,7 @@ import type { SessionMessageReadsRepo } from "../../db/session-message-reads-rep
 import type { ConcordiaEvent } from "../../events.js";
 import type { ProjectCodesRepo } from "../../db/project-codes-repo.js";
 
-export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system";
+export type ChannelDirectoryMetaKind = "chitchat" | "consultation" | "houkoku" | "system" | "genius";
 
 export interface ChannelDirectorySessionChannel {
   channel_id: string;

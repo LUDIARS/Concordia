@@ -86,6 +86,9 @@ const COLOR = {
   consultation: 0xffb347,
   houkoku: 0xffd700,
   system: 0x808080,
+  // Genius の補完質問。 相談 (consultation) のオレンジと並べても一目で別物と
+  // 分かる色にする — 「答えるまで作業が止まる問いではない」 と見た目で伝える。
+  genius: 0x9b59b6,
   transcript: 0x5865f2,
   statusActive: 0x57f287,
   statusLost: 0xed4245,

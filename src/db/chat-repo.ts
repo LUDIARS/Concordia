@@ -7,8 +7,11 @@ import type Database from "better-sqlite3";
  *  - 報告:         セッション終了時のレポート独白 (他 AI からの reply 期待)
  *  - ぼやき:       独り言 / つぶやき。低確率で AI が反応する
  *  - system:       Concordia 自身の通知 (replies 不要)
+ *  - genius:       Genius (判断カード DB) の補完質問。作業の相談 (consultation) と
+ *                  混ざると「答えるまで進めない」ように見えるので面を分ける。
+ *                  未回答はセッション終了時にここへ回収する。
  */
-export type ChatChannel = "chitchat" | "consultation" | "報告" | "ぼやき" | "system";
+export type ChatChannel = "chitchat" | "consultation" | "報告" | "ぼやき" | "system" | "genius";
 
 export interface ChatMessageRow {
   id: number;

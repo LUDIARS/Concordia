@@ -259,7 +259,10 @@ export function buildCoreServer(): McpServer {
       description:
         "Read recent chat messages, optionally filtered by channel and time. Default limit 50, max 200. Use this to catch up on what peer sessions are saying before posting your own message.",
       inputSchema: {
-        channel: z.enum(["chitchat", "consultation", "報告", "system"]).optional(),
+        // 読み取りには 'genius' (Genius の補完質問) も含める。 投稿側の enum には
+        // 足さない — あの面は Genius が問い、人が答えるためのもので、 セッションが
+        // 書き込む場所ではない (ぼやき を投稿 enum から外しているのと同じ判断)。
+        channel: z.enum(["chitchat", "consultation", "報告", "system", "genius"]).optional(),
         since_ts: z.number().int().optional().describe("Epoch seconds — only return messages newer than this"),
         limit: z.number().int().min(1).max(200).optional(),
       },

@@ -30,6 +30,47 @@ describe("isChatRelayTarget", () => {
   });
 });
 
+describe("handleEvent chat.posted relay", () => {
+  it("routes Genius messages to the dedicated meta channel", async () => {
+    const { deps, webhooks, sessionId } = makeSessionMessageDeps();
+    webhooks.getForChannel.mockResolvedValue({ id: "wh-genius" });
+    deps.layout = {
+      ...deps.layout,
+      metaChannels: { genius: "ch-genius" },
+    } as DiscordConfigSnapshot;
+    deps.readModel = {
+      ...deps.readModel,
+      getChatMessage: () => ({
+        id: 42,
+        channel: "genius",
+        sessionId,
+        authorLabel: "Genius",
+        text: "Need one more fact",
+        metadata: {},
+      }),
+    } as EgressDeps["readModel"];
+
+    handleEvent(deps, {
+      type: "chat.posted",
+      message_id: 42,
+      channel: "genius",
+      author_label: "Genius",
+      session_id: sessionId,
+      ts: 100,
+      is_actionable: false,
+      scope: "world",
+    });
+    await flushEgress();
+
+    expect(webhooks.getForChannel).toHaveBeenCalledWith("ch-genius");
+    expect(webhooks.getForSession).not.toHaveBeenCalled();
+    expect(webhooks.send).toHaveBeenCalledWith(
+      { id: "wh-genius" },
+      expect.objectContaining({ content: "Need one more fact" }),
+    );
+  });
+});
+
 describe("handleEvent session.message relay", () => {
   it("creates a Discord post and records its delivery id", async () => {
     const { deps, webhooks, deliveryRepo, sessionId } = makeSessionMessageDeps();

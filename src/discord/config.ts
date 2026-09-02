@@ -91,6 +91,7 @@ const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
   houkoku: "houkoku",
   boyaki: "ぼやき",
   system: "system",
+  genius: "genius",
 };
 
 /**
@@ -100,7 +101,7 @@ const META_CHANNEL_NAMES: Record<MetaChannelKind, string> = {
 export interface EnsureLayoutOptions {
   /** Session / TaskWorkflow forum を使うか。Phase 3 以降の既定は true。 */
   forumMode?: boolean;
-  /** meta カテゴリ配下の雑談系チャンネル (雑談/相談/houkoku/ぼやき/system) を作るか。 既定 true。 */
+  /** meta カテゴリ配下の雑談系チャンネル (雑談/相談/houkoku/ぼやき/system/genius) を作るか。 既定 true。 */
   includeMetaChannels?: boolean;
   /** pr-queue チャンネルを作るか。 既定 true。 */
   includePrQueue?: boolean;
@@ -429,4 +430,3 @@ async function ensureTextChannel(
   repo.set(key, created.id);
   return created.id;
 }
-

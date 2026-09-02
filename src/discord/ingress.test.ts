@@ -61,6 +61,13 @@ describe("discord ingress chat routing", () => {
     expect(resolveMetaKind(configRepo, "boyaki-1")).toBe("boyaki");
   });
 
+  it("recognizes the configured Genius meta channel", () => {
+    const configRepo = {
+      all: vi.fn(() => ({ genius_channel_id: "genius-1" })),
+    } as unknown as IngressDeps["configRepo"];
+    expect(resolveMetaKind(configRepo, "genius-1")).toBe("genius");
+  });
+
   it("rejects the control trigger in subsidiary guilds", async () => {
     const deps = { ...makeDeps("codex-cli"), subsidiary: true };
     const msg = makeMessage({ content: "control" });

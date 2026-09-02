@@ -15,7 +15,7 @@
 import type { TriggerType } from "../db/rules-repo.js";
 
 /** rule engine が認識する channel (= chat-repo.ChatChannel と一致させる). */
-export const KNOWN_CHANNELS = ["chitchat", "consultation", "報告", "ぼやき", "system"] as const;
+export const KNOWN_CHANNELS = ["chitchat", "consultation", "報告", "ぼやき", "system", "genius"] as const;
 
 /** rule engine が認識する event_kind 一覧 (`*` で全 event). */
 export const KNOWN_EVENT_KINDS = [

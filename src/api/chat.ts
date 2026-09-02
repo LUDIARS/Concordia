@@ -12,7 +12,7 @@ import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachmen
 import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
 
 const PostSchema = z.object({
-  channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system"]),
+  channel: z.enum(["chitchat", "consultation", "報告", "ぼやき", "system", "genius"]),
   text: z.string().min(1).max(2000),
   session_id: z.string().nullable().optional(),
   author_label: z.string().min(1).max(64),

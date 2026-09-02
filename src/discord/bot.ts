@@ -1384,11 +1384,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (!forumDeps) throw new Error("Session forum is not ready");
     await forumDeps.postToThread(threadId, content);
   };
-  // 不足情報の回答 (選択メニュー / スレッド返信) からの spawn 続行。 補完した本文で
-  // 実行部へ再入する。 タグ状態は実行時に取り直す (回答の間の付け替えを取りこぼさない)。
+  // 不足情報の回答 (選択メニュー / スレッド返信) からの spawn 続行。 補完した本文と
+  // 選択回答の override で実行部へ再入する。 タグ状態は実行時に取り直す
+  // (回答の間の付け替えを取りこぼさない)。
   const resumeForumSpawnIntake = async (
     threadId: string,
-    content: { title: string; body: string; template?: string },
+    content: { title: string; body: string; template?: string; project?: string },
   ): Promise<void> => {
     const forumDeps = forumSpawnDepsNow();
     if (!forumDeps) throw new Error("Session forum is not ready");

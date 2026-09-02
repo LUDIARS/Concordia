@@ -284,9 +284,12 @@ describe("選択メニューからの再開", () => {
     await dispatchForumSpawnIntakeInteraction(interaction as never, deps);
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ components: [] }));
+    // 本文追記に加えて override でも渡す — 子会社の関係プロジェクトは registry に無く、
+    // 本文の再解決だけに賭けると質問がループする。
     expect(resumeSpawn).toHaveBeenCalledWith("thread-1", {
       title: "直したい",
       body: "壊れている\n\n関係プロジェクト: Concordia",
+      project: "Concordia",
     });
   });
 

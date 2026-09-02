@@ -51,6 +51,8 @@ export interface SuppliedForumSpawnContent {
   readonly tagState?: ForumTagState;
   /** 不足情報の回答 (テンプレ選択メニュー) で確定した起動テンプレ。 selector を通さず使う。 */
   readonly template?: string;
+  /** 不足情報の回答 (プロジェクト選択メニュー) で確定した関係プロジェクト。 registry 再解決に賭けない。 */
+  readonly project?: string;
 }
 
 export function matchesApprovedForumContent(
@@ -172,7 +174,8 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
 /**
  * 権限確認より後の spawn 続行部。 再入口は 2 つ:
  *  - 承認ボタン (forum-spawn-approval.ts): 承認時点の投稿内容 + タグ状態を固定して渡す。
- *  - 不足情報の回答 (forum-spawn-intake.ts): 補完した本文だけを渡し、タグ状態は取り直す。
+ *  - 不足情報の回答 (forum-spawn-intake.ts): 補完した本文と選択回答の override を渡し、
+ *    タグ状態は取り直す。
  * どちらも重複 run 判定 (triggered_by) が冪等性を守る。
  */
 export async function executeForumSpawn(
@@ -223,7 +226,15 @@ export async function executeForumSpawn(
       }
     }
   }
-  const project = deps.resolveProjectTarget(title, body);
+  // project の解決順:
+  //  1. 質問への選択メニュー回答 (override) — registry 再解決に賭けない。子会社の関係
+  //     プロジェクトは project code registry に載っていないことがあり、回答を本文追記
+  //     だけで再解決すると毎回失敗して質問がループする。
+  //  2. project code registry (本文/タイトルから)。
+  //  3. 子会社のみ: 関係プロジェクト名そのものを本文/タイトルから照合する。
+  const project = (suppliedContent?.project ? asSubsidiaryProjectTarget(suppliedContent.project) : null)
+    ?? deps.resolveProjectTarget(title, body)
+    ?? matchSubsidiaryProjectInText(title, body, deps.resolveSubsidiaryProjects?.() ?? []);
   // Session forum への投稿は「起動依頼」。 起動に要る情報が欠けていたら平文の拒否で
   // 終わらせず、 同じスレッドで聞き返す (2026-09-01 neco 指示 3)。
   const missing = detectMissingForumSpawnInfo({ body, projectResolved: project !== null });
@@ -418,6 +429,46 @@ export function buildForumSpawnPrompt(
     "",
     body.trim() || "（本文なし）",
   ].join("\n");
+}
+
+/**
+ * 子会社の関係プロジェクト名を project target の形にする。 spawn は project 名だけを
+ * `/v1/admin/spawn-session` へ渡し、 cwd は workspace roots からサーバ側が解決するため
+ * code / cwd はここでは持たない。
+ */
+function asSubsidiaryProjectTarget(name: string): ForumProjectTarget | null {
+  const trimmed = name.trim();
+  return trimmed ? { project: trimmed, code: trimmed, cwd: "" } : null;
+}
+
+/**
+ * 関係プロジェクト名そのものをタイトル/本文から照合する (大文字小文字は区別しない)。
+ * 子会社の担当プロジェクトは project code registry に載っていないことがあるため、
+ * registry 解決の後段としてこちらでも引っ掛ける。 複数一致は最長名を採る。
+ */
+function matchSubsidiaryProjectInText(
+  title: string,
+  body: string,
+  projects: readonly string[],
+): ForumProjectTarget | null {
+  const haystack = `${title}\n${body}`;
+  const matched = projects
+    .map((name) => name.trim())
+    .filter((name) => {
+      if (!name) return false;
+      // Registry resolver と同じ識別子境界に限定する。単純な includes だと、例えば
+      // project "AI" が "maintain" に一致して別 repository を暗黙選択してしまう。
+      return new RegExp(
+        `(^|[^a-z0-9_])${escapeRegExp(name)}([^a-z0-9_]|$)`,
+        "i",
+      ).test(haystack);
+    })
+    .sort((a, b) => b.length - a.length)[0];
+  return matched ? asSubsidiaryProjectTarget(matched) : null;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function fetchStarterWithRetry(

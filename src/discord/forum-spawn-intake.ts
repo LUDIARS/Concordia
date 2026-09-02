@@ -204,8 +204,11 @@ export interface ForumSpawnIntakeResumeDeps {
    * (社員名簿 `session_spawn`) を要求する — 回答は起動の引き金になるため。
    */
   isLaunchUserAllowed?: (userId: string) => boolean;
-  /** 補完済みの内容で spawn 実行部へ再入する。 template は選択メニューで確定した場合のみ。 */
-  resumeSpawn: (threadId: string, content: { title: string; body: string; template?: string }) => Promise<void>;
+  /** 補完済みの内容で再入する。template / project override は選択メニューで確定した場合のみ。 */
+  resumeSpawn: (
+    threadId: string,
+    content: { title: string; body: string; template?: string; project?: string },
+  ) => Promise<void>;
   /** スレッドへの通常返信 (webhook 可)。 */
   reply: (threadId: string, content: string) => Promise<void>;
   log: { info: (message: string) => void; warn: (message: string) => void };
@@ -298,7 +301,7 @@ export async function dispatchForumSpawnIntakeInteraction(
       components: [],
       allowedMentions: { parse: [] },
     });
-    await resume(deps, pending, [], selected);
+    await resume(deps, pending, [], { template: selected });
     return;
   }
 
@@ -307,7 +310,10 @@ export async function dispatchForumSpawnIntakeInteraction(
     components: [],
     allowedMentions: { parse: [] },
   });
-  await resume(deps, pending, [`関係プロジェクト: ${selected}`]);
+  // 選んだ project は override として確定させる。 子会社の関係プロジェクトは project code
+  // registry に載っていないことがあり、本文追記だけだと再解決に失敗して質問がループする。
+  // 本文にも残すのは、起動セッションへ注入される初回指示に対象を明記するため。
+  await resume(deps, pending, [`関係プロジェクト: ${selected}`], { project: selected });
 }
 
 export function pruneForumSpawnIntakes(store: ForumSpawnIntakeStore, now = Date.now()): void {
@@ -329,7 +335,7 @@ async function resume(
   deps: ForumSpawnIntakeResumeDeps,
   pending: PendingForumSpawnIntake,
   additions: readonly string[],
-  template?: string,
+  overrides: { template?: string; project?: string } = {},
 ): Promise<void> {
   const body = supplementForumSpawnBody(pending.body, additions);
   // 回答済みに倒してから再開する。 消さないのは聞き返し回数を持ち越すため、
@@ -337,7 +343,12 @@ async function resume(
   deps.store?.set(pending.threadId, { ...pending, body, status: "answered" });
   deps.log.info(`forum-spawn intake answered thread=${pending.threadId} ask=${pending.askCount}`);
   try {
-    await deps.resumeSpawn(pending.threadId, { title: pending.title, body, ...(template ? { template } : {}) });
+    await deps.resumeSpawn(pending.threadId, {
+      title: pending.title,
+      body,
+      ...(overrides.template ? { template: overrides.template } : {}),
+      ...(overrides.project ? { project: overrides.project } : {}),
+    });
   } catch (error) {
     deps.log.warn(`forum-spawn intake resume failed thread=${pending.threadId}: ${(error as Error).message}`);
     // 例外には local path / endpoint / SDK の応答が含まれ得る。詳細は内部ログに限定し、

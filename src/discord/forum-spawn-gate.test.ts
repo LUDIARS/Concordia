@@ -186,6 +186,78 @@ describe("forum spawn approval + guard wiring", () => {
     expect(deps.postToThread).not.toHaveBeenCalled();
   });
 
+  it("uses a supplied project override even when the registry cannot resolve it", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 3 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const deps = makeDeps({
+        resolveProjectTarget: () => null,
+        resolveSubsidiaryProjects: () => ["AlphaProject", "BetaProject"],
+        subsidiaryId: "sub-1",
+      });
+      const result = await executeForumSpawn(deps, makeThread(), {
+        title: "レビューしたい",
+        body: "コードレビューをする\n\n関係プロジェクト: AlphaProject",
+        project: "AlphaProject",
+      });
+      expect(result).toEqual({ ok: true });
+      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+      expect(body.project).toBe("AlphaProject");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("resolves a subsidiary project mentioned in the post text without the registry", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 4 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const requestIntake = vi.fn(async () => true);
+      const deps = makeDeps({
+        resolveProjectTarget: () => null,
+        resolveSubsidiaryProjects: () => ["Alpha", "Alpha-Project"],
+        subsidiaryId: "sub-1",
+        requestIntake,
+      });
+      const thread = makeThread({
+        name: "レビュー",
+        fetchStarterMessage: vi.fn(async () => ({ content: "Alpha-Projectのコードレビューをする" })),
+      });
+      const result = await executeForumSpawn(deps, thread);
+      expect(result).toEqual({ ok: true });
+      expect(requestIntake).not.toHaveBeenCalled();
+      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+      expect(body.project).toBe("Alpha-Project");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not infer a subsidiary project from a substring inside another word", async () => {
+    const requestIntake = vi.fn(async () => true);
+    const deps = makeDeps({
+      resolveProjectTarget: () => null,
+      resolveSubsidiaryProjects: () => ["AI"],
+      subsidiaryId: "sub-1",
+      requestIntake,
+    });
+    const thread = makeThread({
+      name: "Maintain the review flow",
+      fetchStarterMessage: vi.fn(async () => ({ content: "Fix the review routing" })),
+    });
+
+    const result = await executeForumSpawn(deps, thread);
+
+    expect(result).toEqual({ ok: false, error: "missing information requested" });
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["project"] }));
+  });
+
   it("uses a supplied template from the intake answer without re-running the selector", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,

@@ -18,16 +18,15 @@ const ANATOMIA_SUPPLY_VERIFY_STEPS = [
   "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
 ];
 
-/**
- * 安全な自動修正委託だけに渡す、 Revisor 終局までの完了契約。
- * 通常の実装委託は PR 作成で止めるため、 汎用 persona ではなく対象タスクの Injection に明示する。
- */
-const REVISOR_MERGE_COMPLETION_INSTRUCTION = [
-  "### この委託の完了条件 (neco 明示指示)",
-  "- 対応完了は **Revisor によるマージ完了**。 local PR の作成・審査開始・Test OK だけでは completed にしない。",
-  "- Revisor が failed / action_required で止めた場合は、 `対応完了 (= マージ完了)` を goal に置く。 指摘を安全なタスク範囲で修正し、 commit と Cc 経由の再提出を続ける。",
-  "- Revisor の終局通知を待ち、 merged を確認してから delegation status を completed にする。 自分で git / gh merge、 auto-merge 設定、 main 更新は行わない。",
+/** 定期自動修正が Revisor の終局まで追跡するための追加契約。 */
+const REVISOR_MERGE_REQUIRED_INSTRUCTION = [
+  "### この委託の完了条件",
+  "- Revisor によるマージ完了を確認するまで継続し、`対応完了 (= マージ完了)` を goal に置く。実装・commit・Revisor local PR 提出だけでは完了としない。",
+  "- Revisor が failed / action_required を返したときだけ、安全なタスク範囲で修正・commit・Cc 経由の再提出を行う。自分で git / gh merge、auto-merge 設定、main 更新は行わない。",
 ].join("\n");
+
+const IMPLEMENTATION_COMPLETION_INSTRUCTION =
+  "- Completion means commit + Revisor local PR submission + delegation status report. Do not wait for a Revisor merge or return it as remaining work.";
 
 /** 置換済み call_name。履歴行ではなく定義行だけを物理削除する。 */
 const LEGACY_DELEGATION_CALL_NAMES = [
@@ -95,6 +94,7 @@ function codex56Template(opts: {
       ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+      IMPLEMENTATION_COMPLETION_INSTRUCTION,
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
       "",
       "Report the PR URL when done.",
@@ -152,6 +152,7 @@ function claudeImplementationTemplate(opts: {
       ...ANATOMIA_SUPPLY_VERIFY_STEPS,
       "- Add or update test coverage when the change needs it, but do not run tests unless the user explicitly requested them.",
       "- Make 1 PR (squash mergeable). Follow CLAUDE.md / dev-process.md.",
+      IMPLEMENTATION_COMPLETION_INSTRUCTION,
       "- Stop after the PR is created. Do not merge or enable auto-merge unless the user explicitly requested it.",
       "",
       "Report the PR URL when done.",
@@ -842,7 +843,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "4. file:line の実在を検証し、指摘を Critical/High/Medium/Low で分類する。",
       "5. **安全カテゴリ** (依存パッケージの既知脆弱性バージョン更新のうち breaking change を伴わないもの、機密情報のログ出力停止、明らかな入力検証漏れの追加等、既存挙動を壊さない修正に限る) は、リポごとに `delegation_invoke` で `sol-mid` を `spawn: true` として呼び、`task` / `target_repo` / `context_extra` を渡して1リポ1PRで必ず自動修正委託する。task にはリポジトリ相対の file:line と伏せた指摘内容だけを渡し、認証情報・個人情報・内部 endpoint・ローカル設定の値や生の本文は転記しない。",
       "6. `context_extra` には、次の完了契約を全文含める:",
-      REVISOR_MERGE_COMPLETION_INSTRUCTION,
+      REVISOR_MERGE_REQUIRED_INSTRUCTION,
       "7. **Critical/High、または安全カテゴリの判断に自信が持てない指摘**は自動修正せず、file:line + 内容 + 推奨対応を記録するだけにとどめる。",
       "8. 結果を `E:\\Document\\Ars\\Review\\<repo>\\${date}-vulnerability\\` に保存し、`latest.json` に `vulnerability_reviewed_at` と `head` を記録する (既存の週次レビュー用フィールドは上書きしない)。",
       "   Review/ への書き込みはローカルのみ。GitHub へのアクセスや push は行わず、一時 worktree は全経路で削除する。",
@@ -898,7 +899,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
       "4. 各候補について、症状 / 原因 / 機械的対策 / 対象リポジトリを整理し、**安全な自動実装**か**人間判断が必要**かを分類する。安全なのは変更範囲が狭く可逆で、既存仕様・外部状態・認証/権限・データ移行を変えず、対象リポジトリを一意に特定できるものだけ。",
       "5. 安全な候補は、候補ごとに `delegation_invoke` で `sol-mid` を `spawn: true` として呼び、`task` / `target_repo` / `context_extra` を渡して1件1PRで実装させる。task へは匿名化した症状・根拠・期待する機械的対策だけを渡し、生ログやメモリ本文を転記しない。",
       "6. `context_extra` には、次の完了契約を全文含める:",
-      REVISOR_MERGE_COMPLETION_INSTRUCTION,
+      REVISOR_MERGE_REQUIRED_INSTRUCTION,
       "7. 各委託 run の completed を待つ。 local PR 作成は完了ではなく、委託先が Revisor の merged を確認した completed だけをカイゼン完了として数える。人間判断が必要な候補は実装せず記録する。",
       "8. 結果を `E:\\Document\\Ars\\session-logs\\kaizen\\${date}.md` に保存する。候補数 / 自動委託数 / マージ完了数 / 人間判断待ち数と、機密情報を除いた要約を記す。",
       "9. 保存したファイルパスと件数・要約を報告する。",

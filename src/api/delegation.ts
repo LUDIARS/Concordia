@@ -35,7 +35,12 @@ import {
   buildDelegationStatusNotification,
   normalizeDelegationStatus,
 } from "../delegation/coordination.js";
-import { requeuePartialRun } from "../delegation/partial-requeue.js";
+import {
+  MAX_PARTIAL_REQUEUE_DEPTH,
+  requeueDepth,
+  requeuePartialRun,
+  rootRunId,
+} from "../delegation/partial-requeue.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
@@ -180,7 +185,9 @@ const RemainingSchema = z.object({
   title: z.string().min(1).max(300),
   note: z.string().max(4000).optional(),
   scope_dirs: z.array(z.string().min(1).max(1000)).max(100).optional(),
+  kind: z.enum(["work", "wait"]).optional(),
 });
+const REVISOR_WAIT_REMAINING = /(Revisor|マージ|merge).*(待|審査|pending|wait)/i;
 const AcceptanceReportSchema = z.object({
   criterion: z.string().min(1).max(1000),
   met: z.boolean(),
@@ -200,6 +207,20 @@ const StatusSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["remaining"], message: "completed remaining must be empty" });
   }
 });
+
+function isWaitRemaining(item: z.infer<typeof RemainingSchema>): boolean {
+  return item.kind === "wait"
+    || (item.kind === undefined && REVISOR_WAIT_REMAINING.test(`${item.title} ${item.note ?? ""}`));
+}
+
+function partialRequeueMaxDepth(): number {
+  const raw = process.env.CONCORDIA_PARTIAL_REQUEUE_MAX_DEPTH;
+  if (raw === undefined || raw.trim() === "") return 2;
+  const configured = Number(raw);
+  return Number.isSafeInteger(configured) && configured >= 0
+    ? Math.min(configured, MAX_PARTIAL_REQUEUE_DEPTH)
+    : 2;
+}
 
 const RunInjectSchema = z.object({
   text: z.string().min(1).max(4000),
@@ -658,44 +679,57 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     const effectiveRemaining = status === "completed" && unmet.length > 0
       ? unmet.map((item) => ({ title: `未達受け入れ条件: ${item.criterion}`, note: item.note }))
       : parsed.data.remaining ?? [];
-    const isPartial = status === "partial" || effectiveRemaining.length > 0;
+    const workRemaining = effectiveRemaining.filter((item) => !isWaitRemaining(item));
+    const isPartial = workRemaining.length > 0;
     const continuation = isPartial ? readRunContinuation(deps.sessions, row.child_session_id) : "requeue";
     let requeuedRun = null;
     let partialRequeueClaimed = false;
+    let partialFailureError: string | null = null;
     if (isPartial) {
       if (continuation === "requeue") {
-        const claimed = deps.repo.claimPartialRequeue(id);
-        if (!claimed) {
-          const current = deps.repo.findRun(id);
-          if (current?.status === "completed" || current?.status === "failed") {
-            return c.json({ ok: true, run: serializeRun(current), requeued_run: null, duplicate: true });
+        const depth = requeueDepth(row, deps.repo);
+        if (depth >= partialRequeueMaxDepth()) {
+          partialFailureError = `partial_requeue_limit: depth=${depth} remaining=${workRemaining.map((item) => item.title).join(", ")}`;
+        } else {
+          const claimed = deps.repo.claimPartialRequeue(id);
+          if (!claimed) {
+            const current = deps.repo.findRun(id);
+            if (current?.status === "completed" || current?.status === "failed") {
+              return c.json({ ok: true, run: serializeRun(current), requeued_run: null, duplicate: true });
+            }
+            if (current?.status === "blocked" && current.error === PARTIAL_REQUEUE_CLAIM_ERROR) {
+              return c.json({ error: PARTIAL_REQUEUE_CLAIM_ERROR }, 409);
+            }
+            return c.json({ error: "run_not_reportable", status: current?.status ?? null }, 409);
           }
-          if (current?.status === "blocked" && current.error === PARTIAL_REQUEUE_CLAIM_ERROR) {
-            return c.json({ error: PARTIAL_REQUEUE_CLAIM_ERROR }, 409);
-          }
-          return c.json({ error: "run_not_reportable", status: current?.status ?? null }, 409);
+          partialRequeueClaimed = true;
         }
-        partialRequeueClaimed = true;
       }
       try {
-        if (deps.taskStore && effectiveRemaining.length > 0) {
+        if (!partialFailureError && deps.taskStore && workRemaining.length > 0) {
           const repoPath = row.spawn_worktree_path ?? row.spawn_cwd;
           if (!repoPath) {
             if (partialRequeueClaimed) deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
             return c.json({ error: "partial_task_repo_unknown" }, 409);
           }
-          await deps.taskStore.writeRemainingTasks({ repoPath, sourceRunId: row.id, project: row.call_name, remaining: effectiveRemaining });
+          const written = await deps.taskStore.writeRemainingTasks({
+            repoPath,
+            sourceRunId: rootRunId(row, deps.repo),
+            project: row.call_name,
+            remaining: workRemaining,
+          });
+          if (written.created.length === 0 && written.existed.length > 0) partialFailureError = "partial_no_progress";
         }
-        if (continuation === "requeue") {
-          const requeued = await requeuePartialRun({ run: row, remaining: effectiveRemaining, service: deps.service });
+        if (!partialFailureError && continuation === "requeue") {
+          const requeued = await requeuePartialRun({ run: row, remaining: workRemaining, service: deps.service });
           if (!requeued.ok) {
             deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
             return c.json({ error: "partial_requeue_failed", detail: requeued.error }, 500);
           }
           requeuedRun = requeued.run;
           emitDelegationRunChanged(requeued.run);
-        } else if (row.child_session_id) {
-          const text = `残作業を同一セッションで継続してください。\n${effectiveRemaining.map((item, index) => `${index + 1}. ${item.title}${item.note ? ` — ${item.note}` : ""}`).join("\n")}`;
+        } else if (!partialFailureError && row.child_session_id) {
+          const text = `残作業を同一セッションで継続してください。\n${workRemaining.map((item, index) => `${index + 1}. ${item.title}${item.note ? ` — ${item.note}` : ""}`).join("\n")}`;
           const ts = nowSec();
           const source = `delegation:${row.id}:continue`;
           deps.sessions?.appendEvent({
@@ -711,23 +745,25 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
         throw error;
       }
     }
-    const persistedStatus: "running" | "completed" | "failed" = isPartial
+    const persistedStatus: "running" | "completed" | "failed" = partialFailureError
+      ? "failed"
+      : isPartial
       ? (continuation === "in-session" ? "running" : "completed")
-      : parsed.data.status === "partial" ? "completed" : status;
+      : status === "partial" ? "completed" : status;
     const updated = deps.repo.updateRunStatus(
       id,
       persistedStatus,
-      persistedStatus === "failed" ? (parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
+      persistedStatus === "failed" ? (partialFailureError ?? parsed.data.detail ?? parsed.data.result ?? row.error) : row.error,
     )!;
     emitDelegationRunChanged(updated);
-    if (!isPartial && (persistedStatus === "completed" || persistedStatus === "failed")) {
+    if ((!isPartial || partialFailureError) && (persistedStatus === "completed" || persistedStatus === "failed")) {
       deps.service.recordEffortOutcome(updated, persistedStatus);
       // 終了時に依頼ファイルを掃き出す。 サンドボックス下の委託先は `.git` に書けないので、
       // 「実装は済んだがコミットできないまま failed」 を最後に拾う経路がここ。
       void sweepCommitRequest(updated, deps);
     }
     if ((status === "completed" || status === "partial" || status === "failed") && updated.parent_session_id) {
-      const text = buildDelegationStatusNotification(updated, { ...parsed.data, status: isPartial ? "partial" : status });
+      const text = buildDelegationStatusNotification(updated, { ...parsed.data, status: partialFailureError ? "failed" : isPartial ? "partial" : persistedStatus });
       deps.sessions?.appendEvent({
         session_id: updated.parent_session_id,
         ts: nowSec(),

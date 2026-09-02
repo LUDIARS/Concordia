@@ -10,6 +10,49 @@ export interface RemainingWork {
   scope_dirs?: string[];
 }
 
+const PARTIAL_REQUEUE_PREFIX = "partial-requeue:";
+export const MAX_PARTIAL_REQUEUE_DEPTH = 32;
+
+type PartialRequeueRunRepository = Pick<
+  { findRun(id: string): DelegationRunRow | null },
+  "findRun"
+>;
+
+function partialRequeueParentId(run: DelegationRunRow): string | null {
+  const triggeredBy = run.triggered_by;
+  if (!triggeredBy?.startsWith(PARTIAL_REQUEUE_PREFIX)) return null;
+  const parentId = triggeredBy.slice(PARTIAL_REQUEUE_PREFIX.length);
+  return parentId || null;
+}
+
+/** Returns the number of partial-requeue hops that led to this run. */
+export function requeueDepth(run: DelegationRunRow, repo: PartialRequeueRunRepository): number {
+  let depth = 0;
+  let current: DelegationRunRow | null = run;
+  while (depth < MAX_PARTIAL_REQUEUE_DEPTH) {
+    const parentId = partialRequeueParentId(current);
+    if (!parentId) return depth;
+    depth += 1;
+    current = repo.findRun(parentId);
+    if (!current) return depth;
+  }
+  return MAX_PARTIAL_REQUEUE_DEPTH;
+}
+
+/** Returns the first run in a partial-requeue chain, or the supplied run itself. */
+export function rootRunId(run: DelegationRunRow, repo: PartialRequeueRunRepository): string {
+  let rootId = run.id;
+  let current: DelegationRunRow | null = run;
+  for (let traversed = 0; traversed < MAX_PARTIAL_REQUEUE_DEPTH; traversed += 1) {
+    const parentId = partialRequeueParentId(current);
+    if (!parentId) return rootId;
+    rootId = parentId;
+    current = repo.findRun(parentId);
+    if (!current) return rootId;
+  }
+  return rootId;
+}
+
 function parseArgs(raw: string): Record<string, unknown> {
   try {
     const value = JSON.parse(raw) as unknown;

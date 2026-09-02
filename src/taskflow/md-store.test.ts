@@ -192,6 +192,24 @@ describe("TaskMdStore.scan", () => {
     expect(await store.findForProject("ars")).toHaveLength(1);
     expect(await store.findForProject("LUDIARS/ars")).toHaveLength(1);
   });
+
+  it("reports existing remaining-task files separately from newly created files", async () => {
+    const store = new TaskMdStore(() => [root], { warn });
+    const input = {
+      repoPath,
+      sourceRunId: "source-run",
+      project: "Concordia",
+      remaining: [{ title: "finish API" }],
+    };
+
+    const first = await store.writeRemainingTasks(input);
+    const second = await store.writeRemainingTasks(input);
+
+    expect(first.created).toHaveLength(1);
+    expect(first.existed).toEqual([]);
+    expect(second.created).toEqual([]);
+    expect(second.existed).toEqual(first.created);
+  });
 });
 
 function validTaskMarkdown(): string {

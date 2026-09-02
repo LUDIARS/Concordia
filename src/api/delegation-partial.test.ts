@@ -4,6 +4,7 @@ import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { SessionsRepo } from "../db/sessions-repo.js";
 import type { DelegationService } from "../delegation/service.js";
+import type { TaskMdStore } from "../taskflow/md-store.js";
 import { seedSessionContract } from "../contract/seed-rules.js";
 import type { SessionRow } from "../shared/types.js";
 import { delegationRouter } from "./delegation.js";
@@ -231,7 +232,117 @@ describe("delegation partial status", () => {
     expect(repo.findRun("source-run")?.status).toBe("running");
     expect(sessions.eventsByKind(child.id, "inject")).toHaveLength(1);
   });
+
+  it("fails instead of requeueing when the partial-requeue depth reaches the limit", async () => {
+    const db = makeTestDb();
+    const repo = new DelegationRepo(db);
+    for (const [id, triggeredBy] of [["root-run", null], ["parent-run", "partial-requeue:root-run"], ["source-run", "partial-requeue:parent-run"]] as const) {
+      repo.createRun({
+        id,
+        template_id: null,
+        call_name: "impl",
+        target_provider: "codex",
+        parent_session_id: null,
+        args: { task: "finish" },
+        rendered_prompt: "prompt",
+        prompt_file_path: "E:/tmp/prompt.md",
+        spawn_pid: 1,
+        spawn_command: ["codex"],
+        triggered_by: triggeredBy,
+        status: "running",
+      });
+    }
+    const invoke = vi.fn();
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    expect((await postStatus(app, {
+      status: "partial",
+      remaining: [{ title: "Revisor merge wait", kind: "work" }],
+    })).status).toBe(200);
+    expect(repo.findRun("source-run")).toMatchObject({
+      status: "failed",
+      error: "partial_requeue_limit: depth=2 remaining=Revisor merge wait",
+    });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("fails instead of requeueing when every remaining task already exists", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    const invoke = vi.fn();
+    const taskStore = {
+      writeRemainingTasks: vi.fn(async () => ({ created: [], existed: ["E:/repo/spec/tasks/already-exists.md"] })),
+    } as unknown as TaskMdStore;
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      taskStore,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    expect((await postStatus(app, { status: "partial", remaining: [{ title: "finish API" }] })).status).toBe(200);
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: "partial_no_progress" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("completes a partial report containing only explicit or inferred wait work", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    const invoke = vi.fn();
+    const writeRemainingTasks = vi.fn();
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      taskStore: { writeRemainingTasks } as unknown as TaskMdStore,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    expect((await postStatus(app, {
+      status: "partial",
+      remaining: [
+        { title: "external approval", kind: "wait" },
+        { title: "Revisor review", note: "pending" },
+      ],
+    })).status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+    expect(writeRemainingTasks).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("requeues when at least one remaining task was newly written", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    const invoke = vi.fn(async () => ({ ok: true as const, run: repo.createRun({
+      id: "residual-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+      args: { task: "finish" }, rendered_prompt: "residual", prompt_file_path: "E:/tmp/residual.md", spawn_pid: 2,
+      spawn_command: ["codex"], triggered_by: "partial-requeue:source-run", status: "spawned",
+    }) }));
+    const writeRemainingTasks = vi.fn(async () => ({ created: ["E:/repo/spec/tasks/new.md"], existed: ["E:/repo/spec/tasks/old.md"] }));
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      taskStore: { writeRemainingTasks } as unknown as TaskMdStore,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    expect((await postStatus(app, { status: "partial", remaining: [{ title: "finish API" }] })).status).toBe(200);
+    expect(writeRemainingTasks).toHaveBeenCalledWith(expect.objectContaining({ sourceRunId: "source-run" }));
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });
+
+function repoFor(db: ReturnType<typeof makeTestDb>): DelegationRepo {
+  return new DelegationRepo(db);
+}
+
+function createSourceRun(repo: DelegationRepo): DelegationRepo {
+  repo.createRun({
+    id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+    args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "E:/tmp/prompt.md", spawn_pid: 1,
+    spawn_command: ["codex"], triggered_by: null, status: "running", spawn_cwd: "E:/repo",
+  });
+  return repo;
+}
 
 function postStatus(app: Hono, body: unknown): Promise<Response> {
   return Promise.resolve(app.request("/v1/delegation/runs/source-run/status", {

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { requeuePartialRun } from "./partial-requeue.js";
+import {
+  MAX_PARTIAL_REQUEUE_DEPTH,
+  requeueDepth,
+  requeuePartialRun,
+  rootRunId,
+} from "./partial-requeue.js";
 
 describe("requeuePartialRun", () => {
   it("inherits branch and existing worktree", async () => {
@@ -10,5 +15,27 @@ describe("requeuePartialRun", () => {
       service: { invoke } as any,
     });
     expect(invoke).toHaveBeenCalledWith(expect.objectContaining({ cwd: "E:/wt", branch: "feat/x", worktree: false, args: { x: 1 } }));
+  });
+});
+
+describe("partial requeue ancestry", () => {
+  it("resolves depth and root through a partial-requeue chain", () => {
+    const runs = new Map([
+      ["root", { id: "root", triggered_by: null }],
+      ["parent", { id: "parent", triggered_by: "partial-requeue:root" }],
+    ]);
+    const run = { id: "current", triggered_by: "partial-requeue:parent" } as any;
+    const repo = { findRun: (id: string) => runs.get(id) as any ?? null };
+
+    expect(requeueDepth(run, repo)).toBe(2);
+    expect(rootRunId(run, repo)).toBe("root");
+  });
+
+  it("stops malformed cyclic ancestry at the traversal limit", () => {
+    const run = { id: "cycle", triggered_by: "partial-requeue:cycle" } as any;
+    const repo = { findRun: () => run };
+
+    expect(requeueDepth(run, repo)).toBe(MAX_PARTIAL_REQUEUE_DEPTH);
+    expect(rootRunId(run, repo)).toBe("cycle");
   });
 });

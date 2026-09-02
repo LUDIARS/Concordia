@@ -332,6 +332,11 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
     minValue: 1,
   },
   envInteger("delegation.watchdog_interval_ms", "delegation", "watchdog の走査間隔 (ms)", "CONCORDIA_DELEGATION_WATCHDOG_INTERVAL_MS", null, "watchdog の走査周期。"),
+  {
+    ...envInteger("delegation.partial_requeue_max_depth", "delegation", "partial 再委託の最大深度", "CONCORDIA_PARTIAL_REQUEUE_MAX_DEPTH", 2, "partial の残作業を新しい run へ再委託できる連鎖の上限。"),
+    minValue: 0,
+    maxValue: 32,
+  },
   envBoolean("delegation.fast_mode", "delegation", "fast mode", "CONCORDIA_DELEGATION_FAST_MODE", false, "委託先セッションを fast mode で起動する。"),
   envBoolean("delegation.goal_and_go", "delegation", "goal-and-go", "CONCORDIA_DELEGATION_GOAL_AND_GO", true, "委託先の自走継続を既定で有効にする (neco 決定 2026-08-24: 基本有効)。"),
   envInteger("delegation.goal_and_go_idle_sec", "delegation", "自走の再開待ち (秒)", "CONCORDIA_GOAL_AND_GO_IDLE_SEC", 300, "完了後この秒数で自走を再開する。"),

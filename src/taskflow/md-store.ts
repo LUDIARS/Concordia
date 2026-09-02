@@ -197,10 +197,11 @@ export class TaskMdStore {
     sourceRunId: string;
     project: string;
     remaining: ReadonlyArray<{ title: string; note?: string; scope_dirs?: string[] }>;
-  }): Promise<string[]> {
+  }): Promise<{ created: string[]; existed: string[] }> {
     const dir = join(input.repoPath, "spec", "tasks");
     await mkdir(dir, { recursive: true });
     const created: string[] = [];
+    const existed: string[] = [];
     const sourceSlug = taskSlug(input.sourceRunId, "run", 48);
     const createdDate = new Date().toISOString().slice(0, 10);
     for (const [index, item] of input.remaining.entries()) {
@@ -214,14 +215,15 @@ export class TaskMdStore {
         repoPath: input.repoPath,
         createdDate,
       });
-      await writeFile(path, markdown, { encoding: "utf8", flag: "wx" }).catch(
-        (error: NodeJS.ErrnoException) => {
-          if (error.code !== "EEXIST") throw error;
-        },
-      );
-      created.push(path);
+      try {
+        await writeFile(path, markdown, { encoding: "utf8", flag: "wx" });
+        created.push(path);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        existed.push(path);
+      }
     }
-    return created;
+    return { created, existed };
   }
 }
 

@@ -262,6 +262,42 @@ export class SubsidiaryRepo {
     return this.listProjects(subsidiaryId);
   }
 
+  /** 全子会社の関係 project 割当を一括で返す (project registry の所属表示用)。 */
+  listProjectAssignments(): Array<{ subsidiary_id: string; project: string }> {
+    return this.db.prepare("SELECT subsidiary_id, project FROM subsidiary_projects ORDER BY subsidiary_id")
+      .all() as Array<{ subsidiary_id: string; project: string }>;
+  }
+
+  /** project 名の関係会社集合を置き換える (空配列で本社のみ)。 */
+  assignProjectToSubsidiaries(project: string, subsidiaryIds: readonly string[]): void {
+    const name = project.trim();
+    if (!name) return;
+    const run = this.db.transaction(() => {
+      this.db.prepare("DELETE FROM subsidiary_projects WHERE project = ? COLLATE NOCASE").run(name);
+      const insert = this.db.prepare(
+        "INSERT OR IGNORE INTO subsidiary_projects(subsidiary_id, project) VALUES (?, ?)",
+      );
+      for (const subsidiaryId of new Set(subsidiaryIds)) insert.run(subsidiaryId, name);
+    });
+    run.immediate();
+  }
+
+  /** project 名の編集時に、既存の所属を新しい名前へ原子的に引き継ぐ。 */
+  moveProjectAssignment(fromProject: string, toProject: string): void {
+    const run = this.db.transaction(() => {
+      const current = this.db.prepare(
+        `SELECT DISTINCT subsidiary_id FROM subsidiary_projects
+         WHERE project = ? COLLATE NOCASE OR project = ? COLLATE NOCASE`,
+      ).all(fromProject, toProject) as Array<{ subsidiary_id: string }>;
+      this.db.prepare(
+        "DELETE FROM subsidiary_projects WHERE project = ? COLLATE NOCASE OR project = ? COLLATE NOCASE",
+      ).run(fromProject, toProject);
+      const insert = this.db.prepare("INSERT INTO subsidiary_projects(subsidiary_id, project) VALUES (?, ?)");
+      for (const row of current) insert.run(row.subsidiary_id, toProject);
+    });
+    run.immediate();
+  }
+
   find(id: string): SubsidiaryRow | null {
     return (this.db.prepare(`SELECT * FROM subsidiaries WHERE id = ?`).get(id) as SubsidiaryRow | undefined) ?? null;
   }

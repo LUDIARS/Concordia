@@ -23,6 +23,7 @@ import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
 import { RuntimeVersion } from "./components/RuntimeVersion.js";
 import { Teams } from "./pages/Teams.js";
+import { ProjectCodes } from "./pages/ProjectCodes.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
@@ -40,6 +41,7 @@ const NAV: NavItem[] = [
   { to: "/ws-cleanup", label: "整理", section: "運用" },
   { to: "/library", label: "記憶整理", section: "運用" },
   { to: "/federation", label: "拠点", section: "運用" },
+  { to: "/projects", label: "プロジェクト", section: "設定" },
   { to: "/skills", label: "Skills", section: "設定" },
   { to: "/manuals", label: "マニュアル", section: "設定" },
   { to: "/setup", label: "Setup", section: "設定" },
@@ -82,6 +84,7 @@ export function App() {
           <Route path="/staff" element={<Staff />} />
           <Route path="/subsidiaries" element={<Subsidiaries />} />
           <Route path="/federation" element={<Federation />} />
+          <Route path="/projects" element={<ProjectCodes />} />
           <Route path="/setup" element={<Setup />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

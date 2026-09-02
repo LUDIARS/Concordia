@@ -103,6 +103,7 @@ import { startRepoChangeWatcher } from "../stat/repo-change-watcher.js";
 import { startPrIngestWatcher } from "../pr/ingest.js";
 import { startPrReconciler } from "../pr/reconcile.js";
 import { createRevisorClient } from "../pr/revisor-client.js";
+import { createRevisorRepositoryClient } from "../pr/revisor-repository-client.js";
 import { createRevisorLocalPrClient } from "../pr/revisor-local-pr-client.js";
 import { submitSessionLocalPr } from "../pr/local-pr-submission.js";
 import { submitDirectLocalPr } from "../pr/direct-submission.js";
@@ -712,6 +713,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorConfigRepo = makeRevisorConfigRepo(db);
   const resolveRevisorToken = () => resolveRevisorWorkflowToken(revisorConfigRepo, secretBox);
   const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
+  const revisorRepositoryClient = createRevisorRepositoryClient(excubitorClient, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
   const memoriaClient = new MemoriaClient();
   const checkDependencies = createDependencyReadinessChecker({
@@ -1279,6 +1281,7 @@ export async function startBackend(): Promise<BackendHandle> {
     staff: staffRepo,
     // PRs ページの Revisor セクション (local PR 一覧 + Revisor UI へのリンク)。
     revisorLocalPrs: revisorClient ?? undefined,
+    revisorAdmin: revisorRepositoryClient,
     revisorLocalPrMerger: revisorClient,
     revisorLocalPrCloser: revisorClient,
     revisorLocalPrPromoter: revisorClient,

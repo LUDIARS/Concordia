@@ -132,6 +132,36 @@ export class TeamsRepo {
     `).all(id) as Array<{ repo_origin: string }>).map((row) => row.repo_origin);
   }
 
+  /** 全チームの repo 割当を一括で返す (project registry の所属表示用)。 */
+  listRepoAssignments(): Array<{ team_id: string; repo_origin: string }> {
+    return this.db.prepare("SELECT team_id, repo_origin FROM team_repos ORDER BY team_id")
+      .all() as Array<{ team_id: string; repo_origin: string }>;
+  }
+
+  /** repo_origin の所属チーム集合を置き換える (空配列で無所属)。 */
+  assignRepoToTeams(repoOrigin: string, teamIds: readonly string[]): void {
+    const run = this.db.transaction(() => {
+      this.db.prepare("DELETE FROM team_repos WHERE lower(repo_origin) = lower(?)").run(repoOrigin);
+      const insert = this.db.prepare("INSERT INTO team_repos(team_id, repo_origin) VALUES (?, ?)");
+      for (const teamId of new Set(teamIds)) insert.run(teamId, repoOrigin);
+    });
+    run.immediate();
+  }
+
+  /** repo origin の編集時に、既存の所属を新しい origin へ原子的に引き継ぐ。 */
+  moveRepoAssignment(fromOrigin: string, toOrigin: string): void {
+    const run = this.db.transaction(() => {
+      const current = this.db.prepare(
+        "SELECT DISTINCT team_id FROM team_repos WHERE lower(repo_origin) IN (lower(?), lower(?))",
+      ).all(fromOrigin, toOrigin) as Array<{ team_id: string }>;
+      this.db.prepare("DELETE FROM team_repos WHERE lower(repo_origin) IN (lower(?), lower(?))")
+        .run(fromOrigin, toOrigin);
+      const insert = this.db.prepare("INSERT INTO team_repos(team_id, repo_origin) VALUES (?, ?)");
+      for (const row of current) insert.run(row.team_id, toOrigin);
+    });
+    run.immediate();
+  }
+
   forRepo(repoOrigin: string, subsidiaryId: string | null = null): TeamRow[] {
     return this.db.prepare(`
       SELECT teams.*

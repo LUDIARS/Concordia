@@ -85,7 +85,11 @@ import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import type { SubsidiaryBudgetTracker } from "../subsidiary/budget.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import type { StaffRepo } from "../db/staff-repo.js";
-import type { RevisorLocalPrCloser, RevisorLocalPrReader } from "../pr/revisor-client.js";
+import type {
+  RevisorLocalPrCloser,
+  RevisorLocalPrReader,
+} from "../pr/revisor-client.js";
+import type { RevisorRepositoryAdmin } from "../pr/revisor-repository-client.js";
 import type { RevisorConfigRepo } from "../db/revisor-config-repo.js";
 import { revisorAdminRouter } from "./revisor-admin.js";
 import type { SubsidiaryBotManager } from "../subsidiary/manager.js";
@@ -191,6 +195,8 @@ export interface CoreDelegationDeps {
   staff?: StaffRepo;
   /** Revisor local PR の読み取り口。 未注入なら /v1/prs/revisor は configured=false。 */
   revisorLocalPrs?: RevisorLocalPrReader;
+  /** project registry (Rv モード表示/変更) 用の Revisor repository 管理口。 */
+  revisorAdmin?: RevisorRepositoryAdmin;
   /** Revisor workflow token の設定ストア。 未注入なら /v1/admin/revisor は生えない。 */
   revisorConfig?: RevisorConfigRepo;
   /** session の作業ブランチを Revisor へ local PR として提出する (レビュー発火)。 */
@@ -415,6 +421,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     projectCodesRouter({
       repo: deps.projectCodes,
       resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      teams: deps.teams,
+      subsidiaries: deps.subsidiary,
+      revisor: deps.revisorAdmin,
     }),
   );
   app.route("/v1/delegation", delegationRouter({

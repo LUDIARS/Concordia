@@ -2,15 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectCodeRow } from "../db/project-codes-repo.js";
 import { projectCodesRouter } from "./project-codes.js";
 
-const { inspectImplementationRepo, isWithinWorkspace } = vi.hoisted(() => ({
-  inspectImplementationRepo: vi.fn(),
-  isWithinWorkspace: vi.fn(),
-}));
-
-vi.mock("../implementation-tools/repo-context.js", () => ({
-  inspectImplementationRepo,
-  isWithinWorkspace,
-}));
+// git 検査は module mock でなく DI (deps.repoContext) で差し替える。
+// isolate:false の registry 共有では vi.mock がロード順依存で効かないことがある。
+const inspectImplementationRepo = vi.fn();
+const isWithinWorkspace = vi.fn();
+const repoContext = { inspectImplementationRepo, isWithinWorkspace } as never;
 
 const storedRow: ProjectCodeRow = {
   code: "Cc",
@@ -56,6 +52,7 @@ describe("projectCodesRouter", () => {
     const app = projectCodesRouter({
       repo: { list: () => [], register } as never,
       resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      repoContext,
     });
 
     const response = await app.request("/", {
@@ -87,6 +84,7 @@ describe("projectCodesRouter", () => {
     const app = projectCodesRouter({
       repo: { list: () => [] } as never,
       resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      repoContext,
     });
 
     const response = await app.request("/", {

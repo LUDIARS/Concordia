@@ -71,10 +71,57 @@ export class ProjectCodesRepo {
     return run.immediate();
   }
 
-  private assertUnclaimed(field: "project" | "repo_path" | "repo_origin", value: string): void {
+  /**
+   * 登録済み行の部分更新。 code の付け替え (rename) も受ける。 検査と UPDATE は
+   * register と同じく 1 transaction に閉じ、 衝突は ProjectCodeConflictError で返す。
+   */
+  update(code: string, patch: {
+    code?: string;
+    project?: string;
+    repoPath?: string;
+    repoOrigin?: string | null;
+  }): ProjectCodeRow | null {
+    const run = this.db.transaction((): ProjectCodeRow | null => {
+      const existing = this.findByCode(code);
+      if (!existing) return null;
+      const nextCode = patch.code ?? existing.code;
+      const nextProject = patch.project ?? existing.project;
+      const nextRepoPath = patch.repoPath === undefined
+        ? existing.repo_path
+        : canonicalSeparators(patch.repoPath);
+      const nextRepoOrigin = patch.repoOrigin === undefined ? existing.repo_origin : patch.repoOrigin;
+
+      if (nextCode !== existing.code && this.findByCode(nextCode)) {
+        throw new ProjectCodeConflictError("code");
+      }
+      this.assertUnclaimed("project", nextProject, existing.code);
+      this.assertUnclaimed("repo_path", nextRepoPath, existing.code);
+      if (nextRepoOrigin) this.assertUnclaimed("repo_origin", nextRepoOrigin, existing.code);
+
+      this.db.prepare(`
+        UPDATE project_codes
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, updated_at = ?
+        WHERE code = ? COLLATE BINARY
+      `).run(nextCode, nextProject, nextRepoPath, nextRepoOrigin, Date.now(), existing.code);
+      return this.findByCode(nextCode);
+    });
+    return run.immediate();
+  }
+
+  remove(code: string): boolean {
+    return this.db.prepare("DELETE FROM project_codes WHERE code = ? COLLATE BINARY").run(code).changes > 0;
+  }
+
+  private assertUnclaimed(
+    field: "project" | "repo_path" | "repo_origin",
+    value: string,
+    excludeCode?: string,
+  ): void {
     // field は閉じた union のみ。 値は常に bind parameter で渡す。
-    const found = this.db.prepare(`SELECT code FROM project_codes WHERE ${field} = ? COLLATE NOCASE LIMIT 1`)
-      .get(value) as { code: string } | undefined;
+    const found = this.db.prepare(
+      `SELECT code FROM project_codes WHERE ${field} = ? COLLATE NOCASE `
+      + `AND code != ? COLLATE BINARY LIMIT 1`,
+    ).get(value, excludeCode ?? "") as { code: string } | undefined;
     if (found) throw new ProjectCodeConflictError(field);
   }
 }

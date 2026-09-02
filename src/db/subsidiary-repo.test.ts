@@ -48,4 +48,22 @@ describe("SubsidiaryRepo 関係プロジェクト", () => {
     expect(repo.listProjects(b.id)).toEqual(["Ludus"]);
     db.close();
   });
+
+  it("project 名の変更時に所属を引き継ぎ、旧名を残さない", () => {
+    const { db, repo } = setup();
+    const sub = repo.create({ name: "sub-move", display_name: "Move" });
+    const second = repo.create({ name: "sub-move-2", display_name: "Move 2" });
+    repo.assignProjectToSubsidiaries("OldProject", [sub.id, second.id]);
+
+    repo.moveProjectAssignment("oldproject", "NewProject");
+
+    expect(repo.listProjects(sub.id)).toEqual(["NewProject"]);
+    expect(repo.listProjects(second.id)).toEqual(["NewProject"]);
+    expect(repo.listProjectAssignments()).toEqual(expect.arrayContaining([
+      { subsidiary_id: sub.id, project: "NewProject" },
+      { subsidiary_id: second.id, project: "NewProject" },
+    ]));
+    expect(repo.listProjectAssignments()).toHaveLength(2);
+    db.close();
+  });
 });

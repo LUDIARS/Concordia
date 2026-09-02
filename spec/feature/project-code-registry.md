@@ -4,7 +4,7 @@ title: "Project code registry — Cc 所有の空初期レジストリ"
 service: concordia
 domain: project-code-registry
 status: implemented
-updated: 2026-08-22
+updated: 2026-09-02
 ---
 
 # Project code registry
@@ -29,3 +29,18 @@ session title、forum routing の正本には使わない。
 - `POST /v1/project-codes { code, repo_path, added_by? }` — 検証済み登録。
 - `/project-code add code:<code> repo:<absolute-path>` — 管理職向け Discord command。
 - `/project-code list` と `/projects` — 現在の DB 正本を表示。
+
+### 管理 UI
+
+- `GET /v1/project-codes/admin` は loopback 管理面に、監査項目、repo origin、所属チーム、
+  所属会社、Revisor workflow を含む一覧を返す。
+- `PATCH /v1/project-codes/:code` は code / project / repo path / repo origin を部分更新する。
+  repo path を変える場合は登録時と同じ workspace・Git repository 検査を必須とする。
+- project または repo origin を変更した場合、`subsidiary_projects` / `team_repos` の既存の
+  複数割当をすべて新しい識別子へ引き継ぐ。登録を削除した場合は、対応する割当行を残さない。
+- `PUT .../team { team_ids }` と `PUT .../subsidiary { subsidiary_ids }` は複数割当を置き換える。
+  空配列はそれぞれ無所属・本社のみを表す。既存の多対多契約を単一所属へ縮退させない。
+- `PUT .../revisor-workflow` は既存の Revisor repository 登録を round-trip し、登録テストを
+  保持したまま workflow だけを変更する。Revisor の変更系契約どおり workflow token と
+  Concordia actor identity を付け、token 未設定・未登録・到達不能は明示的に失敗する。
+- Revisor からの未検証データやエラー本文をブラウザへ素通ししない。

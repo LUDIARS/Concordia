@@ -36,6 +36,22 @@ describe("TeamsRepo", () => {
     db.close();
   });
 
+  it("moves a repository assignment without leaving the old origin behind", () => {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new TeamsRepo(db);
+    const team = repo.create({ name: "MoveTeam", slug: "move-team" });
+    const second = repo.create({ name: "SecondTeam", slug: "second-team" });
+    repo.assignRepoToTeams("LUDIARS/OldName", [team.id, second.id]);
+
+    repo.moveRepoAssignment("ludiars/oldname", "LUDIARS/NewName");
+
+    expect(repo.repos(team.id)).toEqual(["LUDIARS/NewName"]);
+    expect(repo.repos(second.id)).toEqual(["LUDIARS/NewName"]);
+    expect(repo.forRepo("LUDIARS/OldName")).toEqual([]);
+    db.close();
+  });
+
   it("resolves a team surface channel_id and returns null when unprovisioned", () => {
     const db = new Database(":memory:");
     applyMigrations(db);

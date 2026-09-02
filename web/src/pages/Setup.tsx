@@ -209,7 +209,8 @@ Invoke-RestMethod -Uri http://127.0.0.1:11111/v1/chat -Method Post -ContentType 
           <p className="text-danger text-[11px] mt-3">load error: {projectCodes.error.message}</p>
         )}
         <p className="text-subtle text-[11px] mt-3">
-          正本: <code>Concordia DB / project_codes</code>（初期登録なし）
+          正本: <code>Concordia DB / project_codes</code>（初期登録なし）。
+          登録・編集は <a href="/projects" className="text-accent underline">プロジェクト</a> ページから。
         </p>
       </section>
     </div>

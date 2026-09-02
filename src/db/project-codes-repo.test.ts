@@ -82,3 +82,52 @@ describe("ProjectCodesRepo", () => {
     db.close();
   });
 });
+
+describe("ProjectCodesRepo update/remove", () => {
+  function seeded() {
+    const db = new Database(":memory:");
+    applyMigrations(db);
+    const repo = new ProjectCodesRepo(db);
+    repo.register({
+      code: "MN",
+      project: "MakaiNui",
+      repoPath: "E:/Document/Ars/MakaiNui",
+      repoOrigin: "https://github.com/MELPOT/MakaiNui.git",
+      addedBy: "test",
+    });
+    repo.register({
+      code: "Cc",
+      project: "Concordia",
+      repoPath: "E:/Document/Ars/Concordia",
+      repoOrigin: "https://github.com/LUDIARS/Concordia.git",
+      addedBy: "test",
+    });
+    return { db, repo };
+  }
+
+  it("updates fields in place and supports code rename", () => {
+    const { db, repo } = seeded();
+    const row = repo.update("MN", { code: "Mk", repoOrigin: null });
+    expect(row).toMatchObject({ code: "Mk", project: "MakaiNui", repo_origin: null });
+    expect(repo.findByCode("MN")).toBeNull();
+    db.close();
+  });
+
+  it("keeps its own values out of conflict checks but rejects taking another row's", () => {
+    const { db, repo } = seeded();
+    // 自分自身の現値をそのまま渡しても衝突にしない。
+    expect(repo.update("MN", { project: "MakaiNui" })).toMatchObject({ code: "MN" });
+    expect(() => repo.update("MN", { project: "Concordia" })).toThrow(ProjectCodeConflictError);
+    expect(() => repo.update("MN", { code: "Cc" })).toThrow(ProjectCodeConflictError);
+    db.close();
+  });
+
+  it("normalizes repo_path separators on update and removes rows", () => {
+    const { db, repo } = seeded();
+    const row = repo.update("MN", { repoPath: "E:\\Document\\Ars\\MakaiNui2" });
+    expect(row?.repo_path).toBe("E:/Document/Ars/MakaiNui2");
+    expect(repo.remove("MN")).toBe(true);
+    expect(repo.remove("MN")).toBe(false);
+    db.close();
+  });
+});

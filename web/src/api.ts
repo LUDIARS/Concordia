@@ -717,6 +717,23 @@ export const api = {
       source: "concordia-db";
       categories: Array<{ name: string; entries: Array<[string, string]> }>;
     }>("/v1/project-codes"),
+  projectCodesAdmin: () => get<ProjectCodesAdminResult>("/v1/project-codes/admin"),
+  projectCodeRegister: (body: { code: string; repo_path: string; added_by?: string }) =>
+    post<{ project_code: { code: string }; created: boolean }>("/v1/project-codes", body),
+  projectCodeUpdate: (
+    code: string,
+    body: { code?: string; project?: string; repo_path?: string; repo_origin?: string | null },
+  ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
+  projectCodeDelete: (code: string) =>
+    del<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}`),
+  projectCodeAssignTeams: (code: string, teamIds: string[]) =>
+    put<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}/team`, { team_ids: teamIds }),
+  projectCodeAssignSubsidiaries: (code: string, subsidiaryIds: string[]) =>
+    put<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}/subsidiary`, {
+      subsidiary_ids: subsidiaryIds,
+    }),
+  projectCodeSetRevisorWorkflow: (code: string, workflow: "revisor" | "github") =>
+    put<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}/revisor-workflow`, { workflow }),
   adminSpawn: (body: {
     provider?: SpawnProvider;
     /** delegation テンプレ call_name 起動。 指定時は provider/model/既定 cwd をテンプレから採用 */
@@ -1356,4 +1373,24 @@ export function statusBadge(status: SessionRow["status"]): string {
     case "abandoned": return "bg-danger/20 text-danger";
     case "ended":     return "bg-subtle/20 text-subtle";
   }
+}
+
+/** 管理 UI 用 project registry の 1 行 (GET /v1/project-codes/admin)。 */
+export interface ProjectCodeAdminEntry {
+  code: string;
+  project: string;
+  repo_path: string;
+  repo_origin: string | null;
+  added_by: string;
+  updated_at: number;
+  teams: Array<{ id: string; name: string }>;
+  subsidiaries: Array<{ id: string; name: string }>;
+  revisor: { registered: boolean; workflow: "revisor" | "github" | null } | null;
+}
+
+export interface ProjectCodesAdminResult {
+  entries: ProjectCodeAdminEntry[];
+  teams: Array<{ id: string; name: string }>;
+  subsidiaries: Array<{ id: string; name: string }>;
+  revisor_available: boolean;
 }

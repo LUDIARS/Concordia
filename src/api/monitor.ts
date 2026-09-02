@@ -14,6 +14,13 @@ import { probeProjectSufficiency, type ProjectSufficiency } from "../harness/dat
 import { repoLeaf } from "../harness/predicates.js";
 import { serializeSession } from "./sessions.js";
 import { isWorkspaceRootRepo } from "../control/conflict-scope.js";
+import { createTtlMemo } from "./ttl-memo.js";
+
+/**
+ * /conflicts の母集団 (active セッション一覧) を共有する時間 (ms)。
+ * HTTP キャッシュの /v1/monitor と同じ短い 500ms に揃える。
+ */
+const CONFLICTS_SESSIONS_TTL_MS = 500;
 
 export interface MonitorApiDeps {
   repo: SessionsRepo;
@@ -21,10 +28,16 @@ export interface MonitorApiDeps {
   resolveWorkspaceRoots?: () => string[];
   /** ホストメトリクスの読み出し (省略時は metrics 機能無効として 503)。 */
   metrics?: MetricsStore;
+  /** TTL 判定時刻。テスト以外は Date.now。 */
+  now?: () => number;
 }
 
 export function monitorRouter(deps: MonitorApiDeps): Hono {
   const app = new Hono();
+
+  // exclude_session ごとに HTTP キャッシュのキーが分かれるため、呼び出し元に依存しない
+  // 母集団だけをここで共有し、絞り込みは要求ごとに行う (絞り込みの意味は変えない)。
+  const getActiveSessions = createTtlMemo<SessionRow[]>(CONFLICTS_SESSIONS_TTL_MS, deps.now);
 
   app.get("/", async (c) => {
     const active = deps.repo.listSessions({ status: "active" });
@@ -74,7 +87,15 @@ export function monitorRouter(deps: MonitorApiDeps): Hono {
       });
     }
 
-    const all = deps.repo.listSessions({ status: "active" });
+    // Cache-Control による明示的な鮮度要求は HTTP キャッシュだけでなく、この共有メモにも
+    // 適用する。競合確認の強制 refresh が古い母集団を返してはならない。
+    const forceRefresh = /(?:^|,)\s*no-(?:cache|store)\s*(?:,|$)/i.test(
+      c.req.header("cache-control") ?? "",
+    );
+    const all = getActiveSessions(
+      () => deps.repo.listSessions({ status: "active" }),
+      forceRefresh,
+    );
 
     // repo 一致 (caller 自身は除外) — branches 集計の母集団.
     const sameRepo = all.filter((s) => {

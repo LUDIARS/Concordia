@@ -52,8 +52,21 @@ export function parsePosixProcs(raw: string): ProcEntry[] {
   return out;
 }
 
-/** rootPid を根とする部分木 (自身 + 全子孫) の RSS を合算 (pure)。 cycle 安全。 */
-export function sumTreeRss(procs: ProcEntry[], rootPid: number): TreeRss {
+/**
+ * pid → entry と ppid → 子 pid[] の索引。
+ *
+ * 索引の構築はプロセス総数に比例する。 セッションごとに `sumTreeRss` を呼ぶと
+ * 「セッション数 × 全プロセス数」 の再構築になり、毎 tick で Map を作り捨てるぶん
+ * GC も回る。
+ * 複数の根を集計するときは索引を 1 回だけ作って共有する。
+ */
+export interface ProcessIndex {
+  byPid: ReadonlyMap<number, ProcEntry>;
+  children: ReadonlyMap<number, readonly number[]>;
+}
+
+/** プロセス一覧から索引を作る (pure)。 自己参照 (ppid === pid) は親子に載せない。 */
+export function buildProcessIndex(procs: ProcEntry[]): ProcessIndex {
   const byPid = new Map<number, ProcEntry>();
   const children = new Map<number, number[]>();
   for (const p of procs) {
@@ -64,6 +77,14 @@ export function sumTreeRss(procs: ProcEntry[], rootPid: number): TreeRss {
       children.set(p.ppid, arr);
     }
   }
+  return { byPid, children };
+}
+
+/**
+ * 共有索引を使って rootPid の部分木 (自身 + 全子孫) の RSS を合算 (pure)。 cycle 安全。
+ * 索引は読むだけで書き換えないので、 同じ索引を何度でも使い回してよい。
+ */
+export function sumTreeRssIndexed({ byPid, children }: ProcessIndex, rootPid: number): TreeRss {
   if (!byPid.has(rootPid)) return { rssBytes: 0, procCount: 0 };
   let rssBytes = 0;
   let procCount = 0;
@@ -80,6 +101,14 @@ export function sumTreeRss(procs: ProcEntry[], rootPid: number): TreeRss {
     for (const ch of children.get(pid) ?? []) if (!visited.has(ch)) stack.push(ch);
   }
   return { rssBytes, procCount };
+}
+
+/**
+ * 単発用。 索引を都度作るので、 複数の根を集計するときは使わず
+ * `buildProcessIndex` + `sumTreeRssIndexed` を使う。
+ */
+export function sumTreeRss(procs: ProcEntry[], rootPid: number): TreeRss {
+  return sumTreeRssIndexed(buildProcessIndex(procs), rootPid);
 }
 
 export interface TopProc {

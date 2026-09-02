@@ -11,6 +11,7 @@ import { EventLoopLagSampler } from "./event-loop-lag.js";
 import type { LagSnapshot } from "./event-loop-lag.js";
 import { EventLoopLagAlert } from "./lag-alert.js";
 import { createLoopBulkhead } from "../shared/loop-bulkhead.js";
+import { createPruneScheduler } from "./prune-scheduler.js";
 
 const log = createChildLogger("metrics");
 
@@ -38,6 +39,8 @@ export function startMetricsLoop(
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
   const startDelayMs = readNonNegativeIntEnv("CONCORDIA_METRICS_START_DELAY_MS", 30_000);
+  const pruneIntervalMs = readPositiveIntEnv("CONCORDIA_METRICS_PRUNE_INTERVAL_MS", 10 * 60_000);
+  const runScheduledPrune = createPruneScheduler(pruneIntervalMs);
   const lagAlert = new EventLoopLagAlert({
     thresholdMs: readPositiveIntEnv("CONCORDIA_EVENT_LOOP_LAG_ALERT_MS", 200),
     consecutiveSamples: readPositiveIntEnv("CONCORDIA_EVENT_LOOP_LAG_ALERT_SAMPLES", 3),
@@ -65,14 +68,19 @@ export function startMetricsLoop(
       const snap = await collectHostSnapshot(deps.repo, Date.now(), deps.excubitorClient);
       snap.eventLoopLag = lagSnap;
       deps.store.insert(snap);
-      deps.store.prune(Date.now() - opts.retentionHours * 3_600_000);
+      // 剪定は保持期間 (既定 24h) に対して十分細かければよく、 採取のたびに DELETE を
+      // 撃つ必要はない。 毎 tick 実行すると同期 DELETE がそのままイベントループ停止に
+      // 乗るので、 間隔を空けて撃つ。
+      runScheduledPrune((now) => {
+        deps.store.prune(now - opts.retentionHours * 3_600_000);
+      });
     });
     if (!stopped && !bulkhead.isHalted()) timer = setTimeout(() => void tick(), opts.intervalMs);
   };
 
   timer = setTimeout(() => void tick(), startDelayMs);
   timer.unref?.();
-  log.info({ intervalMs: opts.intervalMs, startDelayMs }, "metrics loop started");
+  log.info({ intervalMs: opts.intervalMs, startDelayMs, pruneIntervalMs }, "metrics loop started");
 
   return {
     stop: () => {
@@ -87,7 +95,8 @@ function readPositiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw) return fallback;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  const integer = Math.floor(parsed);
+  return Number.isFinite(parsed) && integer > 0 ? integer : fallback;
 }
 
 function readNonNegativeIntEnv(name: string, fallback: number): number {

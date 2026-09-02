@@ -17,7 +17,7 @@ import os from "node:os";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { parseLictorPid } from "../control/reaper.js";
-import { listProcesses, sumTreeRss, topByName, type TopProc } from "./process-tree.js";
+import { buildProcessIndex, listProcesses, sumTreeRssIndexed, topByName, type TopProc } from "./process-tree.js";
 import type { LagSnapshot } from "./event-loop-lag.js";
 
 export interface SessionMem {
@@ -59,11 +59,14 @@ export async function collectHostSnapshot(
 
   const sessions: SessionMem[] = [];
   if (procList) {
+    // 索引はセッションをまたいで使い回す。 セッションごとに作り直すと
+    // 「セッション数 × 全プロセス数」 になり、 毎 tick の GC 負荷にもなる。
+    const index = buildProcessIndex(procList);
     for (const status of ["active", "lost"] as const) {
       for (const s of repo.listSessions({ status })) {
         const pid = parseLictorPid(s.metadata);
         if (pid == null) continue;
-        const tree = sumTreeRss(procList, pid);
+        const tree = sumTreeRssIndexed(index, pid);
         if (tree.procCount === 0) continue; // プロセス不在 (終了済) は載せない
         sessions.push({
           session_id: s.id,

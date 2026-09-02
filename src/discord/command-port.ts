@@ -48,7 +48,10 @@ export interface DiscordCommandDeps {
   forumSpawnApprovalCardAuthorId?: string;
   /** 承認された forum スレッドで spawn を続行する (bot.ts が thread 再取得を配線)。 */
   /** 再起動で pending が消えた承認カード押下から、内容指紋が一致する承認対象を復元する。 */
-  recoverForumSpawnApproval?: (threadId: string) => Promise<
+  recoverForumSpawnApproval?: (
+    threadId: string,
+    snapshot: import("./forum-spawn-approval.js").ForumSpawnApprovalCardSnapshot | null,
+  ) => Promise<
     { requesterUserId: string; approvedContent: import("./forum-spawn.js").ApprovedForumSpawnContent } | null
   >;
   executeApprovedForumSpawn?: (

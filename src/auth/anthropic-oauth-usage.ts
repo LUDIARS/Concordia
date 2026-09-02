@@ -50,6 +50,12 @@ export interface OAuthUsage {
   sevenDay: OAuthUsageWindow | null;
   sevenDaySonnet: OAuthUsageWindow | null;
   sevenDayOpus: OAuthUsageWindow | null;
+  /**
+   * Fable (Mythos 級) 単独の週間窓。 API の `seven_day_fable` / `seven_day_mythos` 系キーを
+   * 名前照合で拾う (2026-09-03: forum spawn のモデルサジェストが Fable 可否の判定に使う)。
+   * 無ければ null = 「Fable 使用量は取れない」。
+   */
+  sevenDayFable: OAuthUsageWindow | null;
   extraCredit: OAuthUsageExtraCredit;
   fetchedAt: number;
 }
@@ -129,6 +135,7 @@ function parseUsage(raw: unknown): OAuthUsage {
     sevenDay: parseWindow(r.seven_day),
     sevenDaySonnet: parseWindow(r.seven_day_sonnet),
     sevenDayOpus: parseWindow(r.seven_day_opus),
+    sevenDayFable: parseFableWindow(r),
     extraCredit: {
       isEnabled: extra.is_enabled === true,
       monthlyLimit: typeof extra.monthly_limit === "number" ? extra.monthly_limit : null,
@@ -156,6 +163,17 @@ function parseWindow(v: unknown): OAuthUsageWindow | null {
   const sec = Math.floor(new Date(r).getTime() / 1000);
   if (!Number.isFinite(sec) || sec <= 0) return null;
   return { utilization: u, resetsAtSec: sec };
+}
+
+/** `seven_day_fable` / `seven_day_mythos` など Fable 級の窓を名前で拾う (キー名は未確定なので照合)。 */
+function parseFableWindow(r: Record<string, unknown>): OAuthUsageWindow | null {
+  for (const key of Object.keys(r)) {
+    if (/^seven_day_(fable|mythos)/.test(key)) {
+      const window = parseWindow(r[key]);
+      if (window) return window;
+    }
+  }
+  return null;
 }
 
 /** テスト用. キャッシュをクリアする. */

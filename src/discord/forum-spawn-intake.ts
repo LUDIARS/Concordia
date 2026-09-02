@@ -50,6 +50,16 @@ export interface ForumSpawnModelChoice {
   defaultEffort: string;
 }
 
+/**
+ * モデル/Effort の機械サジェスト (forum-model-suggest.ts、2026-09-03 neco 指示)。
+ * カードの初期選択にし、根拠を 1 行添える。 人間は選び直せる。
+ */
+export interface ForumSpawnModelSuggestion {
+  nick: string;
+  effort: string;
+  reason: string;
+}
+
 /** Effort の選択肢 (Test forum と同じ語彙。 minimal は codex 系のみ有効で claude は low 扱い)。 */
 export const FORUM_INTAKE_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 
@@ -77,6 +87,8 @@ export interface PendingForumSpawnIntake {
   chosenModel?: string;
   /** モデル質問カードで選択中の effort。 未選択はモデルの既定。 */
   chosenEffort?: string;
+  /** 質問時に出した機械サジェスト (カード再描画で根拠を出し続けるために保持)。 */
+  suggestion?: ForumSpawnModelSuggestion;
 }
 
 /** thread id をキーにした保留質問。 1 スレッドにつき 1 件しか持たない。 */
@@ -108,12 +120,22 @@ export function buildForumSpawnModelQuestion(input: {
   modelChoices: readonly ForumSpawnModelChoice[];
   chosenModel?: string;
   chosenEffort?: string;
+  suggestion?: ForumSpawnModelSuggestion;
 }): { content: string; components: ForumSpawnIntakeComponentRow[] } {
   const chosen = input.modelChoices.find((choice) => choice.nick === input.chosenModel);
   const effectiveEffort = input.chosenEffort ?? chosen?.defaultEffort;
+  const suggested = input.suggestion
+    ? input.modelChoices.find((choice) => choice.nick === input.suggestion?.nick)
+    : undefined;
   const content = [
     `<@${input.requesterUserId}> 起動するモデルと Effort を選んで「起動」を押してください。`,
     "",
+    ...(suggested && input.suggestion
+      ? [
+        `自動サジェスト: ${suggested.emoji ? `${suggested.emoji} ` : ""}**${suggested.label}**`
+        + ` / effort: **${input.suggestion.effort}** (${input.suggestion.reason})`,
+      ]
+      : []),
     chosen
       ? `選択中: ${chosen.emoji ? `${chosen.emoji} ` : ""}**${chosen.label}** / effort: **${effectiveEffort}**`
       : "選択中: (モデル未選択)",
@@ -158,6 +180,7 @@ export function buildForumSpawnIntakeQuestion(input: {
   modelChoices?: readonly ForumSpawnModelChoice[];
   chosenModel?: string;
   chosenEffort?: string;
+  suggestion?: ForumSpawnModelSuggestion;
   threadId: string;
 }): { content: string; components: ForumSpawnIntakeComponentRow[] } {
   // モデルだけが不足 (project/task は揃っている) なら Test forum 同型のモデル/Effort カード。
@@ -171,6 +194,7 @@ export function buildForumSpawnIntakeQuestion(input: {
       modelChoices: input.modelChoices!,
       chosenModel: input.chosenModel,
       chosenEffort: input.chosenEffort,
+      suggestion: input.suggestion,
     });
   }
   const asks: string[] = [];
@@ -239,6 +263,8 @@ export interface ForumSpawnIntakeRequest {
   templateChoices?: readonly ForumSpawnTemplateChoice[];
   /** モデル質問時の候補 (Fable/Opus/Sonnet/Sol/Terra、delegation template から解決)。 */
   modelChoices?: readonly ForumSpawnModelChoice[];
+  /** モデル質問の初期選択にする機械サジェスト。 候補に無い nick は無視する。 */
+  suggestion?: ForumSpawnModelSuggestion;
 }
 
 /**
@@ -258,12 +284,19 @@ export async function requestForumSpawnIntake(
     return false;
   }
 
+  // サジェストは候補に実在するときだけ初期選択にする (存在しない nick で「起動」を通さない)。
+  const suggestion = request.suggestion
+    && (request.modelChoices ?? []).some((choice) => choice.nick === request.suggestion?.nick)
+    && (FORUM_INTAKE_EFFORTS as readonly string[]).includes(request.suggestion.effort)
+    ? request.suggestion
+    : undefined;
   const question = buildForumSpawnIntakeQuestion({
     requesterUserId: request.requesterUserId,
     missing: request.missing,
     projectChoices: request.projectChoices,
     templateChoices: request.templateChoices,
     modelChoices: request.modelChoices,
+    ...(suggestion ? { chosenModel: suggestion.nick, chosenEffort: suggestion.effort, suggestion } : {}),
     threadId: request.threadId,
   });
   deps.store.set(request.threadId, {
@@ -277,6 +310,7 @@ export async function requestForumSpawnIntake(
     status: "waiting",
     createdAt: now,
     ...(request.modelChoices?.length ? { modelChoices: [...request.modelChoices] } : {}),
+    ...(suggestion ? { chosenModel: suggestion.nick, chosenEffort: suggestion.effort, suggestion } : {}),
   });
   try {
     await deps.postCard(request.threadId, question.content, question.components);
@@ -464,6 +498,7 @@ export async function dispatchForumSpawnIntakeInteraction(
       modelChoices: updated.modelChoices ?? [],
       chosenModel: updated.chosenModel,
       chosenEffort: updated.chosenEffort,
+      suggestion: updated.suggestion,
     });
     await ix.update({
       content: card.content,

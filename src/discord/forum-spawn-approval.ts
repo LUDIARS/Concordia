@@ -9,8 +9,15 @@
  * `/spawn` の執行役員一回許可 (spawn-approval.ts) と違い、承認対象は「このスレッド 1 件」
  * であり、承認者がボタンを押した時点で Cc がそのまま spawn を続行する (再実行は不要)。
  * 押下者の判定は社員名簿の session_spawn capability (管理職以上) を配線する。
+ *
+ * 承認カードは **起動に要る情報が揃ってから** 出す (2026-09-03 neco 指示: 承認 → 関係
+ * プロジェクト設定の順だと、承認後の内容変更として弾かれる)。 不足情報の聞き返し
+ * (forum-spawn-intake.ts) とモデル/Effort の選択を先に済ませ、確定した関係プロジェクト /
+ * モデル / effort / 補完済み本文をスナップショットとして承認対象にする。 カードには
+ * その内容を人間向けに載せ、末尾の JSON ブロックで再起動後の復元にも使う。
  */
 
+import { Buffer } from "node:buffer";
 import { createHash, randomUUID } from "node:crypto";
 import {
   ActionRowBuilder,
@@ -23,6 +30,9 @@ import type { ApprovedForumSpawnContent } from "./forum-spawn.js";
 const CUSTOM_ID_PREFIX = "forum-spawn-approval:";
 const REQUEST_TTL_MS = 60 * 60 * 1000;
 const CONTENT_FINGERPRINT_HEX_LENGTH = 32;
+const DISCORD_MESSAGE_MAX_LENGTH = 2_000;
+/** カード末尾の復元用 JSON ブロックのラベル。 */
+const CARD_SNAPSHOT_LABEL = "起動内容 (再起動後の復元用)";
 const consumedTokensByStore = new WeakMap<ForumSpawnApprovalStore, Map<string, number>>();
 
 export interface PendingForumSpawnApproval {
@@ -63,21 +73,13 @@ export async function requestForumSpawnApproval(
     guildId: thread.guildId,
     threadId: thread.id,
     requesterUserId: thread.ownerId,
-    approvedContent: {
-      title: thread.approvedContent.title,
-      body: thread.approvedContent.body,
-      tagState: {
-        appliedTags: [...thread.approvedContent.tagState.appliedTags],
-        availableTags: thread.approvedContent.tagState.availableTags.map((tag) => ({ ...tag })),
-      },
-    },
+    approvedContent: cloneApprovedContent(thread.approvedContent),
     createdAt: now,
   });
   try {
     await deps.postCard(
       thread.id,
-      `<@${thread.ownerId}> にはセッション起動権限がありません。` +
-        "管理職以上が「起動を許可」を押すと、この投稿内容でセッションを起動します (1時間で失効)。",
+      buildForumSpawnApprovalCardContent(thread.ownerId, thread.approvedContent),
       [approvalButtons(token, forumSpawnApprovalFingerprint(thread.approvedContent))],
     );
   } catch (error) {
@@ -104,10 +106,11 @@ export interface ForumSpawnApprovalDispatchDeps {
   approvalCardAuthorId?: string;
   /**
    * in-memory の pending が失われた承認カード (Cc 再起動でトークンが消える) の押下から、
-   * スレッドの現在内容を取得し、カードの内容指紋と一致する承認対象を復元する。
+   * スレッドの現在内容とカード末尾のスナップショット (関係プロジェクト / モデル / effort /
+   * 追記本文) を合わせて、カードの内容指紋と一致する承認対象を復元する。
    * null = 復元不可 (スレッド消失 / 対象外)。
    */
-  recoverApproval?: (threadId: string) => Promise<
+  recoverApproval?: (threadId: string, snapshot: ForumSpawnApprovalCardSnapshot | null) => Promise<
     { requesterUserId: string; approvedContent: ApprovedForumSpawnContent } | null
   >;
   log: { info: (message: string) => void; warn: (message: string) => void };
@@ -146,7 +149,9 @@ export async function dispatchForumSpawnApprovalInteraction(
       && interaction.channelId
       && interaction.guildId
     ) {
-      const recoveredPending = await deps.recoverApproval(interaction.channelId).catch(() => null);
+      const recoveredPending = await deps
+        .recoverApproval(interaction.channelId, parseForumSpawnApprovalCardSnapshot(card.content))
+        .catch(() => null);
       if (
         recoveredPending
         && forumSpawnApprovalFingerprint(recoveredPending.approvedContent) === parsed.contentFingerprint
@@ -244,26 +249,166 @@ function uniqueToken(store: ForumSpawnApprovalStore): string {
   return token;
 }
 
-/** 再起動後もカード作成時の承認対象を検証できる、custom-id 用の短い内容指紋。 */
+/**
+ * 再起動後もカード作成時の承認対象を検証できる、custom-id 用の短い内容指紋。
+ * 情報充足後に確定した関係プロジェクト / モデル / effort / テンプレも含める
+ * (承認したのは「この内容で起動すること」なので、選択の差し替えも改変として弾く)。
+ */
 export function forumSpawnApprovalFingerprint(content: ApprovedForumSpawnContent): string {
   return createHash("sha256")
     .update(JSON.stringify({
       title: content.title,
       body: content.body,
       appliedTags: [...content.tagState.appliedTags].sort(),
+      project: content.project ?? null,
+      model: content.model ?? null,
+      effort: content.effort ?? null,
+      template: content.template ?? null,
     }), "utf8")
     .digest("hex")
     .slice(0, CONTENT_FINGERPRINT_HEX_LENGTH);
 }
 
-function readApprovalCard(interaction: Interaction): { createdAt: number; authorId: string } | null {
+/** カード末尾の base64url 化 JSON に載せる、スレッド本文からは復元できない承認対象の差分。 */
+export interface ForumSpawnApprovalCardSnapshot {
+  project?: string;
+  model?: string;
+  effort?: string;
+  template?: string;
+  /** 不足情報の回答で starter 本文の後ろに足した部分 (`supplementForumSpawnBody` の追記)。 */
+  additions?: string;
+}
+
+/**
+ * 承認カードの本文。 承認者が「何を起動するか」を見て押せるように、確定した関係プロジェクト /
+ * モデル / effort / 追記本文を人間向けに載せ、末尾に復元用の base64url 化 JSON を添える。
+ */
+export function buildForumSpawnApprovalCardContent(
+  requesterUserId: string,
+  content: ApprovedForumSpawnContent,
+): string {
+  const snapshot = approvalCardSnapshot(content);
+  const additions = snapshot.additions;
+  let rendered = renderForumSpawnApprovalCardContent(requesterUserId, content, additions, snapshot);
+  if (rendered.length > DISCORD_MESSAGE_MAX_LENGTH && additions) {
+    // 追記は承認者に必ず見せる。二重掲載で上限を超えるときだけ JSON 側から外し、
+    // 再起動後の復元を fail-closed にする (in-memory pending からの承認は継続できる)。
+    const snapshotWithoutAdditions = { ...snapshot };
+    delete snapshotWithoutAdditions.additions;
+    rendered = renderForumSpawnApprovalCardContent(
+      requesterUserId,
+      content,
+      additions,
+      snapshotWithoutAdditions,
+    );
+  }
+  if (rendered.length > DISCORD_MESSAGE_MAX_LENGTH) {
+    throw new Error("forum spawn approval content exceeds Discord message limit");
+  }
+  return rendered;
+}
+
+function renderForumSpawnApprovalCardContent(
+  requesterUserId: string,
+  content: ApprovedForumSpawnContent,
+  additions: string | undefined,
+  snapshot: ForumSpawnApprovalCardSnapshot,
+): string {
+  const lines = [
+    `<@${requesterUserId}> にはセッション起動権限がありません。`
+      + "管理職以上が「起動を許可」を押すと、以下の内容でセッションを起動します (1時間で失効)。",
+    "",
+    `- 関係プロジェクト: **${content.project ?? "(投稿から解決)"}**`,
+    content.model
+      ? `- モデル: **${content.model}**${content.effort ? ` / effort: **${content.effort}**` : ""}`
+      : content.template
+        ? `- 起動テンプレ: **${content.template}**`
+        : "- モデル: (投稿から解決)",
+  ];
+  if (additions) {
+    lines.push("- 追記された内容:", "```", additions.replace(/```/g, "` ` `"), "```");
+  }
+  lines.push(`${CARD_SNAPSHOT_LABEL}: \`${encodeApprovalCardSnapshot(snapshot)}\``);
+  return lines.join("\n");
+}
+
+/** カード本文から復元用スナップショットを読む。 無い / 壊れている場合は null。 */
+export function parseForumSpawnApprovalCardSnapshot(content: string | null): ForumSpawnApprovalCardSnapshot | null {
+  if (!content) return null;
+  const marker = `${CARD_SNAPSHOT_LABEL}: \``;
+  const start = content.lastIndexOf(marker);
+  if (start < 0) return null;
+  const jsonStart = start + marker.length;
+  const end = content.indexOf("`", jsonStart);
+  if (end < 0) return null;
+  const serialized = content.slice(jsonStart, end);
+  let parsed: unknown;
+  try {
+    // 旧カードの平文 JSON も読み続ける。新形式は Markdown の区切り文字を含まない
+    // base64url とし、追記中のバッククォートで途中切断されないようにする。
+    const json = serialized.startsWith("{")
+      ? serialized
+      : Buffer.from(serialized, "base64url").toString("utf8");
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const record = parsed as Record<string, unknown>;
+  const snapshot: ForumSpawnApprovalCardSnapshot = {};
+  for (const key of ["project", "model", "effort", "template", "additions"] as const) {
+    const value = record[key];
+    if (typeof value === "string" && value) snapshot[key] = value;
+  }
+  return snapshot;
+}
+
+function encodeApprovalCardSnapshot(snapshot: ForumSpawnApprovalCardSnapshot): string {
+  return Buffer.from(JSON.stringify(snapshot), "utf8").toString("base64url");
+}
+
+function approvalCardSnapshot(content: ApprovedForumSpawnContent): ForumSpawnApprovalCardSnapshot {
+  const snapshot: ForumSpawnApprovalCardSnapshot = {};
+  if (content.project) snapshot.project = content.project;
+  if (content.model) snapshot.model = content.model;
+  if (content.effort) snapshot.effort = content.effort;
+  if (content.template) snapshot.template = content.template;
+  const starter = content.starterBody ?? content.body;
+  if (content.body !== starter && content.body.startsWith(starter)) {
+    const additions = content.body.slice(starter.length).trim();
+    if (additions) snapshot.additions = additions;
+  }
+  return snapshot;
+}
+
+function cloneApprovedContent(content: ApprovedForumSpawnContent): ApprovedForumSpawnContent {
+  return {
+    title: content.title,
+    body: content.body,
+    ...(content.starterBody !== undefined ? { starterBody: content.starterBody } : {}),
+    tagState: {
+      appliedTags: [...content.tagState.appliedTags],
+      availableTags: content.tagState.availableTags.map((tag) => ({ ...tag })),
+    },
+    ...(content.project ? { project: content.project } : {}),
+    ...(content.model ? { model: content.model } : {}),
+    ...(content.effort ? { effort: content.effort } : {}),
+    ...(content.template ? { template: content.template } : {}),
+  };
+}
+
+function readApprovalCard(interaction: Interaction): { createdAt: number; authorId: string; content: string | null } | null {
   const message = (interaction as {
-    message?: { createdTimestamp?: unknown; author?: { id?: unknown } };
+    message?: { createdTimestamp?: unknown; author?: { id?: unknown }; content?: unknown };
   }).message;
   return typeof message?.createdTimestamp === "number"
     && Number.isFinite(message.createdTimestamp)
     && typeof message.author?.id === "string"
-    ? { createdAt: message.createdTimestamp, authorId: message.author.id }
+    ? {
+      createdAt: message.createdTimestamp,
+      authorId: message.author.id,
+      content: typeof message.content === "string" ? message.content : null,
+    }
     : null;
 }
 

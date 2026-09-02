@@ -67,10 +67,13 @@ describe("forum spawn approval + guard wiring", () => {
     expect(requestApproval).toHaveBeenCalledWith(thread, {
       title: "[Cc] Implement Phase 2",
       body: "Build spawn-by-post",
+      starterBody: "Build spawn-by-post",
       tagState: { appliedTags: [], availableTags: [] },
+      project: "Cc",
+      template: "forum-codex-session",
     });
     expect(deps.postToThread).not.toHaveBeenCalled();
-    expect(deps.templates).not.toHaveBeenCalled();
+    expect(deps.templates).toHaveBeenCalledOnce();
   });
 
   it("falls back to the flat deny reply when approval is unwired", async () => {

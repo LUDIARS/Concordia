@@ -95,12 +95,15 @@ import {
 } from "./forum-spawn.js";
 import {
   requestForumSpawnApproval,
+  type ForumSpawnApprovalCardSnapshot,
   type ForumSpawnApprovalStore,
 } from "./forum-spawn-approval.js";
+import { suggestForumModelFromUsage } from "./forum-model-suggest-usage.js";
 import { hasConcordiaManagedForumTag, type ForumTagState } from "./forum-system-tag.js";
 import {
   handleForumSpawnIntakeReply,
   requestForumSpawnIntake,
+  supplementForumSpawnBody,
   type ForumSpawnIntakeStore,
 } from "./forum-spawn-intake.js";
 import type { AnyThreadChannel } from "discord.js";
@@ -1309,12 +1312,24 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         const allTemplates = input.missing.includes("template")
           ? (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates
           : [];
-        const modelChoices = forumModelChoices(allTemplates).map((choice) => ({
+        const forumChoices = forumModelChoices(allTemplates);
+        const modelChoices = forumChoices.map((choice) => ({
           nick: choice.nick,
           label: choice.label,
           emoji: choice.emoji ?? undefined,
           defaultEffort: choice.defaultEffort,
         }));
+        // モデル/Effort は機械的にサジェストして初期選択にする (2026-09-03 neco 指示):
+        // 作業種別 (語彙) × Claude/Codex の残りコスト比 (週間残量 ÷ 残り日数) × Fable 使用量ゲート。
+        // 残量取得は best-effort で、取れなければ Claude / Opus に倒す。
+        const suggestion = forumChoices.length > 0
+          ? await suggestForumModelFromUsage({
+            title: input.title,
+            body: input.body,
+            choices: forumChoices,
+            log,
+          })
+          : null;
         return requestForumSpawnIntake(
           {
             store: forumSpawnIntakes,
@@ -1337,6 +1352,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             // (登録プロジェクトは select menu の上限 25 を超えるため)。
             projectChoices: deps.subsidiary?.resolveProjects() ?? [],
             modelChoices,
+            ...(suggestion ? { suggestion } : {}),
           },
         );
       },
@@ -1402,7 +1418,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     )) {
       return { ok: false, error: "forum content changed after approval was requested" };
     }
-    return executeForumSpawn(forumDeps, thread, approvedContent);
+    return executeForumSpawn(forumDeps, thread, { ...approvedContent, approved: true });
   };
   /**
    * Cc 再起動で in-memory の承認 pending が消えた承認カードの押下から、カード作成時と
@@ -1411,6 +1427,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
    */
   const recoverForumSpawnApproval = async (
     threadId: string,
+    snapshot: ForumSpawnApprovalCardSnapshot | null,
   ): Promise<{ requesterUserId: string; approvedContent: ApprovedForumSpawnContent } | null> => {
     const forumDeps = forumSpawnDepsNow();
     if (!forumDeps) return null;
@@ -1427,9 +1444,21 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (hasConcordiaManagedForumTag(tagState)) return null;
     const starter = await thread.fetchStarterMessage().catch(() => null);
     if (!starter) return null;
+    // カード末尾のスナップショット (関係プロジェクト / モデル / effort / 追記本文) を合わせて
+    // 承認対象を組み直す。 指紋が一致しなければ dispatch 側で失効扱いになる。
+    const starterBody = starter.content.trim();
     return {
       requesterUserId: thread.ownerId,
-      approvedContent: { title: thread.name, body: starter.content.trim(), tagState },
+      approvedContent: {
+        title: thread.name,
+        body: supplementForumSpawnBody(starterBody, snapshot?.additions ? [snapshot.additions] : []),
+        starterBody,
+        tagState,
+        ...(snapshot?.project ? { project: snapshot.project } : {}),
+        ...(snapshot?.model ? { model: snapshot.model } : {}),
+        ...(snapshot?.effort ? { effort: snapshot.effort } : {}),
+        ...(snapshot?.template ? { template: snapshot.template } : {}),
+      },
     };
   };
   /** Session forum スレッドへの通常返信 (Cc の返信はすべて親 Forum webhook 経由)。 */
@@ -1560,7 +1589,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       forumSpawnApprovalCardAuthorId: client.user?.id,
       executeApprovedForumSpawn,
       // 明示 call にして recovery 境界の到達性を静的解析でも追跡可能にする。
-      recoverForumSpawnApproval: (threadId) => recoverForumSpawnApproval(threadId),
+      recoverForumSpawnApproval: (threadId, snapshot) => recoverForumSpawnApproval(threadId, snapshot),
       // Session forum spawn の不足情報 (関係プロジェクト / タスク内容) の質問と回答。
       forumSpawnIntakes,
       resumeForumSpawnIntake,

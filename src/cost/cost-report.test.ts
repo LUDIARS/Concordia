@@ -28,6 +28,7 @@ function baseReport(): CostReport {
       sevenDay: { utilization: 5, resetsAtSec: 4000 },
       sevenDaySonnet: null,
       sevenDayOpus: null,
+      sevenDayFable: null,
       extraCredit: { isEnabled: false, monthlyLimit: null, usedCredits: null, utilization: null, currency: null },
       fetchedAt: 0,
     },

@@ -209,6 +209,52 @@ describe("モデル/Effort 質問カード", () => {
     expect(store.get("thread-1")?.status).toBe("answered");
   });
 
+  it("機械サジェストは初期選択になり、カードに根拠が出て、そのまま起動できる (2026-09-03 neco 指示)", async () => {
+    const store: ForumSpawnIntakeStore = new Map();
+    const postCard = vi.fn(async () => undefined);
+    await requestForumSpawnIntake(
+      { store, postCard, log: { info: vi.fn(), warn: vi.fn() } },
+      {
+        guildId: "g1",
+        threadId: "thread-1",
+        requesterUserId: "user-1",
+        title: "レビュー",
+        body: "September を見て",
+        missing: ["template"],
+        projectChoices: [],
+        modelChoices: MODEL_CHOICES,
+        suggestion: { nick: "sol", effort: "medium", reason: "実装・修正 / 残枠比 Codex 9.0" },
+      },
+    );
+    const content = (postCard.mock.calls[0] as unknown as [string, string])[1];
+    expect(content).toContain("自動サジェスト: ☀️ **Sol (gpt-5.6-sol)** / effort: **medium** (実装・修正 / 残枠比 Codex 9.0)");
+    expect(content).toContain("選択中: ☀️ **Sol (gpt-5.6-sol)** / effort: **medium**");
+    expect(store.get("thread-1")).toMatchObject({ chosenModel: "sol", chosenEffort: "medium" });
+
+    const { deps, resumeSpawn } = resumeDeps(store);
+    await dispatchForumSpawnIntakeInteraction(launchInteraction().interaction as never, deps);
+    expect(resumeSpawn).toHaveBeenCalledWith("thread-1", expect.objectContaining({ model: "sol", effort: "medium" }));
+  });
+
+  it("候補に無いサジェストは初期選択にしない", async () => {
+    const store: ForumSpawnIntakeStore = new Map();
+    await requestForumSpawnIntake(
+      { store, postCard: vi.fn(async () => undefined), log: { info: vi.fn(), warn: vi.fn() } },
+      {
+        guildId: "g1",
+        threadId: "thread-1",
+        requesterUserId: "user-1",
+        title: "t",
+        body: "b",
+        missing: ["template"],
+        projectChoices: [],
+        modelChoices: MODEL_CHOICES,
+        suggestion: { nick: "terra", effort: "low", reason: "雑用" },
+      },
+    );
+    expect(store.get("thread-1")?.chosenModel).toBeUndefined();
+  });
+
   it("モデル未選択の起動ボタンは ephemeral で促すだけ", async () => {
     const store: ForumSpawnIntakeStore = new Map();
     await seedPending(store);

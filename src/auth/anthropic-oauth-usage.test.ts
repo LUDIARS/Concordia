@@ -42,6 +42,7 @@ describe("fetchClaudeOAuthUsage", () => {
       seven_day: { utilization: 94.0, resets_at: "2026-05-28T23:59:59Z" },
       seven_day_sonnet: { utilization: 4.0, resets_at: "2026-05-29T00:00:00Z" },
       seven_day_opus: null,
+      seven_day_mythos: { utilization: 31.0, resets_at: "2026-05-29T00:00:00Z" },
       extra_usage: {
         is_enabled: false,
         monthly_limit: null,
@@ -63,6 +64,7 @@ describe("fetchClaudeOAuthUsage", () => {
     expect(r!.sevenDay!.utilization).toBe(94.0);
     expect(r!.sevenDaySonnet!.utilization).toBe(4.0);
     expect(r!.sevenDayOpus).toBeNull();
+    expect(r!.sevenDayFable!.utilization).toBe(31.0);
     expect(r!.extraCredit.isEnabled).toBe(false);
   });
 

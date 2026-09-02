@@ -146,6 +146,26 @@ delegation で安全に処理する。
   動的解決する。確定後はテンプレを使わず provider+model+effort の素 spawn
   (effort の options 形は /spawn と同一: claude=effort / codex=model_reasoning_effort、
   claude に minimal は無いので low へ丸め、未選択は claude=high / codex=xhigh)。
+- **モデル/Effort の機械サジェスト (2026-09-03 neco 指示)**: モデル質問カードは
+  `forum-model-suggest.ts` の結果を初期選択にし、根拠を 1 行添える (人間は選び直せる)。
+  LLM は使わず語彙と残量だけで決める:
+  実装・修正 → Opus (Claude 系) / Sol (Codex 系) を effort medium、
+  設計・レビュー → Fable / Opus を effort high (常に Claude 系)、
+  雑用 → Sonnet / Terra を effort low。
+  Claude 系 / Codex 系は **残りコスト比 = 週間枠の残量% ÷ リセットまでの残り日数** が大きい方
+  (codex は `codex app-server` の rateLimits、claude は OAuth usage。片方しか取れなければ
+  取れた方、両方無ければ Claude)。 Fable は **Fable 使用量 < 70% かつ 週間使用量 > Fable 使用量**
+  のときだけ優先し、Fable 使用量が取れなければ Opus。 Fable 使用量の一次ソースは OAuth usage の
+  `seven_day_fable` / `seven_day_mythos` 系の窓のみ — Lictor の transcript_logs (raw frame) は
+  キー名だけで model id も usage も持たないため、そこからは算出できない。
+- **権限なし投稿者の承認は情報充足後 (2026-09-03 neco 指示)**: 従来は投稿直後に承認カードを
+  出し、承認後に関係プロジェクトやモデルの質問を挟むと「承認後の内容変更」として弾かれていた。
+  現在は権限の有無に関わらず不足情報の聞き返しとモデル/Effort 選択を先に済ませ、spawn 直前で
+  **確定した関係プロジェクト / モデル / effort (またはテンプレ) / 補完済み本文 / タグ状態** を
+  スナップショットとして承認カードに載せる。 承認ボタンはそのスナップショットで起動し
+  (`approved: true` の再入)、改変検知は starter 本文と突き合わせる。 スナップショットの差分
+  (関係プロジェクト / モデル / effort / 追記本文) はカード末尾の base64url 化した JSON にも載せ、Cc 再起動で
+  in-memory pending が消えた後の復元に使う (指紋不一致なら失効)。
   Sonnet selector は質問面が未配線な構成のフォールバック。
   投稿タイトル・本文は初回のユーザ指示として注入される。重複起動判定は delegation run の
   triggered_by (旧経路) に加えて「スレッドに紐付いた active な session channel の有無」で行う。
@@ -460,7 +480,14 @@ Slack platform の子会社は §3.3 の方式 (未確定なら明示エラー�
   Memoria task の補完・指定拒否 / team 補完の子会社 scope。
 - forum spawn intake (§3.1): 不足項目の検出 / 選択メニューと自由記述の出し分け /
   starter message を回答に取らない / 第三者の回答拒否 / 聞き返し上限 /
-  回答での本文補完と再開 / 質問を出せないときの平文フォールバック。
+  回答での本文補完と再開 / 質問を出せないときの平文フォールバック /
+  機械サジェストの初期選択と根拠表示 (候補に無い nick は無視)。
+- forum model suggest (§3.1): 作業種別の語彙照合 / 残りコスト比と片側欠落の既定 /
+  Fable ゲート / 種別ごとの候補順と effort / 候補欠落時の次点と null。
+- forum spawn approval (§3.1): 権限なし + 情報不足は承認より先に質問 / 情報充足後に
+  スナップショット (project / model / effort / template / starterBody) で承認要求 /
+  `approved` 再入は権限確認を通らず固定内容で起動 / 改変検知は starter 本文 /
+  カード本文のスナップショット JSON 往復と指紋への選択内容の反映。
 - reaction (子会社): セッションスレッドは発火、それ以外は 📌 も含めて何もしない。
 - API: 各 endpoint happy path + token redaction。
 

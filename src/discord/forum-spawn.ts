@@ -30,11 +30,24 @@ export interface ForumSpawnThread {
   fetchTagState: () => Promise<ForumTagState>;
 }
 
-/** Exact title/body approved for an otherwise unauthorized forum spawn. */
+/**
+ * 権限の無い投稿者の起動を管理職が承認するときの、確定済みスナップショット。
+ * 承認カードは起動に要る情報 (関係プロジェクト / タスク内容 / モデル) が揃ってから出す
+ * (2026-09-03 neco 指示) ので、不足情報の回答で補完した本文と選択結果をここに固定する。
+ */
 export interface ApprovedForumSpawnContent {
   readonly title: string;
+  /** 起動に使う本文 (不足情報の回答で補完済みのことがある)。 */
   readonly body: string;
+  /** カード作成時のスレッド本文 (starter)。 承認後の改変検知はこれと突き合わせる。 省略時は body。 */
+  readonly starterBody?: string;
   readonly tagState: ForumTagState;
+  /** 確定した関係プロジェクト (registry 名)。 */
+  readonly project?: string;
+  /** 確定した起動モデル nickname / effort、または旧テンプレ選択。 */
+  readonly model?: string;
+  readonly effort?: string;
+  readonly template?: string;
 }
 
 /**
@@ -80,6 +93,10 @@ export interface SuppliedForumSpawnContent {
   readonly model?: string;
   /** モデル質問カードで選んだ effort。 未指定は provider 既定 (claude=high / codex=xhigh)。 */
   readonly effort?: string;
+  /** カード作成時の starter 本文 (承認スナップショット由来のときだけ)。 */
+  readonly starterBody?: string;
+  /** 管理職の承認を経た再入 (forum-spawn-approval.ts)。 権限確認を再び行わず、内容も接ぎ足さない。 */
+  readonly approved?: boolean;
 }
 
 /** Session forum の起動候補モデル (2026-09-02 neco 指示: Test forum の選択と同型)。 */
@@ -174,7 +191,7 @@ export function matchesApprovedForumContent(
 ): boolean {
   const approvedTags = approved.tagState.appliedTags;
   return title === approved.title
-    && starterContent.trim() === approved.body
+    && starterContent.trim() === (approved.starterBody ?? approved.body)
     && appliedTags.length === approvedTags.length
     && appliedTags.every((tag) => approvedTags.includes(tag));
 }
@@ -260,44 +277,24 @@ export async function handleForumSpawnThread(deps: ForumSpawnDeps, thread: Forum
   if (!thread.ownerId || thread.ownerId === deps.botUserId) return;
   if (deps.isLaunchUserAllowed?.(thread.ownerId) !== true) {
     deps.log.warn(`forum-spawn unauthorized owner=${thread.ownerId} thread=${thread.id}`);
-    if (deps.requestApproval) {
-      // 承認後の編集を実行対象に混ぜないよう、カード作成時のタイトルと本文を固定する。
-      const starter = await fetchStarterWithRetry(thread, deps.wait);
-      if (!starter) {
-        await reply(deps, thread, "最初の投稿を取得できなかったため、承認を依頼できませんでした。");
-        return;
-      }
-      const body = starter.content.trim();
-      if (isConcordiaSessionStarter(body)) {
-        deps.log.info(`forum-spawn webhook-created Session thread ignored thread=${thread.id}`);
-        return;
-      }
-      let tagState: ForumTagState;
-      try {
-        tagState = await thread.fetchTagState();
-      } catch (error) {
-        deps.log.warn(`forum-spawn tag refresh failed before approval thread=${thread.id}: ${(error as Error).message}`);
-        await reply(deps, thread, "Forum タグの最新状態を確認できなかったため、承認を依頼できませんでした。");
-        return;
-      }
-      if (hasConcordiaManagedForumTag(tagState)) {
-        deps.log.info(`forum-spawn explicit/Cc-managed thread ignored before approval thread=${thread.id}`);
-        return;
-      }
-      await deps.requestApproval(thread, { title: thread.name, body, tagState });
+    if (!deps.requestApproval) {
+      await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
       return;
     }
-    await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
-    return;
+    // 承認カードは起動に要る情報が揃ってから出す (2026-09-03 neco 指示)。 不足情報の
+    // 聞き返しとモデル選択は権限者と同じ経路で進め、確定した内容を executeForumSpawn の
+    // 末尾 (spawn 直前) で承認に回す。
   }
   await executeForumSpawn(deps, thread);
 }
 
 /**
- * 権限確認より後の spawn 続行部。 再入口は 2 つ:
- *  - 承認ボタン (forum-spawn-approval.ts): 承認時点の投稿内容 + タグ状態を固定して渡す。
+ * spawn 続行部。 再入口は 2 つ:
+ *  - 承認ボタン (forum-spawn-approval.ts): 承認時点の確定内容 (本文 + タグ状態 + 関係
+ *    プロジェクト / モデル / effort) を固定して渡す (`approved: true`)。
  *  - 不足情報の回答 (forum-spawn-intake.ts): 補完した本文と選択回答の override を渡し、
  *    タグ状態は取り直す。
+ * 権限の無い投稿者の場合は、情報が揃った時点 (spawn 直前) で承認カードを出して止まる。
  * どちらも重複 run 判定 (triggered_by) が冪等性を守る。
  */
 export async function executeForumSpawn(
@@ -366,8 +363,8 @@ export async function executeForumSpawn(
     // 権限の無い投稿者の起動承認は、カード作成時の exact content に対するもの。
     // 承認後に依頼者の回答を追記すると、未承認の作業内容で起動できてしまう。
     // 承認スナップショットが不完全な場合は内容の接ぎ足しを禁止し、完全な
-    // 新規スレッドを改めて承認してもらう。
-    if (suppliedContent?.tagState) {
+    // 新規スレッドを改めて承認してもらう (情報充足後に承認する運用では通常起きない)。
+    if (suppliedContent?.approved) {
       deps.log.warn(`forum-spawn approved content incomplete thread=${thread.id} fields=${missing.join(",")}`);
       await reply(deps, thread, forumSpawnIntakeGiveUpMessage(
         missing.length > 0 ? missing : (["project"] as const),
@@ -405,7 +402,7 @@ export async function executeForumSpawn(
   const templates = await deps.templates();
   const modelChoices = forumModelChoices(templates);
   let template: DelegationTemplateLite | null = null;
-  let modelTarget: { provider: string; model: string; effort: ForumEffort; emoji: string | null } | null = null;
+  let modelTarget: { nick: ForumModelNick; provider: string; model: string; effort: ForumEffort; emoji: string | null } | null = null;
   if (suppliedContent?.model) {
     // モデル/Effort 質問カードの回答が正 (2026-09-02 neco 指示: Test forum と同型の選択)。
     const choice = modelChoices.find((candidate) => candidate.nick === suppliedContent.model);
@@ -420,6 +417,7 @@ export async function executeForumSpawn(
       return { ok: false, error: "supplied model unavailable" };
     }
     modelTarget = {
+      nick: choice.nick,
       provider: choice.provider,
       model: choice.model,
       effort: normalizeForumEffort(choice.provider, suppliedContent.effort),
@@ -448,6 +446,7 @@ export async function executeForumSpawn(
     const explicitTemplate = explicitModel ? null : matchExplicitForumTemplate(title, body, templates);
     if (explicitModel) {
       modelTarget = {
+        nick: explicitModel.choice.nick,
         provider: explicitModel.choice.provider,
         model: explicitModel.choice.model,
         effort: normalizeForumEffort(explicitModel.choice.provider, explicitModel.effort),
@@ -491,6 +490,40 @@ export async function executeForumSpawn(
     return { ok: false, error: "Concordia-managed forum tag" };
   }
   const activeRuntimeRules = activeRuntimeRuleNames(freshTagState);
+
+  // 権限の無い投稿者は、ここまでで確定した内容 (関係プロジェクト / モデル / effort / 補完済み
+  // 本文 / タグ) をスナップショットにして管理職の承認へ回す (2026-09-03 neco 指示: 承認は
+  // 必要な情報を揃えた後)。 承認ボタンからの再入 (`approved`) はこの分岐を通らない。
+  if (!suppliedContent?.approved && deps.isLaunchUserAllowed?.(thread.ownerId ?? "") !== true) {
+    if (!deps.requestApproval) {
+      await reply(deps, thread, "このユーザーにはセッション起動権限がありません。");
+      return { ok: false, error: "launch user not allowed" };
+    }
+    // 承認後の改変検知は starter 本文と突き合わせるので、補完済み本文とは別に固定する。
+    const starterBody = suppliedContent?.starterBody
+      ?? (await fetchStarterWithRetry(thread, deps.wait))?.content.trim();
+    if (starterBody === undefined) {
+      await reply(deps, thread, "最初の投稿を取得できなかったため、承認を依頼できませんでした。");
+      return { ok: false, error: "starter message unavailable" };
+    }
+    const approvalContent: ApprovedForumSpawnContent = {
+      title,
+      body,
+      starterBody,
+      tagState: freshTagState,
+      project: project.project,
+      ...(modelTarget
+        ? { model: modelTarget.nick, effort: modelTarget.effort }
+        : {}),
+      ...(template ? { template: template.call_name } : {}),
+    };
+    deps.log.info(
+      `forum-spawn approval requested thread=${thread.id} owner=${thread.ownerId ?? "-"} `
+      + `project=${project.project} target=${modelTarget?.model ?? template?.call_name ?? "-"}`,
+    );
+    await deps.requestApproval(thread, approvalContent);
+    return { ok: false, error: "approval requested" };
+  }
 
   // delegation invoke (「実装タスク」ラッパー + 完了駆動 run) ではなく /spawn と同じ
   // 素のセッション起動 + startup inject を使う (2026-09-02 neco 指示: Inject は spawn の

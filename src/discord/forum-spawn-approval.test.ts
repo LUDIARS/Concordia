@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { ButtonInteraction, Interaction } from "discord.js";
 import {
+  buildForumSpawnApprovalCardContent,
   dispatchForumSpawnApprovalInteraction,
   forumSpawnApprovalFingerprint,
   isForumSpawnApprovalInteraction,
+  parseForumSpawnApprovalCardSnapshot,
   pruneForumSpawnApprovals,
   requestForumSpawnApproval,
   type ForumSpawnApprovalStore,
@@ -224,7 +226,7 @@ describe("forum spawn approval recovery (2026-09-02 neco 報告)", () => {
       recoverApproval,
       log: { info: vi.fn(), warn: vi.fn() },
     });
-    expect(recoverApproval).toHaveBeenCalledWith("thread-1");
+    expect(recoverApproval).toHaveBeenCalledWith("thread-1", null);
     expect(executeSpawn).toHaveBeenCalledWith("thread-1", APPROVED_CONTENT);
   });
 
@@ -330,5 +332,110 @@ describe("forum spawn approval recovery (2026-09-02 neco 報告)", () => {
     await dispatchForumSpawnApprovalInteraction(makeRecoverButton({}) as Interaction, deps);
     await dispatchForumSpawnApprovalInteraction(makeRecoverButton({}) as Interaction, deps);
     expect(executeSpawn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("forum spawn approval snapshot (2026-09-03 neco 指示: 承認は情報充足後)", () => {
+  const FULL_CONTENT = {
+    title: "Implement Phase 2",
+    body: "Build spawn-by-post\n\n関係プロジェクト: Concordia",
+    starterBody: "Build spawn-by-post",
+    tagState: { appliedTags: [], availableTags: [] },
+    project: "Concordia",
+    model: "fable",
+    effort: "high",
+  };
+
+  it("カードに関係プロジェクト / モデル / effort / 追記本文を載せ、末尾のスナップショットから復元できる", () => {
+    const content = buildForumSpawnApprovalCardContent("requester-1", FULL_CONTENT);
+    expect(content).toContain("関係プロジェクト: **Concordia**");
+    expect(content).toContain("モデル: **fable** / effort: **high**");
+    expect(content).toContain("関係プロジェクト: Concordia");
+    expect(parseForumSpawnApprovalCardSnapshot(content)).toEqual({
+      project: "Concordia",
+      model: "fable",
+      effort: "high",
+      additions: "関係プロジェクト: Concordia",
+    });
+  });
+
+  it("スナップショットの無いカード / 壊れた JSON は null", () => {
+    expect(parseForumSpawnApprovalCardSnapshot("plain card")).toBeNull();
+    expect(parseForumSpawnApprovalCardSnapshot("起動内容 (再起動後の復元用): `{broken`")).toBeNull();
+    expect(parseForumSpawnApprovalCardSnapshot(null)).toBeNull();
+  });
+
+  it("追記にバッククォートがあってもスナップショットを最後まで復元する", () => {
+    const content = buildForumSpawnApprovalCardContent("requester-1", {
+      ...FULL_CONTENT,
+      body: `${FULL_CONTENT.starterBody}\n\n\`npm test\` の失敗を直す`,
+    });
+    expect(parseForumSpawnApprovalCardSnapshot(content)).toMatchObject({
+      additions: "`npm test` の失敗を直す",
+    });
+  });
+
+  it("確定したモデルや関係プロジェクトの差し替えは指紋の不一致になる", () => {
+    const base = forumSpawnApprovalFingerprint(FULL_CONTENT);
+    expect(forumSpawnApprovalFingerprint({ ...FULL_CONTENT, model: "opus" })).not.toBe(base);
+    expect(forumSpawnApprovalFingerprint({ ...FULL_CONTENT, project: "Excubitor" })).not.toBe(base);
+    expect(forumSpawnApprovalFingerprint({ ...FULL_CONTENT })).toBe(base);
+  });
+
+  it("復元時はカード本文のスナップショットを recoverApproval へ渡す", async () => {
+    const executeSpawn = vi.fn(async () => ({ ok: true as const }));
+    const recoverApproval = vi.fn(async () => ({ requesterUserId: "requester-1", approvedContent: FULL_CONTENT }));
+    const interaction = makeButton({
+      customId: `forum-spawn-approval:allow:lost-token:${forumSpawnApprovalFingerprint(FULL_CONTENT)}`,
+    });
+    (interaction as unknown as { message: { content: string } }).message.content =
+      buildForumSpawnApprovalCardContent("requester-1", FULL_CONTENT);
+    await dispatchForumSpawnApprovalInteraction(interaction as Interaction, {
+      store: new Map(),
+      isApproverAllowed: () => true,
+      executeSpawn,
+      approvalCardAuthorId: "bot-1",
+      recoverApproval,
+      log: { info: vi.fn(), warn: vi.fn() },
+    });
+    expect(recoverApproval).toHaveBeenCalledWith("thread-1", {
+      project: "Concordia",
+      model: "fable",
+      effort: "high",
+      additions: "関係プロジェクト: Concordia",
+    });
+    expect(executeSpawn).toHaveBeenCalledWith("thread-1", FULL_CONTENT);
+  });
+
+  it("長い追記は承認者向け表示を残し、復元用の重複だけを省いて Discord 上限に収める", () => {
+    const additions = "a".repeat(900);
+    const content = buildForumSpawnApprovalCardContent("requester-1", {
+      ...FULL_CONTENT,
+      body: `${FULL_CONTENT.starterBody}\n\n${additions}`,
+    });
+    expect(content.length).toBeLessThanOrEqual(2_000);
+    expect(content).toContain(additions);
+    expect(parseForumSpawnApprovalCardSnapshot(content)).toEqual({
+      project: "Concordia",
+      model: "fable",
+      effort: "high",
+    });
+  });
+
+  it("承認者へ全内容を表示できない場合はカードを出さず fail-closed にする", async () => {
+    const store: ForumSpawnApprovalStore = new Map();
+    const postCard = vi.fn(async () => undefined);
+    await expect(requestForumSpawnApproval(
+      { store, postCard },
+      {
+        ...THREAD,
+        approvedContent: {
+          ...FULL_CONTENT,
+          body: `${FULL_CONTENT.starterBody}\n\n${"a".repeat(1_900)}`,
+        },
+      },
+    )).rejects.toThrow("exceeds Discord message limit");
+    expect(postCard).not.toHaveBeenCalled();
+    expect(store.size).toBe(0);
   });
 });

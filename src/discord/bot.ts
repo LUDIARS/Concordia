@@ -235,8 +235,6 @@ export interface DiscordBotDeps {
   resolveWorkspaceRoots?: () => string[];
   /** 自動巡回通知でメンションする Discord user ID。通知時に live 解決する。 */
   resolveMentionUserId?: () => string | null;
-  /** Forum投稿spawnにも通常spawnと同じ provider別 cwd 解決を適用する。 */
-  resolveSessionSpawnCwd?: ForumSpawnDeps["resolveSpawnCwd"];
   /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
   /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
@@ -1284,31 +1282,44 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           },
         }, { id: t.id, guildId: t.guildId, ownerId: t.ownerId ?? "", approvedContent });
       },
-      // 起動に要る情報 (関係プロジェクト / タスク内容) が投稿から取れないときは、
-      // 平文の拒否で終わらせずスレッド内で聞き返す (2026-09-01 neco 指示 3)。
-      requestIntake: (input) => requestForumSpawnIntake(
-        {
-          store: forumSpawnIntakes,
-          postCard: async (threadId, content, components) => {
-            const ch = await client.channels.fetch(threadId);
-            if (!ch?.isThread()) throw new Error("intake thread unavailable");
-            // `<@id>` は本文に出すが ping はしない (高頻度面の通知を増やさない §3.2)。
-            await ch.send({ content, components, allowedMentions: { parse: [] } });
+      // 起動に要る情報 (関係プロジェクト / タスク内容 / 起動テンプレ) が投稿から取れない
+      // ときは、平文の拒否で終わらせずスレッド内で聞き返す (2026-09-01 neco 指示 3、
+      // テンプレ (モデル) の質問は 2026-09-02 neco 指示)。
+      requestIntake: async (input) => {
+        // template 質問には active + forum_tag のテンプレ一覧を選択肢として添える。
+        const templateChoices = input.missing.includes("template")
+          ? (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates
+            .filter((t) => t.is_active && t.forum_tag === true)
+            .map((t) => ({
+              callName: t.call_name,
+              label: `${t.call_name}${t.model ? ` (${t.model})` : t.target_provider ? ` (${t.target_provider})` : ""}`,
+            }))
+          : [];
+        return requestForumSpawnIntake(
+          {
+            store: forumSpawnIntakes,
+            postCard: async (threadId, content, components) => {
+              const ch = await client.channels.fetch(threadId);
+              if (!ch?.isThread()) throw new Error("intake thread unavailable");
+              // `<@id>` は本文に出すが ping はしない (高頻度面の通知を増やさない §3.2)。
+              await ch.send({ content, components, allowedMentions: { parse: [] } });
+            },
+            log,
           },
-          log,
-        },
-        {
-          guildId: input.thread.guildId,
-          threadId: input.thread.id,
-          requesterUserId: input.requesterUserId,
-          title: input.title,
-          body: input.body,
-          missing: input.missing,
-          // 子会社は担当プロジェクトから選ばせる。 本社は候補を出さず自由記述で答えてもらう
-          // (登録プロジェクトは select menu の上限 25 を超えるため)。
-          projectChoices: deps.subsidiary?.resolveProjects() ?? [],
-        },
-      ),
+          {
+            guildId: input.thread.guildId,
+            threadId: input.thread.id,
+            requesterUserId: input.requesterUserId,
+            title: input.title,
+            body: input.body,
+            missing: input.missing,
+            // 子会社は担当プロジェクトから選ばせる。 本社は候補を出さず自由記述で答えてもらう
+            // (登録プロジェクトは select menu の上限 25 を超えるため)。
+            projectChoices: deps.subsidiary?.resolveProjects() ?? [],
+            templateChoices,
+          },
+        );
+      },
       // 子会社 Bot は spawn 前に依頼本文をガードゲートへ通す (subsidiary-delegation §3.1)。
       guardInstruction: deps.subsidiary?.guardInstruction,
       // 子会社は担当プロジェクト外のスレッドから起動しない (subsidiary-delegation §3.4)。
@@ -1319,9 +1330,15 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         input,
       ),
       resolveProjectTarget: projectResolver.targetFromPost,
-      resolveSpawnCwd: (provider, requested) =>
-        deps.resolveSessionSpawnCwd?.(provider, requested) ?? requested ?? workspaceRoots[0],
-      hasExistingRun: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy) !== null,
+      // 素の spawn-session 経路 (2026-09-02〜) は delegation run を作らないため、
+      // スレッドに紐付いた session channel の有無でも重複起動を判定する。
+      hasExistingRun: (triggeredBy) => {
+        if (delegationRepo.findRunByTriggeredBy(triggeredBy) !== null) return true;
+        const parsed = parseForumSpawnTrigger(triggeredBy);
+        if (!parsed) return false;
+        const bound = sessionChannelsRepo.findByChannelId(parsed.threadId);
+        return bound?.status === "active";
+      },
       postToThread: async (threadId, content) => {
         const webhook = await forumWebhooks.getForChannel(forumLayout.sessionForumId);
         if (!webhook) throw new Error("Session forum webhook unavailable");
@@ -1371,7 +1388,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // 実行部へ再入する。 タグ状態は実行時に取り直す (回答の間の付け替えを取りこぼさない)。
   const resumeForumSpawnIntake = async (
     threadId: string,
-    content: { title: string; body: string },
+    content: { title: string; body: string; template?: string },
   ): Promise<void> => {
     const forumDeps = forumSpawnDepsNow();
     if (!forumDeps) throw new Error("Session forum is not ready");

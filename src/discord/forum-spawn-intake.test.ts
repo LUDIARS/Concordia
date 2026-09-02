@@ -290,6 +290,41 @@ describe("選択メニューからの再開", () => {
     });
   });
 
+  it("選んだ起動テンプレは本文へ足さず override として再開する", async () => {
+    const store: ForumSpawnIntakeStore = new Map();
+    const { deps: askDeps } = requestDeps(store);
+    await requestForumSpawnIntake(askDeps, {
+      ...baseRequest,
+      body: "壊れている",
+      missing: ["template"],
+      templateChoices: [{ callName: "forum-claude-session", label: "forum-claude-session (sonnet)" }],
+    });
+    const { deps, resumeSpawn } = resumeDeps(store);
+    const { interaction, update } = makeSelect(["forum-claude-session"]);
+    interaction.customId = "forum-spawn-intake:template:thread-1";
+
+    await dispatchForumSpawnIntakeInteraction(interaction as never, deps);
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ components: [] }));
+    expect(resumeSpawn).toHaveBeenCalledWith("thread-1", {
+      title: "直したい",
+      body: "壊れている",
+      template: "forum-claude-session",
+    });
+  });
+
+  it("template 質問カードにはテンプレ選択メニューが付く", () => {
+    const question = buildForumSpawnIntakeQuestion({
+      requesterUserId: "user-1",
+      missing: ["template"],
+      projectChoices: [],
+      templateChoices: [{ callName: "forum-claude-session", label: "forum-claude-session (sonnet)" }],
+      threadId: "thread-1",
+    });
+    expect(question.content).toContain("起動テンプレ (モデル)");
+    expect(question.components).toHaveLength(1);
+  });
+
   it("別スレッドのカードからは再開しない", async () => {
     const store: ForumSpawnIntakeStore = new Map();
     const { deps: askDeps } = requestDeps(store);

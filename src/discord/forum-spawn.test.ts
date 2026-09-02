@@ -56,7 +56,6 @@ function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
     templates: vi.fn(async () => [selected]),
     selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
     resolveProjectTarget: () => ({ project: "Concordia", code: "Cc", cwd: "E:/Document/Ars/Concordia" }),
-    resolveSpawnCwd: (_provider, requested) => requested,
     hasExistingRun: () => false,
     postToThread: vi.fn(async () => undefined),
     log: { info: vi.fn(), warn: vi.fn() },
@@ -98,11 +97,10 @@ describe("forum spawn", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("selects one active template and invokes it without overriding template runtime defaults", async () => {
+  it("selects one active template and spawns a plain session with the post as startup prompt", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
-      run: { id: "run-1", status: "queued" },
-      spawn_pid: 42,
+      pid: 42,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const selected = template("impl-from-forum");
@@ -114,21 +112,22 @@ describe("forum spawn", () => {
     await handleForumSpawnThread(deps, makeThread());
 
     expect(fetchMock).toHaveBeenCalledOnce();
-    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toContain("/v1/admin/spawn-session");
     const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+    // delegation invoke の「実装タスク」ラッパーではなく /spawn と同じ素の spawn +
+    // startup inject (2026-09-02 neco 指示: Inject は spawn のものと同一)。
     expect(body).toMatchObject({
-      call_name: "impl-from-forum",
-      args: { effort: "high" },
-      cwd: "E:/Document/Ars/Concordia",
-      triggered_by: "discord-forum:guild-1:thread-1",
-      spawn: true,
+      template: "impl-from-forum",
+      inject_prompt: false,
       subsidiary_id: null,
       project: "Concordia",
       requester_discord_user_id: "123456789",
       source_discord_guild_id: "guild-1",
       source_discord_channel_id: "thread-1",
     });
-    expect(body).not.toHaveProperty("overrides");
+    expect(String(body.prompt)).toContain("Build spawn-by-post");
+    expect(body).not.toHaveProperty("cwd");
   });
 
   it("rechecks fresh tags immediately before invoke and yields to explicit /spawn", async () => {
@@ -170,8 +169,7 @@ describe("forum spawn", () => {
   it("adds selected runtime rule tags to the startup prompt", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       ok: true,
-      run: { id: "run-rules", status: "spawned" },
-      spawn_pid: 46,
+      pid: 46,
     }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const runtimeTag = { id: "rule-web", name: "Webサービス" };
@@ -186,10 +184,12 @@ describe("forum spawn", () => {
     await handleForumSpawnThread(makeDeps(), thread);
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(JSON.parse(String(init.body)).extra_prompt).toContain("Active rules: Webサービス");
+    expect(JSON.parse(String(init.body)).prompt).toContain("Active rules: Webサービス");
   });
 
-  it("fails closed when template selection fails", async () => {
+  it("asks for the template (or gives up in plain text) when selection fails", async () => {
+    // 質問面 (requestIntake) が未配線なら、何が足りないかを平文で伝えて終わる
+    // (無言で捨てない)。 配線済みの質問経路は forum-spawn-gate.test.ts が見る。
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const deps = makeDeps({
@@ -202,7 +202,31 @@ describe("forum spawn", () => {
     await handleForumSpawnThread(deps, makeThread());
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(deps.postToThread).toHaveBeenCalledWith("thread-1", "起動テンプレの選択に失敗しました。");
+    expect(deps.postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringContaining("起動テンプレ (モデル)を特定できない"),
+    );
+  });
+
+  it("does not reflect an unavailable supplied template into Discord", async () => {
+    const suppliedTemplate = "missing-template\n@everyone";
+    const deps = makeDeps();
+
+    const result = await executeForumSpawn(deps, makeThread(), {
+      title: "[Cc] Implement Phase 2",
+      body: "Build spawn-by-post",
+      template: suppliedTemplate,
+    });
+
+    expect(result).toEqual({ ok: false, error: "supplied template unavailable" });
+    expect(deps.postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      "選択された起動テンプレは利用できません。もう一度選択してください。",
+    );
+    expect(deps.postToThread).not.toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringContaining(suppliedTemplate),
+    );
   });
 
   it("rejects a non-allowlisted owner before the selector", async () => {

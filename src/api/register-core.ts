@@ -689,8 +689,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     // ── template 起動経路 ─────────────────────────────────────
     // body.template (call_name) があれば delegation テンプレから起動する。
     //   - provider / model / 既定 cwd はテンプレから採用。
-    //   - body.inject_prompt=true なら prompt を render して自動注入 (= delegation
-    //     invoke と同じ実体)。 false (既定) なら provider+model だけの素のセッション。
+    //   - body.inject_prompt=true ならテンプレ prompt を render して自動注入 (= delegation
+    //     invoke と同じ実体)。 false (既定) ならテンプレ prompt は使わず、body.prompt / Memoria
+    //     task だけを startup inject する provider+model の素のセッション。
     // loopback 信頼境界に乗るため bearer token は不要 (他 /v1/admin/* と同様)。
     const templateName = typeof body.template === "string" ? body.template.trim() : "";
     if (templateName) {
@@ -754,7 +755,9 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       }
 
       // テンプレ prompt 注入なし = provider + model だけ採用した素のセッション。
-      // Memoria task が明示された場合だけ、その task 本文は初回指示として別途注入する。
+      // Memoria task の本文と、呼び出し元が渡した prompt (Session forum の投稿等) は
+      // 初回指示として別途注入する — /spawn の provider 経路 (adHocPrompt) と同じ形。
+      // prompt が無ければ従来どおり (restriction 単独では注入しない)。
       // cwd: caller override → テンプレ default_cwd の `${var}` を args で展開 (auto-model の
       // ヒント用に resolveDelegationSpawn より先に解決)。展開後が空 / 未解決 (`${` 残存) なら
       // undefined にして spawnDefaultCwd に委ねる。
@@ -777,8 +780,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       );
       const runtimeArgs = resolveDelegationRuntimeArgs(tpl.target_provider, effectiveRuntimeOptions);
       const spawnArgs = [...spawn.args, ...runtimeArgs];
-      const taskPromptPath = taskPrompt
-        ? await deps.delegationService.writeAdHocPrompt(taskPrompt)
+      const startupText = [userPrompt ? restriction : "", taskPrompt, userPrompt]
+        .filter(Boolean)
+        .join("\n\n");
+      const startupPromptPath = startupText
+        ? await deps.delegationService.writeAdHocPrompt(startupText)
         : null;
       const spawnCwd = resolveSpawnCwd(tplCwd, deps.adminState.getWorkspaceRoot());
       const spawnTarget = await prepareSpawnTarget({
@@ -799,7 +805,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         subsidiaryId,
         project: projectName || null,
         requesterDiscordUserId,
-        startupInjectText: taskPrompt || null,
+        startupInjectText: startupText || null,
         sourceDiscordGuildId,
         sourceDiscordChannelId,
         goalAndGo: goalAndGoEnabled(runtimeOptions),
@@ -819,7 +825,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           ...(spawn.env ?? {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
-          ...(taskPromptPath ? { CONCORDIA_DELEGATION_PROMPT_FILE: taskPromptPath } : {}),
+          ...(startupPromptPath ? { CONCORDIA_DELEGATION_PROMPT_FILE: startupPromptPath } : {}),
         },
         spawnId,
       });
@@ -831,7 +837,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         ok: true,
         pid: result.pid,
         command: result.command,
-        injected_prompt: Boolean(taskPrompt),
+        injected_prompt: Boolean(startupText),
         project: projectName || null,
         cwd: spawnTarget.cwd ?? null,
         branch: spawnTarget.branch,

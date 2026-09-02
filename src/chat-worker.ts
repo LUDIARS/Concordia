@@ -293,8 +293,6 @@ async function main(): Promise<void> {
     resolveWorkspaceRoot: () => adminState.getWorkspaceRoot(),
     resolveWorkspaceRoots: () => adminState.getWorkspaceRoots(),
     resolveMentionUserId: () => adminState.getMentionUserId(),
-    resolveSessionSpawnCwd: (provider, requested) =>
-      resolveAgentHomeCwd(provider, requested, adminState.getWorkspaceRoot()),
     resolveWorkflowEnabled: (key) => adminState.isWorkflowEnabled(key),
     resolveReactionWorkflowEnabled: () =>
       adminState.isWorkflowEnabled("reaction") && adminState.getReactionWorkflowEnabled(),

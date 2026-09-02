@@ -134,7 +134,14 @@ delegation で安全に処理する。
   子会社 runtime は自社チームだけを出張先 guild に provision し、TaskWorkflow forum も
   そのチーム面へ流す。別子会社/本社の team は選択も描画もしない。
 - **Forum spawn (2026-09-01 neco 指示)**: 子会社 guild の Session forum への人間の新規
-  スレッドでも本社と同じ spawn-by-post が動く (`forum-spawn.ts` は guild 共通)。差分は 2 点:
+  スレッドでも本社と同じ spawn-by-post が動く (`forum-spawn.ts` は guild 共通)。
+  起動は **`/v1/admin/spawn-session` の素の spawn + startup inject** (2026-09-02 neco 指示:
+  Inject は `/spawn` のものと同一)。 delegation invoke の「実装タスク」ラッパーは使わない —
+  完了駆動の枠組みに乗ると一問一答で即 session-end してしまい、Forum スレッドを窓口にした
+  対話セッションにならないため。テンプレは selector が選ぶが provider / model の採用のみで、
+  投稿タイトル・本文は初回のユーザ指示として注入される。重複起動判定は delegation run の
+  triggered_by (旧経路) に加えて「スレッドに紐付いた active な session channel の有無」で行う。
+  差分は 2 点:
   - 子会社ではスレッド本文を **§2 ガードに通してから** template selector / invoke へ進む
     (`guardSubsidiaryForumSpawn` — ガードには decision だけを求め、所有 delegation の一致は
     要求しない — 起動テンプレは Cc 側 selector が選ぶため)。
@@ -153,8 +160,12 @@ delegation で安全に処理する。
 - **不足情報の聞き返し (2026-09-01 neco 指示 3)**: Session forum への投稿は「セッション起動の
   依頼」として扱う。起動に要る情報が投稿から取れないときは平文の拒否で終わらせず、
   **同じスレッドで質問する** (`src/discord/forum-spawn-intake.ts`)。
-  - 聞く項目: **関係プロジェクト** (`resolveProjectTarget` が解決できない) と
-    **タスク内容** (本文が空)。両方欠けていれば 1 回でまとめて聞く。
+  - 聞く項目: **関係プロジェクト** (`resolveProjectTarget` が解決できない)、
+    **タスク内容** (本文が空)、**起動テンプレ (モデル)** (selector が決められない —
+    2026-09-02 neco 指示: 不足はモデル等も含め質問形式で補間する)。project / task が
+    両方欠けていれば 1 回でまとめて聞く。テンプレ質問は active + forum_tag のテンプレを
+    選択メニューで出し、回答は本文へ足さず override として spawn 実行部へ渡す
+    (selector の再判定に賭けない)。
   - 回答口は 2 つ: 子会社なら関係プロジェクトの選択メニュー (25 件まで。本社は登録数が
     上限を超えるため候補を出さず自由記述のみ)、およびスレッドへの返信。
   - 回答は元の本文へ追記して spawn 実行部へ再入する。タグ状態は再入時に取り直す

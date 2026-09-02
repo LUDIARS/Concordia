@@ -27,8 +27,14 @@ export const MAX_ASK_COUNT = 3;
 /** Discord の select menu は 25 件まで。 */
 const MAX_PROJECT_CHOICES = 25;
 
-/** spawn に必要だが投稿から取れなかった項目。 */
-export type ForumSpawnMissingField = "project" | "task";
+/** spawn に必要だが投稿から取れなかった項目。 template = 起動テンプレ (モデル) を決められない。 */
+export type ForumSpawnMissingField = "project" | "task" | "template";
+
+/** テンプレ質問の選択肢。 label には provider / model を添えて選びやすくする。 */
+export interface ForumSpawnTemplateChoice {
+  callName: string;
+  label: string;
+}
 
 export interface PendingForumSpawnIntake {
   guildId: string;
@@ -72,6 +78,7 @@ export function buildForumSpawnIntakeQuestion(input: {
   requesterUserId: string;
   missing: readonly ForumSpawnMissingField[];
   projectChoices: readonly string[];
+  templateChoices?: readonly ForumSpawnTemplateChoice[];
   threadId: string;
 }): { content: string; components: ActionRowBuilder<StringSelectMenuBuilder>[] } {
   const asks: string[] = [];
@@ -81,21 +88,31 @@ export function buildForumSpawnIntakeQuestion(input: {
   if (input.missing.includes("task")) {
     asks.push("- **タスク内容**: 何をしてほしいかを 1〜数行で");
   }
+  if (input.missing.includes("template")) {
+    asks.push("- **起動テンプレ (モデル)**: どのテンプレ / モデルでセッションを起動しますか");
+  }
   const choices = input.projectChoices.slice(0, MAX_PROJECT_CHOICES);
   const truncated = input.projectChoices.length > choices.length;
+  const templateChoices = (input.templateChoices ?? []).slice(0, MAX_PROJECT_CHOICES);
+  const hasSelect = (input.missing.includes("project") && choices.length > 0)
+    || (input.missing.includes("template") && templateChoices.length > 0);
   const content = [
     `<@${input.requesterUserId}> セッションを起動するのに情報が足りません。`,
     "",
     ...asks,
     "",
-    input.missing.includes("project") && choices.length > 0
+    hasSelect
       ? "下の一覧から選ぶか、このスレッドへ返信してください。"
       : "このスレッドへ返信してください。",
     ...(truncated ? ["(一覧は先頭 25 件のみ。 該当が無ければ返信で指定してください)"] : []),
   ].join("\n");
-  const components = input.missing.includes("project") && choices.length > 0
-    ? [projectSelectRow(input.threadId, choices)]
-    : [];
+  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+  if (input.missing.includes("project") && choices.length > 0) {
+    components.push(projectSelectRow(input.threadId, choices));
+  }
+  if (input.missing.includes("template") && templateChoices.length > 0) {
+    components.push(templateSelectRow(input.threadId, templateChoices));
+  }
   return { content, components };
 }
 
@@ -126,6 +143,8 @@ export interface ForumSpawnIntakeRequest {
   missing: readonly ForumSpawnMissingField[];
   /** 選択メニューに出す候補 (子会社なら関係プロジェクト)。 空なら自由記述のみ。 */
   projectChoices: readonly string[];
+  /** template 質問時の候補 (active + forum_tag の delegation template)。 */
+  templateChoices?: readonly ForumSpawnTemplateChoice[];
 }
 
 /**
@@ -149,6 +168,7 @@ export async function requestForumSpawnIntake(
     requesterUserId: request.requesterUserId,
     missing: request.missing,
     projectChoices: request.projectChoices,
+    templateChoices: request.templateChoices,
     threadId: request.threadId,
   });
   deps.store.set(request.threadId, {
@@ -184,8 +204,8 @@ export interface ForumSpawnIntakeResumeDeps {
    * (社員名簿 `session_spawn`) を要求する — 回答は起動の引き金になるため。
    */
   isLaunchUserAllowed?: (userId: string) => boolean;
-  /** 補完済みの内容で spawn 実行部へ再入する。 */
-  resumeSpawn: (threadId: string, content: { title: string; body: string }) => Promise<void>;
+  /** 補完済みの内容で spawn 実行部へ再入する。 template は選択メニューで確定した場合のみ。 */
+  resumeSpawn: (threadId: string, content: { title: string; body: string; template?: string }) => Promise<void>;
   /** スレッドへの通常返信 (webhook 可)。 */
   reply: (threadId: string, content: string) => Promise<void>;
   log: { info: (message: string) => void; warn: (message: string) => void };
@@ -243,8 +263,9 @@ export async function dispatchForumSpawnIntakeInteraction(
   deps: ForumSpawnIntakeResumeDeps,
 ): Promise<void> {
   if (!interaction.isStringSelectMenu()) return;
-  const threadId = parseCustomId(interaction.customId);
-  if (!threadId) return;
+  const parsed = parseCustomId(interaction.customId);
+  if (!parsed) return;
+  const { kind, threadId } = parsed;
   const now = deps.now?.() ?? Date.now();
   const store = deps.store;
   const pending = store?.get(threadId);
@@ -264,18 +285,29 @@ export async function dispatchForumSpawnIntakeInteraction(
     });
     return;
   }
-  const project = interaction.values[0]?.trim();
-  if (!project) {
-    await interaction.reply({ content: "プロジェクトが選択されていません。", ephemeral: true });
+  const selected = interaction.values[0]?.trim();
+  if (!selected) {
+    await interaction.reply({ content: "選択肢が選ばれていません。", ephemeral: true });
+    return;
+  }
+
+  if (kind === "template") {
+    // テンプレは本文へ足さず override として渡す — selector の再判定に賭けず確定させる。
+    await interaction.update({
+      content: `起動テンプレ: **${selected}** (回答: <@${interaction.user.id}>)`,
+      components: [],
+      allowedMentions: { parse: [] },
+    });
+    await resume(deps, pending, [], selected);
     return;
   }
 
   await interaction.update({
-    content: `関係プロジェクト: **${project}** (回答: <@${interaction.user.id}>)`,
+    content: `関係プロジェクト: **${selected}** (回答: <@${interaction.user.id}>)`,
     components: [],
     allowedMentions: { parse: [] },
   });
-  await resume(deps, pending, [`関係プロジェクト: ${project}`]);
+  await resume(deps, pending, [`関係プロジェクト: ${selected}`]);
 }
 
 export function pruneForumSpawnIntakes(store: ForumSpawnIntakeStore, now = Date.now()): void {
@@ -286,7 +318,9 @@ export function pruneForumSpawnIntakes(store: ForumSpawnIntakeStore, now = Date.
 
 /** 打ち切り時にスレッドへ返す文面 (質問を出せなかったときの明示。 無言で捨てない)。 */
 export function forumSpawnIntakeGiveUpMessage(missing: readonly ForumSpawnMissingField[]): string {
-  const labels = missing.map((m) => (m === "project" ? "関係プロジェクト" : "タスク内容"));
+  const labels = missing.map(
+    (m) => (m === "project" ? "関係プロジェクト" : m === "template" ? "起動テンプレ (モデル)" : "タスク内容"),
+  );
   return `${labels.join(" と ")}を特定できないため、このスレッドでは起動しません。`
     + "情報を本文に書いた新しいスレッドで依頼してください。";
 }
@@ -295,6 +329,7 @@ async function resume(
   deps: ForumSpawnIntakeResumeDeps,
   pending: PendingForumSpawnIntake,
   additions: readonly string[],
+  template?: string,
 ): Promise<void> {
   const body = supplementForumSpawnBody(pending.body, additions);
   // 回答済みに倒してから再開する。 消さないのは聞き返し回数を持ち越すため、
@@ -302,7 +337,7 @@ async function resume(
   deps.store?.set(pending.threadId, { ...pending, body, status: "answered" });
   deps.log.info(`forum-spawn intake answered thread=${pending.threadId} ask=${pending.askCount}`);
   try {
-    await deps.resumeSpawn(pending.threadId, { title: pending.title, body });
+    await deps.resumeSpawn(pending.threadId, { title: pending.title, body, ...(template ? { template } : {}) });
   } catch (error) {
     deps.log.warn(`forum-spawn intake resume failed thread=${pending.threadId}: ${(error as Error).message}`);
     // 例外には local path / endpoint / SDK の応答が含まれ得る。詳細は内部ログに限定し、
@@ -321,9 +356,9 @@ function isAnswerAllowed(
   return deps.isLaunchUserAllowed?.(userId) === true;
 }
 
-function parseCustomId(customId: string): string | null {
-  const match = /^forum-spawn-intake:project:([^:]+)$/.exec(customId);
-  return match ? match[1]! : null;
+function parseCustomId(customId: string): { kind: "project" | "template"; threadId: string } | null {
+  const match = /^forum-spawn-intake:(project|template):([^:]+)$/.exec(customId);
+  return match ? { kind: match[1] as "project" | "template", threadId: match[2]! } : null;
 }
 
 function projectSelectRow(
@@ -335,5 +370,20 @@ function projectSelectRow(
       .setCustomId(`${CUSTOM_ID_PREFIX}project:${threadId}`)
       .setPlaceholder("関係プロジェクトを選ぶ")
       .addOptions(choices.map((project) => ({ label: project.slice(0, 100), value: project.slice(0, 100) }))),
+  );
+}
+
+function templateSelectRow(
+  threadId: string,
+  choices: readonly ForumSpawnTemplateChoice[],
+): ActionRowBuilder<StringSelectMenuBuilder> {
+  return new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`${CUSTOM_ID_PREFIX}template:${threadId}`)
+      .setPlaceholder("起動テンプレ (モデル) を選ぶ")
+      .addOptions(choices.map((choice) => ({
+        label: choice.label.slice(0, 100),
+        value: choice.callName.slice(0, 100),
+      }))),
   );
 }

@@ -1,12 +1,8 @@
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { isProjectNameInScope } from "../subsidiary/project-scope.js";
-import {
-  forumTemplateDefaultArgs,
-  SESSION_RUNTIME_RULE_TAG_NAMES,
-} from "./forum-template-tags.js";
+import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
 import { callConcordia } from "./commands/_util.js";
-import type { DelegationProvider } from "../db/delegation-repo.js";
 import type { ForumDelegationSelectionInput, ForumDelegationSelection } from "./forum-delegation-selector.js";
 import {
   hasConcordiaManagedForumTag,
@@ -53,6 +49,8 @@ export interface SuppliedForumSpawnContent {
   readonly title: string;
   readonly body: string;
   readonly tagState?: ForumTagState;
+  /** 不足情報の回答 (テンプレ選択メニュー) で確定した起動テンプレ。 selector を通さず使う。 */
+  readonly template?: string;
 }
 
 export function matchesApprovedForumContent(
@@ -75,7 +73,7 @@ export interface ForumSpawnDeps {
   /**
    * このスレッドを処理している Bot インスタンス自身の子会社 (subsidiary) id。
    * 本社 Bot なら null。 spawn したセッションの metadata.subsidiary_id へ焼き込むために
-   * `/v1/delegation/invoke` へ転送する (未指定だと子会社 Bot 経由の forum spawn が本社
+   * `/v1/admin/spawn-session` へ転送する (未指定だと子会社 Bot 経由の forum spawn が本社
    * セッションとして誤帰属し、 本社/子会社の可視範囲判定 (ownsSession) が壊れる)。
    */
   subsidiaryId?: string | null;
@@ -88,8 +86,6 @@ export interface ForumSpawnDeps {
    * 対象プロジェクトがこの集合の外なら起動しない。 本社 Bot は指定しない (= 制限なし)。
    */
   resolveSubsidiaryProjects?: () => readonly string[];
-  /** 通常の session spawn と同じ規則で、明示 cwd またはプロジェクトルートを解決する。 */
-  resolveSpawnCwd: (provider: DelegationProvider, requested?: string) => string | undefined;
   /** Exact Discord user ID authorization for the thread owner. */
   isLaunchUserAllowed?: (userId: string) => boolean;
   /**
@@ -272,23 +268,40 @@ export async function executeForumSpawn(
     }
   }
   const templates = await deps.templates();
-  const selection = await deps.selectTemplate({ title, body, templates });
-  if (!selection.ok) {
-    deps.log.warn(`forum-spawn template selection failed thread=${thread.id}: ${selection.error}`);
-    await reply(deps, thread, selection.error);
-    return { ok: false, error: "template selection failed" };
+  let template: DelegationTemplateLite;
+  if (suppliedContent?.template) {
+    // 質問への回答で確定したテンプレは selector を通さない (回答が正)。
+    const chosen = templates.find(
+      (candidate) => candidate.call_name === suppliedContent.template
+        && candidate.is_active && candidate.forum_tag === true,
+    );
+    if (!chosen) {
+      // suppliedContent は interaction 境界から来る。未検証値をログ行や Discord の
+      // Markdown へ直接反射せず、診断ログでは JSON 文字列化して改行を無害化する。
+      deps.log.warn(
+        `forum-spawn supplied template unavailable thread=${thread.id} `
+        + `template=${JSON.stringify(suppliedContent.template)}`,
+      );
+      await reply(deps, thread, "選択された起動テンプレは利用できません。もう一度選択してください。");
+      return { ok: false, error: "supplied template unavailable" };
+    }
+    template = chosen;
+  } else {
+    const selection = await deps.selectTemplate({ title, body, templates });
+    if (!selection.ok) {
+      // 起動テンプレ (モデル) を決められない場合も平文拒否で終わらせず、同じスレッドで
+      // 質問形式で補間する (2026-09-02 neco 指示)。
+      deps.log.info(`forum-spawn template selection needs input thread=${thread.id}: ${selection.error}`);
+      await askForMissingForumSpawnInfo(deps, thread, { title, body, missing: ["template"] });
+      return { ok: false, error: "template selection requested" };
+    }
+    template = selection.template;
   }
-  const template = selection.template;
   const provider = template.target_provider;
   if (!provider) {
     deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template.call_name}`);
     await reply(deps, thread, `起動テンプレ \`${template.call_name}\` の provider 設定がありません。`);
     return { ok: false, error: "selected template has no provider" };
-  }
-  const cwd = deps.resolveSpawnCwd(provider, project?.cwd);
-  if (!cwd) {
-    await reply(deps, thread, `プロジェクト \`${project.project}\` の作業ディレクトリを解決できませんでした。設定を確認してください。`);
-    return { ok: false, error: "spawn cwd unresolved" };
   }
 
   let freshTagState = suppliedContent?.tagState;
@@ -307,39 +320,42 @@ export async function executeForumSpawn(
   }
   const activeRuntimeRules = activeRuntimeRuleNames(freshTagState);
 
+  // delegation invoke (「実装タスク」ラッパー + 完了駆動 run) ではなく /spawn と同じ
+  // 素のセッション起動 + startup inject を使う (2026-09-02 neco 指示: Inject は spawn の
+  // ものと同一に)。 delegation 経由だと一問一答で即 session-end してしまい、 Forum
+  // スレッドを窓口にした対話セッションにならない。
   const result = await callConcordia<{
     ok: boolean;
-    run: { id: string; status: string };
-    spawn_pid: number | null;
-  }>(deps.concordiaUrl, "POST", "/v1/delegation/invoke", {
-    call_name: template.call_name,
-    args: forumTemplateDefaultArgs({ input_schema: template.input_schema ?? [] }),
-    cwd,
-    extra_prompt: buildForumSpawnPrompt(title, body, activeRuntimeRules),
-    triggered_by: triggeredBy,
-    spawn: true,
-    subsidiary_id: deps.subsidiaryId ?? null,
+    pid?: number | null;
+  }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
+    template: template.call_name,
+    inject_prompt: false,
+    prompt: buildForumSpawnPrompt(title, body, activeRuntimeRules),
     project: project.project,
+    subsidiary_id: deps.subsidiaryId ?? null,
     requester_discord_user_id: thread.ownerId,
     source_discord_guild_id: thread.guildId,
     source_discord_channel_id: thread.id,
   });
   if ("error" in result || !result.ok) {
-    const error = "error" in result ? result.error : "delegation invoke failed";
-    deps.log.warn(`forum-spawn failed thread=${thread.id} template=${template.call_name}: ${error}`);
-    await reply(deps, thread, `セッション起動に失敗しました: ${error}`);
-    return { ok: false, error: "delegation invoke failed" };
-  }
-  if (result.run.status === "spawn_failed") {
-    deps.log.warn(`forum-spawn spawn failed thread=${thread.id} template=${template.call_name} run=${result.run.id}`);
-    await reply(deps, thread, "セッションのプロセスを起動できませんでした。設定を確認してください。");
-    return { ok: false, error: "delegation spawn failed" };
+    const error = "error" in result ? result.error : "session spawn failed";
+    // API / SDK のエラーには local path、private endpoint、command line が含まれ得る。
+    // 詳細は改行を無害化した内部ログに限定し、外部 guild へは安定した文面だけを返す。
+    deps.log.warn(
+      `forum-spawn failed thread=${thread.id} template=${template.call_name}: ${JSON.stringify(error)}`,
+    );
+    await reply(deps, thread, "セッション起動に失敗しました。Bot のログを確認してください。");
+    return { ok: false, error: "session spawn failed" };
   }
   deps.log.info(
-    `forum-spawn requested thread=${thread.id} run=${result.run.id} template=${template.call_name} ` +
-    `provider=${provider} project=${project?.project ?? "workspace-default"} cwd=${cwd ?? "unresolved"}`,
+    `forum-spawn requested thread=${thread.id} template=${template.call_name} ` +
+    `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}`,
   );
-  await reply(deps, thread, `Cc がセッションを起動しました（provider: \`${provider}\`, run: \`${result.run.id}\`）。`);
+  await reply(
+    deps,
+    thread,
+    `Cc がセッションを起動しました（provider: \`${provider}\`${template.model ? `, model: \`${template.model}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
+  );
   return { ok: true };
 }
 

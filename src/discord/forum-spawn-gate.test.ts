@@ -50,7 +50,6 @@ function makeDeps(patch: Partial<ForumSpawnDeps> = {}): ForumSpawnDeps {
     templates: vi.fn(async () => [selected]),
     selectTemplate: vi.fn(async () => ({ ok: true as const, template: selected })),
     resolveProjectTarget: () => ({ project: "Cc", code: "Cc", cwd: "C:/work/Concordia" }),
-    resolveSpawnCwd: (_provider, requested) => requested,
     hasExistingRun: () => false,
     postToThread: vi.fn(async () => undefined),
     log: { info: vi.fn(), warn: vi.fn() },
@@ -92,7 +91,7 @@ describe("forum spawn approval + guard wiring", () => {
   it("posts the advisory note to the thread and still spawns", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
-      text: async () => JSON.stringify({ ok: true, run: { id: "run-adv", status: "spawned" }, spawn_pid: 1 }),
+      text: async () => JSON.stringify({ ok: true, pid: 1 }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -113,10 +112,10 @@ describe("forum spawn approval + guard wiring", () => {
     }
   });
 
-  it("proceeds to spawn when the guard allows", async () => {
+  it("proceeds to spawn via /v1/admin/spawn-session when the guard allows", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
-      text: async () => JSON.stringify({ ok: true, run: { id: "run-1", status: "spawned" }, spawn_pid: 1 }),
+      text: async () => JSON.stringify({ ok: true, pid: 1 }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     try {
@@ -126,35 +125,84 @@ describe("forum spawn approval + guard wiring", () => {
       const result = await executeForumSpawn(deps, makeThread());
       expect(result).toEqual({ ok: true });
       expect(deps.selectTemplate).toHaveBeenCalled();
-      expect(fetchMock).toHaveBeenCalled();
+      expect(fetchMock).toHaveBeenCalledWith(
+        "http://concordia.test/v1/admin/spawn-session",
+        expect.objectContaining({ method: "POST" }),
+      );
+      // 素の spawn + startup inject (inject_prompt=false)。 delegation invoke の
+      // 「実装タスク」ラッパーを通さない (2026-09-02 neco 指示)。
+      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+      expect(body).toMatchObject({
+        template: "forum-codex-session",
+        inject_prompt: false,
+        project: "Cc",
+        source_discord_channel_id: "thread-1",
+      });
+      expect(body.prompt).toContain("Build spawn-by-post");
     } finally {
       vi.unstubAllGlobals();
     }
   });
 
-  it("reports a recorded spawn failure instead of claiming that the session launched", async () => {
+  it("reports a spawn failure instead of claiming that the session launched", async () => {
+    const internalError = "backend detail that must stay internal\nsecond diagnostic line";
     const fetchMock = vi.fn(async () => ({
-      ok: true,
-      text: async () => JSON.stringify({
-        ok: true,
-        run: { id: "run-failed", status: "spawn_failed" },
-        spawn_pid: null,
-      }),
+      ok: false,
+      status: 502,
+      text: async () => JSON.stringify({ error: internalError }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     try {
       const deps = makeDeps();
       const result = await executeForumSpawn(deps, makeThread());
 
-      expect(result).toEqual({ ok: false, error: "delegation spawn failed" });
+      expect(result).toEqual({ ok: false, error: "session spawn failed" });
       expect(deps.postToThread).toHaveBeenCalledWith(
         "thread-1",
-        expect.stringContaining("プロセスを起動できませんでした"),
+        expect.stringContaining("セッション起動に失敗しました"),
+      );
+      expect(deps.postToThread).not.toHaveBeenCalledWith(
+        "thread-1",
+        expect.stringContaining(internalError),
       );
       expect(deps.postToThread).not.toHaveBeenCalledWith(
         "thread-1",
         expect.stringContaining("Cc がセッションを起動しました"),
       );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("asks for the launch template instead of a flat deny when the selector fails", async () => {
+    const requestIntake = vi.fn(async () => true);
+    const deps = makeDeps({
+      selectTemplate: vi.fn(async () => ({ ok: false as const, error: "選択失敗" })),
+      requestIntake,
+    });
+    const result = await executeForumSpawn(deps, makeThread());
+    expect(result).toEqual({ ok: false, error: "template selection requested" });
+    expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["template"] }));
+    expect(deps.postToThread).not.toHaveBeenCalled();
+  });
+
+  it("uses a supplied template from the intake answer without re-running the selector", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 2 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const deps = makeDeps();
+      const result = await executeForumSpawn(deps, makeThread(), {
+        title: "[Cc] Implement Phase 2",
+        body: "Build spawn-by-post",
+        template: "forum-codex-session",
+      });
+      expect(result).toEqual({ ok: true });
+      expect(deps.selectTemplate).not.toHaveBeenCalled();
+      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+      expect(body.template).toBe("forum-codex-session");
     } finally {
       vi.unstubAllGlobals();
     }

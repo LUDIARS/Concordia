@@ -39,7 +39,6 @@ import {
   workflowActionCapability,
   workflowActionSubsidiaryAllowed,
   workflowDenialMessage,
-  workflowSubsidiaryDenialMessage,
   type WorkflowActionPolicies,
 } from "./reaction-workflow-capability.js";
 // 設定 GUI / API がアクション別ポリシーの既定値を参照できるよう、rwf module として再輸出する。
@@ -1081,15 +1080,9 @@ export class ReactionWorkflowRunner {
     // 本社限定アクションは子会社 runtime では実行しない (2026-09-02 neco 指示)。
     // 例: Memoria への記録は子会社メンバーから読めないため、押しても意味が無い。
     if (this.deps.subsidiary && !workflowActionSubsidiaryAllowed(action, policies)) {
-      this.deps.log.info(`reaction-workflow: denied (hq-only) action=${action} user=${input.userId}`);
-      const denyKey = `deny-hq|${input.dedupeKey}|${input.emoji}|${input.userId}`;
-      const denyNow = this.nowSec();
-      const lastDenied = this.lastFired.get(denyKey);
-      if (lastDenied === undefined || denyNow - lastDenied >= DEDUPE_SEC) {
-        this.lastFired.set(denyKey, denyNow);
-        const message = workflowSubsidiaryDenialMessage(action);
-        if (onResult) try { onResult(action, { ok: false, text: message }); } catch { /* best-effort */ }
-      }
+      // 子会社では「そもそも発火しない」= 対応外の絵文字と同じ扱いにする
+      // (2026-09-02 neco 指示)。 返信もせず、監査用のログだけ残す。
+      this.deps.log.info(`reaction-workflow: skipped (hq-only) action=${action} user=${input.userId}`);
       return;
     }
 

@@ -47,12 +47,14 @@ export async function stopCompletedSessionProcesses(
   metadata: string | null,
   deps: CompletedSessionStopDeps = {},
 ): Promise<CompletedSessionStopResult> {
+  const pids = [...new Set([parseLictorPid(metadata), parseAgentClientPid(metadata)].filter((pid): pid is number => pid != null))];
+  const result: CompletedSessionStopResult = { ok: true, stopped: [], alreadyStopped: [], failed: [] };
+  if (pids.length === 0) return result;
+
   const isAlive = deps.isAlive ?? isPidAlive;
   const stopProcess = deps.stopProcess ?? stopSessionByLictorPid;
   const observed = new Map((await (deps.scanProcesses ?? scanAgentProcesses)()).map((process) => [process.pid, process]));
   const nowSec = (deps.nowSec ?? (() => Date.now() / 1000))();
-  const pids = [...new Set([parseLictorPid(metadata), parseAgentClientPid(metadata)].filter((pid): pid is number => pid != null))];
-  const result: CompletedSessionStopResult = { ok: true, stopped: [], alreadyStopped: [], failed: [] };
 
   for (const pid of pids) {
     if (!isAlive(pid)) {

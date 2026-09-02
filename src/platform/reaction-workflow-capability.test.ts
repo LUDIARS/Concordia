@@ -6,7 +6,6 @@ import {
   workflowActionDefaults,
   workflowActionSubsidiaryAllowed,
   workflowDenialMessage,
-  workflowSubsidiaryDenialMessage,
 } from "./reaction-workflow-capability.js";
 import {
   CAPABILITY_MIN_ROLE,
@@ -103,10 +102,5 @@ describe("reaction workflow action policies (2026-09-02 neco 指示)", () => {
   it("設定 GUI 向けの既定値ビューを返す", () => {
     expect(workflowActionDefaults("memoria-note")).toEqual({ subsidiary: false, capability: null });
     expect(workflowActionDefaults("merge-pr")).toEqual({ subsidiary: true, capability: "merge_pr" });
-  });
-
-  it("本社限定の拒否文言はアクションを名指しする", () => {
-    expect(workflowSubsidiaryDenialMessage("memoria-note")).toContain("memoria-note");
-    expect(workflowSubsidiaryDenialMessage("memoria-note")).toContain("本社");
   });
 });

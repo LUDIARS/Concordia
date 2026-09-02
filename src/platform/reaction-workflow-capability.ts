@@ -82,11 +82,6 @@ export function workflowActionCapability(
   return ACTION_CAPABILITY[action] ?? null;
 }
 
-/** 本社限定アクションを子会社で押されたときの文言。 黙って無視しない。 */
-export function workflowSubsidiaryDenialMessage(action: WorkflowAction): string {
-  return `この操作 (${action}) は本社でのみ有効です (子会社では実行しません)。`;
-}
-
 /** 設定 GUI が既定値を表示するための対応表 (読み取り専用ビュー)。 */
 export function workflowActionDefaults(action: WorkflowAction): {
   subsidiary: boolean;

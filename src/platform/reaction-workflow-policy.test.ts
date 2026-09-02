@@ -8,6 +8,7 @@ function makeRunner(overrides: Record<string, unknown> = {}) {
   const results: Array<{ action: string; ok: boolean; text?: string }> = [];
   const runHeadless = vi.fn(async () => undefined);
   const emitInject = vi.fn();
+  const logInfo = vi.fn();
   const runner = new ReactionWorkflowRunner({
     runHeadless,
     emitInject,
@@ -15,7 +16,7 @@ function makeRunner(overrides: Record<string, unknown> = {}) {
     workspaceRoot: "E:/tmp",
     enabled: () => true,
     hasCapability: () => true,
-    log: { info: vi.fn(), warn: vi.fn() },
+    log: { info: logInfo, warn: vi.fn() },
     ...overrides,
   } as never);
   const handle = (emoji: string) => runner.handle(
@@ -29,18 +30,18 @@ function makeRunner(overrides: Record<string, unknown> = {}) {
     undefined,
     (action, result) => { results.push({ action, ok: result.ok, text: result.text }); },
   );
-  return { runner, handle, results, runHeadless, emitInject };
+  return { runner, handle, results, runHeadless, emitInject, logInfo };
 }
 
 describe("ReactionWorkflowRunner subsidiary policy", () => {
-  it("子会社 runtime では Memoria 記録系を既定で遮断し、本人へ理由を返す", async () => {
-    const { handle, results, runHeadless, emitInject } = makeRunner({ subsidiary: true });
+  it("子会社 runtime では Memoria 記録系はそもそも発火しない (返信も無し)", async () => {
+    // 2026-09-02 neco 指示: 対応外の絵文字と同じ扱い。監査ログのみ残す。
+    const { handle, results, runHeadless, emitInject, logInfo } = makeRunner({ subsidiary: true });
     await handle("📝"); // memoria-task の既定絵文字
     expect(runHeadless).not.toHaveBeenCalled();
     expect(emitInject).not.toHaveBeenCalled();
-    expect(results).toHaveLength(1);
-    expect(results[0]).toMatchObject({ ok: false });
-    expect(results[0]!.text).toContain("本社");
+    expect(results).toHaveLength(0);
+    expect(logInfo).toHaveBeenCalledWith("reaction-workflow: skipped (hq-only) action=memoria-task user=user-1");
   });
 
   it("ポリシーで子会社にも開放できる", async () => {

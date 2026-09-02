@@ -15,7 +15,7 @@ import type { RepoStatus } from "../work/repo-scan.js";
 // bounded to 30 seconds; allow enough total budget for a loaded Windows review
 // worker to execute its deliberate sequence without turning scheduler pressure
 // into a false product failure.
-const REAL_GIT_CLEANUP_TIMEOUT_MS = 5 * 60_000;
+const REAL_GIT_CLEANUP_TIMEOUT_MS = 10 * 60_000;
 
 describe("classifyBranch", () => {
   const base = { branch: "feat", inUse: false, mergedAncestor: false, hasUpstream: false, remoteGone: false, ahead: 1 };

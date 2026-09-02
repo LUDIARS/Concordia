@@ -130,6 +130,41 @@ describe("forum spawn", () => {
     expect(body).not.toHaveProperty("cwd");
   });
 
+  it("モデル別絵文字を起動完了メッセージに表示する", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      ok: true,
+      pid: 42,
+    }), { status: 200 })));
+    const selected = {
+      ...template("forum-claude-session"),
+      model: "claude-fable-5-1",
+      emoji: "🟣",
+    };
+    const modelTemplate = {
+      ...template("fable-mid"),
+      model: "claude-fable-5",
+      emoji: "🦸",
+      forum_tag: false,
+    };
+    const postToThread = vi.fn(async () => undefined);
+
+    const result = await executeForumSpawn(
+      makeDeps({ templates: async () => [selected, modelTemplate], postToThread }),
+      makeThread(),
+      {
+        title: "[Cc] Implement Phase 2",
+        body: "Build spawn-by-post",
+        template: selected.call_name,
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringMatching(/^🦸 Cc がセッションを起動しました/),
+    );
+  });
+
   it("rechecks fresh tags immediately before invoke and yields to explicit /spawn", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -462,5 +497,41 @@ describe("matchExplicitForumTemplate", () => {
     expect(matchExplicitForumTemplate("t", "sonnet で", [sonnet, sonnet2])).toBeNull();
     expect(matchExplicitForumTemplate("t", "sonnet で", [{ ...sonnet, is_active: false }])).toBeNull();
     expect(matchExplicitForumTemplate("t", "sonnet で", [{ ...sonnet, forum_tag: false }])).toBeNull();
+  });
+});
+
+describe("modelEmojiFromTemplates", () => {
+  const t = (callName: string, model: string | null, emoji: string) => ({
+    ...template(callName),
+    model,
+    emoji,
+  });
+  const catalog = [
+    t("fable-mid", "claude-fable-5", "🦸"),
+    t("fable-xhigh", "claude-fable-5", "🦸"),
+    t("opus-mid", "claude-opus-5", "🧙‍♂️"),
+    t("sol-mid", "gpt-5.6-sol", "☀️"),
+    t("sonnet-mid", "claude-sonnet-5", "🧑‍💼"),
+    t("haiku", "claude-haiku-4-5-20251001", "🗣️"),
+    t("claude-sonnet-5-walk", "claude-sonnet-5", "🚶"),
+    t("design-hard-fable5", "claude-fable-5", "🧩"),
+  ];
+
+  it("モデル id のトークンから素のモデルテンプレの絵文字を引く", async () => {
+    const { modelEmojiFromTemplates } = await import("./forum-spawn.js");
+    expect(modelEmojiFromTemplates("claude-fable-5-1", catalog)).toBe("🦸");
+    expect(modelEmojiFromTemplates("claude-opus-5", catalog)).toBe("🧙‍♂️");
+    expect(modelEmojiFromTemplates("gpt-5.6-sol", catalog)).toBe("☀️");
+    // sonnet は task 用 (claude-sonnet-5-walk 🚶) でなく sonnet-mid を優先する。
+    expect(modelEmojiFromTemplates("claude-sonnet-5", catalog)).toBe("🧑‍💼");
+    // call_name 完全一致 (haiku) が最優先。
+    expect(modelEmojiFromTemplates("claude-haiku-4-5-20251001", catalog)).toBe("🗣️");
+  });
+
+  it("引けないモデルは null (呼び出し側でテンプレ絵文字へフォールバック)", async () => {
+    const { modelEmojiFromTemplates } = await import("./forum-spawn.js");
+    expect(modelEmojiFromTemplates("auto", catalog)).toBeNull();
+    expect(modelEmojiFromTemplates(null, catalog)).toBeNull();
+    expect(modelEmojiFromTemplates("claude-unknown-9", catalog)).toBeNull();
   });
 });

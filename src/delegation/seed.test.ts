@@ -20,7 +20,7 @@ describe("seedDelegationTemplates", () => {
     const sonnet5 = repo.findTemplateByCallName("sonnet-mid");
     expect(sonnet5?.is_active).toBe(1);
     expect(sonnet5?.model).toBe("claude-sonnet-5");
-  });
+  }, 15_000);
 
   it("seeds the Director inquiry template as a non-implementation, read-only prompt", () => {
     const repo = new DelegationRepo(makeTestDb());

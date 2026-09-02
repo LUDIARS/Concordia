@@ -34,6 +34,8 @@ export type ForumSpawnMissingField = "project" | "task" | "template";
 export interface ForumSpawnTemplateChoice {
   callName: string;
   label: string;
+  /** Delegation template の絵文字 (モデルの見分け用)。 無ければ選択肢は絵文字なし。 */
+  emoji?: string;
 }
 
 export interface PendingForumSpawnIntake {
@@ -395,6 +397,8 @@ function templateSelectRow(
       .addOptions(choices.map((choice) => ({
         label: choice.label.slice(0, 100),
         value: choice.callName.slice(0, 100),
+        // Delegation template の絵文字でモデルを見分ける (2026-09-02 neco 指示)。
+        ...(choice.emoji?.trim() ? { emoji: { name: choice.emoji.trim() } } : {}),
       }))),
   );
 }

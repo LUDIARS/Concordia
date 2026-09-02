@@ -403,10 +403,12 @@ export async function executeForumSpawn(
     `forum-spawn requested thread=${thread.id} template=${template.call_name} ` +
     `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}`,
   );
+  // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、無ければテンプレ自身の絵文字。
+  const spawnEmoji = modelEmojiFromTemplates(template.model, templates) ?? template.emoji?.trim() ?? "";
   await reply(
     deps,
     thread,
-    `Cc がセッションを起動しました（provider: \`${provider}\`${template.model ? `, model: \`${template.model}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
+    `${spawnEmoji ? `${spawnEmoji} ` : ""}Cc がセッションを起動しました（provider: \`${provider}\`${template.model ? `, model: \`${template.model}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
   );
   return { ok: true };
 }
@@ -442,6 +444,36 @@ async function askForMissingForumSpawnInfo(
 
 /** 明示照合の対象から外す一般語 (本文に頻出し、テンプレ指定の意図と読めない)。 */
 const EXPLICIT_TEMPLATE_STOPWORDS = new Set(["claude", "code", "forum", "gpt", "session"]);
+
+/**
+ * モデル別の絵文字を Delegation template 群から引く (2026-09-02 neco 指示:
+ * Fable=🦸 / Opus=🧙‍♂️ / Sol=☀️ など)。 モデル id のトークン (fable / opus / sol /
+ * sonnet / haiku / luna / terra …) で call_name が始まる素のモデルテンプレ
+ * (fable-mid / opus-mid / sol-mid / haiku 等) の emoji を採用する。
+ * 優先順: call_name がトークン一致 > `<token>-mid` > その他の先頭一致 (名前順)。
+ * 引けなければ null (呼び出し側はテンプレ自身の emoji へフォールバック)。
+ */
+export function modelEmojiFromTemplates(
+  model: string | null | undefined,
+  templates: readonly DelegationTemplateLite[],
+): string | null {
+  const normalized = model?.trim().toLowerCase();
+  if (!normalized) return null;
+  const tokens = normalized.split(/[^a-z0-9.]+/).filter(
+    (token) => token.length >= 3 && !/^\d/.test(token) && !EXPLICIT_TEMPLATE_STOPWORDS.has(token),
+  );
+  const candidates = templates
+    .filter((candidate) => candidate.is_active && candidate.emoji?.trim())
+    .flatMap((candidate) => {
+      const name = candidate.call_name.toLowerCase();
+      const token = tokens.find((t) => name === t || name.startsWith(`${t}-`));
+      if (!token) return [];
+      const rank = name === token ? 0 : name === `${token}-mid` ? 1 : 2;
+      return [{ rank, name, emoji: candidate.emoji.trim() }];
+    })
+    .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+  return candidates[0]?.emoji ?? null;
+}
 
 /**
  * 投稿タイトル/本文がテンプレ (モデル) を明示しているときだけ、そのテンプレを返す。

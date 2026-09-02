@@ -316,16 +316,24 @@ describe("選択メニューからの再開", () => {
     });
   });
 
-  it("template 質問カードにはテンプレ選択メニューが付く", () => {
+  it("template 質問カードにはテンプレ選択メニューが付き、絵文字でモデルを見分けられる", () => {
     const question = buildForumSpawnIntakeQuestion({
       requesterUserId: "user-1",
       missing: ["template"],
       projectChoices: [],
-      templateChoices: [{ callName: "forum-claude-session", label: "forum-claude-session (sonnet)" }],
+      templateChoices: [
+        { callName: "forum-claude-session", label: "forum-claude-session (sonnet)", emoji: "🟣" },
+        { callName: "forum-codex-session", label: "forum-codex-session (sol)" },
+      ],
       threadId: "thread-1",
     });
     expect(question.content).toContain("起動テンプレ (モデル)");
     expect(question.components).toHaveLength(1);
+    const json = question.components[0]!.toJSON() as {
+      components: Array<{ options: Array<{ label: string; emoji?: { name?: string } }> }>;
+    };
+    expect(json.components[0]!.options[0]!.emoji?.name).toBe("🟣");
+    expect(json.components[0]!.options[1]!.emoji).toBeUndefined();
   });
 
   it("別スレッドのカードからは再開しない", async () => {

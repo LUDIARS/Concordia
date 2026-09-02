@@ -87,6 +87,7 @@ import {
   executeForumSpawn,
   handleForumSpawnThread,
   matchesApprovedForumContent,
+  modelEmojiFromTemplates,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
   type ApprovedForumSpawnContent,
@@ -1290,14 +1291,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // テンプレ (モデル) の質問は 2026-09-02 neco 指示)。
       requestIntake: async (input) => {
         // template 質問には active + forum_tag のテンプレ一覧を選択肢として添える。
-        const templateChoices = input.missing.includes("template")
+        const allTemplates = input.missing.includes("template")
           ? (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates
-            .filter((t) => t.is_active && t.forum_tag === true)
-            .map((t) => ({
-              callName: t.call_name,
-              label: `${t.call_name}${t.model ? ` (${t.model})` : t.target_provider ? ` (${t.target_provider})` : ""}`,
-            }))
           : [];
+        const templateChoices = allTemplates
+          .filter((t) => t.is_active && t.forum_tag === true)
+          .map((t) => ({
+            callName: t.call_name,
+            label: `${t.call_name}${t.model ? ` (${t.model})` : t.target_provider ? ` (${t.target_provider})` : ""}`,
+            // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、
+            // 引けなければテンプレ自身の絵文字。
+            emoji: modelEmojiFromTemplates(t.model, allTemplates) ?? t.emoji ?? undefined,
+          }));
         return requestForumSpawnIntake(
           {
             store: forumSpawnIntakes,

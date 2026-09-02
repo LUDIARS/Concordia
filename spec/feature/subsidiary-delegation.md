@@ -138,10 +138,15 @@ delegation で安全に処理する。
   起動は **`/v1/admin/spawn-session` の素の spawn + startup inject** (2026-09-02 neco 指示:
   Inject は `/spawn` のものと同一)。 delegation invoke の「実装タスク」ラッパーは使わない —
   完了駆動の枠組みに乗ると一問一答で即 session-end してしまい、Forum スレッドを窓口にした
-  対話セッションにならないため。テンプレ (モデル) は**投稿に明示があるときだけ自動確定**
-  (call_name か model トークンの 1 件一致。「claude」等の一般語は明示と読まない) し、
-  明示が無い・曖昧なときは選択メニューの質問で人間に選んでもらう (2026-09-02 neco 指示:
-  モデルも明示的でなければ聞く)。Sonnet selector は質問面が未配線な構成のフォールバック。
+  対話セッションにならないため。モデルは**投稿に明示があるときだけ自動確定**
+  (nickname fable/opus/sonnet/sol/terra か model id の 1 件一致。effort も本文の明示を拾う) し、
+  明示が無い・曖昧なときは **Test forum と同型のモデル/Effort 質問カード** (モデル select +
+  Effort select + 起動ボタン、2026-09-02 neco 指示) で人間に選んでもらう。候補モデルと
+  model id・絵文字は素のモデルテンプレ (fable-mid / opus-mid / sol-mid / haiku 等) から
+  動的解決する。確定後はテンプレを使わず provider+model+effort の素 spawn
+  (effort の options 形は /spawn と同一: claude=effort / codex=model_reasoning_effort、
+  claude に minimal は無いので low へ丸め、未選択は claude=high / codex=xhigh)。
+  Sonnet selector は質問面が未配線な構成のフォールバック。
   投稿タイトル・本文は初回のユーザ指示として注入される。重複起動判定は delegation run の
   triggered_by (旧経路) に加えて「スレッドに紐付いた active な session channel の有無」で行う。
   **セッションは発火元スレッドへ紐付ける** (2026-09-02 neco 指示: 同じスレッドで対話する):
@@ -168,14 +173,15 @@ delegation で安全に処理する。
   依頼」として扱う。起動に要る情報が投稿から取れないときは平文の拒否で終わらせず、
   **同じスレッドで質問する** (`src/discord/forum-spawn-intake.ts`)。
   - 聞く項目: **関係プロジェクト** (`resolveProjectTarget` が解決できない)、
-    **タスク内容** (本文が空)、**起動テンプレ (モデル)** (selector が決められない —
+    **タスク内容** (本文が空)、**起動モデル** (投稿に nickname / model id の明示がない —
     2026-09-02 neco 指示: 不足はモデル等も含め質問形式で補間する)。project / task が
-    両方欠けていれば 1 回でまとめて聞く。テンプレ質問は active + forum_tag のテンプレを
-    選択メニューで出し、回答は本文へ足さず override として spawn 実行部へ渡す
-    (selector の再判定に賭けない)。選択肢と起動完了返信には、model id に対応する素の
-    モデルテンプレの絵文字を優先して表示し、対応が無ければ選択テンプレ自身の絵文字を使う。
-  - 回答口は 2 つ: 子会社なら関係プロジェクトの選択メニュー (25 件まで。本社は登録数が
-    上限を超えるため候補を出さず自由記述のみ)、およびスレッドへの返信。
+    両方欠けていれば 1 回でまとめて聞く。project / task が揃った後のモデル質問は、active な
+    素のモデルテンプレから解決したモデルと Effort の選択メニュー、および起動ボタンを出す。
+    回答は本文へ足さず provider + model + effort の override として spawn 実行部へ渡す。
+    選択肢と起動完了返信には、model id に対応する素のモデルテンプレの絵文字を表示する。
+  - 回答口は、モデル / Effort の選択メニュー + 起動ボタン、子会社向け関係プロジェクトの
+    選択メニュー (25 件まで。本社は登録数が上限を超えるため候補を出さず自由記述のみ)、
+    およびスレッドへの返信。
   - 回答は元の本文へ追記して spawn 実行部へ再入する。タグ状態は再入時に取り直す
     (回答の間の付け替えを取りこぼさない)。子会社ではガードも再実行される。
   - **プロジェクトの選択メニュー回答は override として確定させる** (質問ループの

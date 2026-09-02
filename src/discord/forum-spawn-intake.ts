@@ -16,6 +16,8 @@
 
 import {
   ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   StringSelectMenuBuilder,
   type Interaction,
 } from "discord.js";
@@ -38,6 +40,19 @@ export interface ForumSpawnTemplateChoice {
   emoji?: string;
 }
 
+/** モデル質問カードの選択肢 (Test forum と同型の Fable/Opus/Sonnet/Sol/Terra)。 */
+export interface ForumSpawnModelChoice {
+  /** nickname (fable / opus / sonnet / sol / terra)。 回答 override として spawn 側へ渡す。 */
+  nick: string;
+  label: string;
+  emoji?: string;
+  /** モデル未選択時は使わない。 選択済みで effort 未選択のときの既定。 */
+  defaultEffort: string;
+}
+
+/** Effort の選択肢 (Test forum と同じ語彙。 minimal は codex 系のみ有効で claude は low 扱い)。 */
+export const FORUM_INTAKE_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+
 export interface PendingForumSpawnIntake {
   guildId: string;
   threadId: string;
@@ -56,6 +71,12 @@ export interface PendingForumSpawnIntake {
    */
   status: "waiting" | "answered";
   createdAt: number;
+  /** モデル質問カードの候補 (カード再描画に使う)。 */
+  modelChoices?: readonly ForumSpawnModelChoice[];
+  /** モデル質問カードで選択中のモデル nickname。 起動ボタンで確定する。 */
+  chosenModel?: string;
+  /** モデル質問カードで選択中の effort。 未選択はモデルの既定。 */
+  chosenEffort?: string;
 }
 
 /** thread id をキーにした保留質問。 1 スレッドにつき 1 件しか持たない。 */
@@ -75,14 +96,83 @@ export function detectMissingForumSpawnInfo(input: {
   return missing;
 }
 
+export type ForumSpawnIntakeComponentRow = ActionRowBuilder<StringSelectMenuBuilder | ButtonBuilder>;
+
+/**
+ * モデル/Effort 質問カード (Test forum の provider・effort 選択と同型、2026-09-02 neco 指示)。
+ * select は選択を保存するだけで、「起動」ボタンで確定する。
+ */
+export function buildForumSpawnModelQuestion(input: {
+  requesterUserId: string;
+  threadId: string;
+  modelChoices: readonly ForumSpawnModelChoice[];
+  chosenModel?: string;
+  chosenEffort?: string;
+}): { content: string; components: ForumSpawnIntakeComponentRow[] } {
+  const chosen = input.modelChoices.find((choice) => choice.nick === input.chosenModel);
+  const effectiveEffort = input.chosenEffort ?? chosen?.defaultEffort;
+  const content = [
+    `<@${input.requesterUserId}> 起動するモデルと Effort を選んで「起動」を押してください。`,
+    "",
+    chosen
+      ? `選択中: ${chosen.emoji ? `${chosen.emoji} ` : ""}**${chosen.label}** / effort: **${effectiveEffort}**`
+      : "選択中: (モデル未選択)",
+  ].join("\n");
+  const modelRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`${CUSTOM_ID_PREFIX}model:${input.threadId}`)
+      .setPlaceholder("モデルを選ぶ")
+      .addOptions(input.modelChoices.slice(0, MAX_PROJECT_CHOICES).map((choice) => ({
+        label: choice.label.slice(0, 100),
+        value: choice.nick.slice(0, 100),
+        default: choice.nick === input.chosenModel,
+        ...(choice.emoji?.trim() ? { emoji: { name: choice.emoji.trim() } } : {}),
+      }))),
+  );
+  const effortRow = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`${CUSTOM_ID_PREFIX}effort:${input.threadId}`)
+      .setPlaceholder(`Effort を選ぶ (未選択は claude=high / codex=xhigh)`)
+      .addOptions(FORUM_INTAKE_EFFORTS.map((effort) => ({
+        label: effort,
+        value: effort,
+        default: effort === input.chosenEffort,
+        ...(effort === "minimal" ? { description: "codex 系のみ (Claude は low 扱い)" } : {}),
+      }))),
+  );
+  const launchRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`${CUSTOM_ID_PREFIX}launch:${input.threadId}`)
+      .setLabel("起動")
+      .setStyle(ButtonStyle.Success),
+  );
+  return { content, components: [modelRow, effortRow, launchRow] };
+}
+
 /** 質問カードの文面と操作面。 選択肢が無ければ本文だけ (自由記述で答えてもらう)。 */
 export function buildForumSpawnIntakeQuestion(input: {
   requesterUserId: string;
   missing: readonly ForumSpawnMissingField[];
   projectChoices: readonly string[];
   templateChoices?: readonly ForumSpawnTemplateChoice[];
+  modelChoices?: readonly ForumSpawnModelChoice[];
+  chosenModel?: string;
+  chosenEffort?: string;
   threadId: string;
-}): { content: string; components: ActionRowBuilder<StringSelectMenuBuilder>[] } {
+}): { content: string; components: ForumSpawnIntakeComponentRow[] } {
+  // モデルだけが不足 (project/task は揃っている) なら Test forum 同型のモデル/Effort カード。
+  if (
+    input.missing.length === 1 && input.missing[0] === "template"
+    && (input.modelChoices?.length ?? 0) > 0
+  ) {
+    return buildForumSpawnModelQuestion({
+      requesterUserId: input.requesterUserId,
+      threadId: input.threadId,
+      modelChoices: input.modelChoices!,
+      chosenModel: input.chosenModel,
+      chosenEffort: input.chosenEffort,
+    });
+  }
   const asks: string[] = [];
   if (input.missing.includes("project")) {
     asks.push("- **関係プロジェクト**: どのリポジトリ / プロジェクトの作業ですか (プロジェクトコードでも可)");
@@ -108,7 +198,7 @@ export function buildForumSpawnIntakeQuestion(input: {
       : "このスレッドへ返信してください。",
     ...(truncated ? ["(一覧は先頭 25 件のみ。 該当が無ければ返信で指定してください)"] : []),
   ].join("\n");
-  const components: ActionRowBuilder<StringSelectMenuBuilder>[] = [];
+  const components: ForumSpawnIntakeComponentRow[] = [];
   if (input.missing.includes("project") && choices.length > 0) {
     components.push(projectSelectRow(input.threadId, choices));
   }
@@ -130,7 +220,7 @@ export interface ForumSpawnIntakeRequestDeps {
   postCard: (
     threadId: string,
     content: string,
-    components: ActionRowBuilder<StringSelectMenuBuilder>[],
+    components: ForumSpawnIntakeComponentRow[],
   ) => Promise<void>;
   log: { info: (message: string) => void; warn: (message: string) => void };
   now?: () => number;
@@ -147,6 +237,8 @@ export interface ForumSpawnIntakeRequest {
   projectChoices: readonly string[];
   /** template 質問時の候補 (active + forum_tag の delegation template)。 */
   templateChoices?: readonly ForumSpawnTemplateChoice[];
+  /** モデル質問時の候補 (Fable/Opus/Sonnet/Sol/Terra、delegation template から解決)。 */
+  modelChoices?: readonly ForumSpawnModelChoice[];
 }
 
 /**
@@ -171,6 +263,7 @@ export async function requestForumSpawnIntake(
     missing: request.missing,
     projectChoices: request.projectChoices,
     templateChoices: request.templateChoices,
+    modelChoices: request.modelChoices,
     threadId: request.threadId,
   });
   deps.store.set(request.threadId, {
@@ -183,6 +276,7 @@ export async function requestForumSpawnIntake(
     askCount,
     status: "waiting",
     createdAt: now,
+    ...(request.modelChoices?.length ? { modelChoices: [...request.modelChoices] } : {}),
   });
   try {
     await deps.postCard(request.threadId, question.content, question.components);
@@ -206,10 +300,17 @@ export interface ForumSpawnIntakeResumeDeps {
    * (社員名簿 `session_spawn`) を要求する — 回答は起動の引き金になるため。
    */
   isLaunchUserAllowed?: (userId: string) => boolean;
-  /** 補完済みの内容で再入する。template / project override は選択メニューで確定した場合のみ。 */
+  /** 補完済みの内容で再入する。override (template/project/model/effort) は選択面で確定した場合のみ。 */
   resumeSpawn: (
     threadId: string,
-    content: { title: string; body: string; template?: string; project?: string },
+    content: {
+      title: string;
+      body: string;
+      template?: string;
+      project?: string;
+      model?: string;
+      effort?: string;
+    },
   ) => Promise<void>;
   /** スレッドへの通常返信 (webhook 可)。 */
   reply: (threadId: string, content: string) => Promise<void>;
@@ -267,39 +368,115 @@ export async function dispatchForumSpawnIntakeInteraction(
   interaction: Interaction,
   deps: ForumSpawnIntakeResumeDeps,
 ): Promise<void> {
-  if (!interaction.isStringSelectMenu()) return;
-  const parsed = parseCustomId(interaction.customId);
+  // 種別は discord.js の型述語ではなく形で見る — interaction の部分実装でも落ちないように。
+  const values = (interaction as { values?: unknown }).values;
+  const isSelect = Array.isArray(values);
+  if (!isSelect && !("customId" in interaction)) return;
+  // 形ベース判定に伴い discord.js の narrowing が効かないため、必要な面だけを持つ
+  // 部分型として扱う (実 interaction / テスト double の両方が満たす)。
+  const ix = interaction as unknown as {
+    guildId: string | null;
+    channelId: string | null;
+    user: { id: string };
+    reply: (options: { content: string; ephemeral: boolean }) => Promise<unknown>;
+    update: (options: {
+      content: string;
+      components: ForumSpawnIntakeComponentRow[];
+      allowedMentions?: { parse: string[] };
+    }) => Promise<unknown>;
+  };
+  const parsed = parseCustomId((interaction as { customId: string }).customId);
   if (!parsed) return;
   const { kind, threadId } = parsed;
+  // launch はボタン (values 無し)、それ以外は select (values あり) のみ処理する。
+  if (kind === "launch" ? isSelect : !isSelect) return;
   const now = deps.now?.() ?? Date.now();
   const store = deps.store;
   const pending = store?.get(threadId);
   if (!store || !pending || pending.status !== "waiting" || now - pending.createdAt > PENDING_TTL_MS) {
     store?.delete(threadId);
-    await interaction.reply({ content: "この質問は失効しています。新しいスレッドで依頼し直してください。", ephemeral: true });
+    await ix.reply({ content: "この質問は失効しています。新しいスレッドで依頼し直してください。", ephemeral: true });
     return;
   }
-  if (interaction.guildId !== pending.guildId || interaction.channelId !== pending.threadId) {
-    await interaction.reply({ content: "この質問は別のスレッドのものです。", ephemeral: true });
+  if (ix.guildId !== pending.guildId || ix.channelId !== pending.threadId) {
+    await ix.reply({ content: "この質問は別のスレッドのものです。", ephemeral: true });
     return;
   }
-  if (!isAnswerAllowed(deps, pending, interaction.user.id)) {
-    await interaction.reply({
+  if (!isAnswerAllowed(deps, pending, ix.user.id)) {
+    await ix.reply({
       content: "この質問に答えられるのは依頼者本人か、セッション起動権限のある社員のみです。",
       ephemeral: true,
     });
     return;
   }
-  const selected = interaction.values[0]?.trim();
+  // ── モデル/Effort カード (Test forum 同型): select は選択の保存、起動ボタンで確定 ──
+  if (kind === "launch") {
+    const chosen = (pending.modelChoices ?? []).find((choice) => choice.nick === pending.chosenModel);
+    if (!chosen) {
+      await ix.reply({ content: "モデルを選んでから「起動」を押してください。", ephemeral: true });
+      return;
+    }
+    // update の待機中に同じボタンが二重押下されても spawn が 2 回走らないよう、
+    // 外部 I/O より先に同期的に回答済みへ遷移させる。update 失敗時だけ再試行可能に戻す。
+    const claimed = { ...pending, status: "answered" as const };
+    store.set(threadId, claimed);
+    try {
+      await ix.update({
+        content: `起動モデル: ${chosen.emoji ? `${chosen.emoji} ` : ""}**${chosen.label}**`
+        + `${pending.chosenEffort ? ` / effort: **${pending.chosenEffort}**` : ""} (回答: <@${ix.user.id}>)`,
+        components: [],
+        allowedMentions: { parse: [] },
+      });
+    } catch (error) {
+      const current = store.get(threadId);
+      if (!current || current === claimed) store.set(threadId, pending);
+      throw error;
+    }
+    await resume(deps, pending, [], {
+      model: chosen.nick,
+      ...(pending.chosenEffort ? { effort: pending.chosenEffort } : {}),
+    });
+    return;
+  }
+
+  const selected = isSelect ? (values as string[])[0]?.trim() : undefined;
   if (!selected) {
-    await interaction.reply({ content: "選択肢が選ばれていません。", ephemeral: true });
+    await ix.reply({ content: "選択肢が選ばれていません。", ephemeral: true });
+    return;
+  }
+
+  if (kind === "model" || kind === "effort") {
+    const isAllowed = kind === "model"
+      ? (pending.modelChoices ?? []).some((choice) => choice.nick === selected)
+      : FORUM_INTAKE_EFFORTS.includes(selected as (typeof FORUM_INTAKE_EFFORTS)[number]);
+    if (!isAllowed) {
+      await ix.reply({ content: "選択値が無効です。質問カードから選び直してください。", ephemeral: true });
+      return;
+    }
+    const updated = {
+      ...pending,
+      ...(kind === "model" ? { chosenModel: selected } : { chosenEffort: selected }),
+    };
+    store.set(threadId, updated);
+    const card = buildForumSpawnModelQuestion({
+      requesterUserId: updated.requesterUserId,
+      threadId,
+      modelChoices: updated.modelChoices ?? [],
+      chosenModel: updated.chosenModel,
+      chosenEffort: updated.chosenEffort,
+    });
+    await ix.update({
+      content: card.content,
+      components: card.components,
+      allowedMentions: { parse: [] },
+    });
     return;
   }
 
   if (kind === "template") {
     // テンプレは本文へ足さず override として渡す — selector の再判定に賭けず確定させる。
-    await interaction.update({
-      content: `起動テンプレ: **${selected}** (回答: <@${interaction.user.id}>)`,
+    await ix.update({
+      content: `起動テンプレ: **${selected}** (回答: <@${ix.user.id}>)`,
       components: [],
       allowedMentions: { parse: [] },
     });
@@ -307,8 +484,8 @@ export async function dispatchForumSpawnIntakeInteraction(
     return;
   }
 
-  await interaction.update({
-    content: `関係プロジェクト: **${selected}** (回答: <@${interaction.user.id}>)`,
+  await ix.update({
+    content: `関係プロジェクト: **${selected}** (回答: <@${ix.user.id}>)`,
     components: [],
     allowedMentions: { parse: [] },
   });
@@ -337,7 +514,7 @@ async function resume(
   deps: ForumSpawnIntakeResumeDeps,
   pending: PendingForumSpawnIntake,
   additions: readonly string[],
-  overrides: { template?: string; project?: string } = {},
+  overrides: { template?: string; project?: string; model?: string; effort?: string } = {},
 ): Promise<void> {
   const body = supplementForumSpawnBody(pending.body, additions);
   // 回答済みに倒してから再開する。 消さないのは聞き返し回数を持ち越すため、
@@ -350,6 +527,8 @@ async function resume(
       body,
       ...(overrides.template ? { template: overrides.template } : {}),
       ...(overrides.project ? { project: overrides.project } : {}),
+      ...(overrides.model ? { model: overrides.model } : {}),
+      ...(overrides.effort ? { effort: overrides.effort } : {}),
     });
   } catch (error) {
     deps.log.warn(`forum-spawn intake resume failed thread=${pending.threadId}: ${(error as Error).message}`);
@@ -369,9 +548,11 @@ function isAnswerAllowed(
   return deps.isLaunchUserAllowed?.(userId) === true;
 }
 
-function parseCustomId(customId: string): { kind: "project" | "template"; threadId: string } | null {
-  const match = /^forum-spawn-intake:(project|template):([^:]+)$/.exec(customId);
-  return match ? { kind: match[1] as "project" | "template", threadId: match[2]! } : null;
+type ForumSpawnIntakeKind = "project" | "template" | "model" | "effort" | "launch";
+
+function parseCustomId(customId: string): { kind: ForumSpawnIntakeKind; threadId: string } | null {
+  const match = /^forum-spawn-intake:(project|template|model|effort|launch):([^:]+)$/.exec(customId);
+  return match ? { kind: match[1] as ForumSpawnIntakeKind, threadId: match[2]! } : null;
 }
 
 function projectSelectRow(

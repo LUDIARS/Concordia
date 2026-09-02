@@ -54,7 +54,7 @@ export interface DiscordCommandDeps {
   /** 回答で補完した内容から spawn を再開する (bot.ts が thread 再取得を配線)。 */
   resumeForumSpawnIntake?: (
     threadId: string,
-    content: { title: string; body: string },
+    content: import("./forum-spawn.js").SuppliedForumSpawnContent,
   ) => Promise<void>;
   /** Session forum スレッドへの通常返信 (webhook 経由)。 */
   replyToForumThread?: (threadId: string, content: string) => Promise<void>;

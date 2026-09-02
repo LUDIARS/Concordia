@@ -76,6 +76,94 @@ export interface SuppliedForumSpawnContent {
   readonly template?: string;
   /** 不足情報の回答 (プロジェクト選択メニュー) で確定した関係プロジェクト。 registry 再解決に賭けない。 */
   readonly project?: string;
+  /** モデル/Effort 質問カードで確定した起動モデル (nickname: fable / opus / sonnet / sol / terra)。 */
+  readonly model?: string;
+  /** モデル質問カードで選んだ effort。 未指定は provider 既定 (claude=high / codex=xhigh)。 */
+  readonly effort?: string;
+}
+
+/** Session forum の起動候補モデル (2026-09-02 neco 指示: Test forum の選択と同型)。 */
+export const FORUM_MODEL_NICKS = ["fable", "opus", "sonnet", "sol", "terra"] as const;
+export type ForumModelNick = (typeof FORUM_MODEL_NICKS)[number];
+export const FORUM_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
+export type ForumEffort = (typeof FORUM_EFFORTS)[number];
+
+export interface ForumModelChoice {
+  nick: ForumModelNick;
+  /** 選択メニュー表示名 (例: `Fable (claude-fable-5-1)`)。 */
+  label: string;
+  provider: string;
+  model: string;
+  emoji: string | null;
+  defaultEffort: ForumEffort;
+}
+
+/**
+ * 起動候補モデルを Delegation template 群から解決する。 モデル id や絵文字は
+ * 素のモデルテンプレ (fable-mid / opus-mid / sol-mid / haiku 等) が正本で、
+ * テンプレの model を更新すれば forum 側も追従する。 解決できない nickname は出さない。
+ */
+export function forumModelChoices(templates: readonly DelegationTemplateLite[]): ForumModelChoice[] {
+  const choices: ForumModelChoice[] = [];
+  for (const nick of FORUM_MODEL_NICKS) {
+    const found = templates
+      .filter((candidate) => candidate.is_active && candidate.target_provider && candidate.model?.trim())
+      .map((candidate) => {
+        const name = candidate.call_name.toLowerCase();
+        const rank = name === nick ? 0 : name === `${nick}-mid` ? 1 : name.startsWith(`${nick}-`) ? 2 : -1;
+        return { candidate, name, rank };
+      })
+      .filter((entry) => entry.rank >= 0)
+      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))[0]?.candidate;
+    if (!found) continue;
+    const provider = found.target_provider!;
+    choices.push({
+      nick,
+      label: `${nick[0]!.toUpperCase()}${nick.slice(1)} (${found.model!.trim()})`,
+      provider,
+      model: found.model!.trim(),
+      emoji: found.emoji?.trim() || null,
+      defaultEffort: provider === "claude" ? "high" : "xhigh",
+    });
+  }
+  return choices;
+}
+
+/**
+ * effort を provider の語彙へ正規化する。 未指定/不正は Test forum と同じ既定
+ * (claude=high / codex=xhigh)。 Claude Code に `minimal` は無いので low へ丸める。
+ */
+export function normalizeForumEffort(provider: string, requested?: string | null): ForumEffort {
+  const value = requested?.trim().toLowerCase() as ForumEffort | undefined;
+  if (!value || !FORUM_EFFORTS.includes(value)) return provider === "claude" ? "high" : "xhigh";
+  if (provider === "claude" && value === "minimal") return "low";
+  return value;
+}
+
+/**
+ * 投稿がモデルを明示しているときだけ確定する (nickname か model id の 1 件一致)。
+ * effort も本文に明示があれば拾う (無ければ undefined = provider 既定)。
+ */
+export function matchExplicitForumModel(
+  title: string,
+  body: string,
+  choices: readonly ForumModelChoice[],
+): { choice: ForumModelChoice; effort?: ForumEffort } | null {
+  const haystack = `${title}\n${body}`.toLowerCase();
+  const matched = choices.filter(
+    (choice) => containsAsciiIdentifier(haystack, choice.nick)
+      || containsAsciiIdentifier(haystack, choice.model.toLowerCase()),
+  );
+  if (matched.length !== 1) return null;
+  const effort = FORUM_EFFORTS.find(
+    (candidate) => new RegExp(`(^|[^a-z])${candidate}([^a-z]|$)`).test(haystack),
+  );
+  return { choice: matched[0]!, ...(effort ? { effort } : {}) };
+}
+
+function containsAsciiIdentifier(haystack: string, value: string): boolean {
+  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(haystack);
 }
 
 export function matchesApprovedForumContent(
@@ -310,16 +398,35 @@ export async function executeForumSpawn(
     }
   }
   const templates = await deps.templates();
-  let template: DelegationTemplateLite;
-  if (suppliedContent?.template) {
-    // 質問への回答で確定したテンプレは selector を通さない (回答が正)。
+  const modelChoices = forumModelChoices(templates);
+  let template: DelegationTemplateLite | null = null;
+  let modelTarget: { provider: string; model: string; effort: ForumEffort; emoji: string | null } | null = null;
+  if (suppliedContent?.model) {
+    // モデル/Effort 質問カードの回答が正 (2026-09-02 neco 指示: Test forum と同型の選択)。
+    const choice = modelChoices.find((candidate) => candidate.nick === suppliedContent.model);
+    if (!choice) {
+      // suppliedContent は interaction 境界から来る。未検証値をログ行や Discord の
+      // Markdown へ直接反射せず、診断ログでは JSON 文字列化して改行を無害化する。
+      deps.log.warn(
+        `forum-spawn supplied model unavailable thread=${thread.id} `
+        + `model=${JSON.stringify(suppliedContent.model)}`,
+      );
+      await reply(deps, thread, "選択されたモデルは利用できません。もう一度選択してください。");
+      return { ok: false, error: "supplied model unavailable" };
+    }
+    modelTarget = {
+      provider: choice.provider,
+      model: choice.model,
+      effort: normalizeForumEffort(choice.provider, suppliedContent.effort),
+      emoji: choice.emoji,
+    };
+  } else if (suppliedContent?.template) {
+    // 旧テンプレ選択カードの回答互換。
     const chosen = templates.find(
       (candidate) => candidate.call_name === suppliedContent.template
         && candidate.is_active && candidate.forum_tag === true,
     );
     if (!chosen) {
-      // suppliedContent は interaction 境界から来る。未検証値をログ行や Discord の
-      // Markdown へ直接反射せず、診断ログでは JSON 文字列化して改行を無害化する。
       deps.log.warn(
         `forum-spawn supplied template unavailable thread=${thread.id} `
         + `template=${JSON.stringify(suppliedContent.template)}`,
@@ -329,14 +436,22 @@ export async function executeForumSpawn(
     }
     template = chosen;
   } else {
-    // 起動テンプレ (モデル) は投稿に明示があるときだけ自動確定し、無ければ質問で
-    // 人間に選んでもらう (2026-09-02 neco 指示: モデルも明示的でなければ聞く)。
+    // モデルは投稿に明示があるときだけ自動確定し、無ければ質問で人間に選んでもらう
+    // (2026-09-02 neco 指示: モデルも明示的でなければ聞く)。
     // selector (Sonnet の推測) は質問面が未配線な構成のフォールバックに残す。
-    const explicit = matchExplicitForumTemplate(title, body, templates);
-    if (explicit) {
-      template = explicit;
+    const explicitModel = matchExplicitForumModel(title, body, modelChoices);
+    const explicitTemplate = explicitModel ? null : matchExplicitForumTemplate(title, body, templates);
+    if (explicitModel) {
+      modelTarget = {
+        provider: explicitModel.choice.provider,
+        model: explicitModel.choice.model,
+        effort: normalizeForumEffort(explicitModel.choice.provider, explicitModel.effort),
+        emoji: explicitModel.choice.emoji,
+      };
+    } else if (explicitTemplate) {
+      template = explicitTemplate;
     } else if (deps.requestIntake) {
-      deps.log.info(`forum-spawn template not explicit; asking thread=${thread.id}`);
+      deps.log.info(`forum-spawn model not explicit; asking thread=${thread.id}`);
       await askForMissingForumSpawnInfo(deps, thread, { title, body, missing: ["template"] });
       return { ok: false, error: "template selection requested" };
     } else {
@@ -349,10 +464,10 @@ export async function executeForumSpawn(
       template = selection.template;
     }
   }
-  const provider = template.target_provider;
+  const provider = modelTarget?.provider ?? template?.target_provider ?? null;
   if (!provider) {
-    deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template.call_name}`);
-    await reply(deps, thread, `起動テンプレ \`${template.call_name}\` の provider 設定がありません。`);
+    deps.log.warn(`forum-spawn selected template missing provider thread=${thread.id} template=${template?.call_name ?? "-"}`);
+    await reply(deps, thread, `起動テンプレ \`${template?.call_name ?? "?"}\` の provider 設定がありません。`);
     return { ok: false, error: "selected template has no provider" };
   }
 
@@ -376,39 +491,61 @@ export async function executeForumSpawn(
   // 素のセッション起動 + startup inject を使う (2026-09-02 neco 指示: Inject は spawn の
   // ものと同一に)。 delegation 経由だと一問一答で即 session-end してしまい、 Forum
   // スレッドを窓口にした対話セッションにならない。
-  const result = await callConcordia<{
-    ok: boolean;
-    pid?: number | null;
-  }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", {
-    template: template.call_name,
-    inject_prompt: false,
-    prompt: buildForumSpawnPrompt(title, body, activeRuntimeRules),
+  const prompt = buildForumSpawnPrompt(title, body, activeRuntimeRules);
+  const commonSpawnFields = {
+    prompt,
     project: project.project,
     subsidiary_id: deps.subsidiaryId ?? null,
     requester_discord_user_id: thread.ownerId,
     source_discord_guild_id: thread.guildId,
     source_discord_channel_id: thread.id,
-  });
+  };
+  const result = await callConcordia<{
+    ok: boolean;
+    pid?: number | null;
+  }>(deps.concordiaUrl, "POST", "/v1/admin/spawn-session", modelTarget
+    ? {
+      // モデル直指定は /spawn の provider 経路と同じ (effort の options 形も同一)。
+      provider: modelTarget.provider,
+      model: modelTarget.model,
+      options: modelTarget.provider === "claude"
+        ? { effort: modelTarget.effort }
+        : { model_reasoning_effort: modelTarget.effort },
+      ...commonSpawnFields,
+    }
+    : {
+      template: template!.call_name,
+      inject_prompt: false,
+      ...commonSpawnFields,
+    });
+  const spawnLabel = modelTarget ? modelTarget.model : template!.call_name;
   if ("error" in result || !result.ok) {
     const error = "error" in result ? result.error : "session spawn failed";
     // API / SDK のエラーには local path、private endpoint、command line が含まれ得る。
     // 詳細は改行を無害化した内部ログに限定し、外部 guild へは安定した文面だけを返す。
     deps.log.warn(
-      `forum-spawn failed thread=${thread.id} template=${template.call_name}: ${JSON.stringify(error)}`,
+      `forum-spawn failed thread=${thread.id} target=${spawnLabel}: ${JSON.stringify(error)}`,
     );
     await reply(deps, thread, "セッション起動に失敗しました。Bot のログを確認してください。");
     return { ok: false, error: "session spawn failed" };
   }
   deps.log.info(
-    `forum-spawn requested thread=${thread.id} template=${template.call_name} ` +
-    `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}`,
+    `forum-spawn requested thread=${thread.id} target=${spawnLabel} ` +
+    `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}` +
+    (modelTarget ? ` effort=${modelTarget.effort}` : ""),
   );
   // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、無ければテンプレ自身の絵文字。
-  const spawnEmoji = modelEmojiFromTemplates(template.model, templates) ?? template.emoji?.trim() ?? "";
+  const spawnModel = modelTarget?.model ?? template?.model ?? null;
+  const spawnEmoji = modelTarget?.emoji
+    ?? modelEmojiFromTemplates(spawnModel, templates)
+    ?? template?.emoji?.trim()
+    ?? "";
   await reply(
     deps,
     thread,
-    `${spawnEmoji ? `${spawnEmoji} ` : ""}Cc がセッションを起動しました（provider: \`${provider}\`${template.model ? `, model: \`${template.model}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
+    `${spawnEmoji ? `${spawnEmoji} ` : ""}Cc がセッションを起動しました（provider: \`${provider}\``
+    + `${spawnModel ? `, model: \`${spawnModel}\`` : ""}`
+    + `${modelTarget ? `, effort: \`${modelTarget.effort}\`` : ""}）。このスレッドがセッションとの窓口になります。`,
   );
   return { ok: true };
 }

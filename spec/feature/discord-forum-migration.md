@@ -67,16 +67,14 @@ merge / close / head 更新を次の再起動まで残さない。重複イベ�
 - 人間が Session フォーラムに**新規投稿** (スレッド作成) → Cc の `threadCreate`
   ハンドラが検知して:
   1. スレッドが Bot 自身の作成でないことを確認 (自作スレッドとの区別は owner id)
-  2. **[決定 1c、2026-07-18 neco が 1b を上書き] タグ選択は不要**。
-     `pickAvailableForumProvider()` が codex/claude の**週間 rate-limit 枠の残量**
-     (codex: `fetchCodexRateLimits().usedWeekly` / claude: `fetchClaudeOAuthUsage().sevenDay.utilization`)
-     を比較し、 残量が多い方 (空いている方) を選ぶ (同数 or 片方/両方取得失敗なら claude)。 codex なら
-     `forum-codex-session` (model `gpt-5.6-terra`)、 claude なら `forum-claude-session`
-     (model `claude-sonnet-5`) を **常に reasoning_effort=high** で invoke する
-     (投稿内容による effort 分岐はしない)。 詳細: `src/discord/forum-spawn.ts`
-     `FORUM_PROVIDER_PLAN` / `src/delegation/forum-provider-availability.ts`。
+  2. **[2026-09-02 neco が決定 1c を上書き] タグ選択と空き枠による自動選択は行わない**。
+     投稿に nickname (fable / opus / sonnet / sol / terra) または model id が識別子境界つきで
+     1 件だけ明示されていれば、そのモデルと明示 effort を採用する。明示が無いか曖昧なら、
+     Test forum と同型のモデル / Effort 選択カードを出し、起動ボタンで確定する。候補の provider、
+     model id、絵文字は active な素のモデルテンプレから解決する。詳細:
+     `src/discord/forum-spawn.ts` / `src/discord/forum-spawn-intake.ts`。
   3. プロジェクトコード (タイトル先頭 `[Xx]` / 本文から検出) → cwd 上書き
-  4. セッション spawn (既存 delegation invoke / spawnSession を流用)
+  4. `/v1/admin/spawn-session` の provider + model 直接指定で素のセッションを spawn
   5. **[2026-07-23 neco が旧方針を上書き] starter (ユーザーの元投稿) は編集しない**。
      親 Forum の webhook から同じ thread へセッション情報カードを別投稿し、その
      webhook message ID/token を保存する。タイトルと本文はこれまで通り

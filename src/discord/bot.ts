@@ -86,8 +86,8 @@ import {
   createGuardAdvisoryPostClaims,
   executeForumSpawn,
   handleForumSpawnThread,
+  forumModelChoices,
   matchesApprovedForumContent,
-  modelEmojiFromTemplates,
   parseForumSpawnTrigger,
   type ForumSpawnDeps,
   type ApprovedForumSpawnContent,
@@ -1291,18 +1291,17 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // テンプレ (モデル) の質問は 2026-09-02 neco 指示)。
       requestIntake: async (input) => {
         // template 質問には active + forum_tag のテンプレ一覧を選択肢として添える。
+        // モデル質問は Test forum と同型の Fable/Opus/Sonnet/Sol/Terra + Effort
+        // (2026-09-02 neco 指示)。 候補は delegation template から動的解決する。
         const allTemplates = input.missing.includes("template")
           ? (await delegationTemplateCache.get(deps.concordiaUrl, log)).templates
           : [];
-        const templateChoices = allTemplates
-          .filter((t) => t.is_active && t.forum_tag === true)
-          .map((t) => ({
-            callName: t.call_name,
-            label: `${t.call_name}${t.model ? ` (${t.model})` : t.target_provider ? ` (${t.target_provider})` : ""}`,
-            // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、
-            // 引けなければテンプレ自身の絵文字。
-            emoji: modelEmojiFromTemplates(t.model, allTemplates) ?? t.emoji ?? undefined,
-          }));
+        const modelChoices = forumModelChoices(allTemplates).map((choice) => ({
+          nick: choice.nick,
+          label: choice.label,
+          emoji: choice.emoji ?? undefined,
+          defaultEffort: choice.defaultEffort,
+        }));
         return requestForumSpawnIntake(
           {
             store: forumSpawnIntakes,
@@ -1324,7 +1323,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
             // 子会社は担当プロジェクトから選ばせる。 本社は候補を出さず自由記述で答えてもらう
             // (登録プロジェクトは select menu の上限 25 を超えるため)。
             projectChoices: deps.subsidiary?.resolveProjects() ?? [],
-            templateChoices,
+            modelChoices,
           },
         );
       },
@@ -1398,7 +1397,14 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // (回答の間の付け替えを取りこぼさない)。
   const resumeForumSpawnIntake = async (
     threadId: string,
-    content: { title: string; body: string; template?: string; project?: string },
+    content: {
+      title: string;
+      body: string;
+      template?: string;
+      project?: string;
+      model?: string;
+      effort?: string;
+    },
   ): Promise<void> => {
     const forumDeps = forumSpawnDepsNow();
     if (!forumDeps) throw new Error("Session forum is not ready");

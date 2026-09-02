@@ -212,15 +212,50 @@ describe("forum spawn approval + guard wiring", () => {
   });
 
   it("asks for the launch template instead of a flat deny when the selector fails", async () => {
-    const requestIntake = vi.fn(async () => true);
     const deps = makeDeps({
       selectTemplate: vi.fn(async () => ({ ok: false as const, error: "選択失敗" })),
-      requestIntake,
     });
     const result = await executeForumSpawn(deps, makeThread());
     expect(result).toEqual({ ok: false, error: "template selection requested" });
+    expect(deps.selectTemplate).toHaveBeenCalledOnce();
+    expect(deps.postToThread).toHaveBeenCalledWith(
+      "thread-1",
+      expect.stringContaining("起動テンプレ (モデル)を特定できない"),
+    );
+  });
+
+  it("asks for the template when the post does not name one, without running the selector", async () => {
+    // モデル (テンプレ) は明示が無ければ人間に選んでもらう (2026-09-02 neco 指示)。
+    const requestIntake = vi.fn(async () => true);
+    const deps = makeDeps({ requestIntake });
+    const result = await executeForumSpawn(deps, makeThread());
+    expect(result).toEqual({ ok: false, error: "template selection requested" });
+    expect(deps.selectTemplate).not.toHaveBeenCalled();
     expect(requestIntake).toHaveBeenCalledWith(expect.objectContaining({ missing: ["template"] }));
-    expect(deps.postToThread).not.toHaveBeenCalled();
+  });
+
+  it("spawns directly when the post names the template or its model token", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 9 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const requestIntake = vi.fn(async () => true);
+      const deps = makeDeps({
+        requestIntake,
+        templates: vi.fn(async () => [template("forum-codex-session")]),
+      });
+      const thread = makeThread({
+        fetchStarterMessage: vi.fn(async () => ({ content: "sol でレビューして" })),
+      });
+      const result = await executeForumSpawn(deps, thread);
+      expect(result).toEqual({ ok: true });
+      expect(requestIntake).not.toHaveBeenCalled();
+      expect(deps.selectTemplate).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("uses a supplied project override even when the registry cannot resolve it", async () => {
@@ -264,7 +299,7 @@ describe("forum spawn approval + guard wiring", () => {
       });
       const thread = makeThread({
         name: "レビュー",
-        fetchStarterMessage: vi.fn(async () => ({ content: "Alpha-Projectのコードレビューをする" })),
+        fetchStarterMessage: vi.fn(async () => ({ content: "Alpha-Projectのコードレビューをする (forum-codex-session)" })),
       });
       const result = await executeForumSpawn(deps, thread);
       expect(result).toEqual({ ok: true });

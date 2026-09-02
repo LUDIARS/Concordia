@@ -138,7 +138,10 @@ delegation で安全に処理する。
   起動は **`/v1/admin/spawn-session` の素の spawn + startup inject** (2026-09-02 neco 指示:
   Inject は `/spawn` のものと同一)。 delegation invoke の「実装タスク」ラッパーは使わない —
   完了駆動の枠組みに乗ると一問一答で即 session-end してしまい、Forum スレッドを窓口にした
-  対話セッションにならないため。テンプレは selector が選ぶが provider / model の採用のみで、
+  対話セッションにならないため。テンプレ (モデル) は**投稿に明示があるときだけ自動確定**
+  (call_name か model トークンの 1 件一致。「claude」等の一般語は明示と読まない) し、
+  明示が無い・曖昧なときは選択メニューの質問で人間に選んでもらう (2026-09-02 neco 指示:
+  モデルも明示的でなければ聞く)。Sonnet selector は質問面が未配線な構成のフォールバック。
   投稿タイトル・本文は初回のユーザ指示として注入される。重複起動判定は delegation run の
   triggered_by (旧経路) に加えて「スレッドに紐付いた active な session channel の有無」で行う。
   **セッションは発火元スレッドへ紐付ける** (2026-09-02 neco 指示: 同じスレッドで対話する):

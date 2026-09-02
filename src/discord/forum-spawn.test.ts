@@ -397,7 +397,8 @@ describe("forum spawn", () => {
     await executeForumSpawn(
       makeDeps({ requestIntake }),
       thread,
-      { title: thread.name, body: "関係プロジェクト: Concordia\n\n受付文言を直して" },
+      // テンプレは明示 (明示なしは質問になる)。
+      { title: thread.name, body: "関係プロジェクト: Concordia\n\n受付文言を直して (forum-codex-session)" },
     );
 
     expect(requestIntake).not.toHaveBeenCalled();
@@ -431,5 +432,35 @@ describe("forum spawn", () => {
       "thread-1",
       expect.stringContaining("新しいスレッドで依頼してください"),
     );
+  });
+});
+
+describe("matchExplicitForumTemplate", () => {
+  const codex = template("forum-codex-session");
+  const sonnet = { ...template("forum-claude-session"), model: "claude-sonnet-5" };
+
+  it("call_name か model トークンの明示だけを 1 件一致で採用する", async () => {
+    const { matchExplicitForumTemplate } = await import("./forum-spawn.js");
+    expect(matchExplicitForumTemplate("t", "forum-claude-session で", [codex, sonnet])?.call_name)
+      .toBe("forum-claude-session");
+    expect(matchExplicitForumTemplate("t", "sonnet でお願い", [codex, sonnet])?.call_name)
+      .toBe("forum-claude-session");
+    // 明示なし → null (質問へ)。
+    expect(matchExplicitForumTemplate("t", "レビューして", [codex, sonnet])).toBeNull();
+    // "claude" は一般語なのでテンプレ指定と読まない。
+    expect(matchExplicitForumTemplate("t", "Claude Code で直して", [codex, sonnet])).toBeNull();
+    expect(matchExplicitForumTemplate("t", "GPT でレビューして", [codex, sonnet])).toBeNull();
+    // 短いモデル名を通常の単語の部分文字列から誤検出しない。
+    expect(matchExplicitForumTemplate("t", "Resolve the console issue", [codex, sonnet])).toBeNull();
+    // call_name も、より長い別識別子の一部なら明示と読まない。
+    expect(matchExplicitForumTemplate("t", "forum-codex-session-extra で", [codex])).toBeNull();
+  });
+
+  it("複数一致 (曖昧) と inactive / forum_tag 無しは採用しない", async () => {
+    const { matchExplicitForumTemplate } = await import("./forum-spawn.js");
+    const sonnet2 = { ...sonnet, call_name: "forum-claude-heavy" };
+    expect(matchExplicitForumTemplate("t", "sonnet で", [sonnet, sonnet2])).toBeNull();
+    expect(matchExplicitForumTemplate("t", "sonnet で", [{ ...sonnet, is_active: false }])).toBeNull();
+    expect(matchExplicitForumTemplate("t", "sonnet で", [{ ...sonnet, forum_tag: false }])).toBeNull();
   });
 });

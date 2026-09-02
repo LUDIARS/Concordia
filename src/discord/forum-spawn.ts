@@ -329,15 +329,25 @@ export async function executeForumSpawn(
     }
     template = chosen;
   } else {
-    const selection = await deps.selectTemplate({ title, body, templates });
-    if (!selection.ok) {
-      // 起動テンプレ (モデル) を決められない場合も平文拒否で終わらせず、同じスレッドで
-      // 質問形式で補間する (2026-09-02 neco 指示)。
-      deps.log.info(`forum-spawn template selection needs input thread=${thread.id}: ${selection.error}`);
+    // 起動テンプレ (モデル) は投稿に明示があるときだけ自動確定し、無ければ質問で
+    // 人間に選んでもらう (2026-09-02 neco 指示: モデルも明示的でなければ聞く)。
+    // selector (Sonnet の推測) は質問面が未配線な構成のフォールバックに残す。
+    const explicit = matchExplicitForumTemplate(title, body, templates);
+    if (explicit) {
+      template = explicit;
+    } else if (deps.requestIntake) {
+      deps.log.info(`forum-spawn template not explicit; asking thread=${thread.id}`);
       await askForMissingForumSpawnInfo(deps, thread, { title, body, missing: ["template"] });
       return { ok: false, error: "template selection requested" };
+    } else {
+      const selection = await deps.selectTemplate({ title, body, templates });
+      if (!selection.ok) {
+        deps.log.info(`forum-spawn template selection needs input thread=${thread.id}: ${selection.error}`);
+        await askForMissingForumSpawnInfo(deps, thread, { title, body, missing: ["template"] });
+        return { ok: false, error: "template selection requested" };
+      }
+      template = selection.template;
     }
-    template = selection.template;
   }
   const provider = template.target_provider;
   if (!provider) {
@@ -428,6 +438,55 @@ async function askForMissingForumSpawnInfo(
     }
   }
   await reply(deps, thread, forumSpawnIntakeGiveUpMessage(missing));
+}
+
+/** 明示照合の対象から外す一般語 (本文に頻出し、テンプレ指定の意図と読めない)。 */
+const EXPLICIT_TEMPLATE_STOPWORDS = new Set(["claude", "code", "forum", "gpt", "session"]);
+
+/**
+ * 投稿タイトル/本文がテンプレ (モデル) を明示しているときだけ、そのテンプレを返す。
+ * 照合キーは call_name・model 全文・model のトークン (例: claude-sonnet-5 → sonnet)。
+ * 0 件 = 明示なし、2 件以上 = 曖昧 — どちらも null (質問で人間に選んでもらう)。
+ */
+export function matchExplicitForumTemplate(
+  title: string,
+  body: string,
+  templates: readonly DelegationTemplateLite[],
+): DelegationTemplateLite | null {
+  const haystack = `${title}\n${body}`.toLowerCase();
+  const haystackTokens = new Set(haystack.split(/[^a-z0-9.]+/).filter(Boolean));
+  const matched = templates.filter((candidate) => {
+    if (!candidate.is_active || candidate.forum_tag !== true) return false;
+    const identifiers = new Set([candidate.call_name.toLowerCase()]);
+    const modelTokens = new Set<string>();
+    const model = candidate.model?.trim().toLowerCase();
+    if (model) {
+      identifiers.add(model);
+      for (const token of model.split(/[^a-z0-9.]+/)) {
+        if (token.length >= 3 && !/^\d/.test(token) && !EXPLICIT_TEMPLATE_STOPWORDS.has(token)) {
+          modelTokens.add(token);
+        }
+      }
+    }
+    const hasIdentifier = [...identifiers]
+      .some((identifier) => identifier.length >= 3 && includesIdentifier(haystack, identifier));
+    const hasModelToken = [...modelTokens].some((token) => haystackTokens.has(token));
+    return hasIdentifier || hasModelToken;
+  });
+  return matched.length === 1 ? matched[0] ?? null : null;
+}
+
+function includesIdentifier(haystack: string, identifier: string): boolean {
+  let index = haystack.indexOf(identifier);
+  while (index >= 0) {
+    const before = haystack[index - 1];
+    const after = haystack[index + identifier.length];
+    if ((!before || !/[a-z0-9._-]/.test(before)) && (!after || !/[a-z0-9._-]/.test(after))) {
+      return true;
+    }
+    index = haystack.indexOf(identifier, index + 1);
+  }
+  return false;
 }
 
 export function isConcordiaSessionStarter(content: string): boolean {

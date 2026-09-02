@@ -1,7 +1,7 @@
 import { ChannelType } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
 import { SESSION_STATE_TAG_NAMES } from "./config.js";
-import { bindForumSpawnSession } from "./forum-spawn-session.js";
+import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-spawn-session.js";
 
 function makeFixture() {
   const starterEdit = vi.fn();
@@ -13,6 +13,7 @@ function makeFixture() {
     id: "thread-1",
     parentId: "forum-1",
     type: ChannelType.PublicThread,
+    isThread: () => true,
     archived: false,
     appliedTags: [],
     fetchStarterMessage,
@@ -183,5 +184,66 @@ describe("bindForumSpawnSession", () => {
       webhook_id: "webhook-1",
       webhook_token: "token-1",
     }));
+  });
+});
+
+describe("resolveForumSpawnSourceThread", () => {
+  it("resolves a plain spawn back to its source Session forum thread", async () => {
+    const fixture = makeFixture();
+
+    await expect(resolveForumSpawnSourceThread({
+      guild: fixture.guild as any,
+      sessionForumId: "forum-1",
+    }, {
+      hasDelegationRun: false,
+      hasTestSurface: false,
+      sourceGuildId: "guild-1",
+      sourceChannelId: "thread-1",
+    })).resolves.toEqual({ threadId: "thread-1" });
+  });
+
+  it("leaves delegation runs on their dedicated surface path", async () => {
+    const fixture = makeFixture();
+
+    await expect(resolveForumSpawnSourceThread({
+      guild: fixture.guild as any,
+      sessionForumId: "forum-1",
+    }, {
+      hasDelegationRun: true,
+      hasTestSurface: false,
+      sourceGuildId: "guild-1",
+      sourceChannelId: "thread-1",
+    })).resolves.toBeNull();
+    expect(fixture.guild.channels.fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects source channels claimed from another guild", async () => {
+    const fixture = makeFixture();
+
+    await expect(resolveForumSpawnSourceThread({
+      guild: fixture.guild as any,
+      sessionForumId: "forum-1",
+    }, {
+      hasDelegationRun: false,
+      hasTestSurface: false,
+      sourceGuildId: "other-guild",
+      sourceChannelId: "thread-1",
+    })).resolves.toBeNull();
+    expect(fixture.guild.channels.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to a new thread when the source lookup fails", async () => {
+    const fixture = makeFixture();
+    fixture.guild.channels.fetch.mockRejectedValueOnce(new Error("Discord unavailable"));
+
+    await expect(resolveForumSpawnSourceThread({
+      guild: fixture.guild as any,
+      sessionForumId: "forum-1",
+    }, {
+      hasDelegationRun: false,
+      hasTestSurface: false,
+      sourceGuildId: "guild-1",
+      sourceChannelId: "thread-1",
+    })).rejects.toThrow("Discord unavailable");
   });
 });

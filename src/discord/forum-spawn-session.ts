@@ -27,6 +27,35 @@ export interface BindForumSpawnSessionInput {
   state: SessionRelayState | null;
 }
 
+export interface ResolveForumSpawnSourceInput {
+  hasDelegationRun: boolean;
+  hasTestSurface: boolean;
+  sourceGuildId: string | null | undefined;
+  sourceChannelId: string | null | undefined;
+}
+
+/**
+ * 素の forum spawn が state に運んだ発火元スレッドを解決する。
+ * delegation run / Test Forum はそれぞれ専用の surface 解決経路を持つため対象外。
+ */
+export async function resolveForumSpawnSourceThread(
+  deps: Pick<ForumSpawnSessionDeps, "guild" | "sessionForumId">,
+  input: ResolveForumSpawnSourceInput,
+): Promise<{ threadId: string } | null> {
+  if (
+    input.hasDelegationRun
+    || input.hasTestSurface
+    || input.sourceGuildId !== deps.guild.id
+    || !input.sourceChannelId
+  ) {
+    return null;
+  }
+  // 取得失敗を「発火元ではない」に読み替えると別スレッドを誤作成するため、呼び出し元へ返す。
+  const source = await deps.guild.channels.fetch(input.sourceChannelId);
+  if (!source?.isThread() || source.parentId !== deps.sessionForumId) return null;
+  return { threadId: source.id };
+}
+
 /**
  * ユーザーが作成した Forum thread を session に紐付ける。
  * starter はユーザーの指示として保持し、別の webhook message を status surface にする。

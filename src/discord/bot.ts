@@ -111,7 +111,7 @@ import {
   stripDelegationInjectHeader,
   taskKindForInjectSource,
 } from "./session-task-post.js";
-import { bindForumSpawnSession } from "./forum-spawn-session.js";
+import { bindForumSpawnSession, resolveForumSpawnSourceThread } from "./forum-spawn-session.js";
 import { buildTaskflowDecisionMessage } from "./taskflow-decision-message.js";
 import { scheduleBootForumReconciliations } from "./boot-forum-reconcile.js";
 import { buildTestForumCandidates, reconcileTestForum } from "./test-forum-reconcile.js";
@@ -1625,6 +1625,22 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         try {
           const repoPath = state?.repoPath ?? ev.repo_path;
           const branch = state?.branch ?? ev.branch;
+          // Forum spawn は素の spawn-session になり delegation run を作らない
+          // (triggered_by 経由の対応付けが効かない)。 pending spawn が state に運んだ
+          // 発火元チャンネルが自 guild の Session forum スレッドなら、 新しいスレッドを
+          // 作らずそのスレッドへ紐付ける — 依頼者はそのまま同じスレッドで対話する
+          // (2026-09-02 neco 指示)。 /spawn をテキストチャンネルから打った場合等、
+          // 発火元が Session forum のスレッドでないものは従来どおり新規作成。
+          const sourceForumThread = await resolveForumSpawnSourceThread(
+            { guild, sessionForumId: layout.sessionForumId },
+            {
+              hasDelegationRun: Boolean(state?.delegationRunId),
+              hasTestSurface: testSurface !== null,
+              sourceGuildId: state?.sourceDiscordGuildId,
+              sourceChannelId: state?.sourceDiscordChannelId,
+            },
+          );
+          const targetForumThreadId = forumSpawn?.threadId ?? sourceForumThread?.threadId ?? null;
           if (testSurface) {
             await bindForumSpawnSession(
               {
@@ -1653,7 +1669,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
                 log.warn(`test-forum controls refresh failed surface=${testSurface.id}: ${(e as Error).message}`));
             }
             log.info(`test-forum bound session=${sessionId} surface=${testSurface.id}`);
-          } else if (forumSpawn) {
+          } else if (targetForumThreadId) {
             await bindForumSpawnSession(
               {
                 guild,
@@ -1664,11 +1680,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
               },
               {
                 sessionId,
-                threadId: forumSpawn.threadId,
+                threadId: targetForumThreadId,
                 provider: ev.provider ?? null,
                 repoPath,
                 branch,
-                callName: delegationRun?.call_name ?? null,
+                callName: delegationRun?.call_name ?? state?.roleLabel ?? null,
                 state,
               },
             );

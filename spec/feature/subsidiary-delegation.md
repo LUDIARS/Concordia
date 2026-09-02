@@ -141,6 +141,10 @@ delegation で安全に処理する。
   対話セッションにならないため。テンプレは selector が選ぶが provider / model の採用のみで、
   投稿タイトル・本文は初回のユーザ指示として注入される。重複起動判定は delegation run の
   triggered_by (旧経路) に加えて「スレッドに紐付いた active な session channel の有無」で行う。
+  **セッションは発火元スレッドへ紐付ける** (2026-09-02 neco 指示: 同じスレッドで対話する):
+  素 spawn は run を作らないため、`session.started` で state の
+  `sourceDiscordChannelId` が自 guild の Session forum スレッドを指す場合に
+  `bindForumSpawnSession` でそのスレッドを session channel にする (新規スレッドは作らない)。
   差分は 2 点:
   - 子会社ではスレッド本文を **§2 ガードに通してから** template selector / invoke へ進む
     (`guardSubsidiaryForumSpawn` — ガードには decision だけを求め、所有 delegation の一致は

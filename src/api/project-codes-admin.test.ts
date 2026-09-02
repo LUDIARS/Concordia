@@ -155,6 +155,25 @@ describe("projectCodesRouter admin surface", () => {
     expect((await response.json()).project_code.code).toBe("Co");
   });
 
+  it("rejects a credential-bearing repo_origin without persisting or reflecting it", async () => {
+    const update = vi.fn();
+    const app = projectCodesRouter({
+      repo: { list: () => [], findByCode: () => storedRow, update } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+    });
+    const response = await app.request("/Cc", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        repo_origin: "https://username@github.com/LUDIARS/Concordia.git",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+    expect(JSON.stringify(await response.json())).not.toContain("username@");
+  });
+
   it("moves related assignments when project and origin change", async () => {
     const updated = {
       ...storedRow,

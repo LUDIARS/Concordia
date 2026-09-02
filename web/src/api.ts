@@ -718,7 +718,9 @@ export const api = {
       categories: Array<{ name: string; entries: Array<[string, string]> }>;
     }>("/v1/project-codes"),
   projectCodesAdmin: () => get<ProjectCodesAdminResult>("/v1/project-codes/admin"),
-  projectCodeRegister: (body: { code: string; repo_path: string; added_by?: string }) =>
+  projectCodeRegister: (
+    body: { code: string; repo_path: string; project?: string; repo_origin?: string; added_by?: string },
+  ) =>
     post<{ project_code: { code: string }; created: boolean }>("/v1/project-codes", body),
   projectCodeUpdate: (
     code: string,

@@ -16,9 +16,18 @@ import type {
 
 type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_path">;
 
+const RepoOriginSchema = z.string().trim().min(1).max(1_000).refine(
+  (origin) => ownerRepoFromOrigin(origin) !== null,
+  { message: "GitHub repository URL without credentials required" },
+);
+
 const RegisterSchema = z.object({
   code: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9-]{0,31}$/),
   repo_path: z.string().trim().min(1).max(1_000),
+  /** プロジェクト名の明示指定。 省略時はリポジトリのディレクトリ名を使う。 */
+  project: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
+  /** GitHub URL の明示指定。 省略時は実リポの origin から取得する。 */
+  repo_origin: RepoOriginSchema.optional(),
   added_by: z.string().trim().min(1).max(200).default("api"),
 }).strict();
 
@@ -26,7 +35,7 @@ const UpdateSchema = z.object({
   code: z.string().trim().regex(/^[A-Za-z][A-Za-z0-9-]{0,31}$/).optional(),
   project: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
   repo_path: z.string().trim().min(1).max(1_000).optional(),
-  repo_origin: z.string().trim().min(1).max(1_000).nullable().optional(),
+  repo_origin: RepoOriginSchema.nullable().optional(),
 }).strict();
 
 const AssignTeamsSchema = z.object({
@@ -145,9 +154,9 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
     try {
       const result = deps.repo.register({
         code: parsed.data.code,
-        project: basename(inspected.repoPath),
+        project: parsed.data.project ?? basename(inspected.repoPath),
         repoPath: inspected.repoPath,
-        repoOrigin: inspected.repoOrigin,
+        repoOrigin: parsed.data.repo_origin ?? inspected.repoOrigin,
         addedBy: parsed.data.added_by,
       });
       return c.json({ project_code: toResponseRow(result.row), created: result.created }, result.created ? 201 : 200);

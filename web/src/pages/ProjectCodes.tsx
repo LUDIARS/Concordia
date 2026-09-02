@@ -23,7 +23,10 @@ function RegisterForm({ onRegistered, onError }: {
   onError: (message: string) => void;
 }) {
   const [code, setCode] = useState("");
+  const [project, setProject] = useState("");
   const [repoPath, setRepoPath] = useState("");
+  const [repoOrigin, setRepoOrigin] = useState("");
+  const [rvMode, setRvMode] = useState<"" | "revisor" | "github">("");
   const [busy, setBusy] = useState(false);
 
   /** @implements spec/feature/project-code-registry.md — 管理 UI registration */
@@ -31,9 +34,29 @@ function RegisterForm({ onRegistered, onError }: {
     if (!code.trim() || !repoPath.trim()) return;
     setBusy(true);
     try {
-      await api.projectCodeRegister({ code: code.trim(), repo_path: repoPath.trim(), added_by: "webui" });
+      const registered = await api.projectCodeRegister({
+        code: code.trim(),
+        repo_path: repoPath.trim(),
+        ...(project.trim() ? { project: project.trim() } : {}),
+        ...(repoOrigin.trim() ? { repo_origin: repoOrigin.trim() } : {}),
+        added_by: "webui",
+      });
+      // Rv モードは Revisor 側登録 (テスト付き) が前提。 code の登録自体は成功として
+      // 扱い、 モード設定だけ失敗したらその旨を伝える (登録をロールバックしない)。
+      if (rvMode) {
+        try {
+          await api.projectCodeSetRevisorWorkflow(registered.project_code.code, rvMode);
+        } catch (e) {
+          onError(
+            `登録しましたが Rv モードは設定できませんでした (Revisor 未登録の可能性): ${String(e)}`,
+          );
+        }
+      }
       setCode("");
+      setProject("");
       setRepoPath("");
+      setRepoOrigin("");
+      setRvMode("");
       onRegistered();
     } catch (e) {
       onError(`登録に失敗しました: ${String(e)}`);
@@ -54,6 +77,16 @@ function RegisterForm({ onRegistered, onError }: {
           className="foundation-form text-sm block w-24 font-mono"
         />
       </label>
+      <label className="text-xs text-subtle">
+        プロジェクト名 (省略時はディレクトリ名)
+        <input
+          type="text"
+          value={project}
+          onChange={(e) => setProject(e.target.value)}
+          placeholder="MyProject"
+          className="foundation-form text-sm block w-40 font-mono"
+        />
+      </label>
       <label className="text-xs text-subtle flex-1 min-w-64">
         リポジトリパス (workspace 内の git repo)
         <input
@@ -63,6 +96,29 @@ function RegisterForm({ onRegistered, onError }: {
           placeholder="E:/Document/Ars/MyProject"
           className="foundation-form text-sm block w-full font-mono"
         />
+      </label>
+      <label className="text-xs text-subtle flex-1 min-w-64">
+        GitHub URL (省略時は git origin から自動取得)
+        <input
+          type="text"
+          value={repoOrigin}
+          onChange={(e) => setRepoOrigin(e.target.value)}
+          placeholder="https://github.com/ORG/REPO.git"
+          className="foundation-form text-sm block w-full font-mono"
+        />
+      </label>
+      <label className="text-xs text-subtle">
+        Rvモード
+        <select
+          value={rvMode}
+          onChange={(e) => setRvMode(e.target.value as "" | "revisor" | "github")}
+          className="foundation-form text-sm block"
+        >
+          <option value="">変更しない</option>
+          {Object.entries(RV_MODE_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </select>
       </label>
       <button
         type="button"
@@ -291,7 +347,7 @@ export function ProjectCodes() {
         <h2 className="text-sm font-semibold mb-2">新規登録</h2>
         <RegisterForm onRegistered={() => void refresh()} onError={setError} />
         <p className="text-subtle text-[11px] mt-2">
-          プロジェクト名と GitHub URL は指定パスの git repo から自動取得します（登録後に編集可）。
+          プロジェクト名・GitHub URL は省略時に git repo から自動取得します。Rvモードは Revisor 側にリポジトリ登録 (テスト付き) がある場合のみ設定できます（いずれも登録後に変更可）。
           チーム・会社は複数選択でき、未選択はそれぞれ無所属・本社のみを表します。
         </p>
       </section>

@@ -79,6 +79,86 @@ describe("projectCodesRouter", () => {
     });
   });
 
+  it("prefers an explicit repo_origin over the inspected git origin", async () => {
+    isWithinWorkspace.mockResolvedValue(true);
+    inspectImplementationRepo.mockResolvedValue({
+      repoPath: storedRow.repo_path,
+      repoOrigin: "https://github.com/LUDIARS/from-git.git",
+      branch: "main",
+    });
+    const register = vi.fn(() => ({ row: storedRow, created: true }));
+    const app = projectCodesRouter({
+      repo: { list: () => [], register } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      repoContext,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        code: "Cc",
+        repo_path: storedRow.repo_path,
+        repo_origin: "https://github.com/LUDIARS/explicit.git",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      repoOrigin: "https://github.com/LUDIARS/explicit.git",
+    }));
+  });
+
+  it("rejects an explicit repo_origin containing credentials before Git inspection", async () => {
+    const app = projectCodesRouter({
+      repo: { list: () => [], register: vi.fn() } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      repoContext,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        code: "Cc",
+        repo_path: storedRow.repo_path,
+        repo_origin: "https://username@github.com/LUDIARS/explicit.git",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(inspectImplementationRepo).not.toHaveBeenCalled();
+    expect(JSON.stringify(await response.json())).not.toContain("username@");
+  });
+
+  it("prefers an explicit project name over the directory basename", async () => {
+    isWithinWorkspace.mockResolvedValue(true);
+    inspectImplementationRepo.mockResolvedValue({
+      repoPath: storedRow.repo_path,
+      repoOrigin: storedRow.repo_origin,
+      branch: "main",
+    });
+    const register = vi.fn(() => ({ row: storedRow, created: true }));
+    const app = projectCodesRouter({
+      repo: { list: () => [], register } as never,
+      resolveWorkspaceRoots: () => ["E:/Document/Ars"],
+      repoContext,
+    });
+
+    const response = await app.request("/", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        code: "Cc",
+        repo_path: storedRow.repo_path,
+        project: "ConcordiaHub",
+      }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ project: "ConcordiaHub" }));
+  });
+
   it("rejects paths outside configured workspace roots before Git inspection", async () => {
     isWithinWorkspace.mockResolvedValue(false);
     const app = projectCodesRouter({

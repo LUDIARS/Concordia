@@ -88,6 +88,12 @@ frame は新しい順に上限 (既定 500) まで読む。累積値は新しい
 `GET /v1/cost/limit-timeseries` は `since`（既定 7 日前）以降の保存 sample に現在取得値を
 加え、provider の rate-limit 使用率と reset 時刻の系列を返す。
 
+**Requirement ID: `SPEC-COST-LIMIT-CARRY-FORWARD`**
+
+rate-limit telemetry が一時的に欠けた場合は、同じ provider の直前 sample が 30 分以内かつ
+現在以前なら、欠けたフィールドだけを直前値で補う。直前 sample がそれより古い、または
+現在より未来なら持ち越さず、取得できなかったフィールドを `null` として記録する。
+
 ## one-shot calls
 
 長寿命 session 外の LLM 呼び出しは `/v1/cost/one-shots` で記録・参照する。

@@ -86,6 +86,8 @@ describe("/v1/cost", () => {
   });
 
   it("GET /limit-timeseries returns provider limit percentage history", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(1_700_000));
     const samples = new CostLimitSamplesRepo(env.db);
     samples.insert({ ts: 1000, provider: "codex-cli", plan: "pro", used_5h_pct: 12, used_weekly_pct: 34, reset_5h_at: 2000, reset_weekly_at: 3000 });
     samples.insert({ ts: 1600, provider: "codex-cli", plan: "pro", used_5h_pct: 18, used_weekly_pct: 40, reset_5h_at: 2000, reset_weekly_at: 3000 });

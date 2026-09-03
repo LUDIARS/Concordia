@@ -59,6 +59,89 @@ describe("collectLimitSamples", () => {
     ]);
   });
 
+  // 廃止された枠の最終値を無期限に複製しない。
+  it("stops carrying a value forward once the previous sample is too old", () => {
+    const previous: CostLimitSampleRow[] = [
+      {
+        id: 1,
+        ts: 1000,
+        provider: "codex-cli",
+        plan: "pro",
+        used_5h_pct: 71,
+        used_weekly_pct: 50,
+        reset_5h_at: 2000,
+        reset_weekly_at: 3000,
+      },
+    ];
+
+    // 30 分ちょうどまでは埋める (10 分毎の取得が数回失敗しただけ)。
+    expect(collectLimitSamples(report(), 1000 + 30 * 60, previous)[0]).toMatchObject({
+      used_5h_pct: 71,
+      used_weekly_pct: 50,
+      plan: "pro",
+    });
+
+    // それを超えたら「取れていない」を時系列に残す。
+    expect(collectLimitSamples(report(), 1000 + 30 * 60 + 1, previous)[0]).toMatchObject({
+      provider: "codex-cli",
+      plan: null,
+      used_5h_pct: null,
+      used_weekly_pct: null,
+      reset_5h_at: null,
+      reset_weekly_at: null,
+    });
+  });
+
+  it("does not carry a future-dated previous sample backward", () => {
+    const previous: CostLimitSampleRow[] = [
+      {
+        id: 1,
+        ts: 2000,
+        provider: "codex-cli",
+        plan: "pro",
+        used_5h_pct: 71,
+        used_weekly_pct: 50,
+        reset_5h_at: 3000,
+        reset_weekly_at: 4000,
+      },
+    ];
+
+    expect(collectLimitSamples(report(), 1000, previous)[0]).toMatchObject({
+      provider: "codex-cli",
+      plan: null,
+      used_5h_pct: null,
+      used_weekly_pct: null,
+      reset_5h_at: null,
+      reset_weekly_at: null,
+    });
+  });
+
+  // 枠が 1 つだけ無くなった提供元は、 生きている枠の値まで道連れにしない。
+  it("keeps a live window while the retired one goes null", () => {
+    const r = report();
+    r.codexRate = { used5h: null, usedWeekly: 57, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };
+
+    const samples = collectLimitSamples(r, 1000 + 3 * 24 * 3600, [
+      {
+        id: 1,
+        ts: 1000,
+        provider: "codex-cli",
+        plan: "pro",
+        used_5h_pct: 71,
+        used_weekly_pct: 50,
+        reset_5h_at: 2000,
+        reset_weekly_at: 3000,
+      },
+    ]);
+
+    expect(samples[0]).toMatchObject({
+      used_5h_pct: null,
+      reset_5h_at: null,
+      used_weekly_pct: 57,
+      reset_weekly_at: 9000,
+    });
+  });
+
   it("fills only missing fields from the previous sample", () => {
     const r = report();
     r.codexRate = { used5h: 40, usedWeekly: null, reset5hAt: 2200, resetWeeklyAt: null, plan: null };

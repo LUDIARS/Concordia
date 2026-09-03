@@ -112,9 +112,9 @@ export function renderCostReportMarkdown(
   lines.push("");
   lines.push("### Codex");
   lines.push(`- Tokens: ${fmtNum(codexTotals.total)} (in=${fmtNum(codexTotals.input)}, cached=${fmtNum(codexTotals.cached)}, out=${fmtNum(codexTotals.output)})`);
-  lines.push(`- 5H リミット残: ${pct(remain(codexRate.used5h))}`);
+  // Codex の 5H 枠は仕様上なくなった (2026-09-03 neco 指示) ので週間枠だけを出す。
+  // codexRate.used5h / reset5hAt は互換のため残るが表示しない。
   lines.push(`- 週間リミット残: ${pct(remain(codexRate.usedWeekly))}`);
-  lines.push(`- 5H リセット: ${fmt.at(codexRate.reset5hAt)}`);
   lines.push(`- 週間リセット: ${fmt.at(codexRate.resetWeeklyAt)}`);
   lines.push("");
   lines.push("### Claude Code");
@@ -129,6 +129,10 @@ export function renderCostReportMarkdown(
     }
     if (claudeUsage.sevenDayOpus) {
       lines.push(`- 週間 Opus 残: ${pct(remain(claudeUsage.sevenDayOpus.utilization))} (リセット ${fmt.at(claudeUsage.sevenDayOpus.resetsAtSec)})`);
+    }
+    // モデル別の週間枠 (Fable 等)。 全体枠 (seven_day) とは別カウントなので併記する (2026-09-03)。
+    for (const scoped of claudeUsage.weeklyScoped ?? []) {
+      lines.push(`- 週間 ${scoped.label} 残: ${pct(remain(scoped.utilization))} (リセット ${fmt.at(scoped.resetsAtSec)})`);
     }
     if (claudeUsage.extraCredit.isEnabled && claudeUsage.extraCredit.utilization !== null) {
       lines.push(`- 追加クレジット使用率: ${pct(claudeUsage.extraCredit.utilization)}`);

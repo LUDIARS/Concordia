@@ -29,6 +29,7 @@ function baseReport(): CostReport {
       sevenDaySonnet: null,
       sevenDayOpus: null,
       sevenDayFable: null,
+      weeklyScoped: [],
       extraCredit: { isEnabled: false, monthlyLimit: null, usedCredits: null, utilization: null, currency: null },
       fetchedAt: 0,
     },
@@ -44,10 +45,18 @@ describe("renderCostReportMarkdown", () => {
     expect(md).toContain("Tokens: 150 (in=100, cached=20, out=30)");
     expect(md).toContain("### Claude Code");
     expect(md).toContain("Tokens: 300 (in=200, cached=40, out=60)");
-    // remain = 100 - used。 Codex 5H used=40 → 残 60.0%
-    expect(md).toContain("5H リミット残: 60.0%");
+    // remain = 100 - used。 Codex は週間枠のみ (5H 枠は仕様上なくなった、2026-09-03)。 used=10 → 残 90.0%
+    expect(md).toContain("週間リミット残: 90.0%");
+    expect(md).not.toContain("5H リミット残: 60.0%");
     // Claude 5H utilization=25 → 残 75.0%
     expect(md).toContain("5H リミット残: 75.0%");
+  });
+
+  it("モデル別週間枠 (Fable 等) があれば行が増える (2026-09-03)", () => {
+    const r = baseReport();
+    r.claudeUsage!.weeklyScoped = [{ label: "Fable", utilization: 90, resetsAtSec: 7000, severity: "critical" }];
+    const md = renderCostReportMarkdown(r, PLAIN_FMT, 1);
+    expect(md).toContain("週間 Fable 残: 10.0% (リセット t=7000)");
   });
 
   it("OAuth usage が null なら Claude 残量はフォールバック表示", () => {
@@ -74,10 +83,10 @@ describe("renderCostReportMarkdown", () => {
     const plain = renderCostReportMarkdown(r, PLAIN_FMT, 1234);
     // Discord はトークン表現
     expect(discord).toContain("- Updated: <t:1234:R>");
-    expect(discord).toContain("5H リセット: <t:1000:f> (<t:1000:R>)");
+    expect(discord).toContain("週間リセット: <t:2000:f> (<t:2000:R>)");
     // 素テキストは別表現
     expect(plain).toContain("- Updated: t=1234");
-    expect(plain).toContain("5H リセット: t=1000");
+    expect(plain).toContain("週間リセット: t=2000");
     // タイムスタンプ以外の本文 (トークン行) は両者一致
     expect(discord).toContain("Tokens: 150 (in=100, cached=20, out=30)");
     expect(plain).toContain("Tokens: 150 (in=100, cached=20, out=30)");

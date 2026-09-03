@@ -29,21 +29,20 @@ async function git(cwd: string, args: readonly string[]): Promise<string> {
 }
 
 async function countCommitsSinceBase(cwd: string): Promise<number> {
-  const counts: number[] = [];
-  for (const base of ["develop", "main"]) {
+  const counts = await Promise.all(["develop", "main"].map(async (base): Promise<number | null> => {
     try {
       const baseRef = `refs/heads/${base}`;
-      await git(cwd, ["rev-parse", "--verify", `${baseRef}^{commit}`]);
-      const mergeBase = await git(cwd, ["merge-base", baseRef, "HEAD"]);
-      const count = await git(cwd, ["rev-list", "--count", `${mergeBase}..HEAD`]);
-      if (/^\d+$/.test(count)) counts.push(Number(count));
+      const count = await git(cwd, ["rev-list", "--count", "HEAD", `^${baseRef}`]);
+      return /^\d+$/.test(count) ? Number(count) : null;
     } catch {
       // Either base may be absent. The other declared base is still valid evidence.
+      return null;
     }
-  }
+  }));
   // A repository may contain both diverged bases. The nearest base is the one
   // that avoids counting unrelated main/develop commits as feature evidence.
-  return counts.length > 0 ? Math.min(...counts) : 0;
+  const availableCounts = counts.filter((count): count is number => count !== null);
+  return availableCounts.length > 0 ? Math.min(...availableCounts) : 0;
 }
 
 /**

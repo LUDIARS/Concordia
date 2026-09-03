@@ -19,6 +19,7 @@ describe("collectForumModelUsage", () => {
         sevenDaySonnet: null,
         sevenDayOpus: null,
         sevenDayFable: { utilization: 30, resetsAtSec: 1_700_172_800 },
+        weeklyScoped: [],
         extraCredit: {
           isEnabled: false,
           monthlyLimit: null,

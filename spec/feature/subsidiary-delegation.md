@@ -156,8 +156,10 @@ delegation で安全に処理する。
   (codex は `codex app-server` の rateLimits、claude は OAuth usage。片方しか取れなければ
   取れた方、両方無ければ Claude)。 Fable は **Fable 使用量 < 70% かつ 週間使用量 > Fable 使用量**
   のときだけ優先し、Fable 使用量が取れなければ Opus。 Fable 使用量の一次ソースは OAuth usage の
-  `seven_day_fable` / `seven_day_mythos` 系の窓のみ — Lictor の transcript_logs (raw frame) は
-  キー名だけで model id も usage も持たないため、そこからは算出できない。
+  `limits[]` (`kind: weekly_scoped`、`scope.model.display_name: "Fable"`、2026-09-03 実測で全体 57% に
+  対し Fable 90% の別枠) — Lictor の transcript_logs (raw frame) はキー名だけで model id も usage も
+  持たないため、そこからは算出できない。 JSONL のトークン比率 × 週間使用率の推定 (22〜27%) も
+  実測 90% と合わなかったので使わない。
 - **権限なし投稿者の承認は情報充足後 (2026-09-03 neco 指示)**: 従来は投稿直後に承認カードを
   出し、承認後に関係プロジェクトやモデルの質問を挟むと「承認後の内容変更」として弾かれていた。
   現在は権限の有無に関わらず不足情報の聞き返しとモデル/Effort 選択を先に済ませ、spawn 直前で

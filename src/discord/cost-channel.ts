@@ -26,7 +26,7 @@ export async function upsertCostChannelMessage(
   try {
     if (msgId) {
       const msg = await channel.messages.fetch(msgId);
-      await msg.edit({ content: body });
+      await msg.edit({ content: body, allowedMentions: { parse: [] } });
       await notifyCostActivity({
         activityChannel,
         configGet,
@@ -37,7 +37,7 @@ export async function upsertCostChannelMessage(
       return;
     }
   } catch {}
-  const sent = await channel.send({ content: body });
+  const sent = await channel.send({ content: body, allowedMentions: { parse: [] } });
   configSet(COST_MESSAGE_KEY, sent.id);
 
   await notifyCostActivity({
@@ -49,7 +49,10 @@ export async function upsertCostChannelMessage(
   });
 }
 
-async function notifyCostActivity(input: {
+/** モデル別週間枠 (Fable 等) の通知しきい値 (%)。 5H と同じ 80。 */
+const SCOPED_WEEKLY_ALERT_PCT = 80;
+
+export async function notifyCostActivity(input: {
   activityChannel?: TextChannel | null;
   configGet: (k: string) => string | null;
   configSet: (k: string, v: string) => void;
@@ -78,6 +81,28 @@ async function notifyCostActivity(input: {
     used5h: claude5h,
     reset5hAt: claudeUsage?.fiveHour?.resetsAtSec ?? null,
   });
+  // モデル別の週間枠 (Fable 等) は全体枠より先に尽きる (2026-09-03: 全体 57% で Fable 90%)。
+  // 80% 以上ならリセット期間につき 1 回、活動チャンネルへ知らせる。
+  for (const scoped of claudeUsage?.weeklyScoped ?? []) {
+    await notifyHighScopedWeeklyUsage(activityChannel, configGet, configSet, scoped);
+  }
+}
+
+async function notifyHighScopedWeeklyUsage(
+  activityChannel: TextChannel,
+  configGet: (k: string) => string | null,
+  configSet: (k: string, v: string) => void,
+  scoped: { label: string; utilization: number; resetsAtSec: number | null; severity: string | null },
+): Promise<void> {
+  if (scoped.utilization < SCOPED_WEEKLY_ALERT_PCT) return;
+  const resetBucket = scoped.resetsAtSec ? String(scoped.resetsAtSec) : localDayBucket();
+  const key = `cost_activity:weekly80:${encodeURIComponent(scoped.label.toLowerCase())}`;
+  if (configGet(key) === resetBucket) return;
+  const content = `Claude ${scoped.label} weekly cost usage is ${scoped.utilization.toFixed(1)}%`
+    + (scoped.severity ? ` [${scoped.severity}]` : "")
+    + (scoped.resetsAtSec ? ` (resets ${ts(scoped.resetsAtSec)})` : "");
+  await activityChannel.send({ content, allowedMentions: { parse: [] } });
+  configSet(key, resetBucket);
 }
 
 async function notifyHigh5hUsage(

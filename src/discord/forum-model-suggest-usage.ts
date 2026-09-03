@@ -5,9 +5,9 @@
  * claude は OAuth usage (anthropic-oauth-usage.ts、1 分キャッシュ)。 どちらも best-effort で、
  * 取れなければ null を渡し、サジェスト側が既定 (Claude / Opus) に倒す。
  *
- * Fable の使用量: transcript_logs (Lictor の raw frame) はキー名しか持たず model id も
- * usage も載らないため、そこからは取れない (2026-09-03 調査)。 OAuth usage が Fable 級の
- * 週間窓を返す場合だけ `fableUsedPct` になる。
+ * Fable の使用量: OAuth usage の `limits[]` (kind weekly_scoped / scope.model "Fable") が
+ * 一次ソース (2026-09-03 実測: 全体 57% に対し Fable 90% と別枠)。 transcript_logs (Lictor の
+ * raw frame) はキー名しか持たず model id も usage も載らないため、そこからは取れない。
  *
  * @implements spec/feature/subsidiary-delegation.md §3.1
  */

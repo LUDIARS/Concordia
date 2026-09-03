@@ -12,7 +12,7 @@ tags:
   - budget
   - api
 status: implemented
-updated: 2026-07-31
+updated: 2026-09-03
 ---
 
 # Session cost observability
@@ -52,6 +52,16 @@ reader で読む。`samples` は `cost_usage_samples` の累積値の正の差�
   同じ扱い)。1 セッションが複数 thread を持ち得るため、thread ごとの最大値を thread 間で
   合算する。frame ソース (`UsageFrameSource`) を渡されない呼び出しでは「計測不能」= `null`。
 - 上記以外 (`gemini-cli` / `local-llm` / `unknown`): 未計測 (`null`)。
+
+### rate-limit の表示と通知
+
+- Codex のコストチャンネル表示は週間枠の残量とリセット時刻だけを出す。互換用の 5H
+  フィールドは取得データに残すが表示しない。
+- Claude OAuth usage の `limits[]` にある `kind: weekly_scoped` は、モデルまたは surface
+  ごとの週間枠として全体週間枠と併記する。Fable / Mythos の枠はモデルサジェストにも使う。
+- Discord の活動チャンネルには scoped 週間枠が 80% 以上になった時点で通知する。同じ
+  リセット時刻では 1 回だけ通知し、リセット時刻が不明な場合はローカル日付を通知単位にする。
+  Discord への送信が失敗した場合は通知済みにせず、次回更新で再試行する。
 
 `codex-sdk` の frame ソースは session 終了時のレポート生成経路 (`runSessionEndFlow` →
 `generateReport` の `usageFrames`) にのみ配線済み — `DELETE /v1/sessions/:id` と

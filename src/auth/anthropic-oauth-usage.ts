@@ -40,8 +40,18 @@ const STALE_FALLBACK_MS = 30 * 60_000;
 export interface OAuthUsageWindow {
   /** 利用率 0-100 (%). API は実数を返す. */
   utilization: number;
-  /** リセット時刻 (UNIX epoch sec). */
-  resetsAtSec: number;
+  /** リセット時刻 (UNIX epoch sec)。 API が null を返すことがある。 */
+  resetsAtSec: number | null;
+}
+
+export interface OAuthScopedWindow {
+  label: string;
+  /** 利用率 0-100 (%). */
+  utilization: number;
+  /** リセット時刻 (UNIX epoch sec)。 API が null を返すことがある。 */
+  resetsAtSec: number | null;
+  /** API の severity (normal / warning / critical 等)。 表示用。 */
+  severity: string | null;
 }
 
 export interface OAuthUsageExtraCredit {
@@ -59,11 +69,17 @@ export interface OAuthUsage {
   sevenDaySonnet: OAuthUsageWindow | null;
   sevenDayOpus: OAuthUsageWindow | null;
   /**
-   * Fable (Mythos 級) 単独の週間窓。 API の `seven_day_fable` / `seven_day_mythos` 系キーを
-   * 名前照合で拾う (2026-09-03: forum spawn のモデルサジェストが Fable 可否の判定に使う)。
-   * 無ければ null = 「Fable 使用量は取れない」。
+   * Fable (Mythos 級) 単独の週間窓。 実 API (2026-09-03 実測) では `limits[]` の
+   * `kind: "weekly_scoped"` + `scope.model.display_name: "Fable"` として返る (percent 90 等)。
+   * 旧想定の `seven_day_fable` 系キーも念のため見る。 無ければ null = 「Fable 使用量は取れない」。
+   * forum spawn のモデルサジェストが Fable 可否の判定に使う。
    */
   sevenDayFable: OAuthUsageWindow | null;
+  /**
+   * `limits[]` のモデル/面スコープ付き週間枠すべて (Fable 以外が増えても表示できるように)。
+   * label は API の display_name (無ければ model id / surface)。
+   */
+  weeklyScoped: OAuthScopedWindow[];
   extraCredit: OAuthUsageExtraCredit;
   fetchedAt: number;
 }
@@ -176,6 +192,7 @@ async function fetchFreshUsage(opts: FetchClaudeOAuthUsageOptions): Promise<Fres
 function parseUsage(raw: unknown): OAuthUsage {
   const r = (raw ?? {}) as Record<string, unknown>;
   const extra = (r.extra_usage ?? {}) as Record<string, unknown>;
+  const weeklyScoped = parseScopedLimits(r.limits);
   return {
     plan: firstString(
       r.plan,
@@ -189,7 +206,8 @@ function parseUsage(raw: unknown): OAuthUsage {
     sevenDay: parseWindow(r.seven_day),
     sevenDaySonnet: parseWindow(r.seven_day_sonnet),
     sevenDayOpus: parseWindow(r.seven_day_opus),
-    sevenDayFable: parseFableWindow(r),
+    sevenDayFable: parseFableWindow(r, weeklyScoped),
+    weeklyScoped,
     extraCredit: {
       isEnabled: extra.is_enabled === true,
       monthlyLimit: typeof extra.monthly_limit === "number" ? extra.monthly_limit : null,
@@ -219,8 +237,20 @@ function parseWindow(v: unknown): OAuthUsageWindow | null {
   return { utilization: u, resetsAtSec: sec };
 }
 
-/** `seven_day_fable` / `seven_day_mythos` など Fable 級の窓を名前で拾う (キー名は未確定なので照合)。 */
-function parseFableWindow(r: Record<string, unknown>): OAuthUsageWindow | null {
+const FABLE_SCOPE_PATTERN = /fable|mythos/i;
+
+/**
+ * Fable 級の週間窓。 一次ソースは `limits[]` の weekly_scoped (scope.model が Fable)。
+ * 旧想定の `seven_day_fable` / `seven_day_mythos` キーも後方互換で見る。
+ */
+function parseFableWindow(
+  r: Record<string, unknown>,
+  weeklyScoped: readonly OAuthScopedWindow[],
+): OAuthUsageWindow | null {
+  const scoped = weeklyScoped.find((limit) => FABLE_SCOPE_PATTERN.test(limit.label));
+  if (scoped) {
+    return { utilization: scoped.utilization, resetsAtSec: scoped.resetsAtSec };
+  }
   for (const key of Object.keys(r)) {
     if (/^seven_day_(fable|mythos)/.test(key)) {
       const window = parseWindow(r[key]);
@@ -228,6 +258,47 @@ function parseFableWindow(r: Record<string, unknown>): OAuthUsageWindow | null {
     }
   }
   return null;
+}
+
+/**
+ * `limits[]` からモデル/面スコープ付きの週間枠を取り出す。 実測の形:
+ * `{kind:"weekly_scoped",group:"weekly",percent:90,severity:"critical",resets_at:"...",
+ *   scope:{model:{id:null,display_name:"Fable"},surface:null}}`。
+ * weekly_all / session (全体枠) は five_hour / seven_day と重複するので含めない。
+ */
+function parseScopedLimits(v: unknown): OAuthScopedWindow[] {
+  if (!Array.isArray(v)) return [];
+  const out: OAuthScopedWindow[] = [];
+  for (const item of v) {
+    if (!item || typeof item !== "object") continue;
+    const limit = item as Record<string, unknown>;
+    if (limit.kind !== "weekly_scoped") continue;
+    const percent = limit.percent;
+    if (typeof percent !== "number" || !Number.isFinite(percent) || percent < 0 || percent > 100) continue;
+    const scope = (limit.scope ?? {}) as Record<string, unknown>;
+    const model = (scope.model ?? null) as Record<string, unknown> | null;
+    const label = normalizeScopedLabel(firstString(model?.display_name, model?.id, scope.surface));
+    if (!label) continue;
+    const resets = typeof limit.resets_at === "string" ? Math.floor(new Date(limit.resets_at).getTime() / 1000) : NaN;
+    out.push({
+      label,
+      utilization: percent,
+      resetsAtSec: Number.isFinite(resets) && resets > 0 ? resets : null,
+      severity: parseSeverity(limit.severity),
+    });
+  }
+  return out;
+}
+
+/** 外部 API の表示名を単一行に制限し、Discord / Slack の mention 記法を持ち込ませない。 */
+function normalizeScopedLabel(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/[\u0000-\u001f\u007f@<>&]/g, " ").replace(/\s+/g, " ").trim().slice(0, 80);
+  return normalized || null;
+}
+
+function parseSeverity(value: unknown): string | null {
+  return typeof value === "string" && /^[a-z][a-z0-9_-]{0,31}$/i.test(value) ? value : null;
 }
 
 /** テスト用. キャッシュをクリアする. */

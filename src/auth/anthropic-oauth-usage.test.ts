@@ -182,4 +182,73 @@ describe("fetchClaudeOAuthUsage", () => {
 
     expect(await fetchClaudeOAuthUsage({ credentialsPath: credPath, noCache: true })).toBeNull();
   });
+
+  it("limits[] の weekly_scoped (scope.model=Fable) を sevenDayFable と weeklyScoped に写す (2026-09-03 実測形)", async () => {
+    writeFileSync(credPath, JSON.stringify({ claudeAiOauth: { accessToken: "ok" } }));
+    const apiBody = {
+      five_hour: { utilization: 34, resets_at: "2026-09-03T05:09:59.691358+00:00" },
+      seven_day: { utilization: 57, resets_at: "2026-09-03T23:59:59.691381+00:00" },
+      seven_day_opus: null,
+      seven_day_sonnet: null,
+      extra_usage: { is_enabled: false },
+      limits: [
+        { kind: "session", group: "session", percent: 34, severity: "normal", resets_at: "2026-09-03T05:09:59.691358+00:00", scope: null, is_active: false },
+        { kind: "weekly_all", group: "weekly", percent: 57, severity: "normal", resets_at: "2026-09-03T23:59:59.691381+00:00", scope: null, is_active: false },
+        {
+          kind: "weekly_scoped", group: "weekly", percent: 90, severity: "critical",
+          resets_at: "2026-09-03T23:59:59.592131+00:00",
+          scope: { model: { id: null, display_name: "Fable" }, surface: null }, is_active: true,
+        },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(apiBody), { status: 200 })));
+    const r = await fetchClaudeOAuthUsage({ credentialsPath: credPath });
+    expect(r!.sevenDay!.utilization).toBe(57);
+    expect(r!.sevenDayFable).toEqual({
+      utilization: 90,
+      resetsAtSec: Math.floor(new Date("2026-09-03T23:59:59.592131+00:00").getTime() / 1000),
+    });
+    expect(r!.weeklyScoped).toEqual([{
+      label: "Fable",
+      utilization: 90,
+      resetsAtSec: Math.floor(new Date("2026-09-03T23:59:59.592131+00:00").getTime() / 1000),
+      severity: "critical",
+    }]);
+  });
+
+  it("limits[] が無い / 壊れていても weeklyScoped は空配列", async () => {
+    writeFileSync(credPath, JSON.stringify({ claudeAiOauth: { accessToken: "ok" } }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      five_hour: null, seven_day: null, extra_usage: { is_enabled: false }, limits: "broken",
+    }), { status: 200 })));
+    const r = await fetchClaudeOAuthUsage({ credentialsPath: credPath });
+    expect(r!.weeklyScoped).toEqual([]);
+    expect(r!.sevenDayFable).toBeNull();
+  });
+
+  it("weekly_scoped の欠損 reset は null のまま保ち、不正な表示値を除去する", async () => {
+    writeFileSync(credPath, JSON.stringify({ claudeAiOauth: { accessToken: "ok" } }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({
+      extra_usage: { is_enabled: false },
+      limits: [
+        {
+          kind: "weekly_scoped",
+          percent: 60,
+          resets_at: null,
+          severity: "critical\n@everyone",
+          scope: { model: { display_name: "Fable\n<!channel>" } },
+        },
+        { kind: "weekly_scoped", percent: 101, scope: { model: { display_name: "invalid" } } },
+      ],
+    }), { status: 200 })));
+
+    const r = await fetchClaudeOAuthUsage({ credentialsPath: credPath });
+    expect(r!.weeklyScoped).toEqual([{
+      label: "Fable !channel",
+      utilization: 60,
+      resetsAtSec: null,
+      severity: null,
+    }]);
+    expect(r!.sevenDayFable).toEqual({ utilization: 60, resetsAtSec: null });
+  });
 });

@@ -47,7 +47,7 @@ import { loadSecretBox } from "./shared/secret-box.js";
 import { eventBus } from "./events.js";
 import { eventFromWsFrame, parseWsFrame } from "./shared/event-schema.js";
 import { StaffRepo } from "./db/staff-repo.js";
-import { capabilityAllowed } from "./staff/roles.js";
+import { authorizeStaffCapability } from "./staff/capability-authorization.js";
 import { getReactionWorkflowReadiness } from "./shared/reaction-workflow-readiness.js";
 import { readChatWorkerLease, startChatWorkerLease } from "./bootstrap/chat.js";
 import { ChatMutationOutboxRepo } from "./db/chat-mutation-outbox-repo.js";
@@ -300,16 +300,16 @@ async function main(): Promise<void> {
     resolveReactionActionPolicies: () =>
       adminState.getReactionActionPolicies() as import("./platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     isReactionWorkflowUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), "reaction_workflow"),
+      authorizeStaffCapability(staffRepo, "discord", userId, "reaction_workflow").allowed,
     // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
     hasStaffCapability: (userId, capability) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), capability),
+      authorizeStaffCapability(staffRepo, "discord", userId, capability).allowed,
     isLaunchUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_spawn"),
+      authorizeStaffCapability(staffRepo, "discord", userId, "session_spawn").allowed,
     isSessionEndUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), "session_end"),
+      authorizeStaffCapability(staffRepo, "discord", userId, "session_end").allowed,
     isKillSwitchUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("discord", userId), "kill_switch"),
+      authorizeStaffCapability(staffRepo, "discord", userId, "kill_switch").allowed,
     listExecutiveDiscordUserIds: () => staffRepo.list({ platform: "discord" })
       .filter((member) => member.role === "executive")
       .map((member) => member.platform_user_id),
@@ -341,14 +341,14 @@ async function main(): Promise<void> {
     resolveReactionActionPolicies: () =>
       adminState.getReactionActionPolicies() as import("./platform/reaction-workflow-capability.js").WorkflowActionPolicies,
     isReactionWorkflowUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("slack", userId), "reaction_workflow"),
+      authorizeStaffCapability(staffRepo, "slack", userId, "reaction_workflow").allowed,
     // 発火は誰でもできる。 指示の中身が要求する権限だけをここで判定する。
     hasStaffCapability: (userId, capability) =>
-      capabilityAllowed(staffRepo.roleOf("slack", userId), capability),
+      authorizeStaffCapability(staffRepo, "slack", userId, capability).allowed,
     isLaunchUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_spawn"),
+      authorizeStaffCapability(staffRepo, "slack", userId, "session_spawn").allowed,
     isSessionEndUserAllowed: (userId) =>
-      capabilityAllowed(staffRepo.roleOf("slack", userId), "session_end"),
+      authorizeStaffCapability(staffRepo, "slack", userId, "session_end").allowed,
     recordStaffAccess: (input) => {
       staffRepo.touch({
         platform: "slack",

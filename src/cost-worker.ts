@@ -67,8 +67,13 @@ async function main(): Promise<void> {
     if (!runtime.isRunning()) runtime.start();
   };
   syncWorkflow();
+  // この interval は「ワークフローの有効・無効を追う仕掛け」であると同時に、
+  // このプロセスが生き続ける唯一の理由でもある。 unref すると、 lease の heartbeat
+  // (worker-lease.ts も unref) と runtime のタイマー以外に event loop を保持する
+  // ハンドルが無いため、 "cost worker started" を出した直後に exit 0 で正常終了する。
+  // 姉妹 worker の chat-worker が unref で成立するのは backend への WebSocket が
+  // ハンドルを持つからで、 cost worker には対応するものが無い。
   const workflowWatch = setInterval(syncWorkflow, 5_000);
-  workflowWatch.unref?.();
   log.info("cost worker started");
 
   const shutdown = async () => {

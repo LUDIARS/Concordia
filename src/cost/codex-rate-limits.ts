@@ -23,6 +23,8 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 4 * 60_000;
 /** windowDurationMins がこの値以下なら「5H 枠」、超えるなら「週間枠」とみなす。 */
 const FIVE_HOUR_MAX_MINS = 12 * 60;
+/** 取得失敗時に直近の成功値を返してよい上限 (anthropic-oauth-usage と同じ方針)。 */
+const STALE_FALLBACK_MS = 30 * 60_000;
 
 interface RateWindow {
   usedPercent: number | null;
@@ -30,11 +32,27 @@ interface RateWindow {
   windowMins: number | null;
 }
 
+interface FetchAttempt {
+  value: CostRate | null;
+  /** Process/service failures may use a recent value; explicit RPC errors must not. */
+  allowStale: boolean;
+}
+
 let cache: { at: number; value: CostRate | null } | null = null;
+/** 直近に取得できた値と時刻 (失敗時のフォールバック用)。 */
+let lastGood: { at: number; value: CostRate } | null = null;
+/**
+ * 進行中の取得。 本社 + 子会社 Bot の cost refresh が同じ秒に並ぶと、キャッシュ切れの
+ * 瞬間に `codex app-server` が Bot 数ぶん同時に spawn されて本体を数十秒詰まらせる
+ * (2026-09-03 実測: 4 並列で各 10 秒)。 1 本に束ねる (single-flight)。
+ */
+let inFlight: Promise<CostRate | null> | null = null;
 
 /** テスト用: TTL キャッシュを破棄する。 */
 export function clearCodexRateLimitsCache(): void {
   cache = null;
+  lastGood = null;
+  inFlight = null;
 }
 
 /**
@@ -102,15 +120,33 @@ export async function fetchCodexRateLimits(
   opts: FetchCodexRateLimitsOptions = {},
 ): Promise<CostRate | null> {
   if (!opts.force && cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value;
-  const value = await fetchOnce(opts).catch((e) => {
-    opts.log?.warn(`codex rate-limits fetch failed: ${(e as Error).message}`);
-    return null;
+  if (!opts.force && inFlight) return inFlight;
+  const run = fetchOnce(opts).catch((e) => {
+    const errorKind = e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.name) : "unknown";
+    opts.log?.warn(`codex rate-limits fetch failed (${errorKind})`);
+    return { value: null, allowStale: true } satisfies FetchAttempt;
+  }).then((attempt) => {
+    const finishedAt = Date.now();
+    let value = attempt.value;
+    if (value) {
+      lastGood = { at: finishedAt, value };
+    } else if (attempt.allowStale && lastGood && finishedAt - lastGood.at < STALE_FALLBACK_MS) {
+      // 一時的な失敗 (タイムアウト / spawn 失敗) で cost 面を空にしない。 次の試行は TTL 後。
+      opts.log?.warn(
+        `codex rate-limits fetch failed; serving last good value from ${Math.round((finishedAt - lastGood.at) / 1000)}s ago`,
+      );
+      value = lastGood.value;
+    }
+    cache = { at: finishedAt, value };
+    return value;
+  }).finally(() => {
+    if (inFlight === run) inFlight = null;
   });
-  cache = { at: Date.now(), value };
-  return value;
+  if (!opts.force) inFlight = run;
+  return run;
 }
 
-function fetchOnce(opts: FetchCodexRateLimitsOptions): Promise<CostRate | null> {
+function fetchOnce(opts: FetchCodexRateLimitsOptions): Promise<FetchAttempt> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const binary = opts.binary ?? "codex";
   const spawnFn = opts.spawnFn ?? spawn;
@@ -121,15 +157,15 @@ function fetchOnce(opts: FetchCodexRateLimitsOptions): Promise<CostRate | null> 
     ? spawnFn(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", binary, ...args], { stdio: ["pipe", "pipe", "ignore"] })
     : spawnFn(binary, args, { stdio: ["pipe", "pipe", "ignore"] });
 
-  return new Promise<CostRate | null>((resolve) => {
+  return new Promise<FetchAttempt>((resolve) => {
     let buf = "";
     let done = false;
-    const finish = (value: CostRate | null): void => {
+    const finish = (value: CostRate | null, allowStale = true): void => {
       if (done) return;
       done = true;
       clearTimeout(timer);
       try { child.kill(); } catch { /* already dead; best-effort */ }
-      resolve(value);
+      resolve({ value, allowStale });
     };
     const timer = setTimeout(() => {
       opts.log?.warn(`codex rate-limits fetch timed out after ${timeoutMs}ms`);
@@ -138,7 +174,7 @@ function fetchOnce(opts: FetchCodexRateLimitsOptions): Promise<CostRate | null> 
     timer.unref?.();
 
     child.on("error", (e) => {
-      opts.log?.warn(`codex app-server spawn failed: ${e.message}`);
+      opts.log?.warn(`codex app-server spawn failed (${(e as NodeJS.ErrnoException).code ?? e.name})`);
       finish(null);
     });
     child.on("exit", () => finish(null));
@@ -159,10 +195,12 @@ function fetchOnce(opts: FetchCodexRateLimitsOptions): Promise<CostRate | null> 
           write({ jsonrpc: "2.0", id: 2, method: "account/rateLimits/read", params: {} });
         } else if (m.id === 2) {
           if ("result" in m) {
-            finish(mapRateLimitsToCostRate(m.result));
+            const value = mapRateLimitsToCostRate(m.result);
+            finish(value, value !== null);
           } else {
-            opts.log?.warn(`codex rate-limits read returned error: ${JSON.stringify(m.error ?? null).slice(0, 200)}`);
-            finish(null);
+            // The server error payload can contain account or local-environment details.
+            opts.log?.warn("codex rate-limits read returned an error response");
+            finish(null, false);
           }
         }
       }

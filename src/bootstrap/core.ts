@@ -1052,6 +1052,8 @@ export async function startBackend(): Promise<BackendHandle> {
     hasPendingQuestion: (sessionId) => pendingQuestions.findLatestUnanswered(sessionId) !== null,
     delegationRepo,
     perfLog: createChildLogger("cost-report"),
+    // OAuth usage / codex rate の取得失敗理由をログに出す (未配線だと available=0 しか残らない)。
+    oauthLog: createChildLogger("cost-usage-fetch"),
     // worker モードは cost-worker が別途 host_metrics/DB へサンプリング済みなので、
     // embedded 側の cost snapshot はログ JSONL のフルスキャンをせず軽量表示に倒す。
     costSnapshotAllowFullScan: costMode !== "worker",

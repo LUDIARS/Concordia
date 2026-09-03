@@ -87,6 +87,7 @@ export async function collectCostReport(
   const codexRate = apiRate ?? (await aggregateCodexRate(codex, allowFullScan));
   logStep("codex-rate", startedAt, ` source=${apiRate ? "app-server" : `sessions(${codex.length})`}`);
   await yieldToEventLoop();
+  startedAt = Date.now();
   // Claude Code は JSONL に rate-limit を書かないので、 claude.ai OAuth の
   // `/api/oauth/usage` を直接叩いて 5H / 7D / Sonnet / Opus 利用率を取る.
   const claudeUsage = await fetchClaudeOAuthUsage(opts?.oauthLog ? { log: opts.oauthLog } : {});

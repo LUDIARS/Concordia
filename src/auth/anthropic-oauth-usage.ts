@@ -26,8 +26,16 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const USAGE_ENDPOINT = "https://api.anthropic.com/api/oauth/usage";
-const FETCH_TIMEOUT_MS = 5000;
+/**
+ * 単体では 300ms 程度で返る API だが、Concordia 本体のイベントループが詰まっている間
+ * (子会社 Bot 分の cost-report が同時に走り codex app-server を並列 spawn する等) は
+ * AbortController のタイマーが遅れて発火し 5 秒では落ちる (2026-09-03: 本社+子会社 3 の
+ * 同時 refresh で 24 回中 9 回 null)。 codex 側 (15 秒) と揃える。
+ */
+const FETCH_TIMEOUT_MS = 15_000;
 const CACHE_TTL_MS = 60_000; // 1 分キャッシュ (cost-channel refresh が 10 分間隔なので余裕)
+/** 取得失敗時に直近の成功値を返してよい上限。 これを超えたら正直に null (取れていない) を返す。 */
+const STALE_FALLBACK_MS = 30 * 60_000;
 
 export interface OAuthUsageWindow {
   /** 利用率 0-100 (%). API は実数を返す. */
@@ -62,20 +70,64 @@ export interface OAuthUsage {
 
 /** 1 分キャッシュ. 起動時 + cost-channel refresh ごとに呼ばれる前提. */
 let cache: { value: OAuthUsage | null; at: number } = { value: null, at: 0 };
+/** 直近に取得できた値 (失敗時のフォールバック用。 cache と違い TTL 切れでも保持)。 */
+let lastGood: OAuthUsage | null = null;
+/**
+ * 進行中の取得。 本社 + 子会社 Bot の cost refresh は同じ秒に並ぶため、キャッシュ切れの
+ * 瞬間に同じ取得が Bot 数ぶん並走する。 1 本に束ねて残りは同じ結果を待つ (single-flight)。
+ */
+let inFlight: Promise<OAuthUsage | null> | null = null;
 
-export async function fetchClaudeOAuthUsage(opts: {
+export interface FetchClaudeOAuthUsageOptions {
   /** override credentials path. default: ~/.claude/.credentials.json */
   credentialsPath?: string;
   /** force refresh. default false. */
   noCache?: boolean;
   /** logger (optional) */
   log?: { warn: (msg: string) => void; info?: (msg: string) => void };
-} = {}): Promise<OAuthUsage | null> {
+}
+
+interface FreshUsageResult {
+  usage: OAuthUsage | null;
+  /** Network/service failures may use a recent value; credential/auth failures must not. */
+  allowStale: boolean;
+}
+
+export async function fetchClaudeOAuthUsage(opts: FetchClaudeOAuthUsageOptions = {}): Promise<OAuthUsage | null> {
   const now = Date.now();
-  if (!opts.noCache && cache.value && now - cache.at < CACHE_TTL_MS) {
+  if (!opts.noCache && cache.at !== 0 && now - cache.at < CACHE_TTL_MS) {
     return cache.value;
   }
+  if (!opts.noCache && inFlight) return inFlight;
 
+  const run = fetchFreshUsage(opts).then(({ usage, allowStale }) => {
+    const finishedAt = Date.now();
+    if (usage) {
+      cache = { value: usage, at: finishedAt };
+      lastGood = usage;
+      return usage;
+    }
+    // 一時的な失敗 (タイムアウト / 5xx / イベントループ詰まり) で cost 面が「取れない」に
+    // 落ちないよう、直近成功値が新しければそれを返す。 fetchedAt は古いままなので
+    // 呼び出し側は鮮度を判別できる。 次の試行はキャッシュ TTL 後 (連打しない)。
+    if (allowStale && lastGood && finishedAt - lastGood.fetchedAt < STALE_FALLBACK_MS) {
+      opts.log?.warn?.(
+        `anthropic-oauth-usage: fetch failed; serving last good value from ${Math.round((finishedAt - lastGood.fetchedAt) / 1000)}s ago`,
+      );
+      cache = { value: lastGood, at: finishedAt };
+      return lastGood;
+    }
+    cache = { value: null, at: finishedAt };
+    return null;
+  }).finally(() => {
+    if (inFlight === run) inFlight = null;
+  });
+  if (!opts.noCache) inFlight = run;
+  return run;
+}
+
+/** キャッシュを見ずに 1 回取得する。 失敗は null (理由は log)。 */
+async function fetchFreshUsage(opts: FetchClaudeOAuthUsageOptions): Promise<FreshUsageResult> {
   const path = opts.credentialsPath ?? join(homedir(), ".claude", ".credentials.json");
   let token: string;
   try {
@@ -84,12 +136,14 @@ export async function fetchClaudeOAuthUsage(opts: {
     const access = parsed?.claudeAiOauth?.accessToken;
     if (typeof access !== "string" || !access.trim()) {
       opts.log?.warn?.("anthropic-oauth-usage: accessToken missing in credentials");
-      return null;
+      return { usage: null, allowStale: false };
     }
     token = access;
   } catch (e) {
-    opts.log?.warn?.(`anthropic-oauth-usage: read credentials failed: ${(e as Error).message}`);
-    return null;
+    const errorKind = e instanceof Error ? ((e as NodeJS.ErrnoException).code ?? e.name) : "unknown";
+    // fs error messages contain the credentials path (and often the local username); do not persist them.
+    opts.log?.warn?.(`anthropic-oauth-usage: read credentials failed (${errorKind})`);
+    return { usage: null, allowStale: false };
   }
 
   const ctrl = new AbortController();
@@ -104,16 +158,16 @@ export async function fetchClaudeOAuthUsage(opts: {
       signal: ctrl.signal,
     });
     if (!res.ok) {
-      opts.log?.warn?.(`anthropic-oauth-usage: HTTP ${res.status} from ${USAGE_ENDPOINT}`);
-      return null;
+      opts.log?.warn?.(`anthropic-oauth-usage: HTTP ${res.status}`);
+      const allowStale = res.status === 408 || res.status === 429 || res.status >= 500;
+      return { usage: null, allowStale };
     }
     const json = await res.json();
-    const usage = parseUsage(json);
-    cache = { value: usage, at: now };
-    return usage;
+    return { usage: parseUsage(json), allowStale: false };
   } catch (e) {
-    opts.log?.warn?.(`anthropic-oauth-usage: fetch failed: ${(e as Error).message}`);
-    return null;
+    const errorKind = e instanceof Error ? e.name : "unknown";
+    opts.log?.warn?.(`anthropic-oauth-usage: fetch failed (${errorKind})`);
+    return { usage: null, allowStale: true };
   } finally {
     clearTimeout(timer);
   }
@@ -179,4 +233,6 @@ function parseFableWindow(r: Record<string, unknown>): OAuthUsageWindow | null {
 /** テスト用. キャッシュをクリアする. */
 export function __resetUsageCacheForTest(): void {
   cache = { value: null, at: 0 };
+  lastGood = null;
+  inFlight = null;
 }

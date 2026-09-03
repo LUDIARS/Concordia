@@ -65,6 +65,27 @@ describe("delegation completed evidence", () => {
     expect(repo.findRun("source-run")?.status).toBe("completed");
   });
 
+  it("does not inherit a same-name global parttimer exemption", async () => {
+    const { app, repo } = makeApp(process.cwd(), null, "employee", "parttimer");
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.status).toBe("failed");
+  });
+
+  it("uses the category recorded at launch instead of mutable template state", async () => {
+    const { app, repo } = makeApp(process.cwd(), null, "parttimer", "parttimer");
+    const template = repo.findTemplateByCallName("impl");
+    if (!template) throw new Error("expected template");
+    repo.updateTemplate(template.id, { category: "employee" });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  });
+
   it("accepts completed when the recorded feature worktree contains a commit beyond main", async () => {
     const cwd = makeFeatureWorktree();
     git(cwd, ["checkout", "-b", "feat/evidence"]);
@@ -303,12 +324,24 @@ function makeAppWithTemplate(
   };
 }
 
-function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: DelegationRepo; prs: PrRecordsRepo } {
+function makeApp(
+  cwd: string | null,
+  branch: string | null,
+  category: "employee" | "parttimer" | null = "employee",
+  templateCategory: "employee" | "parttimer" | null = null,
+): { app: Hono; repo: DelegationRepo; prs: PrRecordsRepo } {
   const db = makeTestDb();
   const repo = new DelegationRepo(db);
   const prs = new PrRecordsRepo(db);
+  const template = templateCategory ? repo.createTemplate({
+    call_name: "impl",
+    title: "Implementation",
+    target_provider: "claude",
+    category: templateCategory,
+    prompt_template: "task",
+  }) : null;
   repo.createRun({
-    id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
+    id: "source-run", template_id: template?.id ?? null, category, call_name: "impl", target_provider: "codex", parent_session_id: null,
     args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
     spawn_command: ["codex"], triggered_by: null, status: "running", spawn_cwd: cwd, spawn_worktree_path: cwd,
     spawn_branch: branch,

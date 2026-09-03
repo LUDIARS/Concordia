@@ -4,6 +4,7 @@
  * 内容の調整は WebUI (/manuals) から行う。
  */
 
+import { PARTTIMER_CHORE_MANUAL } from "../db/inject-manuals-repo.js";
 import type { InjectManualsRepo, InjectManualKind } from "../db/inject-manuals-repo.js";
 import { TASK_STATE_DB_RULE_SHORT } from "../taskflow/task-instructions.js";
 
@@ -20,7 +21,7 @@ const DEFAULT_MANUALS: Record<InjectManualKind, string> = {
     "結論はトレードオフ比較つきで spec/plan/ 形式に。",
   テスト:
     "ユーザがこの Session に明示したテストだけを実行する。起動テストは Excubitor + testing claim の規約に従う。明示範囲外のテストやマージは行わない。",
-  雑用: "軽作業。リポ変更を伴うならブランチ → PR、読み取りのみなら自由。",
+  雑用: PARTTIMER_CHORE_MANUAL,
 };
 
 export function seedInjectManuals(repo: InjectManualsRepo, now = Date.now()): void {

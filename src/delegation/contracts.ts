@@ -1,4 +1,5 @@
 import type {
+  DelegationCategory,
   DelegationProvider,
   DelegationTemplateRow,
 } from "../db/delegation-repo.js";
@@ -18,6 +19,12 @@ export interface DelegationDefinition {
   default_cwd: string | null;
   project?: string | null;
   emoji?: string | null;
+  /**
+   * 雇用形態カテゴリ。 inject の書式 (実装委託 / パートタイマー) を分ける唯一の判定材料
+   * なので definition まで運ぶ。 語のヒューリスティックでは「メール監視」を実装委託と
+   * 誤判定して詰む (delegation/parttimer-inject.ts 冒頭)。
+   */
+  category?: DelegationCategory | null;
 }
 
 export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefinition {
@@ -33,6 +40,7 @@ export function templateToDefinition(tpl: DelegationTemplateRow): DelegationDefi
     default_cwd: tpl.default_cwd,
     project: tpl.project,
     emoji: tpl.emoji,
+    category: tpl.category,
   };
 }
 

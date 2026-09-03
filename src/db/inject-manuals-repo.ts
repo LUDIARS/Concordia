@@ -9,6 +9,20 @@ import type Database from "better-sqlite3";
 export const INJECT_MANUAL_KINDS = ["設計相談", "実装", "レビュー", "テスト", "雑用"] as const;
 export type InjectManualKind = (typeof INJECT_MANUAL_KINDS)[number];
 
+/**
+ * kind「雑用」の既定マニュアル。 パートタイマー (定時起動) が受け取る。
+ *
+ * 終わり方・作業姿勢は delegation/parttimer-inject.ts の footer が持つので、 ここは
+ * 「本文の範囲を超えないための運用ルール」だけに絞る (重複させると本文と矛盾する)。
+ * 既定文の差し替えは schema.ts の migration 82 が参照するので、 文言を変えるときは
+ * 旧文を残した migration を新しく足す (既存 migration の文字列は書き換えない)。
+ */
+export const PARTTIMER_CHORE_MANUAL =
+  "タスク本文に書かれた範囲だけを実行し、手順を足さない。" +
+  "ファイルを変更する指示があるときだけ作業ブランチ → Revisor local PR にする (読み取り・報告だけなら git 操作は不要)。" +
+  "サービスの起動・再起動は本文が指示した場合に限り、Excubitor 経由でプロジェクト本体フォルダから行う (worktree / 複製フォルダから起動しない)。" +
+  "やることが無かった場合も、その事実を報告する。";
+
 export function isInjectManualKind(value: string): value is InjectManualKind {
   return (INJECT_MANUAL_KINDS as readonly string[]).includes(value);
 }

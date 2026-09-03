@@ -1,0 +1,23 @@
+{
+  "name": "delegation-parttimer-inject",
+  "description": "パートタイマー (category=parttimer) 委託の inject。タスク本文を先頭にそのまま置き、Concordia が足すのは「本文が全文」「迷っても止まらない」「報告 → status → 退勤」の 3 点だけ。各パートタイマーのタスク本文もここが持つ。実装委託の枠 (why / 着手時バンドル / 完了条件チェックリスト / Memoria 起票) は載せない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/delegation/parttimer-inject(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/parttimer-prompts(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/delegation/manual-kind(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/parttimer-clockout(\\.test)?\\.ts$"
+    }
+  ],
+  "specRefs": [
+    "spec/feature/delegation-parttimer-inject.md"
+  ]
+}

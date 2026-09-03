@@ -554,6 +554,10 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 実装委託の追跡タスク起票先。 memoriaClient はこの後で組むので遅延解決にする。
     memoria: () => memoriaClient ?? null,
+    // パートタイマーの最終報告へ付ける管理者メンション。 以前は「委託先が
+    // GET /v1/admin/state を引いて自分で埋める」手順を本文に書いていたが、 変数展開で
+    // 空へ潰れて `<@> ` が届いていた。 Cc が知っている値は Cc が埋める。
+    mentionUserId: () => adminState.getMentionUserId(),
   });
   // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
   // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して

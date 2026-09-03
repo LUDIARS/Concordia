@@ -20,6 +20,10 @@ const EDIT_APPLIED_MIGRATION = [
 describe("migration ledger", () => {
   const frozen = new Map(FROZEN_MIGRATIONS.map((entry) => [entry.version, entry]));
 
+  it("keeps SCHEMA_VERSION aligned with the newest migration", () => {
+    expect(SCHEMA_VERSION).toBe(Math.max(...MIGRATIONS.map((migration) => migration.version)));
+  });
+
   it("freezes every migration that ships", () => {
     const shipped = MIGRATIONS.map((migration) => migration.version).sort((a, b) => a - b);
     const pinned = FROZEN_MIGRATIONS.map((entry) => entry.version).sort((a, b) => a - b);

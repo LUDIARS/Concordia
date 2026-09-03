@@ -9,6 +9,21 @@ export interface CompletionEvidenceRun {
   spawn_branch?: string | null;
 }
 
+/**
+ * feature branch を成果物として要求してよい run か。
+ *
+ * パートタイマー (定時起動) は成果がコードではない — メール取り込み、カタログ更新、
+ * 依存点検の報告、朝礼投稿。 テンプレ本文が「commit も push も PR もしない」と明記して
+ * いるものすらある。 それでも default_cwd に対象リポを持つので、 このガードが
+ * 「spawned checkout has no recorded feature branch」で completed を failed に落として
+ * いた (2026-09-02〜03 の quaestor-mail-sweep / kaizen-daily / deps-sweep-daily /
+ * vulnerability-response-daily の failed は全部これ)。 実装委託の自己申告を疑うための
+ * ガードなので、 実装委託でない run は対象外にする。
+ */
+export function requiresCompletionEvidence(category: string | null | undefined): boolean {
+  return category !== "parttimer";
+}
+
 export interface CompletionEvidenceOptions {
   /**
    * テンプレートが「コードを書かない」と宣言している run。 成果物が feature branch では

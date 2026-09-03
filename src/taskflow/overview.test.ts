@@ -146,7 +146,7 @@ function session(): SessionRow {
 
 function run(): DelegationRunRow {
   return {
-    id: "run-1", template_id: null, call_name: "implement", target_provider: "codex",
+    id: "run-1", template_id: null, category: null, call_name: "implement", target_provider: "codex",
     parent_session_id: null, child_session_id: "session-1", args_json: "{}", rendered_prompt: "",
     prompt_file_path: "", spawn_pid: 1, spawn_command: null, triggered_by: null, status: "running",
     error: null, queue_payload_json: null, created_at: 1,

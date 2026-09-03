@@ -89,11 +89,17 @@ delegation を「どう起動されるか」で分類する。 単一情報源�
 
 - 既定は `employee` (既存 DB の行は列追加 migration で employee に埋まる。 seed テンプレは boot upsert で正しい値に上書き)。
 - `GET /v1/delegation/templates?category=<値>` で絞り込み可 (不正値は 400)。
-- category は表示・分類のためのメタデータで、 spawn 経路の挙動は変えない
+- `parttimer` は inject の書式を変える唯一の category である
+  (`spec/feature/delegation-parttimer-inject.md`)。 タスク本文を prompt file の先頭にそのまま置き、
+  実装マニュアル・why・着手時バンドル・完了条件チェックリスト・Memoria 起票・コミット代行は載せない。
+  完了判定の feature branch 要求 (`verifyCompletionEvidence`) も適用しない。
+  完了判定には `delegation_runs.category` へ起動時に保存した値を使い、後からのテンプレート編集や
+  同名テンプレートによって判定が変わらないようにする。
+  それ以外の category は表示・分類のためのメタデータで、 spawn 経路の挙動は変えない
   (spawn 可否の制御は従来どおり `call_only`)。
-- `parttimer` の各テンプレは完了時、`GET /v1/admin/state` の `mention_user_id` が設定されていれば
-  最終報告の先頭に `<@${mention_user_id}>` を付けて管理者へメンションする
-  (2026-08-08 neco 指示。プロンプト本文側の共通節は `src/delegation/seed.ts` の `MENTION_ADMIN_STEP`)。
+- `parttimer` の完了時メンションは Cc が `admin.mention_user_id` を解決して inject の footer へ
+  具体値で埋める (2026-08-08 neco 指示)。 委託先に `GET /v1/admin/state` を引かせていた頃は
+  本文の `${mention_user_id}` がテンプレ変数展開で空へ潰れ、 `<@> ` が届いていた。
 
 ### 2.2 platform / site overrides
 

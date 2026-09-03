@@ -93,6 +93,8 @@ export interface UpsertTemplateOverrideInput {
 export interface DelegationRunRow {
   id: string;
   template_id: string | null;
+  /** 起動時の category snapshot。 null は旧 run / category 不明で、証跡を要求する側に倒す。 */
+  category: DelegationCategory | null;
   call_name: string;
   target_provider: DelegationProvider;
   parent_session_id: string | null;
@@ -206,6 +208,8 @@ export interface CreateRunInput {
   /** 事前確保された run id。 省略時は repo が UUID を生成する */
   id?: string;
   template_id: string | null;
+  /** テンプレートを後から編集・削除しても完了判定が変わらないよう起動時に固定する。 */
+  category?: DelegationCategory | null;
   call_name: string;
   target_provider: DelegationProvider;
   parent_session_id?: string | null;
@@ -453,16 +457,17 @@ export class DelegationRepo {
     const now = Date.now();
     this.db.prepare(`
       INSERT INTO delegation_runs(
-        id, template_id, call_name, target_provider, parent_session_id, child_session_id, args_json,
+        id, template_id, category, call_name, target_provider, parent_session_id, child_session_id, args_json,
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
         effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
         spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at,
         team_id, subsidiary_id, staged_injection, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
+      input.category ?? null,
       input.call_name,
       applyDelegationProviderPolicy(input.target_provider),
       input.parent_session_id ?? null,

@@ -643,6 +643,101 @@ describe("DelegationService.invoke", () => {
   }, REAL_GIT_WORKTREE_TIMEOUT_MS);
 });
 
+// パートタイマーは実装委託と別書式で渡す。 以前は 19 本全員が実装マニュアル +
+// buildImplementationInject を被り、 195 行の prompt のうちタスク本文が 29 行 (15%) しか
+// 無く、 しかも「PR を出せ」「サービスを起動するな」が本文と矛盾していた。
+describe("DelegationService.invoke — parttimer", () => {
+  let repo: DelegationRepo;
+  let promptsDir: string;
+  let svc: DelegationService;
+  let memoriaCalls: number;
+
+  beforeEach(() => {
+    repo = new DelegationRepo(makeTestDb());
+    promptsDir = mkdtempSync(join(tmpdir(), "deleg-pt-"));
+    memoriaCalls = 0;
+    svc = new DelegationService({
+      repo,
+      promptsDir,
+      concordiaUrl: "http://127.0.0.1:11111",
+      spawn: () => ({ ok: true, pid: 1, command: ["stub"] }),
+      injectManual: (kind) => (kind === "雑用" ? "読み取りだけなら git 操作は不要。" : "worktree を生成 → PR"),
+      mentionUserId: () => "999888777",
+      commandPatterns: async () => "## 定型手順" + String.fromCharCode(10) + "- pattern block",
+      memoria: () => {
+        memoriaCalls += 1;
+        return {
+          createTask: async () => ({ id: 1 }),
+          taskApiUrl: (id: string | number) => `http://127.0.0.1:5180/api/tasks/${id}`,
+        };
+      },
+    });
+    repo.createTemplate({
+      call_name: "quaestor-mail-sweep",
+      title: "メール監視",
+      target_provider: "claude",
+      category: "parttimer",
+      prompt_template: "## Quaestor メール監視" + String.fromCharCode(10) + "- POST /v1/mail/sweep を 1 回だけ呼ぶ。",
+    });
+  });
+
+  afterEach(() => {
+    rmSync(promptsDir, { recursive: true, force: true });
+  });
+
+  it("タスク本文を prompt file の先頭に置く", async () => {
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: "E:/Document/Ars/Quaestor" });
+    if (!r.ok) throw new Error("expected ok");
+    const file = readFileSync(r.prompt_file_path, "utf8");
+
+    expect(file.split(String.fromCharCode(10))[0]).toBe("# メール監視");
+    expect(file).toContain("POST /v1/mail/sweep を 1 回だけ呼ぶ。");
+    expect(file.indexOf("mail/sweep")).toBeLessThan(200);
+  });
+
+  it("実装委託の前置き・完了条件・コミット代行を載せない", async () => {
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {}, cwd: "E:/Document/Ars/Quaestor" });
+    if (!r.ok) throw new Error("expected ok");
+    const file = readFileSync(r.prompt_file_path, "utf8");
+
+    for (const forbidden of [
+      "## Concordia コンテキスト",
+      "## 実装タスク",
+      "### なぜ (why)",
+      "着手時バンドル",
+      "Revisor local PR を提出した",
+      "## コミット (自分で git commit しなくてよい)",
+      "## Args",
+      "## Runtime Options",
+      "worktree を生成 → PR",
+      "## 定型手順",
+      "サービスの起動・再起動・起動テストはしない",
+    ]) {
+      expect(file, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("雑用マニュアルと解決済みメンションを載せ、終わり方を 1 系統で示す", async () => {
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {} });
+    if (!r.ok) throw new Error("expected ok");
+    const file = readFileSync(r.prompt_file_path, "utf8");
+
+    expect(file).toContain("読み取りだけなら git 操作は不要。");
+    expect(file).toContain("`<@999888777> `");
+    expect(file).toContain("/v1/delegation/runs/" + r.run.id + "/status");
+    expect(file).toContain("/v1/shutdown");
+    expect(file.match(/## 終わり方/g)).toHaveLength(1);
+  });
+
+  it("Memoria の追跡タスクを起票しない (定時作業は毎回起票すると溜まるだけ)", async () => {
+    const r = await svc.invoke({ call_name: "quaestor-mail-sweep", args: {} });
+    if (!r.ok) throw new Error("expected ok");
+    expect(memoriaCalls).toBe(0);
+    expect(r.run.memoria_task_id).toBeNull();
+    expect(r.run.category).toBe("parttimer");
+  });
+});
+
 describe("DelegationService.invokeDefinition", () => {
   let db: ReturnType<typeof makeTestDb>;
   let repo: DelegationRepo;
@@ -692,6 +787,7 @@ describe("DelegationService.invokeDefinition", () => {
     expect(r.rendered_prompt).toBe("Custom: do it");
     // subsidiary-owned copy → template_id is null
     expect(r.run.template_id).toBeNull();
+    expect(r.run.category).toBeNull();
     expect(r.run.call_name).toBe("custom-task");
     expect(r.run.subsidiary_id).toBe("subsidiary-1");
     expect(spawnCalls.length).toBe(0);

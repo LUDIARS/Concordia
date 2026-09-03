@@ -27,6 +27,7 @@ const EXPECTED_SEED_CALLS = [
   "gemma4-12-impl",
   "test-qa",
   // レビュー・脆弱性対応・カイゼン + タスク種別別 Caller (sort_order 未指定 → 既定 1000、 call_name ASC 順)
+  "ai-note-biweekly-review",
   "daily-review-autofix",
   "deps-sweep-daily",
   "design-analysis-opus",
@@ -59,6 +60,8 @@ interface Template {
   sort_order: number;
   forum_tag: boolean;
   default_cwd: string | null;
+  title: string;
+  category: string;
   input_schema: Array<{ name: string; type: "string" | "number" | "boolean"; required: boolean }>;
 }
 
@@ -69,7 +72,7 @@ describe("delegation seed regression", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as { templates: Template[] };
     expect(json.templates.map((t) => t.call_name)).toEqual(EXPECTED_SEED_CALLS);
-    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 35, 40, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
+    expect(json.templates.map((t) => t.sort_order)).toEqual([10, 20, 25, 30, 35, 40, 45, 46, 50, 60, 70, 75, 80, 90, 100, 105, 110, 120, 130, 140, 150, 160, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000]);
     expect(json.templates.find((t) => t.call_name === "sol-mid")?.emoji).toBe("☀️");
     expect(json.templates.find((t) => t.call_name === "terra-xhigh")?.emoji).toBe("🌏");
     expect(json.templates.find((t) => t.call_name === "luna")?.emoji).toBe("🌙");
@@ -120,7 +123,16 @@ describe("delegation seed regression", () => {
         expect(existsSync(json.prompt_file_path)).toBe(true);
 
         const promptFile = readFileSync(json.prompt_file_path, "utf8");
-        expect(promptFile).toContain(`# Delegation: ${template.call_name}`);
+        if (template.category === "parttimer") {
+          // パートタイマーはタスク本文を先頭に置く別書式 (delegation/parttimer-inject.ts)。
+          // 見出しは template title、 run のメタ情報は末尾へ回す。
+          expect(promptFile.split(/\r?\n/)[0], template.call_name).toBe(`# ${template.title}`);
+          expect(promptFile, template.call_name).toContain(`run: ${template.call_name} / run_id: ${json.run.id}`);
+          expect(promptFile, template.call_name).toContain("## 終わり方 (成功でも失敗でも必ず最後まで)");
+          expect(promptFile, template.call_name).not.toContain("## Concordia コンテキスト");
+        } else {
+          expect(promptFile).toContain(`# Delegation: ${template.call_name}`);
+        }
         // 段階注入は廃止済み (spec/feature/delegation-implementation-inject.md)。
         // どの kind でもタスク本文は初回 prompt file に載る (伏せない)。
         expect(promptFile).toContain(json.rendered_prompt.trim().split(/\r?\n/)[0]);

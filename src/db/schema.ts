@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 82;
+export const SCHEMA_VERSION = 84;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2081,6 +2081,37 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     // 他のレビュー系テンプレは、 テンプレごとの契約を見て運用側が設定面から立てる。
     db.prepare("UPDATE delegation_templates SET review_only = 1 WHERE call_name = ?")
       .run("vulnerability-response-daily");
+  },
+}, {
+  version: 83,
+  name: "parttimer-chore-manual",
+  source: "inject_manuals(雑用) — パートタイマー inject の書き直し (spec/feature/delegation-parttimer-inject.md)",
+  up(db) {
+    // 雑用マニュアルはこれまで自動割り当ての対象外だったので、 既定文のままの行しか存在しない。
+    // パートタイマーが 雑用 を受け取るようになったので、 既定文だった行だけを差し替える
+    // (WebUI で編集済みの行は触らない = seed と同じ扱い)。
+    db.prepare(
+      `UPDATE inject_manuals SET content = ?, updated_at = strftime('%s','now') * 1000
+         WHERE kind = '雑用' AND content = ?`,
+    ).run(
+      // Migration は適用後に不変でなければならない。 runtime の既定値定数を参照すると、
+      // 将来その文言を編集しただけで過去 migration の結果まで変わるため、 v83 の値を固定する。
+      "タスク本文に書かれた範囲だけを実行し、手順を足さない。" +
+        "ファイルを変更する指示があるときだけ作業ブランチ → Revisor local PR にする (読み取り・報告だけなら git 操作は不要)。" +
+        "サービスの起動・再起動は本文が指示した場合に限り、Excubitor 経由でプロジェクト本体フォルダから行う (worktree / 複製フォルダから起動しない)。" +
+        "やることが無かった場合も、その事実を報告する。",
+      "軽作業。リポ変更を伴うならブランチ → PR、読み取りのみなら自由。",
+    );
+  },
+}, {
+  version: 84,
+  name: "delegation-run-category",
+  source: "delegation_runs.category — 起動時 category を完了証跡判定用に固定 (spec/feature/delegation-parttimer-inject.md)",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(delegation_runs)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "category")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN category TEXT");
+    }
   },
 },
 ];

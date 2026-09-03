@@ -49,7 +49,7 @@ import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
-import { verifyCompletionEvidence } from "../delegation/completion-evidence.js";
+import { requiresCompletionEvidence, verifyCompletionEvidence } from "../delegation/completion-evidence.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 
@@ -672,7 +672,9 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (row.status === "completed" || row.status === "failed") {
       return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
     }
-    if (status === "completed") {
+    // パートタイマーは成果が feature branch ではない (報告・取り込み・投稿)。
+    // テンプレを後から編集・削除しても判定が動かないよう、 起動時 snapshot の category を使う。
+    if (status === "completed" && requiresCompletionEvidence(row.category)) {
       // レビュー専用テンプレは feature branch を作らないのが正常なので、 テンプレ定義の
       // 宣言を見てガードを外す。 テンプレが消えている run は宣言が確認できないため、
       // 従来どおり branch 証跡を要求する側へ倒す。

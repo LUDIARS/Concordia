@@ -34,6 +34,7 @@ import {
   resolveWhy,
   type MemoriaTaskLink,
 } from "./implementation-inject.js";
+import { buildParttimerInject } from "./parttimer-inject.js";
 import { createDelegationMemoriaTask, type DelegationMemoriaPort } from "./memoria-task.js";
 import { createChildLogger } from "../shared/logger.js";
 import { baselineEffort, classifyTaskEffort, supportsAutomaticEffort, type EffortTaskBucket } from "./effort-policy.js";
@@ -140,6 +141,11 @@ export interface DelegationServiceDeps {
    * 関数で受ける。 未注入・失敗は fail-soft (委託は止めず、 未起票を本文へ書く)。
    */
   memoria?: () => DelegationMemoriaPort | null;
+  /**
+   * 管理者メンション ID (`admin.mention_user_id`) の解決。 パートタイマーの最終報告に
+   * 付ける値を Cc 側で埋めるために受ける。 未注入・未設定は null (メンションなし)。
+   */
+  mentionUserId?: () => string | null;
 }
 
 export class DelegationService {
@@ -231,6 +237,7 @@ export class DelegationService {
       const run = this.deps.repo.createRun({
         id: runId,
         template_id: def.template_id,
+        category: def.category ?? null,
         call_name: def.call_name,
         target_provider: targetProvider,
         parent_session_id: input.parent_session_id ?? null,
@@ -269,6 +276,7 @@ export class DelegationService {
     const run = this.deps.repo.createRun({
       id: runId,
       template_id: def.template_id,
+      category: def.category ?? null,
       call_name: def.call_name,
       target_provider: launch.provider,
       parent_session_id: input.parent_session_id ?? null,
@@ -462,19 +470,27 @@ export class DelegationService {
     // 起動セッションは Concordia 協調セッションなので、 文脈説明を
     // 初期プロンプト冒頭に注入する (spec/delegation.md §4)。
     // kind 別 Inject マニュアル (inject_manuals) をテンプレから解決して差し込む。
-    const manualKind = resolveManualKind({ call_name: def.call_name, title: def.title });
+    const manualKind = resolveManualKind({ call_name: def.call_name, title: def.title, category: def.category });
     const manualContent = this.deps.injectManual?.(manualKind) ?? null;
+    // パートタイマーは実装委託と別書式で渡す。 タスク本文を先頭にそのまま置き、
+    // Concordia が足すのは「本文が全文」「迷っても止まらない」「終わり方」の 3 点だけ。
+    // 経緯は delegation/parttimer-inject.ts 冒頭 (2026-09-03 neco 指示)。
+    const isParttimer = def.category === "parttimer";
     // Genius command-pattern (定型作業のコマンド列) を task 文面で照会して差し込む。
     // Genius 不在・不一致・失敗は注入なしで委託を続行する (fail-soft)。
+    // パートタイマーは対象外 — 本文が手順まで書き切っている定時作業なので、 一致しない
+    // 手順ブロックを push すると「本文が全文」という前提を崩す。
     let commandPatternBlock: string | null = null;
-    if (this.deps.commandPatterns) {
+    if (!isParttimer && this.deps.commandPatterns) {
       try {
         commandPatternBlock = await this.deps.commandPatterns(renderedPrompt);
       } catch {
         // Command patterns are advisory; Genius failure must not block delegation launch.
       }
     }
-    const contextBlock = buildDelegationContext(
+    // パートタイマーの協調文脈は parttimer-inject が本文内に必要分だけ持つので、
+    // 前置きの Concordia コンテキストは載せない。
+    const contextBlock = isParttimer ? "" : buildDelegationContext(
       this.deps.concordiaUrl,
       manualContent ? { kind: manualKind, content: manualContent } : null,
       commandPatternBlock,
@@ -486,7 +502,17 @@ export class DelegationService {
     // spec/feature/delegation-implementation-inject.md。
     let memoriaLink: MemoriaTaskLink | null = null;
     let promptSection = renderedPrompt;
-    if (manualKind === IMPLEMENTATION_MANUAL_KIND) {
+    if (isParttimer) {
+      promptSection = buildParttimerInject({
+        runId,
+        title: def.title,
+        task: renderedPrompt,
+        concordiaUrl: this.deps.concordiaUrl ?? "http://127.0.0.1:11111",
+        mentionUserId: this.deps.mentionUserId?.() ?? null,
+        cwd: cwd ?? null,
+        manual: manualContent,
+      });
+    } else if (manualKind === IMPLEMENTATION_MANUAL_KIND) {
       const why = resolveWhy({ args: input.args ?? {}, title: def.title });
       const memoria = await createDelegationMemoriaTask(
         this.deps.memoria?.() ?? null,
@@ -519,17 +545,19 @@ export class DelegationService {
       return { ok: false, error: `failed to create prompts dir: ${(err as Error).message}` };
     }
     const promptPath = join(this.promptsDir, `${runId}.md`);
-    const promptBody = renderPromptFile(
-      def,
-      promptSection,
-      input.args ?? {},
-      effectiveOptions,
-      runId,
-      contextBlock,
-      provider,
-      spawn.effectiveModel,
-      { runId, cwd: cwd ?? null, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? null },
-    );
+    const promptBody = isParttimer
+      ? renderParttimerPromptFile(def, promptSection, runId, provider, spawn.effectiveModel)
+      : renderPromptFile(
+        def,
+        promptSection,
+        input.args ?? {},
+        effectiveOptions,
+        runId,
+        contextBlock,
+        provider,
+        spawn.effectiveModel,
+        { runId, cwd: cwd ?? null, branch: spawnBranch, concordiaUrl: this.deps.concordiaUrl ?? null },
+      );
     try {
       await writeFile(promptPath, promptBody, "utf8");
     } catch (err) {
@@ -675,6 +703,31 @@ function renderPromptFile(
     rendered,
     "",
     renderCommitSection(commit),
+  ].join("\n");
+}
+
+/**
+ * パートタイマーの prompt file。 タスク本文 (parttimer-inject 済み) をそのまま先頭に置き、
+ * run のメタ情報だけ末尾へ回す。 Args / Runtime Options 節は作らない — args は本文へ
+ * 変数展開済みで、 重ねて並べるとタスクが下へ押し出されるだけだった。
+ * コミット代行の案内も載せない (本文が変更を指示していなければコミットは発生しない)。
+ */
+function renderParttimerPromptFile(
+  def: DelegationDefinition,
+  body: string,
+  runId: string,
+  targetProvider: DelegationProvider,
+  effectiveModel: string | null,
+): string {
+  return [
+    body.trimEnd(),
+    "",
+    "---",
+    "",
+    `run: ${def.call_name} / run_id: ${runId} / provider: ${targetProvider}` +
+      ` / model: ${effectiveModel ?? def.model ?? "(provider default)"}` +
+      ` / project: ${def.project?.trim() || "(none)"}`,
+    "",
   ].join("\n");
 }
 

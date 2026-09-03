@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=77、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・project code registry・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=84、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・project code registry・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -17,14 +17,14 @@ status: implemented
 related:
   - ../interface/service-schema.md
   - ../feature/delegation-implementation-inject.md
-updated: 2026-08-31
+updated: 2026-09-04
 ---
 
 
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 77`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 84`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -101,8 +101,8 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 ## delegation（v0.3）
 | テーブル | 用途 | 主要列 |
 |---|---|---|
-| `delegation_templates` | 委託テンプレ | id PK / call_name UNIQUE / target_provider / prompt_template / input_schema / default_cwd |
-| `delegation_runs` | 委託実行履歴とqueue状態機械 | id PK / template_id / call_name / target_provider / team_id / subsidiary_id (`NULL`=本社) / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / queue_owner / queue_lease_until / queue_fencing_token / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / staged_injection / staged_followup_at / investigation_summary / memoria_task_id / memoria_task_url / finished_at |
+| `delegation_templates` | 委託テンプレ | id PK / call_name UNIQUE / target_provider / prompt_template / input_schema / default_cwd / category / review_only (完了証跡ガード除外の宣言) |
+| `delegation_runs` | 委託実行履歴とqueue状態機械 | id PK / template_id / category (起動時 snapshot) / call_name / target_provider / team_id / subsidiary_id (`NULL`=本社) / args_json / rendered_prompt / prompt_file_path / spawn_pid / status / queue_owner / queue_lease_until / queue_fencing_token / effort_level / effort_source / effort_bucket / effective_model / effort_decision_id / staged_injection / staged_followup_at / investigation_summary / memoria_task_id / memoria_task_url / finished_at |
 | `delegation_outbox` | claimと同時に永続化するlaunch intent | run_id / kind / payload_json / status / owner / fencing_token / delivered_at。UNIQUE(run_id, kind) |
 
 ## Teams

@@ -1,9 +1,22 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { applyMigrations, MIGRATIONS, SCHEMA_VERSION } from "../src/db/schema.js";
 import { migrationChecksum, runMigrations } from "../src/db/migrator.js";
+import { PARTTIMER_CHORE_MANUAL } from "../src/db/inject-manuals-repo.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
+  it("keeps migration 82 output independent from the mutable runtime default", () => {
+    const db = makeRawTestDb();
+    runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 81), 81);
+    db.prepare("INSERT INTO inject_manuals(kind, content, updated_at) VALUES (?, ?, ?)")
+      .run("雑用", "軽作業。リポ変更を伴うならブランチ → PR、読み取りのみなら自由。", 1);
+
+    runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+
+    const row = db.prepare("SELECT content FROM inject_manuals WHERE kind = ?").get("雑用") as { content: string };
+    expect(row.content).toBe(PARTTIMER_CHORE_MANUAL);
+  });
+
   it("creates tables and indexes", () => {
     const db = makeRawTestDb();
     applyMigrations(db);
@@ -56,6 +69,7 @@ describe("schema", () => {
     const runColumns = db.prepare(`PRAGMA table_info(delegation_runs)`).all() as Array<{ name: string }>;
     const taskColumns = db.prepare(`PRAGMA table_info(taskflow_task_state)`).all() as Array<{ name: string }>;
     expect(runColumns.some((column) => column.name === "subsidiary_id")).toBe(true);
+    expect(runColumns.some((column) => column.name === "category")).toBe(true);
     expect(taskColumns.some((column) => column.name === "subsidiary_id")).toBe(true);
   });
 

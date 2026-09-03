@@ -35,6 +35,22 @@ describe("resolveManualKind", () => {
     expect(resolveManualKind({ call_name: "morning-tasks", title: "朝のタスク" })).toBe("実装");
   });
 
+  // 語のヒューリスティックだと「メール監視」「カタログ更新」「依存点検」が既定の 実装 へ
+  // 落ち、 読み取りだけのパートタイマーにも worktree → PR が要求されて詰んでいた。
+  it("category = parttimer は語より優先して 雑用", () => {
+    expect(resolveManualKind({ call_name: "quaestor-mail-sweep", title: "メール監視", category: "parttimer" })).toBe("雑用");
+    expect(resolveManualKind({ call_name: "deps-sweep-daily", title: "日次依存関係点検", category: "parttimer" })).toBe("雑用");
+    // 実装系キーワードやレビュー語を含んでいても parttimer が勝つ。
+    expect(resolveManualKind({ call_name: "daily-review-autofix", title: "レビュー AUTOFIX 適用", category: "parttimer" })).toBe("雑用");
+    expect(resolveManualKind({ call_name: "kaizen-fix-daily", title: "カイゼン 実装", category: "parttimer" })).toBe("雑用");
+  });
+
+  it("parttimer 以外の category は語の判定に回す", () => {
+    expect(resolveManualKind({ call_name: "sol-mid", title: "Sol / mid", category: "employee" })).toBe("実装");
+    expect(resolveManualKind({ call_name: "review-duo", title: "Review Duo", category: "freelancer" })).toBe("レビュー");
+    expect(resolveManualKind({ call_name: "review-duo", title: "Review Duo", category: null })).toBe("レビュー");
+  });
+
   it("実装系キーワードは design / review より優先される (impl-from-design / autofix)", () => {
     expect(resolveManualKind({ call_name: "impl-from-design", title: "設計から実装" })).toBe("実装");
     expect(resolveManualKind({ call_name: "daily-review-autofix", title: "レビュー AUTOFIX 適用" })).toBe("実装");

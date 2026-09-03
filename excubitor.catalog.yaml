@@ -96,3 +96,30 @@ services:
     health:
       type: process
       interval_sec: 30
+
+  # コストサンプリング (全ログ JSONL 走査) を backend の event loop から隔離する worker。
+  #
+  # 2026-08-04 の catalog サービス所有化 (Excubitor 9e9e1b0) で中央 catalog/services.yaml
+  # から本 fragment へ移す際に定義が落ち、以後 concordia-cost は起動していない。
+  # backend 側には CONCORDIA_COST_MODE=worker が残ったままで、worker モードは lease が
+  # 切れても埋め込みサンプラーへ戻さない (src/bootstrap/cost.ts) ため、
+  # cost_usage_samples / cost_limit_samples への記録が無言で停止していた
+  # (ログに "cost-worker lease expired; cost sampling is down" が残る)。
+  - code: concordia-cost
+    name: Concordia Cost Worker
+    tier: personal
+    project_code: concordia
+    component: worker
+    repo: LUDIARS/Concordia
+    runtime: node
+    cwd: ${ARS_ROOT}/Concordia
+    # tsx ランタイム常駐 (≈100MB) を避け、build 済み dist を素の node で動かす。
+    # dist は concordia backend と同じ build (`npm run build`) が生成する。
+    command: node --env-file-if-exists=.env dist/cost-worker.js
+    autostart: true
+    restart_policy: on-failure
+    max_restart: 5
+    log_path: ${ARS_ROOT}/logs/concordia-cost
+    health:
+      type: process
+      interval_sec: 30

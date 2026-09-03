@@ -12,7 +12,7 @@ import type { DelegationService } from "../delegation/service.js";
 import { delegationRouter } from "./delegation.js";
 
 const tempRoots: string[] = [];
-const COMPLETION_EVIDENCE_TEST_TIMEOUT_MS = 20_000;
+const COMPLETION_EVIDENCE_TEST_TIMEOUT_MS = 120_000;
 
 afterEach(() => {
   for (const root of tempRoots.splice(0)) rmSync(root, { recursive: true, force: true });

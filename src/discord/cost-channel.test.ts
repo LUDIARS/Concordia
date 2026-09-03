@@ -75,6 +75,50 @@ describe("notifyCostActivity: モデル別週間枠", () => {
     expect(h.send.mock.calls.some((call) => sentText((call as unknown[])[0]).includes("Fable"))).toBe(false);
   });
 
+  // 2026-09-03 実測: 上流の resets_at は同じ窓でも 05:09:59 / 05:10:00 を往復する。
+  // 完全一致でバケット判定していた頃はこれで 10 分ごとに鳴り続けていた。
+  it("リセット時刻が 1 秒揺れても同じ窓では 1 回しか通知しない", async () => {
+    const h = harness();
+    const resetsAtSec = Math.floor(Date.now() / 1000) + 3600;
+    const call = (reset: number) => notifyCostActivity({
+      activityChannel: h.channel,
+      configGet: h.configGet,
+      configSet: h.configSet,
+      codexRate: { used5h: 92, reset5hAt: reset },
+      claudeUsage: usage({
+        fiveHour: { utilization: 90, resetsAtSec: reset },
+        weeklyScoped: [{ label: "Fable", utilization: 90, resetsAtSec: reset, severity: "critical" }],
+      }),
+    });
+
+    await call(resetsAtSec);
+    await call(resetsAtSec + 1);
+    await call(resetsAtSec);
+
+    const texts = h.send.mock.calls.map((c) => sentText((c as unknown[])[0]));
+    expect(texts.filter((t) => t.includes("Codex 5H"))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes("Claude 5H"))).toHaveLength(1);
+    expect(texts.filter((t) => t.includes("Fable"))).toHaveLength(1);
+  });
+
+  it("リセット時刻を過ぎて次の窓に入ったら改めて通知する", async () => {
+    const h = harness();
+    const nowSec = Math.floor(Date.now() / 1000);
+    const call = (reset: number) => notifyCostActivity({
+      activityChannel: h.channel,
+      configGet: h.configGet,
+      configSet: h.configSet,
+      codexRate: { used5h: null, reset5hAt: null },
+      claudeUsage: usage({ fiveHour: { utilization: 90, resetsAtSec: reset } }),
+    });
+
+    await call(nowSec - 60);
+    await call(nowSec + 5 * 3600);
+
+    expect(h.send.mock.calls.map((c) => sentText((c as unknown[])[0]))
+      .filter((t) => t.includes("Claude 5H"))).toHaveLength(2);
+  });
+
   it("通知送信が失敗した場合は同じリセット期間内でも再試行する", async () => {
     const h = harness();
     h.send.mockRejectedValueOnce(new Error("temporary Discord failure"));

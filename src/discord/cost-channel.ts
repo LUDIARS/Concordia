@@ -95,9 +95,9 @@ async function notifyHighScopedWeeklyUsage(
   scoped: { label: string; utilization: number; resetsAtSec: number | null; severity: string | null },
 ): Promise<void> {
   if (scoped.utilization < SCOPED_WEEKLY_ALERT_PCT) return;
-  const resetBucket = scoped.resetsAtSec ? String(scoped.resetsAtSec) : localDayBucket();
   const key = `cost_activity:weekly80:${encodeURIComponent(scoped.label.toLowerCase())}`;
-  if (configGet(key) === resetBucket) return;
+  if (alreadyNotified(configGet(key), scoped.resetsAtSec)) return;
+  const resetBucket = notifiedBucket(scoped.resetsAtSec);
   const content = `Claude ${scoped.label} weekly cost usage is ${scoped.utilization.toFixed(1)}%`
     + (scoped.severity ? ` [${scoped.severity}]` : "")
     + (scoped.resetsAtSec ? ` (resets ${ts(scoped.resetsAtSec)})` : "");
@@ -112,14 +112,36 @@ async function notifyHigh5hUsage(
   input: { provider: string; used5h: number | null; reset5hAt: number | null },
 ): Promise<void> {
   if (input.used5h === null || input.used5h < 80) return;
-  const resetBucket = input.reset5hAt ? String(input.reset5hAt) : localDayBucket();
   const key = `cost_activity:5h80:${input.provider.toLowerCase()}`;
-  if (configGet(key) === resetBucket) return;
-  configSet(key, resetBucket);
+  if (alreadyNotified(configGet(key), input.reset5hAt)) return;
+  configSet(key, notifiedBucket(input.reset5hAt));
   await activityChannel.send(
     `${input.provider} 5H cost usage is ${input.used5h.toFixed(1)}%` +
     (input.reset5hAt ? ` (resets ${ts(input.reset5hAt)})` : ""),
   );
+}
+
+/**
+ * 上流の `resets_at` は同じ窓でも秒が揺れる (実測: Claude 5H が 05:09:59 と 05:10:00、
+ * 週間枠が 23:59:59 と 00:00:00 を往復)。 保存値との完全一致で重複判定していた頃は
+ * 10 分ごとの更新のたびにバケットが変わり、リセットまで鳴り続けていた。
+ * 「保存したリセット時刻をまだ過ぎていない」か「揺れの範囲で同じ窓」なら通知済みとみなす。
+ */
+const RESET_JITTER_SEC = 120;
+
+function alreadyNotified(stored: string | null, resetAtSec: number | null): boolean {
+  if (!stored) return false;
+  const storedReset = Number(stored);
+  if (Number.isFinite(storedReset) && storedReset > 0) {
+    if (Math.floor(Date.now() / 1000) < storedReset) return true;
+    return resetAtSec !== null && Math.abs(resetAtSec - storedReset) <= RESET_JITTER_SEC;
+  }
+  return stored === localDayBucket();
+}
+
+/** リセット時刻が読めない窓は「その日 1 回」に倒す。 */
+function notifiedBucket(resetAtSec: number | null): string {
+  return resetAtSec ? String(resetAtSec) : localDayBucket();
 }
 
 function localDayBucket(): string {

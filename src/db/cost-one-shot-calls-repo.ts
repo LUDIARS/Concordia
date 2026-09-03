@@ -29,6 +29,20 @@ export interface CostOneShotRow extends Required<Omit<CostOneShotInput, "ts" | "
   duration_ms: number | null;
 }
 
+/**
+ * 一覧で返す 1 行。 `prompt` 本文は含めず、 長さだけを返す。
+ *
+ * prompt は大きくなり得て、 limit は 500 まで許すので、 本文を載せると応答が
+ * 容易に数百 MB になる。 一覧の用途は
+ * 「いつ・どのサービスが・いくら使ったか」 の把握なので、 本文は要らない。 一方で
+ * 「その呼び出しの prompt がどれだけ大きかったか」 はコストの読み解きに効くため、
+ * 文字数だけ残す。
+ */
+export interface CostOneShotListRow extends Omit<CostOneShotRow, "prompt"> {
+  /** prompt 本文の文字数。 本文そのものは返さない。 */
+  prompt_chars: number;
+}
+
 export interface CostOneShotSummaryRow {
   service: string;
   provider: string;
@@ -91,17 +105,22 @@ export class CostOneShotCallsRepo {
     return Number(r.lastInsertRowid);
   }
 
-  listRecent(limit = 100): CostOneShotRow[] {
+  /**
+   * 直近の呼び出し一覧。 `prompt` 本文は返さない ({@link CostOneShotListRow})。
+   * 本文が要る用途が出てきたら、 1 件取得の口を別に足すこと。 一覧に本文を戻さない。
+   */
+  listRecent(limit = 100): CostOneShotListRow[] {
     const n = Math.max(1, Math.min(500, Math.floor(limit)));
     return this.db
       .prepare(
-        `SELECT id, ts, service, provider, command, model, cwd, prompt, status, exit_code, duration_ms,
+        `SELECT id, ts, service, provider, command, model, cwd, LENGTH(prompt) AS prompt_chars,
+                status, exit_code, duration_ms,
                 input_tokens, output_tokens, total_tokens, cost_usd, metadata_json
            FROM cost_one_shot_calls
           ORDER BY ts DESC, id DESC
           LIMIT ?`,
       )
-      .all(n) as CostOneShotRow[];
+      .all(n) as CostOneShotListRow[];
   }
 
   summarySince(sinceMs: number): CostOneShotSummaryRow[] {

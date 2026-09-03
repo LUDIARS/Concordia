@@ -8,7 +8,7 @@ describe("/v1/cost/one-shots", () => {
     env = makeTestApp();
   });
 
-  it("records service CLI calls with prompt and returns summary", async () => {
+  it("records service CLI calls and returns prompt length and summary", async () => {
     const res = await env.app.request("/v1/cost/one-shots", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -36,10 +36,11 @@ describe("/v1/cost/one-shots", () => {
     expect(body.calls[0]).toMatchObject({
       service: "quaestor",
       provider: "claude",
-      prompt: "classify this receipt",
+      promptChars: 21,
       totalTokens: 15,
       metadata: { route: "ocr" },
     });
+    expect(body.calls[0]).not.toHaveProperty("prompt");
     expect(body.summary[0]).toMatchObject({
       service: "quaestor",
       provider: "claude",

@@ -183,7 +183,8 @@ export function costRouter(deps: CostApiDeps): Hono {
         command: r.command,
         model: r.model,
         cwd: r.cwd,
-        prompt: r.prompt,
+        // prompt 本文は返さない (1 件最大 1MB × limit 500)。 長さだけ添える。
+        promptChars: r.prompt_chars,
         status: r.status,
         exitCode: r.exit_code,
         durationMs: r.duration_ms,

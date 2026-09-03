@@ -95,9 +95,11 @@ frame は新しい順に上限 (既定 500) まで読む。累積値は新しい
 - `POST`: `service`、`provider`、`prompt` 必須。status は `ok/error/timeout`、それ以外は
   `unknown`。input/output/total tokens、USD cost、command/model/cwd、metadata を保存する。
 - `GET`: `limit` 既定 100 と `since`（epoch milliseconds、既定 24 時間前）を受け、recent
-  calls と service/provider 別 summary を返す。
+  calls と service/provider 別 summary を返す。recent calls は prompt 本文を含めず、
+  `promptChars` に本文の文字数を返す。
 
-prompt は永続化され、GET response にも含まれる。secret や個人データを prompt へ含めない。
+prompt はコスト記録のため永続化するが、一覧応答には含めない。secret や個人データを prompt へ
+含めない。
 
 ## 日次 budget
 

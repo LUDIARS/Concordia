@@ -2,7 +2,7 @@
  * WebSocket broadcast endpoint (/ws).
  *
  * eventBus に乗った全 ConcordiaEvent を JSON で接続中の各 client に流す.
- * session socket は一回限り enrollment から派生した credential を要求する。
+ * Cc-spawned session socket は一回限り enrollment から派生した credential を要求する。
  * observer socket は read-only で、client 側が reconnect / dedup を担当する。
  *
  * WebSocket は frontend SPA の即応用 / AI agent の
@@ -67,18 +67,43 @@ function readEnrollment(req: IncomingMessage): string {
   return new URL(req.url, "http://localhost").searchParams.get("enrollment")?.trim() ?? "";
 }
 
-function sessionEnrollmentMatches(repo: SessionsRepo, sessionId: string, supplied: string): boolean {
-  const row = repo.findSession(sessionId);
-  if (!row?.metadata || !supplied) return false;
+/** セッション metadata が持つ enrollment。spawn 由来でなければ空、壊れていれば null。 */
+function recordedSpawnId(metadata: string | null | undefined): string | null {
+  if (!metadata) return "";
   try {
-    const metadata = JSON.parse(row.metadata) as Record<string, unknown>;
-    const expected = typeof metadata.concordia_spawn_id === "string"
-      ? metadata.concordia_spawn_id.trim()
-      : "";
-    return secureValuesMatch(expected, supplied);
+    const parsed = JSON.parse(metadata) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    if (!("concordia_spawn_id" in record)) return "";
+    const spawnId = record.concordia_spawn_id;
+    if (typeof spawnId !== "string" || !spawnId.trim()) return null;
+    return spawnId.trim();
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * enrollment を要求するのは、 照合すべき秘密を実際に持つセッションだけ。
+ *
+ * spec/feature/trust-boundaries.md の規則は「Cc-spawned sessions」に対するもので、
+ * enrollment (CONCORDIA_SPAWN_ID) は spawn したセッションにしか配られない。 それを
+ * 全セッションに要求すると、 手動起動した Lictor セッションは満たしようのない条件で
+ * 1008 を返され、 Lictor 側がそれを terminal 扱いにして再接続を恒久停止する。 以降
+ * last_seen_at が更新されず、 生きているセッションが sweeper に lost 判定されていた
+ * (Memoria #1354)。
+ *
+ * 秘密を持つセッションでは一致を必須にして乗っ取りを防ぎ、 持たないセッションには
+ * 要求しない。 存在しないセッションの claim は従来どおり拒否する。
+ */
+export function sessionEnrollmentMatches(repo: SessionsRepo, sessionId: string, supplied: string): boolean {
+  const row = repo.findSession(sessionId);
+  if (!row) return false;
+  const expected = recordedSpawnId(row.metadata);
+  // 壊れた metadata を手動セッションとみなすと、記録済み秘密の破損が認証迂回になる。
+  if (expected === null) return false;
+  if (!expected) return true;
+  return Boolean(supplied) && secureValuesMatch(expected, supplied);
 }
 
 export function attachWsServer(

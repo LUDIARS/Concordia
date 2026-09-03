@@ -37,6 +37,15 @@ An unknown or consumed value is rejected instead of degrading to an unowned
 session. A WebSocket that claims `?session=<id>` must also provide the matching
 `?enrollment=<CONCORDIA_SPAWN_ID>`; observer sockets may omit both.
 
+The enrollment requirement applies to sessions that actually carry that secret.
+Only Cc-spawned sessions are issued one, so a session registered outside a Cc
+spawn (a manually started Lictor session) has nothing to present. Demanding
+enrollment there is unsatisfiable: the socket is closed with 1008, the client
+treats that as terminal and stops reconnecting, `last_seen_at` goes stale, and
+the sweeper reaps a live session as lost. A claim on a session with a recorded
+spawn id still requires the matching value. An unknown session or malformed
+metadata is rejected rather than being treated as a session without enrollment.
+
 Process ownership is `(instance_id, generation)`, not PID. Each start receives
 a random instance id and a monotonically increasing generation. External stop
 requests must echo both values and stale ownership fails with

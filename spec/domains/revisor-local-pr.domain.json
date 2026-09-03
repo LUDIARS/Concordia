@@ -23,7 +23,7 @@
       "pathPattern": "(^|/)src/pr/revisor-local-pr-client(\\.test)?\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome|test-workflow-client)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome|test-workflow-client|read-cache)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$"

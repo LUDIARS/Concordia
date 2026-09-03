@@ -2,10 +2,20 @@
 // @implements spec/feature/revisor-test-forum-sync.md — Runtime boundary
 import type { ExcubitorClient } from "../excubitor/client.js";
 import { resolveServicePort } from "../excubitor/service-port.js";
+import { SharedReadCache } from "./revisor-read-cache.js";
 import { toTokenResolver } from "./revisor-token.js";
 
 const REVISOR_SERVICE_CODE = "revisor";
 const DEFAULT_TIMEOUT_MS = 10_000;
+/**
+ * 一覧系 GET の再利用時間。 test-forum の定期 reconcile は Discord client (本社 +
+ * 子会社) ごとに走り、 ほぼ同時刻に同じ一覧を何度も取りに行く。 短い TTL でその束を
+ * 1 回に畳む。 即時性が要る PR 状態変化は {@link RevisorTestWorkflowClient.invalidateReads}
+ * で明示的に捨てるので、 TTL を延ばして鮮度を落とす必要はない。
+ */
+const DEFAULT_READ_CACHE_TTL_MS = 5_000;
+/** キャッシュキー。 Revisor の path と Excubitor の catalog 引きを 1 つの cache に載せる。 */
+const SERVICE_LOOKUP_CACHE_KEY = `service:${REVISOR_SERVICE_CODE}`;
 
 export interface RevisorTestWorkflowProduct {
   repository: string;
@@ -96,6 +106,12 @@ export interface RevisorTestWorkflowSource {
    * 追加情報なので、 呼出側は失敗を null として扱ってよい (throw はする)。
    */
   getProductDetail(pullRequestId: string): Promise<RevisorLocalPrDetail>;
+  /**
+   * 一覧の読み取りキャッシュを捨てる。 実装は任意 (キャッシュを持たない source もある)。
+   * 呼出側は「今すぐ取り直してほしい」契機でだけ呼ぶ。同じ契機を複数 runtime が共有する
+   * 場合は、同じ object を渡すと重複した無効化を避けられる。
+   */
+  invalidateReads?(cause?: object): void;
 }
 
 export interface RevisorTestWorkflowClientOptions {
@@ -107,6 +123,10 @@ export interface RevisorTestWorkflowClientOptions {
   token?: string | (() => string | undefined);
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
+  /** 一覧系 GET の再利用時間 (ms)。 既定 {@link DEFAULT_READ_CACHE_TTL_MS}。 */
+  readCacheTtlMs?: number;
+  /** epoch-ms クロック (テスト用)。 既定 Date.now。 */
+  now?: () => number;
 }
 
 interface RevisorTestWorkflowProjection {
@@ -145,6 +165,8 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   private readonly token: () => string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private readonly reads: SharedReadCache;
+  private readonly invalidationCauses = new WeakSet<object>();
 
   constructor(options: RevisorTestWorkflowClientOptions) {
     // Revisor は loopback からの読み取りに token を要求しない (変更系のみ要求する)。
@@ -153,13 +175,34 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
     this.token = toTokenResolver(options.token);
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.reads = new SharedReadCache({
+      ttlMs: options.readCacheTtlMs ?? DEFAULT_READ_CACHE_TTL_MS,
+      now: options.now,
+    });
+  }
+
+  /**
+   * 一覧系の読み取りキャッシュを捨てる。
+   *
+   * PR 状態変化の通知など「取り直した結果を今すぐ見せる」契機で呼ぶ。 定期 reconcile と
+   * 違って鮮度が意味を持つ経路なので、 TTL の残りを待たせない。
+   */
+  invalidateReads(cause?: object): void {
+    // 本社・子会社 runtime は同じ event object とこの client を共有する。各 listener が
+    // 順番に invalidate すると、直前の listener が開始した single-flight まで消して
+    // client 数ぶん再取得してしまうため、同じ契機は一度だけ適用する。
+    if (cause) {
+      if (this.invalidationCauses.has(cause)) return;
+      this.invalidationCauses.add(cause);
+    }
+    this.reads.invalidate();
   }
 
   async listProducts(): Promise<readonly RevisorTestWorkflowProduct[]> {
     const [workflowBody, prsBody, repositoriesBody] = await Promise.all([
-      this.getJson("/v1/test-workflow"),
-      this.getJson("/v1/local-prs"),
-      this.getJson("/v1/repositories"),
+      this.getListJson("/v1/test-workflow"),
+      this.getListJson("/v1/local-prs"),
+      this.getListJson("/v1/repositories"),
     ]) as Array<Record<string, unknown> | null>;
     const rawProducts = workflowBody?.products;
     const pullRequests = prsBody?.pullRequests;
@@ -204,8 +247,8 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
 
   async listOpenLocalPrs(): Promise<readonly RevisorOpenLocalPr[]> {
     const [prsBody, repositoriesBody] = await Promise.all([
-      this.getJson("/v1/local-prs"),
-      this.getJson("/v1/repositories"),
+      this.getListJson("/v1/local-prs"),
+      this.getListJson("/v1/repositories"),
     ]) as Array<Record<string, unknown> | null>;
     const rows = prsBody?.pullRequests;
     const repositories = repositoriesBody?.repositories;
@@ -229,7 +272,7 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
   }
 
   async listTerminalLocalPrs(): Promise<readonly RevisorTerminalLocalPr[]> {
-    const body = await this.getJson("/v1/local-prs") as Record<string, unknown> | null;
+    const body = await this.getListJson("/v1/local-prs") as Record<string, unknown> | null;
     const rows = body?.pullRequests;
     if (!Array.isArray(rows)) {
       throw new Error("Revisor returned an invalid local PR list response");
@@ -253,13 +296,30 @@ export class RevisorTestWorkflowClient implements RevisorTestWorkflowSource {
     return detail;
   }
 
+  /**
+   * 一覧系 GET。 同じ path への重複取得を TTL + single-flight で 1 回に畳む。
+   *
+   * 応答は約 1MB あり、 パースはメインスレッドで走る。 client ごと・用途ごとに
+   * 取り直すとイベントループがその回数ぶん止まるため、 一覧はここを通す。
+   * 単一 PR の詳細 ({@link getProductDetail}) は鮮度が要るので通さない。
+   */
+  private getListJson(path: string): Promise<unknown> {
+    return this.reads.get(path, () => this.getJson(path));
+  }
+
   private async getJson(path: string): Promise<unknown> {
     // 2 つの upstream (Excubitor catalog → Revisor) を続けて叩くので、素の
     // `fetch failed` だけでは**どちらが落ちているか**分からない。 test-forum reconcile の
     // 失敗ログはこの文言がそのまま出るため、宛先と原因を必ず添えて投げ直す。
+    //
+    // catalog の port は起動中しか変わらないので、 一覧と同じ TTL で使い回す。
+    // 1 回の reconcile で 3 回・client 数ぶん引いていた Excubitor 往復が 1 回になる。
     let service: Awaited<ReturnType<typeof this.excubitor.findService>>;
     try {
-      service = await this.excubitor.findService(REVISOR_SERVICE_CODE);
+      service = await this.reads.get(
+        SERVICE_LOOKUP_CACHE_KEY,
+        () => this.excubitor.findService(REVISOR_SERVICE_CODE),
+      );
     } catch (error) {
       throw new Error(`Excubitor catalog lookup failed for "${REVISOR_SERVICE_CODE}": ${causeOf(error)}`);
     }
@@ -456,8 +516,11 @@ export function parseLocalPrDetail(value: unknown): RevisorLocalPrDetail | null 
 export function createRevisorTestWorkflowClient(
   excubitor: Pick<ExcubitorClient, "findService">,
   resolveToken: () => string | undefined,
-  // fetch / timeout はテストから差し替えられるようにしておく (省略時は既定)。
-  overrides: Pick<RevisorTestWorkflowClientOptions, "fetchImpl" | "timeoutMs"> = {},
+  // fetch / timeout / キャッシュはテストから差し替えられるようにしておく (省略時は既定)。
+  overrides: Pick<
+    RevisorTestWorkflowClientOptions,
+    "fetchImpl" | "timeoutMs" | "readCacheTtlMs" | "now"
+  > = {},
 ): RevisorTestWorkflowClient {
   return new RevisorTestWorkflowClient({ excubitor, token: resolveToken, ...overrides });
 }

@@ -93,3 +93,13 @@ workflow token は Cc サービス内に留め、interactive session の inherit
 そのPRの詳細をエラーとして扱う。
 spawn targetを結合できない場合、その行は候補から外す。repository rootは
 Revisor登録値のみを信頼し、Discord入力から組み立てない。
+
+一覧系の読取 (`/v1/test-workflow` `/v1/local-prs` `/v1/repositories` と
+Excubitor catalog 引き) は、短いTTLとsingle-flightで1回に畳む。Discord client
+(本社・子会社) は読取クライアントを共有し、1回のreconcile roundで同じ一覧を
+複数回取得しない。約1MBの一覧をclient数×呼出箇所数だけパースすると、その全部が
+メインスレッドに乗ってevent loopを止めるため。取得失敗はキャッシュせず、待ち合わせ中の
+全呼出へ同じerrorを伝播させる (空一覧へ落とさない)。PR状態変化の通知など即時性が要る
+契機では、キャッシュを明示的に捨ててから取り直す。定期reconcileは取りこぼしを拾う
+整合スイープと位置づけ、掲載の即時性はイベント契機が担う。同じ変更イベントを共有する
+複数のDiscord runtimeからの無効化は1回に畳み、開始済みsingle-flightを相互に破棄しない。

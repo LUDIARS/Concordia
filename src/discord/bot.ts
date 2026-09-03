@@ -981,6 +981,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         );
       });
       const runTestForumReconcile = instrumentDiscord("testForumReconcile", async (reason: string): Promise<void> => {
+        // 定期ジョブの所要時間を必ず残す。 これが無かったため、 イベントループ停止の
+        // 犯人がこの reconcile だと突き止めるのに毎回ログの時刻突き合わせが要った
+        // ([[2026-09-03-test-forum-reconcile-event-loop-stall]])。
+        const startedAt = Date.now();
         if (!lay.forumMode || !lay.testForumId) {
           log.info(`test-forum ${reason} reconcile skipped; forum mode disabled`);
           return;
@@ -1030,7 +1034,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log.info(
           `test-forum ${reason} reconcile: scanned=${result.scanned} kept=${result.kept}`
           + ` updated=${result.updated} created=${result.created} closed=${result.closed}`
-          + ` failed=${result.failed}`
+          + ` failed=${result.failed} durationMs=${Date.now() - startedAt}`
           // project names are operator-controlled configuration. Keep them out of logs to avoid
           // leaking subsidiary relationships or allowing control characters to forge log lines.
           + (projectScope ? ` projectScopeCount=${projectScope.length}` : ""),
@@ -1071,9 +1075,13 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         reconcileTestForum: () => testForumRefresh!("boot"),
         log,
       });
+      // 既定 300 秒。 30 秒だと Discord client (本社 + 子会社) の本数ぶん同時に走り、
+      // 30 秒ごとにイベントループを数秒止めていた。 掲載の即時性は pr.changed の
+      // イベント契機が担うので、 定期実行は取りこぼしを拾う整合スイープに徹する
+      // ([[2026-09-03-test-forum-reconcile-event-loop-stall]])。
       const testForumReconcileSec = readOptionalIntEnv(
         "CONCORDIA_DISCORD_TEST_FORUM_RECONCILE_SEC",
-        30,
+        300,
         5,
       );
       if (testForumReconcileSec > 0) {
@@ -2039,6 +2047,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (ev.type === "pr.changed") {
       // ingest / reconcile で PR キューが動いたら pr-queue チャンネルを即時更新.
       prQueueRefresh?.();
+      // 一覧の読み取りキャッシュは定期 reconcile の重複取得を畳むためのもの。
+      // 「今変わった」 契機では鮮度が意味を持つので、 取り直させてから走らせる。
+      deps.revisorTestWorkflow?.invalidateReads?.(ev);
       void testForumRefresh?.("pr.changed");
       return;
     }

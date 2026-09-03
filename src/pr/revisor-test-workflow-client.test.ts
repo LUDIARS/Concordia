@@ -195,10 +195,12 @@ describe("RevisorTestWorkflowClient", () => {
     }));
     const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
     let stored: string | undefined;
+    // 読み取りキャッシュを切って、 1 回の listProducts が必ず 3 本 fetch する形に固定する
+    // (キャッシュの検証は別テスト)。
     const client = createRevisorTestWorkflowClient(
       { findService },
       () => stored,
-      { fetchImpl },
+      { fetchImpl, readCacheTtlMs: 0 },
     );
 
     await client.listProducts();
@@ -211,6 +213,92 @@ describe("RevisorTestWorkflowClient", () => {
     expect(headersOf(0)).not.toHaveProperty("authorization");
     // trim も resolver 側で効く。
     expect(headersOf(3)).toMatchObject({ authorization: "Bearer set-later" });
+  });
+
+  // Discord client (本社 + 子会社) ごとに走る定期 reconcile が、 同じ約 1MB の一覧を
+  // 何度も取り直してイベントループを止めていた
+  // ([[2026-09-03-test-forum-reconcile-event-loop-stall]])。
+  it("serves the open and terminal PR lists from one upstream fetch inside the TTL", async () => {
+    const findService = vi.fn(async () => ({
+      code: "revisor",
+      name: "Revisor",
+      port: 4240,
+      state: "running",
+    }));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
+    let now = 0;
+    const client = createRevisorTestWorkflowClient(
+      { findService },
+      () => undefined,
+      { fetchImpl, readCacheTtlMs: 1000, now: () => now },
+    );
+
+    // 1 回の reconcile 相当 (open + terminal) を 2 client ぶん、 同じ TTL の中で回す。
+    await Promise.all([client.listOpenLocalPrs(), client.listTerminalLocalPrs()]);
+    await Promise.all([client.listOpenLocalPrs(), client.listTerminalLocalPrs()]);
+
+    const paths = fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname);
+    expect(paths.filter((path) => path === "/v1/local-prs")).toHaveLength(1);
+    expect(paths.filter((path) => path === "/v1/repositories")).toHaveLength(1);
+    // Excubitor の catalog 引きも同じ TTL で 1 回に畳む。
+    expect(findService).toHaveBeenCalledTimes(1);
+
+    now = 1000;
+    await client.listOpenLocalPrs();
+    expect(fetchImpl.mock.calls.map(([input]) => new URL(String(input)).pathname)
+      .filter((path) => path === "/v1/local-prs")).toHaveLength(2);
+  });
+
+  it("invalidateReads forces the next list to hit Revisor again", async () => {
+    const findService = vi.fn(async () => ({
+      code: "revisor",
+      name: "Revisor",
+      port: 4240,
+      state: "running",
+    }));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
+    const client = createRevisorTestWorkflowClient(
+      { findService },
+      () => undefined,
+      { fetchImpl, readCacheTtlMs: 60_000, now: () => 0 },
+    );
+
+    await client.listOpenLocalPrs();
+    client.invalidateReads();
+    await client.listOpenLocalPrs();
+
+    const localPrCalls = fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)).pathname)
+      .filter((path) => path === "/v1/local-prs");
+    expect(localPrCalls).toHaveLength(2);
+  });
+
+  it("invalidates a shared client only once for the same change event", async () => {
+    const findService = vi.fn(async () => ({
+      code: "revisor",
+      name: "Revisor",
+      port: 4240,
+      state: "running",
+    }));
+    const fetchImpl = vi.fn(async (input: string | URL | Request) => responseFor(input, []));
+    const client = createRevisorTestWorkflowClient(
+      { findService },
+      () => undefined,
+      { fetchImpl, readCacheTtlMs: 60_000, now: () => 0 },
+    );
+
+    await client.listOpenLocalPrs();
+    const changeEvent = { type: "pr.changed" };
+    client.invalidateReads(changeEvent);
+    const firstRuntime = client.listOpenLocalPrs();
+    client.invalidateReads(changeEvent);
+    const secondRuntime = client.listOpenLocalPrs();
+    await Promise.all([firstRuntime, secondRuntime]);
+
+    const localPrCalls = fetchImpl.mock.calls
+      .map(([input]) => new URL(String(input)).pathname)
+      .filter((path) => path === "/v1/local-prs");
+    expect(localPrCalls).toHaveLength(2);
   });
 });
 

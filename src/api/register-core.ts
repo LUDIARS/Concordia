@@ -125,6 +125,7 @@ import type { TaskMdStore } from "../taskflow/md-store.js";
 import type { TaskflowStateStore } from "../taskflow/state-store.js";
 import { taskflowRouter } from "./taskflow.js";
 import { tasksRouter } from "./tasks.js";
+import { readSpawnEmoji } from "./spawn-emoji.js";
 import type { CcTaskRepository } from "../fallback-tasks/repository.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import { mountRouteGroups } from "./route-groups.js";
@@ -894,11 +895,16 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       worktree: requestedWorktree,
     });
     if (!directTarget.ok) return c.json({ error: directTarget.error }, 400);
+    // provider 直指定でも呼び出し側 (forum spawn のモデル選択等) が絵文字を渡せる。
+    // session channel / forum スレッド名の delegation_emoji になる (2026-09-03 neco 指示:
+    // モデル名に対応した絵文字でリネームされない)。 テンプレ経路の tpl.emoji と同じ扱い。
+    const directEmoji = readSpawnEmoji(body.emoji);
     const spawnId = randomUUID();
     recordPendingDelegationSpawn({
       cwd: directTarget.cwd,
       spawnId,
       branch: directTarget.branch,
+      emoji: directEmoji,
       callName: "spawn",
       subsidiaryId,
       project: projectName || null,

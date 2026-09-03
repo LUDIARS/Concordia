@@ -538,6 +538,14 @@ export async function executeForumSpawn(
     source_discord_guild_id: thread.guildId,
     source_discord_channel_id: thread.id,
   };
+  // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、選択元に
+  // 無ければ同じモデルの別テンプレ、最後に起動テンプレ自身から補完する。
+  // spawn metadata と Forum 表示で同じ値を使い、状態リネーム時の不一致を防ぐ。
+  const spawnModel = modelTarget?.model ?? template?.model ?? null;
+  const spawnEmoji = modelTarget?.emoji
+    ?? modelEmojiFromTemplates(spawnModel, templates)
+    ?? template?.emoji?.trim()
+    ?? "";
   const result = await callConcordia<{
     ok: boolean;
     pid?: number | null;
@@ -549,6 +557,9 @@ export async function executeForumSpawn(
       options: modelTarget.provider === "claude"
         ? { effort: modelTarget.effort }
         : { model_reasoning_effort: modelTarget.effort },
+      // モデル絵文字を session の delegation_emoji にする。 これが無いと session channel /
+      // スレッドの状態リネームで絵文字が落ちる (2026-09-03 neco 指示)。
+      ...(spawnEmoji ? { emoji: spawnEmoji } : {}),
       ...commonSpawnFields,
     }
     : {
@@ -572,12 +583,6 @@ export async function executeForumSpawn(
     `provider=${provider} project=${project.project} pid=${result.pid ?? "n/a"}` +
     (modelTarget ? ` effort=${modelTarget.effort}` : ""),
   );
-  // モデル別絵文字 (🦸 fable / 🧙‍♂️ opus / ☀️ sol …) を優先し、無ければテンプレ自身の絵文字。
-  const spawnModel = modelTarget?.model ?? template?.model ?? null;
-  const spawnEmoji = modelTarget?.emoji
-    ?? modelEmojiFromTemplates(spawnModel, templates)
-    ?? template?.emoji?.trim()
-    ?? "";
   if (spawnEmoji && deps.renameThread && !thread.name.startsWith(spawnEmoji)) {
     // 起動モデルが決まったらスレッド名にモデル絵文字を前置する (2026-09-02 neco 指示)。
     // リネーム失敗 (権限/レート制限) で起動フローは止めない。

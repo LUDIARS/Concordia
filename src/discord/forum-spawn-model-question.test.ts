@@ -354,6 +354,8 @@ describe("executeForumSpawn model override", () => {
         model: "claude-fable-5-1",
         options: { effort: "xhigh" },
         project: "September",
+        // モデル絵文字は session の delegation_emoji として spawn 側へ渡す (2026-09-03)。
+        emoji: "🦸",
       });
       expect(body.template).toBeUndefined();
       expect(deps.postToThread).toHaveBeenCalledWith(
@@ -361,6 +363,35 @@ describe("executeForumSpawn model override", () => {
         expect.stringContaining("🦸 Cc がセッションを起動しました"),
       );
       // モデル確定でスレッド名にモデル絵文字を前置する (2026-09-02 neco 指示)。
+      expect(deps.renameThread).toHaveBeenCalledWith("thread-1", "🦸 レビュー");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("選択元に絵文字がなくても同モデルのテンプレから補完して spawn へ渡す", async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, pid: 10 }),
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      const deps = makeDeps({
+        templates: vi.fn(async () => [
+          catalogTemplate("fable", "claude", "claude-fable-5-1"),
+          ...CATALOG,
+        ]),
+      });
+      const result = await executeForumSpawn(deps, makeThread(), {
+        title: "レビュー",
+        body: "September を見て",
+        model: "fable",
+        effort: "high",
+      });
+
+      expect(result).toEqual({ ok: true });
+      const body = JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body);
+      expect(body.emoji).toBe("🦸");
       expect(deps.renameThread).toHaveBeenCalledWith("thread-1", "🦸 レビュー");
     } finally {
       vi.unstubAllGlobals();

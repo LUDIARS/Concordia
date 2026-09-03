@@ -1,7 +1,7 @@
 # Test Forum periodic reconcile stalls the event loop every 30 seconds
 
 - Date: 2026-09-03
-- Status: phase 1 deployed and measured; phase 2 implemented (lazy mentions); phase 3 premise under review
+- Status: resolved — phases 1 and 2 deployed and measured; phase 3 dropped (premise no longer holds)
 - Area: Discord Test Forum sync / Revisor read client / periodic jobs
 - Severity: High — every session's Bash/Edit/Write is blocked by the fail-closed harness gate while the
   loop is stalled
@@ -122,18 +122,51 @@ already posted never read it. So resolution now happens inside the create branch
 `reconcileTestForum`, through a `resolveMentions(sessionId)` callback. A round that posts nothing resolves
 nothing; behaviour is otherwise unchanged.
 
-### Phase 3 — move the job off the request loop (premise under review)
+### Phase 2 measured result
+
+Deployed 2026-09-03 16:21 JST (PID 68396). The head-office reconcile round:
+
+```
+before  scanned=66 kept=65 updated=1 closed=1  durationMs=3957
+after   scanned=64 kept=64 updated=0 created=0 durationMs=8
+```
+
+Steady state over a 600 s window with boot work excluded: **1 stall, 1.2 s total — 0.2 % of wall clock.**
+
+| | 2026-09-03 14:00 (before) | after phase 1 | after phase 2 |
+|---|---|---|---|
+| stalled share | 36 % | 1.8 % | **0.2 %** |
+| head-office reconcile | — | 3,957 ms | **8 ms** |
+
+Subsidiary rounds still report 700–1,150 ms with `scanned=0`. That is not CPU: all four runtimes fire in
+the same tick, the first pays the shared Revisor fetch, and the others join its single-flight and bill the
+same wall time. Rounds that report 556–1,582 ms are ones that actually created or closed a thread — Discord
+I/O, which does not block the loop.
+
+### Phase 3 — move the job off the request loop (dropped)
 
 The original plan was to move the reconcile into a worker process alongside `chat-worker`,
-`control-worker` and `cost-worker`. That premise assumed the job is CPU-heavy on the main thread. After
-phases 1 and 2 the synchronous part of a round is one `listOpen()` query plus a content hash per
-candidate; the Discord and Revisor work is async I/O that does not block the loop. Moving it would also
-mean moving the Discord gateway itself, since the reconcile needs the live `Guild` object — a much larger
-change than the remaining cost justifies.
+`control-worker` and `cost-worker`. That premise assumed the job is CPU-heavy on the main thread. It is
+not: a round's synchronous part is one `listOpen()` query plus a content hash per candidate, measured at
+8 ms. Moving it would also mean moving the Discord gateway itself, since the reconcile needs the live
+`Guild` object — a large change for no measurable gain.
 
-Re-measure after phase 2 ships before committing to this. If the goal is narrowed to "a runaway periodic
-job must not be able to take the harness gate down", the cheaper instrument already exists in this
-repo: `createLoopBulkhead` (`src/shared/loop-bulkhead.ts`), which the metrics loop uses to halt itself.
+`createLoopBulkhead` (`src/shared/loop-bulkhead.ts`) is not a substitute for isolation here: it halts a
+loop after repeated thrown failures, but it neither bounds a successful tick's duration nor interrupts
+synchronous work already in progress. If a future requirement is that a runaway periodic job must not be
+able to take the harness gate down, re-profile the new workload and design an interruptible or
+out-of-process boundary for the blocking portion rather than applying the existing failure bulkhead.
+
+## Not caused by this job
+
+Recorded so the next investigation does not re-attribute them here:
+
+- A 12,349 ms stall at 07:28:58 UTC coincided with `GET /v1/harness/audit` (`duration_ms=12351`). It
+  occurred inside the post-restart boot window, while the `session-forum … state=ended` sweep was running.
+  The audit queries themselves measure 4.9 ms (`recent limit=100`) and 58.9 ms (`summary()`), so the
+  handler does not explain it. Cause unconfirmed; it did not recur in the steady-state window.
+- `DELETE /v1/sessions/:id` regularly takes 16–18 s. That is `generateReport` shelling out to the
+  `claude` CLI — async child-process wall time, not event-loop lag.
 
 ## Related
 

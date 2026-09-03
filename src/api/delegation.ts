@@ -23,6 +23,7 @@ import {
 } from "../db/delegation-repo.js";
 import { TEMPLATE_OVERRIDE_PATCH_KEYS } from "../delegation/template-overrides.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
+import type { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import type { DelegationService } from "../delegation/service.js";
 import { parsePortable, templateToPortable } from "../delegation/portable.js";
@@ -235,6 +236,8 @@ export interface DelegationApiDeps {
   repo: DelegationRepo;
   service: DelegationService;
   sessions?: SessionsRepo;
+  /** 子セッションが作成した PR の完了証跡を確認する読み口。 */
+  prs?: PrRecordsRepo;
   /** 実行キュー (未注入ならキュー機能は生えない)。 */
   queue?: {
     maxConcurrency: () => number;
@@ -657,7 +660,15 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     }
     if (status === "completed") {
       const evidence = await verifyCompletionEvidence(row);
-      if (!evidence.ok) {
+      const hasMergedChildPr = !evidence.ok
+        && !row.spawn_branch
+        && row.child_session_id !== null
+        && deps.prs?.list({
+          author_session_id: row.child_session_id,
+          states: ["merged"],
+          limit: 1,
+        }).length === 1;
+      if (!evidence.ok && !hasMergedChildPr) {
         const error = `completed rejected: no completion evidence (${evidence.reason})`;
         const rejected = deps.repo.updateRunStatus(id, "failed", error)!;
         emitDelegationRunChanged(rejected);

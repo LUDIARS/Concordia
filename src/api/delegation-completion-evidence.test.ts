@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { DelegationRepo } from "../db/delegation-repo.js";
 import { makeDiscordSessionChannelsRepo } from "../db/discord-repo.js";
+import { PrRecordsRepo } from "../db/pr-records-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { delegationRouter } from "./delegation.js";
 
@@ -90,6 +91,73 @@ describe("delegation completed evidence", () => {
     expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
+  it("accepts an orchestrator run without a feature branch when its direct child PR merged", async () => {
+    const { app, repo, prs } = makeApp(process.cwd(), null);
+    repo.claimChildSession("source-run", "child-session");
+    const childPr = prs.upsertFromStat({
+      repo_origin: "https://github.com/example/repo.git",
+      number: 1,
+      author_session_id: "child-session",
+    });
+    prs.reconcile({
+      repo_origin: childPr.repo_origin,
+      number: childPr.number,
+      state: "merged",
+    });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  });
+
+  it("rejects an orchestrator run without a merged direct child PR", async () => {
+    const { app, repo, prs } = makeApp(process.cwd(), null);
+    repo.claimChildSession("source-run", "child-session");
+    prs.upsertFromStat({
+      repo_origin: "https://github.com/example/repo.git",
+      number: 1,
+      author_session_id: "child-session",
+    });
+    const descendantPr = prs.upsertFromStat({
+      repo_origin: "https://github.com/example/repo.git",
+      number: 2,
+      author_session_id: "grandchild-session",
+    });
+    prs.reconcile({
+      repo_origin: descendantPr.repo_origin,
+      number: descendantPr.number,
+      state: "merged",
+    });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
+  });
+
+  it("does not let a merged child PR override invalid feature-branch evidence", async () => {
+    const cwd = makeFeatureWorktree();
+    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const { app, repo, prs } = makeApp(cwd, "feat/evidence");
+    repo.claimChildSession("source-run", "child-session");
+    const childPr = prs.upsertFromStat({
+      repo_origin: "https://github.com/example/repo.git",
+      number: 1,
+      author_session_id: "child-session",
+    });
+    prs.reconcile({
+      repo_origin: childPr.repo_origin,
+      number: childPr.number,
+      state: "merged",
+    });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")).toMatchObject({ status: "failed", error: expect.stringContaining("no completion evidence") });
+  }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
+
   it("rejects completed when the recorded checkout is missing", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "concordia-completion-evidence-missing-"));
     tempRoots.push(cwd);
@@ -156,8 +224,10 @@ describe("delegation completed evidence", () => {
   });
 });
 
-function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: DelegationRepo } {
-  const repo = new DelegationRepo(makeTestDb());
+function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: DelegationRepo; prs: PrRecordsRepo } {
+  const db = makeTestDb();
+  const repo = new DelegationRepo(db);
+  const prs = new PrRecordsRepo(db);
   repo.createRun({
     id: "source-run", template_id: null, call_name: "impl", target_provider: "codex", parent_session_id: null,
     args: { task: "finish" }, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
@@ -175,7 +245,7 @@ function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: 
       }),
     })),
   } as unknown as DelegationService;
-  return { app: new Hono().route("/v1/delegation", delegationRouter({ repo, service })), repo };
+  return { app: new Hono().route("/v1/delegation", delegationRouter({ repo, service, prs })), repo, prs };
 }
 
 function makeFeatureWorktree(): string {

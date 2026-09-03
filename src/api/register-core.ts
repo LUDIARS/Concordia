@@ -431,6 +431,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     repo: deps.delegation,
     service: deps.delegationService,
     sessions: deps.repo,
+    prs: deps.prs,
     queue: deps.delegationQueue
       ? {
           maxConcurrency: () => deps.delegationQueue!.maxConcurrency(),

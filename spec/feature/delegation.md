@@ -722,3 +722,8 @@ git commit しなくてよい)」 節を足す。 **知らなければ仕組み�
 いずれかが満たされなければ run は failed として理由を記録し、HTTP 409
 `completed_without_evidence` を返す。checkout を持たない run は対象外として従来どおり
 完了できる。partial と failed の status 処理はこの検証を通らない。
+
+ただし、自身の feature branch を持たず実装を直下の子セッションへ委託した run は、
+記録済みの `child_session_id` が著者である merged PR を一件以上確認できれば完了できる。
+この代替証跡は `spawn_branch` がない run にだけ適用し、孫以降のセッションは探索しない。
+feature branch を記録した run は、子 PR の有無にかかわらず上記の Git 証跡を満たす必要がある。

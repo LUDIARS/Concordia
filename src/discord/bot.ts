@@ -1014,12 +1014,19 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           })
           : [];
         // 新規掲載時に提出セッションの操作者へメンションする。 解決失敗は掲載を止めない。
-        const mentions = resolveSessionMentions(
-          (sessionId, limit) => deps.sessionsRepo.recentEvents(sessionId, limit),
-          openPullRequests.flatMap((pullRequest) => pullRequest.sessionId ? [pullRequest.sessionId] : []),
-        );
+        //
+        // 解決は **新規掲載する候補の直前だけ** に絞る。 候補全件を先に引くと、 掲載済み
+        // ばかりで新規 0 件の周期でも `session_events` を候補数ぶん同期走査してしまい、
+        // それが reconcile の所要時間のほぼ全部だった
+        // ([[2026-09-03-test-forum-reconcile-event-loop-stall]] Phase 2)。
+        const resolveMentions = (sessionId: string): readonly string[] =>
+          resolveSessionMentions(
+            (id, limit) => deps.sessionsRepo.recentEvents(id, limit),
+            [sessionId],
+          ).get(sessionId) ?? [];
         const result = await reconcileTestForum({
-          candidates: buildTestForumCandidates(openPullRequests, mentions),
+          candidates: buildTestForumCandidates(openPullRequests),
+          resolveMentions,
           terminalPullRequests: inScope(terminalPullRequests.map((pullRequest) => ({
             repoOrigin: pullRequest.repository,
             prNumber: pullRequest.number,

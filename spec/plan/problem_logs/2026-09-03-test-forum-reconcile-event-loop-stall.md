@@ -1,7 +1,7 @@
 # Test Forum periodic reconcile stalls the event loop every 30 seconds
 
 - Date: 2026-09-03
-- Status: phase 1 implemented (fan-in + interval + instrumentation); phases 2–3 designed, not started
+- Status: phase 1 deployed and measured; phase 2 implemented (lazy mentions); phase 3 premise under review
 - Area: Discord Test Forum sync / Revisor read client / periodic jobs
 - Severity: High — every session's Bash/Edit/Write is blocked by the fail-closed harness gate while the
   loop is stalled
@@ -90,16 +90,50 @@ causes and assuming a repeat wastes the most time:
 Expected effect: list fetches per 30 s drop from twelve to zero on nine ticks out of ten, and from twelve
 to two on the tenth.
 
-### Phase 2 — event-driven reconciliation (not started)
+### Phase 1 measured result
 
-The periodic run rescans all 65 forum surfaces regardless of what changed. Drive updates from the
-`pr.changed` event for the affected PR only, and keep a long-period (hourly) full sweep for drift.
+Deployed 2026-09-03 15:45 JST (PID 70156). Over the following 445 s:
 
-### Phase 3 — move the job off the request loop (not started)
+| | before | after |
+|---|---|---|
+| stalled share of wall clock | 36 % (216 s / 600 s) | **1.8 % (8 s / 445 s)** |
+| stalls | 87 per 10 min | 5 per 7.4 min |
+| max lag | 33,278 ms | 3,058 ms |
 
-`chat-worker`, `control-worker` and `cost-worker` already run outside the HTTP process. The Discord
-reconcile belongs in the same family: a job that blocks should not be able to take the harness gate — and
-therefore every session's ability to edit files — down with it.
+The new `durationMs` field immediately located the remaining cost:
+
+```
+06:50:22 … durationMs=1068 projectScopeCount=0
+06:50:22 … durationMs=945  projectScopeCount=3
+06:50:22 … durationMs=929  projectScopeCount=3
+06:50:26 scanned=66 kept=65 updated=1 closed=1 durationMs=3957
+```
+
+### Phase 2 — resolve mentions lazily (implemented)
+
+The remaining cost was **not** the forum scan. `reconcileTestForum` is already content-hash gated, so a
+round with `updated=1 closed=1` performs two Discord operations. The cost was `resolveSessionMentions`:
+the bot resolved mention targets for **every** open candidate before reconciling, and each resolution is a
+synchronous `SELECT * FROM session_events … LIMIT 500` plus a `JSON.parse` per row. With ~65 candidates
+that is up to 32,500 rows read and parsed on the main thread, per reconcile, per Discord runtime.
+
+`mentionUserIds` is consumed in exactly one place — `TestForumSurfaceAdapter.create`. Candidates that are
+already posted never read it. So resolution now happens inside the create branch of
+`reconcileTestForum`, through a `resolveMentions(sessionId)` callback. A round that posts nothing resolves
+nothing; behaviour is otherwise unchanged.
+
+### Phase 3 — move the job off the request loop (premise under review)
+
+The original plan was to move the reconcile into a worker process alongside `chat-worker`,
+`control-worker` and `cost-worker`. That premise assumed the job is CPU-heavy on the main thread. After
+phases 1 and 2 the synchronous part of a round is one `listOpen()` query plus a content hash per
+candidate; the Discord and Revisor work is async I/O that does not block the loop. Moving it would also
+mean moving the Discord gateway itself, since the reconcile needs the live `Guild` object — a much larger
+change than the remaining cost justifies.
+
+Re-measure after phase 2 ships before committing to this. If the goal is narrowed to "a runaway periodic
+job must not be able to take the harness gate down", the cheaper instrument already exists in this
+repo: `createLoopBulkhead` (`src/shared/loop-bulkhead.ts`), which the metrics loop uses to halt itself.
 
 ## Related
 

@@ -199,6 +199,72 @@ describe("reconcileTestForum", () => {
     expect(h.adapter.render).not.toHaveBeenCalled();
   });
 
+  // メンション解決は session_events の同期走査。 候補全件ぶん先に引くと、 新規掲載が
+  // 0 件の周期でも候補数ぶん走査してしまい、 それが reconcile の所要時間のほぼ全部だった
+  // ([[2026-09-03-test-forum-reconcile-event-loop-stall]] Phase 2)。
+  it("resolves mentions only for the candidates it actually posts", async () => {
+    const kept = surface({ content_hash: "unchanged", check_status: "test_ok" });
+    const h = harness([kept]);
+    const keptCandidate = { ...candidate(), contentHash: "unchanged" };
+    const fresh = candidate({ id: "local-pr-43", number: 43, sessionId: "sess-new" });
+    const resolveMentions = vi.fn(() => ["user-1"]);
+
+    const result = await reconcileTestForum({
+      candidates: [keptCandidate, fresh],
+      resolveMentions,
+      ...h,
+    });
+
+    expect(result.created).toBe(1);
+    expect(result.kept).toBe(1);
+    // 掲載済みの候補では 1 度も引かない。
+    expect(resolveMentions).toHaveBeenCalledTimes(1);
+    expect(resolveMentions).toHaveBeenCalledWith("sess-new");
+    expect(h.adapter.create).toHaveBeenCalledWith(expect.objectContaining({
+      prNumber: 43,
+      mentionUserIds: ["user-1"],
+    }));
+  });
+
+  it("posts without mentions when the candidate has no submitting session", async () => {
+    const h = harness();
+    const resolveMentions = vi.fn(() => ["user-1"]);
+
+    await reconcileTestForum({
+      candidates: [candidate({ sessionId: null })],
+      resolveMentions,
+      ...h,
+    });
+
+    expect(resolveMentions).not.toHaveBeenCalled();
+    expect(h.adapter.create).toHaveBeenCalledWith(expect.objectContaining({ mentionUserIds: [] }));
+  });
+
+  it("resolves a shared submitting session once per reconcile", async () => {
+    const h = harness();
+    const resolveMentions = vi.fn(() => ["user-1"]);
+
+    await reconcileTestForum({
+      candidates: [
+        candidate({ id: "local-pr-43", number: 43, sessionId: "sess-shared" }),
+        candidate({ id: "local-pr-44", number: 44, sessionId: "sess-shared" }),
+      ],
+      resolveMentions,
+      ...h,
+    });
+
+    expect(resolveMentions).toHaveBeenCalledTimes(1);
+    expect(h.adapter.create).toHaveBeenCalledTimes(2);
+    expect(h.adapter.create).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      prNumber: 43,
+      mentionUserIds: ["user-1"],
+    }));
+    expect(h.adapter.create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      prNumber: 44,
+      mentionUserIds: ["user-1"],
+    }));
+  });
+
   it("attaches the control message only to a Test OK candidate", async () => {
     const h = harness();
     const passed = candidate({ checkStatus: "test_ok" });

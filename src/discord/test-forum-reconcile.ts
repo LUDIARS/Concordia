@@ -83,6 +83,14 @@ export interface TestForumReconcileResult {
   failed: number;
 }
 
+/**
+ * Revisor の open PR 一覧を候補へ写す。
+ *
+ * メンションはここでは解決しない。 掲載済みの投稿は `mentionUserIds` を読まないので、
+ * 全候補ぶん先に引くと「新規掲載 0 件でも候補数ぶん session_events を走査する」
+ * ことになる ([[2026-09-03-test-forum-reconcile-event-loop-stall]] Phase 2)。
+ * 解決は新規掲載の直前に {@link reconcileTestForum} の `resolveMentions` で行う。
+ */
 export function buildTestForumCandidates(
   pullRequests: readonly RevisorOpenLocalPr[],
   mentions: ReadonlyMap<string, readonly string[]> = new Map(),
@@ -137,6 +145,24 @@ function hasTestControls(candidate: TestForumCandidate): boolean {
   return candidate.checkStatus === "test_ok" && candidate.detail?.mergeable === true;
 }
 
+/**
+ * 新規掲載の直前にだけメンションを解決した候補を返す。
+ * resolver が無い / セッション紐づけが無い候補はそのまま (メンション無しで掲載)。
+ */
+function withResolvedMentions(
+  candidate: TestForumCandidate,
+  resolvedMentions: Map<string, readonly string[]>,
+  resolveMentions?: (sessionId: string) => readonly string[],
+): TestForumCandidate {
+  if (!resolveMentions || !candidate.sessionId) return candidate;
+  let mentionUserIds = resolvedMentions.get(candidate.sessionId);
+  if (!mentionUserIds) {
+    mentionUserIds = resolveMentions(candidate.sessionId);
+    resolvedMentions.set(candidate.sessionId, mentionUserIds);
+  }
+  return { ...candidate, mentionUserIds };
+}
+
 function prKey(origin: string, number: number): string {
   return `${origin.toLowerCase()}#${number}`;
 }
@@ -163,6 +189,12 @@ export async function reconcileTestForum(input: {
   surfaces: DiscordTestSurfacesRepo;
   adapter: TestForumSurfaceAdapter;
   qa?: TestForumQaHooks;
+  /**
+   * 新規掲載する候補の提出セッションから、 メンション対象を解決する。
+   * 呼ばれるのは実際に投稿を作るときだけなので、 掲載済みばかりの周期では 1 度も走らない。
+   * 省略時は候補が持つ `mentionUserIds` をそのまま使う。
+   */
+  resolveMentions?: (sessionId: string) => readonly string[];
   log?: { warn(message: string): void };
 }): Promise<TestForumReconcileResult> {
   const candidatesByPr = new Map(input.candidates.map((candidate) => [
@@ -254,11 +286,14 @@ export async function reconcileTestForum(input: {
   }
 
   let created = 0;
+  // 同じ提出セッションから複数 PR が新規掲載されても、重い event 走査は周期内で 1 回に畳む。
+  const resolvedMentions = new Map<string, readonly string[]>();
   for (const candidate of input.candidates) {
     const key = prKey(candidate.repoOrigin, candidate.prNumber);
     if (keptKeys.has(key)) continue;
     await isolate(key, async () => {
-      const createdSurface = await input.adapter.create(candidate);
+      const posted = withResolvedMentions(candidate, resolvedMentions, input.resolveMentions);
+      const createdSurface = await input.adapter.create(posted);
       const row = input.surfaces.create({
         repoOrigin: candidate.repoOrigin,
         prNumber: candidate.prNumber,
@@ -273,8 +308,8 @@ export async function reconcileTestForum(input: {
         checkStatus: null,
       });
       created += 1;
-      if (isSettledStatus(candidate.checkStatus)) {
-        await input.adapter.postStatusChange(row, candidate);
+      if (isSettledStatus(posted.checkStatus)) {
+        await input.adapter.postStatusChange(row, posted);
       }
       input.surfaces.updateContent(row.id, {
         headSha: candidate.headSha,
@@ -285,7 +320,7 @@ export async function reconcileTestForum(input: {
       // 掲載は登録時点 (審査前) に起きるので、 ここでは自動起動しない。
       // 操作面 (テスト開始/マージ) は Test OK かつ mergeable な候補だけに付ける。
       // 失敗しても投稿は残り、 次周期の backfill が操作面を貼り直す。
-      if (hasTestControls(candidate) && input.adapter.render) {
+      if (hasTestControls(posted) && input.adapter.render) {
         await isolate(`${key}:controls`, async () => {
           const rendered = await input.adapter.render!(row);
           input.surfaces.setControlsMessageId(row.id, rendered.controlsMessageId);

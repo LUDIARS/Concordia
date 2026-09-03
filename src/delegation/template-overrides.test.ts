@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { resolveTemplateForScope } from "./template-overrides.js";
 import type { DelegationTemplateOverrideRow, DelegationTemplateRow } from "../db/delegation-repo.js";
 
-const base: DelegationTemplateRow = { id: "t", call_name: "task", title: "Task", description: "", target_provider: "codex", model: null, runtime_options_json: '{"base":true}', prompt_template: "p", input_schema: "[]", default_cwd: null, project: null, is_active: 1, emoji: "", call_only: 0, forum_tag: 0, category: "employee", sort_order: 1, created_at: 1, updated_at: 1 };
+const base: DelegationTemplateRow = { id: "t", call_name: "task", title: "Task", description: "", target_provider: "codex", model: null, runtime_options_json: '{"base":true}', prompt_template: "p", input_schema: "[]", default_cwd: null, project: null, is_active: 1, emoji: "", call_only: 0, forum_tag: 0, review_only: 0, category: "employee", sort_order: 1, created_at: 1, updated_at: 1 };
 function row(scope_kind: "platform" | "site", scope_key: string, patch_json: string): DelegationTemplateOverrideRow { return { id: `${scope_kind}-${scope_key}`, template_id: "t", scope_kind, scope_key, patch_json, is_active: 1, created_at: 1, updated_at: 1 }; }
 
 describe("resolveTemplateForScope", () => {

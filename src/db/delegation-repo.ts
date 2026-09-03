@@ -56,6 +56,11 @@ export interface DelegationTemplateRow {
   call_only: number;
   /** 1 = Session forum の spawn-by-post 用タグとして公開する */
   forum_tag: number;
+  /**
+   * 1 = コードを書かないテンプレ (レビュー / 調査 / 報告)。 成果物が feature branch では
+   * ないため、 完了証跡ガード (delegation/completion-evidence.ts) の対象外にする。
+   */
+  review_only: number;
   /** 雇用形態カテゴリ (employee | freelancer | parttimer)。 既定 employee */
   category: DelegationCategory;
   supervisor_platform?: string | null;
@@ -148,6 +153,7 @@ export interface DelegationRunRow {
 /** spawn 中/実行中とみなす status (= 同時実行スロットを 1 つ占有する)。 */
 export const DELEGATION_ACTIVE_STATUSES: readonly DelegationRunRow["status"][] = ["launching", "spawned", "running"];
 export const PARTIAL_REQUEUE_CLAIM_ERROR = "partial_requeue_in_progress";
+export const REVIEW_ONLY_UNFINISHED_RUN_ERROR = "review_only_locked_by_unfinished_runs";
 
 export interface InputSchemaItem {
   name: string;
@@ -172,6 +178,7 @@ export interface CreateTemplateInput {
   emoji?: string;
   call_only?: boolean;
   forum_tag?: boolean;
+  review_only?: boolean;
   category?: DelegationCategory;
   sort_order?: number;
 }
@@ -190,6 +197,7 @@ export interface UpdateTemplateInput {
   emoji?: string;
   call_only?: boolean;
   forum_tag?: boolean;
+  review_only?: boolean;
   category?: DelegationCategory;
   sort_order?: number;
 }
@@ -272,6 +280,7 @@ export class DelegationRepo {
         emoji: input.emoji,
         call_only: input.call_only,
         forum_tag: input.forum_tag,
+        review_only: input.review_only,
         category: input.category,
         sort_order: input.sort_order,
       }) ?? existing;
@@ -286,8 +295,8 @@ export class DelegationRepo {
       INSERT INTO delegation_templates(
         id, call_name, title, description, target_provider, model, runtime_options_json,
         prompt_template, input_schema, default_cwd, project, is_active,
-        emoji, call_only, forum_tag, category, sort_order, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        emoji, call_only, forum_tag, review_only, category, sort_order, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.call_name,
@@ -304,6 +313,7 @@ export class DelegationRepo {
       input.emoji ?? "",
       input.call_only ? 1 : 0,
       input.forum_tag ? 1 : 0,
+      input.review_only ? 1 : 0,
       input.category ?? DEFAULT_DELEGATION_CATEGORY,
       input.sort_order ?? 1000,
       now,
@@ -315,6 +325,12 @@ export class DelegationRepo {
   updateTemplate(id: string, patch: UpdateTemplateInput): DelegationTemplateRow | null {
     const cur = this.findTemplate(id);
     if (!cur) return null;
+    const nextReviewOnly = patch.review_only === undefined ? cur.review_only : (patch.review_only ? 1 : 0);
+    if (nextReviewOnly !== cur.review_only && this.hasUnfinishedRunsForTemplate(id)) {
+      // completion evidence consults this flag. Letting an in-flight implementation run flip it
+      // would allow that run to turn off its own branch-evidence requirement through the API.
+      throw new Error(REVIEW_ONLY_UNFINISHED_RUN_ERROR);
+    }
     const now = Date.now();
     this.db.prepare(`
       UPDATE delegation_templates SET
@@ -331,6 +347,7 @@ export class DelegationRepo {
         emoji = ?,
         call_only = ?,
         forum_tag = ?,
+        review_only = ?,
         category = ?,
         sort_order = ?,
         updated_at = ?
@@ -349,6 +366,7 @@ export class DelegationRepo {
       patch.emoji !== undefined ? patch.emoji : cur.emoji,
       patch.call_only !== undefined ? (patch.call_only ? 1 : 0) : cur.call_only,
       patch.forum_tag !== undefined ? (patch.forum_tag ? 1 : 0) : cur.forum_tag,
+      patch.review_only !== undefined ? (patch.review_only ? 1 : 0) : cur.review_only,
       patch.category !== undefined ? patch.category : cur.category,
       patch.sort_order !== undefined ? patch.sort_order : cur.sort_order,
       now,
@@ -506,6 +524,16 @@ export class DelegationRepo {
     return this.db.prepare(
       `SELECT * FROM delegation_runs WHERE status IN ('launching', 'spawned', 'running') ORDER BY created_at ASC`,
     ).all() as DelegationRunRow[];
+  }
+
+  /** review_only is a completion-policy input and must stay stable for every unfinished run. */
+  private hasUnfinishedRunsForTemplate(templateId: string): boolean {
+    const row = this.db.prepare(
+      `SELECT 1 FROM delegation_runs
+       WHERE template_id = ? AND status NOT IN ('completed', 'failed')
+       LIMIT 1`,
+    ).get(templateId);
+    return row !== undefined;
   }
 
   /** Queue capacity also remains occupied while a partial replacement is being launched. */

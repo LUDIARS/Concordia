@@ -222,7 +222,86 @@ describe("delegation completed evidence", () => {
     expect(response.status).toBe(200);
     expect(repo.findRun("source-run")?.status).toBe(status === "failed" ? "failed" : "completed");
   });
+
+  // レビュー専用テンプレ (脆弱性対応 / レビュー / 調査) はコードを書かないので feature branch
+  // を持たない。 ガードはそれを一律 reject していたため completed を報告できなかった。
+  it("accepts completed from a review-only template even without a feature branch", async () => {
+    const { app, repo } = makeAppWithTemplate(process.cwd(), null, { review_only: true });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+  });
+
+  // 「branch が無ければ素通し」に緩めたわけではないことの確認。 実装テンプレの run は
+  // branch 証跡が無ければ従来どおり落ちる。
+  it("still rejects completed without a feature branch when the template is not review-only", async () => {
+    const { app, repo } = makeAppWithTemplate(process.cwd(), null, { review_only: false });
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.status).toBe("failed");
+  });
+
+  it("does not let an unfinished implementation run disable its own evidence requirement", async () => {
+    const { app, repo, templateId } = makeAppWithTemplate(process.cwd(), null, { review_only: false });
+
+    const patchResponse = await app.request(`/v1/delegation/templates/${templateId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ review_only: true }),
+    });
+    const completionResponse = await postStatus(app, { status: "completed" });
+
+    expect(patchResponse.status).toBe(409);
+    expect(repo.findTemplate(templateId)?.review_only).toBe(0);
+    expect(completionResponse.status).toBe(409);
+    expect(repo.findRun("source-run")?.status).toBe("failed");
+  });
+
+  // テンプレが削除された run は宣言を確認できない。 証跡を要求する側へ倒す。
+  it("rejects completed without a feature branch when the template no longer exists", async () => {
+    const { app, repo, templateId } = makeAppWithTemplate(process.cwd(), null, { review_only: true });
+    repo.deleteTemplatePermanently(templateId);
+
+    const response = await postStatus(app, { status: "completed" });
+
+    expect(response.status).toBe(409);
+    expect(repo.findRun("source-run")?.status).toBe("failed");
+  });
 });
+
+function makeAppWithTemplate(
+  cwd: string | null,
+  branch: string | null,
+  { review_only }: { review_only: boolean },
+): { app: Hono; repo: DelegationRepo; prs: PrRecordsRepo; templateId: string } {
+  const db = makeTestDb();
+  const repo = new DelegationRepo(db);
+  const prs = new PrRecordsRepo(db);
+  const template = repo.createTemplate({
+    call_name: review_only ? "vulnerability-response-daily" : "impl",
+    title: review_only ? "脆弱性対応" : "実装",
+    target_provider: "codex",
+    prompt_template: "prompt",
+    review_only,
+  });
+  repo.createRun({
+    id: "source-run", template_id: template.id, call_name: template.call_name, target_provider: "codex",
+    parent_session_id: null, args: {}, rendered_prompt: "prompt", prompt_file_path: "prompt.md", spawn_pid: 1,
+    spawn_command: ["codex"], triggered_by: null, status: "running", spawn_cwd: cwd, spawn_worktree_path: cwd,
+    spawn_branch: branch,
+  });
+  const service = { recordEffortOutcome: vi.fn(), invoke: vi.fn() } as unknown as DelegationService;
+  return {
+    app: new Hono().route("/v1/delegation", delegationRouter({ repo, service, prs })),
+    repo,
+    prs,
+    templateId: template.id,
+  };
+}
 
 function makeApp(cwd: string | null, branch: string | null): { app: Hono; repo: DelegationRepo; prs: PrRecordsRepo } {
   const db = makeTestDb();

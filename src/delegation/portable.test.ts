@@ -60,7 +60,7 @@ describe("templateToPortable", () => {
     expect(p.input_schema).toEqual([{ name: "name", type: "string", required: true }]);
   });
 
-  it("preserves model, runtime_options, default_cwd, project, emoji", () => {
+  it("preserves model, runtime_options, default_cwd, project, emoji, and review_only", () => {
     const db = makeTestDb();
     const repo = new DelegationRepo(db);
     const tpl = repo.createTemplate({
@@ -74,6 +74,7 @@ describe("templateToPortable", () => {
       default_cwd: "/home/user/project",
       project: "my-project",
       emoji: "🤖",
+      review_only: true,
     });
     const p = templateToPortable(tpl);
     expect(p.model).toBe("claude-opus-4");
@@ -81,6 +82,7 @@ describe("templateToPortable", () => {
     expect(p.default_cwd).toBe("/home/user/project");
     expect(p.project).toBe("my-project");
     expect(p.emoji).toBe("🤖");
+    expect(p.review_only).toBe(true);
   });
 
   it("model=null round-trips as null", () => {
@@ -219,6 +221,7 @@ describe("export → JSON → parsePortable round-trip", () => {
     expect(parsed.data.call_name).toBe("roundtrip");
     expect(parsed.data.kind).toBe(PORTABLE_KIND);
     expect(parsed.data.version).toBe(PORTABLE_VERSION);
+    expect(parsed.data.review_only).toBe(false);
   });
 
   it("ownedToPortable output parses cleanly and data matches", () => {

@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 81;
+export const SCHEMA_VERSION = 82;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2059,6 +2059,28 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     );
     CREATE INDEX IF NOT EXISTS idx_subsidiary_projects_project ON subsidiary_projects(project);
     `);
+  },
+}, {
+  version: 82,
+  name: "delegation-template-review-only",
+  source: "レビュー専用テンプレを完了証跡ガードの対象外にする (Memoria #1858)",
+  up(db) {
+    // 完了証跡ガード (delegation/completion-evidence.ts) は「実装 run が feature branch を
+    // 持たずに completed を自己申告する」穴を塞ぐために入った。 だが脆弱性対応やレビュー系の
+    // テンプレはコードを書かない設計 (成果物は Review/ への保存) なので feature branch が
+    // 無いのが正常で、 ガードに一律で落とされ completed を報告できなかった。
+    //
+    // 「branch が無ければ素通し」に緩めると塞いだ穴が open に戻るため、 テンプレ側に
+    // 「このテンプレは実装しない」を明示宣言させ、 その run だけをガードの対象外にする。
+    const columns = db.prepare("PRAGMA table_info(delegation_templates)").all() as Array<{ name: string }>;
+    if (!columns.some((c) => c.name === "review_only")) {
+      db.exec("ALTER TABLE delegation_templates ADD COLUMN review_only INTEGER NOT NULL DEFAULT 0");
+    }
+    // 既定は 0 (= 実装テンプレ扱い) なので、 報告のあったテンプレだけ宣言を入れておく。
+    // これを省くと列を足しただけで、 詰まっている脆弱性対応 run は救われない。
+    // 他のレビュー系テンプレは、 テンプレごとの契約を見て運用側が設定面から立てる。
+    db.prepare("UPDATE delegation_templates SET review_only = 1 WHERE call_name = ?")
+      .run("vulnerability-response-daily");
   },
 },
 ];

@@ -9,6 +9,15 @@ export interface CompletionEvidenceRun {
   spawn_branch?: string | null;
 }
 
+export interface CompletionEvidenceOptions {
+  /**
+   * テンプレートが「コードを書かない」と宣言している run。 成果物が feature branch では
+   * ないので、 branch 証跡を要求しない。 run 側の状態ではなくテンプレート定義から来る
+   * ことが重要で、 実装テンプレの run が branch を持たないまま素通りする穴は残さない。
+   */
+  reviewOnly?: boolean;
+}
+
 export type CompletionEvidenceVerdict =
   | { ok: true; checked: false }
   | { ok: true; checked: true }
@@ -49,8 +58,18 @@ async function countCommitsSinceBase(cwd: string): Promise<number> {
  * Verifies a spawned checkout before accepting an agent's self-reported completion.
  * Runs without a checkout are intentionally outside this guard because they cannot
  * be attributed to a branch-owned implementation worktree.
+ *
+ * A template that declares itself review-only is outside the guard for the same
+ * reason: its deliverable is a report, not a branch. The declaration lives on the
+ * template rather than being inferred from a missing branch, because inferring it
+ * would re-open the hole this guard exists to close — an implementation run that
+ * never checked out a branch claiming completion.
  */
-export async function verifyCompletionEvidence(run: CompletionEvidenceRun): Promise<CompletionEvidenceVerdict> {
+export async function verifyCompletionEvidence(
+  run: CompletionEvidenceRun,
+  { reviewOnly = false }: CompletionEvidenceOptions = {},
+): Promise<CompletionEvidenceVerdict> {
+  if (reviewOnly) return { ok: true, checked: false };
   const cwd = run.spawn_worktree_path ?? run.spawn_cwd;
   if (!cwd) return { ok: true, checked: false };
   if (!existsSync(cwd) || !existsSync(join(cwd, ".git"))) {

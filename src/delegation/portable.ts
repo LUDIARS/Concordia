@@ -51,6 +51,7 @@ export const PortableDelegationSchema = z.object({
   project: z.string().max(200).nullable().optional(),
   emoji: z.string().max(8).optional(),
   forum_tag: z.boolean().optional(),
+  review_only: z.boolean().optional(),
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
@@ -73,6 +74,7 @@ export interface PortableDelegationOut {
   project: string | null;
   emoji: string;
   forum_tag?: boolean;
+  review_only?: boolean;
   /** 雇用形態カテゴリ。 子会社所有の複製 (subsidiary_delegations) は列を持たないため省略される */
   category?: DelegationCategory;
   sort_order: number;
@@ -94,6 +96,7 @@ export function templateToPortable(row: DelegationTemplateRow): PortableDelegati
     project: row.project,
     emoji: row.emoji,
     forum_tag: row.forum_tag === 1,
+    review_only: row.review_only === 1,
     category: row.category,
     sort_order: row.sort_order,
   };

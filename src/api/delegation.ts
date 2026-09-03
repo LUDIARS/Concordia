@@ -13,6 +13,7 @@ import {
   DELEGATION_PROVIDERS,
   DELEGATION_CATEGORIES,
   PARTIAL_REQUEUE_CLAIM_ERROR,
+  REVIEW_ONLY_UNFINISHED_RUN_ERROR,
   type DelegationRepo,
   type DelegationRunRow,
   type DelegationProvider,
@@ -81,6 +82,7 @@ const CreateTemplateSchema = z.object({
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
   forum_tag: z.boolean().optional(),
+  review_only: z.boolean().optional(),
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
@@ -99,6 +101,7 @@ const PatchTemplateSchema = z.object({
   emoji: z.string().max(8).optional(),
   call_only: z.boolean().optional(),
   forum_tag: z.boolean().optional(),
+  review_only: z.boolean().optional(),
   category: z.enum(DELEGATION_CATEGORIES as unknown as [DelegationCategory, ...DelegationCategory[]]).optional(),
   sort_order: z.number().int().optional(),
 });
@@ -296,6 +299,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       is_active: row.is_active === 1,
       call_only: row.call_only === 1,
       forum_tag: row.forum_tag === 1,
+      review_only: row.review_only === 1,
       default_options: parseRuntimeOptions(row.runtime_options_json),
       runtime_options: delegationOptionSuggestions(row.target_provider, row.model),
     };
@@ -521,6 +525,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       project: p.project ?? null,
       emoji: p.emoji,
       forum_tag: p.forum_tag,
+      review_only: p.review_only,
       category: p.category,
       sort_order: p.sort_order,
     });
@@ -550,6 +555,7 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       project: p.project ?? null,
       emoji: p.emoji,
       forum_tag: false,
+      review_only: p.review_only,
       category: p.category,
       sort_order: p.sort_order,
     });
@@ -574,7 +580,15 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     } satisfies ForumTemplateTagSource;
     const forumTagError = validateForumTagCandidate(candidate, id);
     if (forumTagError) return c.json({ error: "invalid_forum_tag", detail: forumTagError }, 400);
-    const row = deps.repo.updateTemplate(id, parsed.data);
+    let row: ReturnType<DelegationRepo["updateTemplate"]>;
+    try {
+      row = deps.repo.updateTemplate(id, parsed.data);
+    } catch (error) {
+      if ((error as Error).message === REVIEW_ONLY_UNFINISHED_RUN_ERROR) {
+        return c.json({ error: REVIEW_ONLY_UNFINISHED_RUN_ERROR }, 409);
+      }
+      throw error;
+    }
     invalidateTemplates("patch", row);
     return c.json({ template: serializeTemplate(row) });
   });
@@ -659,7 +673,12 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
     }
     if (status === "completed") {
-      const evidence = await verifyCompletionEvidence(row);
+      // レビュー専用テンプレは feature branch を作らないのが正常なので、 テンプレ定義の
+      // 宣言を見てガードを外す。 テンプレが消えている run は宣言が確認できないため、
+      // 従来どおり branch 証跡を要求する側へ倒す。
+      const reviewOnly = row.template_id !== null
+        && deps.repo.findTemplate(row.template_id)?.review_only === 1;
+      const evidence = await verifyCompletionEvidence(row, { reviewOnly });
       const hasMergedChildPr = !evidence.ok
         && !row.spawn_branch
         && row.child_session_id !== null

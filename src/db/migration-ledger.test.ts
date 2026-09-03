@@ -28,6 +28,10 @@ describe("migration ledger", () => {
     expect(pinned).toEqual(shipped);
   });
 
+  it("keeps the declared schema version at the latest shipped migration", () => {
+    expect(SCHEMA_VERSION).toBe(Math.max(...MIGRATIONS.map((migration) => migration.version)));
+  });
+
   it("keeps the checksum of every applied migration", () => {
     for (const migration of MIGRATIONS) {
       const entry = frozen.get(migration.version);

@@ -825,6 +825,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "🛡️",
+    review_only: true,
     prompt_template: [
       "## 脆弱性対応 — ${date}",
       "",

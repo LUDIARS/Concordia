@@ -199,7 +199,9 @@ describe("seedDelegationTemplates", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);
 
-    const vulnerability = repo.findTemplateByCallName("vulnerability-response-daily")?.prompt_template ?? "";
+    const vulnerabilityTemplate = repo.findTemplateByCallName("vulnerability-response-daily");
+    const vulnerability = vulnerabilityTemplate?.prompt_template ?? "";
+    expect(vulnerabilityTemplate?.review_only).toBe(1);
     expect(vulnerability).toContain("delegation_invoke");
     expect(vulnerability).toContain("`sol-mid`");
     expect(vulnerability).toContain("`spawn: true`");

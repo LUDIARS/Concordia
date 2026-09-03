@@ -112,9 +112,24 @@ Vestigium 出力契約を検証するテストは、親プロセスの `CONCORDI
 検証するための隔離であり、本番で `CONCORDIA_AOP_METRICS=0` を指定したときの無効化契約や業務
 ロジックを変更しない。
 
+## イベントループ停止時の被疑者記録
+
+イベントループが止まっている間はログを書けないため、停止の記録は明けた直後の
+`event loop stalled` 1 行だけになる。lag と handle 数では **誰が止めたか** が残らず、
+事後にはログの空白から推測するしかない。
+
+HTTP middleware は処理中のリクエストを台帳に載せ、停止監視は復帰後の検知時点に未完了な
+リクエストのスナップショットを `event loop stalled` に添える。経過時間の長い順に上限件数だけ
+出し、全体数は別に添える
+(ログ 1 行の肥大を避けつつ、絞られたことを読み手に伝える)。path は資格情報を redact し、
+異常に長い request target は上限長で切ってから台帳へ保持する。
+
+これは因果の証明ではなく相関材料である。timer / 定期ジョブによる停止中にも HTTP リクエストは
+未完了になり得る一方、同期 HTTP handler は監視 timer の発火前に完了して台帳から消え得る。
+台帳が空だったことも切り分け材料にはするが、それだけで原因を断定しない。
+
 ## 関連
 
 - [observability setup](../setup/observability.md)
 - [error pipeline](./error-pipeline.md)
 - [test design](../test/test-design.md)
-

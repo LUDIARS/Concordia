@@ -12,6 +12,7 @@ import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
 import { listHaltedLoops } from "./shared/loop-bulkhead.js";
+import { beginRequest, endRequest } from "./shared/inflight-requests.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
@@ -31,7 +32,14 @@ export function buildApp(deps: AppDeps): Hono {
 
   app.use("*", async (c, next) => {
     const started = Date.now();
-    await next();
+    // 処理中のあいだ台帳に載せる。 イベントループが止まったとき、 停止監視がここから
+    // 「その瞬間に走っていたリクエスト」 を名指しする ([[inflight-requests]])。
+    const inFlight = beginRequest(c.req.method, c.req.path, started);
+    try {
+      await next();
+    } finally {
+      endRequest(inFlight);
+    }
     const elapsedMs = Date.now() - started;
     const cache = c.res.headers.get("x-concordia-cache");
     const cacheTtlMs = c.res.headers.get("x-concordia-cache-ttl-ms");

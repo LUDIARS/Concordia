@@ -200,6 +200,7 @@ import { startParttimerClockout } from "../control/parttimer-clockout.js";
 import { createSubsidiaryDiscordReader } from "../subsidiary/discord-read.js";
 import { concordiaBaseUrl } from "../config/service-urls.js";
 import type { WorkflowKey } from "../workflow/keys.js";
+import { inFlightRequestCount, snapshotInFlightRequests } from "../shared/inflight-requests.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
 
@@ -1872,11 +1873,23 @@ export async function startBackend(): Promise<BackendHandle> {
   const eventLoopMonitor = startEventLoopMonitor({
     stallThresholdMs: eventLoopStallMs,
     onStall: (stall) => {
+      // 停止中はログを書けないので、 明けた直後のこの 1 行が唯一の手掛かりになる。
+      // lag と handle 数だけでは「誰が止めたか」 が分からず、 2026-07-26 の 14 秒停止も
+      // 2026-09-03 の 12.3 秒停止も、 停止の前後行から推測するしかなかった。 検知時点で
+      // 未完了だった HTTP リクエストを相関材料として残す。 timer 等が HTTP 処理を巻き込む
+      // 場合や、 同期 handler が監視 timer より先に完了する場合もあるため、 因果は断定しない。
+      const inFlight = snapshotInFlightRequests(stall.at);
       log.warn(
         {
           lag_ms: Math.round(stall.lagMs),
           active_handles: stall.activeHandles,
           active_requests: stall.activeRequests,
+          in_flight_count: inFlightRequestCount(),
+          in_flight: inFlight.map((request) => ({
+            method: request.method,
+            path: request.path,
+            age_ms: Math.max(0, Math.round(request.ageMs)),
+          })),
         },
         "event loop stalled",
       );

@@ -39,6 +39,9 @@
     },
     {
       "namePattern": "([Mm]etric|[Ii]nstrument|vg[A-Z]|rotateLogFileIfOversize|resolveRotationPolicy|warnOnce|isMainClone)"
+    },
+    {
+      "pathPattern": "(^|/)src/shared/inflight-requests(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"observability\" domain: Concordia 自身の function metric / host metric / Vg ログ / bounded operational logs / サービス監視レイヤー。",
@@ -55,7 +58,8 @@
     "Runtime function metrics",
     "Runtime function metrics / Vestigium 出力",
     "Runtime function metrics / snapshot API",
-    "Operational log lifecycle — bounded cc-live retention"
+    "Operational log lifecycle — bounded cc-live retention",
+    "Runtime function metrics / イベントループ停止時の被疑者記録"
   ],
   "rationale": "instrumentation と operational logging は業務ドメイン (chat / delegation / federation) のどれにも属さず、それら全てを横断して計測・記録する。observability として独立させることで、業務層 → 観測層の単方向依存 (観測層は業務層を import しない) を維持でき、計測点やログ寿命管理の追加が業務ドメインの結合度に混入しなくなる。"
 }

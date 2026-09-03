@@ -18,8 +18,6 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import { isBlankSessionTask } from "../shared/session-task.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
-export { BLANK_SESSION_TASK, isBlankSessionTask } from "../shared/session-task.js";
-
 /** タスク本文 message を pin 済みかを記録する session metadata キー。 */
 export const DISCORD_TASK_PINNED_KEY = "discord_task_pinned";
 

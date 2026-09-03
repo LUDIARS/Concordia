@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { BLANK_SESSION_TASK } from "../shared/session-task.js";
 import {
-  BLANK_SESSION_TASK,
   buildSessionTaskMessage,
   DISCORD_TASK_PINNED_KEY,
   DISCORD_TASK_POSTED_KEY,

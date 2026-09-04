@@ -14,7 +14,10 @@
       "pathPattern": "(^|/)src/bootstrap/core\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/pr/local-pr-submission(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/pr/local-pr-(submission|lookup)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/pr/submission-reconcile(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/pr/session-task-pr-content(\\.test)?\\.ts$"
@@ -35,7 +38,9 @@
   "cardTemplate": "Summarise the revisor-local-pr domain: local PR review submission and session-authorized merge.",
   "mechanics": [
     "local-pr-submission-plan",
+    "local-pr-identity-lookup",
     "local-pr-submit-client",
+    "local-pr-submission-response-reconcile",
     "session-task-pr-content",
     "branch-commit-read",
     "session-authorized-merge"
@@ -44,6 +49,7 @@
     "spec/feature/revisor-local-pr-submission.md#管理者の指示に基づくセッションからのマージ",
     "spec/feature/revisor-local-pr-submission.md#3-判定-planlocalprsubmission-純関数",
     "spec/feature/revisor-local-pr-submission.md#4-提出内容",
+    "spec/feature/revisor-local-pr-submission.md#応答喪失時の照合",
     "spec/feature/revisor-local-pr-submission.md#6-token",
     "spec/tasks/revisor-merge-feedback.md#完了条件",
     "spec/feature/revisor-test-forum-sync.md#runtime-boundary"

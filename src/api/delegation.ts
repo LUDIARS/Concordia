@@ -48,10 +48,12 @@ import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
 import { COMMIT_REQUEST_SHAPE_HINT, parseCommitRequest } from "../delegation/commit-request.js";
 import { createChildLogger } from "../shared/logger.js";
+import { findGarbledReportFields, GARBLED_REPORT_HINT } from "../delegation/report-encoding.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
 import { requiresCompletionEvidence, verifyCompletionEvidence } from "../delegation/completion-evidence.js";
 
 const commitLogger = createChildLogger("delegation-commit");
+const statusLogger = createChildLogger("delegation-status");
 
 const CALL_NAME_RE = /^[a-z][a-z0-9_-]{0,63}$/;
 
@@ -671,6 +673,13 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     if (!status) return c.json({ error: "invalid_status" }, 400);
     if (row.status === "completed" || row.status === "failed") {
       return c.json({ ok: true, run: serializeRun(row), requeued_run: null, duplicate: true });
+    }
+    // 化けた本文は復元できない。 残作業は spec/tasks の md → Memoria タスクへ永続化
+    // されるので、 台帳に入る前にここで落として送り直させる (report-encoding.ts)。
+    const garbledFields = findGarbledReportFields(parsed.data);
+    if (garbledFields.length > 0) {
+      statusLogger.warn({ run_id: id, fields: garbledFields }, "delegation status report is garbled; rejected");
+      return c.json({ error: "garbled_report", fields: garbledFields, detail: GARBLED_REPORT_HINT }, 400);
     }
     // パートタイマーは成果が feature branch ではない (報告・取り込み・投稿)。
     // テンプレを後から編集・削除しても判定が動かないよう、 起動時 snapshot の category を使う。

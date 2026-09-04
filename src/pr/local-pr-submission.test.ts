@@ -613,4 +613,69 @@ describe("submitSessionLocalPr", () => {
       detail: "worktree is no longer clean",
     });
   });
+
+  // 応答が消えても Revisor 側では PR ができている。 失敗と報告すると提出者が
+  // 同じブランチを二重に出しに行く。
+  it("reports the PR that exists when the submit response was lost", async () => {
+    const aborted = new Error("This operation was aborted");
+    aborted.name = "AbortError";
+    let listed = 0;
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        listLocalPullRequests: async () => (listed++ === 0 ? [] : [{
+          id: "pr-late",
+          number: 42,
+          repository: "LUDIARS/Concordia",
+          headRef: "feat/thing",
+          status: "open",
+          checkStatus: "queued",
+        }]),
+        submitLocalPullRequest: async () => { throw aborted; },
+      }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, request);
+    expect(result).toMatchObject({ submitted: true });
+    expect(result.submitted && result.pullRequest.number).toBe(42);
+  });
+
+  it("still reports a failure when the lost response left no PR behind", async () => {
+    const aborted = new Error("This operation was aborted");
+    aborted.name = "AbortError";
+    const result = await submitSessionLocalPr({
+      revisor: gateway({
+        submitLocalPullRequest: async () => { throw aborted; },
+      }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, request);
+    expect(result).toMatchObject({ submitted: false, reason: "error" });
+  });
+
+  it("does not reconcile a transport error that happened before submission", async () => {
+    const listLocalPullRequests = vi.fn()
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockResolvedValueOnce([{
+        id: "unrelated-pr",
+        number: 42,
+        repository: "LUDIARS/Concordia",
+        headRef: "feat/thing",
+        status: "open",
+        checkStatus: "queued",
+      }]);
+    const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
+
+    const result = await submitSessionLocalPr({
+      revisor: gateway({ listLocalPullRequests, submitLocalPullRequest }),
+      listBranchCommits: async () => ["feat: x"],
+      loadSessionTaskPrContent: async () => PR_CONTENT,
+      log,
+    }, request);
+
+    expect(result).toMatchObject({ submitted: false, reason: "error" });
+    expect(listLocalPullRequests).toHaveBeenCalledTimes(1);
+    expect(submitLocalPullRequest).not.toHaveBeenCalled();
+  });
 });

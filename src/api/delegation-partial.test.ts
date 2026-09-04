@@ -329,6 +329,64 @@ describe("delegation partial status", () => {
     expect(writeRemainingTasks).toHaveBeenCalledWith(expect.objectContaining({ sourceRunId: "source-run" }));
     expect(invoke).toHaveBeenCalledTimes(1);
   });
+
+  // 化けた本文は復元できず、 残作業は md → Memoria へ永続化される。 台帳へ入る前に
+  // 受理を止めて送り直させる。
+  it("rejects a garbled report before it can become a task file", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    const invoke = vi.fn();
+    const writeRemainingTasks = vi.fn();
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+      taskStore: { writeRemainingTasks } as unknown as TaskMdStore,
+    }));
+
+    const response = await postStatus(app, {
+      status: "partial",
+      remaining: [{ title: "run 01M1 ���Ғ�" }],
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "garbled_report",
+      fields: ["remaining[0].title"],
+    });
+    expect(writeRemainingTasks).not.toHaveBeenCalled();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(repo.findRun("source-run")?.status).toBe("running");
+  });
+
+  it("accepts a clean Japanese report", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      service: { invoke: vi.fn(), recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    // completed は別途 completion evidence を要求するので、 文字化け判定だけを見る
+    // ために failed で送る (どちらも同じ経路を通る)。
+    const response = await postStatus(app, { status: "failed", detail: "取り込みに失敗しました" });
+
+    expect(response.status).toBe(200);
+  });
+
+  it("keeps terminal status reports idempotent even if a duplicate body is garbled", async () => {
+    const db = makeTestDb();
+    const repo = createSourceRun(repoFor(db));
+    repo.updateRunStatus("source-run", "failed", "original failure");
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      service: { invoke: vi.fn(), recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+
+    const response = await postStatus(app, { status: "failed", detail: "broken �" });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, duplicate: true });
+  });
 });
 
 function repoFor(db: ReturnType<typeof makeTestDb>): DelegationRepo {

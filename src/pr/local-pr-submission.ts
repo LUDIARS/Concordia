@@ -12,10 +12,13 @@
  * spec/feature/revisor-local-pr-submission.md §3-§5, §9。
  */
 
-import { normalizeRepoOrigin } from "./normalize.js";
+import { findOpenLocalPrForBranch, findRegistration } from "./local-pr-lookup.js";
+// 同定規則は local-pr-lookup が正本。 既存の import 元を変えないよう、ここから再輸出する。
+export { findOpenLocalPrForBranch, findRegistration, listOpenLocalPrsForRepository } from "./local-pr-lookup.js";
 import type { RevisorLocalPrGateway, RevisorLocalPrSummary, RevisorRepositoryRegistration } from "./revisor-local-pr-client.js";
 import type { PrSourceLink } from "./session-source-links.js";
 import type { SessionTaskPrContent } from "./session-task-pr-content.js";
+import { isInconclusiveSubmissionError, reconcileInconclusiveSubmission } from "./submission-reconcile.js";
 
 /** 提出しない理由。 ログと API 応答でそのまま使う (無言でスキップしない)。 */
 export type SkipReason =
@@ -57,53 +60,6 @@ export type LocalPrPlan =
   | { submit: false; retry: true; pullRequestId: string }
   | { submit: false; promote: true; pullRequestId: string }
   | { submit: true; repository: string; headRef: string; baseRef: string };
-
-/**
- * セッションの repo_origin と Revisor の登録リポジトリを突き合わせる。
- *
- * `sessions.repo_origin` は hook が `git config --get remote.origin.url` をそのまま
- * 入れるので `https://github.com/LUDIARS/Concordia.git` や `git@github.com:...` の形で
- * 来る。 一方 Revisor の登録は `owner/repo`。 生値のまま比較すると**どのセッションも
- * 未登録扱いになり、 レビューが 1 件も発火しない** — 無言で発火経路が死ぬという、
- * この機能が潰しに来た障害そのものになる。 双方 owner/repo に寄せてから比較する。
- */
-export function findRegistration(
-  repository: string | null,
-  registrations: readonly RevisorRepositoryRegistration[],
-): RevisorRepositoryRegistration | undefined {
-  const key = repository ? normalizeRepoOrigin(repository).toLowerCase() : "";
-  if (!key) return undefined;
-  return registrations.find((row) => normalizeRepoOrigin(row.repository).toLowerCase() === key);
-}
-
-/**
- * セッションの (リポジトリ, ブランチ) に一致する open な local PR を探す。
- *
- * 「そのセッションが提出した PR はどれか」の同定規則の正本。 提出の二重防止と、
- * RWF / Discord 操作面からのマージ対象選択が同じ規則を使う (片方だけずれると
- * 「提出済みなのにマージ対象が見つからない」という無言の食い違いになる)。
- * リポジトリは表記ゆれを正規化して比較し、 ブランチ名は git と同じく大文字小文字を区別する。
- */
-export function findOpenLocalPrForBranch(
-  repository: string | null,
-  branch: string | null,
-  pullRequests: readonly RevisorLocalPrSummary[],
-): RevisorLocalPrSummary | undefined {
-  const head = branch?.trim() ?? "";
-  if (!head) return undefined;
-  return listOpenLocalPrsForRepository(repository, pullRequests).find((pr) => pr.headRef === head);
-}
-
-/** 同じリポジトリの open な local PR (操作面の選択肢に出す)。 表記ゆれは正規化して比較する。 */
-export function listOpenLocalPrsForRepository(
-  repository: string | null,
-  pullRequests: readonly RevisorLocalPrSummary[],
-): RevisorLocalPrSummary[] {
-  const key = repository ? normalizeRepoOrigin(repository).toLowerCase() : "";
-  if (!key) return [];
-  return pullRequests.filter((pr) =>
-    pr.status === "open" && normalizeRepoOrigin(pr.repository).toLowerCase() === key);
-}
 
 /**
  * 提出すべきかを決める。 スキップは必ず理由付きで返す — 「何も起きなかった」を
@@ -303,6 +259,7 @@ export async function submitSessionLocalPr(
   deps: LocalPrSubmissionDeps,
   request: LocalPrSubmissionRequest,
 ): Promise<LocalPrSubmissionResult> {
+  let submissionAttempted = false;
   try {
     if (request.fastLane === true && !request.sessionId) {
       return { submitted: false, reason: "error", detail: "fast lane requires a Concordia session" };
@@ -412,6 +369,7 @@ export async function submitSessionLocalPr(
         "local PR source-link resolution failed",
       );
     }
+    submissionAttempted = true;
     const pullRequest = await deps.revisor.submitLocalPullRequest({
       repository: plan.repository,
       title,
@@ -436,6 +394,28 @@ export async function submitSessionLocalPr(
     return { submitted: true, pullRequest };
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
+    // 結果不明の失敗 (client timeout 等) は「出せなかった」とは限らない。 Revisor 側に
+    // PR ができていないかを確認してから返す (submission-reconcile.ts の説明を参照)。
+    if (submissionAttempted && isInconclusiveSubmissionError(error)) {
+      const reconciled = await reconcileInconclusiveSubmission({
+        repository: request.repository,
+        branch: request.branch?.trim() ?? "",
+        listOpenPullRequests: () => deps.revisor.listLocalPullRequests(),
+      });
+      if (reconciled) {
+        deps.log.info(
+          {
+            session_id: request.sessionId,
+            repository: request.repository,
+            branch: request.branch,
+            local_pr_id: reconciled.id,
+            local_pr_number: reconciled.number,
+          },
+          "local PR submission response was lost but the PR exists; reporting it as submitted",
+        );
+        return { submitted: true, pullRequest: reconciled };
+      }
+    }
     deps.log.warn(
       { session_id: request.sessionId, repository: request.repository, branch: request.branch, err: detail },
       "local PR submission failed",

@@ -15,7 +15,7 @@ related:
   - ./revisor-test-forum-sync.md
   - ./pr-queue.md
   - ./pr-local-gate.md
-updated: 2026-08-20
+updated: 2026-09-04
 ---
 
 # レビュー発火 — 作業ブランチの local PR 自動提出
@@ -164,6 +164,16 @@ Cc はその失敗を理由として記録する。
 
 提出処理は例外を投げない。 失敗は `{ submitted: false, reason: "error", detail }` として
 返し、 warn ログに残す。 **セッション終了処理をレビュー発火の失敗で壊さない**。
+
+### 応答喪失時の照合
+
+**Requirement ID: `SPEC-REVISOR-LOCAL-PR-SUBMISSION-RECONCILE`**
+
+local PR の提出操作を呼び出した後で timeout、abort、接続断など結果不明の通信エラーに
+なった場合だけ、open local PR 一覧を再取得する。正規化した repository と大小文字を区別する
+head branch が一致する PR があれば、Revisor 側では作成済みとして提出成功を返し、再提出による
+重複を防ぐ。一覧取得やコミット確認など、提出開始前の失敗では照合しない。HTTP status を伴う
+確定的な失敗でも照合しない。再取得自体が失敗した場合は元の失敗結果を保つ。
 
 ## 6. token
 

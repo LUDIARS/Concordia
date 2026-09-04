@@ -761,3 +761,15 @@ feature branch を記録した run は、子 PR の有無にかかわらず上�
 証跡を要求する側へ倒す。
 実行中に宣言を書き換えて検証を迂回できないよう、そのテンプレートを参照する未完了 run が
 ある間は `review_only` の変更を拒否する。
+
+### status 報告の UTF-8 検証
+
+**Requirement ID: `SPEC-DELEGATION-STATUS-UTF8`**
+
+`POST /v1/delegation/runs/:id/status` は、永続化や通知に使う `detail`、`result`、
+`remaining[].title/note/scope_dirs[]`、`acceptance_report[].criterion/note` に U+FFFD (replacement
+character) が含まれる未完了 run の報告を 400 `garbled_report` で拒否する。デコード時点で
+原文は失われているため推測で補正せず、UTF-8 の JSON ファイルから再送する手順を応答に含める。
+
+すでに completed / failed の run への再送は副作用を持たない重複報告なので、本文検証より先に
+従来どおり成功として扱う。これにより、通信再試行時の idempotency を維持する。

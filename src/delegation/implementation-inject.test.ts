@@ -114,7 +114,10 @@ describe("buildImplementationInject", () => {
   });
 
   it("完了報告の endpoint を run id つきで示す", () => {
-    expect(buildImplementationInject(BASE)).toContain("http://127.0.0.1:11111/v1/delegation/runs/run-1/status");
+    const text = buildImplementationInject(BASE);
+    expect(text).toContain("http://127.0.0.1:11111/v1/delegation/runs/run-1/status");
+    expect(text).toContain("400 `garbled_report`");
+    expect(text).toContain("curl.exe --data-binary");
   });
 
   it("repo / branch 不明でも壊れない (安全境界節を落とすだけ)", () => {

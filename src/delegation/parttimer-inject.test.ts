@@ -48,6 +48,8 @@ describe("buildParttimerInject", () => {
     const out = buildParttimerInject(base);
     expect(out).toContain("## 終わり方 (成功でも失敗でも必ず最後まで)");
     expect(out).toContain("http://127.0.0.1:11111/v1/delegation/runs/run-1/status");
+    expect(out).toContain("400 `garbled_report`");
+    expect(out).toContain("curl.exe --data-binary");
     expect(out).toContain("/v1/shutdown");
     // 退勤は本文の途中ではなく末尾ブロックにだけある。
     expect(out.indexOf("/v1/shutdown")).toBeGreaterThan(out.indexOf("## 終わり方"));

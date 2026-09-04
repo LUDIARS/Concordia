@@ -119,6 +119,10 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     "- [ ] タスク本文に PR より後段の完了条件がある場合、 その終局条件まで達した",
     `- [ ] \`POST ${statusEndpoint}\` に completed を報告した`,
     "",
+    "日本語を含む status の body はシェルに直書きしないでください。 Windows の一部のシェル経路では CP932 で",
+    "渡されて文字化けし、 化けた報告は受理されません (400 `garbled_report`)。 JSON を UTF-8 の",
+    "ファイルに書いて `curl.exe --data-binary @<file>` で送ります。",
+    "",
     "報告まで終わったら **このセッションは終了**します。 次のタスクを自分で拾わないでください。",
     "",
   );

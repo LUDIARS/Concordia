@@ -182,6 +182,30 @@ export interface FederationListResult {
   sites: FederationSiteView[];
 }
 
+/** 承認インボックスの 1 項目 (spec/feature/approval-inbox.md §2)。 */
+export interface InboxItem {
+  key: string;
+  kind: "ask-card" | "inquiry-ask-human" | "director-blocked" | "confirm-pending";
+  summary: string;
+  raised_at: number;
+  elapsed_ms: number;
+  session_id: string | null;
+  case_id: string | null;
+  repo_origin: string | null;
+  pr_number: number | null;
+  read_at: number | null;
+  snoozed_until: number | null;
+  snoozed: boolean;
+}
+
+export interface InboxResult {
+  /** 未回答の実数。 スヌーズしても減らない。 */
+  count: number;
+  /** いま画面に出すべき件数 (スヌーズ中を除く)。 */
+  active_count: number;
+  items: InboxItem[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const r = await fetch(`${BASE}${path}`);
   if (!r.ok) throw new Error(`${r.status} ${path}`);
@@ -692,6 +716,18 @@ export const api = {
   },
   sessionMessages: (id: string, after?: number) => get<{ messages: SessionMessage[] }>(`/v1/sessions/${encodeURIComponent(id)}/messages${after ? `?after=${after}` : ""}`),
   sessionUnread: (id: string, clientId: string) => get<{ last_read_id: number; unread: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/unread?client_id=${encodeURIComponent(clientId)}`),
+  inbox: (clientId: string) =>
+    get<InboxResult>(`/v1/inbox?client_id=${encodeURIComponent(clientId)}`),
+  inboxMarkRead: (clientId: string, key: string, read: boolean) =>
+    post<{ ok: true }>(
+      `/v1/inbox/${encodeURIComponent(key)}/read?client_id=${encodeURIComponent(clientId)}`,
+      { read },
+    ),
+  inboxSnooze: (clientId: string, key: string, until: number | null) =>
+    post<{ ok: true }>(
+      `/v1/inbox/${encodeURIComponent(key)}/snooze?client_id=${encodeURIComponent(clientId)}`,
+      { until },
+    ),
   sessionMarkRead: (id: string, clientId: string, lastReadId: number) => post<{ ok: true; last_read_id: number }>(`/v1/sessions/${encodeURIComponent(id)}/messages/read`, { client_id: clientId, last_read_id: lastReadId }),
   sessionRename: (id: string, text: string) => post<{ ok: true }>(`/v1/sessions/${encodeURIComponent(id)}/title`, { text }),
   pushPublicKey: () => get<{ public_key: string }>("/v1/push/vapid-public-key"),

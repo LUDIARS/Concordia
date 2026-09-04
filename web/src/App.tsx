@@ -18,6 +18,7 @@ import { Manuals } from "./pages/Manuals.js";
 import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
+import { Inbox } from "./pages/Inbox.js";
 import { CostFeed } from "./pages/CostFeed.js";
 import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
@@ -27,6 +28,7 @@ import { ProjectCodes } from "./pages/ProjectCodes.js";
 import { TeamFilterProvider, TeamSelect } from "./lib/TeamFilterContext.js";
 
 const NAV: NavItem[] = [
+  { to: "/inbox", label: "未回答", section: "チーム" },
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
@@ -65,6 +67,7 @@ export function App() {
       <main className="min-w-0 flex-1 px-3 sm:px-6 py-4">
         <Routes>
           <Route path="/" element={<Monitor />} />
+          <Route path="/inbox" element={<Inbox />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/work" element={<Work />} />
           <Route path="/taskflow" element={<Taskflow />} />

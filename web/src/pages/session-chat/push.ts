@@ -1,23 +1,7 @@
 import { api } from "../../api.js";
+import { clientId } from "../../lib/client-id.js";
 
-const CLIENT_ID_KEY = "concordia-client-id";
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let volatileClientId: string | null = null;
-
-/** @implements spec/feature/session-message-webui-chat.md — D4 browser identity and Web Push */
-export function clientId(): string {
-  try {
-    const stored = localStorage.getItem(CLIENT_ID_KEY);
-    if (stored && UUID_PATTERN.test(stored)) return stored;
-    const generated = crypto.randomUUID();
-    localStorage.setItem(CLIENT_ID_KEY, generated);
-    return generated;
-  } catch {
-    // Storage can be unavailable in hardened/private contexts; keep a tab-local identity.
-    volatileClientId ??= crypto.randomUUID();
-    return volatileClientId;
-  }
-}
+export { clientId };
 
 /** @implements spec/feature/session-message-webui-chat.md §1.4 */
 export async function subscribePush(): Promise<void> {

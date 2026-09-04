@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/deploy/(notice|deploy-service|outcome|record|watch)(\.test)?\.ts$"
+      "pathPattern": "(^|/)src/deploy/(notice|deploy-service|outcome|record|watch)(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"checkout-published-deploy\" domain: checkout 前進通知の購読と、サービスがあるリポだけの build → Excubitor 再起動、および実行有無の理由付き記録。",

@@ -154,6 +154,9 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
   (reconcile は走査で見つかった md からしか動かない)。
 - Memoria が落ちていても md は正本としてそのまま使える。 復帰後の tick で後追い登録される
   (= 「サービスが死んでいるときも動作」の実現)。
+- partial 報告から生成する残作業 task は、root delegation run・項目位置・slug を同一性とし、
+  ファイル名の日付が変わっても既存 task として扱う。同じ残作業が UTC 日付境界をまたいで
+  再委託され続けることを防ぐ。
 - backend は interface (`TaskBackend`) で抽象化する。 今回は Memoria 実装のみ。
   **Actio adapter は Phase 4** (stub や no-op は作らない — RULE_CODE §7.1)。
 

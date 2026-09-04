@@ -91,6 +91,8 @@ export class AdminState {
   setDelegationWatchdogIdleSec(value: number): void { this.runtime.setDelegationWatchdogIdleSec(value); }
   getDelegationWatchdogMaxNudges(): number { return this.runtime.getDelegationWatchdogMaxNudges(); }
   setDelegationWatchdogMaxNudges(value: number): void { this.runtime.setDelegationWatchdogMaxNudges(value); }
+  getDelegationWatchdogUnstartedSec(): number { return this.runtime.getDelegationWatchdogUnstartedSec(); }
+  setDelegationWatchdogUnstartedSec(value: number): void { this.runtime.setDelegationWatchdogUnstartedSec(value); }
   getReaperSessionEndGraceSec(): number { return this.runtime.getReaperSessionEndGraceSec(); }
   setReaperSessionEndGraceSec(value: number): void { this.runtime.setReaperSessionEndGraceSec(value); }
   getThinkingMessagesEnabled(): boolean { return this.runtime.getThinkingMessagesEnabled(); }
@@ -118,6 +120,7 @@ export class AdminState {
       delegation_watchdog_enabled: this.getDelegationWatchdogEnabled(),
       delegation_watchdog_idle_sec: this.getDelegationWatchdogIdleSec(),
       delegation_watchdog_max_nudges: this.getDelegationWatchdogMaxNudges(),
+      delegation_watchdog_unstarted_sec: this.getDelegationWatchdogUnstartedSec(),
       reaper_session_end_grace_sec: this.getReaperSessionEndGraceSec(),
       workflows: this.workflows.snapshot(),
     };

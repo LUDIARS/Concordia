@@ -42,6 +42,7 @@
   "specRefs": [
     "spec/feature/delegation.md#121-初期プロンプトへの-concordia-文脈--persona-注入",
     "spec/feature/delegation.md#dependency-sweep-parttimer",
-    "spec/feature/delegation.md#completed-報告の成果証跡"
+    "spec/feature/delegation.md#completed-報告の成果証跡",
+    "spec/tasks/2026-08-08-delegation-run-watchdog.md"
   ]
 }

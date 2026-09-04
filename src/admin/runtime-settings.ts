@@ -3,6 +3,7 @@ import {
   MAIN_PUSH_ALLOWLIST_ENV,
   parseMainPushAllowlist,
 } from "../harness/main-push-allowlist.js";
+import { DEFAULT_UNSTARTED_SEC } from "../delegation/unstarted-run.js";
 import type { SettingsStore } from "./settings-store.js";
 
 const KEYS = {
@@ -17,6 +18,7 @@ const KEYS = {
   watchdogEnabled: "admin.delegation_watchdog_enabled",
   watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
   watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
+  watchdogUnstartedSec: "admin.delegation_watchdog_unstarted_sec",
   reaperSessionEndGraceSec: "admin.reaper_session_end_grace_sec",
   thinkingMessages: "admin.thinking_messages_enabled",
 } as const;
@@ -96,6 +98,9 @@ export class RuntimeSettingsStore {
   setDelegationWatchdogIdleSec(value: number): void { this.store.set(KEYS.watchdogIdleSec, String(requirePositive(value, "delegation_watchdog_idle_sec"))); }
   getDelegationWatchdogMaxNudges(): number { return positiveOrDefault(this.store.get(KEYS.watchdogMaxNudges), 3); }
   setDelegationWatchdogMaxNudges(value: number): void { this.store.set(KEYS.watchdogMaxNudges, String(requirePositive(value, "delegation_watchdog_max_nudges"))); }
+  /** 委託プロンプト未達 (transcript 0 行) とみなすまでの秒数。 idle 判定とは別軸で短い。 */
+  getDelegationWatchdogUnstartedSec(): number { return positiveOrDefault(this.store.get(KEYS.watchdogUnstartedSec), DEFAULT_UNSTARTED_SEC); }
+  setDelegationWatchdogUnstartedSec(value: number): void { this.store.set(KEYS.watchdogUnstartedSec, String(requirePositive(value, "delegation_watchdog_unstarted_sec"))); }
   getReaperSessionEndGraceSec(): number { return positiveOrDefault(this.store.get(KEYS.reaperSessionEndGraceSec), this.reaperSessionEndGraceDefault); }
   setReaperSessionEndGraceSec(value: number): void { this.store.set(KEYS.reaperSessionEndGraceSec, String(requirePositive(value, "reaper_session_end_grace_sec"))); }
   /**

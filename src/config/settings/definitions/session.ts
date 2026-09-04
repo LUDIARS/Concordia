@@ -6,6 +6,7 @@
  */
 
 import type { SettingDefinition } from "../types.js";
+import { DEFAULT_UNSTARTED_SEC } from "../../../delegation/unstarted-run.js";
 
 /** env のみ・整数・表示専用の定型項目を作る (定義の反復を減らすためのローカル helper)。 */
 function envInteger(
@@ -361,6 +362,18 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
     envName: null,
     dbKey: "admin.delegation_watchdog_max_nudges",
     defaultValue: 3,
+    editable: true,
+    minValue: 1,
+  },
+  {
+    key: "delegation.watchdog_unstarted_sec",
+    section: "delegation",
+    label: "委託プロンプト未達の判定 (秒)",
+    description: "spawn からこの秒数、 委託先の transcript が 1 行も無ければプロンプト未達とみなして送り直す。",
+    kind: "integer",
+    envName: null,
+    dbKey: "admin.delegation_watchdog_unstarted_sec",
+    defaultValue: DEFAULT_UNSTARTED_SEC,
     editable: true,
     minValue: 1,
   },

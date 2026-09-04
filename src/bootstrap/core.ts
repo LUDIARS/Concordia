@@ -1579,6 +1579,7 @@ export async function startBackend(): Promise<BackendHandle> {
         resolveEnabled: () => adminState.getDelegationWatchdogEnabled(),
         resolveIdleSec: () => adminState.getDelegationWatchdogIdleSec(),
         resolveMaxNudges: () => adminState.getDelegationWatchdogMaxNudges(),
+        resolveUnstartedSec: () => adminState.getDelegationWatchdogUnstartedSec(),
         intervalMs: cfg.delegationWatchdogIntervalMs,
       }),
     );

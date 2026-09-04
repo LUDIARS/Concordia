@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -209,6 +209,45 @@ describe("TaskMdStore.scan", () => {
     expect(first.existed).toEqual([]);
     expect(second.created).toEqual([]);
     expect(second.existed).toEqual(first.created);
+  });
+
+  it("recognises an existing remaining-task file written on a different date", async () => {
+    // 進捗なし判定はファイル名の重複で行うため、 日付が変わっても同じ残作業は
+    // 「既存」 と読めなければならない (連鎖が UTC 日付をまたぐと再委託が止まらない)。
+    const store = new TaskMdStore(() => [root], { warn });
+    const input = {
+      repoPath,
+      sourceRunId: "source-run",
+      project: "Concordia",
+      remaining: [{ title: "finish API" }],
+    };
+
+    const first = await store.writeRemainingTasks(input);
+    const yesterday = first.created[0]!.replace(
+      /(\d{4}-\d{2}-\d{2})-/,
+      "2000-01-01-",
+    );
+    await rename(first.created[0]!, yesterday);
+
+    const second = await store.writeRemainingTasks(input);
+
+    expect(second.created).toEqual([]);
+    expect(second.existed).toEqual([yesterday]);
+  });
+
+  it("does not treat an unrelated suffix-matching file as a remaining task", async () => {
+    const store = new TaskMdStore(() => [root], { warn });
+    await writeFile(join(tasksDir, "backup-source-run-1-finish-api.md"), "not a generated task", "utf8");
+
+    const result = await store.writeRemainingTasks({
+      repoPath,
+      sourceRunId: "source-run",
+      project: "Concordia",
+      remaining: [{ title: "finish API" }],
+    });
+
+    expect(result.created).toHaveLength(1);
+    expect(result.existed).toEqual([]);
   });
 });
 

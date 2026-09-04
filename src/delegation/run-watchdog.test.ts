@@ -1,3 +1,4 @@
+/** @implements spec/tasks/2026-08-08-delegation-run-watchdog.md */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { eventBus, type ConcordiaEvent } from "../events.js";
@@ -211,11 +212,59 @@ describe("startDelegationRunWatchdog", () => {
     expect(runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
   });
 
-  it("skips runs whose child activity cannot be measured", async () => {
-    const { runsRepo, options } = makeDeps({ lastActivitySec: () => null });
+  it("re-sends the delegation prompt when the child never started a turn", async () => {
+    // transcript が 1 行も無い = 委託プロンプトが TUI に届かなかった状態。 spawn から
+    // 未着手閾値を超えているので、 状況報告ではなく prompt を送り直す。
+    const { runsRepo, options } = makeDeps({
+      runs: [run({ prompt_file_path: "E:/Document/Ars/Concordia/delegation-prompts/run-1.md" })],
+      lastActivitySec: () => null,
+    });
+    const capture = captureEvents();
+    stopCapture = capture.stop;
+
+    const actions = await runOnceWith(options);
+
+    expect(actions).toEqual([{ runId: "run-1", action: "nudged" }]);
+    expect(runsRepo.recordWatchdogNudge).toHaveBeenCalledWith("run-1", NOW_MS, NOW_MS - 3_600_000);
+    const inject = capture.events.find((ev) => ev.type === "session.inject");
+    expect((inject as { text: string }).text).toContain("delegation-prompts/run-1.md");
+  });
+
+  it("leaves a freshly spawned child alone until the unstarted threshold passes", async () => {
+    const { runsRepo, options } = makeDeps({
+      runs: [run({ created_at: NOW_MS - 60_000 })],
+      lastActivitySec: () => null,
+    });
     const actions = await runOnceWith(options);
     expect(actions).toEqual([]);
     expect(runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
+  });
+
+  it("does not re-send the prompt again within the unstarted cooldown", async () => {
+    const { runsRepo, options } = makeDeps({
+      runs: [run({ watchdog_nudge_count: 1, watchdog_last_nudge_at: NOW_MS - 60_000 })],
+      lastActivitySec: () => null,
+    });
+    const actions = await runOnceWith(options);
+    expect(actions).toEqual([]);
+    expect(runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
+  });
+
+  it("escalates a never-started run once the re-sends are exhausted", async () => {
+    const { runsRepo, options } = makeDeps({
+      runs: [run({ watchdog_nudge_count: 3, watchdog_last_nudge_at: NOW_MS - 3_600_000 })],
+      lastActivitySec: () => null,
+      maxNudges: 3,
+    });
+    const capture = captureEvents();
+    stopCapture = capture.stop;
+
+    const actions = await runOnceWith(options);
+
+    expect(actions).toEqual([{ runId: "run-1", action: "escalated" }]);
+    expect(runsRepo.recordWatchdogNudge).not.toHaveBeenCalled();
+    const inject = capture.events.find((ev) => ev.type === "session.inject");
+    expect((inject as { text: string }).text).toContain("委託プロンプトが届かない");
   });
 
   it("ignores runs without a claimed child session", async () => {

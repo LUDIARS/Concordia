@@ -636,7 +636,9 @@ describe("DelegationService.invoke", () => {
       expect(git(repoRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe(sourceBranch);
       expect(git(worktreeRoot, ["rev-parse", "--abbrev-ref", "HEAD"]).trim()).toBe("feat/delegation-wt");
     } finally {
-      // Git can release Windows file handles a moment after its process exits.
+      if (existsSync(join(worktreeRoot, ".git"))) {
+        git(repoRoot, ["worktree", "remove", "--force", worktreeRoot]);
+      }
       rmSync(worktreeRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
       rmSync(repoRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     }

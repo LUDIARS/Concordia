@@ -1,5 +1,7 @@
 /**
- * 委託 run watchdog — 30 分周期で委託先の進捗を機械的に確認する。
+ * @implements spec/tasks/2026-08-08-delegation-run-watchdog.md
+ *
+ * 委託 run watchdog — 委託先の進捗を機械的に確認する。
  *
  * 「委託して放置」の対策 (2026-08-08 neco 指示)。 LLM は判断に関与しない:
  *   - active な delegation run (launching/spawned/running) を周期走査する。
@@ -25,6 +27,12 @@ import { isAwaitingHumanInput, readSessionTranscriptTail, shouldNudge } from "..
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
+import {
+  buildUnstartedInjectText,
+  DEFAULT_UNSTARTED_SEC,
+  shouldReinjectUnstarted,
+  UNSTARTED_SCAN_INTERVAL_MS,
+} from "./unstarted-run.js";
 
 const log = createChildLogger("delegation-watchdog");
 
@@ -51,6 +59,11 @@ export interface DelegationRunWatchdogOptions {
   resolveEnabled(): boolean;
   resolveIdleSec(): number;
   resolveMaxNudges(): number;
+  /**
+   * 未着手 (transcript 0 行) とみなすまでの秒数。 省略時は既定 300 秒。
+   * idle 判定とは別軸なので閾値も別に持つ (未着手は分単位で拾いたい)。
+   */
+  resolveUnstartedSec?(): number;
   /** scan 周期 (ms)。 既定 30 分。 */
   intervalMs?: number;
   now?: () => number;
@@ -78,7 +91,7 @@ export function buildChildNudgeText(run: DelegationRunRow, idleMinutes: number):
 /** 親へのエスカレーション本文。 理由は機械判定の事実だけを書く。 */
 export function buildEscalationText(
   run: DelegationRunRow,
-  reason: "child_missing" | "child_not_active" | "child_disconnected" | "unresponsive",
+  reason: "child_missing" | "child_not_active" | "child_disconnected" | "unresponsive" | "never_started",
   nudgeCount: number,
 ): string {
   const reasonText = {
@@ -86,6 +99,7 @@ export function buildEscalationText(
     child_not_active: "子セッションが終了しています (status 報告なし)",
     child_disconnected: "子セッションの接続が切れており、確認を届けられません",
     unresponsive: `${nudgeCount} 回の自動確認に応答がありません`,
+    never_started: `委託プロンプトが届かないまま ${nudgeCount} 回の再送に応答がありません`,
   }[reason];
   return [
     `[delegation:${run.id}] [watchdog] 委託先が停滞しています: ${reasonText}。`,
@@ -97,7 +111,9 @@ export function buildEscalationText(
 export function startDelegationRunWatchdog(
   opts: DelegationRunWatchdogOptions,
 ): DelegationRunWatchdogHandle {
-  const intervalMs = opts.intervalMs ?? 30 * 60 * 1000;
+  // 未着手検知は分単位で拾いたいので、 走査自体は idle 判定の周期より短く回す。
+  // 走査は active run の DB 読みだけで安く、 再送の間隔は各判定側の cooldown が抑える。
+  const intervalMs = Math.min(opts.intervalMs ?? 30 * 60 * 1000, UNSTARTED_SCAN_INTERVAL_MS);
   const now = opts.now ?? Date.now;
   const readTail = opts.readTranscriptTail ?? readSessionTranscriptTail;
   let supervised: SupervisedIntervalHandle | null = null;
@@ -142,10 +158,29 @@ export function startDelegationRunWatchdog(
     return true;
   }
 
+  /** 子セッションへの自動確認を届ける (イベント永続化 + 配信は 1 箇所に閉じる)。 */
+  function deliverNudge(childSessionId: string, text: string, nowMs: number): void {
+    const ts = Math.floor(nowMs / 1000);
+    opts.sessions.appendEvent({
+      session_id: childSessionId,
+      ts,
+      kind: "inject",
+      payload: { text, source: DELEGATION_WATCHDOG_SOURCE },
+    });
+    eventBus.emit({
+      type: "session.inject",
+      target_session_id: childSessionId,
+      text,
+      source: DELEGATION_WATCHDOG_SOURCE,
+      ts,
+    });
+  }
+
   async function runOnce(): Promise<Array<{ runId: string; action: "nudged" | "escalated" }>> {
     if (!opts.resolveEnabled()) return [];
     const nowMs = now();
     const idleThresholdMs = Math.max(1, opts.resolveIdleSec()) * 1000;
+    const unstartedThresholdMs = Math.max(1, opts.resolveUnstartedSec?.() ?? DEFAULT_UNSTARTED_SEC) * 1000;
     const maxNudges = Math.max(1, opts.resolveMaxNudges());
     const actions: Array<{ runId: string; action: "nudged" | "escalated" }> = [];
 
@@ -166,7 +201,43 @@ export function startDelegationRunWatchdog(
       }
 
       const lastSec = opts.lastActivitySec(run.child_session_id);
-      if (lastSec == null) continue; // 計測不能は触らない (誤 nudge より安全側)。
+      if (lastSec == null) {
+        // transcript が 1 行も無い = ターンが 1 度も回っていない = 委託プロンプトが
+        // 届いていない。 活動時刻が測れないので spawn からの経過を基準に拾う
+        // (unstarted-run.ts)。 ここを `continue` にしていた間、 一番助けが要る状態
+        // だけが監視から外れていた。
+        if (
+          !shouldReinjectUnstarted({
+            createdAtMs: run.created_at,
+            nowMs,
+            thresholdMs: unstartedThresholdMs,
+            lastNudgeMs: run.watchdog_last_nudge_at ?? null,
+          })
+        ) {
+          continue;
+        }
+        if ((run.watchdog_nudge_count ?? 0) >= maxNudges) {
+          if (escalate(run, "never_started", nowMs)) actions.push({ runId: run.id, action: "escalated" });
+          continue;
+        }
+        if (child.ws_clients <= 0) {
+          // 接続が無ければ再送も届かない。 プロンプト未達のまま放置になるので親へ上げる。
+          if (escalate(run, "child_disconnected", nowMs)) actions.push({ runId: run.id, action: "escalated" });
+          continue;
+        }
+        opts.runs.recordWatchdogNudge(run.id, nowMs, run.created_at);
+        deliverNudge(run.child_session_id, buildUnstartedInjectText(run), nowMs);
+        actions.push({ runId: run.id, action: "nudged" });
+        log.warn(
+          {
+            run_id: run.id,
+            child_session_id: run.child_session_id,
+            since_spawn_sec: Math.round((nowMs - run.created_at) / 1000),
+          },
+          "delegation child never started; re-sending the delegation prompt",
+        );
+        continue;
+      }
       const lastActivityMs = lastSec * 1000;
       const idleMs = nowMs - lastActivityMs;
       if (
@@ -200,21 +271,7 @@ export function startDelegationRunWatchdog(
       }
 
       opts.runs.recordWatchdogNudge(run.id, nowMs, lastActivityMs);
-      const nowSec = Math.floor(nowMs / 1000);
-      const text = buildChildNudgeText(run, Math.round(idleMs / 60_000));
-      opts.sessions.appendEvent({
-        session_id: run.child_session_id,
-        ts: nowSec,
-        kind: "inject",
-        payload: { text, source: DELEGATION_WATCHDOG_SOURCE },
-      });
-      eventBus.emit({
-        type: "session.inject",
-        target_session_id: run.child_session_id,
-        text,
-        source: DELEGATION_WATCHDOG_SOURCE,
-        ts: nowSec,
-      });
+      deliverNudge(run.child_session_id, buildChildNudgeText(run, Math.round(idleMs / 60_000)), nowMs);
       actions.push({ runId: run.id, action: "nudged" });
       log.info(
         { run_id: run.id, child_session_id: run.child_session_id, idle_sec: Math.round(idleMs / 1000) },

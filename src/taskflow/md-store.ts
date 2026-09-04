@@ -204,8 +204,22 @@ export class TaskMdStore {
     const existed: string[] = [];
     const sourceSlug = taskSlug(input.sourceRunId, "run", 48);
     const createdDate = new Date().toISOString().slice(0, 10);
+    // 「同じ残作業で回っているか」 の判定 (partial_no_progress) はファイル名の重複で行う。
+    // 日付は UTC 由来なので、 連鎖が UTC 日付をまたぐと同じ残作業でも別名になり、
+    // 進捗なし判定がすり抜けていた (2026-09-04 実測: genius-ingest-daily が 09-03 →
+    // 09-04 の 2 ファイルを作って再委託を継続)。 日付を除いた部分で既存を探す。
+    const existingNames = await readdir(dir).catch(() => [] as string[]);
     for (const [index, item] of input.remaining.entries()) {
       const slug = taskSlug(item.title, `remaining-${index + 1}`, 60);
+      const identity = `-${sourceSlug}-${index + 1}-${slug}.md`;
+      const previous = existingNames.find((name) =>
+        name.length === 10 + identity.length
+        && /^\d{4}-\d{2}-\d{2}$/.test(name.slice(0, 10))
+        && name.endsWith(identity));
+      if (previous) {
+        existed.push(join(dir, previous));
+        continue;
+      }
       const path = join(dir, `${createdDate}-${sourceSlug}-${index + 1}-${slug}.md`);
       const markdown = renderRemainingTask({
         item,

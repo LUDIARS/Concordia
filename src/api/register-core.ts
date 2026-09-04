@@ -1140,18 +1140,19 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     return c.json({ enabled: deps.adminState.getRevisorAutoSubmitEnabled() });
   });
 
-  // 委託 run watchdog (30 分周期の進捗確認)。 watchdog の tick が毎回 live 評価するので
+  // 委託 run watchdog。 watchdog の tick が毎回 live 評価するので
   // 即時反映。 spec/tasks/2026-08-08-delegation-run-watchdog.md
   app.get("/v1/admin/delegation-watchdog", (c) => {
     return c.json({
       enabled: deps.adminState.getDelegationWatchdogEnabled(),
       idle_sec: deps.adminState.getDelegationWatchdogIdleSec(),
       max_nudges: deps.adminState.getDelegationWatchdogMaxNudges(),
+      unstarted_sec: deps.adminState.getDelegationWatchdogUnstartedSec(),
     });
   });
   app.put("/v1/admin/delegation-watchdog", async (c) => {
     const body = await c.req.json().catch(() => null) as
-      | { enabled?: unknown; idle_sec?: unknown; max_nudges?: unknown }
+      | { enabled?: unknown; idle_sec?: unknown; max_nudges?: unknown; unstarted_sec?: unknown }
       | null;
     if (!body) return c.json({ error: "json body required" }, 400);
     try {
@@ -1167,6 +1168,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
         if (typeof body.max_nudges !== "number") return c.json({ error: "max_nudges must be a number" }, 400);
         deps.adminState.setDelegationWatchdogMaxNudges(body.max_nudges);
       }
+      if (body.unstarted_sec !== undefined) {
+        if (typeof body.unstarted_sec !== "number") return c.json({ error: "unstarted_sec must be a number" }, 400);
+        deps.adminState.setDelegationWatchdogUnstartedSec(body.unstarted_sec);
+      }
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
@@ -1174,6 +1179,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       enabled: deps.adminState.getDelegationWatchdogEnabled(),
       idle_sec: deps.adminState.getDelegationWatchdogIdleSec(),
       max_nudges: deps.adminState.getDelegationWatchdogMaxNudges(),
+      unstarted_sec: deps.adminState.getDelegationWatchdogUnstartedSec(),
     });
   });
 

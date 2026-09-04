@@ -60,6 +60,7 @@ describe("AdminState", () => {
       delegation_watchdog_enabled: true,
       delegation_watchdog_idle_sec: 1800,
       delegation_watchdog_max_nudges: 3,
+      delegation_watchdog_unstarted_sec: 300,
       reaper_session_end_grace_sec: 300,
       // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
       workflows: {
@@ -231,6 +232,13 @@ describe("AdminState", () => {
     env.state.setReaperSessionEndGraceSec(180);
     expect(new AdminState(env.db).getReaperSessionEndGraceSec()).toBe(180);
     expect(() => env.state.setReaperSessionEndGraceSec(0)).toThrow();
+  });
+
+  it("delegation watchdog unstarted threshold persists and rejects invalid values", () => {
+    expect(env.state.getDelegationWatchdogUnstartedSec()).toBe(300);
+    env.state.setDelegationWatchdogUnstartedSec(120);
+    expect(new AdminState(env.db).getDelegationWatchdogUnstartedSec()).toBe(120);
+    expect(() => env.state.setDelegationWatchdogUnstartedSec(0)).toThrow();
   });
 
   it("workspace_root / github_org fall back to constructor defaults when unset", () => {

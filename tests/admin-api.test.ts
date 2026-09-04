@@ -277,6 +277,20 @@ describe("admin API", () => {
     expect(body.rules_enabled).toBe(false);
   });
 
+  it("PUT /v1/admin/delegation-watchdog updates the unstarted threshold", async () => {
+    const put = await env.app.request("/v1/admin/delegation-watchdog", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ unstarted_sec: 120 }),
+    });
+
+    expect(put.status).toBe(200);
+    expect((await put.json() as { unstarted_sec: number }).unstarted_sec).toBe(120);
+
+    const get = await env.app.request("/v1/admin/delegation-watchdog");
+    expect((await get.json() as { unstarted_sec: number }).unstarted_sec).toBe(120);
+  });
+
   it("PUT /v1/admin/chat-mute toggles + GET reflects new value", async () => {
     const put = await env.app.request("/v1/admin/chat-mute", {
       method: "PUT",

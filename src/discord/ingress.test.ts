@@ -111,7 +111,13 @@ describe("discord ingress chat routing", () => {
     await handleMessage(deps, msg);
 
     expect(handle).toHaveBeenCalledWith(
-      expect.objectContaining({ emoji: "🙏", sessionId: "s1", messageText: "" }),
+      expect.objectContaining({
+        platform: "discord",
+        sourceMessageId: "msg1",
+        emoji: "🙏",
+        sessionId: "s1",
+        messageText: "",
+      }),
       expect.any(Function),
       expect.any(Function),
     );

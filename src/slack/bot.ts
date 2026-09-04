@@ -186,8 +186,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
   // (設定 GUI トグルを bot 再起動なしで反映)。
   const reactionWorkflow = new (getRwf().ReactionWorkflowRunner)({
     runHeadless: deps.runHeadless,
-    emitInject: (sessionId, text, source) =>
-      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ts: Math.floor(Date.now() / 1000) }),
+    emitInject: (sessionId, text, source, provenance) =>
+      eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ...(provenance ? { provenance } : {}), ts: Math.floor(Date.now() / 1000) }),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
@@ -624,6 +624,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
             .handle(
               {
                 dedupeKey: target ? `chat:${target.id}` : `slack:${event.ts}`,
+                platform: "slack",
+                sourceMessageId: `${event.channel}:${event.ts}`,
                 emoji: reactionRoute.emoji,
                 userId: event.user ?? "slack",
                 messageText: target?.text ?? "",
@@ -934,6 +936,8 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       await reactionWorkflow.handle(
         {
           dedupeKey: `${ch}:${ts}`,
+          platform: "slack",
+          sourceMessageId: `${ch}:${ts}`,
           emoji,
           userId: event.user ?? "",
           messageText,

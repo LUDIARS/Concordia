@@ -179,6 +179,7 @@ app.post("/:id/inject", async (c) => {
       text: injectText,
       source: src,
       author_label: authorLabel,
+      ...(parsed.data.provenance ? { provenance: parsed.data.provenance } : {}),
       ts,
     });
     deps.repo.appendEvent({

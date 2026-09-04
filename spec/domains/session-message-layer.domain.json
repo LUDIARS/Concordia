@@ -5,7 +5,7 @@
   "templateRules": [],
   "membership": [
     {
-      "pathPattern": "(^|/)src/messages/(project|service|tool-failure)(\\.test)?\\.ts$"
+      "pathPattern": "(^|/)src/messages/(project|service|tool-failure|injection-provenance)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/db/session-message(s|-reads|-delivery)-repo(\\.test)?\\.ts$"
@@ -17,7 +17,7 @@
       "pathPattern": "(^|/)src/(events|sweeper)\\.ts$"
     },
     {
-      "pathPattern": "(^|/)src/shared/(event-schema|session-message-types)\\.ts$"
+      "pathPattern": "(^|/)src/shared/(event-schema|session-message-types|injection-provenance(?:-schema)?)(\\.test)?\\.ts$"
     },
     {
       "pathPattern": "(^|/)src/api/register-core\\.ts$"
@@ -29,7 +29,7 @@
       "pathPattern": "(^|/)src/db/schema\\.ts$"
     },
     {
-      "pathPattern": "(^|/)tests/(session-messages-api|sessions-transcript-api|sweeper)\\.test\\.ts$"
+      "pathPattern": "(^|/)tests/(session-messages-api|sessions-inject-api|sessions-transcript-api|sweeper)\\.test\\.ts$"
     },
     {
       "pathPattern": "(^|/)tests/helpers/test-app\\.ts$"

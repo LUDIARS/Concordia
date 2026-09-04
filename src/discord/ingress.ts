@@ -463,6 +463,8 @@ async function tryEmojiWorkflow(
     .handle(
       {
         dedupeKey: target ? `chat:${target.id}` : `discord:${msg.id}`,
+        platform: "discord",
+        sourceMessageId: msg.id,
         emoji,
         userId: msg.author.id,
         messageText: target?.text ?? "",

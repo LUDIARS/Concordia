@@ -42,6 +42,57 @@ describe("sessions API — inject / title / title-suggestion", () => {
     expect(kinds).toContain("inject");
   });
 
+  it("POST /v1/sessions/:id/inject validates and preserves reaction provenance", async () => {
+    await app.request("/v1/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "inj-prov", provider: "claude-code", repo_path: "/x", host: "h" }),
+    });
+    const { eventBus } = await import("../src/events.js");
+    const captured: any[] = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (event.type === "session.inject" && event.target_session_id === "inj-prov") captured.push(event);
+    });
+    try {
+      const provenance = {
+        kind: "reaction-workflow",
+        action: "start-impl",
+        platform: "discord",
+        emoji: "👍",
+        sourceMessageId: "message-1",
+        actorId: "user-1",
+      };
+      const response = await app.request("/v1/sessions/inj-prov/inject", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "start", source: "reaction-workflow", provenance }),
+      });
+      expect(response.status).toBe(200);
+      expect(captured).toHaveLength(1);
+      expect(captured[0].provenance).toEqual(provenance);
+
+      const invalid = await app.request("/v1/sessions/inj-prov/inject", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          text: "start",
+          source: "reaction-workflow",
+          provenance: { ...provenance, platform: "unknown" },
+        }),
+      });
+      expect(invalid.status).toBe(400);
+
+      const spoofed = await app.request("/v1/sessions/inj-prov/inject", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "start", source: "manual", provenance }),
+      });
+      expect(spoofed.status).toBe(400);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("POST /v1/sessions/:id/title emits title_renamed (Lictor へは転送しない)", async () => {
     await app.request("/v1/sessions", {
       method: "POST",

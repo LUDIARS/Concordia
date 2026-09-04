@@ -6,6 +6,7 @@
 
 import type { SessionMessagePayload } from "./shared/session-message-types.js";
 import type { TeamCardEventKind } from "./shared/team-cards.js";
+import type { InjectionProvenance } from "./shared/injection-provenance.js";
 export type { SessionMessagePayload } from "./shared/session-message-types.js";
 
 /**
@@ -121,7 +122,7 @@ type ConcordiaEventPayload =
    */
   // author_label: 人間入力者の表示名 (発言者明示のクロスプラットフォーム・ミラー用)。
   // source が "discord:<uid>:…" / "slack:<uid>:…" の人間メッセージのときに付く。
-  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; ts: number }
+  | { type: "session.inject";   target_session_id: string; text: string; source: string | null; author_label?: string | null; provenance?: InjectionProvenance; ts: number }
   /**
    * 停滞セッションへ自動確認 (stall nudge) を注入した事実の通知。inject 本文は
    * 含めない (Discord へは「送った」ことだけを短文で知らせる — 2026-08-25 neco 指示)。

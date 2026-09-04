@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { ConcordiaEvent } from "../events.js";
 import { TEAM_CARD_EVENT_KINDS } from "./team-cards.js";
+import { InjectionProvenanceSchema } from "./injection-provenance-schema.js";
 
 export const WS_EVENT_VERSION = 1;
 
@@ -243,6 +244,7 @@ const eventSchemas = {
     text: z.string(),
     source: nullableString,
     author_label: nullableString.optional(),
+    provenance: InjectionProvenanceSchema.optional(),
     ts: z.number(),
   }).passthrough(),
   "session.stall_nudged": z.object({

@@ -143,6 +143,7 @@ import { MemoriaClient } from "../memoria/client.js";
 import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
 import { renderTeamCostReport } from "./team-cost-report.js";
 import { DiscordGatewayPool } from "./gateway-pool.js";
+import type { SessionInjectEmitter } from "../shared/injection-provenance.js";
 
 /**
  * スレッドタイトルに載せる作業リポ群。 Lictor が active repo を 1 本も報告して
@@ -295,7 +296,7 @@ export interface DiscordBotDeps {
    * this is the in-process event bus. In the standalone Discord worker it
    * posts to the backend API so the session WS receives the inject.
    */
-  emitSessionInject?: (sessionId: string, text: string, source: string) => void;
+  emitSessionInject?: SessionInjectEmitter;
   /**
    * AskUserQuestion 回答の in-process 直呼び。embedded backend は
    * control/answer-question.ts を注入し、self-fetch (自プロセスへの HTTP) を回避する。
@@ -466,12 +467,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false);
   const reactionWorkflowEnabled = (): boolean =>
     isWorkflowEnabled("reaction") && resolveReactionSafetyValve();
-  const emitSessionInject = deps.emitSessionInject ?? ((sessionId: string, text: string, source: string) =>
+  const emitSessionInject: SessionInjectEmitter = deps.emitSessionInject ?? ((
+    sessionId,
+    text,
+    source,
+    provenance,
+  ) =>
     eventBus.emit({
       type: "session.inject",
       target_session_id: sessionId,
       text,
       source,
+      ...(provenance ? { provenance } : {}),
       ts: Math.floor(Date.now() / 1000),
     }));
 

@@ -15,8 +15,8 @@ memory_links:
 
 ## 完了条件
 
-- reaction workflow の action、platform、発火元メッセージ、発火ユーザーを識別できる provenance が注入経路から session message の正本まで失われない。
-- モデルへ渡す入力で、workflow が生成した指示とユーザーの直接入力を判別できる。
+- reaction workflow の action、platform、発火元メッセージ、発火ユーザーを照合できる provenance が注入経路から session message の正本まで失われない。platform ID の生値は保存せず、照合用 reference に最小化する。
+- モデルへ渡す入力には action/platform を含む機械生成ヘッダーを付け、workflow が生成した指示とユーザーの直接入力を判別できる。
 - Discord と Slack の共通注入経路で provenance の保持を検証する回帰テストがある。
 - `👌` の恒久的な非アクション保証と `👋` の handoff 動作を維持する。
 
@@ -27,5 +27,9 @@ memory_links:
 - src/slack/
 - src/api/
 - src/db/
+- src/messages/
+- src/shared/
 - tests/
 - spec/feature/
+- spec/domains/
+- spec/tasks/

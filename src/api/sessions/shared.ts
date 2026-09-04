@@ -3,6 +3,8 @@ import type { SessionRow } from "../../shared/types.js";
 import { fetchFromLictor } from "../../control/lictor-proxy.js";
 import type { SpawnProvider } from "../../control/spawner.js";
 import { createChildLogger } from "../../shared/logger.js";
+import { REACTION_WORKFLOW_SOURCE } from "../../shared/injection-provenance.js";
+import { InjectionProvenanceSchema } from "../../shared/injection-provenance-schema.js";
 
 export const log = createChildLogger("sessions-api");
 
@@ -98,6 +100,15 @@ export const InjectSchema = z.object({
   source: z.string().min(1).max(120).optional(),
   // 人間入力者の表示名 (ingress が付与)。参加者レジストリ登録 + ミラー発言者明示に使う。
   author_label: z.string().min(1).max(120).optional(),
+  provenance: InjectionProvenanceSchema.optional(),
+}).superRefine((value, ctx) => {
+  if (value.provenance && value.source !== REACTION_WORKFLOW_SOURCE) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["provenance"],
+      message: `provenance requires source=${REACTION_WORKFLOW_SOURCE}`,
+    });
+  }
 });
 
 // セッションのゴール設定 (/co-goal)。 mode 明示 / 自由文どちらか or 両方。

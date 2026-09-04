@@ -15,6 +15,7 @@ import type {
   Embed,
   SessionMessageAuthorType,
 } from "../shared/session-message-types.js";
+import { injectionAuthorLabel, injectionProvenanceMetadata } from "./injection-provenance.js";
 
 export type {
   Attachment,
@@ -328,15 +329,19 @@ function toolDisplayLabel(name: string, inputPreview: string): string {
 function projectSessionInject(
   ev: Extract<ConcordiaEvent, { type: "session.inject" }>,
 ): ProjectedMessage {
+  const metadata = injectionProvenanceMetadata(ev.provenance);
   return {
     op: "create",
     // session.inject has no stable event/message ID. A timestamp/text hash would collapse two
     // legitimate identical messages in the same second, so use the explicit always-insert path.
     dedupe_key: null,
-    author_type: "user",
-    author_label: ev.author_label ?? "User",
-    author_platform: derivePlatformFromSource(ev.source),
+    // 出所のある注入は user と分ける。 モデルへ渡す入力で「本人が書いた文」と
+    // 「絵文字 1 つから機械的に展開されたテンプレート」を同じ重みで読ませない。
+    author_type: ev.provenance ? "system" : "user",
+    author_label: ev.author_label ?? (ev.provenance ? injectionAuthorLabel(ev.provenance) : "User"),
+    author_platform: ev.provenance?.platform ?? derivePlatformFromSource(ev.source),
     content: ev.text,
+    ...(metadata ? { metadata } : {}),
   };
 }
 

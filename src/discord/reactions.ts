@@ -171,7 +171,18 @@ export async function handleReactionAdd(
   if (deps.workflow && isSessionThread && deps.isWorkflowUserAllowed?.(user.id)) {
     void deps.workflow
       .handle(
-        { dedupeKey: discordMessageId, emoji, userId: user.id, messageText, authorLabel, repoPath, sessionActive, sessionId },
+        {
+          dedupeKey: discordMessageId,
+          platform: "discord",
+          sourceMessageId: discordMessageId,
+          emoji,
+          userId: user.id,
+          messageText,
+          authorLabel,
+          repoPath,
+          sessionActive,
+          sessionId,
+        },
         (action) => {
           // 受付 / 結果の描画は操作パネルの共通部品を通す (画面ごとに描画を書かない)。
           const panel = buildRwfAckPanel({ action, emoji, actorId: user.id });

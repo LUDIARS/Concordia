@@ -2,6 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
+import type { InjectionProvenance } from "../shared/injection-provenance.js";
 import {
   classifyReactionWorkflow,
   defaultReactionEmojiMap,
@@ -327,14 +328,14 @@ describe("planWorkflow", () => {
 describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
   function makeRunner(over: Record<string, unknown> = {}) {
     const calls: { prompt: string; opts?: { cwd?: string; model?: string } }[] = [];
-    const injects: { sessionId: string; text: string; source: string }[] = [];
+    const injects: { sessionId: string; text: string; source: string; provenance?: InjectionProvenance }[] = [];
     const runHeadless = async (prompt: string, opts?: { cwd?: string; model?: string }) => {
       calls.push({ prompt, opts });
       return { ok: true, exit_code: 0, stdout: "", stderr: "", duration_ms: 1 };
     };
     const runner = new ReactionWorkflowRunner({
       runHeadless,
-      emitInject: (sessionId: string, text: string, source: string) => injects.push({ sessionId, text, source }),
+      emitInject: (sessionId, text, source, provenance) => injects.push({ sessionId, text, source, provenance }),
       workspaceRoot: "E:/Document/Ars",
       memoriaPath: "E:/Document/Ars/Memoria",
       enabled: true,
@@ -350,6 +351,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
 
   const baseInput: ReactionWorkflowInput = {
     dedupeKey: "m1",
+    sourceMessageId: "m1",
     emoji: "👀",
     userId: "u1",
     messageText: "これメモして",
@@ -472,10 +474,30 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     expect(calls[0].prompt).toContain("これメモして");
   });
 
-  it("delegate-task(🤝) active → inject (runHeadless 非呼び出し)", async () => {
-    const { runner, calls } = makeRunner();
-    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: true, sessionId: "sess-abc" });
+  it("delegate-task(🤝) active → provenance 付き inject (runHeadless 非呼び出し)", async () => {
+    const { runner, calls, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput,
+      platform: "discord",
+      emoji: "🤝",
+      sessionActive: true,
+      sessionId: "sess-abc",
+    });
     expect(calls).toHaveLength(0); // inject 経路なので headless は起動しない
+    expect(injects).toHaveLength(1);
+    expect(injects[0]).toMatchObject({
+      sessionId: "sess-abc",
+      source: "reaction-workflow",
+      provenance: {
+        kind: "reaction-workflow",
+        action: "delegate-task",
+        platform: "discord",
+        emoji: "🤝",
+        sourceMessageId: "m1",
+        actorId: "u1",
+      },
+    });
+    expect(injects[0].text).toMatch(/^【Concordia reaction-workflow: delegate-task \(discord\)】\n/);
   });
 
   it("delegate-task の onAccept は action='delegate-task' で呼ばれる", async () => {

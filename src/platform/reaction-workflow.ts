@@ -56,6 +56,11 @@ import {
 } from "./reaction-workflow-pr.js";
 import { readFile, stat } from "node:fs/promises";
 import { ENTER_KEY_TEXT } from "./enter-key.js";
+import {
+  REACTION_WORKFLOW_SOURCE,
+  type InjectionProvenance,
+  type SessionInjectEmitter,
+} from "../shared/injection-provenance.js";
 
 /** path が存在するか (async existsSync 代替)。 */
 async function pathExists(path: string): Promise<boolean> {
@@ -881,7 +886,7 @@ export interface ReactionWorkflowDeps {
    * 対象セッションへ文字列を inject する (eventBus.emit("session.inject") 相当)。
    * engine を Concordia 内部 (events) から切り離すため、 ホスト側が実装を注入する。
    */
-  emitInject: (sessionId: string, text: string, source: string) => void;
+  emitInject: SessionInjectEmitter;
   /** 🧠 context の read-model port。未配線時は明示的に unavailable を返す。 */
   contextReport?: (sessionId: string) => Promise<string>;
   /** ワークスペースルート (= Memoria 等のローカルクローン親)。 単一指定の後方互換。 */
@@ -957,6 +962,13 @@ export interface ReactionWorkflowInput {
   sessionActive: boolean;
   /** inject 先 session id。 session チャンネルでなければ null。 */
   sessionId: string | null;
+  /**
+   * 発火元のプラットフォーム。 注入された指示の出所 (provenance) に載せる。
+   * 未指定なら provenance を付けない (既存の呼び出しを壊さない)。
+   */
+  platform?: "discord" | "slack";
+  /** 発火元の platform-native message ID。dedupe key とは分離して監査照合に使う。 */
+  sourceMessageId?: string;
 }
 
 export interface WorkflowResultRelay {
@@ -1206,7 +1218,7 @@ export class ReactionWorkflowRunner {
 
     try {
       if (plan.mode === "inject") {
-        this.inject(input.sessionId, plan.prompt, action);
+        this.inject(input.sessionId, plan.prompt, action, buildProvenance(input, action));
       } else {
         const result = await this.runHeadless(plan);
         this.relayHeadlessResult(action, result, onResult);
@@ -1400,12 +1412,20 @@ export class ReactionWorkflowRunner {
     }
   }
 
-  private inject(targetSessionId: string | null, text: string, action: WorkflowAction): void {
+  private inject(
+    targetSessionId: string | null,
+    text: string,
+    action: WorkflowAction,
+    provenance?: InjectionProvenance,
+  ): void {
     if (!targetSessionId) {
       this.deps.log.warn(`reaction-workflow: ${action} inject skipped (no session_id)`);
       return;
     }
-    this.deps.emitInject(targetSessionId, text, "reaction-workflow");
+    const injectedText = provenance
+      ? `【Concordia reaction-workflow: ${provenance.action} (${provenance.platform})】\n${text}`
+      : text;
+    this.deps.emitInject(targetSessionId, injectedText, REACTION_WORKFLOW_SOURCE, provenance);
     this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId.slice(0, 8)}`);
   }
 
@@ -1449,4 +1469,23 @@ function shouldRelayHeadlessResult(action: WorkflowAction): boolean {
 function clipWorkflowRelayText(text: string, max = 1800): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 40).trimEnd()}\n\n...(truncated; see session-logs for full handoff)`;
+}
+
+/**
+ * 注入の出所を組み立てる。 platform が渡っていなければ付けない — 出所を
+ * 名乗れないなら黙って付けるより、 従来どおり user 扱いにするほうが誤解が少ない。
+ */
+function buildProvenance(
+  input: ReactionWorkflowInput,
+  action: WorkflowAction,
+): InjectionProvenance | undefined {
+  if (!input.platform) return undefined;
+  return {
+    kind: "reaction-workflow",
+    action,
+    platform: input.platform,
+    emoji: input.emoji,
+    ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
+    actorId: input.userId,
+  };
 }

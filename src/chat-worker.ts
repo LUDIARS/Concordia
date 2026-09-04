@@ -30,6 +30,7 @@ import { resolveFederationSiteId } from "./federation/listener-settings.js";
 import { resolveDiscordConfig } from "./discord/conn-config.js";
 import { DEFAULT_DESK_CHANNEL_NAME } from "./discord/config.js";
 import { startDiscordBot, type DiscordBotDeps, type DiscordBotHandle } from "./discord/bot.js";
+import { createRemoteSessionInject } from "./discord/remote-session-inject.js";
 import { DiscordGatewayPool } from "./discord/gateway-pool.js";
 import { startSlackBot, type SlackBotDeps } from "./slack/bot.js";
 import { makeChatReadModel } from "./api/chat-read-models.js";
@@ -121,19 +122,6 @@ export function startChatWorkerWsBridge(wsUrl: string, onOpen?: () => void): WsB
       if (retry) clearTimeout(retry);
       try { ws?.close(); } catch { /* best-effort */ }
     },
-  };
-}
-
-function postInject(concordiaUrl: string): DiscordBotDeps["emitSessionInject"] {
-  return (sessionId, text, source) => {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    void fetch(`${concordiaUrl}/v1/sessions/${encodeURIComponent(sessionId)}/inject`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ text, source }),
-    }).then((response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    }).catch((error) => log.warn(`remote inject failed session=${sessionId}: ${(error as Error).message}`));
   };
 }
 
@@ -325,7 +313,7 @@ async function main(): Promise<void> {
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(sessions, sessionId),
     resolveConfig: () => resolveDiscordConfig(discordConfig, secretBox),
-    emitSessionInject: postInject(concordiaUrl),
+    emitSessionInject: createRemoteSessionInject(concordiaUrl, log),
   };
   const slackDeps: SlackBotDeps = {
     db,

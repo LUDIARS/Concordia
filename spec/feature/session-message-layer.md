@@ -17,7 +17,7 @@ related:
   - ./trust-boundaries.md
   - ../interface/service-schema.md
   - ../data/schema.md
-updated: 2026-08-07
+updated: 2026-09-04
 ---
 
 # Session message layer — canonical work stream
@@ -80,8 +80,10 @@ available fields; normal event order creates the source row first.
 
 The message layer intentionally stores message/transcript content for the internal administrator
 stream. It must not additionally persist credential-bearing raw permission inputs, platform user IDs,
-or full source identifiers in message metadata. Permission actions retain only `request_id` and
-`tool_name`; question state retains the question/answer data needed to render it.
+or full source identifiers in message metadata. Reaction-workflow provenance retains action, platform,
+emoji, and deterministic `sha256:` references for the actor/source message so an operator who already
+has an ID can correlate an incident without storing that ID in clear text. Permission actions retain
+only `request_id` and `tool_name`; question state retains the question/answer data needed to render it.
 
 Concordia HTTP remains an internal loopback API. Any external exposure must pass through
 AccessControl as specified in [trust-boundaries.md](trust-boundaries.md).
@@ -101,7 +103,7 @@ The projector handles these events:
 | --- | --- |
 | transcript text/thinking/summary/image | user, assistant, thinking, summary, or attachment message |
 | tool use/result | tool message, or one Task row updated through completion; a failed call also carries `metadata.failure` |
-| `session.inject` | user message with normalized platform only |
+| `session.inject` | user message with normalized platform; reaction-workflow injects become system messages with minimized provenance metadata |
 | question posted/answered/resolved | one question row with retained prompt/options and merged state |
 | permission request | permission item without raw `tool_input` persistence |
 | delegation mirror | delegation item |

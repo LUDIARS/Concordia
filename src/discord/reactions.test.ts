@@ -43,6 +43,11 @@ describe("Discord reaction workflow authorization", () => {
     const { deps, handle } = makeDeps(true);
     await handleReactionAdd(deps, reaction as never, { id: "operator", bot: false } as never);
     expect(handle).toHaveBeenCalledOnce();
+    expect(handle).toHaveBeenCalledWith(
+      expect.objectContaining({ platform: "discord", sourceMessageId: "m1" }),
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
 
   it("does not start the workflow outside a session thread", async () => {

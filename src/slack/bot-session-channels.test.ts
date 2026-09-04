@@ -198,6 +198,45 @@ describe("Slack bot session-per-channel", () => {
     await platform.stop();
   });
 
+  it("preserves Slack provenance on an active-session inject workflow", async () => {
+    const { platform, socket } = await startHarness(30, true);
+    await platform.ensureSessionSurface("session-1");
+    const message = socket.handlers.get("message");
+    if (!message) throw new Error("message handler missing");
+    const captured: Array<Record<string, unknown>> = [];
+    const unsubscribe = eventBus.subscribe((event) => {
+      if (
+        event.type === "session.inject" &&
+        event.target_session_id === "session-1" &&
+        event.source === "reaction-workflow" &&
+        event.provenance?.platform === "slack"
+      ) {
+        captured.push(event as unknown as Record<string, unknown>);
+      }
+    });
+    try {
+      await message({
+        event: { type: "message", channel: "C1", user: "U1", ts: "1", text: "👍" },
+        ack: vi.fn(async () => {}),
+      } as never);
+      await vi.waitFor(() => expect(captured).toHaveLength(1));
+      expect(captured[0]).toMatchObject({
+        source: "reaction-workflow",
+        provenance: {
+          kind: "reaction-workflow",
+          action: "start-impl",
+          platform: "slack",
+          emoji: "👍",
+          sourceMessageId: "C1:1",
+          actorId: "U1",
+        },
+      });
+    } finally {
+      unsubscribe();
+      await platform.stop();
+    }
+  });
+
   it("starts reaction workflows only in dedicated session channels", async () => {
     const { platform, web, socket } = await startHarness(30, true);
     await platform.ensureSessionSurface("session-1");

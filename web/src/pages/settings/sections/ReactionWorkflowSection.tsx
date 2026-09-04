@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ToggleRow, putJson } from "./common.js";
+import { putJson } from "./common.js";
 
 // ─── リアクションワークフロー (ON/OFF + 絵文字→アクション マッピング) ──────
 
@@ -32,7 +32,8 @@ interface ReactionWorkflowStatus {
   };
 }
 
-export function ReactionWorkflowSection() {
+/** @implements spec/tasks/2026-08-09-settings-duplicate-display-cleanup.md */
+export function ReactionWorkflowSection({ onOpenAllSettings }: { onOpenAllSettings: () => void }) {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [readiness, setReadiness] = useState<ReactionWorkflowStatus["readiness"] | null>(null);
   const [maps, setMaps] = useState<ReactionMappings | null>(null);
@@ -56,12 +57,6 @@ export function ReactionWorkflowSection() {
       if (!newAction && (m as ReactionMappings).actions?.length) setNewAction((m as ReactionMappings).actions[0]);
       setError(null);
     } catch (err) { setError((err as Error).message); }
-  }
-
-  async function toggle(v: boolean) {
-    setBusy("toggle"); setError(null);
-    try { await putJson("/v1/admin/reaction-workflow", { enabled: v }); await refresh(); }
-    catch (err) { setError((err as Error).message); } finally { setBusy(null); }
   }
 
   async function addMapping() {
@@ -115,14 +110,26 @@ export function ReactionWorkflowSection() {
         </p>
       </div>
 
-      <ToggleRow
-        label="リアクションワークフロー"
-        hint="ON で 🙏/🫡/📲/👈 等のリアクション・単発絵文字が処理を起動する. デフォルト OFF (記録のみ)."
-        value={enabled === null ? null : !enabled}
-        onToggle={(v) => toggle(!v)}
-        busy={busy === "toggle"}
-        onLabel="停止中" offLabel="稼働中" onAction="稼働させる" offAction="停止する"
-      />
+      <div className="bg-muted/40 border border-border rounded p-3 space-y-1">
+        <div className="flex items-baseline gap-2">
+          <span className="text-xs text-subtle">状態</span>
+          <span className={"text-xs px-2 py-0.5 rounded border " + (enabled ? "bg-ok/20 border-ok text-ok" : "bg-muted border-border text-subtle")}>
+            {enabled === null ? "..." : enabled ? "稼働中" : "停止中 (記録のみ)"}
+          </span>
+        </div>
+        <p className="text-subtle text-xs">
+          ON で 🙏/🫡/📲/👈 等のリアクション・単発絵文字が処理を起動する。 既定は OFF。
+          切り替えは <strong>設定 &gt; すべて</strong> で行う (<code>workflow.reaction_enabled</code>)。
+          {" "}
+          <button
+            type="button"
+            onClick={onOpenAllSettings}
+            className="underline text-accent hover:text-accent/80"
+          >
+            すべての設定を開く
+          </button>
+        </p>
+      </div>
 
       {readiness?.status === "no_authorized_users" && (
         <div className="border border-danger bg-danger/10 text-danger rounded p-3 text-xs">

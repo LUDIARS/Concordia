@@ -22,7 +22,12 @@ interface SettingsSection {
   id: string;
   label: string;
   hint: string;
-  render: () => React.ReactNode;
+  /**
+   * スカラー項目の編集は「すべて」へ寄せたので、 外したセクションから
+   * そこへ戻る導線が要る。 タブの選択はこの画面のローカル state なので、
+   * 遷移手段はセクション側へ渡す。
+   */
+  render: (openAllSettings: () => void) => React.ReactNode;
 }
 
 const SECTIONS: SettingsSection[] = [
@@ -62,7 +67,7 @@ const SECTIONS: SettingsSection[] = [
     id: "reaction",
     label: "リアクションWF",
     hint: "ON/OFF + 絵文字→アクション マッピング",
-    render: () => <section className="border border-border rounded p-4"><ReactionWorkflowSection /></section>,
+    render: (openAllSettings) => <section className="border border-border rounded p-4"><ReactionWorkflowSection onOpenAllSettings={openAllSettings} /></section>,
   },
   {
     id: "workspace",
@@ -74,13 +79,13 @@ const SECTIONS: SettingsSection[] = [
     id: "cost",
     label: "コスト予算",
     hint: "日次トークン上限 + 超過で命令ブロック",
-    render: () => <section className="border border-border rounded p-4"><CostBudgetSection /></section>,
+    render: (openAllSettings) => <section className="border border-border rounded p-4"><CostBudgetSection onOpenAllSettings={openAllSettings} /></section>,
   },
   {
     id: "lictor",
     label: "Lictor",
     hint: "spawn の Lictor 起動 (auto / dev / prod)",
-    render: () => <section className="border border-border rounded p-4"><LictorSection /></section>,
+    render: (openAllSettings) => <section className="border border-border rounded p-4"><LictorSection onOpenAllSettings={openAllSettings} /></section>,
   },
   {
     id: "cron-jobs",
@@ -96,9 +101,15 @@ const SECTIONS: SettingsSection[] = [
   },
 ];
 
+/** @implements spec/tasks/2026-08-09-settings-duplicate-display-cleanup.md */
 export function Settings() {
   const [active, setActive] = useState<string>(SECTIONS[0].id);
   const current = SECTIONS.find((s) => s.id === active) ?? SECTIONS[0];
+
+  /** @implements spec/tasks/2026-08-09-settings-duplicate-display-cleanup.md */
+  function openAllSettings(): void {
+    setActive("all");
+  }
 
   return (
     <div className="space-y-4">
@@ -128,7 +139,7 @@ export function Settings() {
           ))}
         </nav>
 
-        <div className="min-w-0">{current.render()}</div>
+        <div className="min-w-0">{current.render(openAllSettings)}</div>
       </div>
     </div>
   );

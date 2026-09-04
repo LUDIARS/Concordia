@@ -4,18 +4,18 @@
 // AdminTogglesPanel から移設。reaction-workflow / workspace / Lictor は新規。
 
 import { useEffect, useState } from "react";
-import { api } from "../../../api.js";
-
-import { putJson } from "./common.js";
 
 // ─── コスト予算 (日次トークン上限 + 超過ブロック) ────────────────────────
+//
+// 上限値は設定レジストリ (`runtime.daily_token_budget`) に editable で載っている。
+// ここにも入力欄を置くと同じ DB キーを 2 経路から書けてしまうので、 本セクションは
+// 当日消費・ブロック状態という**ここでしか見られない情報**の表示に徹する。
 
-export function CostBudgetSection() {
+/** @implements spec/tasks/2026-08-09-settings-duplicate-display-cleanup.md */
+export function CostBudgetSection({ onOpenAllSettings }: { onOpenAllSettings: () => void }) {
   const [budget, setBudget] = useState<number | null>(null);
   const [today, setToday] = useState<number>(0);
   const [blocked, setBlocked] = useState<boolean>(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => { void refresh(); }, []);
@@ -33,19 +33,8 @@ export function CostBudgetSection() {
       setBudget(s.daily_token_budget);
       setToday(s.today_tokens);
       setBlocked(s.blocked);
-      setDraft(String(s.daily_token_budget));
       setError(null);
     } catch (err) { setError((err as Error).message); }
-  }
-
-  async function apply() {
-    const n = Number(draft);
-    if (!Number.isFinite(n) || n < 0) { setError("0 以上の数値を入力"); return; }
-    setBusy(true); setError(null);
-    try {
-      await putJson("/v1/admin/cost-budget", { daily_token_budget: Math.floor(n) });
-      await refresh();
-    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
 
   const pct = budget && budget > 0 ? Math.min(100, Math.round((today / budget) * 100)) : 0;
@@ -81,25 +70,17 @@ export function CostBudgetSection() {
             />
           </div>
         )}
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-subtle shrink-0">上限 (tok):</span>
-          <input
-            type="number"
-            min={0}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            disabled={busy}
-            placeholder="0 = 無効 (例 2000000)"
-            className="bg-muted border border-border rounded px-2 py-1 text-sm font-mono flex-1 min-w-[160px]"
-          />
+        <p className="text-subtle text-xs">
+          上限の変更は <strong>設定 &gt; すべて</strong> で行う (<code>runtime.daily_token_budget</code>)。
+          {" "}
           <button
-            disabled={busy || draft === String(budget ?? "")}
-            onClick={() => void apply()}
-            className="shrink-0 px-3 py-1 bg-accent/15 border border-accent text-accent rounded text-xs disabled:opacity-40"
+            type="button"
+            onClick={onOpenAllSettings}
+            className="underline text-accent hover:text-accent/80"
           >
-            apply
+            すべての設定を開く
           </button>
-        </div>
+        </p>
       </div>
       {error && <div className="text-danger text-xs">{error}</div>}
     </section>

@@ -50,6 +50,14 @@ describe("CostOneShotCallsRepo / listRecent", () => {
     expect(repo.listRecent()[0]?.prompt_chars).toBe(0);
   });
 
+  // SQLite の LENGTH() はバイト数ではなく code point 数を数える。 絵文字 1 文字を
+  // 2 と数えないことを固定しておく (prompt_chars は本文の代わりに出す唯一の手がかり)。
+  it("counts Unicode code points", () => {
+    insert({ prompt: "a\u{1F600}" });
+
+    expect(repo.listRecent()[0]?.prompt_chars).toBe(2);
+  });
+
   it("keeps the cost and token columns the listing exists for", () => {
     insert({ ts: 1000, model: "claude-opus-5", cwd: "E:/Document/Ars", total_tokens: 556 });
 

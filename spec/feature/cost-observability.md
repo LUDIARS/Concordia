@@ -102,7 +102,7 @@ rate-limit telemetry が一時的に欠けた場合は、同じ provider の直�
   `unknown`。input/output/total tokens、USD cost、command/model/cwd、metadata を保存する。
 - `GET`: `limit` 既定 100 と `since`（epoch milliseconds、既定 24 時間前）を受け、recent
   calls と service/provider 別 summary を返す。recent calls は prompt 本文を含めず、
-  `promptChars` に本文の文字数を返す。
+  `promptChars` に本文の Unicode code point 数を返す。
 
 prompt はコスト記録のため永続化するが、一覧応答には含めない。secret や個人データを prompt へ
 含めない。

@@ -39,7 +39,7 @@ export interface CostOneShotRow extends Required<Omit<CostOneShotInput, "ts" | "
  * 文字数だけ残す。
  */
 export interface CostOneShotListRow extends Omit<CostOneShotRow, "prompt"> {
-  /** prompt 本文の文字数。 本文そのものは返さない。 */
+  /** prompt 本文の Unicode code point 数。 本文そのものは返さない。 */
   prompt_chars: number;
 }
 

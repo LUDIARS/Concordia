@@ -56,6 +56,7 @@ import type { ConcordiaEvent } from "../../src/events.js";
 import { TaskMdStore } from "../../src/taskflow/md-store.js";
 import { TaskflowStateStore } from "../../src/taskflow/state-store.js";
 import { CcTaskRepository } from "../../src/fallback-tasks/repository.js";
+import { inboxItems } from "../../src/inbox/read-model.js";
 import { registerCleanup } from "./cleanup.js";
 import { makeTestDb, makeTestDir } from "./db.js";
 
@@ -202,6 +203,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     config,
     startedAt: new Date().toISOString(),
     buildStale: opts.buildStale ?? false,
+    inboxItems: () => inboxItems(db),
     sweeperRunOnce: async () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
     publicUrl: "http://127.0.0.1:11111",

@@ -27,6 +27,9 @@
     },
     {
       "pathPattern": "(^|/)src/villa/[^/]+$"
+    },
+    {
+      "pathPattern": "(^|/)src/inbox(?:/.*)?$"
     }
   ],
   "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles."

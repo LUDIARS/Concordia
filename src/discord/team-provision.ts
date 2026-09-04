@@ -4,18 +4,30 @@ import {
   type ForumChannel,
   type Guild,
   type GuildBasedChannel,
+  type GuildChannel,
   type GuildForumTagData,
 } from "discord.js";
 import { SESSION_STATE_TAG_NAMES } from "./config.js";
 import { CONCORDIA_MANAGED_FORUM_TAG_NAME } from "./forum-system-tag.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
+import {
+  managementChannelOverwrites,
+  managementViewerIds,
+  syncManagementAccess,
+} from "./team-management-access.js";
 
 /** @implements spec/feature/teams.md §2 */
-const SURFACES = ["目標", "タスクボード", "コスト", "direction", "セッション", "タスク"] as const;
+const SURFACES = ["目標", "タスクボード", "コスト", "direction", "management", "セッション", "タスク"] as const;
 
 type TeamSurface = typeof SURFACES[number];
 
 const FORUM_SURFACES = new Set<TeamSurface>(["セッション", "タスク"]);
+
+/**
+ * 権限者だけが見られる面。 `@everyone` の ViewChannel を deny し、 社員名簿で
+ * manager / executive の Discord ユーザにだけ許可する。
+ */
+const RESTRICTED_SURFACES = new Set<TeamSurface>(["management"]);
 
 /**
  * チーム forum がセッションスレッドの受け皿になるための必須タグ。
@@ -44,6 +56,16 @@ export async function ensureTeamDiscordLayout(input: {
     // タグ付与は forum 生成と分けて毎回流す。 既存チーム (タグ無しで作られた forum) にも
     // 追いつかせるため、 新規作成時だけでなく再解決時にも不足分を補う。
     if (FORUM_SURFACES.has(surface)) await ensureTeamForumTags(channel as ForumChannel);
+    // 権限者限定の面は、 作成時だけでなく毎回名簿と突き合わせる。 昇格した人を足すだけでは
+    // なく、 降格・名簿削除された人の古い許可も外さないと権限者限定として壊れている。
+    if (RESTRICTED_SURFACES.has(surface)) {
+      // resolveSurface はカテゴリ直下のチャンネルしか返さないのでスレッドにはならない。
+      await syncManagementAccess({
+        guild: input.guild,
+        channel: channel as GuildChannel,
+        db: input.db,
+      });
+    }
     input.db.prepare(`
       INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, ?, ?)
       ON CONFLICT(team_id, surface) DO UPDATE SET channel_id = excluded.channel_id
@@ -86,14 +108,26 @@ async function resolveSurface(
     if (existing?.parentId === categoryId && existing.type === desiredType) return existing;
   }
 
-  const name = FORUM_SURFACES.has(surface) ? `${surface}フォーラム` : surface;
+  const name = surface === "management"
+    ? "管理"
+    : FORUM_SURFACES.has(surface) ? `${surface}フォーラム` : surface;
   const existing = input.guild.channels.cache.find((channel) =>
     channel.parentId === categoryId && channel.name === name && channel.type === desiredType
   );
-  return existing ?? input.guild.channels.create({
+  if (existing) return existing;
+  // 権限者限定の面は**作成と同時に閉じる**。 作ってから同期すると、 その隙間だけ
+  // 誰でも見られる瞬間ができる。
+  const permissionOverwrites = RESTRICTED_SURFACES.has(surface)
+    ? managementChannelOverwrites({
+        guild: input.guild,
+        viewerIds: managementViewerIds(input.db),
+      })
+    : undefined;
+  return input.guild.channels.create({
     name,
     type: desiredType,
     parent: categoryId,
+    ...(permissionOverwrites ? { permissionOverwrites } : {}),
   });
 }
 

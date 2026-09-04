@@ -615,6 +615,8 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // team.created / team.changed でチーム管理パネルを即時再描画する closure (ClientReady でセット).
   let teamAdminRefresh: (() => void) | null = null;
   let teamAdminRefreshQueue = Promise.resolve();
+  // 名簿変更が連続しても古い同期が後勝ちしないよう、bot 単位で直列化する。
+  let managementAccessSyncQueue = Promise.resolve();
   let testForumRefresh: ((reason: string) => Promise<void>) | null = null;
   // Vestigium 監視は error.reported を Web / 本社ランタイムへ流すため維持する。
   // Discord errors チャンネルへの poster は意図的に持たない。
@@ -2019,6 +2021,25 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           { kind: "changed", eventId: ev.event_id, teamId: ev.team_id, fields: ev.fields, ts: ev.ts },
         );
       })().catch((error) => log.warn(`team provision update failed team=${ev.team_id}: ${(error as Error).message}`));
+      return;
+    }
+    if (ev.type === "staff.access_changed" && ev.platform === "discord") {
+      // 名簿の昇格・降格・削除を、再起動を待たず全所属チームへ反映する。
+      // 1 チームの Discord 障害で他チームの権限同期まで止めない。
+      managementAccessSyncQueue = managementAccessSyncQueue.then(async () => {
+        await Promise.all(teamsRepo.listForSubsidiary(subsidiaryId).map((team) =>
+          ensureTeamDiscordLayout({
+            guild,
+            db: deps.db,
+            teamId: team.id,
+            name: team.name,
+          }).catch((error) => log.warn(
+            `team management access sync failed team=${team.id}: ${(error as Error).message}`,
+          )),
+        ));
+      }).catch((error) => log.warn(
+        `team management access sync scheduling failed: ${(error as Error).message}`,
+      ));
       return;
     }
     if (ev.type === "team.card_requested" && teamOwnedByRuntime(ev.team_id)) {

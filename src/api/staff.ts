@@ -14,6 +14,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import type { StaffPlatform, StaffRepo } from "../db/staff-repo.js";
+import { eventBus } from "../events.js";
 import {
   CAPABILITY_LABEL,
   CAPABILITY_MIN_ROLE,
@@ -101,6 +102,7 @@ export function staffRouter(deps: StaffApiDeps): Hono {
       note: parsed.data.note,
     });
     if (!member) return c.json({ error: "invalid_user_id" }, 400);
+    eventBus.emit({ type: "staff.access_changed", platform: member.platform, ts: Math.floor(Date.now() / 1000) });
     return c.json({ member }, 201);
   });
 
@@ -117,6 +119,9 @@ export function staffRouter(deps: StaffApiDeps): Hono {
       parsed.data,
     );
     if (!member) return c.json({ error: "not_found" }, 404);
+    if (parsed.data.role !== undefined) {
+      eventBus.emit({ type: "staff.access_changed", platform: member.platform, ts: Math.floor(Date.now() / 1000) });
+    }
     return c.json({ member });
   });
 
@@ -127,6 +132,9 @@ export function staffRouter(deps: StaffApiDeps): Hono {
       platform.data as StaffPlatform,
       c.req.param("userId"),
     );
+    if (removed) {
+      eventBus.emit({ type: "staff.access_changed", platform: platform.data, ts: Math.floor(Date.now() / 1000) });
+    }
     return c.json({ ok: removed }, removed ? 200 : 404);
   });
 

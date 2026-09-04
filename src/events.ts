@@ -85,6 +85,7 @@ type ConcordiaEventPayload =
   | { type: "director.plan_submitted"; target_session_id: string; case_id: string; version: number; markdown: string; ts: number }
   | { type: "team.created"; event_id: string; team_id: string; name: string; slug: string; ts: number }
   | { type: "team.changed"; event_id: string; team_id: string; fields: string[]; ts: number }
+  | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }
   /**
    * チーム面へ載せる本文付きカード。standup / meeting は朝礼・定例 delegation の報告、
    * task-kanban はタスク整理の報告 (いずれも POST /v1/teams/:id/cards、

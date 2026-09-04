@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "チーム — プロジェクト主単位の可視化・ルールスコープ・Discord カテゴリ"
-description: "プロジェクト+タスクを単位とする「チーム」を新設し、Discord カテゴリ (目標/タスクボード/コスト/direction/セッションフォーラム/タスクフォーラム) を自動プロビジョニングする。チーム独自ルール (typed settings + 自然文 harness_rules) を Cc と Lictor に注入し、WebUI で目標・タスク・セッション・ルールを可視化する。上部メニューは左サイドバーへ改修する。"
+description: "プロジェクト+タスクを単位とする「チーム」を新設し、Discord カテゴリ (目標/タスクボード/コスト/direction/管理/セッションフォーラム/タスクフォーラム) を自動プロビジョニングする。チーム独自ルール (typed settings + 自然文 harness_rules) を Cc と Lictor に注入し、WebUI で目標・タスク・セッション・ルールを可視化する。上部メニューは左サイドバーへ改修する。"
 service: concordia
 domain: governance
 tags:
@@ -57,7 +57,7 @@ CREATE TABLE teams (
   settings            TEXT NOT NULL,          -- typed settings JSON (§3.1)
   default_supervisor  TEXT,
   discord_category_id TEXT,
-  channels            TEXT NOT NULL,          -- {goal, taskboard, cost, direction, session_forum, task_forum}
+  channels            TEXT NOT NULL,          -- {goal, taskboard, cost, direction, management, session_forum, task_forum}
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE team_repos (
@@ -75,7 +75,7 @@ CREATE TABLE team_repos (
 
 ## 2. Discord カテゴリの自動プロビジョニング
 
-チーム作成 (`/co-team-create` / WebUI / `POST /v1/teams`) で Cc がカテゴリ + 6 面を
+チーム作成 (`/co-team-create` / WebUI / `POST /v1/teams`) で Cc がカテゴリ + 7 面を
 冪等に用意する (子会社受付チャンネルの自動用意と同パターン):
 
 | 面 | 中身 (既存部品の張り替え先) |
@@ -84,6 +84,7 @@ CREATE TABLE team_repos (
 | タスクボード | taskflow overview の kanban 状態カード (1 メッセージ更新型、 session-status-card パターン) |
 | コストチャンネル | cost-observability のチーム畳み込み (日次サマリ + 予算アラート) |
 | direction チャンネル | Director 判断ログ (Decision Request / Genius 回答 / ask_human 質問カード)。 セッション契約の未決質問カード (session-contract §3.3)。 チーム設定変更の監査カード |
+| 管理チャンネル (`management`) | `@everyone` 非公開。社員名簿の管理職・執行役員だけが閲覧する遅延レポート・調整提案 |
 | セッションフォーラム | 既存 Session forum をチーム配下へ (1 セッション = 1 スレッド、 現行踏襲) |
 | タスクフォーラム | discord-forum-migration の 1 run = 1 スレッドをチーム配下へ |
 
@@ -225,7 +226,7 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
 
 ## 6. 受け入れ基準
 
-- [ ] チーム作成でカテゴリ + 6 面が冪等に用意され、 再実行しても重複しない。
+- [ ] チーム作成でカテゴリ + 7 面が冪等に用意され、 再実行しても重複しない。
 - [ ] spawn 時に repo からチームが seed 確定し、 曖昧なら direction チャンネルに質問カード
       が出て、 回答で契約が埋まる。
 - [ ] チーム settings の `revisor_lane` / `worktree` / `test_policy` が契約 seed・ハーネス・

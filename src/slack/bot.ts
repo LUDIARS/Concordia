@@ -344,7 +344,13 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
     }
     // セッション非紐付け（chitchat / consultation / 報告 等）はチャンネル直下へ。
     try {
-      const r = await web.chat.postMessage({ channel: channelId, text: `*${author}* [${row.channel}]\n${truncateForSlack(row.text, 12000)}` });
+      const mentionUserIds = [...new Set(
+        (ev.mention_user_ids?.slack ?? []).filter((id) => /^[UW][A-Z0-9]{8,}$/.test(id)),
+      )];
+      const mentionPrefix = mentionUserIds.map((id) => `<@${id}>`).join(" ");
+      const body = sanitizeSlackMentions(truncateForSlack(row.text, 12000));
+      const text = mentionPrefix ? `${mentionPrefix} ${body}` : body;
+      const r = await web.chat.postMessage({ channel: channelId, text: `*${author}* [${row.channel}]\n${text}` });
       if (typeof r.ts === "string") messageMap.put(channelId, r.ts, row.id);
     } catch (e) {
       log.warn(`postMessage(meta) failed message_id=${row.id}: ${(e as Error).message}`);

@@ -4,6 +4,7 @@ import { makeTestDb } from "./helpers/db.js";
 import { AdminState } from "../src/admin/state.js";
 import { SecretBox, isEncrypted } from "../src/shared/secret-box.js";
 import { DEFAULT_MAIN_PUSH_ALLOWLIST } from "../src/harness/main-push-allowlist.js";
+import { WORKFLOW_KEYS } from "../src/workflow/keys.js";
 
 function boot() {
   const db = makeTestDb();
@@ -63,17 +64,11 @@ describe("AdminState", () => {
       delegation_watchdog_unstarted_sec: 300,
       reaper_session_end_grace_sec: 300,
       // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
-      workflows: {
-        task: { enabled: true, source: "default" },
-        test: { enabled: true, source: "default" },
-        reaction: { enabled: true, source: "default" },
-        review: { enabled: true, source: "default" },
-        daily: { enabled: true, source: "default" },
-        morning: { enabled: true, source: "default" },
-        cost: { enabled: true, source: "default" },
-        director: { enabled: true, source: "default" },
-        curiosity: { enabled: true, source: "default" },
-      },
+      // 一覧を手で写すと key を足すたびにここが落ちるだけなので、 正本から導く。
+      // 検証したいのは「全 key が既定で有効」であって、 key の綴りではない。
+      workflows: Object.fromEntries(
+        WORKFLOW_KEYS.map((key) => [key, { enabled: true, source: "default" }]),
+      ),
     });
   });
 

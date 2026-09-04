@@ -119,6 +119,11 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   }
 
   const author = resolveAuthor(row);
+  const mentionUserIds = [...new Set(
+    (ev.mention_user_ids?.discord ?? []).filter((id) => /^\d{17,20}$/.test(id)),
+  )];
+  const mentionPrefix = mentionUserIds.map((id) => `<@${id}>`).join(" ");
+  const content = mentionPrefix ? `${mentionPrefix} ${row.text}` : row.text;
   const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log, deps.resolveWorkspaceRoots?.() ?? []);
   const identity = session
     ? buildDiscordWebhookIdentity({
@@ -132,8 +137,11 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
       })
     : null;
   const res = await deps.webhooks.send(client, {
-    content: row.text,
+    content,
     username: chatMeta.webhook_username?.trim() || identity?.username || author,
+    allowedMentions: mentionUserIds.length > 0
+      ? { parse: [], users: mentionUserIds }
+      : { parse: [] },
     ...(chatMeta.webhook_avatar_url?.trim() || identity?.avatarURL || session?.webhookAvatarUrl?.trim()
       ? { avatarURL: chatMeta.webhook_avatar_url?.trim() || identity?.avatarURL || session?.webhookAvatarUrl?.trim() }
       : {}),
@@ -317,6 +325,7 @@ export function trustedDiscordChannelId(input: {
   return input.explicitChannelId === input.sessionChannelId ? input.explicitChannelId : null;
 }
 
+/** @implements spec/feature/discord-ui.md — chat.posted routing table */
 export function isChatRelayTarget(
   sessionId: string | null | undefined,
   sessionStatus: string | null | undefined,
@@ -324,7 +333,10 @@ export function isChatRelayTarget(
   endedAtSec?: number | null,
   nowSec: number = Math.floor(Date.now() / 1000),
 ): boolean {
-  return !!sessionId && isActiveRelayTarget(sessionStatus, discordStatus, endedAtSec, nowSec);
+  // session に紐付かない chat は meta channel 向けの通知。session surface の
+  // lifecycle では止めず、後段の channel-kind 解決で送信先を制限する。
+  if (!sessionId) return true;
+  return isActiveRelayTarget(sessionStatus, discordStatus, endedAtSec, nowSec);
 }
 
 export function isActiveRelayTarget(

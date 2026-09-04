@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 84;
+export const SCHEMA_VERSION = 85;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2112,6 +2112,20 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "category")) {
       db.exec("ALTER TABLE delegation_runs ADD COLUMN category TEXT");
     }
+  },
+}, {
+  version: 85,
+  name: "inbox-notice-state",
+  source: "inbox_notice_state — ダイジェスト投稿と項目ごとの催促 cooldown (spec/feature/approval-inbox.md §3)",
+  up(db) {
+    // 再起動で消えると朝のダイジェストが二重に出たり、 12h cooldown が明けていない
+    // 項目を再催促したりする。 in-memory では持てない。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS inbox_notice_state (
+        key      TEXT PRIMARY KEY,
+        last_at  INTEGER NOT NULL
+      );
+    `);
   },
 },
 ];

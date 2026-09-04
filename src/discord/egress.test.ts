@@ -24,9 +24,9 @@ describe("isActiveRelayTarget", () => {
 });
 
 describe("isChatRelayTarget", () => {
-  it("requires both a session id and an active Discord surface", () => {
+  it("requires an active session surface, while allowing sessionless meta posts", () => {
     expect(isChatRelayTarget("s1", "active", "active")).toBe(true);
-    expect(isChatRelayTarget(null, "active", "active")).toBe(false);
+    expect(isChatRelayTarget(null, null, null)).toBe(true);
   });
 });
 
@@ -66,7 +66,50 @@ describe("handleEvent chat.posted relay", () => {
     expect(webhooks.getForSession).not.toHaveBeenCalled();
     expect(webhooks.send).toHaveBeenCalledWith(
       { id: "wh-genius" },
-      expect.objectContaining({ content: "Need one more fact" }),
+      expect.objectContaining({ content: "Need one more fact", allowedMentions: { parse: [] } }),
+    );
+  });
+
+  it("permits only valid explicitly supplied Discord mentions", async () => {
+    const { deps, webhooks } = makeSessionMessageDeps();
+    webhooks.getForChannel.mockResolvedValue({ id: "wh-system" });
+    deps.layout = {
+      ...deps.layout,
+      metaChannels: { system: "ch-system" },
+    } as DiscordConfigSnapshot;
+    deps.readModel = {
+      ...deps.readModel,
+      getChatMessage: () => ({
+        id: 43,
+        channel: "system",
+        sessionId: null,
+        authorLabel: "Concordia inbox",
+        text: "@everyone needs review",
+        metadata: {},
+      }),
+    } as EgressDeps["readModel"];
+
+    handleEvent(deps, {
+      type: "chat.posted",
+      message_id: 43,
+      channel: "system",
+      author_label: "Concordia inbox",
+      session_id: null,
+      ts: 100,
+      is_actionable: false,
+      mention_user_ids: {
+        discord: ["123456789012345678", "bad> @everyone"],
+        slack: ["U12345678"],
+      },
+    });
+    await flushEgress();
+
+    expect(webhooks.send).toHaveBeenCalledWith(
+      { id: "wh-system" },
+      expect.objectContaining({
+        content: "<@123456789012345678> @everyone needs review",
+        allowedMentions: { parse: [], users: ["123456789012345678"] },
+      }),
     );
   });
 });

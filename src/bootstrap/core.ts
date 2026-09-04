@@ -95,6 +95,8 @@ import { MetricsStore } from "../metrics/store.js";
 import { startMetricsLoop } from "../metrics/loop.js";
 import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
+import { startInboxNotifier } from "../inbox/notifier.js";
+import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
 import { startMorningScheduler } from "../morning/scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
@@ -1062,6 +1064,41 @@ export async function startBackend(): Promise<BackendHandle> {
       };
     },
   });
+  // 承認インボックスの朝夕ダイジェストと放置催促。 一覧 (/v1/inbox) は見に行かないと
+  // 分からないので、 気づく面をこちらで作る。 投稿先は meta channel (system)。
+  workflowBindings.register({
+    key: "inbox",
+    name: "inbox-notifier",
+    start: () => startInboxNotifier({
+      db,
+      notices: new InboxNoticeRepo(db),
+      staff: staffRepo,
+      post: (text, mentions) => {
+        // insert しただけでは live な購読者へ届かない。 deploy 記録と同じく
+        // chat.posted を出して初めて Discord / WebUI まで届く。
+        const msg = chat.insert({
+          channel: "system",
+          session_id: null,
+          author_label: "Concordia inbox",
+          text,
+          in_reply_to: null,
+          is_actionable: false,
+        });
+        if (!msg) return;
+        eventBus.emit({
+          type: "chat.posted",
+          message_id: msg.id,
+          channel: msg.channel,
+          author_label: msg.author_label,
+          session_id: msg.session_id,
+          ts: msg.ts,
+          is_actionable: false,
+          mention_user_ids: mentions,
+        });
+      },
+    }),
+  });
+
   // 起動時点で有効なものを立ち上げる (post-listen の binding は後段でもう一度 sync する)。
   workflowBindings.sync();
 

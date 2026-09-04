@@ -113,6 +113,10 @@ const eventSchemas = {
     is_actionable: z.boolean(),
     scope: z.enum(["world", "local"]).optional(),
     session_id: nullableString.optional(),
+    mention_user_ids: z.object({
+      discord: z.array(z.string()),
+      slack: z.array(z.string()),
+    }).optional(),
   }).passthrough(),
   "task.enqueued": z.object({
     type: z.literal("task.enqueued"),

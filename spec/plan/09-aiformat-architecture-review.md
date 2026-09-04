@@ -46,7 +46,9 @@ This composite is not a release gate:
 4. Triage 114 spec-gap candidates, prioritizing production files with high complexity/coupling.
 5. Recalibrate architecture scoring to separate product domains, infrastructure, tooling, tests, and self-recursion.
 
-Detailed evidence is in `report/architecture-review-spec-domains.html`.
+Detailed evidence is in `report/architecture-review-spec-domains.html`, which is a
+generated artifact and is not tracked in this public repository. Rebuild it with
+`spec/setup/reproducible-build.md`.
 
 ## 2026-07-22 structural follow-up
 

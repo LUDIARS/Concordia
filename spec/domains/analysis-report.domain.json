@@ -1,0 +1,11 @@
+{
+  "name": "analysis-report",
+  "description": "アーキテクチャ解析の生成レポート面 (report/)。 解析実行の出力であって手書きの実装ではない。 public リポジトリでは追跡せず、手元で作り直す (spec/setup/reproducible-build.md)。 ここに置くのは「この面が存在し、生成物である」ことの宣言。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "^report/(?:.*/)?[^/]+$"
+    }
+  ]
+}

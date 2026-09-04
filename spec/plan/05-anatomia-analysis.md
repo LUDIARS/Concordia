@@ -68,3 +68,7 @@ Anemia risk is `45% behavior void + 35% boundary dominance + 20% isolated ratio`
 - `report/architecture-review-spec-domains.html` — primary exact-baseline review.
 - `report/architecture-review.html` — comparison with unmodified built-ins.
 - Adjacent `.json` files preserve raw deterministic results.
+
+These artifacts are **generated, not tracked**. This repository is public, so the
+analysis output itself stays out of it (only the name and a one-line description
+belong here). Rebuild them locally with `spec/setup/reproducible-build.md`.

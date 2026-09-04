@@ -1,14 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { makeTestApp } from "./helpers/test-app.js";
+import { setupRouter } from "../src/api/setup.js";
 
 function makeApp() {
-  return makeTestApp({ rng: () => 0.99 }).app;
+  return setupRouter({
+    toolPath: "/abs/tools/concordia-hook.mjs",
+    url: "http://127.0.0.1:11111",
+  });
 }
 
 describe("/v1/setup", () => {
   it("returns skill content and hook config", async () => {
     const app = makeApp();
-    const r = await app.request("/v1/setup");
+    const r = await app.request("/");
     expect(r.status).toBe(200);
     const j = (await r.json()) as any;
 
@@ -31,7 +34,7 @@ describe("/v1/setup", () => {
 
   it("respects ?provider= query", async () => {
     const app = makeApp();
-    const r = await app.request("/v1/setup?provider=gemini-cli");
+    const r = await app.request("/?provider=gemini-cli");
     const j = (await r.json()) as any;
     expect(j.provider).toBe("gemini-cli");
   });

@@ -93,3 +93,8 @@ review/*
 # 「worktree is no longer clean」で全 PR のマージを拒否する。正本は spec/ の
 # frontmatter なので、必要なときに `npm run build:spec-index` で作り直す。
 /spec-index.jsonl
+
+# アーキテクチャ解析レポート (HTML / JSON) は生成物。 このリポジトリは public なので、
+# 解析成果そのものは追跡しない (秘匿ルール: 名称と一言説明までに留める)。
+# 再生成の手順は spec/setup/reproducible-build.md にある。
+/report/

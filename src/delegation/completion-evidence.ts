@@ -40,7 +40,7 @@ export type CompletionEvidenceVerdict =
 
 const execFileAsync = promisify(execFile);
 const GIT_BIN = process.platform === "win32" ? "git.exe" : "git";
-const GIT_TIMEOUT_MS = 5_000;
+const GIT_TIMEOUT_MS = 30_000;
 const PROTECTED_BRANCHES = new Set(["main", "develop"]);
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {

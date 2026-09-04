@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { settingsRouter } from "../src/api/settings.js";
 import type { SettingsDbWriter } from "../src/config/settings/apply.js";
 import type { SettingsDbReader } from "../src/config/settings/resolve.js";
+import { makeTestApp } from "./helpers/test-app.js";
 
 interface Stores {
   meta: Record<string, string>;
@@ -198,5 +199,21 @@ describe("PUT /v1/admin/settings", () => {
     const { app } = makeApp();
     const res = await put(app, {});
     expect(res.status).toBe(400);
+  });
+});
+
+describe("delegation identifier settings", () => {
+  it("refreshes the affected seeded templates without a process restart", async () => {
+    const env = makeTestApp();
+    const res = await put(env.app, {
+      "delegation.invoice_skill_command": "billing-skill",
+      "delegation.partner_display_name": "取引先 A",
+    });
+
+    expect(res.status).toBe(200);
+    expect(env.delegation.findTemplateByCallName("quaestor-invoice-monthly")?.prompt_template)
+      .toContain("/billing-skill ${month}");
+    expect(env.delegation.findTemplateByCallName("ai-note-biweekly-review")?.prompt_template)
+      .toMatch(/^取引先 A「AIノート」/);
   });
 });

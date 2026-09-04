@@ -8,7 +8,7 @@ const PLAN_PATTERN = /(?:migration|schema|auth|認証|削除|delete|複数リポ
 /**
  * team settings の `worktree` (teams §3.1) を work_location の許容値へ写す。
  * `repo-root-only` なら plan mode の既定 (`worktree`) より優先して repo-root に固定する
- * (MakaiNui/Unity のように worktree 運用が成立しないチーム向け)。 未所属・未指定は既存の
+ * (Unity 系のように worktree 運用が成立しないチーム向け)。 未所属・未指定は既存の
  * plan/vibes 既定を変えない。
  */
 export interface TeamContractSettings {

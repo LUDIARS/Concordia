@@ -126,7 +126,11 @@ function encodeValue(
       if (value === null) return { stored: null };
       if (typeof value !== "string") return { detail: "expected a string or null" };
       const trimmed = value.trim();
-      return { stored: trimmed === "" ? null : trimmed };
+      if (trimmed === "") return { stored: null };
+      if (definition.stringPattern && !new RegExp(definition.stringPattern, "u").test(trimmed)) {
+        return { detail: definition.stringPatternDescription ?? "string does not match the required format" };
+      }
+      return { stored: trimmed };
     }
 
     case "secret": {

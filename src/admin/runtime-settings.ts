@@ -12,6 +12,8 @@ const KEYS = {
   strongModels: "harness.strong_impl_models", mentionUser: "admin.mention_user_id",
   mainPushAllowlist: "harness.main_push_allowlist",
   cronJobOverrides: "admin.cron_job_overrides",
+  invoiceSkillCommand: "delegation.invoice_skill_command",
+  partnerDisplayName: "delegation.partner_display_name",
   watchdogEnabled: "admin.delegation_watchdog_enabled",
   watchdogIdleSec: "admin.delegation_watchdog_idle_sec",
   watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
@@ -45,6 +47,17 @@ export class RuntimeSettingsStore {
   setLictorProdExe(value: string): void { this.store.set(KEYS.lictorProd, value.trim()); }
   getDailyTokenBudget(): number { return positiveOrZero(this.store.get(KEYS.dailyBudget), 0); }
   setDailyTokenBudget(value: number): void { this.store.set(KEYS.dailyBudget, String(requireNonNegative(value, "daily_token_budget"))); }
+  /**
+   * 取引先ごとに違う識別子。 このリポジトリは public なので既定は空で、
+   * 実際の値は各インストールの DB にだけ置く
+   * (spec/plan/2026-09-04-externalize-partner-identifiers.md)。
+   */
+  getDelegationIdentifiers(): { invoiceSkillCommand: string; partnerDisplayName: string } {
+    return {
+      invoiceSkillCommand: this.store.get(KEYS.invoiceSkillCommand)?.trim() ?? "",
+      partnerDisplayName: this.store.get(KEYS.partnerDisplayName)?.trim() ?? "",
+    };
+  }
   getDelegationMaxConcurrency(): number { return positiveOrZero(this.store.get(KEYS.delegationMax), 4); }
   setDelegationMaxConcurrency(value: number): void { this.store.set(KEYS.delegationMax, String(requireNonNegative(value, "delegation_max_concurrency"))); }
   getHarnessStrongImplModels(): string[] {
@@ -56,7 +69,7 @@ export class RuntimeSettingsStore {
   }
   setHarnessStrongImplModels(models: string[]): void { this.store.set(KEYS.strongModels, JSON.stringify(models.map((model) => model.trim()).filter(Boolean))); }
   /**
-   * main 直 push を許可するリポ (MELPOT 例外)。 解決順は 設定 (WebUI) → env
+   * main 直 push を許可するリポ。 解決順は 設定 (WebUI) → env
    * {@link MAIN_PUSH_ALLOWLIST_ENV} → 既定シード。 設定に空配列を保存した場合は
    * 「例外なし」の明示指定として尊重する (env / 既定へフォールバックしない)。
    */

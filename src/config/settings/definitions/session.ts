@@ -284,6 +284,39 @@ export const COMPACTION_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
+  // 取引先ごとに違う識別子は、 このリポジトリが public なのでソースへ置かない。
+  // 既定は空で、 未設定のときは各テンプレが安全側の文面へ落ちる
+  // (spec/plan/2026-09-04-externalize-partner-identifiers.md)。
+  {
+    key: "delegation.invoice_skill_command",
+    section: "delegation",
+    label: "請求書スキルのコマンド名",
+    description:
+      "月末請求書テンプレが呼ぶスキルのコマンド名 (先頭の / は不要)。"
+      + " 空なら請求書ファイル作成の手順をテンプレに載せない — 存在しないコマンドを"
+      + " 指す行を渡すより、無いほうが不足が読み取れる。",
+    kind: "string",
+    envName: null,
+    dbKey: "delegation.invoice_skill_command",
+    defaultValue: "",
+    editable: true,
+    stringPattern: "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+    stringPatternDescription: "expected a slash-command name without the leading slash",
+  },
+  {
+    key: "delegation.partner_display_name",
+    section: "delegation",
+    label: "取引先の表示名",
+    description:
+      "記事レビュー等のパートタイマー本文で使う取引先名。 空なら「取引先」という一般名詞へ落とす。",
+    kind: "string",
+    envName: null,
+    dbKey: "delegation.partner_display_name",
+    defaultValue: "",
+    editable: true,
+    stringPattern: "^[^\\p{Cc}\\p{Cf}]{1,100}$",
+    stringPatternDescription: "expected a single-line display name of at most 100 characters",
+  },
   {
     key: "delegation.max_concurrency",
     section: "delegation",
@@ -359,7 +392,7 @@ export const HARNESS_SETTINGS: readonly SettingDefinition[] = [
     kind: "string-list",
     envName: "HARNESS_MAIN_PUSH_ALLOWLIST",
     dbKey: "harness.main_push_allowlist",
-    defaultValue: ["KuzuSurvivors", "MakaiNui"],
+    defaultValue: [],
     editable: true,
     listEnvFormat: "comma-or-newline",
   },

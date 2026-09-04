@@ -128,11 +128,11 @@ describe("pending-delegation-spawns", () => {
       cwd: "/a",
       callName: "impl-from-design",
       memoriaTaskId: 42,
-      memoriaTaskTitle: "GLab task",
+      memoriaTaskTitle: "SampleLab task",
     }, 1000);
     expect(claimPendingDelegationSpawn("/a", 1001)).toMatchObject({
       memoriaTaskId: 42,
-      memoriaTaskTitle: "GLab task",
+      memoriaTaskTitle: "SampleLab task",
     });
   });
 

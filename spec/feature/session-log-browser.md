@@ -40,7 +40,7 @@ API は [`src/api/session-logs.ts`](../../src/api/session-logs.ts)、Markdown re
 
 - `title`: 最初の H1。無ければ ID。
 - `date` / `seq`: filename から抽出。
-- `projects`: 本文全体を project dictionary と照合した正式名の配列。
+- `projects`: 本文全体を project code registry の正式名と照合した配列。registry が空なら空配列。
 - `sections`: H2 の先頭 40 件。
 - `excerpt`: heading を除いた非空行を連結した先頭約 280 文字。
 - `size_bytes` / `mtime`: filesystem metadata。
@@ -71,9 +71,12 @@ session-logs directory 配下であることを検証し、path traversal を許
   一致しないことがある。詳細 API は full Markdown を返す。
 - 読めない file や directory entry は一覧時に skip する。
 - 複数 workspace roots に session-logs がある場合も、最初に解決した 1 directory だけを読む。
+- session 開始時の collaboration context も同じ registry 語彙を reader へ渡し、対象 project の
+  過去ログを選ぶ。API と context のどちらにも組み込み辞書への fallback は持たない。
 
 ## 関連
 
 - [session compaction](./session-compaction.md)
 - [service schema](../interface/service-schema.md)
 - [setup/config-reference.md](../setup/config-reference.md)
+- [取引先・未公開プロダクト識別子の設定外出し](../plan/2026-09-04-externalize-partner-identifiers.md)

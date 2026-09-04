@@ -9,7 +9,8 @@ import type { DelegationRepo, CreateTemplateInput } from "../db/delegation-repo.
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
 import {
-  AI_NOTE_BIWEEKLY_REVIEW_PROMPT,
+  buildAiNoteBiweeklyReviewPrompt,
+  resolvePartnerDisplayName,
   CURIOSITY_WALK_PROMPT,
   DAILY_REVIEW_RECONCILIATION_PROMPT,
   DEPS_SWEEP_DAILY_PROMPT,
@@ -23,7 +24,7 @@ import {
   LUDIARS_STATUS_DAILY_PROMPT,
   MEMORIA_TASK_PULL_PROCEDURE,
   MORNING_TASKS_PROMPT,
-  QUAESTOR_INVOICE_MONTHLY_PROMPT,
+  buildQuaestorInvoiceMonthlyPrompt,
   QUAESTOR_MAIL_SWEEP_PROMPT,
   STEAM_PERSONA_DAILY_PROMPT,
   TEAM_REVIEW_REGULAR_PROMPT,
@@ -293,7 +294,20 @@ const VULTUS_CATALOG_TEMPLATES: CreateTemplateInput[] = [{
   is_active: true,
 }];
 
-const SEED_TEMPLATES: CreateTemplateInput[] = [
+/**
+ * 取引先ごとに違う値。 このリポジトリは public なので、名前そのものはソースに
+ * 置かず設定から渡す (spec/plan/2026-09-04-externalize-partner-identifiers.md)。
+ * 未設定のときは各テンプレ側が安全側の文面へ落とす。
+ */
+export interface SeedIdentifiers {
+  /** 請求書の書式を持つスキルのコマンド名 (`delegation.invoice_skill_command`)。 */
+  invoiceSkillCommand?: string | null;
+  /** 記事レビュー対象の取引先表示名 (`delegation.partner_display_name`)。 */
+  partnerDisplayName?: string | null;
+}
+
+function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
+  return [
   {
     call_name: "impl-from-design",
     title: "設計書から実装 (Codex)",
@@ -791,12 +805,12 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   {
     call_name: "ai-note-biweekly-review",
     title: "AIノート記事 隔週レビュー",
-    description: "バンタン「AIノート」配下の記事を隔週でレビューし、執筆時期と現行実装・現行仕様の乖離を内容・文体・構成を変えずに現行化する (neco 発案 2026-07-22)。evergreen はスキップ、mutable かつ 14 日以上前のものを対象にする。手順とキャッシュの正本は E:\\\\Document\\\\Ars\\\\fable\\\\ai-note-review。",
+    description: `${resolvePartnerDisplayName(identifiers.partnerDisplayName)}「AIノート」配下の記事を隔週でレビューし、執筆時期と現行実装・現行仕様の乖離を内容・文体・構成を変えずに現行化する (neco 発案 2026-07-22)。evergreen はスキップ、mutable かつ 14 日以上前のものを対象にする。手順とキャッシュの正本は E:\\\\Document\\\\Ars\\\\fable\\\\ai-note-review。`,
     target_provider: "claude",
     model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "📝",
-    prompt_template: AI_NOTE_BIWEEKLY_REVIEW_PROMPT,
+    prompt_template: buildAiNoteBiweeklyReviewPrompt({ partner: identifiers.partnerDisplayName }),
     input_schema: [
       { name: "date", type: "string" as const, required: true, description: "実行日 (YYYY-MM-DD)" },
     ],
@@ -814,7 +828,7 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
     model: "claude-sonnet-5",
     category: "parttimer",
     emoji: "🧾",
-    prompt_template: QUAESTOR_INVOICE_MONTHLY_PROMPT,
+    prompt_template: buildQuaestorInvoiceMonthlyPrompt({ skillCommand: identifiers.invoiceSkillCommand }),
     input_schema: [
       { name: "month", type: "string" as const, required: true, description: "対象月 (YYYYMM)" },
     ],
@@ -1000,7 +1014,8 @@ const SEED_TEMPLATES: CreateTemplateInput[] = [
   },
   ...VULTUS_CATALOG_TEMPLATES,
   ...GENIUS_INGEST_TEMPLATES,
-];
+  ];
+}
 
 /**
  * パートタイマーはタイマー / 内部 invoke 専用なので、 通常の spawn ドロップダウンには
@@ -1013,8 +1028,26 @@ function withParttimerCallOnly(templates: CreateTemplateInput[]): CreateTemplate
   return templates.map((tpl) => (tpl.category === "parttimer" ? { ...tpl, call_only: true } : tpl));
 }
 
-export function seedDelegationTemplates(repo: DelegationRepo): void {
-  for (const tpl of withParttimerCallOnly(SEED_TEMPLATES)) {
+const IDENTIFIER_TEMPLATE_CALL_NAMES = new Set([
+  "ai-note-biweekly-review",
+  "quaestor-invoice-monthly",
+]);
+
+/** 設定 UI で識別子を変更した直後に、影響する seed 所有テンプレだけを更新する。 */
+export function refreshDelegationIdentifierTemplates(
+  repo: DelegationRepo,
+  identifiers: SeedIdentifiers,
+): void {
+  for (const tpl of withParttimerCallOnly(seedTemplates(identifiers))) {
+    if (IDENTIFIER_TEMPLATE_CALL_NAMES.has(tpl.call_name)) repo.upsertTemplate(tpl);
+  }
+}
+
+export function seedDelegationTemplates(
+  repo: DelegationRepo,
+  identifiers: SeedIdentifiers = {},
+): void {
+  for (const tpl of withParttimerCallOnly(seedTemplates(identifiers))) {
     repo.upsertTemplate(tpl);
   }
   // 既定2件 (forum-claude-session / forum-codex-session) は forum_tag を常に維持し、

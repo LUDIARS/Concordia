@@ -119,7 +119,7 @@ export function commandPushesMain(command: string | undefined, branch: string | 
  * - `origin main` / `HEAD:refs/heads/main` 等を明示、または `--all` / `--mirror` を使う
  * - または ref 省略で現在ブランチが main/master (= main を push する)
  *
- * 許可リスト (MELPOT 等、 main 直 push してよいリポ) に該当する場合は deny せず、
+ * 許可リスト (main 直 push してよいリポ) に該当する場合は deny せず、
  * 追跡用の warn (`main-push-allowlisted`) に落とす — 黙って素通しにしない。
  */
 export function makeNoMainPushPredicate(allowlist: readonly string[] = []): Predicate {

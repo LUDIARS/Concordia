@@ -4,15 +4,15 @@ import { buildTeamFanoutTargets } from "./cron-fanout.js";
 describe("buildTeamFanoutTargets", () => {
   it("チームごとに 1 対象を作り、 args と options にチームを載せる", () => {
     const targets = buildTeamFanoutTargets([
-      { id: "team_1", slug: "glab", name: "GLab" },
+      { id: "team_1", slug: "samplelab", name: "SampleLab" },
     ]);
 
     expect(targets).toHaveLength(1);
-    expect(targets[0].key).toBe("glab");
+    expect(targets[0].key).toBe("samplelab");
     expect(targets[0].args).toEqual({
       team_id: "team_1",
-      team_slug: "glab",
-      team_name: "GLab",
+      team_slug: "samplelab",
+      team_name: "SampleLab",
     });
     // delegation run をチームに帰属させるのは options.team (args ではない)。
     expect(targets[0].options).toEqual({ team: "team_1" });

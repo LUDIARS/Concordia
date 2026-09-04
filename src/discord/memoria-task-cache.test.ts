@@ -55,7 +55,7 @@ describe("MemoriaTaskCache", () => {
 
 describe("toTaskChoices", () => {
   it("matches on title, category and exact id, capped at the Discord limit", () => {
-    const tasks = [task(1, "感想投稿", "GLab"), task(2, "コスト報告", "Cc")];
+    const tasks = [task(1, "感想投稿", "SampleLab"), task(2, "コスト報告", "Cc")];
     expect(toTaskChoices(tasks, "感想").map((c) => c.value)).toEqual(["1"]);
     expect(toTaskChoices(tasks, "cc").map((c) => c.value)).toEqual(["2"]);
     expect(toTaskChoices(tasks, "2").map((c) => c.value)).toEqual(["2"]);
@@ -72,12 +72,12 @@ describe("toTaskChoices", () => {
 describe("toTeamChoices", () => {
   it("matches name, slug and id and carries the canonical id as the value", () => {
     const teams = [
-      { id: "team_a", name: "GLab", slug: "glab" },
+      { id: "team_a", name: "SampleLab", slug: "samplelab" },
       { id: "team_b", name: "Concordia", slug: "cc" },
     ];
-    expect(toTeamChoices(teams, "gl").map((c) => c.value)).toEqual(["team_a"]);
+    expect(toTeamChoices(teams, "sam").map((c) => c.value)).toEqual(["team_a"]);
     expect(toTeamChoices(teams, "cc").map((c) => c.value)).toEqual(["team_b"]);
     expect(toTeamChoices(teams, "team_a").map((c) => c.value)).toEqual(["team_a"]);
-    expect(toTeamChoices(teams, "")[0]?.name).toBe("GLab (glab)");
+    expect(toTeamChoices(teams, "")[0]?.name).toBe("SampleLab (samplelab)");
   });
 });

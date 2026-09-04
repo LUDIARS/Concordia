@@ -81,6 +81,8 @@ export interface BuildCollaborationContextDeps {
   repo: SessionsRepo;
   session: SessionRow;
   workspaceRoots?: string[];
+  /** project code registry 由来の正式名。空なら関連ログをタグ付けしない。 */
+  resolveProjectNames?: () => readonly string[];
   maxLogs?: number;
   ccWorkflowEnabled?: boolean;
   /**
@@ -128,7 +130,12 @@ export async function buildCollaborationContextPacket(
         : "no same-branch active peer detected",
       command,
     },
-    relevant_session_logs: await relevantLogs(deps.workspaceRoots ?? [], project, deps.maxLogs ?? 5),
+    relevant_session_logs: await relevantLogs(
+      deps.workspaceRoots ?? [],
+      project,
+      resolveProjectNamesOrEmpty(deps.resolveProjectNames),
+      deps.maxLogs ?? 5,
+    ),
     harness: {
       context: "POST /v1/harness/context",
       gate: "POST /v1/harness/gate",
@@ -156,6 +163,16 @@ export async function buildCollaborationContextPacket(
     },
     suggested_next_actions: suggestedNextActions(conflicts.length > 0, Boolean(escalation)),
   };
+}
+
+function resolveProjectNamesOrEmpty(resolveNames: (() => readonly string[]) | undefined): readonly string[] {
+  if (!resolveNames) return [];
+  try {
+    return resolveNames();
+  } catch {
+    // Context 自体を落とさず、組み込み辞書にも戻さない。関連ログだけを空にする。
+    return [];
+  }
 }
 
 export function renderCcWorkflowStartupInject(sessionId: string): string {
@@ -217,10 +234,15 @@ function branchSummary(peers: SessionRow[]): Array<{ branch: string; count: numb
     .sort((a, b) => b.count - a.count || a.branch.localeCompare(b.branch));
 }
 
-async function relevantLogs(workspaceRoots: string[], project: string, max: number): Promise<CollaborationContextPacket["relevant_session_logs"]> {
+async function relevantLogs(
+  workspaceRoots: string[],
+  project: string,
+  projectNames: readonly string[],
+  max: number,
+): Promise<CollaborationContextPacket["relevant_session_logs"]> {
   const dir = await resolveSessionLogsDir(workspaceRoots);
   if (!dir) return [];
-  return (await readSessionLogs(dir))
+  return (await readSessionLogs(dir, projectNames))
     .filter((entry) => entry.projects.includes(project))
     .slice(0, max)
     .map((entry) => ({

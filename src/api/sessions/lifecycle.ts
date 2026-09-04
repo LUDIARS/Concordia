@@ -282,6 +282,7 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
       repo: deps.repo,
       session: freshSession,
       workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+      resolveProjectNames: () => deps.projectCodes?.list().map((row) => row.project) ?? [],
       ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
       escalation: toEscalationDeclaration(deps, input.id),
     });
@@ -366,6 +367,7 @@ app.get("/:id/context", async (c) => {
         repo: deps.repo,
         session: s,
         workspaceRoots: deps.resolveWorkspaceRoots?.() ?? [],
+        resolveProjectNames: () => deps.projectCodes?.list().map((row) => row.project) ?? [],
         ccWorkflowEnabled: deps.resolveCcWorkflowEnabled?.() ?? false,
         escalation: toEscalationDeclaration(deps, id),
       }),

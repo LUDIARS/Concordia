@@ -1791,7 +1791,7 @@ export async function startBackend(): Promise<BackendHandle> {
         name: "seed-domain-data",
         run: () => {
           seedDefaultRules(rules);
-          seedDelegationTemplates(delegationRepo);
+          seedDelegationTemplates(delegationRepo, adminState.getDelegationIdentifiers());
           adminState.migrateCronJobOverride(
             "ludiars-review-daily",
             "ludiars-review-weekly",

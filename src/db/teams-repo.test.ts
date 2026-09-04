@@ -9,13 +9,13 @@ describe("TeamsRepo", () => {
     applyMigrations(db);
     const repo = new TeamsRepo(db);
     const team = repo.create({
-      name: "MakaiNui",
+      name: "BetaGame",
       slug: "makai-nui",
       settings: { visibility: "private" },
     });
-    repo.setRepos(team.id, ["LUDIARS/MakaiNui"]);
+    repo.setRepos(team.id, ["LUDIARS/BetaGame"]);
 
-    expect(repo.repos(team.id)).toEqual(["LUDIARS/MakaiNui"]);
+    expect(repo.repos(team.id)).toEqual(["LUDIARS/BetaGame"]);
     expect(repo.patch(team.id, { slug: "makai-nui-unity" })?.slug).toBe("makai-nui-unity");
     db.close();
   });

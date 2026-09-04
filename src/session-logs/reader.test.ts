@@ -3,41 +3,59 @@ import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseSessionLog, readSessionLogs, readSessionLogFull, resolveSessionLogsDir } from "./reader.js";
-import { extractProjects } from "./project-dictionary.js";
+import { extractProjects, orderProjectNames } from "./project-dictionary.js";
 
 describe("extractProjects", () => {
+  // 語彙は registry から渡す。 テストは固定の語彙を直接与えるので、
+  // registry の内容にも実在のプロジェクト名にも依存しない。
+  const NAMES = ["Anatomia", "Pictor", "Actio", "Actio-PublicModules", "Quaestor", "Memoria", "Ars", "LUDIARS"];
+
   it("picks up project names from headings", () => {
     const text = "# 2026-06-22 セッションログ\n\n## — Anatomia 残タスク消化 / Opus\n本文。";
-    expect(extractProjects(text)).toContain("Anatomia");
+    expect(extractProjects(text, NAMES)).toContain("Anatomia");
   });
 
   it("matches a name immediately followed by Japanese (no space)", () => {
-    expect(extractProjects("## Pictor描画の調整\n本文")).toContain("Pictor");
+    expect(extractProjects("## Pictor描画の調整\n本文", NAMES)).toContain("Pictor");
   });
 
   it("does not tag parent project when only the submodule appears", () => {
-    const got = extractProjects("## Actio-PublicModules の予約API\nActio-PublicModules を直した");
+    const got = extractProjects("## Actio-PublicModules の予約API\nActio-PublicModules を直した", NAMES);
     expect(got).toContain("Actio-PublicModules");
     expect(got).not.toContain("Actio");
   });
 
   it("tags on a single mention (recall over precision)", () => {
-    expect(extractProjects("本文で一度だけ Quaestor に触れた")).toContain("Quaestor");
+    expect(extractProjects("本文で一度だけ Quaestor に触れた", NAMES)).toContain("Quaestor");
   });
 
   it("does not tag the ubiquitous Ars / LUDIARS path tokens", () => {
     const text = "# log\nE:/Document/Ars/Memoria を編集 (LUDIARS org)";
-    const got = extractProjects(text);
+    const got = extractProjects(text, NAMES);
     expect(got).not.toContain("Ars");
     expect(got).not.toContain("LUDIARS");
     expect(got).toContain("Memoria"); // Ars/Memoria のパス内でも拾える
+  });
+
+  // registry を引けなかったときに組み込みの一覧へ落ちると、外へ出した名前が
+  // ソースへ戻る。 タグが付かないことは一覧で気づけるが、こっそり復活した
+  // 名前には気づけない。
+  it("tags nothing when the vocabulary is empty instead of falling back", () => {
+    expect(extractProjects("Anatomia と Quaestor を直した")).toEqual([]);
+    expect(extractProjects("Anatomia と Quaestor を直した", [])).toEqual([]);
+  });
+
+  it("orders longer names first so a parent never shadows its submodule", () => {
+    expect(orderProjectNames(["Actio", "Actio-PublicModules"])[0]).toBe("Actio-PublicModules");
+    // 遍在してタグとして意味を持たない名前は語彙から落ちる。
+    expect(orderProjectNames(["Ars", "ludiars", "INFRA", "Memoria"])).toEqual(["Memoria"]);
   });
 });
 
 describe("parseSessionLog", () => {
   it("extracts id/date/seq/title/sections/excerpt", () => {
     const md = "# 2026-06-26 セッションログ\n\n## スコープ\n- Concordia の RWF を直す\n\n## 学び\n本文テキスト。";
-    const meta = parseSessionLog("2026-06-26-2", md, 1000, md.length);
+    const meta = parseSessionLog("2026-06-26-2", md, 1000, md.length, ["Concordia"]);
     expect(meta.date).toBe("2026-06-26");
     expect(meta.seq).toBe(2);
     expect(meta.title).toBe("2026-06-26 セッションログ");

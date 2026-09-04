@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { ProjectCodesRepo } from "../src/db/project-codes-repo.js";
 import { makeTestApp } from "./helpers/test-app.js";
 
 describe("Cc workflow context injection", () => {
@@ -66,5 +70,44 @@ describe("Cc workflow context injection", () => {
     const response = await env.app.request("/v1/sessions/ccwf-context/context");
     const body = await response.json() as any;
     expect(body.context_packet.cc_workflow.task_api.list_pending).toContain("/pending-tasks");
+  });
+
+  it("uses project-code registry names when selecting relevant session logs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cc-context-"));
+    try {
+      const logs = join(root, "session-logs");
+      mkdirSync(logs);
+      writeFileSync(join(logs, "2026-09-04.md"), "# 引き継ぎ\n\nConcordia の設定を更新した。", "utf-8");
+
+      const env = makeTestApp();
+      env.adminState.setWorkspaceRoots([root]);
+      new ProjectCodesRepo(env.db).register({
+        code: "Cc",
+        project: "Concordia",
+        repoPath: "/work/Concordia",
+        repoOrigin: null,
+        addedBy: "test",
+      });
+
+      const response = await env.app.request("/v1/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: "ccwf-project-log",
+          provider: "codex-cli",
+          repo_path: "/work/Concordia",
+          branch: "main",
+          host: "host",
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      const body = await response.json() as any;
+      expect(body.context_packet.relevant_session_logs).toMatchObject([
+        { id: "2026-09-04", projects: ["Concordia"] },
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

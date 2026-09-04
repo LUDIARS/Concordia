@@ -54,7 +54,7 @@ describe("AdminState", () => {
       delegation_max_concurrency: 4,
       harness_strong_impl_models: ["fable", "sol-ultra"],
       mention_user_id: null,
-      // main 直 push 許可リスト (MELPOT 例外)。 設定 / env 未指定なので既定シード。
+      // main 直 push 許可リスト (PartnerOrg 例外)。 設定 / env 未指定なので既定シード。
       harness_main_push_allowlist: [...DEFAULT_MAIN_PUSH_ALLOWLIST],
       cron_job_overrides: {},
       delegation_watchdog_enabled: true,

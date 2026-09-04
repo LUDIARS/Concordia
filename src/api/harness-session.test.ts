@@ -84,32 +84,32 @@ describe("/v1/harness route", () => {
     expect(ctx.blackbox.snapshot("concordia.harness.gate").stats.window).toBe(1);
   });
 
-  it("許可リポ (MELPOT 例外) への main 直 push は block せず allowlisted として記録する", async () => {
-    const melpot = makeApp(undefined, ["KuzuSurvivors", "MakaiNui"]);
-    const res = await post(melpot.app, "/v1/harness/gate", {
+  it("許可リポ (PartnerOrg 例外) への main 直 push は block せず allowlisted として記録する", async () => {
+    const partnerorg = makeApp(undefined, ["AlphaGame", "BetaGame"]);
+    const res = await post(partnerorg.app, "/v1/harness/gate", {
       action: {
         tool: "Bash",
-        command: "git -C C:/repos/KuzuSurvivors push origin main",
+        command: "git -C C:/repos/AlphaGame push origin main",
         cwd: "C:/repos/Concordia",
         branch: "feat/x",
       },
-      session_id: "melpot-1",
+      session_id: "partnerorg-1",
     });
     const v = await readJson(res);
     expect(v.decision).not.toBe("deny");
     expect(v.blocked).toBe(false);
     expect(v.hits.some((h: { rule: string }) => h.rule === "main-push-allowlisted")).toBe(true);
 
-    const audit = melpot.audit.recent({ session_id: "melpot-1" });
+    const audit = partnerorg.audit.recent({ session_id: "partnerorg-1" });
     expect(audit[0].event).toBe("gate");
     expect(audit[0].rule).toBe("main-push-allowlisted");
   });
 
   it("許可リスト外のリポは許可リスト設定下でも deny", async () => {
-    const melpot = makeApp(undefined, ["KuzuSurvivors"]);
-    const res = await post(melpot.app, "/v1/harness/gate", {
+    const partnerorg = makeApp(undefined, ["AlphaGame"]);
+    const res = await post(partnerorg.app, "/v1/harness/gate", {
       action: { tool: "Bash", command: "git push origin main", cwd: "C:/repos/Figmentum", branch: "main" },
-      session_id: "melpot-2",
+      session_id: "partnerorg-2",
     });
     const v = await readJson(res);
     expect(v.decision).toBe("deny");
@@ -117,15 +117,15 @@ describe("/v1/harness route", () => {
   });
 
   it("allowlisted な decoy -C を混ぜた複合コマンドは deny", async () => {
-    const melpot = makeApp(undefined, ["KuzuSurvivors"]);
-    const res = await post(melpot.app, "/v1/harness/gate", {
+    const partnerorg = makeApp(undefined, ["AlphaGame"]);
+    const res = await post(partnerorg.app, "/v1/harness/gate", {
       action: {
         tool: "Bash",
-        command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+        command: "git -C C:/repos/AlphaGame status && git push origin main",
         cwd: "C:/repos/Figmentum",
         branch: "main",
       },
-      session_id: "melpot-3",
+      session_id: "partnerorg-3",
     });
     const v = await readJson(res);
     expect(v.decision).toBe("deny");

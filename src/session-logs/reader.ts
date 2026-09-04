@@ -59,6 +59,7 @@ export function parseSessionLog(
   content: string,
   mtime: number,
   sizeBytes: number,
+  projectNames: readonly string[] = [],
 ): SessionLogMeta {
   const m = ID_RE.exec(id);
   const date = m ? m[1] : "";
@@ -92,7 +93,7 @@ export function parseSessionLog(
     date,
     seq,
     title,
-    projects: extractProjects(content),
+    projects: extractProjects(content, projectNames),
     sections,
     size_bytes: sizeBytes,
     mtime,
@@ -117,7 +118,7 @@ export async function resolveSessionLogsDir(roots: string[]): Promise<string | n
 }
 
 /** ディレクトリ内の全 session-log を新しい順 (date desc, seq desc, mtime desc) で読む。 */
-export async function readSessionLogs(dir: string): Promise<SessionLogMeta[]> {
+export async function readSessionLogs(dir: string, projectNames: readonly string[] = []): Promise<SessionLogMeta[]> {
   let names: string[];
   try {
     names = await readdir(dir);
@@ -142,7 +143,7 @@ export async function readSessionLogs(dir: string): Promise<SessionLogMeta[]> {
     } catch {
       continue;
     }
-    out.push(parseSessionLog(id, content, Math.floor(st.mtimeMs / 1000), st.size));
+    out.push(parseSessionLog(id, content, Math.floor(st.mtimeMs / 1000), st.size, projectNames));
   }
   out.sort(
     (a, b) =>
@@ -152,7 +153,11 @@ export async function readSessionLogs(dir: string): Promise<SessionLogMeta[]> {
 }
 
 /** 1 件の本文込み詳細を読む。 path traversal を弾く。 見つからなければ null。 */
-export async function readSessionLogFull(dir: string, id: string): Promise<SessionLogFull | null> {
+export async function readSessionLogFull(
+  dir: string,
+  id: string,
+  projectNames: readonly string[] = [],
+): Promise<SessionLogFull | null> {
   // id はファイル名のみ (スラッシュ・`..` 不可)。 念のため解決後の包含も検証する。
   if (!/^[\w.-]+$/.test(id) || id.includes("..")) return null;
   const full = resolve(dir, `${id}.md`);
@@ -171,6 +176,6 @@ export async function readSessionLogFull(dir: string, id: string): Promise<Sessi
   } catch {
     return null;
   }
-  const meta = parseSessionLog(id, content, Math.floor(st.mtimeMs / 1000), st.size);
+  const meta = parseSessionLog(id, content, Math.floor(st.mtimeMs / 1000), st.size, projectNames);
   return { ...meta, content_md: content };
 }

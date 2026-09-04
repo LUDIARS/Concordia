@@ -13,6 +13,21 @@ import {
 export interface SessionLogsApiDeps {
   /** workspace ルート群 (= ローカルクローン親)。 `<root>/session-logs` を探す。 */
   resolveWorkspaceRoots: () => string[];
+  /**
+   * プロジェクト正式名の語彙。 正本は project code registry で、 ここは
+   * その読み取り経路を注入するだけ。 空なら session-log にタグを付けない
+   * (spec/plan/2026-09-04-externalize-partner-identifiers.md)。
+   */
+  resolveProjectNames: () => string[];
+}
+
+function resolveProjectNamesOrEmpty(deps: SessionLogsApiDeps): string[] {
+  try {
+    return deps.resolveProjectNames();
+  } catch {
+    // Registry 障害時に組み込み語彙へ戻すと外出しが崩れる。タグ無しで一覧は提供する。
+    return [];
+  }
 }
 
 function clampInt(raw: string | undefined, def: number, min: number, max: number): number {
@@ -28,7 +43,7 @@ export function sessionLogsRouter(deps: SessionLogsApiDeps): Hono {
   // facet (projects) は全件から算出するので、 project/q で絞っても安定して出る。
   app.get("/", async (c) => {
     const dir = await resolveSessionLogsDir(deps.resolveWorkspaceRoots());
-    const all = dir ? await readSessionLogs(dir) : [];
+    const all = dir ? await readSessionLogs(dir, resolveProjectNamesOrEmpty(deps)) : [];
 
     const counts = new Map<string, number>();
     for (const e of all) for (const p of e.projects) counts.set(p, (counts.get(p) ?? 0) + 1);
@@ -58,7 +73,7 @@ export function sessionLogsRouter(deps: SessionLogsApiDeps): Hono {
     const id = c.req.param("id");
     const dir = await resolveSessionLogsDir(deps.resolveWorkspaceRoots());
     if (!dir) return c.json({ error: "no_session_logs_dir" }, 404);
-    const full = await readSessionLogFull(dir, id);
+    const full = await readSessionLogFull(dir, id, resolveProjectNamesOrEmpty(deps));
     if (!full) return c.json({ error: "not_found" }, 404);
     return c.json(full);
   });

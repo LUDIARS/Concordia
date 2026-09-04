@@ -51,7 +51,7 @@ describe("startCronScheduler", () => {
       fanoutResolvers: {
         teams: () => [
           { key: "alpha", args: { team_id: "team_a" }, options: { team: "team_a" } },
-          { key: "glab", args: { team_id: "team_g" }, options: { team: "team_g" } },
+          { key: "samplelab", args: { team_id: "team_g" }, options: { team: "team_g" } },
         ],
       },
     } as CronSchedulerDeps;
@@ -66,7 +66,7 @@ describe("startCronScheduler", () => {
     });
     expect(invoke.mock.calls[1][0]).toMatchObject({
       args: { date: "2026-08-17", team_id: "team_g" },
-      triggered_by: "cron:standup:glab",
+      triggered_by: "cron:standup:samplelab",
     });
   });
 
@@ -97,7 +97,7 @@ describe("startCronScheduler", () => {
       fanoutResolvers: {
         teams: () => [
           { key: "alpha", args: {} },
-          { key: "glab", args: {} },
+          { key: "samplelab", args: {} },
         ],
       },
     } as CronSchedulerDeps;
@@ -117,7 +117,7 @@ describe("startCronScheduler", () => {
       fanoutResolvers: {
         teams: () => [
           { key: "alpha", args: {} },
-          { key: "glab", args: {} },
+          { key: "samplelab", args: {} },
         ],
       },
     } as CronSchedulerDeps;

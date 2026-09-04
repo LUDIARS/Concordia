@@ -283,7 +283,7 @@ export function buildCoreServer(): McpServer {
       description:
         "List past work session-logs (the hand-written `session-logs/<date>.md` records produced at /session-end and handoff). Each entry is one session document with extracted project tags, an outline (## headings) and an excerpt. Use this FIRST when picking up work — filter by project to find prior context, then call concordia_get_session_log to read the full doc. Returns { root, total, total_matched, projects:[{name,count}], entries:[{id,date,title,projects,sections,excerpt,...}] }.",
       inputSchema: {
-        project: z.string().optional().describe("Filter to logs touching this project (canonical name, e.g. 'Anatomia', 'KuzuSurvivors', 'Concordia')"),
+        project: z.string().optional().describe("Filter to logs touching this project (canonical name, e.g. 'Anatomia', 'Revisor', 'Concordia')"),
         q: z.string().optional().describe("Case-insensitive substring filter over title / outline / excerpt"),
         limit: z.number().int().min(1).max(1000).optional().describe("Max entries (default 200, newest first)"),
       },

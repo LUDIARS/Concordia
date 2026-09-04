@@ -11,9 +11,9 @@ describe("ProjectCodesRepo", () => {
     expect(repo.list()).toEqual([]);
     const input = {
       code: "MN",
-      project: "MakaiNui",
-      repoPath: "E:/Document/Ars/MakaiNui",
-      repoOrigin: "https://github.com/MELPOT/MakaiNui.git",
+      project: "BetaGame",
+      repoPath: "C:/repos/BetaGame",
+      repoOrigin: "https://github.com/PartnerOrg/BetaGame.git",
       addedBy: "test",
     };
     expect(repo.register(input).created).toBe(true);
@@ -27,15 +27,15 @@ describe("ProjectCodesRepo", () => {
     const repo = new ProjectCodesRepo(db);
     repo.register({
       code: "MN",
-      project: "MakaiNui",
-      repoPath: "E:/Document/Ars/MakaiNui",
-      repoOrigin: "https://github.com/MELPOT/MakaiNui.git",
+      project: "BetaGame",
+      repoPath: "C:/repos/BetaGame",
+      repoOrigin: "https://github.com/PartnerOrg/BetaGame.git",
       addedBy: "test",
     });
     expect(repo.findByCode("mn")).toBeNull();
     expect(() => repo.register({
       code: "Other",
-      project: "makainui",
+      project: "betagame",
       repoPath: "E:/other",
       repoOrigin: "https://example.test/other.git",
       addedBy: "test",
@@ -52,15 +52,15 @@ describe("ProjectCodesRepo", () => {
     const repo = new ProjectCodesRepo(db);
     repo.register({
       code: "MN",
-      project: "MakaiNui",
-      repoPath: "E:/Document/Ars/MakaiNui",
+      project: "BetaGame",
+      repoPath: "C:/repos/BetaGame",
       repoOrigin: null,
       addedBy: "test",
     });
     expect(() => repo.register({
       code: "MN2",
-      project: "MakaiNuiAlias",
-      repoPath: "E:\\Document\\Ars\\MakaiNui\\",
+      project: "BetaGameAlias",
+      repoPath: "C:\\repos\\BetaGame\\",
       repoOrigin: null,
       addedBy: "test",
     })).toThrow(ProjectCodeConflictError);
@@ -73,12 +73,12 @@ describe("ProjectCodesRepo", () => {
     const repo = new ProjectCodesRepo(db);
     const { row } = repo.register({
       code: "MN",
-      project: "MakaiNui",
-      repoPath: "E:\\Document\\Ars\\MakaiNui",
+      project: "BetaGame",
+      repoPath: "C:\\repos\\BetaGame",
       repoOrigin: null,
       addedBy: "test",
     });
-    expect(row.repo_path).toBe("E:/Document/Ars/MakaiNui");
+    expect(row.repo_path).toBe("C:/repos/BetaGame");
     db.close();
   });
 });
@@ -90,9 +90,9 @@ describe("ProjectCodesRepo update/remove", () => {
     const repo = new ProjectCodesRepo(db);
     repo.register({
       code: "MN",
-      project: "MakaiNui",
-      repoPath: "E:/Document/Ars/MakaiNui",
-      repoOrigin: "https://github.com/MELPOT/MakaiNui.git",
+      project: "BetaGame",
+      repoPath: "C:/repos/BetaGame",
+      repoOrigin: "https://github.com/PartnerOrg/BetaGame.git",
       addedBy: "test",
     });
     repo.register({
@@ -108,7 +108,7 @@ describe("ProjectCodesRepo update/remove", () => {
   it("updates fields in place and supports code rename", () => {
     const { db, repo } = seeded();
     const row = repo.update("MN", { code: "Mk", repoOrigin: null });
-    expect(row).toMatchObject({ code: "Mk", project: "MakaiNui", repo_origin: null });
+    expect(row).toMatchObject({ code: "Mk", project: "BetaGame", repo_origin: null });
     expect(repo.findByCode("MN")).toBeNull();
     db.close();
   });
@@ -116,7 +116,7 @@ describe("ProjectCodesRepo update/remove", () => {
   it("keeps its own values out of conflict checks but rejects taking another row's", () => {
     const { db, repo } = seeded();
     // 自分自身の現値をそのまま渡しても衝突にしない。
-    expect(repo.update("MN", { project: "MakaiNui" })).toMatchObject({ code: "MN" });
+    expect(repo.update("MN", { project: "BetaGame" })).toMatchObject({ code: "MN" });
     expect(() => repo.update("MN", { project: "Concordia" })).toThrow(ProjectCodeConflictError);
     expect(() => repo.update("MN", { code: "Cc" })).toThrow(ProjectCodeConflictError);
     db.close();
@@ -124,8 +124,8 @@ describe("ProjectCodesRepo update/remove", () => {
 
   it("normalizes repo_path separators on update and removes rows", () => {
     const { db, repo } = seeded();
-    const row = repo.update("MN", { repoPath: "E:\\Document\\Ars\\MakaiNui2" });
-    expect(row?.repo_path).toBe("E:/Document/Ars/MakaiNui2");
+    const row = repo.update("MN", { repoPath: "C:\\repos\\BetaGame2" });
+    expect(row?.repo_path).toBe("C:/repos/BetaGame2");
     expect(repo.remove("MN")).toBe(true);
     expect(repo.remove("MN")).toBe(false);
     db.close();

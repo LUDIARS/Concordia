@@ -94,7 +94,7 @@ describe("teamsRouter card posting", () => {
 
   it("検証済みのカードイベントを発行し、team_id と kind を返す", async () => {
     const { app, db, repo } = makeApp();
-    const team = repo.create({ name: "GLab", slug: "glab" });
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
     const received: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((event) => received.push(event));
 
@@ -119,9 +119,9 @@ describe("teamsRouter card posting", () => {
 
   it("slug でも引ける (cron が渡すのは id だが人手の呼び出しを許す)", async () => {
     const { app, db, repo } = makeApp();
-    const team = repo.create({ name: "GLab", slug: "glab" });
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
 
-    const response = await postCard(app, "glab", CARD);
+    const response = await postCard(app, "samplelab", CARD);
 
     expect(response.status).toBe(202);
     expect(await response.json()).toMatchObject({ team_id: team.id });
@@ -152,7 +152,7 @@ describe("teamsRouter card posting", () => {
 
   it("面へのルーティングが定義されていない種別は弾く", async () => {
     const { app, db, repo } = makeApp();
-    const team = repo.create({ name: "GLab", slug: "glab" });
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
 
     const response = await postCard(app, team.id, { ...CARD, kind: "decision-log" });
 
@@ -162,7 +162,7 @@ describe("teamsRouter card posting", () => {
 
   it("空本文・未知フィールドを弾く", async () => {
     const { app, db, repo } = makeApp();
-    const team = repo.create({ name: "GLab", slug: "glab" });
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
 
     expect((await postCard(app, team.id, { ...CARD, body: "  " })).status).toBe(400);
     expect((await postCard(app, team.id, { ...CARD, channel_id: "1" })).status).toBe(400);

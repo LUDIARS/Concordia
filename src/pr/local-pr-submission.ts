@@ -45,7 +45,7 @@ export interface LocalPrPlanInput {
   /** 予約済みの審査枠を使うというセッションからの明示指示。 */
   fastLane?: boolean;
   /**
-   * team settings `revisor_lane` (teams §3.1)。 `"github"` のチーム (MELPOT 相当) は
+   * team settings `revisor_lane` (teams §3.1)。 `"github"` のチーム (全リポ private な org 相当) は
    * Revisor local PR 経路を使わない — 通常の GitHub PR 運用に委ねるため、 ここでは
    * 提出せず理由付きでスキップする。 未指定 (チーム未所属) は従来どおり local 提出。
    */

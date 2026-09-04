@@ -117,7 +117,7 @@ function gateFeatures(
     has_command: Boolean(action.command?.trim()),
     command_family: commandFamily(action.command),
     command_pushes_main: pushesMain,
-    // 許可リスト該当リポへの main 直 push (MELPOT 例外)。 no-main-push ルールの除外条件。
+    // 許可リスト該当リポへの main 直 push。 no-main-push ルールの除外条件。
     main_push_allowlisted: pushesMain && isMainPushAllowlisted(action, mainPushAllowlist),
     edit_on_main: isEditTool(action.tool) && isMainBranch(action.branch),
     edited_repo_count: new Set(editedRepos.map((r) => r.trim()).filter(Boolean)).size,

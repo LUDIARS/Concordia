@@ -62,6 +62,7 @@ import type { MemoriaClient, MemoriaTask } from "../memoria/client.js";
 import { parseRuntimeOptions, type DelegationRepo } from "../db/delegation-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import type { DelegationQueue } from "../delegation/queue.js";
+import { refreshDelegationIdentifierTemplates } from "../delegation/seed.js";
 import { substituteVars } from "../delegation/service.js";
 import {
   forgetPendingDelegationSpawnBySpawnId,
@@ -329,7 +330,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route(
     "/v1/session-logs",
-    sessionLogsRouter({ resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots() }),
+    sessionLogsRouter({
+      resolveWorkspaceRoots: () => deps.adminState.getWorkspaceRoots(),
+      // 語彙の正本は project code registry。 session-log 側にコピーを持たない。
+      resolveProjectNames: () => deps.projectCodes.list().map((row) => row.project),
+    }),
   );
   } }, { name: "knowledge-and-work", mount: () => {
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
@@ -371,6 +376,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       settingsRouter({
         reader: createSettingsDbReader(bindings),
         writer: createSettingsDbWriter(bindings),
+        onChanged: (keys) => {
+          if (keys.some((key) => key === "delegation.invoice_skill_command"
+            || key === "delegation.partner_display_name")) {
+            refreshDelegationIdentifierTemplates(deps.delegation, deps.adminState.getDelegationIdentifiers());
+          }
+        },
       }),
     );
   }

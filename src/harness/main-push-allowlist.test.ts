@@ -1,6 +1,5 @@
 import { describe, it, expect } from "vitest";
 import {
-  DEFAULT_MAIN_PUSH_ALLOWLIST,
   isMainPushAllowlisted,
   mainPushTargetPaths,
   parseMainPushAllowlist,
@@ -8,7 +7,7 @@ import {
 
 describe("parseMainPushAllowlist", () => {
   it("カンマ / 改行区切りを分解し空白を落とす", () => {
-    expect(parseMainPushAllowlist(" KuzuSurvivors , MakaiNui ")).toEqual(["KuzuSurvivors", "MakaiNui"]);
+    expect(parseMainPushAllowlist(" AlphaGame , BetaGame ")).toEqual(["AlphaGame", "BetaGame"]);
     expect(parseMainPushAllowlist("A\nB")).toEqual(["A", "B"]);
   });
 
@@ -24,34 +23,34 @@ describe("mainPushTargetPaths", () => {
     expect(
       mainPushTargetPaths({
         cwd: "C:\\repos\\Figmentum\\",
-        command: "git -C C:/repos/KuzuSurvivors push origin main",
+        command: "git -C C:/repos/AlphaGame push origin main",
       }),
-    ).toEqual(["c:/repos/kuzusurvivors"]);
+    ).toEqual(["c:/repos/alphagame"]);
   });
 
   it("引用符付き (空白を含む) パスも拾う", () => {
-    expect(mainPushTargetPaths({ command: 'git -C "C:/My Repos/MakaiNui" push' })).toEqual(["c:/my repos/makainui"]);
+    expect(mainPushTargetPaths({ command: 'git -C "C:/My Repos/BetaGame" push' })).toEqual(["c:/my repos/betagame"]);
   });
 
   it("相対 -C を cwd 基準で解決し、`.` / `..` を正規化する", () => {
     expect(mainPushTargetPaths({
-      command: "git -C ./KuzuSurvivors/tools/.. push origin main",
+      command: "git -C ./AlphaGame/tools/.. push origin main",
       cwd: "C:/repos",
-    })).toEqual(["c:/repos/kuzusurvivors"]);
+    })).toEqual(["c:/repos/alphagame"]);
   });
 
   it("-C が無ければ cwd のみ", () => {
-    expect(mainPushTargetPaths({ command: "git push origin main", cwd: "/x/KuzuSurvivors" })).toEqual(["/x/kuzusurvivors"]);
+    expect(mainPushTargetPaths({ command: "git push origin main", cwd: "/x/AlphaGame" })).toEqual(["/x/alphagame"]);
     expect(mainPushTargetPaths({ command: "git push origin main" })).toEqual([]);
   });
 
   it("複合コマンドは decoy の -C と push 対象を安全に対応付けられないため拒否する", () => {
     expect(mainPushTargetPaths({
-      command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+      command: "git -C C:/repos/AlphaGame status && git push origin main",
       cwd: "C:/repos/Figmentum",
     })).toEqual([]);
     expect(mainPushTargetPaths({
-      command: "git -C C:/repos/KuzuSurvivors status < <(git push origin main)",
+      command: "git -C C:/repos/AlphaGame status < <(git push origin main)",
       cwd: "C:/repos/Figmentum",
     })).toEqual([]);
   });
@@ -59,54 +58,55 @@ describe("mainPushTargetPaths", () => {
   it("別リポを指す --git-dir / --work-tree は fail-closed にする", () => {
     expect(mainPushTargetPaths({
       command: "git --git-dir=C:/repos/Figmentum/.git push origin main",
-      cwd: "C:/repos/KuzuSurvivors",
+      cwd: "C:/repos/AlphaGame",
     })).toEqual([]);
     expect(mainPushTargetPaths({
       command: "git --work-tree C:/repos/Figmentum push origin main",
-      cwd: "C:/repos/KuzuSurvivors",
+      cwd: "C:/repos/AlphaGame",
     })).toEqual([]);
   });
 
   it("inline alias など追加の Git global option は fail-closed にする", () => {
     expect(mainPushTargetPaths({
-      command: 'git -C C:/repos/KuzuSurvivors -c "alias.x=!git -C C:/repos/Figmentum push origin main" x',
+      command: 'git -C C:/repos/AlphaGame -c "alias.x=!git -C C:/repos/Figmentum push origin main" x',
       cwd: "C:/repos/Concordia",
     })).toEqual([]);
   });
 });
 
 describe("isMainPushAllowlisted", () => {
-  const allowlist = [...DEFAULT_MAIN_PUSH_ALLOWLIST];
+  // 判定規則のテストなので、既定シードの中身には依存させない。
+  const allowlist = ["AlphaGame", "BetaGame"];
 
   it("ディレクトリ名エントリはパス区切り単位で一致する (Windows / POSIX 両方)", () => {
-    expect(isMainPushAllowlisted({ cwd: "C:\\repos\\KuzuSurvivors" }, allowlist)).toBe(true);
-    expect(isMainPushAllowlisted({ cwd: "/home/x/makainui/sub/dir" }, allowlist)).toBe(true);
+    expect(isMainPushAllowlisted({ cwd: "C:\\repos\\AlphaGame" }, allowlist)).toBe(true);
+    expect(isMainPushAllowlisted({ cwd: "/home/x/betagame/sub/dir" }, allowlist)).toBe(true);
     expect(isMainPushAllowlisted({ cwd: "C:/repos/Figmentum" }, allowlist)).toBe(false);
   });
 
   it("部分文字列では一致しない (セグメント境界を守る)", () => {
-    expect(isMainPushAllowlisted({ cwd: "C:/repos/KuzuSurvivorsX" }, allowlist)).toBe(false);
-    expect(isMainPushAllowlisted({ cwd: "C:/repos/.wt-KuzuSurvivors-x" }, allowlist)).toBe(false);
+    expect(isMainPushAllowlisted({ cwd: "C:/repos/AlphaGameX" }, allowlist)).toBe(false);
+    expect(isMainPushAllowlisted({ cwd: "C:/repos/.wt-AlphaGame-x" }, allowlist)).toBe(false);
   });
 
   it("絶対パスエントリは完全一致とその配下に効く", () => {
-    const abs = ["C:\\repos\\KuzuSurvivors"];
-    expect(isMainPushAllowlisted({ cwd: "c:/repos/kuzusurvivors" }, abs)).toBe(true);
-    expect(isMainPushAllowlisted({ cwd: "C:/repos/KuzuSurvivors/tools" }, abs)).toBe(true);
-    expect(isMainPushAllowlisted({ cwd: "C:/other/KuzuSurvivors" }, abs)).toBe(false);
+    const abs = ["C:\\repos\\AlphaGame"];
+    expect(isMainPushAllowlisted({ cwd: "c:/repos/alphagame" }, abs)).toBe(true);
+    expect(isMainPushAllowlisted({ cwd: "C:/repos/AlphaGame/tools" }, abs)).toBe(true);
+    expect(isMainPushAllowlisted({ cwd: "C:/other/AlphaGame" }, abs)).toBe(false);
   });
 
   it("`..` で許可リポ外へ出るパスを許可しない", () => {
     expect(isMainPushAllowlisted({
-      command: "git -C C:/repos/KuzuSurvivors/../Figmentum push origin main",
+      command: "git -C C:/repos/AlphaGame/../Figmentum push origin main",
       cwd: "C:/repos/Concordia",
-    }, ["KuzuSurvivors", "C:/repos/KuzuSurvivors"])).toBe(false);
+    }, ["AlphaGame", "C:/repos/AlphaGame"])).toBe(false);
   });
 
   it("git -C の対象リポでも判定する (cwd が別リポでも許可)", () => {
     expect(
       isMainPushAllowlisted(
-        { cwd: "C:/repos/Concordia", command: "git -C C:/repos/KuzuSurvivors push origin main" },
+        { cwd: "C:/repos/Concordia", command: "git -C C:/repos/AlphaGame push origin main" },
         allowlist,
       ),
     ).toBe(true);
@@ -115,17 +115,17 @@ describe("isMainPushAllowlisted", () => {
   it("別リポの push に allowlisted な -C を混ぜても許可しない", () => {
     expect(isMainPushAllowlisted({
       cwd: "C:/repos/Figmentum",
-      command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+      command: "git -C C:/repos/AlphaGame status && git push origin main",
     }, allowlist)).toBe(false);
   });
 
   it("許可リストが空なら常に false", () => {
-    expect(isMainPushAllowlisted({ cwd: "C:/repos/KuzuSurvivors" }, [])).toBe(false);
-    expect(isMainPushAllowlisted({ cwd: "C:/repos/KuzuSurvivors" }, ["  "])).toBe(false);
+    expect(isMainPushAllowlisted({ cwd: "C:/repos/AlphaGame" }, [])).toBe(false);
+    expect(isMainPushAllowlisted({ cwd: "C:/repos/AlphaGame" }, ["  "])).toBe(false);
   });
 
   it("相対パスや `.` / `..` は許可エントリとして受け付けない", () => {
-    expect(isMainPushAllowlisted({ command: "git -C repos/KuzuSurvivors push" }, ["repos/KuzuSurvivors"])).toBe(false);
+    expect(isMainPushAllowlisted({ command: "git -C repos/AlphaGame push" }, ["repos/AlphaGame"])).toBe(false);
     expect(isMainPushAllowlisted({ command: "git -C . push", cwd: "." }, ["."])).toBe(false);
     expect(
       isMainPushAllowlisted({ command: "git -C .. push", cwd: ".." }, [".."]),

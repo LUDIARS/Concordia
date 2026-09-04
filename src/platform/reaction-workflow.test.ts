@@ -354,7 +354,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     userId: "u1",
     messageText: "これメモして",
     authorLabel: "設計担当",
-    repoPath: "E:/Document/Ars/KuzuSurvivors",
+    repoPath: "C:/repos/AlphaGame",
     sessionActive: false,
     sessionId: null,
   };
@@ -374,7 +374,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" });
     expect(calls).toHaveLength(1);
-    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/KuzuSurvivors");
+    expect(calls[0].opts?.cwd).toBe("C:/repos/AlphaGame");
   });
 
   it("sync-project-main-after-merge(🔄) は workspace root で headless 実行する", async () => {
@@ -467,7 +467,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: false });
     expect(calls).toHaveLength(1);
-    expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/KuzuSurvivors");
+    expect(calls[0].opts?.cwd).toBe("C:/repos/AlphaGame");
     expect(calls[0].prompt).toContain("タスク判定");
     expect(calls[0].prompt).toContain("これメモして");
   });

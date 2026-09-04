@@ -99,6 +99,10 @@ export interface SettingDefinition {
   /** `kind: "integer"` のときに受け付ける下限・上限。 */
   minValue?: number;
   maxValue?: number;
+  /** `kind: "string"` の入力制約。値全体に一致する正規表現文字列。 */
+  stringPattern?: string;
+  /** `stringPattern` 不一致時に API が返す人間向けの制約説明。 */
+  stringPatternDescription?: string;
   /** `kind: "string-list"` の env 表現。 既定は既存設定と同じ `;` 区切り。 */
   listEnvFormat?: "semicolon" | "comma-or-newline";
   /**

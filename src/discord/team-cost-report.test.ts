@@ -14,13 +14,13 @@ describe("formatTokens", () => {
 describe("renderTeamCostReport", () => {
   it("reports the session cost against the team total for the day", () => {
     const text = renderTeamCostReport({
-      teamName: "GLab",
+      teamName: "SampleLab",
       sessionLabel: "感想投稿の実装",
       sessionCostTokens: 25_000,
       teamTodayCostTokens: 100_000,
       teamTodaySessionCount: 4,
     });
-    expect(text).toContain("**GLab** セッション終了");
+    expect(text).toContain("**SampleLab** セッション終了");
     expect(text).toContain("感想投稿の実装");
     expect(text).toContain("25.0k tokens");
     expect(text).toContain("100.0k tokens");
@@ -29,7 +29,7 @@ describe("renderTeamCostReport", () => {
 
   it("does not divide by zero when the team has no recorded cost", () => {
     const text = renderTeamCostReport({
-      teamName: "GLab",
+      teamName: "SampleLab",
       sessionLabel: "claude (abc)",
       sessionCostTokens: 0,
       teamTodayCostTokens: 0,

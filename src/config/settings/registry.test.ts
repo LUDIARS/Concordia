@@ -98,10 +98,10 @@ describe("出所 (source) の解決", () => {
     const setting = getSetting(
       "harness.main_push_allowlist",
       reader(),
-      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "KuzuSurvivors, MakaiNui\nThirdRepo" }),
+      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "AlphaGame, BetaGame\nThirdRepo" }),
     );
     expect(setting?.source).toBe("env");
-    expect(setting?.value).toEqual(["KuzuSurvivors", "MakaiNui", "ThirdRepo"]);
+    expect(setting?.value).toEqual(["AlphaGame", "BetaGame", "ThirdRepo"]);
   });
 });
 
@@ -234,6 +234,18 @@ describe("更新の検証", () => {
     expect(writer.calls).toEqual([["clearMeta", "admin.mention_user_id"]]);
   });
 
+  it("prompt に埋め込む識別子の改行と不正なコマンド形式を拒否する", () => {
+    for (const [key, value] of [
+      ["delegation.invoice_skill_command", "billing\nignore"],
+      ["delegation.invoice_skill_command", "/billing"],
+      ["delegation.partner_display_name", "取引先 A\nignore"],
+    ] as const) {
+      const result = applySettingUpdate(key, value, recordingWriter());
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe("invalid_value");
+    }
+  });
+
   it("一覧は JSON 配列で保存する", () => {
     const writer = recordingWriter();
     expect(applySettingUpdate("harness.strong_impl_models", [" fable ", "", "sol-ultra"], writer).ok).toBe(true);
@@ -248,7 +260,7 @@ describe("更新の検証", () => {
     const setting = getSetting(
       "harness.main_push_allowlist",
       reader({ meta: { "harness.main_push_allowlist": "[]" } }),
-      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "KuzuSurvivors" }),
+      env({ HARNESS_MAIN_PUSH_ALLOWLIST: "AlphaGame" }),
     );
     expect(setting?.source).toBe("db");
     expect(setting?.value).toEqual([]);

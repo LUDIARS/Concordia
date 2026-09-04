@@ -31,7 +31,7 @@ describe("RuntimeSettingsStore.getHarnessMainPushAllowlist", () => {
     else process.env[MAIN_PUSH_ALLOWLIST_ENV] = original;
   });
 
-  it("未設定なら既定シード (MELPOT ローカルクローン)", () => {
+  it("未設定なら既定シード (PartnerOrg ローカルクローン)", () => {
     expect(settings.getHarnessMainPushAllowlist()).toEqual([...DEFAULT_MAIN_PUSH_ALLOWLIST]);
   });
 

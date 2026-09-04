@@ -70,6 +70,19 @@ function validate(definitions: readonly SettingDefinition[]): readonly SettingDe
     if ((definition.minValue !== undefined || definition.maxValue !== undefined) && definition.kind !== "integer") {
       throw new Error(`setting ${definition.key} has numeric bounds but is not an integer`);
     }
+    if (definition.stringPattern !== undefined && definition.kind !== "string") {
+      throw new Error(`setting ${definition.key} has a string pattern but is not a string`);
+    }
+    if (definition.stringPattern !== undefined && !definition.stringPatternDescription) {
+      throw new Error(`setting ${definition.key} has a string pattern without a description`);
+    }
+    if (definition.stringPattern !== undefined) {
+      try {
+        new RegExp(definition.stringPattern, "u");
+      } catch {
+        throw new Error(`setting ${definition.key} has an invalid string pattern`);
+      }
+    }
     if (definition.listEnvFormat !== undefined && definition.kind !== "string-list") {
       throw new Error(`setting ${definition.key} has listEnvFormat but is not a string-list`);
     }

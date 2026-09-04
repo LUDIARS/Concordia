@@ -24,8 +24,8 @@ function adminDeps(overrides: Record<string, unknown> = {}) {
     },
     resolveWorkspaceRoots: () => ["E:/Document/Ars"],
     teams: {
-      list: () => [{ id: "team-1", name: "GLab" }],
-      find: (id: string) => (id === "team-1" ? { id: "team-1", name: "GLab" } : null),
+      list: () => [{ id: "team-1", name: "SampleLab" }],
+      find: (id: string) => (id === "team-1" ? { id: "team-1", name: "SampleLab" } : null),
       listRepoAssignments: () => [{ team_id: "team-1", repo_origin: storedRow.repo_origin! }],
       assignRepoToTeams: vi.fn(),
       moveRepoAssignment: vi.fn(),
@@ -63,12 +63,12 @@ describe("projectCodesRouter admin surface", () => {
     expect(body.entries[0]).toMatchObject({
       code: "Cc",
       repo_origin: storedRow.repo_origin,
-      teams: [{ id: "team-1", name: "GLab" }],
+      teams: [{ id: "team-1", name: "SampleLab" }],
       subsidiaries: [{ id: "sub-1", name: "DiTest" }],
       revisor: { registered: true, workflow: "github" },
     });
     expect(body.revisor_available).toBe(true);
-    expect(body.teams).toEqual([{ id: "team-1", name: "GLab" }]);
+    expect(body.teams).toEqual([{ id: "team-1", name: "SampleLab" }]);
     expect(body.subsidiaries).toEqual([{ id: "sub-1", name: "DiTest" }]);
   });
 
@@ -213,7 +213,7 @@ describe("ownerRepoFromOrigin", () => {
   it("parses https / ssh origins and rejects non-repo strings", () => {
     expect(ownerRepoFromOrigin("https://github.com/LUDIARS/Concordia.git")).toBe("LUDIARS/Concordia");
     expect(ownerRepoFromOrigin("https://github.com/LUDIARS/Concordia")).toBe("LUDIARS/Concordia");
-    expect(ownerRepoFromOrigin("git@github.com:MELPOT/MakaiNui.git")).toBe("MELPOT/MakaiNui");
+    expect(ownerRepoFromOrigin("git@github.com:PartnerOrg/BetaGame.git")).toBe("PartnerOrg/BetaGame");
     expect(ownerRepoFromOrigin("https://example.test/LUDIARS/Concordia.git")).toBeNull();
     expect(ownerRepoFromOrigin(null)).toBeNull();
     expect(ownerRepoFromOrigin("not a url")).toBeNull();

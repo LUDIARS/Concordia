@@ -10,7 +10,7 @@ import { withMainPushAllowlist, type HarnessAction } from "./predicates.js";
 import { evaluateAction } from "./session-gate.js";
 
 const GATE = HARNESS_BLACKBOX_DOMAINS.gate;
-const ALLOWLIST = ["KuzuSurvivors", "MakaiNui"];
+const ALLOWLIST = ["AlphaGame", "BetaGame"];
 
 /** 旧版 (許可リスト以前) の no-main-push シードを直接投入する。 */
 function seedLegacyNoMainPush(db: ReturnType<typeof makeTestDb>): string {
@@ -40,7 +40,7 @@ function decide(service: ReturnType<typeof createHarnessBlackbox>, action: Harne
 
 const allowlistedPush: HarnessAction = {
   tool: "Bash",
-  command: "git -C C:/repos/KuzuSurvivors push origin main",
+  command: "git -C C:/repos/AlphaGame push origin main",
   cwd: "C:/repos/Concordia",
   branch: "feat/x",
 };
@@ -80,7 +80,7 @@ describe("harness blackbox gate — main push 許可リスト", () => {
     const service = createHarnessBlackbox(makeTestDb());
     const action: HarnessAction = {
       ...plainPush,
-      command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+      command: "git -C C:/repos/AlphaGame status && git push origin main",
     };
     const { verdict } = await decide(service, action, ALLOWLIST);
     expect(verdict.decision).toBe("deny");

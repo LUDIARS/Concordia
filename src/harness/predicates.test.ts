@@ -56,12 +56,12 @@ describe("noMainPush", () => {
 });
 
 describe("makeNoMainPushPredicate (許可リスト)", () => {
-  const allowlisted = makeNoMainPushPredicate(["KuzuSurvivors", "MakaiNui"]);
+  const allowlisted = makeNoMainPushPredicate(["AlphaGame", "BetaGame"]);
 
   it("許可リポへの main push は deny せず warn で追跡する (git -C 形式)", () => {
     const hit = allowlisted({
       tool: "Bash",
-      command: "git -C C:/repos/KuzuSurvivors push origin main",
+      command: "git -C C:/repos/AlphaGame push origin main",
       cwd: "C:/repos/Concordia",
       branch: "feat/x",
     });
@@ -70,7 +70,7 @@ describe("makeNoMainPushPredicate (許可リスト)", () => {
   });
 
   it("cwd が許可リポなら ref 省略の main push も warn", () => {
-    const hit = allowlisted({ tool: "Bash", command: "git push", cwd: "C:\\repos\\KuzuSurvivors", branch: "main" });
+    const hit = allowlisted({ tool: "Bash", command: "git push", cwd: "C:\\repos\\AlphaGame", branch: "main" });
     expect(hit?.decision).toBe("warn");
   });
 
@@ -81,19 +81,19 @@ describe("makeNoMainPushPredicate (許可リスト)", () => {
   });
 
   it("許可リストが空なら既定述語と同じ (全リポ deny)", () => {
-    const action: HarnessAction = { tool: "Bash", command: "git push origin main", cwd: "C:/repos/KuzuSurvivors" };
+    const action: HarnessAction = { tool: "Bash", command: "git push origin main", cwd: "C:/repos/AlphaGame" };
     expect(makeNoMainPushPredicate([])(action)?.decision).toBe("deny");
     expect(noMainPush(action)?.decision).toBe("deny");
   });
 
   it("push でないコマンドは許可リポでも対象外", () => {
-    expect(allowlisted({ tool: "Bash", command: "git status", cwd: "/x/KuzuSurvivors", branch: "main" })).toBeNull();
+    expect(allowlisted({ tool: "Bash", command: "git status", cwd: "/x/AlphaGame", branch: "main" })).toBeNull();
   });
 
   it("allowlisted な decoy -C を含む複合コマンドは deny", () => {
     const hit = allowlisted({
       tool: "Bash",
-      command: "git -C C:/repos/KuzuSurvivors status && git push origin main",
+      command: "git -C C:/repos/AlphaGame status && git push origin main",
       cwd: "C:/repos/Figmentum",
       branch: "main",
     });
@@ -104,7 +104,7 @@ describe("makeNoMainPushPredicate (許可リスト)", () => {
   it("inline alias 内の非許可リポ push を allowlist で迂回できない", () => {
     const hit = allowlisted({
       tool: "Bash",
-      command: 'git -C C:/repos/KuzuSurvivors -c "alias.x=!git -C C:/repos/Figmentum push origin main" x',
+      command: 'git -C C:/repos/AlphaGame -c "alias.x=!git -C C:/repos/Figmentum push origin main" x',
       cwd: "C:/repos/Concordia",
       branch: "main",
     });
@@ -115,7 +115,7 @@ describe("makeNoMainPushPredicate (許可リスト)", () => {
   it("`..` で許可リポ外へ出る push は deny", () => {
     const hit = allowlisted({
       tool: "Bash",
-      command: "git -C C:/repos/KuzuSurvivors/../Figmentum push origin main",
+      command: "git -C C:/repos/AlphaGame/../Figmentum push origin main",
       cwd: "C:/repos/Concordia",
       branch: "main",
     });
@@ -125,10 +125,10 @@ describe("makeNoMainPushPredicate (許可リスト)", () => {
 });
 
 describe("withMainPushAllowlist", () => {
-  const action: HarnessAction = { tool: "Bash", command: "git push origin main", cwd: "/x/KuzuSurvivors", branch: "main" };
+  const action: HarnessAction = { tool: "Bash", command: "git push origin main", cwd: "/x/AlphaGame", branch: "main" };
 
   it("noMainPush だけを差し替え、他の述語は同一参照のまま", () => {
-    const swapped = withMainPushAllowlist(["KuzuSurvivors"]);
+    const swapped = withMainPushAllowlist(["AlphaGame"]);
     expect(swapped).toHaveLength(DEFAULT_PREDICATES.length);
     const noMainPushIndex = DEFAULT_PREDICATES.indexOf(noMainPush);
     expect(swapped[noMainPushIndex]).not.toBe(noMainPush);

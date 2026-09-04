@@ -1,20 +1,27 @@
 import path from "node:path";
 
 /**
- * main 直 push の許可リスト (MELPOT 例外)。
+ * main 直 push の許可リスト。
  *
- * ハーネスの `no-main-push` は「変更はブランチ → PR」を強制するためのものだが、 MELPOT
- * (KuzuSurvivors / MakaiNui) のように push を閉じておらず全リポ private な運用では main へ
+ * ハーネスの `no-main-push` は「変更はブランチ → PR」を強制するためのものだが、
+ * push を閉じておらず全リポ private な取引先 org のような運用では main へ
  * 直接 push してよい。 リポ単位の例外をここで判定し、 予測子 (predicates.ts) と blackbox の
  * 特徴量 (blackbox-engine.ts) の双方が同じ規則を共有する。
  *
- * 許可リストの要素は「リポジトリのディレクトリ名」 (例 `KuzuSurvivors`) または「絶対パス」
- * (例 `C:/repos/KuzuSurvivors`)。 判定対象は action.cwd に加え、 コマンド中の
+ * 許可リストの要素は「リポジトリのディレクトリ名」 (例 `AlphaGame`) または「絶対パス」
+ * (例 `C:/repos/AlphaGame`)。 判定対象は action.cwd に加え、 コマンド中の
  * `git -C <path>` の path — 別リポを cwd 外から push する形 (実失敗例) を拾うため。
  */
 
-/** 既定の許可リスト (MELPOT ローカルクローン)。 設定・env 未指定時のシード。 */
-export const DEFAULT_MAIN_PUSH_ALLOWLIST: readonly string[] = ["KuzuSurvivors", "MakaiNui"];
+/**
+ * 既定の許可リストは**空**。 このリポジトリは public なので、どの取引先リポに
+ * main 直 push を許しているかを既定値として同梱しない。
+ *
+ * 例外は運用側で入れる: 設定 UI (`harness.main_push_allowlist`) か env
+ * {@link MAIN_PUSH_ALLOWLIST_ENV}。 未設定なら例外なし = 全リポで main 直 push を
+ * 止める、という**安全側**に倒れる (許してしまう方向には倒れない)。
+ */
+export const DEFAULT_MAIN_PUSH_ALLOWLIST: readonly string[] = [];
 
 /** 許可リストを供給する env (Cc 設定 `harness.main_push_allowlist` が優先)。 */
 export const MAIN_PUSH_ALLOWLIST_ENV = "HARNESS_MAIN_PUSH_ALLOWLIST";

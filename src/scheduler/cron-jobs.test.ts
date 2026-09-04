@@ -96,4 +96,17 @@ describe("CRON_JOBS", () => {
       expect(CRON_JOBS.find((job) => job.name === name)).toBeUndefined();
     }
   });
+
+  it("keeps the 3-a-day sweep alongside the renewal so realtime is never the only path", () => {
+    // renewal は「通知が来る状態」を保つだけで、 取りこぼしは拾わない。
+    // sweep を消すと subscriber 停止中・historyId 失効中のメールが落ちる。
+    expect(CRON_JOBS.find(({ name }) => name === "quaestor-mail-sweep")).toBeDefined();
+  });
+
+  it("does not schedule the mail-triggered templates, which are invoked rather than timed", () => {
+    const names = CRON_JOBS.map(({ name }) => name);
+
+    expect(names).not.toContain("ci-failure-fix");
+    expect(names).not.toContain("deps-sweep-repo");
+  });
 });

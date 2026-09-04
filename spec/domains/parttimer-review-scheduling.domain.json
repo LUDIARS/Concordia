@@ -50,6 +50,7 @@
   ],
   "specRefs": [
     "spec/feature/delegation.md#9-初期-seed",
+    "spec/feature/delegation.md#メール監視-parttimer",
     "spec/feature/team-standup-and-review.md#1-チームごとの-fanout"
   ],
   "rationale": "定期レビューの有効状態はテンプレートだけでは完結せず、cron の call_name と一致して初めて Timer Delegation が起動する。設定 UI の説明も同じ cron 設定を利用者へ示す境界に属する。旧日次テンプレートの無効化と、管理者が保存した cron override を新 job 名へ引き継ぐ処理もこの登録の移行規則であり、レビュー内容や実行キューの責務とは分離する。"

@@ -23,6 +23,7 @@
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
   "specRefs": [
     "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
-    "spec/feature/delegation.md#dependency-sweep-parttimer"
+    "spec/feature/delegation.md#dependency-sweep-parttimer",
+    "spec/feature/delegation.md#メール監視-parttimer"
   ]
 }

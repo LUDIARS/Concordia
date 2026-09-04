@@ -27,6 +27,8 @@ import {
   buildQuaestorInvoiceMonthlyPrompt,
   QUAESTOR_MAIL_SWEEP_PROMPT,
   QUAESTOR_MAIL_WATCH_RENEW_PROMPT,
+  CI_FAILURE_FIX_PROMPT,
+  DEPS_SWEEP_REPO_PROMPT,
   STEAM_PERSONA_DAILY_PROMPT,
   TEAM_REVIEW_REGULAR_PROMPT,
   TEAM_STANDUP_DAILY_PROMPT,
@@ -866,6 +868,47 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     prompt_template: QUAESTOR_MAIL_WATCH_RENEW_PROMPT,
     input_schema: [],
     default_cwd: "E:\\Document\\Ars\\Quaestor",
+    is_active: true,
+  },
+  // ── メール検知後の起動テンプレ (cron からは呼ばない) ────────────
+  // Quaestor の mail-actions が invoke する受け皿。 定時実行ではないので cron-jobs.ts には登録しない。
+  {
+    call_name: "ci-failure-fix",
+    title: "CI 失敗の修正",
+    description:
+      "CI 失敗メールを起点に、 添付された失敗ログだけを材料に原因を切り分ける。 コード起因のときだけ修正して Revisor local PR に提出し、" +
+      "flaky・インフラ障害・他リポ起因と判断した場合は PR を出さず理由だけ報告する。 メール本文は渡らない。",
+    target_provider: "codex",
+    category: "parttimer",
+    emoji: "🔧",
+    prompt_template: CI_FAILURE_FIX_PROMPT,
+    input_schema: [
+      { name: "repo", type: "string" as const, required: true, description: "対象リポジトリ (owner/name)" },
+      { name: "workflow", type: "string" as const, required: true, description: "失敗した workflow 名" },
+      { name: "run_id", type: "string" as const, required: true, description: "GitHub Actions の run id" },
+      { name: "head_sha", type: "string" as const, required: true, description: "失敗時点の head sha" },
+      { name: "failed_log_path", type: "string" as const, required: true, description: "失敗ログのファイルパス" },
+      { name: "target_repo", type: "string" as const, required: true, description: "作業ディレクトリになるリポジトリの絶対パス" },
+    ],
+    default_cwd: "${target_repo}",
+    is_active: true,
+  },
+  {
+    call_name: "deps-sweep-repo",
+    title: "依存 sweep (リポ指定)",
+    description:
+      "Dependabot alert を起点に 1 リポジトリだけ依存を見る。 宣言レンジ内の更新だけを当て、 major はレンジを広げず報告に回す。" +
+      "全リポを点検するだけの deps-sweep-daily とは対象も踏み込み方も別枠。",
+    target_provider: "claude",
+    model: "claude-sonnet-5",
+    category: "parttimer",
+    emoji: "📦",
+    prompt_template: DEPS_SWEEP_REPO_PROMPT,
+    input_schema: [
+      { name: "target_repo", type: "string" as const, required: true, description: "対象リポジトリの絶対パス" },
+      { name: "alert_summary", type: "string" as const, required: false, description: "Dependabot alert の要約 (任意)" },
+    ],
+    default_cwd: "${target_repo}",
     is_active: true,
   },
   // ── Sol Ultra オーケストレータ版のデイリー突合レビュー ────────────

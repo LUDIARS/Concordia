@@ -8,7 +8,7 @@ import { registerCoreRoutes, type CoreDeps } from "./api/register-core.js";
 import { registerCostRoutes, type CostDeps } from "./api/register-cost.js";
 import { registerWebRoutes } from "./api/register-web.js";
 import { modulesRouter } from "./api/modules.js";
-import { inboxRouter } from "./api/inbox.js";
+import { inboxRouter, type InboxApiDeps } from "./api/inbox.js";
 import type { InboxItem } from "./inbox/read-model.js";
 import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
@@ -34,6 +34,8 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
    * 人間宛て未回答事項の一覧。 DB から読むので bootstrap が渡す。
    */
   inboxItems: () => InboxItem[];
+  /** 承認インボックスの既読・スヌーズ (client ごとの UI 状態)。 未指定なら機能なし。 */
+  inboxItemState?: InboxApiDeps["itemState"];
   chatRoutes?: ChatDeps | null;
   costRoutes?: CostDeps | null;
 };
@@ -119,7 +121,7 @@ export function buildApp(deps: AppDeps): Hono {
 
   // モジュール台帳の読み取り面。 lifecycle 操作は持たない (Excubitor が正本)。
   // 人間宛て未回答事項の統合一覧。 読み取り専用で、 回答は既存経路のまま。
-  app.route("/v1/inbox", inboxRouter({ items: deps.inboxItems }));
+  app.route("/v1/inbox", inboxRouter({ items: deps.inboxItems, itemState: deps.inboxItemState }));
 
   app.route("/v1/modules", modulesRouter({
     wiring: () => ({ startedEmbedded: deps.startedModules ?? [] }),

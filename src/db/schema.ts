@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 85;
+export const SCHEMA_VERSION = 86;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2124,6 +2124,25 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE TABLE IF NOT EXISTS inbox_notice_state (
         key      TEXT PRIMARY KEY,
         last_at  INTEGER NOT NULL
+      );
+    `);
+  },
+}, {
+  version: 86,
+  name: "inbox-item-state",
+  source: "inbox_item_state — 承認インボックスの既読・スヌーズ (spec/feature/approval-inbox.md §2)",
+  up(db) {
+    // **UI 状態専用。** 回答や解決をこの表で表現しない — 正本は各項目の元テーブルで、
+    // ここに書いても人が答えたことにはならない。 client_id はブラウザ生成 UUID で、
+    // 既読は client ごと (session_message_reads と同じ方式)。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS inbox_item_state (
+        client_id      TEXT NOT NULL,
+        item_key       TEXT NOT NULL,
+        read_at        INTEGER,
+        snoozed_until  INTEGER,
+        updated_at     INTEGER NOT NULL,
+        PRIMARY KEY (client_id, item_key)
       );
     `);
   },

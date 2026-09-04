@@ -208,6 +208,7 @@ import { reportBuildStaleness } from "../runtime/build-freshness.js";
 import { describeMismatches, resolveModules } from "../modules/resolve.js";
 import { resolveModuleMode } from "../modules/runtime-modes.js";
 import { inboxItems } from "../inbox/read-model.js";
+import { InboxItemStateRepo } from "../db/inbox-item-state-repo.js";
 
 /**
  * transcript / rules / session_stats の保持期間 (日)。 session_events の
@@ -1379,6 +1380,7 @@ export async function startBackend(): Promise<BackendHandle> {
     buildStale,
     startedModules,
     inboxItems: () => inboxItems(db),
+    inboxItemState: new InboxItemStateRepo(db),
     sweeperRunOnce: sweeper.runOnce,
     toolPath,
     publicUrl,

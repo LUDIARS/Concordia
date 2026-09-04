@@ -53,7 +53,12 @@ function makeHarness(overrides: HarnessOverrides = {}) {
   const directorCase = makeCase("c1");
   const steps = overrides.steps ?? [makeStep("c1")];
   const assignStepRun = vi.fn().mockReturnValue(steps[0]);
-  const updateStepStatus = vi.fn().mockReturnValue(steps[0]);
+  const updateStepStatus = vi.fn((input: Parameters<DirectorPatrolDeps["director"]["updateStepStatus"]>[0]) => ({
+    ...steps[0],
+    status: input.status,
+    handoff_note: input.handoff_note === undefined ? steps[0]?.handoff_note ?? null : input.handoff_note,
+    updated_at: input.updated_at,
+  } as DirectorStep));
   const invoke = vi.fn().mockResolvedValue(
     overrides.invokeOk === false
       ? { ok: false as const, error: "nope" }
@@ -192,6 +197,13 @@ describe("startDirectorPatrol", () => {
     expect(h.updateStepStatus).toHaveBeenCalledWith(
       expect.objectContaining({ id: "step-1", status: "completed" }),
     );
+    expect(h.emit).toHaveBeenCalledWith(expect.objectContaining({
+      type: "director.step_changed",
+      case_id: "c1",
+      step_id: "step-1",
+      previous_status: "active",
+      status: "completed",
+    }));
     expect(h.invoke).not.toHaveBeenCalled();
   });
 

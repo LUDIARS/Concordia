@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 86;
+export const SCHEMA_VERSION = 87;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2145,6 +2145,21 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         PRIMARY KEY (client_id, item_key)
       );
     `);
+  },
+}, {
+  version: 87,
+  name: "director-case-status-card",
+  source: "director_cases.status_card_{channel,message}_id — 工程遷移で目標面のカードを更新する (spec/feature/director-goal-flow.md 受け入れ基準 5)",
+  up(db) {
+    // カードを毎回新規投稿すると目標面が同じ内容で埋まる。 更新するには message id が要る。
+    const columns = db.prepare("PRAGMA table_info(director_cases)").all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has("status_card_channel_id")) {
+      db.exec("ALTER TABLE director_cases ADD COLUMN status_card_channel_id TEXT");
+    }
+    if (!names.has("status_card_message_id")) {
+      db.exec("ALTER TABLE director_cases ADD COLUMN status_card_message_id TEXT");
+    }
   },
 },
 ];

@@ -20,6 +20,7 @@ import { ensureDeskChannel, ensureDiscordLayout, ensureIntakeChannel, type Disco
 import { getEgressDedupStats, handleEvent as handleEgressEvent, isActiveRelayTarget } from "./egress.js";
 import { handleMessage as handleIngressMessage } from "./ingress.js";
 import { DirectorRepo } from "../director/repo.js";
+import { renderCaseStatusCard } from "../director/step-card.js";
 import { handleReactionAdd, handleReactionRemove } from "./reactions.js";
 import { shouldRestartDiscordBot } from "./gateway-policy.js";
 import { type RwfRunOptions, type RwfRunResult, type WorkflowAction } from "../platform/reaction-workflow.js";
@@ -557,6 +558,25 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     });
   };
   /**
+   * 既に貼ってあるカードを差し替える。 消えている / 権限が無い場合は false を返し、
+   * 呼び出し側が貼り直しへ落ちる。
+   */
+  const editTeamSurfaceMessage = async (
+    guild: Guild,
+    at: { channelId: string; messageId: string },
+    payload: Parameters<TextChannel["send"]>[0],
+  ): Promise<boolean> => {
+    try {
+      const channel = await guild.channels.fetch(at.channelId);
+      if (channel?.type !== ChannelType.GuildText) return false;
+      const message = await channel.messages.fetch(at.messageId);
+      await message.edit(payload as Parameters<typeof message.edit>[0]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  /**
    * カードをチーム面へ投稿する。 投稿済みなら message id を、 チーム未設定 / 面欠落 /
    * チャンネル取得失敗なら null を返す — 呼び出し側が現行チャンネルへフォールバックする。
    */
@@ -570,6 +590,41 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     if (channel?.type !== ChannelType.GuildText) return null;
     const sent = await channel.send(payload);
     return sent.id;
+  };
+  const directorStatusCardUpdates = new Map<string, Promise<void>>();
+  const updateDirectorStatusCard = async (guild: Guild, caseId: string): Promise<void> => {
+    const directorCase = ingressDirectorRepo.findCase(caseId);
+    if (!directorCase) return;
+    const teamId = directorCase.team_id;
+    if (!teamId || !teamOwnedByRuntime(teamId)) return;
+    const channelId = resolveTeamCardChannel(teamsRepo, teamId, "director-plan");
+    if (!channelId) return;
+
+    const card = renderCaseStatusCard({
+      case: directorCase,
+      steps: ingressDirectorRepo.listSteps(caseId),
+    });
+    const payload = { content: card.content, allowedMentions: { parse: [] as never[] } };
+    const remembered = ingressDirectorRepo.findStatusCard(caseId);
+    if (remembered?.channelId === channelId) {
+      const edited = await editTeamSurfaceMessage(guild, remembered, payload);
+      if (edited) return;
+    }
+    if (remembered) ingressDirectorRepo.rememberStatusCard(caseId, null);
+    const messageId = await postToTeamSurface(guild, channelId, payload);
+    if (messageId) ingressDirectorRepo.rememberStatusCard(caseId, { channelId, messageId });
+  };
+  const queueDirectorStatusCardUpdate = (guild: Guild, caseId: string): void => {
+    // 同じ case の連続遷移を直列化する。並行 send が両方「未投稿」を読むとカードが重複する。
+    const pending = (directorStatusCardUpdates.get(caseId) ?? Promise.resolve())
+      .then(() => updateDirectorStatusCard(guild, caseId));
+    const tracked = pending.catch((error: unknown) => {
+      log.warn(`director status card failed: ${(error as Error).message}`);
+    });
+    directorStatusCardUpdates.set(caseId, tracked);
+    void tracked.finally(() => {
+      if (directorStatusCardUpdates.get(caseId) === tracked) directorStatusCardUpdates.delete(caseId);
+    });
   };
   const measuredHandleReactionAdd = instrumentDiscord("reactionAdd", handleReactionAdd);
   const measuredHandleReactionRemove = instrumentDiscord("reactionRemove", handleReactionRemove);
@@ -1971,6 +2026,11 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     // model / effort の task-change 再評価は契約 lifecycle (LLM tier + runtime 反映) に
     // 吸収された (contract-absorb-model-review)。 単発 mreview ダイアログは撤去済み。
+    if (ev.type === "director.step_changed") {
+      // 目標面の状態カードを工程遷移で更新する。所有外の bot は永続位置にも触れない。
+      queueDirectorStatusCardUpdate(guild, ev.case_id);
+      return;
+    }
     if (ev.type === "director.plan_submitted") {
       void (async () => {
         const card = renderPlanCard({ caseId: ev.case_id, version: ev.version, markdown: ev.markdown });

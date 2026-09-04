@@ -3,6 +3,7 @@ import { decideInquiry, geniusCategories, type InquiryCategory } from "../inquir
 import type { GeniusCard, GeniusClient } from "../inquiry/genius-client.js";
 import { DirectorRepo } from "./repo.js";
 import { DEFAULT_PATROL_LIMITS } from "./patrol.js";
+import { emitStepChanged } from "./step-events.js";
 import type {
   CreateDirectorCaseInput,
   CreateDirectorStepInput,
@@ -149,6 +150,12 @@ export class DirectorService {
       updated_at: this.now(),
     });
     if (!updated) throw new DirectorNotFoundError("director step not found");
+    emitStepChanged({
+      step: updated,
+      previousStatus: step.status,
+      previousHandoffNote: step.handoff_note,
+      now: this.now,
+    });
     return updated;
   }
 

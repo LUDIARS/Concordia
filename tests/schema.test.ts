@@ -73,6 +73,14 @@ describe("schema", () => {
     expect(taskColumns.some((column) => column.name === "subsidiary_id")).toBe(true);
   });
 
+  it("persists the Director status-card location", () => {
+    const db = makeRawTestDb();
+    applyMigrations(db);
+    const columns = db.prepare(`PRAGMA table_info(director_cases)`).all() as Array<{ name: string }>;
+    expect(columns.some((column) => column.name === "status_card_channel_id")).toBe(true);
+    expect(columns.some((column) => column.name === "status_card_message_id")).toBe(true);
+  });
+
   it("leaves orphan persona tables in legacy DB untouched (孤児テーブル放置)", () => {
     const db = makeRawTestDb();
     // legacy DB: 旧 persona 機構のテーブルが残っている状態

@@ -96,6 +96,26 @@ export class DirectorRepo {
     return row ?? null;
   }
 
+  /**
+   * 目標面に出している状態カードの所在。 更新するために覚えておく
+   * (毎回新規投稿すると同じ内容で面が埋まる)。
+   */
+  findStatusCard(caseId: string): { channelId: string; messageId: string } | null {
+    const row = this.db.prepare(`
+      SELECT status_card_channel_id AS channelId, status_card_message_id AS messageId
+        FROM director_cases WHERE id = ?
+    `).get(caseId) as { channelId: string | null; messageId: string | null } | undefined;
+    if (!row?.channelId || !row.messageId) return null;
+    return { channelId: row.channelId, messageId: row.messageId };
+  }
+
+  /** null を渡すと所在を忘れる (カードが消えていた場合、 次は新規投稿になる)。 */
+  rememberStatusCard(caseId: string, card: { channelId: string; messageId: string } | null): void {
+    this.db.prepare(`
+      UPDATE director_cases SET status_card_channel_id = ?, status_card_message_id = ? WHERE id = ?
+    `).run(card?.channelId ?? null, card?.messageId ?? null, caseId);
+  }
+
   /** kanban / 一覧用。 team 指定で絞り、 未指定なら全件を更新順で返す。 */
   listCases(filter: { teamId?: string; limit?: number } = {}): DirectorCase[] {
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 500);

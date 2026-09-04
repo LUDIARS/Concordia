@@ -84,6 +84,14 @@ type ConcordiaEventPayload =
   | { type: "taskflow.residual_checked"; session_id: string; outcome: "next-task" | "decompose" | "none"; pending_count: number; ts: number }
   | { type: "taskflow.continue_requested"; target_session_id: string; text: string; ts: number }
   | { type: "director.plan_submitted"; target_session_id: string; case_id: string; version: number; markdown: string; ts: number }
+  | {
+      type: "director.step_changed";
+      case_id: string;
+      step_id: string;
+      status: "pending" | "active" | "blocked" | "completed" | "cancelled";
+      previous_status: "pending" | "active" | "blocked" | "completed" | "cancelled";
+      ts: number;
+    }
   | { type: "team.created"; event_id: string; team_id: string; name: string; slug: string; ts: number }
   | { type: "team.changed"; event_id: string; team_id: string; fields: string[]; ts: number }
   | { type: "staff.access_changed"; platform: "discord" | "slack"; ts: number }

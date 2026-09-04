@@ -59,4 +59,17 @@ describe("ws event schema", () => {
     });
     expect(parsed.ok).toBe(true);
   });
+
+  it("accepts only known Director step statuses", () => {
+    const event = {
+      v: WS_EVENT_VERSION,
+      type: "director.step_changed",
+      case_id: "case-1",
+      step_id: "step-1",
+      previous_status: "active",
+      ts: 1,
+    };
+    expect(parseWsFrame({ ...event, status: "blocked" }).ok).toBe(true);
+    expect(parseWsFrame({ ...event, status: "invented" }).ok).toBe(false);
+  });
 });

@@ -29,6 +29,7 @@ import {
 } from "./inquiry-patrol.js";
 import { createInquiryRuntime } from "./inquiry-runtime.js";
 import type { DirectorCase, DirectorStep } from "./types.js";
+import { emitStepChanged } from "./step-events.js";
 
 const log = createChildLogger("director-patrol");
 const TICK_MS = 30 * 60 * 1000;
@@ -208,6 +209,8 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
         expected_status: "active",
       });
       if (!updated) return false;
+      // 巡回からカードへ繋ぐ経路が無く、 目標面が「止まっている / 進んだ」を映さなかった。
+      emitStepChanged({ step: updated, previousStatus: "active", now, emit });
       log.info({ team: team.slug, step: action.stepId }, "patrol advanced step to completed");
       return true;
     }
@@ -220,6 +223,7 @@ export function startDirectorPatrol(deps: DirectorPatrolDeps): DirectorPatrolHan
         expected_status: "active",
       });
       if (!updated) return false;
+      emitStepChanged({ step: updated, previousStatus: "active", now, emit });
       log.info({ team: team.slug, step: action.stepId }, "patrol blocked step");
       return true;
     }

@@ -1,6 +1,6 @@
 {
   "name": "director-patrol",
-  "description": "Director 由来の巡回機構。休止中の case 巡回・実装起動コードと、稼働中の curiosity walk の素材収集・ランダム発火・履歴を扱う。case/step/decision の正本管理や delegation の起動実体は含めない。",
+  "description": "Director 由来の巡回機構と工程状態の投影。休止中の case 巡回・実装起動コード、step 遷移イベントと状態カード描画、稼働中の curiosity walk の素材収集・ランダム発火・履歴を扱う。case/step/decision の正本管理や delegation の起動実体は含めない。",
   "presetRules": [],
   "templateRules": [],
   "membership": [
@@ -32,11 +32,13 @@
     "run-reconciliation",
     "implement-session-launch",
     "question-card-escalation",
+    "step-status-projection",
     "curiosity-walk-scheduling",
     "cross-repository-material-sampling"
   ],
   "specRefs": [
     "spec/feature/director-patrol.md",
+    "spec/feature/director-goal-flow.md",
     "spec/feature/director-workflow.md",
     "spec/feature/curiosity-walk.md"
   ],

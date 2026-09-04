@@ -8,6 +8,9 @@
       "pathPattern": "(^|/)src/delegation/seed(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)spec/tasks/2026-09-04-quaestor-mail-watch-renew\\.md$"
+    },
+    {
       "pathPattern": "(^|/)src/scheduler/cron-jobs(\\.test)?\\.ts$"
     },
     {

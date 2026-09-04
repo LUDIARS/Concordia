@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeTestDb } from "../../tests/helpers/db.js";
@@ -87,11 +88,11 @@ describe("delegation completed evidence", () => {
   });
 
   it("accepts completed when the recorded feature worktree contains a commit beyond main", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     writeFileSync(join(cwd, "evidence.txt"), "done\n", "utf8");
-    git(cwd, ["add", "evidence.txt"]);
-    git(cwd, ["commit", "-m", "evidence"]);
+    await git(cwd, ["add", "evidence.txt"]);
+    await git(cwd, ["commit", "-m", "evidence"]);
     const { app, repo } = makeApp(cwd, "feat/evidence");
 
     const response = await postStatus(app, { status: "completed" });
@@ -101,8 +102,8 @@ describe("delegation completed evidence", () => {
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("rejects completed without a feature-branch commit and records the failure", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     const { app, repo } = makeApp(cwd, "feat/evidence");
 
     const response = await postStatus(app, { status: "completed" });
@@ -158,8 +159,8 @@ describe("delegation completed evidence", () => {
   });
 
   it("does not let a merged child PR override invalid feature-branch evidence", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     const { app, repo, prs } = makeApp(cwd, "feat/evidence");
     repo.claimChildSession("source-run", "child-session");
     const childPr = prs.upsertFromStat({
@@ -192,8 +193,8 @@ describe("delegation completed evidence", () => {
   });
 
   it("rejects completed when HEAD differs from the recorded branch", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     const { app, repo } = makeApp(cwd, "feat/other");
 
     const response = await postStatus(app, { status: "completed" });
@@ -203,12 +204,12 @@ describe("delegation completed evidence", () => {
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("rejects a zero-commit feature branch when develop diverged behind main", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["branch", "develop"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["branch", "develop"]);
     writeFileSync(join(cwd, "main-only.txt"), "main\n", "utf8");
-    git(cwd, ["add", "main-only.txt"]);
-    git(cwd, ["commit", "-m", "main-only"]);
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    await git(cwd, ["add", "main-only.txt"]);
+    await git(cwd, ["commit", "-m", "main-only"]);
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     const { app, repo } = makeApp(cwd, "feat/evidence");
 
     const response = await postStatus(app, { status: "completed" });
@@ -218,12 +219,12 @@ describe("delegation completed evidence", () => {
   }, COMPLETION_EVIDENCE_TEST_TIMEOUT_MS);
 
   it("rejects a detached HEAD even when it has a commit beyond main", async () => {
-    const cwd = makeFeatureWorktree();
-    git(cwd, ["checkout", "-b", "feat/evidence"]);
+    const cwd = await makeFeatureWorktree();
+    await git(cwd, ["checkout", "-b", "feat/evidence"]);
     writeFileSync(join(cwd, "evidence.txt"), "done\n", "utf8");
-    git(cwd, ["add", "evidence.txt"]);
-    git(cwd, ["commit", "-m", "evidence"]);
-    git(cwd, ["checkout", "--detach"]);
+    await git(cwd, ["add", "evidence.txt"]);
+    await git(cwd, ["commit", "-m", "evidence"]);
+    await git(cwd, ["checkout", "--detach"]);
     const { app, repo } = makeApp(cwd, "HEAD");
 
     const response = await postStatus(app, { status: "completed" });
@@ -360,21 +361,28 @@ function makeApp(
   return { app: new Hono().route("/v1/delegation", delegationRouter({ repo, service, prs })), repo, prs };
 }
 
-function makeFeatureWorktree(): string {
+async function makeFeatureWorktree(): Promise<string> {
   const cwd = mkdtempSync(join(tmpdir(), "concordia-completion-evidence-"));
   tempRoots.push(cwd);
-  git(cwd, ["init"]);
-  git(cwd, ["config", "user.email", "concordia-test@example.invalid"]);
-  git(cwd, ["config", "user.name", "Concordia Test"]);
+  await git(cwd, ["init"]);
+  await git(cwd, ["config", "user.email", "concordia-test@example.invalid"]);
+  await git(cwd, ["config", "user.name", "Concordia Test"]);
   writeFileSync(join(cwd, "README.md"), "test\n", "utf8");
-  git(cwd, ["add", "README.md"]);
-  git(cwd, ["commit", "-m", "init"]);
-  git(cwd, ["branch", "-M", "main"]);
+  await git(cwd, ["add", "README.md"]);
+  await git(cwd, ["commit", "-m", "init"]);
+  await git(cwd, ["branch", "-M", "main"]);
   return cwd;
 }
 
-function git(cwd: string, args: string[]): string {
-  return execFileSync(process.platform === "win32" ? "git.exe" : "git", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+const execFileAsync = promisify(execFile);
+
+async function git(cwd: string, args: string[]): Promise<string> {
+  const { stdout } = await execFileAsync(process.platform === "win32" ? "git.exe" : "git", args, {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return stdout;
 }
 
 function postStatus(app: Hono, body: unknown): Promise<Response> {

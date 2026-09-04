@@ -64,6 +64,17 @@ describe("CRON_JOBS", () => {
     }
   });
 
+  it("renews the Quaestor Gmail watch daily at 4:20 JST using the template cwd", () => {
+    const job = CRON_JOBS.find(({ name }) => name === "quaestor-mail-watch-renew");
+
+    expect(job).toMatchObject({
+      cron: "20 4 * * *",
+      call_name: "quaestor-mail-watch-renew",
+    });
+    expect(job?.cwd).toBeUndefined();
+    expect(job?.buildArgs()).toEqual({});
+  });
+
   it("uses the JST calendar date at the UTC date boundary", () => {
     expect(buildQuaestorMailSweepArgs(new Date("2026-08-31T15:40:00Z"))).toEqual({
       slot: "morning",

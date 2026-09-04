@@ -623,6 +623,27 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).toContain("GET /v1/mail/documents?status=needs_review");
   });
 
+  it("seeds the mail watch renewal template with catalog-resolved one-shot request", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    const template = repo.findTemplateByCallName("quaestor-mail-watch-renew");
+    expect(template).toMatchObject({
+      is_active: 1,
+      category: "parttimer",
+      target_provider: "claude",
+      model: "claude-sonnet-5",
+      default_cwd: "E:\\Document\\Ars\\Quaestor",
+    });
+    expect(JSON.parse(template?.input_schema ?? "null")).toEqual([]);
+    const prompt = template?.prompt_template ?? "";
+    expect(prompt).toContain("Excubitor catalog");
+    expect(prompt).toContain("POST /v1/mail/watch/renew");
+    expect(prompt).toContain("1 回だけ");
+    expect(prompt).toContain("起動・停止・再起動はしない");
+    expect(prompt).not.toContain("17400");
+  });
+
   it("seeds the active Steam persona collection template without leaking collected data", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

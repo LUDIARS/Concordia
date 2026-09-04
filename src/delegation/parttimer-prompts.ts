@@ -802,6 +802,20 @@ export const QUAESTOR_MAIL_SWEEP_PROMPT = [
   "内容は書きません。",
 ].join("\n");
 
+export const QUAESTOR_MAIL_WATCH_RENEW_PROMPT = [
+  "Quaestor の Gmail watch 登録を更新する日次ジョブです。",
+  "",
+  "### 手順",
+  "",
+  "- Excubitor catalog で `quaestor` の endpoint を解決する。ポート番号を推測・固定しない。",
+  "- 解決した endpoint に `POST /v1/mail/watch/renew` を 1 回だけ送る。サービスの起動・停止・再起動はしない。",
+  "- 応答 JSON だけを扱う。`disabled` または error は理由を要約して報告し、再試行しない。",
+  "",
+  "### 報告",
+  "",
+  "更新の成否と expiration のみを報告する。認証情報・内部 endpoint・絶対パスは含めない。",
+].join("\n");
+
 /**
  * AI ノート隔週レビューの本文。
  *

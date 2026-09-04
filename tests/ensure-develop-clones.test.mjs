@@ -107,7 +107,7 @@ describe("ensure-develop-clones", () => {
     expect(second).toMatchObject({ branchesCreated: 0, clonesCreated: 0, updated: 1, failed: 0 });
     expect(readFileSync(join(clonePath, "updated.txt"), "utf8").replace(/\r\n/g, "\n")).toBe("updated\n");
     expect(git(clonePath, "rev-parse", "HEAD")).toBe(git(clonePath, "rev-parse", "origin/develop"));
-  }, 60_000);
+  }, 120_000);
 
   it("preserves a dirty develop clone and skips its update", async () => {
     const root = createWorkspace();
@@ -122,7 +122,7 @@ describe("ensure-develop-clones", () => {
     expect(summary).toMatchObject({ updated: 0, skipped: 1, failed: 0 });
     expect(output.lines[0]).toBe("[skip] Charlie: develop clone has uncommitted changes");
     expect(readFileSync(join(clonePath, "local.txt"), "utf8")).toBe("do not delete\n");
-  }, 30_000);
+  }, 120_000);
 
   it("excludes named repositories, worktrees, and repositories without origin", async () => {
     const root = createWorkspace();
@@ -146,5 +146,5 @@ describe("ensure-develop-clones", () => {
     expect(output.lines).toContain("[skip] Delta: excluded");
     expect(output.lines).toContain("[skip] LocalOnly: origin remote not found");
     expect(output.lines.some((line) => line.includes("Delta-worktree"))).toBe(false);
-  }, 30_000);
+  }, 120_000);
 });

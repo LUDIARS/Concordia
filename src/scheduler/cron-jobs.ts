@@ -88,6 +88,9 @@ const QUAESTOR_INVOICE_MONTHLY_CRON = "10 18 L * *";
 /** メール監視パートタイマー。朝/昼/夕の 3 回 (JST)。他ジョブの固まる朝枠 (3:00〜9:00) を避ける。 */
 const QUAESTOR_MAIL_SWEEP_CRON = "40 9,12,18 * * *";
 
+/** Gmail users.watch は 7 日で失効するため、6 日分の余裕を残して毎朝更新する。 */
+const QUAESTOR_MAIL_WATCH_RENEW_CRON = "20 4 * * *";
+
 const JST_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
   timeZone: "Asia/Tokyo",
   year: "numeric",
@@ -177,6 +180,12 @@ export const CRON_JOBS: CronJobDefinition[] = [{
     cron: QUAESTOR_MAIL_SWEEP_CRON,
     call_name: "quaestor-mail-sweep",
     buildArgs: () => buildQuaestorMailSweepArgs(),
+}, {
+    // Quaestor 本体で実行するため cwd はテンプレートの default_cwd に委ねる。
+    name: "quaestor-mail-watch-renew",
+    cron: QUAESTOR_MAIL_WATCH_RENEW_CRON,
+    call_name: "quaestor-mail-watch-renew",
+    buildArgs: () => ({}),
 }, {
     name: "kaizen-daily",
     cron: KAIZEN_CRON,

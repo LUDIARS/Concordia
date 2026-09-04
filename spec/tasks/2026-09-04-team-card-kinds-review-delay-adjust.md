@@ -26,7 +26,8 @@ Actio が出す 3 種の報告に対応する kind と、それぞれの面割�
 
 - `kind` の既存 4 種を保ったまま固定集合に `review` / `delay` / `adjust` が加わり、
   未知の kind は従来どおり拒否される。
-- `team-card-routing.ts` が上記の面割り当てを行う (`review`→direction、`delay`/`adjust`→management)。
+- `src/shared/team-card-routing.ts` が上記の面割り当てを行う
+  (`review`→direction、`delay`/`adjust`→management)。
 - 管理面が未プロビジョニングのチームへ `delay` / `adjust` を投げた場合、
   `POST /v1/teams/:id/cards` はイベントを受理する前に非 2xx と理由の分かるエラーを返す。
 - 本文が Discord embed の上限を超える場合は既存の切り詰め規則に従う

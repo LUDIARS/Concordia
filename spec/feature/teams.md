@@ -93,7 +93,7 @@ CREATE TABLE team_repos (
 - 本社 runtime は `subsidiary_id IS NULL`、子会社 runtime は自分の `subsidiary_id` の team だけを
   provision / event route する。物理 Discord Client を共有しても guild 間で team surface を
   混ぜない。子会社の既定 team は subsidiary delegation の起動時に `options.team` へ入る。
-- **カードのチーム面ルーティング** (`src/discord/team-card-routing.ts`): プラン設計カード →
+- **カードのチーム面ルーティング** (`src/shared/team-card-routing.ts`): プラン設計カード →
   目標、 判断ログ (taskflow.user_decision) / ask_human・契約質問カード → direction。
   team_id 未設定・surface 未プロビジョニング・チャンネル取得失敗は現行チャンネル
   (セッション webhook / セッションチャンネル) へフォールバックする。 プラン設計カードの

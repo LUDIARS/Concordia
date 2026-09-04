@@ -16,8 +16,14 @@ import {
   syncManagementAccess,
 } from "./team-management-access.js";
 
-/** @implements spec/feature/teams.md §2 */
-const SURFACES = ["目標", "タスクボード", "コスト", "direction", "management", "セッション", "タスク"] as const;
+/**
+ * @implements spec/feature/teams.md §2
+ *
+ * カード種別の出力先 (team-card-routing.ts) はこの集合の中から選ぶ必要があるので export する。
+ * テスト側が写しを手書きすると、 面を足したときに片方だけ古くなって
+ * 「存在しない面へ張る」を見逃す。
+ */
+export const SURFACES = ["目標", "タスクボード", "コスト", "direction", "management", "セッション", "タスク"] as const;
 
 type TeamSurface = typeof SURFACES[number];
 

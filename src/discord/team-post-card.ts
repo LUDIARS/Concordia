@@ -6,7 +6,7 @@
 
 import { EmbedBuilder, type Guild } from "discord.js";
 import type { TeamsRepo } from "../db/teams-repo.js";
-import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
+import { resolveTeamCardChannel, type TeamCardKind } from "../shared/team-card-routing.js";
 
 /** Discord embed description の上限 (4096) に対する安全側の切り詰め幅。 */
 const MAX_BODY = 3800;

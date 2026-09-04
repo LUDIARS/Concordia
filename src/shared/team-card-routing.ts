@@ -7,7 +7,7 @@
 //   呼び出し側が現行チャンネル (セッション webhook / セッションチャンネル) へ
 //   フォールバックする。 ここでは投稿しない — 決定だけを返す純関数。
 
-import type { TeamCardEventKind } from "../shared/team-cards.js";
+import type { TeamCardEventKind } from "./team-cards.js";
 
 /**
  * ルーティング対象のカード種別。 surface 名は team-provision.ts が team_surfaces に
@@ -38,11 +38,21 @@ export const TEAM_CARD_SURFACE: Record<TeamCardKind, string> = {
   "standup": "目標",
   // 定例の開始通知。 本体の議論は定例セッションの thread で行い、 ここには入口だけ置く。
   "meeting": "direction",
+  // タスクの見直し提案は判断を仰ぐカードなので direction。
+  "review": "direction",
+  // 遅延と調整案は稼働の内情を含むので、 権限者だけが見る management 面 (表示名 管理) へ出す。
+  "delay": "management",
+  "adjust": "management",
 };
 
 export interface TeamSurfaceSource {
   surfaceChannelId(teamId: string, surface: string): string | null;
 }
+
+const REQUIRED_TEAM_CARD_SURFACE_KINDS: ReadonlySet<TeamCardKind> = new Set<TeamCardKind>([
+  "delay",
+  "adjust",
+]);
 
 /**
  * カード種別と team_id から投稿先チャンネルを決める。
@@ -55,4 +65,19 @@ export function resolveTeamCardChannel(
 ): string | null {
   if (!teamId) return null;
   return source.surfaceChannelId(teamId, TEAM_CARD_SURFACE[kind]);
+}
+
+/**
+ * 受理前の検証が必須な kind について、 出力先の面がチームに用意されているか。
+ *
+ * delay / adjust は権限者限定の management 面以外へフォールバックできないため、 面が
+ * 無い場合は受理しない。 既存 kind は未プロビジョニング時にスキップする従来動作を保つ。
+ */
+export function requiredTeamCardSurfaceMissing(
+  source: TeamSurfaceSource,
+  teamId: string,
+  kind: TeamCardKind,
+): boolean {
+  return REQUIRED_TEAM_CARD_SURFACE_KINDS.has(kind)
+    && resolveTeamCardChannel(source, teamId, kind) === null;
 }

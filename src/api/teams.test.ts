@@ -160,6 +160,47 @@ describe("teamsRouter card posting", () => {
     db.close();
   });
 
+  it("Actio 由来の 3 種 (review / delay / adjust) を受理する", async () => {
+    const { app, db, repo } = makeApp();
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
+    db.prepare("INSERT INTO team_surfaces(team_id, surface, channel_id) VALUES (?, 'management', 'chan-management')")
+      .run(team.id);
+
+    for (const kind of ["review", "delay", "adjust"]) {
+      const response = await postCard(app, team.id, { ...CARD, kind });
+      expect(response.status, kind).toBe(202);
+      expect(await response.json()).toMatchObject({ kind });
+    }
+    db.close();
+  });
+
+  it("management 面 (表示名 管理) が無いチームへ delay / adjust を投げると受理前に 409 を返す", async () => {
+    // 受理してから bot 側でスキップすると、 投げた側には 202 が返るのにカードは
+    // どこにも出ない。 黙って消えるより理由の分かるエラーを返す。
+    const { app, db, repo } = makeApp();
+    const team = repo.create({ name: "SampleLab", slug: "samplelab" });
+    const received: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((event) => received.push(event));
+
+    try {
+      for (const kind of ["delay", "adjust"]) {
+        const response = await postCard(app, team.id, { ...CARD, kind });
+        expect(response.status, kind).toBe(409);
+        expect(await response.json()).toMatchObject({
+          error: "team_surface_missing",
+          kind,
+        });
+      }
+      // 受理していないのでイベントも出ない。
+      expect(received.filter((e) => e.type === "team.card_requested")).toEqual([]);
+
+      // 管理 面を要さない種別は、 従来どおり出力先の面が無くても受理する。
+      expect((await postCard(app, team.id, { ...CARD, kind: "review" })).status).toBe(202);
+    } finally {
+      unsubscribe();
+      db.close();
+    }
+  });
   it("空本文・未知フィールドを弾く", async () => {
     const { app, db, repo } = makeApp();
     const team = repo.create({ name: "SampleLab", slug: "samplelab" });

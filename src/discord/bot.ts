@@ -135,7 +135,7 @@ import { recordPlanCardMessageId, recordQuestionCardMessageId } from "./phase-in
 import { ensureTeamDiscordLayout } from "./team-provision.js";
 import { postTeamAuditCard } from "./team-audit-card.js";
 import { postTeamCard } from "./team-post-card.js";
-import { resolveTeamCardChannel, type TeamCardKind } from "./team-card-routing.js";
+import { resolveTeamCardChannel, type TeamCardKind } from "../shared/team-card-routing.js";
 import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";

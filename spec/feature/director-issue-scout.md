@@ -137,7 +137,7 @@ prompt_template の内容 (日本語、director-task-organize の文体に合わ
 - `src/shared/team-cards.ts` の `TEAM_CARD_POST_KINDS` へ `"issue-hypothesis"` を追加する
   (API zod / event 契約 / routing は型で追従するのが設計意図。コンパイルエラーが出た
   箇所をすべて埋める)。
-- Discord ルーティング (`src/discord/team-card-routing.ts`): 面は既存の **タスクボード**
+- Discord ルーティング (`src/shared/team-card-routing.ts`): 面は既存の **タスクボード**
   (task-kanban と同じ surface) を使い、新しい面は作らない。表示ラベルは「課題スカウト」。
 - embed 色は既存種別と重ならない色 (例: 紫系) を選ぶ。
 

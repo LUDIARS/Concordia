@@ -6,6 +6,7 @@ import type { TeamRow, TeamsRepo } from "../db/teams-repo.js";
 import type { SubsidiaryRepo } from "../db/subsidiary-repo.js";
 import { eventBus } from "../events.js";
 import { TEAM_CARD_POST_KINDS } from "../shared/team-cards.js";
+import { requiredTeamCardSurfaceMissing } from "../shared/team-card-routing.js";
 
 const PrRulesSchema = z.object({
   base: z.string().trim().min(1).max(200)
@@ -190,6 +191,15 @@ export function teamsRouter(
     if (!team) return c.json({ error: "not_found" }, 404);
     const parsed = CardSchema.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success) return c.json({ error: "invalid_card", detail: parsed.error.flatten() }, 400);
+    // 権限限定カードは安全なフォールバック先が無いため、 management 面を受理前に検証する。
+    if (requiredTeamCardSurfaceMissing(repo, team.id, parsed.data.kind)) {
+      return c.json({
+        error: "team_surface_missing",
+        team_id: team.id,
+        kind: parsed.data.kind,
+        detail: "この種別を出す面がこのチームに用意されていません。 チームの面を再プロビジョニングしてください。",
+      }, 409);
+    }
     eventBus.emit({
       type: "team.card_requested",
       team_id: team.id,
@@ -198,7 +208,7 @@ export function teamsRouter(
       body: parsed.data.body,
       ts: Math.floor(Date.now() / 1000),
     });
-    // 面が未プロビジョニングなら bot 側でスキップされるため、 ここでは受理のみを返す。
+    // 既存 kind は面が未プロビジョニングなら bot 側でスキップする従来動作を保つ。
     return c.json({ accepted: true, team_id: team.id, kind: parsed.data.kind }, 202);
   });
 

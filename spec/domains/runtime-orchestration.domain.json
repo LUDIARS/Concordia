@@ -18,12 +18,16 @@
     },
     {
       "pathPattern": "(^|/)src/(chat-actionable|control-worker|workflow-worker|drop-obsolete-excubitor)(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/runtime/build-freshness(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
   "specRefs": [
     "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
     "spec/feature/delegation.md#dependency-sweep-parttimer",
-    "spec/feature/delegation.md#メール監視-parttimer"
+    "spec/feature/delegation.md#メール監視-parttimer",
+    "spec/feature/build-freshness.md#spec-concordia-build-freshness"
   ]
 }

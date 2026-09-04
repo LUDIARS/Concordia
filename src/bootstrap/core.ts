@@ -202,6 +202,7 @@ import type { WorkflowKey } from "../workflow/keys.js";
 import { inFlightRequestCount, snapshotInFlightRequests } from "../shared/inflight-requests.js";
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
+import { checkBuildFreshness, formatBuildFreshnessWarning } from "../runtime/build-freshness.js";
 
 /**
  * transcript / rules / session_stats の保持期間 (日)。 session_events の
@@ -416,8 +417,26 @@ interface StoppableHandle {
   stop: () => void;
 }
 
+async function detectBuildStaleness(): Promise<boolean> {
+  // dist 実行のサービスは、 ソースを直して main へ入れてもプロセスは古い dist を
+  // 動かし続ける (Excubitor の restart はクラッシュ時だけ)。 起動時に 1 度比べて
+  // health から見えるようにする。 **起動は止めない** — 動いてはいるので、
+  // fail-fast の対象ではなく運用上の警告 (Memoria #2000 / #1996)。
+  try {
+    const result = await checkBuildFreshness();
+    if (result.stale) log.warn(formatBuildFreshnessWarning(result));
+    return result.stale;
+  } catch (err: unknown) {
+    // 判定そのものが失敗しても起動を妨げない。 鮮度が判らないことと
+    // 古いことは別なので、 stale とは扱わない。
+    log.warn({ err }, "build freshness check failed; treating as fresh");
+    return false;
+  }
+}
+
 export async function startBackend(): Promise<BackendHandle> {
   const bootStarted = Date.now();
+  const buildStale = await detectBuildStaleness();
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
   configureLoopHaltNotifier((state) => {
@@ -1315,6 +1334,7 @@ export async function startBackend(): Promise<BackendHandle> {
     dailyScheduler: dailySchedulerPort,
     config: cfg,
     startedAt: new Date().toISOString(),
+    buildStale,
     sweeperRunOnce: sweeper.runOnce,
     toolPath,
     publicUrl,

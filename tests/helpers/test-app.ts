@@ -71,6 +71,8 @@ export interface TestAppOptions {
   chatRoutes?: boolean;
   costRoutes?: boolean;
   costOverviewSource?: "live" | "samples";
+  /** dist が src より古い状態を再現する (既定 false)。 */
+  buildStale?: boolean;
 }
 
 export interface TestAppEnv {
@@ -199,6 +201,7 @@ export function makeTestApp(opts: TestAppOptions = {}): TestAppEnv {
     dailyScheduler: { stop: () => {}, runOnce: async () => {} },
     config,
     startedAt: new Date().toISOString(),
+    buildStale: opts.buildStale ?? false,
     sweeperRunOnce: async () => {},
     toolPath: "/abs/tools/concordia-hook.mjs",
     publicUrl: "http://127.0.0.1:11111",

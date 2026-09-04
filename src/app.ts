@@ -16,6 +16,12 @@ import { beginRequest, endRequest } from "./shared/inflight-requests.js";
 
 export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps & {
   startedAt: string;
+  /**
+   * dist/ が src/ より古いまま稼働しているか (起動時に 1 度だけ判定した結果)。
+   * 「main に入っているのに直らない」を health から見えるようにするためのもので、
+   * 起動は止めない。 判定できなかった場合は呼び出し側で false として扱う。
+   */
+  buildStale: boolean;
   chatRoutes?: ChatDeps | null;
   costRoutes?: CostDeps | null;
 };
@@ -93,6 +99,9 @@ export function buildApp(deps: AppDeps): Hono {
       version: process.env.EXCUBITOR_SERVICE_VERSION ?? "unavailable",
       started_at: deps.startedAt,
       halted_loops: listHaltedLoops(),
+      // 稼働中の dist が src より古いか。 ok は落とさない — 動いてはいるので、
+      // 「壊れている」ではなく「main と一致していないかもしれない」の報せ。
+      build_stale: deps.buildStale,
     }),
   );
 

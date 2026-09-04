@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type DirectorCaseSummary } from "../../api.js";
-import { CASE_COLUMNS, caseProgress, groupCasesByColumn } from "./model.js";
+import { CASE_COLUMNS, blockedReasonLabel, caseProgress, groupCasesByColumn } from "./model.js";
 
 export function TeamKanban({ teamId }: { teamId: string }) {
   const [cases, setCases] = useState<DirectorCaseSummary[] | null>(null);
@@ -43,7 +43,11 @@ export function TeamKanban({ teamId }: { teamId: string }) {
               </div>
               <ul className="text-[11px] text-subtle space-y-0.5">
                 {entry.steps.map((step) => (
-                  <li key={step.id} className="truncate" title={step.title}>
+                  <li
+                    key={step.id}
+                    className="truncate"
+                    title={step.status === "blocked" ? blockedReasonLabel(step.blocked_reason) : step.title}
+                  >
                     <StepBadge status={step.status} /> {step.kind}: {step.title}
                   </li>
                 ))}

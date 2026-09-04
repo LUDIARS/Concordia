@@ -1238,6 +1238,12 @@ export interface TeamCostSeries {
 
 // ─── Director case 一覧 (/v1/director/cases) — kanban 用 read model ────────
 export type DirectorStepStatus = "pending" | "active" | "blocked" | "completed" | "cancelled";
+export type DirectorBlockedReason =
+  | "run-missing"
+  | "run-failed"
+  | "human-decision"
+  | "internal-note"
+  | "not-recorded";
 
 export interface DirectorCaseSummary {
   case: {
@@ -1256,6 +1262,8 @@ export interface DirectorCaseSummary {
     kind: string;
     title: string;
     status: DirectorStepStatus;
+    /** blocked の安全な分類。内部 handoff note の生文は一覧へ公開しない。 */
+    blocked_reason: DirectorBlockedReason | null;
   }>;
 }
 

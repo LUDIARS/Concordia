@@ -19,6 +19,7 @@ import { Subsidiaries } from "./pages/Subsidiaries.js";
 import { Settings } from "./pages/Settings.js";
 import { PrQueue } from "./pages/PrQueue.js";
 import { Inbox } from "./pages/Inbox.js";
+import { Director } from "./pages/Director.js";
 import { CostFeed } from "./pages/CostFeed.js";
 import { Federation } from "./pages/Federation.js";
 import { Taskflow } from "./pages/Taskflow.js";
@@ -32,6 +33,7 @@ const NAV: NavItem[] = [
   { to: "/teams", label: "Teams", section: "チーム" },
   { to: "/", label: "Monitor", section: "チーム" },
   { to: "/work", label: "Work", section: "チーム" },
+  { to: "/director", label: "Director", section: "チーム" },
   { to: "/taskflow", label: "Taskflow", section: "チーム" },
   { to: "/staff", label: "社員", section: "チーム" },
   { to: "/subsidiaries", label: "子会社", section: "チーム" },
@@ -70,6 +72,7 @@ export function App() {
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/work" element={<Work />} />
+          <Route path="/director" element={<Director />} />
           <Route path="/taskflow" element={<Taskflow />} />
           <Route path="/prs" element={<PrQueue />} />
           <Route path="/sessions" element={<Sessions />} />

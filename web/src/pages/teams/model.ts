@@ -41,6 +41,57 @@ export function groupCasesByColumn(
   return grouped;
 }
 
+/**
+ * 止まっている工程を case 横断で拾う。
+ *
+ * kanban の「ブロック」列は case を出すだけで、 **どの工程が何で止まっているか**は
+ * カードを開かないと分からない。 受け入れ基準は「1 画面で分かる」なので、
+ * 工程単位に開いて理由ごと並べる (spec/feature/director-goal-flow.md 受け入れ基準 4)。
+ */
+export interface BlockedStepSummary {
+  caseId: string;
+  caseTitle: string;
+  caseUpdatedAt: number;
+  project: string;
+  step: DirectorCaseSummary["steps"][number];
+}
+
+export function blockedSteps(
+  cases: readonly DirectorCaseSummary[],
+): BlockedStepSummary[] {
+  const out: BlockedStepSummary[] = [];
+  for (const entry of cases) {
+    for (const step of entry.steps) {
+      if (step.status !== "blocked") continue;
+      out.push({
+        caseId: entry.case.id,
+        caseTitle: entry.case.title,
+        caseUpdatedAt: entry.case.updated_at,
+        project: entry.case.project,
+        step,
+      });
+    }
+  }
+  // 更新が古い case を先に見せる (放置されているものから)。
+  return out.sort((left, right) =>
+    left.caseUpdatedAt - right.caseUpdatedAt || left.step.sequence - right.step.sequence
+  );
+}
+
+/** 一覧へ出してよい blocked 事由を表示文へ変換する。 */
+export function blockedReasonLabel(
+  reason: DirectorCaseSummary["steps"][number]["blocked_reason"],
+): string {
+  switch (reason) {
+    case "run-missing": return "委託 run が見つからない";
+    case "run-failed": return "委託 run が失敗";
+    case "human-decision": return "人間の判断待ち";
+    case "internal-note": return "詳細はケース内の記録を確認";
+    case "not-recorded":
+    case null: return "理由の記録なし";
+  }
+}
+
 /** case 内の進捗 (完了 step / 全 step)。 */
 export function caseProgress(steps: ReadonlyArray<{ status: DirectorStepStatus }>): string {
   const done = steps.filter((step) => step.status === "completed").length;

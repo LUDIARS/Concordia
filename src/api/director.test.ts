@@ -60,6 +60,7 @@ describe("directorRouter", () => {
       kind: "implement",
       title: "実装",
       status: "pending",
+      blocked_reason: null,
     });
   });
 
@@ -119,6 +120,23 @@ describe("directorRouter", () => {
       expect.objectContaining({ case_id: privateNoteBody.case.id, note: null }),
     ]));
     expect(JSON.stringify(redactedBody)).not.toContain("private-note-must-not-appear");
+
+    const cases = await app.request("/v1/director/cases?team_id=team-1");
+    const casesJson = JSON.stringify(await cases.json());
+    expect(casesJson).not.toContain("handoff_note");
+    expect(casesJson).not.toContain("private-note-must-not-appear");
+    expect(JSON.parse(casesJson)).toMatchObject({
+      cases: expect.arrayContaining([
+        expect.objectContaining({
+          case: expect.objectContaining({ id: body.case.id }),
+          steps: [expect.objectContaining({ blocked_reason: "run-failed" })],
+        }),
+        expect.objectContaining({
+          case: expect.objectContaining({ id: privateNoteBody.case.id }),
+          steps: [expect.objectContaining({ blocked_reason: "internal-note" })],
+        }),
+      ]),
+    });
 
     const unknown = await app.request("/v1/director/issue-signals?team_id=unknown");
     expect(await unknown.json()).toMatchObject({ case_count: 0, blocked_steps: [], stalled_cases: [], budget_exhausted_cases: [] });
@@ -218,6 +236,12 @@ describe("directorRouter", () => {
     expect(await response.json()).toMatchObject({
       decision: { decision: "ask_human", genius_available: false },
       step: { status: "blocked" },
+    });
+    const listed = await app.request("/v1/director/cases");
+    expect(await listed.json()).toMatchObject({
+      cases: [expect.objectContaining({
+        steps: [expect.objectContaining({ blocked_reason: "human-decision" })],
+      })],
     });
   });
 

@@ -54,11 +54,21 @@ export interface DirectorStep {
   updated_at: number;
 }
 
-/** kanban 一覧で公開する最小 step 契約。内部参照や handoff note は含めない。 */
+export type DirectorBlockedReason =
+  | "run-missing"
+  | "run-failed"
+  | "human-decision"
+  | "internal-note"
+  | "not-recorded";
+
+/** kanban 一覧で公開する最小 step 契約。内部参照や handoff note の生文は含めない。 */
 export type DirectorStepSummary = Pick<
   DirectorStep,
   "id" | "sequence" | "kind" | "title" | "status"
->;
+> & {
+  /** blocked の安全な分類だけを公開する。blocked 以外では null。 */
+  blocked_reason: DirectorBlockedReason | null;
+};
 
 export interface DirectorDecisionRecord {
   id: string;

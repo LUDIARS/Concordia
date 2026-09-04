@@ -131,7 +131,10 @@ export class DirectorRepo {
     `).all(limit) as DirectorCaseRow[];
   }
 
-  /** kanban 用 read model。case と step を件数に依存しない 2 クエリで取得する。 */
+  /**
+   * kanban 用 read model。case と step を件数に依存しない 2 クエリで取得する。
+   * @implements spec/feature/director-goal-flow.md 受け入れ基準 4
+   */
   listCasesWithSteps(
     filter: { teamId?: string; limit?: number } = {},
   ): Array<{ case: DirectorCase; steps: DirectorStepSummary[] }> {
@@ -139,10 +142,31 @@ export class DirectorRepo {
     if (cases.length === 0) return [];
     const placeholders = cases.map(() => "?").join(", ");
     const steps = this.db.prepare(`
-      SELECT id, case_id, sequence, kind, title, status
-        FROM director_steps
-       WHERE case_id IN (${placeholders})
-       ORDER BY case_id, sequence ASC
+      SELECT s.id, s.case_id, s.sequence, s.kind, s.title, s.status,
+             CASE
+               WHEN s.status != 'blocked' THEN NULL
+               WHEN s.delegation_run_id IS NOT NULL
+                AND s.handoff_note = 'delegation run ' || s.delegation_run_id || ' not found'
+                 THEN 'run-missing'
+               WHEN s.delegation_run_id IS NOT NULL
+                AND s.handoff_note IN (
+                  'delegation run ' || s.delegation_run_id || ' failed',
+                  'delegation run ' || s.delegation_run_id || ' spawn_failed'
+                )
+                 THEN 'run-failed'
+               WHEN EXISTS (
+                 SELECT 1 FROM director_decisions d
+                  WHERE d.step_id = s.id
+                    AND d.decision = 'ask_human'
+                    AND d.plan_version IS NULL
+                    AND d.human_answered_at IS NULL
+               ) THEN 'human-decision'
+               WHEN s.handoff_note IS NOT NULL THEN 'internal-note'
+               ELSE 'not-recorded'
+             END AS blocked_reason
+        FROM director_steps s
+       WHERE s.case_id IN (${placeholders})
+       ORDER BY s.case_id, s.sequence ASC
     `).all(...cases.map((row) => row.id)) as DirectorStepSummaryRow[];
     const stepsByCase = new Map<string, DirectorStepSummary[]>();
     for (const step of steps) {
@@ -153,6 +177,7 @@ export class DirectorRepo {
         kind: step.kind,
         title: step.title,
         status: step.status,
+        blocked_reason: step.blocked_reason,
       });
       stepsByCase.set(step.case_id, grouped);
     }

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadConfig } from "./shared/config.js";
 import { createChildLogger } from "./shared/logger.js";
+import { reportBuildStaleness } from "./runtime/build-freshness.js";
 import { openDb, closeDb } from "./db/index.js";
 import { SessionsRepo } from "./db/sessions-repo.js";
 import { makeDiscordConfigRepo } from "./db/discord-repo.js";
@@ -28,6 +29,13 @@ function loadDotEnv(file: string): void {
 }
 
 async function main(): Promise<void> {
+  // このワーカーも dist 実行なので、 ソースを直して main へ入れてもプロセスは
+  // 古い dist を動かし続ける。 health を持たないぶん気づく手がかりが無いので、
+  // 起動時に 1 行だけ警告を出す (Memoria #2000)。 起動は止めない。
+  await reportBuildStaleness((message, err) => {
+    if (err === undefined) log.warn(message);
+    else log.warn({ err }, message);
+  });
   loadDotEnv(join(process.cwd(), ".env"));
   const cfg = loadConfig();
   const db = openDb(cfg.dbPath);

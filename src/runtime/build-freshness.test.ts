@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { checkBuildFreshness, formatBuildFreshnessWarning } from "./build-freshness.js";
+import { checkBuildFreshness, formatBuildFreshnessWarning, reportBuildStaleness } from "./build-freshness.js";
 
 const roots: string[] = [];
 
@@ -116,5 +116,46 @@ describe("checkBuildFreshness", () => {
 
     expect(message).toContain("db/schema.ts\\nforged log line");
     expect(message).not.toContain("db/schema.ts\nforged log line");
+  });
+});
+
+describe("reportBuildStaleness", () => {
+  it("stale のときは対処方法を警告して true を返す", async () => {
+    const warnings: { message: string; err?: unknown }[] = [];
+    const stale = await reportBuildStaleness((message, err) => {
+      warnings.push({ message, err });
+    }, async () => ({ stale: true, staleSample: "db/schema.ts" }));
+
+    expect(stale).toBe(true);
+    expect(warnings).toEqual([{
+      message: formatBuildFreshnessWarning({ stale: true, staleSample: "db/schema.ts" }),
+      err: undefined,
+    }]);
+  });
+
+  it("fresh のときは警告せず false を返す", async () => {
+    const warnings: string[] = [];
+    const stale = await reportBuildStaleness((message) => {
+      warnings.push(message);
+    }, async () => ({ stale: false, staleSample: null }));
+
+    expect(stale).toBe(false);
+    expect(warnings).toEqual([]);
+  });
+
+  it("判定できないときは fresh として扱い、 理由を警告に残す", async () => {
+    // 鮮度が判らないことと古いことは別。 判定の失敗を stale と報せると
+    // 誤った再ビルドを促す。
+    const error = new Error("unreadable source tree");
+    const warnings: { message: string; err?: unknown }[] = [];
+    const stale = await reportBuildStaleness((message, err) => {
+      warnings.push({ message, err });
+    }, async () => { throw error; });
+
+    expect(stale).toBe(false);
+    expect(warnings).toEqual([{
+      message: "build freshness check failed; treating as fresh",
+      err: error,
+    }]);
   });
 });

@@ -38,11 +38,14 @@ completed 報告が完了証跡ガードで failed 化され続けた。毎回 d
   (`npm run build` + Excubitor 経由の再起動) を変えないため、件数は数えない。
 - 判定自体が失敗した場合は fresh として扱う。**鮮度が判らないことと古いことは別**で、
   判定の失敗を stale と報せると誤った再ビルドを促す。
+- standalone の `control-worker` と `cost-worker` も起動時に同じ判定を行う。これらは
+  health endpoint を持たないため、stale または判定失敗の結果は警告ログだけに出す。
 
 ## 実装
 
 - `src/runtime/build-freshness.ts` — 判定と警告文
 - `src/bootstrap/core.ts` — 起動時に 1 度実行し、結果を `AppDeps.buildStale` へ渡す
+- `src/control-worker.ts`, `src/cost-worker.ts` — 起動時に 1 度実行し、警告ログへ出す
 - `src/app.ts` — `GET /health` の `build_stale`
 
 ## 対象外

@@ -109,3 +109,20 @@ export function formatBuildFreshnessWarning(result: BuildFreshnessResult): strin
     " 稼働中のコードが main と一致していない可能性があります。"
   );
 }
+
+/** 起動時にビルド鮮度を判定し、 古ければ警告を 1 行出す。 判定できなければ fresh とみなす。 */
+export async function reportBuildStaleness(
+  warn: (message: string, err?: unknown) => void,
+  check: () => Promise<BuildFreshnessResult> = checkBuildFreshness,
+): Promise<boolean> {
+  try {
+    const result = await check();
+    if (result.stale) warn(formatBuildFreshnessWarning(result));
+    return result.stale;
+  } catch (err: unknown) {
+    // 判定そのものが失敗しても起動を妨げない。 鮮度が判らないことと古いことは
+    // 別なので、 stale とは扱わない。
+    warn("build freshness check failed; treating as fresh", err);
+    return false;
+  }
+}

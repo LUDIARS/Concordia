@@ -11,6 +11,7 @@ import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { SessionRow } from "../shared/types.js";
 import { fetchClaudeOAuthUsage, type OAuthUsage } from "../auth/anthropic-oauth-usage.js";
 import { fetchCodexRateLimits } from "./codex-rate-limits.js";
+import { mapRolloutRateLimitsToCostRate } from "./codex-rollout-rate.js";
 import type { Totals } from "../cost/log-usage.js";
 import { cachedReadSessionUsage, readLatestCodexTokenCountLine } from "./session-usage-cache.js";
 
@@ -198,21 +199,9 @@ async function aggregateCodexRate(sessions: SessionRow[], allowFullScan: boolean
 }
 
 async function readCodexRate(s: SessionRow, allowFullScan: boolean): Promise<CostRate | null> {
-  const o = (await readLatestCodexTokenCountLine(s, { allowFullScan })) as any;
+  const o = await readLatestCodexTokenCountLine(s, { allowFullScan });
   if (!o) return null;
-  return {
-    used5h: nnull(o?.payload?.rate_limits?.primary?.used_percent),
-    usedWeekly: nnull(o?.payload?.rate_limits?.secondary?.used_percent),
-    reset5hAt: nnEpoch(o?.payload?.rate_limits?.primary?.resets_at),
-    resetWeeklyAt: nnEpoch(o?.payload?.rate_limits?.secondary?.resets_at),
-    plan: firstString(
-      o?.payload?.plan,
-      o?.payload?.rate_limits?.plan,
-      o?.payload?.rate_limits?.plan_type,
-      o?.payload?.rate_limits?.tier,
-      o?.payload?.rate_limits?.subscription,
-    ),
-  };
+  return mapRolloutRateLimitsToCostRate(o.payload);
 }
 
 function firstString(...values: unknown[]): string | null {
@@ -220,14 +209,6 @@ function firstString(...values: unknown[]): string | null {
     if (typeof v === "string" && v.trim()) return v.trim();
   }
   return null;
-}
-
-function nnull(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
-function nnEpoch(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.floor(v) : null;
 }
 
 export function remain(used: number | null): number | null {

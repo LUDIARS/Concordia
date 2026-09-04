@@ -12,7 +12,9 @@ function buildTestApp() {
 
 describe("admin API", () => {
   let env: ReturnType<typeof buildTestApp>;
-  beforeEach(() => { env = buildTestApp(); });
+  // The single-thread Windows suite can briefly delay SQLite-backed app setup
+  // beyond Vitest's 10-second default while other test resources are released.
+  beforeEach(() => { env = buildTestApp(); }, 30_000);
 
   it("POST /v1/admin/spawn-session rejects unknown provider", async () => {
     const r = await env.app.request("/v1/admin/spawn-session", {

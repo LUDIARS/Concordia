@@ -191,7 +191,7 @@ export function createCostRuntime(deps: CostRuntimeDeps): CostRuntime {
       const nowSec = Math.floor(Date.now() / 1000);
       const report = await collectCostReport(deps.sessionsRepo, { oauthLog: deps.log });
       const previous = limitSamplesRepo.listLatestByProvider();
-      limitSamplesRepo.insertMany(collectLimitSamples(report, nowSec, previous));
+      limitSamplesRepo.insertMany(collectLimitSamples(report, nowSec));
       limitSamplesRepo.pruneOlderThan(nowSec - USAGE_SAMPLE_RETENTION_SEC);
     } catch (e) {
       deps.log?.warn(`cost limit sampler failed: ${(e as Error).message}`);

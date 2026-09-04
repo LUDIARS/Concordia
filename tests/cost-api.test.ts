@@ -96,10 +96,10 @@ describe("/v1/cost", () => {
     const res = await env.app.request("/v1/cost/limit-timeseries?since=900");
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.points).toHaveLength(4);
+    expect(body.points).toHaveLength(2);
     expect(body.providers["codex-cli"].slice(0, 2).map((p: any) => p.usedWeeklyPct)).toEqual([34, 40]);
     expect(body.providers["codex-cli"].at(-1).usedWeeklyPct).toBe(40);
     expect(body.providers["codex-cli"][0].plan).toBe("pro");
-    expect(body.providers["claude-code"].at(-1)).toMatchObject({ used5hPct: 1, usedWeeklyPct: 2 });
+    expect(body.providers["claude-code"]).toBeUndefined();
   });
 });

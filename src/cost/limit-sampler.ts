@@ -19,11 +19,9 @@ export interface LimitTimeseries {
 export function collectLimitSamples(
   report: CostReport,
   nowSec: number,
-  previous: CostLimitSampleRow[] = [],
 ): CostLimitSampleInput[] {
   const samples: CostLimitSampleInput[] = [];
-  const previousByProvider = new Map(previous.map((p) => [p.provider, p]));
-  const codexSample = carryForwardMissing({
+  const codexSample = observedOnly({
       ts: nowSec,
       provider: "codex-cli",
       plan: report.codexRate.plan,
@@ -31,12 +29,10 @@ export function collectLimitSamples(
       used_weekly_pct: report.codexRate.usedWeekly,
       reset_5h_at: report.codexRate.reset5hAt,
       reset_weekly_at: report.codexRate.resetWeeklyAt,
-    },
-    previousByProvider.get("codex-cli"),
-  );
+    });
   if (codexSample) samples.push(codexSample);
 
-  const claudeSample = carryForwardMissing(
+  const claudeSample = observedOnly(
     {
       ts: nowSec,
       provider: "claude-code",
@@ -45,9 +41,7 @@ export function collectLimitSamples(
       used_weekly_pct: report.claudeUsage?.sevenDay?.utilization ?? null,
       reset_5h_at: report.claudeUsage?.fiveHour?.resetsAtSec ?? null,
       reset_weekly_at: report.claudeUsage?.sevenDay?.resetsAtSec ?? null,
-    },
-    previousByProvider.get("claude-code"),
-  );
+    });
   if (claudeSample) samples.push(claudeSample);
   return samples;
 }
@@ -81,37 +75,18 @@ function hasLimitValue(a: number | null, b: number | null): boolean {
 }
 
 /**
- * 直近値を持ち越してよい上限。 取得は 10 分毎なので、 数回ぶんの一時的な失敗を
- * 埋めるには足りる (codex-rate-limits の STALE_FALLBACK_MS と同じ考え方)。
- */
-const CARRY_FORWARD_MAX_AGE_SEC = 30 * 60;
-
-/**
- * 一時的な取得失敗で時系列に穴を空けないよう、 直近値を持ち越す。
+ * 観測できた値だけを記録する。 欠けている枠は履歴から埋めない。
  *
- * ただし持ち越しは「まだ取れるはずの値が今回だけ取れなかった」場合に限る。 無期限に
- * 持ち越すと、 廃止された枠の値を複製し続けてしまう。 古すぎる値や現在より未来の値は
- * 持ち越さず null のまま記録して、 「取れていない」ことを時系列に残す。
+ * 以前はここで直近サンプルから欠損を埋めていたが、 サンプルは 10 分毎に書かれ、 各行が
+ * 前の行を継承するので鎖が切れず、 提供元が報告をやめた枠の値を無期限に複製していた
+ * (実例: Codex は 5H 枠が廃止されて `secondary: null` を返すようになった後も、
+ * 2026-07-19 に観測した 71% が 2 か月ぶんコピーされ、 存在しない時系列がグラフに出ていた)。
  *
- * @implements spec/feature/cost-observability.md (`SPEC-COST-LIMIT-CARRY-FORWARD`)
+ * 一時的な取得失敗の穴埋めは取得層が既に持っている — codex-rate-limits と
+ * anthropic-oauth-usage は「直近の成功値を 30 分まで返す」を実装しており、 そちらは
+ * 値を実際に観測した時刻を基準にするので鎖にならない。 ここで二重に持つ必要は無く、
+ * 持つと壊れた側が勝つ。
  */
-function carryForwardMissing(
-  current: CostLimitSampleInput,
-  previous: CostLimitSampleRow | undefined,
-): CostLimitSampleInput | null {
-  const previousAgeSec = previous ? current.ts - previous.ts : null;
-  const carryable = previous && previousAgeSec !== null
-    && previousAgeSec >= 0
-    && previousAgeSec <= CARRY_FORWARD_MAX_AGE_SEC
-    ? previous
-    : undefined;
-  if (!previous && !hasLimitValue(current.used_5h_pct, current.used_weekly_pct)) return null;
-  return {
-    ...current,
-    plan: current.plan ?? carryable?.plan ?? null,
-    used_5h_pct: current.used_5h_pct ?? carryable?.used_5h_pct ?? null,
-    used_weekly_pct: current.used_weekly_pct ?? carryable?.used_weekly_pct ?? null,
-    reset_5h_at: current.reset_5h_at ?? carryable?.reset_5h_at ?? null,
-    reset_weekly_at: current.reset_weekly_at ?? carryable?.reset_weekly_at ?? null,
-  };
+function observedOnly(sample: CostLimitSampleInput): CostLimitSampleInput | null {
+  return hasLimitValue(sample.used_5h_pct, sample.used_weekly_pct) ? sample : null;
 }

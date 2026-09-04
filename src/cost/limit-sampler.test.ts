@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectLimitSamples } from "./limit-sampler.js";
 import type { CostReport } from "./cost-report.js";
-import type { CostLimitSampleRow } from "../db/cost-limit-samples-repo.js";
 
 function report(): CostReport {
   return {
@@ -13,159 +12,69 @@ function report(): CostReport {
 }
 
 describe("collectLimitSamples", () => {
-  it("carries forward previous provider values when current limit telemetry is unavailable", () => {
-    const previous: CostLimitSampleRow[] = [
-      {
-        id: 1,
-        ts: 1000,
-        provider: "codex-cli",
-        plan: "pro",
-        used_5h_pct: 25,
-        used_weekly_pct: 50,
-        reset_5h_at: 2000,
-        reset_weekly_at: 3000,
-      },
-      {
-        id: 2,
-        ts: 1000,
-        provider: "claude-code",
-        plan: "max",
-        used_5h_pct: 10,
-        used_weekly_pct: 20,
-        reset_5h_at: 4000,
-        reset_weekly_at: 5000,
-      },
-    ];
+  it("records what was observed", () => {
+    const r = report();
+    r.codexRate = { used5h: null, usedWeekly: 63, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };
 
-    expect(collectLimitSamples(report(), 1600, previous)).toEqual([
+    expect(collectLimitSamples(r, 1600)).toEqual([
       {
         ts: 1600,
         provider: "codex-cli",
         plan: "pro",
-        used_5h_pct: 25,
-        used_weekly_pct: 50,
-        reset_5h_at: 2000,
-        reset_weekly_at: 3000,
-      },
-      {
-        ts: 1600,
-        provider: "claude-code",
-        plan: "max",
-        used_5h_pct: 10,
-        used_weekly_pct: 20,
-        reset_5h_at: 4000,
-        reset_weekly_at: 5000,
+        used_5h_pct: null,
+        used_weekly_pct: 63,
+        reset_5h_at: null,
+        reset_weekly_at: 9000,
       },
     ]);
   });
 
-  // 廃止された枠の最終値を無期限に複製しない。
-  it("stops carrying a value forward once the previous sample is too old", () => {
-    const previous: CostLimitSampleRow[] = [
-      {
-        id: 1,
-        ts: 1000,
-        provider: "codex-cli",
-        plan: "pro",
-        used_5h_pct: 71,
-        used_weekly_pct: 50,
-        reset_5h_at: 2000,
-        reset_weekly_at: 3000,
-      },
-    ];
-
-    // 30 分ちょうどまでは埋める (10 分毎の取得が数回失敗しただけ)。
-    expect(collectLimitSamples(report(), 1000 + 30 * 60, previous)[0]).toMatchObject({
-      used_5h_pct: 71,
-      used_weekly_pct: 50,
-      plan: "pro",
-    });
-
-    // それを超えたら「取れていない」を時系列に残す。
-    expect(collectLimitSamples(report(), 1000 + 30 * 60 + 1, previous)[0]).toMatchObject({
-      provider: "codex-cli",
-      plan: null,
-      used_5h_pct: null,
-      used_weekly_pct: null,
-      reset_5h_at: null,
-      reset_weekly_at: null,
-    });
-  });
-
-  it("does not carry a future-dated previous sample backward", () => {
-    const previous: CostLimitSampleRow[] = [
-      {
-        id: 1,
-        ts: 2000,
-        provider: "codex-cli",
-        plan: "pro",
-        used_5h_pct: 71,
-        used_weekly_pct: 50,
-        reset_5h_at: 3000,
-        reset_weekly_at: 4000,
-      },
-    ];
-
-    expect(collectLimitSamples(report(), 1000, previous)[0]).toMatchObject({
-      provider: "codex-cli",
-      plan: null,
-      used_5h_pct: null,
-      used_weekly_pct: null,
-      reset_5h_at: null,
-      reset_weekly_at: null,
-    });
-  });
-
-  // 枠が 1 つだけ無くなった提供元は、 生きている枠の値まで道連れにしない。
-  it("keeps a live window while the retired one goes null", () => {
+  // 2026-09-03 の障害: Codex は 5H 枠が廃止されて `secondary: null` を返すように
+  // なったが、 サンプラーが直近行から欠損を埋めていたため、 7 月に観測した最後の 5H 値
+  // (71%) が 2 か月ぶん複製され、 存在しない時系列がグラフに出ていた。 サンプルは
+  // 10 分毎に書かれ各行が前の行を継承するので、 「古すぎたら埋めない」という年齢制限を
+  // 付けても鎖は切れなかった (前の行はいつでも 10 分前だから)。 埋めるのをやめるのが答え。
+  it("never fills a window the provider stopped reporting", () => {
     const r = report();
-    r.codexRate = { used5h: null, usedWeekly: 57, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };
+    r.codexRate = { used5h: null, usedWeekly: 63, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };
 
-    const samples = collectLimitSamples(r, 1000 + 3 * 24 * 3600, [
-      {
-        id: 1,
-        ts: 1000,
-        provider: "codex-cli",
-        plan: "pro",
-        used_5h_pct: 71,
-        used_weekly_pct: 50,
-        reset_5h_at: 2000,
-        reset_weekly_at: 3000,
-      },
-    ]);
-
-    expect(samples[0]).toMatchObject({
-      used_5h_pct: null,
-      reset_5h_at: null,
-      used_weekly_pct: 57,
-      reset_weekly_at: 9000,
-    });
+    // 10 分毎に 30 回 = 5 時間ぶん回しても、 廃止された枠は null のまま。
+    for (let i = 1; i <= 30; i += 1) {
+      const [sample] = collectLimitSamples(r, 1_000_000 + i * 600);
+      expect(sample).toMatchObject({ used_5h_pct: null, reset_5h_at: null, used_weekly_pct: 63 });
+    }
   });
 
-  it("fills only missing fields from the previous sample", () => {
+  it("skips a provider with no limit telemetry at all", () => {
+    // 一時的な取得失敗の穴埋めは取得層 (codex-rate-limits / anthropic-oauth-usage) の
+    // 「直近の成功値を 30 分まで返す」が担当する。 そこも尽きたなら記録するものは無い。
+    expect(collectLimitSamples(report(), 1600)).toEqual([]);
+  });
+
+  it("records both providers when both report", () => {
     const r = report();
-    r.codexRate = { used5h: 40, usedWeekly: null, reset5hAt: 2200, resetWeeklyAt: null, plan: null };
-
-    const samples = collectLimitSamples(r, 1600, [
-      {
-        id: 1,
-        ts: 1000,
-        provider: "codex-cli",
-        plan: "pro",
-        used_5h_pct: 25,
-        used_weekly_pct: 50,
-        reset_5h_at: 2000,
-        reset_weekly_at: 3000,
+    r.codexRate = { used5h: null, usedWeekly: 63, reset5hAt: null, resetWeeklyAt: 9000, plan: "pro" };
+    r.claudeUsage = {
+      plan: "max",
+      fiveHour: { utilization: 40, resetsAtSec: 4000 },
+      sevenDay: { utilization: 77, resetsAtSec: 5000 },
+      sevenDaySonnet: null,
+      sevenDayOpus: null,
+      sevenDayFable: null,
+      weeklyScoped: [],
+      extraCredit: {
+        isEnabled: false, monthlyLimit: null, usedCredits: null, utilization: null, currency: null,
       },
-    ]);
+      fetchedAt: 0,
+    };
 
-    expect(samples[0]).toMatchObject({
-      provider: "codex-cli",
-      plan: "pro",
+    expect(collectLimitSamples(r, 1600).map((s) => s.provider)).toEqual(["codex-cli", "claude-code"]);
+    expect(collectLimitSamples(r, 1600)[1]).toMatchObject({
+      plan: "max",
       used_5h_pct: 40,
-      used_weekly_pct: 50,
-      reset_5h_at: 2200,
-      reset_weekly_at: 3000,
+      used_weekly_pct: 77,
+      reset_5h_at: 4000,
+      reset_weekly_at: 5000,
     });
   });
 });

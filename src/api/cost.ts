@@ -118,7 +118,7 @@ export function costRouter(deps: CostApiDeps): Hono {
     const sinceSec = Number.isFinite(sinceQ) && sinceQ >= 0 ? Math.floor(sinceQ) : nowSec - 7 * 24 * 3600;
     const rows = deps.limitSamples.listSince(sinceSec);
     const previous = deps.limitSamples.listLatestByProvider();
-    const latest = collectLimitSamples(emptyCostReport(), nowSec, previous).map((s, i) => ({
+    const latest = collectLimitSamples(emptyCostReport(), nowSec).map((s, i) => ({
       id: -1 - i,
       ...s,
     }));

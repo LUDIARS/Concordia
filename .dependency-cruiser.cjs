@@ -2,6 +2,55 @@
 module.exports = {
   forbidden: [
     /**
+     * module-runtime-composition-only
+     * A module's runtime.ts is the only thing that runs when that module is ON. If any
+     * non-composition file imports it, turning the module off leaves a dangling call —
+     * that is exactly the "off drags others down" failure the manifest is meant to prevent.
+     * federation/runtime.ts is the precedent; bootstrap/core.ts walks the manifest and
+     * calls start() (spec/feature/module-manifest.md §3, §5).
+     */
+    {
+      name: "module-runtime-composition-only",
+      severity: "error",
+      comment:
+        "Only composition roots may import a module runtime (spec/feature/module-manifest.md §3)",
+      from: {
+        path: "^src/",
+        pathNot: [
+          // Composition roots — wiring points, allowed to start module runtimes
+          "^src/server\\.ts$",
+          "^src/app\\.ts$",
+          "^src/bootstrap/",
+          "^src/[a-z-]+-worker\\.ts$",
+          "\\.test\\.ts$",
+        ],
+      },
+      to: {
+        path: "^src/[a-z-]+/runtime\\.ts$",
+      },
+    },
+
+    /**
+     * manifest-stays-declarative
+     * The module ledger describes how modules are wired; it must not become a second
+     * wiring point. If it imports module implementations, reading the ledger starts
+     * pulling in the very modules it claims may be off.
+     */
+    {
+      name: "manifest-stays-declarative",
+      severity: "error",
+      comment:
+        "The module manifest must stay declarative — no imports of module implementations",
+      from: {
+        path: "^src/modules/manifest\\.ts$",
+      },
+      to: {
+        path: "^src/",
+        pathNot: ["^src/modules/", "^src/shared/"],
+      },
+    },
+
+    /**
      * core-no-chat
      * Core / non-platform modules must not import chat-platform (discord/ slack/) modules.
      * Composition roots (server.ts, app.ts) are wiring points and excluded.

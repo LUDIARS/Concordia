@@ -67,9 +67,14 @@ logs/
 web/logs/
 bash.exe.stackdump
 
-# Anatomia retune ローカル状態（反復カウンタ等）。 ドメイン定義の正本は spec/domains/
-# へ移したので、 ここに追跡対象は無い。
+# Anatomia retune ローカル状態（反復カウンタ等）。 ビジネスドメイン定義の正本は
+# spec/domains/ へ移した。 追跡するのは layers.json だけで、 これは解析キャッシュではなく
+# リポジトリが持つ層 (プログラムドメイン) の宣言。 追跡しないと Revisor のゲートから
+# リポジトリ固有の層が見えず、 規約や依存から推定できない変更 anchor が「未分類」になる。
+# なお `.anatomia/` とディレクトリごと除外する形にはしないこと — git は除外ディレクトリ内の
+# ファイルを `!` で再包含できないので、 layers.json をコミットできなくなる。
 .anatomia/*
+!.anatomia/layers.json
 
 # ローカル review/ は中央 Review/<repo>/ に集約する (per-repo review/ は追跡しない)
 review/*

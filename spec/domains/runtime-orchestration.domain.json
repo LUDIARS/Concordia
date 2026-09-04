@@ -21,6 +21,9 @@
     },
     {
       "pathPattern": "(^|/)src/runtime/build-freshness(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/modules(?:/.*)?$"
     }
   ],
   "cardTemplate": "Summarise the runtime-orchestration domain: periodic runtime loops and their lifecycle ownership.",
@@ -28,6 +31,8 @@
     "spec/feature/domain-taxonomy.concordia.md#runtime-orchestration",
     "spec/feature/delegation.md#dependency-sweep-parttimer",
     "spec/feature/delegation.md#メール監視-parttimer",
-    "spec/feature/build-freshness.md#spec-concordia-build-freshness"
+    "spec/feature/build-freshness.md#spec-concordia-build-freshness",
+    "spec/feature/module-manifest.md#1-manifest",
+    "spec/feature/module-manifest.md#2-api"
   ]
 }

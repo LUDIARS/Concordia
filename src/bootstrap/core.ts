@@ -203,6 +203,8 @@ import { inFlightRequestCount, snapshotInFlightRequests } from "../shared/inflig
 import { startEventLoopMonitor } from "../shared/event-loop-monitor.js";
 import { recordEventLoopStall } from "../instrumentation.js";
 import { reportBuildStaleness } from "../runtime/build-freshness.js";
+import { describeMismatches, resolveModules } from "../modules/resolve.js";
+import { resolveModuleMode } from "../modules/runtime-modes.js";
 
 /**
  * transcript / rules / session_stats の保持期間 (日)。 session_events の
@@ -431,7 +433,15 @@ async function detectBuildStaleness(): Promise<boolean> {
 export async function startBackend(): Promise<BackendHandle> {
   const bootStarted = Date.now();
   const buildStale = await detectBuildStaleness();
+  // mode の正本には .env も含まれる。観測スナップショットを作る前に必ず反映する。
   loadDotEnv(join(process.cwd(), ".env"));
+  // 台帳と実配線の食い違いを起動時に 1 度だけ報せる。 **起動は止めない** —
+  // モードの食い違いは設定の不備だが、 止めると直す手段まで失う
+  // (backend が上がらないと設定 UI も API も使えない)。
+  const startedModules = observeStartedModules();
+  for (const line of describeMismatches(
+    resolveModules(resolveModuleMode, { startedEmbedded: startedModules }),
+  )) log.error(line);
   const cfg = loadConfig();
   configureLoopHaltNotifier((state) => {
     eventBus.emit({
@@ -1329,6 +1339,7 @@ export async function startBackend(): Promise<BackendHandle> {
     config: cfg,
     startedAt: new Date().toISOString(),
     buildStale,
+    startedModules,
     sweeperRunOnce: sweeper.runOnce,
     toolPath,
     publicUrl,
@@ -2069,4 +2080,19 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * backend 内で実際に起動したモジュール名を観測する。
+ *
+ * 台帳がモードを宣言し、 こちらが実配線を答える。 両方を同じ判定から作ると
+ * 検査が自明に通ってしまうので、 **既存の embedded 判定をそのまま使う**
+ * (台帳側は環境変数を読み直さない)。
+ */
+function observeStartedModules(): string[] {
+  const started: string[] = ["core"];
+  if (chatEmbeddedEnabled()) started[started.length] = "chat";
+  if (costEmbeddedEnabled()) started[started.length] = "cost";
+  if (workflowEmbeddedEnabled()) started[started.length] = "workflow";
+  return started;
 }

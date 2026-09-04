@@ -7,6 +7,7 @@ import { registerChatRoutes, type ChatDeps } from "./api/register-chat.js";
 import { registerCoreRoutes, type CoreDeps } from "./api/register-core.js";
 import { registerCostRoutes, type CostDeps } from "./api/register-cost.js";
 import { registerWebRoutes } from "./api/register-web.js";
+import { modulesRouter } from "./api/modules.js";
 import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
@@ -22,6 +23,11 @@ export type AppDeps = Omit<CoreDeps, "channelDirectory"> & ChatDeps & CostDeps &
    * 起動は止めない。 判定できなかった場合は呼び出し側で false として扱う。
    */
   buildStale: boolean;
+  /**
+   * backend 内で実際に起動したモジュール名。 GET /v1/modules が台帳と突き合わせる。
+   * 渡さなければ空として扱い、 embedded 指定のモジュールが不一致として出る。
+   */
+  startedModules?: readonly string[];
   chatRoutes?: ChatDeps | null;
   costRoutes?: CostDeps | null;
 };
@@ -104,6 +110,11 @@ export function buildApp(deps: AppDeps): Hono {
       build_stale: deps.buildStale,
     }),
   );
+
+  // モジュール台帳の読み取り面。 lifecycle 操作は持たない (Excubitor が正本)。
+  app.route("/v1/modules", modulesRouter({
+    wiring: () => ({ startedEmbedded: deps.startedModules ?? [] }),
+  }));
 
   registerCoreRoutes(app, {
     ...deps,

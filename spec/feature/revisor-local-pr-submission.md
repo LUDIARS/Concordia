@@ -228,6 +228,8 @@ Lictor 未ラップの bg job・終了済みセッションのブランチ・手
 ```
 
 - repo_path は implementation-tools と同じ workspace roots 境界の中だけを許す。
+- `pr_content` を明示する場合は文字列を要求し、非文字列は 400 で拒否する。空文字・空白のみは
+  未指定として扱い、本文を自動生成する。
 - `session_id` 無しの提出は Revisor へ binding を送らない。 審査の終局結果は
   共有チャット通知 (pr-lifecycle-notice) だけで完結する。
 - 実在しないブランチ・不正なブランチ名は plan の手前で理由付きエラーにする

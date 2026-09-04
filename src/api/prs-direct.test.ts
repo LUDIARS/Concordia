@@ -84,4 +84,56 @@ describe("POST /v1/prs/local/direct", () => {
       fast_lane: true,
     })).status).toBe(403);
   });
+
+  // 呼び出し側が {title, body} のようなオブジェクトを渡した実例がある。
+  // typeof チェックだけで undefined へ落とすと、意図した本文が使われないまま
+  // Revisor の自動生成本文で PR が作られ、呼び出し側はそれに気づけない。
+  it("rejects a non-string pr_content instead of silently dropping it", async () => {
+    const submitDirectLocalPr = vi.fn(async () => ({ ok: true }) as never);
+    const app = prsRouter({ prs: EMPTY_PRS, submitDirectLocalPr });
+
+    for (const prContent of [{ title: "t", body: "b" }, ["t"], 42, true, null]) {
+      const response = await post(app, {
+        repo_path: "E:/Document/Ars/Concordia",
+        pr_content: prContent,
+      });
+      expect(response.status, JSON.stringify(prContent)).toBe(400);
+      expect(await response.json()).toEqual({ error: "pr_content (string) required when provided" });
+    }
+    expect(submitDirectLocalPr).not.toHaveBeenCalled();
+  });
+
+  it("keeps treating an empty or blank pr_content as unset", async () => {
+    // 空文字は「本文を指定しなかった」であって誤りではない。仕様どおり素通しする。
+    const submitDirectLocalPr = vi.fn(async (
+      _request: Parameters<NonNullable<PrsApiDeps["submitDirectLocalPr"]>>[0],
+    ) => ({ ok: true }) as never);
+    const app = prsRouter({ prs: EMPTY_PRS, submitDirectLocalPr });
+
+    for (const prContent of ["", "   ", "\n"]) {
+      const response = await post(app, {
+        repo_path: "E:/Document/Ars/Concordia",
+        pr_content: prContent,
+      });
+      expect(response.status).toBe(200);
+    }
+    for (const call of submitDirectLocalPr.mock.calls) {
+      expect(call[0]).not.toHaveProperty("prContent");
+    }
+  });
+
+  it("passes a non-empty pr_content through", async () => {
+    const submitDirectLocalPr = vi.fn(async () => ({ ok: true }) as never);
+    const app = prsRouter({ prs: EMPTY_PRS, submitDirectLocalPr });
+
+    const response = await post(app, {
+      repo_path: "E:/Document/Ars/Concordia",
+      pr_content: "## 実装内容\n\n本文",
+    });
+
+    expect(response.status).toBe(200);
+    expect(submitDirectLocalPr).toHaveBeenLastCalledWith(expect.objectContaining({
+      prContent: "## 実装内容\n\n本文",
+    }));
+  });
 });

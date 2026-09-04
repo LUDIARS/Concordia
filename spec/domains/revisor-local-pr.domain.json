@@ -8,6 +8,9 @@
       "pathPattern": "(^|/)src/api/prs(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/api/prs-direct\\.test\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/api/register-core\\.ts$"
     },
     {

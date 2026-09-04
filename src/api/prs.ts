@@ -455,6 +455,11 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     if (!repoPath) return c.json({ error: "repo_path (string) required" }, 400);
     const branch = typeof body?.branch === "string" && body.branch.trim() ? body.branch.trim() : undefined;
     const sessionId = typeof body?.session_id === "string" && body.session_id.trim() ? body.session_id.trim() : undefined;
+    // オブジェクト等を未指定扱いにすると、呼び出し側が意図しない自動生成本文で
+    // PR が作られるため、明示された非文字列は入口で拒否する。
+    if (body?.pr_content !== undefined && typeof body.pr_content !== "string") {
+      return c.json({ error: "pr_content (string) required when provided" }, 400);
+    }
     const prContent = typeof body?.pr_content === "string" && body.pr_content.trim()
       ? body.pr_content
       : undefined;

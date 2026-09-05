@@ -89,6 +89,7 @@ import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
+import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
@@ -1660,6 +1661,34 @@ export async function startBackend(): Promise<BackendHandle> {
         resolveEnabled: () => adminState.getDelegationFinishedRunScanEnabled(),
         resolveAutoReap: () => adminState.getDelegationFinishedRunAutoReap(),
         resolveGraceMs: () => adminState.getDelegationFinishedRunGraceSec() * 1000,
+        // 回収は破壊的操作なので、 実行したら管理者へ 1 通で知らせる。 メンションは
+        // admin.mention_user_id だけ (neco 指示 2026-09-05)。 対象 run には元の指示者や
+        // supervisor が紐づくが、 1 回の掃除で無関係な人をまとめて呼ばないため足さない。
+        // 本文へ <@id> は書かず mention_user_ids で渡す (egress は parse: [] で送る)。
+        onReaped: (results) => {
+          const text = buildZombieReapNotice(results);
+          if (!text) return;
+          const msg = chat.insert({
+            channel: "system",
+            session_id: null,
+            author_label: "Concordia reaper",
+            text,
+            in_reply_to: null,
+            is_actionable: false,
+          });
+          if (!msg) return;
+          const admin = adminState.getMentionUserId();
+          eventBus.emit({
+            type: "chat.posted",
+            message_id: msg.id,
+            channel: msg.channel,
+            author_label: msg.author_label,
+            session_id: msg.session_id,
+            ts: msg.ts,
+            is_actionable: false,
+            mention_user_ids: { discord: admin ? [admin] : [], slack: [] },
+          });
+        },
       }),
     );
     trackPostListenHandle(

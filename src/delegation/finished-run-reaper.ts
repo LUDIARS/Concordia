@@ -72,6 +72,11 @@ export interface FinishedRunReaperOptions {
   scanProcesses?(): Promise<RunningAgentProc[]>;
   stop?(pid: number): Promise<StopResult>;
   onZombies?(zombies: ZombieRun[]): void;
+  /**
+   * 回収を実行した後に 1 回だけ呼ぶ。 破壊的操作を行ったことを管理者へ知らせるための口。
+   * 検出だけのときは呼ばない (掃除していないのに通知すると常時鳴り続ける)。
+   */
+  onReaped?(results: ReapResult[]): void;
 }
 
 /**
@@ -108,6 +113,7 @@ export async function scanFinishedRuns(options: FinishedRunReaperOptions): Promi
       graceMs: options.resolveGraceMs?.(),
     });
     const results = await reapZombieRuns({ zombies: confirmed, stop: options.stop });
+    if (results.length > 0) options.onReaped?.(results);
     for (const result of results) {
       if (result.stop.ok) {
         log.info({ run_id: result.zombie.run_id, pid: result.zombie.lictor_pid }, "reaped zombie delegation process");

@@ -191,6 +191,35 @@ describe("scanFinishedRuns", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
+  it("notifies onReaped only when it actually stopped something", async () => {
+    const stop = vi.fn(async (): Promise<StopResult> => ({ ok: true, method: "taskkill" }));
+    const onReaped = vi.fn();
+
+    // 検出だけのときは呼ばない (掃除していないのに通知すると常時鳴り続ける)。
+    await scanFinishedRuns({
+      runs, sessions,
+      resolveEnabled: () => true,
+      resolveAutoReap: () => false,
+      scanProcesses: async () => observedProcesses(),
+      nowMs: () => NOW,
+      stop,
+      onReaped,
+    });
+    expect(onReaped).not.toHaveBeenCalled();
+
+    await scanFinishedRuns({
+      runs, sessions,
+      resolveEnabled: () => true,
+      resolveAutoReap: () => true,
+      scanProcesses: async () => observedProcesses(),
+      nowMs: () => NOW,
+      stop,
+      onReaped,
+    });
+    expect(onReaped).toHaveBeenCalledOnce();
+    expect(onReaped.mock.calls[0]![0]).toHaveLength(1);
+  });
+
   it("kills when autoReap is explicitly enabled", async () => {
     const stop = vi.fn(async (): Promise<StopResult> => ({ ok: true, method: "taskkill" }));
     const found = await scanFinishedRuns({

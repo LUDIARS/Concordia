@@ -104,6 +104,24 @@ session-end flow・transcript flush・Discord 投稿の時間を見込む。
 停止は既存の `stopSessionByLictorPid` (Windows は `taskkill /F /T` でプロセスツリー) を
 再利用する。
 
+#### 回収の通知
+
+回収を実行したときだけ、 chat の `system` チャンネルへ 1 通投げる (検出だけのときは
+ログのみ — 掃除していないのに通知すると常時鳴り続ける)。
+
+**メンションは `admin.mention_user_id` の 1 人だけ** (neco 指示 2026-09-05)。
+回収対象の run には元の指示者や supervisor が紐づいているが、 それらを引いて足すと
+1 回の掃除で無関係な人がまとめて呼ばれる。 掃除は管理者の関心事であって、 委託を出した
+人の関心事ではない。
+
+メンションは本文へ `<@id>` を書かず `mention_user_ids` の構造化フィールドで渡す。
+egress は `allowedMentions: { parse: [] }` を付けて送るため、 本文に紛れた文字列は
+発火しない。 文面に載せるのは Cc 自身が持つ値 (run id / pid / status / 経過時間) だけで、
+委託の指示文やユーザ入力は載せない。
+
+文面の組み立ては `src/delegation/zombie-reap-notice.ts` (純関数)。 一覧は 10 件までで、
+超えた分は件数だけ示す。
+
 `run-watchdog.ts` とはファイルを分ける。 あちらは *進行中* の run が止まっていないかを
 見て子へ inject する。 こちらは *終わった* run が居座っていないかを見てプロセスだけを
 対象にする。 run の status は書き換えない。

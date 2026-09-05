@@ -62,17 +62,42 @@ function readString(deps: GithubWorkflowConfigDeps, key: string, envName: string
   return fromEnv ? fromEnv : null;
 }
 
-/** 区切りは カンマ / 改行 / 空白 / `;`。 既存 allowlist と同じ寛容さで受ける。 */
+/**
+ * 実行者リストの解釈。
+ *
+ * 保存形式が 2 通りある: 設定レジストリ (kind: string-list) は **JSON 配列**で書き、
+ * env は区切り文字で並べる。 JSON を区切り文字として読むと `["nyangame"]` という
+ * 1 人が登録されたことになり、 本人のラベルが承認待ちに落ちる (2026-09-05 に実発生)。
+ * `[` で始まる値は JSON 配列としてだけ扱い、 壊れていれば空リストへ閉じる。
+ * それ以外は区切り文字で分ける。
+ */
 export function parseActorList(raw: string | null): string[] {
   if (!raw) return [];
+  const trimmed = raw.trim();
+  if (trimmed === "") return [];
+  const entries = jsonArrayEntries(trimmed) ?? trimmed.split(/[\s,;]+/);
   const seen = new Set<string>();
-  for (const entry of raw.split(/[\s,;]+/)) {
+  for (const entry of entries) {
     const login = entry.trim();
     // `*` は「全員許可」に相当し、 実行者の判定を無意味にするので受け付けない。
     if (!login || login === "*") continue;
     seen.add(login.toLowerCase());
   }
   return [...seen];
+}
+
+/** JSON 形式でなければ null。 JSON 形式の破損・異型は空配列として fail-closed に扱う。 */
+function jsonArrayEntries(raw: string): string[] | null {
+  if (!raw.startsWith("[")) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    if (!parsed.every((item): item is string => typeof item === "string")) return [];
+    return parsed;
+  } catch {
+    // 認可 allowlist なので、 壊れた構造化値から actor 名を推測しない。
+    return [];
+  }
 }
 
 export function createGithubWorkflowConfig(deps: GithubWorkflowConfigDeps): GithubWorkflowConfig {

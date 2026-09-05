@@ -19,6 +19,23 @@ function harness(overrides: Record<string, string> = {}, withBox = true) {
 }
 
 describe("parseActorList", () => {
+  it("reads the JSON array the settings registry writes", () => {
+    // 設定 > すべて から保存すると kind: string-list は JSON で入る。 区切り文字として
+    // 読むと `["nyangame"]` が 1 人の login になり、 本人が承認待ちへ落ちる。
+    expect(parseActorList('["nyangame"]')).toEqual(["nyangame"]);
+    expect(parseActorList('["Neco", "other"]')).toEqual(["neco", "other"]);
+    expect(parseActorList("[]")).toEqual([]);
+  });
+
+  it("still reads the delimiter form that env uses", () => {
+    expect(parseActorList("neco, other")).toEqual(["neco", "other"]);
+  });
+
+  it("fails closed when the JSON form is broken or contains non-strings", () => {
+    expect(parseActorList('["neco", attacker')).toEqual([]);
+    expect(parseActorList('["neco", 42]')).toEqual([]);
+  });
+
   it("splits on commas, spaces and newlines and folds case", () => {
     expect(parseActorList("Neco, other\nthird")).toEqual(["neco", "other", "third"]);
   });
@@ -48,7 +65,7 @@ describe("createGithubWorkflowConfig", () => {
     const { db, config } = harness({
       "github.issue_label": "自動修正",
       "github.base_branch": "develop",
-      "github.trusted_actors": "neco",
+      "github.trusted_actors": '["neco"]',
     });
     expect(config.label()).toBe("自動修正");
     expect(config.baseBranch()).toBe("develop");

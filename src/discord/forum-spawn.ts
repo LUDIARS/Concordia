@@ -1,4 +1,22 @@
 import type { DelegationTemplateLite } from "./delegation-template-cache.js";
+import {
+  forumModelChoices,
+  matchExplicitForumModel,
+  normalizeForumEffort,
+  type ForumEffort,
+  type ForumModelChoice,
+  type ForumModelNick,
+} from "../delegation/forum-model-selection.js";
+export {
+  FORUM_EFFORTS,
+  FORUM_MODEL_NICKS,
+  forumModelChoices,
+  matchExplicitForumModel,
+  normalizeForumEffort,
+  type ForumEffort,
+  type ForumModelChoice,
+  type ForumModelNick,
+} from "../delegation/forum-model-selection.js";
 import type { ForumProjectTarget } from "./forum-project-code.js";
 import { isProjectNameInScope } from "../subsidiary/project-scope.js";
 import { SESSION_RUNTIME_RULE_TAG_NAMES } from "./forum-template-tags.js";
@@ -97,90 +115,6 @@ export interface SuppliedForumSpawnContent {
   readonly starterBody?: string;
   /** 管理職の承認を経た再入 (forum-spawn-approval.ts)。 権限確認を再び行わず、内容も接ぎ足さない。 */
   readonly approved?: boolean;
-}
-
-/** Session forum の起動候補モデル (2026-09-02 neco 指示: Test forum の選択と同型)。 */
-export const FORUM_MODEL_NICKS = ["fable", "opus", "sonnet", "sol", "terra"] as const;
-export type ForumModelNick = (typeof FORUM_MODEL_NICKS)[number];
-export const FORUM_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
-export type ForumEffort = (typeof FORUM_EFFORTS)[number];
-
-export interface ForumModelChoice {
-  nick: ForumModelNick;
-  /** 選択メニュー表示名 (例: `Fable (claude-fable-5-1)`)。 */
-  label: string;
-  provider: string;
-  model: string;
-  emoji: string | null;
-  defaultEffort: ForumEffort;
-}
-
-/**
- * 起動候補モデルを Delegation template 群から解決する。 モデル id や絵文字は
- * 素のモデルテンプレ (fable-mid / opus-mid / sol-mid / haiku 等) が正本で、
- * テンプレの model を更新すれば forum 側も追従する。 解決できない nickname は出さない。
- */
-export function forumModelChoices(templates: readonly DelegationTemplateLite[]): ForumModelChoice[] {
-  const choices: ForumModelChoice[] = [];
-  for (const nick of FORUM_MODEL_NICKS) {
-    const found = templates
-      .filter((candidate) => candidate.is_active && candidate.target_provider && candidate.model?.trim())
-      .map((candidate) => {
-        const name = candidate.call_name.toLowerCase();
-        const rank = name === nick ? 0 : name === `${nick}-mid` ? 1 : name.startsWith(`${nick}-`) ? 2 : -1;
-        return { candidate, name, rank };
-      })
-      .filter((entry) => entry.rank >= 0)
-      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))[0]?.candidate;
-    if (!found) continue;
-    const provider = found.target_provider!;
-    choices.push({
-      nick,
-      label: `${nick[0]!.toUpperCase()}${nick.slice(1)} (${found.model!.trim()})`,
-      provider,
-      model: found.model!.trim(),
-      emoji: found.emoji?.trim() || null,
-      defaultEffort: provider === "claude" ? "high" : "xhigh",
-    });
-  }
-  return choices;
-}
-
-/**
- * effort を provider の語彙へ正規化する。 未指定/不正は Test forum と同じ既定
- * (claude=high / codex=xhigh)。 Claude Code に `minimal` は無いので low へ丸める。
- */
-export function normalizeForumEffort(provider: string, requested?: string | null): ForumEffort {
-  const value = requested?.trim().toLowerCase() as ForumEffort | undefined;
-  if (!value || !FORUM_EFFORTS.includes(value)) return provider === "claude" ? "high" : "xhigh";
-  if (provider === "claude" && value === "minimal") return "low";
-  return value;
-}
-
-/**
- * 投稿がモデルを明示しているときだけ確定する (nickname か model id の 1 件一致)。
- * effort も本文に明示があれば拾う (無ければ undefined = provider 既定)。
- */
-export function matchExplicitForumModel(
-  title: string,
-  body: string,
-  choices: readonly ForumModelChoice[],
-): { choice: ForumModelChoice; effort?: ForumEffort } | null {
-  const haystack = `${title}\n${body}`.toLowerCase();
-  const matched = choices.filter(
-    (choice) => containsAsciiIdentifier(haystack, choice.nick)
-      || containsAsciiIdentifier(haystack, choice.model.toLowerCase()),
-  );
-  if (matched.length !== 1) return null;
-  const effort = FORUM_EFFORTS.find(
-    (candidate) => new RegExp(`(^|[^a-z])${candidate}([^a-z]|$)`).test(haystack),
-  );
-  return { choice: matched[0]!, ...(effort ? { effort } : {}) };
-}
-
-function containsAsciiIdentifier(haystack: string, value: string): boolean {
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(haystack);
 }
 
 export function matchesApprovedForumContent(

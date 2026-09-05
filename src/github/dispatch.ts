@@ -7,13 +7,14 @@
  * @implements spec/feature/github-issue-workflow.md — パイプライン
  */
 
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { GithubIssueRunRow, GithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { InvokeInput } from "../delegation/contracts.js";
 import type { InvokeResult } from "../delegation/service.js";
 import { authorizeIssueTrigger } from "./authorization.js";
+import type { IssueModelSelection } from "./issue-model-selection.js";
 import type { GithubWorkflowConfig } from "./config.js";
 import type { GithubGateway } from "./gh-cli.js";
 import { issueBranchName, type GithubIssueTrigger } from "./issue-event.js";
@@ -32,6 +33,11 @@ export interface GithubDispatchDeps {
   invoke: (input: InvokeInput) => Promise<InvokeResult>;
   /** Issue 本文の置き場 (既定 = <cwd>/github-issues)。 */
   issueBodyDir?: string;
+  /**
+   * 起動モデルの決定 (未指定 = テンプレ既定のまま起動)。 決定そのものは
+   * issue-model-selection.ts / model-resolver.ts が持ち、 ここは受け取るだけ。
+   */
+  selectModel?: (input: { issueBody: string }) => Promise<IssueModelSelection | null>;
   log?: (event: string, detail: Record<string, unknown>) => void;
 }
 
@@ -82,6 +88,38 @@ async function writeIssueBody(
 }
 
 /**
+ * 保存済みの Issue 本文を読んで起動モデルを決める。 承認経路も webhook 経路も同じ
+ * ファイルを見るので、 「人間が見て承認したその本文」の指定がそのまま効く。
+ *
+ * 本文が読めない / 決められないときは null を返し、 テンプレ既定で起動する。
+ * モデルを決められないことは Issue の修正を止める理由にならない。
+ * @implements spec/feature/github-issue-workflow.md — モデル選定
+ */
+async function resolveIssueModel(
+  deps: GithubDispatchDeps,
+  run: GithubIssueRunRow,
+  bodyDir: string,
+): Promise<IssueModelSelection | null> {
+  if (!deps.selectModel) return null;
+  const log = deps.log ?? (() => {});
+  try {
+    const stored = await readFile(issueBodyPath(bodyDir, run), "utf8");
+    const separator = "\n---\n\n";
+    const bodyStart = stored.indexOf(separator);
+    // 保存ファイルのタイトル・URL・actor は判定材料にしない。外部入力が選べるのは
+    // 仕様どおり Issue 本文に明記されたモデル enum だけに限定する。
+    const issueBody = bodyStart >= 0 ? stored.slice(bodyStart + separator.length).trimEnd() : stored;
+    return await deps.selectModel({ issueBody });
+  } catch (error) {
+    log("github_issue_model_select_failed", {
+      run_id: run.id,
+      error_type: error instanceof Error ? error.name : typeof error,
+    });
+    return null;
+  }
+}
+
+/**
  * 承認済み (もしくは最初から信頼された) run の委託を起動する。
  * webhook 経路と承認ボタン経路が同じ手順を通るよう、 ここ 1 本に閉じる。
  * @implements spec/feature/github-issue-workflow.md — 承認
@@ -93,6 +131,16 @@ export async function startIssueFix(
 ): Promise<DispatchOutcome> {
   const log = deps.log ?? (() => {});
   const bodyDir = deps.issueBodyDir ?? join(process.cwd(), "github-issues");
+  const model = await resolveIssueModel(deps, run, bodyDir);
+  if (model) {
+    log("github_issue_model_selected", {
+      run_id: run.id,
+      model: model.model,
+      provider: model.provider,
+      source: model.source,
+      reason: model.reason,
+    });
+  }
   try {
     const result = await deps.invoke({
       call_name: deps.config.fixCallName(),
@@ -110,6 +158,11 @@ export async function startIssueFix(
       worktree: true,
       project: projectName,
       triggered_by: `github-issue:${run.repo_origin}#${run.issue_number}`,
+      // モデルを決められた run だけ上書きする。 決められなかった run は
+      // テンプレ既定 (provider の CLI 既定) のまま起動する。
+      ...(model
+        ? { overrides: { provider: model.provider, model: model.model, reasoning_effort: model.effort } }
+        : {}),
     });
     if (!result.ok) throw new Error(result.error);
 

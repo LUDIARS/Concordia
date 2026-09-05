@@ -4,6 +4,17 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
+  it("seeds a concrete fallback model for GitHub issue fixes", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    seedDelegationTemplates(repo);
+
+    expect(repo.findTemplateByCallName("github-issue-fix")).toMatchObject({
+      target_provider: "codex",
+      model: "gpt-5.6-sol",
+      is_active: 1,
+    });
+  });
+
   it("deletes the Sonnet 4.6 implementation template and seeds sonnet-mid", () => {
     const repo = new DelegationRepo(makeTestDb());
     repo.createTemplate({

@@ -129,6 +129,7 @@ import { makeGithubConfigRepo } from "../db/github-config-repo.js";
 import { makeGithubDeliveryLog, makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { createGithubWorkflowConfig } from "../github/config.js";
 import { createGithubGateway } from "../github/gh-cli.js";
+import { createIssueModelResolver } from "../github/model-resolver.js";
 import { createRevisorBranchPusher } from "../github/branch-push.js";
 import { pollLabeledIssues, startGithubIssueWorker, type GithubIssueWorkerDeps } from "../github/worker.js";
 import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
@@ -828,6 +829,13 @@ export async function startBackend(): Promise<BackendHandle> {
     config: githubWorkflowConfig,
     github: githubGateway,
     invoke: (input: Parameters<DelegationService["invoke"]>[0]) => delegationService.invoke(input),
+    // 起動モデルは Issue 本文の指定 → 無ければ Opus / Sol の週間残量で決める。
+    // テンプレ既定 (model 未設定) のままだと run に effective_model が載らず、
+    // 状態カードの Model が `-` のままになる。
+    selectModel: createIssueModelResolver({
+      listTemplates: () => delegationRepo.listTemplates(),
+      log: { warn: (message: string) => githubLog.warn(message) },
+    }),
     log: (event: string, detail: Record<string, unknown>) => githubLog.info(detail, event),
   };
   const memoriaClient = new MemoriaClient();

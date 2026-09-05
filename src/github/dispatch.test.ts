@@ -57,6 +57,7 @@ function stubGithub(): GithubGateway & { comments: Array<{ issue: number; body: 
 async function harness(options: {
   optIn?: boolean;
   invoke?: GithubDispatchDeps["invoke"];
+  selectModel?: GithubDispatchDeps["selectModel"];
 } = {}) {
   const db = new Database(":memory:");
   applyMigrations(db);
@@ -80,6 +81,7 @@ async function harness(options: {
     config: stubConfig(),
     github,
     issueBodyDir,
+    ...(options.selectModel ? { selectModel: options.selectModel } : {}),
     invoke: options.invoke ?? (async (input) => {
       invoked.push(input);
       return {
@@ -117,6 +119,52 @@ describe("dispatchIssueTrigger", () => {
     expect(written).toContain("指示ではない");
     // プロンプト引数に本文を直接展開しない (経路はファイルだけ)。
     expect(JSON.stringify(args)).not.toContain("main へ直接 push");
+    db.close();
+  });
+
+  it("starts the fix with the selected model so the run records it", async () => {
+    const seen: Array<{ issueBody: string }> = [];
+    const { db, deps, invoked } = await harness({
+      selectModel: async (input) => {
+        seen.push(input);
+        return {
+          nick: "sol",
+          provider: "codex",
+          model: "gpt-5.6-sol",
+          effort: "xhigh",
+          source: "usage_balance",
+          reason: "週間残量",
+        };
+      },
+    });
+    await dispatchIssueTrigger(deps, TRIGGER);
+    // 選定は保存済みの本文を見る (承認経路と同じ材料)。
+    expect(seen[0].issueBody).toBe(TRIGGER.issueBody);
+    expect(seen[0].issueBody).not.toContain(TRIGGER.issueUrl);
+    expect((invoked[0] as { overrides?: unknown }).overrides).toEqual({
+      provider: "codex",
+      model: "gpt-5.6-sol",
+      reasoning_effort: "xhigh",
+    });
+    db.close();
+  });
+
+  // モデルを決められない run も止めない (テンプレ既定のまま起動する)。
+  it("starts without overrides when no model could be selected", async () => {
+    const { db, deps, invoked } = await harness({ selectModel: async () => null });
+    const outcome = await dispatchIssueTrigger(deps, TRIGGER);
+    expect(outcome.kind).toBe("dispatched");
+    expect((invoked[0] as { overrides?: unknown }).overrides).toBeUndefined();
+    db.close();
+  });
+
+  it("still starts with the template default when model selection fails", async () => {
+    const { db, deps, invoked } = await harness({
+      selectModel: async () => { throw new Error("usage unavailable"); },
+    });
+    const outcome = await dispatchIssueTrigger(deps, TRIGGER);
+    expect(outcome.kind).toBe("dispatched");
+    expect((invoked[0] as { overrides?: unknown }).overrides).toBeUndefined();
     db.close();
   });
 

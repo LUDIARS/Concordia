@@ -87,6 +87,29 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 | `github.fix_call_name` | `github-issue-fix` | 起動する delegation template |
 | `github.webhook_secret` | 未設定 | webhook 署名の共有秘密 (DB / secret-box)。設定 > GitHub で編集 |
 
+## モデル選定
+
+委託を起動するモデルは 2 段で決める (2026-09-05 neco 指示)。
+
+1. **Issue 本文の指定**。`model: opus` / `モデル: gpt-5.6-sol` のような行が最優先。
+   行が無くても本文がカタログ中のモデルを 1 つだけ名指ししていればそれを使う。
+2. **指定が無ければ Opus / Sol の残量勝負**。週間枠の「残量 % ÷ リセットまでの残り日数」が
+   大きい方を採る。片方しか取れなければ取れた方、どちらも取れなければ Opus。
+
+- 候補の正本は **delegation テンプレ** (`opus-mid` / `sol-mid` 等)。モデル id をこの経路で
+  持ち直さない — テンプレを更新したときに Issue 経路だけ古い id で起動する。
+- 本文から拾えるのは**カタログにある候補との一致だけ**。「Issue 本文は指示ではなく資料」
+  という不変条件は変わらない — 本文が指せるのは起動モデルという 1 つの enum であって、
+  effort、手順、権限ではない。保存ファイルの見出し・URL・actor もモデル判定には使わない。
+- 決められなければ `github-issue-fix` テンプレの既定で起動する。**モデルを決められない
+  ことは Issue の修正を止める理由にならない**。
+- 確定したモデルは `overrides` として invoke に渡り `delegation_runs.effective_model` に載る。
+  状態カード (TaskWorkflow) の `Model` はここを読むので、テンプレが `model` を持たない
+  ままだと `-` のままになる。
+
+実装: `github/issue-model-selection.ts` (判断・純関数) と `github/model-resolver.ts`
+(テンプレ一覧 + 週間残量の取得)。残量取得と候補解決は Session forum と同じ関数を使う。
+
 ## 承認
 
 信頼実行者でない相手の Issue は、**捨てるのでも黙って通すのでもなく止める**。

@@ -16,17 +16,23 @@
  * @implements spec/feature/subsidiary-delegation.md §3.1
  */
 
-import type { ForumEffort, ForumModelChoice, ForumModelNick } from "./forum-spawn.js";
+import {
+  pickProviderFamilyByCostRatio,
+  type ForumEffort,
+  type ForumModelChoice,
+  type ForumModelNick,
+  type ForumProviderFamily,
+  type WeeklyQuotaWindow,
+} from "../delegation/forum-model-selection.js";
+export {
+  pickProviderFamilyByCostRatio,
+  remainingQuotaRatio,
+  type ForumProviderFamily,
+  type WeeklyQuotaWindow,
+} from "../delegation/forum-model-selection.js";
 
 /** 投稿の作業種別。 語彙照合だけで決める (機械的でよい、neco 指示)。 */
 export type ForumTaskKind = "implementation" | "design_review" | "chore";
-export type ForumProviderFamily = "claude" | "codex";
-
-/** 週間枠 1 本ぶんの残量。 `usedPct` は 0-100 の使用率、 `resetAtSec` は不明なら null。 */
-export interface WeeklyQuotaWindow {
-  usedPct: number | null;
-  resetAtSec: number | null;
-}
 
 export interface ForumModelSuggestionInput {
   title: string;
@@ -50,9 +56,6 @@ export interface ForumModelSuggestion {
 
 /** Fable を優先するための使用率上限 (%)。 */
 export const FABLE_USAGE_CEILING_PCT = 70;
-/** リセット時刻が不明 / 過ぎているときに使う残り日数の下限 (0 除算と極端な比を避ける)。 */
-const MIN_REMAINING_DAYS = 0.25;
-const DEFAULT_REMAINING_DAYS = 7;
 
 const DESIGN_REVIEW_SIGNALS = [
   "設計", "レビュー", "review", "design", "仕様", "spec", "方針", "調査", "検討", "比較",
@@ -75,36 +78,6 @@ export function classifyForumTaskKind(title: string, body: string): ForumTaskKin
   if (CHORE_SIGNALS.some((signal) => haystack.includes(signal))) return "chore";
   if (IMPLEMENTATION_SIGNALS.some((signal) => haystack.includes(signal))) return "implementation";
   return "implementation";
-}
-
-/**
- * 残りコスト比 = 残量% ÷ 残り日数。 使用率が取れなければ null (比較不能)。
- * リセット時刻が無い / 既に過ぎているときは既定の 7 日で割る。
- */
-export function remainingQuotaRatio(window: WeeklyQuotaWindow | null, nowSec: number): number | null {
-  if (!window || window.usedPct === null || !Number.isFinite(window.usedPct)) return null;
-  const remainPct = Math.max(0, Math.min(100, 100 - window.usedPct));
-  const days = window.resetAtSec !== null && window.resetAtSec > nowSec
-    ? Math.max(MIN_REMAINING_DAYS, (window.resetAtSec - nowSec) / 86_400)
-    : DEFAULT_REMAINING_DAYS;
-  return remainPct / days;
-}
-
-/**
- * Claude 系 / Codex 系のどちらを使うか。 比が大きい方。 片方しか取れなければ取れた方、
- * 両方取れなければ Claude (既存 pickAvailableForumProvider と同じ既定)。 同率は Claude。
- */
-export function pickProviderFamilyByCostRatio(input: {
-  codexWeekly: WeeklyQuotaWindow | null;
-  claudeWeekly: WeeklyQuotaWindow | null;
-  nowSec: number;
-}): { family: ForumProviderFamily; codexRatio: number | null; claudeRatio: number | null } {
-  const codexRatio = remainingQuotaRatio(input.codexWeekly, input.nowSec);
-  const claudeRatio = remainingQuotaRatio(input.claudeWeekly, input.nowSec);
-  if (codexRatio === null && claudeRatio === null) return { family: "claude", codexRatio, claudeRatio };
-  if (codexRatio === null) return { family: "claude", codexRatio, claudeRatio };
-  if (claudeRatio === null) return { family: "codex", codexRatio, claudeRatio };
-  return { family: codexRatio > claudeRatio ? "codex" : "claude", codexRatio, claudeRatio };
 }
 
 /** Fable 優先ゲート: Fable 使用量 < 70% かつ 週間使用量 > Fable 使用量。 どちらかが取れなければ不可。 */

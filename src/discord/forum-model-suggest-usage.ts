@@ -12,39 +12,17 @@
  * @implements spec/feature/subsidiary-delegation.md §3.1
  */
 
-import { fetchClaudeOAuthUsage } from "../auth/anthropic-oauth-usage.js";
-import { fetchCodexRateLimits } from "../cost/codex-rate-limits.js";
-import { suggestForumModel, type ForumModelSuggestion, type WeeklyQuotaWindow } from "./forum-model-suggest.js";
+import {
+  collectForumModelUsage,
+  type ForumModelUsageDeps,
+} from "../delegation/forum-model-usage.js";
+export {
+  collectForumModelUsage,
+  type ForumModelUsageDeps,
+  type ForumModelUsageSnapshot,
+} from "../delegation/forum-model-usage.js";
+import { suggestForumModel, type ForumModelSuggestion } from "./forum-model-suggest.js";
 import type { ForumModelChoice } from "./forum-spawn.js";
-
-export interface ForumModelUsageSnapshot {
-  codexWeekly: WeeklyQuotaWindow | null;
-  claudeWeekly: WeeklyQuotaWindow | null;
-  fableUsedPct: number | null;
-}
-
-export interface ForumModelUsageDeps {
-  log: { warn: (message: string) => void; info?: (message: string) => void };
-  /** テスト差し替え用。 */
-  fetchCodex?: typeof fetchCodexRateLimits;
-  fetchClaude?: typeof fetchClaudeOAuthUsage;
-}
-
-export async function collectForumModelUsage(deps: ForumModelUsageDeps): Promise<ForumModelUsageSnapshot> {
-  const [codexRate, claudeUsage] = await Promise.all([
-    (deps.fetchCodex ?? fetchCodexRateLimits)({ log: deps.log }).catch(() => null),
-    (deps.fetchClaude ?? fetchClaudeOAuthUsage)({ log: deps.log }).catch(() => null),
-  ]);
-  return {
-    codexWeekly: codexRate && codexRate.usedWeekly !== null
-      ? { usedPct: codexRate.usedWeekly, resetAtSec: codexRate.resetWeeklyAt }
-      : null,
-    claudeWeekly: claudeUsage?.sevenDay
-      ? { usedPct: claudeUsage.sevenDay.utilization, resetAtSec: claudeUsage.sevenDay.resetsAtSec }
-      : null,
-    fableUsedPct: claudeUsage?.sevenDayFable?.utilization ?? null,
-  };
-}
 
 /** 残量を集めてサジェストまで一気に行う (bot.ts の質問カード掲出から呼ぶ)。 */
 export async function suggestForumModelFromUsage(input: {

@@ -8,9 +8,17 @@
  * 持つ (値の解決は toggles.ts、 実体の起動/停止は binding-registry.ts)。
  */
 
-export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost", "director", "curiosity", "inbox"] as const;
+export const WORKFLOW_KEYS = ["task", "test", "reaction", "review", "daily", "morning", "cost", "director", "curiosity", "inbox", "github"] as const;
 
 export type WorkflowKey = (typeof WORKFLOW_KEYS)[number];
+
+/**
+ * 新規の外部入力ワークフローは、運用者が明示的に有効化するまで閉じておく。
+ * @implements spec/feature/github-issue-workflow.md — 契約
+ */
+export function workflowDefaultEnabled(key: WorkflowKey): boolean {
+  return key !== "github";
+}
 
 export function isWorkflowKey(value: string): value is WorkflowKey {
   return (WORKFLOW_KEYS as readonly string[]).includes(value);
@@ -28,6 +36,7 @@ export const WORKFLOW_LABELS: Record<WorkflowKey, string> = {
   director: "Director 巡回 (休止中 — 2026-09-01 neco 指示で散歩セッションへ置換)",
   curiosity: "散歩セッション (ランダムなタイミングで 2 素材を並べて 1 問だけつぶやく)",
   inbox: "承認インボックスの朝夕ダイジェストと放置催促",
+  github: "GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)",
 };
 
 /** schema_meta 上の設定キー。 */

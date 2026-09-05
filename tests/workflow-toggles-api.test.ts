@@ -6,7 +6,7 @@
 
 import { describe, it, expect, beforeEach } from "vitest";
 import { makeTestApp, type TestAppEnv } from "./helpers/test-app.js";
-import { WORKFLOW_KEYS, type WorkflowKey } from "../src/workflow/keys.js";
+import { WORKFLOW_KEYS, workflowDefaultEnabled, type WorkflowKey } from "../src/workflow/keys.js";
 
 /** ワークフローごとの代表 API (無効時に 409 を返すべき経路)。 */
 const GATED_ROUTES: Array<{ key: WorkflowKey; path: string }> = [
@@ -22,12 +22,15 @@ describe("GET /v1/admin/workflows", () => {
   let env: TestAppEnv;
   beforeEach(() => { env = makeTestApp(); });
 
-  it("既定では全ワークフローが有効 (source=default)", async () => {
+  it("既定値と source=default を返す", async () => {
     const r = await env.app.request("/v1/admin/workflows");
     expect(r.status).toBe(200);
     const body = await r.json() as { workflows: Record<string, { enabled: boolean; source: string }> };
     for (const key of WORKFLOW_KEYS) {
-      expect(body.workflows[key], `workflow.${key}`).toEqual({ enabled: true, source: "default" });
+      expect(body.workflows[key], `workflow.${key}`).toEqual({
+        enabled: workflowDefaultEnabled(key),
+        source: "default",
+      });
     }
   });
 

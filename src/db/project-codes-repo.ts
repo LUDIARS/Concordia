@@ -6,6 +6,12 @@ export interface ProjectCodeRow {
   project: string;
   repo_path: string;
   repo_origin: string | null;
+  /**
+   * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
+   * 既定 0 — 登録しただけの repository では発火しない。
+   * @implements spec/feature/github-issue-workflow.md — 契約
+   */
+  github_issue_workflow: number;
   added_by: string;
   created_at: number;
   updated_at: number;
@@ -127,6 +133,21 @@ export class ProjectCodesRepo {
       return this.findByCode(nextCode);
     });
     return run.immediate();
+  }
+
+  /** GitHub Issue ワークフローの opt-in を切り替える。 @implements spec/feature/github-issue-workflow.md */
+  setGithubIssueWorkflow(code: string, enabled: boolean): ProjectCodeRow | null {
+    const info = this.db.prepare(
+      "UPDATE project_codes SET github_issue_workflow = ?, updated_at = ? WHERE code = ? COLLATE BINARY",
+    ).run(enabled ? 1 : 0, Date.now(), code);
+    return info.changes === 0 ? null : this.findByCode(code);
+  }
+
+  /** opt-in 済みだけを返す (ポーリングの対象集合)。 */
+  listGithubIssueWorkflow(): ProjectCodeRow[] {
+    return this.db.prepare(
+      "SELECT * FROM project_codes WHERE github_issue_workflow = 1 ORDER BY code COLLATE BINARY",
+    ).all() as ProjectCodeRow[];
   }
 
   remove(code: string): boolean {

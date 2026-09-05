@@ -132,6 +132,88 @@ export const PR_QUEUE_SETTINGS: readonly SettingDefinition[] = [
   },
 ] as const;
 
+/**
+ * GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)。
+ * @implements spec/feature/github-issue-workflow.md — 設定
+ */
+export const GITHUB_ISSUE_SETTINGS: readonly SettingDefinition[] = [
+  {
+    key: "github.issue_label",
+    section: "github",
+    label: "起動ラベル",
+    description: "この名前のラベルが Issue に付いたら修正ワークフローを起動する。 既定 `Cc`。",
+    kind: "string",
+    envName: "CONCORDIA_GITHUB_ISSUE_LABEL",
+    dbKey: "github.issue_label",
+    defaultValue: "Cc",
+    editable: true,
+  },
+  {
+    key: "github.trusted_actors",
+    section: "github",
+    label: "信頼実行者 (GitHub login)",
+    description:
+      "ラベルを付けてよい GitHub アカウント。 **空 = 誰も許可されていない** (発火しない)。"
+      + " Issue は誰でも立てられるため、 ここを開けると外部から実装セッションを起こせる。",
+    kind: "string-list",
+    envName: "CONCORDIA_GITHUB_TRUSTED_ACTORS",
+    dbKey: "github.trusted_actors",
+    defaultValue: [],
+    editable: true,
+    listEnvFormat: "comma-or-newline",
+  },
+  {
+    key: "github.poll_interval_min",
+    section: "github",
+    label: "取りこぼしポーリング間隔 (分)",
+    description: "webhook が届かなかった Issue を拾い直す間隔。 webhook が主、 これは保険。",
+    kind: "integer",
+    envName: "CONCORDIA_GITHUB_POLL_MIN",
+    dbKey: "github.poll_interval_min",
+    defaultValue: 5,
+    minValue: 1,
+    maxValue: 1440,
+    editable: true,
+  },
+  {
+    key: "github.base_branch",
+    section: "github",
+    label: "GitHub PR の base",
+    description: "作成する Pull Request の取り込み先ブランチ。",
+    kind: "string",
+    envName: "CONCORDIA_GITHUB_BASE_BRANCH",
+    dbKey: "github.base_branch",
+    defaultValue: "main",
+    editable: true,
+  },
+  {
+    key: "github.fix_call_name",
+    section: "github",
+    label: "起動する委託テンプレ",
+    description: "Issue の修正を委ねる delegation template の call name。",
+    kind: "string",
+    envName: "CONCORDIA_GITHUB_FIX_CALL_NAME",
+    dbKey: "github.fix_call_name",
+    defaultValue: "github-issue-fix",
+    editable: true,
+  },
+  {
+    key: "github.webhook_secret",
+    section: "github",
+    label: "webhook secret",
+    description:
+      "GitHub webhook の署名 (X-Hub-Signature-256) を検証する共有秘密。 正本は DB (github_config) で"
+      + " secret-box 暗号化して保存する。 未設定の間 webhook は 503 で全拒否する (無署名を通さない)。",
+    kind: "secret",
+    envName: null,
+    dbKey: "webhook_secret_enc",
+    dbStore: "github",
+    defaultValue: null,
+    editable: false,
+    managedBy: "設定 > GitHub Issue ワークフロー",
+  },
+] as const;
+
 export const FEDERATION_SETTINGS: readonly SettingDefinition[] = [
   envBoolean("federation.listen_enabled", "federation", "本社 listener を立てる", "CONCORDIA_FEDERATION_LISTEN", false, "拠点からの接続を受ける連合 listener を起動する。 既定 OFF (opt-in)。"),
   envString("federation.listen_host", "federation", "listener の bind ホスト", "CONCORDIA_FEDERATION_LISTEN_HOST", null, "連合 listener の待ち受けアドレス。"),

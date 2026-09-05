@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SettingsStore } from "../admin/settings-store.js";
-import { WORKFLOW_KEYS, workflowEnvName, workflowSettingKey } from "./keys.js";
+import { WORKFLOW_KEYS, workflowDefaultEnabled, workflowEnvName, workflowSettingKey } from "./keys.js";
 import { WorkflowToggles } from "./toggles.js";
 
 function makeStore(initial: Record<string, string> = {}): SettingsStore {
@@ -19,13 +19,14 @@ function makeStore(initial: Record<string, string> = {}): SettingsStore {
 }
 
 describe("WorkflowToggles 既定値", () => {
-  it("DB も env も無ければ全ワークフローが有効 (既存環境の挙動を変えない)", () => {
+  it("DB も env も無ければ既存ワークフローは有効で GitHub だけ無効", () => {
     const toggles = new WorkflowToggles({ store: makeStore(), env: {} });
     for (const key of WORKFLOW_KEYS) {
-      expect(toggles.isEnabled(key), `workflow.${key}`).toBe(true);
+      expect(toggles.isEnabled(key), `workflow.${key}`).toBe(workflowDefaultEnabled(key));
       expect(toggles.state(key).source).toBe("default");
     }
     expect(toggles.isSessionControlOnly()).toBe(false);
+    expect(toggles.state("github")).toEqual({ enabled: false, source: "default" });
   });
 });
 

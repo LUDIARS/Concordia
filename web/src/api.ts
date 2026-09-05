@@ -772,6 +772,18 @@ export const api = {
     }),
   projectCodeSetRevisorWorkflow: (code: string, workflow: "revisor" | "github") =>
     put<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}/revisor-workflow`, { workflow }),
+  projectCodeSetGithubIssueWorkflow: (code: string, enabled: boolean) =>
+    put<{ ok: boolean; github_issue_workflow: boolean }>(
+      `/v1/project-codes/${encodeURIComponent(code)}/github-issue-workflow`,
+      { enabled },
+    ),
+  githubIssueWorkflowStatus: () => get<GithubIssueWorkflowStatus>("/v1/admin/github"),
+  githubIssueWorkflowSetSecret: (secret?: string) =>
+    put<{ ok: boolean; secret: string | null }>("/v1/admin/github/webhook-secret", secret ? { secret } : {}),
+  githubIssueRuns: (limit = 50) =>
+    get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
+  githubIssueRunRetry: (id: string) =>
+    post<{ ok: boolean }>(`/v1/github/issue-runs/${encodeURIComponent(id)}/retry`, {}),
   adminSpawn: (body: {
     provider?: SpawnProvider;
     /** delegation テンプレ call_name 起動。 指定時は provider/model/既定 cwd をテンプレから採用 */
@@ -1432,6 +1444,33 @@ export interface ProjectCodeAdminEntry {
   teams: Array<{ id: string; name: string }>;
   subsidiaries: Array<{ id: string; name: string }>;
   revisor: { registered: boolean; workflow: "revisor" | "github" | null } | null;
+  /** GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。 */
+  github_issue_workflow: boolean;
+}
+
+export interface GithubIssueWorkflowStatus {
+  webhook_secret_set: boolean;
+  webhook_secret_error: string | null;
+  label: string;
+  trusted_actors: string[];
+  base_branch: string;
+  fix_call_name: string;
+  poll_interval_min: number;
+  projects: Array<{ code: string; project: string; repo_origin: string | null }>;
+}
+
+export interface GithubIssueRun {
+  id: string;
+  repo_origin: string;
+  issue_number: number;
+  issue_title: string;
+  issue_url: string;
+  status: string;
+  branch: string;
+  local_pr_id: string | null;
+  github_pr_url: string | null;
+  detail: string | null;
+  updated_at: number;
 }
 
 export interface ProjectCodesAdminResult {

@@ -29,6 +29,8 @@ export interface SettingsDbReader {
   readSlack(key: string): string | null;
   /** revisor_config (workflow_token_enc)。 */
   readRevisor(key: string): string | null;
+  /** github_config (webhook_secret_enc)。 */
+  readGithub(key: string): string | null;
 }
 
 /** 定義のセクションから DB の引き先を決める。 */
@@ -43,6 +45,7 @@ function readDbRaw(definition: SettingDefinition, db: SettingsDbReader): string 
   if (store === "discord") return db.readDiscord(definition.dbKey);
   if (store === "slack") return db.readSlack(definition.dbKey);
   if (store === "revisor") return db.readRevisor(definition.dbKey);
+  if (store === "github") return db.readGithub(definition.dbKey);
   return db.readMeta(definition.dbKey);
 }
 

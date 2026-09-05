@@ -13,6 +13,7 @@ const storedRow: ProjectCodeRow = {
   project: "Concordia",
   repo_path: "E:/Document/Ars/Concordia",
   repo_origin: "should-not-leak",
+  github_issue_workflow: 0,
   added_by: "test-actor",
   created_at: 1,
   updated_at: 2,

@@ -14,6 +14,7 @@ const row: ProjectCodeRow = {
   project: "Concordia",
   repo_path: "E:/Document/Ars/Concordia",
   repo_origin: "https://github.com/LUDIARS/Concordia.git",
+  github_issue_workflow: 0,
   added_by: "test",
   created_at: 1,
   updated_at: 1,

@@ -7,6 +7,7 @@
 
 import type { SettingsStore } from "../../admin/settings-store.js";
 import type { DiscordConfigRepo } from "../../db/discord-repo.js";
+import type { GithubConfigRepo } from "../../db/github-config-repo.js";
 import type { RevisorConfigRepo } from "../../db/revisor-config-repo.js";
 import type { SlackConfigRepo } from "../../db/slack-config-repo.js";
 import type { SecretBox } from "../../shared/secret-box.js";
@@ -21,6 +22,8 @@ export interface SettingsStoreBindings {
   slack?: SlackConfigRepo;
   /** Revisor 連携 (workflow token)。 未注入なら Revisor 設定は常に未設定として出る。 */
   revisor?: RevisorConfigRepo;
+  /** GitHub 連携 (webhook secret)。 未注入なら GitHub 設定は常に未設定として出る。 */
+  github?: GithubConfigRepo;
   /** secret の暗号化。 未注入なら secret の**書き込みを拒否**する (平文で置かない)。 */
   secretBox?: SecretBox;
 }
@@ -70,6 +73,11 @@ export function createSettingsDbReader(bindings: SettingsStoreBindings): Setting
     // ここでは 「設定済みか」 を出すためだけに復号する。
     readRevisor: (key) => {
       const repo = bindings.revisor;
+      return normalize(repo ? decrypt(repo.get(key), key, (value) => repo.set(key, value)) : null);
+    },
+    // 読み取り専用 (編集は 設定 > GitHub Issue ワークフローの専用 API)。
+    readGithub: (key) => {
+      const repo = bindings.github;
       return normalize(repo ? decrypt(repo.get(key), key, (value) => repo.set(key, value)) : null);
     },
   };

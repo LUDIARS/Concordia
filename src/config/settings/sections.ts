@@ -30,6 +30,7 @@ export const SETTING_SECTIONS: readonly SettingSection[] = [
   { id: "logging", label: "ログ", description: "ログレベルと出力先。" },
   { id: "cache", label: "キャッシュ", description: "HTTP キャッシュと Redis。" },
   { id: "pr-queue", label: "PR キュー", description: "GitHub PR 同期と Revisor 連携。" },
+  { id: "github", label: "GitHub Issue ワークフロー", description: "Cc ラベルの付いた Issue を修正 → 審査 → GitHub PR まで回す設定。" },
   { id: "federation", label: "マルチ拠点連合", description: "本社 / 拠点ロールの連合リンク。" },
   { id: "runtime", label: "runtime 制御", description: "チャットミュート・予算・上長メンション等の運転スイッチ。" },
 ] as const;

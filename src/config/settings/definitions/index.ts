@@ -25,6 +25,7 @@ import {
 } from "./platform.js";
 import {
   FEDERATION_SETTINGS,
+  GITHUB_ISSUE_SETTINGS,
   PR_QUEUE_SETTINGS,
   RUNTIME_SETTINGS,
   WORKFLOW_SETTINGS,
@@ -46,6 +47,7 @@ const ALL: readonly SettingDefinition[] = [
   ...LOGGING_SETTINGS,
   ...CACHE_SETTINGS,
   ...PR_QUEUE_SETTINGS,
+  ...GITHUB_ISSUE_SETTINGS,
   ...FEDERATION_SETTINGS,
   ...RUNTIME_SETTINGS,
 ];

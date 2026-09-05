@@ -32,6 +32,9 @@ export interface RevisorLocalPrSummary {
   checkStatus: string;
   sessionId?: string | null;
   reviewLane?: "standard" | "fast";
+  /** 提出時の説明。 GitHub PR 本文へ「審査を通った説明」をそのまま載せるために使う。 */
+  title?: string;
+  body?: string;
 }
 
 export interface SubmitLocalPrInput {
@@ -97,6 +100,9 @@ function asLocalPr(value: unknown): RevisorLocalPrSummary | null {
     checkStatus: typeof row.checkStatus === "string" ? row.checkStatus : "",
     sessionId: typeof row.sessionId === "string" ? row.sessionId : null,
     reviewLane: row.reviewLane === "fast" ? "fast" : "standard",
+    // summary view には無い。 欠けていても一覧は成立するので任意扱いにする。
+    ...(typeof row.title === "string" ? { title: row.title } : {}),
+    ...(typeof row.body === "string" ? { body: row.body } : {}),
   };
 }
 

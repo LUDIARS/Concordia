@@ -45,6 +45,7 @@ const AssignSubsidiariesSchema = z.object({
   subsidiary_ids: z.array(z.string().trim().min(1).max(200)).max(200),
 }).strict();
 const RevisorWorkflowSchema = z.object({ workflow: z.enum(["revisor", "github"]) }).strict();
+const GithubIssueWorkflowSchema = z.object({ enabled: z.boolean() }).strict();
 
 export interface ProjectCodesRouterDeps {
   repo: ProjectCodesRepo;
@@ -128,6 +129,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           repo_origin: row.repo_origin,
           added_by: row.added_by,
           updated_at: row.updated_at,
+          github_issue_workflow: row.github_issue_workflow === 1,
           teams: teamIds.map((id) => ({ id, name: teamName.get(id) ?? id })),
           subsidiaries: subsidiaryIds.map((id) => ({ id, name: subsidiaryName.get(id) ?? id })),
           // undefined = Revisor に問い合わせできなかった (unknown)。 null = 未登録。
@@ -271,6 +273,24 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       .then(() => true, () => false);
     if (!updated) return c.json({ error: "revisor_workflow_update_failed" }, 502);
     return c.json({ ok: true, workflow: parsed.data.workflow });
+  });
+
+  /**
+   * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
+   * @implements spec/feature/github-issue-workflow.md — 操作面
+   */
+  app.put("/:code/github-issue-workflow", async (c) => {
+    const parsed = GithubIssueWorkflowSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_github_issue_workflow" }, 400);
+    const row = deps.repo.findByCode(c.req.param("code"));
+    if (!row) return c.json({ error: "project_code_not_found" }, 404);
+    // GitHub URL が無い登録では Issue を引けない。 ON にできたことにしない。
+    if (parsed.data.enabled && !row.repo_origin) {
+      return c.json({ error: "repo_origin_required" }, 409);
+    }
+    const updated = deps.repo.setGithubIssueWorkflow(row.code, parsed.data.enabled);
+    if (!updated) return c.json({ error: "project_code_not_found" }, 404);
+    return c.json({ ok: true, github_issue_workflow: updated.github_issue_workflow === 1 });
   });
 
   return app;

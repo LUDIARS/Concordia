@@ -17,7 +17,7 @@ import { spawnSession } from "../control/spawner.js";
 
 // The test creates and removes a real Git worktree. Keep a finite timeout, but
 // do not make a busy Windows review worker fail a correct worktree operation.
-const REAL_GIT_WORKTREE_TIMEOUT_MS = 60_000;
+const REAL_GIT_WORKTREE_TIMEOUT_MS = 120_000;
 
 describe("resolveDelegationSpawner", () => {
   it("uses the normal Lictor session spawner for Codex Delegation by default", () => {

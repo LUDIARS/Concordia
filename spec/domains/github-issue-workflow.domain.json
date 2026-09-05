@@ -1,0 +1,35 @@
+{
+  "name": "github-issue-workflow",
+  "description": "GitHub Issue の運用ラベル (既定 Cc) を起点に、修正の委託 → Revisor local PR の審査通過 → GitHub への push と PR 作成 → Issue へのリンク返却までを 1 本の状態機械として回す層。webhook の署名検証と delivery 重複排除、opt-in プロジェクトと信頼実行者による fail-closed な発火判定、取りこぼし用のポーリング、run 台帳の状態遷移、公開手順 (revisor push + gh) から成る。Issue 本文を指示として解釈しないこと・審査を通っていない変更を GitHub へ出さないことが不変条件。審査そのもの (Revisor) と、既存の GitHub PR キュー同期 (pr-queue) は含めない。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    {
+      "pathPattern": "(^|/)src/github/[^/]+(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/api/github(-admin)?(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/db/github-(config|issue-runs)-repo(\\.test)?\\.ts$"
+    }
+  ],
+  "cardTemplate": "Summarise the \"github-issue-workflow\" domain: Cc ラベルの Issue を修正 → 審査 → GitHub PR まで回す経路 — webhook の署名検証、発火の認可、run の状態遷移、公開手順。",
+  "source": "spec",
+  "mechanics": [
+    "webhook-signature-verification",
+    "delivery-deduplication",
+    "opt-in-project-and-trusted-actor-authorization",
+    "untrusted-issue-body-handoff",
+    "issue-run-state-machine",
+    "review-passed-publication"
+  ],
+  "specRefs": [
+    "spec/feature/github-issue-workflow.md"
+  ],
+  "rationale": "Issue は外部の誰でも立てられる入力で、そこから実装セッションと GitHub への書き込みが起きる。発火の認可・本文の扱い・審査を通す順序が 1 つの機構として閉じており、審査を所有する Revisor 連携や PR キュー同期とは責務が異なるため別ドメインとして宣言する。新規面のため宣言が無いと Anatomia review gate が target domain missing で止まる。",
+  "lockedFields": [
+    "*"
+  ],
+  "updatedAt": "2026-09-05T00:00:00.000Z"
+}

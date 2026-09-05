@@ -2,19 +2,21 @@
  * ワークフロー有効化フラグの値解決。
  *
  * @implements spec/feature/workflow-toggles-and-permission-noise.md — W1-1 / W6
+ * @implements spec/feature/github-issue-workflow.md — 契約
  *
- * 解決順は DB (schema_meta) → env → 既定 (有効)。 **起動時にスナップショットを取らず、
+ * 解決順は DB (schema_meta) → env → ワークフローごとの既定値。 **起動時にスナップショットを取らず、
  * 呼ばれるたびに解決する**。 これは Revisor token の `toTokenResolver` と同じ形で、
  * Web UI から設定を変えたときに再起動なしで次のリクエストから効かせるため。
  *
- * 既定は全ワークフロー有効。 無効化は明示的に設定したときだけ効く (既存環境の
- * 挙動を変えない)。
+ * 既存ワークフローは互換性のため既定で有効。外部入力から実装を起動する GitHub
+ * ワークフローだけは安全側の既定 OFF とし、明示的な opt-in を要求する。
  */
 
 import type { SettingsStore } from "../admin/settings-store.js";
 import { createChildLogger } from "../shared/logger.js";
 import {
   WORKFLOW_KEYS,
+  workflowDefaultEnabled,
   workflowEnvName,
   workflowSettingKey,
   type WorkflowKey,
@@ -82,7 +84,7 @@ export class WorkflowToggles {
       this.warnUnparsable(envName, raw);
     }
 
-    return { enabled: true, source: "default" };
+    return { enabled: workflowDefaultEnabled(key), source: "default" };
   }
 
   snapshot(): Record<WorkflowKey, WorkflowFlagState> {

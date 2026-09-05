@@ -6,3 +6,4 @@ export { WebHostsSection } from "./sections/WebHostsSection.js";
 export { LictorSection } from "./sections/LictorSection.js";
 export { CronJobsSection } from "./sections/CronJobsSection.js";
 export { AllSettingsSection } from "./sections/AllSettingsSection.js";
+export { GithubIssueWorkflowSection } from "./sections/GithubIssueWorkflowSection.js";

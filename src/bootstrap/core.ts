@@ -119,6 +119,12 @@ import { CcTaskRepository } from "../fallback-tasks/repository.js";
 import { ActioTaskClient } from "../fallback-tasks/actio-client.js";
 import { startCcTaskSync } from "../fallback-tasks/sync.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
+import { makeGithubConfigRepo } from "../db/github-config-repo.js";
+import { makeGithubDeliveryLog, makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
+import { createGithubWorkflowConfig } from "../github/config.js";
+import { createGithubGateway } from "../github/gh-cli.js";
+import { createRevisorBranchPusher } from "../github/branch-push.js";
+import { pollLabeledIssues, startGithubIssueWorker, type GithubIssueWorkerDeps } from "../github/worker.js";
 import { resolveRevisorWorkflowToken } from "../pr/revisor-config.js";
 import { ConfirmRunsRepo } from "../db/confirm-runs-repo.js";
 import { ExcubitorClient } from "../excubitor/client.js";
@@ -748,6 +754,29 @@ export async function startBackend(): Promise<BackendHandle> {
   const revisorClient = createRevisorClient(excubitorClient, resolveRevisorToken);
   const revisorRepositoryClient = createRevisorRepositoryClient(excubitorClient, resolveRevisorToken);
   const revisorTestWorkflow = createRevisorTestWorkflowClient(excubitorClient, resolveRevisorToken);
+  const githubLog = createChildLogger("github-issue-workflow");
+  /** webhook delivery 記録の保持期間。 GitHub の再送はこれより遥かに短い。 */
+  const GITHUB_DELIVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+  // GitHub Issue ワークフロー (Cc ラベル → 修正 → 審査 → GitHub PR)。
+  // GitHub の資格情報は持たない — 読み書きは gh CLI、 送出は revisor push に委ねる。
+  // @implements spec/feature/github-issue-workflow.md
+  const githubConfigRepo = makeGithubConfigRepo(db);
+  const githubIssueRuns = makeGithubIssueRunsRepo(db);
+  const githubDeliveries = makeGithubDeliveryLog(db);
+  const githubWorkflowConfig = createGithubWorkflowConfig({
+    store: adminState.store,
+    config: githubConfigRepo,
+    secretBox,
+  });
+  const githubGateway = createGithubGateway();
+  const githubDispatchDeps = {
+    runs: githubIssueRuns,
+    projects: projectCodesRepo,
+    config: githubWorkflowConfig,
+    github: githubGateway,
+    invoke: (input: Parameters<DelegationService["invoke"]>[0]) => delegationService.invoke(input),
+    log: (event: string, detail: Record<string, unknown>) => githubLog.info(detail, event),
+  };
   const memoriaClient = new MemoriaClient();
   const checkDependencies = createDependencyReadinessChecker({
     excubitor: excubitorClient,
@@ -821,6 +850,24 @@ export async function startBackend(): Promise<BackendHandle> {
   // local PR ワークフローへ移行したときにエンドポイントごと無くなり、 以来「人が手で
   // 提出したときだけレビューされる」状態だった。 失敗してもセッション終了処理は止めない。
   const revisorLocalPrs = createRevisorLocalPrClient(excubitorClient, resolveRevisorToken);
+  const githubBranchPusher = createRevisorBranchPusher({ excubitor: excubitorClient });
+  const githubWorkerDeps = (): GithubIssueWorkerDeps => ({
+    runs: githubIssueRuns,
+    github: githubGateway,
+    pusher: githubBranchPusher,
+    baseBranch: () => githubWorkflowConfig.baseBranch(),
+    log: (event, detail) => githubLog.info(detail, event),
+    findDelegationRun: (id) => delegationRepo.findRun(id),
+    listLocalPrs: () => revisorLocalPrs.listLocalPullRequests(),
+    dispatch: githubDispatchDeps,
+    projects: projectCodesRepo,
+    config: githubWorkflowConfig,
+    pruneDeliveries: () => githubDeliveries.prune(GITHUB_DELIVERY_RETENTION_MS),
+    logger: {
+      info: (message: string) => githubLog.info(message),
+      warn: (message: string) => githubLog.warn(message),
+    },
+  });
   const localPrLog = createChildLogger("revisor-local-pr");
   const localPrDeps = {
     revisor: revisorLocalPrs,
@@ -1066,6 +1113,13 @@ export async function startBackend(): Promise<BackendHandle> {
         },
       };
     },
+  });
+  // GitHub Issue ワークフローの常駐部 (進行中 run の追跡 + 取りこぼしポーリング)。
+  // webhook の受け口は API 側にあり、 このトグルとは独立に署名検証で閉じている。
+  workflowBindings.register({
+    key: "github",
+    name: "github-issue-worker",
+    start: () => startGithubIssueWorker(githubWorkerDeps()),
   });
   // 承認インボックスの朝夕ダイジェストと放置催促。 一覧 (/v1/inbox) は見に行かないと
   // 分からないので、 気づく面をこちらで作る。 投稿先は meta channel (system)。
@@ -1360,6 +1414,20 @@ export async function startBackend(): Promise<BackendHandle> {
     revisorLocalPrCloser: revisorClient,
     revisorLocalPrPromoter: revisorClient,
     revisorConfig: revisorConfigRepo,
+    githubIssueWorkflow: {
+      runs: githubIssueRuns,
+      config: githubWorkflowConfig,
+      configRepo: githubConfigRepo,
+      dispatch: githubDispatchDeps,
+      markDelivery: (deliveryId: string, event: string) => githubDeliveries.markProcessed(deliveryId, event),
+      pollOnce: () => pollLabeledIssues(githubWorkerDeps()),
+      isEnabled: () => adminState.isWorkflowEnabled("github"),
+      optedInProjects: () => projectCodesRepo.listGithubIssueWorkflow().map((row) => ({
+        code: row.code,
+        project: row.project,
+        repo_origin: row.repo_origin,
+      })),
+    },
     implementationTools,
     // レビュー発火の手動口 (POST /v1/prs/local)。 自動提出と同じ経路を通す。
     submitLocalPr: submitLocalPrForSession,

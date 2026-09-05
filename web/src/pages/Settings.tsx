@@ -12,6 +12,7 @@ import {
   LictorSection,
   WebHostsSection,
   CronJobsSection,
+  GithubIssueWorkflowSection,
 } from "./settings/sections.js";
 
 // Concordia の「設定」ページ。 設定項目が増えたので左メニュー + セクション構成にした。
@@ -92,6 +93,16 @@ const SECTIONS: SettingsSection[] = [
     label: "定期実行",
     hint: "週次レビュー等、内部 cron が呼ぶテンプレの切り替え",
     render: () => <section className="border border-border rounded p-4"><CronJobsSection /></section>,
+  },
+  {
+    id: "github-issue-workflow",
+    label: "GitHub Issue",
+    hint: "Cc ラベルの Issue を修正 → 審査 → GitHub PR まで回す",
+    render: (openAllSettings) => (
+      <section className="border border-border rounded p-4">
+        <GithubIssueWorkflowSection onOpenAllSettings={openAllSettings} />
+      </section>
+    ),
   },
   {
     id: "web-hosts",

@@ -47,6 +47,9 @@ import type { CostBudgetStatus } from "../cost/usage-tracker.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import type { SlackConfigRepo } from "../db/slack-config-repo.js";
 import { settingsRouter } from "./settings.js";
+import { githubRouter, type GithubRouterDeps } from "./github.js";
+import { githubAdminRouter, type GithubAdminRouterDeps } from "./github-admin.js";
+import type { GithubConfigRepo } from "../db/github-config-repo.js";
 import {
   createSettingsDbReader,
   createSettingsDbWriter,
@@ -258,6 +261,19 @@ export interface CoreRuntimeDeps {
   federation?: FederationApiDeps;
   /** 原稿フローの工程・判断監査。未注入なら /v1/director は生えない。 */
   director?: DirectorService;
+  /**
+   * GitHub Issue ワークフロー。 未注入なら /v1/github と /v1/admin/github は生えない
+   * (webhook の受け口ごと存在しない = 外に穴が開かない)。
+   * @implements spec/feature/github-issue-workflow.md — 操作面
+   */
+  githubIssueWorkflow?: GithubIssueWorkflowApiDeps;
+}
+
+/** @implements spec/feature/github-issue-workflow.md — 操作面 */
+export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
+  /** 設定レジストリが webhook secret の設定状況を読むためのストア。 */
+  configRepo: GithubConfigRepo;
+  optedInProjects: GithubAdminRouterDeps["optedInProjects"];
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
@@ -368,6 +384,14 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       },
     },
   }));
+  if (deps.githubIssueWorkflow) {
+    const github = deps.githubIssueWorkflow;
+    app.route("/v1/github", githubRouter(github));
+    app.route("/v1/admin/github", githubAdminRouter({
+      config: github.config,
+      optedInProjects: github.optedInProjects,
+    }));
+  }
   if (deps.implementationTools) {
     app.route(
       "/v1/implementation-tools",
@@ -381,6 +405,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       discord: deps.discordConfig,
       slack: deps.slackConfig,
       revisor: deps.revisorConfig,
+      github: deps.githubIssueWorkflow?.configRepo,
       secretBox: deps.secretBox,
     };
     app.route(
@@ -1268,9 +1293,10 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   });
 
   // ワークフロー個別有効化フラグ
-  // (workflow.task / test / reaction / review / daily / morning / cost)。
-  // 既定は全て有効。 無効化は明示設定のときだけ効く。 値は都度解決なので再起動不要。
+  // (workflow.task / test / reaction / review / daily / morning / cost / github)。
+  // 既存 workflow は既定 ON、外部入力を受ける github は既定 OFF。値は都度解決なので再起動不要。
   // spec/feature/workflow-toggles-and-permission-noise.md — W1
+  // spec/feature/github-issue-workflow.md — 契約
   app.get("/v1/admin/workflows", (c) => {
     return c.json({ workflows: deps.adminState.workflows.snapshot() });
   });

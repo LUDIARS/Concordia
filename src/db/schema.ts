@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 88;
+export const SCHEMA_VERSION = 89;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2173,6 +2173,54 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!names.has("spawn_worktree_state")) {
       db.exec("ALTER TABLE delegation_runs ADD COLUMN spawn_worktree_state TEXT");
     }
+  },
+}, {
+  version: 89,
+  name: "github-issue-workflow",
+  source: "github_issue_runs / github_event_deliveries / github_config / project_codes.github_issue_workflow (spec/feature/github-issue-workflow.md)",
+  up(db) {
+    // Issue 起点の自動修正は opt-in したプロジェクトだけで動かす。 既定 0 = 既存登録の挙動は不変。
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "github_issue_workflow")) {
+      db.exec("ALTER TABLE project_codes ADD COLUMN github_issue_workflow INTEGER NOT NULL DEFAULT 0");
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS github_issue_runs (
+        id                TEXT PRIMARY KEY,
+        repo_origin       TEXT NOT NULL COLLATE NOCASE,
+        issue_number      INTEGER NOT NULL,
+        issue_title       TEXT NOT NULL,
+        issue_url         TEXT NOT NULL,
+        label             TEXT NOT NULL,
+        actor             TEXT NOT NULL,
+        project_code      TEXT,
+        repo_path         TEXT NOT NULL,
+        branch            TEXT NOT NULL,
+        status            TEXT NOT NULL,
+        delegation_run_id TEXT,
+        local_pr_id       TEXT,
+        github_pr_url     TEXT,
+        detail            TEXT,
+        created_at        INTEGER NOT NULL,
+        updated_at        INTEGER NOT NULL
+      );
+      -- 1 Issue 1 run。 webhook とポーリングの二重受信で 2 本起動しないための一意制約。
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_github_issue_runs_issue
+        ON github_issue_runs(repo_origin, issue_number, label);
+      CREATE INDEX IF NOT EXISTS idx_github_issue_runs_status
+        ON github_issue_runs(status);
+      -- webhook は同じ delivery を再送する。 処理済み id を持って二重処理を止める。
+      CREATE TABLE IF NOT EXISTS github_event_deliveries (
+        delivery_id TEXT PRIMARY KEY,
+        event       TEXT NOT NULL,
+        received_at INTEGER NOT NULL
+      );
+      -- webhook secret 置き場 (revisor_config と同型の key/value + secret-box 暗号化)。
+      CREATE TABLE IF NOT EXISTS github_config (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
   },
 },
 ];

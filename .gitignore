@@ -54,6 +54,8 @@ concordia.secret.key
 
 # 委託 prompt の実行時生成物
 delegation-prompts/
+# GitHub Issue ワークフローが委託へ渡す Issue 本文の写し (外部入力の一時ファイル)。
+github-issues/
 
 # 委託先が置くコミット代行の依頼 (spec/feature/delegation.md §14)。 broker は stage 前に
 # 消すが、 消せなかった場合に `git add -A` が依頼そのものを履歴へ入れないための保険。

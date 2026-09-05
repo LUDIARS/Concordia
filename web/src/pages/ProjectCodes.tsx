@@ -195,7 +195,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
           <input className={inputClass} value={draft.repo_origin} placeholder="https://github.com/ORG/REPO.git"
             onChange={(e) => setDraft({ ...draft, repo_origin: e.target.value })} />
         </td>
-        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={2}>
+        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={3}>
           パス変更時は git を再検査し、名前/URL は未入力なら実リポから取り直します。
         </td>
         <td className="py-1.5 text-right whitespace-nowrap">
@@ -241,6 +241,23 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
             {data.revisor_available ? "Rv未登録" : "Rv不明"}
           </span>
         )}
+      </td>
+      <td className="py-1.5 pr-2">
+        <label className="flex items-center gap-1 text-[11px] text-subtle">
+          <input
+            type="checkbox"
+            checked={entry.github_issue_workflow}
+            disabled={busy || !entry.repo_origin}
+            title={entry.repo_origin
+              ? "Cc ラベルの付いた Issue を修正 → 審査 → GitHub PR まで回す"
+              : "GitHub URL が無いプロジェクトでは Issue を引けません"}
+            onChange={(e) => {
+              const enabled = e.target.checked;
+              void onAction(entry.code, () => api.projectCodeSetGithubIssueWorkflow(entry.code, enabled));
+            }}
+          />
+          {entry.github_issue_workflow ? "ON" : "OFF"}
+        </label>
       </td>
       <td className="py-1.5 pr-2">
         <select
@@ -363,6 +380,7 @@ export function ProjectCodes() {
               <th className="py-1 pr-2 font-medium">パス</th>
               <th className="py-1 pr-2 font-medium">GitHub URL</th>
               <th className="py-1 pr-2 font-medium">Rvモード</th>
+              <th className="py-1 pr-2 font-medium" title="Cc ラベルの付いた GitHub Issue を修正 → 審査 → GitHub PR まで自動で回す">Issue WF</th>
               <th className="py-1 pr-2 font-medium">チーム</th>
               <th className="py-1 pr-2 font-medium">会社</th>
               <th className="py-1 font-medium text-right">操作</th>

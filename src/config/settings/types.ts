@@ -48,6 +48,7 @@ export type SettingSectionId =
   | "logging"
   | "cache"
   | "pr-queue"
+  | "github"
   | "federation"
   | "runtime";
 
@@ -83,7 +84,7 @@ export interface SettingDefinition {
    * schema_meta)。 セクションとストアが 1:1 でない項目 (pr-queue セクションにある
    * Revisor の token は revisor_config に入る) だけが明示する。
    */
-  dbStore?: "meta" | "discord" | "slack" | "revisor";
+  dbStore?: "meta" | "discord" | "slack" | "revisor" | "github";
   /** コード上の既定値。 既定が無い (未設定なら機能しない) 項目は null。 */
   defaultValue: SettingValue;
   /**

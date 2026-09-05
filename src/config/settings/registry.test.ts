@@ -21,6 +21,7 @@ function reader(values: {
     readDiscord: (key) => values.discord?.[key] ?? null,
     readSlack: (key) => values.slack?.[key] ?? null,
     readRevisor: (key) => values.revisor?.[key] ?? null,
+    readGithub: () => null,
   };
 }
 

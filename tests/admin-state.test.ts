@@ -4,7 +4,7 @@ import { makeTestDb } from "./helpers/db.js";
 import { AdminState } from "../src/admin/state.js";
 import { SecretBox, isEncrypted } from "../src/shared/secret-box.js";
 import { DEFAULT_MAIN_PUSH_ALLOWLIST } from "../src/harness/main-push-allowlist.js";
-import { WORKFLOW_KEYS } from "../src/workflow/keys.js";
+import { WORKFLOW_KEYS, workflowDefaultEnabled } from "../src/workflow/keys.js";
 
 function boot() {
   const db = makeTestDb();
@@ -66,11 +66,11 @@ describe("AdminState", () => {
       delegation_finished_run_scan_enabled: true,
       delegation_finished_run_auto_reap: false,
       delegation_finished_run_grace_sec: 600,
-      // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
+      // ワークフロー個別有効化フラグ。 GitHub は外部入力を受けるため既定 OFF。
       // 一覧を手で写すと key を足すたびにここが落ちるだけなので、 正本から導く。
-      // 検証したいのは「全 key が既定で有効」であって、 key の綴りではない。
+      // 一覧と既定値の対応はキー定義から導く。
       workflows: Object.fromEntries(
-        WORKFLOW_KEYS.map((key) => [key, { enabled: true, source: "default" }]),
+        WORKFLOW_KEYS.map((key) => [key, { enabled: workflowDefaultEnabled(key), source: "default" }]),
       ),
     });
   });

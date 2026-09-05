@@ -8,6 +8,7 @@ function row(code: string, project: string, repoPath: string): ProjectCodeRow {
     project,
     repo_path: repoPath,
     repo_origin: null,
+    github_issue_workflow: 0,
     added_by: "test",
     created_at: 1,
     updated_at: 1,

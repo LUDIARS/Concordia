@@ -30,6 +30,7 @@ function makeApp(
     readDiscord: (key) => stores.discord[key] ?? null,
     readSlack: (key) => stores.slack[key] ?? null,
     readRevisor: (key) => stores.revisor[key] ?? null,
+    readGithub: () => "",
   };
   const writer: SettingsDbWriter = {
     checkWritable: (target) => target === options.unavailableTarget ? `${target} backend is unavailable` : null,

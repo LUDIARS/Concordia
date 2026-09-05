@@ -132,7 +132,7 @@ describe("sessions API", () => {
     expect(j3.session.current_task).toBe("second task");
   });
 
-  it("DELETE /v1/sessions/:id ends session + 独立した per-session report 生成", async () => {
+  it("DELETE /v1/sessions/:id ends session while per-session report generation is deferred", async () => {
     await app.request("/v1/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -150,8 +150,15 @@ describe("sessions API", () => {
     const j = await r.json() as any;
     expect(j.session.status).toBe("ended");
     expect(j.session.metadata.session_end_pending_at).toEqual(expect.any(Number));
-    expect(j.report.summary_md).toContain("Session z");
-    expect(j.report.bullets).toBeTruthy();
+    expect(j.report).toBeNull();
+
+    await expect.poll(
+      async () => (await app.request("/v1/reports/z")).status,
+      { timeout: 1_000 },
+    ).toBe(200);
+    const generated = await (await app.request("/v1/reports/z")).json() as any;
+    expect(generated.summary_md).toContain("Session z");
+    expect(generated.bullets).toBeTruthy();
 
     const done = await app.request("/v1/sessions/z/session-end-done", { method: "POST" });
     expect(done.status).toBe(200);

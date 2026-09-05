@@ -509,14 +509,26 @@ describe("admin API", () => {
       const r = await env.app.request("/v1/admin/stop-session/queued-stop", { method: "POST" });
       const body = await r.json() as {
         status: string;
+        report_status: string;
+        report_generated: boolean;
+        monologue_posted: boolean;
         job_id: string;
         agent_client_job_id: string;
       };
 
       expect(r.status).toBe(202);
       expect(body.status).toBe("queued");
+      expect(body).toMatchObject({
+        report_status: "queued",
+        report_generated: false,
+        monologue_posted: false,
+      });
       expect(env.controlJobs.findById(body.job_id)?.status).toBe("queued");
       expect(env.controlJobs.findById(body.agent_client_job_id)?.status).toBe("queued");
+      await expect.poll(
+        () => env.repo.findReport("queued-stop"),
+        { timeout: 1_000 },
+      ).not.toBeNull();
     } finally {
       if (previous === undefined) delete process.env.CONCORDIA_DISABLE_CLAUDE;
       else process.env.CONCORDIA_DISABLE_CLAUDE = previous;

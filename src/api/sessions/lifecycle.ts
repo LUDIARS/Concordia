@@ -546,6 +546,9 @@ app.delete("/:id", async (c) => {
     const s = deps.repo.findSession(id);
     if (!s) return c.json({ error: "not_found" }, 404);
     // 終了の副作用は endSessionNow に集約する (発話由来の終了要求も同じ関数を通る)。
+    // report は claude -p を 2 回叩くため非同期生成に回しており、 新規終了では null。
+    // (既に ended だった session を再 DELETE した場合のみ、 生成済 report が返る)
+    // 生成後の値は GET /v1/reports/:id で読める。
     const { session: ended, report } = await endSessionNow(
       {
         repo: deps.repo,

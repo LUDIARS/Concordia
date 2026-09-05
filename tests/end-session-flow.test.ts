@@ -11,7 +11,7 @@ import { SessionsRepo } from "../src/db/sessions-repo.js";
 import { TasksRepo } from "../src/db/tasks-repo.js";
 import { ChatRepo } from "../src/db/chat-repo.js";
 import { TranscriptLogsRepo } from "../src/db/transcript-logs-repo.js";
-import { runSessionEndFlow, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
+import { runSessionEndFlow, generateAndPostReport, withNeedsHumanNotice } from "../src/control/end-session-flow.js";
 import { loadConfig } from "../src/shared/config.js";
 import { makeTestDb } from "./helpers/db.js";
 import { eventBus, type ConcordiaEvent } from "../src/events.js";
@@ -80,6 +80,10 @@ function endedSession(
   return repo.findSession(id)!;
 }
 
+async function waitForReport(repo: SessionsRepo, id: string): Promise<void> {
+  await expect.poll(() => repo.findReport(id), { timeout: 1_000 }).not.toBeNull();
+}
+
 describe("runSessionEndFlow", () => {
   let env: ReturnType<typeof makeEnv>;
   let prevDisable: string | undefined;
@@ -98,7 +102,7 @@ describe("runSessionEndFlow", () => {
     const now = Math.floor(Date.now() / 1000);
     const ended = endedSession(env.repo, "s1", now);
 
-    const result = await runSessionEndFlow(env, ended);
+    const result = await generateAndPostReport(env, ended);
     expect(result.report).not.toBeNull();
     const stored = env.repo.findReport("s1");
     expect(stored).not.toBeNull();
@@ -113,7 +117,7 @@ describe("runSessionEndFlow", () => {
     const events: ConcordiaEvent[] = [];
     const unsubscribe = eventBus.subscribe((ev) => events.push(ev));
 
-    const result = await runSessionEndFlow(env, ended);
+    const result = await generateAndPostReport(env, ended);
     unsubscribe();
     expect(result.postedMessageId).not.toBeNull();
     const msgs = env.chat.list({ channel: "報告", limit: 10 });
@@ -144,7 +148,7 @@ describe("runSessionEndFlow", () => {
       payload: { type: "codex_usage", thread_id: "t9", input_tokens: 90000, output_tokens: 9000, total_tokens: 99000 },
     });
 
-    const result = await runSessionEndFlow({ ...env, usageFrames: transcripts }, ended);
+    const result = await generateAndPostReport({ ...env, usageFrames: transcripts }, ended);
     // codex-sdk は単価不明なので usd 化せず「未価格」トークンとして載る。
     expect(result.report!.summary_md).toContain("## コスト / コンテキスト");
     expect(result.report!.summary_md).toContain("未価格 3k tok");
@@ -159,7 +163,7 @@ describe("runSessionEndFlow", () => {
       payload: { type: "codex_usage", thread_id: "t1", input_tokens: 2500, output_tokens: 500, total_tokens: 3000 },
     });
 
-    const result = await runSessionEndFlow(env, ended);
+    const result = await generateAndPostReport(env, ended);
     // 0 を実測値と偽らず、 セクションごと省く。
     expect(result.report!.summary_md).not.toContain("## コスト / コンテキスト");
   });
@@ -169,8 +173,60 @@ describe("runSessionEndFlow", () => {
     const ended = endedSession(env.repo, "s4", now);
 
     await runSessionEndFlow(env, ended);
+    await waitForReport(env.repo, "s4");
 
     const pulled = env.tasks.pull("s4");
     expect(pulled.length).toBe(0);
+  });
+
+  // リクエストパスから report 生成を外したことの回帰テスト。
+  // ここが同期に戻ると DELETE /v1/sessions が claude -p 2 回ぶん (実測 16 秒超)
+  // 応答を保留する。
+  it("runSessionEndFlow は report 生成を待たず即座に返る", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s7", now);
+
+    const result = await runSessionEndFlow(env, ended);
+
+    // report は非同期生成なので、終了応答の戻り値には含めない。
+    expect(result.report).toBeNull();
+    expect(result.postedMessageId).toBeNull();
+    await waitForReport(env.repo, "s7");
+  });
+
+  it("runSessionEndFlow は session.ended を先に出し、生成完了後に report.generated を出す", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s8", now);
+    const events: ConcordiaEvent[] = [];
+    const unsubscribe = eventBus.subscribe((ev) => events.push(ev));
+
+    try {
+      await runSessionEndFlow(env, ended);
+      expect(events.some((ev) => ev.type === "session.ended")).toBe(true);
+      await expect.poll(
+        () => events.some((ev) => ev.type === "report.generated"),
+        { timeout: 1_000 },
+      ).toBe(true);
+      expect(events.findIndex((ev) => ev.type === "session.ended"))
+        .toBeLessThan(events.findIndex((ev) => ev.type === "report.generated"));
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  it("Memoria タスク完了は同期のまま (終了確定と同じ経路で保証する)", async () => {
+    const now = Math.floor(Date.now() / 1000);
+    const ended = endedSession(env.repo, "s9", now);
+    env.repo.mergeMetadata("s9", { memoria_task_id: 42 });
+    const completed: number[] = [];
+    const withMemoria = {
+      ...env,
+      memoria: { completeTask: async (id: number) => { completed.push(id); } },
+    };
+
+    await runSessionEndFlow(withMemoria, env.repo.findSession("s9")!);
+
+    expect(completed).toEqual([42]);
+    await waitForReport(env.repo, "s9");
   });
 });

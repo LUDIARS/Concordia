@@ -194,7 +194,7 @@ window.API_DATA = {
         { m: "POST", p: "/v1/admin/truncate-sessions", d: "noise セッションを全削除", params: "—", resp: "{ ok, deleted }", src: "app.ts:198" },
         { m: "POST", p: "/v1/admin/spawn-session", d: "lictor ラップセッションを spawn (provider or delegation template)", params: "body: mode?, template?, inject_prompt?, args?, cwd?, provider?, title?", resp: "{ ok, pid, command, run_id?, injected_prompt? }", src: "app.ts:207" },
         { m: "GET", p: "/v1/admin/spawn-defaults", d: "spawn の default cwd + platform support", params: "—", resp: "{ default_cwd, platform_supported }", src: "app.ts:308" },
-        { m: "POST", p: "/v1/admin/stop-session/:id", d: "lictor ラップセッションを kill + end flow", params: "path: id", resp: "{ ok, pid, report_generated, monologue_posted }", src: "app.ts:321" },
+        { m: "POST", p: "/v1/admin/stop-session/:id", d: "lictor ラップセッションを kill + end flow", params: "path: id", resp: "{ ok, pid, report_status, report_generated, monologue_posted }", src: "api/register-core.ts" },
         { m: "GET", p: "/v1/admin/orphans", d: "orphan プロセスの dry-run スキャン", params: "—", resp: "{ scanned, orphans[] }", src: "app.ts:382" },
         { m: "POST", p: "/v1/admin/reap", d: "orphan プロセスを reap", params: "body: dry_run?, min_age_sec?", resp: "{ scanned, orphans, killed, failed, detail }", src: "app.ts:389" },
         { m: "GET·PUT", p: "/v1/admin/chat-mute", d: "chat-mute トグル read / set", params: "PUT body: muted(bool)", resp: "{ muted }", src: "app.ts:409" },

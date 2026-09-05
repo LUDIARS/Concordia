@@ -973,8 +973,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   // 管理 API: 既存 lictor-wrapped セッションを kill.
   // 1. session row から metadata.lictor_pid を取得
   // 2. session を ended に遷移 + end event append (stopped_by: admin)
-  // 3. session-end フロー (report 生成 / 独白を #報告 へ投稿) を実行
-  // 4. 独白後に durable control queue へ停止ジョブを登録する。
+  // 3. session-end フローを確定し、report 生成 / 独白投稿を非同期で予約
+  // 4. durable control queue へ停止ジョブを登録する。
   //    taskkill / signal は別プロセスの control-worker が実行する。
   app.post("/v1/admin/stop-session/:id", async (c) => {
     const id = c.req.param("id");
@@ -1001,7 +1001,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       payload: { stopped_by: "admin", duration_sec: now - session.started_at },
     });
     const ended = deps.repo.findSession(id)!;
-    const flow = await runSessionEndFlow(
+    await runSessionEndFlow(
       {
         repo: deps.repo,
         chat: deps.chat,
@@ -1037,8 +1037,13 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       agent_client_pid: meta.agent_client_pid ?? null,
       job_id: lictorJob.id,
       agent_client_job_id: agentClientJob?.id ?? null,
-      report_generated: flow.report !== null,
-      monologue_posted: flow.postedMessageId !== null,
+      // report / 独白は claude -p を 2 回叩くので非同期生成に回した。 この応答時点では
+      // まだ出来ていないため、 false (=生成されなかった) と偽らず "queued" を返す。
+      // 完成した report は GET /v1/reports/:id で読める。
+      report_status: "queued",
+      // 旧クライアント向けの応答時点スナップショット。非同期化後は常に false。
+      report_generated: false,
+      monologue_posted: false,
     }, 202);
   });
 

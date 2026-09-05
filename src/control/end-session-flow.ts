@@ -3,14 +3,32 @@
  *
  * `DELETE /v1/sessions/:id` と `POST /v1/admin/stop-session/:id` の両方が
  * セッション終了時に以下を実行する:
- *   1. aggregateBullets (+ dispatcher.onSessionEnd は現在 no-op、 独白は report 経路が担う)
- *   2. generateReport → upsertReport  (per-session レポート、 claude CLI で narrative)
- *   3. report 冒頭の独白を #報告 channel に投稿 + chat-reply task ばらまき
- *   4. eventBus.emit session.ended + report.generated
+ *   1. spawn で紐付いた Memoria タスクを完了
+ *   2. eventBus.emit session.ended
+ *   3. generateReport → upsertReport  (per-session レポート、 claude CLI で narrative)
+ *   4. report 冒頭の独白を #報告 channel に投稿
+ *   5. eventBus.emit report.generated
+ *
+ * このうち 3〜5 は **リクエストパスから外して** 非同期で走る
+ * (下記「リクエストパスと report 生成の分離」)。
  *
  * 呼び出し側は事前に「ステータスを ended にする」「end event を append する」
  * のは自分でやる (停止契機の payload が異なる ため). この helper は
  * **既に status=ended になっている session** を受け取って後段だけ流す.
+ *
+ * ## リクエストパスと report 生成の分離
+ *
+ * 3 (generateReport) は `claude -p` を **2 回直列で** 起動する
+ * (narrative=haiku / summary flags=sonnet)。子プロセス自体は非同期だが、完了を待つ間は
+ * HTTP 応答が十数秒保留されるため、report は終了応答から切り離す。
+ *
+ * そこで **終了確定 (1・2) と report 生成 (3〜5) を分ける**:
+ *   - {@link runSessionEndFlow}      … LLM を呼ばない。 呼び出し元が await する。
+ *   - {@link scheduleSessionReport}  … report + 独白投稿。 fire-and-forget.
+ *
+ * report は元々「失敗したら null で続行」 する best-effort な副産物なので、
+ * 呼び出し元が結果を待つ必然性が無い (実際 DELETE 以外の呼び出し元は report を
+ * 捨てている).
  *
  * 失敗ポリシー: report 生成は claude CLI 呼び出しを含むので落ちうる. ここで
  * throw すると呼び出し元の HTTP ハンドラが 500 を返す & kill 結果が返らない
@@ -84,14 +102,26 @@ export interface EndSessionFlowDeps {
 }
 
 export interface SessionEndFlowResult {
-  /** 生成済 report 行. 生成に失敗した場合は null. */
+  /**
+   * 生成済 report 行. 生成に失敗した場合は null.
+   *
+   * {@link runSessionEndFlow} は report 生成を待たないため **常に null** を返す。
+   * 実際の値を得るのは {@link generateAndPostReport} を直接 await したときだけ
+   * (テスト用)。 運用経路では `repo.findReport(id)` で後から読む。
+   */
   report: SessionReportRow | null;
   /** #報告 channel に投稿した chat_message_id. 投稿しなかった場合は null. */
   postedMessageId: number | null;
 }
 
 /**
- * 終了済 (status=ended) session に対して reporting を実行する.
+ * 終了済 (status=ended) session の終了処理を確定させる.
+ *
+ * **LLM を呼ばない**: Memoria タスク完了と session.ended emit だけを同期で行い、
+ * report 生成 + 独白投稿は {@link scheduleSessionReport} へ委ねて即座に返る。
+ * 戻り値の `report` / `postedMessageId` は常に null になる (生成は非同期のため)。
+ * 生成後の report は `repo.findReport(id)` で読める。
+ *
  * 呼び出し前提:
  *   - `deps.repo.findSession(id)` が ended 済 row を返すこと
  *   - 呼び出し側で end event を append 済 (deps.repo.allEvents が拾える)
@@ -103,7 +133,57 @@ export async function runSessionEndFlow(
   const id = endedSession.id;
   const now = endedSession.ended_at ?? Math.floor(Date.now() / 1000);
 
-  // 1. aggregateBullets (+ dispatcher.onSessionEnd は no-op: 独白は report 経路)
+  // 1. spawn で紐付いた Memoria タスクを完了にする。 正常終了の経路だけがここを通る。
+  await completeLinkedMemoriaTask(deps, endedSession);
+
+  // 2. session.ended event。 report.generated は生成側 (非同期) が出す。
+  eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+
+  // 3〜5 (generateReport + 独白投稿 + report.generated) は await しない。
+  // 子プロセスを待って DELETE /v1/sessions の応答を十数秒保留しないため。
+  scheduleSessionReport(deps, endedSession);
+
+  // report はこの時点では未生成。 呼び出し元は report を使っていないが、
+  // 型互換のため null を返す (生成後の値は repo.findReport で読める)。
+  return { report: null, postedMessageId: null };
+}
+
+/**
+ * report 生成 + 独白投稿を **リクエストパスの外** で走らせる (fire-and-forget)。
+ *
+ * `claude -p` を 2 回直列で起動するため十数秒かかる。 呼び出し元は await しない。
+ * 失敗しても session 終了は既に確定しているので、 warn を残して握り潰す。
+ *
+ * 同一 session に対する二重生成を防ぐため、 進行中の id を集合で持つ。
+ */
+const reportInFlight = new Set<string>();
+
+export function scheduleSessionReport(deps: EndSessionFlowDeps, endedSession: SessionRow): void {
+  const id = endedSession.id;
+  if (reportInFlight.has(id)) return;
+  reportInFlight.add(id);
+  void generateAndPostReport(deps, endedSession)
+    .catch((err) => {
+      log.warn({ session_id: id, err: (err as Error).message }, "deferred session report failed");
+    })
+    .finally(() => {
+      reportInFlight.delete(id);
+    });
+}
+
+/**
+ * report 生成と独白投稿の本体。 {@link scheduleSessionReport} から非同期で呼ばれる。
+ *
+ * テストからは await して決定的に検証できるよう export しておく。
+ */
+export async function generateAndPostReport(
+  deps: EndSessionFlowDeps,
+  endedSession: SessionRow,
+): Promise<SessionEndFlowResult> {
+  const id = endedSession.id;
+  const now = endedSession.ended_at ?? Math.floor(Date.now() / 1000);
+
+  // report 用の構造化集計 (+ dispatcher.onSessionEnd は no-op: 独白は report 経路)
   let bullets: object = {};
   try {
     const events = deps.repo.allEvents(id);
@@ -112,7 +192,7 @@ export async function runSessionEndFlow(
     log.warn({ session_id: id, err: (err as Error).message }, "aggregateBullets failed");
   }
 
-  // 2. generateReport — claude CLI を叩くので落ちうる. 失敗時は report=null で続行.
+  // 3. generateReport — claude CLI を叩くので落ちうる. 失敗時は report=null で続行.
   let report: SessionReportRow | null = null;
   try {
     const events = deps.repo.allEvents(id);
@@ -129,7 +209,7 @@ export async function runSessionEndFlow(
     );
   }
 
-  // 3. 独白を #報告 channel に投稿 (report が生成できた時だけ)
+  // 4. 独白を #報告 channel に投稿 (report が生成できた時だけ)
   let postedMessageId: number | null = null;
   if (report) {
     const monologue = extractMonologue(report.summary_md);
@@ -164,11 +244,7 @@ export async function runSessionEndFlow(
     }
   }
 
-  // 4. spawn で紐付いた Memoria タスクを完了にする。 正常終了の経路だけがここを通る。
-  await completeLinkedMemoriaTask(deps, endedSession);
-
-  // 5. session.ended + report.generated events
-  eventBus.emit({ type: "session.ended", session_id: id, ts: now });
+  // 5. report.generated event
   if (report) {
     eventBus.emit({ type: "report.generated", session_id: id, ts: now });
   }

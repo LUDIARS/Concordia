@@ -237,7 +237,10 @@ provider ごとの jsonl format は `src/providers/<name>.ts` の `parseTranscri
 
 ## 7. report 生成
 
-`DELETE /v1/sessions/:id` 時に同期生成 (response に含めて返す)。
+`DELETE /v1/sessions/:id` は session 終了を確定した時点で応答し、report 生成は
+バックグラウンドで続行する。新規終了時の response の `report` は `null`。
+生成完了後は `GET /v1/reports/:session_id` で取得できる。既に終了済みの session を
+再度 DELETE した場合は、その時点で保存済みの report があれば response に含める。
 
 ### 7.1 構造化集計 (`bullets`)
 

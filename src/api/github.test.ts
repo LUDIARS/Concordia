@@ -64,6 +64,7 @@ function harness(options: { secret?: string | null; enabled?: boolean } = {}) {
   projects.setGithubIssueWorkflow("Cc", true);
   const runs = makeGithubIssueRunsRepo(db);
   const delivered = new Set<string>();
+  let invoked = 0;
   const workflowConfig = config(options.secret === undefined ? SECRET : options.secret);
   const app = githubRouter({
     runs,
@@ -77,14 +78,30 @@ function harness(options: { secret?: string | null; enabled?: boolean } = {}) {
       config: workflowConfig,
       github: github(),
       invoke: async () => ({
-        ok: true,
+        ok: (invoked += 1) > 0,
         run: { id: "deleg-1" },
         rendered_prompt: "",
         prompt_file_path: "",
       } as never),
     },
   });
-  return { db, app, runs };
+  return { db, app, runs, invoked: () => invoked };
+}
+
+/** 承認まわりのテストが直接 run を作るための入力 (webhook を通さない分)。 */
+function runInput() {
+  return {
+    repoOrigin: "LUDIARS/Concordia",
+    issueNumber: 42,
+    issueTitle: "落ちる",
+    issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
+    label: "Cc",
+    actor: "drive-by",
+    issueAuthor: "drive-by",
+    projectCode: "Cc",
+    repoPath: "E:/Document/Ars/Concordia",
+    branch: "cc-issue-42",
+  };
 }
 
 async function post(app: ReturnType<typeof harness>["app"], body: string, headers: Record<string, string>) {
@@ -210,6 +227,67 @@ describe("POST /v1/github/webhook", () => {
   });
 });
 
+describe("approval gate", () => {
+  it("holds an issue from an unknown labeler and starts it only once approved", async () => {
+    const { db, app, runs, invoked } = harness();
+    const untrusted = payload();
+    untrusted.sender = { login: "drive-by" };
+    (untrusted.issue as Record<string, unknown>).user = { login: "drive-by" };
+    const body = JSON.stringify(untrusted);
+    await post(app, body, {
+      "x-github-event": "issues",
+      "x-github-delivery": "d-approval",
+      "x-hub-signature-256": githubSignature(SECRET, body),
+    });
+    const held = runs.findByIssue("LUDIARS/Concordia", 42, "Cc")!;
+    expect(held.status).toBe("awaiting_approval");
+    expect(invoked()).toBe(0);
+
+    const approved = await app.request(`/issue-runs/${held.id}/approve`, { method: "POST" });
+    expect(approved.status).toBe(200);
+    expect(runs.find(held.id)?.status).toBe("running");
+    expect(invoked()).toBe(1);
+    db.close();
+  });
+
+  it("refuses to approve a run that is not waiting for it", async () => {
+    const { db, app, runs } = harness();
+    const created = runs.create(runInput(), "queued")!;
+    const response = await app.request(`/issue-runs/${created.id}/approve`, { method: "POST" });
+    expect(response.status).toBe(409);
+    db.close();
+  });
+
+  it("rejects with a reason and never starts the delegation", async () => {
+    const { db, app, runs, invoked } = harness();
+    const created = runs.create(runInput(), "awaiting_approval")!;
+    const response = await app.request(`/issue-runs/${created.id}/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reason: "仕様の相談なのでコードは触らない" }),
+    });
+    expect(response.status).toBe(200);
+    const stored = runs.find(created.id)!;
+    expect(stored.status).toBe("skipped");
+    expect(stored.detail).toBe("仕様の相談なのでコードは触らない");
+    expect(invoked()).toBe(0);
+    db.close();
+  });
+
+  it("requires a reason to reject (does not close silently)", async () => {
+    const { db, app, runs } = harness();
+    const created = runs.create(runInput(), "awaiting_approval")!;
+    const response = await app.request(`/issue-runs/${created.id}/reject`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(400);
+    expect(runs.find(created.id)?.status).toBe("awaiting_approval");
+    db.close();
+  });
+});
+
 describe("issue run listing and retry", () => {
   it("rejects unknown run statuses", async () => {
     const { db, app } = harness();
@@ -227,6 +305,7 @@ describe("issue run listing and retry", () => {
       issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
       label: "Cc",
       actor: "neco",
+      issueAuthor: "neco",
       projectCode: "Cc",
       repoPath: "E:/Document/Ars/Concordia",
       branch: "cc-issue-42",
@@ -246,6 +325,7 @@ describe("issue run listing and retry", () => {
       issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
       label: "Cc",
       actor: "neco",
+      issueAuthor: "neco",
       projectCode: "Cc",
       repoPath: "E:/Document/Ars/Concordia",
       branch: "cc-issue-42",

@@ -88,8 +88,10 @@ export async function pollLabeledIssues(
         issueUrl: issue.url,
         label: matched,
         actor,
+        issueAuthor: issue.author,
       });
-      if (outcome.kind === "dispatched") dispatched += 1;
+      // 承認待ちで止まった分も「拾えた」に数える。 次の poll で拾い直さないため。
+      if (outcome.kind === "dispatched" || outcome.kind === "awaiting_approval") dispatched += 1;
     }
   }
   return { scanned, dispatched };

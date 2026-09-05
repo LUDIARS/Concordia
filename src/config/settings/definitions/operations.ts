@@ -153,8 +153,9 @@ export const GITHUB_ISSUE_SETTINGS: readonly SettingDefinition[] = [
     section: "github",
     label: "信頼実行者 (GitHub login)",
     description:
-      "ラベルを付けてよい GitHub アカウント。 **空 = 誰も許可されていない** (発火しない)。"
-      + " Issue は誰でも立てられるため、 ここを開けると外部から実装セッションを起こせる。",
+      "追加の確認なしで修正を走らせてよい GitHub アカウント。 ここに載らない相手の Issue は"
+      + " 握り潰さず、 人間の承認待ちとして止める (承認インボックスと設定画面にボタンが出る)。"
+      + " **空 = 全件が承認待ち**。 Issue は誰でも立てられるので、 ここを開けた分だけ無確認で動く。",
     kind: "string-list",
     envName: "CONCORDIA_GITHUB_TRUSTED_ACTORS",
     dbKey: "github.trusted_actors",

@@ -782,6 +782,10 @@ export const api = {
     put<{ ok: boolean; secret: string | null }>("/v1/admin/github/webhook-secret", secret ? { secret } : {}),
   githubIssueRuns: (limit = 50) =>
     get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
+  githubIssueRunApprove: (id: string) =>
+    post<{ ok: boolean; outcome: string }>(`/v1/github/issue-runs/${encodeURIComponent(id)}/approve`, {}),
+  githubIssueRunReject: (id: string, reason: string) =>
+    post<{ ok: boolean }>(`/v1/github/issue-runs/${encodeURIComponent(id)}/reject`, { reason }),
   githubIssueRunRetry: (id: string) =>
     post<{ ok: boolean }>(`/v1/github/issue-runs/${encodeURIComponent(id)}/retry`, {}),
   adminSpawn: (body: {
@@ -1463,6 +1467,9 @@ export interface GithubIssueRun {
   id: string;
   repo_origin: string;
   issue_number: number;
+  /** 起票者とラベル付与者。 承認の判断材料。 */
+  actor?: string;
+  issue_author?: string;
   issue_title: string;
   issue_url: string;
   status: string;

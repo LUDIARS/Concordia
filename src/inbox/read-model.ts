@@ -15,7 +15,12 @@ import type Database from "better-sqlite3";
  */
 
 /** 集約する種別。 正本のテーブルが違うので、 種別は項目のキーの一部になる。 */
-export type InboxItemKind = "ask-card" | "inquiry-ask-human" | "director-blocked" | "confirm-pending";
+export type InboxItemKind =
+  | "ask-card"
+  | "inquiry-ask-human"
+  | "director-blocked"
+  | "confirm-pending"
+  | "github-issue-approval";
 
 export interface InboxItem {
   /**
@@ -33,6 +38,8 @@ export interface InboxItem {
   readonly caseId?: string;
   readonly repoOrigin?: string;
   readonly prNumber?: number;
+  /** GitHub Issue ワークフローの承認待ち run。 承認ボタンはこの id を指す。 */
+  readonly githubIssueRunId?: string;
 }
 
 /** 一覧に出す長さ。 全文は遷移先で読む。 */
@@ -142,7 +149,42 @@ export function confirmPendingItems(db: Database.Database): InboxItem[] {
 }
 
 /**
- * 4 種別を束ねて経過時間の降順 (古い順) で返す。
+ * 信頼実行者でない相手の Issue で止まっている修正ワークフロー。
+ *
+ * 握り潰すと「ラベルを押したのに何も起きない」になり、 通してしまうと外部の文章で
+ * 実装セッションが動く。 人間が見て決める 1 点をここに出す。
+ * @implements spec/feature/github-issue-workflow.md — 承認
+ */
+export function githubIssueApprovalItems(db: Database.Database): InboxItem[] {
+  // 機能を入れる前の DB でも一覧を落とさない (テーブルが無ければ 0 件)。
+  const exists = db.prepare(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'github_issue_runs'",
+  ).get();
+  if (!exists) return [];
+  const rows = db.prepare(`
+    SELECT id, repo_origin, issue_number, issue_title, actor, issue_author, created_at
+      FROM github_issue_runs
+     WHERE status = 'awaiting_approval'
+     ORDER BY created_at ASC
+  `).all() as Array<{
+    id: string; repo_origin: string; issue_number: number; issue_title: string;
+    actor: string; issue_author: string; created_at: number;
+  }>;
+  return rows.map((row) => ({
+    key: `github-issue-approval:${row.id}`,
+    kind: "github-issue-approval" as const,
+    summary: summarize(
+      `Issue 修正の承認待ち: ${row.repo_origin}#${row.issue_number} ${row.issue_title}`
+      + ` (起票 @${row.issue_author} / ラベル @${row.actor})`,
+    ),
+    raisedAt: row.created_at,
+    repoOrigin: row.repo_origin,
+    githubIssueRunId: row.id,
+  }));
+}
+
+/**
+ * 種別を束ねて経過時間の降順 (古い順) で返す。
  *
  * 古いものほど上に来る。**放置されているものを先に見せる**のが一覧の目的なので、
  * 新着順にはしない。
@@ -153,5 +195,6 @@ export function inboxItems(db: Database.Database): InboxItem[] {
     ...inquiryAskHumanItems(db),
     ...directorBlockedItems(db),
     ...confirmPendingItems(db),
+    ...githubIssueApprovalItems(db),
   ].sort((left, right) => left.raisedAt - right.raisedAt);
 }

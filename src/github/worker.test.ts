@@ -20,7 +20,7 @@ function config(): GithubWorkflowConfig {
   };
 }
 
-function harness(labelActor: string | null) {
+function harness(labelActor: string | null, issueAuthor = "drive-by") {
   const db = new Database(":memory:");
   applyMigrations(db);
   const projects = new ProjectCodesRepo(db);
@@ -41,6 +41,7 @@ function harness(labelActor: string | null) {
       body: "手順",
       url: "https://github.com/LUDIARS/Concordia/issues/42",
       labels: ["Cc"],
+      author: issueAuthor,
     }],
     findLabelActor: async () => labelActor,
     commentOnIssue: async () => {},
@@ -78,12 +79,22 @@ function harness(labelActor: string | null) {
 }
 
 describe("pollLabeledIssues", () => {
-  it("does not authorize an untrusted labeler", async () => {
+  it("holds an untrusted labeler for approval instead of running it", async () => {
     const { db, deps, runs, invoked } = harness("untrusted-labeler");
     const result = await pollLabeledIssues(deps);
-    expect(result).toEqual({ scanned: 1, dispatched: 0 });
+    // 拾えてはいる (次の poll で二重に立てない) が、 委託は動かない。
+    expect(result).toEqual({ scanned: 1, dispatched: 1 });
     expect(invoked()).toBe(0);
-    expect(runs.list()).toEqual([]);
+    expect(runs.list().map((run) => run.status)).toEqual(["awaiting_approval"]);
+    db.close();
+  });
+
+  it("runs straight away when the issue author is trusted", async () => {
+    const { db, deps, runs, invoked } = harness("untrusted-labeler", "trusted-author");
+    const result = await pollLabeledIssues(deps);
+    expect(result).toEqual({ scanned: 1, dispatched: 1 });
+    expect(invoked()).toBe(1);
+    expect(runs.list().map((run) => run.status)).toEqual(["running"]);
     db.close();
   });
 

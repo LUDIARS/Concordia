@@ -21,6 +21,7 @@ const KIND_LABEL: Record<InboxItem["kind"], string> = {
   "inquiry-ask-human": "判断待ち",
   "director-blocked": "工程が blocked",
   "confirm-pending": "承認待ち",
+  "github-issue-approval": "Issue 修正の承認待ち",
 };
 
 /**

@@ -8,10 +8,12 @@
 import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { applyMigrations } from "../db/schema.js";
+import { makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import {
   askCardItems,
   confirmPendingItems,
   directorBlockedItems,
+  githubIssueApprovalItems,
   inboxItems,
   inquiryAskHumanItems,
 } from "./read-model.js";
@@ -153,6 +155,34 @@ describe("confirm の承認待ち", () => {
     expect(items.map((i) => i.repoOrigin)).toEqual(["LUDIARS/Concordia", "LUDIARS/Concordia"]);
     expect(items[0].summary).toContain("起動承認待ち");
     expect(items[1].summary).toContain("昇格承認待ち");
+  });
+});
+
+describe("GitHub Issue 修正の承認待ち", () => {
+  it("awaiting_approval だけを承認インボックスへ出す", () => {
+    const db = makeDb();
+    const runs = makeGithubIssueRunsRepo(db);
+    const input = {
+      repoOrigin: "LUDIARS/Concordia",
+      issueNumber: 42,
+      issueTitle: "落ちる",
+      issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
+      label: "Cc",
+      actor: "labeler",
+      issueAuthor: "reporter",
+      projectCode: "Cc",
+      repoPath: "E:/Document/Ars/Concordia",
+      branch: "cc-issue-42",
+    };
+    const pending = runs.create(input, "awaiting_approval", 100)!;
+    runs.create({ ...input, issueNumber: 43 }, "running", 200);
+
+    expect(githubIssueApprovalItems(db)).toEqual([expect.objectContaining({
+      key: `github-issue-approval:${pending.id}`,
+      kind: "github-issue-approval",
+      githubIssueRunId: pending.id,
+      raisedAt: 100,
+    })]);
   });
 });
 

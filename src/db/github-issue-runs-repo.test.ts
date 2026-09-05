@@ -16,6 +16,7 @@ const input = {
   issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
   label: "Cc",
   actor: "neco",
+  issueAuthor: "reporter",
   projectCode: "Cc",
   repoPath: "E:/Document/Ars/Concordia",
   branch: "cc-issue-42",
@@ -61,6 +62,25 @@ describe("GithubIssueRunsRepo", () => {
     repo.update(first.id, { status: "published" });
     expect(repo.list({ statuses: ["queued"] })).toHaveLength(1);
     expect(repo.list({ statuses: ["published"] })[0].id).toBe(first.id);
+    db.close();
+  });
+
+  it("records the given status so approval-pending runs never start by accident", () => {
+    const db = open();
+    const repo = makeGithubIssueRunsRepo(db);
+    const created = repo.create(input, "awaiting_approval")!;
+    expect(created.status).toBe("awaiting_approval");
+    expect(repo.list({ statuses: ["awaiting_approval"] })).toHaveLength(1);
+    db.close();
+  });
+
+  it("lets only one concurrent approval claim the pending run", () => {
+    const db = open();
+    const repo = makeGithubIssueRunsRepo(db);
+    const created = repo.create(input, "awaiting_approval")!;
+    const claimed = repo.updateIfStatus(created.id, "awaiting_approval", { status: "queued" });
+    expect(claimed?.status).toBe("queued");
+    expect(repo.updateIfStatus(created.id, "awaiting_approval", { status: "queued" })).toBeNull();
     db.close();
   });
 

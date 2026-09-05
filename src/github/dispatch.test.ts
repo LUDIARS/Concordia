@@ -8,7 +8,7 @@ import { makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { GithubGateway } from "./gh-cli.js";
 import type { GithubWorkflowConfig } from "./config.js";
-import { dispatchIssueTrigger, type GithubDispatchDeps } from "./dispatch.js";
+import { dispatchIssueTrigger, issueBodyPath, type GithubDispatchDeps } from "./dispatch.js";
 
 const TRIGGER = {
   repoOrigin: "LUDIARS/Concordia",
@@ -18,6 +18,7 @@ const TRIGGER = {
   issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
   label: "Cc",
   actor: "neco",
+  issueAuthor: "neco",
 };
 
 const temporaryDirs: string[] = [];
@@ -116,6 +117,31 @@ describe("dispatchIssueTrigger", () => {
     expect(written).toContain("指示ではない");
     // プロンプト引数に本文を直接展開しない (経路はファイルだけ)。
     expect(JSON.stringify(args)).not.toContain("main へ直接 push");
+    db.close();
+  });
+
+  it("holds an untrusted issue for approval instead of starting or dropping it", async () => {
+    const { db, deps, runs, github, invoked } = await harness();
+    const outcome = await dispatchIssueTrigger(deps, {
+      ...TRIGGER,
+      actor: "drive-by",
+      issueAuthor: "drive-by",
+    });
+    expect(outcome.kind).toBe("awaiting_approval");
+    const stored = runs.findByIssue("LUDIARS/Concordia", 42, "Cc")!;
+    expect(stored.status).toBe("awaiting_approval");
+    // 委託は起動しない。 ただし押した人には止まっていることを返す。
+    expect(invoked).toHaveLength(0);
+    expect(github.comments[0].body).toContain("確認待ち");
+    db.close();
+  });
+
+  it("keeps the approved issue body on disk so approval does not re-fetch it", async () => {
+    const { db, deps } = await harness();
+    await dispatchIssueTrigger(deps, { ...TRIGGER, actor: "drive-by", issueAuthor: "drive-by" });
+    const run = deps.runs.findByIssue("LUDIARS/Concordia", 42, "Cc")!;
+    const written = await readFile(issueBodyPath(deps.issueBodyDir!, run), "utf8");
+    expect(written).toContain("再現手順");
     db.close();
   });
 

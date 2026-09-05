@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 89;
+export const SCHEMA_VERSION = 90;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2221,6 +2221,18 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
         value TEXT NOT NULL
       );
     `);
+  },
+}, {
+  version: 90,
+  name: "github-issue-run-author",
+  source: "github_issue_runs.issue_author — 妥当性チェックを起票者とラベル付与者の両方で行う (spec/feature/github-issue-workflow.md)",
+  up(db) {
+    // ラベルを付けた人だけを見ると、 信頼できる起票者の Issue に第三者がラベルを付けた
+    // ケースと、 その逆を区別できない。 承認の判断材料として両方を残す (2026-09-05 neco 指示)。
+    const columns = db.prepare("PRAGMA table_info(github_issue_runs)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "issue_author")) {
+      db.exec("ALTER TABLE github_issue_runs ADD COLUMN issue_author TEXT NOT NULL DEFAULT ''");
+    }
   },
 },
 ];

@@ -20,11 +20,17 @@ import {
 import type { GithubWorkflowConfig } from "../github/config.js";
 import { classifyIssueEvent } from "../github/issue-event.js";
 import { verifyGithubSignature } from "../github/signature.js";
-import { dispatchIssueTrigger, type GithubDispatchDeps } from "../github/dispatch.js";
+import { dispatchIssueTrigger, startIssueFix, type GithubDispatchDeps } from "../github/dispatch.js";
+import { approvalRejectedComment } from "../github/text.js";
 import { workflowDisabledBody, WORKFLOW_DISABLED_STATUS } from "../workflow/api-gate.js";
 
 const log = createChildLogger("github-webhook");
 const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
+
+/** 却下は理由を必須にする (何も言わずに閉じない — その文面が Issue へ返る)。 */
+const RejectSchema = z.object({
+  reason: z.string().trim().min(1).max(2_000),
+}).strict();
 
 const ListQuery = z.object({
   status: z.string().trim().min(1).max(200).optional(),
@@ -121,6 +127,69 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     }
     const statuses = requestedStatuses as GithubIssueRunStatus[] | undefined;
     return c.json({ runs: deps.runs.list({ statuses, limit: parsed.data.limit }) });
+  });
+
+  /**
+   * 承認して実行する。 信頼実行者でない相手の Issue を人間が見て通す唯一の口。
+   * @implements spec/feature/github-issue-workflow.md — 承認
+   */
+  app.post("/issue-runs/:id/approve", async (c) => {
+    if (!deps.isEnabled()) {
+      return c.json(workflowDisabledBody("github"), WORKFLOW_DISABLED_STATUS);
+    }
+    const run = deps.runs.find(c.req.param("id"));
+    if (!run) return c.json({ error: "not_found" }, 404);
+    if (run.status !== "awaiting_approval") {
+      return c.json({ error: "run_not_awaiting_approval", status: run.status }, 409);
+    }
+    // 承認時点の opt-in を見る。 承認待ちの間にプロジェクトが外されていたら通さない。
+    const project = deps.dispatch.projects.list()
+      .find((row) => row.code === run.project_code && row.github_issue_workflow === 1);
+    if (!project) return c.json({ error: "project_opted_out" }, 409);
+    // 外部の invoke を始める前に同期 CAS でこの承認を確保する。 二重クリックや複数画面からの
+    // 同時承認が同じ Issue の delegation を 2 本起動しないようにする。
+    const claimed = deps.runs.updateIfStatus(run.id, "awaiting_approval", {
+      status: "queued",
+      detail: null,
+    });
+    if (!claimed) {
+      return c.json({
+        error: "run_not_awaiting_approval",
+        status: deps.runs.find(run.id)?.status ?? "not_found",
+      }, 409);
+    }
+    const outcome = await startIssueFix(deps.dispatch, claimed, project.project);
+    return c.json({ ok: outcome.kind === "dispatched", outcome: outcome.kind, run: deps.runs.find(run.id) });
+  });
+
+  /** 承認せずに閉じる。 理由は公開禁止情報を伏せて Issue へ返す。 */
+  app.post("/issue-runs/:id/reject", async (c) => {
+    const run = deps.runs.find(c.req.param("id"));
+    if (!run) return c.json({ error: "not_found" }, 404);
+    if (run.status !== "awaiting_approval") {
+      return c.json({ error: "run_not_awaiting_approval", status: run.status }, 409);
+    }
+    const parsed = RejectSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    const rejected = deps.runs.updateIfStatus(run.id, "awaiting_approval", {
+      status: "skipped",
+      detail: parsed.data.reason,
+    });
+    if (!rejected) {
+      return c.json({
+        error: "run_not_awaiting_approval",
+        status: deps.runs.find(run.id)?.status ?? "not_found",
+      }, 409);
+    }
+    await deps.dispatch.github.commentOnIssue(
+      run.repo_origin,
+      run.issue_number,
+      approvalRejectedComment(parsed.data.reason),
+    ).catch((error: unknown) => {
+      log.warn({ run_id: run.id, error_type: error instanceof Error ? error.name : typeof error },
+        "github issue rejection comment failed");
+    });
+    return c.json({ ok: true, run: rejected });
   });
 
   app.post("/issue-runs/:id/retry", async (c) => {

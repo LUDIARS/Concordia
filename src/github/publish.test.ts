@@ -21,6 +21,7 @@ function harness(options: {
     issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
     label: "Cc",
     actor: "neco",
+    issueAuthor: "neco",
     projectCode: "Cc",
     repoPath: "E:/Document/Ars/Concordia",
     branch: "cc-issue-42",

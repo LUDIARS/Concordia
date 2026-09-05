@@ -18,6 +18,8 @@ export interface GithubIssueTrigger {
   label: string;
   /** ラベルを付けた (= 依頼した) GitHub login。 */
   actor: string;
+  /** 起票した GitHub login。 actor と別人のことがある (第三者が後からラベルを付けた場合)。 */
+  issueAuthor: string;
 }
 
 export type IssueEventClassification =
@@ -85,6 +87,11 @@ export function classifyIssueEvent(input: {
   // 実行者はイベントを起こした sender。opened でも issue.user を代用しない。特に
   // reopened で起票者を使うと、第三者による再開を trusted author の操作と誤認する。
   const actor = text((payload.sender as Record<string, unknown> | undefined)?.login);
+  // 起票者は妥当性チェックのもう一方の材料。 「信頼できる人が立てた Issue に第三者が
+  // ラベルを付けた」と「その逆」を承認画面で見分けられるよう、 両方を運ぶ。
+  const issueAuthor = text((issueRow.user as Record<string, unknown> | undefined)?.login);
+  // GitHub は削除済みユーザーの起票者を null で返し得る。 actor が確認できるなら、 author が
+  // 不明でも authorization 側で actor 単独を判定できるためイベント自体は捨てない。
   if (actor === "") return { kind: "ignored", reason: "malformed" };
 
   return {
@@ -97,6 +104,7 @@ export function classifyIssueEvent(input: {
       issueUrl: text(issueRow.html_url),
       label: matched,
       actor,
+      issueAuthor,
     },
   };
 }

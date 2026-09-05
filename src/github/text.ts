@@ -28,6 +28,33 @@ export function sanitizeGithubPublicText(value: string): string {
     : sanitized;
 }
 
+/**
+ * 承認待ちで止めたことを Issue に返す。 「誰が承認するのか」「どこで承認するのか」は
+ * 書かない — 内部の運用面を第三者へ説明しないため。
+ * @implements spec/feature/github-issue-workflow.md — 承認
+ */
+export function awaitingApprovalComment(run: GithubIssueRunRow): string {
+  return [
+    `\`${run.label}\` ラベルを受け付けました。担当者の確認待ちです。`,
+    "",
+    "確認が済むと修正を始め、結果をここに書きます。着手しないと判断した場合も、その旨を返します。",
+  ].join("\n") + SIGNATURE;
+}
+
+/**
+ * 承認せずに終える場合。 理由から公開禁止情報だけを伏せて載せる。
+ * @implements spec/feature/github-issue-workflow.md — 承認
+ */
+export function approvalRejectedComment(reason: string): string {
+  const publicReason = sanitizeGithubPublicText(reason).trim();
+  return [
+    "確認の結果、自動修正は行わないことになりました。",
+    "",
+    "### 理由",
+    publicReason === "" ? "(理由の記載なし)" : publicReason,
+  ].join("\n") + SIGNATURE;
+}
+
 export function acceptedComment(run: GithubIssueRunRow): string {
   return [
     `\`${run.label}\` ラベルを受け付けました。修正を試みます。`,

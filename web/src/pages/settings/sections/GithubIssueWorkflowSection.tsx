@@ -8,6 +8,7 @@ import { api, type GithubIssueRun, type GithubIssueWorkflowStatus } from "../../
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "受付",
+  awaiting_approval: "承認待ち",
   running: "修正中",
   pr_submitted: "審査中",
   review_passed: "審査通過",
@@ -16,6 +17,7 @@ const STATUS_LABEL: Record<string, string> = {
   failed: "失敗",
 };
 
+/** @implements spec/feature/github-issue-workflow.md — 承認 */
 export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSettings?: () => void }) {
   const [status, setStatus] = useState<GithubIssueWorkflowStatus | null>(null);
   const [runs, setRuns] = useState<GithubIssueRun[]>([]);
@@ -47,6 +49,25 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
 
+  async function approve(id: string) {
+    setBusy(true); setError(null);
+    try {
+      await api.githubIssueRunApprove(id);
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  }
+
+  async function reject(id: string) {
+    // 理由は必須。 何も言わずに閉じると Issue を出した人に何も返らない。
+    const reason = window.prompt("却下の理由 (そのまま Issue へのコメントになります)");
+    if (reason === null || reason.trim() === "") return;
+    setBusy(true); setError(null);
+    try {
+      await api.githubIssueRunReject(id, reason.trim());
+      await refresh();
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  }
+
   async function retry(id: string) {
     setBusy(true); setError(null);
     try {
@@ -62,6 +83,7 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
         <p className="text-subtle text-xs mt-0.5">
           対象プロジェクトの Issue に <code>{status?.label ?? "Cc"}</code> ラベルが付くと、
           修正を委託し Revisor の審査を通してから GitHub PR を作り、Issue にリンクを返します。
+          起票者もラベルを付けた人も信頼実行者でない場合は着手せず、ここに承認ボタンが出ます。
           対象にするかは <strong>プロジェクトコード</strong>画面の「Issue WF」で切り替えます。
         </p>
       </div>
@@ -84,7 +106,7 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
           <dt className="text-subtle">信頼実行者</dt>
           <dd>
             {status.trusted_actors.length === 0
-              ? <span className="text-warn">未設定 — 誰がラベルを付けても発火しません</span>
+              ? <span className="text-warn">未設定 — 全件が承認待ちになります</span>
               : status.trusted_actors.join(", ")}
           </dd>
           <dt className="text-subtle">対象プロジェクト</dt>
@@ -123,10 +145,19 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
                     <td className="py-1 pr-2 text-subtle break-all">
                       {run.github_pr_url
                         ? <a href={run.github_pr_url} target="_blank" rel="noreferrer" className="text-accent">PR</a>
-                        : run.detail ?? ""}
+                        : run.status === "awaiting_approval"
+                          ? `起票 @${run.issue_author ?? "?"} / ラベル @${run.actor ?? "?"}`
+                          : run.detail ?? ""}
                     </td>
-                    <td className="py-1 text-right">
-                      {(run.status === "failed" || run.status === "skipped" || run.status === "published") && (
+                    <td className="py-1 text-right whitespace-nowrap">
+                      {run.status === "awaiting_approval" ? (
+                        <>
+                          <button type="button" disabled={busy} onClick={() => void approve(run.id)}
+                            className="text-accent disabled:opacity-40 mr-2">承認して実行</button>
+                          <button type="button" disabled={busy} onClick={() => void reject(run.id)}
+                            className="text-subtle hover:text-text disabled:opacity-40">却下</button>
+                        </>
+                      ) : (run.status === "failed" || run.status === "skipped" || run.status === "published") && (
                         <button type="button" disabled={busy} onClick={() => void retry(run.id)}
                           className="text-accent disabled:opacity-40">再実行</button>
                       )}

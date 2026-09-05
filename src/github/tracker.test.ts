@@ -13,6 +13,7 @@ function run(overrides: Partial<GithubIssueRunRow> = {}): GithubIssueRunRow {
     issue_url: "https://github.com/LUDIARS/Concordia/issues/42",
     label: "Cc",
     actor: "neco",
+    issue_author: "neco",
     project_code: "Cc",
     repo_path: "E:/Document/Ars/Concordia",
     branch: "cc-issue-42",
@@ -163,6 +164,14 @@ describe("advanceIssueRuns", () => {
         ...(patch.githubPrUrl !== undefined ? { github_pr_url: patch.githubPrUrl } : {}),
         ...(patch.detail !== undefined ? { detail: patch.detail } : {}),
       }),
+      updateIfStatus: (_id, expectedStatus, patch) => stored.status === expectedStatus
+        ? Object.assign(stored, {
+          ...(patch.status !== undefined ? { status: patch.status } : {}),
+          ...(patch.localPrId !== undefined ? { local_pr_id: patch.localPrId } : {}),
+          ...(patch.githubPrUrl !== undefined ? { github_pr_url: patch.githubPrUrl } : {}),
+          ...(patch.detail !== undefined ? { detail: patch.detail } : {}),
+        })
+        : null,
       remove: () => false,
     };
     let releasePush: () => void = () => {};

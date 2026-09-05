@@ -33,8 +33,9 @@ export interface GithubWorkflowConfig {
   /** 起動ラベル。 */
   label(): string;
   /**
-   * ラベルを付けてよい GitHub login。 **空配列は「誰も居ない」**であって
-   * 「全員許可」ではない (fail-closed)。
+   * 追加の確認なしで発火してよい GitHub login。 **空配列は「誰も居ない」**であって
+   * 「全員許可」ではない。 ここに載らない相手の Issue は握り潰さず、 人間の承認待ち
+   * (awaiting_approval) として止める。
    */
   trustedActors(): string[];
   pollIntervalMs(): number;

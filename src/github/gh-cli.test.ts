@@ -1,6 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { createGithubGateway, type GhRunner } from "./gh-cli.js";
 
+describe("GithubGateway.listLabeledIssues", () => {
+  it("keeps the issue author's login for authorization", async () => {
+    const gateway = createGithubGateway({
+      run: async () => JSON.stringify([{
+        number: 42,
+        title: "failure",
+        body: "steps",
+        url: "https://github.com/LUDIARS/Concordia/issues/42",
+        labels: [{ name: "Cc" }],
+        author: { login: "reporter" },
+      }]),
+    });
+
+    const issues = await gateway.listLabeledIssues("LUDIARS/Concordia", "Cc");
+    expect(issues).toHaveLength(1);
+    expect(issues[0].author).toBe("reporter");
+  });
+});
+
 describe("GithubGateway.findLabelActor", () => {
   it("uses the latest matching label event actor", async () => {
     const calls: string[][] = [];

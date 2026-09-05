@@ -25,6 +25,8 @@ export interface GhIssue {
   body: string;
   url: string;
   labels: string[];
+  /** 起票者。 承認の妥当性チェックでラベル付与者と併せて見る。 */
+  author: string;
 }
 
 /** テストが差し替える最小の実行面。 */
@@ -80,7 +82,7 @@ export function createGithubGateway(runner: GhRunner = ghCliRunner): GithubGatew
         "--label", label,
         "--state", "open",
         "--limit", String(Math.min(Math.max(limit, 1), 200)),
-        "--json", "number,title,body,url,labels",
+        "--json", "number,title,body,url,labels,author",
       ]);
       const parsed = JSON.parse(stdout) as unknown;
       if (!Array.isArray(parsed)) return [];
@@ -99,6 +101,9 @@ export function createGithubGateway(runner: GhRunner = ghCliRunner): GithubGatew
           body: typeof row.body === "string" ? row.body : "",
           url: typeof row.url === "string" ? row.url : "",
           labels,
+          author: typeof (row.author as Record<string, unknown> | null)?.login === "string"
+            ? (row.author as { login: string }).login
+            : "",
         }];
       });
     },

@@ -32,6 +32,7 @@ describe("classifyIssueEvent", () => {
         issueUrl: "https://github.com/LUDIARS/Concordia/issues/42",
         label: "Cc",
         actor: "neco",
+        issueAuthor: "reporter",
       },
     });
   });
@@ -54,6 +55,21 @@ describe("classifyIssueEvent", () => {
     });
     expect(result.kind).toBe("trigger");
     expect(result.kind === "trigger" && result.trigger.actor).toBe("untrusted");
+  });
+
+  it("keeps both logins so approval can weigh author and labeler separately", () => {
+    const result = classifyIssueEvent({ event: "issues", payload: payload(), label: "Cc" });
+    expect(result.kind === "trigger" && result.trigger.actor).toBe("neco");
+    expect(result.kind === "trigger" && result.trigger.issueAuthor).toBe("reporter");
+  });
+
+  it("keeps a trusted labeler's event when a deleted issue author is unavailable", () => {
+    const withoutAuthor = payload();
+    (withoutAuthor.issue as Record<string, unknown>).user = null;
+    const result = classifyIssueEvent({ event: "issues", payload: withoutAuthor, label: "Cc" });
+    expect(result.kind).toBe("trigger");
+    expect(result.kind === "trigger" && result.trigger.actor).toBe("neco");
+    expect(result.kind === "trigger" && result.trigger.issueAuthor).toBe("");
   });
 
   it("matches the label case-insensitively", () => {

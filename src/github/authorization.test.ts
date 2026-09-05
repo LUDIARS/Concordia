@@ -38,9 +38,10 @@ describe("authorizeIssueTrigger", () => {
       projects: [project()],
       repoOrigin: "LUDIARS/Concordia",
       actor: "neco",
+      issueAuthor: "neco",
       trustedActors: trusted,
     });
-    expect(verdict.ok).toBe(true);
+    expect(verdict.kind).toBe("allow");
   });
 
   it("refuses a project that has not opted in", () => {
@@ -48,9 +49,10 @@ describe("authorizeIssueTrigger", () => {
       projects: [project({ github_issue_workflow: 0 })],
       repoOrigin: "LUDIARS/Concordia",
       actor: "neco",
+      issueAuthor: "neco",
       trustedActors: trusted,
     });
-    expect(verdict).toMatchObject({ ok: false, reason: "project_opted_out" });
+    expect(verdict).toMatchObject({ kind: "reject", reason: "project_opted_out" });
   });
 
   it("refuses a repository that is not registered at all", () => {
@@ -58,28 +60,53 @@ describe("authorizeIssueTrigger", () => {
       projects: [],
       repoOrigin: "outsider/repo",
       actor: "neco",
+      issueAuthor: "neco",
       trustedActors: trusted,
     });
-    expect(verdict).toMatchObject({ ok: false, reason: "project_unregistered" });
+    expect(verdict).toMatchObject({ kind: "reject", reason: "project_unregistered" });
   });
 
-  it("refuses an actor who is not on the trusted list", () => {
+  it("holds an untrusted labeler for approval instead of dropping it", () => {
     const verdict = authorizeIssueTrigger({
       projects: [project()],
       repoOrigin: "LUDIARS/Concordia",
       actor: "drive-by",
+      issueAuthor: "drive-by",
       trustedActors: trusted,
     });
-    expect(verdict).toMatchObject({ ok: false, reason: "actor_untrusted" });
+    expect(verdict).toMatchObject({ kind: "needs_approval" });
   });
 
-  it("treats an empty trusted list as nobody, not everybody", () => {
+  it("accepts a trusted issue author even when someone else attached the label", () => {
+    const verdict = authorizeIssueTrigger({
+      projects: [project()],
+      repoOrigin: "LUDIARS/Concordia",
+      actor: "drive-by",
+      issueAuthor: "neco",
+      trustedActors: trusted,
+    });
+    expect(verdict.kind).toBe("allow");
+  });
+
+  it("accepts a trusted labeler on someone else's issue", () => {
     const verdict = authorizeIssueTrigger({
       projects: [project()],
       repoOrigin: "LUDIARS/Concordia",
       actor: "neco",
+      issueAuthor: "drive-by",
+      trustedActors: trusted,
+    });
+    expect(verdict.kind).toBe("allow");
+  });
+
+  it("treats an empty trusted list as everything needing approval, not everything allowed", () => {
+    const verdict = authorizeIssueTrigger({
+      projects: [project()],
+      repoOrigin: "LUDIARS/Concordia",
+      actor: "neco",
+      issueAuthor: "neco",
       trustedActors: [],
     });
-    expect(verdict).toMatchObject({ ok: false, reason: "actor_untrusted" });
+    expect(verdict).toMatchObject({ kind: "needs_approval" });
   });
 });

@@ -13,6 +13,7 @@ import type { Database } from "better-sqlite3";
 /** @implements spec/feature/github-issue-workflow.md — 状態 */
 export const GITHUB_ISSUE_RUN_STATUSES = [
   "queued",
+  "awaiting_approval",
   "running",
   "pr_submitted",
   "review_passed",
@@ -38,6 +39,7 @@ export interface GithubIssueRunRow {
   issue_url: string;
   label: string;
   actor: string;
+  issue_author: string;
   project_code: string | null;
   repo_path: string;
   branch: string;
@@ -51,6 +53,8 @@ export interface GithubIssueRunRow {
 }
 
 export interface GithubIssueRunCreate {
+  /** 起票者。 実行者 (ラベルを付けた人) と別人のことがある。 */
+  issueAuthor: string;
   repoOrigin: string;
   issueNumber: number;
   issueTitle: string;
@@ -72,11 +76,18 @@ export interface GithubIssueRunPatch {
 
 export interface GithubIssueRunsRepo {
   /** 既に同じ Issue の run があれば作らずに `null` を返す (二重起動しない)。 */
-  create(input: GithubIssueRunCreate, now?: number): GithubIssueRunRow | null;
+  create(input: GithubIssueRunCreate, status?: GithubIssueRunStatus, now?: number): GithubIssueRunRow | null;
   find(id: string): GithubIssueRunRow | null;
   findByIssue(repoOrigin: string, issueNumber: number, label: string): GithubIssueRunRow | null;
   list(filter?: { statuses?: readonly GithubIssueRunStatus[]; limit?: number }): GithubIssueRunRow[];
   update(id: string, patch: GithubIssueRunPatch, now?: number): GithubIssueRunRow | null;
+  /** 現在状態が一致したときだけ更新する。 承認操作同士の競合を 1 件だけに絞る。 */
+  updateIfStatus(
+    id: string,
+    expectedStatus: GithubIssueRunStatus,
+    patch: GithubIssueRunPatch,
+    now?: number,
+  ): GithubIssueRunRow | null;
   /** 終端 run を消して同じ Issue を作り直せるようにする (retry)。 */
   remove(id: string): boolean;
 }
@@ -91,8 +102,38 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
   const find = (id: string): GithubIssueRunRow | null =>
     (selectById.get(id) as GithubIssueRunRow | undefined) ?? null;
 
+  /** @implements spec/feature/github-issue-workflow.md — 状態 */
+  const updateMatching = (
+    id: string,
+    patch: GithubIssueRunPatch,
+    now: number,
+    expectedStatus?: GithubIssueRunStatus,
+  ): GithubIssueRunRow | null => {
+    const sets: string[] = [];
+    const values: Array<string | number | null> = [];
+    const push = (column: string, value: string | number | null): void => {
+      sets.push(`${column} = ?`);
+      values.push(value);
+    };
+    if (patch.status !== undefined) push("status", patch.status);
+    if (patch.delegationRunId !== undefined) push("delegation_run_id", patch.delegationRunId);
+    if (patch.localPrId !== undefined) push("local_pr_id", patch.localPrId);
+    if (patch.githubPrUrl !== undefined) push("github_pr_url", patch.githubPrUrl);
+    if (patch.detail !== undefined) push("detail", patch.detail);
+    if (sets.length === 0) {
+      const current = find(id);
+      return expectedStatus === undefined || current?.status === expectedStatus ? current : null;
+    }
+    push("updated_at", now);
+    const statusClause = expectedStatus === undefined ? "" : " AND status = ?";
+    const statusValues = expectedStatus === undefined ? [] : [expectedStatus];
+    const info = db.prepare(`UPDATE github_issue_runs SET ${sets.join(", ")} WHERE id = ?${statusClause}`)
+      .run(...values, id, ...statusValues);
+    return info.changes === 0 ? null : find(id);
+  };
+
   return {
-    create(input, now = Date.now()) {
+    create(input, status = "queued", now = Date.now()) {
       // 検査と INSERT を 1 transaction に閉じる。 webhook とポーリングが同時に同じ Issue を
       // 見たとき、 別 statement のままだと両方が「未登録」を見て 2 本走る。
       const run = db.transaction((): GithubIssueRunRow | null => {
@@ -103,10 +144,10 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
         const id = randomUUID();
         db.prepare(`
           INSERT INTO github_issue_runs(
-            id, repo_origin, issue_number, issue_title, issue_url, label, actor,
+            id, repo_origin, issue_number, issue_title, issue_url, label, actor, issue_author,
             project_code, repo_path, branch, status, delegation_run_id, local_pr_id,
             github_pr_url, detail, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'queued', NULL, NULL, NULL, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
         `).run(
           id,
           input.repoOrigin,
@@ -115,9 +156,12 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
           input.issueUrl,
           input.label,
           input.actor,
+          // 起票者が読めない payload もありうる。 空文字で残し、 承認画面で「不明」と分かるようにする。
+          input.issueAuthor ?? "",
           input.projectCode,
           input.repoPath,
           input.branch,
+          status,
           now,
           now,
         );
@@ -146,22 +190,11 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
     },
 
     update(id, patch, now = Date.now()) {
-      const sets: string[] = [];
-      const values: Array<string | number | null> = [];
-      const push = (column: string, value: string | number | null): void => {
-        sets.push(`${column} = ?`);
-        values.push(value);
-      };
-      if (patch.status !== undefined) push("status", patch.status);
-      if (patch.delegationRunId !== undefined) push("delegation_run_id", patch.delegationRunId);
-      if (patch.localPrId !== undefined) push("local_pr_id", patch.localPrId);
-      if (patch.githubPrUrl !== undefined) push("github_pr_url", patch.githubPrUrl);
-      if (patch.detail !== undefined) push("detail", patch.detail);
-      if (sets.length === 0) return find(id);
-      push("updated_at", now);
-      const info = db.prepare(`UPDATE github_issue_runs SET ${sets.join(", ")} WHERE id = ?`)
-        .run(...values, id);
-      return info.changes === 0 ? null : find(id);
+      return updateMatching(id, patch, now);
+    },
+
+    updateIfStatus(id, expectedStatus, patch, now = Date.now()) {
+      return updateMatching(id, patch, now, expectedStatus);
     },
 
     remove(id) {

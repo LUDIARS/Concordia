@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approvalRejectedComment, sanitizeGithubPublicText } from "./text.js";
+import { approvalRejectedComment, pullRequestTitle, sanitizeGithubPublicText } from "./text.js";
 
 describe("sanitizeGithubPublicText", () => {
   it("redacts credentials, local paths and private endpoints before GitHub publication", () => {
@@ -23,5 +23,13 @@ describe("approvalRejectedComment", () => {
     expect(text).not.toContain("supersecret");
     expect(text).not.toContain("E:/Document");
     expect(text).not.toContain("127.0.0.1");
+  });
+});
+
+describe("pullRequestTitle", () => {
+  it("preserves a feature request title without mislabeling it as a fix", () => {
+    const run = { issue_number: 42, issue_title: "ダッシュボードを追加" };
+
+    expect(pullRequestTitle(run)).toBe("ダッシュボードを追加 (#42)");
   });
 });

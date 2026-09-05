@@ -1,7 +1,7 @@
 /**
  * Issue コメントと GitHub PR 本文の組み立て (純関数)。
  *
- * 「何を直したか」と「どうなったか」を PR 本文に、 PR へのリンクを Issue に載せる
+ * 「依頼に対して何をしたか」と「どうなったか」を PR 本文に、 PR へのリンクを Issue に載せる
  * (2026-09-05 neco 指示)。 進捗・打ち切りも必ずコメントする — 押した人から見て
  * 黙って消える状態を作らない。
  *
@@ -37,7 +37,7 @@ export function awaitingApprovalComment(run: GithubIssueRunRow): string {
   return [
     `\`${run.label}\` ラベルを受け付けました。担当者の確認待ちです。`,
     "",
-    "確認が済むと修正を始め、結果をここに書きます。着手しないと判断した場合も、その旨を返します。",
+    "確認が済むと対応を始め、結果をここに書きます。着手しないと判断した場合も、その旨を返します。",
   ].join("\n") + SIGNATURE;
 }
 
@@ -48,7 +48,7 @@ export function awaitingApprovalComment(run: GithubIssueRunRow): string {
 export function approvalRejectedComment(reason: string): string {
   const publicReason = sanitizeGithubPublicText(reason).trim();
   return [
-    "確認の結果、自動修正は行わないことになりました。",
+    "確認の結果、自動での対応は行わないことになりました。",
     "",
     "### 理由",
     publicReason === "" ? "(理由の記載なし)" : publicReason,
@@ -57,14 +57,14 @@ export function approvalRejectedComment(reason: string): string {
 
 export function acceptedComment(run: GithubIssueRunRow): string {
   return [
-    `\`${run.label}\` ラベルを受け付けました。修正を試みます。`,
+    `\`${run.label}\` ラベルを受け付けました。対応します。`,
     "",
     // project_code は内部の登録名なので公開 Issue へ出さず、既に公開されている repo 名だけを使う。
     `- 対象: \`${run.repo_origin}\``,
     `- 作業ブランチ: \`${run.branch}\``,
     "",
-    "修正できた場合は審査 (Revisor) を通してから Pull Request を作り、ここにリンクを返します。"
-    + "コード起因でないと判断した場合は、その理由をここに書きます。",
+    "対応できた場合は審査 (Revisor) を通してから Pull Request を作り、ここにリンクを返します。"
+    + "リポジトリの変更では対応できないと判断した場合は、その理由をここに書きます。",
   ].join("\n") + SIGNATURE;
 }
 
@@ -73,7 +73,7 @@ export function publishedComment(input: { prUrl: string; summary: string }): str
   return [
     `Pull Request を作成しました: ${input.prUrl}`,
     "",
-    "### 修正内容",
+    "### 対応内容",
     summary === "" ? "(委託からの要約なし — PR の差分を参照)" : summary,
   ].join("\n") + SIGNATURE;
 }
@@ -81,7 +81,7 @@ export function publishedComment(input: { prUrl: string; summary: string }): str
 export function skippedComment(reason: string): string {
   const publicReason = sanitizeGithubPublicText(reason).trim();
   return [
-    "コードの修正は行いませんでした。",
+    "今回はリポジトリの変更を行いませんでした。",
     "",
     "### 理由",
     publicReason === "" ? "(理由の報告なし)" : publicReason,
@@ -91,7 +91,7 @@ export function skippedComment(reason: string): string {
 export function failedComment(reason: string): string {
   const publicReason = sanitizeGithubPublicText(reason).trim();
   return [
-    "自動修正は完了しませんでした。人による対応が要ります。",
+    "自動での対応は完了しませんでした。人による対応が要ります。",
     "",
     "### 状況",
     publicReason === "" ? "(理由の報告なし)" : publicReason,
@@ -99,7 +99,7 @@ export function failedComment(reason: string): string {
 }
 
 /**
- * GitHub PR の本文。 審査を通った事実と、 委託が報告した修正内容を載せ、
+ * GitHub PR の本文。 審査を通った事実と、 委託が報告した対応内容を載せ、
  * `Closes` で Issue に紐付ける。
  */
 export function pullRequestBody(input: {
@@ -111,7 +111,7 @@ export function pullRequestBody(input: {
   return [
     `Closes #${input.run.issue_number}`,
     "",
-    "### 修正内容",
+    "### 対応内容",
     summary === "" ? "(委託からの要約なし — 差分を参照)" : summary,
     "",
     "### 対応結果",
@@ -124,9 +124,10 @@ export function pullRequestBody(input: {
   ].join("\n");
 }
 
-export function pullRequestTitle(run: GithubIssueRunRow): string {
+export function pullRequestTitle(run: Pick<GithubIssueRunRow, "issue_number" | "issue_title">): string {
   const title = run.issue_title.trim() === "" ? `issue #${run.issue_number}` : run.issue_title.trim();
   // GitHub の PR タイトルは長すぎると読みにくいだけなので、 頭を残して切る。
+  // 対象は不具合に限らないので conventional の type は付けない (機能追加でも fix: になってしまう)。
   const trimmed = title.length > 120 ? `${title.slice(0, 117)}...` : title;
-  return `fix: ${trimmed} (#${run.issue_number})`;
+  return `${trimmed} (#${run.issue_number})`;
 }

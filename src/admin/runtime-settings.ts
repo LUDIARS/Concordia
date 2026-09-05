@@ -4,6 +4,7 @@ import {
   parseMainPushAllowlist,
 } from "../harness/main-push-allowlist.js";
 import { DEFAULT_UNSTARTED_SEC } from "../delegation/unstarted-run.js";
+import { DEFAULT_ZOMBIE_GRACE_MS } from "../delegation/zombie-run-detect.js";
 import type { SettingsStore } from "./settings-store.js";
 
 const KEYS = {
@@ -20,6 +21,9 @@ const KEYS = {
   watchdogMaxNudges: "admin.delegation_watchdog_max_nudges",
   watchdogUnstartedSec: "admin.delegation_watchdog_unstarted_sec",
   reaperSessionEndGraceSec: "admin.reaper_session_end_grace_sec",
+  finishedRunScanEnabled: "admin.delegation_finished_run_scan_enabled",
+  finishedRunAutoReap: "admin.delegation_finished_run_auto_reap",
+  finishedRunGraceSec: "admin.delegation_finished_run_grace_sec",
   thinkingMessages: "admin.thinking_messages_enabled",
 } as const;
 
@@ -101,6 +105,15 @@ export class RuntimeSettingsStore {
   /** 委託プロンプト未達 (transcript 0 行) とみなすまでの秒数。 idle 判定とは別軸で短い。 */
   getDelegationWatchdogUnstartedSec(): number { return positiveOrDefault(this.store.get(KEYS.watchdogUnstartedSec), DEFAULT_UNSTARTED_SEC); }
   setDelegationWatchdogUnstartedSec(value: number): void { this.store.set(KEYS.watchdogUnstartedSec, String(requirePositive(value, "delegation_watchdog_unstarted_sec"))); }
+  /**
+   * 終了済み run のプロセス残留 (ゾンビ) 走査。 検出は既定 ON、 kill は既定 OFF。
+   * kill は共有インフラの lifecycle 操作なので、 明示的に有効化したときだけ行う。
+  */
+  getDelegationFinishedRunScanEnabled(): boolean { return this.store.getBoolean(KEYS.finishedRunScanEnabled, true); }
+  getDelegationFinishedRunAutoReap(): boolean { return this.store.getBoolean(KEYS.finishedRunAutoReap, false); }
+  getDelegationFinishedRunGraceSec(): number {
+    return positiveOrDefault(this.store.get(KEYS.finishedRunGraceSec), DEFAULT_ZOMBIE_GRACE_MS / 1000);
+  }
   getReaperSessionEndGraceSec(): number { return positiveOrDefault(this.store.get(KEYS.reaperSessionEndGraceSec), this.reaperSessionEndGraceDefault); }
   setReaperSessionEndGraceSec(value: number): void { this.store.set(KEYS.reaperSessionEndGraceSec, String(requirePositive(value, "reaper_session_end_grace_sec"))); }
   /**

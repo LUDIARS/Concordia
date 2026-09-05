@@ -6,6 +6,7 @@ import type {
 import type { DelegationRuntimeOptions } from "../control/provider-preset.js";
 import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { EffortTaskBucket } from "./effort-policy.js";
+import type { SpawnWorktreeState } from "../control/spawn-target.js";
 
 export interface DelegationDefinition {
   template_id: string | null;
@@ -59,6 +60,8 @@ export interface InvokeInput {
     reasoning_effort?: string;
   };
   parent_session_id?: string | null;
+  /** /v1/delegation/invoke が parent session contract から解決した branch。 */
+  contract_branch?: string;
   branch?: string;
   worktree?: boolean;
   subsidiary_id?: string | null;
@@ -88,6 +91,8 @@ export type LaunchResult =
       branch: string | null;
       worktree_path: string | null;
       worktree_created: boolean;
+      /** worktree 解決の結果状態。 監視で事故 (共有 checkout 着地) を拾うための観測点。 */
+      worktree_state: SpawnWorktreeState | null;
       effort_level: string | null;
       effort_source: string | null;
       effort_bucket: EffortTaskBucket | null;

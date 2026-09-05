@@ -45,6 +45,7 @@ export async function executeQueuedRun(input: {
     spawn_branch: launch.branch,
     spawn_worktree_path: launch.worktree_path,
     spawn_worktree_created: launch.worktree_created,
+    spawn_worktree_state: launch.worktree_state,
     effort_decision_id: launch.effort_decision_id,
   };
   // 起票できた追跡タスクは run へ焼く (未関連のときだけ書かれる = 二重起票なし)。

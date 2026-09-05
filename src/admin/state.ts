@@ -93,6 +93,9 @@ export class AdminState {
   setDelegationWatchdogMaxNudges(value: number): void { this.runtime.setDelegationWatchdogMaxNudges(value); }
   getDelegationWatchdogUnstartedSec(): number { return this.runtime.getDelegationWatchdogUnstartedSec(); }
   setDelegationWatchdogUnstartedSec(value: number): void { this.runtime.setDelegationWatchdogUnstartedSec(value); }
+  getDelegationFinishedRunScanEnabled(): boolean { return this.runtime.getDelegationFinishedRunScanEnabled(); }
+  getDelegationFinishedRunAutoReap(): boolean { return this.runtime.getDelegationFinishedRunAutoReap(); }
+  getDelegationFinishedRunGraceSec(): number { return this.runtime.getDelegationFinishedRunGraceSec(); }
   getReaperSessionEndGraceSec(): number { return this.runtime.getReaperSessionEndGraceSec(); }
   setReaperSessionEndGraceSec(value: number): void { this.runtime.setReaperSessionEndGraceSec(value); }
   getThinkingMessagesEnabled(): boolean { return this.runtime.getThinkingMessagesEnabled(); }
@@ -122,6 +125,9 @@ export class AdminState {
       delegation_watchdog_max_nudges: this.getDelegationWatchdogMaxNudges(),
       delegation_watchdog_unstarted_sec: this.getDelegationWatchdogUnstartedSec(),
       reaper_session_end_grace_sec: this.getReaperSessionEndGraceSec(),
+      delegation_finished_run_scan_enabled: this.getDelegationFinishedRunScanEnabled(),
+      delegation_finished_run_auto_reap: this.getDelegationFinishedRunAutoReap(),
+      delegation_finished_run_grace_sec: this.getDelegationFinishedRunGraceSec(),
       workflows: this.workflows.snapshot(),
     };
   }

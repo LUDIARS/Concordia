@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -578,6 +578,12 @@ describe("DelegationService.invoke", () => {
   });
 
   it("default_cwd: expands ${var} from args when caller does not provide cwd", async () => {
+    // cwd は spawn 前に実在を検証されるため、 実体のあるディレクトリを使う
+    // (以前は "/repos/myrepo" という架空パスで、 検証が無いことに依存していた)。
+    // branch を渡さないので git checkout であることまでは要求されない。
+    const parent = mkdtempSync(join(tmpdir(), "deleg-cwd-"));
+    const repoRoot = join(parent, "myrepo");
+    mkdirSync(repoRoot, { recursive: true });
     repo.createTemplate({
       call_name: "cwd-template",
       title: "CWD Template",
@@ -587,15 +593,37 @@ describe("DelegationService.invoke", () => {
         { name: "task", type: "string", required: true },
         { name: "repo", type: "string", required: false },
       ],
-      default_cwd: "/repos/${repo}",
+      default_cwd: join(parent, "${repo}"),
     });
-    const r = await svc.invoke({
-      call_name: "cwd-template",
-      args: { task: "build", repo: "myrepo" },
+    try {
+      const r = await svc.invoke({
+        call_name: "cwd-template",
+        args: { task: "build", repo: "myrepo" },
+      });
+      expect(r.ok).toBe(true);
+      const req = spawnCalls[0] as { cwd?: string };
+      expect(req.cwd).toBe(repoRoot);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it("default_cwd: refuses to spawn when the resolved cwd does not exist", async () => {
+    // 2026-09-05 の事故。 実在しない .wt-* を cwd に渡すと wt.exe の -d が効かず、
+    // cwd が親を辿って共有 checkout へ着地していた。 spawn 前に止める。
+    const missing = join(tmpdir(), "deleg-cwd-missing", "does-not-exist");
+    repo.createTemplate({
+      call_name: "cwd-missing",
+      title: "CWD Missing",
+      target_provider: "claude",
+      prompt_template: "do ${task}",
+      input_schema: [{ name: "task", type: "string", required: true }],
+      default_cwd: missing,
     });
-    expect(r.ok).toBe(true);
-    const req = spawnCalls[0] as { cwd?: string };
-    expect(req.cwd).toBe("/repos/myrepo");
+    const r = await svc.invoke({ call_name: "cwd-missing", args: { task: "build" } });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.error).toContain("does not exist");
+    expect(spawnCalls).toHaveLength(0);
   });
 
   it("branch + worktree rewrites the spawned cwd without switching the source repo", async () => {

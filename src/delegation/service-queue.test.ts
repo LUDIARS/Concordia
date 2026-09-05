@@ -111,6 +111,7 @@ describe("delegation queue × service", () => {
     const after = repo.findRun(second.run.id)!;
     expect(after.status).toBe("spawned");
     expect(after.spawn_pid).toBe(4242);
+    expect(after.spawn_worktree_state).toBe("none-by-design");
     expect(after.queue_payload_json).toBeNull();
     expect(spawnCalls).toBe(2);
     // 起動時に prompt file が書かれる (run.id と同名 = 事前確保した path)。

@@ -24,6 +24,7 @@ function okResult(): InvokeResultOk {
     spawn_branch: null,
     spawn_worktree_path: null,
     spawn_worktree_created: false,
+    spawn_worktree_state: null,
     queued: false,
     queue_position: null,
   };

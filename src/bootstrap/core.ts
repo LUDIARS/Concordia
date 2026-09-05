@@ -88,6 +88,7 @@ import { startWalGuard } from "../db/wal-guard.js";
 import { startReaper } from "../control/reaper.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
+import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
 import { startIdleNudge } from "../control/idle-nudge.js";
 import { startGoalAndGo } from "../control/goal-and-go.js";
 import { pendingQuestionProbe } from "../control/pending-question-blocker.js";
@@ -1647,6 +1648,18 @@ export async function startBackend(): Promise<BackendHandle> {
         resolveMaxNudges: () => adminState.getDelegationWatchdogMaxNudges(),
         resolveUnstartedSec: () => adminState.getDelegationWatchdogUnstartedSec(),
         intervalMs: cfg.delegationWatchdogIntervalMs,
+      }),
+    );
+    // 終了済み run にプロセスが残っていないか (ゾンビ委託)。 run が completed / failed に
+    // なっても claude.exe が終了せず 1 コアを焼き続ける事象への対策 (2026-09-05)。
+    // 検出は常時、 kill は admin.delegation_finished_run_auto_reap が ON のときだけ。
+    trackPostListenHandle(
+      startFinishedRunReaper({
+        runs: delegationRepo,
+        sessions: repo,
+        resolveEnabled: () => adminState.getDelegationFinishedRunScanEnabled(),
+        resolveAutoReap: () => adminState.getDelegationFinishedRunAutoReap(),
+        resolveGraceMs: () => adminState.getDelegationFinishedRunGraceSec() * 1000,
       }),
     );
     trackPostListenHandle(

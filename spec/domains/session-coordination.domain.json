@@ -23,5 +23,8 @@
       "pathPattern": "(^|/)src/providers/[^/]+$"
     }
   ],
-  "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports."
+  "cardTemplate": "Summarise the \"session-coordination\" domain: Core purpose: track concurrent AI coding agent sessions — register, share progress, detect lost sessions, recover from jsonl, resume, and generate end-of-session reports.",
+  "specRefs": [
+    "spec/feature/delegation-spawn-target-validation.md"
+  ]
 }

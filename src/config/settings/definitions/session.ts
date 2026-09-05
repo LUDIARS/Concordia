@@ -7,6 +7,7 @@
 
 import type { SettingDefinition } from "../types.js";
 import { DEFAULT_UNSTARTED_SEC } from "../../../delegation/unstarted-run.js";
+import { DEFAULT_ZOMBIE_GRACE_MS } from "../../../delegation/zombie-run-detect.js";
 
 /** env のみ・整数・表示専用の定型項目を作る (定義の反復を減らすためのローカル helper)。 */
 function envInteger(
@@ -374,6 +375,40 @@ export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
     envName: null,
     dbKey: "admin.delegation_watchdog_unstarted_sec",
     defaultValue: DEFAULT_UNSTARTED_SEC,
+    editable: true,
+    minValue: 1,
+  },
+  {
+    key: "delegation.finished_run_scan_enabled",
+    section: "delegation",
+    label: "終了済み run のプロセス残留を走査する",
+    description: "run が completed / failed になってもプロセスが残る事象 (2026-09-05) を検出する。 検出のみで停止はしない。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.delegation_finished_run_scan_enabled",
+    defaultValue: true,
+    editable: true,
+  },
+  {
+    key: "delegation.finished_run_auto_reap",
+    section: "delegation",
+    label: "残ったプロセスを自動停止する",
+    description: "検出した残留プロセスを taskkill で停止する。 共有インフラの lifecycle 操作なので既定 OFF。",
+    kind: "boolean",
+    envName: null,
+    dbKey: "admin.delegation_finished_run_auto_reap",
+    defaultValue: false,
+    editable: true,
+  },
+  {
+    key: "delegation.finished_run_grace_sec",
+    section: "delegation",
+    label: "残留とみなすまでの猶予 (秒)",
+    description: "run が終了扱いになってからこの秒数は残留と判定しない。 session-end flush と Discord 投稿の時間を見込む。",
+    kind: "integer",
+    envName: null,
+    dbKey: "admin.delegation_finished_run_grace_sec",
+    defaultValue: DEFAULT_ZOMBIE_GRACE_MS / 1000,
     editable: true,
     minValue: 1,
   },

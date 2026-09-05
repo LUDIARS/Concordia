@@ -773,6 +773,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           branch: result.spawn_branch,
           worktree_path: result.spawn_worktree_path,
           worktree_created: result.spawn_worktree_created,
+          worktree_state: result.spawn_worktree_state,
         });
       }
 

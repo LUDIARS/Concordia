@@ -63,6 +63,9 @@ describe("AdminState", () => {
       delegation_watchdog_max_nudges: 3,
       delegation_watchdog_unstarted_sec: 300,
       reaper_session_end_grace_sec: 300,
+      delegation_finished_run_scan_enabled: true,
+      delegation_finished_run_auto_reap: false,
+      delegation_finished_run_grace_sec: 600,
       // ワークフロー個別有効化フラグ。 既定は全て有効 (spec W1)。
       // 一覧を手で写すと key を足すたびにここが落ちるだけなので、 正本から導く。
       // 検証したいのは「全 key が既定で有効」であって、 key の綴りではない。

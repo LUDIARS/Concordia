@@ -125,6 +125,8 @@ export interface DelegationRunRow {
   spawn_branch?: string | null;
   spawn_worktree_path?: string | null;
   spawn_worktree_created?: number;
+  /** worktree 解決の結果状態 (created / reused / none-by-design / none-shared-checkout)。 */
+  spawn_worktree_state?: string | null;
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
@@ -233,6 +235,7 @@ export interface CreateRunInput {
   spawn_branch?: string | null;
   spawn_worktree_path?: string | null;
   spawn_worktree_created?: boolean;
+  spawn_worktree_state?: string | null;
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
@@ -257,6 +260,7 @@ export interface RunSpawnOutcome {
   spawn_branch?: string | null;
   spawn_worktree_path?: string | null;
   spawn_worktree_created?: boolean;
+  spawn_worktree_state?: string | null;
   effort_decision_id?: number | null;
   /** queued → spawn の払い出し経路でも段階注入の別を焼き戻す。 */
   staged_injection?: boolean;
@@ -461,9 +465,9 @@ export class DelegationRepo {
         rendered_prompt, prompt_file_path, spawn_pid, spawn_command,
         triggered_by, status, error, queue_payload_json, effort_level, effort_source,
         effort_bucket, effective_model, fast_mode, spawn_cwd, spawn_branch,
-        spawn_worktree_path, spawn_worktree_created, effort_decision_id, finished_at,
+        spawn_worktree_path, spawn_worktree_created, spawn_worktree_state, effort_decision_id, finished_at,
         team_id, subsidiary_id, staged_injection, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.template_id,
@@ -490,6 +494,7 @@ export class DelegationRepo {
       input.spawn_branch ?? null,
       input.spawn_worktree_path ?? null,
       input.spawn_worktree_created ? 1 : 0,
+      input.spawn_worktree_state ?? null,
       input.effort_decision_id ?? null,
       input.finished_at ?? (isTerminalStatus(input.status) ? now : null),
       input.team_id ?? null,
@@ -529,6 +534,21 @@ export class DelegationRepo {
     return this.db.prepare(
       `SELECT * FROM delegation_runs WHERE status IN ('launching', 'spawned', 'running') ORDER BY created_at ASC`,
     ).all() as DelegationRunRow[];
+  }
+
+  /**
+   * 終了扱いになった run のうち子 session を持つもの (新しい順)。
+   * finished-run-reaper がプロセス残留 (ゾンビ) を判定するための入力。
+   */
+  listFinishedRunsWithChildSession(limit = 200): DelegationRunRow[] {
+    return this.db.prepare(
+      `SELECT * FROM delegation_runs
+       WHERE status IN ('completed', 'failed')
+         AND finished_at IS NOT NULL
+         AND child_session_id IS NOT NULL
+       ORDER BY finished_at DESC
+       LIMIT ?`,
+    ).all(limit) as DelegationRunRow[];
   }
 
   /** review_only is a completion-policy input and must stay stable for every unfinished run. */
@@ -697,6 +717,7 @@ export class DelegationRepo {
              spawn_branch = COALESCE(?, spawn_branch),
              spawn_worktree_path = COALESCE(?, spawn_worktree_path),
              spawn_worktree_created = COALESCE(?, spawn_worktree_created),
+             spawn_worktree_state = COALESCE(?, spawn_worktree_state),
              effort_decision_id = COALESCE(?, effort_decision_id),
              staged_injection = COALESCE(?, staged_injection),
              finished_at = CASE WHEN ? IN ('spawn_failed', 'completed', 'failed') THEN COALESCE(finished_at, ?) ELSE finished_at END,
@@ -719,6 +740,7 @@ export class DelegationRepo {
       outcome.spawn_branch ?? null,
       outcome.spawn_worktree_path ?? null,
       outcome.spawn_worktree_created === undefined ? null : (outcome.spawn_worktree_created ? 1 : 0),
+      outcome.spawn_worktree_state ?? null,
       outcome.effort_decision_id ?? null,
       outcome.staged_injection === undefined ? null : (outcome.staged_injection ? 1 : 0),
       outcome.status,

@@ -43,6 +43,7 @@ import {
   requeuePartialRun,
   rootRunId,
 } from "../delegation/partial-requeue.js";
+import { scanFinishedRuns } from "../delegation/finished-run-reaper.js";
 import { parseContractMetadata } from "../contract/schema.js";
 import { emitDelegationRunChanged } from "../delegation/run-events.js";
 import { commitForRun, commitFromRequestFile } from "../delegation/commit-broker.js";
@@ -255,6 +256,7 @@ export interface DelegationApiDeps {
   adminState?: {
     getDelegationMaxConcurrency: () => number;
     setDelegationMaxConcurrency: (value: number) => void;
+    getDelegationFinishedRunGraceSec?: () => number;
   };
   taskStore?: TaskMdStore;
   /** 未回答の質問があるセッションには自動 inject を送らない (blocker)。 */
@@ -624,7 +626,8 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       call_name: parsed.data.call_name,
       args: parsed.data.args,
       cwd: contract?.work_location?.value === "repo-root" ? deps.sessions?.findSession(parentSessionId!)?.repo_path : parsed.data.cwd,
-      branch: contract?.work_branch?.value ?? parsed.data.branch,
+      contract_branch: contract?.work_branch?.value,
+      branch: parsed.data.branch,
       worktree: contract ? contract.work_location?.value === "worktree" : parsed.data.worktree,
       extra_prompt: parsed.data.extra_prompt,
       memory_links: parsed.data.memory_links,
@@ -659,7 +662,29 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       spawn_branch: result.spawn_branch,
       spawn_worktree_path: result.spawn_worktree_path,
       spawn_worktree_created: result.spawn_worktree_created,
+      spawn_worktree_state: result.spawn_worktree_state,
     });
+  });
+
+  /**
+   * 終了済み run に残ったプロセス (ゾンビ委託) を今すぐ走査する。
+   *
+   * `?reap=1` を付けたときだけ停止する。 既定は検出のみで、 kill は明示操作。
+   * 定期走査は bootstrap の startFinishedRunReaper 側。
+   */
+  app.post("/finished-run-scan", async (c) => {
+    if (!deps.sessions) return c.json({ error: "sessions repo not available" }, 503);
+    const reap = ["1", "true", "yes"].includes((c.req.query("reap") ?? "").toLowerCase());
+    const sessions = deps.sessions;
+    const graceSec = deps.adminState?.getDelegationFinishedRunGraceSec?.();
+    const zombies = await scanFinishedRuns({
+      runs: deps.repo,
+      sessions: { findSession: (id) => sessions.findSession(id) },
+      resolveEnabled: () => true,
+      resolveAutoReap: () => reap,
+      resolveGraceMs: graceSec === undefined ? undefined : () => graceSec * 1000,
+    });
+    return c.json({ ok: true, reaped: reap, count: zombies.length, zombies });
   });
 
   app.post("/runs/:id/status", async (c) => {

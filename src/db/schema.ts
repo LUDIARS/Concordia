@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 87;
+export const SCHEMA_VERSION = 88;
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2159,6 +2159,19 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     }
     if (!names.has("status_card_message_id")) {
       db.exec("ALTER TABLE director_cases ADD COLUMN status_card_message_id TEXT");
+    }
+  },
+}, {
+  version: 88,
+  name: "delegation-spawn-worktree-state",
+  source: "delegation_runs.spawn_worktree_state — worktree 解決の結果を 4 値で持つ (spec/feature/delegation-spawn-target-validation.md §2.3)",
+  up(db) {
+    // spawn_worktree_created の boolean では「作らなかった」が branch 未指定 / 既存再利用 /
+    // 共有 checkout の 3 通りに潰れ、 事故と正常を機械的に区別できなかった (2026-09-05)。
+    const columns = db.prepare("PRAGMA table_info(delegation_runs)").all() as Array<{ name: string }>;
+    const names = new Set(columns.map((column) => column.name));
+    if (!names.has("spawn_worktree_state")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN spawn_worktree_state TEXT");
     }
   },
 },

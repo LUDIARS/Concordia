@@ -11,6 +11,7 @@ import { existsSync, statSync } from "node:fs";
 import { dirname, join, basename } from "node:path";
 import { promisify } from "node:util";
 import { retryTransientGit as retryGitWorktreeAdd } from "./retry-transient-git-error.js";
+import { validateSpawnCwd } from "./spawn-cwd.js";
 import { copyWorktreeProjectConfig } from "./worktree-project-config.js";
 import { copyWorktreeProjectMemory } from "./worktree-project-memory.js";
 
@@ -30,6 +31,22 @@ export interface SpawnTargetRequest {
   projectResources?: SpawnTargetResourcePreparer;
 }
 
+/**
+ * worktree 解決の結果状態。
+ *
+ * `worktree_created: boolean` だけでは「作らなかった」が 3 通り (branch 未指定 /
+ * 既存を再利用 / 共有 checkout で走る) に潰れ、 事故と正常を機械的に区別できな
+ * かった (2026-09-05 の調査で誤読の原因になった)。 状態を明示して監視できる形に
+ * する。
+ *
+ * - `created`               … 新規に worktree を作った
+ * - `reused`                … 既存の worktree をそのまま使った
+ * - `none-by-design`        … branch 指定が無い。 呼び出し元の cwd で走る (正常)
+ * - `none-shared-checkout`  … branch 指定はあるが worktree 無効。 共有 checkout
+ *                             上で走るため、 並行 session と衝突しうる (要注視)
+ */
+export type SpawnWorktreeState = "created" | "reused" | "none-by-design" | "none-shared-checkout";
+
 export interface SpawnTargetOk {
   ok: true;
   cwd?: string;
@@ -37,6 +54,7 @@ export interface SpawnTargetOk {
   worktree: boolean;
   worktree_path: string | null;
   worktree_created: boolean;
+  worktree_state: SpawnWorktreeState;
 }
 
 export interface SpawnTargetErr {
@@ -96,22 +114,36 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
   if (!parsedBranch.ok) return parsedBranch;
   const branch = parsedBranch.branch;
   const worktree = parseSpawnWorktree(input.worktree, branch);
-  const cwd = input.cwd?.trim() || undefined;
+  const git = input.git ?? defaultGit;
+
+  // branch の有無に関わらず cwd を検証する。 branch 経路の内側だけで git 判定を
+  // していたため、 branch 未指定だと実在しない cwd がそのまま spawn へ渡り、
+  // 共有 checkout へ着地していた (2026-09-05)。
+  const validated = await validateSpawnCwd({
+    cwd: input.cwd,
+    git,
+    requireGitCheckout: Boolean(branch && worktree),
+  });
+  if (!validated.ok) return validated;
+  const cwd = validated.cwd;
+
   if (!branch || !worktree) {
-    return { ok: true, cwd, branch, worktree: false, worktree_path: null, worktree_created: false };
+    return {
+      ok: true,
+      cwd,
+      branch,
+      worktree: false,
+      worktree_path: null,
+      worktree_created: false,
+      worktree_state: branch ? "none-shared-checkout" : "none-by-design",
+    };
   }
   if (!cwd) {
     return { ok: false, error: "branch worktree requires cwd or project" };
   }
 
-  const git = input.git ?? defaultGit;
   const projectResources = input.projectResources ?? defaultProjectResourcePreparer;
-  let repoRoot: string;
-  try {
-    repoRoot = (await git(cwd, ["rev-parse", "--show-toplevel"])).trim();
-  } catch (err) {
-    return { ok: false, error: `cwd is not a git repository: ${messageOf(err)}` };
-  }
+  const repoRoot = validated.repoRoot;
   if (!repoRoot) return { ok: false, error: "cwd is not a git repository" };
 
   const worktrees = await listWorktrees(git, repoRoot);
@@ -127,6 +159,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
       worktree: true,
       worktree_path: existing,
       worktree_created: false,
+      worktree_state: "reused",
     };
   }
 
@@ -148,6 +181,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
           worktree: true,
           worktree_path: worktreePath,
           worktree_created: false,
+          worktree_state: "reused",
         };
       }
       return {
@@ -185,6 +219,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     worktree: true,
     worktree_path: worktreePath,
     worktree_created: true,
+    worktree_state: "created",
   };
 }
 

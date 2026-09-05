@@ -45,6 +45,7 @@
     "spec/feature/delegation.md#メール監視-parttimer",
     "spec/feature/delegation.md#completed-報告の成果証跡",
     "spec/feature/delegation.md#status-報告の-utf-8-検証",
-    "spec/tasks/2026-08-08-delegation-run-watchdog.md"
+    "spec/tasks/2026-08-08-delegation-run-watchdog.md",
+    "spec/feature/delegation-spawn-target-validation.md"
   ]
 }

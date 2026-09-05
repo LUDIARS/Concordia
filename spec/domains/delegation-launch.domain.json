@@ -13,6 +13,7 @@
   ],
   "specRefs": [
     "spec/feature/delegation.md",
-    "spec/feature/delegation-implementation-inject.md"
+    "spec/feature/delegation-implementation-inject.md",
+    "spec/feature/delegation-spawn-target-validation.md"
   ]
 }

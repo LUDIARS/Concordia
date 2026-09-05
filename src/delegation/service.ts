@@ -24,7 +24,8 @@ import {
   GEMMA4_12_DEFAULT_MODEL,
   type DelegationRuntimeOptions,
 } from "../control/provider-preset.js";
-import { prepareSpawnTarget } from "../control/spawn-target.js";
+import { prepareSpawnTarget, type SpawnWorktreeState } from "../control/spawn-target.js";
+import { resolveDelegationBranch } from "./branch-source.js";
 import { buildDelegationContext } from "./persona-context.js";
 import { resolveManualKind } from "./manual-kind.js";
 import {
@@ -81,6 +82,7 @@ export interface InvokeResultOk {
   spawn_branch: string | null;
   spawn_worktree_path: string | null;
   spawn_worktree_created: boolean;
+  spawn_worktree_state: SpawnWorktreeState | null;
   /** true = 同時実行上限に達していたため spawn せずキューに入れた (status='queued')。 */
   queued: boolean;
   /** queued のときの待ち順 (1 始まり)。 それ以外は null。 */
@@ -224,6 +226,19 @@ export class DelegationService {
     const plan = buildInvocationPlan(def, input);
     if (!plan.ok) return plan;
     const renderedPrompt = plan.renderedPrompt;
+
+    // 指示書の本文と構造化 branch を突き合わせる。 本文だけが branch を指している
+    // 場合は呼び出し元の渡し忘れなので、 worktree を作らないまま spawn させない
+    // (2026-09-05 の共有 checkout 着地事故)。 /v1/delegation/invoke と
+    // /v1/admin/spawn の両経路がここを通るため、 検証は 1 箇所で足りる。
+    const branchResolution = resolveDelegationBranch({
+      contractBranch: input.contract_branch,
+      argumentBranch: typeof input.branch === "string" ? input.branch : null,
+      promptText: renderedPrompt,
+    });
+    if (!branchResolution.ok) return { ok: false, error: branchResolution.error };
+    input = { ...input, branch: branchResolution.branch ?? undefined };
+
     const runId = randomUUID();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const shouldSpawn = input.spawn !== false;
@@ -265,6 +280,7 @@ export class DelegationService {
         spawn_branch: null,
         spawn_worktree_path: null,
         spawn_worktree_created: false,
+        spawn_worktree_state: null,
         queued: true,
         queue_position: position,
       };
@@ -297,6 +313,7 @@ export class DelegationService {
       spawn_branch: launch.branch,
       spawn_worktree_path: launch.worktree_path,
       spawn_worktree_created: launch.worktree_created,
+      spawn_worktree_state: launch.worktree_state,
       effort_decision_id: launch.effort_decision_id,
       team_id: requestedTeam?.id ?? null,
       subsidiary_id: input.subsidiary_id ?? null,
@@ -316,6 +333,7 @@ export class DelegationService {
       spawn_branch: launch.branch,
       spawn_worktree_path: launch.worktree_path,
       spawn_worktree_created: launch.worktree_created,
+      spawn_worktree_state: launch.worktree_state,
       queued: false,
       queue_position: null,
     };
@@ -366,6 +384,7 @@ export class DelegationService {
     let spawnBranch: string | null = null;
     let spawnWorktreePath: string | null = null;
     let spawnWorktreeCreated = false;
+    let spawnWorktreeState: SpawnWorktreeState | null = null;
     if (shouldSpawn) {
       const target = await prepareSpawnTarget({
         cwd,
@@ -377,6 +396,7 @@ export class DelegationService {
       spawnBranch = target.branch;
       spawnWorktreePath = target.worktree_path;
       spawnWorktreeCreated = target.worktree_created;
+      spawnWorktreeState = target.worktree_state;
     }
     // Famulus は model 選択経路から外す。 local-LLM の auto は Cc が管理する catalog
     // 既定へ解決し、Genius model-review が hit した場合だけ明示候補で上書きされる。
@@ -454,6 +474,7 @@ export class DelegationService {
       branch: spawnBranch,
       worktree_path: spawnWorktreePath,
       worktree_created: spawnWorktreeCreated,
+      worktree_state: spawnWorktreeState,
       project: def.project ?? null,
       caller_cwd: input.cwd ?? null,
       template_default_cwd: def.default_cwd ?? null,
@@ -607,6 +628,7 @@ export class DelegationService {
       branch: spawnBranch,
       worktree_path: spawnWorktreePath,
       worktree_created: spawnWorktreeCreated,
+      worktree_state: spawnWorktreeState,
       effort_level: effortLevel,
       effort_source: effortSource,
       effort_bucket: effortBucket,

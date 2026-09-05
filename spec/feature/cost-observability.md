@@ -12,7 +12,7 @@ tags:
   - budget
   - api
 status: implemented
-updated: 2026-09-03
+updated: 2026-09-05
 ---
 
 # Session cost observability
@@ -88,11 +88,9 @@ frame は新しい順に上限 (既定 500) まで読む。累積値は新しい
 `GET /v1/cost/limit-timeseries` は `since`（既定 7 日前）以降の保存 sample に現在取得値を
 加え、provider の rate-limit 使用率と reset 時刻の系列を返す。
 
-**Requirement ID: `SPEC-COST-LIMIT-CARRY-FORWARD`**
-
-rate-limit telemetry が一時的に欠けた場合は、同じ provider の直前 sample が 30 分以内かつ
-現在以前なら、欠けたフィールドだけを直前値で補う。直前 sample がそれより古い、または
-現在より未来なら持ち越さず、取得できなかったフィールドを `null` として記録する。
+sample 保存時は、provider が観測した利用率だけを記録し、欠けた枠を過去の sample から
+補完しない。利用率を 1 つも観測できなかった provider は記録しない。一時的な取得失敗には、
+各 provider の取得層が直近の成功値を最長 30 分返すことで対応する。
 
 ## one-shot calls
 

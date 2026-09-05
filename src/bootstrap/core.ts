@@ -17,6 +17,8 @@ import { EscalationRepo } from "../db/escalation-repo.js";
 import { ingestEscalationTranscriptRecords } from "../control/escalation-transcript-intake.js";
 import { ChatRepo } from "../db/chat-repo.js";
 import { SkillsRepo } from "../db/skills-repo.js";
+import { SkillCatalogStore } from "../skills/catalog-store.js";
+import { readSkillBody, type SkillCatalogEntry } from "../skills/catalog.js";
 import { RulesRepo, seedDefaultRules } from "../db/rules-repo.js";
 import { DayReportsRepo } from "../db/day-reports-repo.js";
 import { ProcessesRepo } from "../db/processes-repo.js";
@@ -565,6 +567,24 @@ export async function startBackend(): Promise<BackendHandle> {
     lictorDevPath: workspaceRootDefault ? join(workspaceRootDefault, "Lictor") : "",
     reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
   }, secretBox);
+  // スキルカタログ (`.claude/skills` / `.claude/commands` / `~/.claude/skills`)。
+  // RWF の「絵文字 → スキル」と設定画面・一覧 API が共有する 1 個のキャッシュ。
+  // 起動時に 1 度走査し、 以後は POST /v1/skills/refresh で更新する (設計 §10.2 C-8)。
+  const skillCatalog = new SkillCatalogStore(() => adminState.getWorkspaceRoot());
+  void skillCatalog.refresh();
+  const skillCatalogPort = {
+    list: () => skillCatalog.current().entries,
+    find: (name: string) => skillCatalog.find(name),
+    readBody: (entry: SkillCatalogEntry) => readSkillBody(entry),
+  };
+  // `project_codes.domain_review` (🪬 の OFF 判定)。 列がまだ無い環境では "unknown"
+  // を返し、 判定できないことを理由に発火を止めない。
+  const resolveDomainReviewEnabled = (repoPath: string | null): boolean | "unknown" => {
+    if (!repoPath) return "unknown";
+    const value = projectCodesRepo.domainReviewFor(repoPath);
+    return value === null ? "unknown" : value;
+  };
+
   const delegationService = new DelegationService({
     repo: delegationRepo,
     concordiaUrl: publicUrlForDelegation,
@@ -1316,6 +1336,8 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 📋 一覧 / 📮 PR 提出 / 🔀 マージ (リアクションと操作パネルの共通実体)。
     prOperations: discordPrOperations,
+    skillCatalog: skillCatalogPort,
+    resolveDomainReviewEnabled,
     runHeadless: runClaude,
     repinSession: (sessionId) => repinSession(repo, sessionId),
     onRuntimeState: (state) => {
@@ -1371,6 +1393,8 @@ export async function startBackend(): Promise<BackendHandle> {
     },
     // 📋 一覧 / 📮 PR 提出 / 🔀 マージ。 役職は Slack の名簿で引く (platform 束縛が違うだけ)。
     prOperations: slackPrOperations,
+    skillCatalog: skillCatalogPort,
+    resolveDomainReviewEnabled,
     runHeadless: runClaude,
     // start のたびに DB+env から実効設定を解決 → 設定変更後の restart で即反映。
     resolveConfig: () => resolveSlackConfig(slackConfig, secretBox),
@@ -1439,6 +1463,7 @@ export async function startBackend(): Promise<BackendHandle> {
     escalations,
     chat,
     skills,
+    skillCatalog,
     rules,
     dayReports,
     processes,

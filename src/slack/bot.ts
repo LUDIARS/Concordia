@@ -106,6 +106,8 @@ export interface SlackBotDeps {
   resolveWorkspaceRoot?: () => string;
   /** 複数ワークスペースルートを bot start 時に live 解決する (Memoria は実在ルートを採用)。 */
   resolveWorkspaceRoots?: () => string[];
+  /** Unit/integration test boundary for the persisted emoji-to-skill mapping. */
+  customWorkflowsPath?: string;
   /** リアクションワークフローの安全弁の既定値 (env 由来)。 resolve 未指定時のフォールバック。 */
   reactionWorkflowEnabled?: boolean;
   /** 安全弁を bot 稼働中に live 評価する (設定 GUI トグルを再起動なしで反映)。 */
@@ -114,6 +116,15 @@ export interface SlackBotDeps {
   resolveReactionMappings?: () => Record<string, WorkflowAction>;
   /** アクション別ポリシー (子会社可否/要求権限) の live 解決。 Slack は常に本社扱い。 */
   resolveReactionActionPolicies?: () => import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies;
+  /**
+   * スキルカタログ (`.claude/skills` / `.claude/commands`) の参照口。 RWF の
+   * 「絵文字 → スキル」エントリが headless 実行で SKILL.md 本文を渡すのに使う。
+   */
+  skillCatalog?: import("../platform/reaction-workflow.js").RwfSkillCatalogPort;
+  /**
+   * `project_codes.domain_review` の解決 (🪬 の OFF 判定)。 "unknown" は判定不能。
+   */
+  resolveDomainReviewEnabled?: (repoPath: string | null) => boolean | "unknown";
   /**
    * リアクションワークフローの発火可否。 発火自体は誰でも可 (`reaction_workflow` =
    * ヒラ社員) なので実質は素通しゲート。 実行可否は下の `hasStaffCapability` が決める。
@@ -190,12 +201,16 @@ export async function startSlackBot(deps: SlackBotDeps): Promise<ChatPlatform | 
       eventBus.emit({ type: "session.inject", target_session_id: sessionId, text, source, ...(provenance ? { provenance } : {}), ts: Math.floor(Date.now() / 1000) }),
     workspaceRoot: deps.resolveWorkspaceRoot?.() || deps.workspaceRoot || process.cwd(),
     workspaceRoots: deps.resolveWorkspaceRoots?.(),
+    customWorkflowsPath: deps.customWorkflowsPath,
     enabled: deps.resolveReactionWorkflowEnabled ?? (() => deps.reactionWorkflowEnabled ?? false),
     customMappings: deps.resolveReactionMappings,
     // リアクションは誰でも押せるが、 中身が spawn / merge を要求するならここで役職を問う。
     hasCapability: deps.hasStaffCapability,
     // Slack は本社のみ (子会社 Bot は未配線) だが、権限上書きポリシーは共有する。
     resolveActionPolicies: deps.resolveReactionActionPolicies,
+    // 「絵文字 → スキル」エントリ (設計 §10.2 C-9) の解決口。
+    skills: deps.skillCatalog,
+    domainReviewEnabled: deps.resolveDomainReviewEnabled,
     // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log: { info: (m) => log.info(`reaction-workflow: ${m}`), warn: (m) => log.warn(`reaction-workflow: ${m}`) },

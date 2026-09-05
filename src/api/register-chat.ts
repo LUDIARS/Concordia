@@ -15,6 +15,12 @@ import { createChildLogger } from "../shared/logger.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { chatRouter } from "./chat.js";
+import {
+  reactionSkillWorkflowRouter,
+  reactionWorkflowMigrationRouter,
+} from "./reaction-skill-workflows.js";
+import { SkillCatalogStore } from "../skills/catalog-store.js";
+import { migrateBuiltinWorkflowsToSkills } from "../platform/reaction-workflow.js";
 import { dailyRouter } from "./daily.js";
 import { monitorRouter } from "./monitor.js";
 import type { BotRuntimeStatus } from "./platform-runtime-status.js";
@@ -49,6 +55,11 @@ export interface ChatDeps {
   secretBox?: SecretBox;
   /** 社員名簿。 リアクションワークフローの「発火できる人が居るか」判定に使う。 */
   staff?: StaffRepo;
+  /**
+   * スキルカタログ (`.claude/skills` / `.claude/commands`)。 RWF の「スキル割り当て」
+   * 設定画面と移行 API が使う。 未注入ならワークスペースルートから自前で作る。
+   */
+  skillCatalog?: SkillCatalogStore;
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
@@ -66,11 +77,28 @@ export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
       "/v1/admin/reaction-workflow",
       "/v1/admin/reaction-mappings",
       "/v1/admin/reaction-action-policies",
+      "/v1/admin/reaction-skill-workflows",
+      "/v1/reaction-workflow",
     ]) {
       app.use(prefix, gate);
       app.use(`${prefix}/*`, gate);
     }
   }
+  // RWF の「絵文字 → スキル」割り当て (設計 §10.2 C-10) と、 組み込み → スキルの移行
+  // (§11.2 の 2)。 保存先は Runner と同じ customWorkflows JSON。
+  const skillCatalog = deps.skillCatalog
+    ?? new SkillCatalogStore(() => deps.adminState.getWorkspaceRoot());
+  const skillWorkflowDeps = {
+    resolveWorkspaceRoot: () => deps.adminState.getWorkspaceRoot(),
+    catalog: skillCatalog,
+    migrateBuiltin: async () => migrateBuiltinWorkflowsToSkills({
+      workspaceRoot: deps.adminState.getWorkspaceRoot(),
+      catalog: (await skillCatalog.ensure()).entries,
+    }),
+  };
+  app.route("/v1/admin/reaction-skill-workflows", reactionSkillWorkflowRouter(skillWorkflowDeps));
+  app.route("/v1/reaction-workflow", reactionWorkflowMigrationRouter(skillWorkflowDeps));
+
   app.route("/v1/monitor", monitorRouter({
     repo: deps.repo,
     metrics: deps.metrics,

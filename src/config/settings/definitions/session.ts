@@ -113,6 +113,17 @@ export const LLM_SETTINGS: readonly SettingDefinition[] = [
     defaultValue: null,
     editable: false,
   },
+  {
+    key: "llm.reaction_model_opus",
+    section: "llm",
+    label: "リアクション用 Opus モデル",
+    description: "リアクションワークフローの上位判断に使うモデル名。",
+    kind: "string",
+    envName: "CONCORDIA_REACTION_MODEL_OPUS",
+    dbKey: null,
+    defaultValue: "opus",
+    editable: false,
+  },
   envInteger("llm.context_window_tokens", "llm", "コンテキスト長の想定 (tokens)", "CONCORDIA_CONTEXT_WINDOW_TOKENS", null, "コンテキスト使用率の推定に使う想定ウィンドウ長。"),
 ] as const;
 
@@ -286,6 +297,14 @@ export const COMPACTION_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
+  envBoolean(
+    "delegation.domain_preamble",
+    "delegation",
+    "ドメイン前置きを付与",
+    "CONCORDIA_DELEGATION_DOMAIN_PREAMBLE",
+    true,
+    "委託プロンプトへ対象リポジトリのドメイン情報を前置きする。明示的な 0 で無効化する。",
+  ),
   // 取引先ごとに違う識別子は、 このリポジトリが public なのでソースへ置かない。
   // 既定は空で、 未設定のときは各テンプレが安全側の文面へ落ちる
   // (spec/plan/2026-09-04-externalize-partner-identifiers.md)。

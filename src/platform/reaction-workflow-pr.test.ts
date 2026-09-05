@@ -1,8 +1,13 @@
-import { describe, it, expect, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, it, expect, vi } from "vitest";
+import type { SkillCatalogEntry } from "../skills/catalog.js";
 import {
   classifyReactionWorkflow,
   primaryEmojiForAction,
   ReactionWorkflowRunner,
+  writeCustomWorkflows,
   type ReactionWorkflowInput,
   type ReactionWorkflowDeps,
   type WorkflowAction,
@@ -11,6 +16,33 @@ import {
 import type { RwfPrListOutcome, RwfPrMergeOutcome, RwfPrSubmitOutcome } from "./reaction-workflow-pr.js";
 
 const PR = { id: "lpr-1", number: 12, repository: "LUDIARS/Concordia", headRef: "feat/x" };
+
+// 🔀 の GitHub 経路は移行後 (設計 §11.2) スキル `merge-clean-pr` が担う。
+// local PR が無いときのフォールバックを見るために、最小の割り当てを用意する。
+const MERGE_SKILL_BODY = "# PR をマージする\ngh pr merge --squash --delete-branch で squash merge する。";
+const CATALOG: SkillCatalogEntry[] = [{
+  name: "merge-clean-pr",
+  description: "open な PR を squash merge する。",
+  path: "E:/Document/Ars/.claude/commands/merge-clean-pr.md",
+  source: "commands",
+  rwf: [{ emoji: ["🔀", "🚀"], action: "merge-pr", args: null, mode: "inject", model: "sonnet", cwd: "repo" }],
+}];
+
+let tempDir = "";
+let customWorkflowsPath = "";
+
+beforeAll(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), "concordia-rwf-pr-"));
+  customWorkflowsPath = join(tempDir, "custom-reaction-workflows.json");
+  await writeCustomWorkflows(customWorkflowsPath, [{
+    kind: "skill", emoji: "🔀", skill: "merge-clean-pr",
+    mode: "inject", model: "sonnet", cwd: "repo", action: "merge-pr",
+  }]);
+});
+
+afterAll(async () => {
+  await rm(tempDir, { recursive: true, force: true });
+});
 
 interface Harness {
   runner: ReactionWorkflowRunner;
@@ -52,6 +84,12 @@ function makeHarness(options: {
     },
     emitInject: (sessionId, text) => injects.push({ sessionId, text }),
     workspaceRoot: "E:/Document/Ars",
+    customWorkflowsPath,
+    skills: {
+      list: () => CATALOG,
+      find: (name) => CATALOG.find((entry) => entry.name === name) ?? null,
+      readBody: async () => MERGE_SKILL_BODY,
+    },
     enabled: true,
     hasCapability: () => options.hasCapability ?? true,
     ...(options.withOperations === false
@@ -244,9 +282,9 @@ describe("merge-pr (🔀)", () => {
 
     const texts = h.results.map((r) => r.result.text).join("\n");
     expect(texts).toContain("GitHub PR の squash merge 経路");
-    // どちらを実行したかを応答に出したうえで、従来経路へ進む。
+    // どちらを実行したかを応答に出したうえで、従来経路 (スキル merge-clean-pr) へ進む。
     expect(h.injects).toHaveLength(1);
-    expect(h.injects[0].text).toContain("squash merge");
+    expect(h.injects[0].text).toContain("/merge-clean-pr");
   });
 
   it("uses the headless GitHub route when the session is not active", async () => {
@@ -254,7 +292,9 @@ describe("merge-pr (🔀)", () => {
     await run(h, input("🔀", { sessionActive: false }));
 
     expect(h.headless).toHaveLength(1);
+    // headless では SKILL.md 本文をシステム文脈として渡す (skill 名だけでは解決されない)。
     expect(h.headless[0].prompt).toContain("squash merge");
+    expect(h.headless[0].prompt).toContain("/merge-clean-pr");
   });
 
   it("does not fall back when the requester lacks the merge capability", async () => {

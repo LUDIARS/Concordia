@@ -1,19 +1,23 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { afterAll, beforeAll, describe, it, expect } from "vitest";
+import type { SkillCatalogEntry } from "../skills/catalog.js";
 import type { InjectionProvenance } from "../shared/injection-provenance.js";
 import {
   classifyReactionWorkflow,
   defaultReactionEmojiMap,
   isReservedNonActionEmoji,
   isWorkflowAction,
+  migrateBuiltinWorkflowsToSkills,
   planWorkflow,
   reactionAckText,
   ReactionWorkflowRunner,
+  writeCustomWorkflows,
   WORKFLOW_ACTIONS,
   WORKFLOW_ACTION_HELP,
   type ReactionWorkflowInput,
+  type RwfSkillCatalogPort,
   type WorkflowAction,
   type WorkflowContext,
 } from "./reaction-workflow.js";
@@ -63,6 +67,9 @@ describe("classifyReactionWorkflow", () => {
     ["🚀", "merge-pr"],
     ["🔄", "sync-project-main-after-merge"],
     ["🔃", "sync-project-main-after-merge"],
+    // 設計 §9.2 C-7: ドメイン情報の投稿とドメインレビューの開始。
+    ["📑", "domain-report"],
+    ["🪬", "domain-review"],
   ] as const)("maps %s → %s", (emoji, action) => {
     expect(classifyReactionWorkflow(emoji)).toBe(action);
   });
@@ -105,8 +112,16 @@ describe("defaultReactionEmojiMap / isWorkflowAction", () => {
 
   it("isWorkflowAction rejects unknown strings", () => {
     expect(isWorkflowAction("start-impl")).toBe(true);
+    expect(isWorkflowAction("domain-review")).toBe(true);
     expect(isWorkflowAction("nope")).toBe(false);
     expect(isWorkflowAction(123)).toBe(false);
+  });
+
+  it("語彙の一覧と組み込み写像のキーが一致する (どちらかだけ足したら落ちる)", () => {
+    expect(Object.keys(defaultReactionEmojiMap()).length).toBeGreaterThan(0);
+    const actionsInMap = new Set(Object.values(defaultReactionEmojiMap()));
+    for (const action of WORKFLOW_ACTIONS) expect(actionsInMap.has(action)).toBe(true);
+    for (const action of actionsInMap) expect(WORKFLOW_ACTIONS).toContain(action);
   });
 });
 
@@ -121,211 +136,124 @@ describe("WORKFLOW_ACTION_HELP", () => {
   });
 });
 
-describe("planWorkflow", () => {
-  it("start-impl on active session → inject (no headless)", () => {
-    const plan = planWorkflow("start-impl", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("実装");
-  });
-
-  it("start-impl on inactive session → headless in repo cwd", () => {
-    const plan = planWorkflow("start-impl", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-  });
-
-  it("handoff-document on active session → inject, 引継ぎ資料を session-logs へ", () => {
-    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("引継ぎ資料");
-    expect(plan.prompt).toContain("session-logs");
-    expect(plan.prompt).toContain("残作業");
-  });
-
-  it("handoff-document on inactive session → headless sonnet in repo cwd", () => {
-    const plan = planWorkflow("handoff-document", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-  });
-
-  it("repo-memory-good → headless haiku in repo cwd, embeds message", () => {
-    const plan = planWorkflow("repo-memory-good", baseCtx);
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("haiku");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-    expect(plan.prompt).toContain("作業メモリ");
-    expect(plan.prompt).toContain("キャッシュ層");
-  });
-
-  it("repo-memory-bad on active session → inject (作業中断 + 反省、 記録せず)", () => {
-    const plan = planWorkflow("repo-memory-bad", baseCtx);
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("良くない");
-    expect(plan.prompt).toContain("中断");
-    expect(plan.prompt).toContain("記録しない");
-  });
-
-  it("repo-memory-bad on inactive session → headless haiku (反省のみ)", () => {
-    const plan = planWorkflow("repo-memory-bad", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("haiku");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-    expect(plan.prompt).toContain("良くない");
-  });
-
-  it("memoria-note → headless haiku in Memoria cwd", () => {
-    const plan = planWorkflow("memoria-note", baseCtx);
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("haiku");
-    expect(plan.cwd).toBe(baseCtx.memoriaPath);
-    expect(plan.prompt).toContain("Memoria");
-  });
-
-  it("memoria-task → headless sonnet in Memoria cwd", () => {
-    const plan = planWorkflow("memoria-task", baseCtx);
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.memoriaPath);
-    expect(plan.prompt).toContain("タスク");
-  });
-
-  it("enumerate-remaining on active session → inject (残作業洗い出し)", () => {
-    const plan = planWorkflow("enumerate-remaining", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("残作業");
-  });
-
-  it("enumerate-remaining on inactive session → headless sonnet in repo cwd", () => {
-    const plan = planWorkflow("enumerate-remaining", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-  });
-
-  it("memoria-remaining → headless sonnet in Memoria cwd (残作業記録)", () => {
-    const plan = planWorkflow("memoria-remaining", baseCtx);
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.memoriaPath);
-    expect(plan.prompt).toContain("残作業");
-    expect(plan.prompt).toContain("Memoria");
-  });
-
-  it("status-check on active session → inject (状況報告)", () => {
-    const plan = planWorkflow("status-check", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("状況");
-  });
-
-  it("status-check on inactive session → headless sonnet in repo cwd", () => {
-    const plan = planWorkflow("status-check", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-  });
-
-  it("inject prompts embed the converted posted message (投稿内容を変換して渡す)", () => {
-    for (const action of ["start-impl", "enumerate-remaining", "status-check"] as const) {
-      const plan = planWorkflow(action, { ...baseCtx, sessionActive: true });
+// ─── planWorkflow: 組み込み据え置きだけが本文を持つ (設計 §11.2 の 2) ──────────
+describe("planWorkflow (スキル移設後の残り)", () => {
+  it("force-enter → inject CR (session に関係なく)", () => {
+    for (const sessionActive of [true, false]) {
+      const plan = planWorkflow("force-enter", { ...baseCtx, sessionActive });
       expect(plan.mode).toBe("inject");
-      expect(plan.prompt).toContain("対象メッセージ");
-      expect(plan.prompt).toContain("キャッシュ層"); // baseCtx.messageText の一部
+      expect(plan.prompt).toBe("\r");
     }
   });
 
-  it("honors custom model overrides", () => {
-    const plan = planWorkflow("memoria-task", baseCtx, { haiku: "h", sonnet: "claude-sonnet-4-6" });
-    expect(plan.model).toBe("claude-sonnet-4-6");
-  });
-
-  it("defer-impl → headless sonnet in Memoria cwd, 別セッション対応 を含む", () => {
-    const plan = planWorkflow("defer-impl", { ...baseCtx, messageText: "認証トークン更新機能を実装しよう。Memoriaに詳細を記録してください。別セッションで対応します。" });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.memoriaPath);
-    expect(plan.prompt).toContain("別セッション");
-    expect(plan.prompt).toContain("実装タスク");
-    expect(plan.prompt).toContain("認証トークン");
-  });
-
-  it("force-enter → inject CR (session に関係なく)", () => {
-    const planActive = planWorkflow("force-enter", { ...baseCtx, sessionActive: true });
-    expect(planActive.mode).toBe("inject");
-    expect(planActive.prompt).toBe("\r");
-    const planInactive = planWorkflow("force-enter", { ...baseCtx, sessionActive: false });
-    expect(planInactive.mode).toBe("inject");
-    expect(planInactive.prompt).toBe("\r");
-  });
-
-  it("delegate-task on active session → inject (タスク判定 + 委託 + 監視)", () => {
-    const plan = planWorkflow("delegate-task", { ...baseCtx, sessionActive: true });
+  it("context は read model が使えない構成のための inject 文だけを持つ", () => {
+    const plan = planWorkflow("context", baseCtx);
     expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("タスク判定");
-    expect(plan.prompt).toContain("delegation/templates");
-    expect(plan.prompt).toContain("監視");
-    expect(plan.prompt).toContain("対象メッセージ");
-    expect(plan.prompt).toContain("キャッシュ層"); // baseCtx.messageText の一部
+    expect(plan.prompt).toContain("コンテキスト残量");
   });
 
-  it("delegate-task on inactive session → headless haiku in repoPath cwd", () => {
-    const plan = planWorkflow("delegate-task", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("haiku");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-    expect(plan.prompt).toContain("タスク判定");
-    expect(plan.prompt).toContain("監視は行わない");
-  });
-
-  it("resume-work on active session → inject (中断した作業の続き)", () => {
-    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("続き");
-    expect(plan.prompt).toContain("対象メッセージ");
-  });
-
-  it("resume-work on inactive session → headless sonnet in repo cwd, session-logs から復元", () => {
-    const plan = planWorkflow("resume-work", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-    expect(plan.prompt).toContain("session-logs");
-    expect(plan.prompt).toContain("git status");
-  });
-
-  it("merge-pr on active session → inject (open PR を squash merge)", () => {
-    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: true });
-    expect(plan.mode).toBe("inject");
-    expect(plan.prompt).toContain("マージ");
-    expect(plan.prompt).toContain("--squash");
-    expect(plan.prompt).toContain("gh pr checks");
-  });
-
-  it("merge-pr on inactive session → headless sonnet in repo cwd", () => {
-    const plan = planWorkflow("merge-pr", { ...baseCtx, sessionActive: false });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe(baseCtx.repoPath);
-    expect(plan.prompt).toContain("gh pr merge");
-  });
-
-  it("sync-project-main-after-merge → headless sonnet in workspace root and extracts project from message", () => {
-    const plan = planWorkflow("sync-project-main-after-merge", {
-      ...baseCtx,
-      messageText: "対応マージ後、Anatomiaをmain最新にする。",
-      workspaceRoot: "E:/Document/Ars",
-    });
-    expect(plan.mode).toBe("headless");
-    expect(plan.model).toBe("sonnet");
-    expect(plan.cwd).toBe("E:/Document/Ars");
-    expect(plan.prompt).toContain("対応マージ後、<project>をmain最新にする");
-    expect(plan.prompt).toContain("Anatomia");
-    expect(plan.prompt).toContain("git pull --ff-only");
-    expect(plan.prompt).toContain("サービス再起動や起動テストは行わない");
-    expect(plan.prompt).toContain("worktree/複製フォルダからのサービス起動");
+  it("スキルへ移設したアクションは組み込みプロンプトを持たない", () => {
+    for (const action of [
+      "start-impl", "enumerate-remaining", "memoria-remaining", "status-check",
+      "repo-memory-good", "repo-memory-bad", "memoria-note", "memoria-task",
+      "defer-impl", "delegate-task", "reschedule-non-goal", "run-goal-tasks",
+      "handoff-document", "resume-work", "merge-pr", "sync-project-main-after-merge",
+      "add-as-workflow", "domain-report", "domain-review",
+    ] as const) {
+      expect(planWorkflow(action, baseCtx).prompt).toBe("");
+    }
   });
 });
 
-describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () => {
+// ─── Runner ────────────────────────────────────────────────────────────────
+// 移行後は「絵文字 → スキル」が実行経路なので、 スキル一覧と割り当て JSON を
+// 実際に用意して回す (移設漏れがあればここで落ちる)。
+
+const SKILL_BODIES: Record<string, string> = {
+  "memoria-note": "# メモを Memoria に記録する\n投稿内容をそのまま記録する。",
+  "remaining-enumerate": "# 残作業を洗い出す\n未完了の作業を列挙する。",
+  "sync-main-after-merge": "# 対応マージ後に main 最新化\ngit pull --ff-only で同期する。",
+  "codex-delegate": "# タスク委託\nテンプレートを選んで invoke する。",
+  "handoff": "# 引継ぎ資料\nsession-logs に書き出す。",
+  "domain-review": "# ドメインレビュー\nAnatomia から business-domain-view を取る。",
+  "merge-clean-pr": "# PR をマージする\ngh pr merge --squash。",
+  "impl": "# 実装着手\n提案をそのまま実装する。",
+};
+
+const CATALOG: SkillCatalogEntry[] = [
+  entry("context-report", ["🧠"], "context", "inject", "opus", "repo"),
+  entry("impl", ["👍", "🆗"], "start-impl", "inject", null, "repo"),
+  entry("remaining-enumerate", ["🙏"], "enumerate-remaining", "inject", "sonnet", "repo"),
+  entry("memoria-record", ["🫶", "😴", "✨"], "memoria-remaining", "headless", "sonnet", "memoria"),
+  entry("pulse", ["📲", "🆙", "👆"], "status-check", "inject", "sonnet", "repo"),
+  entry("repo-memory-good", ["😄", "😀", "😃", "😊", "🙂", "😁"], "repo-memory-good", "headless", "haiku", "repo"),
+  entry("repo-memory-bad", ["😡", "💢", "👿", "😠", "👎"], "repo-memory-bad", "inject", "haiku", "repo"),
+  entry("memoria-note", ["👀", "👁️", "👁", "👈", "📓", "✏️", "✏"], "memoria-note", "headless", "haiku", "memoria"),
+  entry("memoria-task", ["📝", "🗒️", "🗒", "✅", "☑️", "✔️", "✔"], "memoria-task", "headless", "sonnet", "memoria"),
+  entry("defer-impl", ["⏭️", "⏭", "📤", "🗂️", "🗂"], "defer-impl", "headless", "sonnet", "memoria"),
+  entry("codex-delegate", ["🤝", "🫱"], "delegate-task", "inject", "haiku", "repo"),
+  entry("reschedule-non-goal", ["📅", "🗓️", "🗓"], "reschedule-non-goal", "headless", "sonnet", "memoria"),
+  entry("memoria-work", ["🎯"], "run-goal-tasks", "inject", "sonnet", "repo"),
+  entry("handoff", ["👋"], "handoff-document", "inject", "sonnet", "repo"),
+  entry("resume", ["▶️", "▶", "⏩", "⏯️", "⏯"], "resume-work", "inject", "sonnet", "repo"),
+  entry("merge-clean-pr", ["🔀", "🚀"], "merge-pr", "inject", "sonnet", "repo"),
+  entry("sync-main-after-merge", ["🔄", "🔃"], "sync-project-main-after-merge", "headless", "sonnet", "castra"),
+  entry("add-as-workflow", ["🛠️", "🛠"], "add-as-workflow", "headless", "haiku", "repo"),
+  {
+    name: "domain-review",
+    description: "ドメインレビュー。",
+    path: "E:/Document/Ars/.claude/skills/domain-review/SKILL.md",
+    source: "skills",
+    rwf: [
+      { emoji: ["📑"], action: "domain-report", args: "--report-only", mode: "headless", model: "sonnet", cwd: "repo" },
+      { emoji: ["🪬"], action: "domain-review", args: null, mode: "inject", model: "opus", cwd: "repo" },
+    ],
+  },
+];
+
+function entry(
+  name: string,
+  emoji: string[],
+  action: string,
+  mode: "inject" | "headless",
+  model: string | null,
+  cwd: string | null,
+): SkillCatalogEntry {
+  return {
+    name,
+    description: `${name} のスキル。`,
+    path: `E:/Document/Ars/.claude/skills/${name}/SKILL.md`,
+    source: "skills",
+    rwf: [{ emoji, action, args: null, mode, model, cwd }],
+  };
+}
+
+const skillsPort: RwfSkillCatalogPort = {
+  list: () => CATALOG,
+  find: (name) => CATALOG.find((e) => e.name === name) ?? null,
+  readBody: async (e) => SKILL_BODIES[e.name] ?? `# ${e.name}\n本文。`,
+};
+
+describe("ReactionWorkflowRunner.handle (絵文字 → スキル)", () => {
+  let temp = "";
+  let customWorkflowsPath = "";
+
+  beforeAll(async () => {
+    temp = await mkdtemp(join(tmpdir(), "concordia-reaction-workflow-"));
+    customWorkflowsPath = join(temp, "custom-reaction-workflows.json");
+    // 移行そのものを通して JSON を作る = seed → 実行 が繋がっていることを確かめる。
+    const seed = await migrateBuiltinWorkflowsToSkills({
+      workspaceRoot: temp,
+      catalog: CATALOG,
+      customWorkflowsPath,
+    });
+    expect(seed.uncovered).toEqual([]);
+  });
+
+  afterAll(async () => {
+    await rm(temp, { recursive: true, force: true });
+  });
+
   function makeRunner(over: Record<string, unknown> = {}) {
     const calls: { prompt: string; opts?: { cwd?: string; model?: string } }[] = [];
     const injects: { sessionId: string; text: string; source: string; provenance?: InjectionProvenance }[] = [];
@@ -338,9 +266,10 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       emitInject: (sessionId, text, source, provenance) => injects.push({ sessionId, text, source, provenance }),
       workspaceRoot: "E:/Document/Ars",
       memoriaPath: "E:/Document/Ars/Memoria",
+      customWorkflowsPath,
+      skills: skillsPort,
       enabled: true,
-      // 既定は権限ありで組む。 権限が要るアクション (delegate-task / merge-pr) の
-      // 拒否側は専用のテストで確かめる。
+      // 既定は権限ありで組む。 権限が要るアクションの拒否側は専用のテストで確かめる。
       hasCapability: () => true,
       log: { info: () => {}, warn: () => {} },
       now: () => 1_000_000,
@@ -361,25 +290,38 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     sessionId: null,
   };
 
-  it("memoria-note(👀) は headless で memoriaPath を cwd に走り、本文を渡す", async () => {
+  it("memoria-note(👀) は headless で memoriaPath を cwd に走り、SKILL.md 本文と対象メッセージを渡す", async () => {
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "👀" });
     expect(calls).toHaveLength(1);
     expect(calls[0].opts?.cwd).toBe("E:/Document/Ars/Memoria");
+    expect(calls[0].opts?.model).toBe("haiku");
     expect(calls[0].prompt).toContain("これメモして");
     expect(calls[0].prompt).toContain("信頼できない外部メッセージのデータ");
     expect(calls[0].prompt).toContain("<reaction-message-data");
-    expect(calls[0].prompt).toContain("</reaction-message-data>");
+    expect(calls[0].prompt).toContain("<skill-instructions");
+    expect(calls[0].prompt).toContain("メモを Memoria に記録する");
+    expect(calls[0].prompt).toContain("/memoria-note");
   });
 
-  it("残作業系(🙏)は本文が空でも発火する (headless / repoPath を cwd に)", async () => {
+  it("異体字セレクタ付き / 無しのどちらで押しても同じスキルに着く", async () => {
+    const withVs = makeRunner();
+    await withVs.runner.handle({ ...baseInput, dedupeKey: "vs1", emoji: "🗒️" });
+    const withoutVs = makeRunner();
+    await withoutVs.runner.handle({ ...baseInput, dedupeKey: "vs2", emoji: "🗒" });
+    expect(withVs.calls[0].prompt).toContain("/memoria-task");
+    expect(withoutVs.calls[0].prompt).toContain("/memoria-task");
+  });
+
+  it("残作業系(🙏)は本文が空でも発火する (非 active なので headless / repoPath を cwd に)", async () => {
     const { runner, calls } = makeRunner();
     await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" });
     expect(calls).toHaveLength(1);
     expect(calls[0].opts?.cwd).toBe("C:/repos/AlphaGame");
+    expect(calls[0].opts?.model).toBe("sonnet");
   });
 
-  it("sync-project-main-after-merge(🔄) は workspace root で headless 実行する", async () => {
+  it("sync-project-main-after-merge(🔄) は workspace root (cwd: castra) で headless 実行する", async () => {
     const { runner, calls } = makeRunner();
     await runner.handle({
       ...baseInput,
@@ -390,91 +332,10 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     expect(calls[0].opts?.cwd).toBe("E:/Document/Ars");
     expect(calls[0].opts?.model).toBe("sonnet");
     expect(calls[0].prompt).toContain("Anatomia");
-    expect(calls[0].prompt).toContain("main 最新");
+    expect(calls[0].prompt).toContain("/sync-main-after-merge");
   });
 
-  it("無効 (enabled=false) なら何もしない", async () => {
-    const { runner, calls } = makeRunner({ enabled: false });
-    await runner.handle({ ...baseInput });
-    expect(calls).toHaveLength(0);
-  });
-
-  it("同一 dedupeKey+emoji+userId は cooldown 内で1回だけ発火", async () => {
-    const { runner, calls } = makeRunner();
-    await runner.handle({ ...baseInput });
-    await runner.handle({ ...baseInput });
-    expect(calls).toHaveLength(1);
-  });
-
-  it("ワークフロー対象外の絵文字は無処理", async () => {
-    const { runner, calls } = makeRunner();
-    await runner.handle({ ...baseInput, emoji: "🍕" });
-    expect(calls).toHaveLength(0);
-  });
-
-  it("予約済みの 👌 は custom mapping と custom workflow JSON の両方を遮断する", async () => {
-    const temp = await mkdtemp(join(tmpdir(), "concordia-reaction-workflow-"));
-    const customWorkflowsPath = join(temp, "custom-workflows.json");
-    await writeFile(customWorkflowsPath, JSON.stringify([{
-      emoji: "👌🏽",
-      prompt: "must not run",
-      model: "sonnet",
-    }]), "utf8");
-    try {
-      const overridden = makeRunner({
-        customMappings: () => ({ "👌": "handoff-document" }),
-      });
-      const customized = makeRunner({ customWorkflowsPath });
-      const accepted: WorkflowAction[] = [];
-      await overridden.runner.handle({ ...baseInput, emoji: "👌" }, (action) => accepted.push(action));
-      await customized.runner.handle(
-        { ...baseInput, dedupeKey: "m-custom", emoji: "👌🏽" },
-        (action) => accepted.push(action),
-      );
-
-      expect(overridden.calls).toHaveLength(0);
-      expect(customized.calls).toHaveLength(0);
-      expect(accepted).toHaveLength(0);
-    } finally {
-      await rm(temp, { recursive: true, force: true });
-    }
-  });
-
-  it("発火確定時に onAccept が action 付きで1回だけ呼ばれる", async () => {
-    const { runner } = makeRunner();
-    const accepted: WorkflowAction[] = [];
-    await runner.handle({ ...baseInput, emoji: "🙏", messageText: "" }, (a) => accepted.push(a));
-    expect(accepted).toEqual(["enumerate-remaining"]);
-  });
-
-  it("無効 / 対象外 / dedup-skip では onAccept は呼ばれない", async () => {
-    const accepted: WorkflowAction[] = [];
-    const onAccept = (a: WorkflowAction) => accepted.push(a);
-
-    const disabled = makeRunner({ enabled: false });
-    await disabled.runner.handle({ ...baseInput }, onAccept);
-    expect(accepted).toHaveLength(0); // enabled=false
-
-    const unmapped = makeRunner();
-    await unmapped.runner.handle({ ...baseInput, emoji: "🍕" }, onAccept);
-    expect(accepted).toHaveLength(0); // 写像外
-
-    const dup = makeRunner();
-    await dup.runner.handle({ ...baseInput }, onAccept);
-    await dup.runner.handle({ ...baseInput }, onAccept);
-    expect(accepted).toHaveLength(1); // 2回目は cooldown でスキップ
-  });
-
-  it("delegate-task(🤝) inactive → headless haiku / repoPath cwd / タスク判定含む", async () => {
-    const { runner, calls } = makeRunner();
-    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0].opts?.cwd).toBe("C:/repos/AlphaGame");
-    expect(calls[0].prompt).toContain("タスク判定");
-    expect(calls[0].prompt).toContain("これメモして");
-  });
-
-  it("delegate-task(🤝) active → provenance 付き inject (runHeadless 非呼び出し)", async () => {
+  it("active セッションでは /<skill> を inject する (headless は起動しない)", async () => {
     const { runner, calls, injects } = makeRunner();
     await runner.handle({
       ...baseInput,
@@ -483,8 +344,10 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
       sessionActive: true,
       sessionId: "sess-abc",
     });
-    expect(calls).toHaveLength(0); // inject 経路なので headless は起動しない
+    expect(calls).toHaveLength(0);
     expect(injects).toHaveLength(1);
+    expect(injects[0].text).toContain("/codex-delegate");
+    expect(injects[0].text).toContain("これメモして");
     expect(injects[0]).toMatchObject({
       sessionId: "sess-abc",
       source: "reaction-workflow",
@@ -497,14 +360,113 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
         actorId: "u1",
       },
     });
-    expect(injects[0].text).toMatch(/^【Concordia reaction-workflow: delegate-task \(discord\)】\n/);
   });
 
-  it("delegate-task の onAccept は action='delegate-task' で呼ばれる", async () => {
+  it("headless では --model を必ず固定する (既定任せにしない)", async () => {
+    const { runner, calls } = makeRunner();
+    for (const [i, emoji] of ["👀", "🙏", "🔄", "📑"].entries()) {
+      await runner.handle({ ...baseInput, dedupeKey: `model-${i}`, emoji });
+    }
+    expect(calls).toHaveLength(4);
+    for (const call of calls) expect(call.opts?.model).toBeTruthy();
+  });
+
+  it("スキル割り当てが無い絵文字は実行せず、何が足りないかを返す", async () => {
+    const empty = join(temp, "empty.json");
+    await writeFile(empty, "[]", "utf-8");
+    const { runner, calls } = makeRunner({ customWorkflowsPath: empty });
+    const results: { ok: boolean; text: string }[] = [];
+    await runner.handle({ ...baseInput, dedupeKey: "no-skill", emoji: "👀" }, undefined, (_a, r) => results.push(r));
+    expect(calls).toHaveLength(0);
+    expect(results[0]?.ok).toBe(false);
+    expect(results[0]?.text).toContain("migrate-builtin");
+  });
+
+  it("スキル本文が読めない headless は実行せず理由を返す", async () => {
+    const { runner, calls } = makeRunner({
+      skills: { ...skillsPort, readBody: async () => null },
+    });
+    const results: { ok: boolean; text: string }[] = [];
+    await runner.handle({ ...baseInput, dedupeKey: "no-body", emoji: "👀" }, undefined, (_a, r) => results.push(r));
+    expect(calls).toHaveLength(0);
+    expect(results[0]?.ok).toBe(false);
+    expect(results[0]?.text).toContain("memoria-note");
+  });
+
+  it("無効 (enabled=false) なら何もしない", async () => {
+    const { runner, calls } = makeRunner({ enabled: false });
+    await runner.handle({ ...baseInput });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("同一 dedupeKey+emoji+userId は cooldown 内で1回だけ発火", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, dedupeKey: "dedupe-1" });
+    await runner.handle({ ...baseInput, dedupeKey: "dedupe-1" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("ワークフロー対象外の絵文字は無処理", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, emoji: "🍕" });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("予約済みの 👌 は custom mapping と custom workflow JSON の両方を遮断する", async () => {
+    const reserved = join(temp, "reserved.json");
+    await writeFile(reserved, JSON.stringify([{
+      emoji: "👌🏽",
+      label: "x",
+      prompt: "must not run",
+      model: "sonnet",
+    }]), "utf8");
+    const overridden = makeRunner({ customMappings: () => ({ "👌": "handoff-document" }) });
+    const customized = makeRunner({ customWorkflowsPath: reserved });
+    const accepted: WorkflowAction[] = [];
+    await overridden.runner.handle({ ...baseInput, emoji: "👌" }, (action) => accepted.push(action));
+    await customized.runner.handle(
+      { ...baseInput, dedupeKey: "m-custom", emoji: "👌🏽" },
+      (action) => accepted.push(action),
+    );
+    expect(overridden.calls).toHaveLength(0);
+    expect(customized.calls).toHaveLength(0);
+    expect(accepted).toHaveLength(0);
+  });
+
+  it("自由プロンプトのカスタムワークフローは従来どおり動く (スキル未割り当ての絵文字)", async () => {
+    const mixed = join(temp, "mixed.json");
+    await writeFile(mixed, JSON.stringify([
+      { emoji: "🔥", label: "custom", prompt: "自由プロンプト本文", model: "sonnet" },
+    ]), "utf8");
+    const { runner, calls } = makeRunner({ customWorkflowsPath: mixed });
+    await runner.handle({ ...baseInput, dedupeKey: "custom-prompt", emoji: "🔥" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].prompt).toBe("自由プロンプト本文");
+  });
+
+  it("発火確定時に onAccept が action 付きで1回だけ呼ばれる", async () => {
     const { runner } = makeRunner();
     const accepted: WorkflowAction[] = [];
-    await runner.handle({ ...baseInput, emoji: "🤝", sessionActive: false }, (a) => accepted.push(a));
-    expect(accepted).toEqual(["delegate-task"]);
+    await runner.handle({ ...baseInput, dedupeKey: "accept-1", emoji: "🙏", messageText: "" }, (a) => accepted.push(a));
+    expect(accepted).toEqual(["enumerate-remaining"]);
+  });
+
+  it("無効 / 対象外 / dedup-skip では onAccept は呼ばれない", async () => {
+    const accepted: WorkflowAction[] = [];
+    const onAccept = (a: WorkflowAction) => accepted.push(a);
+
+    const disabled = makeRunner({ enabled: false });
+    await disabled.runner.handle({ ...baseInput }, onAccept);
+    expect(accepted).toHaveLength(0);
+
+    const unmapped = makeRunner();
+    await unmapped.runner.handle({ ...baseInput, emoji: "🍕" }, onAccept);
+    expect(accepted).toHaveLength(0);
+
+    const dup = makeRunner();
+    await dup.runner.handle({ ...baseInput, dedupeKey: "accept-dup" }, onAccept);
+    await dup.runner.handle({ ...baseInput, dedupeKey: "accept-dup" }, onAccept);
+    expect(accepted).toHaveLength(1);
   });
 
   it("handoff-document inactive は headless 結果を onResult に返す", async () => {
@@ -519,7 +481,7 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
     });
     const results: { action: WorkflowAction; ok: boolean; text: string }[] = [];
     await runner.handle(
-      { ...baseInput, emoji: "👋", sessionActive: false },
+      { ...baseInput, dedupeKey: "handoff-1", emoji: "👋", sessionActive: false },
       undefined,
       (action, result) => results.push({ action, ...result }),
     );
@@ -532,26 +494,106 @@ describe("ReactionWorkflowRunner.handle (platform-input / map 非依存)", () =>
 
   it("handoff-document 以外の headless 結果は onResult に返さない", async () => {
     const { runner } = makeRunner({
-      runHeadless: async () => ({
-        ok: true,
-        exit_code: 0,
-        stdout: "完了",
-        stderr: "",
-        duration_ms: 1,
-      }),
+      runHeadless: async () => ({ ok: true, exit_code: 0, stdout: "完了", stderr: "", duration_ms: 1 }),
     });
     const results: unknown[] = [];
-    await runner.handle({ ...baseInput, emoji: "👀" }, undefined, (_action, result) => results.push(result));
+    await runner.handle(
+      { ...baseInput, dedupeKey: "quiet-1", emoji: "👀" },
+      undefined,
+      (_action, result) => results.push(result),
+    );
     expect(results).toHaveLength(0);
   });
 
   it("reactionAckText は 絵文字 + ラベル + 受付文 を返す", () => {
     expect(reactionAckText("enumerate-remaining", "🙏")).toBe("🙏 残作業の洗い出しを受け付けました");
   });
+
+  // ─── 🧠 context: read model が先、 無ければスキル (設計 §11.1 の但し書き) ──
+  it("context(🧠) は read model があればそれで答える (LLM を起動しない)", async () => {
+    const { runner, calls, injects } = makeRunner({
+      contextReport: async () => "占有 42% / 残量 58%",
+    });
+    const results: { ok: boolean; text: string }[] = [];
+    await runner.handle(
+      { ...baseInput, dedupeKey: "ctx-1", emoji: "🧠", sessionId: "sess-1", sessionActive: true },
+      undefined,
+      (_a, r) => results.push(r),
+    );
+    expect(calls).toHaveLength(0);
+    expect(injects).toHaveLength(0);
+    expect(results[0]).toEqual({ ok: true, text: "占有 42% / 残量 58%" });
+  });
+
+  it("context(🧠) は read model が無ければスキル context-report の inject へ落ちる", async () => {
+    const { runner, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput, dedupeKey: "ctx-2", emoji: "🧠", sessionId: "sess-2", sessionActive: true,
+    });
+    expect(injects).toHaveLength(1);
+    expect(injects[0].text).toContain("/context-report");
+  });
+
+  // ─── 📑 / 🪬 の写像 (設計 §9.2 C-7) ─────────────────────────────────────
+  it("📑 は headless sonnet で domain-review --report-only を回す", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, dedupeKey: "dom-1", emoji: "📑" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.model).toBe("sonnet");
+    expect(calls[0].opts?.cwd).toBe("C:/repos/AlphaGame");
+    expect(calls[0].prompt).toContain("/domain-review --report-only");
+  });
+
+  it("🪬 は active セッションへ inject する (model は headless 落ち時の opus)", async () => {
+    const { runner, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput, dedupeKey: "dom-2", emoji: "🪬", sessionActive: true, sessionId: "sess-dom",
+    });
+    expect(injects).toHaveLength(1);
+    expect(injects[0].text).toContain("/domain-review");
+  });
+
+  it("🪬 は非 active なら headless opus で起動する", async () => {
+    const { runner, calls } = makeRunner();
+    await runner.handle({ ...baseInput, dedupeKey: "dom-3", emoji: "🪬" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].opts?.model).toBe("opus");
+  });
+
+  it("domain_review が OFF のプロジェクトでは 🪬 は実行せず理由を返し、📑 は動く", async () => {
+    const { runner, calls } = makeRunner({ domainReviewEnabled: () => false });
+    const results: { ok: boolean; text: string }[] = [];
+    await runner.handle({ ...baseInput, dedupeKey: "dom-off-1", emoji: "🪬" }, undefined, (_a, r) => results.push(r));
+    expect(calls).toHaveLength(0);
+    expect(results[0]?.ok).toBe(false);
+    expect(results[0]?.text).toContain("設定 OFF");
+
+    await runner.handle({ ...baseInput, dedupeKey: "dom-off-2", emoji: "📑" });
+    expect(calls).toHaveLength(1);
+  });
+
+  it("domain_review 列が無い環境 (unknown) では 🪬 を止めない", async () => {
+    const { runner, calls } = makeRunner({ domainReviewEnabled: () => "unknown" });
+    await runner.handle({ ...baseInput, dedupeKey: "dom-unknown", emoji: "🪬" });
+    expect(calls).toHaveLength(1);
+  });
 });
 
 // ─── 権限: リアクションは誰でも押せるが、指示の中身は実行できるとは限らない ──────
 describe("ReactionWorkflowRunner.handle 権限", () => {
+  let temp = "";
+  let customWorkflowsPath = "";
+
+  beforeAll(async () => {
+    temp = await mkdtemp(join(tmpdir(), "concordia-reaction-perm-"));
+    customWorkflowsPath = join(temp, "custom-reaction-workflows.json");
+    await migrateBuiltinWorkflowsToSkills({ workspaceRoot: temp, catalog: CATALOG, customWorkflowsPath });
+  });
+
+  afterAll(async () => {
+    await rm(temp, { recursive: true, force: true });
+  });
+
   // 既定は権限なし (ヒラ社員 相当)。 hasCapability を差し替えれば、 同じ runner
   // インスタンスのまま役職が付いた状況 (= dedupe 状態を引き継いだ再発火) を作れる。
   function denyingRunner(hasCapability: () => boolean = () => false) {
@@ -564,6 +606,8 @@ describe("ReactionWorkflowRunner.handle 権限", () => {
       },
       emitInject: () => {},
       workspaceRoot: "E:/Document/Ars",
+      customWorkflowsPath,
+      skills: skillsPort,
       enabled: true,
       hasCapability,
       log: { info: () => {}, warn: () => {} },
@@ -592,6 +636,24 @@ describe("ReactionWorkflowRunner.handle 権限", () => {
     expect(results[0].text).toContain("マージ");
   });
 
+  it("永続 skill entry が弱い action を名乗っても組み込み絵文字の権限を迂回できない", async () => {
+    await writeCustomWorkflows(customWorkflowsPath, [{
+      kind: "skill",
+      emoji: "🔀",
+      skill: "remaining-enumerate",
+      mode: "headless",
+      action: "status-check",
+    }]);
+    try {
+      const { runner, calls, results } = denyingRunner();
+      await runner.handle({ ...input, dedupeKey: "m-perm-spoof" }, undefined, (_a, r) => results.push(r));
+      expect(calls).toEqual([]);
+      expect(results[0]?.text).toContain("マージ");
+    } finally {
+      await migrateBuiltinWorkflowsToSkills({ workspaceRoot: temp, catalog: CATALOG, customWorkflowsPath });
+    }
+  });
+
   it("delegate-task(🤝) も同じくセッション起動権限を要求する", async () => {
     const { runner, calls, results } = denyingRunner();
     await runner.handle({ ...input, emoji: "🤝", dedupeKey: "m-perm2" }, undefined, (_a, r) => results.push(r));
@@ -600,7 +662,6 @@ describe("ReactionWorkflowRunner.handle 権限", () => {
   });
 
   // リアクションは付け外しが自由なので、 拒否のたびに返すと chat を埋め尽くせてしまう。
-  // 通知だけは間引く (発火側の cooldown は下のテストのとおり焼かない)。
   it("同じ拒否を連打しても通知は 1 回だけ返す", async () => {
     const { runner, results } = denyingRunner();
     const onResult = (_a: WorkflowAction, r: { ok: boolean; text: string }) => results.push(r);
@@ -617,15 +678,12 @@ describe("ReactionWorkflowRunner.handle 権限", () => {
     expect(calls.length).toBeGreaterThan(0);
   });
 
-  // 拒否で cooldown を消費すると、役職を付けた直後に押し直せなくなる。 dedupe 状態は
-  // runner インスタンスが持つので、 同じ runner のまま権限だけを付け替えて確かめる
-  // (別インスタンスを作ると dedupe を共有せず、 何も検証しないテストになる)。
+  // 拒否で cooldown を消費すると、役職を付けた直後に押し直せなくなる。
   it("拒否された発火は dedupe を消費しない", async () => {
     let allowed = false;
     const { runner, calls } = denyingRunner(() => allowed);
     await runner.handle({ ...input, dedupeKey: "m-perm4" });
     expect(calls).toEqual([]);
-    // now は固定 = dedupe ウィンドウ内。 拒否が cooldown を焼いていれば ここで弾かれる。
     allowed = true;
     await runner.handle({ ...input, dedupeKey: "m-perm4" });
     expect(calls.length).toBeGreaterThan(0);

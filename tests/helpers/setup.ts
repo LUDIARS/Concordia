@@ -20,6 +20,10 @@ import { flushCleanups } from "./cleanup.js";
 // collection 前に再実行されるので、 前の file が値を変更・削除していても既定値へ戻す。
 // 実 CLI を検証する個別テストは、この setup の実行後に明示的に上書きする。
 process.env.CONCORDIA_DISABLE_CLAUDE = "1";
+// 委託指示書の「ドメイン先行」前置き (delegation/domain-preamble.ts) は warm Anatomia
+// server を叩く。 テストを外部サービスの生死に依存させないため既定で切る
+// (織り込みそのものは domain-preamble.test.ts が deps 差し替えで検証する)。
+process.env.CONCORDIA_DELEGATION_DOMAIN_PREAMBLE = "0";
 
 afterEach(() => {
   flushCleanups();

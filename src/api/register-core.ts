@@ -15,6 +15,7 @@ import { reportsRouter } from "./reports.js";
 import { sessionLogsRouter } from "./session-logs.js";
 import { setupRouter } from "./setup.js";
 import { skillsRouter } from "./skills.js";
+import { SkillCatalogStore } from "../skills/catalog-store.js";
 import { rulesRouter } from "./rules.js";
 import { libraryRouter } from "./library.js";
 import { processesRouter } from "./processes.js";
@@ -163,6 +164,8 @@ export interface CoreSessionDeps {
   escalations: EscalationRepo;
   chat: ChatRepo;
   skills: SkillsRepo;
+  /** Castra / user 領域のスキル一覧 (設計 §10.2 C-8)。 未注入なら自前で作る。 */
+  skillCatalog?: SkillCatalogStore;
   rules: RulesRepo;
   processes: ProcessesRepo;
   stats: StatsRepo;
@@ -355,7 +358,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   } }, { name: "knowledge-and-work", mount: () => {
   app.route("/v1/setup", setupRouter({ toolPath: deps.toolPath, url: deps.publicUrl }));
-  app.route("/v1/skills", skillsRouter({ skills: deps.skills }));
+  app.route("/v1/skills", skillsRouter({
+    skills: deps.skills,
+    catalog: deps.skillCatalog
+      ?? new SkillCatalogStore(() => deps.adminState.getWorkspaceRoot()),
+  }));
   app.route("/v1/rules", rulesRouter({ rules: deps.rules }));
   app.route(
     "/v1/library",

@@ -1,11 +1,35 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { WebClient } from "@slack/web-api";
 import type { SocketModeClient } from "@slack/socket-mode";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import { makeSlackConfigRepo } from "../db/slack-config-repo.js";
 import type { ChatReadModel } from "../platform/chat-read-model.js";
+import { writeCustomWorkflows } from "../platform/reaction-workflow.js";
 import { eventBus } from "../events.js";
 import { startSlackBot } from "./bot.js";
+
+let tempDir = "";
+let customWorkflowsPath = "";
+
+beforeAll(async () => {
+  tempDir = await mkdtemp(join(tmpdir(), "concordia-slack-session-channels-"));
+  customWorkflowsPath = join(tempDir, "custom-reaction-workflows.json");
+  await writeCustomWorkflows(customWorkflowsPath, [{
+    kind: "skill",
+    emoji: "👍",
+    skill: "impl",
+    mode: "inject",
+    cwd: "repo",
+    action: "start-impl",
+  }]);
+});
+
+afterAll(async () => {
+  await rm(tempDir, { recursive: true, force: true });
+});
 
 interface FakeSocket {
   handlers: Map<string, (payload: never) => Promise<void> | void>;
@@ -125,6 +149,7 @@ async function startHarness(archiveDelayMin = 30, reactionWorkflowEnabled = fals
     },
     runHeadless: async () => ({ ok: true, stdout: "ok", exit_code: 0, stderr: "", duration_ms: 1 }),
     reactionWorkflowEnabled,
+    customWorkflowsPath,
     isReactionWorkflowUserAllowed: () => reactionWorkflowEnabled,
     webClient: web as unknown as WebClient,
     socketClient: socket as unknown as SocketModeClient,

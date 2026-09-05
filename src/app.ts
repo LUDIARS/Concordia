@@ -11,6 +11,7 @@ import { modulesRouter } from "./api/modules.js";
 import { inboxRouter, type InboxApiDeps } from "./api/inbox.js";
 import type { InboxItem } from "./inbox/read-model.js";
 import { makeDiscordChannelDirectory } from "./discord/channel-directory.js";
+import { SkillCatalogStore } from "./skills/catalog-store.js";
 import { httpCacheMiddleware } from "./shared/http-cache.js";
 import { createChildLogger } from "./shared/logger.js";
 import { installApiInstrumentation } from "./instrumentation.js";
@@ -127,15 +128,23 @@ export function buildApp(deps: AppDeps): Hono {
     wiring: () => ({ startedEmbedded: deps.startedModules ?? [] }),
   }));
 
+  // スキルカタログは 1 個を共有する。 /v1/skills/refresh (core) で走査した結果を
+  // RWF のスキル割り当て (chat) がそのまま読めるようにするため
+  // (別インスタンスだと「再走査したのに一覧が空」になる)。
+  const skillCatalog = deps.skillCatalog
+    ?? new SkillCatalogStore(() => deps.adminState.getWorkspaceRoot());
   registerCoreRoutes(app, {
     ...deps,
+    skillCatalog,
     channelDirectory: makeDiscordChannelDirectory({
       pendingQuestions: deps.pendingQuestions,
       sessionChannels: deps.discordChannels,
       config: deps.discordConfig,
     }),
   });
-  if (deps.chatRoutes !== null) registerChatRoutes(app, deps.chatRoutes ?? deps);
+  if (deps.chatRoutes !== null) {
+    registerChatRoutes(app, { ...(deps.chatRoutes ?? deps), skillCatalog });
+  }
   if (deps.costRoutes !== null) registerCostRoutes(app, deps.costRoutes ?? deps);
   registerWebRoutes(app);
 

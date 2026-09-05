@@ -257,6 +257,15 @@ export interface DiscordBotDeps {
   /** アクション別ポリシー (子会社可否/要求権限) を live 解決する。 */
   resolveReactionActionPolicies?: () => import("../platform/reaction-workflow-capability.js").WorkflowActionPolicies;
   /**
+   * スキルカタログ (`.claude/skills` / `.claude/commands`) の参照口。 RWF の
+   * 「絵文字 → スキル」エントリが headless 実行で SKILL.md 本文を渡すのに使う。
+   */
+  skillCatalog?: import("../platform/reaction-workflow.js").RwfSkillCatalogPort;
+  /**
+   * `project_codes.domain_review` の解決 (🪬 の OFF 判定)。 "unknown" は判定不能。
+   */
+  resolveDomainReviewEnabled?: (repoPath: string | null) => boolean | "unknown";
+  /**
    * 社員名簿 (staff_members) の役職に基づく権限判定。 未注入は deny 側 (fail-closed)。
    * spec/feature/staff-roster.md §3 (capability → 最低役職 / ゲート位置)。
    */
@@ -509,6 +518,9 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     // 本社限定アクション (Memoria 記録系の既定 + 設定 GUI) を子会社 runtime で遮断する。
     subsidiary: Boolean(deps.subsidiary),
     resolveActionPolicies: deps.resolveReactionActionPolicies,
+    // 「絵文字 → スキル」エントリ (設計 §10.2 C-9) の解決口。
+    skills: deps.skillCatalog,
+    domainReviewEnabled: deps.resolveDomainReviewEnabled,
     // 📋 list-local-prs / 📮 submit-pr / 🔀 merge-pr の実体 (Revisor local PR)。
     prOperations: deps.prOperations,
     log,

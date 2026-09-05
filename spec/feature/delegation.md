@@ -16,7 +16,7 @@ tags:
   - rest-api
   - lifecycle
 status: implemented
-updated: 2026-09-04
+updated: 2026-09-05
 ---
 
 
@@ -773,3 +773,37 @@ character) が含まれる未完了 run の報告を 400 `garbled_report` で拒
 
 すでに completed / failed の run への再送は副作用を持たない重複報告なので、本文検証より先に
 従来どおり成功として扱う。これにより、通信再試行時の idempotency を維持する。
+
+## 15. v0.5 追加: ドメイン先行の指示書 (C-2 / C-11)
+
+**Requirement ID: `SPEC-DELEGATION-DOMAIN-PREAMBLE`**
+
+設計正本: `spec/plan/2026-09-05-anatomia-domain-plan-tool.md` §5 (C-2) / §12.3-12.4 (C-11)。
+
+委託される側は plan を走らせていない新しいセッションなので、「正しいドメインに置け」は
+**ドメインの説明・所有パス・既存のデータ定義が一緒に来ないと実行できない**。 そこで invoke の
+直前に、 指示書の**先頭**へ次を織り込む (`src/delegation/domain-preamble.ts`)。
+
+1. **プロジェクトの確定** — warm Anatomia server の `GET /api/domain-map/search?q=<依頼文>` を叩き、
+   命中を「プロダクト → コンテンツ → コアドメイン → 主要パス」の 1 行で前置きする。
+   対象プロジェクトは `target_repo` の basename に一致するヒットを最優先し (worktree の
+   `<Project>-<slug>` も先頭一致で拾う)、 無ければ最上位ヒット。
+   **0 件なら「索引に無い」**と書き、 着手前に自分で plan を走らせ、 決まらなければ人間に
+   確認するよう促す (推測で新規ドメインを作らせない)。
+2. **OKF ドメイン定義の織り込み** — `POST /api/plan { project, task, llm: false, okf: true }` の
+   OKF 出力 (frontmatter の `type: plan` / `service` / `domain` / `tags` と、 各ドメインの
+   責務・予定パス・必要な型・データ定義・手本・重複候補) をそのまま埋め込む。
+   `llm: false` で呼ぶのは、 委託 1 回ごとに LLM 分解 (~10s) を待たせないため。
+
+対象は `category` が `employee` / `freelancer` かつ既存の `resolveManualKind` で「実装」と
+判定されるテンプレで、依頼文 (`task` / `description` / `problem` / `goal` / `target` のいずれか) が
+args にあるものだけ。設計相談・レビュー・テスト、パートタイマーの定型タスクには織り込まない。
+
+**委託を止めないことが最優先**: Anatomia が落ちている / manager モードでない / 索引に無い /
+ドメイン定義が無い / タイムアウト — いずれの場合も織り込みを飛ばし、 従来どおりの指示書を出す。
+env `CONCORDIA_DELEGATION_DOMAIN_PREAMBLE=0` で機能ごと切れる (テストは既定で切っている)。
+
+あわせて、 実装系テンプレ本文の Anatomia 3 行を `where → 紐づけ → verify` から
+**`plan → 紐づけ → verify`** へ変更した (`seed.ts` の `ANATOMIA_SUPPLY_VERIFY_STEPS` と
+`implementation-inject.ts` の着手時バンドル 1.)。 着地点 1 点ではなく、 task を
+ドメイン単位の作業計画に分解したものを受け取ってから設計に入る。

@@ -39,13 +39,15 @@ import {
 } from "./parttimer-prompts.js";
 
 /**
- * Anatomia supply→verify を委託プロンプトの必須手順にする (2026-08-19 neco 指示:
- * 「指示内容からまずドメインを確認して設計する / どのドメインにどう紐づけるかを一緒に考えて貼る」)。
+ * Anatomia plan→verify を委託プロンプトの必須手順にする (2026-08-19 neco 指示:
+ * 「指示内容からまずドメインを確認して設計する / どのドメインにどう紐づけるかを一緒に考えて貼る」。
+ * 2026-09-05 に `where` → `plan` へ差し替え — 設計 §5 C-2: 着地点 1 点ではなく、
+ * task をドメイン単位の作業計画に分解したものを受け取ってから設計に入る)。
  * Claude Code の UserPromptSubmit/PostToolUse hook は Codex 委託には効かないので、テンプレ本文で縛る。
  * CLI の解決方法は委託先ごとに異なるため、ローカルの絶対パスをテンプレートへ埋め込まない。
  */
 const ANATOMIA_SUPPLY_VERIFY_STEPS = [
-  "- Before writing code, use the configured Anatomia CLI to ask where the change lands (`where --repo <target_repo> --task \"<what you will change>\"`, or `context`). If it is unavailable, stop and report the configuration issue; do not download or guess a local installation. Pass the repository path as a properly quoted shell argument (or an argument-array value); never interpolate it into a shell command. Design inside the existing domain/layer it reports; reuse the exemplars instead of reinventing.",
+  "- Before writing code, ask the configured Anatomia CLI for the DOMAIN PLAN of this task (`plan --task \"<what you will change>\" --project <project>`; fall back to `where` / `context` only if `plan` is unavailable). If the CLI itself is unavailable, stop and report the configuration issue; do not download or guess a local installation. Pass the repository path as a properly quoted shell argument (or an argument-array value); never interpolate it into a shell command. Design inside the domains the plan lists, reuse the exemplars it names instead of reinventing, and state its open questions in the PR instead of blocking on them.",
   "- Domain binding first: decide which declared domain the change belongs to. If it opens a new directory / feature surface outside every declared membership, add the declaration in the SAME PR (`spec/domains/<domain>.domain.json` or the project's documented canonical domain directory, `membership: [{ \"pathPattern\": \"(^|/)src/...\" }]`, src and tests paired) — Revisor blocks unbound code.",
   "- After implementing, run Anatomia `verify` against the PR diff with the repository path passed as a properly quoted shell argument (or an argument-array value), fix block-level gate failures before opening the PR, and mention the verify result in the PR body.",
 ];

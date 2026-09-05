@@ -154,6 +154,62 @@ export class ProjectCodesRepo {
     return this.db.prepare("DELETE FROM project_codes WHERE code = ? COLLATE BINARY").run(code).changes > 0;
   }
 
+  /**
+   * 作業ディレクトリから登録を引く。 セッションの cwd は worktree
+   * (`<root>/Concordia-feat-x`) であることが多いので、 完全一致 → 配下 →
+   * 「同じ親ディレクトリで basename が `<project>-` で始まる」 の順に緩めて探す。
+   * どれにも当たらなければ null (呼び出し側は「不明」として扱う)。
+   */
+  findByRepoPath(repoPath: string): ProjectCodeRow | null {
+    const target = normalizePath(repoPath ?? "");
+    if (!target) return null;
+    const rows = this.list();
+    const exact = rows.find((row) => normalizePath(row.repo_path) === target);
+    if (exact) return exact;
+    const inside = rows.find((row) => target.startsWith(`${normalizePath(row.repo_path)}/`));
+    if (inside) return inside;
+    const parent = target.slice(0, target.lastIndexOf("/"));
+    const base = target.slice(target.lastIndexOf("/") + 1);
+    return rows.find((row) => {
+      const rowPath = normalizePath(row.repo_path);
+      const rowParent = rowPath.slice(0, rowPath.lastIndexOf("/"));
+      const rowBase = rowPath.slice(rowPath.lastIndexOf("/") + 1);
+      return rowParent === parent && rowBase !== "" && base.startsWith(`${rowBase}-`);
+    }) ?? null;
+  }
+
+  /**
+   * `project_codes.domain_review` (ドメインレビューの opt-in、 設計 §8.2 C-3)。
+   *
+   * 列は別 PR で入る。 **列がまだ無い / 登録が引けない場合は null** を返し、
+   * 呼び出し側は「判定できない = 止めない」として扱う — マージ順に依存させないため。
+   */
+  domainReviewFor(repoPath: string): boolean | null {
+    if (!this.hasDomainReviewColumn()) return null;
+    const row = this.findByRepoPath(repoPath);
+    if (!row) return null;
+    const value = this.db.prepare(
+      "SELECT domain_review AS v FROM project_codes WHERE code = ? COLLATE BINARY",
+    ).get(row.code) as { v: unknown } | undefined;
+    if (!value || value.v === null || value.v === undefined) return null;
+    return Number(value.v) !== 0;
+  }
+
+  /** domain_review 列の有無 (1 度だけ調べて覚える)。 */
+  private hasDomainReviewColumn(): boolean {
+    if (this.domainReviewColumn === null) {
+      try {
+        const columns = this.db.prepare("PRAGMA table_info(project_codes)").all() as { name: string }[];
+        this.domainReviewColumn = columns.some((column) => column.name === "domain_review");
+      } catch {
+        this.domainReviewColumn = false;
+      }
+    }
+    return this.domainReviewColumn;
+  }
+
+  private domainReviewColumn: boolean | null = null;
+
   private assertUnclaimed(
     field: "project" | "repo_path" | "repo_origin",
     value: string,

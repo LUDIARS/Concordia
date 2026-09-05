@@ -83,8 +83,9 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     // 6 手を seed 本文に番号付きで明記する (伝達経路が seed しかない)。
     "#### 着手時バンドル (この順で回す)",
     "",
-    "1. ドメインを定義する前にコードを書かない (`anatomia where` → `membership.pathPattern` 追加 or",
-    "   `spec/domains/<name>.domain.json` を先に書く、同じ PR に含める)",
+    "1. ドメインを定義する前にコードを書かない (`anatomia plan --task \"<依頼文>\"` で作業計画を取り、",
+    "   計画に無いパスへ出るなら `membership.pathPattern` 追加 or `spec/domains/<name>.domain.json` を",
+    "   先に書く、同じ PR に含める。plan が使えないときだけ `where`)",
     "2. 再利用できる実装を解析グラフから探す (`anatomia find` / `context` / `callers`、採否と理由を",
     "   PR 説明に 1 行、見つけたら必ず使うではない)",
     "3. テストを対で計画する (Anatomia `test-suggestions` → `augur plan`、減らすときは理由を書く)",

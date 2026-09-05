@@ -16,7 +16,7 @@ tags:
 status: implemented
 related:
   - ../setup/config-reference.md
-updated: 2026-09-02
+updated: 2026-09-05
 ---
 
 
@@ -32,43 +32,109 @@ fine/bad/raw)。 本機能はそれと**独立**に、 リアクションを処�
 ランナー本体 `src/platform/reaction-workflow.ts` は **platform 非依存**。Discord / Slack の各 bot が
 session 文脈・対象本文 (取得できた場合)・unicode に正規化した絵文字を渡す（§4）。
 
-## 1. 絵文字 → アクション写像
+## 1. 絵文字 → スキル 写像
 
-`src/platform/reaction-workflow.ts` の `classifyReactionWorkflow(emoji)`（unicode 文字で照合）。
+RWF の写像は **「絵文字 → Castra のスキル」の一本**に揃えてある
+(設計 `spec/plan/2026-09-05-anatomia-domain-plan-tool.md` §10〜§11)。
+プロンプト本文は Cc のコードではなく **Castra のスキル**が持ち、Cc 側は
+「どの絵文字がどのスキルを、どの mode / model / cwd で呼ぶか」だけを持つ。
 
-| 絵文字 | 意味 | WorkflowAction | 実行手段 | model |
-|---|---|---|---|---|
-| 👍 / 🆗 | 良い → そのまま実装着手 | `start-impl` | authoring session へ `session.inject`<br>(非 active なら headless で着手) | — |
-| 🙏 | 残作業を洗い出して報告 (🫡 と対) | `enumerate-remaining` | authoring session へ `session.inject`<br>(非 active なら headless で洗い出し) | sonnet |
-| 🫡 | 残作業 (洗い出し結果) を**重複回避で** Memoria に登録 (memoria-record) | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
-| 📲 🆙 👆 | 状況どう? → 現在の作業状況を報告 | `status-check` | authoring session へ `session.inject`<br>(非 active なら headless) | sonnet |
-| 😄 😀 😃 😊 🙂 😁 | 良い動き | `repo-memory-good` | headless (cwd = 当該リポ) | haiku |
-| 👀 👁️ 👈 📓 ✏️ | メッセージをメモに残す | `memoria-note` | headless (cwd = Memoria) | haiku |
-| 📝 🗒️ / ✅ ☑️ ✔️ | 残作業 → タスク登録 | `memoria-task` | headless (cwd = Memoria) | sonnet |
-| 😡 💢 👿 😠 / 👎 | 良くない → **作業を即中断して反省** (記録はせず、 後続 👍 が来たら記録) | `repo-memory-bad` | active へ `session.inject`<br>(非 active は headless で反省のみ) | haiku |
-| ⏭️ 📤 🗂️ | 実装タスクを積んで **別セッションへ委ねる** → Memoria に「別セッション対応」タスク登録 | `defer-impl` | headless (cwd = Memoria) | sonnet |
-| 🙄 | **Enter 強制送信** (Lictor が送信を取りこぼした時の救済) | `force-enter` | active へ `session.inject` (`\n` のみ)<br>(非 active はスキップ) | — |
-| 🤝 🫱 | タスクあり → delegation template を選んで **委託実行**、委託後の Lictor プロセスを監視 | `delegate-task` | active へ `session.inject` (委託+監視)<br>(非 active は headless haiku で委託のみ) | haiku |
-| 🔄 🔃 | 「対応マージ後、`<project>`をmain最新にする」から project code を抽出し、対応 PR マージ後に対象プロジェクトを main 最新へ ff 同期 | `sync-project-main-after-merge` | headless (cwd = workspace root) | sonnet |
+| 絵文字 | 意味 | スキル | WorkflowAction | 実行手段 | model |
+|---|---|---|---|---|---|
+| 🧠 | コンテキスト残量 | `context-report` | `context` | Cc read model が先。無い構成でだけ session へ inject | opus |
+| 👍 / 🆗 | 良い → そのまま実装着手 | `impl` | `start-impl` | active へ inject / 非 active は headless | — |
+| 🙏 | 残作業を洗い出して報告 (🫶 と対) | `remaining-enumerate` | `enumerate-remaining` | active へ inject / 非 active は headless | sonnet |
+| 🫶 😴 ✨ | 残作業を**重複回避で** Memoria に登録 | `memoria-record` | `memoria-remaining` | headless (cwd = Memoria) | sonnet |
+| 📲 🆙 👆 | 状況どう? → 現在の作業状況を報告 | `pulse` | `status-check` | active へ inject / 非 active は headless | sonnet |
+| 😄 😀 😃 😊 🙂 😁 | 良い動き | `repo-memory-good` | `repo-memory-good` | headless (cwd = 当該リポ) | haiku |
+| 😡 💢 👿 😠 👎 | 良くない → **作業を即中断して反省** | `repo-memory-bad` | `repo-memory-bad` | active へ inject / 非 active は headless | haiku |
+| 👀 👁️ 👁 👈 📓 ✏️ ✏ | メッセージをメモに残す | `memoria-note` | `memoria-note` | headless (cwd = Memoria) | haiku |
+| 📝 🗒️ 🗒 ✅ ☑️ ✔️ ✔ | 残作業 → タスク登録 | `memoria-task` | `memoria-task` | headless (cwd = Memoria) | sonnet |
+| ⏭️ ⏭ 📤 🗂️ 🗂 | 実装タスクを積んで**別セッションへ委ねる** | `defer-impl` | `defer-impl` | headless (cwd = Memoria) | sonnet |
+| 🤝 🫱 | タスクあり → delegation template を選んで**委託実行** | `codex-delegate` | `delegate-task` | active へ inject / 非 active は headless | haiku |
+| 📅 🗓️ 🗓 | 当月目標外タスクの期日を来週へ延期 | `reschedule-non-goal` | `reschedule-non-goal` | headless (cwd = Memoria) | sonnet |
+| 🎯 | 当月目標タスクのうち実行可能なものを実行 | `memoria-work` | `run-goal-tasks` | active へ inject / 非 active は headless | sonnet |
+| 👋 | 次セッションへの引継ぎ資料 | `handoff` | `handoff-document` | active へ inject / 非 active は headless | sonnet |
+| ▶️ ▶ ⏩ ⏯️ ⏯ | 中断していた作業を再開 | `resume` | `resume-work` | active へ inject / 非 active は headless | sonnet |
+| 🔀 🚀 | PR をマージ (local PR が無いときの GitHub 経路) | `merge-clean-pr` | `merge-pr` | 既定は Cc API。落ちた先が inject / headless | sonnet |
+| 🔄 🔃 | 対応マージ後に指定プロジェクトを main 最新へ | `sync-main-after-merge` | `sync-project-main-after-merge` | headless (cwd = workspace root) | sonnet |
+| 🛠️ 🛠 | メッセージをカスタムワークフローとして登録 | `add-as-workflow` | `add-as-workflow` | headless (cwd = 当該リポ) | haiku |
+| 📑 | **ドメイン情報を投稿** (コアドメイン + 層ごとのプログラムドメイン + 層違反) | `domain-review --report-only` | `domain-report` | headless (cwd = 当該リポ) | sonnet |
+| 🪬 | **ドメインレビュー開始** (LLM インタラクティブ) | `domain-review` | `domain-review` | active へ inject / 非 active は headless | opus |
+
+**スキル化せず組み込みのまま残すもの** (いずれも Cc API 直叩き / CR 送信で LLM 不要):
+
+| 絵文字 | 意味 | WorkflowAction | 実行手段 |
+|---|---|---|---|
+| 🙄 | **Enter 強制送信** (Lictor が送信を取りこぼした時の救済) | `force-enter` | active へ `session.inject` (`\r` のみ) |
+| 🔹 📎 | このメッセージ本文をセッションチャンネル名に反映 | `channel-rename` | Concordia `/sessions/:id/title` |
+| 📮 📬 | 作業ブランチを Revisor local PR として提出 | `submit-pr` | Concordia の local PR 提出 |
+| 📋 | Revisor local PR の一覧 | `list-local-prs` | Concordia の Revisor 読み取り口 |
 
 写像外の絵文字は記録のみで何もしない (`null`)。👌（variation selector・肌色 modifier 付きも含む）は
 誤送信されやすいため永続的に非アクションとし、
 組み込み写像・管理 API の override・custom workflow JSON・外部 RWF プラグインのいずれからも割り当てない。
+異体字セレクタ (`🗒️` と `🗒`、`▶️` と `▶`) は正規化して照合するので、どちらの表記で押しても同じスキルに着く。
 
-各アクション (カスタムコマンド) のヘルプは `WORKFLOW_ACTION_HELP` (label / summary / mode) として
-持ち、 `GET /v1/admin/reaction-mappings` の `action_help` で配信 → 設定ページ「リアクションWF」の
-「コマンドヘルプ」に表示する。 summary は「**投稿内容を <どんな指示> に変換して渡す**」という形で統一。
+### 1-a. 解決順と保存先
 
-> 投稿内容の変換: どのアクションも、 トリガとなった投稿内容を action 固有の指示に変換して
-> claude に渡す。 headless は `head` に本文を埋め込み、 inject も `msgRef` (対象メッセージ) を
-> 付けて必ず投稿内容を渡す (対象セッションが文脈を持っていても「どの発言への指示か」を明示)。
+**Requirement ID: `SPEC-RWF-SKILL-ENTRY`**
 
-`🙏 → 🫡` は「残作業洗い出し → Memoria 記録」の 2 段リアクションワークフロー。 まず 🙏 で
-セッションに残作業を洗い出させ、 その洗い出し結果メッセージに 🫡 を付けると Memoria へ記録する。
-🫡 の記録は **memoria-record** フロー (既存タスクと重複チェックしてから登録) で行う。 この「中身」は
-環境依存のスラッシュコマンドに頼らず Concordia が `planWorkflow` 内に自前で保持する。
+1. **スキルエントリ** (`CustomSkillWorkflowEntry`) — 絵文字で照合する。正本は
+   `<workspaceRoot>/.claude/custom-reaction-workflows.json`。
+2. **管理設定の上書き** (`admin.reaction_emoji_overrides`) → **組み込み写像** (`WORKFLOW_EMOJI`)。
+   着地した action にスキルエントリがあれば、そのスキルで実行する。
+3. **自由プロンプトのカスタムワークフロー** (`CustomPromptWorkflowEntry`、add-as-workflow 由来)。
+   スキル割り当ての無い絵文字だけが当たる。
 
-### 1-b. 単発絵文字 (prompt) も同じトリガにする
+#### スキルエントリの形
+
+**Requirement ID: `SPEC-RWF-SKILL-ENTRY-SHAPE`**
+
+```json
+{ "kind": "skill", "emoji": "📑", "skill": "domain-review", "args": "--report-only",
+  "mode": "headless", "model": "sonnet", "cwd": "repo", "action": "domain-report" }
+```
+
+- `mode: "inject"` … authoring session へ `/<skill> <args>` を流す。
+- `mode: "headless"` … **SKILL.md 本文をシステム文脈として `claude -p` に渡す**
+  (headless では skill 名が解決されないため)。`--model` は必ず固定する
+  (既定任せにすると上限切れの巻き添えで即 exit する)。
+- `mode: "inject"` でも authoring session が非 active なら headless へ落ちる。
+- `cwd` は `repo` / `memoria` / `castra` のトークンか絶対パス。
+- `model` / `cwd` の既定はスキル側 frontmatter (`metadata.rwf`) 由来。設定画面で上書きできる。
+  env `CONCORDIA_REACTION_MODEL_*` は互換のため残る。
+- `action` は権限判定 (`reaction-workflow-capability.ts`) とヘルプ表示に使う。
+  組み込み絵文字では `WORKFLOW_EMOJI` の action が認可の正本であり、スキル metadata / 永続 JSON が
+  別 action を名乗っても置き換えない (弱い action を名乗る capability bypass を防ぐ)。
+
+対象メッセージは inject / headless のどちらでも `<reaction-message-data>` で囲んだ
+**信頼できない外部データ**として渡す。SKILL.md 本文は `<skill-instructions>` で囲んで渡す。
+
+### 1-b. スキル一覧と移行 API
+
+**Requirement ID: `SPEC-RWF-SKILL-CATALOG`**
+
+| API | 役割 |
+|---|---|
+| `GET /v1/skills/catalog` | `.claude/skills/*/SKILL.md` + `.claude/commands/*.md` + `~/.claude/skills` を走査した一覧 (`{name, description, path, source, rwf}`)。`GET /v1/skills` にも `catalog` として添える |
+| `POST /v1/skills/refresh` | 再走査 (起動時に 1 度走らせ、以後はこの API で更新) |
+| `GET/PUT/DELETE /v1/admin/reaction-skill-workflows` | 絵文字 → スキルの割り当て編集 (設定ページ「スキル割り当て」) |
+| `POST /v1/reaction-workflow/migrate-builtin` | 組み込み写像を seed に、スキル側 `metadata.rwf` からエントリを起こして JSON へ書き出す。覆えなかった絵文字は `uncovered` で返す |
+
+走査対象は `<workspaceRoot>/.claude/` 配下と `~/.claude/skills` に限定し、`..` やパス区切りを含む
+名前は弾く。SKILL.md の中身は**他人が書いたテキスト**として扱い、一覧 API はそこに書かれた指示を
+実行しない (列挙するだけ)。
+
+### 1-c. 切替の単位
+
+**Requirement ID: `SPEC-RWF-DOMAIN-REVIEW-TOGGLE`**
+
+切替は**プロジェクト単位ではなく Cc 全体**。ただし 🪬 `domain-review` だけは
+`project_codes.domain_review` が OFF のプロジェクトで実行せず「設定 OFF」と返す
+(📑 の投稿は止めない)。列がまだ無い環境では判定不能として扱い、発火を止めない。
+
+### 1-d. 単発絵文字 (prompt) も同じトリガにする
 
 セッション面ではリアクションだけでなく、**チャットに単発で投稿された同種の絵文字**も同じワークフローに流す
 (`src/discord/ingress.ts`)。 メッセージ本文が写像対象の絵文字 1 個だけなら、 inject / chat には
@@ -98,19 +164,26 @@ session 文脈・対象本文 (取得できた場合)・unicode に正規化し�
 
 ### headless claude (`claude -p`)
 `src/rules/claude-runner.ts` の `runClaude(prompt, opts)` を拡張して使う。
-- `--model <haiku|sonnet>` で LLM を選ぶ (env `CONCORDIA_REACTION_MODEL_HAIKU/SONNET` で別名上書き可)。
+- `--model <haiku|sonnet|opus>` で LLM を選ぶ (env `CONCORDIA_REACTION_MODEL_HAIKU/SONNET/OPUS` で
+  別名上書き可)。 **スキルエントリでは `--model` を必ず固定する** — 既定任せで spawn すると
+  上限切れの巻き添えで即 exit する。
 - `cwd` で作業ディレクトリ (リポ / Memoria) を指定。
 - `--dangerously-skip-permissions` 付き — `-p` は非対話で権限プロンプトを出せないため、
   file 書き込み / Memoria 連携 (relay 等) を**実際に実行**させるのに必要。
 - prompt は stdin 渡し (Windows ENAMETOOLONG 回避)、 Windows は `CLAUDE_CODE_GIT_BASH_PATH` 自動補完。
+
+プロンプトは **SKILL.md 本文 (`<skill-instructions>`) + 対象メッセージ (`<reaction-message-data>`) +
+`/<skill> <args>` の呼び出し行**を組み立てたもの。 headless の `claude -p` は skill 名を解決しないので、
+本文を渡さないと実行できない (本文が読めないときは実行せず理由を返す)。
 
 起動された claude が「メッセージの解析 + 記録/タスク登録/着手」を 1 ショットで完結する。
 Concordia 自身は LLM を呼ばず、 Memoria への到達も起動先 claude (cwd=Memoria) に委ねる
 (= `gemma4-12 -p` 的な投げ方)。
 
 ### session.inject
-`start-impl` で authoring session が active なら、 その session の AI に `session.inject` イベントで
-「直前の提案をそのまま実装着手」を流し込む (Lictor が TUI に注入)。 文脈を持つ本人に続行させる。
+authoring session が active なら、 その session の AI に `session.inject` イベントで
+`/<skill> <args>` を流し込む (Lictor が TUI に注入)。 文脈を持つ本人に続行させる。
+スキル名は session 側で解決されるので、 inject 経路では SKILL.md 本文を渡さない。
 
 ## 3. フロー
 
@@ -119,11 +192,14 @@ MessageReactionAdd (discord.js)
   └─ handleReactionAdd (reactions.ts)
        ├─ chat_message_reactions に記録 (従来通り)
        └─ workflow.handle({chatId, emoji, userId})   ← fire-and-forget
-            ├─ classifyReactionWorkflow(emoji) → action (null なら終了)
+            ├─ matchSkillEntry(emoji) → スキルエントリ (先に引く)
+            ├─ 無ければ classifyReactionWorkflow(emoji) → action (null なら custom prompt / 終了)
             ├─ dedup (同 chatId|emoji|userId は 5 分以内スキップ)
             ├─ chat_messages から本文 / session_id を引く
             ├─ session から repo_path / active を引く
-            ├─ planWorkflow(action, ctx) → {mode, model, cwd, prompt}
+            ├─ 組み込み据え置き (force-enter / channel-rename / submit-pr / list-local-prs) は API 直呼び
+            ├─ planSkillWorkflow(entry, ctx, SKILL.md 本文) → {mode, model, cwd, prompt}
+            │    (スキル未割り当て / 本文が読めない → 実行せず理由を返す)
             ├─ onAccept(action)  ← 発火確定の即時フック (slow 処理の前)
             └─ mode=inject ? eventBus.emit(session.inject) : runClaude(prompt, opts)
 ```
@@ -152,6 +228,7 @@ MessageReactionAdd (discord.js)
 | `CONCORDIA_REACTION_WORKFLOW` | `0` (OFF) | `1` で実処理を起動。 OFF の間は記録のみ。 |
 | `CONCORDIA_REACTION_MODEL_HAIKU` | `haiku` | memoria-note / repo-memory に使うモデル別名。 |
 | `CONCORDIA_REACTION_MODEL_SONNET` | `sonnet` | memoria-task / enumerate-remaining / memoria-remaining / status-check に使うモデル別名。 |
+| `CONCORDIA_REACTION_MODEL_OPUS` | `opus` | context-report / domain-review に使うモデル別名。 |
 | `CONCORDIA_CLAUDE_TIMEOUT_MS` | `120000` | headless 1 回の timeout。 |
 
 error-autofix と同じく既定 OFF。ON なら発火は誰でもできるが、 指示の中身が spawn / merge を
@@ -208,7 +285,14 @@ session 面に属さないリアクション、写像外の絵文字は無処理
 
 ## 5. 実装ファイル
 
-- `src/platform/reaction-workflow.ts` — 写像 + planWorkflow (純粋) + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック。
+- `src/platform/reaction-workflow.ts` — 組み込み写像 + `ReactionWorkflowRunner`（platform 非依存）+ `reactionAckText()` (受付文言) + `handle(input, onAccept?)` の発火確定フック + `migrateBuiltinWorkflowsToSkills()`。
+- `src/platform/reaction-workflow-action.ts` — アクション語彙の正本 (`WORKFLOW_ACTIONS` / `isWorkflowAction`)。
+- `src/platform/reaction-workflow-plan.ts` — 実行計画の契約 (`WorkflowPlan` / `WorkflowContext` / エントリ型) と外部データの枠付け。
+- `src/platform/reaction-workflow-skill.ts` — 「絵文字 → スキル」の写像・計画づくり・組み込みからの seed。
+- `src/platform/reaction-workflow-store.ts` — customWorkflows JSON の読み書き (Runner と設定 API が共有)。
+- `src/skills/catalog.ts` / `src/skills/catalog-store.ts` — `.claude/skills` / `.claude/commands` / `~/.claude/skills` の走査とキャッシュ。
+- `src/api/skills.ts` / `src/api/reaction-skill-workflows.ts` — スキル一覧 API と割り当て設定 / 移行 API。
+- `web/src/pages/settings/sections/ReactionSkillWorkflows.tsx` — 設定ページの「スキル割り当て」表。
 - `src/staff/roles.ts` / `src/db/staff-repo.ts` — 役職 → 権限の固定表と社員名簿 (認可の正本)。
 - `src/shared/reaction-workflow-readiness.ts` — ID を露出しない稼働可視性 (発火権限保持者の人数)。
 - `src/admin/workflow-settings.ts` / `src/admin/state.ts` / `src/api/register-chat.ts` — 安全弁と
@@ -221,7 +305,7 @@ session 面に属さないリアクション、写像外の絵文字は無処理
 - `src/slack/message-map-repo.ts` — `slack_message_map` の put / findChatId。
 - `src/slack/render.ts` — `slackReactionToUnicode()`（絵文字名 → unicode）。
 - `src/bootstrap/core.ts` / `src/chat-worker.ts` — AdminState の enabled と社員名簿の役職判定を Discord/Slack 双方へ live 注入する。
-- `src/platform/reaction-workflow.test.ts` — 写像 / plan の単体テスト。
+- `src/platform/reaction-workflow.test.ts` / `reaction-workflow-skill.test.ts` / `reaction-workflow-store.test.ts` — 写像 / plan / 移行の単体テスト。 移行の取りこぼし (組み込み絵文字にスキル割り当てが無い) は `buildSkillWorkflowSeed` の `uncovered` が空であることで固定する。
 
 ## 6. 既知の制約 / TODO
 

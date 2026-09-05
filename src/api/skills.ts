@@ -2,8 +2,13 @@
  * /v1/skills API.
  *
  * - POST /v1/skills/snapshot — 各 session の hook が repo の SKILL.md 内容を投げる
- * - GET  /v1/skills           — 各 (repo, skill) の最新 snapshot 一覧 (UI)
+ * - GET  /v1/skills           — 各 (repo, skill) の最新 snapshot 一覧 (UI) + スキルカタログ
  * - GET  /v1/skills/history   — 履歴
+ * - GET  /v1/skills/catalog   — Castra の `.claude/skills` / `.claude/commands` +
+ *                               `~/.claude/skills` の一覧 (設計 §10.2 C-8)
+ * - POST /v1/skills/refresh   — カタログの再走査
+ *
+ * カタログは「列挙するだけ」。 SKILL.md の本文に書かれた指示をここで実行することはない。
  */
 
 import { Hono } from "hono";
@@ -12,6 +17,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { SkillsRepo } from "../db/skills-repo.js";
+import type { SkillCatalogStore } from "../skills/catalog-store.js";
 import { analyze } from "../skills/analyzer.js";
 import { eventBus } from "../events.js";
 
@@ -39,6 +45,8 @@ const SnapshotSchema = z.object({
 
 export interface SkillsApiDeps {
   skills: SkillsRepo;
+  /** Castra / user 領域のスキル一覧 (設計 §10.2 C-8)。 */
+  catalog: SkillCatalogStore;
 }
 
 export function skillsRouter(deps: SkillsApiDeps): Hono {
@@ -94,7 +102,32 @@ export function skillsRouter(deps: SkillsApiDeps): Hono {
   });
 
   app.get("/", (c) => {
-    return c.json({ skills: deps.skills.listLatest().map(serialize) });
+    // 既存の snapshot 一覧に、 走査済みのスキルカタログを添える。 ここでは走査しない
+    // (起動時と POST /refresh でだけ舐める)。
+    const catalog = deps.catalog.current();
+    return c.json({
+      skills: deps.skills.listLatest().map(serialize),
+      catalog: catalog.entries.map(serializeCatalogEntry),
+      catalog_scanned_at: catalog.scannedAt,
+    });
+  });
+
+  app.get("/catalog", (c) => {
+    const catalog = deps.catalog.current();
+    return c.json({
+      skills: catalog.entries.map(serializeCatalogEntry),
+      scanned_at: catalog.scannedAt,
+      notes: catalog.notes,
+    });
+  });
+
+  app.post("/refresh", async (c) => {
+    const catalog = await deps.catalog.refresh();
+    return c.json({
+      skills: catalog.entries.map(serializeCatalogEntry),
+      scanned_at: catalog.scannedAt,
+      notes: catalog.notes,
+    });
   });
 
   app.get("/history", (c) => {
@@ -109,6 +142,20 @@ export function skillsRouter(deps: SkillsApiDeps): Hono {
   });
 
   return app;
+}
+
+/** カタログ 1 件の公開形。 表示に要る分だけ (本文は返さない)。 */
+function serializeCatalogEntry(entry: {
+  name: string; description: string; path: string; source: string;
+  rwf: readonly unknown[];
+}) {
+  return {
+    name: entry.name,
+    description: entry.description,
+    path: entry.path,
+    source: entry.source,
+    rwf: entry.rwf,
+  };
 }
 
 function serialize(s: {

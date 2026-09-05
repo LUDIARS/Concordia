@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { putJson } from "./common.js";
+import { ReactionSkillWorkflowsPanel } from "./ReactionSkillWorkflows.js";
 
 // ─── リアクションワークフロー (ON/OFF + 絵文字→アクション マッピング) ──────
 
@@ -245,6 +246,8 @@ export function ReactionWorkflowSection({ onOpenAllSettings }: { onOpenAllSettin
           ))}
         </ul>
       </div>
+
+      <ReactionSkillWorkflowsPanel actionOptions={maps?.actions ?? []} />
 
       <ActionPolicyTable actionHelp={maps?.action_help} />
 

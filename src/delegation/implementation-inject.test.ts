@@ -75,8 +75,12 @@ describe("buildImplementationInject", () => {
     const positions = steps.map((step) => text.indexOf(step));
     expect(positions.every((p) => p >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
-    // 1 / 2 の補足 (宣言の置き場所・採否記載) も落とさない。
-    expect(text).toContain("`spec/domains/<name>.domain.json` を先に書く、同じ PR に含める");
+    // 1 / 2 の補足 (計画の取り方・宣言の置き場所・採否記載) も落とさない。
+    // 2026-09-05: 着地点 1 点の `where` ではなくドメイン計画 (`anatomia plan`) を先に取る
+    // (設計 spec/plan/2026-09-05-anatomia-domain-plan-tool.md §5 C-2)。
+    expect(text).toContain("`anatomia plan --task");
+    expect(text).toContain("`spec/domains/<name>.domain.json` を");
+    expect(text).toContain("先に書く、同じ PR に含める");
     expect(text).toContain("PR 説明に 1 行、見つけたら必ず使うではない");
     // バンドルは「着手前の把握」の中、Memoria 節より前に置く。
     expect(text.indexOf("### 着手前の把握")).toBeLessThan(text.indexOf("#### 着手時バンドル"));

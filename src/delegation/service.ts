@@ -44,6 +44,13 @@ import { buildInvocationPlan } from "./plan.js";
 import { recoverCollapsedWindowsWorkspacePath } from "./windows-path-recovery.js";
 import { substituteVars } from "./prompt.js";
 import {
+  buildDomainPreamble,
+  domainPreambleEnabled,
+  isDomainPreambleTarget,
+  pickDelegationTaskText,
+  prependDomainPreamble,
+} from "./domain-preamble.js";
+import {
   templateToDefinition,
   type DelegationDefinition,
   type InvokeInput,
@@ -225,7 +232,9 @@ export class DelegationService {
     }
     const plan = buildInvocationPlan(def, input);
     if (!plan.ok) return plan;
-    const renderedPrompt = plan.renderedPrompt;
+    // 委託前にドメインを確定して指示書の先頭へ織り込む (設計 §5 C-2 / §12.3 C-11)。
+    // Anatomia が居ない / 索引に無い / ドメイン定義が無いときは何も足さずに進む。
+    const renderedPrompt = await this.applyDomainPreamble(def, input, plan.renderedPrompt);
 
     // 指示書の本文と構造化 branch を突き合わせる。 本文だけが branch を指している
     // 場合は呼び出し元の渡し忘れなので、 worktree を作らないまま spawn させない
@@ -337,6 +346,50 @@ export class DelegationService {
       queued: false,
       queue_position: null,
     };
+  }
+
+  /**
+   * 指示書の先頭に「ドメイン先行」の前置きを足す (設計 §5 C-2 / §12.3-12.4 C-11)。
+   *
+   * 対象は実装を伴うテンプレ (employee / freelancer) で、 依頼文が args にあるものだけ。
+   * パートタイマーの定型タスクや call_only の雑務にドメイン計画は要らない。
+   * **失敗しても委託は止めない** — 織り込みを飛ばして従来どおりの指示書を返す。
+   */
+  private async applyDomainPreamble(
+    def: DelegationDefinition,
+    input: InvokeInput,
+    renderedPrompt: string,
+  ): Promise<string> {
+    if (!domainPreambleEnabled()) return renderedPrompt;
+    // freelancer には設計相談・レビューも含まれる。category だけで判定すると読み取り専用
+    // テンプレへ実装向け前置きと最大 10 秒の I/O を足すため、既存の manual kind 正本を使う。
+    if (!isDomainPreambleTarget({
+      callName: def.call_name,
+      title: def.title,
+      category: def.category,
+    })) return renderedPrompt;
+    const args = input.args ?? {};
+    const task = pickDelegationTaskText(args);
+    if (!task) return renderedPrompt;
+    const targetRepo = typeof args.target_repo === "string" && args.target_repo.trim()
+      ? args.target_repo.trim()
+      : input.cwd ?? null;
+    try {
+      const preamble = await buildDomainPreamble({ task, targetRepo });
+      if (preamble.text) {
+        log.info(
+          { call_name: def.call_name, project: preamble.project, source: preamble.source },
+          "delegation domain preamble applied",
+        );
+      }
+      return prependDomainPreamble(renderedPrompt, preamble);
+    } catch (e) {
+      log.warn(
+        { call_name: def.call_name, error: (e as Error).message },
+        "delegation domain preamble skipped",
+      );
+      return renderedPrompt;
+    }
   }
 
   /**

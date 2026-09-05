@@ -79,6 +79,15 @@ const LEGACY_DELEGATION_CALL_NAMES = [
   "review-sonnet5",
 ] as const;
 
+/**
+ * 委託を書く人間 (と親セッション) 向けの注意。 委託文に別リポの設計書パスを書いても、
+ * 子の cwd は対象 repo の中なので読めない (2026-09-05 の問題ログ)。 Concordia が本文を
+ * 同梱するのは `memory_links` / file-ref input で明示された登録済み repo の md だけ。
+ */
+const CROSS_REPO_DOC_NOTE =
+  "別リポの設計書はパスを書いただけでは読めない。 登録済み repo の文書を memory_links / " +
+  "design_path などのファイル参照 input で明示して本文を同梱するか、 cwd 内へコピーしておくこと。";
+
 function codex56Template(opts: {
   /** 呼び出し契約となる call_name。 model は `gpt-5.6-${modelName}`。 */
   callName: string;
@@ -94,7 +103,7 @@ function codex56Template(opts: {
   return {
     call_name: opts.callName,
     title: `Implementation delegation (GPT-5.6 ${opts.label})`,
-    description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}.`,
+    description: `Delegate implementation work to Codex GPT-5.6 ${opts.label}. ${CROSS_REPO_DOC_NOTE}`,
     // 2026-08-25: 実装 profile は Windows native Codex (ターミナル実行) へ復帰。
     // WSL 経路は codex 認証ローテーションと lsass クラッシュ (RPCRT4 0xc0000005 →
     // 強制再起動) で継続不能になった。native の CreateProcessWithLogonW リークは
@@ -160,7 +169,7 @@ function claudeImplementationTemplate(opts: {
   return {
     call_name: opts.callName,
     title: `実装委託 (${opts.label})`,
-    description: `${opts.label} に実装を委託する。${opts.note} LUDIARS 規約 (feat branch + PR) を守らせる。`,
+    description: `${opts.label} に実装を委託する。${opts.note} LUDIARS 規約 (feat branch + PR) を守らせる。${CROSS_REPO_DOC_NOTE}`,
     target_provider: "claude",
     model: opts.model,
     ...(opts.runtimeOptions ? { runtime_options: opts.runtimeOptions } : {}),

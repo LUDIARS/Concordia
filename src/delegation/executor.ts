@@ -52,5 +52,8 @@ export async function executeQueuedRun(input: {
   if (launch.memoria_task) {
     input.repo.recordMemoriaTask(input.run.id, launch.memoria_task.id, launch.memoria_task.url);
   }
+  if (launch.bundled_docs.length > 0) {
+    input.repo.recordBundledDocs(input.run.id, launch.bundled_docs);
+  }
   emitDelegationRunChanged(input.repo.markRunSpawned(input.run.id, outcome, claim));
 }

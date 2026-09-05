@@ -15,6 +15,13 @@
  * spec/feature/delegation-implementation-inject.md。
  */
 
+import {
+  ASK_MARKER_RULE,
+  ACCEPTANCE_CONTRACT_FORMAT_RULE,
+  ACCEPTANCE_CONTRACT_ORDER_RULE,
+  acceptanceContractProcedureLines,
+} from "../taskflow/task-instructions.js";
+
 /** 実装委託とみなす作業種別。 kind 語彙は inject_manuals と同じ (manual-kind.ts)。 */
 export const IMPLEMENTATION_MANUAL_KIND = "実装";
 
@@ -49,6 +56,12 @@ export interface ImplementationInjectInput {
   repoPath: string | null;
   branch: string | null;
   concordiaUrl: string;
+  /**
+   * 実行時に解決した Augur CLI の起動コマンド (`node <Augur>/bin/augur.mjs`)。
+   * 解決できなければ null — 契約書式だけ渡し、 集計コマンドは書かない
+   * (端末固有の絶対パスをテンプレへ埋め込まないため、 ここは常に呼び出し側が解決する)。
+   */
+  augurCli?: string | null;
 }
 
 /**
@@ -104,6 +117,10 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
   }
   lines.push(
     "",
+    "### 受け入れ条件 (契約書式) と完了証跡",
+    "",
+    ...acceptanceLines(input.augurCli ?? null),
+    "",
     "### 完了条件 (すべて満たしてから status を報告する)",
     "",
     "タスク本文が Revisor 指摘解消・マージ完了など PR 提出より後段の完了条件を明示している場合は、 その条件を優先します。",
@@ -138,6 +155,30 @@ export function buildImplementationInject(input: ImplementationInjectInput): str
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * 受け入れ条件の契約書式と、 その証跡の作り方。 文言は taskflow/task-instructions.ts が
+ * 正本で、 persona-context (子への指示) と同じものを参照する。
+ *
+ * Augur CLI が解決できない端末では集計手順を書かない — 実行できないコマンドを載せると、
+ * 委託先がそれを回そうとして詰まる。 契約書式と契約先行の規則は残し、検証不能なら
+ * completed を送れないことを明示する。
+ */
+function acceptanceLines(augurCli: string | null): string[] {
+  if (!augurCli) {
+    return [
+      `- ${ACCEPTANCE_CONTRACT_FORMAT_RULE}`,
+      `- ${ACCEPTANCE_CONTRACT_ORDER_RULE}`,
+      "- この端末では Augur CLI を解決できなかったため、契約ファイルは先に作るが集計は実行できない。",
+      "  証跡を検証できない completed は拒否されるので、設定不足の診断を failed で報告する。",
+      `- ${ASK_MARKER_RULE}`,
+    ];
+  }
+  return [
+    ...acceptanceContractProcedureLines({ augurCli }),
+    `- ${ASK_MARKER_RULE}`,
+  ];
 }
 
 export interface MemoriaTaskDraft {

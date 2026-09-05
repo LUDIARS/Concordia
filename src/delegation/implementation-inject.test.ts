@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  ACCEPTANCE_CONTRACT_ORDER_RULE,
+  ACCEPTANCE_CONTRACT_FORMAT_RULE,
+  ASK_MARKER_RULE,
+} from "../taskflow/task-instructions.js";
+import {
   buildImplementationInject,
   buildMemoriaTaskDraft,
   resolveWhy,
@@ -168,5 +173,39 @@ describe("buildMemoriaTaskDraft", () => {
       runId: "run-2", callName: "impl", title: "実装委託", task: "本文", why: "why", repoPath: null,
     });
     expect(draft.details).toContain("repo: (unresolved)");
+  });
+});
+
+/**
+ * 受け入れ条件は契約書式で渡し、 集計コマンドまで本文に書く
+ * (spec/feature/task-workflow.md §5.1)。 文言は taskflow/task-instructions.ts が正本で、
+ * persona-context と同じものを参照する (経路ごとに複製しない)。
+ */
+describe("buildImplementationInject — 受け入れ条件 (契約書式)", () => {
+  it("契約書式と ask マーカー規則を 1 回ずつ載せる", () => {
+    const text = buildImplementationInject({ ...BASE, augurCli: "node E:/x/Augur/bin/augur.mjs" });
+    expect(text.split(ACCEPTANCE_CONTRACT_FORMAT_RULE).length - 1).toBe(1);
+    expect(text.split(ASK_MARKER_RULE).length - 1).toBe(1);
+    expect(text).toContain("### 受け入れ条件 (契約書式) と完了証跡");
+  });
+
+  it("解決済み Augur CLI のパスで集計コマンドを書く (ソースへ埋め込まない)", () => {
+    const text = buildImplementationInject({ ...BASE, augurCli: "node E:/x/Augur/bin/augur.mjs" });
+    expect(text).toContain("node E:/x/Augur/bin/augur.mjs contracts report --project . --acceptance --json --since $DELEGATION_STARTED_AT");
+    expect(text).toContain("inject apply --project . --rule contract-wrap");
+  });
+
+  it("Augur が解決できない端末でも契約を先に作らせ、completed 不能を明示する", () => {
+    const text = buildImplementationInject({ ...BASE, augurCli: null });
+    expect(text).toContain(ACCEPTANCE_CONTRACT_FORMAT_RULE);
+    expect(text).toContain(ACCEPTANCE_CONTRACT_ORDER_RULE);
+    expect(text).not.toContain("contracts report");
+    expect(text).toContain("Augur CLI を解決できなかった");
+    expect(text).toContain("completed は拒否される");
+  });
+
+  it("受け入れ条件は完了条件チェックリストより前に置く", () => {
+    const text = buildImplementationInject({ ...BASE, augurCli: null });
+    expect(text.indexOf("### 受け入れ条件")).toBeLessThan(text.indexOf("### 完了条件"));
   });
 });

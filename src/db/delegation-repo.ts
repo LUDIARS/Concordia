@@ -127,6 +127,8 @@ export interface DelegationRunRow {
   spawn_worktree_created?: number;
   /** worktree 解決の結果状態 (created / reused / none-by-design / none-shared-checkout)。 */
   spawn_worktree_state?: string | null;
+  /** prompt へ本文同梱した別リポ md の一覧 (JSON 配列。 `<project>:<repo-relative-path>`)。 */
+  bundled_docs?: string | null;
   effort_decision_id?: number | null;
   finished_at?: number | null;
   team_id?: string | null;
@@ -243,6 +245,8 @@ export interface CreateRunInput {
   subsidiary_id?: string | null;
   /** 旧: 段階注入で起動したか。 段階注入は 2026-08-21 に廃止 (新規 run は常に false)。 */
   staged_injection?: boolean;
+  /** run id を spawn 前に確保する経路で固定した作成時刻。省略時は現在時刻。 */
+  created_at?: number;
 }
 
 /** spawn 試行後に run へ焼き戻す結果 (キュー払い出し時も同じ形)。 */
@@ -458,7 +462,7 @@ export class DelegationRepo {
 
   createRun(input: CreateRunInput): DelegationRunRow {
     const id = input.id ?? randomUUID();
-    const now = Date.now();
+    const now = input.created_at ?? Date.now();
     this.db.prepare(`
       INSERT INTO delegation_runs(
         id, template_id, category, call_name, target_provider, parent_session_id, child_session_id, args_json,
@@ -609,6 +613,17 @@ export class DelegationRepo {
   // 読み出し (Discord の旧 run 表示など) のためだけに残す。 書き手はもう無いので、
   // 対応する writer (recordInvestigationReport / markStagedFollowupDelivered) は削除した。
   // memoria_task_id だけは現行の起票経路が引き続き使う。
+
+  /**
+   * 委託 prompt へ本文同梱した別リポ md を記録する (`<project>:<repo-relative-path>`)。
+   * 何を渡したのかを run から追えるようにするための観測点で、 起動判定には使わない。
+   */
+  recordBundledDocs(id: string, labels: readonly string[]): boolean {
+    const result = this.db.prepare(
+      `UPDATE delegation_runs SET bundled_docs = ? WHERE id = ?`,
+    ).run(JSON.stringify(labels), id);
+    return result.changes > 0;
+  }
 
   /**
    * Memoria タスクを run に関連付ける。 未関連 (NULL) のときだけ書き、 書けたかを返す —

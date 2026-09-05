@@ -185,6 +185,24 @@ memory_links: []                  # 参照メモリ (ファイルパス / URL)�
 - render 済みプロンプトに「参照メモリ」節としてパス / URL を**列挙するだけ**にする
   (内容を inline しない — コンテキスト節約 + 正本参照の原則)。 子が必要な分だけ読む。
 
+**例外: 別リポの md は本文を同梱する** (2026-09-05 の問題ログ)。 列挙で足りるのは子が
+自分で開けるパスだけで、 cwd (worktree) の外にある設計書はパスを渡しても読めない。 子は
+読めないまま人へ質問して止まる。
+
+- 同梱の対象は**明示された参照だけ**: `memory_links` と、 コード上の allowlist に入れた
+  file-ref input (`design_path` / `spec_path` / `doc_path` / `plan_path`)。 自由文の
+  `task` / `context_extra` からパスらしい文字列を拾って読むことはしない。
+- 読む前に realpath を解決し、 **登録済み repo root (`project_codes`) の中**にあることを
+  確認する。 未登録ディレクトリ、 ユーザープロファイル、 symlink / `..` による repo 外への
+  脱出は読まず、 理由付きの非同梱注記を prompt に出す。 拒否した絶対パス / URL 自体は、
+  ユーザー名・private endpoint 等を子へ漏らさないため注記へ再掲しない。
+- spawn cwd の中 / 作業対象と同じ repo の文書は同梱しない (子が直接読める)。
+- 1 prompt に同梱する本文全体の上限は UTF-8 byte 数 (24KB) と行数 (600 行) の両方。
+  byte で切るときは完全な文字の
+  境界まで戻し、 省略注記を添える。
+- run には `bundled_docs` として `<project>:<repo-relative-path>` の形で記録する
+  (絶対パスは残さない)。 実装は `src/delegation/external-docs.ts`。
+
 ### 3.3 persona-context への追記 (子への指示)
 
 `src/delegation/persona-context.ts` に以下を追加する (既存の「完了時 status 報告」「報告ファースト」と併記):
@@ -252,6 +270,37 @@ LLM はゴール判断をしない。 判断材料は **PR の状態** (決定�
   「確認テストがキューに入った。 `/confirm start <svc>` で開始」を通知する
   (= 要件「キューイングはユーザ確認を伴うため事前に通知が飛ぶ」)。
 - テストの**実施**は必ず人間の `/confirm start` (develop-confirm-flow 既存。 自動起動しない)。
+
+### 5.1 受け入れ条件は契約書式で渡し、 完了証跡を突合する
+
+Augur 設計 `2026-09-05-live-contract-testing.md` §8 (C4)。 「動いたつもり」の自己申告を
+機械で突合できるようにする。
+
+- 受け入れ条件は契約書式 `C-n <symbol>(…): <条件>` で 1 行 1 契約として書く。 契約 id
+  `C-n` は完了報告の `acceptance_report[].criterion` の先頭トークンにそのまま載せる。
+- 受託側は**実装より先に** `augur.contracts.json` と述語モジュールを書く。 手順は
+  `augur inject apply --rule contract-wrap --diff-base <base>` → 実行 →
+  `augur contracts report --project . --acceptance --json --since $DELEGATION_STARTED_AT`。
+  その JSON をそのまま `acceptance_report` に載せる。
+- 委託開始時刻は Concordia が `DELEGATION_STARTED_AT` (UTC ISO 8601) として子の env へ渡す
+  (`src/delegation/launcher.ts` の spawn env)。
+- Augur CLI は PATH に居ない (`node <Augur>/bin/augur.mjs`)。 パスは実行時に解決する
+  (env `CONCORDIA_AUGUR_DIR` → ワークスペースルート直下の `Augur/`)。 端末固有の絶対パスを
+  ソースにも注入テンプレにも書かない。
+- **完了証跡**: worktree に `augur.contracts.json` がある委託は、 Concordia が同じ集計を
+  実行して自己申告と突合し、 一致しない項目を `unmet acceptance: <criterion>` として
+  completed を拒否する。 集計済みの契約を `acceptance_report` から省略した場合や、 集計
+  JSON の項目が不正な場合も拒否する。 契約ファイルがあるのに Augur を実行できない (CLI 未解決 / 実行
+  失敗 / JSON 不正) 場合も、 診断を理由文に出して拒否する — 「証跡を取れなかったから通す」
+  にすると契約を置いた委託ほど検証を素通りできてしまうため。 契約ファイルが無い委託は
+  従来どおり branch 証跡だけで判定する (review_only / parttimer の除外も維持)。
+- 実装の分担: `src/delegation/augur-acceptance.ts` が契約ファイルの検出・Augur CLI パスの
+  解決・`contracts report` の実行と JSON 解釈を持ち、 `src/delegation/acceptance-reconcile.ts`
+  が自己申告と集計の突合 (純関数) を、 `src/delegation/completion-evidence.ts` が completed
+  判定への組み込みを持つ。
+- 規範文言は `src/taskflow/task-instructions.ts` が正本で、 `persona-context` (子への指示) と
+  `implementation-inject` (受け入れ条件節) の両方がそこを参照する。 質問の作法
+  (```ask マーカー。 AskUserQuestion は使えない) も同じ場所に置く。
 
 ## 6. 実装完了検知 — completion 黒箱 (対話セッションの捕捉)
 

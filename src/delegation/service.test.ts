@@ -183,6 +183,38 @@ describe("DelegationService.invoke", () => {
     expect((spawnCalls[0] as { mode?: string }).mode).toBe("window");
   });
 
+  it("明示された別リポ md を prompt に同梱し、絶対パスなしのラベルを run に記録する", async () => {
+    const workspace = join(promptsDir, "workspace");
+    const workRepo = join(workspace, "Concordia");
+    const otherRepo = join(workspace, "Augur");
+    mkdirSync(workRepo, { recursive: true });
+    mkdirSync(join(otherRepo, "spec"), { recursive: true });
+    const designPath = join(otherRepo, "spec", "design.md");
+    writeFileSync(designPath, "# 外部設計\n\n契約を先に書く。", "utf8");
+    const service = new DelegationService({
+      repo,
+      promptsDir,
+      spawn: (req) => ({ ok: true, pid: 999, command: ["stub", req.provider] }),
+      registeredRepos: () => [
+        { project: "Concordia", repo_path: workRepo },
+        { project: "Augur", repo_path: otherRepo },
+      ],
+      resolveRepoForPath: () => ({ project: "Concordia", repo_path: workRepo }),
+    });
+
+    const result = await service.invoke({
+      call_name: "echo",
+      args: { msg: "hi", design_path: designPath },
+      cwd: workRepo,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(readFileSync(result.prompt_file_path, "utf8")).toContain("契約を先に書く。");
+    expect(repo.findRun(result.run.id)?.bundled_docs).toBe('["Augur:spec/design.md"]');
+    expect(repo.findRun(result.run.id)?.bundled_docs).not.toContain(workspace);
+  });
+
   // 非対話 runner (codex-sdk = Satelles run) は 1 ターンで終了する。 段階注入時代は
   // ここが「第 2 段階が届かず commit ゼロで completed」 の沈黙故障だった。 1 通注入に
   // した今も、 タスク本文が初回 prompt file に載ることを引き続き守る。

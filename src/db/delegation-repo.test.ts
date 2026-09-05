@@ -242,11 +242,15 @@ describe("DelegationRepo / runs", () => {
       triggered_by: "claude",
       status: "spawned",
       subsidiary_id: "subsidiary-1",
+      created_at: 123456789,
     });
     expect(run.id).toBe(id);
     expect(run.target_provider).toBe("codex");
     expect(run.subsidiary_id).toBe("subsidiary-1");
+    expect(run.created_at).toBe(123456789);
     expect(repo.findRun(id)?.spawn_pid).toBe(42);
+    expect(repo.recordBundledDocs(id, ["Augur:spec/design.md"])).toBe(true);
+    expect(repo.findRun(id)?.bundled_docs).toBe('["Augur:spec/design.md"]');
   });
 
   it("recentRuns returns rows in created_at desc", async () => {

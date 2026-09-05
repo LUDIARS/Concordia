@@ -77,6 +77,8 @@ export interface InvokeInput {
 export interface QueuePayload {
   def: DelegationDefinition;
   input: InvokeInput;
+  /** run 作成時刻。queued 後も子 env と完了証跡の --since を同じ起点にする。 */
+  startedAt?: number;
 }
 
 export type LaunchResult =
@@ -101,5 +103,7 @@ export type LaunchResult =
       effort_decision_id: number | null;
       /** 起票できた Memoria 追跡タスク (実装委託のみ)。 run 行へ焼く。 */
       memoria_task: { id: string; url: string } | null;
+      /** prompt へ本文同梱した別リポ md (`<project>:<repo-relative-path>`)。 run 行へ焼く。 */
+      bundled_docs: string[];
     }
   | { ok: false; error: string };

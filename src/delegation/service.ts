@@ -59,6 +59,12 @@ import {
 } from "./contracts.js";
 import { executeQueuedRun } from "./executor.js";
 import { launchDelegationProcess, type DelegationSpawner } from "./launcher.js";
+import { augurCliCommand, resolveAugurCliPath } from "./augur-acceptance.js";
+import {
+  buildExternalDocBundle,
+  collectExternalDocRefs,
+  type RegisteredRepo,
+} from "./external-docs.js";
 import { applyDelegationProviderPolicy } from "./provider-policy.js";
 import { resolveTemplateForScope } from "./template-overrides.js";
 import { readFederationEnv } from "../federation/env.js";
@@ -155,6 +161,12 @@ export interface DelegationServiceDeps {
    * 付ける値を Cc 側で埋めるために受ける。 未注入・未設定は null (メンションなし)。
    */
   mentionUserId?: () => string | null;
+  /** Augur CLI を探すワークスペースルート群 (受け入れ条件の集計コマンドを本文へ載せるため)。 */
+  workspaceRoots?: () => string[];
+  /** 登録済みプロジェクト。 別リポ md の同梱可否をここで判定する。 */
+  registeredRepos?: () => RegisteredRepo[];
+  /** 作業ディレクトリが属する登録済み repo の解決 (同じ repo の文書は同梱しない)。 */
+  resolveRepoForPath?: (path: string) => RegisteredRepo | null;
 }
 
 export class DelegationService {
@@ -249,6 +261,7 @@ export class DelegationService {
     input = { ...input, branch: branchResolution.branch ?? undefined };
 
     const runId = randomUUID();
+    const startedAt = Date.now();
     const promptPath = join(this.promptsDir, `${runId}.md`);
     const shouldSpawn = input.spawn !== false;
 
@@ -256,7 +269,7 @@ export class DelegationService {
     // 書き出しといった副作用は起動時 (launch) までまとめて遅延させる — 待たせている間に
     // worktree だけ先に生えている、 という中途半端な状態を作らないため。
     if (shouldSpawn && this.queue?.enabled() && !this.queue.hasCapacity()) {
-      const payload: QueuePayload = { def, input };
+      const payload: QueuePayload = { def, input, startedAt };
       const targetProvider = applyDelegationProviderPolicy(input.overrides?.provider ?? def.target_provider);
       const run = this.deps.repo.createRun({
         id: runId,
@@ -275,6 +288,7 @@ export class DelegationService {
         queue_payload_json: JSON.stringify(payload),
         team_id: requestedTeam?.id ?? null,
         subsidiary_id: input.subsidiary_id ?? null,
+        created_at: startedAt,
       });
       const position = this.queue.position(run.id);
       log.info({ run_id: run.id, call_name: def.call_name, queue_position: position }, "delegation queued (at concurrency limit)");
@@ -295,7 +309,7 @@ export class DelegationService {
       };
     }
 
-    const launch = await this.launch(runId, def, input, renderedPrompt, shouldSpawn);
+    const launch = await this.launch(runId, def, input, renderedPrompt, shouldSpawn, startedAt);
     if (!launch.ok) return { ok: false, error: launch.error };
 
     const run = this.deps.repo.createRun({
@@ -326,9 +340,13 @@ export class DelegationService {
       effort_decision_id: launch.effort_decision_id,
       team_id: requestedTeam?.id ?? null,
       subsidiary_id: input.subsidiary_id ?? null,
+      created_at: startedAt,
     });
     if (launch.memoria_task) {
       this.deps.repo.recordMemoriaTask(runId, launch.memoria_task.id, launch.memoria_task.url);
+    }
+    if (launch.bundled_docs.length > 0) {
+      this.deps.repo.recordBundledDocs(runId, launch.bundled_docs);
     }
 
     return {
@@ -400,7 +418,14 @@ export class DelegationService {
     await executeQueuedRun({
       run,
       repo: this.deps.repo,
-      launch: (payload) => this.launch(run.id, payload.def, payload.input, run.rendered_prompt, true),
+      launch: (payload) => this.launch(
+        run.id,
+        payload.def,
+        payload.input,
+        run.rendered_prompt,
+        true,
+        payload.startedAt ?? run.created_at,
+      ),
     });
   }
 
@@ -423,6 +448,7 @@ export class DelegationService {
     input: InvokeInput,
     renderedPrompt: string,
     shouldSpawn: boolean,
+    startedAt = Date.now(),
   ): Promise<LaunchResult> {
     const requestedProvider = input.overrides?.provider ?? def.target_provider;
     const provider = applyDelegationProviderPolicy(requestedProvider);
@@ -576,6 +602,13 @@ export class DelegationService {
     // spec/feature/delegation-implementation-inject.md。
     let memoriaLink: MemoriaTaskLink | null = null;
     let promptSection = renderedPrompt;
+    let bundledDocs: string[] = [];
+    // Augur CLI は PATH に居ない。 端末ごとに違う絶対パスなので実行時に解決し、
+    // 解決できた場合だけ集計コマンドを本文へ載せる。
+    const augurCliPath = resolveAugurCliPath({
+      env: process.env,
+      workspaceRoots: this.deps.workspaceRoots?.() ?? [],
+    });
     if (isParttimer) {
       promptSection = buildParttimerInject({
         runId,
@@ -611,7 +644,25 @@ export class DelegationService {
         repoPath: cwd ?? null,
         branch: spawnBranch,
         concordiaUrl: this.deps.concordiaUrl ?? "http://127.0.0.1:11111",
+        augurCli: augurCliPath ? augurCliCommand(augurCliPath) : null,
       });
+    }
+    // 別リポの正本はパスを書いても子は読めない (cwd の外)。 明示された参照だけ本文を
+    // 同梱する (spec/feature/task-workflow.md §3.2)。 パートタイマーは本文が全文なので対象外。
+    if (!isParttimer) {
+      const bundle = buildExternalDocBundle({
+        refs: collectExternalDocRefs({ args: input.args ?? null, memoryLinks: input.memory_links ?? null }),
+        spawnCwd: cwd ?? null,
+        spawnRepoPath: cwd ? this.deps.resolveRepoForPath?.(cwd)?.repo_path ?? null : null,
+        repos: this.deps.registeredRepos?.() ?? [],
+      });
+      if (bundle.section) {
+        promptSection = `${promptSection}
+
+${bundle.section}`;
+        bundledDocs = bundle.labels;
+        log.info({ run_id: runId, bundled_docs: bundle.labels, skipped: bundle.skipped.length }, "delegation bundled external docs");
+      }
     }
     try {
       await mkdir(this.promptsDir, { recursive: true });
@@ -660,6 +711,7 @@ export class DelegationService {
         // Discord surface / 再送に写るのも第1段階の本文。 伏せたタスク本文をここから
         // 漏らすと段階注入の意味が無くなる。
         startupInjectText: promptSection,
+        startedAt: new Date(startedAt).toISOString(),
         spawner: this.deps.spawn as DelegationSpawner | undefined,
       });
       spawnPid = result.spawnPid;
@@ -689,6 +741,7 @@ export class DelegationService {
       fast_mode: effectiveOptions.fast_mode === true,
       effort_decision_id: effortDecisionId,
       memoria_task: memoriaLink,
+      bundled_docs: bundledDocs,
     };
   }
 }

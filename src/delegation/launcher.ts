@@ -43,6 +43,11 @@ export function launchDelegationProcess(input: {
   branch: string | null;
   promptPath: string;
   startupInjectText: string;
+  /**
+   * 委託開始時刻 (UTC ISO 8601)。 子は `DELEGATION_STARTED_AT` として受け取り、
+   * Augur の受け入れ集計 (`contracts report --since`) の起点に使う。 省略時は起動時刻。
+   */
+  startedAt?: string;
   spawner?: DelegationSpawner;
 }): ProcessLaunchResult {
   const spawner = resolveDelegationSpawner(input.spawner);
@@ -58,6 +63,8 @@ export function launchDelegationProcess(input: {
       ...resolveDelegationRuntimeEnv(input.logicalProvider, input.effectiveOptions, input.effectiveModel),
       CONCORDIA_DELEGATION_PROMPT_FILE: input.promptPath,
       CONCORDIA_DELEGATION_RUN_ID: input.runId,
+      // 契約書式の受け入れ条件を Augur で集計するときの `--since` 起点 (spec/feature/task-workflow.md §5)。
+      DELEGATION_STARTED_AT: input.startedAt ?? new Date().toISOString(),
       ...(input.invocation.parent_session_id ? {
         CONCORDIA_DELEGATION_PARENT_SESSION_ID: input.invocation.parent_session_id,
         CONCORDIA_PARENT_SESSION_ID: input.invocation.parent_session_id,

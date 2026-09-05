@@ -263,6 +263,11 @@ export interface DelegationApiDeps {
   hasPendingQuestion?: PendingQuestionProbe;
   /** 委託先へ配る協調 API のベース URL。 */
   concordiaUrl?: string;
+  /**
+   * Augur CLI (`<root>/Augur/bin/augur.mjs`) を探すワークスペースルート群。
+   * 契約ファイルを置いた委託の完了証跡 (acceptance 突合) の解決に使う。
+   */
+  workspaceRoots?: () => string[];
   onTaskflowCompleted?: (run: DelegationRunRow) => Promise<void>;
   syncForumTags?: (templates: ReturnType<DelegationRepo["listTemplates"]>) => Promise<{ forum_id: string; tags: string[] }>;
 }
@@ -714,8 +719,15 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
       // 従来どおり branch 証跡を要求する側へ倒す。
       const reviewOnly = row.template_id !== null
         && deps.repo.findTemplate(row.template_id)?.review_only === 1;
-      const evidence = await verifyCompletionEvidence(row, { reviewOnly });
+      // 契約書式の受け入れ条件を置いた委託は、 自己申告 `met` を Augur の集計と突合する
+      // (spec/feature/task-workflow.md §5)。 契約ファイルが無い run は従来どおり branch 証跡のみ。
+      const evidence = await verifyCompletionEvidence(row, {
+        reviewOnly,
+        acceptanceReport: parsed.data.acceptance_report ?? null,
+        workspaceRoots: deps.workspaceRoots?.() ?? [],
+      });
       const hasMergedChildPr = !evidence.ok
+        && evidence.reason === "spawned checkout has no recorded feature branch"
         && !row.spawn_branch
         && row.child_session_id !== null
         && deps.prs?.list({

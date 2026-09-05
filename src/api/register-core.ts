@@ -503,6 +503,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     adminState: deps.adminState,
     taskStore: deps.taskStore,
     concordiaUrl: deps.publicUrl,
+    workspaceRoots: () => deps.adminState.getWorkspaceRoots(),
     onTaskflowCompleted: deps.onTaskflowCompleted,
     syncForumTags: deps.syncDiscordForumTags,
     hasPendingQuestion,

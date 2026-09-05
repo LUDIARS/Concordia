@@ -638,6 +638,14 @@ export async function startBackend(): Promise<BackendHandle> {
     // GET /v1/admin/state を引いて自分で埋める」手順を本文に書いていたが、 変数展開で
     // 空へ潰れて `<@> ` が届いていた。 Cc が知っている値は Cc が埋める。
     mentionUserId: () => adminState.getMentionUserId(),
+    // 受け入れ条件の契約集計 (Augur CLI) と、 別リポ md 同梱の許可判定。 どちらも
+    // 「登録済みのものだけを見る」規則で、 未登録ディレクトリは対象にしない。
+    workspaceRoots: () => adminState.getWorkspaceRoots(),
+    registeredRepos: () => projectCodesRepo.list().map((row) => ({ project: row.project, repo_path: row.repo_path })),
+    resolveRepoForPath: (path) => {
+      const row = projectCodesRepo.findByRepoPath(path);
+      return row ? { project: row.project, repo_path: row.repo_path } : null;
+    },
   });
   // ワークフロー個別有効化 (W1)。 無効なワークフローの購読 / スケジューラ / Discord
   // コマンド登録は行わない。 フラグは都度解決で、 値の変化はレジストリが検知して

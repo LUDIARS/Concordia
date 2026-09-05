@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildDelegationContext } from "./persona-context.js";
+import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
 
 describe("buildDelegationContext", () => {
   it("manual なしでは作業マニュアル節を含まない", () => {
@@ -146,5 +147,20 @@ describe("buildDelegationContext", () => {
       expect(ctx).toContain("base は origin/develop があれば");
       expect(ctx).toContain("develop、無ければ main とし");
     });
+  });
+});
+
+/**
+ * 2026-09-05 の問題ログ: 委託先 Claude が AskUserQuestion (対話 picker) で質問し、
+ * Lictor リレー越しに回答できず run が止まった。 質問の作法は
+ * taskflow/task-instructions.ts が正本で、 子への指示から参照する。
+ */
+describe("buildDelegationContext — 質問の作法", () => {
+  it("完了報告 JSON の説明の隣に ask マーカー規則を 1 回だけ置く", () => {
+    const ctx = buildDelegationContext("http://127.0.0.1:11111");
+    expect(ctx.split(ASK_MARKER_RULE).length - 1).toBe(1);
+    expect(ctx).toContain("AskUserQuestion");
+    const protocolIdx = ctx.indexOf("## Delegation status / inject protocol");
+    expect(ctx.indexOf(ASK_MARKER_RULE)).toBeGreaterThan(protocolIdx);
   });
 });

@@ -96,6 +96,8 @@ describe("delegation queue × service", () => {
     expect(existsSync(r.run.prompt_file_path)).toBe(false);
     // 起動入力は payload に退避されている。
     expect(r.run.queue_payload_json).toBeTruthy();
+    const payload = JSON.parse(r.run.queue_payload_json!) as { startedAt?: number };
+    expect(payload.startedAt).toBe(r.run.created_at);
   });
 
   it("スロットが空いたら drain が queued を起動し、 payload を落とす", async () => {

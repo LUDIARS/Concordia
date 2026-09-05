@@ -6,6 +6,8 @@
  * 協調作法が効くようにする。 spec/delegation.md §4。
  */
 
+import { ASK_MARKER_RULE } from "../taskflow/task-instructions.js";
+
 /** 協調コンテキストへ差し込む kind 別の作業マニュアル (inject_manuals 由来)。 */
 export interface DelegationManual {
   kind: string;
@@ -122,6 +124,9 @@ export function buildDelegationContext(
     `  POST ${concordiaUrl}/v1/delegation/runs/$CONCORDIA_DELEGATION_RUN_ID/status`,
     '  with JSON {"status":"completed","detail":"...","result":"...","acceptance_report":[]} or {"status":"partial","remaining":[{"title":"...","note":"...","scope_dirs":[]}]} or {"status":"failed","detail":"..."} before ending.',
     "- If approval or clarification is needed, ask the parent session through the delegation status/inject flow, not directly in Discord.",
+    // 質問の作法は taskflow/task-instructions.ts が正本 (実装 inject の受け入れ条件節と共用)。
+    // 経路ごとに書くと片方だけ古くなり、 対話 picker で止まる事故が戻る (2026-09-05 問題ログ)。
+    `- ${ASK_MARKER_RULE}`,
     "- 前提が不足しても原則は質問せず『前提未確定』として PR 本文と completed/partial 報告へ明記します。質問は権限・破壊的操作の判断に限ります。",
     "- If additional injected instructions arrive, continue from them and keep the same run id.",
     "",

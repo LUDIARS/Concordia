@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 92;
+export const SCHEMA_VERSION = 93;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2314,6 +2314,18 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       CREATE INDEX IF NOT EXISTS idx_domain_review_answers_post
         ON domain_review_answers(post_id, created_at);
     `);
+  },
+}, {
+  version: 93,
+  name: "delegation-bundled-docs",
+  source: "delegation_runs.bundled_docs — 委託 prompt へ本文同梱した別リポ md の一覧 (spec/feature/task-workflow.md §3.2)",
+  up(db) {
+    // 何を子へ渡したのかが run から分からないと、 前提の欠落を後から追えない。
+    // 記録するのは `<project>:<repo-relative-path>` の JSON 配列で、 絶対パスは残さない。
+    const columns = db.prepare("PRAGMA table_info(delegation_runs)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "bundled_docs")) {
+      db.exec("ALTER TABLE delegation_runs ADD COLUMN bundled_docs TEXT");
+    }
   },
 },
 ];

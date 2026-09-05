@@ -441,6 +441,11 @@ export interface DiscordPendingQuestionsRepo {
   findById(id: number): DiscordPendingQuestionRow | null;
   findLatestUnanswered(sessionId: string): DiscordPendingQuestionRow | null;
   /**
+   * そのセッションの未回答質問を古い順に返す。 人間が戻ってきたときの通知
+   * (spec/feature/approval-inbox.md §3.2) が全件を一覧にするために使う。
+   */
+  listUnanswered(sessionId: string): DiscordPendingQuestionRow[];
+  /**
    * 同一 session で同じ question 文の **未回答** 行があれば返す (冪等化用)。
    * AskUserQuestion は picker-open 時 (PreToolUse hook) と transcript-tail
    * (回答後) の 2 経路から POST され得るので、 2 度目を重複投稿させないために使う。
@@ -566,6 +571,15 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
           )
           .get(sessionId) as DiscordPendingQuestionRow | undefined) ?? null
       );
+    },
+    listUnanswered(sessionId) {
+      return db
+        .prepare(
+          `SELECT * FROM discord_pending_questions
+           WHERE session_id = ? AND answered_at IS NULL
+           ORDER BY id ASC`,
+        )
+        .all(sessionId) as DiscordPendingQuestionRow[];
     },
     findUnansweredByQuestion(sessionId, question) {
       return (

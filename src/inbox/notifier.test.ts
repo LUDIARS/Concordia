@@ -6,9 +6,7 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 import { applyMigrations } from "../db/schema.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
-import { StaffRepo } from "../db/staff-repo.js";
 import { buildDigestText, formatElapsed } from "./digest.js";
-import { dueReminders } from "./reminder.js";
 import type { InboxItem } from "./read-model.js";
 import { pendingDigestWindows, startInboxNotifier, type DigestWindow } from "./notifier.js";
 
@@ -101,55 +99,22 @@ describe("ダイジェストの窓", () => {
   });
 });
 
-describe("催促", () => {
-  it("閾値を超えていなければ出さない", () => {
-    const now = 2 * DAY;
-    expect(dueReminders([item({ raisedAt: now - 3 * HOUR })], now, new Map())).toEqual([]);
-  });
-
-  it("閾値を超えた初回は cooldown を待たない", () => {
-    const now = 2 * DAY;
-    expect(dueReminders([item({ raisedAt: now - 25 * HOUR })], now, new Map())).toHaveLength(1);
-  });
-
-  it("cooldown 中は再催促しない", () => {
-    const now = 2 * DAY;
-    const items = [item({ raisedAt: now - 30 * HOUR })];
-    expect(dueReminders(items, now, new Map([["ask-card:1", now - 3 * HOUR]]))).toEqual([]);
-    expect(dueReminders(items, now, new Map([["ask-card:1", now - 13 * HOUR]]))).toHaveLength(1);
-  });
-
-  it("cooldown は項目ごとに独立している", () => {
-    // 種別やセッション単位で抑止すると、 いちばん古い 1 件だけが残り続ける。
-    const now = 2 * DAY;
-    const items = [
-      item({ key: "ask-card:1", raisedAt: now - 30 * HOUR }),
-      item({ key: "ask-card:2", raisedAt: now - 30 * HOUR }),
-    ];
-    const due = dueReminders(items, now, new Map([["ask-card:1", now - HOUR]]));
-    expect(due.map((i) => i.key)).toEqual(["ask-card:2"]);
-  });
-});
-
 describe("常駐部", () => {
   function harness(at: number, opts: { enabled?: boolean } = {}) {
     const db = makeDb();
     const posted: string[] = [];
-    const mentions: Array<{ discord: string[]; slack: string[] } | undefined> = [];
     const notifier = startInboxNotifier({
       db,
       notices: new InboxNoticeRepo(db),
-      staff: new StaffRepo(db),
-      post: (text, mentionIds) => {
+      post: (text) => {
         posted.push(text);
-        mentions.push(mentionIds);
       },
       now: () => at,
       enabled: opts.enabled,
       intervalMs: 60 * 60 * 1000,
     });
     notifier.stop();
-    return { db, posted, mentions, notifier };
+    return { db, posted, notifier };
   }
 
   it("未回答 0 件なら窓が開いていても投稿しない", () => {
@@ -176,41 +141,15 @@ describe("常駐部", () => {
     expect(h.notifier.runOnce()).toEqual([]);
   });
 
-  it("24h を超えた項目は各 platform の上長メンション付きで催促する", () => {
+  it("経過時間では催促しない (時間駆動の催促は撤去した)", () => {
+    // 溜まった項目を再起動後に一斉投稿しない。1 通ごとの管理職全員 mention も撤去した。
+    // 置き換え先は「人間がそのセッションのチャンネルへ戻ってきたら、そのセッションの分だけ
+    // 担当者 1 人へ」(src/inbox/session-return-notice.ts)。
     const at = localTime(2, 14);
     const h = harness(at);
     addCard(h.db, "放置されている", Math.floor((at - 30 * HOUR) / 1000));
-    new StaffRepo(h.db).upsertManual({
-      platform: "discord", platformUserId: "123456789012345678", displayName: "上長", role: "manager",
-    });
-    new StaffRepo(h.db).upsertManual({
-      platform: "slack", platformUserId: "U12345678", displayName: "上長", role: "executive",
-    });
-
     const posted = h.notifier.runOnce();
-    const reminder = posted.find((text) => text.includes("放置されています")) ?? "";
-    const reminderIndex = h.posted.indexOf(reminder);
-    expect(h.mentions[reminderIndex]).toEqual({
-      discord: ["123456789012345678"],
-      slack: ["U12345678"],
-    });
-    expect(reminder).not.toContain("123456789012345678");
-    expect(reminder).not.toContain("U12345678");
-    // 24h 以上は日で丸める (待ち行列の話なので時間単位の精度は要らない)。
-    expect(reminder).toContain("1日放置されています");
-  });
-
-  it("形式が不正な名簿 ID は mention にしない", () => {
-    const at = localTime(2, 14);
-    const h = harness(at);
-    addCard(h.db, "放置されている", Math.floor((at - 30 * HOUR) / 1000));
-    new StaffRepo(h.db).upsertManual({
-      platform: "discord", platformUserId: "123> @everyone", displayName: "上長", role: "manager",
-    });
-
-    h.notifier.runOnce();
-    expect(h.posted.join("\n")).not.toContain("@everyone");
-    expect(h.mentions.every((mentionIds) => !mentionIds?.discord.length)).toBe(true);
+    expect(posted.filter((text) => text.includes("放置されています"))).toEqual([]);
   });
 
   it("ダイジェスト投稿失敗時は窓を消化しない", () => {
@@ -221,7 +160,6 @@ describe("常駐部", () => {
     const notifier = startInboxNotifier({
       db,
       notices,
-      staff: new StaffRepo(db),
       post: () => { throw new Error("post failed"); },
       now: () => at,
       intervalMs: HOUR,
@@ -232,24 +170,12 @@ describe("常駐部", () => {
     expect(notices.lastAt("digest:morning")).toBeNull();
   });
 
-  it("深夜帯は催促しない", () => {
+  it("深夜帯でもダイジェストの窓は消化する (催促が無くなったので夜だけの分岐は無い)", () => {
     const at = localTime(2, 2);
     const h = harness(at);
     addCard(h.db, "放置されている", Math.floor((at - 30 * HOUR) / 1000));
 
     expect(h.notifier.runOnce().filter((t) => t.includes("放置されています"))).toEqual([]);
-  });
-
-  it("回答済みになった項目の催促記録は捨てる", () => {
-    const at = localTime(2, 14);
-    const h = harness(at);
-    addCard(h.db, "放置されている", Math.floor((at - 30 * HOUR) / 1000));
-    h.notifier.runOnce();
-    expect(new InboxNoticeRepo(h.db).allWithPrefix("remind:").size).toBe(1);
-
-    h.db.prepare(`UPDATE discord_pending_questions SET answered_at = ?`).run(Math.floor(at / 1000));
-    h.notifier.runOnce();
-    expect(new InboxNoticeRepo(h.db).allWithPrefix("remind:").size).toBe(0);
   });
 
   it("無効なら何も出さない", () => {

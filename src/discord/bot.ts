@@ -211,6 +211,11 @@ export type DiscordRepinSession = (sessionId: string) => Promise<{ ok: boolean; 
 
 export interface DiscordBotDeps {
   db: Database;
+  /**
+   * 人間がセッションのチャンネルへ投稿し inject が通った直後に呼ばれる。
+   * 未回答質問の通知 (spec/feature/approval-inbox.md §3.2) の起点。未注入なら通知しない。
+   */
+  onHumanReturn?: (sessionId: string, channelId: string, userId: string) => void;
   readModel: ChatReadModel;
   chatRepo: ChatRepo;
   sessionsRepo: SessionsRepo;
@@ -1272,6 +1277,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
         log,
         // 単発絵文字 (🙏 / 🫡 等) をリアクションワークフローに流すための解決系。
         chatRepo: deps.chatRepo,
+        onHumanReturn: deps.onHumanReturn,
         messageMap,
         workflow: reactionWorkflow,
         isWorkflowUserAllowed: deps.isReactionWorkflowUserAllowed,

@@ -99,6 +99,8 @@ import { startRuleEngine } from "../rules/engine.js";
 import { startDailyScheduler } from "../daily/scheduler.js";
 import { startInboxNotifier } from "../inbox/notifier.js";
 import { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
+import { buildSessionReturnNotice, shouldNotifyOnReturn } from "../inbox/session-return-notice.js";
+import { resolveNoticeMention } from "../inbox/session-return-mention.js";
 import { startMorningScheduler } from "../morning/scheduler.js";
 import { buildTeamFanoutTargets } from "../scheduler/cron-fanout.js";
 import { startCronScheduler } from "../scheduler/cron-scheduler.js";
@@ -1129,8 +1131,7 @@ export async function startBackend(): Promise<BackendHandle> {
     start: () => startInboxNotifier({
       db,
       notices: new InboxNoticeRepo(db),
-      staff: staffRepo,
-      post: (text, mentions) => {
+      post: (text) => {
         // insert しただけでは live な購読者へ届かない。 deploy 記録と同じく
         // chat.posted を出して初めて Discord / WebUI まで届く。
         const msg = chat.insert({
@@ -1150,7 +1151,6 @@ export async function startBackend(): Promise<BackendHandle> {
           session_id: msg.session_id,
           ts: msg.ts,
           is_actionable: false,
-          mention_user_ids: mentions,
         });
       },
     }),
@@ -1185,8 +1185,65 @@ export async function startBackend(): Promise<BackendHandle> {
   // 分離した (2026-05-31)。Concordia は AI 協調支援に専念。Vestigium ログ閲覧の
   // MCP だけ Concordia 同梱のまま (src/mcp/vestigium-*)。
 
+  // 人間がセッションのチャンネルへ戻ってきたら、そのセッションの未回答質問だけを
+  // 担当者 1 人宛に出す。時間駆動の催促は、再起動後に大量投稿されうるため置き換えた。
+  const returnNotices = new InboxNoticeRepo(db);
+  const notifyHumanReturn = (sessionId: string, channelId: string, userId: string): void => {
+    const session = repo.findSession(sessionId);
+    const unanswered = pendingQuestions.listUnanswered(sessionId);
+    const noticeKey = `return:${sessionId}`;
+    const nowMs = Date.now();
+    if (!shouldNotifyOnReturn({
+      sessionActive: session?.status === "active",
+      unansweredCount: unanswered.length,
+      lastNotifiedAt: returnNotices.lastAt(noticeKey),
+      nowMs,
+    })) return;
+
+    const text = buildSessionReturnNotice({
+      questions: unanswered.map((row) => ({
+        id: row.id,
+        question: row.question,
+        discordMessageId: row.discord_message_id ?? null,
+        ts: row.ts,
+      })),
+      guildId: discordConfig.get("guild_id"),
+      channelId,
+    });
+    if (!text) return;
+
+    // 成功した inject の入力者が、この時点の直近の人間指示者。履歴から再推定すると、
+    // 同一秒の inject が複数ある場合に別人を選びうるため ingress の確定値を渡す。
+    const mentions = resolveNoticeMention({
+      owner: { platform: "discord", userId },
+      adminDiscordUserId: adminState.getMentionUserId(),
+    });
+    const msg = chat.insert({
+      channel: "system",
+      session_id: sessionId,
+      author_label: "Concordia inbox",
+      text,
+      in_reply_to: null,
+      is_actionable: false,
+    });
+    if (!msg) return;
+    // session_id 付きなので egress はそのセッションのチャンネルへ配る。
+    eventBus.emit({
+      type: "chat.posted",
+      message_id: msg.id,
+      channel: msg.channel,
+      author_label: msg.author_label,
+      session_id: msg.session_id,
+      ts: msg.ts,
+      is_actionable: false,
+      mention_user_ids: mentions,
+    });
+    returnNotices.mark(noticeKey, nowMs);
+  };
+
   discordBotDeps = {
     db,
+    onHumanReturn: notifyHumanReturn,
     readModel: chatReadModel,
     chatRepo: chat,
     sessionsRepo: repo,
@@ -1331,9 +1388,15 @@ export async function startBackend(): Promise<BackendHandle> {
     runClaude,
     budgetTracker: subsidiaryBudget,
     baseDiscordDeps: () => {
-      // resolveConfig / subsidiary は manager が差し替える。head-office の runtime state
-      // callback も子会社へ渡さない (子会社停止で本社 handle を消さないため)。
-      const { resolveConfig: _rc, subsidiary: _sub, onRuntimeState: _state, ...base } = discordBotDeps!;
+      // resolveConfig / subsidiary は manager が差し替える。本社の runtime state と再訪通知
+      // callback は子会社へ渡さない (別 guild の投稿で本社向け通知を発火させないため)。
+      const {
+        resolveConfig: _rc,
+        subsidiary: _sub,
+        onRuntimeState: _state,
+        onHumanReturn: _humanReturn,
+        ...base
+      } = discordBotDeps!;
       return base;
     },
     startBot: (deps) => startDiscordBot(deps as DiscordBotDeps),

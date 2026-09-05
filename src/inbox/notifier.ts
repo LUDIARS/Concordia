@@ -1,26 +1,20 @@
 /**
- * 未回答事項のダイジェストと催促を出す常駐部。
+ * 未回答事項のダイジェストを出す常駐部。
  *
  * 一覧 (`GET /v1/inbox`) は見に行かないと分からないので、 気づく面をこちらで作る。
  *
  *  - 朝夕 2 回、 件数と最古 3 件を meta channel へ 1 投稿する (0 件なら出さない)。
- *  - 閾値 (既定 24h) を超えた項目は上長メンション付きで催促する
- *    (項目単位 cooldown 既定 12h、 深夜帯は出さない)。
- *
  * **回答状態には触らない。** ここは読むだけで、 解決は既存経路のまま行う。
  *
- * @implements spec/feature/approval-inbox.md §3
+ * @implements spec/feature/approval-inbox.md §3.1
  */
 
 import type Database from "better-sqlite3";
 import type { InboxNoticeRepo } from "../db/inbox-notice-repo.js";
-import type { StaffRepo } from "../db/staff-repo.js";
 import { createChildLogger } from "../shared/logger.js";
 import { startSupervisedInterval } from "../shared/loop-bulkhead.js";
-import { isQuietHours } from "../shared/quiet-hours.js";
 import { buildDigestText, formatElapsed } from "./digest.js";
 import { inboxItems, type InboxItem } from "./read-model.js";
-import { buildReminderText, dueReminders, type ReminderOptions } from "./reminder.js";
 
 const log = createChildLogger("inbox-notifier");
 
@@ -28,8 +22,6 @@ const log = createChildLogger("inbox-notifier");
 const TICK_MS = 15 * 60 * 1000;
 
 const DIGEST_PREFIX = "digest:";
-const REMIND_PREFIX = "remind:";
-
 export type DigestWindow = "morning" | "evening";
 
 /** 窓の既定時刻 (サーバのローカルタイム / 運用想定 JST)。 */
@@ -38,7 +30,7 @@ export const DEFAULT_DIGEST_HOURS: Record<DigestWindow, number> = { morning: 9, 
 /**
  * その日のその窓が開いた時刻 (epoch ms)。
  *
- * @implements spec/feature/approval-inbox.md §3
+ * @implements spec/feature/approval-inbox.md §3.1
  */
 function windowStart(now: number, hour: number): number {
   const d = new Date(now);
@@ -53,7 +45,7 @@ function windowStart(now: number, hour: number): number {
  * 記録は DB に残るので二重投稿しない。 逆に Cc が落ちていて窓を跨いだ場合、
  * 復帰時にその日の分をまとめて 1 回出す (取りこぼすより出す)。
  *
- * @implements spec/feature/approval-inbox.md §3
+ * @implements spec/feature/approval-inbox.md §3.1
  */
 export function pendingDigestWindows(
   now: number,
@@ -74,20 +66,13 @@ export function pendingDigestWindows(
 export interface InboxNotifierDeps {
   db: Database.Database;
   notices: InboxNoticeRepo;
-  staff: StaffRepo;
   /** meta channel への投稿。 実配線は chat 挿入 + chat.posted。 */
-  post: (text: string, mentions?: NotificationMentions) => void;
+  post: (text: string) => void;
   intervalMs?: number;
   digestHours?: Record<DigestWindow, number>;
-  reminder?: ReminderOptions;
   now?: () => number;
   /** OFF なら何もしない。 既定 ON。 */
   enabled?: boolean;
-}
-
-export interface NotificationMentions {
-  discord: string[];
-  slack: string[];
 }
 
 export interface InboxNotifierHandle {
@@ -96,29 +81,12 @@ export interface InboxNotifierHandle {
   runOnce: () => string[];
 }
 
-/**
- * 上長 (管理職以上) の Discord / Slack メンション。
- * 各 platform の ID 形式に合う登録値だけを使い、本文インジェクションにしない。
- *
- * @implements spec/feature/approval-inbox.md §3
- */
-function managerMentionIds(staff: StaffRepo): NotificationMentions {
-  const mentions: NotificationMentions = { discord: [], slack: [] };
-  for (const row of staff.list()) {
-    if (row.role === "staff") continue;
-    const id = row.platform_user_id;
-    if (row.platform === "discord" && /^\d{17,20}$/.test(id)) mentions.discord.push(id);
-    if (row.platform === "slack" && /^[UW][A-Z0-9]{8,}$/.test(id)) mentions.slack.push(id);
-  }
-  return mentions;
-}
-
-/** @implements spec/feature/approval-inbox.md §3 */
+/** @implements spec/feature/approval-inbox.md §3.1 */
 export function startInboxNotifier(deps: InboxNotifierDeps): InboxNotifierHandle {
   const now = deps.now ?? Date.now;
   const hours = deps.digestHours ?? DEFAULT_DIGEST_HOURS;
 
-  /** @implements spec/feature/approval-inbox.md §3 */
+  /** @implements spec/feature/approval-inbox.md §3.1 */
   function runOnce(): string[] {
     const posted: string[] = [];
     if (deps.enabled === false) return posted;
@@ -149,24 +117,20 @@ export function startInboxNotifier(deps: InboxNotifierDeps): InboxNotifierHandle
       posted[posted.length] = text;
     }
 
-    // 催促は深夜帯に出さない (spec §3)。 ダイジェストの窓は日中なのでここだけ効く。
-    if (!isQuietHours(new Date(at))) {
-      const lastRemind = deps.notices.allWithPrefix(REMIND_PREFIX);
-      const due = dueReminders(items, at, lastRemind, deps.reminder);
-      const mentions = due.length > 0 ? managerMentionIds(deps.staff) : undefined;
-      for (const item of due) {
-        const text = buildReminderText(item, at, formatElapsed);
-        deps.post(text, mentions);
-        deps.notices.mark(`${REMIND_PREFIX}${item.key}`, at);
-        posted[posted.length] = text;
-      }
-    }
-
-    deps.notices.pruneMissing(REMIND_PREFIX, new Set(items.map((item) => item.key)));
+    // 経過時間による催促はここから外した。
+    //
+    // 元の狙いは「まとめて遅延通知することで実装ループを止めない」ことだったが、
+    // 経過 (既定 24h) と項目ごとの cooldown (既定 12h) で発火する時間駆動は狙いと
+    // 噛み合っていなかった。 溜まった項目が同一 tick で一斉に期限を迎え、再起動後に
+    // 大量投稿されうるうえ、終了済みセッションの質問も管理職全員へ催促していた。
+    //
+    // 置き換え先は「人間がそのセッションのチャンネルへ戻ってきたら、 そのセッションの
+    // 未回答質問だけを担当者 1 人宛に出す」 (src/inbox/session-return-notice.ts)。
+    // ダイジェスト (朝夕 2 回・メンション無し) はここに残す。 全体の件数を知る面は要る。
     return posted;
   }
 
-  /** @implements spec/feature/approval-inbox.md §3 */
+  /** @implements spec/feature/approval-inbox.md §3.1 */
   function runScheduled(): void {
     runOnce();
   }

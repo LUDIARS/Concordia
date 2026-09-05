@@ -48,6 +48,12 @@ export interface IngressDeps {
   storeImages?: typeof storeDiscordImages;
   /** standalone 絵文字 (🙏 等) を「直前メッセージへのリアクション」として扱うための解決系。 */
   chatRepo?: ChatRepo;
+  /**
+   * 人間がセッションのチャンネルへ投稿し、 それが inject として通った直後に呼ぶ。
+   * 「人間が戻ってきた」の唯一の検知点で、 未回答質問の通知はここを起点にする
+   * (spec/feature/approval-inbox.md §3.2)。 失敗しても inject の成否には影響させない。
+   */
+  onHumanReturn?: (sessionId: string, channelId: string, userId: string) => void;
   messageMap?: DiscordMessageMapRepo;
   /** リアクションワークフロー (reactions.ts と同一 runner)。 未注入なら絵文字単発はスキップ。 */
   workflow?: {
@@ -368,6 +374,11 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
         recordInjectAck(sessionRow.session_id, msg.channelId, msg.id);
       }
       deps.log.info(`ingress: inject ok session=${sessionRow.session_id} channel=${msg.channelId} user=${msg.author.id}`);
+      try {
+        deps.onHumanReturn?.(sessionRow.session_id, msg.channelId, msg.author.id);
+      } catch (e) {
+        deps.log.warn(`ingress: human-return notice failed session=${sessionRow.session_id}: ${(e as Error).message}`);
+      }
     } catch (e) {
       deps.log.warn(`ingress: inject network error session=${sessionRow.session_id} channel=${msg.channelId}: ${(e as Error).message}`);
       try { await msg.reply({ content: `network error: ${(e as Error).message}`, allowedMentions: { repliedUser: false } }); } catch {}

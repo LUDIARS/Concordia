@@ -92,6 +92,27 @@ describe("discord ingress chat routing", () => {
     expect(deps.log.info).toHaveBeenCalledWith(expect.stringContaining("inject ok"));
   });
 
+  it("signals a human return only after a successful session inject", async () => {
+    stubSuccessfulFetch();
+    const deps = makeDeps("claude-code");
+    deps.onHumanReturn = vi.fn();
+
+    await handleMessage(deps, makeMessage());
+
+    expect(deps.onHumanReturn).toHaveBeenCalledOnce();
+    expect(deps.onHumanReturn).toHaveBeenCalledWith("s1", "chan1", "user1");
+  });
+
+  it("does not signal a human return when the session inject is rejected", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+    const deps = makeDeps("claude-code");
+    deps.onHumanReturn = vi.fn();
+
+    await handleMessage(deps, makeMessage());
+
+    expect(deps.onHumanReturn).not.toHaveBeenCalled();
+  });
+
   it("starts a standalone emoji workflow in a session thread without a chat target", async () => {
     const deps = makeDeps("codex-cli");
     const handle = vi.fn(async () => undefined);

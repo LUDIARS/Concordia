@@ -47,6 +47,8 @@ export interface ValidateSpawnCwdInput {
   git: SpawnCwdGitRunner;
   /** true = git checkout であることも必須にする (branch/worktree を用意する場合)。 */
   requireGitCheckout?: boolean;
+  /** false = cwd の実在確認だけを行い、不要な git process 起動を避ける。 */
+  resolveRepoRoot?: boolean;
 }
 
 /**
@@ -69,6 +71,9 @@ export async function validateSpawnCwd(input: ValidateSpawnCwdInput): Promise<Sp
   }
   if (!stat.isDirectory()) {
     return { ok: false, error: `spawn cwd is not a directory: ${cwd}` };
+  }
+  if (input.resolveRepoRoot === false) {
+    return { ok: true, cwd, repoRoot: null };
   }
 
   let repoRoot = "";

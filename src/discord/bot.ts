@@ -140,6 +140,8 @@ import { resolveTeamCardChannel, type TeamCardKind } from "../shared/team-card-r
 import { resolveTeamSessionForumId } from "./team-session-surface.js";
 import { TeamsRepo } from "../db/teams-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
+import type { DomainReviewPostPort } from "../domain-review/service.js";
+import { createDiscordDomainReviewPoster } from "./domain-review-post.js";
 import { MemoriaClient } from "../memoria/client.js";
 import { TeamMetricsRepo, localMidnightSec } from "../db/team-metrics-repo.js";
 import { renderTeamCostReport } from "./team-cost-report.js";
@@ -240,6 +242,13 @@ export interface DiscordBotDeps {
   routeFederationIngress?: (input: { guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number; appliedTagNames?: readonly string[] }) => boolean;
   resolveForumSiteTags?: () => Promise<readonly string[]>;
   setFederationEgressExecutor?: (executor: ((request: FederationEgressRequestFrame) => Promise<{ ok: boolean; error?: string }>) | null) => void;
+  /**
+   * ドメインレビュー投稿口を Cc core へ渡す (federation egress と同型の遅延束縛)。
+   * 投稿には guild ハンドルが要るので、 ready 後に Bot 側から登録する。
+   * chat を worker で動かす構成では backend 側の参照は null のままで、
+   * ドメインレビューは理由付きで見送られる。
+   */
+  setDomainReviewPoster?: (poster: DomainReviewPostPort | null) => void;
   /** ローカルクローン親 (Memoria 解決用)。 リアクションワークフローの headless cwd に使う。 */
   workspaceRoot?: string;
   /** 設定 GUI (AdminState) で上書き可能な workspaceRoot を bot start 時に live 解決する。 */
@@ -679,6 +688,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   let stopping = false;
   /** この Bot インスタンスが連合 egress ポートを握っているか (本社ランタイムのみ true)。 */
   let federationEgressRegistered = false;
+  let domainReviewPosterRegistered = false;
   let gatewayClosed = false;
   let reconcileRunning = false;
   const clientListenerCleanup: Array<() => void> = [];
@@ -814,6 +824,18 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       // egress ポートはプロセスに 1 本しかないので、本社 Bot だけが握る。子会社 Bot は
       // 同じ base deps を共有しているため、ここで絞らないと最後に ready した子会社 guild が
       // 本社の executor を上書きし、本社担当部署宛ての egress が全て弾かれる。
+      // ドメインレビュー投稿口も egress と同じく本社 Bot だけが握る。
+      // 子会社 guild に本社プロジェクトのドメイン情報を流さないため。
+      if (!deps.subsidiary && deps.setDomainReviewPoster) {
+        domainReviewPosterRegistered = true;
+        deps.setDomainReviewPoster(createDiscordDomainReviewPoster({
+          guild,
+          sessionChannels: sessionChannelsRepo,
+          resolveHoukokuChannelId: () => configRepo.all().houkoku_channel_id ?? null,
+          resolveWorkspaceRoots: () => deps.resolveWorkspaceRoots?.() ?? [],
+          log,
+        }));
+      }
       const setEgressExecutor = deps.setFederationEgressExecutor;
       if (!deps.subsidiary && setEgressExecutor) {
         federationEgressRegistered = true;
@@ -1313,6 +1335,42 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           },
           input,
         ),
+        // ドメインレビュー投稿への返信 → Cc の回答台帳 + plan の突合資料。
+        // 判定と書き戻しは backend 側に置く (chat が worker の構成でも同じ経路)。
+        handleDomainReviewReply: async (input) => {
+          const result = await callConcordia<{
+            handled: boolean;
+            authorized?: boolean;
+            kind?: string;
+            plan_appended?: boolean;
+          }>(
+            deps.concordiaUrl,
+            "POST",
+            "/v1/domain-review/replies",
+            {
+              platform: "discord",
+              message_id: input.messageId,
+              author_id: input.authorId,
+              text: input.text,
+              source: input.source,
+            },
+          );
+          if ("error" in result || !result.handled) return { handled: false };
+          if (result.authorized === false) {
+            return {
+              handled: true,
+              reply: "このユーザーにはレビュー回答の記録権限がありません (管理職以上が必要)。",
+            };
+          }
+          return {
+            handled: true,
+            reply: result.kind === "plan-question"
+              ? (result.plan_appended
+                ? "回答を plan の突合資料に追記しました。"
+                : "回答を記録しました (plan ファイルへの追記はできませんでした)。")
+              : "ドメインへの指摘を記録しました。",
+          };
+        },
         handlePlanReply: async (sessionId, text, authorId) => {
           const match = text.match(/^\s*\[([ABC])\](?:\s+([\s\S]+))?\s*$/i);
           if (!match) return { handled: false };
@@ -2577,6 +2635,10 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       if (federationEgressRegistered) {
         federationEgressRegistered = false;
         deps.setFederationEgressExecutor?.(null);
+      }
+      if (domainReviewPosterRegistered) {
+        domainReviewPosterRegistered = false;
+        deps.setDomainReviewPoster?.(null);
       }
       await stopLifecycle([
         { name: "event subscription", stop: () => { unsubscribe?.(); unsubscribe = null; } },

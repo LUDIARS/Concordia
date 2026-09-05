@@ -162,13 +162,15 @@ export function scheduleSessionReport(deps: EndSessionFlowDeps, endedSession: Se
   const id = endedSession.id;
   if (reportInFlight.has(id)) return;
   reportInFlight.add(id);
-  void generateAndPostReport(deps, endedSession)
-    .catch((err) => {
-      log.warn({ session_id: id, err: (err as Error).message }, "deferred session report failed");
-    })
-    .finally(() => {
-      reportInFlight.delete(id);
-    });
+  setImmediate(() => {
+    void generateAndPostReport(deps, endedSession)
+      .catch((err) => {
+        log.warn({ session_id: id, err: (err as Error).message }, "deferred session report failed");
+      })
+      .finally(() => {
+        reportInFlight.delete(id);
+      });
+  });
 }
 
 /**

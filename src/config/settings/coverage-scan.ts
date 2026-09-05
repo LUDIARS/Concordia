@@ -66,6 +66,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   NODE_ENV: "Node 実行モード。 Concordia の設定ではない",
   VITEST: "vitest が立てるフラグ。 テスト時のみ",
   COMSPEC: "Windows のシェルパス (OS 提供)",
+  LOCALAPPDATA: "Windows のユーザー別アプリデータルート (OS 提供)",
   EXCUBITOR_SERVICE_VERSION: "Excubitor が稼働プロセスへ注入する配備バージョン。 Concordia の設定ではない",
 
   // 子プロセスへ**書き出す**変数。 Concordia が読む設定ではない。

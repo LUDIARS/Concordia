@@ -11,6 +11,7 @@ const storedRow: ProjectCodeRow = {
   project: "Concordia",
   repo_path: "E:/Document/Ars/Concordia",
   repo_origin: "https://github.com/LUDIARS/Concordia.git",
+  domain_review: 1,
   github_issue_workflow: 0,
   added_by: "test-actor",
   created_at: 1,

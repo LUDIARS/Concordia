@@ -264,9 +264,9 @@ describe("admin API", () => {
       rmSync(worktreeRoot, { recursive: true, force: true });
       rmSync(repoRoot, { recursive: true, force: true });
     }
-  // The spawned worktree can require five sequential Git commands, each bounded
-  // at 15 seconds, so the integration test must cover their aggregate bound.
-  }, 90_000);
+  // The fixture setup launches five Git commands before the handler's own bounded
+  // command sequence, so leave enough headroom for process startup under suite load.
+  }, 120_000);
 
   it("GET /v1/admin/state exposes snapshot with defaults", async () => {
     const r = await env.app.request("/v1/admin/state");

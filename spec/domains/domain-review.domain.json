@@ -1,0 +1,30 @@
+{
+  "name": "domain-review",
+  "description": "Anatomia のコアドメイン / プログラムドメイン層を読み取り、対象プロジェクトの Discord 面へ投稿し、その返信をレビュー回答として台帳と plan の突合資料へ書き戻す。Anatomia はデータの所有者で、この層は読み取りと取り次ぎだけを持つ。",
+  "presetRules": [],
+  "templateRules": [],
+  "membership": [
+    { "pathPattern": "(^|/)src/domain-review(?:/.*)?$" },
+    { "pathPattern": "(^|/)src/db/domain-review-(repo|seed)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/api/domain-review(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/domain-review-(post|embeds)(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/embed-limits(\\.test)?\\.ts$" },
+    { "pathPattern": "(^|/)src/discord/commands/domain-review(\\.test)?\\.ts$" }
+  ],
+  "cardTemplate": "Summarise the \"domain-review\" domain: どの契機で誰の面へドメイン情報を出し、出さない場合に何を根拠に黙るか。",
+  "mechanics": [
+    "project-scoped-opt-in",
+    "prepared-view-with-raw-fallback",
+    "silent-skip-with-logged-reason",
+    "discord-embed-limit-fitting",
+    "untrusted-text-mention-neutralisation",
+    "optional-diagram-capture",
+    "manager-authorized-reply-as-review-answer",
+    "idempotent-reply-ingest",
+    "atomic-plan-append"
+  ],
+  "specRefs": [
+    "spec/feature/domain-review-discord.md"
+  ],
+  "rationale": "ドメイン情報の正本は Anatomia にあり、Cc が持つのは「誰にいつ見せるか」だけ。取得・変換・描画・送信を分けておかないと、Anatomia の応答形が変わるたびに Discord 送信経路まで壊れる。投稿しない判断は必ず理由付きで返し、発火経路が死んでいることを気づけるようにする。"
+}

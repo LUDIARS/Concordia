@@ -11,6 +11,8 @@ import { api, type ProjectCodeAdminEntry, type ProjectCodesAdminResult } from ".
 //    github = 通常 push)。 変更は Revisor 登録の upsert 経由 (未登録リポは変更不可)
 //  - 関係チーム … `team_repos` (repo_origin 紐付け、複数可)
 //  - 関係会社 … `subsidiary_projects` (project 名紐付け、複数可。 未選択 = 本社のみ)
+//  - ドメインレビュー … `project_codes.domain_review`。 ON のプロジェクトだけ、
+//    Anatomia のドメイン情報を Discord へ投稿する (spec/feature/domain-review-discord.md)
 
 const RV_MODE_LABEL: Record<string, string> = {
   revisor: "Revisor (App+Release)",
@@ -195,7 +197,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
           <input className={inputClass} value={draft.repo_origin} placeholder="https://github.com/ORG/REPO.git"
             onChange={(e) => setDraft({ ...draft, repo_origin: e.target.value })} />
         </td>
-        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={3}>
+        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={5}>
           パス変更時は git を再検査し、名前/URL は未入力なら実リポから取り直します。
         </td>
         <td className="py-1.5 text-right whitespace-nowrap">
@@ -215,6 +217,18 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
       <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle break-all">{entry.repo_path}</td>
       <td className="py-1.5 pr-2 text-[11px] font-mono text-subtle break-all">
         {entry.repo_origin ?? <span className="text-subtle/60">(なし)</span>}
+      </td>
+      <td className="py-1.5 pr-2 text-center">
+        <input
+          type="checkbox"
+          checked={entry.domain_review}
+          disabled={busy}
+          title="Anatomia のドメイン情報を Discord へ投稿する対象にする"
+          onChange={(e) => {
+            void onAction(entry.code, () =>
+              api.projectCodeUpdate(entry.code, { domain_review: e.target.checked }));
+          }}
+        />
       </td>
       <td className="py-1.5 pr-2">
         {entry.revisor?.registered ? (
@@ -366,19 +380,21 @@ export function ProjectCodes() {
         <p className="text-subtle text-[11px] mt-2">
           プロジェクト名・GitHub URL は省略時に git repo から自動取得します。Rvモードは Revisor 側にリポジトリ登録 (テスト付き) がある場合のみ設定できます（いずれも登録後に変更可）。
           チーム・会社は複数選択でき、未選択はそれぞれ無所属・本社のみを表します。
+          ドメインレビューは登録時に LUDIARS / MELPOT のプロダクトだけ ON になり、一覧から切り替えられます。
         </p>
       </section>
 
       {error && <div className="text-danger text-sm">{error}</div>}
 
       <section className="bg-surface border border-border rounded p-4 overflow-x-auto">
-        <table className="w-full text-left border-collapse min-w-[880px]">
+        <table className="w-full text-left border-collapse min-w-[940px]">
           <thead>
             <tr className="text-[11px] text-subtle border-b border-border">
               <th className="py-1 pr-2 font-medium">略称</th>
               <th className="py-1 pr-2 font-medium">プロジェクト名</th>
               <th className="py-1 pr-2 font-medium">パス</th>
               <th className="py-1 pr-2 font-medium">GitHub URL</th>
+              <th className="py-1 pr-2 font-medium text-center">ドメイン<br />レビュー</th>
               <th className="py-1 pr-2 font-medium">Rvモード</th>
               <th className="py-1 pr-2 font-medium" title="Cc ラベルの付いた GitHub Issue を修正 → 審査 → GitHub PR まで自動で回す">Issue WF</th>
               <th className="py-1 pr-2 font-medium">チーム</th>
@@ -398,7 +414,7 @@ export function ProjectCodes() {
               />
             ))}
             {data && data.entries.length === 0 && (
-              <tr><td colSpan={8} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
+              <tr><td colSpan={10} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
             )}
           </tbody>
         </table>

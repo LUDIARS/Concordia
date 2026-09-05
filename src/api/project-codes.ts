@@ -14,7 +14,10 @@ import type {
 
 // @implements spec/feature/project-code-registry.md — 操作面 / 管理 UI
 
-type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_path">;
+type ProjectCodeResponseRow = Pick<ProjectCodeRow, "code" | "project" | "repo_path"> & {
+  /** ドメインレビュー対象か。 Discord /projects とスキルが ON/OFF を読む。 */
+  domain_review: boolean;
+};
 
 const RepoOriginSchema = z.string().trim().min(1).max(1_000).refine(
   (origin) => ownerRepoFromOrigin(origin) !== null,
@@ -36,6 +39,8 @@ const UpdateSchema = z.object({
   project: z.string().trim().regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/).optional(),
   repo_path: z.string().trim().min(1).max(1_000).optional(),
   repo_origin: RepoOriginSchema.nullable().optional(),
+  /** ドメインレビュー対象の ON/OFF (設計書 §8.2 C-3)。 */
+  domain_review: z.boolean().optional(),
 }).strict();
 
 const AssignTeamsSchema = z.object({
@@ -127,6 +132,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
           project: row.project,
           repo_path: row.repo_path,
           repo_origin: row.repo_origin,
+          domain_review: row.domain_review === 1,
           added_by: row.added_by,
           updated_at: row.updated_at,
           github_issue_workflow: row.github_issue_workflow === 1,
@@ -180,6 +186,7 @@ export function projectCodesRouter(deps: ProjectCodesRouterDeps): Hono {
       code: parsed.data.code,
       project: parsed.data.project,
       repoOrigin: parsed.data.repo_origin,
+      domainReview: parsed.data.domain_review,
     };
     if (parsed.data.repo_path !== undefined) {
       // repo_path の変更は登録時と同じ検査 (workspace 内 + git repo) を通し、
@@ -368,10 +375,23 @@ function groupAssignments<T>(
 
 /** Resolution clients do not need audit identities, timestamps, or private remote origins. */
 function toResponseRow(row: ProjectCodeRow): ProjectCodeResponseRow {
-  return { code: row.code, project: row.project, repo_path: row.repo_path };
+  return {
+    code: row.code,
+    project: row.project,
+    repo_path: row.repo_path,
+    domain_review: row.domain_review === 1,
+  };
 }
 
 /** 管理面 (loopback) 向け: repo_origin まで返す。 */
-function toAdminRow(row: ProjectCodeRow): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> {
-  return { code: row.code, project: row.project, repo_path: row.repo_path, repo_origin: row.repo_origin };
+function toAdminRow(
+  row: ProjectCodeRow,
+): Pick<ProjectCodeRow, "code" | "project" | "repo_path" | "repo_origin"> & { domain_review: boolean } {
+  return {
+    code: row.code,
+    project: row.project,
+    repo_path: row.repo_path,
+    repo_origin: row.repo_origin,
+    domain_review: row.domain_review === 1,
+  };
 }

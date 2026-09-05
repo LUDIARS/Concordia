@@ -5,6 +5,28 @@ import { PARTTIMER_CHORE_MANUAL } from "../src/db/inject-manuals-repo.js";
 import { makeRawTestDb } from "./helpers/db.js";
 
 describe("schema", () => {
+  it("keeps migration 91 backfill independent from mutable new-registration defaults", () => {
+    const db = makeRawTestDb();
+    runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 90), 90);
+    const insert = db.prepare(`
+      INSERT INTO project_codes(code, project, repo_path, repo_origin, added_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'test', 1, 1)
+    `);
+    insert.run("Cc", "Concordia", "E:/Cc", "https://github.com/LUDIARS/Concordia.git");
+    insert.run("Ars", "Ars", "E:/Ars", "https://github.com/LUDIARS/Ars.git");
+    insert.run("Ext", "External", "E:/External", "https://github.com/example/External.git");
+
+    runMigrations(db, MIGRATIONS, SCHEMA_VERSION);
+
+    const rows = db.prepare("SELECT code, domain_review FROM project_codes ORDER BY code")
+      .all() as Array<{ code: string; domain_review: number }>;
+    expect(rows).toEqual([
+      { code: "Ars", domain_review: 0 },
+      { code: "Cc", domain_review: 1 },
+      { code: "Ext", domain_review: 0 },
+    ]);
+  });
+
   it("keeps migration 82 output independent from the mutable runtime default", () => {
     const db = makeRawTestDb();
     runMigrations(db, MIGRATIONS.filter((migration) => migration.version <= 81), 81);

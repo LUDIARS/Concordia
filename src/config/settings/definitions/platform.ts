@@ -47,9 +47,10 @@ export const SERVICE_SETTINGS: readonly SettingDefinition[] = [
   envString("services.memoria_url", "services", "Memoria URL", "CONCORDIA_MEMORIA_URL", "http://127.0.0.1:5180", "タスク管理 Memoria の base URL。"),
   envString("services.memoria_base_alias", "services", "Memoria URL (コマンド用)", "MEMORIA_BASE", null, "Discord の /mmtask コマンドが参照する Memoria URL。"),
   envString("services.anatomia_url", "services", "Anatomia URL", "ANATOMIA_BASE_URL", "http://127.0.0.1:4200", "リポジトリ解析 Anatomia の base URL。"),
-  envInteger("services.anatomia_port", "services", "Anatomia ポート", "ANATOMIA_PORT", null, "キャッシュ統計の取得先ポート。 正本は Excubitor catalog。"),
+  envInteger("services.anatomia_port", "services", "Anatomia ポート", "ANATOMIA_PORT", null, "キャッシュ統計とドメインレビューの取得先ポート。 正本は Excubitor catalog。"),
   envString("services.thaleia_url", "services", "Thaleia URL", "THALEIA_BASE_URL", "http://127.0.0.1:8890", "ドキュメント / 仕様 Thaleia の base URL。"),
   envString("services.villa_url", "services", "Villa URL", "CONCORDIA_VILLA_URL", "http://127.0.0.1:17610", "PC 台帳 Villa の base URL。 到達不能なら拠点タグ無しで動作する。"),
+  envString("services.edge_path", "services", "Edge 実行ファイル", "CONCORDIA_EDGE_PATH", null, "ドメインレビューの層図を画像化する headless Edge の実行ファイル。 未設定なら既知の場所を自動検出する。"),
   envInteger("services.mcp_fetch_timeout_ms", "services", "MCP fetch タイムアウト (ms)", "CONCORDIA_MCP_FETCH_TIMEOUT_MS", 10_000, "MCP tool call が backend の hang で無限に待たないための打ち切り時間。"),
   envString("services.vestigium_catalog_path", "services", "Vestigium catalog パス", "VESTIGIUM_CATALOG_PATH", null, "vestigium MCP server が参照する service catalog の場所。"),
 ] as const;

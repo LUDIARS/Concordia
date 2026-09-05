@@ -106,6 +106,17 @@ export interface IngressDeps {
     text: string,
     authorId: string,
   ) => Promise<{ handled: boolean; reply?: string }>;
+  /**
+   * ドメインレビュー投稿への返信を回答として取り込む (設計書 §8.2 C-6)。
+   * 取り込んだら handled = true で通常経路へは流さない — 投稿への返信は
+   * セッションへの指示ではなく、人間のレビュー回答だから。
+   */
+  handleDomainReviewReply?: (input: {
+    messageId: string;
+    authorId: string;
+    text: string;
+    source: string;
+  }) => Promise<{ handled: boolean; reply?: string }>;
   /** federation は Discord を import しないため、部署ルーティングだけを外から注入する。 */
   routeFederationIngress?: (input: {
     guildId: string; channelId: string; messageId: string; authorId: string; authorLabel: string; text: string; ts: number;
@@ -147,6 +158,30 @@ export async function handleMessage(deps: IngressDeps, msg: Message): Promise<vo
   if (!text && (!sessionRow || (imageAttachments.length === 0 && !embedIngress.context))) {
     deps.log.info(`ingress: skip empty content channel=${msg.channelId}`);
     return;
+  }
+
+  // A reply to a domain-review post is review data, regardless of which Discord surface
+  // contains the post or whether its text resembles a control command/comment. Resolve it
+  // before federation, control, and intake paths can consume the message.
+  const domainReviewRefId = msg.reference?.messageId;
+  if (text && domainReviewRefId && deps.handleDomainReviewReply) {
+    const outcome = await deps.handleDomainReviewReply({
+      messageId: domainReviewRefId,
+      authorId: msg.author.id,
+      text,
+      source: `discord:${msg.channelId}/${msg.id}`,
+    }).catch((e) => {
+      deps.log.warn(`ingress: domain-review reply failed message=${msg.id}: ${(e as Error).message}`);
+      return { handled: false as const, reply: undefined };
+    });
+    if (outcome.handled) {
+      deps.log.info(`ingress: domain-review reply recorded message=${msg.id} ref=${domainReviewRefId}`);
+      if (outcome.reply) {
+        await msg.reply({ content: outcome.reply, allowedMentions: { parse: [], repliedUser: false } })
+          .catch(() => { /* ack は best-effort */ });
+      }
+      return;
+    }
   }
 
   const authorLabel = msg.member?.nickname?.trim() || msg.author.username;

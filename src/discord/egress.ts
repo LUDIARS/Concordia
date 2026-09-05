@@ -1,7 +1,4 @@
-﻿import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
-import type { Guild } from "discord.js";
+﻿import type { Guild } from "discord.js";
 import type { ChatMessageRelay, ChatReadModel } from "../platform/chat-read-model.js";
 import type { DiscordMessageMapRepo, DiscordSessionChannelsRepo } from "../db/discord-repo.js";
 import type { SessionMessageDeliveryRepo } from "../db/session-message-delivery-repo.js";
@@ -13,10 +10,8 @@ import { chatChannelToMetaKind, type MetaChannelKind } from "./types.js";
 import type { WebhookPool } from "./webhook-pool.js";
 import { withinTeardownGrace } from "../platform/session-teardown-grace.js";
 import { buildDiscordWebhookIdentity } from "./webhook-identity.js";
-import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
-import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
+import { buildAttachFiles, DISCORD_ATTACH_MAX_BYTES } from "./attachment-files.js";
 
-const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024; // 24 MiB (Discord 25 MiB limit)
 const BASE64_BYTES_PER_QUARTET = 3;
 const MAX_DISCORD_ATTACH_BASE64_LENGTH = Math.ceil(DISCORD_ATTACH_MAX_BYTES / BASE64_BYTES_PER_QUARTET) * 4;
 
@@ -124,7 +119,12 @@ async function handleChatPosted(deps: EgressDeps, ev: Extract<ConcordiaEvent, { 
   )];
   const mentionPrefix = mentionUserIds.map((id) => `<@${id}>`).join(" ");
   const content = mentionPrefix ? `${mentionPrefix} ${row.text}` : row.text;
-  const attachFiles = await buildAttachFiles(chatMeta.attachment_paths, row.id, deps.log, deps.resolveWorkspaceRoots?.() ?? []);
+  const attachFiles = await buildAttachFiles(
+    chatMeta.attachment_paths,
+    `message_id=${row.id}`,
+    deps.log,
+    deps.resolveWorkspaceRoots?.() ?? [],
+  );
   const identity = session
     ? buildDiscordWebhookIdentity({
         model: session.model,
@@ -350,53 +350,4 @@ export function isActiveRelayTarget(
   // teardown 猶予: platform/session-teardown-grace.ts 参照 (最終応答 frame と
   // session-end 独白は ended 直後に届くため、 厳密 active 判定だと必ず落ちる)。
   return withinTeardownGrace(sessionStatus, endedAtSec, nowSec);
-}
-
-async function buildAttachFiles(
-  rawPaths: string[] | undefined,
-  messageId: number,
-  log: { warn: (m: string) => void },
-  workspaceRoots: string[],
-): Promise<Array<{ attachment: Buffer; name: string }>> {
-  if (!rawPaths?.length) return [];
-  const enforce = isAttachmentEnforced();
-  const guard = createAttachmentGuard({
-    roots: buildAttachmentRoots({
-      workspaceRoots,
-      tempDir: os.tmpdir(),
-      configuredRoots: configuredAttachmentRoots(),
-    }),
-    enforce,
-  });
-  const out: Array<{ attachment: Buffer; name: string }> = [];
-  for (const p of rawPaths) {
-    const result = await guard.check(p);
-    if (!result.ok) {
-      log.warn(`egress: attachment rejected message_id=${messageId} reason=${result.reason} path=${p}`);
-      if (enforce) continue;
-    }
-    const absPath = result.ok ? result.realPath : p;
-    if (!path.isAbsolute(absPath)) {
-      log.warn(`egress: attachment skipped (not absolute) message_id=${messageId} path=${p}`);
-      continue;
-    }
-    let stat: fs.Stats;
-    try {
-      stat = await fs.promises.stat(absPath);
-    } catch {
-      log.warn(`egress: attachment not found message_id=${messageId} path=${absPath}`);
-      continue;
-    }
-    if (stat.size > DISCORD_ATTACH_MAX_BYTES) {
-      log.warn(`egress: attachment too large (${stat.size}B) message_id=${messageId} path=${absPath}`);
-      continue;
-    }
-    try {
-      const buf = await fs.promises.readFile(absPath);
-      out.push({ attachment: buf, name: path.basename(absPath) });
-    } catch (err) {
-      log.warn(`egress: attachment read failed message_id=${messageId} path=${absPath}: ${(err as Error).message}`);
-    }
-  }
-  return out;
 }

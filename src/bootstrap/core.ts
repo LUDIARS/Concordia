@@ -78,6 +78,8 @@ import { ModelReviewContractAdapter, modelReviewProvider } from "../contract/mod
 import { TeamsRepo } from "../db/teams-repo.js";
 import { TeamMetricsRepo } from "../db/team-metrics-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
+import { DomainReviewRepo } from "../db/domain-review-repo.js";
+import { DomainReviewService, type DomainReviewPostPort } from "../domain-review/service.js";
 import { parseTeamSettings } from "../api/teams.js";
 import { startPhaseCompaction } from "../control/phase-compaction.js";
 import { startVibesLifecycle } from "../control/vibes-lifecycle.js";
@@ -556,6 +558,27 @@ export async function startBackend(): Promise<BackendHandle> {
   const discordGatewayPool = new DiscordGatewayPool();
   const teamMetricsRepo = new TeamMetricsRepo(db);
   const projectCodesRepo = new ProjectCodesRepo(db);
+  const domainReviewRepo = new DomainReviewRepo(db);
+  // 投稿口は guild ハンドルを持つ Discord Bot が ready 後に登録する (federation egress と同型)。
+  // chat を worker で動かす構成では登録されないままで、 その場合は理由付きで見送る。
+  let domainReviewPoster: DomainReviewPostPort | null = null;
+  const domainReviewService = new DomainReviewService({
+    projectCodes: projectCodesRepo,
+    posts: domainReviewRepo,
+    poster: {
+      post: (input) => domainReviewPoster
+        ? domainReviewPoster.post(input)
+        : Promise.resolve(null),
+    },
+    log: createChildLogger("domain-review"),
+    resolveSession: (sessionId) => {
+      const session = repo.findSession(sessionId);
+      return session ? { repoPath: session.repo_path, repoOrigin: session.repo_origin } : null;
+    },
+    isReplyAuthorAllowed: (platform, authorId) =>
+      (platform === "discord" || platform === "slack")
+      && authorizeStaffCapability(staffRepo, platform, authorId, "session_spawn").allowed,
+  });
   const workspaceRootDefault = cfg.workspaceRoot || cfg.spawnDefaultCwd;
   const adminState = new AdminState(db, {
     workspaceRoot: workspaceRootDefault,
@@ -945,7 +968,24 @@ export async function startBackend(): Promise<BackendHandle> {
         fastLane: options.fastLane === true,
         revisorLane: resolveSessionRevisorLane(session),
       },
-    );
+    ).then((outcome) => {
+      // 提出できたときだけドメインレビューを流す (設計書 §8.2 C-4 の契機 b)。
+      // 投稿は提出の副次的な成果物なので、 待たず失敗も伝播させない。
+      if (outcome.submitted) {
+        void domainReviewService.request({
+          trigger: "local-pr",
+          repoOrigin: session.repo_origin,
+          repoPath: session.repo_path,
+          sessionId: session.id,
+        }).catch((error) => {
+          log.warn(
+            { session_id: session.id, err: (error as Error).message },
+            "local PR domain review failed",
+          );
+        });
+      }
+      return outcome;
+    });
   };
   // PR 一覧 / 提出 / マージ (RWF 📋 📮 🔀 と Discord 操作パネル) の実体。 提出は上の
   // submitLocalPrForSession をそのまま使い、 マージは指示者 (押した人) の役職を
@@ -1289,6 +1329,7 @@ export async function startBackend(): Promise<BackendHandle> {
     }),
     resolveForumSiteTags: () => federation.listForumSiteTagNames(),
     setFederationEgressExecutor: federation.setEgressExecutor,
+    setDomainReviewPoster: (poster) => { domainReviewPoster = poster; },
     // AskUserQuestion 回答は in-process 直呼び (self-fetch は backlog 溢れ時に
     // 「fetch failed」でユーザに何も返らない事故になるため使わない)。
     answerQuestion: (sessionId, body) =>
@@ -1488,6 +1529,7 @@ export async function startBackend(): Promise<BackendHandle> {
     teams: teamsRepo,
     teamMetrics: teamMetricsRepo,
     projectCodes: projectCodesRepo,
+    domainReview: { service: domainReviewService, posts: domainReviewRepo },
     confirmService,
     delegationQueue,
     modelCatalog,

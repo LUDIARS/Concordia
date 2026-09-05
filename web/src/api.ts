@@ -760,7 +760,13 @@ export const api = {
     post<{ project_code: { code: string }; created: boolean }>("/v1/project-codes", body),
   projectCodeUpdate: (
     code: string,
-    body: { code?: string; project?: string; repo_path?: string; repo_origin?: string | null },
+    body: {
+      code?: string;
+      project?: string;
+      repo_path?: string;
+      repo_origin?: string | null;
+      domain_review?: boolean;
+    },
   ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
   projectCodeDelete: (code: string) =>
     del<{ ok: boolean }>(`/v1/project-codes/${encodeURIComponent(code)}`),
@@ -1443,6 +1449,8 @@ export interface ProjectCodeAdminEntry {
   project: string;
   repo_path: string;
   repo_origin: string | null;
+  /** ドメインレビュー (Discord へのドメイン情報投稿) の対象か。 */
+  domain_review: boolean;
   added_by: string;
   updated_at: number;
   teams: Array<{ id: string; name: string }>;

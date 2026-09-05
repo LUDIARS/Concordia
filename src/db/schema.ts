@@ -6,7 +6,33 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 90;
+export const SCHEMA_VERSION = 92;
+
+/**
+ * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
+ * default in domain-review-seed.ts may evolve for newly registered projects, but an
+ * installation date must never change what an already numbered migration writes.
+ */
+const MIGRATION_91_DOMAIN_REVIEW_OWNERS: ReadonlySet<string> = new Set(["ludiars", "melpot"]);
+const MIGRATION_91_NON_PRODUCT_PROJECTS: ReadonlySet<string> = new Set([
+  "ars",
+  "castra",
+  "ludiars",
+  "infra",
+  "aiformat",
+  "all-in-onetest",
+]);
+
+/** @implements spec/feature/domain-review-discord.md §1 — migration 91 one-time seed */
+function seedDomainReviewMigration91(project: string, repoOrigin: string | null): boolean {
+  const value = repoOrigin?.trim();
+  if (!value) return false;
+  const match = /^(?:(?:https?:\/\/github\.com\/|git@github\.com:))?([A-Za-z0-9_.-]+)\/[A-Za-z0-9_.-]+?(?:\.git)?\/?$/i
+    .exec(value);
+  const owner = match?.[1]?.toLowerCase();
+  return Boolean(owner && MIGRATION_91_DOMAIN_REVIEW_OWNERS.has(owner))
+    && !MIGRATION_91_NON_PRODUCT_PROJECTS.has(project.trim().toLowerCase());
+}
 
 const STATEMENTS = [
   `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -2233,6 +2259,61 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "issue_author")) {
       db.exec("ALTER TABLE github_issue_runs ADD COLUMN issue_author TEXT NOT NULL DEFAULT ''");
     }
+  },
+}, {
+  version: 91,
+  name: "project-code-domain-review",
+  source: "project_codes.domain_review — ドメインレビューを Discord へ出すか (spec/feature/domain-review-discord.md §1)",
+  up(db) {
+    // 列を追加した回だけ seed を流す。 既に人が /projects で 1/0 を決めた後に
+    // 再度流れると、 「切ったはずのプロジェクトが勝手に ON に戻る」ことになる。
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    if (columns.some((column) => column.name === "domain_review")) return;
+    db.exec("ALTER TABLE project_codes ADD COLUMN domain_review INTEGER NOT NULL DEFAULT 0");
+    const rows = db.prepare("SELECT code, project, repo_origin FROM project_codes")
+      .all() as Array<{ code: string; project: string; repo_origin: string | null }>;
+    const enable = db.prepare("UPDATE project_codes SET domain_review = 1 WHERE code = ? COLLATE BINARY");
+    for (const row of rows) {
+      if (seedDomainReviewMigration91(row.project, row.repo_origin)) enable.run(row.code);
+    }
+  },
+}, {
+  version: 92,
+  name: "domain-review-posts",
+  source: "domain_review_posts / domain_review_answers — 投稿とその返信を追える形で残す (spec/feature/domain-review-discord.md §4)",
+  up(db) {
+    // 返信を回答として取り込むには「どの投稿への返信か」を知る必要がある。
+    // Discord の message id は再起動をまたいで残るので in-memory では持てない。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS domain_review_posts (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        code                TEXT NOT NULL,
+        repo_path           TEXT NOT NULL,
+        anatomia_project_id TEXT NOT NULL,
+        plan_task_hash      TEXT,
+        trigger_kind        TEXT NOT NULL,
+        platform            TEXT NOT NULL,
+        channel_id          TEXT NOT NULL,
+        message_id          TEXT NOT NULL,
+        questions           TEXT NOT NULL,
+        created_at          INTEGER NOT NULL,
+        UNIQUE(platform, message_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_domain_review_posts_created
+        ON domain_review_posts(created_at DESC);
+      CREATE TABLE IF NOT EXISTS domain_review_answers (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        post_id       INTEGER NOT NULL,
+        kind          TEXT NOT NULL,
+        answered_by   TEXT NOT NULL,
+        answer_text   TEXT NOT NULL,
+        source        TEXT NOT NULL,
+        plan_appended INTEGER NOT NULL DEFAULT 0,
+        created_at    INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_domain_review_answers_post
+        ON domain_review_answers(post_id, created_at);
+    `);
   },
 },
 ];

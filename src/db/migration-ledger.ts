@@ -36,7 +36,7 @@ export interface FrozenMigration {
  * (tsx / esbuild / tsc) ごとに出力が変わって偽陽性で落ちるため — 実測で tsx と vitest が
  * 別の値を出した。 スキーマそのものならツールチェインに依存しない。
  */
-export const SCHEMA_FINGERPRINT = "bb247f9361a4a99a44bc0794e03b5c9681a4c34e9f75e81a9bbd4d629a7a4dfc";
+export const SCHEMA_FINGERPRINT = "c6c08ad90b0e136ea4facd60b678038d86a2cb3c157826346de24e5c69f8d203";
 
 /**
  * 適用済み DB のスキーマ指紋。 sqlite_master を種別・名前で整列し、 空白を潰してから
@@ -304,5 +304,15 @@ export const FROZEN_MIGRATIONS: readonly FrozenMigration[] = [
     version: 90,
     name: "github-issue-run-author",
     checksum: "a89d805b536c57c3612196759340f450b14141dfdb5c1549c213951dbeb6d2c0",
+  },
+  {
+    version: 91,
+    name: "project-code-domain-review",
+    checksum: "44fc42555a182f86aa27a6cdc543fb1d95aeb56e50f4516edf640e331f60a7a8",
+  },
+  {
+    version: 92,
+    name: "domain-review-posts",
+    checksum: "d86b5ca88802d18ac41ae677594a2fd0d51bf910cb0aa5c93e1d70e51e6361f3",
   },
 ];

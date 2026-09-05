@@ -48,3 +48,28 @@ describe("excubitorBaseUrl", () => {
     expect(excubitorBaseUrl(env({ EXCUBITOR_URL: "http://b:2" }))).toBe("http://b:2");
   });
 });
+
+describe("anatomiaBaseUrl", () => {
+  it("ANATOMIA_BASE_URL が無ければ catalog 注入の ANATOMIA_PORT を使う", () => {
+    expect(anatomiaBaseUrl(env({ ANATOMIA_PORT: "4312" }))).toBe("http://127.0.0.1:4312");
+  });
+
+  it("ANATOMIA_BASE_URL を port-only 設定より優先する", () => {
+    expect(anatomiaBaseUrl(env({
+      ANATOMIA_BASE_URL: "http://anatomia.test:9000/",
+      ANATOMIA_PORT: "4312",
+    }))).toBe("http://anatomia.test:9000");
+  });
+
+  it("ANATOMIA_BASE_URL があれば未使用の不正な port-only 設定を解釈しない", () => {
+    expect(anatomiaBaseUrl(env({
+      ANATOMIA_BASE_URL: "http://anatomia.test:9000/",
+      ANATOMIA_PORT: "broken",
+    }))).toBe("http://anatomia.test:9000");
+  });
+
+  it("不正な ANATOMIA_PORT は黙って既定値へ落とさない", () => {
+    expect(() => anatomiaBaseUrl(env({ ANATOMIA_PORT: "4312/path" }))).toThrow("ANATOMIA_PORT");
+    expect(() => anatomiaBaseUrl(env({ ANATOMIA_PORT: "70000" }))).toThrow("ANATOMIA_PORT");
+  });
+});

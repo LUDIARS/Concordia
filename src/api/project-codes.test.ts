@@ -13,6 +13,7 @@ const storedRow: ProjectCodeRow = {
   project: "Concordia",
   repo_path: "E:/Document/Ars/Concordia",
   repo_origin: "should-not-leak",
+  domain_review: 1,
   github_issue_workflow: 0,
   added_by: "test-actor",
   created_at: 1,
@@ -35,7 +36,12 @@ describe("projectCodesRouter", () => {
     const body = await response.json();
     expect(body).toEqual({
       source: "concordia-db",
-      project_codes: [{ code: "Cc", project: "Concordia", repo_path: storedRow.repo_path }],
+      project_codes: [{
+        code: "Cc",
+        project: "Concordia",
+        repo_path: storedRow.repo_path,
+        domain_review: true,
+      }],
       categories: [{ name: "Concordia registry", entries: [["Cc", "Concordia"]] }],
     });
     expect(JSON.stringify(body)).not.toContain("should-not-leak");
@@ -75,7 +81,12 @@ describe("projectCodesRouter", () => {
       addedBy: storedRow.added_by,
     });
     expect(await response.json()).toEqual({
-      project_code: { code: "Cc", project: "Concordia", repo_path: storedRow.repo_path },
+      project_code: {
+        code: "Cc",
+        project: "Concordia",
+        repo_path: storedRow.repo_path,
+        domain_review: true,
+      },
       created: true,
     });
   });

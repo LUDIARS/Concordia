@@ -13,7 +13,7 @@
  * `resolveServicePort` で観測値 → catalog の順に解決し、この helper を使わない。
  */
 
-import { stripTrailingSlashes, trimmedEnv } from "./env-parse.js";
+import { readPortEnv, stripTrailingSlashes, trimmedEnv } from "./env-parse.js";
 
 /** env 未設定時の従来互換 fallback。ポートの正本ではない。 */
 const FALLBACK_BASE_URL = {
@@ -52,9 +52,22 @@ export function memoriaBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   return resolveBaseUrl([env.CONCORDIA_MEMORIA_URL], FALLBACK_BASE_URL.memoria);
 }
 
-/** Anatomia (リポジトリ解析)。 */
+/**
+ * Anatomia (リポジトリ解析)。
+ *
+ * base URL 指定が無いときだけ、 catalog 注入の `ANATOMIA_PORT` から loopback URL を組む。
+ * ポート文字列の解釈は `env-parse.ts` の責務 (不正値は既定へ落とさず投げる)。
+ */
 export function anatomiaBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
-  return resolveBaseUrl([env.ANATOMIA_BASE_URL], FALLBACK_BASE_URL.anatomia);
+  const configuredBaseUrl = trimmedEnv(env.ANATOMIA_BASE_URL);
+  if (configuredBaseUrl) {
+    return resolveBaseUrl([configuredBaseUrl], FALLBACK_BASE_URL.anatomia);
+  }
+  const configuredPort = readPortEnv(env.ANATOMIA_PORT, "ANATOMIA_PORT");
+  return resolveBaseUrl(
+    [configuredPort ? `http://127.0.0.1:${configuredPort}` : undefined],
+    FALLBACK_BASE_URL.anatomia,
+  );
 }
 
 /** Thaleia (ドキュメント / 仕様)。 */

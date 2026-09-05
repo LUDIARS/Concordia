@@ -60,6 +60,7 @@ import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
+import { domainReviewRouter, type DomainReviewApiDeps } from "./domain-review.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { delegationRouter } from "./delegation.js";
 import type { DelegationMemoriaPort } from "../delegation/memoria-task.js";
@@ -190,6 +191,8 @@ export interface CoreDelegationDeps {
   delegationService: DelegationService;
   teams?: TeamsRepo;
   projectCodes: ProjectCodesRepo;
+  /** ドメインレビュー投稿の発火口 (未注入ならルート自体を生やさない)。 */
+  domainReview?: DomainReviewApiDeps;
   /** チームカードのメトリクス read model。 未注入なら GET /v1/teams は metrics 無しで返す。 */
   teamMetrics?: TeamMetricsRepo;
   /** 確認フロー (develop → 確認 → main)。 未注入なら /v1/confirm は生えない。 */
@@ -472,6 +475,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     }),
   );
   app.route("/v1/machines", machinesRouter({ repo: deps.repo }));
+  if (deps.domainReview) app.route("/v1/domain-review", domainReviewRouter(deps.domainReview));
   app.route(
     "/v1/project-codes",
     projectCodesRouter({

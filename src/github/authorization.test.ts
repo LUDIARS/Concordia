@@ -8,6 +8,7 @@ function project(overrides: Partial<ProjectCodeRow> = {}): ProjectCodeRow {
     project: "Concordia",
     repo_path: "E:/Document/Ars/Concordia",
     repo_origin: "https://github.com/LUDIARS/Concordia.git",
+    domain_review: 0,
     github_issue_workflow: 1,
     added_by: "api",
     created_at: 0,

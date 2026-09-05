@@ -12,6 +12,7 @@ import enterCommand from "./commands/enter.js";
 import cleanCommand from "./commands/clean.js";
 import mmtaskCommand from "./commands/mmtask.js";
 import projectsCommand from "./commands/projects.js";
+import domainReviewCommand from "./commands/domain-review.js";
 import projectCodeCommand from "./commands/project-code.js";
 import chNameCommand from "./commands/ch-name.js";
 import compactionCommand from "./commands/compaction.js";
@@ -75,6 +76,7 @@ const COMMANDS: DiscordCommandSpec[] = [
   mmtaskCommand,
   projectsCommand,
   projectCodeCommand,
+  domainReviewCommand,
   chNameCommand,
   compactionCommand,
   contextCommand,

@@ -9,6 +9,7 @@ const concordia: ProjectCodeRow = {
   project: "Concordia",
   repo_path: join(root, "Concordia"),
   repo_origin: "https://github.com/LUDIARS/Concordia.git",
+  domain_review: 1,
   github_issue_workflow: 0,
   added_by: "test",
   created_at: 1,

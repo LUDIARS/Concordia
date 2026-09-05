@@ -1,11 +1,14 @@
 import type Database from "better-sqlite3";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
+import { seedDomainReview } from "./domain-review-seed.js";
 
 export interface ProjectCodeRow {
   code: string;
   project: string;
   repo_path: string;
   repo_origin: string | null;
+  /** ドメインレビュー (Discord へのドメイン情報投稿) の対象か。 0 / 1。 */
+  domain_review: number;
   /**
    * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
    * 既定 0 — 登録しただけの repository では発火しない。
@@ -89,10 +92,15 @@ export class ProjectCodesRepo {
       if (input.repoOrigin) this.assertUnclaimed("repo_origin", input.repoOrigin);
 
       const now = Date.now();
+      // 新規登録も migration と同じ規則で初期値を入れる。 さもないと
+      // 列追加後に登録された LUDIARS プロダクトだけが OFF で取り残される。
+      const domainReview = seedDomainReview({ project: input.project, repoOrigin: input.repoOrigin }) ? 1 : 0;
       this.db.prepare(`
-        INSERT INTO project_codes(code, project, repo_path, repo_origin, added_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(input.code, input.project, repoPath, input.repoOrigin, input.addedBy, now, now);
+        INSERT INTO project_codes(
+          code, project, repo_path, repo_origin, domain_review, added_by, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(input.code, input.project, repoPath, input.repoOrigin, domainReview, input.addedBy, now, now);
       return { row: this.findByCode(input.code)!, created: true };
     });
     return run.immediate();
@@ -107,6 +115,7 @@ export class ProjectCodesRepo {
     project?: string;
     repoPath?: string;
     repoOrigin?: string | null;
+    domainReview?: boolean;
   }): ProjectCodeRow | null {
     const run = this.db.transaction((): ProjectCodeRow | null => {
       const existing = this.findByCode(code);
@@ -117,6 +126,9 @@ export class ProjectCodesRepo {
         ? existing.repo_path
         : canonicalSeparators(patch.repoPath);
       const nextRepoOrigin = patch.repoOrigin === undefined ? existing.repo_origin : patch.repoOrigin;
+      const nextDomainReview = patch.domainReview === undefined
+        ? existing.domain_review
+        : (patch.domainReview ? 1 : 0);
 
       if (nextCode !== existing.code && this.findByCode(nextCode)) {
         throw new ProjectCodeConflictError("code");
@@ -127,9 +139,11 @@ export class ProjectCodesRepo {
 
       this.db.prepare(`
         UPDATE project_codes
-        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, updated_at = ?
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, updated_at = ?
         WHERE code = ? COLLATE BINARY
-      `).run(nextCode, nextProject, nextRepoPath, nextRepoOrigin, Date.now(), existing.code);
+      `).run(
+        nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview, Date.now(), existing.code,
+      );
       return this.findByCode(nextCode);
     });
     return run.immediate();

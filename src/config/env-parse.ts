@@ -41,3 +41,20 @@ export function splitSemicolonList(raw: string | undefined): string[] {
 export function stripTrailingSlashes(url: string): string {
   return url.replace(/\/+$/, "");
 }
+
+/**
+ * TCP ポート番号として読む。 未設定 (空文字含む) は undefined。
+ *
+ * 不正値は**投げる**。 ポート指定を黙って既定へ落とすと、 設定したつもりの
+ * ポートと実際の接続先が食い違ったまま起動してしまい、 原因の分かりにくい
+ * 疎通失敗になる。 どのキーが壊れているかを追えるよう `envKey` を文面に出す。
+ */
+export function readPortEnv(raw: string | undefined, envKey: string): number | undefined {
+  const normalized = trimmedEnv(raw);
+  if (!normalized) return undefined;
+  const port = Number(normalized);
+  if (!/^\d+$/.test(normalized) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error(`${envKey} must be an integer between 1 and 65535`);
+  }
+  return port;
+}

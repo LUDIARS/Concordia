@@ -82,6 +82,38 @@ describe("discord ingress chat routing", () => {
     expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).toHaveBeenCalledOnce();
   });
 
+  it("records a domain-review reply before control and intake routing can consume it", async () => {
+    const handleDomainReviewReply = vi.fn(async () => ({ handled: true, reply: "recorded" }));
+    const intakeProcess = vi.fn(async () => ({ replyText: "intake" }));
+    const routeFederationIngress = vi.fn(() => true);
+    const deps: IngressDeps = {
+      ...makeDeps("claude-code"),
+      handleDomainReviewReply,
+      routeFederationIngress,
+      intake: {
+        intakeChannelId: "chan1",
+        process: intakeProcess,
+        isLocked: () => false,
+      },
+    };
+    const msg = makeMessage({
+      content: "control",
+      reference: { messageId: "domain-review-post" },
+    });
+
+    await handleMessage(deps, msg);
+
+    expect(handleDomainReviewReply).toHaveBeenCalledWith({
+      messageId: "domain-review-post",
+      authorId: "user1",
+      text: "control",
+      source: "discord:chan1/msg1",
+    });
+    expect(routeFederationIngress).not.toHaveBeenCalled();
+    expect(intakeProcess).not.toHaveBeenCalled();
+    expect((msg.channel as unknown as { send: ReturnType<typeof vi.fn> }).send).not.toHaveBeenCalled();
+  });
+
   it("injects replies into the existing session", async () => {
     const fetchMock = stubSuccessfulFetch();
     const deps = makeDeps("claude-code");

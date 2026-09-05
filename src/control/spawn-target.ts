@@ -123,6 +123,7 @@ export async function prepareSpawnTarget(input: SpawnTargetRequest): Promise<Spa
     cwd: input.cwd,
     git,
     requireGitCheckout: Boolean(branch && worktree),
+    resolveRepoRoot: Boolean(branch && worktree),
   });
   if (!validated.ok) return validated;
   const cwd = validated.cwd;

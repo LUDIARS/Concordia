@@ -41,7 +41,7 @@ import type {
 } from "../pr/revisor-client.js";
 import { classifyMergeFailure, RevisorMergeError } from "../pr/revisor-merge-outcome.js";
 import { findLocalPrById, isAlreadyMerged } from "../pr/revisor-merge-confirm.js";
-import { decideSessionMergeScope } from "../pr/session-merge-scope.js";
+import { decideProjectMergeAuthorization } from "../pr/project-merge-authorization.js";
 import { lastHumanRequester } from "../control/requester.js";
 import { authorizeStaffCapability } from "../staff/capability-authorization.js";
 import { createChildLogger } from "../shared/logger.js";
@@ -63,6 +63,17 @@ export interface PrsApiDeps {
   sessions?: Pick<SessionsRepo, "recentEvents" | "eventsByKind" | "appendEvent" | "findSession">;
   /** platform ごとの staff role を live 参照する。 */
   staff?: Pick<StaffRepo, "roleOf">;
+  /**
+   * 対象 PR のプロジェクトが Cc の管理下にあるかの読み口 (マージ認可の土台)。
+   * 未注入なら管理集合を確認できないため、 マージは fail-closed で 503。
+   * spec/feature/local-pr-merge-authorization.md。
+   */
+  managedProjects?: {
+    /** project_codes に repo_origin として登録されているか。 */
+    isRegisteredProject(repoOrigin: string): boolean;
+    /** いずれかの team に repo が割り当てられているか。 */
+    isTeamRepo?(repoOrigin: string): boolean;
+  };
   /** Revisor local PR の変更操作。未注入時は fail-closed。 */
   revisorMerger?: RevisorLocalPrMerger;
   /** Revisor local PR の取り下げ操作。未注入時は fail-closed。 */
@@ -270,20 +281,22 @@ export function prsRouter(deps: PrsApiDeps): Hono {
   });
 
   /**
-   * POST /v1/prs/local/:id/merge — 人間の指示で、 同じプロジェクトの session が local PR をマージする。
+   * POST /v1/prs/local/:id/merge — 人間の指示で、管理対象プロジェクトの local PR をマージする。
    *
    * マージは人間の判断が要る操作である。 session が自分の判断で (Genius や他の AI の
    * 助言を含め) マージすることは無い。 したがって「直近の人間指示者を解決できること」と
    * その人の `merge_pr` は必須のまま残す。
    *
-   * プロジェクト一致はそこに **追加** する制約で、 認可の代わりではない。 指示者が権限を
-   * 持っていても、 他プロジェクトの PR を横から落とせないようにする。
+   * これに **追加** して、 対象 PR が Cc の管理下にあるプロジェクトのものであることを
+   * 要求する。 セッションの cwd / repo_origin は一切見ない — セッションの自己申告は
+   * `PATCH /v1/sessions/:id` で書き換えられるため認可の境界にならず、 横断作業
+   * (Castra を cwd にする) を理由なく塞いでいた (neco 指示 2026-09-05)。
    */
   app.post("/local/:id/merge", async (c) => {
     const sessions = deps.sessions;
     // 読み取り口が無い構成では PR の所属プロジェクトを確認できない。 確認できないまま
     // マージを通さない (プロジェクト一致が認可の土台なので、 これは可用性ではなく認可の問題)。
-    if (!sessions || !deps.staff || !deps.revisorMerger || !deps.revisor) {
+    if (!sessions || !deps.staff || !deps.revisorMerger || !deps.revisor || !deps.managedProjects) {
       return c.json({ error: "local_pr_merge_unavailable" }, 503);
     }
     const localPrId = c.req.param("id").trim();
@@ -291,6 +304,13 @@ export function prsRouter(deps: PrsApiDeps): Hono {
     const body = await c.req.json().catch(() => null) as { session_id?: unknown } | null;
     const sessionId = typeof body?.session_id === "string" ? body.session_id.trim() : "";
     if (!sessionId) return c.json({ error: "session_id (string) required" }, 400);
+
+    // session_events は sessions への外部キーを持たない。session 行の実在を先に確かめないと、
+    // 孤立イベントや任意 ID に追加された inject だけで認可者を名乗れてしまう。
+    // repo_origin は参照せず、ここでは要求主体となる session の存在だけを確認する。
+    if (!sessions.findSession(sessionId)) {
+      return c.json({ error: "merge_authorizer_unknown" }, 403);
+    }
 
     // 人間の指示があったことが前提。 直近 100 件では、 長いセッションで最後の人間 inject が
     // 窓から押し出され、 同じセッションでもマージできたりできなかったりしていた。
@@ -303,19 +323,19 @@ export function prsRouter(deps: PrsApiDeps): Hono {
       return c.json({ error: "merge_not_authorized", detail: authorization.detail }, 403);
     }
 
-    // 指示者の権限に加えて、 その session が対象 PR のプロジェクトで作業していることを要求する。
-    // どの project の PR かは Revisor が正本。 session 側の申告だけで突き合わせない。
-    const session = sessions.findSession(sessionId);
+    // 指示者の権限に加えて、 対象 PR が Cc の管理下にあるプロジェクトのものであることを
+    // 要求する。 どの project の PR かは Revisor が正本。 管理集合 (project_codes /
+    // team_repos) はセッション行の自己申告とは別に管理される運用データ。
     const targetPr = await findLocalPrById(deps.revisor, localPrId);
-    const scope = decideSessionMergeScope({
-      sessionFound: session !== null,
-      sessionRepoOrigin: session?.repo_origin ?? null,
+    const scope = decideProjectMergeAuthorization({
       localPrRepository: targetPr?.repository ?? null,
+      isRegisteredProject: (origin) => deps.managedProjects!.isRegisteredProject(origin),
+      isTeamRepo: (origin) => deps.managedProjects!.isTeamRepo?.(origin) ?? false,
     });
     if (!scope.allowed) {
       log.warn(
         { local_pr_id: localPrId, session_id: sessionId, reason: scope.reason },
-        "local PR merge refused: the requesting session is not working on that project",
+        "local PR merge refused: the target project is not managed by Concordia",
       );
       return c.json({ error: "merge_project_scope_denied", reason: scope.reason, detail: scope.detail }, 403);
     }
@@ -326,6 +346,7 @@ export function prsRouter(deps: PrsApiDeps): Hono {
         session_id: sessionId,
         outcome,
         project: scope.project,
+        project_registered_via: scope.via,
         authorizer: { platform: requester.platform, user_id: requester.userId, role: authorization.role },
       };
       log.info(audit, "local PR merge request completed with session requester authorization");

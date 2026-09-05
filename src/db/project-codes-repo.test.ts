@@ -130,4 +130,13 @@ describe("ProjectCodesRepo update/remove", () => {
     expect(repo.remove("MN")).toBe(false);
     db.close();
   });
+
+  it("finds a registered repo origin across URL notation and letter case", () => {
+    const { db, repo } = seeded();
+    expect(repo.findByRepoOrigin("ludiars/concordia")).toMatchObject({ code: "Cc" });
+    expect(repo.findByRepoOrigin("git@github.com:LUDIARS/Concordia.git"))
+      .toMatchObject({ code: "Cc" });
+    expect(repo.findByRepoOrigin("LUDIARS/not-registered")).toBeNull();
+    db.close();
+  });
 });

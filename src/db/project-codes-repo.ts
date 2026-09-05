@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { normalizeRepoOrigin } from "../pr/normalize.js";
 
 export interface ProjectCodeRow {
   code: string;
@@ -32,6 +33,26 @@ export class ProjectCodesRepo {
   list(): ProjectCodeRow[] {
     return this.db.prepare("SELECT * FROM project_codes ORDER BY code COLLATE BINARY")
       .all() as ProjectCodeRow[];
+  }
+
+  /**
+   * @implements spec/feature/local-pr-merge-authorization.md — project_codes lookup
+   *
+   * repo_origin (owner/repo) から登録を引く。 local PR のマージ認可が
+   * 「その repository が Cc の管理下にあるか」を確かめるために使う
+   * (spec/feature/local-pr-merge-authorization.md)。
+   *
+   * 保存値は `https://github.com/LUDIARS/Concordia.git` と `LUDIARS/Concordia` の
+   * どちらの表記もありうるので、 突き合わせは PR 側と同じ normalizeRepoOrigin で
+   * 揃えてから大小文字を畳む。 表記差を「別プロジェクト」と誤判定すると、 直したい
+   * ときに限ってマージできない、 という置き換え前と同じ不安定さに戻る。
+   */
+  findByRepoOrigin(repoOrigin: string): ProjectCodeRow | null {
+    const target = normalizeRepoOrigin(repoOrigin).toLowerCase();
+    if (!target) return null;
+    return this.list().find(
+      (row) => normalizeRepoOrigin(row.repo_origin ?? "").toLowerCase() === target,
+    ) ?? null;
   }
 
   findByCode(code: string): ProjectCodeRow | null {

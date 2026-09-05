@@ -70,14 +70,19 @@ GitHub PR 自体が作られない。 つまり旧経路は設計ごと役目を
 2. 社員名簿を live 参照し、Discord の TestWorkflow マージボタンと同じ共通 capability
    判定で指示者の `merge_pr` を検証する。持たなければ 403
    `merge_not_authorized` を返す。
-3. **加えて**、その session が対象 PR のプロジェクトで作業していることを要求する。
-   session 行と対象 local PR を引き、session の `repo_origin` と PR の `repository` を
-   `owner/repo` へ正規化して大小文字を無視して突き合わせる (同じリポジトリが URL 形式と
-   `owner/repo` の両方で流れてくるため)。一致しない・どちらかを解決できない場合は 403
-   `merge_project_scope_denied` を `reason` (`session_unknown` / `session_repo_unknown` /
-   `local_pr_repo_unknown` / `project_mismatch`) 付きで返す。Revisor 読み取り口が未構成なら
-   所属を確認できないので 503 で断る。これは指示者の権限判定の**代わりではなく追加**で、
-   権限のある指示者であっても他プロジェクトの PR を横から落とせないようにする。
+3. **加えて**、対象 PR の repository が Concordia の管理下にあるプロジェクト
+   (`project_codes.repo_origin` または `team_repos.repo_origin`) であることを要求する。
+   突き合わせは `owner/repo` へ正規化して大小文字を無視して行う (同じリポジトリが URL 形式と
+   `owner/repo` の両方で流れてくるため)。満たさない場合は 403
+   `merge_project_scope_denied` を `reason` (`local_pr_repo_unknown` /
+   `project_not_registered`) 付きで返す。Revisor 読み取り口や管理集合の読み口が未構成なら
+   所属を確認できないので 503 で断る。これは指示者の権限判定の**代わりではなく追加**である。
+
+   **session の cwd / `repo_origin` は見ない。** 旧実装は session の `repo_origin` と PR の
+   `repository` の一致を要求していたが、横断作業 (Castra を cwd にする) を理由なく塞ぐ一方、
+   `PATCH /v1/sessions/:id` で自己申告を書き換えれば通るため認可の境界になっていなかった
+   (neco 指示 2026-09-05)。詳細と現時点の限界は
+   `spec/feature/local-pr-merge-authorization.md`。
 4. 通過後に Revisor の実状態を読み、既に merged なら変更要求を重ねず成功として扱う。
    open なら `RevisorClient.mergeLocalPr(id)` を実行する。タイムアウト後も実状態を再確認し、
    merged を確認できた場合だけ成功へ確定する。Revisor の失敗は 502 と安定した非機密の

@@ -32,6 +32,9 @@
       "pathPattern": "(^|/)src/pr/revisor-(client|merge-confirm|merge-outcome|test-workflow-client|read-cache)(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/pr/project-merge-authorization(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/branch-commits(\\.test)?\\.ts$"
     },
     {
@@ -54,6 +57,7 @@
     "spec/feature/revisor-local-pr-submission.md#4-提出内容",
     "spec/feature/revisor-local-pr-submission.md#応答喪失時の照合",
     "spec/feature/revisor-local-pr-submission.md#6-token",
+    "spec/feature/local-pr-merge-authorization.md#2-現在の規則",
     "spec/tasks/revisor-merge-feedback.md#完了条件",
     "spec/feature/revisor-test-forum-sync.md#runtime-boundary"
   ],

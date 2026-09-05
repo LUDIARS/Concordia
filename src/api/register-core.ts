@@ -56,6 +56,7 @@ import { federationRouter, type FederationApiDeps } from "./federation.js";
 import { spawnRouter } from "./spawn.js";
 import { machinesRouter } from "./machines.js";
 import { projectCodesRouter } from "./project-codes.js";
+import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { delegationRouter } from "./delegation.js";
 import type { DelegationMemoriaPort } from "../delegation/memoria-task.js";
 import type { MemoriaClient, MemoriaTask } from "../memoria/client.js";
@@ -355,6 +356,17 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     revisorCloser: deps.revisorLocalPrCloser,
     revisorPromoter: deps.revisorLocalPrPromoter,
     submitDirectLocalPr: deps.submitDirectLocalPr,
+    // マージ認可の土台。 セッションの申告ではなく、 運用側が登録した管理集合を見る
+    // (spec/feature/local-pr-merge-authorization.md)。
+    managedProjects: {
+      isRegisteredProject: (repoOrigin) => deps.projectCodes.findByRepoOrigin(repoOrigin) !== null,
+      isTeamRepo: (repoOrigin) => {
+        const target = normalizeRepoOrigin(repoOrigin).toLowerCase();
+        if (!target) return false;
+        return (deps.teams?.listRepoAssignments() ?? [])
+          .some((row) => normalizeRepoOrigin(row.repo_origin).toLowerCase() === target);
+      },
+    },
   }));
   if (deps.implementationTools) {
     app.route(

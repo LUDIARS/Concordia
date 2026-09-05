@@ -48,6 +48,7 @@ function makePrsApp(
   mergeLocalPr: (id: string) => Promise<void>,
   closeLocalPr?: (id: string, reason?: string) => Promise<void>,
   revisor: RevisorLocalPrReader | null = defaultRevisorReader(),
+  managedProjects: PrsApiDeps["managedProjects"] = defaultManagedProjects(),
 ): Hono {
   const app = new Hono();
   app.route("/v1/prs", prsRouter({
@@ -56,9 +57,20 @@ function makePrsApp(
     staff: env.staff,
     revisorMerger: { mergeLocalPr },
     revisor: revisor ?? undefined,
+    managedProjects,
     ...(closeLocalPr ? { revisorCloser: { closeLocalPr } } : {}),
   }));
   return app;
+}
+
+/** 既定の管理集合。 LUDIARS 配下のプロジェクトが project_codes に登録されている状態。 */
+function defaultManagedProjects(...projects: string[]): PrsApiDeps["managedProjects"] {
+  const registered = projects.length > 0 ? projects : ["LUDIARS/Concordia"];
+  return {
+    isRegisteredProject: (repoOrigin) =>
+      registered.some((p) => p.toLowerCase() === repoOrigin.toLowerCase()),
+    isTeamRepo: () => false,
+  };
 }
 
 function revisorPr(status: string): RevisorLocalPr {
@@ -141,6 +153,24 @@ describe("POST /v1/prs/local/:id/merge", () => {
     expect(mergeLocalPr).not.toHaveBeenCalled();
   });
 
+  it("rejects an unknown session even if orphan inject events exist", async () => {
+    // session_events には sessions への外部キーがない。イベントだけで session の実在を
+    // 代用すると、任意 ID の inject を認可コンテキストにできてしまう。
+    const env = makeTestApp();
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+
+    const response = await makePrsApp(env, mergeLocalPr).request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(await response.json()).toEqual({ error: "merge_authorizer_unknown" });
+    expect(mergeLocalPr).not.toHaveBeenCalled();
+  });
+
   it("still finds the instruction after it falls out of the recent-event window", async () => {
     // 長いセッションで最後の人間 inject が直近 100 件から溢れても、 指示が無かったことには
     // しない (同じセッションで通ったり通らなかったりする原因だった)。
@@ -162,13 +192,48 @@ describe("POST /v1/prs/local/:id/merge", () => {
     expect(mergeLocalPr).toHaveBeenCalledWith("local-1");
   });
 
-  it("refuses a session working on another project", async () => {
+  it("merges another project's PR from a Castra cwd session (cwd is no longer consulted)", async () => {
+    // 置き換え前の規則では session.repo_origin が LUDIARS/Castra に固定されるため
+    // merge_project_scope_denied で止まっていた (2026-09-05 に Ludellus / Ludellus-Server で発生)。
+    const env = makeTestApp();
+    env.repo.insertSession({
+      id: "session-1",
+      provider: "codex-cli",
+      repo_path: "E:/Document/Ars",
+      repo_origin: "https://github.com/LUDIARS/Castra.git",
+      branch: "main",
+      host: "host",
+      started_at: 1,
+      last_seen_at: 1,
+      transcript_path: null,
+      metadata: null,
+    });
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+    const revisor: RevisorLocalPrReader = {
+      listLocalPrs: async () => [{ ...revisorPr("open"), repository: "LUDIARS/Ludellus-Server" }],
+      baseUrl: async () => "http://127.0.0.1:4240",
+    };
+
+    const response = await makePrsApp(
+      env, mergeLocalPr, undefined, revisor, defaultManagedProjects("LUDIARS/Ludellus-Server"),
+    ).request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(mergeLocalPr).toHaveBeenCalledWith("local-1");
+  });
+
+  it("refuses a PR whose repository Concordia does not manage", async () => {
     const env = makeTestApp();
     addSession(env);
     addRequester(env, "manager");
     const mergeLocalPr = vi.fn(async () => undefined);
     const revisor: RevisorLocalPrReader = {
-      listLocalPrs: async () => [{ ...revisorPr("open"), repository: "LUDIARS/Memoria" }],
+      listLocalPrs: async () => [{ ...revisorPr("open"), repository: "outsider/not-ours" }],
       baseUrl: async () => "http://127.0.0.1:4240",
     };
 
@@ -182,13 +247,35 @@ describe("POST /v1/prs/local/:id/merge", () => {
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({
       error: "merge_project_scope_denied",
-      reason: "project_mismatch",
+      reason: "project_not_registered",
     });
     expect(mergeLocalPr).not.toHaveBeenCalled();
   });
 
-  it("refuses a session Concordia does not know", async () => {
-    // session 行が無ければ、 どのプロジェクトで作業しているのか名乗れていない。
+  it("records the project and the authorizer in the merge audit event", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+
+    const response = await makePrsApp(env, mergeLocalPr).request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    const merged = env.repo.eventsByKind("session-1", "pr-merged");
+    expect(merged).toHaveLength(1);
+    expect(JSON.parse(merged[0]!.payload)).toMatchObject({
+      project: "LUDIARS/Concordia",
+      project_registered_via: "project_codes",
+      authorizer: { platform: "discord", user_id: "user-1", role: "manager" },
+    });
+  });
+
+  it("refuses when Revisor cannot tell us which project the PR belongs to", async () => {
+    // 所属が確認できないままマージを通さない (可用性ではなく認可の問題)。
     const env = makeTestApp();
     addSession(env);
     addRequester(env, "manager");
@@ -206,6 +293,31 @@ describe("POST /v1/prs/local/:id/merge", () => {
       error: "merge_project_scope_denied",
       reason: "local_pr_repo_unknown",
     });
+    expect(mergeLocalPr).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the managed-project registry is unavailable", async () => {
+    const env = makeTestApp();
+    addSession(env);
+    addRequester(env, "manager");
+    const mergeLocalPr = vi.fn(async () => undefined);
+    const app = new Hono();
+    app.route("/v1/prs", prsRouter({
+      prs: env.prs,
+      sessions: env.repo,
+      staff: env.staff,
+      revisorMerger: { mergeLocalPr },
+      revisor: defaultRevisorReader(),
+    }));
+
+    const response = await app.request("/v1/prs/local/local-1/merge", {
+      method: "POST",
+      body: JSON.stringify({ session_id: "session-1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ error: "local_pr_merge_unavailable" });
     expect(mergeLocalPr).not.toHaveBeenCalled();
   });
 

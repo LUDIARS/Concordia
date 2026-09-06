@@ -7,6 +7,7 @@
 import { randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
+import type { GithubActorRow } from "../db/github-actors-repo.js";
 import type { GithubWorkflowConfig } from "../github/config.js";
 
 const SecretSchema = z.object({
@@ -18,6 +19,24 @@ export interface GithubAdminRouterDeps {
   config: GithubWorkflowConfig;
   /** opt-in 済みプロジェクトの数 (設定画面の現況表示)。 */
   optedInProjects: () => Array<{ code: string; project: string; repo_origin: string | null }>;
+  /**
+   * 観測済み login の名簿 (未注入なら空)。 権限ではなく候補 — 「後追いで信頼実行者へ
+   * 足す」操作で login を手入力させないために出す。
+   * @implements spec/feature/github-issue-workflow.md — 信頼実行者
+   */
+  actors?: (limit: number) => GithubActorRow[];
+}
+
+/**
+ * 観測名簿に「今その login が信頼実行者か」を重ねて返す。 判定は設定側が正本なので、
+ * ここでは表示のために突き合わせるだけ。 大文字小文字は小文字へ畳んで比較する。
+ */
+function actorRoster(deps: GithubAdminRouterDeps): Array<GithubActorRow & { trusted: boolean }> {
+  const trusted = new Set(deps.config.trustedActors().map((login) => login.trim().toLowerCase()));
+  return (deps.actors?.(100) ?? []).map((row) => ({
+    ...row,
+    trusted: trusted.has(row.login.toLowerCase()),
+  }));
 }
 
 export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
@@ -41,6 +60,7 @@ export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
       fix_call_name: deps.config.fixCallName(),
       poll_interval_min: Math.round(deps.config.pollIntervalMs() / 60_000),
       projects: deps.optedInProjects(),
+      actors: actorRoster(deps),
     });
   });
 

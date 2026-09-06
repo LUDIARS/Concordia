@@ -79,6 +79,7 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 ## 操作面
 
 - `POST /v1/github/webhook` — GitHub からの `issues` イベント受け口。署名検証のみで認可する。
+- `GET /v1/admin/github` — 現況 (webhook secret の有無・信頼実行者・観測名簿 `actors[]`・対象プロジェクト)。
 - `GET /v1/github/issue-runs` — run 一覧 (状態・PR リンク・理由)。
 - `POST /v1/github/issue-runs/:id/approve` — 承認して委託を起動する。
 - `POST /v1/github/issue-runs/:id/reject { reason }` — 承認せず閉じる。理由は必須で、資格情報・ローカルパス・private endpoint を伏せて Issue へ返る。
@@ -91,7 +92,7 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 | キー | 既定 | 意味 |
 |---|---|---|
 | `github.issue_label` | `Cc` | 起動ラベル |
-| `github.trusted_actors` | 空 | ラベルを付けてよい GitHub login。空 = 発火しない |
+| `github.trusted_actors` | 空 | ラベルを付けてよい GitHub login。空 = 全件が承認待ち。編集は 設定 > GitHub Issue |
 | `github.poll_interval_min` | 5 | 取りこぼし用ポーリング間隔 |
 | `github.base_branch` | `main` | GitHub PR の base |
 | `github.fix_call_name` | `github-issue-fix` | 起動する delegation template |
@@ -133,6 +134,23 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 - 同じ run への承認・却下は DB の状態比較付き更新で 1 操作だけが確保し、二重起動しない。
 - 却下は理由が必須。資格情報・ローカルパス・private endpoint を伏せた文面が Issue のコメントになる。
 
+## 信頼実行者
+
+誰の Issue を確認なしで通すかは設定 `github.trusted_actors` が正本 (空 = 全件が承認待ち)。
+編集は **設定 > GitHub Issue ワークフロー** で行う (2026-09-06 neco 指示)。承認待ちの run を
+見ながら決める操作なので、run 一覧と同じ画面に置く。書き込みは既存の
+`PUT /v1/admin/settings` を通すので、検証と保存形式 (JSON 配列) は「すべて」画面と同一。
+
+- **観測名簿 `github_actors`** (migration 94): 対象リポジトリの Issue でラベルを付けた人と
+  起票した人の login を自動で記録する。突き合わせは小文字、表示は GitHub 上の表記。
+  `GET /v1/admin/github` が `actors[]` として現在の許可状態付きで返し、設定画面の
+  「信頼実行者に追加 / 解除」ボタンが後追いで許可を与える。
+- **名簿は権限ではない**。判定は `trusted_actors` だけを見る。名簿は login を手入力させない
+  ための候補一覧で、Discord の社員名簿 (`staff_members`) と同じ形 — 自動記録して役職 (権限) は
+  人が付ける。
+- 記録するのは**対象リポジトリと確認できた Issue だけ**。未登録・opt-out のリポジトリから来た
+  第三者は名簿にも残さない。承認の可否とは独立で、承認待ちで止めた相手こそ後から足す候補になる。
+
 ## 受信の二重化
 
 webhook が主、ポーリングが取りこぼし用。ポーリングは opt-in プロジェクトの
@@ -149,8 +167,8 @@ Cc 側は経路を作らない — 受け口の実装と ingress の閉じ方だ
 2. Excubitor の CF Tunnel ルートに Cc の公開 hostname を足し、`/v1/github/webhook` を通す。
 3. 対象リポジトリの GitHub webhook を作る — Payload URL は上の経路、Content type は
    `application/json`、Secret は 1 で発行した値、イベントは Issues のみ。
-4. 設定 > すべての `github.trusted_actors` にラベルを付けてよい GitHub login を入れる
-   (空のままでは何も起きない)。
+4. 設定 > GitHub Issue ワークフローの「信頼実行者」にラベルを付けてよい GitHub login を入れる
+   (空のままでは全件が承認待ちになる)。観測名簿から「信頼実行者に追加」でも足せる。
 5. プロジェクトコード画面で対象プロジェクトの「Issue WF」を ON にする。
 6. ワークフロー `github` を有効化する (既定 OFF)。有効化後に webhook、審査通過の追跡、
    取りこぼしポーリング、retry が動く。

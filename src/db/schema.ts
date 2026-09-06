@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 93;
+export const SCHEMA_VERSION = 94;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2326,6 +2326,28 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     if (!columns.some((column) => column.name === "bundled_docs")) {
       db.exec("ALTER TABLE delegation_runs ADD COLUMN bundled_docs TEXT");
     }
+  },
+}, {
+  version: 94,
+  name: "github-actor-roster",
+  source: "github_actors — Issue にラベルを付けた / 起票した GitHub login の観測名簿 (spec/feature/github-issue-workflow.md — 信頼実行者)",
+  up(db) {
+    // 承認待ちで止まった相手を後から信頼実行者へ足すのに、 login の手入力を要求しない。
+    // 権限の正本は設定 github.trusted_actors のまま — ここは観測記録だけを持つ
+    // (Discord の社員名簿 staff_members と同じ形: 自動記録して役職は人が付ける)。
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS github_actors (
+        login             TEXT PRIMARY KEY COLLATE NOCASE,
+        display_login     TEXT NOT NULL,
+        last_kind         TEXT NOT NULL,
+        last_repo         TEXT NOT NULL,
+        last_issue_number INTEGER NOT NULL,
+        seen_count        INTEGER NOT NULL DEFAULT 1,
+        first_seen_at     INTEGER NOT NULL,
+        last_seen_at      INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_github_actors_last_seen ON github_actors(last_seen_at);
+    `);
   },
 },
 ];

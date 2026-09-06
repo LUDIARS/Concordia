@@ -125,6 +125,7 @@ import { CcTaskRepository } from "../fallback-tasks/repository.js";
 import { ActioTaskClient } from "../fallback-tasks/actio-client.js";
 import { startCcTaskSync } from "../fallback-tasks/sync.js";
 import { makeRevisorConfigRepo } from "../db/revisor-config-repo.js";
+import { GithubActorsRepo } from "../db/github-actors-repo.js";
 import { makeGithubConfigRepo } from "../db/github-config-repo.js";
 import { makeGithubDeliveryLog, makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { createGithubWorkflowConfig } from "../github/config.js";
@@ -816,6 +817,9 @@ export async function startBackend(): Promise<BackendHandle> {
   // @implements spec/feature/github-issue-workflow.md
   const githubConfigRepo = makeGithubConfigRepo(db);
   const githubIssueRuns = makeGithubIssueRunsRepo(db);
+  // ラベルを押した / 起票した login の観測名簿。 権限の正本ではなく、 後追いで
+  // 信頼実行者へ足すときの候補一覧 (staff_members と同じ形)。
+  const githubActors = new GithubActorsRepo(db);
   const githubDeliveries = makeGithubDeliveryLog(db);
   const githubWorkflowConfig = createGithubWorkflowConfig({
     store: adminState.store,
@@ -825,6 +829,7 @@ export async function startBackend(): Promise<BackendHandle> {
   const githubGateway = createGithubGateway();
   const githubDispatchDeps = {
     runs: githubIssueRuns,
+    actors: githubActors,
     projects: projectCodesRepo,
     config: githubWorkflowConfig,
     github: githubGateway,
@@ -1568,6 +1573,7 @@ export async function startBackend(): Promise<BackendHandle> {
       markDelivery: (deliveryId: string, event: string) => githubDeliveries.markProcessed(deliveryId, event),
       pollOnce: () => pollLabeledIssues(githubWorkerDeps()),
       isEnabled: () => adminState.isWorkflowEnabled("github"),
+      actors: (limit: number) => githubActors.list(limit),
       optedInProjects: () => projectCodesRepo.listGithubIssueWorkflow().map((row) => ({
         code: row.code,
         project: row.project,

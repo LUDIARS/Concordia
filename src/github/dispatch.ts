@@ -9,6 +9,7 @@
 
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { GithubActorsRepo } from "../db/github-actors-repo.js";
 import type { GithubIssueRunRow, GithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { InvokeInput } from "../delegation/contracts.js";
@@ -31,6 +32,11 @@ export interface GithubDispatchDeps {
   config: GithubWorkflowConfig;
   github: GithubGateway;
   invoke: (input: InvokeInput) => Promise<InvokeResult>;
+  /**
+   * 観測した login の名簿。 未注入なら記録しない (認可には使わないので必須にしない)。
+   * @implements spec/feature/github-issue-workflow.md — 信頼実行者
+   */
+  actors?: Pick<GithubActorsRepo, "touch">;
   /** Issue 本文の置き場 (既定 = <cwd>/github-issues)。 */
   issueBodyDir?: string;
   /**
@@ -218,6 +224,20 @@ export async function dispatchIssueTrigger(
     // 対象外は静かに落とす。 未登録リポや外部の第三者へ Cc の存在と設定状況を返さない。
     log("github_issue_rejected", { repo: trigger.repoOrigin, issue: trigger.issueNumber, reason: verdict.reason });
     return { kind: "rejected", reason: verdict.reason, detail: verdict.detail };
+  }
+
+  // 対象リポジトリと確認できた相手だけを名簿に残す。 未登録リポの第三者は記録しない。
+  // 承認の可否とは独立 — 承認待ちで止めた相手こそ後から足す候補になる。
+  for (const [login, kind] of [
+    [trigger.issueAuthor, "author"] as const,
+    [trigger.actor, "labeler"] as const,
+  ]) {
+    deps.actors?.touch({
+      login,
+      kind,
+      repoOrigin: trigger.repoOrigin,
+      issueNumber: trigger.issueNumber,
+    });
   }
 
   const approvalNeeded = verdict.kind === "needs_approval";

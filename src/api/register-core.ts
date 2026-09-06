@@ -280,6 +280,8 @@ export interface GithubIssueWorkflowApiDeps extends GithubRouterDeps {
   /** 設定レジストリが webhook secret の設定状況を読むためのストア。 */
   configRepo: GithubConfigRepo;
   optedInProjects: GithubAdminRouterDeps["optedInProjects"];
+  /** 観測済み login の名簿 (信頼実行者の候補表示)。 */
+  actors?: GithubAdminRouterDeps["actors"];
 }
 
 export type CoreDeps = CoreSessionDeps & CoreDelegationDeps & CoreRuntimeDeps;
@@ -400,6 +402,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route("/v1/admin/github", githubAdminRouter({
       config: github.config,
       optedInProjects: github.optedInProjects,
+      actors: github.actors,
     }));
   }
   if (deps.implementationTools) {

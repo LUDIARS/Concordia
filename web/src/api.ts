@@ -1469,6 +1469,22 @@ export interface GithubIssueWorkflowStatus {
   fix_call_name: string;
   poll_interval_min: number;
   projects: Array<{ code: string; project: string; repo_origin: string | null }>;
+  /** Issue にラベルを付けた / 起票した login の観測名簿 (権限そのものではない)。 */
+  actors: GithubIssueActor[];
+}
+
+/** @implements spec/feature/github-issue-workflow.md — 信頼実行者 */
+export interface GithubIssueActor {
+  login: string;
+  display_login: string;
+  last_kind: "labeler" | "author";
+  last_repo: string;
+  last_issue_number: number;
+  seen_count: number;
+  first_seen_at: number;
+  last_seen_at: number;
+  /** 現時点で github.trusted_actors に載っているか。 */
+  trusted: boolean;
 }
 
 export interface GithubIssueRun {

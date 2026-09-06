@@ -4,6 +4,7 @@ import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, describe, expect, it } from "vitest";
 import { applyMigrations } from "../db/schema.js";
+import { GithubActorsRepo } from "../db/github-actors-repo.js";
 import { makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { GithubGateway } from "./gh-cli.js";
@@ -71,12 +72,14 @@ async function harness(options: {
   });
   if (options.optIn !== false) projects.setGithubIssueWorkflow("Cc", true);
   const runs = makeGithubIssueRunsRepo(db);
+  const actors = new GithubActorsRepo(db);
   const github = stubGithub();
   const invoked: unknown[] = [];
   const issueBodyDir = await mkdtemp(join(tmpdir(), "cc-github-test-"));
   temporaryDirs.push(issueBodyDir);
   const deps: GithubDispatchDeps = {
     runs,
+    actors,
     projects,
     config: stubConfig(),
     github,
@@ -92,10 +95,36 @@ async function harness(options: {
       } as Awaited<ReturnType<GithubDispatchDeps["invoke"]>>;
     }),
   };
-  return { db, deps, runs, github, invoked };
+  return { db, deps, runs, actors, github, invoked };
 }
 
 describe("dispatchIssueTrigger", () => {
+  it("記録した login を名簿に残し、 後から信頼実行者へ足せるようにする", async () => {
+    const { db, deps, actors } = await harness();
+    await dispatchIssueTrigger(deps, {
+      ...TRIGGER,
+      issueAuthor: "Outsider",
+      actor: "neco",
+    });
+    const roster = actors.list();
+    // 起票者とラベル付与者の両方を残す。 承認待ちで止まる側こそ後追いで足す候補になる。
+    expect(roster.map((row) => row.login).sort()).toEqual(["neco", "outsider"]);
+    // 表示は GitHub 上の表記を保つ (突き合わせだけ小文字)。
+    expect(roster.find((row) => row.login === "outsider")?.display_login).toBe("Outsider");
+    expect(roster.find((row) => row.login === "outsider")?.last_kind).toBe("author");
+    expect(roster.find((row) => row.login === "neco")?.last_kind).toBe("labeler");
+    db.close();
+  });
+
+  it("対象外リポジトリの login は名簿に残さない", async () => {
+    const { db, deps, actors } = await harness({ optIn: false });
+    const outcome = await dispatchIssueTrigger(deps, TRIGGER);
+    expect(outcome.kind).toBe("rejected");
+    // 未登録・opt-out のリポジトリから来た第三者を Cc 側に溜めない。
+    expect(actors.list()).toEqual([]);
+    db.close();
+  });
+
   it("creates a run, invokes the fix delegation and reports back on the issue", async () => {
     const { db, deps, runs, github, invoked } = await harness();
     const outcome = await dispatchIssueTrigger(deps, TRIGGER);

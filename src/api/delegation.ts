@@ -21,7 +21,11 @@ import {
   type DelegationTemplateOverrideRow,
   type DelegationTemplateOverrideScopeKind,
   parseRuntimeOptions,
+  DELEGATION_RUN_STATUSES,
+  type DelegationRunStatus,
 } from "../db/delegation-repo.js";
+import { clampListLimit } from "../db/list-limit.js";
+import { withSlimMetadata } from "./sessions/metadata-slim.js";
 import { TEMPLATE_OVERRIDE_PATCH_KEYS } from "../delegation/template-overrides.js";
 import type { SessionsRepo } from "../db/sessions-repo.js";
 import type { PrRecordsRepo } from "../db/pr-records-repo.js";
@@ -328,6 +332,26 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     };
   }
 
+  /**
+   * 一覧向けの run。 単体取得でしか読まない重量フィールドを外す。
+   * - rendered_prompt: プロンプト全文 (GET /v1/delegation/runs/:id にある)
+   * - args_json: 直上の args と同じ内容の生 JSON 文字列 (二重計上)
+   * リンク session の metadata もプロンプト全文級キーを落とす。
+   */
+  function serializeRunForList(
+    row: Awaited<ReturnType<DelegationRepo["findRun"]>>,
+    linkedSessions: SessionRow[] = [],
+  ) {
+    const full = serializeRun(row, linkedSessions);
+    if (!full) return full;
+    return {
+      ...full,
+      rendered_prompt: undefined,
+      args_json: undefined,
+      sessions: full.sessions.map(withSlimMetadata),
+    };
+  }
+
   function validateForumTagCandidate(candidate: ForumTemplateTagSource, replacingId?: string): string | null {
     const existing = deps.repo
       .listTemplates({ includeInactive: true })
@@ -387,20 +411,30 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
     return c.json({ delegation: templateToPortable(row) });
   });
 
+  // ?status= は SQL 側で絞る。 不正値は無言で全件へ倒さず 400。
   app.get("/runs", (c) => {
-    const limitRaw = Number(c.req.query("limit") ?? 100);
-    const limit = Math.max(1, Math.min(500, isFinite(limitRaw) ? limitRaw : 100));
+    const limit = clampListLimit(c.req.query("limit"), 100);
     const parentSession = (c.req.query("parent_session") ?? "").trim();
+    const statusRaw = (c.req.query("status") ?? "").trim();
+    if (statusRaw && !(DELEGATION_RUN_STATUSES as readonly string[]).includes(statusRaw)) {
+      return c.json(
+        { error: "invalid_status", allowed: DELEGATION_RUN_STATUSES },
+        400,
+      );
+    }
+    const status = (statusRaw || undefined) as DelegationRunStatus | undefined;
     const rows = parentSession
-      ? deps.repo.listRunsByParentSession(parentSession, limit)
-      : deps.repo.recentRuns(limit);
+      ? deps.repo.listRunsByParentSession(parentSession, limit, status)
+      : deps.repo.recentRuns(limit, status);
     const sessions = deps.sessions?.listDelegationSessions() ?? [];
     const sessionReadModel = new DelegationRunSessionReadModel(sessions);
     return c.json({
       runs: rows.map((row) => {
         const args = safeJsonParse<Record<string, unknown>>(row.args_json, {});
-        return serializeRun(row, sessionReadModel.linkedSessions(row, args));
+        return serializeRunForList(row, sessionReadModel.linkedSessions(row, args));
       }),
+      limit,
+      status: status ?? null,
     });
   });
 

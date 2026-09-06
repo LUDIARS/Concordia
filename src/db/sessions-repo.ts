@@ -4,6 +4,7 @@
 
 import type Database from "better-sqlite3";
 import { endDiscordSessionChannels } from "./discord-repo.js";
+import { clampListLimit, clampListOffset } from "./list-limit.js";
 import type {
   ProviderName,
   SessionEventRow,
@@ -98,7 +99,13 @@ export class SessionsRepo {
     provider?: ProviderName;
     subsidiary_id?: string;
     team_id?: string;
+    /** 取得上限。 省略時は 200 (従来値)。 1..500 に丸める。 */
+    limit?: number;
+    /** 取得開始位置。 省略時は 0。 */
+    offset?: number;
   }): SessionRow[] {
+    const limit = clampListLimit(filter.limit);
+    const offset = clampListOffset(filter.offset);
     const where: string[] = [];
     const args: unknown[] = [];
     if (filter.repo_origin) { where.push("repo_origin = ?"); args.push(filter.repo_origin); }
@@ -110,10 +117,12 @@ export class SessionsRepo {
       where.push("json_extract(metadata, '$.subsidiary_id') = ?");
       args.push(filter.subsidiary_id);
     }
+    // started_at は秒粒度で同値になりうる。 offset ページングで重複 / 取りこぼしが
+    // 出ないよう id を第 2 キーに置き、 全ページで順序を一意に固定する。
     const sql =
       `SELECT * FROM sessions ${where.length ? "WHERE " + where.join(" AND ") : ""} ` +
-      `ORDER BY started_at DESC LIMIT 200`;
-    return this.db.prepare(sql).all(...args) as SessionRow[];
+      `ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?`;
+    return this.db.prepare(sql).all(...args, limit, offset) as SessionRow[];
   }
 
   listDelegationSessions(limit = 1000): SessionRow[] {

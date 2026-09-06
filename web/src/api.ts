@@ -81,6 +81,11 @@ export interface SessionRow {
   last_seen_at: number;
   current_task: string | null;
   metadata: Record<string, any> | null;
+  /**
+   * 一覧応答で metadata から落としたキー (プロンプト全文級)。
+   * 全文が要るときは単体取得か ?metadata=full を使う。
+   */
+  metadata_omitted_keys?: string[];
   sufficiency?: ProjectSufficiency;
 }
 

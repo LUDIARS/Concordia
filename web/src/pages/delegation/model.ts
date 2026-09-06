@@ -68,7 +68,8 @@ export interface RunRow {
   call_name: string;
   target_provider: Provider;
   args: Record<string, unknown>;
-  rendered_prompt: string;
+  /** 一覧応答では省かれる (単体取得 GET /v1/delegation/runs/:id のみ)。 */
+  rendered_prompt?: string;
   prompt_file_path: string;
   spawn_pid: number | null;
   spawn_command: string[] | null;

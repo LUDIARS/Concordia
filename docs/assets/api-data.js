@@ -15,7 +15,7 @@ window.API_DATA = {
       group: "sessions", title: "Sessions — セッションライフサイクル", note: "1 起動 = 1 session。start hook 相当の登録から終了レポートまで",
       items: [
         { m: "POST", p: "/v1/sessions", d: "登録 / 開始 (resume 含む)。同 repo の peers + lost candidates + advisory を返す", params: "body: id, provider(claude-code|gemini-cli|codex-cli|local-llm|unknown), repo_path, repo_origin?, branch?, host, transcript_path?, metadata?", resp: "{ session, peers, lost_candidates, advisory, persona, processes, process_stream_url, initial_work }", src: "sessions.ts:202" },
-        { m: "GET", p: "/v1/sessions", d: "セッション一覧", params: "query: repo_origin?, host?, status?, provider?", resp: "{ sessions[] }", src: "sessions.ts:346" },
+        { m: "GET", p: "/v1/sessions", d: "セッション一覧。既定は metadata のプロンプト全文級キー (discord_startup_task / discord_startup_inject) を落とし、落としたキー名を metadata_omitted_keys で返す", params: "query: repo_origin?, host?, status?, provider?, team_id?, subsidiary_id?, limit?(1-500, 既定 200), offset?(既定 0), metadata?(full で全文)", resp: "{ sessions[], limit, offset }", src: "sessions.ts:346" },
         { m: "GET", p: "/v1/sessions/:id", d: "詳細 + persona + 直近 events", params: "path: id", resp: "{ session, persona, events[] }", src: "sessions.ts:358" },
         { m: "PATCH", p: "/v1/sessions/:id", d: "列 / metadata を更新", params: "body: current_task?, branch?, repo_path?, repo_origin?, metadata?", resp: "{ ok }", src: "sessions.ts:379" },
         { m: "POST", p: "/v1/sessions/:id/heartbeat", d: "last_seen_at を更新するだけ", params: "path: id", resp: "{ ok }", src: "sessions.ts:402" },
@@ -103,7 +103,7 @@ window.API_DATA = {
         { m: "GET", p: "/v1/delegation/templates", d: "active テンプレート一覧", params: "—", resp: "{ templates[] }", src: "delegation.ts:121" },
         { m: "GET", p: "/v1/delegation/templates/all", d: "inactive 含む一覧", params: "—", resp: "{ templates[] }", src: "delegation.ts:126" },
         { m: "GET", p: "/v1/delegation/templates/:identifier", d: "id or call_name で取得", params: "path: identifier", resp: "{ template }", src: "delegation.ts:131" },
-        { m: "GET", p: "/v1/delegation/runs", d: "直近 run 一覧", params: "query: limit?(1-500)", resp: "{ runs[] }", src: "delegation.ts:138" },
+        { m: "GET", p: "/v1/delegation/runs", d: "直近 run 一覧。一覧では rendered_prompt / args_json を返さない (単体取得のみ)", params: "query: limit?(1-500, 既定 100), parent_session?, status?(queued|launching|pending|spawned|spawn_failed|running|blocked|completed|failed。未知値は 400)", resp: "{ runs[], limit, status }", src: "delegation.ts:138" },
         { m: "POST", p: "/v1/delegation/templates", d: "テンプレート作成", params: "body: call_name?, title?, description?, target_provider, model?, prompt_template?, input_schema?[], default_cwd?, is_active?, emoji?, call_only?", resp: "{ template } (201)", src: "delegation.ts:146" },
         { m: "PATCH", p: "/v1/delegation/templates/:id", d: "テンプレート更新", params: "body: PatchTemplateSchema", resp: "{ template }", src: "delegation.ts:163" },
         { m: "DELETE", p: "/v1/delegation/templates/:id", d: "テンプレート無効化", params: "path: id", resp: "{ ok }", src: "delegation.ts:173" },

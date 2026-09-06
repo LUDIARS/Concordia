@@ -176,7 +176,7 @@ run の `completed` は decision verdict `ok`、`failed` は `ng` として返�
 | PUT | /v1/delegation/templates/:id/overrides | none | override の作成または更新 |
 | DELETE | /v1/delegation/templates/:id/overrides/:overrideId | none | override 削除 |
 | POST   | /v1/delegation/invoke | none | テンプレ resolve + spawn |
-| GET    | /v1/delegation/runs | none | 直近 100 件 |
+| GET    | /v1/delegation/runs | none | 直近 run 一覧 (既定 100 件)。 `?limit=` は `src/db/list-limit.ts` の `clampListLimit` で 1..500 に丸め、 `?status=` は `DELEGATION_RUN_STATUSES` の語彙のみ受け、 未知値は無言で全件へ倒さず 400 (`invalid_status`)。 `?parent_session=` と併用可。 一覧では重量フィールド (`rendered_prompt` / `args_json`) を返さず、 リンク session の metadata も縮小する (全文は `GET /v1/delegation/runs/:id`)。 |
 | POST   | /v1/delegation/runs/:id/commit | none | コミット代行 (§14)。 run が所有する worktree のみ |
 
 mutating endpoint も bearer token を要求しない。 Concordia は loopback

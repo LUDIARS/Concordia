@@ -134,7 +134,7 @@ base: `http://127.0.0.1:11111`
 | Method | Path | 用途 |
 |--------|------|------|
 | `POST` | `/v1/sessions` | 登録 (start hook 相当)。 同 repo の peers + lost candidates を返す |
-| `GET`  | `/v1/sessions` | 一覧。 query: `?repo_origin=&host=&status=&provider=` |
+| `GET`  | `/v1/sessions` | 一覧。 query: `?repo_origin=&host=&status=&provider=&team_id=&subsidiary_id=&limit=&offset=&metadata=` (§4.1.1) |
 | `GET`  | `/v1/sessions/:id` | 詳細 (recent events 含む) |
 | `PATCH`| `/v1/sessions/:id` | `current_task`, `branch`, `target_project` (衝突監視スコープ宣言、null で解除) を update |
 | `POST` | `/v1/sessions/:id/heartbeat` | last_seen_at を更新するだけ |
@@ -142,6 +142,25 @@ base: `http://127.0.0.1:11111`
 | `POST` | `/v1/sessions/:id/resume` | lost session を引き継ぐ |
 | `POST` | `/v1/sessions/:id/abandon` | 明示的に放棄 (resume 候補から外す) |
 | `DELETE` | `/v1/sessions/:id` | end + report 生成トリガー |
+
+#### 4.1.1 一覧 API の取得上限と応答サイズ
+
+一覧系エンドポイントは件数上限と応答の重量フィールドを 2 つの共通モジュールで揃える。
+個々のハンドラで丸め方や省略キーを持たない (`spec/plan/problem_logs/2026-08-23-concordia-event-loop-instability.md`
+で `GET /v1/delegation/runs` / `GET /v1/sessions` が数十秒かかった件の再発防止)。
+
+- **件数の丸め** — `src/db/list-limit.ts`。 `clampListLimit` が `?limit=` を
+  `1..500` (`MAX_LIST_LIMIT`) に丸め、 未指定・空文字・非数値は fallback
+  (`GET /v1/sessions` は 200 = `DEFAULT_LIST_LIMIT`、 `GET /v1/delegation/runs` は 100) に倒す。
+  `clampListOffset` は `?offset=` を 0 以上へ丸める。 repo 側 (`SessionsRepo.listSessions`) も
+  同じヘルパを通し、 SQL には丸め済みの数値だけを渡す。
+- **metadata の縮小** — `src/api/sessions/metadata-slim.ts`。 `sessions.metadata` の
+  プロンプト全文級キー (`HEAVY_SESSION_METADATA_KEYS` = `discord_startup_task` /
+  `discord_startup_inject`) を一覧応答から外し、 外したキー名を `metadata_omitted_keys` に返す。
+  全文は単体取得 (`GET /v1/sessions/:id`) か `?metadata=full` で取る。
+  `GET /v1/delegation/runs` のリンク session にも同じ縮小を適用する。
+- **応答** — `{ sessions[], limit, offset }`。 実際に使った丸め後の値を返し、
+  呼び出し側がページングを継続できるようにする。
 
 ### 4.2 レポート
 

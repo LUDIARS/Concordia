@@ -5,6 +5,8 @@ import type { DelegationRunRow } from "../../db/delegation-repo.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
 import { findConflictPeers } from "../../control/conflict-scope.js";
+import { clampListLimit, clampListOffset } from "../../db/list-limit.js";
+import { withSlimMetadata } from "./metadata-slim.js";
 import {
   buildSessionWorkPolicy,
   isCastraSessionBinding,
@@ -344,9 +346,13 @@ export function registerLifecycleRoutes(app: Hono, deps: SessionsApiDeps): void 
     });
   });
 
-app.get("/", (c) => {
+  // 一覧。 ?limit / ?offset でページングし、 既定では metadata の
+  // プロンプト全文級キーを外す (?metadata=full で全文)。
+  app.get("/", (c) => {
     const q = c.req.query();
     const subsidiaryId = (q.subsidiary_id ?? "").trim();
+    const limit = clampListLimit(q.limit);
+    const offset = clampListOffset(q.offset);
     const list = deps.repo.listSessions({
       repo_origin: q.repo_origin || undefined,
       host: q.host || undefined,
@@ -354,8 +360,14 @@ app.get("/", (c) => {
       provider: (q.provider as ProviderName) || undefined,
       subsidiary_id: subsidiaryId || undefined,
       team_id: (q.team_id ?? "").trim() || undefined,
+      limit,
+      offset,
     });
-    return c.json({ sessions: list.map(serializeSession) });
+    const full = (q.metadata ?? "").trim() === "full";
+    const sessions = full
+      ? list.map(serializeSession)
+      : list.map((s) => withSlimMetadata(serializeSession(s)));
+    return c.json({ sessions, limit, offset });
   });
 
 app.get("/:id/context", async (c) => {

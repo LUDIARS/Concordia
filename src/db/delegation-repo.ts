@@ -90,6 +90,21 @@ export interface UpsertTemplateOverrideInput {
   is_active?: boolean;
 }
 
+/** delegation run のライフサイクル状態。 一覧 API の ?status= もこの語彙で検証する。 */
+export const DELEGATION_RUN_STATUSES = [
+  "queued",
+  "launching",
+  "pending",
+  "spawned",
+  "spawn_failed",
+  "running",
+  "blocked",
+  "completed",
+  "failed",
+] as const;
+
+export type DelegationRunStatus = (typeof DELEGATION_RUN_STATUSES)[number];
+
 export interface DelegationRunRow {
   id: string;
   template_id: string | null;
@@ -109,7 +124,7 @@ export interface DelegationRunRow {
    * queued = 同時実行上限に達していたため spawn を保留した状態 (queue_payload_json に
    * 起動入力一式を持ち、 スロットが空き次第 FIFO で spawn される)。
    */
-  status: "queued" | "launching" | "pending" | "spawned" | "spawn_failed" | "running" | "blocked" | "completed" | "failed";
+  status: DelegationRunStatus;
   error: string | null;
   /** queued の間だけ入る起動入力 (JSON)。 spawn 後は null に落とす。 */
   queue_payload_json: string | null;
@@ -839,18 +854,35 @@ export class DelegationRepo {
     return updated.changes === 1;
   }
 
-  recentRuns(limit = 100): DelegationRunRow[] {
+  /** status を渡すとその状態だけを SQL 側で絞る (未指定は全状態)。 */
+  recentRuns(limit = 100, status?: DelegationRunStatus): DelegationRunRow[] {
+    if (!status) {
+      return this.db.prepare(
+        `SELECT * FROM delegation_runs ORDER BY created_at DESC LIMIT ?`,
+      ).all(limit) as DelegationRunRow[];
+    }
     return this.db.prepare(
-      `SELECT * FROM delegation_runs ORDER BY created_at DESC LIMIT ?`,
-    ).all(limit) as DelegationRunRow[];
+      `SELECT * FROM delegation_runs WHERE status = ? ORDER BY created_at DESC LIMIT ?`,
+    ).all(status, limit) as DelegationRunRow[];
   }
 
-  listRunsByParentSession(parentSessionId: string, limit = 100): DelegationRunRow[] {
+  listRunsByParentSession(
+    parentSessionId: string,
+    limit = 100,
+    status?: DelegationRunStatus,
+  ): DelegationRunRow[] {
+    if (!status) {
+      return this.db.prepare(
+        `SELECT * FROM delegation_runs
+         WHERE parent_session_id = ?
+         ORDER BY created_at DESC LIMIT ?`,
+      ).all(parentSessionId, limit) as DelegationRunRow[];
+    }
     return this.db.prepare(
       `SELECT * FROM delegation_runs
-       WHERE parent_session_id = ?
+       WHERE parent_session_id = ? AND status = ?
        ORDER BY created_at DESC LIMIT ?`,
-    ).all(parentSessionId, limit) as DelegationRunRow[];
+    ).all(parentSessionId, status, limit) as DelegationRunRow[];
   }
 
   /** A child may have been delegated more than once, so retain every parent link. */

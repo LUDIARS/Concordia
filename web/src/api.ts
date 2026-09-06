@@ -795,6 +795,14 @@ export const api = {
       ...(options.secret ? { secret: options.secret } : {}),
       ...(options.repo ? { repo: options.repo } : {}),
     }),
+  /**
+   * secret を消す。 repo を渡すとそのリポジトリ専用だけ (省略時は共通 secret)。
+   * @implements spec/feature/github-issue-workflow.md — webhook secret
+   */
+  githubIssueWorkflowClearSecret: (options: { repo?: string } = {}) =>
+    del<{ ok: boolean }>(
+      `/v1/admin/github/webhook-secret${options.repo ? `?repo=${encodeURIComponent(options.repo)}` : ""}`,
+    ),
   githubIssueRuns: (limit = 50) =>
     get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
   githubIssueRunApprove: (id: string) =>

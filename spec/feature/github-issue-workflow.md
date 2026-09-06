@@ -120,6 +120,17 @@ payload の自己申告を見ているだけなので防波堤にならない。
   全リポが専用 secret に移ったら消す。どちらも無ければ webhook は 503 で全拒否 (無署名を通さない)。
 - 発行は 設定 > GitHub Issue ワークフローの対象プロジェクト行の「発行 / 再発行」。値はその場で一度だけ
   表示し、GitHub 側の webhook 設定へ貼る。`PUT /v1/admin/github/webhook-secret { repo }` が受け口。
+- **既にある値の貼り付け**も同じ行の「貼り付け」から行う。webhook を GitHub 側で先に作ってあるリポは
+  正本が向こうにあり、発行しか無いと Cc の都合で GitHub 側を貼り直すまで受信が止まる。受け口は同じ
+  `PUT` の `{ secret, repo }` (16 文字以上)。貼った値は保存後に画面へ残さない。
+- **削除**は同じ行の「削除」。`DELETE /v1/admin/github/webhook-secret?repo=<owner/name>` で専用 secret
+  だけを消し、そのリポは共通 secret へ戻る。`repo` 省略で共通 secret を消す (専用を持たないリポは
+  以後 503 で全拒否になるので、画面は消す前に何が起きるかを出して確かめる)。
+- remote が未登録のプロジェクト行には保存キーを作れないため、発行・貼り付け・削除を出さない。
+
+実装: 受け口は `api/github-admin.ts` (`PUT` / `DELETE /webhook-secret`)、操作面は
+`web/src/pages/settings/sections/GithubWebhookSecrets.tsx` (発行・貼り付け・削除の 1 面) で、
+`web/src/pages/settings/sections/GithubIssueWorkflowSection.tsx` がこれを埋め込む。
 
 ## モデル選定
 

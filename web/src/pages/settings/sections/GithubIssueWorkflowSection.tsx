@@ -7,6 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type GithubIssueActor, type GithubIssueRun, type GithubIssueWorkflowStatus } from "../../../api.js";
+import { GithubWebhookSecrets } from "./GithubWebhookSecrets.js";
 
 const TRUSTED_ACTORS_KEY = "github.trusted_actors";
 
@@ -50,7 +51,6 @@ const STATUS_LABEL: Record<string, string> = {
 export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSettings?: () => void }) {
   const [status, setStatus] = useState<GithubIssueWorkflowStatus | null>(null);
   const [runs, setRuns] = useState<GithubIssueRun[]>([]);
-  const [issued, setIssued] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 信頼実行者の編集下書き (1 行 1 件)。 保存するまでサーバの値は変えない。
@@ -71,21 +71,6 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
       setActorDraft((draft) => (draft === null ? next.trusted_actors.join("\n") : draft));
       setError(null);
     } catch (err) { setError((err as Error).message); }
-  }
-
-  /**
-   * webhook secret の発行。 repo を渡すとそのリポジトリ専用 (共通 secret は
-   * リポ別が無いときのフォールバック)。
-   * @implements spec/feature/github-issue-workflow.md — webhook secret
-   */
-  async function issueSecret(repo?: string) {
-    setBusy(true); setError(null);
-    try {
-      const result = await api.githubIssueWorkflowSetSecret(repo ? { repo } : {});
-      // 生成した値はこの一度しか出さない (以後は保存済みかどうかだけ)。
-      setIssued(result.secret);
-      await refresh();
-    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   }
 
   /**
@@ -174,55 +159,24 @@ export function GithubIssueWorkflowSection({ onOpenAllSettings }: { onOpenAllSet
       {error && <p className="text-xs text-warn">{error}</p>}
 
       {status && (
-        <dl className="text-xs grid grid-cols-[10rem_1fr] gap-y-1">
-          <dt className="text-subtle">共通 webhook secret</dt>
-          <dd>
-            {status.webhook_secret_set ? "設定済み (リポ専用が無いときのみ使用)" : <span className="text-warn">未設定</span>}
-            <button type="button" disabled={busy} onClick={() => void issueSecret()}
-              className="ml-2 text-accent disabled:opacity-40">
-              {status.webhook_secret_set ? "再発行" : "発行"}
-            </button>
-            {status.webhook_secret_error && (
-              <span className="ml-2 text-warn">{status.webhook_secret_error}</span>
-            )}
-          </dd>
-          <dt className="text-subtle">信頼実行者</dt>
-          <dd>
-            {status.trusted_actors.length === 0
-              ? <span className="text-warn">未設定 — 全件が承認待ちになります</span>
-              : status.trusted_actors.join(", ")}
-          </dd>
-          <dt className="text-subtle">対象プロジェクト</dt>
-          <dd className="space-y-0.5">
-            {status.projects.length === 0
-              ? <span className="text-subtle">なし</span>
-              : status.projects.map((project) => (
-                <div key={project.code} className="flex items-center gap-2">
-                  <span>{project.code}</span>
-                  <span className="text-subtle break-all">{project.repo_origin ?? "(remote 未登録)"}</span>
-                  <span className={project.webhook_secret_set ? "text-subtle" : "text-warn"}>
-                    {project.webhook_secret_set ? "専用 secret 設定済み" : "専用 secret 未設定 (共通を使用)"}
-                  </span>
-                  {project.repo_origin && (
-                    <button type="button" disabled={busy}
-                      onClick={() => void issueSecret(project.repo_origin ?? undefined)}
-                      className="text-accent disabled:opacity-40">
-                      {project.webhook_secret_set ? "再発行" : "発行"}
-                    </button>
-                  )}
-                </div>
-              ))}
-          </dd>
-          <dt className="text-subtle">PR の base / 委託テンプレ</dt>
-          <dd><code>{status.base_branch}</code> / <code>{status.fix_call_name}</code></dd>
-        </dl>
-      )}
-
-      {issued && (
-        <p className="text-xs border border-border rounded p-2 break-all">
-          発行した secret (この画面でしか表示されません。GitHub の webhook 設定へ貼ってください):
-          <code className="ml-1">{issued}</code>
-        </p>
+        <>
+          <GithubWebhookSecrets
+            status={status}
+            disabled={busy}
+            onChanged={refresh}
+            onError={setError}
+          />
+          <dl className="text-xs grid grid-cols-[10rem_1fr] gap-y-1">
+            <dt className="text-subtle">信頼実行者</dt>
+            <dd>
+              {status.trusted_actors.length === 0
+                ? <span className="text-warn">未設定 — 全件が承認待ちになります</span>
+                : status.trusted_actors.join(", ")}
+            </dd>
+            <dt className="text-subtle">PR の base / 委託テンプレ</dt>
+            <dd><code>{status.base_branch}</code> / <code>{status.fix_call_name}</code></dd>
+          </dl>
+        </>
       )}
 
       <div className="space-y-1">

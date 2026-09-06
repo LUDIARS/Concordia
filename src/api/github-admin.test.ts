@@ -143,6 +143,49 @@ describe("PUT/DELETE /v1/admin/github/webhook-secret", () => {
     expect(calls).toEqual([]);
   });
 
+  /** 渡した値そのものを記録するルータ。 貼り付け経路だけが使う。 */
+  function recordingValues() {
+    const written: Array<[string, string]> = [];
+    const app = githubAdminRouter({
+      config: {
+        ...config(),
+        setWebhookSecret: (secret: string) => written.push(["shared", secret]),
+        setRepoWebhookSecret: (repoOrigin: string, secret: string) => written.push([repoOrigin, secret]),
+      },
+      optedInProjects: () => [],
+    });
+    return { app, written };
+  }
+
+  it("渡した値をそのまま保存し、 応答では返さない (貼り付け経路)", async () => {
+    const { app, written } = recordingValues();
+
+    const response = await app.request("/webhook-secret", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: REPO_SECRET, repo: "https://github.com/LUDIARS/Concordia.git" }),
+    });
+    const body = await response.json() as { secret: string | null };
+
+    expect(response.status).toBe(200);
+    expect(written).toEqual([["LUDIARS/Concordia", REPO_SECRET]]);
+    // 渡された値は相手が既に持っている。 返すと出す必要のない所へ写るだけ。
+    expect(body.secret).toBeNull();
+  });
+
+  it("短すぎる secret は保存しない", async () => {
+    const { app, written } = recordingValues();
+
+    const response = await app.request("/webhook-secret", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ secret: "short", repo: "LUDIARS/Concordia" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(written).toEqual([]);
+  });
+
   it("削除は ?repo= の有無で宛先を分け、 畳めない repo は消さない", async () => {
     const { app, calls } = recording();
 

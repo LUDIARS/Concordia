@@ -248,6 +248,8 @@ delegation テンプレ選択ベースで起動する:
 | `fix-bug` | codex-sdk | gpt-5.6-sol | バグ説明 + 任意の再現手順から修正 PR を作らせる |
 | `refactor` | codex-sdk | gpt-5.6-sol | 範囲指定リファクタ (behavior 維持) |
 | `fable-mid` | claude | claude-fable-5-1 | Fable / mid で実装委託 |
+| `astra-mid` | codex | gpt-6-astra | Astra / mid で実装委託 |
+| `astra-xhigh` | codex | gpt-6-astra | Astra / xhigh で高難度実装委託 |
 | `sol-mid` | codex-sdk | gpt-5.6-sol | Sol / mid で実装委託 |
 | `sol-xhigh` | codex-sdk | gpt-5.6-sol | Sol / xhigh で高難度実装委託 |
 | `opus-xhigh` | claude | claude-opus-5 | Opus / xhigh で実装委託 |

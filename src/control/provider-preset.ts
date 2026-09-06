@@ -96,8 +96,8 @@ export function delegationOptionSuggestions(provider: string, model?: string | n
       { label: "high", value: "high" },
       { label: "xhigh (Extra High)", value: "xhigh" },
     ];
-    if (isSolModel(model)) {
-      choices.push({ label: "ultra (Sol 限定)", value: "ultra" });
+    if (supportsUltraEffort(model)) {
+      choices.push({ label: "ultra (Sol / GPT-6 のみ)", value: "ultra" });
     }
     suggestions.push({
       key: "model_reasoning_effort",
@@ -192,16 +192,22 @@ function supportsCodexReasoningEffort(model: string | null | undefined): boolean
   if (!normalized) return true;
   return (
     normalized.startsWith("gpt-5") ||
+    normalized.startsWith("gpt-6") ||
     normalized.startsWith("o3") ||
     normalized.startsWith("o4") ||
     normalized.includes("codex")
   );
 }
 
-/** GPT-5.6 Sol (model_id 末尾 `-sol`) かどうか。ultra effort は Sol 限定。 */
-function isSolModel(model: string | null | undefined): boolean {
+/**
+ * ultra effort を出せるモデルか。
+ * GPT-5.6 は Sol (model_id 末尾 `-sol`) 限定、 GPT-6 Astra は全体で対応する
+ * (OpenAI の Codex models 表で Ultra 対応が明記されている)。
+ */
+function supportsUltraEffort(model: string | null | undefined): boolean {
   const normalized = (model ?? "").trim().toLowerCase();
-  return normalized === "sol" || normalized.endsWith("-sol");
+  if (normalized === "sol" || normalized.endsWith("-sol")) return true;
+  return normalized.startsWith("gpt-6");
 }
 
 /** Opus delegations default to no extended thinking; an explicit boolean wins. */

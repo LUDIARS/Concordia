@@ -24,6 +24,8 @@ describe("seedModelCatalog", () => {
     expect(ids).toContain("claude-opus-5");
     expect(ids).toContain("claude-sonnet-5");
     expect(ids).toContain("claude-fable-5-1");
+    // 新規公開モデルは既存 catalog (= 稼働中の DB) にも届く必要がある。
+    expect(ids).toContain("gpt-6-astra");
     expect(ids).not.toContain("claude-opus-4-8");
   });
 

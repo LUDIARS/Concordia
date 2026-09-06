@@ -1,10 +1,10 @@
-/**
+﻿/**
  * 初期 delegation テンプレート。
  * boot 時に upsert される (call_name が存在しなければ作成、 あれば content を上書き)。
  * ユーザが GUI で is_active を 0 にすれば disable できる。
  */
 
-import type { DelegationRepo, CreateTemplateInput } from "../db/delegation-repo.js";
+import type { DelegationRepo, CreateTemplateInput, DelegationProvider } from "../db/delegation-repo.js";
 
 // パートタイマーのタスク本文 (2026-09-03 neco 指示で全 18 本を書き直した)。
 // 終わり方は本文に書かず parttimer-inject.ts の footer が持つ。
@@ -95,7 +95,7 @@ function codex56Template(opts: {
   label: string;
   emoji: string;
   sort_order: number;
-  /** Satelles が Codex へ渡す model_reasoning_effort。 ultra は Sol 限定。 */
+  /** Satelles が Codex へ渡す model_reasoning_effort。 この helper が扱う GPT-5.6 では ultra は Sol 限定。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
   /** fast モード (出力高速化)。 Sol プロファイル (`sol-mid`) は medium + fast。 */
   fastMode?: boolean;
@@ -157,20 +157,22 @@ const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
  * is intentionally independent from its CLI/provider so callers can choose by
  * capability and effort without guessing the underlying model.
  */
-function claudeImplementationTemplate(opts: {
+function implementationTemplate(opts: {
   callName: string;
   label: string;
   note: string;
   model: string;
   emoji: string;
   sortOrder: number;
+  /** 省略時は claude。 Codex 系プロファイルは "codex" を渡す。 */
+  provider?: DelegationProvider;
   runtimeOptions?: Record<string, unknown>;
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
     title: `実装委託 (${opts.label})`,
     description: `${opts.label} に実装を委託する。${opts.note} LUDIARS 規約 (feat branch + PR) を守らせる。${CROSS_REPO_DOC_NOTE}`,
-    target_provider: "claude",
+    target_provider: opts.provider ?? "claude",
     model: opts.model,
     ...(opts.runtimeOptions ? { runtime_options: opts.runtimeOptions } : {}),
     emoji: opts.emoji,
@@ -470,7 +472,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   // ── 実装プロファイル ───────────────────────────────────────────────
   // call_name はモデル名ではなく、選ぶべき能力と effort を表す。起動側の
   // provider/model/runtime_options も同じプロファイル定義で固定する。
-  claudeImplementationTemplate({
+  implementationTemplate({
     callName: "fable-mid",
     label: "Fable / mid",
     note: "高速。軽量〜中規模タスク向き。",
@@ -479,7 +481,28 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 10,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
-  claudeImplementationTemplate({
+  // GPT-6 Astra (2026-09 追加)。 Codex 側の最上位プロファイル。
+  implementationTemplate({
+    callName: "astra-mid",
+    label: "Astra / mid",
+    note: "GPT-6。高速。軽量〜中規模タスク向き。",
+    model: "gpt-6-astra",
+    provider: "codex",
+    emoji: "🌟",
+    sortOrder: 12,
+    runtimeOptions: { model_reasoning_effort: "medium", fast_mode: true },
+  }),
+  implementationTemplate({
+    callName: "astra-xhigh",
+    label: "Astra / xhigh",
+    note: "GPT-6。最上位の推論が必要な設計判断や難所の実装向き。",
+    model: "gpt-6-astra",
+    provider: "codex",
+    emoji: "🌟",
+    sortOrder: 14,
+    runtimeOptions: { model_reasoning_effort: "xhigh" },
+  }),
+  implementationTemplate({
     callName: "opus-xhigh",
     label: "Opus / xhigh",
     note: "最上位の推論が必要な設計判断や難所の実装向き。",
@@ -488,7 +511,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 30,
     runtimeOptions: { effort: "xhigh", thinking: false },
   }),
-  claudeImplementationTemplate({
+  implementationTemplate({
     callName: "opus-mid",
     label: "Opus / mid",
     note: "設計判断や難所の実装向き。",
@@ -497,7 +520,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 35,
     runtimeOptions: { effort: "medium", thinking: false },
   }),
-  claudeImplementationTemplate({
+  implementationTemplate({
     callName: "fable-xhigh",
     label: "Fable / xhigh",
     note: "高速モデルが必要だが、深い推論も要する実装向き。",
@@ -506,7 +529,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     sortOrder: 40,
     runtimeOptions: { effort: "xhigh", thinking: false },
   }),
-  claudeImplementationTemplate({
+  implementationTemplate({
     callName: "sonnet-mid",
     label: "Sonnet / mid",
     note: "中位。一般的な実装の主力。",
@@ -514,7 +537,7 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     emoji: "🧑‍💼",
     sortOrder: 50,
   }),
-  claudeImplementationTemplate({
+  implementationTemplate({
     callName: "haiku",
     label: "Haiku",
     note: "超高速・軽量タスク向き。",

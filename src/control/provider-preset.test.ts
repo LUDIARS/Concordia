@@ -74,10 +74,18 @@ describe("delegation runtime options", () => {
     expect(delegationOptionSuggestions("claude")[1]?.choices?.map((choice) => choice.value)).toContain("auto");
   });
 
-  it("suggests ultra reasoning effort only for the Sol model", () => {
+  it("suggests ultra reasoning effort only for Sol and GPT-6", () => {
     expect(delegationOptionSuggestions("codex", "gpt-5.6-sol")[0]?.choices?.map((c) => c.value)).toContain("ultra");
+    expect(delegationOptionSuggestions("codex", "gpt-6-astra")[0]?.choices?.map((c) => c.value)).toContain("ultra");
     expect(delegationOptionSuggestions("codex", "gpt-5.6-terra")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
     expect(delegationOptionSuggestions("codex", "gpt-5.5")[0]?.choices?.map((c) => c.value)).not.toContain("ultra");
+  });
+
+  it("GPT-6 でも reasoning effort の選択肢が出る (gpt-5 前提の判定に落ちない)", () => {
+    const efforts = delegationOptionSuggestions("codex", "gpt-6-astra").find((s) => s.key === "model_reasoning_effort");
+    expect(efforts?.choices?.map((c) => c.value)).toEqual(
+      expect.arrayContaining(["medium", "high", "xhigh", "ultra"]),
+    );
   });
 
   it("enables goal-and-go for every provider unless explicitly disabled", () => {

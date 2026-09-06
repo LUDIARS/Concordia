@@ -131,6 +131,8 @@ describe("seedDelegationTemplates", () => {
     seedDelegationTemplates(repo);
 
     const implementationTemplates = [
+      "astra-mid",
+      "astra-xhigh",
       "sol-mid",
       "sol-xhigh",
       "terra-xhigh",
@@ -366,6 +368,20 @@ describe("seedDelegationTemplates", () => {
       model: "claude-fable-5-1",
     });
     expect(JSON.parse(repo.findTemplateByCallName("fable-mid")?.runtime_options_json ?? "null")).toEqual({ effort: "medium", thinking: false });
+    // Astra は claude 既定の implementationTemplate を codex provider で使う。
+    // provider を渡し忘れると claude で gpt-6-astra を起動する形になるため固定する。
+    expect(repo.findTemplateByCallName("astra-mid")).toMatchObject({
+      is_active: 1,
+      target_provider: "codex",
+      model: "gpt-6-astra",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("astra-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
+    expect(repo.findTemplateByCallName("astra-xhigh")).toMatchObject({
+      is_active: 1,
+      target_provider: "codex",
+      model: "gpt-6-astra",
+    });
+    expect(JSON.parse(repo.findTemplateByCallName("astra-xhigh")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "xhigh" });
     expect(repo.findTemplateByCallName("sol-mid")).toMatchObject({
       is_active: 1,
       target_provider: "codex",

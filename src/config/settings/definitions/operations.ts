@@ -203,8 +203,9 @@ export const GITHUB_ISSUE_SETTINGS: readonly SettingDefinition[] = [
     section: "github",
     label: "webhook secret",
     description:
-      "GitHub webhook の署名 (X-Hub-Signature-256) を検証する共有秘密。 正本は DB (github_config) で"
-      + " secret-box 暗号化して保存する。 未設定の間 webhook は 503 で全拒否する (無署名を通さない)。",
+      "GitHub webhook の署名 (X-Hub-Signature-256) を検証する秘密。 正本は DB (github_config) で"
+      + " secret-box 暗号化して保存する。 **リポジトリごとに持つのが正**で、 このキーはリポジトリ別が"
+      + " 無いときのフォールバック (移行用)。 どちらも未設定の間 webhook は 503 で全拒否する。",
     kind: "secret",
     envName: null,
     dbKey: "webhook_secret_enc",

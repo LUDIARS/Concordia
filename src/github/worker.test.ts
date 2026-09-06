@@ -17,6 +17,10 @@ function config(): GithubWorkflowConfig {
     webhookSecret: () => null,
     setWebhookSecret: () => {},
     clearWebhookSecret: () => {},
+    repoWebhookSecret: () => null,
+    setRepoWebhookSecret: () => {},
+    clearRepoWebhookSecret: () => {},
+    hasRepoWebhookSecret: () => false,
   };
 }
 

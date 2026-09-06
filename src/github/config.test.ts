@@ -50,6 +50,62 @@ describe("parseActorList", () => {
   });
 });
 
+describe("repository webhook secrets", () => {
+  /** テスト値 (実物ではない)。 流出検査に引っかからない語形で置く。 */
+  const REPO_SECRET = "repo-webhook-secret-value";
+  const OTHER_REPO_SECRET = "other-repo-webhook-secret-value";
+  const SHARED_SECRET = "shared-webhook-secret-value";
+
+  it("リポジトリ別に別々の secret を持ち、 表記揺れを畳んで引ける", () => {
+    const { db, config } = harness();
+    config.setRepoWebhookSecret("LUDIARS/Concordia", REPO_SECRET);
+    config.setRepoWebhookSecret("MELPOT/MakaiNuiPictor", OTHER_REPO_SECRET);
+
+    // URL 表記でも小文字でも同じリポジトリとして引ける (project_codes 側は URL 表記)。
+    expect(config.repoWebhookSecret("https://github.com/LUDIARS/Concordia.git")).toBe(REPO_SECRET);
+    expect(config.repoWebhookSecret("ludiars/concordia")).toBe(REPO_SECRET);
+    expect(config.repoWebhookSecret("MELPOT/MakaiNuiPictor")).toBe(OTHER_REPO_SECRET);
+    expect(config.hasRepoWebhookSecret("LUDIARS/Concordia")).toBe(true);
+    db.close();
+  });
+
+  it("平文で保存せず、 共通 secret とは別の値として持つ", () => {
+    const { db, config } = harness();
+    config.setWebhookSecret(SHARED_SECRET);
+    config.setRepoWebhookSecret("LUDIARS/Concordia", REPO_SECRET);
+
+    // 共通は「リポ別が無いとき」のフォールバックであって、 上書き関係にはしない。
+    expect(config.webhookSecret()).toBe(SHARED_SECRET);
+    expect(config.repoWebhookSecret("LUDIARS/Concordia")).toBe(REPO_SECRET);
+    const raw = db.prepare("SELECT value FROM github_config WHERE key LIKE ?")
+      .all("webhook_secret_enc:%") as Array<{ value: string }>;
+    expect(raw).toHaveLength(1);
+    expect(raw[0].value).not.toContain(REPO_SECRET);
+    db.close();
+  });
+
+  it("未設定のリポジトリは null (呼び出し側が共通へ落ちる)", () => {
+    const { db, config } = harness();
+    expect(config.repoWebhookSecret("LUDIARS/Concordia")).toBeNull();
+    expect(config.hasRepoWebhookSecret("LUDIARS/Concordia")).toBe(false);
+    // 空の repo 名で「接頭辞だけのキー」を作らない。
+    expect(config.repoWebhookSecret("")).toBeNull();
+    expect(() => config.setRepoWebhookSecret("", REPO_SECRET)).toThrow();
+    db.close();
+  });
+
+  it("削除はそのリポジトリだけを消す", () => {
+    const { db, config } = harness();
+    config.setRepoWebhookSecret("LUDIARS/Concordia", REPO_SECRET);
+    config.setRepoWebhookSecret("MELPOT/MakaiNuiPictor", OTHER_REPO_SECRET);
+    config.clearRepoWebhookSecret("LUDIARS/Concordia");
+
+    expect(config.repoWebhookSecret("LUDIARS/Concordia")).toBeNull();
+    expect(config.repoWebhookSecret("MELPOT/MakaiNuiPictor")).toBe(OTHER_REPO_SECRET);
+    db.close();
+  });
+});
+
 describe("createGithubWorkflowConfig", () => {
   it("falls back to the documented defaults", () => {
     const { db, config } = harness();

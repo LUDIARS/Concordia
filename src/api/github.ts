@@ -18,7 +18,7 @@ import {
   type GithubIssueRunsRepo,
 } from "../db/github-issue-runs-repo.js";
 import type { GithubWorkflowConfig } from "../github/config.js";
-import { classifyIssueEvent } from "../github/issue-event.js";
+import { claimedRepository, classifyIssueEvent } from "../github/issue-event.js";
 import { verifyGithubSignature } from "../github/signature.js";
 import { dispatchIssueTrigger, startIssueFix, type GithubDispatchDeps } from "../github/dispatch.js";
 import { approvalRejectedComment } from "../github/text.js";
@@ -59,11 +59,23 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
 
   app.post("/webhook", async (c) => {
     // 署名は生のバイト列に対して計算されている。 JSON へ通したあとに再直列化すると
-    // 一致しないので、 必ず生本文で検証してから parse する。
+    // 一致しないので、 必ず生本文で検証する。
     const body = await c.req.text();
+    // 検証に使う secret を選ぶためだけに、 先に repo の名乗りを読む。 payload の中身は
+    // まだ一切信用していない — 嘘の名乗りはその repo の secret で署名が合わず落ちる。
+    // 共通 secret 1 本のままだと、 opt-in している別リポの webhook 設定を見られる相手が
+    // 他プロジェクトになりすませた (2026-09-06 neco 指摘)。
+    let parsed: unknown = null;
+    try {
+      parsed = JSON.parse(body) as unknown;
+    } catch {
+      parsed = null;
+    }
+    const claimedRepo = claimedRepository(parsed);
     let secret: string | null;
     try {
-      secret = deps.config.webhookSecret();
+      secret = (claimedRepo ? deps.config.repoWebhookSecret(claimedRepo) : null)
+        ?? deps.config.webhookSecret();
     } catch {
       log.warn("github webhook rejected: secret store is unavailable");
       return c.json({ error: "webhook_secret_unavailable" }, 503);
@@ -96,12 +108,9 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
       return c.json({ ok: true, duplicate: true });
     }
 
-    let payload: unknown;
-    try {
-      payload = JSON.parse(body) as unknown;
-    } catch {
-      return c.json({ error: "invalid_json" }, 400);
-    }
+    // 署名検証の前に一度だけ parse している。 壊れた JSON は署名が通っていても進めない。
+    if (parsed === null) return c.json({ error: "invalid_json" }, 400);
+    const payload: unknown = parsed;
 
     const classification = classifyIssueEvent({ event, payload, label: deps.config.label() });
     if (classification.kind === "ignored") {

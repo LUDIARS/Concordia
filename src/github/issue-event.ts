@@ -41,6 +41,20 @@ function labelNames(issue: Record<string, unknown>): string[] {
     .filter((name) => name !== "");
 }
 
+/**
+ * payload が名乗ったリポジトリ。 **署名検証より前**に読む値なので、 これは
+ * 「どの secret で検証するか」を選ぶためだけに使う (認可の材料にはしない)。
+ * 名乗りが嘘なら、 その repo の secret で署名が合わず検証で落ちる。
+ * @implements spec/feature/github-issue-workflow.md — webhook secret
+ */
+export function claimedRepository(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const repository = (payload as Record<string, unknown>).repository;
+  if (!repository || typeof repository !== "object") return null;
+  const fullName = text((repository as Record<string, unknown>).full_name);
+  return fullName === "" ? null : fullName;
+}
+
 export function sameLabel(a: string, b: string): boolean {
   // GitHub のラベルは大小文字を区別して保存されるが、 運用の取り違え (cc / Cc) で
   // 黙って発火しないほうが事故なので、 照合は大小文字を無視する。
@@ -70,9 +84,10 @@ export function classifyIssueEvent(input: {
   if (issueRow.pull_request) return { kind: "ignored", reason: "pull_request" };
 
   const number = issueRow.number;
-  const repository = payload.repository as Record<string, unknown> | undefined;
-  const repoOrigin = text(repository?.full_name);
-  if (typeof number !== "number" || !Number.isInteger(number) || repoOrigin === "") {
+  // secret の選択と同じ値を見る。 「検証に使った repo」と「発火する repo」がずれると、
+  // 別リポの secret で署名した payload がこの repo として通ってしまう。
+  const repoOrigin = claimedRepository(payload);
+  if (typeof number !== "number" || !Number.isInteger(number) || repoOrigin === null) {
     return { kind: "ignored", reason: "malformed" };
   }
 

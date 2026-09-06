@@ -48,7 +48,8 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 - **1 Issue 1 run**。`(repo_origin, issue_number, label)` で一意。再実行は明示 retry のみ。
 - **発火は 3 段すべてを満たしたときだけ**。1 段でも判定できなければ発火しない (fail-closed)。
   1. webhook は `X-Hub-Signature-256` の HMAC-SHA256 を timing-safe 比較で検証する。
-     secret 未設定なら webhook は 503 で全拒否する (無署名を通さない)。
+     鍵は **payload が名乗った repo 専用の secret** (無ければ共通 secret)。どちらも未設定なら
+     webhook は 503 で全拒否する (無署名を通さない)。
      本文は認証前のメモリ消費を制限するため 1 MiB を上限とし、超過時は 413 で拒否する。
   2. Issue のリポジトリが project_codes に登録され `github_issue_workflow = 1` である。
   3. **起票者かラベルを付けた人のどちらか**が信頼実行者リストに載っている。
@@ -85,7 +86,11 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 - `POST /v1/github/issue-runs/:id/reject { reason }` — 承認せず閉じる。理由は必須で、資格情報・ローカルパス・private endpoint を伏せて Issue へ返る。
 - `POST /v1/github/issue-runs/:id/retry` — 終端 run の作り直し。
 - `PUT /v1/project-codes/:code/github-issue-workflow { enabled }` — プロジェクトの opt-in。
-- `PUT /v1/admin/github/webhook-secret { secret }` — webhook secret の保存 (secret-box 暗号化)。
+- `PUT /v1/admin/github/webhook-secret { secret, repo }` — webhook secret の保存 (secret-box 暗号化)。
+  `repo` 指定でそのリポジトリ専用、省略で共通 (フォールバック)。`repo` は保存キーと同じ
+  `owner/name` へ畳んでから受ける — 畳めない表記は 400 `invalid_repo` (引かれない secret を作らない)。
+- `DELETE /v1/admin/github/webhook-secret?repo=owner/name` — その repo の secret だけ削除。`repo`
+  省略で共通 secret を削除。
 
 ### 設定
 
@@ -96,7 +101,25 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 | `github.poll_interval_min` | 5 | 取りこぼし用ポーリング間隔 |
 | `github.base_branch` | `main` | GitHub PR の base |
 | `github.fix_call_name` | `github-issue-fix` | 起動する delegation template |
-| `github.webhook_secret` | 未設定 | webhook 署名の共有秘密 (DB / secret-box)。設定 > GitHub で編集 |
+| `github.webhook_secret` | 未設定 | webhook 署名の秘密。**リポジトリごとに持つ**のが正で、このキーは移行用フォールバック (DB / secret-box) |
+
+## webhook secret
+
+**secret はリポジトリごとに持つ** (2026-09-06 neco 指摘)。共通 secret 1 本だと、opt-in している
+どれか 1 リポの webhook 設定を見られる相手が、**別プロジェクトを名乗った署名済み payload** を
+作れてしまう — 署名検証はどの repo の話か分かる前に走り、その後の認可 (opt-in・信頼実行者) は
+payload の自己申告を見ているだけなので防波堤にならない。
+
+- 保存キーは `webhook_secret_enc:<owner/name>` (`github_config` + secret-box 暗号化)。表記揺れは
+  `normalizeRepoOrigin` + 小文字で畳むので、URL 表記の `project_codes.repo_origin` から引ける。
+- 検証は **payload が名乗った repo の secret** で行う。名乗りは署名前に読む唯一の値で、`どの secret で
+  検証するか` の選択にしか使わない。嘘の名乗りはその repo の secret を知らない限り署名が合わない。
+  発火側 (`classifyIssueEvent`) も同じ `repository.full_name` を見る — 「検証に使った repo」と
+  「発火する repo」がずれると別リポの secret で通せてしまうため、取得口は 1 つに固定する。
+- 共通 secret (`webhook_secret_enc`) は**リポ別が無いときのフォールバック**として残す。移行のためで、
+  全リポが専用 secret に移ったら消す。どちらも無ければ webhook は 503 で全拒否 (無署名を通さない)。
+- 発行は 設定 > GitHub Issue ワークフローの対象プロジェクト行の「発行 / 再発行」。値はその場で一度だけ
+  表示し、GitHub 側の webhook 設定へ貼る。`PUT /v1/admin/github/webhook-secret { repo }` が受け口。
 
 ## モデル選定
 
@@ -163,10 +186,11 @@ Cc 側は経路を作らない — 受け口の実装と ingress の閉じ方だ
 
 ## 有効化の手順 (運用)
 
-1. 設定 > GitHub Issue ワークフローで webhook secret を発行する (この画面でしか値を出さない)。
+1. 設定 > GitHub Issue ワークフローで、対象プロジェクトの行から webhook secret を発行する
+   (この画面でしか値を出さない。リポジトリごとに別の値にする)。
 2. Excubitor の CF Tunnel ルートに Cc の公開 hostname を足し、`/v1/github/webhook` を通す。
 3. 対象リポジトリの GitHub webhook を作る — Payload URL は上の経路、Content type は
-   `application/json`、Secret は 1 で発行した値、イベントは Issues のみ。
+   `application/json`、Secret は**そのリポジトリ用に発行した値**、イベントは Issues のみ。
 4. 設定 > GitHub Issue ワークフローの「信頼実行者」にラベルを付けてよい GitHub login を入れる
    (空のままでは全件が承認待ちになる)。観測名簿から「信頼実行者に追加」でも足せる。
 5. プロジェクトコード画面で対象プロジェクトの「Issue WF」を ON にする。

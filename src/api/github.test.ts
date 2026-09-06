@@ -9,6 +9,9 @@ import { githubSignature } from "../github/signature.js";
 import { githubRouter } from "./github.js";
 
 const SECRET = "webhook-secret-value";
+/** リポジトリ別 secret のテスト値 (実物ではない。 流出検査に引っかからない語形で置く)。 */
+const REPO_SECRET = "repo-webhook-secret-value";
+const OTHER_REPO_SECRET = "other-repo-webhook-secret-value";
 
 function payload(): Record<string, unknown> {
   return {
@@ -27,7 +30,8 @@ function payload(): Record<string, unknown> {
   };
 }
 
-function config(secret: string | null): GithubWorkflowConfig {
+function config(secret: string | null, repoSecrets: Record<string, string> = {}): GithubWorkflowConfig {
+  const forRepo = (repoOrigin: string): string | null => repoSecrets[repoOrigin.toLowerCase()] ?? null;
   return {
     label: () => "Cc",
     trustedActors: () => ["neco"],
@@ -37,6 +41,10 @@ function config(secret: string | null): GithubWorkflowConfig {
     webhookSecret: () => secret,
     setWebhookSecret: () => {},
     clearWebhookSecret: () => {},
+    repoWebhookSecret: forRepo,
+    setRepoWebhookSecret: () => {},
+    clearRepoWebhookSecret: () => {},
+    hasRepoWebhookSecret: (repoOrigin: string) => forRepo(repoOrigin) !== null,
   };
 }
 
@@ -50,7 +58,12 @@ function github(): GithubGateway {
   };
 }
 
-function harness(options: { secret?: string | null; enabled?: boolean } = {}) {
+function harness(options: {
+  secret?: string | null;
+  enabled?: boolean;
+  /** リポジトリ別 secret (owner/name は小文字で渡す)。 */
+  repoSecrets?: Record<string, string>;
+} = {}) {
   const db = new Database(":memory:");
   applyMigrations(db);
   const projects = new ProjectCodesRepo(db);
@@ -65,7 +78,10 @@ function harness(options: { secret?: string | null; enabled?: boolean } = {}) {
   const runs = makeGithubIssueRunsRepo(db);
   const delivered = new Set<string>();
   let invoked = 0;
-  const workflowConfig = config(options.secret === undefined ? SECRET : options.secret);
+  const workflowConfig = config(
+    options.secret === undefined ? SECRET : options.secret,
+    options.repoSecrets ?? {},
+  );
   const app = githubRouter({
     runs,
     config: workflowConfig,
@@ -119,6 +135,60 @@ describe("POST /v1/github/webhook", () => {
     });
     expect(response.status).toBe(202);
     expect(runs.findByIssue("LUDIARS/Concordia", 42, "Cc")).not.toBeNull();
+    db.close();
+  });
+
+  it("リポジトリ別 secret があればそれで検証する", async () => {
+    const { db, app, runs } = harness({
+      secret: SECRET,
+      repoSecrets: { "ludiars/concordia": REPO_SECRET },
+    });
+    const body = JSON.stringify(payload());
+    const response = await post(app, body, {
+      "x-github-event": "issues",
+      "x-github-delivery": "d-repo",
+      "x-hub-signature-256": githubSignature(REPO_SECRET, body),
+    });
+    expect(response.status).toBe(202);
+    expect(runs.findByIssue("LUDIARS/Concordia", 42, "Cc")).not.toBeNull();
+    db.close();
+  });
+
+  it("リポジトリ別 secret があるリポには共通 secret の署名を通さない", async () => {
+    // 共通 secret 1 本だと、 別リポの webhook 設定を知る相手がこのリポになりすませた。
+    // 専用 secret を入れた時点で、 その経路は署名で閉じる (2026-09-06 neco 指摘)。
+    const { db, app, runs } = harness({
+      secret: SECRET,
+      repoSecrets: { "ludiars/concordia": REPO_SECRET },
+    });
+    const body = JSON.stringify(payload());
+    const response = await post(app, body, {
+      "x-github-event": "issues",
+      "x-github-delivery": "d-spoof",
+      "x-hub-signature-256": githubSignature(SECRET, body),
+    });
+    expect(response.status).toBe(401);
+    expect(runs.list()).toEqual([]);
+    db.close();
+  });
+
+  it("別リポの secret で署名したなりすましを拒否する", async () => {
+    const { db, app, runs } = harness({
+      secret: null,
+      repoSecrets: {
+        "ludiars/concordia": REPO_SECRET,
+        "melpot/other": OTHER_REPO_SECRET,
+      },
+    });
+    const body = JSON.stringify(payload());
+    const response = await post(app, body, {
+      "x-github-event": "issues",
+      "x-github-delivery": "d-cross",
+      // 別プロジェクトの secret を持っている相手が LUDIARS/Concordia を名乗った場合。
+      "x-hub-signature-256": githubSignature(OTHER_REPO_SECRET, body),
+    });
+    expect(response.status).toBe(401);
+    expect(runs.list()).toEqual([]);
     db.close();
   });
 

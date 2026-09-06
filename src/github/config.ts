@@ -8,11 +8,24 @@
  */
 
 import type { SettingsStore } from "../admin/settings-store.js";
+import { normalizeRepoOrigin } from "../pr/normalize.js";
 import type { GithubConfigRepo } from "../db/github-config-repo.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { isEncrypted } from "../shared/secret-box.js";
 
 export const GITHUB_WEBHOOK_SECRET_KEY = "webhook_secret_enc";
+/**
+ * リポジトリ別 secret のキー接頭辞。 共通 secret 1 本だと、 opt-in している
+ * どれか 1 リポの webhook 設定を見られる相手が**別リポになりすました署名済み
+ * payload** を作れてしまう (署名検証は repo を知る前に走る)。 payload が名乗った
+ * repo の secret で検証すれば、 なりすましは署名で閉じる (2026-09-06 neco 指摘)。
+ */
+export const GITHUB_REPO_WEBHOOK_SECRET_PREFIX = "webhook_secret_enc:";
+
+/** リポジトリ別 secret の保存キー。 表記揺れは normalizeRepoOrigin + 小文字で畳む。 */
+export function repoWebhookSecretKey(repoOrigin: string): string {
+  return `${GITHUB_REPO_WEBHOOK_SECRET_PREFIX}${normalizeRepoOrigin(repoOrigin).toLowerCase()}`;
+}
 
 export const GITHUB_SETTING_KEYS = {
   label: "github.issue_label",
@@ -41,10 +54,22 @@ export interface GithubWorkflowConfig {
   pollIntervalMs(): number;
   baseBranch(): string;
   fixCallName(): string;
-  /** 未設定なら null。 webhook 側は null を 503 として扱う (無署名を通さない)。 */
+  /**
+   * 共通 secret。 リポジトリ別 secret が無いときの移行用フォールバックで、
+   * 未設定なら null。 webhook 側は null を 503 として扱う (無署名を通さない)。
+   */
   webhookSecret(): string | null;
   setWebhookSecret(secret: string): void;
   clearWebhookSecret(): void;
+  /**
+   * そのリポジトリ専用の secret。 無ければ null (呼び出し側が共通 secret へ落ちる)。
+   * @implements spec/feature/github-issue-workflow.md — webhook secret
+   */
+  repoWebhookSecret(repoOrigin: string): string | null;
+  setRepoWebhookSecret(repoOrigin: string, secret: string): void;
+  clearRepoWebhookSecret(repoOrigin: string): void;
+  /** リポジトリ別 secret を持っているか (値は返さない)。 */
+  hasRepoWebhookSecret(repoOrigin: string): boolean;
 }
 
 export interface GithubWorkflowConfigDeps {
@@ -107,6 +132,21 @@ export function createGithubWorkflowConfig(deps: GithubWorkflowConfigDeps): Gith
     }
     return deps.secretBox;
   };
+  /** 旧い平文が残っていたら読んだ機会に暗号化して置き直す (discord/slack と同じ作法)。 */
+  const readSecret = (key: string): string | null => {
+    const stored = deps.config.get(key);
+    if (stored === null || stored.trim() === "") return null;
+    if (!isEncrypted(stored)) {
+      deps.config.set(key, box().encrypt(stored));
+      return stored;
+    }
+    return box().decrypt(stored);
+  };
+  const writeSecret = (key: string, secret: string): void => {
+    const trimmed = secret.trim();
+    if (trimmed === "") throw new Error("github webhook secret must not be empty");
+    deps.config.set(key, box().encrypt(trimmed));
+  };
 
   return {
     label() {
@@ -134,23 +174,36 @@ export function createGithubWorkflowConfig(deps: GithubWorkflowConfigDeps): Gith
         ?? GITHUB_DEFAULTS.fixCallName;
     },
     webhookSecret() {
-      const stored = deps.config.get(GITHUB_WEBHOOK_SECRET_KEY);
-      if (stored === null || stored.trim() === "") return null;
-      if (!isEncrypted(stored)) {
-        // 旧い平文が残っていたら読んだ機会に暗号化して置き直す (discord/slack と同じ作法)。
-        const secretBox = box();
-        deps.config.set(GITHUB_WEBHOOK_SECRET_KEY, secretBox.encrypt(stored));
-        return stored;
-      }
-      return box().decrypt(stored);
+      return readSecret(GITHUB_WEBHOOK_SECRET_KEY);
     },
     setWebhookSecret(secret) {
-      const trimmed = secret.trim();
-      if (trimmed === "") throw new Error("github webhook secret must not be empty");
-      deps.config.set(GITHUB_WEBHOOK_SECRET_KEY, box().encrypt(trimmed));
+      writeSecret(GITHUB_WEBHOOK_SECRET_KEY, secret);
     },
     clearWebhookSecret() {
       deps.config.delete(GITHUB_WEBHOOK_SECRET_KEY);
+    },
+    repoWebhookSecret(repoOrigin) {
+      const key = repoWebhookSecretKey(repoOrigin);
+      if (key === GITHUB_REPO_WEBHOOK_SECRET_PREFIX) return null;
+      return readSecret(key);
+    },
+    setRepoWebhookSecret(repoOrigin, secret) {
+      const key = repoWebhookSecretKey(repoOrigin);
+      if (key === GITHUB_REPO_WEBHOOK_SECRET_PREFIX) {
+        throw new Error("github webhook secret requires a repository (owner/name)");
+      }
+      writeSecret(key, secret);
+    },
+    clearRepoWebhookSecret(repoOrigin) {
+      const key = repoWebhookSecretKey(repoOrigin);
+      if (key === GITHUB_REPO_WEBHOOK_SECRET_PREFIX) return;
+      deps.config.delete(key);
+    },
+    hasRepoWebhookSecret(repoOrigin) {
+      const key = repoWebhookSecretKey(repoOrigin);
+      if (key === GITHUB_REPO_WEBHOOK_SECRET_PREFIX) return false;
+      const stored = deps.config.get(key);
+      return stored !== null && stored.trim() !== "";
     },
   };
 }

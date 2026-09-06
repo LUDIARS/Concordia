@@ -39,6 +39,10 @@ function stubConfig(overrides: Partial<GithubWorkflowConfig> = {}): GithubWorkfl
     webhookSecret: () => "secret",
     setWebhookSecret: () => {},
     clearWebhookSecret: () => {},
+    repoWebhookSecret: () => null,
+    setRepoWebhookSecret: () => {},
+    clearRepoWebhookSecret: () => {},
+    hasRepoWebhookSecret: () => false,
     ...overrides,
   };
 }

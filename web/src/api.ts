@@ -784,8 +784,12 @@ export const api = {
       { enabled },
     ),
   githubIssueWorkflowStatus: () => get<GithubIssueWorkflowStatus>("/v1/admin/github"),
-  githubIssueWorkflowSetSecret: (secret?: string) =>
-    put<{ ok: boolean; secret: string | null }>("/v1/admin/github/webhook-secret", secret ? { secret } : {}),
+  /** repo を渡すとそのリポジトリ専用の secret を発行する (省略時は共通 secret)。 */
+  githubIssueWorkflowSetSecret: (options: { secret?: string; repo?: string } = {}) =>
+    put<{ ok: boolean; secret: string | null }>("/v1/admin/github/webhook-secret", {
+      ...(options.secret ? { secret: options.secret } : {}),
+      ...(options.repo ? { repo: options.repo } : {}),
+    }),
   githubIssueRuns: (limit = 50) =>
     get<{ runs: GithubIssueRun[] }>(`/v1/github/issue-runs?limit=${limit}`),
   githubIssueRunApprove: (id: string) =>
@@ -1468,7 +1472,13 @@ export interface GithubIssueWorkflowStatus {
   base_branch: string;
   fix_call_name: string;
   poll_interval_min: number;
-  projects: Array<{ code: string; project: string; repo_origin: string | null }>;
+  projects: Array<{
+    code: string;
+    project: string;
+    repo_origin: string | null;
+    /** そのリポジトリ専用の webhook secret が入っているか (値は返らない)。 */
+    webhook_secret_set: boolean;
+  }>;
   /** Issue にラベルを付けた / 起票した login の観測名簿 (権限そのものではない)。 */
   actors: GithubIssueActor[];
 }

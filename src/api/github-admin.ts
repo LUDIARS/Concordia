@@ -9,10 +9,16 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { GithubActorRow } from "../db/github-actors-repo.js";
 import type { GithubWorkflowConfig } from "../github/config.js";
+import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 
 const SecretSchema = z.object({
   /** 省略すると Cc が生成して返す (GitHub 側の webhook 設定へ貼る用)。 */
   secret: z.string().trim().min(16).max(200).optional(),
+  /**
+   * 対象リポジトリ (owner/name)。 指定するとそのリポ専用の secret を書く。
+   * 省略時は共通 secret (リポ別が無いときのフォールバック) を書く。
+   */
+  repo: z.string().trim().min(3).max(200).optional(),
 }).strict();
 
 export interface GithubAdminRouterDeps {
@@ -39,6 +45,16 @@ function actorRoster(deps: GithubAdminRouterDeps): Array<GithubActorRow & { trus
   }));
 }
 
+/**
+ * repo の名乗りを保存キーと同じ形 (owner/name) へ畳む。 畳めない表記を通すと
+ * 「保存はできたのに webhook 側から一生引かれない secret」が出来てしまうので、
+ * ここで弾いて操作者に返す。
+ */
+function ownerRepoOrNull(raw: string): string | null {
+  const normalized = normalizeRepoOrigin(raw);
+  return isOwnerRepo(normalized) ? normalized : null;
+}
+
 export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
   const app = new Hono();
 
@@ -59,7 +75,12 @@ export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
       base_branch: deps.config.baseBranch(),
       fix_call_name: deps.config.fixCallName(),
       poll_interval_min: Math.round(deps.config.pollIntervalMs() / 60_000),
-      projects: deps.optedInProjects(),
+      projects: deps.optedInProjects().map((project) => ({
+        ...project,
+        // リポジトリ別 secret を持っているか。 値は返さない。
+        webhook_secret_set: project.repo_origin !== null
+          && deps.config.hasRepoWebhookSecret(project.repo_origin),
+      })),
       actors: actorRoster(deps),
     });
   });
@@ -68,9 +89,15 @@ export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
     const body = await c.req.json().catch(() => ({}));
     const parsed = SecretSchema.safeParse(body ?? {});
     if (!parsed.success) return c.json({ error: "invalid_body", detail: parsed.error.flatten() }, 400);
+    let repo: string | null = null;
+    if (parsed.data.repo !== undefined) {
+      repo = ownerRepoOrNull(parsed.data.repo);
+      if (repo === null) return c.json({ error: "invalid_repo" }, 400);
+    }
     const secret = parsed.data.secret ?? randomBytes(24).toString("base64url");
     try {
-      deps.config.setWebhookSecret(secret);
+      if (repo) deps.config.setRepoWebhookSecret(repo, secret);
+      else deps.config.setWebhookSecret(secret);
     } catch {
       return c.json({ error: "secret_store_unavailable" }, 503);
     }
@@ -79,8 +106,13 @@ export function githubAdminRouter(deps: GithubAdminRouterDeps): Hono {
   });
 
   app.delete("/webhook-secret", (c) => {
+    // ?repo=owner/name でリポジトリ別だけを消す。 省略時は共通 secret。
+    const raw = c.req.query("repo")?.trim();
+    const repo = raw ? ownerRepoOrNull(raw) : null;
+    if (raw && repo === null) return c.json({ error: "invalid_repo" }, 400);
     try {
-      deps.config.clearWebhookSecret();
+      if (repo) deps.config.clearRepoWebhookSecret(repo);
+      else deps.config.clearWebhookSecret();
       return c.json({ ok: true });
     } catch {
       return c.json({ error: "secret_store_unavailable" }, 503);

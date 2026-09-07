@@ -97,8 +97,6 @@ function codex56Template(opts: {
   sort_order: number;
   /** Satelles が Codex へ渡す model_reasoning_effort。 この helper が扱う GPT-5.6 では ultra は Sol 限定。 */
   reasoning: "medium" | "high" | "xhigh" | "ultra";
-  /** fast モード (出力高速化)。 Sol プロファイル (`sol-mid`) は medium + fast。 */
-  fastMode?: boolean;
 }): CreateTemplateInput {
   return {
     call_name: opts.callName,
@@ -113,7 +111,6 @@ function codex56Template(opts: {
     model: `gpt-5.6-${opts.modelName}`,
     runtime_options: {
       model_reasoning_effort: opts.reasoning,
-      ...(opts.fastMode ? { fast_mode: true } : {}),
     },
     emoji: opts.emoji,
     category: "employee",
@@ -146,7 +143,8 @@ function codex56Template(opts: {
 }
 
 const CODEX_56_TEMPLATES: CreateTemplateInput[] = [
-  codex56Template({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium", fastMode: true }),
+  // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
+  codex56Template({ callName: "sol-mid", modelName: "sol", label: "Sol / mid", emoji: "☀️", sort_order: 20, reasoning: "medium" }),
   codex56Template({ callName: "sol-xhigh", modelName: "sol", label: "Sol / xhigh（高難度）", emoji: "☀️", sort_order: 25, reasoning: "xhigh" }),
   codex56Template({ callName: "terra-xhigh", modelName: "terra", label: "Terra / xhigh", emoji: "🌏", sort_order: 60, reasoning: "xhigh" }),
   codex56Template({ callName: "luna", modelName: "luna", label: "Luna", emoji: "🌙", sort_order: 75, reasoning: "medium" }),
@@ -490,7 +488,8 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
     provider: "codex",
     emoji: "🌟",
     sortOrder: 12,
-    runtimeOptions: { model_reasoning_effort: "medium", fast_mode: true },
+    // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
+    runtimeOptions: { model_reasoning_effort: "medium" },
   }),
   implementationTemplate({
     callName: "astra-xhigh",

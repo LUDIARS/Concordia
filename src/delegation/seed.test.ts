@@ -375,7 +375,8 @@ describe("seedDelegationTemplates", () => {
       target_provider: "codex",
       model: "gpt-6-astra",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("astra-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
+    // fast モードは 2026-09-07 に neco 指示で外した (Sol / Astra とも)。
+    expect(JSON.parse(repo.findTemplateByCallName("astra-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(repo.findTemplateByCallName("astra-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "codex",
@@ -387,7 +388,8 @@ describe("seedDelegationTemplates", () => {
       target_provider: "codex",
       model: "gpt-5.6-sol",
     });
-    expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium", fast_mode: true });
+    // 同上 (upsertTemplate なので再起動で既存行も medium のみへ戻る)。
+    expect(JSON.parse(repo.findTemplateByCallName("sol-mid")?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(repo.findTemplateByCallName("sol-xhigh")).toMatchObject({
       is_active: 1,
       target_provider: "codex",

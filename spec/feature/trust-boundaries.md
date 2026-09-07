@@ -46,6 +46,19 @@ the sweeper reaps a live session as lost. A claim on a session with a recorded
 spawn id still requires the matching value. An unknown session or malformed
 metadata is rejected rather than being treated as a session without enrollment.
 
+The claim check is implemented in `src/api/ws.ts` (`classifySessionClaim`, with
+`sessionEnrollmentMatches` kept as the boolean view of the same verdict).
+The rejection is reported as one of two distinct reasons. `unknown session id`
+means no such session row exists — a wrong destination, not an authentication
+failure, and retrying can never succeed. `invalid session enrollment` means the
+row exists but the secret did not match (malformed metadata is folded into this
+side so corruption never degrades into an unauthenticated accept). Splitting the
+reasons tells apart a client naming a non-Concordia id from a genuine takeover
+attempt. It does reveal session existence to a caller that lacks the enrollment;
+that is acceptable only because this API is loopback-only and every admitted
+caller is already an administrator. Do not expose this endpoint beyond loopback
+without collapsing the two reasons back into one.
+
 Process ownership is `(instance_id, generation)`, not PID. Each start receives
 a random instance id and a monotonically increasing generation. External stop
 requests must echo both values and stale ownership fails with

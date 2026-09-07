@@ -43,6 +43,13 @@ export function isShellWrapperCommand(cmd: string): boolean {
 /**
  * cmdline から Lictor / agent-client / 対象外(null) を判定する。
  *
+ * `agent-client` (`tools/concordia-agent-client.mjs`) は 2026-09-07 に廃止され、
+ * 新しく生えることは無い (spec/feature/session-process-reaper.md の
+ * 「agent-client の廃止」)。 それでも分類を残すのは、 **廃止前から生き残っている
+ * 孤児プロセスを回収する必要がある**ため。 走査対象は実行中プロセスの
+ * コマンドラインなので、 スクリプト本体が消えていても判定は成立する。
+ * 孤児が絶えたと確認できるまで消さないこと。
+ *
  * @param cmd プロセスのコマンドライン。
  * @param imageName 取得できる場合の image 名 (Excubitor snapshot の `name`)。
  *   コマンドラインの形に依存しない shell ラッパ判定の補強に使う。

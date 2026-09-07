@@ -1,7 +1,7 @@
 ---
 type: feature
 title: "セッション終了プロセスの回収 (reaper)"
-description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの回収設計。session-end完了通知による確定停止、失敗時のlost回収、OSプロセス走査の3段構成。"
+description: "Concordia セッション終了後に残留する Lictor ラッパと concordia-agent-client プロセスの回収設計。session-end完了通知による確定停止、失敗時のlost回収、OSプロセス走査の3段構成。agent-client 自体は2026-09-07に廃止し、回収側のみ残す。"
 service: concordia
 domain: session-coordination
 tags:
@@ -14,7 +14,7 @@ tags:
   - websocket
   - event-driven
 status: implemented
-updated: 2026-06-30
+updated: 2026-09-07
 ---
 
 
@@ -44,6 +44,25 @@ Lictor は登録時に `lictor_pid` を `sessions.metadata` に書いている
 4. `concordia-agent-client` は SessionStart hook が `nohup` で detached spawn
    する別ツリー (`lictor_pid` の外)。WS で `session.ended/lost/abandoned` を
    受けたら自死する設計だが、 イベント不達 / 行 purge で孤児化する。
+
+### agent-client の廃止 (2026-09-07)
+
+`tools/concordia-agent-client.mjs` と、 それを起動する Castra の SessionStart hook
+(`.claude/hooks/start-concordia-agent.sh`) は **削除した**。
+
+- 目的だった 「`ws_clients > 0` を保って sweeper の lost 判定から外す」 は、
+  Lictor 自身の liveness WS が同じことをしている (`Lictor/src/concordia.ts` の
+  `LivenessHandle`)。 実測でも active セッションはすべて `ws_clients = 1` で、
+  agent-client プロセスは 0 本だった。
+- 加えて **接続先を失っていた**。 agent-client が名乗るのは claude の transcript
+  UUID だが、 Cc のセッション行を作るのは Lictor で id は `lictor-<uuid>`。
+  素の UUID を持つセッション行は 2026-05 が最後で、 それ以降 claim は必ず
+  `unknown-session` で 1008 拒否されていた。 agent-client には 1008 を終端扱いする
+  分岐が無く、 かつ WS の open ではバックオフが 1 秒へリセットされるため、
+  **セッションごとに毎秒リトライし続けて 43,540 件のログを埋めていた**
+  (最長 5 時間 / 16,872 回)。
+- reaper 側の `agent-client` 分類 (`control/agent-process-classify.ts`) は残す。
+  新規に生えることは無くなるが、 廃止前に残った孤児を回収できる必要がある。
 
 過去の 2 回の試行はそれぞれ「手動 kill API の追加」「Lictor force-exit の追加」
 で、 **どちらも自動ライフサイクルに pid-kill を配線せず**、 sweeper の
@@ -126,13 +145,19 @@ reaper・relictor 保険・session-end 完了停止はいずれも `control_jobs
 (`excubitor.catalog.yaml`) に `concordia-control` を定義しているのはこのため。
 `control_jobs` に `queued` が積み上がり続けている場合は、まず worker の死活を疑う。
 
-## Phase 2: agent-client の明示 kill (実装済)
+## Phase 2: agent-client の明示 kill (実装済 / 2026-09-07 に供給元を廃止)
 agent-client は通常 WS の `session.ended/lost/abandoned` で自死するが、 **WS 切断中に
 終了イベントが飛ぶと取りこぼす**。確定的に潰すため:
-- `tools/concordia-agent-client.mjs` が起動時に `PATCH /v1/sessions/:id`
-  `{ metadata: { agent_client_pid } }` で自分の pid を登録。
+- agent-client が起動時に `PATCH /v1/sessions/:id`
+  `{ metadata: { agent_client_pid } }` で自分の pid を登録していた。
 - `POST /v1/sessions/:id/session-end-done` と `POST /v1/admin/stop-session/:id` が
   `lictor_pid` と並べて `agent_client_pid` も kill (`parseAgentClientPid`)。
+
+`tools/concordia-agent-client.mjs` は
+[agent-client の廃止 (2026-09-07)](#agent-client-の廃止-2026-09-07) で削除したため、
+**`agent_client_pid` を新しく書き込むものはもう無い**。kill 側 (`parseAgentClientPid`
+と `agent-process-classify.ts` の分類) は、 廃止前に書かれた pid を持つ既存行と
+残留孤児を回収するために残してある。
 
 ## 残 (follow-up)
 - PC パフォーマンス / セッション別メモリの Monitor 可視化 → 実装済 (PR #186)。

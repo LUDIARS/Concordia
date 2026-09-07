@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionsRepo } from "../db/sessions-repo.js";
-import { sessionEnrollmentMatches } from "./ws.js";
+import { classifySessionClaim, sessionEnrollmentMatches } from "./ws.js";
 
 /**
  * enrollment (CONCORDIA_SPAWN_ID) は Cc が spawn したセッションにしか配られない。
@@ -39,5 +39,34 @@ describe("sessionEnrollmentMatches", () => {
   it("存在しないセッションの claim は拒否する", () => {
     expect(sessionEnrollmentMatches(repoWithoutSession, "missing", "anything")).toBe(false);
     expect(sessionEnrollmentMatches(repoWithoutSession, "missing", "")).toBe(false);
+  });
+});
+
+/**
+ * 2026-09-07: 拒否理由が 1 種類しか無かったため、「そんな session id は無い」を
+ * 「enrollment が不正」と誤って名乗っていた。廃止済み agent-client が claude の
+ * transcript UUID を名乗って毎秒リトライし、43,540 件のログを埋めた事象を
+ * 「enrollment の破損」と読み違える原因になっていた。
+ */
+describe("classifySessionClaim", () => {
+  it("セッション行が無い claim は unknown-session (認証失敗ではない)", () => {
+    expect(classifySessionClaim(repoWithoutSession, "not-a-session-id", "")).toBe("unknown-session");
+    expect(classifySessionClaim(repoWithoutSession, "not-a-session-id", "anything")).toBe("unknown-session");
+  });
+
+  it("秘密が合わない claim は enrollment-mismatch", () => {
+    const repo = repoWith(JSON.stringify({ concordia_spawn_id: "spawn-secret" }));
+    expect(classifySessionClaim(repo, "s1", "wrong-secret")).toBe("enrollment-mismatch");
+    expect(classifySessionClaim(repo, "s1", "")).toBe("enrollment-mismatch");
+  });
+
+  it("壊れた metadata は enrollment-mismatch (無 enrollment へ降格しない)", () => {
+    expect(classifySessionClaim(repoWith("{ not json"), "s4", "")).toBe("enrollment-mismatch");
+  });
+
+  it("正当な claim は accepted", () => {
+    const repo = repoWith(JSON.stringify({ concordia_spawn_id: "spawn-secret" }));
+    expect(classifySessionClaim(repo, "s1", "spawn-secret")).toBe("accepted");
+    expect(classifySessionClaim(repoWith(null), "s3", "")).toBe("accepted");
   });
 });

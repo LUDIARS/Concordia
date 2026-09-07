@@ -97,13 +97,38 @@ function recordedSpawnId(metadata: string | null | undefined): string | null {
  * 要求しない。 存在しないセッションの claim は従来どおり拒否する。
  */
 export function sessionEnrollmentMatches(repo: SessionsRepo, sessionId: string, supplied: string): boolean {
+  return classifySessionClaim(repo, sessionId, supplied) === "accepted";
+}
+
+/**
+ * claim の判定結果。 拒否は 2 種類あり、 運用上の意味がまったく違う。
+ *
+ *  - `unknown-session`  … その id のセッション行が無い。 **認証の失敗ではなく宛先違い**。
+ *    クライアントが Cc の session id (`lictor-…`) ではない何か (provider 側の
+ *    transcript UUID 等) を名乗っているときに出る。 リトライしても永久に通らない。
+ *  - `enrollment-mismatch` … 行はあるが spawn の秘密が合わない。 こちらは本物の
+ *    認証失敗で、 乗っ取りの疑いがある。
+ *
+ * 2026-09-07 まで両方を "invalid enrollment" として記録していたため、
+ * 前者が 43,540 件ログを埋めていても 「enrollment が壊れている」 としか読めなかった
+ * (実際の原因は廃止済み agent-client が claude の transcript UUID を名乗っていたこと)。
+ * 理由を分けて、 受け取った側が原因を切り分けられるようにする。
+ */
+export type SessionClaimVerdict = "accepted" | "unknown-session" | "enrollment-mismatch";
+
+export function classifySessionClaim(
+  repo: SessionsRepo,
+  sessionId: string,
+  supplied: string,
+): SessionClaimVerdict {
   const row = repo.findSession(sessionId);
-  if (!row) return false;
+  if (!row) return "unknown-session";
   const expected = recordedSpawnId(row.metadata);
   // 壊れた metadata を手動セッションとみなすと、記録済み秘密の破損が認証迂回になる。
-  if (expected === null) return false;
-  if (!expected) return true;
-  return Boolean(supplied) && secureValuesMatch(expected, supplied);
+  if (expected === null) return "enrollment-mismatch";
+  if (!expected) return "accepted";
+  if (Boolean(supplied) && secureValuesMatch(expected, supplied)) return "accepted";
+  return "enrollment-mismatch";
 }
 
 export function attachWsServer(
@@ -146,10 +171,25 @@ export function attachWsServer(
 
   wss.on("connection", (ws, req) => {
     const sessionId = readSessionId(req);
-    if (sessionId && sessionsRepo && !sessionEnrollmentMatches(sessionsRepo, sessionId, readEnrollment(req))) {
-      log.warn({ sessionId }, "ws session claim rejected: invalid enrollment");
-      ws.close(1008, "invalid session enrollment");
-      return;
+    if (sessionId && sessionsRepo) {
+      const verdict = classifySessionClaim(sessionsRepo, sessionId, readEnrollment(req));
+      if (verdict !== "accepted") {
+        // 拒否する socket にも 'error' ハンドラを先に付ける。 close() 後も TCP の
+        // 後始末で ECONNRESET 等が飛びうるが、 'error' が未捕捉だと EventEmitter が
+        // throw してプロセスごと落ちる (wss の 'error' は server 用で socket を拾わない)。
+        // 拒否経路こそリトライで最も高頻度に踏まれるため、 ここを裸にしない。
+        attachWsSocketErrorHandler(ws);
+        if (verdict === "unknown-session") {
+          // 認証失敗ではなく宛先違い。 リトライしても永久に通らないので、 クライアントが
+          // 諦められるよう理由を close reason にも載せる。
+          log.warn({ sessionId }, "ws session claim rejected: no such session (id is not a Concordia session id)");
+          ws.close(1008, "unknown session id");
+        } else {
+          log.warn({ sessionId }, "ws session claim rejected: enrollment mismatch");
+          ws.close(1008, "invalid session enrollment");
+        }
+        return;
+      }
     }
     clientSession.set(ws, sessionId);
     log.debug({ clients: wss.clients.size, sessionId }, "ws connected");

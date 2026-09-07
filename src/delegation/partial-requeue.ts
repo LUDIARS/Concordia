@@ -64,6 +64,7 @@ export async function requeuePartialRun(input: {
   run: DelegationRunRow;
   remaining: readonly RemainingWork[];
   service: DelegationService;
+  resolvedAnswers?: string;
 }): Promise<Awaited<ReturnType<DelegationService["invoke"]>>> {
   const remainingText = input.remaining.map((item, index) => [
     `${index + 1}. ${item.title}`,
@@ -85,6 +86,7 @@ export async function requeuePartialRun(input: {
       `前 run ${input.run.id} の残作業を引き継いだワンショット実行です。`,
       "以下を完了し、完了後は status API で報告してください。",
       remainingText,
-    ].join("\n\n"),
+      input.resolvedAnswers,
+    ].filter(Boolean).join("\n\n"),
   });
 }

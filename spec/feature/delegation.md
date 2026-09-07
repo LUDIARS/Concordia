@@ -822,3 +822,29 @@ env `CONCORDIA_DELEGATION_DOMAIN_PREAMBLE=0` で機能ごと切れる (テスト
 **`plan → 紐づけ → verify`** へ変更した (`seed.ts` の `ANATOMIA_SUPPLY_VERIFY_STEPS` と
 `implementation-inject.ts` の着手時バンドル 1.)。 着地点 1 点ではなく、 task を
 ドメイン単位の作業計画に分解したものを受け取ってから設計に入る。
+
+## 継続 run への確定回答引継ぎ
+
+Memoria #2146。UX-CC-W2/W4、CC-INV-03/04/08 に対応する。
+`partial` から新 run を起案するとき、`partial-requeue:<run-id>` の祖先系列を
+現在の run から最大33件（既存の最大32 hop）まで辿る。状態所有者は run 台帳と
+pending question 台帳であり、delegation は読み取りのみ行う。
+
+`src/delegation/continuation-answers.ts` が同じ親・子会社・チームの系列に限って
+各子セッションの確定済み質問本文、回答本文、質問ID、run ID、回答時刻を収集する。
+質問の作成時刻は run 開始以降に限定し、祖先については次 run の開始までに限定する。
+未回答、回答本文なし、`(resolved locally)` の本文不明な解決記録は継承しない。
+既定10件の表示用制限は使わず、質問IDで重複を除き回答時刻順に渡す。
+
+API の composition root は既存 `listAnsweredBySession` を注入する。回答取得や系列照合が
+失敗したら、新 run を起案せず既存のエラーハンドラで partial claim を解放する。
+回答ゼロの場合は従来の残作業プロンプトを保つ。回答を付加した `extra_prompt` は既存の
+invoke / queue の保存・配送経路を使う。branch、worktree、model の継承は変更しない。
+
+後続 run は同じ論点を再確認せず確定回答を参照する。複数回答では新しい記録を優先する。
+ただし履歴は現在のユーザー指示や権限を上書きする許可ではない。前提が変わった場合は
+変更点と既存回答を示して判断を求める。意味的な再質問の抑止はプロンプト契約であり、
+質問 API に意味判定や自動回答を追加するものではない。
+
+テスト・実機確認は未実施。回帰対象と復旧手順は
+[問題ログ](../plan/problem_logs/2026-09-08-continuation-resolved-answers.md) に記録する。

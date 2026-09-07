@@ -492,6 +492,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
   );
   app.route("/v1/delegation", delegationRouter({
     repo: deps.delegation,
+    answeredQuestions: deps.pendingQuestions,
     service: deps.delegationService,
     sessions: deps.repo,
     prs: deps.prs,

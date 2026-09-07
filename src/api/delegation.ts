@@ -56,6 +56,8 @@ import { createChildLogger } from "../shared/logger.js";
 import { findGarbledReportFields, GARBLED_REPORT_HINT } from "../delegation/report-encoding.js";
 import { DelegationRunSessionReadModel } from "../delegation/run-session-read-model.js";
 import { requiresCompletionEvidence, verifyCompletionEvidence } from "../delegation/completion-evidence.js";
+import { continuationAnswerContext } from "../delegation/continuation-answers.js";
+import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 
 const commitLogger = createChildLogger("delegation-commit");
 const statusLogger = createChildLogger("delegation-status");
@@ -243,6 +245,7 @@ const RunCommitSchema = z.object({
 });
 
 export interface DelegationApiDeps {
+  answeredQuestions?: Pick<DiscordPendingQuestionsRepo, "listAnsweredBySession">;
   repo: DelegationRepo;
   service: DelegationService;
   sessions?: SessionsRepo;
@@ -833,7 +836,14 @@ export function delegationRouter(deps: DelegationApiDeps): Hono {
           if (written.created.length === 0 && written.existed.length > 0) partialFailureError = "partial_no_progress";
         }
         if (!partialFailureError && continuation === "requeue") {
-          const requeued = await requeuePartialRun({ run: row, remaining: workRemaining, service: deps.service });
+          const answeredQuestions = deps.answeredQuestions;
+          const resolvedAnswers = answeredQuestions
+            ? continuationAnswerContext(row, {
+                findRun: (runId) => deps.repo.findRun(runId),
+                listAnsweredBySession: (sessionId, limit) => answeredQuestions.listAnsweredBySession(sessionId, limit),
+              })
+            : undefined;
+          const requeued = await requeuePartialRun({ run: row, remaining: workRemaining, service: deps.service, resolvedAnswers });
           if (!requeued.ok) {
             deps.repo.releasePartialRequeueClaim(id, row.status, row.error);
             return c.json({ error: "partial_requeue_failed", detail: requeued.error }, 500);

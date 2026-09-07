@@ -32,7 +32,16 @@ export interface EgressDeps {
   messageOptimizationEnabled?: boolean;
   resolveWorkspaceRoots?: () => string[];
   /** A canonical session message reached Discord. */
-  onSessionMessagePosted?: (input: { sessionId: string; completion: boolean }) => void;
+  onSessionMessagePosted?: (input: {
+    sessionId: string;
+    completion: boolean;
+    /**
+     * セッション自身が最終応答 (assistant) か会話要約 (summary) を出した =
+     * **ターンが終わってアイドルへ落ちた**。 `completion` は delegation の task
+     * カード専用なので、 セッションのアイドル判定には使えない (別 signal にする)。
+     */
+    turnEnd: boolean;
+  }) => void;
   log: { warn: (m: string) => void };
 }
 
@@ -190,7 +199,11 @@ async function handleSessionMessage(
   if (ev.op === "update" && existingDiscordId) {
     const edited = await deps.webhooks.editForSession(ev.target_session_id, existingDiscordId, content);
     if (edited) {
-      deps.onSessionMessagePosted?.({ sessionId: ev.target_session_id, completion: isCompletionMessage(ev.message) });
+      deps.onSessionMessagePosted?.({
+        sessionId: ev.target_session_id,
+        completion: isCompletionMessage(ev.message),
+        turnEnd: isTurnEndMessage(ev.message),
+      });
       return;
     }
     deps.log.warn(`egress: session.message edit failed session=${ev.target_session_id} message=${ev.message.id}`);
@@ -230,7 +243,11 @@ async function handleSessionMessage(
     return;
   }
   deps.deliveryRepo.put({ message_id: ev.message.id, platform: "discord", external_id: res.id, ts: ev.ts });
-  deps.onSessionMessagePosted?.({ sessionId: ev.target_session_id, completion: isCompletionMessage(ev.message) });
+  deps.onSessionMessagePosted?.({
+    sessionId: ev.target_session_id,
+    completion: isCompletionMessage(ev.message),
+    turnEnd: isTurnEndMessage(ev.message),
+  });
 }
 
 function formatSessionMessageContent(message: SessionMessagePayload): string {
@@ -292,6 +309,21 @@ function filesFromAttachments(attachments: Attachment[] | null): Array<{ attachm
  */
 function isToolFailure(message: SessionMessagePayload): boolean {
   return message.metadata?.is_error === true;
+}
+
+/**
+ * セッションがターンを終えた合図。
+ *
+ * `assistant` = 最終応答の本文、 `summary` = 会話要約。 どちらもモデルが喋り終えた
+ * 時点で 1 度出る。 途中経過 (thinking / tool) は含めない — 含めるとターン中に
+ * 何度も『終わった』ことになる。
+ *
+ * `isCompletionMessage` と分けているのは、 あちらが **delegation の task カード**
+ * (status=completed/failed の embed) だけを見ており、 セッション自身の応答では
+ * 発火しないため。 チャンネル名の状態タグはあちらの意味のまま据え置く。
+ */
+export function isTurnEndMessage(message: SessionMessagePayload): boolean {
+  return message.author_type === "assistant" || message.author_type === "summary";
 }
 
 function isCompletionMessage(message: SessionMessagePayload): boolean {

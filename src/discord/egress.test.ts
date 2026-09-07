@@ -5,7 +5,7 @@ import { makeSessionMessageDeliveryRepo } from "../db/session-message-delivery-r
 import type { SessionMessagePayload } from "../shared/session-message-types.js";
 import { makeTestDb } from "../../tests/helpers/db.js";
 import type { DiscordConfigSnapshot } from "./config.js";
-import { handleEvent, isActiveRelayTarget, isChatRelayTarget, trustedDiscordChannelId, type EgressDeps } from "./egress.js";
+import { handleEvent, isActiveRelayTarget, isChatRelayTarget, isTurnEndMessage, trustedDiscordChannelId, type EgressDeps } from "./egress.js";
 import type { WebhookPool } from "./webhook-pool.js";
 
 describe("trustedDiscordChannelId", () => {
@@ -333,3 +333,30 @@ function makeSessionMessageDeps(opts: { messageOptimizationEnabled?: boolean } =
 async function flushEgress(): Promise<void> {
   for (let i = 0; i < 10; i += 1) await Promise.resolve();
 }
+
+// --- ターン終了の signal (アイドル通知の契機) --------------------------------
+// isCompletionMessage は delegation の task カード専用で、セッション自身の最終応答では
+// 発火しない。コンテキスト使用量の通知を completion に繋いだ最初の実装は、実測でほぼ
+// 鳴らなかった (2026-09-07)。アイドル判定には別 signal を使う。
+describe("isTurnEndMessage", () => {
+  const message = (author_type: string): SessionMessagePayload =>
+    ({ author_type } as unknown as SessionMessagePayload);
+
+  it("最終応答と会話要約でターン終了とみなす", () => {
+    expect(isTurnEndMessage(message("assistant"))).toBe(true);
+    expect(isTurnEndMessage(message("summary"))).toBe(true);
+  });
+
+  it("途中経過ではターン終了にしない", () => {
+    // 含めるとターン中に何度も『終わった』ことになる。
+    expect(isTurnEndMessage(message("thinking"))).toBe(false);
+    expect(isTurnEndMessage(message("tool"))).toBe(false);
+    expect(isTurnEndMessage(message("user"))).toBe(false);
+  });
+
+  it("delegation の task カードはターン終了ではない", () => {
+    // こちらは completion 側 (チャンネル名の状態タグ) が拾う。
+    expect(isTurnEndMessage(message("task"))).toBe(false);
+    expect(isTurnEndMessage(message("delegation"))).toBe(false);
+  });
+});

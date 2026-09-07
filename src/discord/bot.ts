@@ -744,18 +744,35 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
       allowedMentions: { parse: [] },
     });
   };
-  const onSessionMessagePosted = (input: { sessionId: string; completion: boolean }): void => {
-    if (input.completion) {
-      const wasWorking = channelWorkState?.isWorking(input.sessionId) ?? false;
-      channelWorkState?.noteCompletion(input.sessionId);
-      // 作業中 → アイドルへ落ちた瞬間だけ流す。 既にアイドルなら状態は変わって
-      // いないので、 summary が続けて出るたびに同じ行を積まない。
-      if (wasWorking) {
-        void postContextUsage(input.sessionId).catch(() => {
-          /* best-effort — 通知失敗で投稿経路を壊さない */
-        });
-      }
-    } else channelWorkState?.noteProgress(input.sessionId);
+  /** 直近でコンテキスト使用量を流したセッション (連続する最終応答で積み上げない)。 */
+  const lastContextPostAt = new Map<string, number>();
+  const CONTEXT_POST_COOLDOWN_MS = 60_000;
+  /**
+   * セッションが終わったら cooldown の記録も捨てる。 bot は常駐なので、 残すと
+   * 見たセッションの数だけ Map が伸び続ける。
+   */
+  const forgetContextPostState = (sessionId: string): void => {
+    lastContextPostAt.delete(sessionId);
+  };
+  const onSessionMessagePosted = (input: {
+    sessionId: string;
+    completion: boolean;
+    turnEnd: boolean;
+  }): void => {
+    if (input.completion) channelWorkState?.noteCompletion(input.sessionId);
+    else if (!input.turnEnd) channelWorkState?.noteProgress(input.sessionId);
+    // アイドル通知の契機は **セッション自身のターン終了** (assistant / summary)。
+    // completion は delegation の task カード専用で、 セッションの応答では鳴らない
+    // (最初の実装はこちらに繋いでいて、 実測でほぼ発火しなかった)。
+    if (!input.turnEnd) return;
+    const now = Date.now();
+    const last = lastContextPostAt.get(input.sessionId) ?? 0;
+    // 1 ターンで assistant と summary が続けて出ることがある。 短い間隔の連投は 1 本に畳む。
+    if (now - last < CONTEXT_POST_COOLDOWN_MS) return;
+    lastContextPostAt.set(input.sessionId, now);
+    void postContextUsage(input.sessionId).catch(() => {
+      /* best-effort — 通知失敗で投稿経路を壊さない */
+    });
   };
   const readPositiveIntEnv = (name: string, fallback: number, min = 1): number => {
     const raw = Number(process.env[name] ?? "");
@@ -2236,6 +2253,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (ev.type === "session.lost") {
       channelWorkState?.clear(ev.session_id);
+      forgetContextPostState(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log }, { sessionId: ev.session_id, status: "lost" });
       // lost = wrapper の heartbeat が止まった (端末を閉じた等で実質終了)。 状態カードは
       // グレーで残さず即削除する。 旧実装は upsert でグレー化して残し、 削除は 1 時間ごとの
@@ -2247,6 +2265,7 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
     }
     if (ev.type === "session.ended") {
       channelWorkState?.clear(ev.session_id);
+      forgetContextPostState(ev.session_id);
       void onSessionStatusChanged({ guild, layout, repo: sessionChannelsRepo, log, webhooks: webhooks ?? undefined }, { sessionId: ev.session_id, status: "ended" });
       // End-Session: 会話チャンネル削除 (onSessionStatusChanged) に加え、状態カードも削除する。
       void deleteSessionStatusCard({ guild, configRepo, log }, ev.session_id)

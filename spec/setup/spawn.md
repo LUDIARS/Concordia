@@ -96,10 +96,17 @@ Lictor はこの二項目を session 登録 metadata に返し、Concordia はsp
 enrollmentとしてconsumeする。未知または再利用されたspawn IDは401で拒否する。Concordiaは新規登録された当該
 session だけへ、project 特定、Castra への破壊的 git 操作の禁止、branch 確認・Cc 登録、PR で停止、
 明示指示のないテスト・merge 禁止、資料共有時のattachment添付を含む共通 `session.inject` を必ず送る。
-資料はリンクやローカルパスのみで共有を終えず、既存のLictor `/v1/chat` (`127.0.0.1:$LICTOR_PORT`) と
-`attachment_paths` の経路で添付する。`attachment_paths` は workspace root 配下か一時ディレクトリ内の
-絶対パスに限られる (`spec/tasks/attachment-path-allowlist.md`)。送信権限・共有範囲は維持し、
-添付失敗を共有完了と扱わない。
+資料はリンクだけで共有を終えず、自分のLictor `POST /v1/internal/send-file`
+(`127.0.0.1:$LICTOR_PORT`) に `{ files: [絶対パス], caption: 説明 }` を渡す。
+専用経路が `channel=system` と現在のセッション送信先を設定する。
+外部リンクを開かず内容を把握できるよう、短い資料は本文もcaptionへ載せる。
+長い資料は要点をcaptionへ載せ、全文をUTF-8の`.txt`で添付する。必要なら原本も添付する。
+端末での添付プレビューは、実際に確認していなければ確認済みと扱わない。
+`/v1/chat` の `channel=報告` は共通報告チャンネル宛てであり、セッションへの資料送信には使わない。
+filesはworkspace root配下または一時ディレクトリ内の絶対パスに限る
+(`spec/tasks/attachment-path-allowlist.md`)。
+送信権限・共有範囲を守り、受付と配送を区別して送信先・Discord投稿の配送記録を確認する。
+添付失敗・配送未確認を共有完了と扱わない。
 
 照合は cwd と時刻の推測ではなく spawn ID で行うため、同一 cwd で複数 session を並走
 起動しても別 session に指示を送らない。既存 session の再登録時には再 Inject しない。

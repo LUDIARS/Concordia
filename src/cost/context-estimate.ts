@@ -10,13 +10,9 @@
 
 import type { SessionRow } from "../shared/types.js";
 import {
-  CLAUDE_PROJECTS_ROOT,
-  CODEX_SESSIONS_ROOT,
-  findClaudeLog,
-  findCodexLog,
   nn,
   readLines,
-  resolveTrustedTranscriptPath,
+  resolveSessionTranscript,
 } from "./log-usage.js";
 
 /** コンテキスト窓の既定サイズ (トークン)。 env CONCORDIA_CONTEXT_WINDOW_TOKENS で上書き。 */
@@ -110,15 +106,15 @@ export function toEstimate(tokens: number, windowTokens = DEFAULT_CONTEXT_WINDOW
 
 /** セッションのコンテキスト占有を概算する。 ログが取れなければ null。 */
 export async function estimateContextTokens(s: SessionRow, windowTokens = DEFAULT_CONTEXT_WINDOW): Promise<ContextEstimate | null> {
+  // 読むのは Lictor が報告した権威 transcript だけ。 時刻マッチの推測は持たない
+  // (resolveSessionTranscript の注記を参照)。 報告が無ければ「推定不能」で null を返し、
+  // 他人のログで埋め合わせない。
+  const path = await resolveSessionTranscript(s);
   let tokens: number | null = null;
-  // セッションが実 transcript を報告済みならそれが正。ただし登録 API 由来の値なので、
-  // provider の正本ログ配下にある実体だけを時刻マッチの推測より優先する。
-  if (s.provider === "codex-cli") {
-    const p = (await resolveTrustedTranscriptPath(s.transcript_path, CODEX_SESSIONS_ROOT)) ?? await findCodexLog(s);
-    tokens = p ? await readCodexContextTokens(p) : null;
-  } else if (s.provider === "claude-code") {
-    const p = (await resolveTrustedTranscriptPath(s.transcript_path, CLAUDE_PROJECTS_ROOT)) ?? await findClaudeLog(s);
-    tokens = p ? await readClaudeContextTokens(p) : null;
+  if (path) {
+    tokens = s.provider === "codex-cli"
+      ? await readCodexContextTokens(path)
+      : await readClaudeContextTokens(path);
   }
   if (tokens === null) return null;
   return toEstimate(tokens, windowTokens);

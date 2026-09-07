@@ -37,22 +37,6 @@ export const CODEX_SESSIONS_ROOT = join(homedir(), ".codex", "sessions");
 const HEAD_CHUNK_BYTES = 256 * 1024;
 
 /**
- * transcript とセッションを開始時刻で突き合わせるときの許容ずれ (秒)。
- * 同一ホストなので時計は一致するが、 登録と最初の書き込みの順序ゆらぎだけ吸収する。
- */
-const LOG_MATCH_CLOCK_SLACK_SEC = 120;
-
-/** path が存在するか (async existsSync 代替)。 */
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
  * セッション登録で報告された transcript が、このホストの provider 正本ログ配下に
  * 実在するときだけ返す。register API の入力を任意ファイル読取へ流さないため、
  * symlink 解決後の実体パスで判定する。
@@ -130,11 +114,11 @@ export async function readSessionUsage(
   frames?: UsageFrameSource,
 ): Promise<Totals | null> {
   if (s.provider === "codex-cli") {
-    const p = await findCodexLog(s);
+    const p = await resolveSessionTranscript(s);
     return p ? readCodexUsage(p) : null;
   }
   if (s.provider === "claude-code") {
-    const p = await findClaudeLog(s);
+    const p = await resolveSessionTranscript(s);
     return p ? readClaudeUsage(p) : null;
   }
   if (s.provider === "codex-sdk") {
@@ -192,62 +176,34 @@ export async function collectRecent(
   }
 }
 
-export async function findCodexLog(s: SessionRow): Promise<string | null> {
-  if (!(await pathExists(CODEX_SESSIONS_ROOT))) return null;
-  let bestPath: string | null = null;
-  let bestScore = -Infinity;
-  await walk(CODEX_SESSIONS_ROOT, 4, async (p) => {
-    if (!p.endsWith(".jsonl")) return;
-    if (bestScore === Number.POSITIVE_INFINITY) return;
-    const head = await readCodexHead(p);
-    if (!head) return;
-    if (head.id === s.id) {
-      bestScore = Number.POSITIVE_INFINITY;
-      bestPath = p;
-      return;
-    }
-    if (head.cwd && head.cwd !== s.repo_path) return;
-    // findClaudeLog と同じ理由で、 セッション開始より前に始まった transcript は候補にしない。
-    if (head.started === null || head.started < s.started_at - LOG_MATCH_CLOCK_SLACK_SEC) return;
-    const score = -Math.abs(head.started - s.started_at);
-    if (score > bestScore) {
-      bestScore = score;
-      bestPath = p;
-    }
-  });
-  return bestPath;
-}
-
-export async function findClaudeLog(s: SessionRow): Promise<string | null> {
-  // Claude Code は cwd を ~/.claude/projects/<encoded> に保存する。 エンコードは特殊文字
-  // (`/` `\` `:` `.`) を **1 文字ずつ** `-` に置換する (隣接は潰さない)。 例 `E:/Document/Ars`
-  // → `E--Document-Ars` (`:/` が `--`)。 以前は `[\\/:.]+` と `+` で隣接を 1 つに潰しており、
-  // ドライブレター付き Windows パス (常に `X:\`/`X:/` を含む) で全て発見失敗していた。
-  const encoded = s.repo_path.replace(/[\\/:.]/g, "-").replace(/^-+|-+$/g, "");
-  const dir = join(CLAUDE_PROJECTS_ROOT, encoded);
-  if (!(await pathExists(dir))) return null;
-  const exact = join(dir, `${s.id}.jsonl`);
-  if (await pathExists(exact)) return exact;
-  let names: string[];
-  try {
-    names = await readdir(dir);
-  } catch {
-    return null;
+/**
+ * セッションが実際に読み書きしている transcript を解決する。 **これが唯一の経路**で、
+ * 推測 (開始時刻の近さ・cwd 一致・mtime) は一切しない。 解決できなければ null。
+ *
+ * 以前は「repo_path から引いたディレクトリで開始時刻がいちばん近い JSONL」を選ぶ
+ * 独自ロジックを持っていた。 排他が無いので複数セッションが同じファイルを掴む。
+ * 実測 (2026-09-07、直近 5 日の claude-code セッション 148 本を登録済み
+ * transcript_path と突き合わせ): 誤り 18 本 (12%)、 解決不能 15 本。 うち 2 組は
+ * **秒差で起動したセッションが同一ファイルを共有**していた。 コンテキスト占有が
+ * 他人の値になり、 「複数セッションに同時に警告が出る」「起動直後から警告が出る」
+ * という形で表面化していた。
+ *
+ * 束縛先を決めているのは Lictor で、 provider ごとの権威 (Claude=SessionStart hook /
+ * Codex=App Server thread / ローカル LLM=filename 施錠) は向こうで確定している。
+ * その報告 (`PATCH /v1/sessions/:id { transcript_path }`) だけを信じる。 Lictor 自身も
+ * 同じ理由で mtime 推測を捨てている (`transcript-tail.ts`: 「mtime 推測は crosstalk 源
+ * なので一切しない」)。 ここに別ロジックを持たせない。
+ *
+ * 報告が無い = 推定不能。 他人のログで埋め合わせない (誤った数字は無い数字より悪い)。
+ */
+export async function resolveSessionTranscript(s: SessionRow): Promise<string | null> {
+  if (s.provider === "claude-code") {
+    return resolveTrustedTranscriptPath(s.transcript_path, CLAUDE_PROJECTS_ROOT);
   }
-  const files = names.filter((n) => n.endsWith(".jsonl")).map((n) => join(dir, n));
-  if (files.length === 0) return null;
-  let best: { p: string; score: number } | null = null;
-  for (const p of files) {
-    const ts = await readFirstTs(p);
-    // このセッションより前に始まった transcript は別セッションのもの (transcript の
-    // 先頭時刻がセッション開始より前になることはない)。 起動直後 (自分の transcript が
-    // まだ無い) に他セッションの古い巨大 transcript を拾うと、 コンテキスト占有 100% の
-    // 誤警告になる。 検証不能 (先頭時刻なし) も候補にしない。
-    if (ts === null || ts < s.started_at - LOG_MATCH_CLOCK_SLACK_SEC) continue;
-    const score = -Math.abs(ts - s.started_at);
-    if (!best || score > best.score) best = { p, score };
+  if (s.provider === "codex-cli") {
+    return resolveTrustedTranscriptPath(s.transcript_path, CODEX_SESSIONS_ROOT);
   }
-  return best?.p ?? null;
+  return null;
 }
 
 export async function readCodexUsage(path: string): Promise<Totals | null> {
@@ -310,57 +266,9 @@ export async function readClaudeUsage(path: string): Promise<Totals | null> {
   return out.total > 0 || out.cached > 0 ? out : null;
 }
 
-export async function readCodexHead(path: string): Promise<{ id: string | null; cwd: string | null; started: number | null } | null> {
-  for (const line of await readLines(path, 20)) {
-    let o: unknown;
-    try {
-      o = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isObj(o) || o.type !== "session_meta") continue;
-    const payload = isObj(o.payload) ? o.payload : null;
-    const id = typeof payload?.id === "string" ? payload.id : null;
-    const cwd = typeof payload?.cwd === "string" ? payload.cwd : null;
-    const tsRaw = typeof payload?.timestamp === "string" ? payload.timestamp : null;
-    return { id, cwd, started: tsRaw ? Math.floor(new Date(tsRaw).getTime() / 1000) : null };
-  }
-  return null;
-}
-
-export async function readFirstTs(path: string): Promise<number | null> {
-  for (const line of await readLines(path, 20)) {
-    let o: unknown;
-    try {
-      o = JSON.parse(line);
-    } catch {
-      continue;
-    }
-    if (!isObj(o)) continue;
-    const t = o.timestamp;
-    if (typeof t === "string") return Math.floor(new Date(t).getTime() / 1000);
-  }
-  return null;
-}
-
-export async function walk(root: string, depth: number, visit: (p: string) => void | Promise<void>): Promise<void> {
-  if (depth < 0) return;
-  let ents: Dirent[];
-  try {
-    ents = await readdir(root, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const e of ents) {
-    const p = join(root, e.name);
-    if (e.isDirectory()) await walk(p, depth - 1, visit);
-    else if (e.isFile()) await visit(p);
-  }
-}
-
 /**
  * JSONL の行配列を読む。 limit 指定時は先頭チャンク (HEAD_CHUNK_BYTES) のみ読み、
- * 足りた場合はファイル全量を読まない (head 用途: readCodexHead / readFirstTs)。
+ * 足りた場合はファイル全量を読まない (head 用途)。
  * チャンクで limit 行に満たず、 かつファイルがチャンクより大きい場合のみ全読みに
  * フォールバックする。
  */

@@ -2,8 +2,8 @@
  * channel-cost の既定 reader (context / cost) の memo 化 + 軽量読み実装。
  *
  * 旧実装は overview / モニター更新のたびに active セッションごとに
- * 「findClaudeLog / findCodexLog (codex は ~/.codex/sessions ツリー全走査) を
- * context と cost で **2 回ずつ** → JSONL 全行 readFileSync (数十 MB)」 を同期実行し、
+ * 「ログパス解決 (codex は ~/.codex/sessions ツリー全走査) を context と cost で
+ * **2 回ずつ** → JSONL 全行 readFileSync (数十 MB)」 を同期実行し、
  * 12 セッションで実測 16〜17 秒イベントループを塞いでいた (windowed-usage-cache と
  * 並ぶ「API が重い」 の残り半分)。
  *
@@ -24,7 +24,12 @@
 import { open, stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import type { ChannelCostReader } from "./channel-cost.js";
-import { findClaudeLog, findCodexLog, nn, readCodexUsage, readLines } from "./log-usage.js";
+import {
+  nn,
+  readCodexUsage,
+  readLines,
+  resolveSessionTranscript,
+} from "./log-usage.js";
 import { claudeContextFromLines, codexContextFromLines } from "./context-estimate.js";
 
 const NEGATIVE_TTL_MS = 60_000;
@@ -190,11 +195,7 @@ export interface ChannelCostCacheIo {
 }
 
 const defaultIo: ChannelCostCacheIo = {
-  resolveLogPath: async (s) => {
-    if (s.provider === "claude-code") return findClaudeLog(s);
-    if (s.provider === "codex-cli") return findCodexLog(s);
-    return null;
-  },
+  resolveLogPath: (s) => resolveSessionTranscript(s),
   statFile: async (path) => {
     try {
       const st = await stat(path);

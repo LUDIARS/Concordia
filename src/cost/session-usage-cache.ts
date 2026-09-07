@@ -2,7 +2,7 @@
  * セッション単位の使用量読み (readSessionUsage / codex rate) の memo 化。
  *
  * cost-report (Discord コストチャンネル / Slack Canvas / cost limit サンプラーの
- * 3 系統タイマー) が毎回「findCodexLog のツリー全走査 + JSONL フル読み」 を
+ * 3 系統タイマー) が毎回「codex ログパス解決のツリー全走査 + JSONL フル読み」 を
  * セッションあたり最大 3 回実行していたのを、
  *  - ログパス解決: session id 単位 memo (消えたときだけ再解決 + 負キャッシュ)
  *  - claude Totals: 追記行の増分パース (readClaudeUsage と同一の dedup/加算規則)
@@ -14,11 +14,10 @@
 import { stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
 import {
-  findClaudeLog,
-  findCodexLog,
   nn,
   readCodexUsage,
   readLines,
+  resolveSessionTranscript,
   type Totals,
 } from "./log-usage.js";
 import { readAppendedLines, readTailLines } from "./channel-cost-cache.js";
@@ -71,11 +70,7 @@ export async function resolveSessionLogPath(s: SessionRow): Promise<{ path: stri
   let snap = pe?.path ? await statFile(pe.path) : null;
   const negativeExpired = pe && pe.path === null && Date.now() - pe.resolvedAt > NEGATIVE_TTL_MS;
   if (!pe || negativeExpired || (pe.path !== null && snap === null)) {
-    const resolved = s.provider === "claude-code"
-      ? await findClaudeLog(s)
-      : s.provider === "codex-cli"
-        ? await findCodexLog(s)
-        : null;
+    const resolved = await resolveSessionTranscript(s);
     pe = { path: resolved, resolvedAt: Date.now() };
     pathCache.set(s.id, pe);
     capMap(pathCache);

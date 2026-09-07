@@ -2,9 +2,10 @@
  * readSessionWindowedTotals の memo 化ラッパ (SessionWindowReader 互換)。
  *
  * /v1/cost/overview と Discord モニターは直近 7 日の全セッションについて
- * 「ログパス解決 (findClaudeLog / findCodexLog) → JSONL 全行読み → 窓集計」 を
- * 同期実行していた。 findCodexLog は ~/.codex/sessions ツリー全体を walk して
- * 各 JSONL の先頭を読むため、 セッション数 × ファイル数で O(n²) 級の同期 I/O に
+ * 「ログパス解決 → JSONL 全行読み → 窓集計」 を同期実行していた。 当時のパス解決は
+ * ~/.codex/sessions ツリー全体を走査して各 JSONL の先頭を読んでおり (2026-09-07 に
+ * 権威 transcript のみを見る resolveSessionTranscript へ置換)、
+ * セッション数 × ファイル数で O(n²) 級の同期 I/O に
  * なり、 実測で 1 リクエスト 26 秒 = **その間 Node のイベントループが止まり
  * 全 API (gate / inject / chat) が巻き添えで停止** していた ("API が重い" の主因)。
  *
@@ -22,7 +23,10 @@
 
 import { stat } from "node:fs/promises";
 import type { SessionRow } from "../shared/types.js";
-import { findClaudeLog, findCodexLog, readLines } from "./log-usage.js";
+import {
+  readLines,
+  resolveSessionTranscript,
+} from "./log-usage.js";
 import {
   accumulateClaudeUsageWindows,
   accumulateCodexUsageWindows,
@@ -89,11 +93,7 @@ export function makeCachedSessionWindowReader(deps?: {
 }): SessionWindowReader {
   const resolveLogPath =
     deps?.resolveLogPath ??
-    (async (s: SessionRow): Promise<string | null> => {
-      if (s.provider === "claude-code") return findClaudeLog(s);
-      if (s.provider === "codex-cli") return findCodexLog(s);
-      return null;
-    });
+    ((s: SessionRow): Promise<string | null> => resolveSessionTranscript(s));
   const statFile =
     deps?.statFile ??
     (async (path: string): Promise<{ mtimeMs: number; size: number } | null> => {

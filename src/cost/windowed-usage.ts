@@ -16,7 +16,11 @@
  */
 
 import type { SessionRow } from "../shared/types.js";
-import { findClaudeLog, findCodexLog, readLines, nn } from "./log-usage.js";
+import {
+  nn,
+  readLines,
+  resolveSessionTranscript,
+} from "./log-usage.js";
 
 /** 集計したい時刻ウィンドウ。 startSec/endSec は epoch 秒、 [start, end) 半開区間。 */
 export interface UsageWindow {
@@ -53,15 +57,14 @@ function emptyResult(windows: UsageWindow[]): Record<string, number> {
 /** セッション 1 本のログを読み、 各ウィンドウ内の消費トークンを返す。 */
 export async function readSessionWindowedTotals(s: SessionRow, windows: UsageWindow[]): Promise<Record<string, number>> {
   if (windows.length === 0) return emptyResult(windows);
-  if (s.provider === "claude-code") {
-    const p = await findClaudeLog(s);
-    return p ? accumulateClaudeUsageWindows(await readLines(p), windows) : emptyResult(windows);
-  }
-  if (s.provider === "codex-cli") {
-    const p = await findCodexLog(s);
-    return p ? accumulateCodexUsageWindows(await readLines(p), windows) : emptyResult(windows);
-  }
-  return emptyResult(windows);
+  const accumulate =
+    s.provider === "claude-code" ? accumulateClaudeUsageWindows
+    : s.provider === "codex-cli" ? accumulateCodexUsageWindows
+    : null;
+  if (!accumulate) return emptyResult(windows);
+  // 権威 transcript が報告されていなければ推定不能 (resolveSessionTranscript の注記)。
+  const p = await resolveSessionTranscript(s);
+  return p ? accumulate(await readLines(p), windows) : emptyResult(windows);
 }
 
 /**

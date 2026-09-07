@@ -17,11 +17,10 @@
 
 import type { SessionRow } from "../shared/types.js";
 import {
-  findClaudeLog,
-  findCodexLog,
+  nn,
   readLines,
   readSessionUsage,
-  nn,
+  resolveSessionTranscript,
   type UsageFrameSource,
 } from "./log-usage.js";
 import {
@@ -126,12 +125,12 @@ export async function estimateSessionCostUsd(
   frames?: UsageFrameSource,
 ): Promise<SessionCostEstimate | null> {
   if (s.provider === "claude-code") {
-    const p = await findClaudeLog(s);
+    const p = await resolveSessionTranscript(s);
     if (!p) return null;
     return readClaudeCost(p);
   }
   if (s.provider === "codex-cli") {
-    const p = await findCodexLog(s);
+    const p = await resolveSessionTranscript(s);
     if (!p) return null;
     const totals = await readSessionUsage(s);
     if (!totals) return { usd: 0, pricedTokens: 0, unpricedTokens: 0, models: [] };

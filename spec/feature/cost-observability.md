@@ -53,6 +53,23 @@ reader で読む。`samples` は `cost_usage_samples` の累積値の正の差�
   合算する。frame ソース (`UsageFrameSource`) を渡されない呼び出しでは「計測不能」= `null`。
 - 上記以外 (`gemini-cli` / `local-llm` / `unknown`): 未計測 (`null`)。
 
+### セッション ↔ transcript の対応付け
+
+JSONL を読む provider (`claude-code` / `codex-cli`) では、どのファイルがそのセッションの
+ものかを `resolveSessionTranscript` (`src/cost/log-usage.ts`) が唯一の経路として決める。
+判定材料は **Lictor が報告した `transcript_path` だけ**で、開始時刻の近さ・cwd 一致・
+mtime といった推測は行わず、フォールバックも持たない。報告値は登録 API 由来なので、
+provider の正本ルート (`~/.claude/projects` / `~/.codex/sessions`) 配下に symlink 解決後の
+実体があるものだけを受け付ける (`resolveTrustedTranscriptPath`)。
+
+報告が無い / 正本ルート外を指す場合は `null` = 推定不能とし、他セッションのログで
+埋め合わせない。推測を残していた頃は排他が無いため複数セッションが同一ファイルを掴み、
+コンテキスト占有が他人の値になっていた (2026-09-07 実測で claude-code 148 本中 18 本が
+誤り。詳細は
+[problem log](../plan/problem_logs/2026-09-07-context-estimate-transcript-misattribution.md))。
+context 推定 (`context-estimate`) と cost 系 cache (`session-cost` / `session-usage-cache` /
+`windowed-usage` / `windowed-usage-cache` / `channel-cost-cache`) は全てこの関数を通す。
+
 ### rate-limit の表示と通知
 
 - Codex のコストチャンネル表示は週間枠の残量とリセット時刻だけを出す。互換用の 5H

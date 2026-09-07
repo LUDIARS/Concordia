@@ -23,6 +23,9 @@
       "pathPattern": "(^|/)src/runtime/build-freshness(\\.test)?\\.ts$"
     },
     {
+      "pathPattern": "(^|/)src/shared/worker-lease(\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/modules(?:/.*)?$"
     }
   ],
@@ -33,6 +36,8 @@
     "spec/feature/delegation.md#メール監視-parttimer",
     "spec/feature/delegation-spawn-target-validation.md",
     "spec/feature/build-freshness.md#spec-concordia-build-freshness",
+    "spec/feature/worker-leases.md",
+    "spec/feature/delegation-coordination.md#6-並列タスク--実行キュー",
     "spec/feature/module-manifest.md#1-manifest",
     "spec/feature/module-manifest.md#2-api"
   ]

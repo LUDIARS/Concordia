@@ -12,7 +12,7 @@ tags:
   - budget
   - api
 status: implemented
-updated: 2026-09-05
+updated: 2026-09-07
 ---
 
 # Session cost observability
@@ -79,6 +79,11 @@ context 推定 (`context-estimate`) と cost 系 cache (`session-cost` / `sessio
 - Discord の活動チャンネルには scoped 週間枠が 80% 以上になった時点で通知する。同じ
   リセット時刻では 1 回だけ通知し、リセット時刻が不明な場合はローカル日付を通知単位にする。
   Discord への送信が失敗した場合は通知済みにせず、次回更新で再試行する。
+- 5H 利用率通知も送信成功後にだけ通知済みを記録する。同じ通知キーの同時送信は 1 つの
+  in-flight request に集約し、失敗した request は次回更新で再試行できる (`UX-CC-W4`, `CC-INV-06`)。
+- cost status message の fetch/edit と活動通知は別の失敗境界にする。既存 message を作り直すのは
+  Discord が `Unknown Message` を返した場合だけで、活動通知や一時的な fetch/edit 障害から
+  status message を重複作成しない。
 
 `codex-sdk` の frame ソースは session 終了時のレポート生成経路 (`runSessionEndFlow` →
 `generateReport` の `usageFrames`) にのみ配線済み — `DELETE /v1/sessions/:id` と

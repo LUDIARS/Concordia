@@ -15,6 +15,12 @@ import { normalizeRepoOrigin } from "../pr/normalize.js";
 import type { GithubGateway } from "./gh-cli.js";
 import { isReviewPassed, publishReviewedBranch, type PublishDeps } from "./publish.js";
 import { failedComment, sanitizeGithubPublicText, skippedComment } from "./text.js";
+import {
+  ISSUE_DISPATCH_RECOVERY_GRACE_MS,
+  isMatchingLegacyDelegation,
+  issueDelegationTrigger,
+  legacyIssueDelegationTrigger,
+} from "./dispatch-state.js";
 
 // 審査通過の判定は publish 側が正本 (公開の入口で同じ規則を再確認するため)。
 // 既存の import 元を変えないよう、ここから再輸出する。
@@ -22,7 +28,7 @@ export { isReviewPassed };
 
 export type RunTransition =
   | { kind: "wait" }
-  | { kind: "mark"; status: GithubIssueRunStatus; detail: string | null; localPrId?: string; notify?: "skipped" | "failed" }
+  | { kind: "mark"; status: GithubIssueRunStatus; detail: string | null; delegationRunId?: string; localPrId?: string; notify?: "skipped" | "failed" }
   | { kind: "publish" };
 
 export interface TransitionInput {
@@ -32,10 +38,58 @@ export interface TransitionInput {
   delegationError: string | null;
   /** run のブランチに対応する Revisor local PR。 未提出なら null。 */
   localPr: RevisorLocalPrSummary | null;
+  correlatedDelegation?: DelegationRunRow | null;
+  now?: number;
 }
 
 export function decideRunTransition(input: TransitionInput): RunTransition {
   const { run, localPr } = input;
+  if (run.status === "queued") {
+    if (input.correlatedDelegation) {
+      return {
+        kind: "mark",
+        status: "running",
+        detail: null,
+        delegationRunId: input.correlatedDelegation.id,
+      };
+    }
+    if ((input.now ?? Date.now()) - run.updated_at < ISSUE_DISPATCH_RECOVERY_GRACE_MS) {
+      return { kind: "wait" };
+    }
+    if (run.issue_body_sha256 === null) {
+      return {
+        kind: "mark",
+        status: "dispatch_unknown",
+        detail: "旧バージョンの委託起動結果が不明です。重複起動を避けて照合を継続します",
+        notify: "failed",
+      };
+    }
+    return {
+      kind: "mark",
+      status: "failed",
+      detail: "Issue 本文の永続化を確認できないまま復旧期限を超えました。自動起動しません",
+      notify: "failed",
+    };
+  }
+  if (run.status === "dispatching" || run.status === "dispatch_unknown") {
+    if (input.correlatedDelegation) {
+      return {
+        kind: "mark",
+        status: "running",
+        detail: null,
+        delegationRunId: input.correlatedDelegation.id,
+      };
+    }
+    if (run.status === "dispatching" && (input.now ?? Date.now()) - run.updated_at >= ISSUE_DISPATCH_RECOVERY_GRACE_MS) {
+      return {
+        kind: "mark",
+        status: "dispatch_unknown",
+        detail: "委託起動の結果が不明です。重複起動を避けて照合を継続します",
+        notify: "failed",
+      };
+    }
+    return { kind: "wait" };
+  }
   if (run.status === "running") {
     if (localPr) return { kind: "mark", status: "pr_submitted", detail: null, localPrId: localPr.id };
     if (input.delegationStatus === "failed" || input.delegationStatus === "spawn_failed") {
@@ -95,6 +149,7 @@ export interface TrackerDeps extends PublishDeps {
   runs: GithubIssueRunsRepo;
   github: GithubGateway;
   findDelegationRun: (id: string) => DelegationRunRow | null;
+  findDelegationRunByTriggeredBy: (triggeredBy: string) => DelegationRunRow | null;
   listLocalPrs: () => Promise<RevisorLocalPrSummary[]>;
 }
 
@@ -117,6 +172,33 @@ export function findLocalPrForRun(
 
 /** 進行中の run を 1 巡させる。 例外は run 単位で閉じ、 他の run を巻き添えにしない。 */
 async function advanceIssueRunsOnce(deps: TrackerDeps): Promise<void> {
+  // Dispatch recovery uses only local SQLite correlation. A Revisor outage must not delay
+  // binding a child id or surfacing an unknown launch outcome.
+  const dispatching = deps.runs.list({
+    statuses: ["queued", "dispatching", "dispatch_unknown"],
+    limit: 200,
+  });
+  for (const run of dispatching) {
+    const needsCorrelation = run.status === "dispatching" || run.status === "dispatch_unknown"
+      || (run.status === "queued" && run.issue_body_sha256 === null);
+    const foundDelegation = needsCorrelation
+      ? deps.findDelegationRunByTriggeredBy(
+        run.issue_body_sha256 === null ? legacyIssueDelegationTrigger(run) : issueDelegationTrigger(run),
+      )
+      : null;
+    const correlatedDelegation = foundDelegation && run.issue_body_sha256 === null
+      ? (isMatchingLegacyDelegation(run, foundDelegation) ? foundDelegation : null)
+      : foundDelegation;
+    const transition = decideRunTransition({
+      run,
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation,
+    });
+    await applyMarkTransition(deps, run, transition);
+  }
+
   const active = deps.runs.list({ statuses: ["running", "pr_submitted", "review_passed"], limit: 200 });
   if (active.length === 0) return;
   const localPrs = await deps.listLocalPrs();
@@ -131,35 +213,44 @@ async function advanceIssueRunsOnce(deps: TrackerDeps): Promise<void> {
       localPr,
     });
     if (transition.kind === "wait") continue;
-
     if (transition.kind === "mark") {
-      const detail = transition.detail === null ? null : sanitizeGithubPublicText(transition.detail);
-      const updated = deps.runs.update(run.id, {
-        status: transition.status,
-        detail,
-        ...(transition.localPrId ? { localPrId: transition.localPrId } : {}),
-      }) ?? run;
-      if (transition.notify) {
-        const body = transition.notify === "skipped"
-          ? skippedComment(detail ?? "")
-          : failedComment(detail ?? "");
-        await deps.github.commentOnIssue(updated.repo_origin, updated.issue_number, body)
-          .catch((error: unknown) => {
-            deps.log?.("github_issue_comment_failed", {
-              run_id: run.id,
-              error_type: error instanceof Error ? error.name : typeof error,
-            });
-          });
-      }
+      await applyMarkTransition(deps, run, transition);
       continue;
     }
 
-    const passed = deps.runs.update(run.id, {
+    const passed = deps.runs.updateIfStatus(run.id, run.status, {
       status: "review_passed",
       ...(localPr ? { localPrId: localPr.id } : {}),
-    }) ?? run;
+    });
+    if (!passed) continue;
     await publishReviewedBranch(deps, passed, localPr);
   }
+}
+
+async function applyMarkTransition(
+  deps: TrackerDeps,
+  run: GithubIssueRunRow,
+  transition: RunTransition,
+): Promise<void> {
+  if (transition.kind !== "mark") return;
+  const detail = transition.detail === null ? null : sanitizeGithubPublicText(transition.detail);
+  const updated = deps.runs.updateIfStatus(run.id, run.status, {
+    status: transition.status,
+    detail,
+    ...(transition.delegationRunId ? { delegationRunId: transition.delegationRunId } : {}),
+    ...(transition.localPrId ? { localPrId: transition.localPrId } : {}),
+  });
+  if (!updated || !transition.notify) return;
+  const body = transition.notify === "skipped"
+    ? skippedComment(detail ?? "")
+    : failedComment(detail ?? "");
+  await deps.github.commentOnIssue(updated.repo_origin, updated.issue_number, body)
+    .catch((error: unknown) => {
+      deps.log?.("github_issue_comment_failed", {
+        run_id: run.id,
+        error_type: error instanceof Error ? error.name : typeof error,
+      });
+    });
 }
 
 export function advanceIssueRuns(deps: TrackerDeps): Promise<void> {

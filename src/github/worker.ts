@@ -12,7 +12,7 @@ import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 import type { GithubWorkflowConfig } from "./config.js";
-import { dispatchIssueTrigger, type GithubDispatchDeps } from "./dispatch.js";
+import { dispatchIssueTrigger, dispatchReadyIssueRuns, type GithubDispatchDeps } from "./dispatch.js";
 import { sameLabel } from "./issue-event.js";
 import { advanceIssueRuns, type TrackerDeps } from "./tracker.js";
 
@@ -62,7 +62,8 @@ export async function pollLabeledIssues(
       scanned += 1;
       const matched = issue.labels.find((name) => sameLabel(name, label));
       if (!matched) continue;
-      if (deps.runs.findByIssue(repoOrigin, issue.number, matched)) continue;
+      const existing = deps.runs.findByIssue(repoOrigin, issue.number, matched);
+      if (existing && existing.status !== "queued") continue;
       // Issue author を labeler の代わりにすると、第三者が trusted user の Issue へ後から
       // ラベルを付けるだけで認可を迂回できる。event 履歴から labeler を確定できない場合は
       // dispatch せず、webhook または次回 poll を待つ (fail-closed)。
@@ -101,6 +102,7 @@ export function startGithubIssueWorker(deps: GithubIssueWorkerDeps): GithubIssue
   const log = deps.logger ?? { info: () => {}, warn: () => {} };
 
   const trackOnce = async (): Promise<void> => {
+    await dispatchReadyIssueRuns(deps.dispatch);
     await advanceIssueRuns(deps);
   };
   const pollOnce = (): Promise<{ scanned: number; dispatched: number }> => pollLabeledIssues(deps);

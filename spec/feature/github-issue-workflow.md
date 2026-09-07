@@ -4,7 +4,7 @@ title: "GitHub Issue ワークフロー — Cc ラベル起点の対応 → 審�
 service: concordia
 domain: github-issue-workflow
 status: implemented
-updated: 2026-09-06
+updated: 2026-09-07
 ---
 
 # GitHub Issue ワークフロー
@@ -21,8 +21,9 @@ Revisor local PR の審査を通ってから GitHub PR を作り、Issue に PR 
 GitHub issues イベント (webhook / 取りこぼし用ポーリング)
   → ingress   署名検証 + delivery 重複排除
   → 認可      opt-in プロジェクト + 信頼できるラベル付け実行者
-  → run 作成  github_issue_runs (queued) + Issue に受付コメント
-  → 委託      delegation invoke `github-issue-fix` (running)
+  → run 作成  github_issue_runs (queued) に承認対象本文の SHA-256 を同時保存
+  → 入力確定  保存本文を hash 検証して ready (未信頼 actor は awaiting_approval)
+  → 委託      dispatching を永続化してから delegation invoke `github-issue-fix` (running)
   → 実装      依頼の実現 → Revisor local PR 提出 (branch = cc-issue-<番号>-<slug>)
   → 追跡      local PR が status=open かつ checkStatus=test_ok → review_passed
   → 公開      revisor push → gh pr create → Issue へ PR リンクをコメント (published)
@@ -46,6 +47,11 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 - **PR 経路は Revisor local PR が先**。審査 (`checkStatus=test_ok`) を通っていない変更を
   GitHub PR にしない。GitHub PR は審査済みブランチの公開でしかない。
 - **1 Issue 1 run**。`(repo_origin, issue_number, label)` で一意。再実行は明示 retry のみ。
+- **受付済み入力と委託結果を失わない** (`UX-CC-W2`, `UX-CC-W5`, `CC-INV-03`,
+  `CC-INV-04`)。run の作成時に正規化した Issue 本文の SHA-256 を同じ行へ保存し、承認・再起動後も
+  その hash と一致する保存本文だけを使う。`ready → dispatching` を invoke より先に永続化し、
+  委託 run は Issue run ID を含む一意な correlation key で再照合する。invoke の成否が確定できない
+  障害は `dispatch_unknown` として可視化し、自動で再委託しない。
 - **発火は 3 段すべてを満たしたときだけ**。1 段でも判定できなければ発火しない (fail-closed)。
   1. webhook は `X-Hub-Signature-256` の HMAC-SHA256 を timing-safe 比較で検証する。
      鍵は **payload が名乗った repo 専用の secret** (無ければ共通 secret)。どちらも未設定なら
@@ -68,14 +74,27 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 
 | status | 意味 | 次 |
 |---|---|---|
-| `awaiting_approval` | 起票者もラベル付与者も信頼実行者でない。承認待ちで止めた | `queued` (承認処理を確保) / `skipped` (却下) |
-| `queued` | 発火条件を満たし run を作った | `running` / `failed` |
+| `awaiting_approval` | 起票者もラベル付与者も信頼実行者でない。保存済み本文の承認待ち | `ready` / `skipped` |
+| `queued` | run と本文 hash を永続化済み。保存本文の検証・認可確定待ち | `awaiting_approval` / `ready` / `failed` |
+| `ready` | 保存本文を検証済みで委託開始前 | `dispatching` / `failed` |
+| `dispatching` | 委託開始を確保済み。invoke 結果または correlation の確定待ち | `running` / `dispatch_unknown` / `failed` |
+| `dispatch_unknown` | invoke 後の障害などで委託結果を確定できない。自動再委託を禁止 | `running` (後から delegation run を照合できた場合) |
 | `running` | 委託を invoke した | `pr_submitted` / `skipped` / `failed` |
 | `pr_submitted` | 指定ブランチの local PR を検出した | `review_passed` / `failed` |
 | `review_passed` | 審査通過 (open かつ test_ok) | `published` / `failed` |
 | `published` | GitHub PR を作り Issue にリンクを付けた | 終端 |
 | `skipped` | リポジトリの変更では対応できない等、変更しない判断 | 終端 |
 | `failed` | 委託失敗・審査 failed・公開失敗 | 終端 (retry 可) |
+
+追跡時に検証済み本文のある `queued` を再開し、ポーリングでも `queued` の同一配送を再処理する。
+本文を確定できないまま5分経過した新しい run は `failed` として可視化する。migration 96 より
+前の本文 hash のない `queued` は invoke 済みの可能性があるため例外とし、`running` への照合
+または `dispatch_unknown` へ進める。旧相関キーを使う場合は、委託の作成時刻・Issue・対象 repo・
+branch の一致も要求し、過去の retry に対応する委託を結び付けない。
+
+`dispatching` は5分経過しても相関できなければ `dispatch_unknown` になる。結果不明は終端では
+なく、retry API は拒否する。後から委託が記録されれば照合を続ける。照合は local PR 一覧の
+取得より先に行うため、Revisor の応答障害が起動結果の復旧を妨げない。
 
 ## 操作面
 

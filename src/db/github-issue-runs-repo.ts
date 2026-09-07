@@ -13,6 +13,9 @@ import type { Database } from "better-sqlite3";
 /** @implements spec/feature/github-issue-workflow.md — 状態 */
 export const GITHUB_ISSUE_RUN_STATUSES = [
   "queued",
+  "ready",
+  "dispatching",
+  "dispatch_unknown",
   "awaiting_approval",
   "running",
   "pr_submitted",
@@ -40,6 +43,7 @@ export interface GithubIssueRunRow {
   label: string;
   actor: string;
   issue_author: string;
+  issue_body_sha256: string | null;
   project_code: string | null;
   repo_path: string;
   branch: string;
@@ -55,6 +59,8 @@ export interface GithubIssueRunRow {
 export interface GithubIssueRunCreate {
   /** 起票者。 実行者 (ラベルを付けた人) と別人のことがある。 */
   issueAuthor: string;
+  /** Hash of the exact accepted external body, used to verify crash recovery without storing it in SQLite. */
+  issueBodySha256?: string | null;
   repoOrigin: string;
   issueNumber: number;
   issueTitle: string;
@@ -145,9 +151,9 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
         db.prepare(`
           INSERT INTO github_issue_runs(
             id, repo_origin, issue_number, issue_title, issue_url, label, actor, issue_author,
-            project_code, repo_path, branch, status, delegation_run_id, local_pr_id,
+            issue_body_sha256, project_code, repo_path, branch, status, delegation_run_id, local_pr_id,
             github_pr_url, detail, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)
         `).run(
           id,
           input.repoOrigin,
@@ -158,6 +164,7 @@ export function makeGithubIssueRunsRepo(db: Database): GithubIssueRunsRepo {
           input.actor,
           // 起票者が読めない payload もありうる。 空文字で残し、 承認画面で「不明」と分かるようにする。
           input.issueAuthor ?? "",
+          input.issueBodySha256 ?? null,
           input.projectCode,
           input.repoPath,
           input.branch,

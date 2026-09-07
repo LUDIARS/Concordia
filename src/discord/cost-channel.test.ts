@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { TextChannel } from "discord.js";
 import type { OAuthUsage } from "../auth/anthropic-oauth-usage.js";
-import { notifyCostActivity } from "./cost-channel.js";
+import { notifyCostActivity, upsertCostChannelMessage } from "./cost-channel.js";
+import type { ChatReadModel } from "../platform/chat-read-model.js";
 
 // 2026-09-03: Fable などモデル別の週間枠は全体枠より先に尽きるので、活動チャンネルにも出す。
 
@@ -22,7 +23,7 @@ function usage(patch: Partial<OAuthUsage> = {}): OAuthUsage {
 
 function harness() {
   const store = new Map<string, string>();
-  const send = vi.fn(async () => undefined);
+  const send = vi.fn(async (): Promise<void> => undefined);
   return {
     channel: { send } as unknown as TextChannel,
     send,
@@ -157,5 +158,105 @@ describe("notifyCostActivity: モデル別週間枠", () => {
     await expect(notifyCostActivity(input)).rejects.toThrow("temporary Discord failure");
     await expect(notifyCostActivity(input)).resolves.toBeUndefined();
     expect(h.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("5H 通知は送信成功後にだけ記録し、失敗後の更新で再試行する", async () => {
+    const h = harness();
+    h.send.mockRejectedValueOnce(new Error("temporary Discord failure"));
+    const input = {
+      activityChannel: h.channel,
+      configGet: h.configGet,
+      configSet: h.configSet,
+      codexRate: { used5h: 90, reset5hAt: 1_700_500_000 },
+      claudeUsage: null,
+    };
+
+    await expect(notifyCostActivity(input)).rejects.toThrow("temporary Discord failure");
+    await expect(notifyCostActivity(input)).resolves.toBeUndefined();
+    expect(h.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("同じ 5H 警告の並行更新を 1 回の送信に畳む", async () => {
+    const h = harness();
+    let release: () => void = () => {};
+    h.send.mockImplementation(() => new Promise<void>((resolve) => { release = resolve; }));
+    const input = {
+      activityChannel: h.channel,
+      configGet: h.configGet,
+      configSet: h.configSet,
+      codexRate: { used5h: 90, reset5hAt: 1_700_500_000 },
+      claudeUsage: null,
+    };
+
+    const first = notifyCostActivity(input);
+    const second = notifyCostActivity(input);
+    await Promise.resolve();
+    expect(h.send).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([first, second]);
+    expect(h.send).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("upsertCostChannelMessage", () => {
+  function readModel(): ChatReadModel {
+    return {
+      getCostSnapshot: async () => ({
+        markdown: "cost body",
+        codexRate: { used5h: 90, reset5hAt: 1_700_500_000 },
+        claudeUsage: null,
+      }),
+    } as unknown as ChatReadModel;
+  }
+
+  it("activity 通知失敗で更新済み cost message を新規作成しない", async () => {
+    const edit = vi.fn(async () => undefined);
+    const costSend = vi.fn(async () => ({ id: "new" }));
+    const channel = {
+      messages: { fetch: vi.fn(async () => ({ edit })) },
+      send: costSend,
+    } as unknown as TextChannel;
+    const activity = {
+      send: vi.fn(async () => { throw new Error("activity unavailable"); }),
+    } as unknown as TextChannel;
+
+    await expect(upsertCostChannelMessage(
+      channel,
+      readModel(),
+      (key) => key === "cost_status_message_id" ? "existing" : null,
+      () => {},
+      activity,
+    )).rejects.toThrow("activity unavailable");
+    expect(edit).toHaveBeenCalledTimes(1);
+    expect(costSend).not.toHaveBeenCalled();
+  });
+
+  it("一時的な fetch 失敗では duplicate cost message を作らない", async () => {
+    const costSend = vi.fn(async () => ({ id: "new" }));
+    const channel = {
+      messages: { fetch: vi.fn(async () => { throw new Error("gateway timeout"); }) },
+      send: costSend,
+    } as unknown as TextChannel;
+
+    await expect(upsertCostChannelMessage(
+      channel,
+      readModel(),
+      () => "existing",
+      () => {},
+    )).rejects.toThrow("gateway timeout");
+    expect(costSend).not.toHaveBeenCalled();
+  });
+
+  it("Discord が既存 message 不在を返した場合だけ新規作成する", async () => {
+    const costSend = vi.fn(async () => ({ id: "replacement" }));
+    const configSet = vi.fn();
+    const channel = {
+      messages: { fetch: vi.fn(async () => { throw { code: 10_008 }; }) },
+      send: costSend,
+    } as unknown as TextChannel;
+
+    await upsertCostChannelMessage(channel, readModel(), () => "missing", configSet);
+    expect(costSend).toHaveBeenCalledTimes(1);
+    expect(configSet).toHaveBeenCalledWith("cost_status_message_id", "replacement");
   });
 });

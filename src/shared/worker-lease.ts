@@ -19,6 +19,16 @@ export const WORKER_LEASE_TTL_MS = 90_000;
 export const WORKER_HEARTBEAT_MS = 30_000;
 export const WORKER_LEASE_CHECK_MS = 15_000;
 
+export type WorkerLeaseLossReason = "replaced" | "expired";
+
+export interface WorkerLeaseHandle {
+  readonly lease: WorkerLease;
+  owns(): boolean;
+  /** Resolves only when ownership is lost unexpectedly. An intentional stop does not resolve it. */
+  readonly lost: Promise<WorkerLeaseLossReason>;
+  stop(): void;
+}
+
 export function readWorkerLease(
   repo: WorkerLeaseRepo,
   opts: {
@@ -67,7 +77,7 @@ export function startWorkerLease(
     ttlMs?: number;
     owner?: string;
   },
-): { lease: WorkerLease; owns(): boolean; stop(): void } {
+): WorkerLeaseHandle {
   const pid = opts.pid ?? process.pid;
   const now = opts.now ?? Date.now;
   const ttlMs = opts.ttlMs ?? WORKER_LEASE_TTL_MS;
@@ -90,33 +100,64 @@ export function startWorkerLease(
   }
   let currentRaw = JSON.stringify(lease);
   let owned = true;
+  let resolveLost: ((reason: WorkerLeaseLossReason) => void) | null = null;
+  const lost = new Promise<WorkerLeaseLossReason>((resolve) => { resolveLost = resolve; });
+  let expiryTimer: NodeJS.Timeout | null = null;
+
+  const loseOwnership = (reason: WorkerLeaseLossReason): void => {
+    if (!owned) return;
+    owned = false;
+    clearInterval(timer);
+    if (expiryTimer) clearTimeout(expiryTimer);
+    expiryTimer = null;
+    resolveLost?.(reason);
+    resolveLost = null;
+  };
+  const armExpiry = (): void => {
+    if (expiryTimer) clearTimeout(expiryTimer);
+    const remainingMs = Math.max(0, lease.expires_at - now());
+    expiryTimer = setTimeout(() => loseOwnership("expired"), remainingMs);
+    expiryTimer.unref?.();
+  };
   const beat = () => {
     if (!owned) return;
     try {
       const ts = now();
+      // Once our last confirmed lease has expired, renewing it would let an old worker
+      // resume after a DB stall while a successor may already be taking ownership.
+      if (ts >= lease.expires_at) {
+        loseOwnership("expired");
+        return;
+      }
       const next = { ...lease, ts, expires_at: ts + ttlMs } satisfies WorkerLease;
       const nextRaw = JSON.stringify(next);
       if (!repo.compareAndSwap(opts.key, currentRaw, nextRaw)) {
-        owned = false;
+        loseOwnership("replaced");
         return;
       }
       lease = next;
       currentRaw = nextRaw;
+      armExpiry();
     } catch {
-      // Keep running; a later heartbeat may succeed.
+      // A transient DB error may recover before the last confirmed expiry. The expiry
+      // timer still fences this worker if heartbeats remain unavailable past the TTL.
     }
   };
   const timer = setInterval(beat, opts.heartbeatMs ?? WORKER_HEARTBEAT_MS);
   timer.unref?.();
+  armExpiry();
   return {
     get lease() { return lease; },
-    owns: () => owned,
+    owns: () => owned && now() < lease.expires_at,
+    lost,
     stop() {
       clearInterval(timer);
+      if (expiryTimer) clearTimeout(expiryTimer);
+      expiryTimer = null;
       if (!owned) return;
+      owned = false;
       try {
         repo.compareAndSwap(opts.key, currentRaw, null);
-        owned = false;
       } catch {
         // Best effort; the TTL will expire stale leases.
       }

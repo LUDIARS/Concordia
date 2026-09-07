@@ -927,6 +927,7 @@ export async function startBackend(): Promise<BackendHandle> {
     baseBranch: () => githubWorkflowConfig.baseBranch(),
     log: (event, detail) => githubLog.info(detail, event),
     findDelegationRun: (id) => delegationRepo.findRun(id),
+    findDelegationRunByTriggeredBy: (triggeredBy) => delegationRepo.findRunByTriggeredBy(triggeredBy),
     listLocalPrs: () => revisorLocalPrs.listLocalPullRequests(),
     dispatch: githubDispatchDeps,
     projects: projectCodesRepo,

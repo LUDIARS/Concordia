@@ -12,6 +12,9 @@
     },
     {
       "pathPattern": "(^|/)src/db/github-(config|issue-runs)-repo(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)web/src/pages/settings/sections/GithubIssueWorkflowSection(\\.test)?\\.tsx$"
     }
   ],
   "cardTemplate": "Summarise the \"github-issue-workflow\" domain: Cc ラベルの Issue を修正 → 審査 → GitHub PR まで回す経路 — webhook の署名検証、発火の認可、run の状態遷移、公開手順。",

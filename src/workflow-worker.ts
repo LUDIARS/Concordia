@@ -87,19 +87,46 @@ async function main(): Promise<void> {
     sessions,
     resolveMaxConcurrency: () => adminState.getDelegationMaxConcurrency(),
     spawnQueued: (run) => service.spawnQueuedRun(run),
+    keepAlive: true,
   });
   service.setQueue(queue);
+
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      try {
+        await queue.stopAndDrain();
+      } finally {
+        lease.stop();
+        closeDb();
+      }
+    })();
+    return shutdownPromise;
+  };
+  let exitRequested = false;
+  const requestExit = (code: number): void => {
+    if (exitRequested) return;
+    exitRequested = true;
+    void shutdown()
+      .catch((error) => log.error({ err: error }, "workflow worker shutdown failed"))
+      .finally(() => process.exit(code));
+  };
+  const exitAfterLeaseLoss = (reason: string): void => {
+    log.error({ reason }, "workflow worker lease lost; stopping consumer");
+    requestExit(1);
+  };
+  void lease.lost.then(exitAfterLeaseLoss);
+  process.once("SIGINT", () => requestExit(0));
+  process.once("SIGTERM", () => requestExit(0));
+  if (!lease.owns()) {
+    await shutdown();
+    throw new Error("workflow worker lease lost during initialization");
+  }
   queue.start();
   await queue.drain();
+  if (exitRequested) return;
   log.info("workflow worker started (delegation queue consumer)");
-
-  const shutdown = async (): Promise<void> => {
-    queue.stop();
-    lease.stop();
-    closeDb();
-  };
-  process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
-  process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
 }
 
 main().catch((error) => {

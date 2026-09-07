@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 95;
+export const SCHEMA_VERSION = 96;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2369,6 +2369,17 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       "CREATE INDEX IF NOT EXISTS idx_discord_pending_questions_parent"
       + " ON discord_pending_questions(parent_session_id, answered_at, escalated_at)",
     );
+  },
+},
+{
+  version: 96,
+  name: "github-issue-body-recovery-correlation",
+  source: "github_issue_runs.issue_body_sha256 — queued run recovery must prove the accepted Issue body (spec/feature/github-issue-workflow.md)",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(github_issue_runs)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "issue_body_sha256")) {
+      db.exec("ALTER TABLE github_issue_runs ADD COLUMN issue_body_sha256 TEXT");
+    }
   },
 },
 ];

@@ -376,23 +376,58 @@ async function main(): Promise<void> {
     };
   })() : undefined;
 
-  const discordBot: DiscordBotHandle | null = await startDiscordBot({ ...discordDeps, desk: deskRuntime });
-  const slackBot = await startSlackBot(slackDeps);
-  await subsidiaryManager.startAll();
-  log.info("chat worker started (SQLite read-model; async WS events)");
-
-  const shutdown = async (): Promise<void> => {
-    clearInterval(reconcileTimer);
-    mutationOutbox.stop();
-    bridge.stop();
-    await subsidiaryManager.stopAll().catch(() => {});
-    if (discordBot) await discordBot.stop().catch(() => {});
-    if (slackBot) await slackBot.stop().catch(() => {});
-    lease.stop();
-    closeDb();
+  let discordBot: DiscordBotHandle | null = null;
+  let slackBot: Awaited<ReturnType<typeof startSlackBot>> | null = null;
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = (async () => {
+      clearInterval(reconcileTimer);
+      mutationOutbox.stop();
+      bridge.stop();
+      await subsidiaryManager.stopAll().catch(() => {});
+      if (discordBot) await discordBot.stop().catch(() => {});
+      if (slackBot) await slackBot.stop().catch(() => {});
+      lease.stop();
+      closeDb();
+    })();
+    return shutdownPromise;
   };
-  process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
-  process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
+  let exitRequested = false;
+  const requestExit = (code: number): void => {
+    if (exitRequested) return;
+    exitRequested = true;
+    void shutdown()
+      .catch((error) => log.error({ err: error }, "chat worker shutdown failed"))
+      .finally(() => process.exit(code));
+  };
+  process.once("SIGINT", () => requestExit(0));
+  process.once("SIGTERM", () => requestExit(0));
+  void lease.lost.then((reason) => {
+    log.error({ reason }, "chat worker lease lost; stopping relays");
+    requestExit(1);
+  });
+
+  const continueInitialization = async (stage: string): Promise<boolean> => {
+    if (!exitRequested && lease.owns()) return true;
+    // shutdown() may already have run while this relay was still starting, in which case it
+    // saw a null handle. Stop whatever finished afterwards so no relay outlives the lease.
+    await shutdown();
+    if (discordBot) { await discordBot.stop().catch(() => {}); discordBot = null; }
+    if (slackBot) { await slackBot.stop().catch(() => {}); slackBot = null; }
+    await subsidiaryManager.stopAll().catch(() => {});
+    if (exitRequested) return false;
+    throw new Error(`chat worker lease lost ${stage}`);
+  };
+
+  if (!await continueInitialization("during initialization")) return;
+  discordBot = await startDiscordBot({ ...discordDeps, desk: deskRuntime });
+  if (!await continueInitialization("while Discord relay was starting")) return;
+  slackBot = await startSlackBot(slackDeps);
+  if (!await continueInitialization("while Slack relay was starting")) return;
+  await subsidiaryManager.startAll();
+  if (!await continueInitialization("while subsidiary relays were starting")) return;
+  log.info("chat worker started (SQLite read-model; async WS events)");
 }
 
 main().catch((error) => {

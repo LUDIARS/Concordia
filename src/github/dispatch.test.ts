@@ -9,7 +9,8 @@ import { makeGithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import type { GithubGateway } from "./gh-cli.js";
 import type { GithubWorkflowConfig } from "./config.js";
-import { dispatchIssueTrigger, issueBodyPath, type GithubDispatchDeps } from "./dispatch.js";
+import { dispatchIssueTrigger, issueBodyPath, startIssueFix, type GithubDispatchDeps } from "./dispatch.js";
+import { issueBodySha256 } from "./dispatch-state.js";
 
 const TRIGGER = {
   repoOrigin: "LUDIARS/Concordia",
@@ -252,6 +253,93 @@ describe("dispatchIssueTrigger", () => {
     expect(runs.findByIssue("LUDIARS/Concordia", 42, "Cc")?.status).toBe("failed");
     expect(github.comments[0].body).not.toContain("unknown call_name");
     expect(github.comments[0].body).toContain("内部 run");
+    db.close();
+  });
+
+  it("recovers a crash before body persistence only from the exact accepted delivery", async () => {
+    const { db, deps, runs, invoked } = await harness();
+    const created = runs.create({
+      repoOrigin: TRIGGER.repoOrigin,
+      issueNumber: TRIGGER.issueNumber,
+      issueTitle: TRIGGER.issueTitle,
+      issueUrl: TRIGGER.issueUrl,
+      label: TRIGGER.label,
+      actor: TRIGGER.actor,
+      issueAuthor: TRIGGER.issueAuthor,
+      issueBodySha256: issueBodySha256(TRIGGER.issueBody),
+      projectCode: "Cc",
+      repoPath: "E:/Document/Ars/Concordia",
+      branch: "cc-issue-42",
+    }, "queued")!;
+
+    const outcome = await dispatchIssueTrigger(deps, TRIGGER);
+
+    expect(outcome.kind).toBe("dispatched");
+    expect(runs.find(created.id)?.delegation_run_id).toBe("deleg-1");
+    expect(invoked).toHaveLength(1);
+    db.close();
+  });
+
+  it("does not overwrite an unverified queued body with a changed delivery", async () => {
+    const { db, deps, runs, invoked } = await harness();
+    const created = runs.create({
+      repoOrigin: TRIGGER.repoOrigin,
+      issueNumber: TRIGGER.issueNumber,
+      issueTitle: TRIGGER.issueTitle,
+      issueUrl: TRIGGER.issueUrl,
+      label: TRIGGER.label,
+      actor: TRIGGER.actor,
+      issueAuthor: TRIGGER.issueAuthor,
+      issueBodySha256: issueBodySha256(TRIGGER.issueBody),
+      projectCode: "Cc",
+      repoPath: "E:/Document/Ars/Concordia",
+      branch: "cc-issue-42",
+    }, "queued")!;
+
+    const outcome = await dispatchIssueTrigger(deps, { ...TRIGGER, issueBody: "edited after acceptance" });
+
+    expect(outcome.kind).toBe("failed");
+    expect(runs.find(created.id)?.status).toBe("failed");
+    expect(invoked).toHaveLength(0);
+    db.close();
+  });
+
+  it("keeps a thrown invoke as non-retriable unknown instead of spawning again", async () => {
+    let attempts = 0;
+    const { db, deps, runs } = await harness({
+      invoke: async () => {
+        attempts += 1;
+        throw new Error("connection closed after request");
+      },
+    });
+
+    expect((await dispatchIssueTrigger(deps, TRIGGER)).kind).toBe("dispatch_unknown");
+    expect(runs.findByIssue(TRIGGER.repoOrigin, TRIGGER.issueNumber, TRIGGER.label)?.status)
+      .toBe("dispatch_unknown");
+    expect((await dispatchIssueTrigger(deps, TRIGGER)).kind).toBe("duplicate");
+    expect(attempts).toBe(1);
+    db.close();
+  });
+
+  it("refuses a ready launch when its persisted body is missing", async () => {
+    const { db, deps, runs, invoked } = await harness();
+    const ready = runs.create({
+      repoOrigin: TRIGGER.repoOrigin,
+      issueNumber: 99,
+      issueTitle: TRIGGER.issueTitle,
+      issueUrl: "https://github.com/LUDIARS/Concordia/issues/99",
+      label: TRIGGER.label,
+      actor: TRIGGER.actor,
+      issueAuthor: TRIGGER.issueAuthor,
+      issueBodySha256: issueBodySha256(TRIGGER.issueBody),
+      projectCode: "Cc",
+      repoPath: "E:/Document/Ars/Concordia",
+      branch: "cc-issue-99",
+    }, "ready")!;
+
+    expect((await startIssueFix(deps, ready, "Concordia")).kind).toBe("failed");
+    expect(runs.find(ready.id)?.status).toBe("failed");
+    expect(invoked).toHaveLength(0);
     db.close();
   });
 });

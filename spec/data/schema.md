@@ -1,7 +1,7 @@
 ---
 type: data
 title: "データスキーマ"
-description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=84、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・project code registry・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
+description: "Concordia の SQLite (better-sqlite3, WAL) スキーマ一覧。SCHEMA_VERSION=96、セッション中核・message layer・chat/tasks・ルールエンジン・Discord/Slack連携・delegation・teams・project code registry・observability の主要テーブルを記載する。権威は src/db/schema.ts。"
 service: concordia
 domain: persistence
 tags:
@@ -17,14 +17,14 @@ status: implemented
 related:
   - ../interface/service-schema.md
   - ../feature/delegation-implementation-inject.md
-updated: 2026-09-04
+updated: 2026-09-07
 ---
 
 
 # データスキーマ
 
 Concordia の SQLite（better-sqlite3, WAL）スキーマ一覧。正本は
-[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 84`、
+[`../../src/db/schema.ts`](../../src/db/schema.ts)（`SCHEMA_VERSION = 96`、
 `STATEMENTS` 配列）。dialect 変換ルール: UUID→text PK / JSONB→text(JSON) /
 BOOLEAN→integer 0,1 / TIMESTAMPTZ→integer(epoch ms) / TEXT[]→text(JSON array)。
 API/機能視点は [`../interface/service-schema.md`](../interface/service-schema.md)。
@@ -116,6 +116,18 @@ Excubitor である。旧 Concordia テーブルは schema v35 の one-shot migr
 | テーブル | 用途 | 主要列 |
 |---|---|---|
 | `project_codes` | Cc が所有する project code と Git repository の対応。初期 seed なし | code PK（case-sensitive）/ project UNIQUE / repo_path UNIQUE / repo_origin UNIQUE / added_by / created_at / updated_at |
+
+## GitHub Issue workflow
+
+| テーブル | 用途 | 主要列 |
+|---|---|---|
+| `github_issue_runs` | Issue 受付から委託・審査・公開までの durable state machine | id / repo_origin / issue_number / label / status / issue_body_sha256 / delegation_run_id / branch / local_pr_id / github_pr_url / detail / created_at / updated_at。UNIQUE(repo_origin, issue_number, label) |
+
+Migration 96 は `issue_body_sha256` を追加する。新しい run は本文ファイルを書き出す前に、その
+正規化本文の SHA-256 を run 行と同じ transaction で保存する。これにより `queued` の再開時と
+承認時に、受理した本文そのものを検証できる。migration 96 より前の hash のない `queued` は
+既に invoke 済みか判別できないため自動再委託せず、相関できなければ `dispatch_unknown` にする。
+本文ファイルのパスは `issueBodyPath` が run から導出し、DB の列には保存しない。
 
 > マイグレーションは番号・名前・SHA-256 checksumを `schema_migrations` に記録する。
 > `src/db/migrator.ts` の単一 migrator が `BEGIN IMMEDIATE` でwriterを直列化し、DDL、冪等ALTER、

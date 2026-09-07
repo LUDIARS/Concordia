@@ -38,6 +38,9 @@ function parseActorDraft(draft: string): string[] {
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "受付",
+  ready: "起動待ち",
+  dispatching: "起動中",
+  dispatch_unknown: "起動結果不明",
   awaiting_approval: "承認待ち",
   running: "修正中",
   pr_submitted: "審査中",

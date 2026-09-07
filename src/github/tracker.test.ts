@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { GithubIssueRunRow, GithubIssueRunsRepo } from "../db/github-issue-runs-repo.js";
 import type { RevisorLocalPrSummary } from "../pr/revisor-local-pr-client.js";
 import type { GithubGateway } from "./gh-cli.js";
+import type { DelegationRunRow } from "../db/delegation-repo.js";
+import { ISSUE_DISPATCH_RECOVERY_GRACE_MS } from "./dispatch-state.js";
 import { advanceIssueRuns, decideRunTransition, findLocalPrForRun, isReviewPassed } from "./tracker.js";
 
 function run(overrides: Partial<GithubIssueRunRow> = {}): GithubIssueRunRow {
@@ -14,6 +16,7 @@ function run(overrides: Partial<GithubIssueRunRow> = {}): GithubIssueRunRow {
     label: "Cc",
     actor: "neco",
     issue_author: "neco",
+    issue_body_sha256: null,
     project_code: "Cc",
     repo_path: "E:/Document/Ars/Concordia",
     branch: "cc-issue-42",
@@ -124,6 +127,43 @@ describe("decideRunTransition", () => {
       localPr: localPr(),
     })).toEqual({ kind: "wait" });
   });
+
+  it("binds a late delegation result to an interrupted dispatch", () => {
+    expect(decideRunTransition({
+      run: run({ status: "dispatch_unknown", delegation_run_id: null }),
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation: { id: "deleg-late" } as DelegationRunRow,
+    })).toMatchObject({ kind: "mark", status: "running", delegationRunId: "deleg-late" });
+  });
+
+  it("surfaces an uncorrelated dispatch after the grace period without making it retriable", () => {
+    expect(decideRunTransition({
+      run: run({
+        status: "dispatching",
+        delegation_run_id: null,
+        issue_body_sha256: "hash",
+        updated_at: 1_000,
+      }),
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation: null,
+      now: 1_000 + ISSUE_DISPATCH_RECOVERY_GRACE_MS,
+    })).toMatchObject({ kind: "mark", status: "dispatch_unknown" });
+  });
+
+  it("treats a legacy queued run as unknown because it may already have invoked", () => {
+    expect(decideRunTransition({
+      run: run({ status: "queued", delegation_run_id: null, updated_at: 1_000 }),
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation: null,
+      now: 1_000 + ISSUE_DISPATCH_RECOVERY_GRACE_MS,
+    })).toMatchObject({ kind: "mark", status: "dispatch_unknown" });
+  });
 });
 
 describe("isReviewPassed", () => {
@@ -168,6 +208,7 @@ describe("advanceIssueRuns", () => {
         ? Object.assign(stored, {
           ...(patch.status !== undefined ? { status: patch.status } : {}),
           ...(patch.localPrId !== undefined ? { local_pr_id: patch.localPrId } : {}),
+          ...(patch.delegationRunId !== undefined ? { delegation_run_id: patch.delegationRunId } : {}),
           ...(patch.githubPrUrl !== undefined ? { github_pr_url: patch.githubPrUrl } : {}),
           ...(patch.detail !== undefined ? { detail: patch.detail } : {}),
         })
@@ -190,6 +231,7 @@ describe("advanceIssueRuns", () => {
       pusher: { push: async () => { pushes += 1; await pushBlocked; } },
       baseBranch: () => "main",
       findDelegationRun: () => null,
+      findDelegationRunByTriggeredBy: () => null,
       listLocalPrs: async () => [localPr()],
     };
 

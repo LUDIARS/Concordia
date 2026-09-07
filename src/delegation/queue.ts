@@ -55,11 +55,14 @@ export interface DelegationQueueDeps {
   now?: () => number;
   /** Producer process uses this to persist every invocation for a separate worker. */
   producerOnly?: () => boolean;
+  /** Standalone workers need the queue timer to keep their process alive. */
+  keepAlive?: boolean;
 }
 
 export class DelegationQueue {
-  private draining = false;
+  private activeDrain: Promise<void> | null = null;
   private timer: NodeJS.Timeout | null = null;
+  private accepting = true;
   private readonly owner = randomUUID();
 
   constructor(private readonly deps: DelegationQueueDeps) {}
@@ -113,46 +116,59 @@ export class DelegationQueue {
 
   /** 空きスロットの分だけ queued run を FIFO で起動する。 多重呼び出しは 1 本に畳む。 */
   async drain(): Promise<void> {
-    if (this.deps.producerOnly?.()) return;
-    if (this.draining) return;
-    this.draining = true;
+    if (!this.accepting || this.deps.producerOnly?.()) return;
+    if (this.activeDrain) return this.activeDrain;
+    // Publish the shared promise before claim/spawn can synchronously emit callbacks that re-enter drain().
+    const active = Promise.resolve().then(() => this.drainAvailable());
+    this.activeDrain = active;
     try {
-      const max = this.maxConcurrency();
-      // このパスで払い出した run は stale 除外を免除して数える (`countOccupiedSlots`)。
-      const claimedHere = new Set<string>();
-      while (true) {
-        const run = this.deps.repo.claimNextQueuedRun({
-          owner: this.owner,
-          now: this.now,
-          leaseMs: QUEUE_CLAIM_LEASE_MS,
-          maxConcurrency: max,
-          // 上限 0 (無制限) のとき claim 側は activeCount を見ないので、 数え直しの
-          // クエリ自体を省く (backlog 全件を流す経路で 1 件ごとに全 active 行を
-          // 読み直さない)。
-          activeCount: max > 0 ? this.countOccupiedSlots(claimedHere) : 0,
-        });
-        if (!run) break;
-        claimedHere.add(run.id);
-        await this.spawn(run);
-      }
+      await active;
     } finally {
-      this.draining = false;
+      if (this.activeDrain === active) this.activeDrain = null;
     }
   }
 
-  /** 定期 drain を開始する (プロセス終了は妨げない)。 */
+  private async drainAvailable(): Promise<void> {
+    const max = this.maxConcurrency();
+    // このパスで払い出した run は stale 除外を免除して数える (`countOccupiedSlots`)。
+    const claimedHere = new Set<string>();
+    while (this.accepting) {
+      const run = this.deps.repo.claimNextQueuedRun({
+        owner: this.owner,
+        now: this.now,
+        leaseMs: QUEUE_CLAIM_LEASE_MS,
+        maxConcurrency: max,
+        // 上限 0 (無制限) のとき claim 側は activeCount を見ないので、 数え直しの
+        // クエリ自体を省く (backlog 全件を流す経路で 1 件ごとに全 active 行を
+        // 読み直さない)。
+        activeCount: max > 0 ? this.countOccupiedSlots(claimedHere) : 0,
+      });
+      if (!run) break;
+      claimedHere.add(run.id);
+      await this.spawn(run);
+    }
+  }
+
+  /** 定期 drain を開始する。既定は unref、standalone worker だけ keepAlive で保持する。 */
   start(): void {
     if (this.timer) return;
+    this.accepting = true;
     this.timer = setInterval(() => {
       void this.drain().catch((e) => log.warn({ err: (e as Error).message }, "queue drain tick failed"));
     }, TICK_MS);
-    this.timer.unref?.();
+    if (!this.deps.keepAlive) this.timer.unref?.();
   }
 
   stop(): void {
-    if (!this.timer) return;
-    clearInterval(this.timer);
+    this.accepting = false;
+    if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** Stop every acquisition path, then wait until the claimed launch has persisted its result. */
+  async stopAndDrain(): Promise<void> {
+    this.stop();
+    await this.activeDrain;
   }
 
   private async spawn(run: DelegationRunRow): Promise<void> {

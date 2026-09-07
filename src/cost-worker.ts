@@ -55,13 +55,35 @@ async function main(): Promise<void> {
     reaperSessionEndGraceSec: cfg.reaperSessionEndGraceSec,
   }, secretBox);
 
-  let lease: ReturnType<typeof startCostWorkerLease> | null = null;
   const runtime = createCostRuntime({
     db,
     sessionsRepo: sessions,
     getDailyTokenBudget: () => adminState.getDailyTokenBudget(),
     log,
   });
+  let lease: ReturnType<typeof startCostWorkerLease> | null = null;
+  let workflowWatch: ReturnType<typeof setInterval> | null = null;
+  let shutdownPromise: Promise<void> | null = null;
+  const shutdown = (): Promise<void> => {
+    if (shutdownPromise) return shutdownPromise;
+    shutdownPromise = Promise.resolve().then(() => {
+      if (workflowWatch) clearInterval(workflowWatch);
+      workflowWatch = null;
+      runtime.stop();
+      lease?.stop();
+      lease = null;
+      closeDb();
+    });
+    return shutdownPromise;
+  };
+  const observeLease = (activeLease: ReturnType<typeof startCostWorkerLease>): void => {
+    void activeLease.lost.then((reason) => {
+      log.error({ reason }, "cost worker lease lost; stopping sampler");
+      return shutdown()
+        .catch((error) => log.error({ err: error }, "cost worker shutdown failed"))
+        .finally(() => process.exit(1));
+    });
+  };
   const syncWorkflow = (): void => {
     if (!adminState.isWorkflowEnabled("cost")) {
       if (runtime.isRunning()) runtime.stop();
@@ -71,7 +93,11 @@ async function main(): Promise<void> {
       }
       return;
     }
-    if (!lease) lease = startCostWorkerLease(configRepo);
+    if (!lease) {
+      lease = startCostWorkerLease(configRepo);
+      observeLease(lease);
+    }
+    if (!lease.owns()) return;
     if (!runtime.isRunning()) runtime.start();
   };
   syncWorkflow();
@@ -81,17 +107,17 @@ async function main(): Promise<void> {
   // ハンドルが無いため、 "cost worker started" を出した直後に exit 0 で正常終了する。
   // 姉妹 worker の chat-worker が unref で成立するのは backend への WebSocket が
   // ハンドルを持つからで、 cost worker には対応するものが無い。
-  const workflowWatch = setInterval(syncWorkflow, 5_000);
+  workflowWatch = setInterval(syncWorkflow, 5_000);
   log.info("cost worker started");
 
-  const shutdown = async () => {
-    clearInterval(workflowWatch);
-    runtime.stop();
-    lease?.stop();
-    closeDb();
-  };
-  process.once("SIGINT", () => { void shutdown().finally(() => process.exit(0)); });
-  process.once("SIGTERM", () => { void shutdown().finally(() => process.exit(0)); });
+  process.once("SIGINT", () => {
+    void shutdown().catch((error) => log.error({ err: error }, "cost worker shutdown failed"))
+      .finally(() => process.exit(0));
+  });
+  process.once("SIGTERM", () => {
+    void shutdown().catch((error) => log.error({ err: error }, "cost worker shutdown failed"))
+      .finally(() => process.exit(0));
+  });
 }
 
 main().catch((err) => {

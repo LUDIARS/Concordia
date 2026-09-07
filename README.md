@@ -20,6 +20,9 @@
 
 ## セットアップ
 
+利用者へ届ける価値と回復シナリオは [プロダクト UX](spec/ux/product.md) を参照。
+今後の実装は [DDD 方針](spec/architecture/ddd.md) と [開発手順](AGENTS.md) に従う。
+
 設定・起動手順は用途別に [`spec/setup/`](spec/setup/) にまとめてある:
 
 - [本体を起動する](spec/setup/core.md) / [Windows で起動する](spec/setup/windows.md) / [Discord bot](spec/setup/discord.md) / [observability](spec/setup/observability.md) / [セッション管制 spawn](spec/setup/spawn.md)

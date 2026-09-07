@@ -19,7 +19,7 @@ related:
   - feature/discord-ui.md
   - feature/task-workflow.md
   - setup/spawn.md
-updated: 2026-07-07
+updated: 2026-09-07
 ---
 
 # Delegation 協働管理 — 親↔子 API + Status/Inject + Discord 挙動
@@ -130,6 +130,9 @@ invoke で **各パラメータをモデル含め上書き可**:
     `launching → spawn_failed`。outbox は結果のCAS更新と同時に `delivered` へ進む。
   - 適用範囲は **全 invoke 経路** (Discord 窓口 / Web UI / 朝スケジューラ / MCP)。
     `spawn:false` (render のみ) はキューを通らない。
+  - worker の終了時は新しい claim と status-event 起点の drain を先に止め、進行中の
+    drain/spawn と結果永続化を待ってから lease と DB を閉じる (`UX-CC-W5`, `CC-INV-07`)。
+    定期 drain の timer は standalone worker を生存させる runtime resource として所有する。
 - **スロットの数え方 (stale 扱い)**: 子が status を報告せずに死ぬと run は `running` のまま
   残る。 これをそのまま数えるとキューが二度と流れないので、 次の run は active から外す:
   - 子セッションが紐付いていて、 そのセッションが既に active でない

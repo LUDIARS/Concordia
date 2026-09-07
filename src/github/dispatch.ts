@@ -19,6 +19,7 @@ import type { IssueModelSelection } from "./issue-model-selection.js";
 import type { GithubWorkflowConfig } from "./config.js";
 import type { GithubGateway } from "./gh-cli.js";
 import { issueBranchName, type GithubIssueTrigger } from "./issue-event.js";
+import { isSameQueuedIssueTrigger, issueBodySha256, issueDelegationTrigger } from "./dispatch-state.js";
 import {
   acceptedComment,
   awaitingApprovalComment,
@@ -51,6 +52,7 @@ export type DispatchOutcome =
   | { kind: "dispatched"; run: GithubIssueRunRow }
   /** 起票者もラベル付与者も信頼実行者ではないので、 人間の承認まで止めた。 */
   | { kind: "awaiting_approval"; run: GithubIssueRunRow }
+  | { kind: "dispatch_unknown"; run: GithubIssueRunRow; detail: string }
   | { kind: "duplicate" }
   | { kind: "rejected"; reason: string; detail: string }
   | { kind: "failed"; run: GithubIssueRunRow; detail: string };
@@ -93,6 +95,27 @@ async function writeIssueBody(
   return path;
 }
 
+function storedIssueBody(content: string): string {
+  const separator = "\n---\n\n";
+  const bodyStart = content.indexOf(separator);
+  return (bodyStart >= 0 ? content.slice(bodyStart + separator.length) : content).trimEnd();
+}
+
+async function hasVerifiedStoredBody(
+  deps: GithubDispatchDeps,
+  run: GithubIssueRunRow,
+): Promise<boolean> {
+  if (!run.issue_body_sha256) return false;
+  try {
+    const bodyDir = deps.issueBodyDir ?? join(process.cwd(), "github-issues");
+    const content = await readFile(issueBodyPath(bodyDir, run), "utf8");
+    return issueBodySha256(storedIssueBody(content)) === run.issue_body_sha256;
+  } catch {
+    // A missing or partial file is recoverable only from an exact matching delivery below.
+    return false;
+  }
+}
+
 /**
  * 保存済みの Issue 本文を読んで起動モデルを決める。 承認経路も webhook 経路も同じ
  * ファイルを見るので、 「人間が見て承認したその本文」の指定がそのまま効く。
@@ -110,11 +133,9 @@ async function resolveIssueModel(
   const log = deps.log ?? (() => {});
   try {
     const stored = await readFile(issueBodyPath(bodyDir, run), "utf8");
-    const separator = "\n---\n\n";
-    const bodyStart = stored.indexOf(separator);
     // 保存ファイルのタイトル・URL・actor は判定材料にしない。外部入力が選べるのは
     // 仕様どおり Issue 本文に明記されたモデル enum だけに限定する。
-    const issueBody = bodyStart >= 0 ? stored.slice(bodyStart + separator.length).trimEnd() : stored;
+    const issueBody = storedIssueBody(stored);
     return await deps.selectModel({ issueBody });
   } catch (error) {
     log("github_issue_model_select_failed", {
@@ -135,8 +156,15 @@ export async function startIssueFix(
   run: GithubIssueRunRow,
   projectName: string | null,
 ): Promise<DispatchOutcome> {
+  if (run.status !== "ready") return { kind: "duplicate" };
   const log = deps.log ?? (() => {});
   const bodyDir = deps.issueBodyDir ?? join(process.cwd(), "github-issues");
+  if (!await hasVerifiedStoredBody(deps, run)) {
+    const detail = "保存済み Issue 本文の完全性を確認できないため、委託を起動しません";
+    const failed = deps.runs.updateIfStatus(run.id, "ready", { status: "failed", detail }) ?? run;
+    log("github_issue_body_verification_failed", { run_id: run.id });
+    return { kind: "failed", run: failed, detail };
+  }
   const model = await resolveIssueModel(deps, run, bodyDir);
   if (model) {
     log("github_issue_model_selected", {
@@ -147,6 +175,8 @@ export async function startIssueFix(
       reason: model.reason,
     });
   }
+  const claimed = deps.runs.updateIfStatus(run.id, "ready", { status: "dispatching", detail: null });
+  if (!claimed) return { kind: "duplicate" };
   try {
     const result = await deps.invoke({
       call_name: deps.config.fixCallName(),
@@ -163,16 +193,26 @@ export async function startIssueFix(
       branch: run.branch,
       worktree: true,
       project: projectName,
-      triggered_by: `github-issue:${run.repo_origin}#${run.issue_number}`,
+      triggered_by: issueDelegationTrigger(run),
       // モデルを決められた run だけ上書きする。 決められなかった run は
       // テンプレ既定 (provider の CLI 既定) のまま起動する。
       ...(model
         ? { overrides: { provider: model.provider, model: model.model, reasoning_effort: model.effort } }
         : {}),
     });
-    if (!result.ok) throw new Error(result.error);
+    if (!result.ok) {
+      const detail = sanitizeGithubPublicText(result.error);
+      const failed = deps.runs.updateIfStatus(run.id, "dispatching", { status: "failed", detail }) ?? run;
+      log("github_issue_dispatch_failed", { run_id: run.id, error_type: "known_invoke_failure" });
+      await deps.github.commentOnIssue(
+        run.repo_origin,
+        run.issue_number,
+        failedComment("修正の委託を起動できませんでした。詳細は Concordia の内部 run を確認してください"),
+      ).catch(() => {});
+      return { kind: "failed", run: failed, detail };
+    }
 
-    const updated = deps.runs.update(run.id, {
+    const updated = deps.runs.updateIfStatus(run.id, "dispatching", {
       status: "running",
       delegationRunId: result.run.id,
       detail: null,
@@ -194,18 +234,60 @@ export async function startIssueFix(
     return { kind: "dispatched", run: updated };
   } catch (error) {
     const detail = sanitizeGithubPublicText(error instanceof Error ? error.message : String(error));
-    const failed = deps.runs.update(run.id, { status: "failed", detail }) ?? run;
-    log("github_issue_dispatch_failed", {
+    // A thrown invoke may have spawned a child without returning its DB id. Keep this state
+    // non-retriable until the tracker can reconcile the stable triggered_by correlation.
+    const unknown = deps.runs.updateIfStatus(run.id, "dispatching", {
+      status: "dispatch_unknown",
+      detail: `委託起動の結果が不明です。自動再実行せず照合を継続します: ${detail}`,
+    }) ?? run;
+    log("github_issue_dispatch_unknown", {
       run_id: run.id,
       error_type: error instanceof Error ? error.name : typeof error,
     });
     await deps.github.commentOnIssue(
       run.repo_origin,
       run.issue_number,
-      failedComment("修正の委託を起動できませんでした。詳細は Concordia の内部 run を確認してください"),
+      failedComment("修正の委託起動結果を確認できません。重複起動を避けるため自動再実行せず、Concordia 内部で照合を続けます"),
     ).catch(() => {});
+    return { kind: "dispatch_unknown", run: unknown, detail: unknown.detail ?? detail };
+  }
+}
+
+async function prepareQueuedRun(
+  deps: GithubDispatchDeps,
+  run: GithubIssueRunRow,
+  trigger: GithubIssueTrigger,
+  approvalNeeded: boolean,
+  approvalDetail: string | null,
+): Promise<DispatchOutcome | GithubIssueRunRow> {
+  const bodyDir = deps.issueBodyDir ?? join(process.cwd(), "github-issues");
+  let verified = await hasVerifiedStoredBody(deps, run);
+  if (!verified && isSameQueuedIssueTrigger(run, trigger)) {
+    try {
+      await writeIssueBody(bodyDir, run, trigger.issueBody);
+      verified = true;
+    } catch (error) {
+      const detail = sanitizeGithubPublicText(error instanceof Error ? error.message : String(error));
+      const failed = deps.runs.updateIfStatus(run.id, "queued", { status: "failed", detail }) ?? run;
+      deps.log?.("github_issue_body_write_failed", {
+        run_id: run.id,
+        error_type: error instanceof Error ? error.name : typeof error,
+      });
+      return { kind: "failed", run: failed, detail };
+    }
+  }
+  if (!verified) {
+    const detail = "保存済み Issue 本文を検証できず、同一本文の配送も確認できません。自動起動しません";
+    const failed = deps.runs.updateIfStatus(run.id, "queued", { status: "failed", detail }) ?? run;
+    deps.log?.("github_issue_body_recovery_failed", { run_id: run.id });
     return { kind: "failed", run: failed, detail };
   }
+
+  const next = deps.runs.updateIfStatus(run.id, "queued", {
+    status: approvalNeeded ? "awaiting_approval" : "ready",
+    detail: approvalNeeded ? approvalDetail : null,
+  });
+  return next ?? deps.runs.find(run.id) ?? run;
 }
 
 export async function dispatchIssueTrigger(
@@ -213,7 +295,7 @@ export async function dispatchIssueTrigger(
   trigger: GithubIssueTrigger,
 ): Promise<DispatchOutcome> {
   const log = deps.log ?? (() => {});
-  const verdict = authorizeIssueTrigger({
+  let verdict = authorizeIssueTrigger({
     projects: deps.projects.list(),
     repoOrigin: trigger.repoOrigin,
     actor: trigger.actor,
@@ -240,8 +322,8 @@ export async function dispatchIssueTrigger(
     });
   }
 
-  const approvalNeeded = verdict.kind === "needs_approval";
-  const run = deps.runs.create({
+  let approvalNeeded = verdict.kind === "needs_approval";
+  let run = deps.runs.create({
     repoOrigin: trigger.repoOrigin,
     issueNumber: trigger.issueNumber,
     issueTitle: trigger.issueTitle,
@@ -249,29 +331,50 @@ export async function dispatchIssueTrigger(
     label: trigger.label,
     actor: trigger.actor,
     issueAuthor: trigger.issueAuthor,
+    issueBodySha256: issueBodySha256(trigger.issueBody),
     projectCode: verdict.project.code,
     repoPath: verdict.project.repo_path,
     branch: issueBranchName(trigger.issueNumber, trigger.issueTitle),
-  }, approvalNeeded ? "awaiting_approval" : "queued");
-  if (!run) return { kind: "duplicate" };
-
-  // 本文は承認を待つ間も保存する。 承認したときに GitHub を引き直さず、
-  // 「人間が見て承認したその本文」をそのまま委託へ渡すため。
-  const bodyDir = deps.issueBodyDir ?? join(process.cwd(), "github-issues");
-  try {
-    await writeIssueBody(bodyDir, run, trigger.issueBody);
-  } catch (error) {
-    const detail = sanitizeGithubPublicText(error instanceof Error ? error.message : String(error));
-    const failed = deps.runs.update(run.id, { status: "failed", detail }) ?? run;
-    log("github_issue_body_write_failed", {
-      run_id: run.id,
-      error_type: error instanceof Error ? error.name : typeof error,
+  }, "queued");
+  if (!run) {
+    const existing = deps.runs.findByIssue(trigger.repoOrigin, trigger.issueNumber, trigger.label);
+    if (!existing || existing.status !== "queued") return { kind: "duplicate" };
+    // Pre-v96 queued covered both preparation and an in-flight invoke. Without the body hash
+    // we cannot prove which side of that boundary crashed, so only the tracker may reconcile it.
+    if (existing.issue_body_sha256 === null) return { kind: "duplicate" };
+    run = existing;
+    // Recovery continues the actor/author decision recorded with the run. A later delivery
+    // cannot substitute a different identity to change whether approval is required.
+    verdict = authorizeIssueTrigger({
+      projects: deps.projects.list(),
+      repoOrigin: run.repo_origin,
+      actor: run.actor,
+      issueAuthor: run.issue_author,
+      trustedActors: deps.config.trustedActors(),
     });
-    return { kind: "failed", run: failed, detail };
+    if (verdict.kind === "reject") {
+      const failed = deps.runs.updateIfStatus(run.id, "queued", {
+        status: "failed",
+        detail: "保存済み run のプロジェクトは GitHub Issue ワークフロー対象外です",
+      }) ?? run;
+      return { kind: "failed", run: failed, detail: failed.detail ?? verdict.detail };
+    }
+    approvalNeeded = verdict.kind === "needs_approval";
   }
 
+  // 本文を検証可能な形で保存してから、承認待ちまたは起動可能状態へ進める。
+  const prepared = await prepareQueuedRun(
+    deps,
+    run,
+    trigger,
+    approvalNeeded,
+    verdict.kind === "needs_approval" ? verdict.detail : null,
+  );
+  if ("kind" in prepared) return prepared;
+  run = prepared;
+
   if (approvalNeeded) {
-    const pending = deps.runs.update(run.id, { detail: verdict.detail }) ?? run;
+    const pending = run;
     log("github_issue_awaiting_approval", {
       repo: run.repo_origin,
       issue: run.issue_number,
@@ -289,4 +392,55 @@ export async function dispatchIssueTrigger(
   }
 
   return startIssueFix(deps, run, verdict.project.project);
+}
+
+/** Resume body-ready runs after a process restart. CAS in startIssueFix keeps this single-launch. */
+export async function dispatchReadyIssueRuns(deps: GithubDispatchDeps): Promise<void> {
+  for (const run of deps.runs.list({ statuses: ["queued"], limit: 200 })) {
+    if (!await hasVerifiedStoredBody(deps, run)) continue;
+    const verdict = authorizeIssueTrigger({
+      projects: deps.projects.list(),
+      repoOrigin: run.repo_origin,
+      actor: run.actor,
+      issueAuthor: run.issue_author,
+      trustedActors: deps.config.trustedActors(),
+    });
+    if (verdict.kind === "reject") {
+      deps.runs.updateIfStatus(run.id, "queued", {
+        status: "failed",
+        detail: "保存済み run のプロジェクトは GitHub Issue ワークフロー対象外です",
+      });
+      continue;
+    }
+    const prepared = deps.runs.updateIfStatus(run.id, "queued", {
+      status: verdict.kind === "needs_approval" ? "awaiting_approval" : "ready",
+      detail: verdict.kind === "needs_approval" ? verdict.detail : null,
+    });
+    if (!prepared) continue;
+    if (prepared.status === "awaiting_approval") {
+      await deps.github.commentOnIssue(
+        prepared.repo_origin,
+        prepared.issue_number,
+        awaitingApprovalComment(prepared),
+      ).catch((error: unknown) => {
+        deps.log?.("github_issue_comment_failed", {
+          run_id: prepared.id,
+          error_type: error instanceof Error ? error.name : typeof error,
+        });
+      });
+    }
+  }
+
+  for (const run of deps.runs.list({ statuses: ["ready"], limit: 200 })) {
+    const project = deps.projects.list()
+      .find((row) => row.code === run.project_code && row.github_issue_workflow === 1);
+    if (!project) {
+      deps.runs.updateIfStatus(run.id, "ready", {
+        status: "failed",
+        detail: "プロジェクトが GitHub Issue ワークフローから外れたため起動しません",
+      });
+      continue;
+    }
+    await startIssueFix(deps, run, project.project);
+  }
 }

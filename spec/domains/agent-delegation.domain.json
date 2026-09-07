@@ -40,6 +40,8 @@
   ],
   "cardTemplate": "Summarise the agent-delegation domain: delegation prompt context, seeded operating templates, and subsidiary harness policies.",
   "specRefs": [
+    "spec/ux/agent-delegation.md",
+    "spec/architecture/ddd.md",
     "spec/feature/delegation.md#121-初期プロンプトへの-concordia-文脈--persona-注入",
     "spec/feature/delegation.md#dependency-sweep-parttimer",
     "spec/feature/delegation.md#メール監視-parttimer",

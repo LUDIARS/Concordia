@@ -255,4 +255,45 @@ describe("DelegationQueue", () => {
     expect(repo.findRun(first.id)!.status).toBe("spawn_failed");
     expect(repo.findRun(second.id)!.status).toBe("spawn_failed");
   });
+
+  it("stopAndDrain は進行中 launch の結果を待ち、新しい run を払い出さない", async () => {
+    let releaseSpawn: () => void = () => {};
+    let enteredSpawn: () => void = () => {};
+    const entered = new Promise<void>((resolve) => { enteredSpawn = resolve; });
+    const blocked = new Promise<void>((resolve) => { releaseSpawn = resolve; });
+    const queue = new DelegationQueue({
+      repo,
+      sessions,
+      resolveMaxConcurrency: () => 0,
+      spawnQueued: async (run) => {
+        spawned.push(run.id);
+        enteredSpawn();
+        await blocked;
+        repo.markRunSpawned(
+          run.id,
+          { status: "spawned", spawn_pid: 999, spawn_command: ["codex"] },
+          delegationQueueClaim(run),
+        );
+      },
+      now: () => now,
+    });
+    const first = makeRun(repo, "queued", { queue_payload_json: "{}" });
+    const second = makeRun(repo, "queued", { queue_payload_json: "{}" });
+
+    const draining = queue.drain();
+    await entered;
+    const stopping = queue.stopAndDrain();
+    let stopped = false;
+    void stopping.then(() => { stopped = true; });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    releaseSpawn();
+    await Promise.all([draining, stopping]);
+    expect(spawned).toEqual([first.id]);
+    expect(repo.findRun(second.id)?.status).toBe("queued");
+
+    await queue.drain();
+    expect(spawned).toEqual([first.id]);
+  });
 });

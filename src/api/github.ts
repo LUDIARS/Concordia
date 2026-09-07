@@ -158,7 +158,7 @@ export function githubRouter(deps: GithubRouterDeps): Hono {
     // 外部の invoke を始める前に同期 CAS でこの承認を確保する。 二重クリックや複数画面からの
     // 同時承認が同じ Issue の delegation を 2 本起動しないようにする。
     const claimed = deps.runs.updateIfStatus(run.id, "awaiting_approval", {
-      status: "queued",
+      status: "ready",
       detail: null,
     });
     if (!claimed) {

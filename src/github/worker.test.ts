@@ -77,6 +77,7 @@ function harness(labelActor: string | null, issueAuthor = "drive-by") {
     pusher: { push: async () => {} },
     baseBranch: () => "main",
     findDelegationRun: () => null,
+    findDelegationRunByTriggeredBy: () => null,
     listLocalPrs: async () => [],
   } satisfies GithubIssueWorkerDeps;
   return { db, deps, runs, invoked: () => invoked };

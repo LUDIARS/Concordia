@@ -23,23 +23,22 @@ export async function upsertCostChannelMessage(
   const body = snapshot.markdown.slice(0, 3900);
 
   const msgId = configGet(COST_MESSAGE_KEY);
-  try {
-    if (msgId) {
+  if (msgId) {
+    try {
       const msg = await channel.messages.fetch(msgId);
       await msg.edit({ content: body, allowedMentions: { parse: [] } });
-      await notifyCostActivity({
-        activityChannel,
-        configGet,
-        configSet,
-        codexRate: snapshot.codexRate,
-        claudeUsage: snapshot.claudeUsage,
-      });
-      return;
+    } catch (error) {
+      if (!isUnknownDiscordMessage(error)) throw error;
+      const sent = await channel.send({ content: body, allowedMentions: { parse: [] } });
+      configSet(COST_MESSAGE_KEY, sent.id);
     }
-  } catch {}
-  const sent = await channel.send({ content: body, allowedMentions: { parse: [] } });
-  configSet(COST_MESSAGE_KEY, sent.id);
+  } else {
+    const sent = await channel.send({ content: body, allowedMentions: { parse: [] } });
+    configSet(COST_MESSAGE_KEY, sent.id);
+  }
 
+  // Activity failures must not make the already updated cost message look missing.
+  // The caller observes the rejection and its next scheduled update retries the alert.
   await notifyCostActivity({
     activityChannel,
     configGet,
@@ -51,6 +50,13 @@ export async function upsertCostChannelMessage(
 
 /** モデル別週間枠 (Fable 等) の通知しきい値 (%)。 5H と同じ 80。 */
 const SCOPED_WEEKLY_ALERT_PCT = 80;
+const UNKNOWN_MESSAGE_CODE = 10_008;
+const pendingActivityNotifications = new WeakMap<object, Map<string, Promise<void>>>();
+
+function isUnknownDiscordMessage(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error
+    && (error as { code?: unknown }).code === UNKNOWN_MESSAGE_CODE;
+}
 
 export async function notifyCostActivity(input: {
   activityChannel?: TextChannel | null;
@@ -66,20 +72,38 @@ export async function notifyCostActivity(input: {
   const claude5h = claudeUsage?.fiveHour?.utilization ?? null;
   // activity は上限接近 (80% 以上) の警告だけ。取得復旧は通常の cost 表示へ反映する。
 
-  await notifyHigh5hUsage(activityChannel, configGet, configSet, {
-    provider: "Codex",
-    used5h: codex5h,
-    reset5hAt: codexRate.reset5hAt,
-  });
-  await notifyHigh5hUsage(activityChannel, configGet, configSet, {
-    provider: "Claude",
-    used5h: claude5h,
-    reset5hAt: claudeUsage?.fiveHour?.resetsAtSec ?? null,
-  });
-  // モデル別の週間枠 (Fable 等) は全体枠より先に尽きる (2026-09-03: 全体 57% で Fable 90%)。
-  // 80% 以上ならリセット期間につき 1 回、活動チャンネルへ知らせる。
-  for (const scoped of claudeUsage?.weeklyScoped ?? []) {
-    await notifyHighScopedWeeklyUsage(activityChannel, configGet, configSet, scoped);
+  // 各警告は独立した配達境界。1 つの送信失敗で残りの枠の警告を落とすと、
+  // Codex の一時障害が Claude 5H や週間枠の上限警告まで巻き添えにする (CC-INV-06)。
+  // 失敗はまとめて呼び出し元へ返し、次回更新でそれぞれ再試行させる。
+  const attempts = [
+    () => notifyHigh5hUsage(activityChannel, configGet, configSet, {
+      provider: "Codex",
+      used5h: codex5h,
+      reset5hAt: codexRate.reset5hAt,
+    }),
+    () => notifyHigh5hUsage(activityChannel, configGet, configSet, {
+      provider: "Claude",
+      used5h: claude5h,
+      reset5hAt: claudeUsage?.fiveHour?.resetsAtSec ?? null,
+    }),
+    // モデル別の週間枠 (Fable 等) は全体枠より先に尽きる (2026-09-03: 全体 57% で Fable 90%)。
+    // 80% 以上ならリセット期間につき 1 回、活動チャンネルへ知らせる。
+    ...(claudeUsage?.weeklyScoped ?? []).map(
+      (scoped) => () => notifyHighScopedWeeklyUsage(activityChannel, configGet, configSet, scoped),
+    ),
+  ];
+
+  const failures: unknown[] = [];
+  for (const attempt of attempts) {
+    try {
+      await attempt();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "cost activity notifications failed");
   }
 }
 
@@ -96,8 +120,10 @@ async function notifyHighScopedWeeklyUsage(
   const content = `Claude ${scoped.label} weekly cost usage is ${scoped.utilization.toFixed(1)}%`
     + (scoped.severity ? ` [${scoped.severity}]` : "")
     + (scoped.resetsAtSec ? ` (resets ${ts(scoped.resetsAtSec)})` : "");
-  await activityChannel.send({ content, allowedMentions: { parse: [] } });
-  configSet(key, resetBucket);
+  await sendActivityOnce(activityChannel, key, () => alreadyNotified(configGet(key), scoped.resetsAtSec), async () => {
+    await activityChannel.send({ content, allowedMentions: { parse: [] } });
+    configSet(key, resetBucket);
+  });
 }
 
 async function notifyHigh5hUsage(
@@ -106,14 +132,43 @@ async function notifyHigh5hUsage(
   configSet: (k: string, v: string) => void,
   input: { provider: string; used5h: number | null; reset5hAt: number | null },
 ): Promise<void> {
-  if (input.used5h === null || input.used5h < 80) return;
+  const used5h = input.used5h;
+  if (used5h === null || used5h < 80) return;
   const key = `cost_activity:5h80:${input.provider.toLowerCase()}`;
   if (alreadyNotified(configGet(key), input.reset5hAt)) return;
-  configSet(key, notifiedBucket(input.reset5hAt));
-  await activityChannel.send(
-    `${input.provider} 5H cost usage is ${input.used5h.toFixed(1)}%` +
-    (input.reset5hAt ? ` (resets ${ts(input.reset5hAt)})` : ""),
-  );
+  await sendActivityOnce(activityChannel, key, () => alreadyNotified(configGet(key), input.reset5hAt), async () => {
+    await activityChannel.send(
+      `${input.provider} 5H cost usage is ${used5h.toFixed(1)}%` +
+      (input.reset5hAt ? ` (resets ${ts(input.reset5hAt)})` : ""),
+    );
+    configSet(key, notifiedBucket(input.reset5hAt));
+  });
+}
+
+async function sendActivityOnce(
+  channel: object,
+  key: string,
+  isAlreadySent: () => boolean,
+  send: () => Promise<void>,
+): Promise<void> {
+  let pendingByKey = pendingActivityNotifications.get(channel);
+  if (!pendingByKey) {
+    pendingByKey = new Map();
+    pendingActivityNotifications.set(channel, pendingByKey);
+  }
+  const pending = pendingByKey.get(key);
+  if (pending) return pending;
+
+  const attempt = (async () => {
+    if (isAlreadySent()) return;
+    await send();
+  })();
+  pendingByKey.set(key, attempt);
+  try {
+    await attempt;
+  } finally {
+    if (pendingByKey.get(key) === attempt) pendingByKey.delete(key);
+  }
 }
 
 /**

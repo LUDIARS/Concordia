@@ -28,7 +28,26 @@ Web UI でチャットを打ちづらい課題を、 Discord を主 UI として
 
 PR-A スコープは **bot 常駐 + session channel CRUD + chat/transcript egress + reaction 評価記録**。 Slash command と AskUserQuestion bridge は PR-B。
 
-## 起動
+## テキスト添付の展開
+
+UX-CC-W3（成果を受け取る）、CC-INV-06（配達）に対応する。
+chat-platforms が添付の表示名を所有し、送信先と配達記録の状態は既存の egress が所有する。
+`attachment_paths` の許可ルート・容量検査を通過した Markdown、JSON、ログ、CSV、設定、
+ソースコード等の UTF-8 テキストは、送信時の名前を `元の名前.txt` にする。
+既に `.txt` の名前は維持する。内容とローカル原本を変更せず、添付数も増やさない。
+これにより受信者は Discord 標準のプレビューから「展開」して本文を読める。
+同じ添付ビルダーを使うドメインレビュー投稿にも適用する。
+
+不変条件: UTF-8 として不正、ASCII 制御文字（タブ・改行以外）を含むデータ、
+対象外の拡張子は元の名前とバイト列を維持する。画像/PDFの抽出や文字コードの推測は行わない。
+テキスト本文を通常メッセージへ転記しないため、本文中のメンションを発火させない。
+元の権限検査・送信先・失敗記録を維持し、送信成功前に配達済みへ変更しない。
+
+[Discord の File Preview](https://support.discord.com/hc/en-us/articles/1500005466681-File-Preview)
+は最大50KBまでの表示であり、長文は全文添付を保持する。表示範囲はDiscordクライアントに依存する。
+プレビューできない場合も添付から全文を取得できる。適用は通常のCc配備時で、旧版へ戻せば元の添付名に戻る。
+
+## Bot の起動条件
 
 `CONCORDIA_DISCORD_ENABLED=1` の場合のみ bot を起動する。 未設定なら完全 no-op (= 既存 Web UI 運用に影響なし)。
 

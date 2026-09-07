@@ -42,6 +42,7 @@ describe("buildParttimerInject", () => {
     const out = buildParttimerInject(base);
     expect(out).toContain("上の本文が依頼の全文");
     expect(out).toContain("書かれていない手順を足さないでください");
+    expect(out).toContain("本文が判断の留保・タスク化を指定している場合は、その条件を優先");
   });
 
   it("終わり方は 報告 → status → 退勤 の 1 系統だけを示す", () => {

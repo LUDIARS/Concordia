@@ -673,9 +673,10 @@ function seedTemplates(identifiers: SeedIdentifiers): CreateTemplateInput[] {
   {
     call_name: "kaizen-daily",
     title: "カイゼン (毎朝)",
-    description: "前日の session-logs とメモリの蓄積から、アルゴリズム/スクリプト/ツールで解決できる非効率・やらかしを見つけ、安全な改善は Codex へ自動実装委託して Revisor のマージ完了まで継続する。2026-08-08 neco 指示で新設、2026-08-26 neco 指示で自動実装化。",
-    target_provider: "claude",
-    model: "claude-sonnet-5",
+    description: "前日のログとメモリから機械化できる改善を探し、Astraが難易度を判断する。高難度は自身で実装、低難度は適した実装モデルへ委託。判断に困るものはタスク化して人間判断に委ね、その回を終了する。2026-09-08 neco 指示。",
+    target_provider: "codex",
+    model: "gpt-6-astra",
+    runtime_options: { model_reasoning_effort: "medium" },
     category: "parttimer",
     emoji: "📈",
     prompt_template: KAIZEN_DAILY_PROMPT,

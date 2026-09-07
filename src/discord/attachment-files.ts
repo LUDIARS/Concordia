@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildAttachmentRoots, createAttachmentGuard } from "../shared/attachment-paths.js";
 import { configuredAttachmentRoots, isAttachmentEnforced } from "../config/attachment-policy.js";
+import { discordTextAttachmentName } from "./text-attachment.js";
 
 /** Discord の 25 MiB 上限に対する安全側の閾値。 */
 export const DISCORD_ATTACH_MAX_BYTES = 24 * 1024 * 1024;
@@ -67,7 +68,8 @@ export async function buildAttachFiles(
       continue;
     }
     try {
-      out.push({ attachment: await fs.promises.readFile(absPath), name: path.basename(absPath) });
+      const attachment = await fs.promises.readFile(absPath);
+      out.push({ attachment, name: discordTextAttachmentName(path.basename(absPath), attachment) });
     } catch (err) {
       log.warn(`egress: attachment read failed ${label} path=${absPath}: ${(err as Error).message}`);
     }

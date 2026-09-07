@@ -278,6 +278,19 @@ call_name は migration と seed 時の cleanup で物理削除される。参�
 (AIFormat REVIEW_VULNERABILITY.md の観点だけで Tier 1 をスキャンし、安全カテゴリのみ自動修正・
 Critical/High は管理者へメンションして報告) を新設した。同じく 2026-08-08 neco 指示で、毎朝 9:00 に
 前日の session-logs とメモリの蓄積から機械化できる改善を探す `kaizen-daily` も新設した。
+2026-09-08 neco 指示により、`kaizen-daily` の起動担当は Codex / `gpt-6-astra` とする。
+UX-CC-AD-W1（指定モデルで開始）に対応し、agent-delegation の seed が provider/model を所有する。
+Cc 起動時の既存 upsert で保存済みテンプレートにも反映する。毎朝9:00のスケジュール、
+call_name、調査対象は維持し、進行中の run の担当は変更しない。
+配備後に新規起動へ適用されるため、コード変更だけで稼働中設定の反映済みとは扱わない。
+同日の追加指示により、難易度は起動したAstraセッションが根拠付きで判断する。
+許可された改善のうち高難度は自身で専用worktreeへ実装し、低難度はプロジェクト指定と
+利用可能な実装モデルへ委託する（指定なしはsol-mid）。高難度を権限拡大の理由にしない。
+判断に困るもの・人間承認が必要なものは対象repoへtask-workflow spec 2.1形式で保存し、
+進行状態はtaskflow_task_stateへpendingと人間のowner/assigneeを登録する（専用の待機statusはない）。
+人間が決める事項と判断前の自動実装・再委託禁止を本文に記す。対象不明ならCcに対象特定タスクを保存する。
+人間判断待ちは未完了として報告し、再確認ループを作らず共通のstatus記録・退勤でその回を閉じる。
+この判断・作業配分はプロンプト契約であり、難易度の自動判定器ではない。
 2026-08-26 neco 指示により、脆弱性の安全カテゴリとカイゼンの安全な機械的改善は Delegation で
 Codex へ自動実装委託し、対応完了を Revisor のマージ完了とする。Revisor が `failed` /
 `action_required` で止めた場合は、委託先がマージ完了を goal に置いて修正・再提出を継続する。

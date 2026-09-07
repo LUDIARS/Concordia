@@ -4,6 +4,25 @@ import { DelegationRepo } from "../db/delegation-repo.js";
 import { seedDelegationTemplates } from "./seed.js";
 
 describe("seedDelegationTemplates", () => {
+  it("migrates the existing Kaizen template to Astra without replacing its identity", () => {
+    const repo = new DelegationRepo(makeTestDb());
+    const old = repo.createTemplate({
+      call_name: "kaizen-daily", title: "Kaizen", target_provider: "claude",
+      model: "claude-sonnet-5", prompt_template: "old", runtime_options: { effort: "high" },
+    });
+    seedDelegationTemplates(repo);
+    const template = repo.findTemplateByCallName("kaizen-daily");
+    expect(template).toMatchObject({
+      id: old.id, target_provider: "codex", model: "gpt-6-astra", category: "parttimer", call_only: 1,
+    });
+    expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
+    expect(template?.prompt_template).toContain("高難度はこの Astra セッション自身が実装");
+    expect(template?.prompt_template).toContain("低難度は対象プロジェクトの実装モデル指定");
+    expect(template?.prompt_template).toContain("taskflow_task_state");
+    expect(template?.prompt_template).toContain("人間への再確認ループや終了許可の質問はしない");
+    expect(template?.prompt_template).not.toContain("自分ではコードを書きません");
+  });
+
   it("seeds a concrete fallback model for GitHub issue fixes", () => {
     const repo = new DelegationRepo(makeTestDb());
     seedDelegationTemplates(repo);

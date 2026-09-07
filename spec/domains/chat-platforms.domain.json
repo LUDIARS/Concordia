@@ -57,6 +57,7 @@
     "test-forum-controls"
   ],
   "specRefs": [
+    "spec/feature/discord-ui.md#テキスト添付の展開",
     "テストフォーラムの操作面 — テスト開始 / マージ",
     "Revisor Test Forum 同期",
     "spec/feature/discord-image-ingress.md",

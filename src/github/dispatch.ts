@@ -101,8 +101,8 @@ function storedIssueBody(content: string): string {
   return (bodyStart >= 0 ? content.slice(bodyStart + separator.length) : content).trimEnd();
 }
 
-async function hasVerifiedStoredBody(
-  deps: GithubDispatchDeps,
+export async function hasVerifiedStoredBody(
+  deps: Pick<GithubDispatchDeps, "issueBodyDir">,
   run: GithubIssueRunRow,
 ): Promise<boolean> {
   if (!run.issue_body_sha256) return false;

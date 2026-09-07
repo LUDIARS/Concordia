@@ -12,7 +12,12 @@ import type { ProjectCodesRepo } from "../db/project-codes-repo.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import { isOwnerRepo, normalizeRepoOrigin } from "../pr/normalize.js";
 import type { GithubWorkflowConfig } from "./config.js";
-import { dispatchIssueTrigger, dispatchReadyIssueRuns, type GithubDispatchDeps } from "./dispatch.js";
+import {
+  dispatchIssueTrigger,
+  dispatchReadyIssueRuns,
+  hasVerifiedStoredBody,
+  type GithubDispatchDeps,
+} from "./dispatch.js";
 import { sameLabel } from "./issue-event.js";
 import { advanceIssueRuns, type TrackerDeps } from "./tracker.js";
 
@@ -103,7 +108,12 @@ export function startGithubIssueWorker(deps: GithubIssueWorkerDeps): GithubIssue
 
   const trackOnce = async (): Promise<void> => {
     await dispatchReadyIssueRuns(deps.dispatch);
-    await advanceIssueRuns(deps);
+    // 起動側と同じ本文判定を tracker へ渡す。 起動待ちの受付が復旧期限で failed にならない。
+    await advanceIssueRuns({
+      ...deps,
+      hasVerifiedStoredBody: deps.hasVerifiedStoredBody
+        ?? ((run) => hasVerifiedStoredBody(deps.dispatch, run)),
+    });
   };
   const pollOnce = (): Promise<{ scanned: number; dispatched: number }> => pollLabeledIssues(deps);
 

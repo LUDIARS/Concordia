@@ -154,6 +154,40 @@ describe("decideRunTransition", () => {
     })).toMatchObject({ kind: "mark", status: "dispatch_unknown" });
   });
 
+  it("leaves a body-verified queued run to the dispatcher instead of failing it", () => {
+    expect(decideRunTransition({
+      run: run({
+        status: "queued",
+        delegation_run_id: null,
+        issue_body_sha256: "hash",
+        updated_at: 1_000,
+      }),
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation: null,
+      storedBodyVerified: true,
+      now: 1_000 + ISSUE_DISPATCH_RECOVERY_GRACE_MS,
+    })).toEqual({ kind: "wait" });
+  });
+
+  it("fails a queued run whose persisted body stays unverifiable past the grace period", () => {
+    expect(decideRunTransition({
+      run: run({
+        status: "queued",
+        delegation_run_id: null,
+        issue_body_sha256: "hash",
+        updated_at: 1_000,
+      }),
+      delegationStatus: null,
+      delegationError: null,
+      localPr: null,
+      correlatedDelegation: null,
+      storedBodyVerified: false,
+      now: 1_000 + ISSUE_DISPATCH_RECOVERY_GRACE_MS,
+    })).toMatchObject({ kind: "mark", status: "failed" });
+  });
+
   it("treats a legacy queued run as unknown because it may already have invoked", () => {
     expect(decideRunTransition({
       run: run({ status: "queued", delegation_run_id: null, updated_at: 1_000 }),

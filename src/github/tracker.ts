@@ -39,6 +39,11 @@ export interface TransitionInput {
   /** run のブランチに対応する Revisor local PR。 未提出なら null。 */
   localPr: RevisorLocalPrSummary | null;
   correlatedDelegation?: DelegationRunRow | null;
+  /**
+   * `queued` の本文が検証済みか。 検証済みなら `dispatchReadyIssueRuns` が `ready` へ
+   * 進める担当なので、 tracker は横から `failed` にしない。
+   */
+  storedBodyVerified?: boolean;
   now?: number;
 }
 
@@ -53,6 +58,9 @@ export function decideRunTransition(input: TransitionInput): RunTransition {
         delegationRunId: input.correlatedDelegation.id,
       };
     }
+    // 本文が検証できる run は起動側 (dispatchReadyIssueRuns) が `ready` へ進める。
+    // 起動側が一時的に遅れているだけの受付を、 tracker が期限切れで failed にしない。
+    if (input.storedBodyVerified) return { kind: "wait" };
     if ((input.now ?? Date.now()) - run.updated_at < ISSUE_DISPATCH_RECOVERY_GRACE_MS) {
       return { kind: "wait" };
     }
@@ -151,6 +159,11 @@ export interface TrackerDeps extends PublishDeps {
   findDelegationRun: (id: string) => DelegationRunRow | null;
   findDelegationRunByTriggeredBy: (triggeredBy: string) => DelegationRunRow | null;
   listLocalPrs: () => Promise<RevisorLocalPrSummary[]>;
+  /**
+   * 保存済み Issue 本文を検証できるか。 未注入なら検証済みとみなさない (fail-closed)。
+   * 起動側と同じ判定を使い、 起動待ちの受付を tracker が failed にしないためだけに読む。
+   */
+  hasVerifiedStoredBody?: (run: GithubIssueRunRow) => Promise<boolean>;
 }
 
 /** 同じ run 台帳に対する巡回を直列化し、長い push 中の interval 重複を防ぐ。 */
@@ -189,12 +202,16 @@ async function advanceIssueRunsOnce(deps: TrackerDeps): Promise<void> {
     const correlatedDelegation = foundDelegation && run.issue_body_sha256 === null
       ? (isMatchingLegacyDelegation(run, foundDelegation) ? foundDelegation : null)
       : foundDelegation;
+    const storedBodyVerified = run.status === "queued" && run.issue_body_sha256 !== null
+      ? await (deps.hasVerifiedStoredBody?.(run) ?? Promise.resolve(false))
+      : false;
     const transition = decideRunTransition({
       run,
       delegationStatus: null,
       delegationError: null,
       localPr: null,
       correlatedDelegation,
+      storedBodyVerified,
     });
     await applyMarkTransition(deps, run, transition);
   }

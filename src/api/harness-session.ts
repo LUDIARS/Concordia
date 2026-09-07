@@ -15,6 +15,8 @@ import { z } from "zod";
 import type { HarnessAuditRepo, HarnessAuditEvent, HarnessAuditDecision } from "../db/harness-audit-repo.js";
 import type { HarnessRulesRepo } from "../db/harness-rules-repo.js";
 import { evaluateAction } from "../harness/session-gate.js";
+import { projectPredicates, needsDddEvidence, DDD_INSTRUCTION, type ProjectHarnessPolicy } from "../harness/project-policy.js";
+import { hasDddEvidence } from "../harness/ddd-evidence.js";
 import { DEFAULT_PREDICATES, isEditTool, withMainPushAllowlist, type HarnessAction } from "../harness/predicates.js";
 import { makeStrongModelImplPredicate } from "../harness/strong-model-gate.js";
 import { notifyUserDecision } from "../taskflow/notify.js";
@@ -92,6 +94,7 @@ function promptResearchEnabled(): boolean {
 }
 
 interface HarnessSessionContext {
+  projectPolicy?: ProjectHarnessPolicy;
   model?: string;
   implUnlocked?: boolean;
   isWorktree?: boolean;
@@ -128,6 +131,7 @@ export interface HarnessSessionApiDeps {
    */
   sessionScope?: (sessionId: string) => string | null;
   sessionContext?: (sessionId: string) => HarnessSessionContext | null;
+  projectPolicy?: (cwd: string) => Promise<ProjectHarnessPolicy>;
   strongImplModels?: () => string[];
   /**
    * main 直 push を許可するリポ (ディレクトリ名 or 絶対パス)。 未注入なら例外なし =
@@ -224,14 +228,26 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       inquiryReadRoot: sessionContext?.inquiryReadRoot,
       inquiryAllowedRunIds: sessionContext?.inquiryAllowedRunIds,
       editedFiles,
+      vibesMaxFiles: Number(process.env.CONCORDIA_VIBES_MAX_FILES ?? 20),
     };
     // 設定は都度解決する (WebUI / env の変更を再起動なしで反映)。
     const mainPushAllowlist = deps.mainPushAllowlist?.() ?? [];
-    const basePredicates = withMainPushAllowlist(mainPushAllowlist, DEFAULT_PREDICATES);
+    const policy = action.cwd ? await deps.projectPolicy?.(action.cwd) : undefined;
+    // contract opt-in の効果はここだけ: 契約が解決できない (undefined) 場合を fail-closed の
+    // false に倒し、 contractIncomplete に deny させる。 未選択プロジェクトは undefined のまま
+    // = 追加要件を強制しない。 どちらの場合も述語セット自体は削らない (project-policy.ts 参照)。
+    if (policy?.contract) enrichedAction.contractComplete = sessionContext?.contractComplete === true;
+    const basePredicates = projectPredicates(withMainPushAllowlist(mainPushAllowlist, DEFAULT_PREDICATES), policy);
     const predicates = deps.strongImplModels
       ? [...basePredicates, makeStrongModelImplPredicate(deps.strongImplModels())]
       : basePredicates;
     const deterministic = evaluateAction(enrichedAction, predicates);
+    if (needsDddEvidence(action, policy) && !hasDddEvidence(action.cwd!, action.filePath!)) {
+      deterministic.hits.push({ rule: "ddd-evidence", decision: "deny", reason: DDD_INSTRUCTION });
+      deterministic.decision = "deny";
+      deterministic.blocked = true;
+      deterministic.reason += ` / ${DDD_INSTRUCTION}`;
+    }
     let verdict = deterministic;
     let blackbox: Awaited<ReturnType<HarnessBlackboxService["decideGate"]>> | undefined;
     let blackboxError: string | undefined;
@@ -298,6 +314,11 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
       hits: verdict.hits,
       audit_ok: rec.ok,
       ...(blackbox ? { blackbox: blackbox.meta } : {}),
+      local_policy: {
+        version: 1, capturedAt: Date.now(), sessionId: session_id ?? "", repo: action.cwd ?? "", branch: action.branch ?? "",
+        context: { ...sessionContext, contractComplete: enrichedAction.contractComplete, vibesMaxFiles: enrichedAction.vibesMaxFiles }, policy, mainPushAllowlist, strongImplModels: deps.strongImplModels?.() ?? [],
+        editedRepos, editedFiles,
+      },
       ...(blackboxError ? { blackbox_error: blackboxError } : {}),
       ...(rec.error ? { audit_error: rec.error } : {}),
     });
@@ -313,6 +334,9 @@ export function harnessSessionRouter(deps: HarnessSessionApiDeps): Hono {
 
     const teamId = session_id ? deps.sessionContext?.(session_id)?.teamId ?? null : null;
     const rules = deps.rules.listForTeam(teamId).map((r) => ({ kind: r.kind, title: r.title, description: r.description }));
+    if (session_id && deps.sessionContext?.(session_id)?.projectPolicy?.ddd) {
+      rules.push({ kind: "block", title: "DDD実装方針", description: DDD_INSTRUCTION });
+    }
     const gates = DEFAULT_PREDICATES.map((p) => p.name);
 
     recordSafe(deps.audit, {

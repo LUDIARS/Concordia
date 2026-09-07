@@ -9,6 +9,8 @@ export interface ProjectCodeRow {
   repo_origin: string | null;
   /** ドメインレビュー (Discord へのドメイン情報投稿) の対象か。 0 / 1。 */
   domain_review: number;
+  ddd_enabled?: number;
+  contract_enabled?: number;
   /**
    * GitHub Issue ワークフロー (Cc ラベル起点の修正 → PR) の opt-in。
    * 既定 0 — 登録しただけの repository では発火しない。
@@ -116,6 +118,8 @@ export class ProjectCodesRepo {
     repoPath?: string;
     repoOrigin?: string | null;
     domainReview?: boolean;
+    dddEnabled?: boolean;
+    contractEnabled?: boolean;
   }): ProjectCodeRow | null {
     const run = this.db.transaction((): ProjectCodeRow | null => {
       const existing = this.findByCode(code);
@@ -139,10 +143,13 @@ export class ProjectCodesRepo {
 
       this.db.prepare(`
         UPDATE project_codes
-        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, updated_at = ?
+        SET code = ?, project = ?, repo_path = ?, repo_origin = ?, domain_review = ?, ddd_enabled = ?, contract_enabled = ?, updated_at = ?
         WHERE code = ? COLLATE BINARY
       `).run(
-        nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview, Date.now(), existing.code,
+        nextCode, nextProject, nextRepoPath, nextRepoOrigin, nextDomainReview,
+        patch.dddEnabled === undefined ? existing.ddd_enabled ?? 0 : Number(patch.dddEnabled),
+        patch.contractEnabled === undefined ? existing.contract_enabled ?? 0 : Number(patch.contractEnabled),
+        Date.now(), existing.code,
       );
       return this.findByCode(nextCode);
     });

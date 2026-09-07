@@ -771,6 +771,8 @@ export const api = {
       repo_path?: string;
       repo_origin?: string | null;
       domain_review?: boolean;
+      ddd_enabled?: boolean;
+      contract_enabled?: boolean;
     },
   ) => patch<{ project_code: { code: string } }>(`/v1/project-codes/${encodeURIComponent(code)}`, body),
   projectCodeDelete: (code: string) =>
@@ -1468,6 +1470,8 @@ export interface ProjectCodeAdminEntry {
   repo_origin: string | null;
   /** ドメインレビュー (Discord へのドメイン情報投稿) の対象か。 */
   domain_review: boolean;
+  ddd_enabled: boolean;
+  contract_enabled: boolean;
   added_by: string;
   updated_at: number;
   teams: Array<{ id: string; name: string }>;

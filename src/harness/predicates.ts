@@ -50,6 +50,7 @@ export interface HarnessAction {
   contractMode?: "plan" | "vibes";
   contractScopeDirs?: string[];
   editedFiles?: string[];
+  vibesMaxFiles?: number;
   /**
    * 問診セッション (director-inquiry-session.md §3) として起動された。
    * true のときだけ読み取り専用契約を強制する。判定できないときは undefined。
@@ -261,7 +262,7 @@ export const vibesScope: Predicate = (a) => {
 
 export const vibesFileLimit: Predicate = (a) => {
   if (a.contractMode !== "vibes" || !isEditTool(a.tool)) return null;
-  const limit = Number(process.env.CONCORDIA_VIBES_MAX_FILES ?? 20);
+  const limit = a.vibesMaxFiles ?? Number(process.env.CONCORDIA_VIBES_MAX_FILES ?? 20);
   if (new Set(a.editedFiles ?? []).size <= limit) return null;
   return { rule: "vibes-file-limit", decision: "deny", reason: `Vibes mode is limited to ${limit} edited files.`, suggestion: "Promote this task to plan mode and approve the expanded design." };
 };

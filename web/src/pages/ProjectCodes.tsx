@@ -197,7 +197,7 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
           <input className={inputClass} value={draft.repo_origin} placeholder="https://github.com/ORG/REPO.git"
             onChange={(e) => setDraft({ ...draft, repo_origin: e.target.value })} />
         </td>
-        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={5}>
+        <td className="py-1.5 pr-2 text-[11px] text-subtle" colSpan={6}>
           パス変更時は git を再検査し、名前/URL は未入力なら実リポから取り直します。
         </td>
         <td className="py-1.5 text-right whitespace-nowrap">
@@ -229,6 +229,17 @@ function EditableRow({ entry, data, busy, onAction, onError }: {
               api.projectCodeUpdate(entry.code, { domain_review: e.target.checked }));
           }}
         />
+      </td>
+      <td className="py-1.5 pr-2">
+        <div className="flex gap-3 text-xs">
+          {(["ddd_enabled", "contract_enabled"] as const).map((key) => (
+            <label key={key} className="flex gap-1 items-center">
+              <input type="checkbox" checked={entry[key]} disabled={busy}
+                onChange={(event) => { void onAction(entry.code, () => api.projectCodeUpdate(entry.code, { [key]: event.target.checked })); }} />
+              {key === "ddd_enabled" ? "DDD" : "契約"}
+            </label>
+          ))}
+        </div>
       </td>
       <td className="py-1.5 pr-2">
         {entry.revisor?.registered ? (
@@ -395,6 +406,7 @@ export function ProjectCodes() {
               <th className="py-1 pr-2 font-medium">パス</th>
               <th className="py-1 pr-2 font-medium">GitHub URL</th>
               <th className="py-1 pr-2 font-medium text-center">ドメイン<br />レビュー</th>
+              <th className="py-1 pr-2 font-medium">DDD / 契約</th>
               <th className="py-1 pr-2 font-medium">Rvモード</th>
               <th className="py-1 pr-2 font-medium" title="Cc ラベルの付いた GitHub Issue を修正 → 審査 → GitHub PR まで自動で回す">Issue WF</th>
               <th className="py-1 pr-2 font-medium">チーム</th>
@@ -414,7 +426,7 @@ export function ProjectCodes() {
               />
             ))}
             {data && data.entries.length === 0 && (
-              <tr><td colSpan={10} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
+              <tr><td colSpan={11} className="py-3 text-subtle text-sm">登録がありません。</td></tr>
             )}
           </tbody>
         </table>

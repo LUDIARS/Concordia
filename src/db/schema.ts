@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 96;
+export const SCHEMA_VERSION = 97;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2379,6 +2379,19 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     const columns = db.prepare("PRAGMA table_info(github_issue_runs)").all() as Array<{ name: string }>;
     if (!columns.some((column) => column.name === "issue_body_sha256")) {
       db.exec("ALTER TABLE github_issue_runs ADD COLUMN issue_body_sha256 TEXT");
+    }
+  },
+},
+{
+  version: 97,
+  name: "project-implementation-policy",
+  source: "project_codes ddd_enabled and contract_enabled opt-in flags v1",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(project_codes)").all() as Array<{ name: string }>;
+    for (const name of ["ddd_enabled", "contract_enabled"]) {
+      if (!columns.some((column) => column.name === name)) {
+        db.exec(`ALTER TABLE project_codes ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK (${name} IN (0, 1))`);
+      }
     }
   },
 },

@@ -11,6 +11,7 @@
     "bootstrap": "node scripts/bootstrap.mjs",
     "build": "npm run sync:skill && npm run build:spec-index && tsc -p tsconfig.json && cd web && npm run build",
     "build:spec-index": "node tools/build-spec-index.mjs",
+    "build:harness": "tsc -p tsconfig.harness.json && node tools/package-harness.mjs",
     "dev": "npm run sync:skill && concurrently --kill-others-on-fail -n be,fe -c blue,magenta \"npm:dev:backend\" \"npm:dev:web\"",
     "dev:backend": "node --watch --import tsx --env-file-if-exists=.env src/server.ts",
     "cost:worker": "node --import tsx --env-file-if-exists=.env src/cost-worker.ts",

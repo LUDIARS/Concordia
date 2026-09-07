@@ -41,6 +41,8 @@ describe("projectCodesRouter", () => {
         project: "Concordia",
         repo_path: storedRow.repo_path,
         domain_review: true,
+        ddd_enabled: false,
+        contract_enabled: false,
       }],
       categories: [{ name: "Concordia registry", entries: [["Cc", "Concordia"]] }],
     });
@@ -86,6 +88,8 @@ describe("projectCodesRouter", () => {
         project: "Concordia",
         repo_path: storedRow.repo_path,
         domain_review: true,
+        ddd_enabled: false,
+        contract_enabled: false,
       },
       created: true,
     });

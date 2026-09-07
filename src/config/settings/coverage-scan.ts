@@ -76,6 +76,7 @@ export const ENV_COVERAGE_EXCLUSIONS: Readonly<Record<string, string>> = {
   CODEX_SESSION_ID: "エージェント側が持つ識別子 (書き出し専用)",
   GEMINI_SESSION_ID: "エージェント側が持つ識別子 (書き出し専用)",
   CLAUDE_CODE_DISABLE_THINKING: "spawn する子へ渡す実行時オプション (書き出し専用)",
+  LICTOR_SESSION_ID: "Lictor が hook プロセスへ与えるセッション識別子。 Concordia の設定ではない",
 } as const;
 
 /**

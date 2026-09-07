@@ -100,3 +100,4 @@ review/*
 # 解析成果そのものは追跡しない (秘匿ルール: 名称と一言説明までに留める)。
 # 再生成の手順は spec/setup/reproducible-build.md にある。
 /report/
+/harness-runtime/

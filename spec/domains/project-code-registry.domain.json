@@ -28,6 +28,6 @@
     "loopback-admin-management",
     "revisor-workflow-round-trip"
   ],
-  "specRefs": ["spec/feature/project-code-registry.md"],
+  "specRefs": ["spec/feature/project-code-registry.md", "spec/feature/project-harness-policy.md"],
   "rationale": "project code は session binding、Discord forum、title 推定へ横断配信されるため、静的文書の複製ではなく Cc DB の単一正本として変更理由をまとめる。"
 }

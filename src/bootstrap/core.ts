@@ -1770,6 +1770,12 @@ export async function startBackend(): Promise<BackendHandle> {
     );
     trackPostListenHandle(startContractLifecycle({
       sessions: repo,
+      enabledFor: (sessionId) => {
+        const session = repo.findSession(sessionId);
+        const project = session?.repo_origin ? projectCodesRepo.findByRepoOrigin(session.repo_origin) :
+          projectCodesRepo.list().find((entry) => entry.repo_path.replace(/\\/g, "/").toLowerCase() === session?.repo_path?.replace(/\\/g, "/").toLowerCase());
+        return project?.contract_enabled === 1;
+      },
       supervisor: () => process.env.CONCORDIA_DEFAULT_SUPERVISOR?.trim() || `discord:${adminState.getMentionUserId() ?? "unassigned"}`,
       questions: pendingQuestions,
       reviewFor: (provider) => {

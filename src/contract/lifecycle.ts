@@ -20,6 +20,7 @@ type ResolveTeamSettings = (teamId: string) => TeamContractSettings | null;
 
 interface ContractLifecycleInput {
   sessions: SessionsRepo;
+  enabledFor?: (sessionId: string) => boolean;
   supervisor: () => string;
   questions?: DiscordPendingQuestionsRepo;
   reviewFor?: (provider: string) => ContractReviewPort | undefined;
@@ -126,12 +127,14 @@ function preserveHumanDecisions(seeded: SessionContract, existing: SessionContra
 
 export function startContractLifecycle(input: ContractLifecycleInput): { stop(): void } {
   for (const row of input.sessions.listSessions({ status: "active" })) {
+    if (input.enabledFor && !input.enabledFor(row.id)) continue;
     if (!parseContractMetadata(row.metadata)) void ensureSessionContract(input.sessions, row.id, row.current_task ?? "session", input.supervisor(), input.questions, input.reviewFor?.(row.provider), input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn", input.resolveService).catch((error) => log.warn({ error, session_id: row.id }, "initial contract failed"));
   }
   const unsubscribe = eventBus.subscribe((event) => {
     const row = "session_id" in event && typeof event.session_id === "string"
       ? input.sessions.findSession(event.session_id)
       : null;
+    if (row && input.enabledFor && !input.enabledFor(row.id)) return;
     if (event.type === "session.started") void ensureSessionContract(input.sessions, event.session_id, row?.current_task ?? "session", input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "spawn", input.resolveService).catch((error) => log.warn({ error }, "spawn contract failed"));
     if (event.type === "session.task_changed" && event.current_task) void ensureSessionContract(input.sessions, event.session_id, event.current_task, input.supervisor(), input.questions, row ? input.reviewFor?.(row.provider) : undefined, input.resolveTeams, input.resolveTeamSettings, input.applyModelEffort, "task-change", input.resolveService).catch((error) => log.warn({ error }, "task contract failed"));
   });

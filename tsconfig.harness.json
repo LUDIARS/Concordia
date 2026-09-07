@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "outDir": "harness-runtime", "rootDir": "src", "sourceMap": false },
+  "include": ["src/harness/supervisor-cli.ts"],
+  "exclude": ["node_modules", "dist", "web", "tests", "src/**/*.test.ts"]
+}

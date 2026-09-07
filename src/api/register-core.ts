@@ -81,6 +81,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { harnessRulesRouter } from "./harness-rules.js";
 import { staffRouter } from "./staff.js";
 import { harnessSessionRouter } from "./harness-session.js";
+import { inspectImplementationRepo } from "../implementation-tools/repo-context.js";
 import { injectManualsRouter } from "./inject-manuals.js";
 import type { InjectManualsRepo } from "../db/inject-manuals-repo.js";
 import { testingRouter } from "./testing.js";
@@ -538,6 +539,12 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
     app.route(
       "/v1/harness",
       harnessSessionRouter({
+        projectPolicy: async (cwd) => {
+          const inspected = await inspectImplementationRepo(cwd);
+          const row = inspected.repoOrigin ? deps.projectCodes.findByRepoOrigin(inspected.repoOrigin) :
+            deps.projectCodes.list().find((entry) => entry.repo_path.replace(/\\/g, "/").toLowerCase() === inspected.repoPath.replace(/\\/g, "/").toLowerCase());
+          return { ddd: row?.ddd_enabled === 1, contract: row?.contract_enabled === 1 };
+        },
         audit: deps.harnessAudit,
         rules: deps.harnessRules,
         runClaude: deps.harnessRunClaude,
@@ -555,6 +562,8 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           try { metadata = s.metadata ? JSON.parse(s.metadata) as Record<string, unknown> : {}; } catch { /* allow unknown */ }
           const model = typeof metadata.model === "string" ? metadata.model : s.provider;
           const contract = parseContractMetadata(s.metadata);
+          const projectPolicyRow = s.repo_origin ? deps.projectCodes.findByRepoOrigin(s.repo_origin) :
+            deps.projectCodes.list().find((entry) => entry.repo_path.replace(/\\/g, "/").toLowerCase() === s.repo_path?.replace(/\\/g, "/").toLowerCase());
           const teamId = contract?.team?.value ?? s.team_id ?? null;
           const teamRow = teamId ? deps.teams?.find(teamId) ?? null : null;
           const teamSettings = teamRow ? parseTeamSettings(teamRow) : null;
@@ -602,6 +611,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           }
           return {
             model: `${s.provider}/${model}`,
+            projectPolicy: { ddd: projectPolicyRow?.ddd_enabled === 1, contract: projectPolicyRow?.contract_enabled === 1 },
             implUnlocked: metadata.impl_unlocked === true,
             isWorktree: typeof metadata.is_worktree === "boolean" ? metadata.is_worktree : undefined,
             contractComplete: isContractComplete(contract),

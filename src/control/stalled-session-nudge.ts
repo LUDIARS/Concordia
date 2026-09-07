@@ -22,6 +22,8 @@
  *     セッションへ同じ確認を積み上げても transcript を汚すだけで復帰しないため。
  *     Cc 再起動で in-memory の nudge 記録が消えた場合は、 transcript 末尾が
  *     「未応答の自動確認」 のままかどうかで同じ抑止を効かせる。
+ *   - 上記は候補を絞るための判定。実際の再送は human-response-confirmation の永続状態で
+ *     止め、人間の入力があるまで解除しない。assistant/tool による更新では再送しない。
  *
  * 意図的に人間判断を仰いで止まっているセッションは除外する — そこへ「続行しろ」 と
  * 被せると人間の判断停止を踏み潰すため。待ちの signal は 2 系統あり、 どちらでも除外する:
@@ -40,6 +42,7 @@ import type { SessionRow } from "../shared/types.js";
 import { getProvider } from "../providers/index.js";
 import { eventBus } from "../events.js";
 import { createChildLogger } from "../shared/logger.js";
+import { claimHumanResponseConfirmation } from "./human-response-confirmation.js";
 import { startSupervisedInterval, type SupervisedIntervalHandle } from "../shared/loop-bulkhead.js";
 import {
   isBlockedByPendingQuestion,
@@ -285,7 +288,7 @@ export function buildNudgeText(_provider: string): string {
  * - 人間判断待ち (awaiting) なら false。
  * - 直近 nudge から cooldown 未満なら false。
  * - 直近 nudge 以降 transcript が動いていない (= 前回の確認に反応が無い) なら false。
- *   反応があって再び止まった場合だけ再確認する。
+ *   transcript が動いた場合だけ候補に残す。人間応答の永続 gate は送信直前に別途確認する。
  */
 export function shouldNudge(args: {
   idleMs: number;
@@ -373,6 +376,9 @@ export function startStalledSessionNudge(
         log.debug({ session_id: s.id }, "skip nudge: previous nudge unanswered");
         continue;
       }
+      // A transcript update can be an AI reply to our own nudge. Keep waiting until
+      // an explicit human response reopens the durable confirmation gate.
+      if (!claimHumanResponseConfirmation(opts.repo, s.id)) continue;
       lastNudge.set(s.id, nowMs);
       eventBus.emit({
         type: "session.inject",

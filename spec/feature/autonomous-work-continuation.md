@@ -77,11 +77,13 @@ updated: 2026-08-27
 一度 nudge したら `cooldownSec` (既定 = idleSec) は再 nudge しない (per-session の
 in-memory タイムスタンプで抑止)。 消えた session の記録は毎周掃除する。cooldown 経過後も、
 前回 nudge 以降 transcript が更新されていなければ「前回確認に無反応」とみなし、再確認を
-送らない。反応があり、その後再び idle になった場合だけ再確認する。
+送らない。さらに [人間応答待ちの確認制御](human-response-confirmation.md) の永続状態により、
+人間の反応がない間は assistant/tool が動いても再確認しない。
 
 Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex CLI 双方の transcript
 末尾が `[自動確認]` で始まる user メッセージのままなら、未応答の nudge と判定して再送を
-抑止する。後続の assistant 応答または tool activity があれば反応済みとみなす。
+抑止する。後続の assistant 応答や tool activity は transcript 側の未応答判定を解除しても、
+人間応答の永続 gate を解除しない。
 
 ### nudge 本文
 全 provider 共通の自然言語: ①未完があれば範囲を小さくして再実装 ②判断が要れば ask で
@@ -97,7 +99,7 @@ Cc 再起動で in-memory 記録が失われた場合も、Claude Code / Codex C
 idle 閾値は巡回間隔と同じ 10 分に揃える (2026-08-09 neco 指示)。 「ゴールへ進んでいない
 セッションを 10 分ごとに確認する」が成立するのはこの組み合わせのときだけで、 従来の 1 時間では
 止まったセッションを丸 1 時間放置してから初めて声をかけていた。cooldown も同じ 10 分だが、
-無反応のセッションへ確認を積み重ねることはなく、反応後に再停止した場合のみ最短 10 分間隔で
+無反応のセッションへ確認を積み重ねることはなく、人間の反応後に再停止した場合のみ最短 10 分間隔で
 再確認する (2026-08-27 neco 指示)。
 
 fire-and-forget: WS 未接続なら inject は silent drop。 status 変更は行わない。

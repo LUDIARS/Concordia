@@ -107,7 +107,7 @@ export function startPhaseCompaction(input: {
     } else if (event.type === "taskflow.continue_requested") {
       id = event.target_session_id;
       trigger = "taskflow:next-task";
-    } else if (event.type === "taskflow.residual_checked") {
+    } else if (event.type === "taskflow.residual_checked" && event.outcome !== "none") {
       id = event.session_id;
       trigger = "taskflow:residual-sweep";
     }

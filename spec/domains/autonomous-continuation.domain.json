@@ -22,6 +22,7 @@
     "goal-and-go-resumption"
   ],
   "specRefs": [
+    "spec/feature/human-response-confirmation.md",
     "spec/feature/autonomous-work-continuation.md",
     "spec/feature/idle-nudge.md",
     "spec/feature/goal-and-go.md"

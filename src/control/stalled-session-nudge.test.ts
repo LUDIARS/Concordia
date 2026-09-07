@@ -34,7 +34,14 @@ function fakeSession(over: Partial<SessionRow> = {}): SessionRow {
 
 /** active session のみ返す最小 repo stub。 */
 function fakeRepo(active: SessionRow[]): SessionsRepo {
-  return { findAllActive: () => active } as unknown as SessionsRepo;
+  return {
+    findAllActive: () => active,
+    findSession: (id: string) => active.find((row) => row.id === id) ?? null,
+    mergeMetadata: (id: string, patch: Record<string, unknown>) => {
+      const row = active.find((item) => item.id === id);
+      if (row) row.metadata = JSON.stringify({ ...JSON.parse(row.metadata ?? "{}"), ...patch });
+    },
+  } as unknown as SessionsRepo;
 }
 
 const jsonl = (...objs: unknown[]) => objs.map((o) => JSON.stringify(o)).join("\n");
@@ -409,7 +416,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     h.stop();
   });
 
-  it("前回 nudge に反応があって再び止まった場合は cooldown 後に再確認する", async () => {
+  it("AIの応答で transcript が動いても人間が反応するまで再確認しない", async () => {
     let clock = NOW;
     let mtime = 0; // 初回は大きく idle
     const h = startStalledSessionNudge({
@@ -424,7 +431,7 @@ describe("startStalledSessionNudge.runOnce", () => {
     expect(await h.runOnce()).toEqual(["idle-1"]);
     mtime = clock + 60_000; // nudge の 1 分後にセッションが応答した (反応あり)
     clock += 7_200_000; // その後また 2 時間止まった (cooldown も経過)
-    expect(await h.runOnce()).toEqual(["idle-1"]);
+    expect(await h.runOnce()).toEqual([]);
     h.stop();
   });
 

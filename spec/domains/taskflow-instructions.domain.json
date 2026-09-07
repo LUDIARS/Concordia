@@ -31,6 +31,7 @@
     "migration-backed-default-wording-replacement"
   ],
   "specRefs": [
+    "spec/feature/human-response-confirmation.md",
     "spec/feature/task-workflow.md",
     "spec/feature/deterministic-teardown.md"
   ],

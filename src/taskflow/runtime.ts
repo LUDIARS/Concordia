@@ -16,6 +16,7 @@ import type { SessionRow } from "../shared/types.js";
 import type { DiscordPendingQuestionsRepo } from "../db/discord-repo.js";
 import type { DelegationService } from "../delegation/service.js";
 import { startAskDetachWatch } from "./ask-detach.js";
+import { isWaitingForHumanResponse } from "../control/human-response-confirmation.js";
 
 export interface TaskflowRuntimeDeps {
   db: Database.Database;
@@ -91,6 +92,9 @@ export class TaskflowRuntime {
   }
 
   private async handleInteractiveCompletion(sessionId: string): Promise<void> {
+    // The answer to an automatic confirmation is not new human work. Avoid both
+    // repeated completion/PR questions and another residual sweep until input arrives.
+    if (isWaitingForHumanResponse(this.deps.sessions, sessionId)) return;
     if (this.deps.delegation.findRunByChildSession(sessionId)) return;
     const events = this.deps.sessions.recentEvents(sessionId, 100);
     const latest = events.find((event) => event.kind === "final_answer" || event.kind === "summary");

@@ -42,6 +42,8 @@ taskflow の確定イベントへ直結する:
 | `taskflow:residual-sweep` | 残作業確認・片づけフェーズに入るとき | 契約 + 残作業一覧 + 受け入れ条件の充足状況 |
 
 - フェーズ境界は **再配置 inject のみ**を行い、context_pct にかかわらず `/clear` を実行しない。
+- 残作業確認が人間待ちで抑止された場合と、`residual_checked.outcome = none` の場合は
+  新しいフェーズへ入らないため注入しない。詳細は [人間応答待ちの確認制御](human-response-confirmation.md)。
 - `/clear` を伴うコンパクションは人間が明示した `/co-compaction` または REST 要求に限る。
 - 再キュー既定 (deterministic-teardown §3.2) のセッションはそもそも畳まれるので、 本機能が
   主に効くのは in-session 継続・長期タスク待ち・対話セッションである。

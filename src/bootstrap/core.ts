@@ -94,6 +94,7 @@ import { startReaper } from "../control/reaper.js";
 import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/question-escalation.js";
 import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
+import { startHumanResponseConfirmation } from "../control/human-response-confirmation.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
 import { buildZombieReapNotice } from "../delegation/zombie-reap-notice.js";
@@ -1857,6 +1858,7 @@ export async function startBackend(): Promise<BackendHandle> {
       ),
       log: localPrLog,
     }));
+    trackPostListenHandle(startHumanResponseConfirmation(repo));
     trackPostListenHandle(
       startStalledSessionNudge({
         repo,

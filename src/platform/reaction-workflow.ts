@@ -1128,11 +1128,16 @@ export class ReactionWorkflowRunner {
       this.deps.log.warn(`reaction-workflow: ${action} inject skipped (no session_id)`);
       return;
     }
-    const injectedText = provenance
+    // 出所ヘッダは「本文を持つ inject」にだけ付ける。 キー列そのものを送る
+    // アクション (force-enter = CR 1 文字) にヘッダを足すと、 Enter キー押下が
+    // 「日本語の見出しを打ち込んで submit する」 に化けて、 救済のはずの操作が
+    // セッションへゴミを入力する。 CR は入力欄を確定させる制御信号であって
+    // 本文ではないので、 出所は log と session event に残すだけにする。
+    const injectedText = provenance && !isKeySequenceAction(action)
       ? `【Concordia reaction-workflow: ${provenance.action} (${provenance.platform})】\n${text}`
       : text;
     this.deps.emitInject(targetSessionId, injectedText, REACTION_WORKFLOW_SOURCE, provenance);
-    this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId.slice(0, 8)}`);
+    this.deps.log.info(`reaction-workflow: injected ${action} into session ${targetSessionId}`);
   }
 
   private async runHeadless(plan: WorkflowPlan): Promise<RwfRunResult> {
@@ -1175,6 +1180,14 @@ function shouldRelayHeadlessResult(action: WorkflowAction): boolean {
 function clipWorkflowRelayText(text: string, max = 1800): string {
   if (text.length <= max) return text;
   return `${text.slice(0, max - 40).trimEnd()}\n\n...(truncated; see session-logs for full handoff)`;
+}
+
+/**
+ * 本文ではなく **キー列** を送るアクションか。 これらの prompt は pty へ
+ * そのまま流す制御信号なので、 出所ヘッダも装飾も足してはならない。
+ */
+export function isKeySequenceAction(action: WorkflowAction): boolean {
+  return action === "force-enter";
 }
 
 /**

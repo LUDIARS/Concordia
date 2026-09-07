@@ -534,6 +534,57 @@ describe("ReactionWorkflowRunner.handle (絵文字 → スキル)", () => {
     expect(injects[0].text).toContain("/context-report");
   });
 
+  // ─── 🙄 force-enter は「キー列」であってメッセージ本文ではない ──────────
+  // 2026-09-07: 出所ヘッダ (【Concordia reaction-workflow: …】) が CR の前に
+  // 付いたため、Enter キー押下が「日本語の見出しを打ち込んで submit」に化けて
+  // いた。救済操作が入力欄へゴミを入れる状態だったので、キー列アクションには
+  // 装飾を一切足さない。
+  it("force-enter(🙄) は装飾なしの CR だけを inject する", async () => {
+    const { runner, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput,
+      dedupeKey: "fe-1",
+      emoji: "🙄",
+      sessionId: "sess-fe",
+      sessionActive: true,
+      platform: "discord",
+    });
+    expect(injects).toHaveLength(1);
+    expect(injects[0].text).toBe("\r");
+    expect(injects[0].text).not.toContain("reaction-workflow");
+  });
+
+  it("force-enter(🙄) でも出所は provenance として残る (本文には出さない)", async () => {
+    const { runner, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput,
+      dedupeKey: "fe-2",
+      emoji: "🙄",
+      sessionId: "sess-fe2",
+      sessionActive: true,
+      platform: "discord",
+    });
+    expect(injects[0].provenance).toMatchObject({
+      kind: "reaction-workflow",
+      action: "force-enter",
+      platform: "discord",
+      emoji: "🙄",
+    });
+  });
+
+  it("本文を持つアクションには従来どおり出所ヘッダが付く", async () => {
+    const { runner, injects } = makeRunner();
+    await runner.handle({
+      ...baseInput,
+      dedupeKey: "ctx-prov",
+      emoji: "🧠",
+      sessionId: "sess-ctx",
+      sessionActive: true,
+      platform: "discord",
+    });
+    expect(injects[0].text).toContain("【Concordia reaction-workflow: context (discord)】");
+  });
+
   // ─── 📑 / 🪬 の写像 (設計 §9.2 C-7) ─────────────────────────────────────
   it("📑 は headless sonnet で domain-review --report-only を回す", async () => {
     const { runner, calls } = makeRunner();

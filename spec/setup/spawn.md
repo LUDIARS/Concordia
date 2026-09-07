@@ -95,7 +95,11 @@ Concordia が interactive session を spawn するときは、Lictor 子プロ�
 Lictor はこの二項目を session 登録 metadata に返し、Concordia はspawn IDを一回限りの
 enrollmentとしてconsumeする。未知または再利用されたspawn IDは401で拒否する。Concordiaは新規登録された当該
 session だけへ、project 特定、Castra への破壊的 git 操作の禁止、branch 確認・Cc 登録、PR で停止、
-明示指示のないテスト・merge 禁止を含む共通 `session.inject` を必ず送る。
+明示指示のないテスト・merge 禁止、資料共有時のattachment添付を含む共通 `session.inject` を必ず送る。
+資料はリンクやローカルパスのみで共有を終えず、既存のLictor `/v1/chat` (`127.0.0.1:$LICTOR_PORT`) と
+`attachment_paths` の経路で添付する。`attachment_paths` は workspace root 配下か一時ディレクトリ内の
+絶対パスに限られる (`spec/tasks/attachment-path-allowlist.md`)。送信権限・共有範囲は維持し、
+添付失敗を共有完了と扱わない。
 
 照合は cwd と時刻の推測ではなく spawn ID で行うため、同一 cwd で複数 session を並走
 起動しても別 session に指示を送らない。既存 session の再登録時には再 Inject しない。

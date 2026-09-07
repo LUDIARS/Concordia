@@ -40,6 +40,7 @@ export function buildSessionWorkPolicy(input: SessionWorkPolicyInput): SessionWo
     "- Session の既定完了範囲は commit・push・PR 作成までです。PR 作成後は停止してください。",
     "- ユーザの明示指示がない限り、単体・統合・動作・起動を含むテストを実行しないでください。",
     "- ユーザの明示指示がない限り、merge・squash merge・auto-merge・main 更新を行わないでください。",
+    "- ユーザに資料（設計書・調査報告・タスク文書など）を共有するときは、リンクやローカルパスだけで済ませず、attachment としてファイルを添付してください。Discord への共有は、自分の Lictor sidecar (`POST http://127.0.0.1:$LICTOR_PORT/v1/chat`) に attachment_paths を渡す既存経路を使ってください。attachment_paths は workspace root 配下または一時ディレクトリ内の絶対パスに限られ、範囲外や秘密らしき名前のファイルは拒否されます。送信権限・共有範囲を守り、添付に失敗した場合は未添付と明記してください。",
   ];
   if (requestedBranch) lines.push(`- Cc 指定 branch: ${requestedBranch}`);
   if (registeredBranch) lines.push(`- Cc 登録 branch: ${registeredBranch}`);

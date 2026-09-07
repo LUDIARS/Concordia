@@ -404,6 +404,13 @@ export interface DiscordPendingQuestionRow {
   answer_text: string | null;
   multi_select: number;
   answer_indices_json: string | null;
+  /**
+   * 委託子の質問を一次受けした親 (委託元) セッション。 非 null = **人間へはまだ
+   * 配信していない**。 委託の質問は親が裁き、 親が裁けないときだけ人間へ上げる。
+   */
+  parent_session_id: string | null;
+  /** 人間へ上げた時刻 (明示エスカレーション / タイムアウト自動エスカレーション)。 */
+  escalated_at: number | null;
   ts: number;
 }
 
@@ -424,7 +431,19 @@ export interface DiscordPendingQuestionsRepo {
     question: string;
     options: Array<PendingQuestionOption | string>;
     multiSelect?: boolean;
+    /** 委託子の質問なら親 (委託元) の session id。 人間へは配信しない印。 */
+    parentSessionId?: string | null;
   }): DiscordPendingQuestionRow;
+  /**
+   * 親が裁けない質問を人間へ上げる。 二重配信を防ぐため、 未回答かつ未
+   * エスカレーションの行だけを更新して true を返す。
+   */
+  markEscalated(id: number): boolean;
+  /**
+   * 親へ一次配信したまま `olderThanTs` より前から放置されている質問を返す
+   * (未回答 / 未エスカレーション)。 タイムアウト自動エスカレーションが引く。
+   */
+  listStaleParentRelayed(olderThanTs: number, limit: number): DiscordPendingQuestionRow[];
   setDiscordMessageId(id: number, discordMessageId: string, discordChannelId?: string): void;
   appendQuestionNotice(id: number, notice: string): DiscordPendingQuestionRow | null;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
@@ -509,9 +528,17 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         .map((o) => (typeof o === "string" ? ({ label: o } as PendingQuestionOption) : o))
         .filter((o) => typeof o.label === "string" && o.label.trim().length > 0);
       const info = db.prepare(
-        `INSERT INTO discord_pending_questions (session_id, question, options_json, multi_select, ts)
-         VALUES (?, ?, ?, ?, ?)`,
-      ).run(input.session_id, input.question, JSON.stringify(normalized), input.multiSelect ? 1 : 0, ts);
+        `INSERT INTO discord_pending_questions
+           (session_id, question, options_json, multi_select, parent_session_id, ts)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(
+        input.session_id,
+        input.question,
+        JSON.stringify(normalized),
+        input.multiSelect ? 1 : 0,
+        input.parentSessionId ?? null,
+        ts,
+      );
       return this.findById(Number(info.lastInsertRowid))!;
     },
     setDiscordMessageId(id, discordMessageId, discordChannelId) {
@@ -546,6 +573,28 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
          SET answered_at = ?, answer_index = NULL, answer_text = ?
          WHERE id = ?`,
       ).run(nowSec(), answerText, id);
+    },
+    markEscalated(id) {
+      // 未回答かつ未エスカレーションのときだけ立てる。 changes で「今回上げた」を判定し、
+      // 明示エスカレーションと自動エスカレーションの競合で二重配信しない。
+      const info = db.prepare(
+        `UPDATE discord_pending_questions
+         SET escalated_at = ?
+         WHERE id = ? AND answered_at IS NULL AND escalated_at IS NULL`,
+      ).run(nowSec(), id);
+      return Number(info.changes) > 0;
+    },
+    listStaleParentRelayed(olderThanTs, limit) {
+      return db
+        .prepare(
+          `SELECT * FROM discord_pending_questions
+           WHERE parent_session_id IS NOT NULL
+             AND answered_at IS NULL
+             AND escalated_at IS NULL
+             AND ts <= ?
+           ORDER BY ts ASC LIMIT ?`,
+        )
+        .all(olderThanTs, limit) as DiscordPendingQuestionRow[];
     },
     markResolvedLocally(id) {
       db.prepare(

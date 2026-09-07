@@ -33,6 +33,16 @@ export interface ChannelDirectoryQuestionRow {
   question: string;
   options: ChannelDirectoryQuestionOption[];
   answered_at: number | null;
+  /** 回答済みなら確定した選択肢 index (自由文は null)。 */
+  answer_index: number | null;
+  /** 回答済みなら確定した回答本文。 */
+  answer_text: string | null;
+  /** 委託子の質問を一次受けした親。 非 null = 人間へはまだ配信していない。 */
+  parent_session_id: string | null;
+  /** 人間へ上げた時刻。 null = まだ親だけが持っている。 */
+  escalated_at: number | null;
+  /** 複数選択の質問か。 エスカレーション時に元の回答形式を保つのに要る。 */
+  multi_select: boolean;
   ts: number;
 }
 
@@ -44,7 +54,13 @@ export interface ChannelDirectory {
     question: string;
     options: Array<ChannelDirectoryQuestionOption | string>;
     multiSelect?: boolean;
+    /** 委託子の質問なら親 (委託元) の session id。 人間へは配信しない印。 */
+    parentSessionId?: string | null;
   }): ChannelDirectoryQuestionRow;
+  /** 親が裁けない質問を人間へ上げる。 未回答かつ未エスカレーションのときだけ true。 */
+  markEscalated(id: number): boolean;
+  /** 親へ預けたまま放置されている質問 (未回答 / 未エスカレーション)。 */
+  listStaleParentRelayed(olderThanTs: number, limit: number): ChannelDirectoryQuestionRow[];
   findById(id: number): ChannelDirectoryQuestionRow | null;
   findUnansweredByQuestion(sessionId: string, question: string): ChannelDirectoryQuestionRow | null;
   findRecentlyAnsweredByQuestion(sessionId: string, question: string, sinceTs: number): ChannelDirectoryQuestionRow | null;

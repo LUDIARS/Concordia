@@ -162,6 +162,15 @@ export const PendingQuestionSchema = z.object({
   multi_select: z.boolean().optional(),
 });
 // 回答は 3 形態のいずれか: 単一 (answer_index) / 複数 (answer_indices) / 自由文 (other_text)。
+/**
+ * 親 (委託元) が裁けない委託質問を人間へ上げる要求。 note は「なぜ判断できないか」で、
+ * 人間向けカードの本文に足される (前提を知らない人間に判断材料を渡すため)。
+ */
+export const EscalateQuestionSchema = z.object({
+  question_id: z.number().int().positive(),
+  note: z.string().max(2000).optional(),
+});
+
 export const AnswerQuestionSchema = z
   .object({
     question_id: z.number().int().positive(),

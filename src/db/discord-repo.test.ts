@@ -138,6 +138,53 @@ describe("discord_pending_questions repo", () => {
     expect(repo.findLatestUnanswered("s1")).toBeNull();
   });
 
+  // 委託子の質問は一次受けを親にする (問題ログ 2026-09-05)。人間へ配信済みかどうかを
+  // 行に残さないと、エスカレーションの二重配信と自動エスカレーションの判定ができない。
+  it("parentSessionId を刻み、markEscalated は 1 度だけ true を返す", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({
+      session_id: "child",
+      question: "Q",
+      options: ["A"],
+      parentSessionId: "parent",
+    });
+    expect(repo.findById(q.id)?.parent_session_id).toBe("parent");
+    expect(repo.findById(q.id)?.escalated_at).toBeNull();
+    expect(repo.markEscalated(q.id)).toBe(true);
+    expect(repo.findById(q.id)?.escalated_at).not.toBeNull();
+    // 明示エスカレーションと自動エスカレーションが競合してもカードは 1 枚。
+    expect(repo.markEscalated(q.id)).toBe(false);
+  });
+
+  it("回答済みの質問はエスカレーションしない", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "child", question: "Q", options: ["A"], parentSessionId: "parent" });
+    repo.markAnswered(q.id, 0, "A");
+    expect(repo.markEscalated(q.id)).toBe(false);
+  });
+
+  it("listStaleParentRelayed は親預かりで未回答・未エスカレーションの古い順だけ返す", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const stale = repo.insert({ session_id: "child", question: "stale", options: ["A"], parentSessionId: "parent" });
+    const answered = repo.insert({ session_id: "child", question: "answered", options: ["A"], parentSessionId: "parent" });
+    const escalated = repo.insert({ session_id: "child", question: "escalated", options: ["A"], parentSessionId: "parent" });
+    // 親がいない質問 (通常セッション) は最初から人間へ出ているので対象外。
+    const noParent = repo.insert({ session_id: "solo", question: "noParent", options: ["A"] });
+    repo.markAnswered(answered.id, 0, "A");
+    repo.markEscalated(escalated.id);
+
+    const future = Math.floor(Date.now() / 1000) + 60;
+    const rows = repo.listStaleParentRelayed(future, 10);
+    expect(rows.map((r) => r.id)).toEqual([stale.id]);
+    expect(rows.map((r) => r.id)).not.toContain(noParent.id);
+
+    // 猶予内 (作成時刻より前を指定) なら 1 件も引かない。
+    expect(repo.listStaleParentRelayed(0, 10)).toEqual([]);
+  });
+
   it("markResolvedLocally は answered_at を立て answer_index は null、再回答を弾く準備", () => {
     const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);

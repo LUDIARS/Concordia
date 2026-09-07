@@ -42,7 +42,11 @@ describe("delegation coordination pure helpers", () => {
     expect(text).toContain("1. B案");
     expect(text).toContain("POST /v1/sessions/child-1/answer-question");
     expect(text).toContain('"question_id":42');
-    expect(text).toContain("ask マーカーで人間へ引き継いで");
+    // 親一次受け化 (2026-09-07): ask マーカーで聞き直させると子の質問と人間の回答が
+    // 別 id になり結び付かない。escalate-question API を案内する文面に差し替えた。
+    expect(text).toContain("この質問は **あなただけ** に届いています");
+    expect(text).toContain("POST /v1/sessions/child-1/escalate-question");
+    expect(text).not.toContain("ask マーカーで人間へ引き継いで");
   });
 
   it("wraps parent injects and child mirror text with the run id", () => {

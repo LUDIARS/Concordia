@@ -35,6 +35,7 @@ describe("sessionsRouter route table", () => {
       "POST /:id/abandon",
       "POST /:id/answer-question",
       "POST /:id/compact",
+      "POST /:id/escalate-question",
       "POST /:id/escalation",
       "POST /:id/event",
       "POST /:id/fork",

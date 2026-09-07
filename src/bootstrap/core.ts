@@ -33,6 +33,7 @@ import { SessionMessageService } from "../messages/service.js";
 import { WebPushService } from "../push/service.js";
 import {
   makeDiscordPendingQuestionsRepo,
+  parsePendingQuestionOptions,
   makeDiscordSessionChannelsRepo,
   makeDiscordConfigRepo,
 } from "../db/discord-repo.js";
@@ -90,6 +91,8 @@ import { startSweeper } from "../sweeper.js";
 import { startNightlyVacuum } from "../db/nightly-vacuum.js";
 import { startWalGuard } from "../db/wal-guard.js";
 import { startReaper } from "../control/reaper.js";
+import { startQuestionEscalation, makeQuestionEscalationDeps } from "../control/question-escalation.js";
+import { PARENT_QUESTION_ESCALATION_SEC } from "../delegation/coordination.js";
 import { startStalledSessionNudge } from "../control/stalled-session-nudge.js";
 import { startDelegationRunWatchdog } from "../delegation/run-watchdog.js";
 import { startFinishedRunReaper } from "../delegation/finished-run-reaper.js";
@@ -1712,6 +1715,19 @@ export async function startBackend(): Promise<BackendHandle> {
           lostGraceSec: cfg.reaperLostGraceSec,
           sessionEndGraceSec: () => adminState.getReaperSessionEndGraceSec(),
         },
+      ),
+    );
+    // 委託質問は親 (委託元) だけに配信するので、 親が裁かないまま放置された分を
+    // 猶予後に人間へ上げる。 これが無いと委託が無言で止まる。
+    trackPostListenHandle(
+      startQuestionEscalation(
+        makeQuestionEscalationDeps({
+          repo,
+          pendingQuestions,
+          delegation: delegationRepo,
+          parseOptions: parsePendingQuestionOptions,
+          graceSec: () => PARENT_QUESTION_ESCALATION_SEC,
+        }),
       ),
     );
     trackPostListenHandle(

@@ -28,6 +28,11 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
       question: row.question,
       options: parsePendingQuestionOptions(row.options_json),
       answered_at: row.answered_at,
+      answer_index: row.answer_index,
+      answer_text: row.answer_text,
+      parent_session_id: row.parent_session_id,
+      escalated_at: row.escalated_at,
+      multi_select: row.multi_select === 1,
       ts: row.ts,
     };
   };
@@ -53,6 +58,14 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
     },
     insert(input) {
       return toQuestion(deps.pendingQuestions.insert(input))!;
+    },
+    markEscalated(id) {
+      return deps.pendingQuestions.markEscalated(id);
+    },
+    listStaleParentRelayed(olderThanTs, limit) {
+      return deps.pendingQuestions
+        .listStaleParentRelayed(olderThanTs, limit)
+        .map((row) => toQuestion(row)!);
     },
     findById(id) {
       return toQuestion(deps.pendingQuestions.findById(id));

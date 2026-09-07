@@ -2,9 +2,10 @@ import type { Hono } from "hono";
 import type { ProcessManager } from "../../processes/manager.js";
 import type { ProviderName, SessionStatus } from "../../shared/types.js";
 import type { SessionsApiDeps } from "./deps.js";
-import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
+import { eventBus, runCompaction, makeCompactionIO, collectRecentContext, generateHandoff, runClaude, resolveLictorTarget, fetchFromLictor, spawnSession, claimPendingDelegationSpawn, recordPendingRelictor, claimPendingRelictor, runSessionEndFlow, stopSessionByLictorPid, isPidAlive, parseLictorPid, parseAgentClientPid, emitAutoSessionEndInject, pickSessionEndInjectText, AUTO_SESSION_END_INJECT_SOURCE, lastHumanRequester, prefixRequesterTag, parseGoalInput, readGoalFromMetadata, mergeGoalIntoMetadata, buildCollaborationContextPacket, parseInjectSource, log, PROMPT_LOG_PREVIEW_CHARS, FORCE_EXIT_GRACE_MS, RELICTOR_INJECT_SOURCE, RELICTOR_REINJECT_HEADER, StartSchema, PatchSchema, EventSchema, InjectSchema, GoalSchema, TranscriptFrameSchema, PermissionRequestSchema, PermissionResponseSchema, TitleSuggestionSchema, TitleSetSchema, PendingQuestionSchema, AnswerQuestionSchema, EscalateQuestionSchema, ForkSchema, toSpawnProvider, buildAdvisory, serializeSession, syntheticPurgedSession, proxyGet, nowSec, logInactiveTranscriptPost, safeParse, parseMeta } from "./runtime.js";
 import { answerPendingQuestion, type AnswerQuestionBody } from "../../control/answer-question.js";
 import { buildDelegationQuestionRelayText } from "../../delegation/coordination.js";
+import { escalateQuestionToHuman } from "../../control/question-escalation.js";
 
 export function registerQaRoutes(app: Hono, deps: SessionsApiDeps): void {
   app.post("/:id/permission-request", async (c) => {
@@ -71,11 +72,19 @@ app.post("/:id/pending-question", async (c) => {
     if (existing) {
       return c.json({ ok: true, question_id: existing.id, ts: existing.ts, deduped: true });
     }
+    // 委託子セッションなら親 (委託元) を解決する。 親がいる質問は **一次受けが親**で、
+    // 人間へは配信しない (問題ログ 2026-09-05-delegation-question-relay-bypassed)。
+    // 親と人間の両方へ同時配信していたため、 先に答えた方が確定して committed になり、
+    // 「委託元として回答してください」と書かれたリレーに従っても already_answered で
+    // 弾かれる状態だった。 委託の自律性が成立しない。
+    const run = deps.delegation?.findRunByChildSession(id) ?? null;
+    const parentSessionId = run?.parent_session_id ?? undefined;
     const row = deps.channelDirectory.insert({
       session_id: id,
       question: parsed.data.question,
       options: parsed.data.options,
       multiSelect: parsed.data.multi_select === true,
+      parentSessionId: parentSessionId ?? null,
     });
     deps.repo.appendEvent({
       session_id: id,
@@ -88,29 +97,30 @@ app.post("/:id/pending-question", async (c) => {
         multi_select: parsed.data.multi_select === true,
       },
     });
-    // 委託子セッションなら親 (委託元) を解決する。 子の面が無い/非アクティブでも
-    // 質問が「主人不在」で消えないよう、 Discord 面のフォールバック先と親リレーに使う。
-    const run = deps.delegation?.findRunByChildSession(id) ?? null;
-    const parentSessionId = run?.parent_session_id ?? undefined;
     // 起因者 (直近で指示した人間) を session_events の inject source から後追い解決し、
     // Discord 側で @メンションして気付かせる (複数名同時利用での取りこぼし防止)。
     // 委託子は inject source が delegation:* で人間として解決できないため、 親側の
-    // 履歴からもフォールバック解決する (無メンションカードを作らない)。
+    // 履歴からもフォールバック解決する (無メンションカードを作らない)。 親がいる質問では
+    // 即時配信しないが、 エスカレーション時の宛先として同じ解決を使う。
     const requester = lastHumanRequester(deps.repo.recentEvents(id, 50))
       ?? (parentSessionId ? lastHumanRequester(deps.repo.recentEvents(parentSessionId, 50)) : null);
-    eventBus.emit({
-      type: "question.posted",
-      target_session_id: id,
-      question_id: row.id,
-      question: row.question,
-      options: parsed.data.options,
-      multi_select: parsed.data.multi_select === true,
-      parent_session_id: parentSessionId,
-      delegation_run_id: run?.id,
-      requester_platform: requester?.platform,
-      requester_user_id: requester?.userId,
-      ts,
-    });
+    // 親がいれば人間向け配信 (Discord カード) はしない。 親が裁けないときだけ
+    // POST /:id/escalate-question で人間へ上げる。
+    if (!parentSessionId) {
+      eventBus.emit({
+        type: "question.posted",
+        target_session_id: id,
+        question_id: row.id,
+        question: row.question,
+        options: parsed.data.options,
+        multi_select: parsed.data.multi_select === true,
+        parent_session_id: parentSessionId,
+        delegation_run_id: run?.id,
+        requester_platform: requester?.platform,
+        requester_user_id: requester?.userId,
+        ts,
+      });
+    }
     // 親セッションへのリレー: 委託元が自分で回答するか、 人間へ ask で引き継ぐ。
     // persona-context の「親に聞け」を実装で裏付ける経路 (これまで API が無かった)。
     if (run?.parent_session_id) {
@@ -145,10 +155,45 @@ app.post("/:id/answer-question", async (c) => {
       id,
       normalized,
     );
-    if (!result.ok) return c.json({ error: result.error }, result.status);
+    if (!result.ok) {
+      // 409 のときは確定内容も返す。 委託の親子が同じ質問を裁きにいくと片方は必ず
+      // 409 になるので、 受け取った側が異常か正常かを切り分けられるようにする。
+      return c.json(
+        result.answered
+          ? { error: result.error, answered: result.answered }
+          : { error: result.error },
+        result.status,
+      );
+    }
     // 旧「起動時ブランチ選択」の回答処理は廃止 (起動フローはゴール起点に刷新)。
     // 通常の AskUserQuestion 回答として answer_text を返すだけ。
     return c.json({ ok: true, answer_text: result.answer_text });
+  });
+
+/**
+ * 親 (委託元) が裁けない委託質問を人間へ上げる。
+ *
+ * 委託子の質問は既定で親だけに配信する (人間へ直行させない) ため、 親が判断できない
+ * ときの逃げ道が要る。 ask マーカーで人間に聞き直させると **子の質問と人間の回答が
+ * 結び付かない** ので、 元の question 行のまま人間へ配信し直すこの API を正規経路にする。
+ *
+ * 冪等: 既に人間へ上げてある / 既に回答済みなら配信し直さない (カードを増やさない)。
+ */
+app.post("/:id/escalate-question", async (c) => {
+    const id = c.req.param("id");
+    if (!deps.repo.findSession(id)) return c.json({ error: "not_found" }, 404);
+    const body = await c.req.json().catch(() => null);
+    const parsed = EscalateQuestionSchema.safeParse(body);
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const row = deps.channelDirectory.findById(parsed.data.question_id);
+    if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
+    if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
+    const escalated = escalateQuestionToHuman(
+      { repo: deps.repo, questions: deps.channelDirectory, delegation: deps.delegation, now: nowSec },
+      row,
+      parsed.data.note ?? null,
+    );
+    return c.json({ ok: true, question_id: row.id, escalated });
   });
 
 app.post("/:id/pending-question/:qid/resolve", (c) => {

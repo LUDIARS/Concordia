@@ -26,6 +26,8 @@ export interface AnswerQuestionStore {
     session_id: string;
     options: Array<{ label: string; description?: string }>;
     answered_at: number | null;
+    answer_index: number | null;
+    answer_text: string | null;
   } | null;
   markAnswered(id: number, answerIndex: number, answerText: string): void;
   markAnsweredMulti(id: number, answerIndices: number[], answerText: string): void;
@@ -55,7 +57,14 @@ export function questionStoreFromRepo(repo: DiscordPendingQuestionsRepo): Answer
       } catch {
         // 壊れた options_json は選択肢なし扱い (out_of_range で弾かれる)
       }
-      return { id: row.id, session_id: row.session_id, options, answered_at: row.answered_at };
+      return {
+        id: row.id,
+        session_id: row.session_id,
+        options,
+        answered_at: row.answered_at,
+        answer_index: row.answer_index,
+        answer_text: row.answer_text,
+      };
     },
     markAnswered: (id, i, text) => repo.markAnswered(id, i, text),
     markAnsweredMulti: (id, idxs, text) => repo.markAnsweredMulti(id, idxs, text),
@@ -87,7 +96,19 @@ export function answerPendingQuestion(
     return { ok: false, status: 404, error: "not_found" };
   }
   if (row.answered_at !== null) {
-    return { ok: false, status: 409, error: "already_answered" };
+    // 誰が答えたかは列が無いので返せない。 いつ / 何と答えたかだけでも返せば、
+    // 親は 「自分の回答が採用されなかった」 と 「そもそも別の答えで確定していた」 を
+    // 切り分けられる (問題ログ 2026-09-05 の修正要件 4)。
+    return {
+      ok: false,
+      status: 409,
+      error: "already_answered",
+      answered: {
+        answered_at: row.answered_at,
+        answer_index: row.answer_index,
+        answer_text: row.answer_text,
+      },
+    };
   }
   const options = row.options;
 

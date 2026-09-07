@@ -72,6 +72,36 @@ invoke で **各パラメータをモデル含め上書き可**:
 - 子で**権限承認・確認が必要**なものは、直接 Discord ではなく **親セッション経由**でやりとりする
   (子→run→親へ要求を中継、親が回答を子へ inject)。専用 API は設けず §3 status + §4 inject で回す
   (設計判断: 将来必要なら `/runs/:id/approval` を追加)。
+### 5.1 委託子の質問は親が一次受けする
+
+**Requirement ID: `SPEC-DELEGATION-QUESTION-PARENT-FIRST`**
+
+実装: `src/control/question-escalation.ts`, `src/api/sessions/qa.ts`,
+`src/db/discord-repo.ts`, `src/delegation/coordination.ts`,
+`src/discord/channel-directory.ts`
+
+委託子セッションの質問 (`POST /v1/sessions/:id/pending-question`) は、 run が解決できる
+間は **親 (委託元) にだけ配信し、 人間へは配信しない**。 親と人間へ同時配信すると先に
+答えた方が確定し、 「委託元として回答してください」というリレーに従った親が
+`already_answered` で弾かれる (委託の自律性が壊れる)。
+
+- 行に `parent_session_id` を持たせ、 非 null = 人間未配信の印とする。 人間向けの
+  `question.posted` は親がいない質問に対してのみ発火する。
+- 親が裁けないときは `POST /v1/sessions/:id/escalate-question { question_id, note? }` で
+  **元の question 行のまま**人間へ配信し直す。 ask マーカーで聞き直させない
+  (子の質問と人間の回答が別 id になり結び付かないため)。 `note` は人間向け本文に足す。
+- 二重配信は `escalated_at` の条件付き UPDATE (未回答 かつ 未エスカレーション) で防ぐ。
+  明示エスカレーションと自動エスカレーションが競合してもカードは 1 枚に収束する。
+- **親が裁かないまま放置された質問は猶予後に自動で人間へ上げる。** これが無いと親が
+  落ちている / リレーを読んでいない場合に委託が無言で止まる。 猶予は
+  `CONCORDIA_PARENT_QUESTION_ESCALATION_SEC` (既定 300 秒)、 `0` 以下で自動
+  エスカレーション無効。 無効時はリレー本文でもそう案内する (待てば上がると誤解させない)。
+- エスカレーション時は元の `multi_select` を保つ。 落とすと子が求めた形の回答を人間が
+  返せない。
+- `already_answered` (409) では確定内容 (`answered_at` / `answer_index` / `answer_text`) も
+  返す。 親が「自分の回答が採用されなかった」と「別の答えで既に確定していた」を
+  切り分けられるようにするため。
+
 - 子は **Cc からの Inject を受理**する。
 - **Cc 発の Inject メッセージは Discord にも手投稿する** (status 通知・追加タスク inject 等の
   Cc 起源メッセージを Discord 上でも可視化)。

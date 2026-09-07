@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 94;
+export const SCHEMA_VERSION = 95;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2348,6 +2348,27 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
       );
       CREATE INDEX IF NOT EXISTS idx_github_actors_last_seen ON github_actors(last_seen_at);
     `);
+  },
+},
+{
+  version: 95,
+  name: "delegation-question-parent-first",
+  source: "discord_pending_questions.parent_session_id / escalated_at (spec/plan/problem_logs/2026-09-05-delegation-question-relay-bypassed.md)",
+  up(db) {
+    // 委託子の質問は一次受けを親 (委託元) にする。 人間へ配信済みかどうかを
+    // 行に残さないと、 エスカレーションの二重配信と自動エスカレーションの判定ができない。
+    const columns = db.prepare("PRAGMA table_info(discord_pending_questions)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "parent_session_id")) {
+      db.exec("ALTER TABLE discord_pending_questions ADD COLUMN parent_session_id TEXT");
+    }
+    if (!columns.some((column) => column.name === "escalated_at")) {
+      db.exec("ALTER TABLE discord_pending_questions ADD COLUMN escalated_at INTEGER");
+    }
+    // 自動エスカレーションの掃き出しは 「親配信済み・未回答・未エスカレーション」 を引く。
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_discord_pending_questions_parent"
+      + " ON discord_pending_questions(parent_session_id, answered_at, escalated_at)",
+    );
   },
 },
 ];

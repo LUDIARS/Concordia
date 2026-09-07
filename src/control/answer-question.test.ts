@@ -17,6 +17,8 @@ function makeDeps(rowOverrides: Partial<ReturnType<AnswerQuestionStore["findById
     session_id: SESSION,
     options: [{ label: "案A" }, { label: "案B" }, { label: "案C" }],
     answered_at: null as number | null,
+    answer_index: null as number | null,
+    answer_text: null as string | null,
     ...rowOverrides,
   };
   const calls = { marked: [] as unknown[], events: [] as unknown[] };
@@ -89,12 +91,15 @@ describe("answerPendingQuestion", () => {
     });
   });
 
-  it("回答済みは 409", () => {
-    const { deps } = makeDeps({ answered_at: 999 });
+  it("回答済みは 409 で、確定内容も返す", () => {
+    // 委託の親子が同じ質問を裁きにいくと片方は必ず 409 になる。error 文字列だけでは
+    // 「自分の回答が採用されたのか」すら分からず、親は異常か正常かを切り分けられない。
+    const { deps } = makeDeps({ answered_at: 999, answer_index: 1, answer_text: "案B" });
     expect(answerPendingQuestion(deps, SESSION, { question_id: 42, answer_index: 0 })).toEqual({
       ok: false,
       status: 409,
       error: "already_answered",
+      answered: { answered_at: 999, answer_index: 1, answer_text: "案B" },
     });
   });
 

@@ -8,6 +8,7 @@
 import type { SettingDefinition } from "../types.js";
 import { DEFAULT_UNSTARTED_SEC } from "../../../delegation/unstarted-run.js";
 import { DEFAULT_ZOMBIE_GRACE_MS } from "../../../delegation/zombie-run-detect.js";
+import { DEFAULT_PARENT_QUESTION_ESCALATION_SEC } from "../../../delegation/coordination.js";
 
 /** env のみ・整数・表示専用の定型項目を作る (定義の反復を減らすためのローカル helper)。 */
 function envInteger(
@@ -297,6 +298,14 @@ export const COMPACTION_SETTINGS: readonly SettingDefinition[] = [
 ] as const;
 
 export const DELEGATION_SETTINGS: readonly SettingDefinition[] = [
+  envInteger(
+    "delegation.parent_question_escalation_sec",
+    "delegation",
+    "委託質問を人間へ上げるまでの猶予 (秒)",
+    "CONCORDIA_PARENT_QUESTION_ESCALATION_SEC",
+    DEFAULT_PARENT_QUESTION_ESCALATION_SEC,
+    "委託子の質問はまず委託元 (親) だけに配信する。 親がこの秒数だけ裁かなければ人間へ上げる。 0 以下で自動エスカレーション無効。",
+  ),
   envBoolean(
     "delegation.domain_preamble",
     "delegation",

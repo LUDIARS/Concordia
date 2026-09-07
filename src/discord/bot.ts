@@ -131,6 +131,7 @@ import { createTestForumRefreshTrigger } from "./test-forum-trigger.js";
 import type { RevisorLocalPrMerger, RevisorLocalPrReader } from "../pr/revisor-client.js";
 import { readTestSurfaceId } from "./test-forum-session.js";
 import { buildContextReport } from "./context-report.js";
+import { formatContextUsageLine, readContextUsage } from "../cost/context-usage.js";
 import { renderPlanCard } from "./plan-card.js";
 import { recordPlanCardMessageId, recordQuestionCardMessageId } from "./phase-index.js";
 import { ensureTeamDiscordLayout } from "./team-provision.js";
@@ -711,9 +712,50 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
   // Discord errors チャンネルへの poster は意図的に持たない。
   let errorMonitor: ErrorMonitorHandle | null = null;
   let channelWorkState: ChannelWorkState | null = null;
+  /**
+   * コンテキスト使用量の 1 行を組む。 推定できなければ null (数字を作らない)。
+   *
+   * transcript を読むので I/O を伴う。 呼ぶのは「アイドルへ落ちた瞬間」と
+   * 「10 分の自動確認」だけで、 ターンごとには呼ばない。
+   */
+  const contextUsageLine = async (sessionId: string): Promise<string | null> => {
+    try {
+      const session = deps.sessionsRepo.findSession(sessionId);
+      if (!session) return null;
+      const usage = await readContextUsage(session);
+      return usage ? formatContextUsageLine(usage) : null;
+    } catch {
+      // 通知は best-effort。 transcript が読めなくても本筋を止めない。
+      return null;
+    }
+  };
+  /** セッションチャンネルへコンテキスト使用量を流す (best-effort)。 */
+  const postContextUsage = async (sessionId: string): Promise<void> => {
+    if (gatewayClosed || stopping || !webhooks) return;
+    const line = await contextUsageLine(sessionId);
+    if (!line) return;
+    const client = await webhooks.getForSession(sessionId);
+    if (!client) return;
+    await webhooks.send(client, {
+      content: line,
+      username: "Concordia コンテキスト",
+      // `parse: []` で everyone / role / user の解決を一括で止める。 `users: []` だけだと
+      // everyone と role は既定解決のまま残るので、 他の投稿経路と同じ形に揃える。
+      allowedMentions: { parse: [] },
+    });
+  };
   const onSessionMessagePosted = (input: { sessionId: string; completion: boolean }): void => {
-    if (input.completion) channelWorkState?.noteCompletion(input.sessionId);
-    else channelWorkState?.noteProgress(input.sessionId);
+    if (input.completion) {
+      const wasWorking = channelWorkState?.isWorking(input.sessionId) ?? false;
+      channelWorkState?.noteCompletion(input.sessionId);
+      // 作業中 → アイドルへ落ちた瞬間だけ流す。 既にアイドルなら状態は変わって
+      // いないので、 summary が続けて出るたびに同じ行を積まない。
+      if (wasWorking) {
+        void postContextUsage(input.sessionId).catch(() => {
+          /* best-effort — 通知失敗で投稿経路を壊さない */
+        });
+      }
+    } else channelWorkState?.noteProgress(input.sessionId);
   };
   const readPositiveIntEnv = (name: string, fallback: number, min = 1): number => {
     const raw = Number(process.env[name] ?? "");
@@ -2459,8 +2501,12 @@ export async function startDiscordBot(deps: DiscordBotDeps): Promise<ChatPlatfor
           : null;
         const mention = mentionUserId ? `<@${mentionUserId}> ` : "";
         const idleMin = Math.max(1, Math.round(ev.idle_sec / 60));
+        // 止まっているセッションほど「あとどれだけ入るか」を知りたいので、
+        // 自動確認の通知に使用量を併記する (別投稿にせず 1 通に収める)。
+        const usage = await contextUsageLine(ev.target_session_id);
         await webhookPool.send(client, {
-          content: `${mention}🔔 [自動確認] 応答が約 ${idleMin} 分止まっていたため、セッションへ自動確認を送信しました。`,
+          content: `${mention}🔔 [自動確認] 応答が約 ${idleMin} 分止まっていたため、セッションへ自動確認を送信しました。`
+            + (usage ? `\n${usage}` : ""),
           username: "Concordia 自動巡回",
           allowedMentions: mentionUserId
             ? { parse: [], users: [mentionUserId] }

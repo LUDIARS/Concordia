@@ -40,9 +40,9 @@ export interface ForumSpawnTemplateChoice {
   emoji?: string;
 }
 
-/** モデル質問カードの選択肢 (Test forum と同型の Fable/Opus/Sonnet/Sol/Terra)。 */
+/** モデル質問カードの選択肢 (Fable/Opus/Sonnet/Astra/Sol/Terra)。 */
 export interface ForumSpawnModelChoice {
-  /** nickname (fable / opus / sonnet / sol / terra)。 回答 override として spawn 側へ渡す。 */
+  /** nickname (fable / opus / sonnet / astra / sol / terra)。 回答 override として spawn 側へ渡す。 */
   nick: string;
   label: string;
   emoji?: string;

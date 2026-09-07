@@ -68,7 +68,7 @@ merge / close / head 更新を次の再起動まで残さない。重複イベ�
   ハンドラが検知して:
   1. スレッドが Bot 自身の作成でないことを確認 (自作スレッドとの区別は owner id)
   2. **[2026-09-02 neco が決定 1c を上書き] タグ選択と空き枠による自動選択は行わない**。
-     投稿に nickname (fable / opus / sonnet / sol / terra) または model id が識別子境界つきで
+     投稿に nickname (fable / opus / sonnet / astra / sol / terra) または model id が識別子境界つきで
      1 件だけ明示されていれば、そのモデルと明示 effort を採用する。明示が無いか曖昧なら、
      Test forum と同型のモデル / Effort 選択カードを出し、起動ボタンで確定する。候補の provider、
      model id、絵文字は active な素のモデルテンプレから解決する。詳細:

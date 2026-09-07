@@ -40,6 +40,28 @@ function sentText(value: unknown): string {
 }
 
 describe("notifyCostActivity: モデル別週間枠", () => {
+  it("使用量の取得が復旧しても上限接近以外は通知しない", async () => {
+    const h = harness();
+    // 旧実装が「取得復旧」通知を出す条件そのもの。 廃止後もこの残存値で復活しないことを
+    // 固定する (キーは他から読まれないので、消すと回帰を検出できなくなる)。
+    h.configSet("cost_activity:available", "0");
+    const input = {
+      activityChannel: h.channel,
+      configGet: h.configGet,
+      configSet: h.configSet,
+      codexRate: { used5h: null, reset5hAt: null },
+    };
+    await notifyCostActivity({ ...input, claudeUsage: null });
+    await notifyCostActivity({ ...input, claudeUsage: usage() });
+    expect(h.send).not.toHaveBeenCalled();
+    await notifyCostActivity({
+      ...input,
+      claudeUsage: usage({ fiveHour: { utilization: 80, resetsAtSec: null } }),
+    });
+    expect(h.send).toHaveBeenCalledTimes(1);
+    expect(h.send).toHaveBeenCalledWith(expect.stringContaining("Claude 5H cost usage is 80.0%"));
+  });
+
   it("80% 以上のモデル別週間枠はリセット期間につき 1 回だけ通知する", async () => {
     const h = harness();
     const claudeUsage = usage({

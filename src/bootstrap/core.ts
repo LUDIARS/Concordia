@@ -970,12 +970,6 @@ export async function startBackend(): Promise<BackendHandle> {
     const teams = teamsRepo.forRepo(session.repo_origin ?? session.repo_path);
     return teams.length === 1 ? teams[0] : undefined;
   };
-  // team settings `revisor_lane` (teams §3.1) の解決。 session.team_id が無ければ
-  // repo_origin/repo_path から一意なチームを引く (contract seed と同じ既定規則)。
-  const resolveSessionRevisorLane = (session: { team_id?: string | null; repo_origin: string | null; repo_path: string }): "local" | "github" | undefined => {
-    const team = resolveSessionTeam(session);
-    return team ? parseTeamSettings(team).revisor_lane : undefined;
-  };
   const submitLocalPrForSession = async (
     sessionId: string,
     options: { fastLane?: boolean } = {},
@@ -990,7 +984,6 @@ export async function startBackend(): Promise<BackendHandle> {
         repository: session.repo_origin,
         branch: session.branch,
         fastLane: options.fastLane === true,
-        revisorLane: resolveSessionRevisorLane(session),
       },
     ).then((outcome) => {
       // 提出できたときだけドメインレビューを流す (設計書 §8.2 C-4 の契機 b)。

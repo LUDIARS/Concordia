@@ -10,6 +10,7 @@ import type { GithubIssueRunRow, GithubIssueRunsRepo } from "../db/github-issue-
 import type { RevisorLocalPrSummary } from "../pr/revisor-local-pr-client.js";
 import type { BranchPusher } from "./branch-push.js";
 import type { GithubGateway } from "./gh-cli.js";
+import { normalizeRepoOrigin } from "../pr/normalize.js";
 import { publishedComment, pullRequestBody, pullRequestTitle, sanitizeGithubPublicText } from "./text.js";
 
 export interface PublishDeps {
@@ -30,6 +31,23 @@ function summaryOf(localPr: RevisorLocalPrSummary | null): string {
   return localPr?.body?.trim() ?? "";
 }
 
+/** 審査通過 = open のまま test_ok。 これ以外を通過扱いにしない。 */
+export function isReviewPassed(localPr: RevisorLocalPrSummary): boolean {
+  return localPr.status === "open" && localPr.checkStatus === "test_ok";
+}
+
+/**
+ * local PR が run の審査対象そのものか。 リポジトリと head ref の一致で決める
+ * (`findLocalPrForRun` の選択規則と同じ)。 binding 済みの `local_pr_id` があるなら
+ * それも一致を要求する。
+ */
+export function isReviewTargetOfRun(run: GithubIssueRunRow, localPr: RevisorLocalPrSummary): boolean {
+  if (run.local_pr_id !== null && run.local_pr_id !== localPr.id) return false;
+  return normalizeRepoOrigin(localPr.repository).toLowerCase()
+      === normalizeRepoOrigin(run.repo_origin).toLowerCase()
+    && localPr.headRef === run.branch;
+}
+
 export async function publishReviewedBranch(
   deps: PublishDeps,
   run: GithubIssueRunRow,
@@ -37,6 +55,13 @@ export async function publishReviewedBranch(
 ): Promise<PublishOutcome> {
   const log = deps.log ?? (() => {});
   try {
+    // 呼び出し側の状態遷移だけに依存せず、公開の入口でも審査と対象を照合する。
+    if (!localPr || !isReviewPassed(localPr)) {
+      throw new Error("Revisor の審査通過を確認できないため GitHub PR を公開できません");
+    }
+    if (!isReviewTargetOfRun(run, localPr)) {
+      throw new Error("Revisor の審査対象が Issue のリポジトリ・ブランチと一致しません");
+    }
     await deps.pusher.push({
       repoPath: run.repo_path,
       branch: run.branch,

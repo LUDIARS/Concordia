@@ -48,14 +48,15 @@ const CATALOG: DelegationTemplateLite[] = [
   catalogTemplate("opus-mid", "claude", "claude-opus-5", "🧙‍♂️"),
   catalogTemplate("sonnet-mid", "claude", "claude-sonnet-5", "🧑‍💼"),
   catalogTemplate("sol-mid", "codex", "gpt-5.6-sol", "☀️"),
+  catalogTemplate("astra-mid", "codex", "gpt-6-astra", "🌟"),
   catalogTemplate("terra-xhigh", "codex", "gpt-5.6-terra", "🌏"),
   catalogTemplate("design-hard-fable5", "claude", "claude-fable-5", "🧩"),
 ];
 
 describe("forumModelChoices / normalizeForumEffort", () => {
-  it("Fable/Opus/Sonnet/Sol/Terra を素のモデルテンプレから解決する", () => {
+  it("Fable/Opus/Sonnet/Astra/Sol/Terra を素のモデルテンプレから解決する", () => {
     const choices = forumModelChoices(CATALOG);
-    expect(choices.map((c) => c.nick)).toEqual(["fable", "opus", "sonnet", "sol", "terra"]);
+    expect(choices.map((c) => c.nick)).toEqual(["fable", "opus", "sonnet", "astra", "sol", "terra"]);
     const fable = choices.find((c) => c.nick === "fable")!;
     expect(fable).toMatchObject({
       provider: "claude",
@@ -85,6 +86,10 @@ describe("forumModelChoices / normalizeForumEffort", () => {
       effort: "xhigh",
     });
     expect(matchExplicitForumModel("t", "terraで", choices)?.choice.nick).toBe("terra");
+    expect(matchExplicitForumModel("t", "Astra xhigh で実装", choices)).toMatchObject({
+      choice: { nick: "astra", provider: "codex", model: "gpt-6-astra" },
+      effort: "xhigh",
+    });
     expect(matchExplicitForumModel("t", "レビューして", choices)).toBeNull();
     expect(matchExplicitForumModel("t", "fable か opus で", choices)).toBeNull();
     expect(matchExplicitForumModel("t", "Resolve the console issue", choices)).toBeNull();

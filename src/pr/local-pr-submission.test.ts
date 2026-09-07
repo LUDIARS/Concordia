@@ -19,6 +19,8 @@ function plan(overrides: Partial<Parameters<typeof planLocalPrSubmission>[0]> = 
 }
 
 describe("planLocalPrSubmission", () => {
+  // 公開経路 (team settings `revisor_lane`) は提出可否の入力ではない。 GitHub lane の
+  // チームでも事前審査へ出す — 判定に lane を持ち込むと審査を飛ばす経路が復活する。
   it("submits a branch that has commits in a registered repository", () => {
     expect(plan()).toEqual({
       submit: true,
@@ -109,15 +111,6 @@ describe("planLocalPrSubmission", () => {
     expect(plan({ openPullRequests })).toEqual({ submit: false, reason: "already_open" });
   });
 
-  it("skips submission with a named reason when the team's revisor_lane is github", () => {
-    expect(plan({ revisorLane: "github" }))
-      .toEqual({ submit: false, reason: "team_revisor_lane_github" });
-  });
-
-  it("submits as usual when revisor_lane is local or unset (team-unset fallback)", () => {
-    expect(plan({ revisorLane: "local" }).submit).toBe(true);
-    expect(plan({ revisorLane: undefined }).submit).toBe(true);
-  });
 });
 
 function gateway(overrides: Partial<RevisorLocalPrGateway> = {}): RevisorLocalPrGateway {
@@ -580,7 +573,9 @@ describe("submitSessionLocalPr", () => {
     expect(promoteLocalPullRequest).not.toHaveBeenCalled();
   });
 
-  it("does not submit local PR for a team configured with revisor_lane=github", async () => {
+  // GitHub 公開予定のセッションでも事前審査を通す。 提出前に Revisor を読む経路が
+  // 生きていることまで確認する (lane を理由に読まずに返していたのが元の挙動)。
+  it("submits local PR for review even when the branch is destined for GitHub", async () => {
     const listRepositories = vi.fn(gateway().listRepositories);
     const listLocalPullRequests = vi.fn(gateway().listLocalPullRequests);
     const submitLocalPullRequest = vi.fn(gateway().submitLocalPullRequest);
@@ -589,12 +584,12 @@ describe("submitSessionLocalPr", () => {
       listBranchCommits: async () => ["feat: x"],
       loadSessionTaskPrContent: async () => PR_CONTENT,
       log,
-    }, { ...request, revisorLane: "github" });
+    }, request);
 
-    expect(result).toEqual({ submitted: false, reason: "team_revisor_lane_github" });
-    expect(listRepositories).not.toHaveBeenCalled();
-    expect(listLocalPullRequests).not.toHaveBeenCalled();
-    expect(submitLocalPullRequest).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ submitted: true });
+    expect(listRepositories).toHaveBeenCalledOnce();
+    expect(listLocalPullRequests).toHaveBeenCalledOnce();
+    expect(submitLocalPullRequest).toHaveBeenCalledOnce();
   });
 
   // セッション終了処理をレビュー発火の失敗で壊さない。

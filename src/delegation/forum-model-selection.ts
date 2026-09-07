@@ -6,7 +6,7 @@
  * @implements spec/feature/github-issue-workflow.md — モデル選定
  */
 
-export const FORUM_MODEL_NICKS = ["fable", "opus", "sonnet", "sol", "terra"] as const;
+export const FORUM_MODEL_NICKS = ["fable", "opus", "sonnet", "astra", "sol", "terra"] as const;
 export type ForumModelNick = (typeof FORUM_MODEL_NICKS)[number];
 export const FORUM_EFFORTS = ["minimal", "low", "medium", "high", "xhigh"] as const;
 export type ForumEffort = (typeof FORUM_EFFORTS)[number];

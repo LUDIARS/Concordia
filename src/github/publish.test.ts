@@ -68,6 +68,38 @@ const localPr: RevisorLocalPrSummary = {
 };
 
 describe("publishReviewedBranch", () => {
+  it.each([
+    null,
+    { ...localPr, checkStatus: "queued" },
+    { ...localPr, checkStatus: "failed" },
+    { ...localPr, status: "merged" },
+    { ...localPr, repository: "LUDIARS/Other" },
+    { ...localPr, headRef: "another-branch" },
+  ])("refuses publication without a matching passed review: %j", async (review) => {
+    const { db, deps, run, created, pushes } = harness();
+    try {
+      expect((await publishReviewedBranch(deps, run, review)).kind).toBe("failed");
+      expect(pushes).toEqual([]);
+      expect(created).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
+  // binding 済みの run は、 同じ repo/branch でも別 ID の local PR で公開しない
+  // (審査対象の取り違えを push の手前で止める)。
+  it("refuses publication when the run is bound to a different local PR", async () => {
+    const { db, deps, run, runs, created, pushes } = harness();
+    try {
+      const bound = runs.update(run.id, { localPrId: "pr-other" })!;
+      expect((await publishReviewedBranch(deps, bound, localPr)).kind).toBe("failed");
+      expect(pushes).toEqual([]);
+      expect(created).toEqual([]);
+    } finally {
+      db.close();
+    }
+  });
+
   it("pushes the reviewed branch, opens a PR and links it back to the issue", async () => {
     const { db, deps, run, runs, created, comments, pushes } = harness();
     const outcome = await publishReviewedBranch(deps, run, localPr);

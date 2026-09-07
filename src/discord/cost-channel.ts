@@ -64,12 +64,7 @@ export async function notifyCostActivity(input: {
 
   const codex5h = codexRate.used5h;
   const claude5h = claudeUsage?.fiveHour?.utilization ?? null;
-  const available = codex5h !== null || claude5h !== null;
-  const prevAvailability = configGet("cost_activity:available");
-  if (prevAvailability === "0" && available) {
-    await activityChannel.send("Cost usage is available again.");
-  }
-  configSet("cost_activity:available", available ? "1" : "0");
+  // activity は上限接近 (80% 以上) の警告だけ。取得復旧は通常の cost 表示へ反映する。
 
   await notifyHigh5hUsage(activityChannel, configGet, configSet, {
     provider: "Codex",

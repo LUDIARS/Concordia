@@ -79,6 +79,17 @@ GitHub issues イベント (webhook / 取りこぼし用ポーリング)
 
 ## 操作面
 
+プロジェクトごとの有効・無効は「プロジェクトコード」の **Issue WF** で指定できる。
+ラベル名・信頼実行者・PR base・委託テンプレは共通設定であり、プロジェクト別の値ではない。
+webhook secret はプロジェクトのリポジトリごとに設定する。
+
+GitHub lane のチームでも Revisor local PR へ事前審査を提出できる。公開経路の選択で
+審査を省略しない。GitHub PR 公開処理 (`src/github/publish.ts` の `publishReviewedBranch`)
+の入口でも、`isReviewPassed` で open / test_ok を、`isReviewTargetOfRun` で対象の
+リポジトリ・ブランチ・記録済み local PR ID の一致を確認し、不一致なら push 前に止める。
+状態遷移 (`src/github/tracker.ts`) と公開の 2 段で同じ述語を使うのは、 遷移の観測から
+公開までの間に local PR が別物へ変わっていても未審査のブランチを push しないため。
+
 - `POST /v1/github/webhook` — GitHub からの `issues` イベント受け口。署名検証のみで認可する。
 - `GET /v1/admin/github` — 現況 (webhook secret の有無・信頼実行者・観測名簿 `actors[]`・対象プロジェクト)。
 - `GET /v1/github/issue-runs` — run 一覧 (状態・PR リンク・理由)。

@@ -13,8 +13,12 @@ import type { DelegationRunRow } from "../db/delegation-repo.js";
 import type { RevisorLocalPrSummary } from "../pr/revisor-local-pr-client.js";
 import { normalizeRepoOrigin } from "../pr/normalize.js";
 import type { GithubGateway } from "./gh-cli.js";
-import { publishReviewedBranch, type PublishDeps } from "./publish.js";
+import { isReviewPassed, publishReviewedBranch, type PublishDeps } from "./publish.js";
 import { failedComment, sanitizeGithubPublicText, skippedComment } from "./text.js";
+
+// 審査通過の判定は publish 側が正本 (公開の入口で同じ規則を再確認するため)。
+// 既存の import 元を変えないよう、ここから再輸出する。
+export { isReviewPassed };
 
 export type RunTransition =
   | { kind: "wait" }
@@ -28,11 +32,6 @@ export interface TransitionInput {
   delegationError: string | null;
   /** run のブランチに対応する Revisor local PR。 未提出なら null。 */
   localPr: RevisorLocalPrSummary | null;
-}
-
-/** 審査通過 = open のまま test_ok。 これ以外を通過扱いにしない。 */
-export function isReviewPassed(localPr: RevisorLocalPrSummary): boolean {
-  return localPr.status === "open" && localPr.checkStatus === "test_ok";
 }
 
 export function decideRunTransition(input: TransitionInput): RunTransition {

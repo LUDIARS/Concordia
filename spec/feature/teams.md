@@ -142,7 +142,8 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
 
 ```jsonc
 {
-  "revisor_lane":   "local" | "github",     // Revisor 提出経路 (MELPOT=github の既存判断)
+  "revisor_lane":   "local" | "github",     // 成果の公開経路 (MELPOT=github の既存判断)。
+                                            // 事前審査の要否ではない — 下記参照
   "pr_rules":       { "base": "develop", "push": "revisor" },
   "test_policy":    "confirm-queue" | "custos-unity",
   "worktree":       "allowed" | "repo-root-only",   // Unity は repo-root-only
@@ -152,7 +153,10 @@ MakaiNui (Unity・private・別 org・Revisor push ルール別) を成立させ
 ```
 
 - **セッション契約の seed 値はチーム settings から引く** (session-contract §3.1)。
-  ハーネス述語・delegation invoke・Revisor 提出経路も同じ settings を読む。
+  ハーネス述語・delegation invoke も同じ settings を読む。
+- `revisor_lane` は **事前審査の要否を決めない**。 GitHub lane のチームでも作業ブランチは
+  Revisor local PR として提出し審査を受ける (revisor-local-pr-submission §3)。 lane が
+  決めるのは審査を通った後の着地先であり、 審査そのものを飛ばす経路は存在しない。
 
 ### 3.2 B 層 — 自然文ルール (harness_rules の team scope)
 

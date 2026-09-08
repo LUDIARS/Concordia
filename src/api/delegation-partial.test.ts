@@ -8,8 +8,27 @@ import type { TaskMdStore } from "../taskflow/md-store.js";
 import { seedSessionContract } from "../contract/seed-rules.js";
 import type { SessionRow } from "../shared/types.js";
 import { delegationRouter } from "./delegation.js";
+import { KAIZEN_DAILY_PROMPT } from "../delegation/parttimer-prompts.js";
 
 describe("delegation partial status", () => {
+  it("does not requeue the human-wait status example actually supplied to Kaizen", async () => {
+    const example = KAIZEN_DAILY_PROMPT.split("\n").find((line) => line.includes("status body: {"));
+    expect(example).toBeDefined();
+    const payload = JSON.parse(example!.slice(example!.indexOf("{")));
+    const repo = createSourceRun(repoFor(makeTestDb()));
+    const invoke = vi.fn();
+    const writeRemainingTasks = vi.fn();
+    const app = new Hono().route("/v1/delegation", delegationRouter({
+      repo,
+      taskStore: { writeRemainingTasks } as unknown as TaskMdStore,
+      service: { invoke, recordEffortOutcome: vi.fn() } as unknown as DelegationService,
+    }));
+    expect((await postStatus(app, payload)).status).toBe(200);
+    expect(repo.findRun("source-run")?.status).toBe("completed");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(writeRemainingTasks).not.toHaveBeenCalled();
+  });
+
   it("requeues once without advancing taskflow and notifies the parent", async () => {
     const db = makeTestDb();
     const repo = new DelegationRepo(db);

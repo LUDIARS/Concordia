@@ -8,6 +8,7 @@ import { MessageList } from "./MessageList.js";
 import { clientId, subscribePush } from "./push.js";
 import { SessionList } from "./SessionList.js";
 import { StatusOverlay } from "./StatusOverlay.js";
+import { loadAttachmentMessages, type AttachmentMessage } from "./Attachments.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 chat, unread, and push UI */
 
@@ -16,10 +17,12 @@ export function SessionChat() {
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof api.sessions>>["sessions"]>([]);
   const [session, setSession] = useState<Awaited<ReturnType<typeof api.session>>["session"] | null>(null);
   const [messages, setMessages] = useState<SessionMessage[]>([]);
+  const [attachmentMessages, setAttachmentMessages] = useState<AttachmentMessage[]>([]);
   const [unread, setUnread] = useState(new Map<string, number>());
   const [drawer, setDrawer] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const [pageError, setPageError] = useState<string | null>(null);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [pushError, setPushError] = useState<string | null>(null);
   const browserId = useMemo(clientId, []);
   const selectedSessionRef = useRef(id);
@@ -31,15 +34,21 @@ export function SessionChat() {
     const requestedId = id;
     const request = ++refreshRequestRef.current;
     try {
-      const [sessionData, list, messageData] = await Promise.all([
+      const [sessionData, list, messageData, attachments] = await Promise.all([
         api.session(requestedId),
         api.sessions(),
         api.sessionMessages(requestedId),
+        loadAttachmentMessages(requestedId).then(
+          (value) => ({ value, error: null }),
+          (cause: unknown) => ({ value: null, error: cause instanceof Error ? cause.message : String(cause) }),
+        ),
       ]);
       if (request !== refreshRequestRef.current || selectedSessionRef.current !== requestedId) return;
       setSession(sessionData.session);
       setSessions(list.sessions);
       setMessages(messageData.messages);
+      if (attachments.value) setAttachmentMessages(attachments.value);
+      setAttachmentError(attachments.error);
       setPageError(null);
     } catch (cause) {
       if (request !== refreshRequestRef.current || selectedSessionRef.current !== requestedId) return;
@@ -50,6 +59,8 @@ export function SessionChat() {
   useEffect(() => {
     setSession(null);
     setMessages([]);
+    setAttachmentMessages([]);
+    setAttachmentError(null);
     setDrawer(false);
     void refresh();
   }, [id]);
@@ -85,7 +96,8 @@ export function SessionChat() {
     };
   }, [id, latestMessageId, browserId]);
 
-  useWsEvent(["session.message", "session.message.summary", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], (event) => {
+  useWsEvent(["chat.posted", "session.message", "session.message.summary", "session.started", "session.ended", "session.lost", "session.task_changed", "session.event"], (event) => {
+    if (event.type === "chat.posted" && event.session_id === id) void refresh();
     if (event.type === "session.message" && event.target_session_id === id) {
       setMessages((current) => mergeMessage(current, event.message));
     }
@@ -144,7 +156,7 @@ export function SessionChat() {
   const sidebar = <SessionList sessions={sessions} activeId={id} unread={unread} />;
 
   return (
-    <div className="-mx-3 -my-4 flex h-[calc(100vh-8rem)] min-h-[32rem] bg-bg">
+    <div className="-mx-3 -my-4 flex h-[calc(100vh-8rem)] min-h-[32rem] bg-bg" style={{ touchAction: "manipulation" }}>
       <aside className="hidden w-72 shrink-0 overflow-y-auto border-r border-border md:block">{sidebar}</aside>
       {drawer && (
         <div className="fixed inset-0 z-40 bg-black/40 md:hidden" onClick={() => setDrawer(false)}>
@@ -168,8 +180,9 @@ export function SessionChat() {
           </button>
         </header>
         {pageError && <div className="px-3 py-1 text-xs text-danger">更新エラー: {pageError}</div>}
+        {attachmentError && <div role="alert" className="px-3 py-1 text-xs text-danger">{attachmentError} <button type="button" onClick={() => void refresh()}>再試行</button></div>}
         {pushError && <div className="px-3 text-xs text-danger">{pushError}</div>}
-        <MessageList messages={messages} onAnswer={answer} onPermission={permission} />
+        <MessageList messages={messages} attachmentMessages={attachmentMessages} sessionId={id} onAnswer={answer} onPermission={permission} />
         <ChatInput onSubmit={submit} disabled={session?.status !== "active"} />
       </section>
       {statusOpen && session && <StatusOverlay session={session} onClose={() => setStatusOpen(false)} />}

@@ -35,6 +35,7 @@
     "web-push-subscription-and-delivery"
   ],
   "specRefs": [
+    "spec/feature/session-message-webui-chat.md#5-添付の閲覧とモバイル入力",
     "spec/feature/session-message-webui-chat.md#11-ルーティング-確定",
     "spec/feature/session-message-webui-chat.md#12-チャット画面-discord-型",
     "spec/feature/session-message-webui-chat.md#13-ログ確認画面",

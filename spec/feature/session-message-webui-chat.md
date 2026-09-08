@@ -159,3 +159,41 @@ Discord にも **既定で出す**。`src/discord/egress-frame-filter.ts` の
   Task カードの `op=update` を Discord の message edit にマップする。
 - 既存セッションの過去メッセージは移行しない (`transcript_logs` から遡及生成しない)。
   新規メッセージから積む。ログ確認画面で過去は読める。
+
+## 5. 添付の閲覧とモバイル入力
+
+2026-09-08 neco 指示。価値は UX-CC-W3（成果へ到達）、不変条件は CC-INV-01（対象の同一性）、
+CC-INV-02（権限境界）、CC-INV-04（根拠）。人間が Cc のセッションチャットから成果資料を読み、
+登録済みの絵文字を入力するシナリオを対象とする。Discord モバイルの添付 UI は対象外。
+
+### 添付の閲覧
+
+- `session_messages.attachments` のラスター画像を本文に添えて開閉表示する。
+- 既存の `chat_messages.metadata.attachment_paths` を持つ資料投稿も同じ時系列へ読み取り表示する。
+  正本は既存の二つの保存先のまま。表示のための再投稿や canonical message ID の合成はしない。
+  既読位置は引き続き `session_messages.id` のみを使う。
+- `GET /v1/sessions/:id/chat-attachments` は対象 session の直近200資料投稿を返す。
+  各投稿の添付は最大10件、ファイルは index と basename のみを公開する。
+- `GET /v1/sessions/:id/chat-attachments/:messageId/:index` は保存済み投稿の所属を照合し、
+  添付 guard の許可ルートと禁止名を強制して読む。呼出側からパスは指定できない。
+  許可ルートは workspace、temp、既存 attachment policy 設定。元ファイルは変更しない。
+- 最大8MiB。PNG/JPEG/GIF/WebP は base64 JSON、NULを含まないUTF-8は text JSON。
+  テキスト内のHTMLを実行せず文字列表示する。SVGは画像として埋め込まない。
+  ファイルは展開時に読み、閉じる・セッション移動・アンマウントで fetch を中止する。
+  消失・拒否は404、容量超過は413、非対応バイナリは415。応答は private/no-store。
+- 添付一覧・個別ファイルの失敗を表示し再試行できる。添付一覧の失敗で会話本文を隠さない。
+  過去のファイルが削除されている場合の復旧は、送信者に同じ資料の再共有を依頼する。
+- HTTP adapter は `src/api/chat-attachments.ts`、保存の読み取りは persistence の ChatRepo、
+  開閉・取得キャンセルの状態は session-message-webui の各プレビューが所有する。
+
+### モバイルとRWF絵文字入力
+
+- チャット画面の `touch-action: manipulation` でダブルタップズームを抑止する。
+  ピンチズームとスクロールを許容する。端末ごとの実機評価は別途行う。
+- RWF絵文字一覧は既存 reaction-mappings と reaction-skill-workflows API から開く度に取得する。
+  既定値に override を適用し、解除された値を除外、異体字セレクタを正規化して重複を除く。
+  カスタムスキル割当が同じ絵文字の表示名を優先する。登録の正本は RWF 設定のまま。
+- 選択は入力欄のカーソル位置へ挿入する。送信は既存送信操作で行う。
+  選択自体は RWF 実行やリアクション送信ではない。停止セッション・送信中は入力不可。
+- 検証契約は `chat-attachments.test.ts`、`Attachments.test.tsx`、`RwfEmojiPicker.test.tsx`。
+  ファイル公開境界、UTF-8保持、HTML非実行、取得中止、絵文字の非自動送信を対象とする。

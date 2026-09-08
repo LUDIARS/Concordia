@@ -15,6 +15,7 @@ import { createChildLogger } from "../shared/logger.js";
 import { getReactionWorkflowReadiness } from "../shared/reaction-workflow-readiness.js";
 import type { SecretBox } from "../shared/secret-box.js";
 import { chatRouter } from "./chat.js";
+import { chatAttachmentsRouter } from "./chat-attachments.js";
 import {
   reactionSkillWorkflowRouter,
   reactionWorkflowMigrationRouter,
@@ -63,6 +64,7 @@ export interface ChatDeps {
 }
 
 export function registerChatRoutes(app: Hono, deps: ChatDeps): void {
+  app.route("/v1/sessions", chatAttachmentsRouter({ chat: deps.chat, sessions: deps.repo, workspaceRoots: () => deps.adminState.getWorkspaceRoots() }));
   // workflow.daily が無効なら日次レビュー API は 409 + 理由 (無言の 404 にしない)。
   {
     const gate = workflowGate("daily", () => deps.adminState.isWorkflowEnabled("daily"));

@@ -78,17 +78,23 @@ export class ChatRepo {
 
   list(filter: {
     channel?: ChatChannel;
+    sessionId?: string;
+    attachmentsOnly?: boolean;
     since?: number;
     limit?: number;
   }): ChatMessageRow[] {
     const where: string[] = [];
     const args: unknown[] = [];
+    if (filter.sessionId) { where.push("session_id = ?"); args.push(filter.sessionId); }
+    // metadata は JSON テキスト。 LIKE の '%' / '_' を含む値は無いキー名なので
+    // エスケープ不要だが、 key 名そのものを探して添付なしの行を絞り込む。
+    if (filter.attachmentsOnly) where.push("metadata LIKE '%\"attachment_paths\"%'");
     if (filter.channel) { where.push("channel = ?"); args.push(filter.channel); }
     if (filter.since !== undefined) { where.push("ts >= ?"); args.push(filter.since); }
     const sql =
       `SELECT * FROM chat_messages ` +
       `${where.length ? "WHERE " + where.join(" AND ") : ""} ` +
-      `ORDER BY ts DESC LIMIT ?`;
+      `ORDER BY ts DESC, id DESC LIMIT ?`;
     args.push(filter.limit ?? 50);
     return this.db.prepare(sql).all(...args) as ChatMessageRow[];
   }

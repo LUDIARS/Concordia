@@ -1,10 +1,15 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { fmtTs, type SessionMessage } from "../../api.js";
+import { InlineAttachments } from "./Attachments.js";
 
 /** @implements spec/feature/session-message-webui-chat.md — D4 author-type rendering */
 
-export function MessageItem({ message, onAnswer, onPermission }: {
+export function MessageItem(props: Parameters<typeof MessageBody>[0]) {
+  return <div><MessageBody {...props} /><InlineAttachments attachments={props.message.attachments} /></div>;
+}
+
+function MessageBody({ message, onAnswer, onPermission }: {
   message: SessionMessage;
   onAnswer: (message: SessionMessage, value: number | number[]) => Promise<void>;
   onPermission: (message: SessionMessage, allow: boolean) => Promise<void>;

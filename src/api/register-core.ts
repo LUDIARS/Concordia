@@ -115,6 +115,7 @@ import {
   type SpawnMode,
 } from "../control/spawner.js";
 import { prepareSpawnTarget } from "../control/spawn-target.js";
+import { interactiveSpawnEnvironment } from "../control/interactive-spawn-env.js";
 import { resolveTeamSpawnCwd } from "../control/team-spawn-cwd.js";
 import {
   goalAndGoEnabled,
@@ -911,7 +912,7 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
           ...(spawn.env ?? {}),
           ...resolveDelegationRuntimeEnv(tpl.target_provider, effectiveRuntimeOptions, spawn.effectiveModel),
           ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
-          ...(startupPromptPath ? { CONCORDIA_DELEGATION_PROMPT_FILE: startupPromptPath } : {}),
+          ...interactiveSpawnEnvironment(spawn.provider, startupPromptPath),
         },
         spawnId,
       });
@@ -957,10 +958,11 @@ export function registerCoreRoutes(app: Hono, deps: CoreDeps): void {
       ...resolved.env,
       ...resolveDelegationRuntimeEnv(provider, effectiveDirectOptions, resolved.effectiveModel),
       ...(requestedTeamId ? { CONCORDIA_TEAM_ID: requestedTeamId } : {}),
+      ...interactiveSpawnEnvironment(
+        resolved.provider,
+        adHocPrompt ? await deps.delegationService.writeAdHocPrompt(adHocPrompt) : null,
+      ),
     };
-    if (adHocPrompt) {
-      spawnEnv.CONCORDIA_DELEGATION_PROMPT_FILE = await deps.delegationService.writeAdHocPrompt(adHocPrompt);
-    }
     const directCwd = projectCwd
       ?? explicitCwd
       ?? teamCwd

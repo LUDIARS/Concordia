@@ -225,6 +225,7 @@ export const KAIZEN_DAILY_PROMPT = [
   "前日の session-log とメモリから、 **アルゴリズム・スクリプト・ツールで機械的に解決できる**",
   "やらかし・非効率を見つけ、 この Astra セッションで難易度を判断する回です (${date})。",
   "高難度は自分 (Astra) が実装し、低難度は対象に適した実装モデルへ委託します。",
+  "改善を検知するだけで終わらず、実行可能な改善の実装と結果サマリの報告までをこの回の仕事とします。",
   "",
   "### 材料",
   "",
@@ -276,6 +277,8 @@ export const KAIZEN_DAILY_PROMPT = [
   "",
   "8. 自分のPRと委託runを照合し、Revisorのmergedを確認したものだけマージ完了に数える。",
   "   PR提出・委託受付だけを完了としない。判断や承認が必要になったら待機ループを続けず手順9へ回す。",
+  "   ただしユーザーがPR作成までと指定した場合はその範囲を優先し、提出済みとして報告して停止する。",
+  "   委託先にも同じ終了範囲を渡し、マージを要求しない。実装せず検知・委託受付だけで対応済みにしない。",
   "9. 判断に困る候補は対象repoの `spec/tasks/<YYYY-MM-DD>-<slug>.md` に1タスク1ファイルで保存する。",
   "   task-workflow spec 2.1に従い、frontmatterは task / project / kind / created / memory_links だけ。",
   "   症状・根拠・選択肢・判断してほしい点・受け入れ条件・関連するtask/PR/runへの参照を書く。",
@@ -719,6 +722,7 @@ export const DIRECTOR_TASK_PULL_PROMPT = [
 
 export const LUDIARS_STATUS_DAILY_PROMPT = [
   "LUDIARS 公開サービスダッシュボードの日報 (${date}) を更新する回です。",
+  "手順を読んだだけで終わらず、情報を取得して日報を更新し、作業結果とサマリを報告するまでが仕事です。",
   "",
   "`E:\\Document\\Ars\\LUDIARS\\docs\\DAILY-REPORT-PROMPT.md` の Prompt 節を正本として読み、",
   "記載された手順と制約に従って日報を更新してください。 Schedule 節は実行条件の説明なので、",
@@ -727,6 +731,7 @@ export const LUDIARS_STATUS_DAILY_PROMPT = [
   "### 報告",
   "",
   "更新した日報の場所と、 反映した内容の要約。 取れなかった数値は「取得できず」と明記します。",
+  "更新不要なら既存の日報と今回取得した情報を照合した根拠を示します。未取得・未更新は作業なしではなく未実施として理由を書きます。",
 ].join("\n");
 
 /**
@@ -801,6 +806,7 @@ const QUAESTOR_INVOICE_MONTHLY_LINES = [
 
 export const QUAESTOR_MAIL_SWEEP_PROMPT = [
   "Quaestor のメール監視を 1 周回す回です。 実行枠は ${slot}、 実行日は ${date} (YYYY-MM-DD)。",
+  "メール取り込みを実行し、結果とサマリを報告するまでが仕事です。起動や手順の確認だけでは終わりません。",
   "",
   "### 1. Quaestor の稼働確認",
   "",
@@ -822,6 +828,7 @@ export const QUAESTOR_MAIL_SWEEP_PROMPT = [
   "fetched、 分類別件数、 committed、 needs_review、 notified。",
   "needs_review があれば `GET /v1/mail/documents?status=needs_review` で id だけを列挙し、",
   "内容は書きません。",
+  "0件でも実行枠・取り込み実行済みの根拠・件数を報告します。disabledや失敗は未実施/一部実施として示し、作業なしや正常完了に置き換えません。",
 ].join("\n");
 
 export const QUAESTOR_MAIL_WATCH_RENEW_PROMPT = [

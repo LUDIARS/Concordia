@@ -18,6 +18,9 @@ describe("seedDelegationTemplates", () => {
     expect(JSON.parse(template?.runtime_options_json ?? "null")).toEqual({ model_reasoning_effort: "medium" });
     expect(template?.prompt_template).toContain("高難度はこの Astra セッション自身が実装");
     expect(template?.prompt_template).toContain("低難度は対象プロジェクトの実装モデル指定");
+    expect(template?.prompt_template).toContain("改善を検知するだけで終わらず");
+    expect(template?.prompt_template).toContain("ユーザーがPR作成までと指定した場合はその範囲を優先");
+    expect(template?.prompt_template).toContain("委託先にも同じ終了範囲を渡し");
     expect(template?.prompt_template).toContain("taskflow_task_state");
     expect(template?.prompt_template).toContain("人間への再確認ループや終了許可の質問はしない");
     expect(template?.prompt_template).not.toContain("自分ではコードを書きません");
@@ -143,6 +146,8 @@ describe("seedDelegationTemplates", () => {
     const prompt = template?.prompt_template ?? "";
     expect(prompt).toContain("docs\\DAILY-REPORT-PROMPT.md");
     expect(prompt).toContain("Scheduled task を新規登録・変更する操作は行いません");
+    expect(prompt).toContain("情報を取得して日報を更新し、作業結果とサマリを報告するまでが仕事");
+    expect(prompt).toContain("更新不要なら既存の日報と今回取得した情報を照合した根拠");
   });
 
   it("requires portable, argument-safe Anatomia supply and verification for implementation templates", () => {
@@ -669,6 +674,8 @@ describe("seedDelegationTemplates", () => {
     expect(prompt).toContain("設定未投入として報告する。 再試行しない");
     expect(prompt).toContain("認証情報・メール内容・内部 endpoint・絶対パスが含まれる場合は伏せる");
     expect(prompt).toContain("GET /v1/mail/documents?status=needs_review");
+    expect(prompt).toContain("メール取り込みを実行し、結果とサマリを報告するまでが仕事");
+    expect(prompt).toContain("0件でも実行枠・取り込み実行済みの根拠・件数を報告");
   });
 
   it("seeds the mail watch renewal template with catalog-resolved one-shot request", () => {

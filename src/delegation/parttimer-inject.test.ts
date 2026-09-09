@@ -58,6 +58,18 @@ describe("buildParttimerInject", () => {
     expect(out.match(/## 終わり方/g)).toHaveLength(1);
   });
 
+  it("system への配送確認と、報告からの情報漏洩防止を完了条件にする", () => {
+    const out = buildParttimerInject(base);
+    expect(out).toContain("http://127.0.0.1:$LICTOR_PORT/v1/chat");
+    expect(out).toContain('{"channel":"system","text":"<作業結果とサマリ>"}');
+    expect(out).toContain("API受付だけを到着済みとせず");
+    expect(out).toContain('"kind":"wait"');
+    expect(out).toContain("認証情報、個人データ、メール本文、生ログやsession transcript");
+    expect(out).toContain("送信先IDや秘密を含めません");
+    expect(out).toContain("workspace rootまたはタスク用一時ディレクトリ内に限定");
+    expect(out).toContain("範囲外・symlink・reparse point・秘密らしい名前は添付しません");
+  });
+
   it("失敗・空振りでも status と退勤を通ることを求める", () => {
     const out = buildParttimerInject(base);
     expect(out).toContain('{"status":"failed"');

@@ -13,10 +13,31 @@ status: implemented
 related:
   - delegation.md
   - delegation-implementation-inject.md
-updated: 2026-09-03
+updated: 2026-09-09
 ---
 
 # パートタイマー inject
+
+## 実作業と報告までを仕事とする（2026-09-09）
+
+UX-CC-W3/W4、CC-INV-04/05/06に対応する。状態所有者は既存のdelegation run、
+今回の変更境界はdelegation-parttimer-injectのプロンプト契約である。
+日報は取得・更新、メール報告は取り込み実行の結果サマリを送信するまでを担当範囲とする。
+未実行を「作業なし」とせず、0件や更新不要も実際に確認した根拠を示す。
+カイゼンは既定のAstra起動を維持し、実行可能な改善の実装と報告までを担当する。
+検知・委託受付だけを改善対応済みにしない。PR作成までという明示指示は委託先にも伝え、
+マージ完了契約より優先する。
+
+共通footerが自分のLictor sidecarの`/v1/chat`へ`channel=system`でサマリを送る手順を所有する。
+資料は`/v1/internal/send-file`から自分のセッションスレッドへ、読めるcaptionとUTF-8 .txtを添付する。
+報告・caption・添付・statusには、資格情報、個人データ、生ログ、session transcript、private endpoint、
+ローカル設定値、絶対パス、非公開成果物を転載せず、必要最小限の名前・相対パス・匿名化した件数で示す。
+添付元は現在のworkspace rootまたはタスク用一時ディレクトリ内に限定し、外部入力のパスを未検証で使わず、
+範囲外・symlink・reparse point・秘密らしい名前のファイルを添付しない。
+API受付と配送を分け、送信先とDiscord投稿の配送記録を確認してからcompletedを記録する。
+配送失敗・未確認はpartialの`remaining.kind=wait`へ参照と理由を保存し、既存投稿を照合する。
+これによる自動再実行・重複送信を避け、未配送でもstatus記録と退勤を行う。
+サーバーによる配送証跡の強制ゲートを追加した変更ではなく、実行時の遵守は未検証。
 
 ## カイゼンの難易度別対応（2026-09-08）
 

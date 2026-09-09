@@ -5,6 +5,9 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/db/pending-question-lifecycle(?:\\.test)?\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/pr/[^/]+$"
     },
     {
@@ -32,5 +35,8 @@
       "pathPattern": "(^|/)src/inbox(?:/.*)?$"
     }
   ],
-  "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles."
+  "cardTemplate": "Summarise the \"governance\" domain: Policy and workflow steering: a rule engine that proposes/enacts actions, PR queue reconciliation, role prediction, and admin configuration toggles.",
+  "specRefs": [
+    "spec/feature/question-session-retention.md"
+  ]
 }

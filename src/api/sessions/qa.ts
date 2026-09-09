@@ -141,6 +141,14 @@ app.post("/:id/pending-question", async (c) => {
 app.post("/:id/answer-question", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json().catch(() => null);
+    // A retired question cannot accept any answer. Resolve that lifecycle conflict
+    // before validating a stale client's answer shape, without exposing other sessions.
+    if (body && typeof body === "object" && Number.isSafeInteger(body.question_id) && body.question_id > 0) {
+      const question = deps.channelDirectory.findById(body.question_id);
+      if (question?.session_id === id && question.closed_at != null) {
+        return c.json({ error: "question_closed" }, 409);
+      }
+    }
     const parsed = AnswerQuestionSchema.safeParse(body);
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     // 回答確定の実体は control/answer-question.ts (embedded Discord bot と共有)。
@@ -187,6 +195,7 @@ app.post("/:id/escalate-question", async (c) => {
     if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
     const row = deps.channelDirectory.findById(parsed.data.question_id);
     if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
+    if (row.closed_at != null) return c.json({ error: "question_closed" }, 409);
     if (row.answered_at !== null) return c.json({ error: "already_answered" }, 409);
     const escalated = escalateQuestionToHuman(
       { repo: deps.repo, questions: deps.channelDirectory, delegation: deps.delegation, now: nowSec },
@@ -203,7 +212,7 @@ app.post("/:id/pending-question/:qid/resolve", (c) => {
     if (!Number.isInteger(qid)) return c.json({ error: "invalid_qid" }, 400);
     const row = deps.channelDirectory.findById(qid);
     if (!row || row.session_id !== id) return c.json({ error: "not_found" }, 404);
-    if (row.answered_at !== null) return c.json({ ok: true, already: true });
+    if ((row.answered_at !== null || row.closed_at != null)) return c.json({ ok: true, already: true });
     deps.channelDirectory.markResolvedLocally(row.id);
     const ts = nowSec();
     eventBus.emit({ type: "question.resolved", target_session_id: id, question_id: row.id, ts });

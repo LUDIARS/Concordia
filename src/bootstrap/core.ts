@@ -88,6 +88,7 @@ import { startVibesCompletion } from "../control/vibes-completion.js";
 import { deliverDirectorInstruction } from "../director/session-instruction.js";
 import { DirectorAskBridge } from "../director/ask-bridge.js";
 import { startSweeper } from "../sweeper.js";
+import { startQuestionLifecycleWatch } from "../inbox/question-lifecycle-watch.js";
 import { startNightlyVacuum } from "../db/nightly-vacuum.js";
 import { startWalGuard } from "../db/wal-guard.js";
 import { startReaper } from "../control/reaper.js";
@@ -1118,6 +1119,7 @@ export async function startBackend(): Promise<BackendHandle> {
     logsDir: join(process.cwd(), "logs"),
   });
 
+  const questionLifecycle = startQuestionLifecycleWatch(db);
   const sweeper = startSweeper({
     repo,
     tasks,
@@ -2339,6 +2341,7 @@ export async function startBackend(): Promise<BackendHandle> {
   resources.own("workflow bindings", () => workflowBindings.stop());
   resources.own("web push", () => stopWebPushService());
   resources.own("sweeper", () => sweeper.stop());
+  resources.own("question-lifecycle", () => questionLifecycle.stop());
   resources.own("nightly vacuum", () => nightlyVacuum.stop());
   resources.own("wal guard", () => walGuard.stop());
   resources.own("delegation queue", () => delegationQueue.stop());

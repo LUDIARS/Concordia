@@ -392,6 +392,10 @@ export function makeChatMessageReactionsRepo(db: Database): ChatMessageReactions
 }
 
 export interface DiscordPendingQuestionRow {
+  /** Closed without a human answer. Missing only in older adapter fixtures. */
+  closed_at?: number | null;
+  close_after?: number | null;
+  close_reason?: string | null;
   id: number;
   session_id: string;
   question: string;
@@ -554,25 +558,28 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       return this.findById(id);
     },
     markAnswered(id, answerIndex, answerText) {
-      db.prepare(
+      const result = db.prepare(
         `UPDATE discord_pending_questions
          SET answered_at = ?, answer_index = ?, answer_text = ?
-         WHERE id = ?`,
+         WHERE id = ? AND closed_at IS NULL`,
       ).run(nowSec(), answerIndex, answerText, id);
+      if (result.changes === 0) throw new Error("question_closed_or_missing");
     },
     markAnsweredMulti(id, answerIndices, answerText) {
-      db.prepare(
+      const result = db.prepare(
         `UPDATE discord_pending_questions
          SET answered_at = ?, answer_index = ?, answer_indices_json = ?, answer_text = ?
-         WHERE id = ?`,
+         WHERE id = ? AND closed_at IS NULL`,
       ).run(nowSec(), answerIndices[0] ?? null, JSON.stringify(answerIndices), answerText, id);
+      if (result.changes === 0) throw new Error("question_closed_or_missing");
     },
     markAnsweredOther(id, answerText) {
-      db.prepare(
+      const result = db.prepare(
         `UPDATE discord_pending_questions
          SET answered_at = ?, answer_index = NULL, answer_text = ?
-         WHERE id = ?`,
+         WHERE id = ? AND closed_at IS NULL`,
       ).run(nowSec(), answerText, id);
+      if (result.changes === 0) throw new Error("question_closed_or_missing");
     },
     markEscalated(id) {
       // 未回答かつ未エスカレーションのときだけ立てる。 changes で「今回上げた」を判定し、
@@ -580,7 +587,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       const info = db.prepare(
         `UPDATE discord_pending_questions
          SET escalated_at = ?
-         WHERE id = ? AND answered_at IS NULL AND escalated_at IS NULL`,
+         WHERE id = ? AND answered_at IS NULL AND closed_at IS NULL AND escalated_at IS NULL`,
       ).run(nowSec(), id);
       return Number(info.changes) > 0;
     },
@@ -589,7 +596,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         .prepare(
           `SELECT * FROM discord_pending_questions
            WHERE parent_session_id IS NOT NULL
-             AND answered_at IS NULL
+             AND answered_at IS NULL AND closed_at IS NULL
              AND escalated_at IS NULL
              AND ts <= ?
            ORDER BY ts ASC LIMIT ?`,
@@ -600,7 +607,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       db.prepare(
         `UPDATE discord_pending_questions
          SET answered_at = ?, answer_index = NULL, answer_text = '(resolved locally)'
-         WHERE id = ? AND answered_at IS NULL`,
+         WHERE id = ? AND answered_at IS NULL AND closed_at IS NULL`,
       ).run(nowSec(), id);
     },
     findById(id) {
@@ -615,7 +622,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         (db
           .prepare(
             `SELECT * FROM discord_pending_questions
-             WHERE session_id = ? AND answered_at IS NULL
+             WHERE session_id = ? AND answered_at IS NULL AND closed_at IS NULL
              ORDER BY id DESC LIMIT 1`,
           )
           .get(sessionId) as DiscordPendingQuestionRow | undefined) ?? null
@@ -625,7 +632,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
       return db
         .prepare(
           `SELECT * FROM discord_pending_questions
-           WHERE session_id = ? AND answered_at IS NULL
+           WHERE session_id = ? AND answered_at IS NULL AND closed_at IS NULL
            ORDER BY id ASC`,
         )
         .all(sessionId) as DiscordPendingQuestionRow[];
@@ -635,7 +642,7 @@ export function makeDiscordPendingQuestionsRepo(db: Database): DiscordPendingQue
         (db
           .prepare(
             `SELECT * FROM discord_pending_questions
-             WHERE session_id = ? AND question = ? AND answered_at IS NULL
+             WHERE session_id = ? AND question = ? AND answered_at IS NULL AND closed_at IS NULL
              ORDER BY id DESC LIMIT 1`,
           )
           .get(sessionId, question) as DiscordPendingQuestionRow | undefined) ?? null

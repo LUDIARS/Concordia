@@ -26,6 +26,7 @@ export interface AnswerQuestionStore {
     session_id: string;
     options: Array<{ label: string; description?: string }>;
     answered_at: number | null;
+    closed_at?: number | null;
     answer_index: number | null;
     answer_text: string | null;
   } | null;
@@ -62,6 +63,7 @@ export function questionStoreFromRepo(repo: DiscordPendingQuestionsRepo): Answer
         session_id: row.session_id,
         options,
         answered_at: row.answered_at,
+        closed_at: row.closed_at,
         answer_index: row.answer_index,
         answer_text: row.answer_text,
       };
@@ -95,6 +97,7 @@ export function answerPendingQuestion(
   if (!row || row.session_id !== sessionId) {
     return { ok: false, status: 404, error: "not_found" };
   }
+  if (row.closed_at != null) return { ok: false, status: 409, error: "question_closed" };
   if (row.answered_at !== null) {
     // 誰が答えたかは列が無いので返せない。 いつ / 何と答えたかだけでも返せば、
     // 親は 「自分の回答が採用されなかった」 と 「そもそも別の答えで確定していた」 を

@@ -165,6 +165,29 @@ describe("discord_pending_questions repo", () => {
     expect(repo.markEscalated(q.id)).toBe(false);
   });
 
+  it("閉鎖済みの質問は回答・ローカル解決・エスカレーションを受け付けない", () => {
+    const db = makeTestDb();
+    const repo = makeDiscordPendingQuestionsRepo(db);
+    const q = repo.insert({ session_id: "child", question: "Q", options: ["A"], parentSessionId: "parent" });
+    db.prepare("UPDATE discord_pending_questions SET closed_at = 100, close_reason = 'session_inactive' WHERE id = ?")
+      .run(q.id);
+
+    expect(() => repo.markAnswered(q.id, 0, "A")).toThrow("question_closed_or_missing");
+    expect(() => repo.markAnsweredMulti(q.id, [0], "A")).toThrow("question_closed_or_missing");
+    expect(() => repo.markAnsweredOther(q.id, "other")).toThrow("question_closed_or_missing");
+    expect(repo.markEscalated(q.id)).toBe(false);
+    repo.markResolvedLocally(q.id);
+
+    expect(repo.findById(q.id)).toMatchObject({
+      answered_at: null,
+      answer_index: null,
+      answer_text: null,
+      escalated_at: null,
+      closed_at: 100,
+    });
+    expect(repo.listStaleParentRelayed(Number.MAX_SAFE_INTEGER, 10)).toEqual([]);
+  });
+
   it("listStaleParentRelayed は親預かりで未回答・未エスカレーションの古い順だけ返す", () => {
     const db = makeTestDb();
     const repo = makeDiscordPendingQuestionsRepo(db);

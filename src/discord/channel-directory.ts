@@ -28,6 +28,7 @@ export function makeDiscordChannelDirectory(deps: DiscordChannelDirectoryDeps): 
       question: row.question,
       options: parsePendingQuestionOptions(row.options_json),
       answered_at: row.answered_at,
+      closed_at: row.closed_at,
       answer_index: row.answer_index,
       answer_text: row.answer_text,
       parent_session_id: row.parent_session_id,

@@ -6,7 +6,7 @@ import type Database from "better-sqlite3";
 import { runMigrations, type NumberedMigration } from "./migrator.js";
 import { TASK_MD_CONTENT_RULE, TASK_STATE_DB_RULE } from "../taskflow/task-instructions.js";
 
-export const SCHEMA_VERSION = 97;
+export const SCHEMA_VERSION = 98;
 
 /**
  * Migration 91's shipped backfill policy. Keep this local and immutable: the runtime
@@ -2391,6 +2391,19 @@ export const MIGRATIONS: readonly NumberedMigration[] = [{
     for (const name of ["ddd_enabled", "contract_enabled"]) {
       if (!columns.some((column) => column.name === name)) {
         db.exec(`ALTER TABLE project_codes ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK (${name} IN (0, 1))`);
+      }
+    }
+  },
+},
+{
+  version: 98,
+  name: "pending-question-session-closure",
+  source: "inactive session questions close immediately, taskflow questions after 24h",
+  up(db) {
+    const columns = db.prepare("PRAGMA table_info(discord_pending_questions)").all() as Array<{ name: string }>;
+    for (const [name, type] of [["closed_at", "INTEGER"], ["close_after", "INTEGER"], ["close_reason", "TEXT"]]) {
+      if (!columns.some(column => column.name === name)) {
+        db.exec(`ALTER TABLE discord_pending_questions ADD COLUMN ${name} ${type}`);
       }
     }
   },

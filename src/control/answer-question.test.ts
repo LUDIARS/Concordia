@@ -103,6 +103,18 @@ describe("answerPendingQuestion", () => {
     });
   });
 
+  it("閉鎖済みは 409 で、回答更新やイベント送信を行わない", () => {
+    const { deps, calls } = makeDeps({ closed_at: 999 });
+
+    expect(answerPendingQuestion(deps, SESSION, { question_id: 42, answer_index: 0 })).toEqual({
+      ok: false,
+      status: 409,
+      error: "question_closed",
+    });
+    expect(calls.marked).toEqual([]);
+    expect(calls.events).toEqual([]);
+  });
+
   it("question / session 不一致は 404", () => {
     const { deps } = makeDeps();
     expect(answerPendingQuestion(deps, SESSION, { question_id: 7, answer_index: 0 })).toMatchObject({

@@ -10,6 +10,28 @@ describe("sessions API — pending-question / discord-channels", () => {
   beforeEach(() => { env = buildTestApp(); });
 
   describe("pending-question / answer-question", () => {
+    it("閉鎖済み質問は回答形式にかかわらず 409、未閉鎖の不正入力は 400", async () => {
+      const created = await env.app.request("/v1/sessions", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: "closed-q", provider: "claude-code", repo_path: "/x", host: "h" }),
+      });
+      expect(created.status).toBe(200);
+      const question = env.pendingQuestions.insert({ session_id: "closed-q", question: "Choose", options: ["A"] });
+      const send = (answer: Record<string, unknown>) => env.app.request("/v1/sessions/closed-q/answer-question", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ question_id: question.id, ...answer }),
+      });
+      expect((await send({})).status).toBe(400);
+      env.db.prepare("UPDATE discord_pending_questions SET closed_at = ?, close_reason = ? WHERE id = ?")
+        .run(123, "session_inactive", question.id);
+      for (const answer of [{}, { answer_index: 0 }, { answer_index: -1 }]) {
+        const response = await send(answer);
+        expect(response.status).toBe(409);
+        expect(await response.json()).toEqual({ error: "question_closed" });
+      }
+      expect(env.pendingQuestions.findById(question.id)).toMatchObject({ closed_at: 123, answered_at: null, answer_text: null });
+    });
+
     it("POST /v1/sessions は goal inject ではなく collaboration context packet を返す", async () => {
       const r = await env.app.request("/v1/sessions", {
         method: "POST",

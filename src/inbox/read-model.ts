@@ -61,7 +61,7 @@ export function askCardItems(db: Database.Database): InboxItem[] {
   const rows = db.prepare(`
     SELECT q.id, q.session_id, q.question, q.ts * 1000 AS raised_at
       FROM discord_pending_questions q
-     WHERE q.answered_at IS NULL
+     WHERE q.answered_at IS NULL AND q.closed_at IS NULL
        AND NOT EXISTS (
              SELECT 1 FROM director_decisions d WHERE d.pending_question_id = q.id
            )
@@ -93,7 +93,7 @@ export function inquiryAskHumanItems(db: Database.Database): InboxItem[] {
      WHERE d.human_answered_at IS NULL
        AND d.decision = 'ask_human'
        AND d.plan_version IS NULL
-       AND q.answered_at IS NULL
+       AND q.answered_at IS NULL AND q.closed_at IS NULL
      GROUP BY q.id, q.question, q.session_id, q.ts
      ORDER BY q.ts ASC
   `).all() as Array<{ id: number; case_id: string; question: string; session_id: string; raised_at: number }>;

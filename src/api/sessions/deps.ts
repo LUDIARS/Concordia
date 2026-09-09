@@ -28,6 +28,7 @@ export interface ChannelDirectoryQuestionOption {
 }
 
 export interface ChannelDirectoryQuestionRow {
+  closed_at?: number | null;
   id: number;
   session_id: string;
   question: string;

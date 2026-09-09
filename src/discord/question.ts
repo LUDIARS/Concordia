@@ -303,8 +303,8 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
   if (interaction.isButton() && interaction.customId.startsWith("qoth:")) {
     const qid = Number(interaction.customId.slice("qoth:".length));
     const row = deps.pendingQuestionsRepo.findById(qid);
-    if (!row || row.answered_at !== null) {
-      await interaction.reply({ content: "Already answered or not found.", ephemeral: true });
+    if (!row || (row.answered_at !== null || row.closed_at != null)) {
+      await interaction.reply({ content: "This question is answered, closed, or no longer available.", ephemeral: true });
       return;
     }
     const modal = new ModalBuilder().setCustomId(`qothm:${qid}`).setTitle("その他 (自由入力)");
@@ -335,7 +335,7 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
       await interaction.reply({ content: "Question not found.", ephemeral: true });
       return;
     }
-    if (row.answered_at !== null) {
+    if ((row.answered_at !== null || row.closed_at != null)) {
       await interaction.reply({ content: "Already answered.", ephemeral: true });
       return;
     }
@@ -385,7 +385,7 @@ export async function dispatchQuestionInteraction(interaction: Interaction, deps
     await interaction.reply({ content: "Question not found.", ephemeral: true });
     return;
   }
-  if (row.answered_at !== null) {
+  if ((row.answered_at !== null || row.closed_at != null)) {
     await interaction.reply({ content: "Already answered.", ephemeral: true });
     return;
   }

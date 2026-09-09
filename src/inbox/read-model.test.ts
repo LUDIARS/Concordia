@@ -24,11 +24,17 @@ function makeDb(): Database.Database {
   return db;
 }
 
-function addCard(db: Database.Database, opts: { id?: number; question: string; ts: number; answeredAt?: number }): number {
+function addCard(db: Database.Database, opts: {
+  id?: number;
+  question: string;
+  ts: number;
+  answeredAt?: number;
+  closedAt?: number;
+}): number {
   const info = db.prepare(`
-    INSERT INTO discord_pending_questions(session_id, question, options_json, answered_at, ts)
-    VALUES ('sess-1', ?, '[]', ?, ?)
-  `).run(opts.question, opts.answeredAt ?? null, opts.ts);
+    INSERT INTO discord_pending_questions(session_id, question, options_json, answered_at, closed_at, ts)
+    VALUES ('sess-1', ?, '[]', ?, ?, ?)
+  `).run(opts.question, opts.answeredAt ?? null, opts.closedAt ?? null, opts.ts);
   return Number(info.lastInsertRowid);
 }
 
@@ -40,10 +46,11 @@ function addCase(db: Database.Database, caseId: string): void {
 }
 
 describe("未回答の質問カード", () => {
-  it("未回答だけを拾う", () => {
+  it("未回答かつ未閉鎖だけを拾う", () => {
     const db = makeDb();
     addCard(db, { question: "答えて", ts: 100 });
     addCard(db, { question: "済み", ts: 90, answeredAt: 95 });
+    addCard(db, { question: "閉鎖済み", ts: 80, closedAt: 85 });
 
     const items = askCardItems(db);
     expect(items).toHaveLength(1);
@@ -67,6 +74,21 @@ describe("未回答の質問カード", () => {
 
     expect(askCardItems(db)).toEqual([]);
     expect(inquiryAskHumanItems(db)).toHaveLength(1);
+  });
+
+  it("閉鎖済みの inquiry 質問を拾わない", () => {
+    const db = makeDb();
+    const cardId = addCard(db, { question: "閉鎖済み判断", ts: 100, closedAt: 110 });
+    addCase(db, "case-closed");
+    db.prepare(`
+      INSERT INTO director_decisions(
+        id, case_id, step_id, kind, question, facts_json, options_json, impact,
+        decision, instruction, genius_available, genius_cards_json, pending_question_id, created_at)
+      VALUES ('dec-closed', 'case-closed', 'step-1', 'authority', '閉鎖済み判断', '[]', '[]', 'high',
+        'ask_human', '', 0, '[]', ?, 100)
+    `).run(cardId);
+
+    expect(inquiryAskHumanItems(db)).toEqual([]);
   });
 
   it("カードに複数の判断が束ねられても 1 件として数える", () => {

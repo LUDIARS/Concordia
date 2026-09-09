@@ -9,6 +9,9 @@
     },
     {
       "pathPattern": "(^|/)src/control/spawner(\\.test)?\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)src/control/interactive-spawn-env(\\.test)?\\.ts$"
     }
   ],
   "cardTemplate": "Summarise the \"delegation-provider\" domain: delegation の論理 provider を CLI 引数・環境変数・headless spawn 経路へ解決する。",
@@ -20,7 +23,8 @@
   "specRefs": [
     "spec/feature/delegation.md#132-codex-sdk-satelles-ヘッドレスレーン",
     "spec/feature/delegation.md#131-なぜ論理プリセットか",
-    "spec/feature/goal-and-go.md"
+    "spec/feature/goal-and-go.md",
+    "spec/feature/interactive-codex-startup.md"
   ],
   "rationale": "provider ごとの CLI 引数・環境変数と Windows の headless 起動安全策は、一つの実行契約として変更する必要がある。一方、テンプレートの保存・委託 run の状態遷移・キュー制御は別の責務であり、ここから参照するだけに留める。"
 }

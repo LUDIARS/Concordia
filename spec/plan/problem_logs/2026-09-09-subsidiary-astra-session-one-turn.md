@@ -1,10 +1,10 @@
 # 子会社 Astra の対話セッションが初回回答で終了する
 
 - Date: 2026-09-09
-- Status: unresolved — 原因特定、修正未実施
+- Status: fixed in working tree — Cc通常spawnの対話transportを明示、稼働反映準備中
 - Area: Cc forum spawn / Lictor Codex transport / session lifecycle
 - Severity: 高。追加質問・確認回答・実装継続の窓口が閉じる。
-- Scope: 原因調査のみ。テスト、ビルド、サービス操作、マージは実施していない。
+- Scope: 追加指示「修正して反映」に従い実装へ拡張。TypeScriptビルド成功。テスト・マージは未実施。
 - UX: UX-CC-W2（同一依頼を継続・再開できる）、UX-CC-W3（終了と成果を区別する）。
 
 ## Summary
@@ -165,7 +165,13 @@ Lictor `src/codex-app-server-session.ts` の `turn/start` は
 
 ## Follow-up
 
-今回の成果は原因調査と本記録。実装修正・稼働反映は未実施。
+追加指示により、Cc の通常spawn2経路に `interactiveSpawnEnvironment` を適用した。
+Codex の通常起動では `LICTOR_CODEX_TRANSPORT=legacy` を明示し、初期promptファイルを
+既存のPTY配送経路に渡す。真のdelegation invoke/launcherの処理は変更していない。
+詳細契約は `spec/feature/interactive-codex-startup.md`。
+`tsc -p tsconfig.json --noEmitOnError` は終了コード0。テストは実施していない。
+Genius判断カードは照会APIが到達不能だったため、Cc/Lictorの現行コードと履歴で判断した。
+稼働反映の成否は追記する。
 修正後のサービス操作が承認された場合は、Cc/Lictor の必要な配布更新を行い、
 Excubitor 経由・プロジェクト本体フォルダから claim/release 付きで確認する。
 終了済み4件を修復済み・再開済みとは扱わない。

@@ -5,6 +5,12 @@
   "templateRules": [],
   "membership": [
     {
+      "pathPattern": "(^|/)src/mcp/settings-tools\\.ts$"
+    },
+    {
+      "pathPattern": "(^|/)tests/mcp-settings-tools\\.test\\.ts$"
+    },
+    {
       "pathPattern": "(^|/)src/config/[^/]+$"
     },
     {

@@ -20,6 +20,10 @@ describe("concordia-core MCP server", () => {
     const names = Object.keys(internal._registeredTools).sort();
     // リスト自体でツール名を網羅検証する (個数はリスト長から自動導出)
     const expectedTools = [
+      "concordia_get_settings",
+      "concordia_update_settings",
+      "concordia_list_teams",
+      "concordia_update_team",
       "concordia_get_conflicts",
       "concordia_get_pending_tasks",
       "concordia_get_session",

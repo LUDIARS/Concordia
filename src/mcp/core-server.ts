@@ -41,6 +41,7 @@ import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { concordiaBaseUrl } from "../config/service-urls.js";
+import { registerSettingsTools } from "./settings-tools.js";
 
 interface CallResult {
   ok: boolean;
@@ -60,7 +61,7 @@ function fetchTimeoutMs(): number {
 }
 
 export async function callConcordia(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PUT" | "PATCH",
   path: string,
   body?: unknown,
 ): Promise<CallResult> {
@@ -109,6 +110,7 @@ export function buildCoreServer(): McpServer {
     { name: "concordia-core", version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
+  registerSettingsTools(server, callConcordia);
 
   server.registerTool(
     "concordia_list_sessions",

@@ -1,7 +1,7 @@
 # 子会社 Astra の対話セッションが初回回答で終了する
 
 - Date: 2026-09-09
-- Status: fixed in working tree — Cc通常spawnの対話transportを明示、稼働反映準備中
+- Status: deployed — Cc通常spawnの対話transportを明示、稼働成果物へ反映済み。未マージ・動作テスト未実施。
 - Area: Cc forum spawn / Lictor Codex transport / session lifecycle
 - Severity: 高。追加質問・確認回答・実装継続の窓口が閉じる。
 - Scope: 追加指示「修正して反映」に従い実装へ拡張。TypeScriptビルド成功。テスト・マージは未実施。
@@ -171,7 +171,20 @@ Codex の通常起動では `LICTOR_CODEX_TRANSPORT=legacy` を明示し、初�
 詳細契約は `spec/feature/interactive-codex-startup.md`。
 `tsc -p tsconfig.json --noEmitOnError` は終了コード0。テストは実施していない。
 Genius判断カードは照会APIが到達不能だったため、Cc/Lictorの現行コードと履歴で判断した。
-稼働反映の成否は追記する。
+2026-09-09 14:24 JST、修正commit `98c0d838` のコンパイル成果物を本体distへ反映した。
+対象は `api/register-core.js`、`control/interactive-spawn-env.js` と各source mapの計4ファイル。
+既存register-core.jsとの差分が今回の変更だけであること、コピー後のSHA-256一致を確認した。
+退避先: `E:/Document/Ars/.deployment-backups/Cc-astra-interactive-20260909-98c0d838`。
+manifestにファイル一覧・旧ファイル有無・新hashを保存した。
+
+Concordia testing claim成功（競合0）→ Excubitor restart成功 → Excubitor running確認
+（PID `27780 → 37272`）→ testing release成功（1件）。全サービス操作はCc本体cwdで行った。
+テストセッションは起動しておらず、実際の複数ターン対話は未検証。
+効果は新規通常Codex起動から。既存・終了済みSessionを変更／復活させていない。
+
+ユーザーのマージ・main更新禁止を維持し、本体branch/headは `main / abb7423e` のまま。
+反映は稼働distのみであり、未マージの本体ソースから再ビルドすると修正は失われる。
+今後の再ビルド前にPRの扱いを確定するか、同じ修正成果物を維持する必要がある。
 修正後のサービス操作が承認された場合は、Cc/Lictor の必要な配布更新を行い、
 Excubitor 経由・プロジェクト本体フォルダから claim/release 付きで確認する。
 終了済み4件を修復済み・再開済みとは扱わない。

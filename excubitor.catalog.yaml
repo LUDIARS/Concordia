@@ -6,6 +6,9 @@
 services:
   - code: concordia
     name: Concordia (AI 協調)
+    viewer:
+      enabled: true
+      entry_path: /
     tier: personal
     project_code: concordia
     component: backend
